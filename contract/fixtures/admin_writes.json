@@ -201,6 +201,83 @@
    ]
   },
   {
+   "name": "account.wake.unknown_account_is_not_found",
+   "spec": "account.wake",
+   "about": "An account the home does not have is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.wake",
+      "params": {
+       "account": "no.such.account",
+       "request_id": "conf-w2-36"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "account"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "account.wake.is_refused_to_an_agent_session",
+   "spec": "account.wake",
+   "about": "Below the method's role: refused, gate role, nothing written.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "account.wake",
+      "params": {
+       "account": "no.such.account",
+       "request_id": "conf-w2-37"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  },
+  {
    "name": "account.login.unknown_account_is_not_found",
    "spec": "account.login",
    "about": "An account the home does not have is not_found; no login is started.",

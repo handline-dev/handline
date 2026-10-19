@@ -232,7 +232,7 @@ func withdrawDelivery(tx *sql.Tx, t *task, by string) ([]Retired, error) {
 			}
 			continue
 		}
-		ok, err := db.CloseIfQueued(tx, r.ID, "rejected", draftWhy(t.ID, by), db.CloseOpts{Announced: true, NoSettle: true})
+		ok, err := db.CloseIfQueued(tx, r.ID, "rejected", draftWhy(t.ID, by))
 		if err != nil {
 			return nil, err
 		}

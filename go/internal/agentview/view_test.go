@@ -19,12 +19,15 @@ func (f fakeSessions) Structured(a string) bool { return f.structured[a] }
 func (f fakeSessions) Alive(a string) bool      { return f.alive[a] }
 func (f fakeSessions) Busy(a string) bool       { return f.busy[a] }
 
-type fakeBackground struct{ wallErr map[string]error }
+type fakeBackground struct {
+	wallErr map[string]error
+	work    map[string]bool
+}
 
-func (fakeBackground) HasBackgroundWork(db.Q, string) (bool, error) { return false, nil }
-func (fakeBackground) BgSince(db.Q, string) (int64, bool, error)    { return 0, false, nil }
-func (fakeBackground) BgStale(db.Q, string, int64) (bool, error)    { return false, nil }
-func (fakeBackground) BgPromptedAt(db.Q, string) (int64, error)     { return 0, nil }
+func (f fakeBackground) HasBackgroundWork(_ db.Q, a string) (bool, error) { return f.work[a], nil }
+func (fakeBackground) BgSince(db.Q, string) (int64, bool, error)          { return 0, false, nil }
+func (fakeBackground) BgStale(db.Q, string, int64) (bool, error)          { return false, nil }
+func (fakeBackground) BgPromptedAt(db.Q, string) (int64, error)           { return 0, nil }
 func (f fakeBackground) WallReason(_ db.Q, a string, _ *db.AgentState) (string, error) {
 	return "", f.wallErr[a]
 }
@@ -54,7 +57,7 @@ func newRig(t *testing.T, structured ...string) *rig {
 	t.Cleanup(func() { d.Close() })
 	r := &rig{
 		sess: fakeSessions{map[string]bool{}, map[string]bool{}, map[string]bool{}},
-		bg:   fakeBackground{wallErr: map[string]error{}},
+		bg:   fakeBackground{wallErr: map[string]error{}, work: map[string]bool{}},
 		pr:   fakePrompts{open: map[string]*prompts.Block{}},
 	}
 	names := []string{}
@@ -183,6 +186,22 @@ func TestALiveTurnShowsRunningWhateverTheRowSays(t *testing.T) {
 	}
 }
 
+func TestAParkedAgentWhoseTurnRunsShowsRunning(t *testing.T) {
+	r := newRig(t, "a", "b")
+	r.state(t, "a", states.Parked, "")
+	r.state(t, "b", states.Parked, "")
+	r.sess.alive["a"], r.sess.busy["a"] = true, true
+	r.sess.alive["b"] = true
+	r.env.RefreshOne("a")
+	r.env.RefreshOne("b")
+	if got := r.stored(t, "a")["state"]; got != "running" {
+		t.Errorf("busy: state %v, want running", got)
+	}
+	if got := r.stored(t, "b")["state"]; got == "running" {
+		t.Errorf("not busy: state %v, want not running", got)
+	}
+}
+
 func TestAQueuedMoveIsParkedMoving(t *testing.T) {
 	r := newRig(t, "a")
 	r.state(t, "a", states.Queued, states.MovingMark+" to b")
@@ -295,12 +314,29 @@ func TestAHandoffShowsFromTheNoteWaitThroughTheLaunchUntilTheNewSessionBegins(t 
 	if h["cause"] != "context_full" || h["phase"] != "starting" {
 		t.Fatalf("released: %v", h)
 	}
+	// Parked until a time already past, as a restart parks it, with work waiting: it waits for its next session, not a clock, so the
+	// agent list keeps it among the waking, not the sleeping.
+	db.AddPending(r.env.Q, "a", "x", 1)
+	if err := db.SetAgentState(r.env.Q, "a", states.Parked, 5000, ""); err != nil {
+		t.Fatal(err)
+	}
+	r.env.RefreshOne("a")
+	if v := r.stored(t, "a"); v["state"] != "queued" || v["state_detail"] != "" {
+		t.Fatalf("a restart reads %v %q", v["state"], v["state_detail"])
+	}
 
+	// One restart is one state: the line stays until the chat can show the New session line, which needs the session's id.
 	if _, err := db.NoteSessionStart(r.env.Q, "a", "context_full", false, "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
+	if h := handoff(); h == nil {
+		t.Fatal("a launch with no session id yet has no New session line, so the restart is still on")
+	}
+	if _, err := r.env.Q.Exec("UPDATE session_starts SET session_id = 's2' WHERE agent = 'a'"); err != nil {
+		t.Fatal(err)
+	}
 	if h := handoff(); h != nil {
-		t.Fatalf("the new session began, got %v", h)
+		t.Fatalf("the new session is shown, got %v", h)
 	}
 }
 

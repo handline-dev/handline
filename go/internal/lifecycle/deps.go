@@ -120,7 +120,7 @@ type Spawner interface {
 	StartIn(agent, worktree, cmd string) (bool, string, error)
 	// Trust marks worktree trusted for agent's vendor before a launch there.
 	Trust(agent, worktree string)
-	Spawn(agent, repo string) (bool, string, error)
+	SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error)
 }
 
 // AgentsPort is team/agents.py, trust.py and measure as the lifecycle reads them.
@@ -178,6 +178,8 @@ type Manager struct {
 
 	// OnLaunch is told each time a wake's launch has begun (NoteLaunch); nil tells no one.
 	OnLaunch func(agent string)
+	// LoadHeld is why the machine's load holds the daemon's own start of an agent, "" when it does not (loadgate); nil holds nothing.
+	LoadHeld func(agent string) string
 
 	Locks *AgentLocks // shared with Spawns, so a spawn and a wake take the same lock; made on first use when nil
 	once  sync.Once
@@ -202,3 +204,11 @@ func (m *Manager) sleep(d time.Duration) {
 }
 
 var _ Delivery = (*supervisor.Env)(nil)
+
+// loadHeld is why the machine's load holds a start of agent the daemon makes on its own, "" when nothing does.
+func (m *Manager) loadHeld(agent string) string {
+	if m.LoadHeld == nil {
+		return ""
+	}
+	return m.LoadHeld(agent)
+}

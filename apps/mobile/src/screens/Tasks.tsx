@@ -2,8 +2,9 @@
 // of TaskActions: new task, done, reopen, queue, draft, discard, edit, memo, withdraw, cancel. The pills Open / Mine / Closed and the state
 // chips narrow the list as on the web.
 import { useState } from 'react';
+import { useHistoryValue } from '../history.tsx';
 import { FlatList, ScrollView, Text, View } from 'react-native';
-import { ago, CLOSED, defaultFilter, idleText, shown, sortTasks, TASK_STATES, timeoutText, taskRef } from '@handline/app-core';
+import { activityOf, ago, CLOSED, defaultFilter, foldEvents, idleText, shown, sortTasks, TASK_STATES, timeoutText, taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
@@ -32,7 +33,7 @@ export function Tasks(props: { selected: number | null; onSelect: (id: number | 
 function List(props: { onSelect: (id: number) => void }) {
   const { served } = useServes('tasks.list');
   const me = useStore().me;
-  const [scope, setScope] = useState<Scope>('open');
+  const [scope, setScope] = useHistoryValue<Scope>('tasks.scope', 'open');
   const [states, setStates] = useState<ReadonlySet<string>>(() => defaultFilter().states);
   const query = useTasks(scope === 'closed' ? { all: true } : {});
   const rows = sortTasks(
@@ -44,7 +45,8 @@ function List(props: { onSelect: (id: number) => void }) {
     Date.now(),
   );
   const [creating, setCreating] = useState(false);
-  const [graph, setGraph] = useState(false);
+  const [graph, setGraph] = useHistoryValue('tasks.graph', false);
+  const [menu, setMenu] = useState(false);
   const [filtering, setFiltering] = useState(false);
   const narrowed = states.size !== defaultFilter().states.size;
   if (creating)
@@ -59,11 +61,23 @@ function List(props: { onSelect: (id: number) => void }) {
         title="Tasks"
         actions={
           <>
-            <Button testID="graph-toggle" label={graph ? 'List' : 'Graph'} onPress={() => setGraph(!graph)} />
             <Button testID="new-task-open" label="New task" onPress={() => setCreating(true)} />
+            <Button testID="tasks-menu" label="⋯" accessibilityLabel="More" onPress={() => setMenu(!menu)} />
           </>
         }
       />
+      {menu && (
+        <View style={{ paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+          <Button
+            testID="graph-toggle"
+            label={graph ? 'List' : 'Graph'}
+            onPress={() => {
+              setGraph(!graph);
+              setMenu(false);
+            }}
+          />
+        </View>
+      )}
       {graph ? (
         <Loadable query={query} served={served} isEmpty={false} skeleton="tasks" label="tasks" empty="No open tasks.">
           <TaskGraph tasks={query.data?.items ?? []} onSelect={props.onSelect} />
@@ -123,7 +137,7 @@ function List(props: { onSelect: (id: number) => void }) {
 function Row(props: { t: Task; onPress: () => void }) {
   const t = props.t;
   const now = Date.now();
-  const meta = [taskRef(t.id), t.state, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, idleText(t, now) || ago(t.created)];
+  const meta = [`→ ${t.to}`, t.state, idleText(t, now) || ago(t.created)];
   return <ListRow testID={`task-${t.id}`} title={t.title} meta={meta.filter(Boolean).join(' · ')} onPress={props.onPress} />;
 }
 
@@ -167,7 +181,6 @@ function deliverySummary(ds: TaskDetail['deliveries']): string {
 function Body({ t }: { t: TaskDetail }) {
   const c = usePalette();
   const now = Date.now();
-  const memos = useMemos(t.id).data?.memos ?? t.memos; // the memo list is the one a memo write edits at once
   const sending = useTaskPending(t.id);
   const line = (s: string, key: string | number = s) => (
     <Text key={key} style={{ color: c.ink }}>
@@ -177,8 +190,9 @@ function Body({ t }: { t: TaskDetail }) {
   return (
     <ScrollView testID="task-detail" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
       <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>{t.title}</Text>
+      {t.body ? <Markdown text={t.body} breaks /> : null}
       <Text style={{ color: c.muted }}>
-        {[`${taskRef(t.id)}`, t.state, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, timeoutText(t, now)].filter(Boolean).join(' · ')}
+        {[`${taskRef(t.id)}`, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, timeoutText(t, now)].filter(Boolean).join(' · ')}
       </Text>
       {sending && (
         <Text testID="task-sending" style={{ color: c.muted }}>
@@ -189,7 +203,6 @@ function Body({ t }: { t: TaskDetail }) {
       {/* The Waits on section already says what holds it; the reason lines are for a task with no listed blocker. */}
       {!t.blockers.length && t.block_reason ? <Text style={{ color: c.block }}>{t.block_reason}</Text> : null}
       {!t.blockers.length && t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
-      {t.body ? <Section title="Brief"><Markdown text={t.body} breaks /></Section> : null}
       {t.blockers.length ? (
         <Section title="Waits on">{t.blockers.map((b, i) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`, i))}</Section>
       ) : null}
@@ -198,15 +211,29 @@ function Body({ t }: { t: TaskDetail }) {
       {t.deliveries.length ? (
         <Section title="Delivery">{line(deliverySummary(t.deliveries))}</Section>
       ) : null}
-      {memos.length ? (
-        <Section title="Memos">
-          {memos.map((m) => (
-            <MemoRow key={m.id} task={t.id} memo={m} when={ago(m.at)} />
-          ))}
-        </Section>
-      ) : null}
-      <MemoBox id={t.id} />
-      {t.handoffs.length ? <Section title="Handoffs">{t.handoffs.map((h, i) => line(`${h.from} → ${h.to}: ${h.note}`, i))}</Section> : null}
+      <Activity t={t} />
     </ScrollView>
+  );
+}
+
+/** One list of the comments and the events in words (older events fold), and the one comment box under it. */
+function Activity({ t }: { t: TaskDetail }) {
+  const c = usePalette();
+  const memos = useMemos(t.id).data?.memos ?? t.memos; // the memo list is the one a memo write edits at once
+  const [all, setAll] = useState(false);
+  const { items, hidden } = foldEvents(activityOf(memos, t.timeline), all);
+  return (
+    <Section title="Activity">
+      {hidden ? <Button testID="activity-more" label={`Show ${hidden} earlier ${hidden === 1 ? 'event' : 'events'}`} onPress={() => setAll(true)} /> : null}
+      {items.map((i, n) => {
+        const m = i.kind === 'comment' ? memos.find((x) => x.id === i.memo) : undefined;
+        return m ? (
+          <MemoRow key={`${n}-${m.id}`} task={t.id} memo={m} when={ago(m.at)} />
+        ) : (
+          <Text key={`${n}-${i.line}`} style={{ color: c.muted }}>{`${i.line} · ${ago(i.at)}`}</Text>
+        );
+      })}
+      <MemoBox id={t.id} />
+    </Section>
   );
 }

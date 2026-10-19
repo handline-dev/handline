@@ -89,7 +89,7 @@ func (p TrustProposals) Answered(q db.Q, pid string, card *db.Request, verdict s
 	if call == "approved" {
 		read, ok := RootRead(card.Body, card.Requester)
 		if !ok {
-			return fmt.Sprintf("proposal %s was not applied: #%d does not name the root it asked the founder to approve", pid, card.ID), "", nil
+			return fmt.Sprintf("proposal %s was not applied: %s does not name the root it asked the founder to approve", pid, db.MsgName(q, card.ID)), "", nil
 		}
 		subject = read
 		if r, ok := resolved(read); ok {
@@ -113,7 +113,7 @@ func (p TrustProposals) Answered(q db.Q, pid string, card *db.Request, verdict s
 		line = fmt.Sprintf("proposal %s could not be applied: %s", pid, said)
 		report = fmt.Sprintf("%s\nThe proposal is still open; `hl trust apply %s` retries it.", line, pid)
 	}
-	return line, report, db.AppendVerdict(q, card.ID, line)
+	return line, report, db.AddReason(q, card.ID, line)
 }
 
 // recordDecision is decisions.record: the founder's call on proposal pid, answered on decision task tid, and what it was decided on.
@@ -145,7 +145,8 @@ func (t *Trust) decisionRefusal(pid string, tid int64, subject string, cardID in
 }
 
 // answerOf is decisions.answer_of: none (no task to read), open (not answered), discarded (withdrawn, handed back, thrown away or
-// closed by someone but the founder: nothing was decided) or answered, with the task and the founder's verdict.
+// closed by someone but the founder: nothing was decided) or answered (closed by the founder, or answered and still theirs), with the task
+// and the founder's verdict.
 func answerOf(q db.Q, prop Proposal) (state string, task *db.Task, verdict string, err error) {
 	tid, _ := prop.Get("task").(int64)
 	if tid == 0 {
@@ -170,6 +171,8 @@ func answerOf(q db.Q, prop Proposal) (state string, task *db.Task, verdict strin
 			return "discarded", task, "", err
 		}
 		return "answered", task, task.DoneEvidence.String, nil
+	case task.Reported() && task.Owner == db.Human: // the founder's answer leaves their task open, answered, until the proposer accepts it
+		return "answered", task, task.Report.String, nil
 	}
 	return "open", task, "", nil
 }
@@ -242,7 +245,7 @@ func (t *Trust) Apply(q db.Q, pid string) (ok bool, said string, err error) {
 		read, readOK = RootRead(card.Body, card.Requester)
 	}
 	if want, _ := resolved(root); !readOK || resolvedOr(read) != want {
-		return false, fmt.Sprintf("proposal %s's root does not match what #%d asked the founder to approve - raise it again", pid, cardID), nil
+		return false, fmt.Sprintf("proposal %s's root does not match what %s asked the founder to approve - raise it again", pid, db.MsgName(q, cardID)), nil
 	}
 	if t.IsDeclared(root) {
 		if _, err := t.SettleMoot(); err != nil {

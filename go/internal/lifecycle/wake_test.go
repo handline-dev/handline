@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,8 +28,8 @@ func TestStartForWorkNeedsARepoARoomAndCountsFailuresUntilItStalls(t *testing.T)
 	if said, err := m.StartForWork("a"); err != nil || !strings.HasPrefix(said, "a: could not be started - spawn said") || strings.Contains(said, "more") {
 		t.Fatalf("%q %v", said, err)
 	}
-	if len(sp.spawned) != 1 || sp.spawned[0] != "a@/repo" {
-		t.Fatalf("%v", sp.spawned)
+	if len(sp.spawned) != 1 || sp.spawned[0] != "a@/repo" || sp.cmds[0] != "why "+StartCause {
+		t.Fatalf("a start for waiting work is recorded as a start, not a launch: %v %v", sp.spawned, sp.cmds)
 	}
 	m.StartForWork("a")
 	m.StartForWork("a")
@@ -42,12 +43,17 @@ func TestStartForWorkNeedsARepoARoomAndCountsFailuresUntilItStalls(t *testing.T)
 	// A start that works clears the streak, and an agent with a worktree starts there, not in a second one.
 	db.SetAgentState(m.Q, "b", states.Idle, 0, "")
 	db.SetTerminal(m.Q, "b", "", "/wt-b")
+	rid, _ := db.AddRequest(m.Q, db.NewRequest{Requester: "a", Target: "b", Body: "job", Kind: "task"})
 	sp.ok = true
 	if said, _ := m.StartForWork("b"); said != "b: started for work waiting - start-in said" || len(sp.startedIn) != 1 || sp.startedIn[0] != "b@/wt-b" {
 		t.Fatalf("%q %v", said, sp.startedIn)
 	}
-	if _, ok, _ := db.LastEventID(m.Q, "b", "started_for_work"); !ok {
-		t.Fatal("no event")
+	if last := sp.cmds[len(sp.cmds)-1]; last != "hl launch b --why 'start'" {
+		t.Fatalf("the start in its own worktree records its cause: %q", last)
+	}
+	var got int64
+	if err := m.Q.QueryRow("SELECT json_extract(payload, '$.request_id') FROM events WHERE agent = 'b' AND kind = 'started_for_work'").Scan(&got); err != nil || got != rid {
+		t.Fatalf("the event names the work that was waiting: %d %v", got, err)
 	}
 }
 
@@ -555,5 +561,97 @@ func TestASecondClosedAgentIsWokenWhileTheFirstOnesFirstTurnRuns(t *testing.T) {
 	}
 	if len(d.told) != 2 {
 		t.Fatalf("each told once: %q", d.told)
+	}
+}
+
+// tryTyping is the terminal lock as it is: whoever holds it, nobody else gets it until it is released.
+type tryTyping struct{ mu sync.Mutex }
+
+func (l *tryTyping) TakeTerminal(string) (func(), bool) {
+	if !l.mu.TryLock() {
+		return nil, false
+	}
+	return l.mu.Unlock, true
+}
+
+// slowSpawn opens a terminal whose session is slow to come up: StartIn waits on up, then says no session ran in time.
+type slowSpawn struct {
+	fakeSpawn
+	q      db.Q
+	up     chan struct{}
+	mu     sync.Mutex
+	opened []string
+}
+
+func (s *slowSpawn) StartIn(agent, wt, _ string) (bool, string, error) {
+	s.mu.Lock()
+	handle := "%" + strconv.Itoa(len(s.opened)+1)
+	s.opened = append(s.opened, handle)
+	s.mu.Unlock()
+	db.SetTerminal(s.q, agent, handle, wt)
+	<-s.up
+	return false, agent + ": started in " + wt + " (terminal " + handle + ")\n  but no session is running in it after 20s", nil
+}
+
+// Seen live: every message waiting for a closed agent asked for a start while the first one's session was still coming up, each opened a
+// terminal of its own, and three slow starts stalled an agent that came up after all.
+func TestASlowStartOpensOneTerminalWhoeverElseAsksMeanwhile(t *testing.T) {
+	m, _, _ := newManager(t)
+	m.Agents = fakeAgents{repo: "/repo"}
+	sp := &slowSpawn{q: m.Q, up: make(chan struct{})}
+	m.Spawn, m.Typing = sp, &tryTyping{}
+	db.AddPending(m.Q, "a", "x", 1)
+	db.SetAgentState(m.Q, "a", states.Idle, 0, "")
+	db.SetTerminal(m.Q, "a", "", "/wt-a")
+	first := make(chan string)
+	go func() { said, _ := m.StartForWork("a"); first <- said }()
+	for {
+		sp.mu.Lock()
+		n := len(sp.opened)
+		sp.mu.Unlock()
+		if n == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	for range 2 {
+		if said, _ := m.StartForWork("a"); said != "a: a start or wake is under way - not starting twice" {
+			t.Fatalf("a second start while the first comes up: %q", said)
+		}
+	}
+	close(sp.up)
+	<-first
+	if said, _ := m.StartForWork("a"); said != "a: started already - not starting twice" {
+		t.Fatalf("a start after the first opened its terminal: %q", said)
+	}
+	row, _ := db.GetAgentState(m.Q, "a")
+	if len(sp.opened) != 1 || row.State == states.Stalled || row.WakeFailures != 1 {
+		t.Fatalf("one terminal and no stall: %v %+v", sp.opened, row)
+	}
+}
+
+func TestTheLoadHoldsTheDaemonsOwnStartsButNotAPersons(t *testing.T) {
+	m, _, _ := newManager(t)
+	m.LoadHeld = func(string) string { return "held: machine load - load 2.00 per core, limit 1.50" }
+	m.Agents = fakeAgents{repo: "/repo"}
+	sp := m.Spawn.(*fakeSpawn)
+	db.AddPending(m.Q, "a", "x", 1)
+	if said, _ := m.StartForWork("a"); !strings.Contains(said, "a: not started - held: machine load") || len(sp.spawned) != 0 {
+		t.Fatalf("a start for work went past the load: %q %v", said, sp.spawned)
+	}
+	db.SetTerminal(m.Q, "b", "t1", "/wt")
+	db.SetClosed(m.Q, "b", "sess-1")
+	db.SetAgentState(m.Q, "b", states.Idle, 0, "")
+	db.AddPending(m.Q, "b", "hi", 1)
+	if ok, said, _ := m.WakeAgent("b", WakeOpts{}); ok || !strings.Contains(said, "held: machine load") {
+		t.Fatalf("the daemon's wake went past the load: %v %q", ok, said)
+	}
+	if row, _ := db.GetAgentState(m.Q, "b"); row.WakeFailures != 0 {
+		t.Fatalf("a held wake counted as a failure: %d", row.WakeFailures)
+	}
+	for _, o := range []WakeOpts{{Person: true}, {Force: true}} {
+		if _, said, _ := m.WakeAgent("b", o); strings.Contains(said, "held: machine load") {
+			t.Fatalf("%+v: a person's wake or a restart was held: %q", o, said)
+		}
 	}
 }

@@ -1,11 +1,23 @@
 // The one menu (Radix Menu): focus, arrow keys, type-ahead, Escape, a click outside and keeping inside the window come from the library;
 // the look is ours. `MenuButton` opens under its button, `Menu` + `MenuTrigger` at the cursor on a right-click. A press outside closes it and still reaches what is under it, so a second trigger opens its own menu.
-import { cloneElement, createContext, useContext, useRef, useState, type ComponentProps, type MouseEvent, type MutableRefObject, type ReactElement, type ReactNode } from 'react';
+import {
+  cloneElement,
+  createContext,
+  useContext,
+  useRef,
+  useState,
+  type ComponentProps,
+  type MouseEvent,
+  type MutableRefObject,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import * as D from '@radix-ui/react-menu';
 import { Button } from './Button.tsx';
 import { Icon, type IconName } from './Icon.tsx';
 
-const PANEL = 'z-30 max-h-[var(--radix-popper-available-height)] overflow-y-auto min-w-[200px] rounded-card border border-line bg-panel py-1 shadow-[var(--shadow-pop)] outline-none';
+const PANEL =
+  'z-30 max-h-[var(--radix-popper-available-height)] overflow-y-auto min-w-[200px] rounded-card border border-line bg-panel py-1 shadow-[var(--shadow-pop)] outline-none';
 const ITEM =
   'flex h-8 w-full cursor-default select-none items-center gap-2 px-2 text-left text-body text-ink outline-none data-[highlighted]:bg-raised data-[disabled]:opacity-55 max-sm:min-h-12';
 
@@ -26,7 +38,10 @@ export function Menu({
 }) {
   const [open, setOpen] = useState(false);
   const at = useRef<At>({ x: 0, y: 0 });
-  const anchor = useRef({ getBoundingClientRect: () => DOMRect.fromRect({ x: at.current.x, y: at.current.y, width: at.current.w ?? 0, height: at.current.h ?? 0 }) });
+  const anchor = useRef({
+    getBoundingClientRect: () =>
+      DOMRect.fromRect({ x: at.current.x, y: at.current.y, width: at.current.w ?? 0, height: at.current.h ?? 0 }),
+  });
   const change = (o: boolean) => (setOpen(o), onOpenChange?.(o));
   const openAt = (p: At) => ((at.current = p), change(true));
   if (openRef) openRef.current = openAt;
@@ -131,9 +146,14 @@ export function MenuCheckItem({
   );
 }
 
-export function MenuItem({ icon, children, ...rest }: { icon?: IconName; children: ReactNode } & ComponentProps<typeof D.Item>) {
+export function MenuItem({
+  icon,
+  danger,
+  children,
+  ...rest
+}: { icon?: IconName; danger?: boolean; children: ReactNode } & ComponentProps<typeof D.Item>) {
   return (
-    <D.Item className={ITEM} {...rest}>
+    <D.Item className={danger ? `${ITEM} text-bad` : ITEM} {...rest}>
       <Lead icon={icon} />
       <span className="flex flex-1 items-center">{children}</span>
     </D.Item>

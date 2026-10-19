@@ -1,30 +1,19 @@
-// The annotation editor of the capture dialog: the picture with an SVG over it to draw on. Tools: Arrow (default), Rectangle, Pen, Text and Number
-// (keys A R P T N); a Number is a numbered ring with its words typed at the spot. Each change exports the marked PNG and the numbers' words via `onChange`.
+// The marks editor of the capture dialog: the picture with an SVG over it and no toolbar. A tap pins a circle, a drag draws a box, going round
+// something marks an area; the memo box opens at the mark, a red number on the mark jumps back to its memo. Each change exports the marked PNG
+// (the marks that have words) and gives the marks to the dialog, which writes the message (`markText`).
 import { useEffect, useReducer, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import {
-  ANNOTATION_COLORS,
-  annotate,
+  MARK_COLOR,
   exportAnnotated,
-  initialAnnotation,
-  noteMark,
-  notesOf,
+  initialMarks,
+  keptMarks,
+  marksReducer,
+  marksToShapes,
   shapesToSvg,
-  type AnnotationTool,
   type Bitmap,
+  type Mark,
 } from '@handline/app-core';
-import { Button, Textarea, iconLabel, type IconName } from './ui/index.ts';
-
-const TOOLS: [AnnotationTool, IconName, string][] = [
-  ['arrow', 'arrow', 'A'],
-  ['box', 'box', 'R'],
-  ['pen', 'pen', 'P'],
-  ['text', 'textTool', 'T'],
-  ['note', 'number', 'N'],
-];
-const SWATCHES = ANNOTATION_COLORS.slice(0, 5);
-
-/** A note being written (or changed: `id`), at the end of the click or drag that placed it. */
-type Popover = { from: { x: number; y: number }; to: { x: number; y: number }; id?: number; text: string };
+import { Button, Textarea } from './ui/index.ts';
 
 /** The picture with the shapes drawn into its pixels, as a PNG. Null where there is no canvas (a test DOM). */
 async function marked(img: HTMLImageElement, shapes: Parameters<typeof exportAnnotated>[1]): Promise<Blob | null> {
@@ -40,136 +29,62 @@ async function marked(img: HTMLImageElement, shapes: Parameters<typeof exportAnn
   return new Promise((ok) => c.toBlob(ok, 'image/png'));
 }
 
-export function Annotator({ image, onChange }: { image: Blob; onChange: (marked: Blob, notes: string[]) => void }): ReactNode {
-  const [state, dispatch] = useReducer(annotate, undefined, () => ({ ...initialAnnotation(), tool: 'arrow' as const }));
-  const [palette, setPalette] = useState(false);
+export function Annotator({ image, onChange }: { image: Blob; onChange: (marked: Blob, marks: Mark[]) => void }): ReactNode {
+  const [state, dispatch] = useReducer(marksReducer, undefined, initialMarks);
   const [src, setSrc] = useState('');
   const [size, setSize] = useState({ w: 1, h: 1 });
-  const [typing, setTyping] = useState<{ x: number; y: number; text: string } | null>(null);
-  const [pop, setPop] = useState<Popover | null>(null);
   const img = useRef<HTMLImageElement>(null);
-  const down = useRef(false); // a stroke is under the pointer (the state's draft lags a render behind fast events)
-  const start = useRef({ x: 0, y: 0 });
+  const memo = useRef<HTMLTextAreaElement>(null);
+  const down = useRef(false); // the pointer is down on the picture (the state's draft lags a render behind fast events)
   useEffect(() => {
     const u = URL.createObjectURL(image);
     setSrc(u);
     return () => URL.revokeObjectURL(u);
   }, [image]);
-
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]')) return; // typing: the letters are words
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        dispatch({ type: e.shiftKey ? 'redo' : 'undo' });
-      } else if (!e.metaKey && !e.ctrlKey && !e.altKey) {
-        const hit = TOOLS.find(([, , k]) => k.toLowerCase() === e.key.toLowerCase());
-        if (hit) dispatch({ type: 'tool', tool: hit[0] });
-      }
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.key.toLowerCase() !== 'z') return;
+      if (e.target instanceof Element && e.target.closest('input, textarea, select, [contenteditable]')) return; // the field's own undo
+      e.preventDefault();
+      dispatch({ type: 'undo' });
     };
     addEventListener('keydown', key);
     return () => removeEventListener('keydown', key);
   }, []);
+  useEffect(() => void (state.open !== null && memo.current?.focus()), [state.open]);
 
-  // Lines are drawn in image pixels: a wide capture gets a thicker line so it shows at the size the dialog draws it.
-  const loaded = () => {
-    const el = img.current!;
-    setSize({ w: el.naturalWidth || 1, h: el.naturalHeight || 1 });
-    dispatch({ type: 'width', width: Math.max(4, Math.round((el.naturalWidth || 0) / 200)) });
-  };
-  // Send the picture on with what is drawn: the original while nothing is.
-  const shapes = state.shapes;
-  const notes = notesOf(shapes);
-  const seq = useRef(0);
+  // Lines are in image pixels: a wide capture gets a thicker line so it shows at the size the dialog draws it.
+  const line = Math.max(3, Math.round(size.w / 250));
+  const { marks, open } = state;
   const sendOn = useRef(onChange);
   sendOn.current = onChange;
+  const seq = useRef(0);
   useEffect(() => {
     const mine = ++seq.current;
-    const words = notesOf(shapes).map((n) => n.text);
-    if (!shapes.length) {
-      sendOn.current(image, words);
-      return;
-    }
-    void marked(img.current!, shapes).then(
-      (b) => mine === seq.current && sendOn.current(b ?? image, words), // no canvas: the words still go, with the picture as it was
+    if (!keptMarks(marks).length) return void sendOn.current(image, marks);
+    void marked(img.current!, marksToShapes(marks, line)).then(
+      (b) => mine === seq.current && sendOn.current(b ?? image, marks), // no canvas: the words still go, with the picture as it was
       () => undefined,
     );
-  }, [shapes, image]);
+  }, [marks, image, line]);
 
   const at = (e: PointerEvent<SVGSVGElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     return { x: ((e.clientX - r.left) / r.width) * size.w, y: ((e.clientY - r.top) / r.height) * size.h };
   };
-  const draw = shapesToSvg(state.draft ? [...shapes, state.draft] : shapes, size.w, size.h);
-  const commitText = () => {
-    if (typing) dispatch({ type: 'text', x: typing.x, y: typing.y, text: typing.text });
-    setTyping(null);
-  };
-  const saveNote = () => {
-    if (pop)
-      dispatch(
-        pop.id === undefined
-          ? { type: 'note', from: pop.from, to: pop.to, text: pop.text }
-          : { type: 'noteText', id: pop.id, text: pop.text },
-      );
-    setPop(null);
-  };
-  const pct = (p: { x: number; y: number }) => ({ left: `${(p.x / size.w) * 100}%`, top: `${(p.y / size.h) * 100}%` });
+  const draw = shapesToSvg(marksToShapes(marks, line, true), size.w, size.h);
+  const pct = (x: number, y: number) => ({ left: `${(x / size.w) * 100}%`, top: `${(y / size.h) * 100}%` });
+  const current = marks.find((m) => m.id === open);
+  const path = state.draft?.map((p) => `${p.x},${p.y}`).join(' ');
 
   return (
     <div className="annotator flex min-h-0 min-w-0 flex-1 flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-1" role="toolbar" aria-label="Markup">
-        {TOOLS.map(([tool, icon, k]) => (
-          <Button
-            key={tool}
-            icon={icon}
-            variant={state.tool === tool ? 'outline' : 'ghost'}
-            aria-pressed={state.tool === tool}
-            label={`${iconLabel(icon)} (${k})`}
-            onClick={() => dispatch({ type: 'tool', tool })}
-          />
-        ))}
-        <span className="relative mx-1">
-          <button
-            type="button"
-            aria-label="Colour"
-            title="Colour"
-            aria-expanded={palette}
-            className="block h-5 w-5 cursor-pointer rounded-full border border-line-strong"
-            style={{ background: state.color }}
-            onClick={() => setPalette(!palette)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape' && palette) {
-                e.stopPropagation();
-                setPalette(false);
-              }
-            }}
-          />
-          {palette ? (
-            <span
-              className="absolute left-0 top-full z-10 mt-1 flex gap-1 rounded-card border border-line bg-panel p-1.5 shadow-[var(--shadow-pop)]"
-              role="group"
-              aria-label="Colours"
-            >
-              {SWATCHES.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  aria-label={`Colour ${c}`}
-                  aria-pressed={state.color === c}
-                  className="h-5 w-5 cursor-pointer rounded-full border border-line-strong aria-pressed:outline-2 aria-pressed:outline-offset-1 aria-pressed:outline-current"
-                  style={{ background: c }}
-                  onClick={() => {
-                    dispatch({ type: 'color', color: c });
-                    setPalette(false);
-                  }}
-                />
-              ))}
-            </span>
-          ) : null}
+      <div className="flex items-center gap-3 text-ink-2">
+        <span className="min-w-0 flex-1">Tap to pin, drag to box, draw around to mark an area</span>
+        <span>
+          {marks.length} {marks.length === 1 ? 'memo' : 'memos'}
         </span>
         <Button icon="undo" label="Undo (⌘Z)" disabled={!state.past.length} onClick={() => dispatch({ type: 'undo' })} />
-        <Button icon="redo" label="Redo (⇧⌘Z)" disabled={!state.redo.length} onClick={() => dispatch({ type: 'redo' })} />
       </div>
       <div className="flex min-h-0 flex-1 items-center justify-center">
         <div className="relative max-h-full max-w-full">
@@ -180,103 +95,76 @@ export function Annotator({ image, onChange }: { image: Blob; onChange: (marked:
             data-testid="capture-preview"
             className="block max-h-[calc(100vh_-_7.5rem)] max-w-full select-none"
             draggable={false}
-            onLoad={loaded}
+            onLoad={() => setSize({ w: img.current!.naturalWidth || 1, h: img.current!.naturalHeight || 1 })}
           />
           <svg
             className="absolute inset-0 h-full w-full cursor-crosshair touch-none"
             viewBox={draw.viewBox}
-            aria-label="Draw here"
+            aria-label="Mark here"
             onPointerDown={(e) => {
-              if (pop) return saveNote(); // a click away from the popover keeps what was typed
-              if (state.tool === 'text') return; // the words are asked for at pointer up: a field opened here loses focus to the click that is still going on
+              const k = size.w / (e.currentTarget.getBoundingClientRect().width || size.w);
+              dispatch({ type: 'scale', slop: Math.max(4, 6 * k), radius: Math.max(12, 14 * k) }); // a tap is a few screen pixels, whatever the picture's size
+              dispatch({ type: 'open', id: null });
               e.currentTarget.setPointerCapture(e.pointerId);
               down.current = true;
-              start.current = at(e);
-              if (state.tool !== 'note') dispatch({ type: 'strokeStart', ...start.current });
+              dispatch({ type: 'down', ...at(e) });
             }}
-            onPointerMove={(e) => down.current && state.tool !== 'note' && dispatch({ type: 'strokeMove', ...at(e) })}
+            onPointerMove={(e) => down.current && dispatch({ type: 'move', ...at(e) })}
             onPointerUp={(e) => {
-              if (state.tool === 'text') return setTyping({ ...at(e), text: '' });
               if (!down.current) return;
               down.current = false;
-              if (state.tool === 'note') return setPop({ from: start.current, to: at(e), text: '' });
-              dispatch({ type: 'strokeEnd', ...at(e) });
+              dispatch({ type: 'up', ...at(e) });
             }}
-            onPointerCancel={() => ((down.current = false), dispatch({ type: 'strokeCancel' }))}
+            onPointerCancel={() => ((down.current = false), dispatch({ type: 'cancel' }))}
           >
             {draw.elements.map((el, i) =>
               el.type === 'path' ? (
-                <path
-                  key={i}
-                  d={el.d}
-                  fill="none"
-                  stroke={el.stroke}
-                  strokeWidth={el.strokeWidth}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              ) : (
-                <text key={i} x={el.x} y={el.y} fontSize={el.fontSize} fill={el.fill} dominantBaseline="hanging" fontFamily="monospace">
-                  {el.text}
-                </text>
-              ),
+                <path key={i} d={el.d} fill="none" stroke={el.stroke} strokeWidth={el.strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+              ) : null,
             )}
+            {path ? <polyline points={path} fill="none" stroke={MARK_COLOR} strokeWidth={line} strokeDasharray={`${line * 2} ${line * 2}`} /> : null}
           </svg>
-          {notes.map((n, i) => (
+          {marks.map((m, i) => (
             <button
-              key={n.id}
+              key={m.id}
               type="button"
-              aria-label={`Note ${i + 1}: ${n.text}`}
-              title={n.text}
-              className="absolute h-5 min-w-5 cursor-pointer border-0 bg-transparent p-0"
-              style={pct(noteMark(n).label)}
-              onClick={() => setPop({ from: n.from, to: n.to, id: n.id, text: n.text })}
-            />
+              aria-label={`Memo ${i + 1}${m.text.trim() ? `: ${m.text.trim()}` : ''}`}
+              title={m.text}
+              className="absolute grid size-5 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full border-0 bg-bad p-0 text-label text-canvas"
+              style={pct(m.rect.x, m.rect.y)}
+              onClick={() => dispatch({ type: 'open', id: m.id })}
+            >
+              {i + 1}
+            </button>
           ))}
-          {pop ? (
-            // Below and to the right of the spot, flipped when that would leave the picture.
+          {current ? (
+            // At the mark: below and to the right of it, flipped when that would leave the picture.
             <div
-              className="absolute z-10 w-56 rounded-card border border-line bg-panel p-1.5 shadow-[var(--shadow-pop)]"
+              className="absolute z-10 flex w-56 gap-1 rounded-card border border-bad bg-panel p-1.5 shadow-[var(--shadow-pop)]"
               style={{
-                ...pct(pop.to),
-                transform: `translate(${pop.to.x / size.w > 0.6 ? 'calc(-100% - 8px)' : '8px'}, ${pop.to.y / size.h > 0.7 ? 'calc(-100% - 8px)' : '8px'})`,
+                ...pct(current.rect.x + current.rect.w, current.rect.y + current.rect.h),
+                transform: `translate(${(current.rect.x + current.rect.w) / size.w > 0.6 ? 'calc(-100% - 8px)' : '8px'}, ${(current.rect.y + current.rect.h) / size.h > 0.7 ? 'calc(-100% - 8px)' : '8px'})`,
               }}
             >
               <Textarea
-                autoFocus
+                ref={memo}
                 rows={2}
-                aria-label="Note"
-                value={pop.text}
-                onChange={(e) => setPop({ ...pop, text: e.target.value })}
+                aria-label="Memo"
+                placeholder="Type a memo…"
+                value={current.text}
+                onChange={(e) => dispatch({ type: 'memo', id: current.id, text: e.target.value })}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
                     e.preventDefault();
-                    saveNote();
+                    dispatch({ type: 'open', id: null });
                   } else if (e.key === 'Escape') {
                     e.stopPropagation();
-                    setPop(null);
+                    dispatch({ type: 'open', id: null });
                   }
                 }}
               />
+              <Button icon="close" label="Delete memo" onClick={() => dispatch({ type: 'remove', id: current.id })} />
             </div>
-          ) : null}
-          {typing ? (
-            <input
-              autoFocus
-              aria-label="Text on the picture"
-              className="absolute rounded-ctl border border-line bg-canvas px-1 text-ink"
-              style={pct(typing)}
-              value={typing.text}
-              onChange={(e) => setTyping({ ...typing, text: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') commitText();
-                else if (e.key === 'Escape') {
-                  e.stopPropagation();
-                  setTyping(null);
-                }
-              }}
-              onBlur={commitText}
-            />
           ) : null}
         </div>
       </div>

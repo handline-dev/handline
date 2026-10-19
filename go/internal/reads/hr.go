@@ -65,7 +65,7 @@ func (e *Env) proposals() []proposal {
 		}
 		n, err := strconv.ParseInt(id, 16, 64)
 		state, known := hrState[f.text("state")]
-		if err != nil || !known || f.text("requested_by") == "human" {
+		if err != nil || !known {
 			continue
 		}
 		p := proposal{flat: f, wireID: n, state: state}
@@ -99,6 +99,9 @@ func (e *Env) proposalView(p proposal) map[string]any {
 	}
 	if p.truthy("why") {
 		v["reason"] = p.text("why")
+	}
+	if p.truthy("note") {
+		v["note"] = p.text("note")
 	}
 	asked := map[string]any{}
 	for _, k := range []string{"vendor", "model", "effort", "team", "repo", "to"} {

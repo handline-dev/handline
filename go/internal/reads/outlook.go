@@ -37,28 +37,40 @@ func points(series []usage.OutlookPoint) []any {
 // runsOut is rpc_outlook._runs_out: seconds until the window that runs out first does, as the runway's words pick it; nil when there is
 // no reading, no burn to go by, or the window resets first.
 func runsOut(e *usage.Env, st *usage.AccountStatus, acct string, now int64, ld *usage.Load) any {
+	in, _, ok := wallOf(e, st, acct, now, ld)
+	if !ok {
+		return nil
+	}
+	return in
+}
+
+// wallOf is when the account reaches a limit, in seconds from now (0: it is at one), and when that limit's window resets; ok false when
+// there is no reading, no burn to go by, or the window resets first.
+func wallOf(e *usage.Env, st *usage.AccountStatus, acct string, now int64, ld *usage.Load) (in, reset int64, ok bool) {
 	var burn *float64
 	if b, ok := e.ReadBurn(acct); ok {
 		burn = &b
 	}
 	r := usage.RunwayOf(st, burn, float64(now), ld)
-	if r == nil {
-		return nil
-	}
-	if r.LeftShort == 0 || (r.LeftLong != nil && *r.LeftLong == 0) {
-		return 0
+	switch {
+	case r == nil:
+		return 0, 0, false
+	case r.LeftShort == 0:
+		return 0, st.Short.Reset, true
+	case r.LeftLong != nil && *r.LeftLong == 0:
+		return 0, st.Long.Reset, true
 	}
 	var five *float64
 	if r.Burning && !r.PastReset {
 		five = r.EtaS
 	}
 	if r.LongS != nil && (five == nil || *r.LongS < *five) {
-		return int64(*r.LongS)
+		return int64(*r.LongS), st.Long.Reset, true
 	}
 	if five == nil {
-		return nil
+		return 0, 0, false
 	}
-	return int64(*five)
+	return int64(*five), st.Short.Reset, true
 }
 
 // statsOutlook is stats.outlook: the week left of the accounts together (recorded, then guessed), each account's runway and what the

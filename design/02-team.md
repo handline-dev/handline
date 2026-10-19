@@ -1,4 +1,4 @@
-# Team model: roles, relations, routing, context budget
+# Team model: roles, links, routing, context budget
 
 > For infrastructure (slots, triggers, records) see `design/01-infra.md`. This document covers only **how the team works** on top of it.
 > The design goal in one line: **an agent says only "what to whom"; the system decides all of "how".**
@@ -128,33 +128,11 @@ Decision: the refresh token is an httpOnly cookie (2026-09-15; to reverse it, go
 
 ---
 
-## 2. Relations: relation and response, two declared axes
+## 2. Links: who may ask whom
 
-The relation between agents is declared on two axes. The agent does not even **need to know** these values.
+A link between agents only allows a message: an edge in team.yaml, or a default link from the name (parent, child, siblings). It carries no relation, no response kind and no reply path. Work that needs an answer is a task, and its done tells the opener.
 
-### Axis 1: relation, the nature of the request
-
-| Value | Meaning | Can refuse | Queue priority | On failure |
-|---|---|---|---|---|
-| `supervisor → subordinate` | order | no | high | preempts the target's current work |
-| `peer ↔ peer` | request | yes | normal | replies with the reason for refusing |
-| `subordinate → supervisor` | escalation | — | immediate | gate (`creates_gate`) |
-
-The real difference in a hierarchy is not the title but **the right to refuse and the right to preempt.** Only those differ.
-
-### Axis 2: response, what happens to the requester
-
-| Value | Requester state | Cost |
-|---|---|---|
-| `async` **(default)** | PARKED after handoff. Resumes when the result arrives | context returned |
-| `fire_and_forget` | just carries on | none |
-
-`blocking` (the requester waits) is **not offered.** A requester holding a slot and an account assignment while it waits for a review is the most wasteful loss in a system with finite accounts. If kept as an option, someone will use it.
-
-The default is `async`: the requester hands off and parks. It meshes with the state machine in infrastructure §8.
-(At a limit an agent moves once to the account `pick` chooses, and the account it left is used at the next pick.)
-
-In code an edge has `relation` (only `supervisor` is special, the rest are peer), `response` (`async` | `fire_and_forget`; any other value fails to load), and `kind` (`task` creates a decision task that goes to the founder; the old name `escalate` is read with the same meaning; `verdict`; `report`). A report to the founder is `ocp say`, and it closes as read when a person opens it.
+An edge may still have a `kind` (`task` creates a decision task that goes to the founder; the old name `escalate` is read with the same meaning; `verdict`; `report`). A report to the founder is `ocp say`, and it closes as read when a person opens it.
 
 ### Task
 
@@ -176,11 +154,9 @@ What the agent knows: **the target and the content.** That is all.
 What the system decides automatically:
 
 ```
-whether the relation allows it → if not, fail at once, with the reason
-priority                       → relation + the requester's place on the critical path
+whether a link allows it       → if not, fail at once, with the reason
 account                        → pick by measured burn rate (infra §0.5; §6 and §7 are not built)
-requester handling             → if async, handoff + park
-reply path                     → the requester's inbox file, the daemon types a notice into the session
+a task's result                → its done, typed to the opener as a notice
 chain depth                    → loop prevention
 ```
 
@@ -207,12 +183,12 @@ agents:
   reviewer:   { model: mid,   weight: light, reviews: [eng, growth, product] }
 
 edges:
-  - { from: "*",         to: "reviewer",     relation: peer,  response: async }
-  - { from: "reviewer",  to: "*",            kind: verdict,   response: async }
-  - { from: "product",   to: "eng.*",        relation: peer,  response: async }
-  - { from: "product",   to: "growth.*",     relation: peer,  response: async }
-  - { from: "analytics", to: "product",      relation: peer,  response: async }
-  - { from: "*",         to: "archivist",    relation: peer,  response: fire_and_forget }
+  - { from: "*",         to: "reviewer" }
+  - { from: "reviewer",  to: "*",            kind: verdict }
+  - { from: "product",   to: "eng.*" }
+  - { from: "product",   to: "growth.*" }
+  - { from: "analytics", to: "product" }
+  - { from: "*",         to: "archivist" }
   - { from: "*",         to: "orchestrator", kind: task }
 
 deny:
@@ -258,7 +234,7 @@ All of it is deterministic, so no model is needed. Only at the points that reall
 ### Other cost devices
 
 - **Merging asks**: consecutive requests to the same target can be merged in the queue (`--mergeable`). A review is **once per PR**, not per commit
-- **Forbidding `blocking`** removes idle slots (§2)
+- **No waiting for a reply**: an asker never holds a slot for an answer; work that needs one is a task (§2)
 - **The fold uses the cheap tier** (infra §5)
 - **The base budget** holds the fixed cost down (§1)
 
@@ -302,9 +278,8 @@ Seven agents cannot be carried on 2 or 3 accounts. v1 is a **fixed agent-per-acc
 
 ## 9. Open decisions
 
-1. **Is `product` a supervisor or a peer?** The `team.yaml` above has it as a peer. If it were a supervisor, product could preempt eng's work
-2. **Whether to split the reviewer by team later.** Start with one, and split when base.md can hardly hold three teams' criteria. That point is itself the signal to split
-3. **`analytics` data access.** Depending on the metric source an MCP connector may be needed. Discussed separately
+1. **Whether to split the reviewer by team later.** Start with one, and split when base.md can hardly hold three teams' criteria. That point is itself the signal to split
+2. **`analytics` data access.** Depending on the metric source an MCP connector may be needed. Discussed separately
 
 ---
 

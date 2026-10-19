@@ -83,7 +83,7 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
               {i.evidence}
             </Text>
           ) : null}
-          {i.prompt && i.agent && !i.answered ? (
+          {i.prompt && i.agent ? (
             <PromptCard agent={i.agent} prompt={i.prompt} />
           ) : i.prompt ? (
             <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: 11 }}>{i.prompt.command ?? i.prompt.lines.join('\n')}</Text>
@@ -226,7 +226,7 @@ export function Inbox() {
         isEmpty={all.length === 0}
         skeleton="inbox"
         label="the inbox"
-        empty="Nothing waits on you. Results, questions and blocks from your agents land here."
+        empty="Nothing waits on you."
       >
         {items.length === 0 && (
           <Text testID="inbox-clear" style={{ color: c.muted, padding: space.lg }}>

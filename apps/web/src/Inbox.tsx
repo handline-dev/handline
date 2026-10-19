@@ -219,7 +219,7 @@ export function InboxPage({ item }: { item: number | null }) {
         served={served}
         shape="inbox"
         what="the inbox"
-        empty={!waiting.length && 'Nothing waits on you. Results, questions and blocks from your agents land here.'}
+        empty={!waiting.length && 'Nothing waits on you.'}
       >
         {matched.length ? (
           <div className="inbox-list flex flex-col gap-3">

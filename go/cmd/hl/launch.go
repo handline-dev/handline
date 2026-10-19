@@ -103,9 +103,13 @@ func launcher(home string, d *sql.DB, roster *team.Roster) *lifecycle.Launcher {
 		},
 		Routing:        routing,
 		McpApproved:    team.NewTrust(home).MCPApproved,
-		TerminalHandle: func() string { h, _ := tmuxOwnTerminal(); return h },
-		WorktreeID:     func() string { _, wt := tmuxOwnTerminal(); return wt },
-		Warn:           func(s string) { fmt.Fprintln(os.Stderr, s) },
+		TerminalHandle: func() string { h, _ := launchTerminal(); return h },
+		WorktreeID:     func() string { _, wt := launchTerminal(); return wt },
+		PaneAgent: func(handle string) string {
+			a, _ := term.Tmux{Home: home}.PaneAgent(handle)
+			return a
+		},
+		Warn: func(s string) { fmt.Fprintln(os.Stderr, s) },
 		Exec: func(argv0 string, argv, env []string) error {
 			d.Close() // the session is not handed the database
 			return syscall.Exec(argv0, argv, env)
@@ -146,6 +150,14 @@ func (v launchVendors) ConfigDir(acct string) string {
 }
 
 var paneRE = regexp.MustCompile(`^%\d+$`)
+
+// launchTerminal is the pane the session will run in; with no terminal on stdin the pane in the environment is another program's.
+func launchTerminal() (string, string) {
+	if !hlclient.StdinIsTerminal() {
+		return "", ""
+	}
+	return tmuxOwnTerminal()
+}
 
 // tmuxOwnTerminal is the pane this process runs in and its working folder, only when the pane is on our tmux server: a
 // pane id of someone else's tmux means nothing on ours (backends/tmux.own_terminal).

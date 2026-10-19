@@ -55,6 +55,35 @@ func TestTheWholeGroupIsKilledWhenTheTestEnds(t *testing.T) {
 	}
 }
 
+func TestTheWholeGroupIsKilledWhenTheTestFails(t *testing.T) {
+	if os.Getenv("TESTKILL_CHILD") == "fail" {
+		os.Stdout.WriteString("pid " + strconv.Itoa(started(t)) + "\n")
+		t.Fatal("failing on purpose")
+	}
+	exe, _ := os.Executable()
+	child := exec.Command(exe, "-test.run=^TestTheWholeGroupIsKilledWhenTheTestFails$", "-test.v")
+	child.Env = append(os.Environ(), "TESTKILL_CHILD=fail")
+	out, err := child.Output()
+	pid := pidIn(string(out))
+	if err == nil || pid == 0 {
+		t.Fatalf("the child should fail after saying its pid: %v %s", err, out)
+	}
+	if !gone(pid) {
+		syscall.Kill(pid, syscall.SIGKILL)
+		t.Fatalf("the grandchild %d outlived its failed test", pid)
+	}
+}
+
+func pidIn(out string) int {
+	for _, l := range strings.Split(out, "\n") {
+		if n, ok := strings.CutPrefix(l, "pid "); ok {
+			pid, _ := strconv.Atoi(n)
+			return pid
+		}
+	}
+	return 0
+}
+
 // An interrupted test binary runs no cleanups, so the signal itself must take the group down.
 func TestTheWholeGroupIsKilledWhenTheBinaryIsInterrupted(t *testing.T) {
 	if os.Getenv("TESTKILL_CHILD") == "1" {
@@ -68,12 +97,7 @@ func TestTheWholeGroupIsKilledWhenTheBinaryIsInterrupted(t *testing.T) {
 	child := exec.Command(exe, "-test.run=^TestTheWholeGroupIsKilledWhenTheBinaryIsInterrupted$", "-test.v")
 	child.Env = append(os.Environ(), "TESTKILL_CHILD=1")
 	out, _ := child.Output() // it ends by the signal, so not with success
-	var pid int
-	for _, l := range strings.Split(string(out), "\n") {
-		if n, ok := strings.CutPrefix(l, "pid "); ok {
-			pid, _ = strconv.Atoi(n)
-		}
-	}
+	pid := pidIn(string(out))
 	if pid == 0 {
 		t.Fatalf("the child said no pid: %s", out)
 	}

@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { ago } from '@handline/app-core';
 import type { InboxItem } from '@handline/client';
-import { Button, CodeBlock, Icon, type IconName } from './ui/index.ts';
+import { Button, CodeBlock, Icon, sendKey, type IconName } from './ui/index.ts';
 import { decidable, kindIcon, kindLabel, type Verbs } from './inboxKinds.ts';
 
 export const EVIDENCE_LINES = 3;
@@ -34,7 +34,8 @@ export function TextBox(props: {
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Escape') props.onCancel();
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) e.currentTarget.form?.requestSubmit();
+          const form = e.currentTarget.form;
+          sendKey(e, () => form?.requestSubmit());
         }}
       />
       <button

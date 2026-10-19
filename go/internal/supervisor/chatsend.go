@@ -164,7 +164,7 @@ func (e *Env) imageLines(q db.Q, row *db.Request) string {
 const DaemonOp = "daemon:"
 
 // AuthorsOfOp are the names that wrote the text a send operation carries, and whether the operation is one whose text is known: the
-// requesters of request:<ids>, the agents that answered for answers:<ids>, the requester whose request cancelled:<id> closed, and none for
+// requesters of request:<ids>, the requester whose request cancelled:<id> closed, and none for
 // nothing for DaemonOp. Any other operation is not known, a notice:<n> (a digest of results, which quote agents) among them, and so is a
 // request from the task board, whose notices carry an agent's words under its own name, or one that cannot be read.
 func AuthorsOfOp(q db.Q, op string) (authors []string, known bool) {
@@ -175,8 +175,6 @@ func AuthorsOfOp(q db.Q, op string) (authors []string, known bool) {
 		return nil, true
 	case "request":
 		rids = ridsOfOp(op)
-	case "answers":
-		rids, _ = answerIDs(op)
 	case "cancelled":
 		n, err := strconv.ParseInt(strings.TrimPrefix(op, "cancelled:"), 10, 64)
 		if err != nil {
@@ -197,11 +195,7 @@ func AuthorsOfOp(q db.Q, op string) (authors []string, known bool) {
 		if row.Requester == db.NoticeRequester {
 			return nil, false
 		}
-		if kind == "answers" {
-			authors = append(authors, row.Target)
-		} else {
-			authors = append(authors, row.Requester)
-		}
+		authors = append(authors, row.Requester)
 	}
 	return authors, true
 }

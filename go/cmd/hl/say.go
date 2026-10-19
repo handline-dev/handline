@@ -2,23 +2,43 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/handline/handline/go/internal/hlclient"
 )
 
+// sayUsage is what `hl say --help` and a say with no target print: the heredoc is the form for a body of more than a sentence.
+const sayUsage = `usage: hl say <target> '<one sentence>'
+       hl say <target> --file - <<'EOF'
+       <the body, in Markdown: as many lines as it needs>
+       EOF
+options: --parent <id> (a reply, in its thread), --task T<n>, --no-task '<why>', --file PATH, --attach IMAGE (repeatable)`
+
+// oneLineMax is the longest body hl say takes on one line without a hint to break it into lines.
+const oneLineMax = 300
+
 // say sends a message that needs no answer and starts no work (cli/say.py cmd_say), through the say method.
 func say(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--file", "--parent", "--task", "--no-task"}, nil, nil)
-	if !ok || len(p.pos) > 2 {
+	if slices.Contains(args, "-h") || slices.Contains(args, "--help") {
+		fmt.Println(sayUsage)
+		return 0, true
+	}
+	p, ok := parse(args, []string{"--file", "--parent", "--task", "--no-task", "--attach"}, nil, nil)
+	if !ok {
 		return 0, false
 	}
+	if len(p.pos) > 2 {
+		return wrongArgs("too many words: the target, then the whole text in one pair of quotes")
+	}
 	parent, hasParent := p.opt("--parent")
-	parentN, ok1 := 0, true
+	var parentN any
+	ok1 := true
 	if hasParent {
-		parentN, ok1 = integer(parent)
+		parentN, ok1 = requestArg(parent)
 	}
 	taskN, hasTask, ok2 := optTask(p, "--task")
 	noTask, hasNoTask := p.opt("--no-task")
@@ -29,7 +49,7 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 	}
 	c.NoteVerbChain([]string{"say", ""})
 	if len(p.pos) == 0 {
-		fmt.Println("say needs a target and a body")
+		fmt.Println("say needs a target and a body\n" + sayUsage)
 		return 1, true
 	}
 	var inline *string
@@ -47,6 +67,15 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 			"inside double quotes run as commands). Resend with single quotes, or `--file -` and a " +
 			"heredoc, if text is missing.")
 	}
+	attach, abs := p.each["--attach"], []string(nil)
+	for _, a := range attach {
+		f, _ := filepath.Abs(a) // the daemon reads it from its own cwd
+		abs = append(abs, f)
+	}
+	if !strings.Contains(strings.TrimSpace(body), "\n") && utf8.RuneCountInString(body) > oneLineMax {
+		fmt.Printf("hint: this body is %d characters on one line. The receiver sees its lines: next time put each point on "+
+			"its own line, with `hl say %s --file - <<'EOF'`.\n", utf8.RuneCountInString(body), p.pos[0])
+	}
 	if !asking(c, "say") {
 		return 1, true
 	}
@@ -59,6 +88,9 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if hasNoTask {
 		params["no_task"] = noTask
+	}
+	if len(abs) > 0 {
+		params["files"] = abs
 	}
 	return said(c.Write("say", params)), true
 }

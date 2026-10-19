@@ -157,7 +157,7 @@ func TestWaitingTasksOffersARequestedTaskSkipsOneAnsweredAndOffersItAgainAfterAR
 		t.Fatalf("%+v", w)
 	}
 	// delivered and answered: the task no longer has work out
-	CloseIfQueued(q, rid, "done", "", CloseOpts{})
+	CloseIfQueued(q, rid, "done", "")
 	EndHeld(q, tid, "")
 	RefreshSent(q, tid)
 	if w, _ = WaitingTasks(q, "b"); len(w) != 0 {

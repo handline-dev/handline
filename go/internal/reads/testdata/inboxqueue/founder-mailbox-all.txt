@@ -1,14 +1,14 @@
 7 waiting. `hl read <id>` shows one whole.
 ! #5     bob          task      approve the plan
-. #4     bob          ask       which one?
 . #3     amy          say       report two (+1)
-< #6     cy           answer    done as asked
+. #4     bob          ask       which one?
+. #7     cy           say       done as asked
 . #10    dee          ask       no kind
-`hl say <who> --parent <id> "<text>"` answers one - a reply settles what it answers, and on a `<` row it goes back in that thread.
+`hl say <who> --parent <id> "<text>"` replies to one, in its thread.
 
 5 most recent, already dealt with:
-  #9     ← bob          landed    dismissed by human - stale
+  #9     ← bob          landed    old question
   #8     → cy           withdrawn and this
-  #7     ← cy           landed    done as asked
+  #6     → cy           landed    do it
   #2     ← amy          landed    report one
   #1     ← amy          landed    seen before

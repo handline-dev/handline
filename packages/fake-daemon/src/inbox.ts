@@ -39,8 +39,6 @@ export class FakeInbox {
         return this.get(p.id);
       case 'inbox.mark_read':
         return (this.markRead(p), accepted('Marked read.'));
-      case 'inbox.answer':
-        return (this.answer(p, who), accepted('Answered.'));
       case 'inbox.reply':
         return (this.reply(p), accepted('Sent.'));
       default:
@@ -62,8 +60,6 @@ export class FakeInbox {
       task: null,
       created: this.now(),
       read: false,
-      answered: false,
-      options: [],
       prompt: null,
       ...item,
     };
@@ -93,24 +89,9 @@ export class FakeInbox {
     for (const id of ids) this.change(this.find(id), { read: true });
   }
 
-  answer(p: Record<string, unknown>, who: string): void {
-    const item = this.find(p.id);
-    if (item.answered) throw refused('state', `Already answered by ${who}.`);
-    if (typeof p.option === 'string' && !item.options.some((o) => o.id === p.option))
-      throw new Failure('bad_request', `no option ${p.option}`, { field: 'option' });
-    this.change(item, { read: true, answered: true });
-  }
-
   reply(p: Record<string, unknown>): void {
     this.change(this.find(p.id), { read: true });
   }
-
-  /** An item is a request under the same id, so `chat.dismiss` takes it off the list; false when this inbox does not hold it. */
-  dismiss = (id: unknown): boolean => {
-    const at = this.items.findIndex((i) => i.id === id);
-    if (at >= 0) this.items.splice(at, 1);
-    return at >= 0;
-  };
 
   private find(id: unknown): InboxItem {
     const item = this.items.find((i) => i.id === id);

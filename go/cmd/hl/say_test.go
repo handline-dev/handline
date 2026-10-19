@@ -21,6 +21,8 @@ func TestSaySendsItsParamsAndPrintsWhatTheDaemonSaid(t *testing.T) {
 		{"from stdin", []string{"say", "b.two", "-"}, `say {"body":"from stdin","target":"b.two"}`},
 		{"piped", []string{"say", "b.two"}, `say {"body":"piped","target":"b.two"}`},
 		{"heredoc\n", []string{"say", "b.two", "--file", "-"}, `say {"body":"heredoc\n","target":"b.two"}`},
+		{"", []string{"say", "human", "look", "--attach", "/tmp/a.png", "--attach", "/tmp/b.png"},
+			`say {"body":"look","files":["/tmp/a.png","/tmp/b.png"],"target":"human"}`},
 	}
 	seen := 0
 	for _, c := range cases {
@@ -66,7 +68,7 @@ func TestSayRefusalsBeforeAnyCall(t *testing.T) {
 		args []string
 		want string
 	}{
-		{asAgent, []string{"say"}, "say needs a target and a body\n"},
+		{asAgent, []string{"say"}, "say needs a target and a body\n" + sayUsage + "\n"},
 		{asAgent, []string{"say", "b.two"}, "body is required (inline, --file PATH, or on stdin)\n"},
 		{asAgent, []string{"say", "b.two", "x", "--file", "f"}, "give body inline or with --file, not both\n"},
 		{nil, []string{"say", "b.two", "x"}, "cannot tell who is saying this: OCP_AGENT is unset and this is not an " +
@@ -87,7 +89,7 @@ func TestWhatTheSayPortDoesNotParseIsRefused(t *testing.T) {
 	calls := r.daemon(nil)
 	for _, args := range [][]string{
 		{"say", "a", "b", "c"}, {"say", "a", "b", "--parent", "x"}, {"say", "a", "b", "--task", "3"}, {"say", "a", " "},
-		{"say", "", "b"}, {"say", "a", "b", "--no-task", ""}, {"say", "a", "b", "-h"}, {"say", "a", "--", "b"},
+		{"say", "", "b"}, {"say", "a", "b", "--no-task", ""}, {"say", "a", "--", "b"},
 	} {
 		out, errs, code := r.run(asAgent, args...)
 		if code != 2 || out != "" || !strings.Contains(errs, "arguments not understood") {
@@ -95,6 +97,44 @@ func TestWhatTheSayPortDoesNotParseIsRefused(t *testing.T) {
 		}
 	}
 	if got := calls(); len(got) != 0 {
+		t.Fatalf("calls %v", got)
+	}
+}
+
+func TestSayHelpShowsTheHeredoc(t *testing.T) {
+	r := agentsRig(t)
+	calls := r.daemon(nil)
+	for _, args := range [][]string{{"say", "--help"}, {"say", "a", "b", "-h"}} {
+		if out, _, code := r.run(asAgent, args...); code != 0 || out != sayUsage+"\n" || !strings.Contains(out, "--file - <<'EOF'") {
+			t.Errorf("%v: %q %d", args, out, code)
+		}
+	}
+	if got := calls(); len(got) != 0 {
+		t.Fatalf("calls %v", got)
+	}
+}
+
+func TestALongOneLineBodyGetsAHintAndStillGoes(t *testing.T) {
+	r := agentsRig(t)
+	calls := r.daemon(map[string]string{"say": `{"accepted":true,"said":"sent"}`})
+	long := strings.Repeat("word ", 61)
+	hint := "hint: this body is 305 characters on one line. The receiver sees its lines: next time put each point on " +
+		"its own line, with `hl say b.two --file - <<'EOF'`.\n"
+	for _, c := range []struct {
+		stdin string
+		args  []string
+		want  string
+	}{
+		{"", []string{"say", "b.two", long}, hint + "sent\n"},
+		{long, []string{"say", "b.two", "--file", "-"}, hint + "sent\n"},
+		{long[:300], []string{"say", "b.two", "--file", "-"}, "sent\n"},
+		{long + "\n" + long, []string{"say", "b.two", "--file", "-"}, "sent\n"},
+	} {
+		if out, _, code := r.runIn(c.stdin, asAgent, c.args...); code != 0 || out != c.want {
+			t.Errorf("%v: %q %d", c.args[2:], out, code)
+		}
+	}
+	if got := calls(); len(got) != 4 {
 		t.Fatalf("calls %v", got)
 	}
 }

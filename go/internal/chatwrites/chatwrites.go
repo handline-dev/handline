@@ -12,6 +12,7 @@ import (
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/taskwrites"
@@ -25,11 +26,9 @@ func Register(s *rpc.Server, e *supervisor.Env, tell taskwrites.Teller) {
 	w := &writes{e, tell, attachments.New(e.Home)}
 	s.Register("chat.send", rpc.Method{Role: "member", Write: true, Handler: w.send, Refresh: w.refreshSend})
 	s.Register("chat.send_now", rpc.Method{Role: "member", Write: true, Handler: w.sendNow})
-	s.Register("chat.dismiss", rpc.Method{Role: "member", Write: true, Handler: w.dismiss})
 	s.Register("chat.cancel", rpc.Method{Role: "member", Write: true, Handler: w.cancel})
 	s.Register("chat.seen", rpc.Method{Role: "member", Write: true, Handler: w.seen})
 	s.Register("inbox.mark_read", rpc.Method{Role: "agent", Write: true, Handler: w.markRead})
-	s.Register("inbox.answer", rpc.Method{Role: "member", Write: true, Handler: w.inboxAnswer})
 	s.Register("inbox.reply", rpc.Method{Role: "agent", Write: true, Handler: w.inboxReply})
 	w.registerMessages(s)
 	w.registerAnswers(s)
@@ -55,6 +54,18 @@ func requestParam(p map[string]any, key string) (int64, error) {
 	}
 	return n, nil
 }
+
+// refParam is the request p[key] names, by id or ref. One the caller may not read gets missing's answer, so it is told what a missing
+// one is told.
+func (w *writes) refParam(q db.Q, c *rpc.Conn, p map[string]any, key string, missing func(name string) error) (int64, error) {
+	rid, err := requestref.Resolve(q, w.e.Home, p[key], requestref.Viewer(c), key)
+	if name, ok := requestref.Missing(err); ok {
+		return 0, missing(name)
+	}
+	return rid, err
+}
+
+func noMessage(name string) error { return notFound("message", name, "no message "+name) }
 
 func text(p map[string]any, key string) (string, error) {
 	s, ok := p[key].(string)
@@ -188,7 +199,7 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 		if task != nil {
 			return nil, badParam("a message under another is not a task", "parent")
 		}
-		if parent, err = requestParam(p, "parent"); err != nil {
+		if parent, err = w.refParam(w.e.DB, c, p, "parent", noMessage); err != nil {
 			return nil, err
 		}
 	}
@@ -223,6 +234,10 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 		if res != nil {
 			if err == nil && res.OK && len(images) > 0 {
 				err = attachments.Record(tx, res.Request, images)
+			}
+			// The connection proved the founder (the founder key, or a paired device): these are the founder's own words.
+			if err == nil && res.OK && res.Request != 0 && c.Caller.Role == "founder" {
+				err = db.MarkFounderAuthored(tx, res.Request)
 			}
 			return res, map[string]any{"request": res.Request}, err
 		}
@@ -265,29 +280,11 @@ func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, 
 	if _, err := message(tx, parent); err != nil {
 		return nil, err
 	}
-	return sayWriteLinked(w.e, tx, db.Human, agent, body, parent, true, nil, act)
-}
-
-func (w *writes) dismiss(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := requestParam(p, "request")
-	if err != nil {
-		return nil, err
-	}
-	return w.writeResult(c, refuse, func(tx *sql.Tx) (*Result, map[string]any, error) {
-		row, err := message(tx, rid)
-		if err != nil {
-			return nil, nil, err
-		}
-		if row.Target != db.Human && row.Requester != db.Human {
-			return nil, nil, rpc.Refused(fmt.Sprintf("#%d is not between the person and an agent", rid), "state", "")
-		}
-		res, err := DismissWrite(w.e, tx, rid, c.Caller.Actor(), "", nil, nil, nil)
-		return res, nil, err
-	})
+	return sayWrite(w.e, tx, db.Human, agent, body, parent, nil, act)
 }
 
 func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := requestParam(p, "request")
+	rid, err := w.refParam(w.e.DB, c, p, "request", noMessage)
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +309,7 @@ func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {
 			return nil, nil, err
 		}
 		if row.Requester != db.Human {
-			return nil, nil, rpc.Refused(fmt.Sprintf("#%d is not a message the person sent", rid), "state", "")
+			return nil, nil, rpc.Refused("that message is not one the person sent", "state", "")
 		}
 		if _, err := w.e.ReopenConfirmed(tx, row); err != nil { // rolled back with the transaction when the confirm is missing
 			return nil, nil, err
@@ -351,7 +348,7 @@ func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {
 			if cp == nil { // never delivered: withdrawn, and nobody is told
 				return note
 			}
-			return guarded(w.e, fmt.Sprintf("telling after the cancel of #%d", rid), func() (string, error) { return w.e.CancelTell(w.e.DB, cp) })
+			return guarded(w.e, fmt.Sprintf("telling after the cancel of request %d", rid), func() (string, error) { return w.e.CancelTell(w.e.DB, cp) })
 		}}, nil, nil
 	})
 	if err == nil {
@@ -369,7 +366,7 @@ func (w *writes) seen(c *rpc.Conn, p map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	said := fmt.Sprintf("%s's messages up to #%d are seen", agent, upto)
+	said := fmt.Sprintf("%s's messages are marked seen", agent)
 	return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 		if err := ForYouSeen(tx, agent, upto); err != nil {
 			return nil, err
@@ -379,9 +376,11 @@ func (w *writes) seen(c *rpc.Conn, p map[string]any) (any, error) {
 }
 
 func (w *writes) sendNow(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, ok := rpc.AsInt(p["request"])
-	if !ok {
-		return nil, badParam("request is the integer id of a queued message", "request")
+	rid, err := w.refParam(w.e.DB, c, p, "request", func(name string) error {
+		return notFound("request", name, "no message "+name+" of yours")
+	})
+	if err != nil {
+		return nil, err
 	}
 	if out, handled, err := w.promoteHeld(c, rid); handled {
 		return out, err

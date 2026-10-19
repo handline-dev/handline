@@ -23,7 +23,7 @@ func supervise(tk *Tick, agent string) []string {
 
 func addRequest(t *testing.T, tk *Tick, target string) {
 	t.Helper()
-	if _, err := db.AddRequest(tk.Q, db.NewRequest{Requester: "human", Target: target, Body: "x", Response: "async", Kind: "ask"}); err != nil {
+	if _, err := db.AddRequest(tk.Q, db.NewRequest{Requester: "human", Target: target, Body: "x", Kind: "ask"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -246,6 +246,19 @@ func TestAFiredTriggerHandsTheAgentOffAndDegradedOnesCountTowardsAStall(t *testi
 	row, _ := db.GetAgentState(tk.Q, "a")
 	if row.State != states.Stalled {
 		t.Fatalf("%+v", row)
+	}
+}
+
+func TestAHandoffThatParksWithItsWakeDueStartsTheNextSessionInTheSameTick(t *testing.T) {
+	tk, w := newWorld(t)
+	over := 250_000
+	w.status = Status{TrustedCtxUsed: &over}
+	w.performOK = true
+	w.onHandoff = func() { setState(t, tk, "a", states.Parked, 9_999) }
+	w.wakeOK = true
+	supervise(tk, "a")
+	if !w.did("handoff a context") || !w.did("wake a") {
+		t.Fatalf("the wake waits for the next poll: %v", w.calls)
 	}
 }
 

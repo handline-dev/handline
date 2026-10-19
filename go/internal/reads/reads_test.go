@@ -72,6 +72,9 @@ func TestAnAgentWithNoStoredViewIsListedWithItsRoleAndTheNoTerminalState(t *test
 		out.Agents[1]["state"] != "no_terminal" || out.Agents[1]["role"] != "Does   the work." {
 		t.Fatalf("%s", b)
 	}
+	if s, _ := out.Agents[1]["status"].(map[string]any); s["state"] != "off" || s["reason"] != "none" {
+		t.Fatalf("status %v", out.Agents[1]["status"])
+	}
 }
 
 func TestTheWordForNoStoredViewIsOneOfTheSpecs(t *testing.T) {
@@ -175,13 +178,13 @@ func TestABoardReadsAReportedTaskAsReportedAndFreesItsOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := b.state(rows[0]); got != "reported" {
+	if got := b.state(rows[0]); got != "review" {
 		t.Fatalf("a task with a report waiting reads %s", got)
 	}
 	if got := b.state(rows[1]); got != "doing" {
 		t.Fatalf("the owner of a reported task is free for the next: %s", got)
 	}
-	task, err := e.taskOf(rows[0], "reported")
+	task, err := e.taskOf(rows[0], "review", b)
 	if err != nil {
 		t.Fatal(err)
 	}

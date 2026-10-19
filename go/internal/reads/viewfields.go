@@ -89,7 +89,7 @@ func (e *Env) founderFields(f *viewFields) error {
 			cur = cr.i("row_id")
 			seen[m.from] = cur
 		}
-		if m.seq > cur {
+		if m.id > cur {
 			f.founderUnread[m.from]++
 		}
 	}

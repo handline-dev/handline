@@ -31,9 +31,10 @@ export class FakeHr {
     this.host.emit('hr', 'hr.raised', { agent: full.agent, title: full.title, data: { proposal: full } });
     return full;
   }
-  settle(p: Proposal, state: string, error: string | null = null) {
+  settle(p: Proposal, state: string, error: string | null = null, note?: string) {
     p.state = state;
     p.error = error;
+    if (note) p.note = note;
     p.settled = this.host.iso();
     this.host.emit('hr', 'hr.settled', { agent: p.agent, title: p.title, data: { proposal: p } });
   }
@@ -57,9 +58,10 @@ export const HR_HANDLERS: Record<string, (h: Call) => unknown> = {
     if (!WAITING.has(prop.state)) throw gate('proposal_settled', `the proposal is already ${prop.state}`, prop);
     if (typeof p.subject === 'string' && p.subject !== prop.subject)
       throw gate('proposal_changed', 'the proposal changed after you read it', prop);
-    if (p.decision === 'reject') hr.settle(prop, 'rejected');
-    else if (hr.failApply.has(prop.id)) hr.settle(prop, 'apply_failed', hr.failApply.get(prop.id));
-    else hr.settle(prop, 'approved');
+    const note = typeof p.note === 'string' && p.note.trim() ? p.note : undefined;
+    if (p.decision === 'reject') hr.settle(prop, 'rejected', null, note);
+    else if (hr.failApply.has(prop.id)) hr.settle(prop, 'apply_failed', hr.failApply.get(prop.id), note);
+    else hr.settle(prop, 'approved', null, note);
     return script.accepted('Decided.');
   },
   'hr.withdraw': (h) => {

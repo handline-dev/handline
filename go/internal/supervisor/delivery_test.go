@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/states"
 )
 
 func (r *rig) ask(from, to, body, kind string) int64 {
@@ -18,6 +19,31 @@ func (r *rig) ask(from, to, body, kind string) int64 {
 	}
 	out.Finish()
 	return out.RID
+}
+
+func TestASayIsTypedWithItsLines(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	out, err := r.Say(r.DB, SayIn{Target: "bob", Body: "Done:\n\n- one\x07\n- two\n", Requester: "alice"})
+	r.must(err)
+	head := mustReq(r, out.RID)
+	if got := r.ids(tellText(r.DB, head, 1, nil, false, nil, "")); !strings.HasPrefix(got, "#1 from alice, waiting for you:\nDone:\n\n- one\n- two\n`hl read #1`") {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestAHandoffNoteIsTypedWithItsLinesAndTheTitleOnItsOwn(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	for note, want := range map[string]string{
+		"Step 1:\n- a\x07\n- b": "T1 handed to you. Note: Step 1:\n- a\n- b\nTitle: write the docs\n",
+		"check it":              "T1 handed to you. Note: check it Title: write the docs\n",
+	} {
+		head := mustReq(r, r.ask("alice", "bob", "T1 handed to you by alice: write the docs\n\n"+note, "task"))
+		if got := tellText(r.DB, head, 1, nil, false, nil, ""); !strings.Contains(got, "waiting for you:\n"+want) {
+			t.Errorf("%q", got)
+		}
+	}
 }
 
 func TestDeliverQueuedTellsTheHeadTaskThenBatchesWhatArrivesBehindIt(t *testing.T) {
@@ -32,7 +58,7 @@ func TestDeliverQueuedTellsTheHeadTaskThenBatchesWhatArrivesBehindIt(t *testing.
 	if n, _ := db.Cursor(r.DB, "notify:bob"); n != head {
 		t.Fatalf("notify cursor %d", n)
 	}
-	if got := r.term.last(); !strings.HasPrefix(got, "#1 from alice, waiting for you:\nfirst job\n`hl read 1` shows it whole; you own T1 now: hand it on with ") {
+	if got := r.term.last(); !strings.HasPrefix(got, "#1 from alice, waiting for you:\nfirst job\n`hl read #1` shows it whole; you own T1 now: hand it on with ") {
 		t.Fatalf("%q", got)
 	}
 	// two more arrive behind the open head: told as a batch, once a minute
@@ -78,13 +104,30 @@ func TestDeliverQueuedExplainsWhyItIsHolding(t *testing.T) {
 	if !ok || why != "no live session" || contestable {
 		t.Fatalf("%q %v %v", why, contestable, ok)
 	}
-	if !r.logged("#1 is held - no live session") {
+	if !r.logged("request 1 is held - no live session") {
 		t.Fatal(r.logs)
 	}
 	r.logs = nil
 	r.DeliverQueued(r.DB, "bob")
 	if r.logged("is held") {
 		t.Fatal("the same reason is logged on every tick")
+	}
+}
+
+func TestTheLoadHoldsATaskForAnAgentAtItsPromptButNotOneMidTurn(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.task("bob", "alice", "job")
+	r.LoadHeld = func(string) string { return "held: machine load - 3 of 3 agents mid-turn" }
+	if sent, _ := r.DeliverQueued(r.DB, "bob"); sent || len(r.term.typed) != 0 {
+		t.Fatal("a task started a turn past the load")
+	}
+	if why, _, ok := r.HeldReason("bob", r.clock); !ok || why != "held: machine load - 3 of 3 agents mid-turn" {
+		t.Fatalf("%q %v", why, ok)
+	}
+	r.must(db.SetAgentState(r.DB, "bob", states.Running, 0, ""))
+	if sent, _ := r.DeliverQueued(r.DB, "bob"); !sent {
+		t.Fatal("an agent mid-turn was not told")
 	}
 }
 
@@ -142,7 +185,7 @@ func TestEnforceEdgesDeniesWhatTheTableDoesNotAllow(t *testing.T) {
 	if row, _ := db.GetRequest(r.DB, rid); row.State != "queued" || row.EdgeOK.Int64 != 1 {
 		t.Fatalf("%+v", row)
 	}
-	if row, _ := db.GetRequest(r.DB, deep); row.State != "denied" || row.Answer.String != "refused at delivery: chain depth 4 reached the limit 4 (loop guard)" {
+	if row, _ := db.GetRequest(r.DB, deep); row.State != "denied" || row.Reason.String != "refused at delivery: chain depth 4 reached the limit 4 (loop guard)" {
 		t.Fatalf("%+v", row)
 	}
 	// a system name is not an agent's edge
@@ -162,20 +205,17 @@ func TestEnforceEdgesDeniesWhatTheTableDoesNotAllow(t *testing.T) {
 	}
 }
 
-func TestDeliverAnswersTellsWhatCameBackOnce(t *testing.T) {
+func TestResolvingAnAskTypesNothingAtItsAsker(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("alice")
 	q := r.ask("alice", "bob", "what time is it", "ask")
-	ok, msg, err := r.Resolve(r.DB, ResolveIn{RID: q, Verdict: "noon", Notify: true})
+	ok, msg, err := r.Resolve(r.DB, ResolveIn{RID: q, Verdict: "noon"})
 	r.must(err)
-	if !ok || !strings.Contains(msg, "alice has been told") {
+	if !ok || strings.Contains(msg, "alice") {
 		t.Fatal(ok, msg)
 	}
-	if r.term.last() != "Answers to what you asked:\n#1 (you asked: what time is it) bob: noon" {
-		t.Fatalf("%q", r.term.last())
-	}
-	if again, _ := r.DeliverAnswers(r.DB, "alice"); again {
-		t.Fatal("told twice")
+	if last := r.term.last(); last != "" {
+		t.Fatalf("an answer is no longer typed at whoever asked: %q", last)
 	}
 }
 
@@ -185,7 +225,7 @@ func TestWaitingPromptIsTheTellTheNextTickWouldType(t *testing.T) {
 	rid := r.ask("alice", "bob", "wake up", "ask")
 	text, told, ok, err := r.WaitingPrompt(r.DB, "bob")
 	r.must(err)
-	if !ok || !strings.HasPrefix(text, "#1 from alice, waiting for you:\nwake up\n") {
+	if !ok || !strings.HasPrefix(r.ids(text), "#1 from alice, waiting for you:\nwake up\n") {
 		t.Fatalf("%q", text)
 	}
 	if row, _ := db.GetRequest(r.DB, rid); !row.DeliveredAt.Valid {

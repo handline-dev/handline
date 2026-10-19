@@ -9,14 +9,12 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/loadgate"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/usage"
 )
-
-// The numbers the settings screen shows as defaults (timebox.py, delivery.py): the daemon's own constants, not config.
-const stopWaitBackstopS = 900
 
 // perAgent is rpc_settings.PER_AGENT: the settings an agent.yaml may override.
 var perAgent = []string{"park_timeout_s", "ignore_cache_expiry", "bg_notice_s", "bg_grace_s", "bg_check_s", "notice_digest_s", handoff.PromptKey}
@@ -99,6 +97,7 @@ func (e *Env) settingsValues() map[string]any {
 	cfg := usage.LoadConfig(e.Home)
 	s := &lifecycle.Settings{Home: e.Home}
 	park := s.DefaultCloseTimeoutS()
+	limits := loadgate.LimitsOf(cfg)
 	bgNotice := park
 	if bgNotice == 0 {
 		bgNotice = 1
@@ -112,15 +111,21 @@ func (e *Env) settingsValues() map[string]any {
 	return map[string]any{
 		"active_cap": cfg.DefaultCap(), "park_timeout_s": park, "handoff_note": s.Flag("handoff_note", true),
 		"auto_accept_dialogs": s.Flag("auto_accept_dialogs", true), "ignore_cache_expiry": cfg["ignore_cache_expiry"] == true,
-		"dev_mode":    truthy(cfg["dev_mode"]),
+		"dev_mode":    DevMode(cfg),
 		"bg_notice_s": s.ConfigSeconds("bg_notice_s", bgNotice), "bg_grace_s": s.ConfigSeconds("bg_grace_s", lifecycle.BgGraceS),
 		"bg_check_s": s.ConfigSeconds("bg_check_s", lifecycle.BgCheckS), "notice_digest_s": s.ConfigSeconds("notice_digest_s", lifecycle.NoticeDigestS),
-		"stop_wait_backstop_s": s.ConfigSeconds("stop_wait_backstop_s", stopWaitBackstopS),
-		"token_prices":         prices,
-		"input_hold_idle_s":    s.ConfigSeconds("input_hold_idle_s", defaultHoldIdleS),
-		handoff.PromptKey:      handoffPrompt(s.TextSetting("", handoff.PromptKey)),
+		"token_prices":      prices,
+		"input_hold_idle_s": s.ConfigSeconds("input_hold_idle_s", defaultHoldIdleS),
+		handoff.PromptKey:   handoffPrompt(s.TextSetting("", handoff.PromptKey)),
+		// Whether each notifications event raises a notice on the founder's devices; the event is on the topic either way.
+		"push_prompt_asked": s.Flag("push_prompt_asked", true), "push_task_done": s.Flag("push_task_done", true),
+		"push_stall": s.Flag("push_stall", true), "push_account_out": s.Flag("push_account_out", true),
+		loadgate.AgentCapKey: limits.Agents, loadgate.LoadPctKey: limits.LoadPct, loadgate.RAMFreePctKey: limits.RAMFreePct,
 	}
 }
+
+// DevMode is whether config turns dev mode on (dev_mode in config.yaml): the daemon restarts itself when its own code changed.
+func DevMode(cfg usage.Config) bool { return truthy(cfg["dev_mode"]) }
 
 // handoffPrompt is the handoff prompt as set, or the built-in one it falls back to.
 func handoffPrompt(set string) string {

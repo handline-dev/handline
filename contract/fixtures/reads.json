@@ -114,12 +114,6 @@
         "state": {
          "$type": "string"
         },
-        "relation": {
-         "$type": "string"
-        },
-        "response": {
-         "$type": "string"
-        },
         "created": {
          "$type": "timestamp"
         }
@@ -292,12 +286,6 @@
         },
         "read": {
          "$type": "boolean"
-        },
-        "answered": {
-         "$type": "boolean"
-        },
-        "options": {
-         "$type": "array"
         }
        }
       },

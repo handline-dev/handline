@@ -46,6 +46,11 @@ func (l *Launcher) Build(agent string, extra []string, force bool, account strin
 	if theirs := p.Vendors.AccountVendor(acct); theirs != drv.Name() {
 		return nil, nil, refuse("agent '%s' is a %s agent and account '%s' is a %s account - refusing to start it there.", agent, drv.Name(), acct, theirs)
 	}
+	if resuming && drv.Name() == "claude" {
+		if err := carrySession(l.Home, acct, extra); err != nil {
+			l.warn("warning: the session %s resumes is under another account and could not be copied to %s: %v", resumeID(extra), acct, err)
+		}
+	}
 
 	if hooks := drv.Hooks(); hooks != nil {
 		// An unreadable settings file is doctor's to report, not a reason not to start.
@@ -212,11 +217,19 @@ func (l *Launcher) keepWhatItStartsWith(agent string, extra []string, prompt, wh
 
 // ExecAgent builds the launch and becomes the agent. It returns only when the launch is refused or the exec fails.
 func (l *Launcher) ExecAgent(agent string, extra []string, force bool, promptFile, account, why, by string) error {
+	if err := l.refuseOthersPane(agent); err != nil {
+		return err
+	}
 	argv, env, err := l.Build(agent, append([]string(nil), extra...), force, account)
 	if err != nil {
 		return err
 	}
 	prompt := TakePrompt(promptFile)
+	if promptFile == "" && !slices.Contains(extra, "--resume") {
+		if prompt, err = l.handLaunchPrompt(agent); err != nil {
+			return err
+		}
+	}
 	if err := l.keepWhatItStartsWith(agent, extra, prompt, why, by); err != nil {
 		return err // Python reads the waiting handoff outside its never-block try
 	}
@@ -249,6 +262,38 @@ func (l *Launcher) ExecAgent(agent string, extra []string, force bool, promptFil
 		flat = append(flat, k+"="+env[k])
 	}
 	return l.Ports.Exec(argv[0], argv, flat)
+}
+
+// refuseOthersPane refuses a launch from a pane the daemon opened for another agent: the pane is that agent's terminal, not ours to take.
+func (l *Launcher) refuseOthersPane(agent string) error {
+	if l.Ports.TerminalHandle == nil || l.Ports.PaneAgent == nil {
+		return nil
+	}
+	handle := l.Ports.TerminalHandle()
+	if handle == "" {
+		return nil
+	}
+	if owner := l.Ports.PaneAgent(handle); owner != "" && owner != agent {
+		return fmt.Errorf("terminal %s was opened for %s; %s cannot be launched in it", handle, owner, agent)
+	}
+	return nil
+}
+
+// handLaunchPrompt starts the first turn of a fresh session a person launched: without one it sits at an empty prompt, and the daemon
+// types nothing to an agent whose task is already in hand.
+func (l *Launcher) handLaunchPrompt(agent string) (string, error) {
+	handoff, err := db.GetHandoff(l.Q, agent)
+	if err != nil {
+		return "", err
+	}
+	if handoff != "" {
+		return "This is a fresh session. Your handoff is in your system prompt above; pick the task back up from it.", nil
+	}
+	tid, held, err := db.CurrentTask(l.Q, agent)
+	if err != nil || !held {
+		return "", err
+	}
+	return fmt.Sprintf("This is a fresh session and your context is empty. You hold T%d: read it with `hl task show T%d` and carry on with it.", tid, tid), nil
 }
 
 // recordTerminal remembers where we are about to become the agent: the terminal, the account, and what Build produced this launch with.

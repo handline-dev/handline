@@ -53,6 +53,33 @@ func pyRepr(s string) string {
 
 func priorityRef(n int64) string { return fmt.Sprintf("P%d", n) }
 
+// pointsRef is an estimate as an edit records it: "" for none.
+func pointsRef(n int64) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d points", n)
+}
+
+// estimatePoints are the story points a task may be estimated at.
+var estimatePoints = map[int64]bool{1: true, 2: true, 3: true, 5: true, 8: true, 13: true}
+
+// estimateParam is the estimate param: its points, 0 for an explicit null (clear it), and whether it was given at all.
+func estimateParam(p map[string]any) (int64, bool, error) {
+	v, given := p["estimate"]
+	if !given {
+		return 0, false, nil
+	}
+	if v == nil {
+		return 0, true, nil
+	}
+	n, ok := rpc.AsInt(v)
+	if !ok || !estimatePoints[n] {
+		return 0, false, badParam("estimate is story points: 1, 2, 3, 5, 8 or 13", "estimate")
+	}
+	return n, true, nil
+}
+
 type change struct {
 	key      string
 	old, new string
@@ -77,7 +104,7 @@ func undeliverable(tx *sql.Tx, t *task, to, home string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if d := tm.Route(asker, to, 0, false); !d.Allowed {
+	if d := tm.Route(asker, to, 0); !d.Allowed {
 		return fmt.Sprintf("T%d cannot go to %s: its brief is sent on %s's behalf, and %s", t.ID, to, asker, d.Reason), nil
 	}
 	return "", nil
@@ -108,9 +135,9 @@ func waitIsOwnBookkeeping(tx *sql.Tx, home string, tid, other int64) (bool, erro
 	return group != "" && tm.TeamOf(b.Owner) == group, nil
 }
 
-// editTask is actions.edit_task: a task's owner, reporter, title, priority, timeout and/or body changed by anyone; every change is kept as
-// an edit_task event under who made it. It answers the refusal ("" when it edited) and the message.
-func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, title, body *string, priority, timeoutS *int64) (string, string, error) {
+// editTask is actions.edit_task: a task's owner, reporter, title, priority, estimate (0 clears it), timeout and/or body changed by anyone;
+// every change is kept as an edit_task event under who made it. It answers the refusal ("" when it edited) and the message.
+func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, title, body *string, priority, estimate, timeoutS *int64) (string, string, error) {
 	t, err := getTask(tx, tid)
 	if err != nil {
 		return "", "", err
@@ -118,14 +145,14 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 	if t == nil {
 		return fmt.Sprintf("no task T%d", tid), "", nil
 	}
-	reshape := title != nil || priority != nil || timeoutS != nil || body != nil
+	reshape := title != nil || priority != nil || estimate != nil || timeoutS != nil || body != nil
 	if owner != nil && *owner != t.Owner && *owner != human {
 		if why, err := undeliverable(tx, t, *owner, home); err != nil || why != "" {
 			return why, "", err
 		}
 	}
 	if owner == nil && reporter == nil && !reshape {
-		return "edit needs a new assignee, a new owner, a new title, a new priority, --timeout, a new body, or any of them", "", nil
+		return "edit needs a new assignee, a new owner, a new title, a new priority, an estimate, --timeout, a new body, or any of them", "", nil
 	}
 	var changes []change
 	var newBody *string
@@ -191,6 +218,17 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 			changes = append(changes, change{key: "priority", old: priorityRef(cur), new: priorityRef(*priority)})
 		}
 	}
+	if estimate != nil {
+		var cur sql.NullInt64
+		if err := tx.QueryRow("SELECT estimate FROM tasks WHERE id = ?", tid).Scan(&cur); err != nil {
+			return "", "", err
+		}
+		if *estimate != cur.Int64 {
+			changes = append(changes, change{key: "estimate", old: pointsRef(cur.Int64), new: pointsRef(*estimate)})
+		} else {
+			estimate = nil
+		}
+	}
 	doing := false
 	if timeoutS != nil {
 		switch {
@@ -215,7 +253,7 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 	if len(changes) == 0 {
 		return fmt.Sprintf("task T%d already reads that way - nothing to edit", tid), "", nil
 	}
-	if err := db.EditTask(tx, tid, by, db.TaskEdit{Owner: newOwner, Reporter: newReporter, Title: newTitle, Priority: newPriority, TimeoutS: timeoutS, IsDoing: doing}); err != nil {
+	if err := db.EditTask(tx, tid, by, db.TaskEdit{Owner: newOwner, Reporter: newReporter, Title: newTitle, Priority: newPriority, Estimate: estimate, TimeoutS: timeoutS, IsDoing: doing}); err != nil {
 		return "", "", err
 	}
 	if newOwner != nil {
@@ -248,6 +286,31 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 		return "", "", err
 	}
 	return "", fmt.Sprintf("task T%d edited by %s: %s", tid, by, strings.Join(said, ", ")), nil
+}
+
+// setPR names the pull request an open task's work merges in: accepted, the task then waits on that PR's merge (acceptForMerge).
+func setPR(tx *sql.Tx, tid int64, by string, pr int64) (string, string, error) {
+	t, err := getTask(tx, tid)
+	if err != nil || t == nil {
+		return fmt.Sprintf("no task T%d", tid), "", err
+	}
+	if t.done() || t.DiscardedBy.String != "" {
+		return fmt.Sprintf("task T%d is already finished - its PR no longer matters", tid), "", nil
+	}
+	if t.PR.Int64 == pr {
+		return fmt.Sprintf("task T%d already names PR #%d - nothing to edit", tid, pr), "", nil
+	}
+	old := ""
+	if t.PR.Valid {
+		old = fmt.Sprintf("#%d", t.PR.Int64)
+	}
+	if _, err := tx.Exec("UPDATE tasks SET pr = ?, edited_by = ?, edited_at = ? WHERE id = ?", pr, by, db.Now(), tid); err != nil {
+		return "", "", err
+	}
+	if err := addEvent(tx, by, "edit_task", kv{"task_id", tid}, kv{"pr", rpc.Pairs{{K: "old", V: old}, {K: "new", V: fmt.Sprintf("#%d", pr)}}}); err != nil {
+		return "", "", err
+	}
+	return "", fmt.Sprintf("task T%d edited by %s: pr %s -> '#%d'", tid, by, pyRepr(old), pr), nil
 }
 
 // saidAs is how an edit's reply names a field: the owner column holds who works the task (its assignee), the reporter who answers for it
@@ -306,6 +369,14 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			}
 			priority = &n
 		}
+		points, hasEstimate, err := estimateParam(p)
+		if err != nil {
+			return nil, err
+		}
+		var estimate *int64
+		if hasEstimate {
+			estimate = &points
+		}
 		blocker, hasBlocker, err := optionalTask(p, "blocked_by")
 		if err != nil {
 			return nil, err
@@ -323,9 +394,17 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			return nil, err
 		}
 		hasTags := len(addTags) > 0 || len(removeTags) > 0
-		fields := owner != nil || reporter != nil || title != nil || body != nil || timeoutS != nil || priority != nil
-		if !fields && !hasBlocker && !hasUnblock && !hasTags {
-			return nil, badParam("edit needs an owner, a reporter, a title, a priority, a body, a time_box, blocked_by, unblock, add_tags or remove_tags", "")
+		var pr int64
+		if p["pr"] != nil {
+			n, ok := rpc.AsInt(p["pr"])
+			if !ok || n <= 0 {
+				return nil, badParam("pr is a pull request number", "pr")
+			}
+			pr = n
+		}
+		fields := owner != nil || reporter != nil || title != nil || body != nil || timeoutS != nil || priority != nil || estimate != nil
+		if !fields && !hasBlocker && !hasUnblock && !hasTags && pr == 0 {
+			return nil, badParam("edit needs an owner, a reporter, a title, a priority, an estimate, a body, a time_box, blocked_by, unblock, add_tags, remove_tags or pr", "")
 		}
 		for _, who := range []*string{owner, reporter} {
 			if who != nil && *who != human && !contains(paths.ListAgents(home), *who) {
@@ -346,7 +425,7 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			}
 			var msgs, tellMsgs []string
 			if fields {
-				why, msg, err := editTask(tx, tid, me, home, owner, reporter, title, body, priority, timeoutS)
+				why, msg, err := editTask(tx, tid, me, home, owner, reporter, title, body, priority, estimate, timeoutS)
 				if err != nil {
 					return nil, err
 				}
@@ -365,6 +444,17 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 					return nil, refusal(why)
 				}
 				msgs = append(msgs, msg)
+			}
+			if pr != 0 {
+				why, msg, err := setPR(tx, tid, me, pr)
+				if err != nil {
+					return nil, err
+				}
+				if why != "" {
+					return nil, refusal(why)
+				}
+				msgs = append(msgs, msg)
+				tellMsgs = append(tellMsgs, msg)
 			}
 			if hasBlocker {
 				why, err := recordBlock(tx, tid, blocker, me)

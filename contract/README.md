@@ -38,6 +38,7 @@ A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, 
 - `chat_parent.json` needs `--var ask_agent=NAME`: an agent with one open question to the person (a message to `human` with no answer). The Go run seeds it (`tools/conformance_fds.py`).
 - `request_read.json` reuses `ask_agent` and needs its question to read `which one?`.
 - `inbox_queue.json` reuses `ask_agent`.
+- `chat.json` reuses `ask_agent` for its `chat.locate` by name.
 - `reply_parent.json` needs `--var reply_agent=NAME` (a structured agent with no turn running whose transcript holds a reply and a tool call) and, for one, `other_reply_agent` (another agent whose transcript holds a reply). Every fixture uses fixed request ids, so run the file once per daemon. The Go run does not supply them yet (`go/conformance-needvar.txt`).
 - `transcript_session.json` needs `--var session_agent=NAME`: an agent with at least one session start that did not resume. The Go run seeds it (`tools/conformance_fds.py`).
 - `agent_view_fields.json` needs `--var view_ready_agent`, `view_blocked_agent`, `view_busy_agent`, `view_walled_agent` and `view_plain_agent`: agents shaped as each name says (idle with a queued current task and no blocker; idle with one an open blocker holds; running; closed and waiting on an account's window; closed with nothing holding a wake). The Go run does not supply them yet (`go/conformance-needvar.txt`). The TS fake plays them (`view.ready` and so on, with `--conformance`).

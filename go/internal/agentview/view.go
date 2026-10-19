@@ -85,6 +85,10 @@ type Env struct {
 	// DropGone has Refresh delete the row of any agent that is gone. Off while the Python daemon still keeps the rows of terminal
 	// agents: then the rows this Env does not write are none of its business, gone or not.
 	DropGone bool
+	// Walled is what holds back a wake of agent that is due, nil when nothing does or nothing would wake it. Nil is never.
+	Walled func(agent string, row *db.AgentState) *Wall
+	// LoadHeld is why the machine's load holds the start of agent's waiting work, "" when it does not. Nil is never.
+	LoadHeld func(agent string) string
 }
 
 func (e *Env) now() int64 {
@@ -214,6 +218,9 @@ func (e *Env) word(agent string, row *db.AgentState, now int64, needs *NeedsYou)
 		if strings.HasPrefix(detail, states.MovingMark) {
 			return "MOVING", ""
 		}
+		if e.Alive(agent) && e.Busy(agent) { // a message woke it: the turn runs whatever the parked row says
+			return "RUNNING", ""
+		}
 		if !row.WakeAt.Valid || row.WakeAt.Int64 == 0 {
 			return "PENDING", ""
 		}
@@ -311,6 +318,11 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		detail = clip(textsafe.Oneline(wait), DetailCap)
 	}
 	state, detail := e.wire(agent, row, word, detail)
+	handoff := must(e.handoffView(agent, row, now))
+	// A restart parks the agent only until its next session begins: it waits for no time, so it is queued, and starting once launched.
+	if h, ok := handoff.(map[string]any); ok && state == "parked" && h["phase"] == "starting" && h["cause"] != "move" {
+		state, detail = "queued", ""
+	}
 	if (state == "no_terminal" || state == "idle" || state == "queued") && e.starting(agent) {
 		state, detail = "starting", ""
 	}
@@ -375,7 +387,8 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		"block": block, "wall_reason": wall, "background_since": bg,
 		"would_wake": row != nil && must(e.WouldWake(row)),
 		"blocker":    blocker, "account": account, "task": task, "cache_until": cache, "ctx_pct": ctx,
-		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(needs), "handoff": must(e.handoffView(agent, row, now)),
+		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(needs), "handoff": handoff,
+		"status": e.status(agent, row, state, detail, handoff, now).Map(),
 	}, nil
 }
 
@@ -451,8 +464,8 @@ func (e *Env) Refresh() error {
 }
 
 // handoffView is the handoff the agent is in the middle of, nil for none: its note is awaited or its record taken (writing), or the
-// session is closed for it and the next not yet begun (starting). A handoff that parks the agent until a usage window resets is
-// not starting. The cause is session.cause's word.
+// session is closed for it and the next not yet shown as a New session line, which needs its session id (starting). A handoff that
+// parks the agent until a usage window resets is not starting. The cause is session.cause's word.
 func (e *Env) handoffView(agent string, row *db.AgentState, now int64) (any, error) {
 	h, err := db.LatestHandoff(e.Q, agent)
 	if err != nil {
@@ -485,7 +498,7 @@ func (e *Env) handoffView(agent string, row *db.AgentState, now int64) (any, err
 	if k := h.TriggerKind.String; k == "usage" || k == "usage_7d" || k == states.ByHandMark {
 		return nil, nil
 	}
-	last, err := db.LastSessionStart(e.Q, agent)
+	last, err := db.LastBoundSessionStart(e.Q, agent)
 	if err != nil || last >= h.Updated {
 		return nil, err
 	}

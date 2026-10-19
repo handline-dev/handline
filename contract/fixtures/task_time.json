@@ -1,0 +1,257 @@
+{
+ "fixtures": [
+  {
+   "name": "task.time.unknown_task_is_not_found",
+   "spec": "task.time",
+   "about": "The time of a task nobody opened is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.time",
+      "params": {
+       "task": 999999
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.time.task_is_a_number",
+   "spec": "task.time",
+   "about": "task is an integer: bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.time",
+      "params": {
+       "task": "T1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.time.an_open_task_has_segments_and_no_end",
+   "spec": "task.time",
+   "as": "agent",
+   "with": {
+    "boss": "founder"
+   },
+   "about": "A task an agent began on the founder's message is open: no end, and each segment has a kind, a reason text, its two ends and its length. With no estimate and no time box, nothing it rests on: its expected duration and end are unknown.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "caller": {
+       "name": {
+        "$save": "me"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{me}}",
+       "body": "time this",
+       "request_id": "conf-time-0"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$save": "msg"
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.begin",
+      "params": {
+       "title": "timed task",
+       "message": "{{msg}}",
+       "request_id": "conf-time-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.time",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "task": {
+       "$type": "integer"
+      },
+      "start": {
+       "$type": "timestamp"
+      },
+      "end": null,
+      "segments": {
+       "$each": {
+        "kind": {
+         "$oneOf": [
+          "queued",
+          "waiting",
+          "starting",
+          "working"
+         ]
+        },
+        "on": {
+         "$oneOf": [
+          "founder",
+          "task",
+          "agent",
+          "account",
+          null
+         ]
+        },
+        "text": {
+         "$type": "string"
+        },
+        "from": {
+         "$type": "timestamp"
+        },
+        "to": {
+         "$type": "timestamp"
+        },
+        "seconds": {
+         "$type": "integer"
+        }
+       }
+      },
+      "estimate": null,
+      "expected": {
+       "end": null,
+       "duration_s": null,
+       "basis": null,
+       "wall_until": null
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.edit.estimate_is_story_points",
+   "spec": "task.edit",
+   "about": "An estimate that is not 1, 2, 3, 5, 8 or 13 story points is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.edit",
+      "params": {
+       "task": 1,
+       "estimate": 4,
+       "request_id": "conf-time-est"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "estimate"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/supervisor"
 )
 
-// registerRequests adds what `hl withdraw` and `hl cancel` call.
+// registerRequests adds what `hl withdraw` and the app's cancel call.
 func (w *writes) registerRequests(s *rpc.Server) {
 	s.Register("request.withdraw", rpc.Method{Role: "agent", Write: true, Handler: w.withdrawRequest})
 	// Unkept and OwnEvent: a dry run writes and records nothing, and a cancel that happened is judged again by a retry (already closed).
@@ -18,7 +19,10 @@ func (w *writes) registerRequests(s *rpc.Server) {
 
 // withdrawRequest is the caller taking back a request of its own before it is delivered. A refusal is a reply, with ok false.
 func (w *writes) withdrawRequest(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := requestParam(p, "id")
+	rid, err := requestref.Resolve(w.e.DB, w.e.Home, p["id"], requestref.Viewer(c), "id")
+	if name, missing := requestref.Missing(err); missing {
+		return map[string]any{"ok": false, "said": "request " + name + " does not exist"}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -46,16 +50,21 @@ func (w *writes) withdrawRequest(c *rpc.Conn, p map[string]any) (any, error) {
 // cancelRequest is the founder taking any request out of an agent's queue, delivered or not. With dry_run it answers the plan and writes
 // nothing; the call without it is the go-ahead, so a delivered request needs no further confirm.
 func (w *writes) cancelRequest(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := requestParam(p, "id")
-	if err != nil {
-		return nil, err
-	}
 	dry := false
 	if v := p["dry_run"]; v != nil {
 		var ok bool
 		if dry, ok = v.(bool); !ok {
 			return nil, badParam("dry_run is true or false", "dry_run")
 		}
+	}
+	rid, err := requestref.Resolve(w.e.DB, w.e.Home, p["id"], requestref.Viewer(c), "id")
+	if _, missing := requestref.Missing(err); missing && dry {
+		return map[string]any{"ok": false, "plan": "that message is gone"}, nil
+	} else if missing {
+		return map[string]any{"ok": false, "said": "not cancelled - that message is gone"}, nil
+	}
+	if err != nil {
+		return nil, err
 	}
 	if dry {
 		ok, plan, err := CancelPlan(w.e.DB, rid)
@@ -98,7 +107,7 @@ func (w *writes) cancelRequest(c *rpc.Conn, p map[string]any) (any, error) {
 		}
 	}
 	if cp != nil { // nil is a request of the founder's never delivered: withdrawn, and nobody is told
-		said = guarded(w.e, fmt.Sprintf("telling after the cancel of #%d", rid), func() (string, error) { return w.e.CancelTell(w.e.DB, cp) })
+		said = guarded(w.e, fmt.Sprintf("telling after the cancel of request %d", rid), func() (string, error) { return w.e.CancelTell(w.e.DB, cp) })
 	}
 	return map[string]any{"ok": true, "said": said}, nil
 }

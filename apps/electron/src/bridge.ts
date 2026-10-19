@@ -1,12 +1,14 @@
 // The shell's side of window.handline (docs/electron-bridge.md §2, §3): what the page last said, and the check each call passes.
 // Electron's own objects are injected, so this runs under node.
-import type { Fail } from '@handline/app-core';
+import { PAGE_SETTINGS, type Fail } from '@handline/app-core';
+import type { Methods } from '@handline/client';
 import { parseMode, type Mode, type OfferInput } from './mode.ts';
 
 export const CHANNELS = {
   screen: 'handline:screen',
   unsent: 'handline:unsent',
   navigate: 'handline:navigate',
+  fullScreen: 'handline:full-screen',
   openPath: 'handline:openPath',
   compose: 'handline:compose',
   cancelCompose: 'handline:cancelCompose',
@@ -17,6 +19,8 @@ export const CHANNELS = {
   token: 'handline:token',
   captureWindows: 'handline:captureWindows',
   captureWindow: 'handline:captureWindow',
+  settingsGet: 'handline:settingsGet',
+  settingsSet: 'handline:settingsSet',
 } as const;
 
 /** The part of an IPC event this checks: the frame that sent it. */
@@ -125,6 +129,74 @@ export class Connection {
     }
   }
 }
+
+export interface SettingsDeps {
+  /** settings.get on the shell's own (founder) daemon connection. */
+  get(agent: string | undefined): Promise<Methods['settings.get']['result']>;
+  /** settings.set on the same connection. */
+  set(changes: Record<string, unknown>, agent: string | undefined): Promise<Methods['settings.set']['result']>;
+}
+
+export type SettingsFail = Fail<'bad_request' | 'refused' | 'unavailable'>;
+const SETTING_KEYS: readonly string[] = PAGE_SETTINGS;
+const MAX_CHANGES = 64;
+const MAX_VALUE = 4096;
+const refuse = (message: string): SettingsFail => ({ ok: false, code: 'bad_request', message });
+
+/** settings.get and settings.set for the page, which connects as a paired device: only these two, with the founder's connection the shell holds. */
+export class Settings {
+  private origin: string;
+  private d: SettingsDeps;
+  constructor(origin: string, d: SettingsDeps) {
+    this.origin = origin;
+    this.d = d;
+  }
+
+  async get(e: Sender, arg: unknown): Promise<{ ok: true; result: Methods['settings.get']['result'] } | SettingsFail> {
+    if (!fromWindow(e, this.origin)) return refuse('not from the app window');
+    const a = arg ?? {};
+    if (!isPlain(a) || Object.keys(a).some((k) => k !== 'agent') || !optionalName(a.agent)) return refuse('settingsGet takes { agent? }');
+    return this.run(() => this.d.get(a.agent as string | undefined));
+  }
+
+  async set(e: Sender, arg: unknown): Promise<{ ok: true; result: Methods['settings.set']['result'] } | SettingsFail> {
+    if (!fromWindow(e, this.origin)) return refuse('not from the app window');
+    if (!isPlain(arg) || Object.keys(arg).some((k) => k !== 'changes' && k !== 'agent') || !optionalName(arg.agent))
+      return refuse('settingsSet takes { changes, agent? }');
+    const changes = arg.changes;
+    const entries = isPlain(changes) ? Object.entries(changes) : null;
+    const okChanges =
+      entries !== null &&
+      entries.length > 0 &&
+      entries.length <= MAX_CHANGES &&
+      entries.every(
+        ([k, v]) =>
+          SETTING_KEYS.includes(k) &&
+          (v === null ||
+            typeof v === 'boolean' ||
+            (typeof v === 'number' && Number.isFinite(v)) ||
+            (typeof v === 'string' && v.length <= MAX_VALUE)),
+      );
+    if (!okChanges) return refuse('changes are settings the page edits, with a number, true or false, text or null');
+    return this.run(() => this.d.set(changes as Record<string, unknown>, arg.agent as string | undefined));
+  }
+
+  private async run<R>(f: () => Promise<R>): Promise<{ ok: true; result: R } | SettingsFail> {
+    try {
+      return { ok: true, result: await f() };
+    } catch (err) {
+      const code = (err as { code?: unknown }).code;
+      return {
+        ok: false,
+        code: code === 'refused' || code === 'bad_request' ? code : 'unavailable',
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+}
+
+const optionalName = (v: unknown): boolean => v === undefined || (typeof v === 'string' && v.length > 0 && v.length <= MAX_NAME);
+const isPlain = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** A plain object with exactly these keys. */
 function isObject(v: unknown, keys: string[]): v is Record<string, unknown> {

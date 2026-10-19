@@ -28,7 +28,7 @@ agents:
   alice: {}
   bob: {}
 edges:
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "human", to: "*" }
 limits:
   max_chain_depth: 4
   ask_rate_per_hour: 5
@@ -177,6 +177,21 @@ func gate(m map[string]any) string {
 	return g
 }
 
+// hr.list reads back the founder's note on a decision, and no note when none was given.
+func TestTheFoundersNoteOnADecisionIsListed(t *testing.T) {
+	r := newRig(t)
+	_, noted := r.propose("aaaa0001", "kind", "link", "agent", "alice", "to", "bob")
+	_, bare := r.propose("aaaa0002", "kind", "link", "agent", "bob", "to", "alice")
+	r.call("hr.decide", fmt.Sprintf(`{"proposal":%d,"decision":"reject","note":"not before the redesign","request_id":"d1"}`, noted))
+	r.decide(bare, "reject", "", "d2")
+	if v := r.e.reader().HRView("aaaa0001"); v["note"] != "not before the redesign" {
+		t.Fatalf("%v", v)
+	}
+	if v := r.e.reader().HRView("aaaa0002"); v["state"] != "rejected" || v["note"] != nil {
+		t.Fatalf("%v", v)
+	}
+}
+
 func TestRejectIsRecordedOnceAndAFixedProposalIsRefusedAgain(t *testing.T) {
 	r := newRig(t)
 	_, id := r.propose("aaaa0001", "kind", "link", "agent", "alice", "to", "bob")
@@ -215,7 +230,7 @@ func TestApproveNeedsTheSubjectTheFounderReadAndAppliesALink(t *testing.T) {
 	if !strings.HasPrefix(res["said"].(string), "alice may now ask bob. team.yaml updated") {
 		t.Fatalf("%v", res)
 	}
-	if !strings.Contains(r.file("team.yaml"), `{ from: "alice", to: "bob", response: async }`) || r.state("aaaa0002") != "applied" {
+	if !strings.Contains(r.file("team.yaml"), `{ from: "alice", to: "bob" }`) || r.state("aaaa0002") != "applied" {
 		t.Fatalf("the edge is in team.yaml and the proposal applied:\n%s", r.file("team.yaml"))
 	}
 	if !strings.Contains(r.file("team.yaml.bak"), "limits") {
@@ -242,6 +257,122 @@ func TestAddRegistersTheAgentAndPutsItInTeamYaml(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(r.home, "agents", "carol", "agent.yaml")); err != nil {
 		t.Fatal("registered")
+	}
+}
+
+// withOldEdge gives team.yaml an alice -> bob edge with the relation and response keys links no longer have, and returns it.
+func (r *rig) withOldEdge() string {
+	r.t.Helper()
+	return r.withEdges(`  - { from: "alice", to: "bob", relation: peer, response: async }` + "\n")
+}
+
+// withEdges puts edges (whole lines) first in team.yaml's edges and returns the file.
+func (r *rig) withEdges(edges string) string {
+	r.t.Helper()
+	yml := strings.Replace(teamYAML, "edges:\n", "edges:\n"+edges, 1)
+	if err := os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(yml), 0o644); err != nil {
+		r.t.Fatal(err)
+	}
+	if err := sealed.New(r.home).Seal(sealed.Team, yml); err != nil {
+		r.t.Fatal(err)
+	}
+	return yml
+}
+
+// A bundle applies its unlinks before its links, so an unlink and a link of the same edge rewrite it to from and to alone.
+func TestABundleRewritesAnEdgeByUnlinkingThenLinkingIt(t *testing.T) {
+	r := newRig(t)
+	r.withOldEdge()
+	if tm, err := team.LoadTeam(r.home); err != nil || !tm.Route("alice", "bob", 0).Allowed {
+		t.Fatalf("the old keys load: %v", err)
+	}
+	m := r.callAs("alice", "hr.propose", `{"kind":"bundle","args":{"name":"2 changes","changes":[{"kind":"link","name":"alice","to":"bob"},`+
+		`{"kind":"unlink","name":"alice","to":"bob"}]},"why":"drop the old keys","request_id":"p1"}`)
+	n, ok := m["result"].(map[string]any)["proposal"].(float64)
+	if !ok {
+		t.Fatalf("the link counts the bundle's unlink: %v", m)
+	}
+	p, err := r.e.load(fmt.Sprintf("%08x", int64(n)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res := r.decide(int64(n), "approve", p.subject(), "d1"); res["error"] != nil {
+		t.Fatalf("%v", res)
+	}
+	yml := r.file("team.yaml")
+	if !strings.Contains(yml, `{ from: "alice", to: "bob" }`) || strings.Contains(yml, "response") {
+		t.Fatalf("the edge is rewritten:\n%s", yml)
+	}
+	if tm, err := team.LoadTeam(r.home); err != nil || !tm.Route("alice", "bob", 0).Allowed {
+		t.Fatalf("the new edge loads: %v", err)
+	}
+}
+
+func TestABundleThatFailsAfterItsUnlinkPutsTheEdgeBack(t *testing.T) {
+	r := newRig(t)
+	before := r.withOldEdge()
+	p, id := r.propose("aaaa0006", "kind", "bundle", "agent", "3 changes",
+		"i1.kind", "unlink", "i1.agent", "alice", "i1.to", "bob",
+		"i2.kind", "link", "i2.agent", "alice", "i2.to", "bob",
+		"i3.kind", "link", "i3.agent", "alice", "i3.to", "nobody")
+	msg := r.decide(id, "approve", p.subject(), "d1")["error"].(map[string]any)["message"].(string)
+	if !strings.Contains(msg, "step 3 of 3 (link alice) failed") || r.file("team.yaml") != before {
+		t.Fatalf("%s\n%s", msg, r.file("team.yaml"))
+	}
+}
+
+// approveBundle raises changes as one bundle from alice and approves it; the error reply, or nil.
+func (r *rig) approveBundle(changes string) any {
+	r.t.Helper()
+	m := r.callAs("alice", "hr.propose", `{"kind":"bundle","args":{"name":"changes","changes":[`+changes+`]},"why":"w","request_id":"p1"}`)
+	n, ok := m["result"].(map[string]any)["proposal"].(float64)
+	if !ok {
+		r.t.Fatalf("proposed: %v", m)
+	}
+	p, err := r.e.load(fmt.Sprintf("%08x", int64(n)))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return r.decide(int64(n), "approve", p.subject(), "d1")["error"]
+}
+
+// An edge whose end is no agent (retired, or never one) can still be unlinked, from either end.
+func TestAnEdgeToAnAgentThatIsGoneCanBeUnlinked(t *testing.T) {
+	r := newRig(t)
+	r.withEdges(`  - { from: "alice", to: "ghost" }` + "\n" + `  - { from: "ghost", to: "bob" }` + "\n")
+	if err := r.approveBundle(`{"kind":"unlink","name":"alice","to":"ghost"},{"kind":"unlink","name":"ghost","to":"bob"}`); err != nil {
+		t.Fatalf("%v", err)
+	}
+	if yml := r.file("team.yaml"); strings.Contains(yml, "ghost") {
+		t.Fatalf("both edges are gone:\n%s", yml)
+	}
+	m := r.callAs("alice", "hr.propose", `{"kind":"unlink","args":{"name":"alice","to":"ghost"},"why":"w","request_id":"p2"}`)
+	if msg, _ := m["error"].(map[string]any)["message"].(string); !strings.Contains(msg, "no edge exactly alice -> ghost") {
+		t.Fatalf("an edge that is not there is still refused: %v", m)
+	}
+}
+
+// The wildcard and founder edges are rewritten like any other: unlinked, then linked again with from and to alone.
+func TestABundleRewritesAWildcardEdgeAndAFounderEdge(t *testing.T) {
+	r := newRig(t)
+	yml := strings.Replace(r.withEdges(`  - { from: "*", to: "bob", relation: peer }`+"\n"), `{ from: "human", to: "*" }`, `{ from: "human", to: "*", response: async }`, 1)
+	if err := os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sealed.New(r.home).Seal(sealed.Team, yml); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.approveBundle(`{"kind":"unlink","name":"*","to":"bob"},{"kind":"link","name":"*","to":"bob"},` +
+		`{"kind":"unlink","name":"human","to":"*"},{"kind":"link","name":"human","to":"*"}`); err != nil {
+		t.Fatalf("%v", err)
+	}
+	got := r.file("team.yaml")
+	if !strings.Contains(got, `{ from: "*", to: "bob" }`) || !strings.Contains(got, `{ from: "human", to: "*" }`) ||
+		strings.Contains(got, "relation") || strings.Contains(got, "response") {
+		t.Fatalf("both edges are rewritten:\n%s", got)
+	}
+	if tm, err := team.LoadTeam(r.home); err != nil || !tm.Route("alice", "bob", 0).Allowed {
+		t.Fatalf("the new edges load: %v", err)
 	}
 }
 
@@ -758,10 +889,22 @@ func TestProposeWritesTheProposalFileAndRefusesWhatHrPyRefused(t *testing.T) {
 	}
 }
 
+// gitDir is a fresh folder that reads as a git checkout.
+func gitDir(t *testing.T) string {
+	t.Helper()
+	d := t.TempDir()
+	if err := os.Mkdir(filepath.Join(d, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
 func TestProposeRenameTeamAndBundleAreDraftedAsHrPyDraftsThem(t *testing.T) {
 	r := newRig(t)
+	rr, ss := gitDir(t), gitDir(t)
+	paths := strings.NewReplacer(`"/r"`, fmt.Sprintf("%q", rr), `"/s"`, fmt.Sprintf("%q", ss))
 	call := func(rid, params string) map[string]any {
-		return r.callAs("alice", "hr.propose", fmt.Sprintf(`{%s,"request_id":%q}`, params, rid))
+		return r.callAs("alice", "hr.propose", fmt.Sprintf(`{%s,"request_id":%q}`, paths.Replace(params), rid))
 	}
 	loaded := func(res map[string]any) *Prop {
 		t.Helper()
@@ -781,7 +924,7 @@ func TestProposeRenameTeamAndBundleAreDraftedAsHrPyDraftsThem(t *testing.T) {
 		t.Fatalf("%+v", rn)
 	}
 	tm := loaded(call("t1", `"kind":"team","args":{"name":"zed","repo":"/r","members":["sea","zed.air"],"repos":{"zed.sea":"/s"}},"why":"w"`))
-	if tm.str("members") != "zed.sea,zed.air" || tm.str("repo.zed.sea") != "/s" || tm.str("repo.zed.air") != "/r" {
+	if tm.str("members") != "zed.sea,zed.air" || tm.str("repo.zed.sea") != ss || tm.str("repo.zed.air") != rr {
 		t.Fatalf("%+v", tm)
 	}
 	b := loaded(call("b1", `"kind":"bundle","args":{"name":"2 changes","changes":[{"kind":"rename","name":"carol","to":"cy"},{"kind":"add","name":"carol","repo":"/r"}]},"why":"w"`))
@@ -819,5 +962,105 @@ func TestAPairedDeviceSetsAnotherAgentsModelAndEffort(t *testing.T) {
 	}
 	if all := r.file("agents", "alice", "agent.yaml") + r.file("team.yaml"); !strings.Contains(all, "opus") || !strings.Contains(all, "effort: high") {
 		t.Errorf("not written:\n%s", all)
+	}
+}
+
+// The founder's own hr add is applied at once, its approval on record as any other's, and hr.list shows it.
+func TestTheFoundersOwnAddIsAppliedAtOnce(t *testing.T) {
+	r := newRig(t)
+	repo := t.TempDir()
+	os.Mkdir(filepath.Join(repo, ".git"), 0o755)
+	m := r.call("hr.propose", fmt.Sprintf(`{"kind":"add","args":{"name":"carol","team":"eng","repo":%q},"why":"we need her","request_id":"f1"}`, repo))
+	res, ok := m["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("%v", m)
+	}
+	id := fmt.Sprintf("%08x", int64(res["proposal"].(float64)))
+	if said := res["said"].(string); !strings.HasPrefix(said, "proposal "+id+" applied: carol is an agent, team eng.") {
+		t.Fatalf("%q", said)
+	}
+	if st := r.state(id); st != "applied" {
+		t.Fatalf("state %s", st)
+	}
+	if got := r.e.decisionOf(id); got == nil || got["call"] != "approved" {
+		t.Fatalf("the approval is on record: %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(r.home, "agents", "carol", "agent.yaml")); err != nil {
+		t.Fatal("registered")
+	}
+	if v := r.e.reader().HRView(id); v == nil || v["state"] != "approved" || v["requested_by"] != "human" || v["note"] != nil {
+		t.Fatalf("hr.list shows it, with no note: %v", v)
+	}
+}
+
+// A founder's proposal left waiting (raised before their own were applied at once) is listed and approved like any other.
+func TestAFoundersProposalLeftWaitingIsListedAndApprovable(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa0009", "kind", "retire", "agent", "bob")
+	p.set("requested_by", "human")
+	if err := r.e.save(p); err != nil {
+		t.Fatal(err)
+	}
+	if v := r.e.reader().HRView(p.id()); v == nil || v["state"] != "open" {
+		t.Fatalf("listed as waiting: %v", v)
+	}
+	if m := r.decide(id, "approve", p.subject(), "w1"); m["error"] != nil {
+		t.Fatalf("%v", m)
+	}
+	if st := r.state(p.id()); st != "applied" {
+		t.Fatalf("state %s", st)
+	}
+}
+
+// A relative --repo (and a member's SUFFIX=REPO) is taken from the proposer's own repo and kept absolute; a path that is not a git checkout,
+// or a relative one from a proposer with no repo (the founder), is refused before anything is written.
+func TestAProposedRepoIsKeptAbsoluteAndMustBeAGitCheckout(t *testing.T) {
+	r := newRig(t)
+	base := gitDir(t)
+	for _, sub := range []string{"app", "lib"} {
+		if err := os.MkdirAll(filepath.Join(base, sub, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	os.Mkdir(filepath.Join(base, "plain"), 0o755)
+	if _, err := team.NewRoster(r.home).Register("alice", team.RegisterOpts{Role: "r", Repo: base}); err != nil {
+		t.Fatal(err)
+	}
+	propose := func(as, rid, params string) map[string]any {
+		if as == "" {
+			return r.call("hr.propose", fmt.Sprintf(`{%s,"request_id":%q}`, params, rid))
+		}
+		return r.callAs(as, "hr.propose", fmt.Sprintf(`{%s,"request_id":%q}`, params, rid))
+	}
+	stored := func(res map[string]any) *Prop {
+		t.Helper()
+		out, ok := res["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("not raised: %v", res)
+		}
+		p, _ := r.e.load(fmt.Sprintf("%08x", int64(out["proposal"].(float64))))
+		return p
+	}
+	if p := stored(propose("alice", "a1", `"kind":"add","args":{"name":"carol","repo":"app"},"why":"w"`)); p.str("repo") != filepath.Join(base, "app") {
+		t.Fatalf("the relative repo is alice's own repo's app: %q", p.str("repo"))
+	}
+	tm := stored(propose("alice", "t1", `"kind":"team","args":{"name":"zed","repo":"app","members":["sea"],"repos":{"zed.sea":"lib"}},"why":"w"`))
+	if tm.str("repo") != filepath.Join(base, "app") || tm.str("repo.zed.sea") != filepath.Join(base, "lib") {
+		t.Fatalf("%q %q", tm.str("repo"), tm.str("repo.zed.sea"))
+	}
+	for _, c := range []struct{ as, params, want string }{
+		{"alice", `"kind":"add","args":{"name":"dan","repo":"plain"},"why":"w"`, "repo plain is not a git checkout (" + filepath.Join(base, "plain") + " has no .git)"},
+		{"alice", `"kind":"add","args":{"name":"dan","repo":"orcapipe/handline"},"why":"w"`, "repo orcapipe/handline is not a folder"},
+		{"alice", `"kind":"team","args":{"name":"zed","repo":"app","members":["sea"],"repos":{"zed.sea":"plain"}},"why":"w"`, "repo plain is not a git checkout"},
+		{"", `"kind":"add","args":{"name":"dan","repo":"app"},"why":"w"`, "repo app is a relative path and human has no repo to take it from"},
+	} {
+		m := propose(c.as, "e"+c.want[:12], c.params)
+		msg, _ := m["error"].(map[string]any)["message"].(string)
+		if !strings.HasPrefix(msg, c.want) {
+			t.Errorf("%s: %v", c.want, m)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(r.home, "agents", "dan")); err == nil {
+		t.Fatal("a refused add registers nothing")
 	}
 }

@@ -435,3 +435,26 @@ func TestEachByHandStepNamesAStep(t *testing.T) {
 		}
 	}
 }
+
+func TestADatabaseAtStepTwentyTwoGetsTheFounderAuthColumn(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "db.sqlite")
+	db, err := Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{"ALTER TABLE requests DROP COLUMN founder_auth", "DELETE FROM schema_version WHERE version > 22"} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	if db, err = Open(p); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var n int
+	db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('requests') WHERE name = 'founder_auth'").Scan(&n)
+	if n != 1 {
+		t.Fatal("step 23 did not add requests.founder_auth")
+	}
+}

@@ -27,6 +27,8 @@ type Env struct {
 	Ports
 	Now   func() time.Time
 	Sleep func(time.Duration)
+	// LoadHeld is why the machine's load holds new work for an agent, "" when it does not (loadgate); nil holds nothing.
+	LoadHeld func(agent string) string
 
 	mu        sync.Mutex
 	sendLocks map[string]*sync.Mutex // per agent: its send ledger is read and written under its lock, so two callers never write one operation twice
@@ -37,6 +39,7 @@ type Env struct {
 	held      map[string]string
 	noted     map[string]noted
 	failed    map[string]failure
+	bg        sync.WaitGroup // the tellings still running off the caller (background)
 }
 
 // Seen is what the sweep saw of one agent's session this tick (observe.Observed).

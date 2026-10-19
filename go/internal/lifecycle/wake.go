@@ -118,6 +118,9 @@ func (m *Manager) WakePrompt(agent string, resumed bool, in WakePromptIn) (text 
 	return strings.Join(parts, "\n\n"), nil
 }
 
+// StartCause is what a start for waiting work is recorded as: the contract's word for work arriving for a closed agent.
+const StartCause = "start"
+
 // StartForWork gives an agent somewhere to run, because work is waiting for it. Counted against the same streak a failed wake is: a repo
 // that will never check out would otherwise be retried every tick for ever. After MaxFailedAttempts it stalls and says so.
 func (m *Manager) StartForWork(agent string) (said string, err error) {
@@ -129,25 +132,29 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	}
 	repo := m.Agents.RepoOf(agent)
 	if repo == "" {
-		asked := len(must(db.QueuedFor(m.Q, agent)))
-		answers := len(must(db.UnannouncedAnswers(m.Q, agent)))
-		var what []string
-		if asked > 0 {
-			what = append(what, fmt.Sprintf("%d request(s)", asked))
-		}
-		if answers > 0 {
-			what = append(what, fmt.Sprintf("%d answer(s)", answers))
-		}
-		w := strings.Join(what, ", ")
-		if w == "" {
-			w = "work"
+		w := "work"
+		if asked := len(must(db.QueuedFor(m.Q, agent))); asked > 0 {
+			w = fmt.Sprintf("%d request(s)", asked)
 		}
 		return fmt.Sprintf("%s: %s waiting and it has no terminal - set `repo:` in its agent.yaml, or start it by hand (t)", agent, w), nil
+	}
+	if why := m.loadHeld(agent); why != "" {
+		return fmt.Sprintf("%s: not started - %s", agent, why), nil
 	}
 	// With no room `hl launch` would refuse in the new terminal, and the refusal would count against the agent though it is the accounts
 	// that are full.
 	if !m.Launch.ChooseAccount(m.Q, agent) {
 		return fmt.Sprintf("%s: not started - %s", agent, m.Launch.NoRoom(agent)), nil
+	}
+	// Each waiting message can ask for a start while the last one's session is still coming up: one start at a time, and a start that
+	// lost the race finds the terminal the winner opened.
+	release, mine := m.Typing.TakeTerminal(agent)
+	if !mine {
+		return agent + ": a start or wake is under way - not starting twice", nil
+	}
+	defer release()
+	if row = must(db.GetAgentState(m.Q, agent)); m.hasSession(agent, row) || m.ResumableWithoutTerminal(row) {
+		return agent + ": started already - not starting twice", nil
 	}
 	if row != nil && row.WakeFailures >= states.MaxFailedAttempts {
 		if row.State == states.Stalled {
@@ -167,23 +174,29 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	// standing with nothing in it counts as the failed wake it is.
 	var ok bool
 	if wt != "" {
-		ok, said, err = m.Spawn.StartIn(agent, wt, "")
+		cmd, cerr := m.Launch.CommandFor(agent, "", StartCause, "")
+		check(cerr)
+		ok, said, err = m.Spawn.StartIn(agent, wt, cmd)
 	} else {
-		ok, said, err = m.Spawn.Spawn(agent, realpath(expandUser(repo)))
+		ok, said, err = m.Spawn.SpawnWith(agent, realpath(expandUser(repo)), SpawnOpts{Why: StartCause})
 	}
 	// A start that could not be tried (git cannot run, no descriptors) is no failed start of the agent's own: it is not counted.
 	check(err)
 	first := strings.SplitN(said, "\n", 2)[0]
 	if ok {
 		check(db.ResetCounter(m.Q, agent, "wake_failures"))
-		must(db.AddEvent(m.Q, agent, "started_for_work", db.KV{K: "repo", V: repo}))
+		ev := []db.KV{{K: "repo", V: repo}}
+		if head := must(db.HeadOfQueue(m.Q, agent, 0)); head != nil {
+			ev = append(ev, db.KV{K: "request_id", V: head.ID}) // the work that was waiting
+		}
+		must(db.AddEvent(m.Q, agent, "started_for_work", ev...))
 		m.Log("  %s: started in %s - work was waiting for it", agent, repo)
 		return fmt.Sprintf("%s: started for work waiting - %s", agent, first), nil
 	}
 	check(db.BumpCounter(m.Q, agent, "wake_failures", 1))
 	m.Log("  %s: could not start for waiting work: %s", agent, first)
 	if fresh := must(db.GetAgentState(m.Q, agent)); fresh != nil && fresh.WakeFailures >= states.MaxFailedAttempts {
-		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d starts for waiting work failed: %s", fresh.WakeFailures, first)))
+		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d %s: %s", fresh.WakeFailures, StartStall, first)))
 		m.Log("  %s: STALLED after %d failed starts", agent, fresh.WakeFailures)
 	}
 	return fmt.Sprintf("%s: could not be started - %s", agent, first), nil
@@ -299,6 +312,12 @@ func (m *Manager) wakeAgent(agent string, o WakeOpts) (bool, string) {
 // closing cheap) and a fresh start the fallback, not the plan.
 func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string, o WakeOpts) (bool, string) {
 	force, warm, cause, restartedBy, movedTo := o.Force, o.Warm, o.Cause, o.RestartedBy, o.MovedTo
+	// The load holds the daemon's own wakes; one a person asked for, or a restart, goes.
+	if !force && !o.Person {
+		if why := m.loadHeld(agent); why != "" {
+			return false, why
+		}
+	}
 	if owed := m.restartOwed(agent, row); owed != nil {
 		// The restart that closed it is finished by this wake, as it was asked: same conversation unless it was fresh, same requester. A
 		// person's own force is not made to wait.
@@ -692,7 +711,7 @@ func (m *Manager) wakeFailed(agent, session, why string, took, foreign bool) str
 		// Work arriving retries the wake every tick, so a launch that will never work is a loop that never ends and never says so.
 		// Three launches that started nothing is not the wall - that was turned away above - and not a resume that can be dropped,
 		// which the fallback above already did. It waits for a human, or for the sweep to see a session after all.
-		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d wakes started no session: %s", f.WakeFailures, why)))
+		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d %s: %s", f.WakeFailures, WakeStall, why)))
 		m.Log("  %s: STALLED after %d failed wakes", agent, f.WakeFailures)
 	}
 	return why

@@ -130,6 +130,8 @@ function hr({ qc, d }: Ctx, e: WireEvent) {
 /** An unfiltered list takes the item in place; a filtered one may or may not now hold it, so it is read again. */
 function inbox({ qc, d }: Ctx, e: WireEvent) {
   const item = data<InboxItem>(e);
+  // agent.changed carries no last_to_founder or founder_unread, so the agent rows are read again.
+  void qc.invalidateQueries({ queryKey: qk.agents(d) });
   for (const [key] of qc.getQueriesData({ queryKey: qk.inboxes(d) })) {
     if (key.length === qk.inboxes(d).length)
       edit<{ items: InboxItem[] }>(qc, key, (l) => ({ ...l, items: upsert(l.items, item, (x) => x.id === item.id, 'start') }));

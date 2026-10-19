@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/weblogin"
 )
 
@@ -115,5 +117,25 @@ func TestAccountsListServesTheNextFiveHourAndWeekResetFromTheStatusFile(t *testi
 	five, week := a["five_hour"].(map[string]any), a["weekly"].(map[string]any)
 	if five["resets_at"] != "1970-01-01T01:00:00Z" || week["resets_at"] != "1970-01-02T01:00:00Z" || five["source"] != "measured" {
 		t.Fatalf("%v", a)
+	}
+}
+
+func TestAStalledAccountRowSaysStalledWithItsReason(t *testing.T) {
+	e := testEnv(t)
+	if err := os.MkdirAll(filepath.Join(e.Home, "accounts", "main"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if acct, _ := e.Account("main"); acct["stalled"] != nil {
+		t.Fatalf("a usable account is not stalled: %v", acct["stalled"])
+	}
+	at := time.Unix(1000, 0)
+	if _, err := (team.Accounts{Home: e.Home}).StallAccount("main", "oauth_org_not_allowed", "bob's turn ended on oauth_org_not_allowed", at); err != nil {
+		t.Fatal(err)
+	}
+	acct, _ := e.Account("main")
+	s, _ := acct["stalled"].(map[string]any)
+	if s["reason"] != "oauth_org_not_allowed" || s["error"] != "oauth_org_not_allowed" || s["since"] != "1970-01-01T00:16:40Z" ||
+		s["detail"] != "bob's turn ended on oauth_org_not_allowed" {
+		t.Fatalf("%v", acct["stalled"])
 	}
 }

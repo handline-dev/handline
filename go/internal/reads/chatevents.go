@@ -5,15 +5,11 @@ import "sort"
 // What the chat topic's events carry is what the chat reads return, built by the same functions: these are the entry points the watcher
 // calls with the ids it found changed.
 
-// ChatRequest is one request as chat.messages shows it, and the transcript items its replies make for an agent's chat.
+// ChatRequest is one request as chat.messages shows it.
 type ChatRequest struct {
 	Message           map[string]any
 	Requester, Target string
-	r                 row
 }
-
-// Replies is what agent said in this request that chat.messages does not serve (chat.transcript's reply items).
-func (c *ChatRequest) Replies(agent string) []map[string]any { return repliesOf(c.r, agent) }
 
 // ChatRequests reads requests for one pass of the chat watcher: the task board a task delivery's state needs is loaded once for the
 // pass, not once a request.
@@ -36,7 +32,7 @@ func (p *ChatRequests) Get(id int64) (*ChatRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ChatRequest{Message: m, Requester: r.str("requester"), Target: r.str("target"), r: r}, nil
+	return &ChatRequest{Message: m, Requester: r.str("requester"), Target: r.str("target")}, nil
 }
 
 // TaskEventItem is the task event with that id as a transcript item, and the owner of the task it names; ok is false when the chat does
@@ -50,8 +46,11 @@ func (e *Env) TaskEventItem(id int64) (item map[string]any, owner string, ok boo
 	if !shown {
 		return nil, "", false, nil
 	}
+	if tid == 0 { // a batch: its author's chat
+		return item, ev.str("agent"), true, nil
+	}
 	t, err := queryOne(e.DB, "SELECT owner FROM tasks WHERE id = ?", tid)
-	if err != nil || t == nil {
+	if err != nil || t == nil || inBatchCard(ev, t.str("owner")) {
 		return nil, "", false, err
 	}
 	return item, t.str("owner"), true, nil
@@ -79,9 +78,9 @@ func (e *Env) SessionItem(id int64) (item map[string]any, agent string, ok bool,
 // WorkingOf is a stored agent view (the agent_view row's JSON) as the spec's Working.
 func WorkingOf(view string) map[string]any { return workingFrom(decodeObject(view)) }
 
-// ChatTaskKinds are the kinds of task event the chat shows, sorted.
+// ChatTaskKinds are the kinds of task event the chat shows, a batch discard's among them, sorted.
 func ChatTaskKinds() []string {
-	kinds := make([]string, 0, len(transcriptEvents))
+	kinds := []string{batchKind}
 	for k := range transcriptEvents {
 		kinds = append(kinds, k)
 	}

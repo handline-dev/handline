@@ -219,7 +219,7 @@ export function PickButton(props: { onPick: (files: File[]) => void; disabled?: 
 }
 
 /** The pictures of a sent message, in the order they were attached. */
-export function Pictures({ items }: { items: Attachment[] }) {
+export function Pictures({ items }: { items: Pick<Attachment, 'id' | 'name'>[] }) {
   return (
     <div className="attachments mt-1 flex flex-wrap gap-1.5">
       {items.map((a) => (

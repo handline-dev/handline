@@ -6,13 +6,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
 	"github.com/handline/handline/go/internal/weblogin"
 )
 
-// account.set: an account's cap, alias, usage recovery and month cycle, in config.yaml. It writes what a retry writes
-// again. settings.trust stays with the Python daemon; account.add and account.remove are in accountadmin.go.
+// account.set: an account's cap, alias, usage recovery and month cycle, in config.yaml; account.wake ends its stall. account.set
+// writes what a retry writes again. settings.trust stays with the Python daemon; account.add and account.remove are in accountadmin.go.
 
 const labelMax = 40
 
@@ -126,6 +128,25 @@ func (e *Env) accountSet(c *rpc.Conn, p map[string]any) (any, error) {
 		out = "nothing changed"
 	}
 	return wrote(c, out, nil)
+}
+
+// accountWake is account.wake: a STALLED account's stall ends, so agents may be placed on it again and the agents stalled with it
+// are released (compose liftLogin), as session.wake clears a stalled agent. One that is not stalled is refused.
+func (e *Env) accountWake(c *rpc.Conn, p map[string]any) (any, error) {
+	acct, err := e.accountNamed(p)
+	if err != nil {
+		return nil, err
+	}
+	accounts := team.Accounts{Home: e.Home}
+	if accounts.Stalled(acct) == nil {
+		return nil, refused(acct+": not STALLED", "state")
+	}
+	accounts.ClearStall(acct)
+	// The failures before it say nothing of the account now (handoff.LastFailure).
+	if _, err := db.AddEventFor(e.DB, db.Human, acct, "account_woken", db.KV{K: "account", V: acct}); err != nil {
+		return nil, refused(err.Error(), "")
+	}
+	return wrote(c, acct+": STALLED -> usable", nil)
 }
 
 // currentLabel is the alias shown for the account, "" when it is shown under its own name.

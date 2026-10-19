@@ -15,7 +15,7 @@ import { followMain, takeRoute } from './follow-app.ts';
 import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from './mode.ts';
 import { ownDaemon, readFounderKey, type Own } from './own.ts';
 import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from './tailnet.ts';
-import { Connection, Page, CHANNELS } from './bridge.ts';
+import { Connection, Page, Settings, CHANNELS } from './bridge.ts';
 import { serveDir } from './serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from './update.ts';
 
@@ -97,6 +97,17 @@ function trustFingerprint(remote: Remote): void {
   });
 }
 
+/** The window connects as a paired device, which may not read or write settings; the shell's founder connection does it for the page. */
+function handleSettings(origin: string, client: DaemonClient, remote: Remote | null): void {
+  const otherDevice = new Error('This app is paired with another device; change its settings there.');
+  const s = new Settings(origin, {
+    get: (agent) => (remote ? Promise.reject(otherDevice) : client.call('settings.get', { agent })),
+    set: (changes, agent) => (remote ? Promise.reject(otherDevice) : client.call('settings.set', { changes, agent })),
+  });
+  ipcMain.handle(CHANNELS.settingsGet, (e, arg) => s.get(e, arg));
+  ipcMain.handle(CHANNELS.settingsSet, (e, arg) => s.set(e, arg));
+}
+
 function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote | null): void {
   const c = new Connection(origin, {
     mode: () => ({ mode, remote: remote?.host ?? null }),
@@ -139,6 +150,11 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
       preload: path.join(import.meta.dirname, 'preload.cjs'),
     },
   });
+  // The traffic lights are gone in full screen: the page drops the room it keeps for them (shell.ts).
+  const tellFull = () => w.webContents.send(CHANNELS.fullScreen, w.isFullScreen());
+  w.on('enter-full-screen', tellFull);
+  w.on('leave-full-screen', tellFull);
+  w.webContents.on('did-finish-load', tellFull);
   w.once('ready-to-show', onReady);
   confine(w.webContents, origin);
   return w;
@@ -151,7 +167,8 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
  */
 function confine(contents: WebContents, origin: string): void {
   contents.setWindowOpenHandler(({ url }) => {
-    if (isDebugWindow(url, origin)) return { action: 'allow', overrideBrowserWindowOptions: { width: 1280, height: 820, title: 'Terminals (debug)' } };
+    if (isDebugWindow(url, origin))
+      return { action: 'allow', overrideBrowserWindowOptions: { width: 1280, height: 820, title: 'Terminals (debug)' } };
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
@@ -221,6 +238,7 @@ if (!app.requestSingleInstanceLock()) {
     handleConnection(origin, own, current.mode, remote);
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
+    handleSettings(origin, client, remote);
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
     const opener = new Opener(origin, {
       worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,

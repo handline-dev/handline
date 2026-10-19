@@ -11,6 +11,7 @@ export { Menu, type At, MenuButton, MenuCheckItem, MenuTrigger, MenuContent, Men
 export { Dialog } from './Dialog.tsx';
 export { Empty } from './Empty.tsx';
 export { Page } from './Page.tsx';
+export { sendKey } from './sendKey.ts';
 export { Kbd } from './Kbd.tsx';
 export { Input, Textarea, BarInput, NativeSelect, ComposeRow } from './Input.tsx';
 export { Sheet, SheetActions, FNote } from './Sheet.tsx';

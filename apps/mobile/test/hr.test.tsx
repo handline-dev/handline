@@ -91,11 +91,15 @@ describe('the team page', () => {
   });
 
   it('shows its skeleton while the daemon is slow', async () => {
-    const m = await mount((s) => s.daemon.knobs.latency(600));
+    let release = () => {};
+    const m = await mount((s) => {
+      release = s.daemon.knobs.hold('team.get');
+    });
     await press($('agents-menu'));
     await press($('team-open'));
     await until(() => $('skeleton-team'), 'the skeleton');
     expect($(`team-${ARCH}`)).toBeNull();
+    release();
     await until(() => $(`team-${ARCH}`), 'the cards', 6000);
     m.store.stop();
   });
@@ -123,15 +127,17 @@ describe('the HR list', () => {
   });
 
   it('shows its skeleton while slow, then the waiting count on the entry and the cards with a collapsed diff', async () => {
+    let release = () => {};
     const m = await mount((s) => {
       raise(s, 1);
       raise(s, 2, { state: 'apply_failed', error: 'boom' });
       raise(s, 3, { state: 'approved' });
-      s.daemon.knobs.latency(400);
+      release = s.daemon.knobs.hold('hr.list');
     });
     await openHr();
     await sleep(250);
     expect($('hr-list')).toBeNull();
+    release();
     await until(() => $('hr-1'), 'the cards', 6000);
     expect(text()).toContain('HR · 2 waiting');
     expect(text()).toContain('boom');

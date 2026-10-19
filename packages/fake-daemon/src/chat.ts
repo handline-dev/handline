@@ -1,5 +1,5 @@
 // The fake daemon's chat: messages with landing state, the transcript and the working line, on the chat topic.
-// A sent message lands one tick at a time (typed, delivered, working, answered) so a UI sees every state; `tick` is driven by the daemon's own.
+// A sent message lands one tick at a time (typed, delivered, then the agent's turn and its reply) so a UI sees every state; `tick` is driven by the daemon's own.
 import { Failure, invalidParams, refused, storeFailure } from './errors.ts';
 import type { Attachment, ChatMessage, ImagePart, Landing, TextPart, TranscriptItem, Working } from '@handline/contract';
 import { deliveryOf, receiptPatch, uuidFor, type Msg } from './delivery.ts';
@@ -22,7 +22,7 @@ export function chatCall<T>(fn: () => T): T {
 /** What a message carries: FakeAttachments.message. */
 type Images = (body: string, ids: unknown, task: unknown) => { attachments: Attachment[]; parts?: (TextPart | ImagePart)[] };
 
-/** One chat method. `checkAgent` throws for an agent that does not exist; `inboxDismiss` takes an inbox item off its list when the id is one. */
+/** One chat method. `checkAgent` throws for an agent that does not exist. */
 export function chatMethod(
   chat: FakeChat,
   method: string,
@@ -30,7 +30,6 @@ export function chatMethod(
   person: string,
   checkAgent: () => unknown,
   ok: (said: string, extra?: object) => object,
-  inboxDismiss: (id: unknown) => boolean,
   attachments: { message: Images } = { message: () => ({ attachments: [] }) },
 ): unknown {
   switch (method) {
@@ -49,9 +48,6 @@ export function chatMethod(
     case 'chat.send':
       checkAgent();
       return chatCall(() => ok('Sent.', chat.send(p, person, attachments.message)));
-    case 'chat.dismiss':
-      if (inboxDismiss(p.request)) return ok('Dismissed.');
-      return chatCall(() => (chat.dismiss(p), ok('Dismissed.')));
     case 'chat.send_now':
       return chatCall(() => ok('Typed.', chat.sendNow(p)));
     case 'chat.cancel':
@@ -123,10 +119,18 @@ export class FakeChat {
     if (!t) this.threads.set(agent, (t = { items: [], working: { ...IDLE } }));
     return t;
   }
+  /** A message by its number, its msg_ name or a bare hash (6 to 12 hex characters of its ref), as requestref.Resolve reads them. */
   find(id: unknown): ChatMessage & { agent: string } {
-    const m = this.messages.find((x) => x.id === id);
-    if (!m) throw new ChatFailure('not_found', `no message ${String(id)}`);
-    return m;
+    let found = this.messages.filter((x) => x.id === id);
+    if (typeof id === 'string') {
+      const hash = id.trim().toLowerCase().replace(/^msg_/, '');
+      if (hash.startsWith('#')) throw new ChatFailure('bad_request', `${hash} is a pull request; a message is msg_<hash>`);
+      if (!/^[0-9a-f]{6,12}$/.test(hash)) throw new ChatFailure('bad_request', 'a message is msg_<hash>, or 6 to 12 hex characters of it');
+      found = this.messages.filter((x) => x.ref?.startsWith(hash));
+      if (found.length > 1) throw new ChatFailure('bad_request', `msg_${hash} is ambiguous: give more of the hash`);
+    }
+    if (!found.length) throw new ChatFailure('not_found', `no message ${String(id)}`);
+    return found[0];
   }
   change(m: ChatMessage & { agent: string }, patch: Partial<ChatMessage>) {
     Object.assign(m, patch, { state_at: this.now() });
@@ -139,27 +143,25 @@ export class FakeChat {
   /** Adds a message without events: history that was there before any client connected. */
   seed(agent: string, m: Partial<ChatMessage> & { body: string; from: string; to: string }): number {
     const at = m.at ?? this.now();
+    const id = this.nextId++;
     const msg = {
-      id: this.nextId++,
+      id,
+      ref: (Math.imul(id, 0x9e3779b1) >>> 0).toString(16).padStart(8, '0') + id.toString(16).padStart(4, '0'), // a hash's look: prefixes differ
       at,
       state_at: at,
       state: m.landing ?? 'delivered',
       landing: 'delivered' as Landing,
       sending_reason: null,
-      answer: null,
-      dismissed: false,
       delivered_at: at,
       typed_at: at,
       landed_at: at,
       parent: null,
       kind: 'message',
       tasks: [],
-      is_task_question: false,
       ...m,
       agent,
     } as ChatMessage & { agent: string };
-    // Like the daemon: an agent's question to the person stays queued until it is answered.
-    msg.state = msg.from === agent && msg.landing === 'delivered_unanswered' ? 'queued' : msg.landing;
+    msg.state = msg.landing;
     this.messages.push(msg);
     return msg.id;
   }
@@ -176,8 +178,6 @@ export class FakeChat {
       to: person,
       at,
       kind: 'question',
-      is_task_question: true,
-      landing: 'delivered_unanswered',
     });
     this.emit('chat.message', agent, this.view(this.find(id)));
     return id;
@@ -194,8 +194,10 @@ export class FakeChat {
     );
     if (typeof p.before === 'number') list = list.filter((m) => m.id < (p.before as number));
     if (typeof p.since === 'number') list = list.filter((m) => m.id > (p.since as number));
-    list = list.sort((a, b) => b.id - a.id);
-    return { messages: list.slice(0, limit).map((m) => this.view(m)), more: list.length > limit };
+    // since pages forward from the id (the oldest after it first), before pages back from the newest.
+    list = list.sort((a, b) => (typeof p.since === 'number' ? a.id - b.id : b.id - a.id));
+    const page = list.slice(0, limit).sort((a, b) => b.id - a.id);
+    return { messages: page.map((m) => this.view(m)), more: list.length > limit };
   }
 
   transcriptOf(p: Record<string, unknown>) {
@@ -274,6 +276,12 @@ export class FakeChat {
     const m = this.live(id);
     if (m) this.change(m, { landing: 'delivered', state: 'delivered', landed_at: this.now(), delivered_at: this.now() });
   }
+  /** The agent's turn runs or ends without any message of the person to answer (another agent's message, a task's): only the working line moves. */
+  setWorking(agent: string, running: boolean, line: string | null = null) {
+    const t = this.thread(agent);
+    t.working = running ? { turn_running: true, line, since: this.now() } : { ...IDLE };
+    this.emit('chat.working', agent, t.working);
+  }
   /** The agent starts its turn: the working line shows and a tool runs. */
   private think(id: number) {
     const m = this.live(id);
@@ -283,7 +291,7 @@ export class FakeChat {
     this.emit('chat.working', m.agent, t.working);
     this.item(m.agent, { kind: 'tool', tool: 'Read', text: 'src/main.ts' });
   }
-  /** The turn ends with a reply, and the message counts as answered. */
+  /** The turn ends with a reply. */
   private reply(id: number) {
     const m = this.live(id);
     if (!m) return;
@@ -291,7 +299,6 @@ export class FakeChat {
     const t = this.thread(m.agent);
     t.working = { ...IDLE };
     this.emit('chat.working', m.agent, t.working);
-    this.change(m, { landing: 'answered', state: 'answered' });
   }
   private item(agent: string, item: Omit<TranscriptItem, 'id' | 'at'>) {
     const t = this.thread(agent);
@@ -300,11 +307,6 @@ export class FakeChat {
     this.emit('chat.transcript', agent, full);
   }
 
-  dismiss(p: Record<string, unknown>) {
-    const m = this.find(p.request);
-    if (m.answer || m.dismissed) throw new ChatFailure('refused', 'that message is already closed', 'state');
-    this.change(m, { landing: 'dismissed', state: 'dismissed', dismissed: true });
-  }
   /** Types a queued message now, ahead of the scripted order. */
   sendNow(p: Record<string, unknown>) {
     const m = this.find(p.request);
@@ -317,10 +319,9 @@ export class FakeChat {
   cancel(p: Record<string, unknown>) {
     const m = this.find(p.request);
     if (this.sessions.has(m.from) || m.from === m.to) throw new ChatFailure('refused', 'that message is not yours', 'state');
-    if (m.landing === 'withdrawn' || m.landing === 'dismissed' || m.landing === 'answered')
-      throw new ChatFailure('refused', 'that message is closed', 'state');
+    if (m.landing === 'withdrawn') throw new ChatFailure('refused', 'that message is closed', 'state');
     // The agent already has it: closing it tells the agent to stop, so the caller must say it knows.
-    const written = m.receipt ? m.receipt.state !== 'queued' : m.landing === 'delivered' || m.landing === 'delivered_unanswered';
+    const written = m.receipt ? m.receipt.state !== 'queued' : m.landing === 'delivered';
     if (written && p.confirm !== true)
       throw new ChatFailure('refused', 'the agent already has this message; cancelling tells it to stop', 'confirm');
     this.change(m, { landing: 'withdrawn', state: 'withdrawn' });
@@ -373,7 +374,7 @@ export class FakeChat {
     if (typeof p.agent !== 'string' || typeof p.up_to !== 'number') throw new ChatFailure('bad_request', 'agent and up_to are needed');
     this.seenUpTo.set(p.agent, Math.max(this.seenUpTo.get(p.agent) ?? 0, p.up_to));
   }
-  /** The page of messages around a number, newest first, in the chat that shows it. */
+  /** The page of messages around a message, newest first, in the chat that shows it, and the agent's transcript items of the same span. */
   locate(p: Record<string, unknown>) {
     const m = this.find(p.request);
     const agent = typeof p.agent === 'string' ? p.agent : m.agent;
@@ -383,6 +384,12 @@ export class FakeChat {
     const limit = typeof p.limit === 'number' ? p.limit : 50;
     const from = Math.max(0, at - Math.floor(limit / 2));
     const page = list.slice(from, from + limit);
+    const second = (at: string) => Math.floor(Date.parse(at) / 1000);
+    const start = second(page[page.length - 1].at);
+    const end = from > 0 ? second(page[0].at) + 1 : Infinity;
+    const span = this.thread(agent).items.filter((i) => second(i.at) >= start && second(i.at) < end);
+    const centre = span.findIndex((i) => second(i.at) >= second(m.at));
+    const lo = Math.max(0, Math.min((centre < 0 ? span.length : centre) - 100, span.length - 200));
     return {
       agent,
       scope,
@@ -390,6 +397,9 @@ export class FakeChat {
       messages: page.map((x) => this.view(x)),
       more_older: from + limit < list.length,
       more_newer: from > 0,
+      transcript: span.slice(lo, lo + 200),
+      transcript_more_older: lo > 0,
+      transcript_more_newer: lo + 200 < span.length,
     };
   }
   /** What a # can point at: the agent's newest requests, sent or received, as a line each (the first line, up to 60 characters). */

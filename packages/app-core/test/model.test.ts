@@ -50,6 +50,10 @@ test('the dot follows the daemon state, with a dialog or block taking over', () 
   assert.equal(dotOf(agent('a', { state: 'no_terminal' })), 'none');
   assert.equal(dotOf(agent('a', { state: 'parked' })), 'parked');
   assert.equal(dotOf(agent('a', { state: 'something_new' })), 'idle');
+  const handoff = (phase: 'writing' | 'starting') => ({ handoff: { cause: 'context_full', phase, since: '' } });
+  assert.equal(dotOf(agent('a', { state: 'idle', ...handoff('starting') })), 'waking');
+  assert.equal(dotOf(agent('a', { state: 'idle', ...handoff('writing') })), 'idle');
+  assert.equal(dotOf(agent('a', { state: 'running', ...handoff('starting') })), 'waking');
 });
 
 test('the rail sorts waiting up, nests children, and filters by dot and search', () => {
@@ -85,6 +89,7 @@ test('the rail sorts waiting up, nests children, and filters by dot and search',
   assert.equal(rowName('handline', 0, 'handline'), 'handline');
   assert.equal(shortName('t', 't'), 't');
   assert.equal(dotOf(agent('x', { state: 'queued' })), 'waking');
+  assert.equal(dotOf(agent('x', { state: 'starting' })), 'waking');
 });
 
 test('a child whose parent is filtered out still shows', () => {
@@ -307,4 +312,14 @@ test('the stop modes of a structured agent are in session words and drop Exit', 
     ['interrupt', 'exit', 'close', 'kill'],
   );
   assert.ok(stopModesOf({ structured: true }).every((m) => !/terminal|Esc|exit/i.test(m.hint)));
+});
+
+test('an agent that is restarting stays in the list whatever the filter hides', () => {
+  const a = (name: string, handoff?: object) =>
+    ({ name, role: 'x', state: 'idle', ...(handoff ? { handoff } : {}) }) as unknown as Parameters<typeof railRows>[0][number];
+  const rows = railRows([a('quiet'), a('again', { cause: 'context_full', phase: 'writing', since: 'x' })], { hidden: new Set(['idle']) });
+  assert.deepEqual(
+    rows.map((r) => r.agent.name),
+    ['again'],
+  );
 });

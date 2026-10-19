@@ -62,72 +62,37 @@ func TestDeliveryThenLandingMovesARequestOutOfTheQueue(t *testing.T) {
 	}
 }
 
-func TestClosingAnAskWritesTheAnswerAsASayAndSettlesOnce(t *testing.T) {
+func TestClosingARequestKeepsItsVerdictAsTheReasonOnceAndWritesNoAnswerRow(t *testing.T) {
 	q := open(t)
 	rid := ask(t, q, "a", "b", "q?", "ask")
-	ok, err := CloseIfQueued(q, rid, "done", "yes", CloseOpts{})
+	ok, err := CloseIfQueued(q, rid, "done", "yes")
 	if !ok || err != nil {
 		t.Fatal(ok, err)
 	}
-	if ok, _ := CloseIfQueued(q, rid, "done", "again", CloseOpts{}); ok {
+	if ok, _ := CloseIfQueued(q, rid, "done", "again"); ok {
 		t.Fatal("closed twice")
 	}
-	ans, _ := AnswerRowOf(q, rid)
-	if ans == nil || ans.Body != "yes" || ans.Requester != "b" || ans.Target != "a" || ans.Kind.String != "say" {
-		t.Fatalf("%+v", ans)
-	}
-	r, _ := GetRequest(q, rid)
-	if r.State != "landed" || r.Answer.String != "yes" {
+	if r, _ := GetRequest(q, rid); r.State != "landed" || r.Reason.String != "yes" {
 		t.Fatalf("%+v", r)
 	}
-	un, _ := UnannouncedAnswers(q, "a")
-	if len(un) != 1 {
-		t.Fatal("the asker has not been told")
-	}
-	MarkAnnounced(q, []int64{rid})
-	if un, _ := UnannouncedAnswers(q, "a"); len(un) != 0 {
-		t.Fatal("still unannounced")
+	var n int
+	q.QueryRow("SELECT COUNT(*) FROM requests WHERE requester = 'b' AND target = 'a'").Scan(&n)
+	if n != 0 {
+		t.Fatalf("%d answer rows: a close writes none", n)
 	}
 }
 
-func TestASayClosedWithNothingSaidAsksNothingBackAndADismissalReadsAsOne(t *testing.T) {
-	q := open(t)
-	say := ask(t, q, "a", "b", "fyi", "say")
-	CloseIfQueued(q, say, "done", "", CloseOpts{})
-	if a, _ := AnswerRowOf(q, say); a != nil {
-		t.Fatal("an answer to a say with nothing said")
-	}
-	rid := ask(t, q, "a", "human", "pick one", "ask")
-	CloseIfQueued(q, rid, "done", "", CloseOpts{DismissedBy: "human", DismissedReason: "later"})
-	r, _ := GetRequest(q, rid)
-	if d, by, why := r.Dismissal(); !d || by != "human" || why != "later" {
-		t.Fatal(d, by, why)
-	}
-}
-
-func TestADecisionTaskFollowsItsCardOutOfTheQueue(t *testing.T) {
+func TestADecisionTaskStaysOpenWhenItsCardLeavesTheQueue(t *testing.T) {
 	q := open(t)
 	tid, _ := NewTask(q, "decide", Human, "a", 0, DefaultPriority, "", 0, "")
 	card := ask(t, q, "a", Human, "which?", "ask")
 	LinkRequest(q, tid, card)
-	if got, _ := DecisionTaskOfCard(q, card); got != tid {
-		t.Fatalf("card of %d", got)
-	}
 	if ids, _ := OpenDecisionCardIDs(q, "a", "", nil); len(ids) != 1 || ids[0] != card {
 		t.Fatal(ids)
 	}
-	CloseIfQueued(q, card, "done", "the first", CloseOpts{})
-	task, _ := GetTask(q, tid)
-	if task.DoneEvidence.String != "the first" {
-		t.Fatalf("%+v", task)
-	}
-	tid2, _ := NewTask(q, "decide2", Human, "a", 0, DefaultPriority, "", 0, "")
-	card2 := ask(t, q, "a", Human, "again?", "ask")
-	LinkRequest(q, tid2, card2)
-	RetireQueued(q, card2, "withdrawn", "taken back")
-	task2, _ := GetTask(q, tid2)
-	if task2.DiscardedBy.String != Human || task2.DiscardReason.String != "its request was withdrawn: taken back" {
-		t.Fatalf("%+v", task2)
+	CloseIfQueued(q, card, "done", "the first")
+	if task, _ := GetTask(q, tid); task.Ended() {
+		t.Fatalf("a decision ends by task.done, not by its card: %+v", task)
 	}
 }
 
@@ -176,7 +141,7 @@ func TestSettlingLeftoverDeliveriesClosesOnlyThoseWhoseTasksAllEnded(t *testing.
 
 func TestNoticesAreBornLandedAndWaitForADigest(t *testing.T) {
 	q := open(t)
-	n, _ := AddRequest(q, NewRequest{Requester: NoticeRequester, Target: "b", Body: "T1 done by x: ok", Kind: "say", Response: "fire_and_forget", Notice: true})
+	n, _ := AddRequest(q, NewRequest{Requester: NoticeRequester, Target: "b", Body: "T1 done by x: ok", Kind: "say", Notice: true})
 	r, _ := GetRequest(q, n)
 	if r.State != "landed" || !r.LandedAt.Valid || r.DeliveredAt.Valid {
 		t.Fatalf("%+v", r)

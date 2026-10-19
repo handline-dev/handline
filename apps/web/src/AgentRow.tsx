@@ -1,10 +1,10 @@
 // One agent row of the list: the name and its marks on the first line, the task (or repo/branch) under it, and what the agent is doing now.
 import { useEffect, useRef, useState } from 'react';
-import { ago, dotOf, rowName, queueOf, type Verb, badgesOf, taskRef } from '@handline/app-core';
+import { ago, dotOf, rowName, queueOf, handoffLine, type Verb, badgesOf, taskRef } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useVerbMark } from '@handline/app-data';
-import { VerbSheet } from './AgentVerbs.tsx';
+import { DeleteSheet, VerbSheet } from './AgentVerbs.tsx';
 import { Badges } from './Badges.tsx';
 import { Mark, MARKS } from './RailIcons.tsx';
 import { AgentGauges } from './AgentGauges.tsx';
@@ -22,6 +22,10 @@ const GAP = 8;
 
 /** What the agent is doing now, from what the daemon sends: the word beside its state and how long. Empty for an agent at rest. */
 export const liveOf = (a: AgentView): string => {
+  if (a.handoff) {
+    const { why, what } = handoffLine(a.handoff);
+    return `${why}: ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
+  }
   const d = dotOf(a);
   if (d !== 'running' && d !== 'waking' && !a.state_detail) return '';
   return [a.state_detail || MARKS[d].label, ago(a.state_since)].filter(Boolean).join(' · ');
@@ -62,6 +66,7 @@ export function AgentRow({
   const store = useStore();
   const dot = dotOf(a);
   const [ask, setAsk] = useState<Verb | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [hot, setHot] = useState(false); // the pointer or focus is on the row: its actions show, and only then do they cost a detail read
   const [menuOpen, setMenuOpen] = useState(false);
   const mark = useVerbMark(a.name);
@@ -134,6 +139,17 @@ export function AgentRow({
                   <span className="name h-5 min-w-[4.5rem] flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-5">
                     {rowName(a.name, depth, team)}
                   </span>
+                  {a.handoff ? (
+                    <span className="restarting inline-flex flex-none items-center gap-1 whitespace-nowrap text-label text-primary">
+                      <Icon
+                        name="refresh"
+                        size={12}
+                        aria-hidden
+                        className="animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none"
+                      />
+                      Restarting…
+                    </span>
+                  ) : null}
                   {a.needs_you ? (
                     <span
                       className="needs inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-pill bg-wait px-1.5 text-label text-canvas"
@@ -202,10 +218,11 @@ export function AgentRow({
           </div>
         </MenuTrigger>
         <MenuContent>
-          <AgentMenu agent={a} onAsk={setAsk} />
+          <AgentMenu agent={a} onAsk={setAsk} onDelete={() => setDeleting(true)} />
         </MenuContent>
       </Menu>
       {ask ? <VerbSheet a={a} verb={ask} onClose={() => setAsk(null)} /> : null}
+      {deleting ? <DeleteSheet a={a} onClose={() => setDeleting(false)} /> : null}
     </>
   );
 }

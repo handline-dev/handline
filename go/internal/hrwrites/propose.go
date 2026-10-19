@@ -5,10 +5,13 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
@@ -111,8 +114,9 @@ func (e *Env) teamNames(name string, members []string, repos map[string]string, 
 	return full, ""
 }
 
-// draft checks one change against the roster `registered` (and the agents an earlier step makes, `coming`) and returns it as a proposal, or why not (_draft in hr.py).
-func (e *Env) draft(actor, kind string, args map[string]any, why string, registered []string, coming map[string]bool) (*Prop, string) {
+// draft checks one change against the roster `registered` (and the agents an earlier step makes, `coming`, and the edges an earlier step
+// unlinks, `unlinked`) and returns it as a proposal, or why not (_draft in hr.py).
+func (e *Env) draft(actor, kind string, args map[string]any, why string, registered []string, coming map[string]bool, unlinked map[[2]string]bool) (*Prop, string) {
 	name := argStr(args, "name")
 	str := func(k string) string { return argStr(args, k) }
 	why = strings.TrimSpace(why)
@@ -143,13 +147,14 @@ func (e *Env) draft(actor, kind string, args map[string]any, why string, registe
 		if slices.Contains(registered, name) {
 			return nil, fmt.Sprintf("%s is already an agent", name)
 		}
+	case "unlink": // edgeRefusal checks the edge is in team.yaml, whatever its ends
 	default:
-		if !slices.Contains(registered, name) {
+		if !slices.Contains(registered, name) && !(kind == "link" && patternEnd(name)) {
 			return nil, fmt.Sprintf("%s is not an agent", name)
 		}
 	}
 	if kind == "link" || kind == "unlink" {
-		if msg := e.edgeRefusal(kind, name, to, "", "", registered, coming); msg != "" {
+		if msg := e.edgeRefusal(kind, name, to, registered, coming, unlinked); msg != "" {
 			return nil, msg
 		}
 	}
@@ -206,6 +211,17 @@ func (e *Env) draft(actor, kind string, args map[string]any, why string, registe
 	if kind == "team" && repo == "" {
 		return nil, fmt.Sprintf("team %s needs --repo <path> for its manager; a member without its own --member SUFFIX=REPO works there too. Each worktree is made in it.", name)
 	}
+	if kind == "add" || kind == "team" {
+		var why string
+		if repo, why = e.checkout(actor, repo); why != "" {
+			return nil, why
+		}
+		for n, r := range repos {
+			if repos[n], why = e.checkout(actor, r); why != "" {
+				return nil, why
+			}
+		}
+	}
 	prop, err := newProp(kind, name, actor, why)
 	if err != nil {
 		return nil, err.Error()
@@ -240,6 +256,30 @@ func (e *Env) draft(actor, kind string, args map[string]any, why string, registe
 	return prop, ""
 }
 
+// checkout is the repo a new agent works in as it is kept: absolute, a relative one taken from the proposer's own repo, and refused ("" and
+// why) unless it is an existing git checkout, since a spawn resolves a bad path to one where no worktree can be made. "" stays "".
+func (e *Env) checkout(actor, repo string) (string, string) {
+	if repo == "" {
+		return "", ""
+	}
+	path := repo
+	if !filepath.IsAbs(path) {
+		base := team.NewRoster(e.Home).RepoOf(actor)
+		if base == "" || !filepath.IsAbs(base) {
+			return "", fmt.Sprintf("repo %s is a relative path and %s has no repo to take it from: give the absolute path of the checkout", repo, actor)
+		}
+		path = filepath.Join(base, path)
+	}
+	path = filepath.Clean(path)
+	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
+		return "", fmt.Sprintf("repo %s is not a folder (%s): give the absolute path of a git checkout", repo, path)
+	}
+	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+		return "", fmt.Sprintf("repo %s is not a git checkout (%s has no .git): give the absolute path of one", repo, path)
+	}
+	return path, ""
+}
+
 // newProp is a proposal's header: a fresh id, what it is about, who asks and why.
 func newProp(kind, agent, actor, why string) (*Prop, error) {
 	idb := make([]byte, 4)
@@ -261,6 +301,18 @@ func (e *Env) raised(c *rpc.Conn, prop *Prop, said string) (any, error) {
 	if err := e.save(prop); err != nil {
 		return refuse("could not write the proposal down, so nothing was raised: %v", err)
 	}
+	if c.Caller.Actor() == db.Human {
+		// The founder's own change is applied at once: the gate stops an agent changing the roster on its own, and asking the founder to approve
+		// what they just typed is ceremony. It goes through decide, so the approval is on record as any other's; a failed apply stays listed.
+		done, applied, err := e.decide(prop.id(), "approved", db.Human, "", prop.subject(), false)
+		if err != nil {
+			return nil, err
+		}
+		if !done {
+			return refuse("proposal %s was written down but not applied: %s", prop.id(), applied)
+		}
+		said = fmt.Sprintf("proposal %s applied: %s", prop.id(), applied)
+	}
 	return c.Effect(func(*sql.Tx) (map[string]any, error) {
 		return map[string]any{"accepted": true, "proposal": proposalNumber(prop.id()), "said": said}, nil
 	})
@@ -273,7 +325,7 @@ func (e *Env) proposeMethod(c *rpc.Conn, params map[string]any) (any, error) {
 		changes, _ := args["changes"].([]any)
 		return e.proposeBundle(c, changes, argStr(params, "why"))
 	}
-	prop, why := e.draft(c.Caller.Actor(), argStr(params, "kind"), args, argStr(params, "why"), paths.ListAgents(e.Home), nil)
+	prop, why := e.draft(c.Caller.Actor(), argStr(params, "kind"), args, argStr(params, "why"), paths.ListAgents(e.Home), nil, nil)
 	if why != "" {
 		return refuse("%s", why)
 	}
@@ -324,11 +376,15 @@ func (e *Env) proposeBundle(c *rpc.Conn, raw []any, why string) (any, error) {
 	now := paths.ListAgents(e.Home)
 	registered := now
 	coming := map[string]bool{}
+	unlinked := map[[2]string]bool{} // so a link after its unlink rewrites the edge
 	var flat []yamlcompat.Pair
 	for n, s := range steps {
-		d, msg := e.draft(c.Caller.Actor(), s.kind, s.args, why, registered, coming)
+		d, msg := e.draft(c.Caller.Actor(), s.kind, s.args, why, registered, coming, unlinked)
 		if msg != "" {
 			return refuse("change %d (%s %s): %s", s.n, s.kind, argStr(s.args, "name"), msg)
+		}
+		if s.kind == "unlink" {
+			unlinked[[2]string{d.str("agent"), d.str("to")}] = true
 		}
 		for _, kv := range d.pairs {
 			switch kv.Key {

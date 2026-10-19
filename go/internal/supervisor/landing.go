@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"regexp"
@@ -86,8 +85,8 @@ func entryTexts(entry map[string]any) []string {
 	return out
 }
 
-func holds(line []byte, rid int64, header *regexp.Regexp) bool {
-	if !bytes.Contains(line, []byte(fmt.Sprintf("#%d from ", rid))) {
+func holds(line []byte, named string, header *regexp.Regexp) bool {
+	if !bytes.Contains(line, []byte(named)) {
 		return false
 	}
 	var entry map[string]any
@@ -102,10 +101,12 @@ func holds(line []byte, rid int64, header *regexp.Regexp) bool {
 	return false
 }
 
-// ShownIn is whether the transcript holds the line that tells an agent about request rid: its last tailBytes, where a landing is; whole
-// reads it all, for the one look that decides a line was never shown.
-func ShownIn(transcript string, rid int64, whole bool) bool {
-	header := regexp.MustCompile(fmt.Sprintf(`#%d from [^\n]*waiting for you:`, rid))
+// ShownIn is whether the transcript holds the line that tells an agent about the request with this ref: its last tailBytes, where a landing
+// is; whole reads it all, for the one look that decides a line was never shown. The name typed may be any prefix of the ref from
+// db.MsgMinPrefix up, since a prefix grows when a later ref comes to share it.
+func ShownIn(transcript, ref string, whole bool) bool {
+	named := db.MsgPrefix + ref[:min(db.MsgMinPrefix, len(ref))]
+	header := regexp.MustCompile(regexp.QuoteMeta(named) + `[0-9a-f]* from [^\n]*waiting for you:`)
 	f, err := os.Open(transcript)
 	if err != nil {
 		return false
@@ -130,7 +131,7 @@ func ShownIn(transcript string, rid int64, whole bool) bool {
 	sc := bufio.NewReaderSize(r, 1<<20)
 	for {
 		line, err := sc.ReadBytes('\n')
-		if len(line) > 0 && holds(line, rid, header) {
+		if len(line) > 0 && holds(line, named, header) {
 			return true
 		}
 		if err != nil {
@@ -177,12 +178,12 @@ func (e *Env) landedAlready(q db.Q, agent string, rid int64) bool {
 	if acct == "" || !e.Sessions.KeepsTranscripts(acct) {
 		return false
 	}
-	typedSession := ""
-	if row := must(db.GetRequest(q, rid)); row != nil {
-		typedSession = row.TypedSess.String
+	row := must(db.GetRequest(q, rid))
+	if row == nil {
+		return false
 	}
-	for _, p := range e.transcriptsOf(distinct(typedSession, e.liveSession(q, agent)), acct) {
-		if ShownIn(p, rid, false) {
+	for _, p := range e.transcriptsOf(distinct(row.TypedSess.String, e.liveSession(q, agent)), acct) {
+		if ShownIn(p, row.Ref, false) {
 			return true
 		}
 	}
@@ -220,7 +221,7 @@ func (e *Env) LandingSweep(q db.Q, agent string) (err error) {
 		expired := gone || !e.typedRecently(r.ID, now)
 		shown := false
 		for _, p := range e.transcriptsOf(sessions, acct) {
-			if ShownIn(p, r.ID, expired) {
+			if ShownIn(p, r.Ref, expired) {
 				shown = true
 				break
 			}
@@ -228,7 +229,7 @@ func (e *Env) LandingSweep(q db.Q, agent string) (err error) {
 		if shown {
 			check(db.MarkLanded(q, r.ID))
 			must(db.AddEvent(q, agent, "landed", db.KV{K: "request_id", V: r.ID}, db.KV{K: "after_s", V: now - r.TypedAt.Int64}))
-			e.log("  %s: #%d is in its transcript", agent, r.ID)
+			e.log("  %s: request %d is in its transcript", agent, r.ID)
 			continue
 		}
 		if !expired {
@@ -240,7 +241,7 @@ func (e *Env) LandingSweep(q db.Q, agent string) (err error) {
 		if gone {
 			ended = " (its session ended)"
 		}
-		e.log("  %s: #%d never reached its transcript%s - typed again", agent, r.ID, ended)
+		e.log("  %s: request %d never reached its transcript%s - typed again", agent, r.ID, ended)
 	}
 	return nil
 }

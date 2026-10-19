@@ -5,7 +5,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { timeline, type TimelineEntry } from '@handline/app-core';
+import { openActivity, timeline, type TimelineEntry } from '@handline/app-core';
 import { useNearEnd, useSelector, useStore } from '@handline/app-react';
 import {
   Skeleton,
@@ -14,10 +14,12 @@ import {
   useChat,
   useChatActions,
   useChatLocate,
+  useChatWindow,
   useInbox,
   useServes,
   useTasks,
   useWrite,
+  type Chat,
   type ChatScope,
 } from '@handline/app-data';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
@@ -26,8 +28,7 @@ import { Compose } from './ChatCompose.tsx';
 import { Item, Message, TaskNote, jumpTo } from './ChatMessages.tsx';
 import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, RoomTitle, useDecided } from './ChatCards.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
-import { Button, Empty, Icon, Segmented, Textarea, ComposeRow } from './ui/index.ts';
-import { setting } from './daemon.ts';
+import { Button, Empty, Icon, Textarea, ComposeRow } from './ui/index.ts';
 import { useWantedMessage } from './route.ts';
 import { useWorkspace } from './Workspace.tsx';
 
@@ -89,20 +90,52 @@ function Typing({ line }: { line: string }) {
   );
 }
 
+/** Shown while a window around an old message is open: it takes the person back to the live tail. */
+function LatestPill({ onClick }: { onClick: () => void }) {
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-[96px] flex justify-center">
+      <button className="latest pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-pop)]" onClick={onClick}>
+        Back to latest
+        <Icon name="newer" size={14} aria-hidden />
+      </button>
+    </div>
+  );
+}
+
+/** The live chat, or while a window around an old message is open the stretch the daemon returned; the live transcript lines are kept only within its time span. */
+function useWindowedChat(agent: string, scope: ChatScope) {
+  const live = useChat(agent, scope);
+  const win = useChatWindow(agent, scope);
+  const windowed = win.target !== null;
+  const first = win.messages[0]?.at ?? '';
+  const last = win.messages.at(-1)?.at ?? '';
+  const chat: Chat = windowed
+    ? { ...live, messages: win.messages, items: live.items.filter((i) => i.at >= first && i.at <= last), hasOlder: win.hasOlder, loadingOlder: win.loading, loadOlder: win.loadOlder }
+    : live;
+  return { chat, win, windowed };
+}
+
 /** In the all room, the sender's name over a message, left out when the entry before is a message from the same sender. */
 const groupOf = (scope: ChatScope, prev: TimelineEntry | undefined, m: ChatMessage) =>
   scope === 'all' ? { name: prev?.kind === 'message' && prev.message.from === m.from ? null : m.from } : undefined;
 
+/** Scrolls `box` so the line `a` remembered is back where it was. Found again by its id: a page landing can re-create the element (separators, grouping). */
+function putBack(box: HTMLElement, a: { id: string; off: number }) {
+  const el = box.querySelector(`[data-id="${CSS.escape(a.id)}"]`);
+  if (!el) return;
+  const drift = el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
+  if (drift) box.scrollTop += drift;
+}
+
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
-  const { storage } = useWorkspace();
+  const { storage, apply } = useWorkspace();
   const canSend = useSelector((s) => s.can('chat.send'));
   const me = useStore().me;
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
-  // The scope comes back next visit, as the bridge kept it.
-  const keptScope = setting(storage, 'handline.chatScope', 'mine');
-  const [scope, setScope] = useState<ChatScope>(keptScope.value === 'all' ? 'all' : 'mine');
-  const chat = useChat(agent, scope);
+  // Chat is the person and this agent only; the team's traffic is the Activity tab.
+  const scope: ChatScope = 'mine';
+  const { chat, win, windowed } = useWindowedChat(agent, scope);
   const [picked, setPicked] = useState<number | null>(null);
   const [newer, setNewer] = useState(0); // entries that arrived while the person was reading further up
   const [going, setGoing] = useState<number | null>(null); // a message number being found
@@ -153,12 +186,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const box = stream.current;
     const a = anchor.current;
     if (!box || !a) return;
-    // Found again by its id: a page landing can re-create the element (separators, grouping), so the one held at load start may be gone.
-    const el = box.querySelector(`[data-id="${CSS.escape(a.id)}"]`);
-    if (el) {
-      const drift = el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
-      if (drift) box.scrollTop += drift;
-    }
+    putBack(box, a);
     if (!chat.loadingOlder) anchor.current = null; // the load is over; the next one remembers its own line
   }, [entries.length, chat.loadingOlder]);
   useEffect(() => {
@@ -166,7 +194,12 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const id = requestAnimationFrame(() => setArmed(true));
     return () => cancelAnimationFrame(id);
   }, [chat.loadingOlder, entries.length]);
-  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
+  // After a jump the target stays where it was put: the sentinels wait until the person scrolls the window themselves.
+  const [moved, setMoved] = useState<number | null>(null);
+  const reading = !windowed || moved === win.target;
+  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && reading && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
+  // Around an old message, the way down is read as the bottom comes near, until the live tail is reached.
+  const lower = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, win.loadNewer, windowed && reading && win.hasNewer && !win.loading);
   const repin = () => {
     const el = stream.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
@@ -179,8 +212,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   useEffect(() => {
     const grew = entries.length - count.current;
     count.current = entries.length;
-    if (grew > 0 && !pinned.current && tail >= 0) setNewer((n) => n + grew);
-  }, [entries.length, tail]);
+    if (grew > 0 && !pinned.current && tail >= 0 && !windowed) setNewer((n) => n + grew);
+  }, [entries.length, tail, windowed]);
   const bottom = () => {
     const el = stream.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -229,37 +262,37 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const where = locate.data?.scope;
   useEffect(() => {
     if (going === null || !where) return;
-    if (where !== scope) return setScope(where);
+    if (where !== scope) {
+      // Said between agents: it is a row of the Activity tab.
+      apply((w) => openActivity(w, `m${going}`));
+      return setGoing(null);
+    }
     if (jumpTo(going)) return setGoing(null);
-    if (chat.hasOlder && !chat.loadingOlder) chat.loadOlder();
-    else if (!chat.hasOlder && !chat.loadingOlder) setGoing(null);
+    const found = locate.data;
+    if (!found) return;
+    if (win.target !== going) {
+      // Not drawn: the stretch around it is read at once, not paged up to.
+      pinned.current = false;
+      win.open(going, found.messages, found.more_older, found.more_newer);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [going, where, scope, chat.hasOlder, chat.loadingOlder, entries.length]);
+  }, [going, where, scope, locate.data, windowed, entries.length]);
 
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
     <section className={CHAT}>
       <div className="chat-head flex h-[var(--h-tabs)] items-center gap-2 border-b border-line px-2">
-        <RoomTitle agent={agent} state={detail.state} />
+        <RoomTitle agent={agent} detail={detail} />
         <ChatSearch agent={agent} scope={scope} onGo={jump} />
-        <Segmented
-          label="Which messages"
-          value={scope}
-          onChange={(v) => {
-            setScope(v);
-            keptScope.save(v);
-            setPicked(null);
-          }}
-          options={[
-            { value: 'mine', label: 'Mine: just you and this agent', icon: 'chat' },
-            { value: 'all', label: 'All: also what other agents say to each other', icon: 'team' },
-          ]}
-        />
       </div>
       <ChatBanner detail={detail} />
       <div
         className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>.skeleton]:self-stretch"
         ref={stream}
+        onWheel={() => setMoved(win.target)}
+        onTouchMove={() => setMoved(win.target)}
+        onKeyDown={() => setMoved(win.target)}
+        onLoadCapture={(e) => e.target instanceof HTMLImageElement && repin()} // a picture arriving late grows the stream
         onScroll={(e) => {
           const el = e.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
@@ -285,7 +318,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           </button>
         ) : null}
         {chat.status === 'ready' && !entries.length ? <Empty icon="chat" name="No messages yet" hint={agent} /> : null}
-        <AnimatedList>
+        {/* Keyed by the window: the rows of the live tail leave at once when a window opens, not after an exit animation above the target. */}
+        <AnimatedList key={win.target ?? 'live'}>
           {entries.flatMap((e, i): ReactNode[] => {
             const day = dayHeading(e.at, i === 0 ? null : entries[i - 1]!.at);
             const body = (
@@ -327,15 +361,18 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
               : [body];
           })}
         </AnimatedList>
+        {windowed && win.hasNewer ? <div ref={lower} aria-hidden className="h-px" /> : null}
         <HrCards agent={agent} />
-        <HandoffCard detail={detail} />
+        <HandoffCard detail={detail} items={chat.items} />
         {detail.prompt ? null : <NeedsYouCard detail={detail} />}
         {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
         <div className="working-slot flex h-6 flex-none items-center self-start">
           {chat.working.turn_running ? <Typing line={chat.working.line ?? 'Working'} /> : null}
         </div>
       </div>
-      {newer ? (
+      {windowed ? (
+        <LatestPill onClick={() => (win.close(), bottom())} />
+      ) : newer ? (
         // CHAT stretches every direct child to full width, so the row spans it and only the pill takes clicks.
         <div className="pointer-events-none absolute inset-x-0 bottom-[96px] flex justify-center">
           <button

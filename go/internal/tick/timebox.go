@@ -22,8 +22,7 @@ import (
 // A notice to an agent is a line sent to its open session, so one that cannot be sent now is tried again; a notice to the human has no
 // session to type at and is an event.
 const (
-	TitleShown        = 60
-	StopWaitBackstopS = 900
+	TitleShown = 60
 	// NoticeRetryS: a notice that could not be sent (mid-turn, awaiting a permission, no session) is not tried again for this long, per agent.
 	NoticeRetryS = 60
 )
@@ -48,8 +47,8 @@ type TimeboxPorts interface {
 	TaskDoing(q db.Q, t *db.Task) bool
 	// SupervisorOf is actions.supervisor_of(routing(), agent), "" when it has none.
 	SupervisorOf(agent string) string
-	// StopWaitReason is actions.stop_wait_reason ("" for none).
-	StopWaitReason(q db.Q, agent string) string
+	// LeadOf is team.LeadOf: who a task in review waits on, "" when its assignee has no lead.
+	LeadOf(agent string) string
 	// SendNotice is delivery.type_notice, sent through the session: true when the line was sent.
 	SendNotice(q db.Q, agent, text string) bool
 	// SendBatch writes text as a notice for the agent's next digest (delivery.ClassBatch).
@@ -173,8 +172,8 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 		}
 		box := row.TimeoutS.Int64
 		title := shortTitle(row.Title)
-		text := fmt.Sprintf("T%d (%s), held by %s, has been doing past its %s timeout. Keep it going: `hl task edit T%d --timeout <duration>`. "+
-			"Stop it: `hl task release T%d \"<reason>\"` takes it back.", tid, title, row.Owner, timefmt.Ago(box), tid, tid)
+		text := fmt.Sprintf("T%d (%s), held by %s, has been doing past its %s timeout. Keep it going: `hl task edit T%d --timeout <duration>` (at most %s). "+
+			"Stop it: `hl task release T%d \"<reason>\"` takes it back.", tid, title, row.Owner, timefmt.Ago(box), tid, timefmt.Span(db.MaxTaskTimeoutS, false), tid)
 		b.note(t, row.OpenedBy, text)
 		check(db.AdvanceTaskTimeout(t.Q, tid, now, db.DefaultTaskTimeoutS))
 		// the deadline missed and the one that replaced it: a screen chains notices by them
@@ -198,20 +197,24 @@ func shortTitle(title string) string {
 	return title
 }
 
-// remindReported is the clock of a task whose done waits on acceptance: it runs on from where the doing left it, and past it whoever the task
-// answers to is reminded, again every stretch until they accept or reject it. A task reported with its clock not running (before its
-// first tick, or paused on a wait) has it started here, so it is reminded too.
+// remindReported is the clock of a task in review: it runs on from where the doing left it, and past it who the review waits on (its
+// assignee's lead, else whoever it answers to) is reminded, again every stretch until they accept or reject it. A task reported with its
+// clock not running (before its first tick, or paused on a wait) has it started here, so it is reminded too. One accepted waits on its
+// PR's merge, not on anyone's accept: it is not reminded.
 func (b *Timebox) remindReported(t *Tick, row *db.Task, now int64) {
 	if !row.TimeoutAt.Valid {
 		check(db.AdvanceTaskTimeout(t.Q, row.ID, now, db.DefaultTaskTimeoutS))
 		return
 	}
-	if row.TimeoutAt.Int64 > now {
+	if row.TimeoutAt.Int64 > now || row.AcceptedBy.String != "" {
 		return
 	}
-	to := row.AnswersTo()
-	text := fmt.Sprintf("T%d (%s) was reported done by %s and waits on you: accept it (`hl task accept T%d`) or send it back (`hl task reject T%d \"<note>\"`).",
-		row.ID, shortTitle(row.Title), row.Owner, row.ID, row.ID)
+	to := b.Ports.LeadOf(row.Owner)
+	if to == "" {
+		to = row.AnswersTo()
+	}
+	text := fmt.Sprintf("T%d (%s) was answered by %s and waits on you: accept it (`hl task accept T%d`), send it back (`hl task reject T%d \"<note>\"`) "+
+		"or take it back (`hl task handoff T%d %s \"<note>\"`).", row.ID, shortTitle(row.Title), row.Owner, row.ID, row.ID, row.ID, to)
 	b.note(t, to, text)
 	check(db.AdvanceTaskTimeout(t.Q, row.ID, now, db.DefaultTaskTimeoutS))
 	next := must(db.GetTask(t.Q, row.ID))
@@ -239,8 +242,8 @@ func (b *Timebox) SweepStaleBackground(t *Tick, now int64) {
 			since = now
 		}
 		text := fmt.Sprintf("%s has had background work for %s and shown nothing for %s. In %s its session may be closed, which stops that work, "+
-			"unless it shows activity or `hl idle-timeout never --agent %s` is set.",
-			agent, timefmt.Ago(now-since), timefmt.Ago(silent), timefmt.Ago(b.Ports.StaleBgVetoS()), agent)
+			"unless it shows activity or its idle timeout is set to never in the app's settings.",
+			agent, timefmt.Ago(now-since), timefmt.Ago(silent), timefmt.Ago(b.Ports.StaleBgVetoS()))
 		if b.tell(t, boss, text, now) {
 			check(db.SetCursor(t.Q, key, now))
 			must(db.AddEvent(t.Q, agent, "stale_background", db.KV{K: "told", V: boss}, db.KV{K: "silent_s", V: silent}))
@@ -348,48 +351,6 @@ func (b *Timebox) SweepBackgroundCheck(t *Tick, now int64) {
 	}
 }
 
-// SweepStopWaitBackstop is the gate's own backstop: the clock starts the moment the task-level wait goes missing and only clears once it is
-// recorded or the task moves on - even to another with no recorded wait in between; a RUNNING turn in between does not buy a fresh
-// 15 minutes. It only tells while IDLE now, once, past the limit.
-func (b *Timebox) SweepStopWaitBackstop(t *Tick, now int64) {
-	limit := t.Config.Seconds("stop_wait_backstop_s", StopWaitBackstopS)
-	for _, agent := range t.Host.Agents() {
-		sinceKey, toldKey, taskKey := "stop_wait_since:"+agent, "stop_wait_told:"+agent, "stop_wait_task:"+agent
-		row := must(db.GetAgentState(t.Q, agent))
-		why := ""
-		if row != nil && !closedAt(row) {
-			why = b.Ports.StopWaitReason(t.Q, agent)
-		}
-		if why == "" {
-			check(db.ClearCursor(t.Q, sinceKey))
-			check(db.ClearCursor(t.Q, toldKey))
-			check(db.ClearCursor(t.Q, taskKey))
-			continue
-		}
-		tid, _ := must2(db.CurrentTask(t.Q, agent))
-		if must(db.Cursor(t.Q, taskKey)) != tid { // the clock is the task's, not the agent's
-			check(db.SetCursor(t.Q, taskKey, tid))
-			check(db.ClearCursor(t.Q, sinceKey))
-			check(db.ClearCursor(t.Q, toldKey))
-		}
-		since := must(db.Cursor(t.Q, sinceKey))
-		if since == 0 {
-			check(db.SetCursor(t.Q, sinceKey, now))
-			continue
-		}
-		if row.State != states.Idle || now-since < limit || must(db.Cursor(t.Q, toldKey)) != 0 {
-			continue
-		}
-		who := b.answerer(t, agent, tid)
-		text := fmt.Sprintf("%s has been idle %s on T%d: %s. Ask it what it waits on: `hl say %s \"...\" --task T%d`.",
-			agent, timefmt.Ago(now-since), tid, why, agent, tid)
-		b.note(t, who, text)
-		check(db.SetCursor(t.Q, toldKey, 1))
-		must(db.AddEvent(t.Q, agent, "stop_wait_stuck", db.KV{K: "why", V: why}, db.KV{K: "for_s", V: now - since}, db.KV{K: "told", V: who}))
-		t.logf("  %s: %s, idle %s with nothing recorded - %s told", agent, why, timefmt.Ago(now-since), who)
-	}
-}
-
 // SweepForgottenResolveCapped: the nudge about a forgotten head stops once its schedule is used up rather than
 // nudging the agent forever - an agent that turns out to be genuinely stuck, not forgetful, still needs someone to look, so the head's
 // task opener (else its supervisor) is told once instead. Cleared as soon as it no longer applies, so a later head that is also forgotten and also runs out the
@@ -410,9 +371,19 @@ func (b *Timebox) SweepForgottenResolveCapped(t *Tick, now int64) {
 			tid = found.Task.ID
 		}
 		who := b.answerer(t, agent, tid)
-		on := fmt.Sprintf("#%d", found.HeadID)
-		if found.Task != nil {
-			on = fmt.Sprintf("T%d (#%d)", found.Task.ID, found.HeadID)
+		// The founder's screens show no message id: told to them, the message is named by its task or not at all.
+		name, read := db.MsgName(t.Q, found.HeadID), ""
+		if who != db.Human {
+			read = fmt.Sprintf("`hl read %s`; ", name)
+		}
+		on := name
+		switch {
+		case found.Task != nil && who == db.Human:
+			on = fmt.Sprintf("T%d", found.Task.ID)
+		case found.Task != nil:
+			on = fmt.Sprintf("T%d (%s)", found.Task.ID, name)
+		case who == db.Human:
+			on = "a message"
 		}
 		after := fmt.Sprintf("after %d reminders", b.Ports.NudgeScheduleLen())
 		more := ""
@@ -421,16 +392,16 @@ func (b *Timebox) SweepForgottenResolveCapped(t *Tick, now int64) {
 		}
 		var look string
 		if found.Task != nil {
-			look = fmt.Sprintf("Look at it: `hl read %d`; take it back with `hl task release T%d \"<reason>\"`, or ask %s by message (`hl say %s \"...\"`).",
-				found.HeadID, found.Task.ID, agent, agent)
+			look = fmt.Sprintf("Look at it: %stake it back with `hl task release T%d \"<reason>\"`, or ask %s by message (`hl say %s \"...\"`).",
+				read, found.Task.ID, agent, agent)
 		} else {
-			look = fmt.Sprintf("Look at it: `hl read %d`, or message %s (`hl say %s \"...\"`).", found.HeadID, agent, agent)
+			look = fmt.Sprintf("Look at it: %smessage %s (`hl say %s \"...\"`).", read, agent, agent)
 		}
 		text := fmt.Sprintf("%s has been idle %s on %s %s%s. %s", agent, timefmt.Ago(found.IdleS), on, after, more, look)
 		if b.tell(t, who, text, now) {
 			check(db.SetCursor(t.Q, toldKey, found.HeadID))
 			must(db.AddEvent(t.Q, agent, "forgotten_resolve_capped", db.KV{K: "request_id", V: found.HeadID}, db.KV{K: "idle_s", V: found.IdleS}, db.KV{K: "told", V: who}))
-			t.logf("  %s: idle %s on #%d, nudge cap reached - %s told", agent, timefmt.Ago(found.IdleS), found.HeadID, who)
+			t.logf("  %s: idle %s on request %d, nudge cap reached - %s told", agent, timefmt.Ago(found.IdleS), found.HeadID, who)
 		}
 	}
 }
@@ -442,7 +413,6 @@ func (b *Timebox) Sweep(t *Tick, now int64) error {
 		b.SweepStaleBackground(t, now)
 		b.SweepForgottenBackground(t, now)
 		b.SweepBackgroundCheck(t, now)
-		b.SweepStopWaitBackstop(t, now)
 		b.SweepForgottenResolveCapped(t, now)
 	})
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 )
 
-// taskClock is the spec's TaskClock: the task's time box, null once it is done or discarded; it runs while doing and while reported, and while it is
+// taskClock is the spec's TaskClock: the task's time box, null once it is done or discarded; it runs while doing and while answered, and while it is
 // paused left_s is what it had left. start is end less the length, so a clock that paused and resumed reads as begun later than it was. The overdue moment is the first deadline
 // missed, found by following the overrun notices back from the deadline now in force (an edit replaces the deadline and ends the chain).
 func (e *Env) taskClock(t row, state string) (any, error) {
@@ -26,7 +26,7 @@ func (e *Env) taskClock(t row, state string) (any, error) {
 		}
 		return clock, nil
 	}
-	if state != "doing" && state != "reported" {
+	if state != "doing" && state != "review" {
 		return clock, nil
 	}
 	now, end := time.Now().Unix(), t.i("timeout_at")

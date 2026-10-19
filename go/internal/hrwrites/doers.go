@@ -125,7 +125,7 @@ func (e *Env) doTeam(p step) (bool, string, error) {
 	}
 	verify := func(tm *team.Team) error {
 		for _, n := range members {
-			if err := need(tm.Route(name, n, 0, false).Allowed, fmt.Sprintf("%s -> %s is not routable", name, n)); err != nil {
+			if err := need(tm.Route(name, n, 0).Allowed, fmt.Sprintf("%s -> %s is not routable", name, n)); err != nil {
 				return err
 			}
 		}
@@ -216,7 +216,7 @@ func (e *Env) doRename(p step) (bool, string, error) {
 		return false, fmt.Sprintf("could not confirm whether %s has a session running just now - try again in a moment.", old), nil
 	}
 	if live[old] {
-		return false, fmt.Sprintf("%s has a session running. Close it first (`hl close %s`, or `c` on the screen) - an identity cannot change under a running session.", old, old), nil
+		return false, fmt.Sprintf("%s has a session running. Close it first (Close in its menu in the app) - an identity cannot change under a running session.", old), nil
 	}
 	src, dest := paths.AgentDir(e.Home, old), paths.AgentDir(e.Home, new)
 	if _, err := os.Stat(dest); err == nil {
@@ -306,8 +306,6 @@ func edgesMissing(was, now map[string]bool) []string {
 
 // ---------------------------------------------------------------- edges
 
-var validResponse = []string{"async", "fire_and_forget"}
-
 func pyStr(v any) string {
 	if v == nil {
 		return "None"
@@ -315,36 +313,42 @@ func pyStr(v any) string {
 	return fmt.Sprint(v)
 }
 
-// edgeRefusal is why this edge cannot be added or removed, or "" when it can. Read against the team.yaml as it is now; the write checks again,
-// on the text it edits.
-func (e *Env) edgeRefusal(kind, frm, to, response, relation string, registered []string, coming map[string]bool) string {
-	if to == "" || !contains(registered, to) {
-		shown := to
-		if shown == "" {
-			shown = "a target"
+// patternEnd is an edge end that names no one agent: anyone ("*") or the founder.
+func patternEnd(end string) bool { return end == "*" || end == team.Human }
+
+func hasEdge(t *team.Team, frm, to string) bool {
+	for _, ed := range t.Edges {
+		if pyStr(ed.From) == frm && pyStr(ed.To) == to {
+			return true
 		}
-		return shown + " is not an agent (an edge is between two agents)"
 	}
-	if to == frm {
-		return "an agent cannot ask itself"
-	}
-	if response != "" && !contains(validResponse, response) {
-		return "response must be one of " + strings.Join(validResponse, ", ")
-	}
-	if relation != "" && !relationRe.MatchString(relation) {
-		return fmt.Sprintf("bad relation: %s (letters, digits, . _ - only)", pyRepr(relation))
+	return false
+}
+
+// edgeRefusal is why this edge cannot be added or removed, or "" when it can. Read against the team.yaml as it is now, less the edges an
+// earlier unlink of the same bundle removes (unlinked); the write checks again, on the text it edits. A link's ends are agents, * or human;
+// an unlink takes any edge team.yaml has, so an edge to a retired agent can go.
+func (e *Env) edgeRefusal(kind, frm, to string, registered []string, coming map[string]bool, unlinked map[[2]string]bool) string {
+	if kind == "link" {
+		if to == "" || !contains(registered, to) && !patternEnd(to) {
+			shown := to
+			if shown == "" {
+				shown = "a target"
+			}
+			return shown + " is not an agent, * or human"
+		}
+		if to == frm {
+			return "an agent cannot ask itself"
+		}
 	}
 	t, err := team.LoadTeam(e.Home)
 	if err != nil {
 		return fmt.Sprintf("team.yaml cannot be read (%s)", err)
 	}
-	exact := false
-	for _, ed := range t.Edges {
-		exact = exact || (pyStr(ed.From) == frm && pyStr(ed.To) == to)
-	}
+	exact := hasEdge(t, frm, to) && !unlinked[[2]string{frm, to}]
 	if kind == "link" {
 		for _, end := range []string{frm, to} {
-			if _, in := t.Agents[end]; !in && !coming[end] {
+			if _, in := t.Agents[end]; !in && !coming[end] && !patternEnd(end) {
 				return end + " is not in team.yaml agents - add it there first"
 			}
 		}
@@ -374,7 +378,7 @@ func stillAllowedBy(t *team.Team, frm, to string) string {
 			continue
 		}
 		if t.Matches(pyStr(ed.From), frm) && t.Matches(pyStr(ed.To), to) {
-			if t.Route(frm, to, 0, false).Allowed {
+			if t.Route(frm, to, 0).Allowed {
 				return fmt.Sprintf("%s -> %s", pyStr(ed.From), pyStr(ed.To))
 			}
 			return ""
@@ -392,12 +396,15 @@ func unlinkCaveat(t *team.Team, frm, to string) string {
 
 func (e *Env) doLink(p step) (bool, string, error) {
 	frm, to := p.str("agent"), p.str("to")
-	if why := e.edgeRefusal("link", frm, to, p.str("response"), p.str("relation"), paths.ListAgents(e.Home), nil); why != "" {
+	if why := e.edgeRefusal("link", frm, to, paths.ListAgents(e.Home), nil, nil); why != "" {
 		return false, why, nil
 	}
-	ok, said, err := e.editTeamYaml(func(t string) (string, error) { return e.linkText(t, frm, to, p.str("response"), p.str("relation")) }, "", "",
+	ok, said, err := e.editTeamYaml(func(t string) (string, error) { return e.linkText(t, frm, to) }, "", "",
 		func(tm *team.Team) error {
-			return need(tm.Route(frm, to, 0, false).Allowed, fmt.Sprintf("%s -> %s is not routable", frm, to))
+			if patternEnd(frm) || patternEnd(to) {
+				return need(hasEdge(tm, frm, to), fmt.Sprintf("the edge %s -> %s is not in team.yaml", frm, to))
+			}
+			return need(tm.Route(frm, to, 0).Allowed, fmt.Sprintf("%s -> %s is not routable", frm, to))
 		})
 	if err != nil || !ok {
 		return false, said, err
@@ -407,16 +414,11 @@ func (e *Env) doLink(p step) (bool, string, error) {
 
 func (e *Env) doUnlink(p step) (bool, string, error) {
 	frm, to := p.str("agent"), p.str("to")
-	if why := e.edgeRefusal("unlink", frm, to, "", "", paths.ListAgents(e.Home), nil); why != "" {
+	if why := e.edgeRefusal("unlink", frm, to, paths.ListAgents(e.Home), nil, nil); why != "" {
 		return false, why, nil
 	}
 	ok, said, err := e.editTeamYaml(func(t string) (string, error) { return unlinkText(t, frm, to) }, "", "", func(tm *team.Team) error {
-		for _, ed := range tm.Edges {
-			if pyStr(ed.From) == frm && pyStr(ed.To) == to {
-				return configErr("the edge is still there")
-			}
-		}
-		return nil
+		return need(!hasEdge(tm, frm, to), "the edge is still there")
 	})
 	if err != nil || !ok {
 		return false, said, err

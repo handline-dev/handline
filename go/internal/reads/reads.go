@@ -45,7 +45,13 @@ type Env struct {
 	LoginState func(account string) (loggedIn, known bool)
 	// PullRequests answers which of the numbers are pull requests of a GitHub repo; nil asks gh.
 	PullRequests func(ctx context.Context, repo string, numbers []int) ([]int, error)
-	prs          *prCache
+	// Resources is the latest measure of what the machine and each agent use (sysres.Sampler.Latest); nil serves none.
+	Resources func() map[string]any
+	// AccountWall is when an account's work stops and starts again, for a task's expected start and end: blockedUntil, the reset that
+	// lifts the limit it is at now (0 when it is not); runsOutAt, when it reaches a limit at the current burn (0 when it does not or
+	// is not known); resetsAt, when that limit lifts. nil reads the usage files.
+	AccountWall func(account string, now int64) (blockedUntil, runsOutAt, resetsAt int64)
+	prs         *prCache
 }
 
 // Register adds the read methods to the server's table.
@@ -62,6 +68,7 @@ func Register(s *rpc.Server, env Env) {
 	s.Register("task.get", rpc.Method{Role: "agent", Handler: e.taskGet})
 	s.Register("task.view.list", rpc.Method{Role: "member", Handler: e.taskViews})
 	s.Register("task.history", rpc.Method{Role: "agent", Handler: e.taskHistory})
+	s.Register("task.time", rpc.Method{Role: "agent", Handler: e.taskTime})
 	s.Register("task.memo.list", rpc.Method{Role: "agent", Handler: e.taskMemoList})
 	s.Register("events.feed", rpc.Method{Role: "agent", Handler: e.eventsFeed})
 	s.Register("prompt.list", rpc.Method{Role: "member", Handler: e.promptList})

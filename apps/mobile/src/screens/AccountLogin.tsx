@@ -2,7 +2,7 @@
 // text to copy; the code goes back once through account.login_code and is kept nowhere; Cancel sends account.login_cancel. The login's
 // end comes from the accounts topic, not from these writes.
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import type { Account } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useServes, useWrite } from '@handline/app-data';
@@ -62,9 +62,7 @@ export function AccountLogin({ a }: { a: Account }) {
         </>
       ) : run ? (
         <View style={{ gap: space.sm }}>
-          <Text testID="login-running" style={{ color: c.muted }}>
-            {a.login?.state === 'code_sent' ? 'Code sent; the daemon is finishing the login.' : 'Login in progress.'}
-          </Text>
+          <ActivityIndicator testID="login-running" accessibilityLabel="Logging in" />
           {stop}
         </View>
       ) : (

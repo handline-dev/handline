@@ -48,6 +48,10 @@ async function pageBackTo(found: () => unknown, what: string) {
     await until(() => found() || $$('.msg').length !== before, `a page toward ${what}`);
   }
 }
+const tabEl = async (id: string) => {
+  await until(() => $(`[data-tab="${id}"]`), `the ${id} tab`);
+  return $(`[data-tab="${id}"]`)!;
+};
 const msg = (body: string) => $$('.msg').find((m) => text(m).includes(body));
 const landing = (body: string) => msg(body)?.getAttribute('data-landing');
 const link = (label: string, within: Element) =>
@@ -66,6 +70,7 @@ const sent = (s: ReturnType<typeof setup>, body: string) =>
 
 async function mount(agent: string, s = setup(), storage: KV = memory()) {
   const store = new Store(s.client);
+  history.replaceState(null, '', location.pathname); // a tab shown by an earlier test is not this test's
   location.hash = `#/agents/${agent}`;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
@@ -98,37 +103,41 @@ describe('the Chat tab', () => {
   it('draws every message state and transcript kind from the daemon', async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
-    expect(landing('Draft the web chat tab plan.')).toBe('answered');
-    expect(landing('Use the contract fixtures.')).toBe('delivered_unanswered');
+    expect(landing('Draft the web chat tab plan.')).toBe('delivered');
+    expect(landing('Use the contract fixtures.')).toBe('delivered');
     expect(landing('Hold that, scope changed.')).toBe('withdrawn');
     expect(landing('Also add the list of gaps.')).toBe('typed');
     expect(link('Withdraw', msg('Also add the list of gaps.')!)).toBeUndefined(); // the chat has no Withdraw button
     expect($$('[data-kind="reply"]')).toHaveLength(1); // the agent's message is not drawn a second time as a reply
-    expect($$('[data-kind="tool"]')).toHaveLength(1);
+    expect($$('[data-kind="tool"]')).toHaveLength(0); // tool lines are on the Activity tab
     expect(icon($$('[data-kind="task_event"]')[1], 'Task done')).not.toBeNull();
-    expect(msg('Review is done')).toBeUndefined(); // agent to agent: the All tab
-    await click($$('.chat-head [role="radio"]')[1]!);
-    await until(() => msg('Review is done'), 'the all tab');
+    expect(msg('Review is done')).toBeUndefined(); // agent to agent: the Activity tab
+    expect($$('.chat-head [role="radio"]')).toHaveLength(0);
   });
 
-  it('a tool line cut to nothing still says how many lines were let go', async () => {
+  it('the Activity tab lists a tool line cut to nothing with how many lines were let go', async () => {
     const t = setup();
     t.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'ls', output: '', dropped_lines: 5 });
     await mount(ARCH, t);
-    await until(() => $$('[data-kind="tool"]').some((c) => /5 more lines let go/.test(text(c))), 'the cut note');
-    expect($$('[data-kind="tool"]')[0]!.querySelector('button')).toBeNull();
+    await click(await tabEl('activity'));
+    const bash = () => $$('.activity [data-kind="tools"]').find((r) => text(r).includes('Bash ls'));
+    await until(bash, 'the tool row');
+    await click(bash()!.querySelector('button')!);
+    expect(text(bash())).toContain('5 more lines not shown');
   });
 
-  it('a tool line shows what it printed on request, and how many lines were cut', async () => {
+  it('the Activity tab shows what a tool line printed on request', async () => {
     const t = setup();
     t.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'ls', output: 'a\nb', dropped_lines: 3 });
     await mount(ARCH, t);
-    await until(() => $$('[data-kind="tool"]').some((c) => /Show all/.test(text(c))), 'the tool line');
-    const row = $$('[data-kind="tool"]').find((c) => /Show all/.test(text(c)))!;
+    await click(await tabEl('activity'));
+    const bash = () => $$('.activity [data-kind="tools"]').find((r) => text(r).includes('Bash ls'));
+    await until(bash, 'the tool row');
+    const row = bash()!;
     expect(row.querySelector('.tool-output')).toBeNull();
-    await click([...row.querySelectorAll('button')].find((b) => /Show all/.test(text(b)))!);
+    await click(row.querySelector('button')!);
     expect(row.querySelector('.tool-output')?.textContent).toBe('a\nb');
-    expect(text(row)).toContain('3 more lines let go');
+    expect(text(row)).toContain('3 more lines not shown');
   });
 
   it('a session boundary says why it began, and its handoff opens in a dialog', async () => {
@@ -140,9 +149,9 @@ describe('the Chat tab', () => {
     await mount(ARCH, t);
     await until(() => $$('[data-kind="session"]').some((c) => /Handoff/.test(text(c))), 'the boundary');
     const line = $$('[data-kind="session"]').find((c) => /Handoff/.test(text(c)))!;
-    expect(text(line)).toContain('Started again from a handoff');
+    expect(text(line)).toMatch(/New session at .*: from a handoff/);
     expect($('.handoff-full')).toBeNull();
-    await click([...line.querySelectorAll('button')].find((b) => /Handoff/.test(text(b)))!);
+    await click([...line.querySelectorAll('button')].find((b) => /Handoff note/.test(text(b)))!);
     await until(() => $('.handoff-full'), 'the dialog');
     expect($('.handoff-full')?.textContent).toBe('line one\nline two');
   });
@@ -169,8 +178,8 @@ describe('the Chat tab', () => {
     t.daemon.chat.tick();
     await until(() => $('.working')?.getAttribute('title')?.includes('Reading the code'), 'the working line');
     t.daemon.chat.tick();
-    await until(() => landing('ship it') === 'answered', 'answered');
-    expect($('.working')).toBeNull();
+    await until(() => !$('.working'), 'the turn over');
+    expect(landing('ship it')).toBe('delivered');
     await until(() => text($('.stream')).includes('Got it: "ship it"'), 'the reply');
     expect(storage.data.get(`handline.draft.${ARCH}`)).toBe('');
   });
@@ -201,7 +210,7 @@ describe('the Chat tab', () => {
     await other.call('chat.send', { agent: ARCH, body: 'from elsewhere' });
     await until(() => msg('from elsewhere'), 'the message from the other screen');
     for (let i = 0; i < 4; i++) t.daemon.chat.tick();
-    await until(() => landing('from elsewhere') === 'answered', 'answered');
+    await until(() => landing('from elsewhere') === 'delivered', 'delivered');
     other.close();
   });
 
@@ -404,23 +413,21 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     await until(() => msg('Draft the web chat tab plan.')?.hasAttribute('data-flash'), 'the message flashes');
   });
 
-  it('in the all room the sender is named on the left, once per run, with no "from -> to"; an agent\'s say to another agent is not in its room', async () => {
+  it('a link to an old message opens the stretch around it, not every page up to it; Back to latest returns to the tail', async () => {
     const s = setup();
-    const at = (n: number) => new Date(Date.UTC(2031, 2, 1, 0, n)).toISOString();
-    s.daemon.chat.seed(ARCH, { from: 'handline.auditor', to: ARCH, body: 'first from auditor', at: at(1) });
-    s.daemon.chat.seed(ARCH, { from: 'handline.auditor', to: ARCH, body: 'second from auditor', at: at(2) });
-    s.daemon.chat.seed(ARCH, { from: 'handline.term-build', to: ARCH, body: 'from builder', at: at(3) });
-    s.daemon.chat.seed(ARCH, { from: ARCH, to: 'handline.auditor', body: 'architect says to auditor', at: at(4) });
+    for (let i = 0; i < 120; i++)
+      s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: `filler ${i}`, at: new Date(Date.UTC(2031, 0, 1, 0, i)).toISOString() });
+    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'see #100 for the plan', at: '2032-01-01T00:00:00Z' }); // local-ref-ok
     await mount(ARCH, s);
-    await until(() => msg('Which gap list'), 'history');
-    await click($('[aria-label="All: also what other agents say to each other"]')!);
-    await until(() => msg('first from auditor'), 'the all room');
-    const name = (b: string) => msg(b)!.querySelector('.msg-from')?.textContent;
-    expect(name('first from auditor')).toBe('handline.auditor');
-    expect(name('second from auditor')).toBeUndefined(); // the same sender as the one before
-    expect(name('from builder')).toBe('handline.term-build');
-    expect(text(msg('from builder'))).not.toContain('→');
-    expect(msg('architect says to auditor')).toBeUndefined();
+    await until(() => $('.ref'), 'the reference on the newest page');
+    expect(msg('Draft the web chat tab plan.')).toBeUndefined();
+    await click($('.ref')!);
+    await until(() => $('.latest'), 'Back to latest');
+    await until(() => msg('Draft the web chat tab plan.')?.hasAttribute('data-flash'), 'the message flashes');
+    expect(msg('see #100')).toBeUndefined(); // the tail is not drawn while the window is open // local-ref-ok
+    await click($('.latest')!);
+    await until(() => msg('see #100'), 'the tail again'); // local-ref-ok
+    expect($('.latest')).toBeNull();
   });
 
   it('in the desktop app an agent name opens that agent, and a repo path asks the shell with the branches named', async () => {

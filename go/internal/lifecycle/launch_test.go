@@ -2,8 +2,10 @@ package lifecycle
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -86,6 +88,7 @@ type launchRig struct {
 	l     *Launcher
 	warns []string
 	execd []string
+	argv  []string
 }
 
 func newLaunchRig(t *testing.T) *launchRig {
@@ -116,6 +119,7 @@ func newLaunchRig(t *testing.T) *launchRig {
 		Warn:           func(s string) { r.warns = append(r.warns, s) },
 		Exec: func(argv0 string, argv, env []string) error {
 			r.execd = append([]string{argv0}, env...)
+			r.argv = argv
 			return nil
 		},
 	}}
@@ -174,6 +178,21 @@ func TestBuildPutsTheModeAfterTheVendorsLineAndTheCallersArgsLast(t *testing.T) 
 	}
 }
 
+func TestALaunchFromAPaneStampedForAnotherAgentIsRefused(t *testing.T) {
+	r := newLaunchRig(t)
+	stamp := "bob"
+	r.l.Ports.PaneAgent = func(string) string { return stamp }
+	if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err == nil || !strings.Contains(err.Error(), "opened for bob") || r.execd != nil {
+		t.Fatalf("refused: %v, exec %v", err, r.execd)
+	}
+	for _, own := range []string{"ann", ""} { // her own pane, or one the daemon did not stamp
+		stamp = own
+		if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err != nil || r.execd == nil {
+			t.Fatalf("stamp %q: %v", own, err)
+		}
+	}
+}
+
 func TestExecAgentKeepsHowItStartedAndWhereItRunsThenExecs(t *testing.T) {
 	r := newLaunchRig(t)
 	if err := db.SetHandoff(r.l.Q, "ann", "left off here"); err != nil {
@@ -210,6 +229,35 @@ func TestExecAgentKeepsHowItStartedAndWhereItRunsThenExecs(t *testing.T) {
 	}
 }
 
+func TestAHandLaunchStartsTheFirstTurnWhenThereIsWorkToPickUp(t *testing.T) {
+	r := newLaunchRig(t)
+	last := func() string { return r.argv[len(r.argv)-1] }
+	_ = db.SetHandoff(r.l.Q, "ann", "h")
+	if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(last(), "handoff is in your system prompt") {
+		t.Fatalf("with a handoff: %v", r.argv)
+	}
+	tid, _ := db.NewTask(r.l.Q, "held", "ann", "boss", 0, 2, "", 0, "")
+	if err := db.SetCurrentTask(r.l.Q, "ann", tid, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(last(), fmt.Sprintf("hl task show T%d", tid)) {
+		t.Fatalf("holding a task: %v", r.argv)
+	}
+	_ = db.SetCurrentTask(r.l.Q, "ann", 0, false)
+	if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(r.argv, "--") {
+		t.Fatalf("nothing to pick up, no prompt: %v", r.argv)
+	}
+}
+
 func TestARefusedLaunchLeavesThePromptFileAndExecsNothing(t *testing.T) {
 	r := newLaunchRig(t)
 	r.l.Ports.Accounts = fakeAccounts{false}
@@ -234,7 +282,7 @@ func addAccounts(t *testing.T, r *launchRig, names ...string) {
 
 func TestRoomIsTheLoggedInAccountNothingSaysIsBad(t *testing.T) {
 	r := newLaunchRig(t)
-	if got := r.l.NoRoom("ann"); got != "no account is registered - `hl account add <name>` first" {
+	if got := r.l.NoRoom("ann"); got != "no account is registered - add one in the app's Accounts page first" {
 		t.Fatal(got)
 	}
 	addAccounts(t, r, "a", "b")
@@ -571,7 +619,7 @@ func TestAnAgentIsToldItsTeamFromTeamYAML(t *testing.T) {
 	r := newLaunchRig(t)
 	v, err := yamlcompat.ParseOrdered(`
 teams:
-  dev: [manager, marina, keeper]
+  manager: [manager, marina, keeper]
   lone: [scout]
 agents:
   manager: {}
@@ -579,9 +627,8 @@ agents:
   keeper: {}
   scout: {}
 edges:
-  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: task }
+  - { from: "human", to: "*" }
+  - { from: "*", to: "human" }
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -625,7 +672,7 @@ edges:
 		t.Fatal(err)
 	}
 	mgr, dev, scout := context("manager"), context("marina"), context("scout")
-	rules := "# Rules for team dev\n" + strings.TrimSpace(team.DefaultRules)
+	rules := "# Rules for team manager\n" + strings.TrimSpace(team.DefaultRules)
 	for who, text := range map[string]string{"manager": mgr, "marina": dev} {
 		if !strings.Contains(text, rules) {
 			t.Errorf("%s: the seeded team file is not in the prompt:\n%s", who, text)
@@ -696,5 +743,21 @@ func TestBuildHandsTheDriverTheAllowancesOfTheAgentsRepoOnly(t *testing.T) {
 		if got.WeakerNetwork != want || (len(got.Excluded) > 0) != want {
 			t.Errorf("%s: weaker %v, excluded %v", repo, got.WeakerNetwork, got.Excluded)
 		}
+	}
+}
+
+// A resume Build puts on an account that does not hold the session finds it there all the same: carried over from the old account.
+func TestAResumeBuildCarriesTheSessionToItsAccount(t *testing.T) {
+	r := newLaunchRig(t)
+	r.l.Ports.CurrentAccount = func(db.Q, string) string { return "main" }
+	old, _ := team.AccountConfigDir(r.l.Home, "old")
+	os.MkdirAll(filepath.Join(old, "projects", "-wt"), 0o755)
+	os.WriteFile(filepath.Join(old, "projects", "-wt", "s1.jsonl"), []byte("{}\n"), 0o600)
+	if _, _, err := r.l.Build("ann", []string{"--resume", "s1"}, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	main, _ := team.AccountConfigDir(r.l.Home, "main")
+	if sessionIn(main, "s1") == "" {
+		t.Fatal("the session was not carried to the account the resume runs on")
 	}
 }

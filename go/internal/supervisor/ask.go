@@ -69,7 +69,7 @@ func (e *Env) ForgetInbox(target string, rid int64) {
 
 // deliver drops the request into the target's inbox: the durable record an agent reads on wake. The database row is what the daemon
 // schedules from; both carry the same id so a crash between them is recoverable in either direction.
-func (e *Env) deliver(rid int64, requester, target, body, files string, d team.Decision) error {
+func (e *Env) deliver(rid int64, requester, target, body, files, kind string, depth int) error {
 	dir := e.inboxDir(target)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -88,15 +88,12 @@ func (e *Env) deliver(rid int64, requester, target, body, files string, d team.D
 		}
 		fl = "[\n" + strings.Join(items, ",\n") + "\n  ]"
 	}
-	opt := func(p *string) string {
-		if p == nil {
-			return "null"
-		}
-		return rpc.PyJSON(*p, false, false)
+	k := "null"
+	if kind != "" {
+		k = rpc.PyJSON(kind, false, false)
 	}
-	text := fmt.Sprintf("{\n  \"id\": %d,\n  \"ts\": %d,\n  \"from\": %s,\n  \"to\": %s,\n  \"relation\": %s,\n  \"kind\": %s,\n  \"response\": %s,\n  \"chain_depth\": %d,\n  \"files\": %s,\n  \"body\": %s\n}\n",
-		rid, e.now(), rpc.PyJSON(requester, false, false), rpc.PyJSON(target, false, false), opt(d.Relation), opt(d.Kind),
-		rpc.PyJSON(d.Response, false, false), d.ChainDepth, fl, rpc.PyJSON(body, false, false))
+	text := fmt.Sprintf("{\n  \"id\": %d,\n  \"ts\": %d,\n  \"from\": %s,\n  \"to\": %s,\n  \"kind\": %s,\n  \"chain_depth\": %d,\n  \"files\": %s,\n  \"body\": %s\n}\n",
+		rid, e.now(), rpc.PyJSON(requester, false, false), rpc.PyJSON(target, false, false), k, depth, fl, rpc.PyJSON(body, false, false))
 	return writeAtomic(filepath.Join(dir, inboxName(rid)), text)
 }
 
@@ -121,10 +118,10 @@ func writeAtomic(path, text string) error {
 	return nil
 }
 
-func (e *Env) deliverAfter(after *After, rid int64, requester, target, body, files string, d team.Decision) {
+func (e *Env) deliverAfter(after *After, rid int64, requester, target, body, files, kind string, depth int) {
 	after.Add(func() string {
-		if err := e.deliver(rid, requester, target, body, files, d); err != nil {
-			e.log("  #%d: the inbox file for %s was not written: %v", rid, target, err)
+		if err := e.deliver(rid, requester, target, body, files, kind, depth); err != nil {
+			e.log("  request %d: the inbox file for %s was not written: %v", rid, target, err)
 		}
 		return ""
 	})
@@ -155,12 +152,12 @@ func (e *Env) raiseDecision(q db.Q, after *After, agent, text, reason, files str
 	if same := must(db.OpenDecisionCardIDs(q, agent, "", &body)); len(same) > 0 {
 		return same[0]
 	}
-	rid := must(db.AddRequest(q, db.NewRequest{Requester: agent, Target: db.Human, Body: text, Files: files, Response: "fire_and_forget", Kind: "task",
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: agent, Target: db.Human, Body: text, Files: files, Kind: "task",
 		ChainDepth: depth, ParentID: parentID, ChainID: chainID}))
 	tid := must(db.NewTask(q, title, db.Human, agent, 0, db.DefaultPriority, "decision", 0, ""))
 	must(db.SetTaskQueued(q, tid, db.Human))
 	check(db.LinkRequest(q, tid, rid))
-	e.deliverAfter(after, rid, agent, db.Human, text, files, team.Decision{Allowed: true, Reason: reason, Kind: ptr("task"), Response: "fire_and_forget", ChainDepth: int(depth)})
+	e.deliverAfter(after, rid, agent, db.Human, text, files, "task", int(depth))
 	payload := append([]db.KV{{K: "request_id", V: rid}, {K: "task_id", V: tid}, {K: "reason", V: reason}}, extra...)
 	must(db.AddEvent(q, agent, "raise_decision", payload...))
 	return rid
@@ -168,8 +165,8 @@ func (e *Env) raiseDecision(q db.Q, after *After, agent, text, reason, files str
 
 // Report tells the human something that asks nothing: a say, so nothing is typed back at agent and nothing waits on the human.
 func (e *Env) report(q db.Q, after *After, agent, text, reason string) int64 {
-	rid := must(db.AddRequest(q, db.NewRequest{Requester: agent, Target: db.Human, Body: text, Response: "fire_and_forget", Kind: "say"}))
-	e.deliverAfter(after, rid, agent, db.Human, text, "", team.Decision{Allowed: true, Reason: reason, Kind: ptr("say"), Response: "fire_and_forget"})
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: agent, Target: db.Human, Body: text, Kind: "say"}))
+	e.deliverAfter(after, rid, agent, db.Human, text, "", "say", 0)
 	must(db.AddEvent(q, agent, "report", db.KV{K: "request_id", V: rid}, db.KV{K: "reason", V: reason}))
 	return rid
 }
@@ -186,7 +183,7 @@ func cycleInChain(q db.Q, chainID, requester, target, kind string) string {
 	}
 	for _, r := range must(db.ChainMembers(q, chainID)) {
 		if r.Requester == target && r.Target == requester {
-			return fmt.Sprintf("cycle: %s already asked %s in this chain (request #%d), and this would send it straight back", target, requester, r.ID)
+			return fmt.Sprintf("cycle: %s already asked %s in this chain (request %s), and this would send it straight back", target, requester, db.MsgName(q, r.ID))
 		}
 	}
 	return ""
@@ -247,7 +244,7 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 	}
 	after := &After{}
 	var depth int64
-	chainID, isReply := "", false
+	chainID := ""
 	if in.ParentID != 0 {
 		parent := must(db.GetRequest(q, in.ParentID))
 		if parent == nil {
@@ -255,7 +252,6 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 		}
 		depth = parent.ChainDepth + 1
 		chainID = parent.ChainID.String
-		isReply = RepliesTo(parent, requester, in.Target)
 		if requester == db.Human { // the human's turn starts the count again, and keeps the thread
 			depth = 0
 		}
@@ -263,11 +259,11 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 	// A loop is stopped and raised to the founder, never silently dropped.
 	if detect := cycleInChain(q, chainID, requester, in.Target, in.Kind); detect != "" {
 		eid := e.stopRunaway(q, after, requester, in.Target, in.Body, in.Files, chainID, depth, in.ParentID, detect)
-		o := refuse(fmt.Sprintf("%s\nRaised to the founder as #%d.", detect, eid))
+		o := refuse(fmt.Sprintf("%s\nRaised to the founder as %s.", detect, db.MsgName(q, eid)))
 		o.After = after
 		return o, nil
 	}
-	d := t.Route(requester, in.Target, int(depth), isReply)
+	d := t.Route(requester, in.Target, int(depth))
 	now := e.now()
 	if !d.Allowed {
 		if must(db.StandingDenial(q, requester, in.Target, in.Body, in.Files, now-team.AskWindowS)) == 0 {
@@ -281,7 +277,7 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 		// Hitting the depth limit is a runaway, not an ordinary refusal.
 		if strings.Contains(d.Reason, "chain depth") && in.Target != db.Human {
 			eid := e.stopRunaway(q, after, requester, in.Target, in.Body, in.Files, chainID, depth, in.ParentID, d.Reason)
-			o := refuse(fmt.Sprintf("%s\nRaised to the founder as #%d.", d.Reason, eid))
+			o := refuse(fmt.Sprintf("%s\nRaised to the founder as %s.", d.Reason, db.MsgName(q, eid)))
 			o.After = after
 			return o, nil
 		}
@@ -293,8 +289,7 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 	if kind == "" && in.Target == db.Human {
 		kind = "task" // what is asked of the founder is a task of theirs, whatever the edge says
 	}
-	rid := must(db.AddRequest(q, db.NewRequest{Requester: requester, Target: in.Target, Body: in.Body, Files: in.Files, Relation: strOf(d.Relation),
-		Response: d.Response, Kind: kind, ChainDepth: depth, ParentID: in.ParentID, ChainID: chainID}))
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: requester, Target: in.Target, Body: in.Body, Files: in.Files, Kind: kind, ChainDepth: depth, ParentID: in.ParentID, ChainID: chainID}))
 	if in.SendNow {
 		must(db.MarkSendNow(q, rid))
 	}
@@ -304,16 +299,14 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 		must(db.SetTaskQueued(q, tid, db.Human))
 		check(db.LinkRequest(q, tid, rid))
 	}
-	must(db.AddEvent(q, requester, "ask", db.KV{K: "request_id", V: rid}, db.KV{K: "target", V: in.Target}, db.KV{K: "relation", V: nullable(d.Relation)},
-		db.KV{K: "response", V: d.Response}, db.KV{K: "chain_depth", V: depth}))
-	msg := fmt.Sprintf("queued as #%d for %s (response=%s)", rid, in.Target, d.Response)
+	must(db.AddEvent(q, requester, "ask", db.KV{K: "request_id", V: rid}, db.KV{K: "target", V: in.Target}, db.KV{K: "chain_depth", V: depth}))
+	msg := fmt.Sprintf("queued as %s for %s", db.MsgName(q, rid), in.Target)
 	if in.Within != nil {
 		if err := in.Within(q, rid, msg); err != nil {
 			return nil, err
 		}
 	}
-	d.ChainDepth = int(depth)
-	e.deliverAfter(after, rid, requester, in.Target, in.Body, in.Files, d)
+	e.deliverAfter(after, rid, requester, in.Target, in.Body, in.Files, kind, int(depth))
 	if in.Notify {
 		target := in.Target
 		after.Add(func() string { return e.Push(e.DB, target, rid) })
@@ -321,12 +314,9 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 	return &AskOut{OK: true, Message: msg, RID: rid, After: after, notify: in.Notify, target: in.Target}, nil
 }
 
-func nullable(p *string) any {
-	if p == nil {
-		return nil
-	}
-	return *p
-}
+// errNoProposals is what a resolve raises while the trust proposals port is not wired: a card that is a proposal's must not be closed
+// without applying it, so nothing is closed.
+var errNoProposals = errors.New("the trust proposals port is not wired: a request cannot be answered until it is")
 
 // SayIn is say's arguments.
 type SayIn struct {
@@ -334,69 +324,16 @@ type SayIn struct {
 	ParentID                int64
 	Speaker                 *string
 	Notify                  bool
-	// Link makes ParentID only a link: the request it names is not closed by this reply.
-	Link bool
-	// Within(q, message, request id) is more to write in the transaction that writes the reply and settles the request it answers.
+	// Within(q, message, request id) is more to write in the transaction that writes the say.
 	Within func(q db.Q, message string, rid int64) error
 }
 
-// Say is a question answered from a look-up, not new work: always ahead of the queue, never a head, and the sender never parked on
-// it. ParentID replies to and settles the request it answers. The returned *Settled, when set, is for the caller to run SettledTell on
-// once the writes commit.
-func (e *Env) Say(q db.Q, in SayIn) (*AskOut, *Settled, error) {
-	var settled *Settled
+// Say is a message, not new work: always ahead of the queue, never a head, and the sender never parked on it. ParentID only links it
+// into the thread of the request it replies to; nothing is closed by it.
+func (e *Env) Say(q db.Q, in SayIn) (*AskOut, error) {
 	ask := AskIn{Target: in.Target, Body: in.Body, Requester: in.Requester, ParentID: in.ParentID, Kind: sayKind, Speaker: in.Speaker, Notify: in.Notify}
-	if in.ParentID != 0 || in.Within != nil {
-		ask.Within = func(c db.Q, rid int64, note string) (err error) {
-			defer Catch(&err)
-			if in.ParentID != 0 && !in.Link {
-				settled = e.closeReplied(c, in.ParentID, rid, in.Body)
-			}
-			if in.Within != nil {
-				return in.Within(c, note, rid)
-			}
-			return nil
-		}
+	if in.Within != nil {
+		ask.Within = func(c db.Q, rid int64, note string) error { return in.Within(c, note, rid) }
 	}
-	out, err := e.Ask(q, ask)
-	if err != nil || !out.OK {
-		return out, nil, err
-	}
-	return out, settled, nil
-}
-
-// errNoProposals is what a reply or a resolve raises while the trust proposals port is not wired: a card that is a proposal's must not be
-// closed without applying it, so nothing is closed.
-var errNoProposals = errors.New("the trust proposals port is not wired: a request cannot be answered until it is")
-
-// Settled is what closeReplied closed, for the tell after the commit (the arguments of afterClose).
-type Settled struct {
-	RID    int64
-	Row    *db.Request
-	State  string
-	Notify bool
-}
-
-// SettledTell runs the tell of a request a reply settled.
-func (e *Env) SettledTell(q db.Q, s *Settled) (string, error) {
-	if s == nil {
-		return "", nil
-	}
-	return e.AfterClose(q, s.RID, s.Row, s.State, s.Notify)
-}
-
-// closeReplied: a reply settles the request it answers, silently - the reply is what the asker is told, and it is marked as the
-// answer. Only when it comes from the request's own target, to its requester, and the request is no roster proposal and no task.
-func (e *Env) closeReplied(q db.Q, parentID, replyID int64, replyBody string) *Settled {
-	parent, reply := must(db.GetRequest(q, parentID)), must(db.GetRequest(q, replyID))
-	if e.Proposals == nil {
-		panic(dbFailure{errNoProposals})
-	}
-	proposal := parent != nil && e.Proposals.OpenProposalOf(parentID) != ""
-	if parent != nil && parent.State == "queued" && !proposal && parent.Kind.String != "task" &&
-		reply != nil && reply.Requester == parent.Target && reply.Target == parent.Requester &&
-		must(db.CloseIfQueued(q, parentID, "done", replyBody, db.CloseOpts{Announced: true, AnsweredBy: replyID})) {
-		return &Settled{parentID, parent, "done", false}
-	}
-	return nil
+	return e.Ask(q, ask)
 }

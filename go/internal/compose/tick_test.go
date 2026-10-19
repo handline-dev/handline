@@ -73,49 +73,10 @@ func TestShutdownWaitsForTheTickInHandBeforeTheDatabaseCloses(t *testing.T) {
 	}
 }
 
-func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
-	p, _, _, _ := wired(t)
-	d := p.db
-	tp := timeboxPorts{p: p, home: p.home}
-	if tp.StopWaitReason(d, "alice") != "" {
-		t.Fatal("an agent with no current task has no reason to stay")
-	}
-	tid, err := dbpkg.NewTask(d, "the work", "alice", "boss", 0, dbpkg.DefaultPriority, "report", 0, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dbpkg.SetCurrentTask(d, "alice", tid, true)
-	if got := tp.StopWaitReason(d, "alice"); got != fmt.Sprintf("T%d is current with no recorded wait", tid) {
-		t.Fatalf("%q", got)
-	}
-	// An open child task is a recorded wait.
-	child, _ := dbpkg.NewTask(d, "part", "alice", "alice", tid, dbpkg.DefaultPriority, "report", 0, "")
-	if got := tp.StopWaitReason(d, "alice"); got != "" {
-		t.Fatalf("an open child is a wait: %q", got)
-	}
-	d.Exec("UPDATE tasks SET done_evidence = 'x' WHERE id = ?", child)
-	if got := tp.StopWaitReason(d, "alice"); got == "" {
-		t.Fatal("a finished child is no wait")
-	}
-	// A decision the agent opened and the founder has not answered is one; so is a roster proposal waiting on the founder.
-	card, _ := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "alice", Target: "human", Body: "which?", Response: "async", Kind: "task"})
-	dec, _ := dbpkg.NewTask(d, "which?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0, "")
-	dbpkg.LinkRequest(d, dec, card)
-	if got := tp.StopWaitReason(d, "alice"); got != "" {
-		t.Fatalf("an unanswered decision is a wait: %q", got)
-	}
-	d.Exec("UPDATE requests SET state = 'done' WHERE id = ?", card)
-	os.MkdirAll(filepath.Join(p.home, "hr"), 0o755)
-	os.WriteFile(filepath.Join(p.home, "hr", "ab12.yaml"), []byte("id: ab12\nrequested_by: alice\nstate: proposed\n"), 0o644)
-	if got := tp.StopWaitReason(d, "alice"); got != "" {
-		t.Fatalf("a roster proposal waiting on the founder is a wait: %q", got)
-	}
-}
-
 func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 	p, _, _, _ := wired(t)
 	tk := p.Tick(cfgOf(p), TickConfig{})
-	if len(tk.Tick.Passes) != 9 {
+	if len(tk.Tick.Passes) != 10 {
 		t.Fatalf("passes: %d", len(tk.Tick.Passes))
 	}
 	var logs []string
@@ -378,10 +339,10 @@ func TestBeforeTheCutoverTheTickSweepsNobodysSchedules(t *testing.T) {
 	}
 }
 
-func TestTheDiskWatchEntryTellsTheFounderOnceFromTheTaskBoard(t *testing.T) {
+func TestTheDiskWatchEntryRaisesOneCardFromTheTaskBoard(t *testing.T) {
 	p, _, _, _ := wired(t)
 	cfg := cfgOf(p)
-	cfg.DiskFree = func(string) (int64, int64, error) { return 13 << 30, 500 << 30, nil }
+	cfg.DiskFree = func(string) (int64, int64, error) { return 9 << 30, 500 << 30, nil }
 	tk := p.Tick(cfg, TickConfig{Stop: make(chan struct{})})
 	var watch *tick.NamedSweep
 	for i, h := range tk.Loop.Housekeeping {
@@ -411,8 +372,13 @@ func TestTheDiskWatchEntryTellsTheFounderOnceFromTheTaskBoard(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := told()
-	if len(got) != 1 || !strings.HasPrefix(got[0], dbpkg.NoticeRequester+": ") || !strings.Contains(got[0], "13 GB free of 500 GB") {
+	if len(got) != 1 || !strings.HasPrefix(got[0], dbpkg.NoticeRequester+": disk 9 GB left (of 500 GB") {
 		t.Fatalf("the founder's inbox after a low volume: %q", got)
+	}
+	var cards int
+	p.db.QueryRow("SELECT COUNT(*) FROM tasks WHERE owner = ? AND expects = 'decision'", dbpkg.Human).Scan(&cards)
+	if cards != 1 {
+		t.Fatalf("the card is a decision of the founder's: %d", cards)
 	}
 	if err := watch.Run(p.db, now+601); err != nil {
 		t.Fatal(err)
@@ -459,14 +425,14 @@ func TestTheNoticeSweepsRunInTheGoTickOnlyFromTheCutover(t *testing.T) {
 func TestTheStartupBringsUpWaitingWorkAndSettlesAnOldToldSayButNotAnOwedOneBeforeAnyTick(t *testing.T) {
 	p, _, _, _ := wired(t)
 	d := p.db
-	say, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "old", Response: "none", Kind: "say"})
+	say, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "old", Kind: "say"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := dbpkg.MarkDelivered(d, say); err != nil { // told by the daemon before
 		t.Fatal(err)
 	}
-	owed, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "sent just before the restart", Response: "none", Kind: "say"})
+	owed, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "sent just before the restart", Kind: "say"})
 	if err != nil {
 		t.Fatal(err)
 	}

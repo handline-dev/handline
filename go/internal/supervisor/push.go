@@ -70,32 +70,3 @@ func joinSaid(said []string) string {
 	}
 	return strings.Join(out, "; ")
 }
-
-// PushAnswer puts the answer in front of whoever asked, now: the other half of Push.
-func (e *Env) PushAnswer(q db.Q, requester string) (out string) {
-	defer e.guard("telling "+requester, &out)
-	if requester == db.Human {
-		return "  the founder reads it on `hl`"
-	}
-	if !e.registered(requester) {
-		return fmt.Sprintf("  %s is not registered with ocp - nothing to tell", requester)
-	}
-	return e.PushAnswerHere(q, requester)
-}
-
-// PushAnswerHere is PushAnswer without the registration check.
-func (e *Env) PushAnswerHere(q db.Q, requester string) (out string) {
-	defer e.guard("telling "+requester, &out)
-	row := stateOf(q, requester)
-	var said []string
-	if row != nil && row.ClosedAt.Valid && row.ClosedAt.Int64 != 0 {
-		_, why := e.Lifecycle.WakeAgent(q, requester)
-		said = append(said, fmt.Sprintf("%s: %s", requester, why))
-	}
-	if sentA := must(e.DeliverAnswers(q, requester)); sentA {
-		said = append(said, requester+" has been told")
-	} else if len(said) == 0 {
-		said = append(said, requester+" will be told when it is free")
-	}
-	return "  " + joinSaid(said)
-}

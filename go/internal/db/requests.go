@@ -2,7 +2,6 @@ package db
 
 import (
 	"database/sql"
-	"fmt"
 	"strings"
 )
 
@@ -11,8 +10,6 @@ const (
 	NoticeRequester = "task-board"
 	DigestHead      = "Result digest - "
 	Landed          = "landed"
-	// LegacyDismiss is what the old `dismiss` wrote into the verdict before a dismissal was a state.
-	LegacyDismiss = "read - no reply"
 )
 
 const (
@@ -22,17 +19,9 @@ const (
 
 func onEvent(expr string) string { return strings.Replace(expr, "payload", "e.payload", -1) }
 
-var (
-	reasonEvent = "FROM events e WHERE e.kind = 'request_reason' AND " + onEvent(eventRequest) + " = requests.id"
-	// closingSQL is what a request closed with: the say that answered it, else the reason it closed without one.
-	closingSQL = "COALESCE((SELECT a.body FROM requests a WHERE a.settles = requests.id ORDER BY a.id LIMIT 1), " +
-		"(SELECT json_extract(e.payload, '$.reason') " + reasonEvent + " ORDER BY e.id DESC LIMIT 1))"
-	answerSQL = closingSQL + " AS answer, (SELECT a.ts FROM requests a WHERE a.settles = requests.id ORDER BY a.id LIMIT 1) AS answered_at"
-
-	dismissedEvent = "FROM events e WHERE e.kind = 'dismissed' AND " + onEvent(eventRequest) + " = requests.id"
-	dismissedSQL   = "(SELECT json_extract(e.payload, '$.by') " + dismissedEvent + " ORDER BY e.id DESC LIMIT 1) AS dismisser, " +
-		"(SELECT json_extract(e.payload, '$.reason') " + dismissedEvent + " ORDER BY e.id DESC LIMIT 1) AS dismiss_reason"
-)
+// reasonSQL is what a request closed with: the last reason recorded for it (AddReason).
+var reasonSQL = "(SELECT json_extract(e.payload, '$.reason') FROM events e WHERE e.kind = 'request_reason' AND " + onEvent(eventRequest) +
+	" = requests.id ORDER BY e.id DESC LIMIT 1) AS reason"
 
 // leftoverDelivery describes a task delivery whose task has ended or gone to someone else: nothing can be done with it, so
 // nothing that hands requests out or counts them reads it.
@@ -47,26 +36,25 @@ const heldDelivery = "(requests.state = 'landed' AND requests.kind = 'task' AND 
 	"WHERE l.request_id = requests.id AND t.owner = requests.target " +
 	"AND t.done_evidence IS NULL AND t.discarded_by IS NULL))"
 
-// Request is one requests row, with the columns GetRequest adds (Answer, AnsweredAt, Dismisser, DismissReason).
+// Request is one requests row, with the Reason GetRequest adds.
 type Request struct {
-	ID, TS, ChainDepth                                  int64
-	Requester, Target, Body, State, Ref                 string
-	Files, Relation, Response, Kind, ChainID, TypedSess sql.NullString
-	ParentID, DeliveredAt, TypedAt, LandedAt, SendNow   sql.NullInt64
-	Notice, ReadAt, StateAt, MootBy, EdgeOK, Settles    sql.NullInt64
-	QueueOrder                                          sql.NullFloat64
+	ID, TS, ChainDepth                                int64
+	Requester, Target, Body, State, Ref               string
+	Files, Kind, ChainID, TypedSess                   sql.NullString
+	ParentID, DeliveredAt, TypedAt, LandedAt, SendNow sql.NullInt64
+	Notice, ReadAt, StateAt, MootBy, EdgeOK           sql.NullInt64
+	QueueOrder                                        sql.NullFloat64
 
-	Answer, Dismisser, DismissReason sql.NullString
-	AnsweredAt                       sql.NullInt64
+	Reason sql.NullString
 }
 
-const requestCols = "id, ts, requester, target, body, files, relation, response, kind, chain_depth, parent_id, chain_id, state, queue_order, " +
-	"delivered_at, typed_at, typed_session, landed_at, send_now, notice, read_at, state_at, moot_by, edge_ok, settles, ref"
+const requestCols = "id, ts, requester, target, body, files, kind, chain_depth, parent_id, chain_id, state, queue_order, " +
+	"delivered_at, typed_at, typed_session, landed_at, send_now, notice, read_at, state_at, moot_by, edge_ok, ref"
 
 func (r *Request) dest() []any {
-	return []any{&r.ID, &r.TS, &r.Requester, &r.Target, &r.Body, &r.Files, &r.Relation, &r.Response, &r.Kind, &r.ChainDepth, &r.ParentID,
+	return []any{&r.ID, &r.TS, &r.Requester, &r.Target, &r.Body, &r.Files, &r.Kind, &r.ChainDepth, &r.ParentID,
 		&r.ChainID, &r.State, &r.QueueOrder, &r.DeliveredAt, &r.TypedAt, &r.TypedSess, &r.LandedAt, &r.SendNow, &r.Notice, &r.ReadAt,
-		&r.StateAt, &r.MootBy, &r.EdgeOK, &r.Settles, &r.Ref}
+		&r.StateAt, &r.MootBy, &r.EdgeOK, &r.Ref}
 }
 
 func requestRows(q Q, query string, args ...any) ([]*Request, error) {
@@ -89,8 +77,7 @@ func requestRows(q Q, query string, args ...any) ([]*Request, error) {
 // GetRequest is db.get_request: nil when there is no such request.
 func GetRequest(q Q, rid int64) (*Request, error) {
 	r := &Request{}
-	err := q.QueryRow("SELECT "+requestCols+", "+answerSQL+", "+dismissedSQL+" FROM requests WHERE id = ?", rid).
-		Scan(append(r.dest(), &r.Answer, &r.AnsweredAt, &r.Dismisser, &r.DismissReason)...)
+	err := q.QueryRow("SELECT "+requestCols+", "+reasonSQL+" FROM requests WHERE id = ?", rid).Scan(append(r.dest(), &r.Reason)...)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -106,7 +93,7 @@ func IsStillQueued(q Q, rid int64) (bool, error) {
 // TellsNow is db.tells_now: told ahead of the queue (a say always, anything else once marked send-now).
 func (r *Request) TellsNow() bool { return r.Kind.String == "say" || r.SendNow.Valid }
 
-// AddReason is db.add_reason: why a request closed without an answer.
+// AddReason is db.add_reason: what a request closed with.
 func AddReason(q Q, rid int64, text string) error {
 	_, err := AddEvent(q, "", "request_reason", KV{"request_id", rid}, KV{"reason", text})
 	return err
@@ -114,13 +101,13 @@ func AddReason(q Q, rid int64, text string) error {
 
 // NewRequest is what AddRequest takes; empty strings and zero pointers write NULL.
 type NewRequest struct {
-	Requester, Target, Body                  string
-	Files, Relation, Response, Kind, ChainID string
-	ChainDepth                               int64
-	ParentID                                 int64  // 0: none
-	State                                    string // "": queued
-	Verdict                                  string
-	Notice                                   bool
+	Requester, Target, Body string
+	Files, Kind, ChainID    string
+	ChainDepth              int64
+	ParentID                int64  // 0: none
+	State                   string // "": queued
+	Verdict                 string
+	Notice                  bool
 	// Memo makes it a notice that is a memo's tell (notice 2): its reader's lead is told when it goes unread an hour (UnreadMemosBefore).
 	Memo bool
 }
@@ -151,9 +138,9 @@ func AddRequest(q Q, n NewRequest) (int64, error) {
 	if n.ParentID != 0 {
 		parent = n.ParentID
 	}
-	res, err := q.Exec("INSERT INTO requests(ts, requester, target, body, files, relation, response, kind, chain_depth, parent_id, state, chain_id, edge_ok, landed_at, state_at, notice) "+
-		"VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-		now, n.Requester, n.Target, n.Body, nullStr(n.Files), nullStr(n.Relation), nullStr(n.Response), nullStr(n.Kind), n.ChainDepth, parent, state,
+	res, err := q.Exec("INSERT INTO requests(ts, requester, target, body, files, kind, chain_depth, parent_id, state, chain_id, edge_ok, landed_at, state_at, notice) "+
+		"VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+		now, n.Requester, n.Target, n.Body, nullStr(n.Files), nullStr(n.Kind), n.ChainDepth, parent, state,
 		nullStr(n.ChainID), 1, landedAt, now, notice)
 	if err != nil {
 		return 0, err
@@ -201,7 +188,7 @@ var neverReachedTarget = []string{"denied", "withdrawn", "replaced"}
 
 // ChainMembers is db.chain_members: the asks of a chain that reached their target.
 func ChainMembers(q Q, chainID string) ([]*Request, error) {
-	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE chain_id = ? AND state NOT IN ("+marks(len(neverReachedTarget))+") AND settles IS NULL ORDER BY id",
+	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE chain_id = ? AND state NOT IN ("+marks(len(neverReachedTarget))+") ORDER BY id",
 		kindArgs([]any{chainID}, neverReachedTarget)...)
 }
 
@@ -221,7 +208,7 @@ func SettleLeftoverDeliveries(q Q) ([]int64, error) {
 	}
 	var done []int64
 	for _, r := range rows {
-		ok, err := CloseIfQueued(q, r.ID, "done", "its task is no longer this agent's to do", CloseOpts{Announced: true, NoSettle: true})
+		ok, err := CloseIfQueued(q, r.ID, "done", "its task is no longer this agent's to do")
 		if err != nil {
 			return nil, err
 		}
@@ -326,11 +313,7 @@ func UnreachedCount(q Q, agent string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	a, err := UnannouncedAnswers(q, agent)
-	if err != nil {
-		return 0, err
-	}
-	return len(u) + len(p) + len(a), nil
+	return len(u) + len(p), nil
 }
 
 // QueueDepth is db.queue_depth.
@@ -361,40 +344,10 @@ func ids(q Q, query string, args ...any) ([]int64, error) {
 	return out, rows.Err()
 }
 
-// UnannouncedAnswers is db.unannounced_answers: what the agent asked, that came back, that it has not been told about.
-func UnannouncedAnswers(q Q, agent string) ([]*Request, error) {
-	rows, err := q.Query("SELECT "+requestCols+", "+dismissedSQL+", "+answerSQL+" FROM requests WHERE requester = ? "+
-		"AND state IN ('landed', 'withdrawn') AND EXISTS (SELECT 1 FROM requests a "+
-		"WHERE a.settles = requests.id AND a.state = 'landed' AND a.delivered_at IS NULL) ORDER BY id", agent)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*Request
-	for rows.Next() {
-		r := &Request{}
-		if err := rows.Scan(append(r.dest(), &r.Dismisser, &r.DismissReason, &r.Answer, &r.AnsweredAt)...); err != nil {
-			return nil, err
-		}
-		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
 // MarkRead is db.mark_read: the founder has these in front of him, once.
 func MarkRead(q Q, rids []int64) error {
 	for _, id := range rids {
 		if _, err := q.Exec("UPDATE requests SET read_at = COALESCE(read_at, ?) WHERE id = ? AND target = ?", Now(), id, Human); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// MarkAnnounced is db.mark_announced: the answering says of these requests are shown.
-func MarkAnnounced(q Q, rids []int64) error {
-	for _, id := range rids {
-		if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) WHERE settles = ? AND state = 'landed'", Now(), id); err != nil {
 			return err
 		}
 	}
@@ -456,6 +409,23 @@ func MarkNoticesShown(q Q, rids []int64, session string) error {
 		}
 	}
 	return nil
+}
+
+// MarkFounderAuthored records that the request's words are the founder's own. Only chat.send calls it, and only for a connection whose
+// proven role is founder: never from a name, the text, or a requester an agent can write.
+func MarkFounderAuthored(q Q, rid int64) error {
+	_, err := q.Exec("UPDATE requests SET founder_auth = 1 WHERE id = ?", rid)
+	return err
+}
+
+// FounderAuthored is whether MarkFounderAuthored marked the request.
+func FounderAuthored(q Q, rid int64) (bool, error) {
+	var v int
+	err := q.QueryRow("SELECT founder_auth FROM requests WHERE id = ?", rid).Scan(&v)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return v == 1, err
 }
 
 // MarkDelivered is db.mark_delivered: shown to its target, once. False when it was withdrawn or replaced first.
@@ -583,77 +553,24 @@ func FollowupsPending(q Q, target string, head int64) ([]*Request, error) {
 	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE target = ? AND state = 'queued' AND parent_id = ? AND delivered_at IS NULL ORDER BY queue_order, id", target, head)
 }
 
-// RetireQueued is db.retire_queued: take a still-queued request out of the queue, delivered or not.
-func RetireQueued(q Q, rid int64, state, verdict string) (bool, error) {
+// RetireIfUndelivered is db.retire_if_undelivered: a still-queued, undelivered request to a terminal state, atomically.
+func RetireIfUndelivered(q Q, rid int64, state, verdict string) (bool, error) {
+	return closeWhere(q, rid, state, verdict, " AND delivered_at IS NULL")
+}
+
+// CloseIfQueued is db.close_if_queued (and db.retire_queued): close a request still open, delivered or not, atomically, keeping verdict as
+// the reason it closed with; true only if this call closed it.
+func CloseIfQueued(q Q, rid int64, state, verdict string) (bool, error) {
+	return closeWhere(q, rid, state, verdict, "")
+}
+
+// closeWhere closes request rid if it is still queued and matches the condition and.
+func closeWhere(q Q, rid int64, state, verdict, and string) (bool, error) {
 	stored, err := StoredState(q, rid, state)
 	if err != nil {
 		return false, err
 	}
-	res, err := q.Exec("UPDATE requests SET state = ?, state_at = ?, queue_order = NULL WHERE id = ? AND state = 'queued'", stored, Now(), rid)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return false, nil
-	}
-	if err := settleSendLedger(q, rid); err != nil {
-		return false, err
-	}
-	if verdict != "" {
-		if err := AddReason(q, rid, verdict); err != nil {
-			return false, err
-		}
-	}
-	return true, settle(q, rid, state, verdict, "")
-}
-
-// RetireIfUndelivered is db.retire_if_undelivered: a still-queued, undelivered request to a terminal state, atomically. noSettle is
-// CloseOpts.NoSettle: the decision task stays open.
-func RetireIfUndelivered(q Q, rid int64, state, verdict string, noSettle bool) (bool, error) {
-	stored, err := StoredState(q, rid, state)
-	if err != nil {
-		return false, err
-	}
-	res, err := q.Exec("UPDATE requests SET state = ?, state_at = ?, queue_order = NULL WHERE id = ? AND state = 'queued' AND delivered_at IS NULL", stored, Now(), rid)
-	if err != nil {
-		return false, err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return false, nil
-	}
-	if err := settleSendLedger(q, rid); err != nil {
-		return false, err
-	}
-	if verdict != "" {
-		if err := AddReason(q, rid, verdict); err != nil {
-			return false, err
-		}
-	}
-	if noSettle {
-		return true, RefreshSentOfRequest(q, rid)
-	}
-	return true, settle(q, rid, state, verdict, "")
-}
-
-// CloseOpts are CloseIfQueued's keyword arguments.
-type CloseOpts struct {
-	Announced       bool   // the answering say is written already told
-	DismissedBy     string // a dismissal, by whom
-	DismissedReason string
-	AnsweredBy      int64 // a reply row that is itself the answer
-	NoSettle        bool  // the request closes because its task is being handed on: the decision task stays open
-}
-
-// CloseIfQueued is db.close_if_queued: close a request still open, atomically; true only if this call closed it.
-func CloseIfQueued(q Q, rid int64, state, verdict string, o CloseOpts) (bool, error) {
-	now := Now()
-	stored, err := StoredState(q, rid, state)
-	if err != nil {
-		return false, err
-	}
-	res, err := q.Exec("UPDATE requests SET state = ?, state_at = ?, queue_order = NULL WHERE id = ? AND state = 'queued'", stored, now, rid)
+	res, err := q.Exec("UPDATE requests SET state = ?, state_at = ?, queue_order = NULL WHERE id = ? AND state = 'queued'"+and, stored, Now(), rid)
 	if err != nil {
 		return false, err
 	}
@@ -663,108 +580,12 @@ func CloseIfQueued(q Q, rid int64, state, verdict string, o CloseOpts) (bool, er
 	if err := settleSendLedger(q, rid); err != nil {
 		return false, err
 	}
-	if o.DismissedBy != "" {
-		var reason any
-		if o.DismissedReason != "" {
-			reason = o.DismissedReason
-		}
-		if _, err := AddEvent(q, o.DismissedBy, "dismissed", KV{"request_id", rid}, KV{"by", o.DismissedBy}, KV{"reason", reason}); err != nil {
-			return false, err
-		}
-	}
-	if o.AnsweredBy != 0 {
-		if _, err := q.Exec("UPDATE requests SET settles = ? WHERE id = ?", rid, o.AnsweredBy); err != nil {
-			return false, err
-		}
-		if o.Announced { // the reply is what tells, and nobody is to be told: a landed one is shown
-			if _, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) WHERE id = ? AND state = 'landed'", now, o.AnsweredBy); err != nil {
-				return false, err
-			}
-		}
-	} else if answered, err := o.answers(q, rid, state, verdict); err != nil {
-		return false, err
-	} else if answered {
-		if _, err := AddAnswer(q, rid, verdict, 0, o.Announced); err != nil {
-			return false, err
-		}
-	} else if verdict != "" && o.DismissedBy == "" {
-		if err := AddReason(q, rid, verdict); err != nil { // closed without an answer (a task moved on): why
-			return false, err
-		}
-	}
-	if o.NoSettle {
-		return true, RefreshSentOfRequest(q, rid)
-	}
-	return true, settle(q, rid, state, verdict, o.DismissedBy)
-}
-
-// answers says whether the close writes an answer row: done or taken back, not a dismissal, and not a say closed with nothing said.
-func (o CloseOpts) answers(q Q, rid int64, state, verdict string) (bool, error) {
-	if (state != "done" && state != "rejected") || o.DismissedBy != "" {
-		return false, nil
-	}
 	if verdict != "" {
-		return true, nil
+		if err := AddReason(q, rid, verdict); err != nil {
+			return false, err
+		}
 	}
-	row, err := GetRequest(q, rid)
-	if err != nil || row == nil {
-		return false, err
-	}
-	return row.Kind.String != "say", nil
-}
-
-// settle: the founder's decision task follows its request out of the queue.
-func settle(q Q, rid int64, state, verdict, dismissedBy string) error {
-	if err := RefreshSentOfRequest(q, rid); err != nil {
-		return err
-	}
-	return SettleDecisionTasks(q, rid, state, verdict, dismissedBy)
-}
-
-// AddAnswer is db.add_answer: what answered request rid, as a say of its own, born landed. at 0 is now; told says the asker was.
-func AddAnswer(q Q, rid int64, text string, at int64, told bool) (int64, error) {
-	row, err := GetRequest(q, rid)
-	if err != nil {
-		return 0, err
-	}
-	if row == nil {
-		return 0, fmt.Errorf("no request #%d to answer", rid)
-	}
-	when := at
-	if when == 0 {
-		when = Now()
-	}
-	var deliveredAt any
-	if told {
-		deliveredAt = when
-	}
-	res, err := q.Exec("INSERT INTO requests(ts, requester, target, body, kind, chain_depth, parent_id, settles, chain_id, state, delivered_at, state_at, edge_ok) "+
-		"VALUES(?,?,?,?,'say',?,?,?,?,?,?,?,1)",
-		when, row.Target, row.Requester, text, row.ChainDepth, rid, rid, row.ChainID, Landed, deliveredAt, when)
-	if err != nil {
-		return 0, err
-	}
-	aid, err := res.LastInsertId()
-	if err != nil {
-		return 0, err
-	}
-	_, err = q.Exec("UPDATE requests SET queue_order = ? WHERE id = ?", aid, aid)
-	return aid, err
-}
-
-// AnswerRowOf is db.answer_row_of: the say that settled request rid, nil when none.
-func AnswerRowOf(q Q, rid int64) (*Request, error) {
-	rows, err := requestRows(q, "SELECT "+requestCols+" FROM requests WHERE settles = ? ORDER BY id LIMIT 1", rid)
-	if err != nil || len(rows) == 0 {
-		return nil, err
-	}
-	return rows[0], nil
-}
-
-// AppendVerdict is db.append_verdict: a line on the verdict of a request already closed, before its requester is told.
-func AppendVerdict(q Q, rid int64, text string) error {
-	_, err := q.Exec("UPDATE requests SET body = body || ? WHERE settles = ?", "\n\n"+text, rid)
-	return err
+	return true, RefreshSentOfRequest(q, rid)
 }
 
 // ClosedUnder is db.closed_under: closed out from under its target rather than answered by it.
@@ -775,21 +596,6 @@ func ClosedUnder(q Q, rid int64) (bool, error) {
 		return false, nil
 	}
 	return err == nil, err
-}
-
-// Dismissal is db.dismissal: (dismissed, by, reason) for a row read with GetRequest.
-func (r *Request) Dismissal() (bool, string, string) {
-	if r.Dismisser.String != "" {
-		return true, r.Dismisser.String, r.DismissReason.String
-	}
-	text := r.Answer.String
-	if r.Answer.Valid && text == LegacyDismiss {
-		return true, "", ""
-	}
-	if strings.HasPrefix(text, LegacyDismiss+": ") {
-		return true, "", text[len(LegacyDismiss)+2:]
-	}
-	return false, "", ""
 }
 
 // StandingDenial is db.standing_denial: the id of an identical ask already refused inside the window, 0 for none.

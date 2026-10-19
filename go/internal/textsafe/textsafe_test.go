@@ -33,6 +33,12 @@ func TestOneline(t *testing.T) {
 	}
 }
 
+func TestLines(t *testing.T) {
+	if got := Lines("- a\r\n- b\x07c\x1b[1m\n\n  d"); got != "- a\n- bc\n\n  d" {
+		t.Errorf("%q", got)
+	}
+}
+
 func TestHasUnsafe(t *testing.T) {
 	for s, want := range map[string]bool{"worker": false, "a b": false, "a\tb": true, "a\nb": true, "a b": true, "a\u009bb": true, "a\x7fb": true, "é": false} {
 		if HasUnsafe(s) != want {

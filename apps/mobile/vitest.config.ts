@@ -5,6 +5,7 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: /^react-native-svg$/, replacement: new URL('./test/svg-stub.tsx', import.meta.url).pathname },
+      { find: 'react-native-view-shot', replacement: new URL('./test/view-shot-stub.ts', import.meta.url).pathname },
       { find: 'react-native', replacement: 'react-native-web' },
       { find: 'expo-image-picker', replacement: new URL('./test/expo-image-stub.tsx', import.meta.url).pathname },
       { find: 'expo-image-manipulator', replacement: new URL('./test/expo-image-stub.tsx', import.meta.url).pathname },
@@ -12,5 +13,5 @@ export default defineConfig({
       { find: 'expo-secure-store', replacement: new URL('./test/secure-store-stub.ts', import.meta.url).pathname },
     ],
   },
-  test: { environment: 'happy-dom', include: ['test/**/*.test.tsx'] },
+  test: { environment: 'happy-dom', include: ['test/**/*.test.tsx'], maxWorkers: 2 }, // several teams' runs share one machine
 });

@@ -51,7 +51,7 @@ export function useWantedMessage(agent: string): { id: number | null; done: () =
   return {
     id: m?.[3] && decodeURIComponent(m[1]!) === agent ? Number(m[3]) : null,
     done: () => {
-      history.replaceState(null, '', location.hash.replace(/\?m=\d+$/, ''));
+      history.replaceState(history.state as object | null, '', location.hash.replace(/\?m=\d+$/, ''));
       dispatchEvent(new Event('hashchange'));
     },
   };
@@ -125,4 +125,31 @@ export function takeTerminalWish(agent: string): boolean {
   if (wantsTerminal !== agent) return false;
   wantsTerminal = null;
   return true;
+}
+
+const PUSHED = 'handline-history';
+const subscribeState = (cb: () => void) => {
+  addEventListener('popstate', cb);
+  addEventListener(PUSHED, cb);
+  return () => {
+    removeEventListener('popstate', cb);
+    removeEventListener(PUSHED, cb);
+  };
+};
+/** A choice made inside a page (a tab) that rides in the history entry: setting it adds an entry, Back and Forward bring the earlier value. */
+/** Puts a value into the current entry without adding one (the entry a page opened with). */
+export function recordHistoryValue(key: string, v: string): void {
+  history.replaceState({ ...(history.state as object | null), [key]: v }, '');
+  dispatchEvent(new Event(PUSHED));
+}
+export function useHistoryValue(key: string): [string | undefined, (v: string) => void] {
+  const v = useSyncExternalStore(subscribeState, () => (history.state as Record<string, string> | null)?.[key]);
+  return [
+    v,
+    (next) => {
+      if (next === v) return;
+      history.pushState({ ...(history.state as object | null), [key]: next }, '');
+      dispatchEvent(new Event(PUSHED));
+    },
+  ];
 }

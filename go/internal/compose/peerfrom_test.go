@@ -32,7 +32,7 @@ func TestADeliveryNamesWhoWroteItAndNeverTheSessionsOwnPerson(t *testing.T) {
 	}
 	defer d.Close()
 	op := func(from string) string {
-		rid, err := db.AddRequest(d, db.NewRequest{Requester: from, Target: "free", Body: "x", Response: "async", Kind: "ask"})
+		rid, err := db.AddRequest(d, db.NewRequest{Requester: from, Target: "free", Body: "x", Kind: "ask"})
 		if err != nil {
 			t.Fatal(err)
 		}

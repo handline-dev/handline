@@ -13,7 +13,19 @@ hl inbox                      the one item waiting for you, and a count
 hl task done T<n> "<evidence>"   finish your task (or `hl task handoff T<n> <agent> "<note>"`)
 ```
 
+A message of more than a sentence goes in lines, in Markdown; the receiver and
+the app see them:
+
+```
+hl say <target> --file - <<'EOF'
+T<n> done: branch x @ abc1234.
+- what changed
+- what was checked
+EOF
+```
+
 The rules for any agent tool are in AGENTS.md at the repo root, the source this
 skill follows. You are handed one task at a time; to change a task you gave
 that is not yet done, `hl task memo T<n> add "..."`, never a correction behind it.
+To show the founder a screenshot, `hl say human "..." --attach shot.png` (or `hl task memo ... --attach`); a path pasted in the text shows as plain text.
 `hl guide` lists topics, `hl guide <topic>` prints one.

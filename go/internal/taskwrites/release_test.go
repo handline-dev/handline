@@ -71,7 +71,7 @@ func TestReleaseTakesADoingTaskBackAndRetiresTheRequestsOutOnIt(t *testing.T) {
 		db.QueryRow("SELECT group_concat(kind), group_concat(payload, ' | ') FROM events").Scan(&kinds, &payloads)
 		t.Fatalf("the release and the close are on the event log: %s %s", kinds, payloads)
 	}
-	if len(f.released) != 1 || f.released[0].RID != 10 || f.released[0].Held || !f.released[0].Delivered || !f.released[0].Notify {
+	if len(f.released) != 1 || f.released[0].RID != 10 || f.released[0].Held || !f.released[0].Delivered {
 		t.Fatalf("the teller is handed the closed request: %+v", f.released)
 	}
 

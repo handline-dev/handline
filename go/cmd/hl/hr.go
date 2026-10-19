@@ -12,11 +12,9 @@ import (
 	"github.com/handline/handline/go/internal/hlclient"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
-	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
-// hr raises a roster change for the founder to decide, lists proposals, or takes one back (cli/hr.cmd_hr). The founder approves and rejects from
-// the app: an approve is `hr.decide`, which a person makes from a card.
+// hr raises a roster change for the founder to decide, lists proposals, or takes one back (cli/hr.cmd_hr). The founder decides in the app.
 func hr(c *hlclient.Client, args []string) (int, bool) {
 	if len(args) == 0 {
 		return 0, false
@@ -24,8 +22,6 @@ func hr(c *hlclient.Client, args []string) (int, bool) {
 	switch sub, rest := args[0], args[1:]; sub {
 	case "add", "retire", "rename", "link", "unlink", "team", "context":
 		return hrPropose(c, sub, rest)
-	case "diff":
-		return hrDiff(c, rest)
 	case "withdraw":
 		p, ok := parse(rest, nil, nil, nil)
 		if !ok || len(p.pos) != 1 {
@@ -52,8 +48,6 @@ func hrPropose(c *hlclient.Client, kind string, args []string) (int, bool) {
 	switch kind {
 	case "add":
 		valued = append(valued, "--team", "--repo", "--model", "--effort", "--vendor")
-	case "link":
-		valued = append(valued, "--response", "--relation")
 	case "context":
 		valued = append(valued, "--role-file", "--base-file")
 	case "rename":
@@ -66,21 +60,24 @@ func hrPropose(c *hlclient.Client, kind string, args []string) (int, bool) {
 	if kind == "link" || kind == "unlink" {
 		want = 2
 	}
-	if !ok || len(p.pos) != want {
+	if !ok {
 		return 0, false
+	}
+	if len(p.pos) != want {
+		return wrongArgs("it takes %s, and got %d word(s)", map[int]string{1: "one agent", 2: "two agents"}[want], len(p.pos))
 	}
 	why, hasWhy := p.opt("--why")
 	if !hasWhy {
-		return 0, false
+		return wrongArgs("--why is missing: say why, for the founder to decide")
 	}
 	if _, ok := p.opt("--to"); kind == "rename" && !ok {
-		return 0, false
+		return wrongArgs("--to is missing: the new name")
 	}
 	if len(p.each["--member"]) == 0 && kind == "team" {
-		return 0, false
+		return wrongArgs("--member is missing: at least one")
 	}
 	if effort, ok := p.opt("--effort"); ok && !slices.Contains(team.ValidEffort, effort) {
-		return 0, false
+		return wrongArgs("--effort is one of %s", strings.Join(team.ValidEffort, ", "))
 	}
 	me := c.AskingAgent()
 	if me == "" {
@@ -93,7 +90,7 @@ func hrPropose(c *hlclient.Client, kind string, args []string) (int, bool) {
 	if want == 2 {
 		hargs["to"] = p.pos[1]
 	}
-	for _, o := range []string{"team", "repo", "model", "effort", "vendor", "response", "relation", "to"} {
+	for _, o := range []string{"team", "repo", "model", "effort", "vendor", "to"} {
 		if v, ok := p.opt("--" + o); ok {
 			hargs[o] = v
 		}
@@ -142,84 +139,6 @@ func expandHome(path string) string {
 		}
 	}
 	return path
-}
-
-// hrDiff raises a whole team diff from a file's `changes:` as one proposal (cli/hr._read_changes, hr.propose of kind bundle).
-func hrDiff(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--file", "--why"}, nil, nil)
-	file, hasFile := p.opt("--file")
-	why, hasWhy := p.opt("--why")
-	if !ok || len(p.pos) != 0 || !hasFile || !hasWhy {
-		return 0, false
-	}
-	if c.AskingAgent() == "" {
-		fmt.Println(hlclient.WhoRefusal("propos"))
-		return 1, true
-	}
-	changes, err := readChanges(file)
-	if err != "" {
-		fmt.Fprintln(os.Stderr, err)
-		return 1, true
-	}
-	c.NoteVerbChain([]string{"hr", "diff"})
-	args2 := map[string]any{"name": fmt.Sprintf("%d changes", len(changes)), "changes": changes}
-	return said(c.Write("hr.propose", map[string]any{"kind": "bundle", "why": why, "args": args2})), true
-}
-
-// readChanges is the `changes:` of a team-diff file, a file named by role_file or base_file read in as the new text of a context change.
-func readChanges(path string) ([]any, string) {
-	path = expandHome(path)
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Sprintf("%s: %v", path, err)
-	}
-	doc, err := yamlcompat.Parse(string(b))
-	if err != nil {
-		return nil, fmt.Sprintf("%s: %v", path, err)
-	}
-	top, _ := doc.(map[string]any)
-	list, isList := top["changes"].([]any)
-	if !isList {
-		return nil, path + ": needs a `changes:` list"
-	}
-	out := make([]any, 0, len(list))
-	for _, raw := range list {
-		ch, isMap := raw.(map[string]any)
-		if !isMap {
-			return nil, path + ": each change is a map"
-		}
-		ch2 := map[string]any{}
-		for k, v := range ch {
-			ch2[k] = v
-		}
-		texts := map[string]any{}
-		if sets, isSets := ch["sets"].(map[string]any); isSets {
-			for k, v := range sets {
-				texts[k] = v
-			}
-		}
-		for _, f := range [][2]string{{"role_file", "ROLE.md"}, {"base_file", "base.md"}} {
-			ref, has := ch2[f[0]]
-			if !has {
-				continue
-			}
-			delete(ch2, f[0])
-			name := expandHome(fmt.Sprint(ref))
-			if !filepath.IsAbs(name) {
-				name = filepath.Join(filepath.Dir(path), name)
-			}
-			body, err := os.ReadFile(name)
-			if err != nil {
-				return nil, fmt.Sprintf("%s: %v", path, err)
-			}
-			texts[f[1]] = string(body)
-		}
-		if len(texts) > 0 {
-			ch2["sets"] = texts
-		}
-		out = append(out, ch2)
-	}
-	return out, ""
 }
 
 func hrList(c *hlclient.Client, args []string) (int, bool) {

@@ -98,5 +98,20 @@
   "version": 20,
   "name": "task_tags_and_views",
   "additive": true
+ },
+ {
+  "version": 21,
+  "name": "task_review",
+  "additive": true
+ },
+ {
+  "version": 22,
+  "name": "task_estimate",
+  "additive": true
+ },
+ {
+  "version": 23,
+  "name": "requests_founder_auth",
+  "additive": true
  }
 ]

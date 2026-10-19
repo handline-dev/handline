@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/handline/handline/go/internal/db"
 	"os"
 	"strconv"
 	"strings"
@@ -20,6 +21,15 @@ type parsed struct {
 }
 
 func (p parsed) opt(name string) (string, bool) { v, ok := p.opts[name]; return v, ok }
+
+// argProblem is what was wrong with the command line, for the refusal main prints: parse names the option, a verb the piece it missed.
+var argProblem string
+
+// wrongArgs refuses the command line, saying why.
+func wrongArgs(format string, a ...any) (int, bool) {
+	argProblem = fmt.Sprintf(format, a...)
+	return 0, false
+}
 
 // tags is every tag given under name, each value a tag or several split by commas (`--tag fe --tag be`, `--tag fe,be`).
 func (p parsed) tags(name string) []any {
@@ -70,7 +80,14 @@ func parse(args []string, valued, flags []string, alias map[string]string) (pars
 		case isValued[name] && i+1 < len(args) && !looksLikeOption(args[i+1]):
 			i++
 			p.set(name, args[i])
+		case isFlag[name]:
+			argProblem = name + " takes no value"
+			return p, false
+		case isValued[name]:
+			argProblem = name + " needs a value after it"
+			return p, false
 		default:
+			argProblem = "unknown option " + name
 			return p, false
 		}
 	}
@@ -121,12 +138,10 @@ func expects(text string) (string, bool) {
 	return "", false
 }
 
-// maxTaskTimeout is actions.MAX_TASK_TIMEOUT_S.
-const maxTaskTimeout = 4 * 3600
-
+// taskTimeout reads a span; how long one may be is the daemon's to say, so a span past it is refused there, with the limit named.
 func taskTimeout(text string) (int64, bool) {
 	secs, err := timefmt.ParseSpan(text)
-	return secs, err == nil && secs <= maxTaskTimeout
+	return secs, err == nil
 }
 
 // integer is argparse's type=int for the plain forms; anything fancier is Python's.
@@ -136,6 +151,23 @@ func integer(text string) (int, bool) {
 	}
 	n, err := strconv.Atoi(text)
 	return n, err == nil
+}
+
+// requestArg reads a message as typed: msg_<hash> or the bare hash is its ref. A hash may be all digits, so only digits shorter than a
+// printed name (an id from an old notice) are an id. A #<n> names a pull request: it goes to the daemon as typed, which refuses it and
+// says so.
+func requestArg(text string) (any, bool) {
+	if strings.HasPrefix(text, "#") {
+		return text, true
+	}
+	t := strings.TrimPrefix(strings.ToLower(text), db.MsgPrefix)
+	if digits(t) && len(t) < db.MsgMinPrefix && !strings.HasPrefix(strings.ToLower(text), db.MsgPrefix) {
+		return integer(t)
+	}
+	if len(t) >= 6 && len(t) <= 12 && strings.Trim(t, "0123456789abcdef") == "" {
+		return t, true
+	}
+	return nil, false
 }
 
 func digits(s string) bool { return s != "" && strings.Trim(s, "0123456789") == "" }

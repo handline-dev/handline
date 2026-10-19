@@ -85,6 +85,8 @@ The screen key is a footer `Enter to confirm` or `Esc to cancel` in the last 3 r
 
 **Status: tool permissions replaced; the CLI's own dialogs kept.** The needs-you card is fed by `PermissionRequest`, and by `Notification` behind `-notification-needs-you`. In the live run the card showed with the prompt and cleared 2.8 s after the prompt was answered at the terminal. Through `Notification` it showed 4.1 s after the hook, on a run whose hooks went through Python. The Go `hl hook` stopped forwarding `Notification` when the hooks moved to Go; this branch forwards it again, and the live run can show it once the installed `hl` has the fix, since a live account's hooks run the installed `hl`. Kept: refusing to type over a dialog, and Claude Code's own dialogs, for which no hook exists.
 
+**Close guard: replaced behind `-turns-from-hooks`.** Ending a session respawns its pane and types nothing, so the dialogs that matter are a tool's prompt, which raises `PermissionRequest` or `Notification`, and exit over running work, which background work already refuses. For a session whose turn a `Stop` closed, with no prompt raised since, the screen is still read, but only the session picker (§8), which no hook reports, refuses the close, so an unreadable screen no longer blocks it. After a `StopFailure` (the usage-limit dialog may be up), an Esc, or before any hook, the screen is read as before.
+
 ## 6. What the prompt asks (reading it to answer)
 
 The screen keys are numbered options under a `─`/`▔` rule (`term/screen.go:29`), the confirmation parse (`term/drivers.go:363`) and the AskUserQuestion parse (`term/drivers.go:621`).

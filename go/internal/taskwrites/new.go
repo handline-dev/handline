@@ -117,6 +117,10 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 				return nil, err
 			}
 		}
+		points, _, err := estimateParam(p)
+		if err != nil {
+			return nil, err
+		}
 		ui, err := optionalBool(p, "ui")
 		if err != nil {
 			return nil, err
@@ -159,7 +163,7 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 				return nil, err
 			}
 			var err error
-			tid, asked, err = OpenTask(tx, tell, me, NewIn{Owner: owner, Title: clean, Body: body, Secs: secs, Prio: prio, Expects: expects,
+			tid, asked, err = OpenTask(tx, tell, me, NewIn{Owner: owner, Title: clean, Body: body, Secs: secs, Prio: prio, Estimate: points, Expects: expects,
 				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter, UI: ui, DuplicateOK: duplicateOK, Tags: tags})
 			if err != nil {
 				return nil, err
@@ -199,6 +203,7 @@ type NewIn struct {
 	Reporter           string // who the task answers to; "" is the opener
 	Tags               []string
 	Secs, Prio         int64
+	Estimate           int64 // story points, 0 for none
 	Expects            string
 	Parent, Blocker    int64
 	HasParent          bool
@@ -256,6 +261,11 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 		if tid, err = db.NewTask(tx, clean, owner, me, parent, prio, expects, secs, reporter); err != nil {
 			return err
 		}
+		if in.Estimate != 0 {
+			if _, err := tx.Exec("UPDATE tasks SET estimate = ? WHERE id = ?", in.Estimate, tid); err != nil {
+				return err
+			}
+		}
 		if in.UI {
 			if err := taskresult.MarkUI(tx, tid); err != nil {
 				return err
@@ -308,14 +318,14 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 	if me == human && owner == human {
 		// A todo of the founder's own: routing has no founder-to-founder edge, so its brief is written as the request any task to the
 		// founder carries, queued on their screen, without being routed or told.
-		rid, err := db.AddRequest(tx, db.NewRequest{Requester: human, Target: human, Body: body, Response: "async", Kind: "task"})
+		rid, err := db.AddRequest(tx, db.NewRequest{Requester: human, Target: human, Body: body, Kind: "task"})
 		if err != nil {
 			return 0, nil, err
 		}
 		if err := open(rid); err != nil {
 			return 0, nil, err
 		}
-		return tid, &Asked{OK: true, Msg: fmt.Sprintf("a todo of your own, #%d", rid), RID: rid}, nil
+		return tid, &Asked{OK: true, Msg: fmt.Sprintf("a todo of your own, %s", db.MsgName(tx, rid)), RID: rid}, nil
 	}
 	if tell == nil {
 		return 0, nil, fmt.Errorf("task.new needs the supervisor to route its ask")

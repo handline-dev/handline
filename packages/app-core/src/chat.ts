@@ -24,7 +24,7 @@ export function noticeOf(m: ChatMessage): { kind: 'task'; task: number } | { kin
   return /^#\d+\s/.test(m.body) ? { kind: 'delivery' } : null;
 }
 
-/** Everything on screen for one agent, oldest first: the messages and the agent's transcript by time. In the agent's own chat (`mine`) nothing the task board sent is shown: it still reaches the agent and stays on the task. */
+/** Everything on screen for one agent, oldest first: the messages and the agent's transcript by time. In the agent's own chat (`mine`) nothing the task board sent and no tool line is shown: they still reach the agent and stay on the Activity tab. */
 export function timeline(
   messages: ChatMessage[],
   items: TranscriptItem[],
@@ -45,12 +45,75 @@ export function timeline(
     }),
     // A task card sits in the chat of the agent that made the change, or of the founder acting for it (`human`); the *all* tab shows every one.
     ...items
-      .filter((i) => !(scope === 'mine' && agent && i.task_event && i.task_event.who !== agent && i.task_event.who !== 'human'))
+      .filter((i) => !(scope === 'mine' && (i.kind === 'tool' || (agent && i.task_event && i.task_event.who !== agent && i.task_event.who !== 'human'))))
       .map((i): TimelineEntry => ({ kind: 'item', at: i.at, id: i.id, item: i })),
     ...decided.flatMap((p): TimelineEntry[] => (p.settled ? [{ kind: 'proposal', at: p.settled, id: p.id, proposal: p }] : [])),
   ];
   const rank = (e: TimelineEntry) => (e.kind === 'item' ? 1 : e.kind === 'proposal' ? 2 : 0); // at one instant: messages, then the transcript, then a decision
-  return out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : rank(a) - rank(b) || a.id - b.id));
+  out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : rank(a) - rank(b) || a.id - b.id));
+  return out.reduce<TimelineEntry[]>((all, e) => {
+    const prev = all.at(-1);
+    if (prev?.kind === 'item' && e.kind === 'item' && prev.item.kind === 'session' && e.item.kind === 'session')
+      all[all.length - 1] = mergeSessions(prev, e);
+    else all.push(e);
+    return all;
+  }, []);
+}
+
+const PLAIN_START = new Set(['launch', 'start']);
+/** One restart is one line: back-to-back session starts collapse into the last, which keeps the handoff and the cause the run was told (a plain launch is the least telling cause). */
+function mergeSessions(a: Extract<TimelineEntry, { kind: 'item' }>, b: Extract<TimelineEntry, { kind: 'item' }>): TimelineEntry {
+  const [x, y] = [a.item.session, b.item.session];
+  const cause = [y?.cause, x?.cause].find((c) => c && !PLAIN_START.has(c)) ?? y?.cause ?? x?.cause;
+  const session = { ...y!, handoff: y?.handoff || x?.handoff || null, ...(cause ? { cause } : {}) };
+  return { ...b, item: { ...b.item, session } };
+}
+
+/** The agent's Chat: the person's words and the agent's, its replies and prompts, and its session marks. Task and tool lines are Activity's. */
+export const chatEntries = (messages: ChatMessage[], items: TranscriptItem[], agent: string, decided: Proposal[] = []): TimelineEntry[] =>
+  timeline(messages, items, 'mine', agent, '', decided).filter((e) => !(e.kind === 'item' && (e.item.kind === 'tool' || e.item.kind === 'task_event')));
+
+/** The agent's Activity, read-only: what the Chat leaves out (other people's messages, task notices) and every task, session and tool line. `all` is the daemon's all-scope messages, `mine` its mine-scope ones: what the Chat draws from the second is left out of the first. */
+export function activity(all: ChatMessage[], mine: ChatMessage[], items: TranscriptItem[], agent: string): Exclude<TimelineEntry, { kind: 'proposal' }>[] {
+  const inChat = new Set(timeline(mine, [], 'mine', agent).map((e) => e.id));
+  return timeline(all, items, 'all', agent).filter(
+    (e): e is Exclude<TimelineEntry, { kind: 'proposal' }> =>
+      e.kind === 'proposal' ? false : e.kind === 'item' ? ['tool', 'session', 'task_event'].includes(e.item.kind) : !inChat.has(e.id),
+  );
+}
+
+export type ActivityKind = 'messages' | 'tasks' | 'sessions' | 'tools';
+export const ACTIVITY_KINDS: readonly ActivityKind[] = ['messages', 'tasks', 'sessions', 'tools'];
+export interface ActivityRow {
+  key: string;
+  at: string;
+  kind: ActivityKind;
+  /** `from -> to` for a message, else null. */
+  route: { from: string; to: string } | null;
+  text: string;
+  /** What a tool line printed, and how many lines the daemon let go. */
+  output?: string;
+  dropped?: number;
+}
+
+/** What the Activity tab lists for one agent, oldest first: what it does with the team, not what it says to the person. Messages and notices of the *all* scope that the person is not part of, task, session and tool lines of the transcript; the agent's own replies and prompts stay in Chat. */
+export function teamActivityOf(messages: ChatMessage[], items: TranscriptItem[], me: string): ActivityRow[] {
+  const rows: ActivityRow[] = [];
+  for (const m of messages) {
+    if (isPerson(m.from, me) || isPerson(m.to, me) || m.proposal != null) continue;
+    const n = noticeOf(m);
+    if (n?.kind === 'delivery') continue;
+    rows.push({ key: `m${m.id}`, at: m.at, kind: n ? 'tasks' : 'messages', route: { from: m.from, to: m.to }, text: m.body });
+  }
+  for (const i of items) {
+    if (i.kind === 'tool') rows.push({ key: `i${i.id}`, at: i.at, kind: 'tools', route: null, text: [i.tool, i.text].filter(Boolean).join(' '), output: i.output, dropped: i.dropped_lines });
+    else if (i.kind === 'session') rows.push({ key: `i${i.id}`, at: i.at, kind: 'sessions', route: null, text: sessionLine(i).reason });
+    else if (i.kind === 'task_event' && i.task_event) {
+      const e = i.task_event;
+      rows.push({ key: `i${i.id}`, at: i.at, kind: 'tasks', route: null, text: `T${e.task} ${e.event}${e.change ? `: ${e.change}` : ''} by ${e.who}` });
+    }
+  }
+  return rows.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.key < b.key ? -1 : 1));
 }
 
 /** The name the daemon records for the person's own words: the CLI's `human`, or the device they typed on (`me`, e.g. "Handline desktop"). */
@@ -62,8 +125,10 @@ export function sideOf(m: ChatMessage, agent: string, me: string): 'person' | 'a
 }
 /** A message of the person's can be taken back while it is not written or delivered; `confirm` when the agent already has it (it is told to stop). Null when it cannot. */
 export function takeBack(m: ChatMessage): { confirm: boolean } | null {
-  if (!['queued', 'typed', 'delivered', 'delivered_unanswered'].includes(m.landing)) return null;
-  return { confirm: m.receipt ? !waiting(m) : m.landing === 'delivered' || m.landing === 'delivered_unanswered' };
+  // delivered_unanswered left the contract, but a daemon still sends it until it drops the answer model: it is delivered.
+  const delivered = m.landing === 'delivered' || (m.landing as string) === 'delivered_unanswered';
+  if (!delivered && !['queued', 'typed'].includes(m.landing)) return null;
+  return { confirm: m.receipt ? !waiting(m) : delivered };
 }
 
 /** Queued behind a running turn: the agent has not been given it. */
@@ -80,7 +145,7 @@ const LABELS: Record<string, string> = {
   queued: 'Sending',
   typed: 'Typed',
   delivered: 'Delivered',
-  // The daemon still sends these three until the answer model leaves the contract; a message in them is delivered.
+  // Gone from the contract, but a daemon still sends these three until it drops the answer model; a message in them is delivered.
   delivered_unanswered: 'Delivered',
   answered: 'Delivered',
   dismissed: 'Delivered',
@@ -106,6 +171,25 @@ export function sessionLine(i: TranscriptItem): { reason: string; handoff: strin
   const cause = i.session?.cause?.trim();
   const reason = !cause ? 'New session' : (SESSION_WHY[cause] ?? `New session (${cause})`);
   return { reason, handoff: i.session?.handoff || null };
+}
+
+const RESTART_WHY: Record<string, string> = {
+  handoff: 'from a handoff',
+  restart: 'restarted',
+  'fresh close': 'fresh conversation',
+  wake: 'woke from a close',
+  move: 'moved to another account',
+  context_full: 'context was full',
+  settings_applied: 'settings applied',
+  crash_recovery: 'resumed after a crash',
+  idle_close: 'woke after idle close',
+  launch: 'launched',
+  start: 'started',
+};
+/** The short cause after `New session at <time>`: the daemon's word in plain words, an unknown one as it came, null when the daemon sent none. */
+export function restartCause(i: TranscriptItem): string | null {
+  const cause = i.session?.cause?.trim();
+  return cause ? (RESTART_WHY[cause] ?? cause) : null;
 }
 
 const TASK_LABEL: Record<string, string> = { opened: 'Task added', changed: 'Task changed', done: 'Task done', withdrawn: 'Task deleted' };
@@ -157,4 +241,16 @@ export function handoffLine(h: { cause: string; phase: 'writing' | 'starting' })
     why: HANDOFF_WHY[h.cause] ?? h.cause,
     what: h.phase === 'writing' ? 'Writing the handoff' : 'Starting a new session',
   };
+}
+
+/** Whether the restart line still shows: false once its New session line is in the chat, so one restart never shows both. */
+export function restartShown(h: { since: string }, items: TranscriptItem[]): boolean {
+  const since = Date.parse(h.since);
+  return !items.some((i) => i.kind === 'session' && Date.parse(i.at) >= since);
+}
+
+/** The live restart line: `Restarting: context full. Writing the handoff…`. */
+export function restartingLine(h: { cause: string; phase: 'writing' | 'starting' }): string {
+  const { why, what } = handoffLine(h);
+  return `Restarting: ${why.charAt(0).toLowerCase()}${why.slice(1)}. ${what}…`;
 }

@@ -55,7 +55,7 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
 function stateText(a: Account): string {
   const s = stateOf(a);
   const until = s === 'out' ? outUntil(a) : null;
-  return until ? `out until ${span(Date.parse(until) - Date.now())} from now` : STATE_WORD[s];
+  return until ? `out until ${span(Date.parse(until) - Date.now())} from now` : s === 'in_use' ? '' : STATE_WORD[s];
 }
 
 function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
@@ -90,9 +90,15 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
                   {a.agents.length}/{a.cap_effective} agents
                 </Text>
               </View>
-              <Text style={{ color: c.muted, fontSize: 12 }}>{stateText(a)}</Text>
-              <Gauge label="5 hours" w={a.five_hour} />
-              <Gauge label="week" w={a.weekly} />
+              {stateText(a) ? <Text style={{ color: c.muted, fontSize: 12 }}>{stateText(a)}</Text> : null}
+              {stateOf(a) === 'needs_login' ? (
+                <Button testID={`login-${a.name}`} label="Log in" onPress={() => props.onSelect(a.name)} style={{ alignSelf: 'flex-start' }} />
+              ) : (
+                <>
+                  <Gauge label="5 hours" w={a.five_hour} />
+                  <Gauge label="week" w={a.weekly} />
+                </>
+              )}
             </Pressable>
           )}
         />
@@ -131,7 +137,6 @@ function Add() {
         >
           <Text style={{ color: c.ink, fontWeight: '600' }}>Add an account</Text>
           <Input testID="sheet-name" label="Name" value={name} onChange={setName} />
-          <Text style={{ color: c.muted, fontSize: 12 }}>Log it in from its page once it is added.</Text>
           {add.error ? (
             <Text testID="sheet-error" accessibilityRole="alert" style={{ color: c.block }}>
               {sentence(classify(add.error))}
@@ -196,7 +201,7 @@ function Body({ a }: { a: Account }) {
   return (
     <ScrollView testID="account-detail" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
       <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>{a.label}</Text>
-      <Text style={{ color: c.muted }}>{stateText(a)}</Text>
+      {stateText(a) ? <Text style={{ color: c.muted }}>{stateText(a)}</Text> : null}
       <Gauge label="5 hours" w={a.five_hour} detail />
       <Gauge label="week" w={a.weekly} detail />
       <Text style={{ color: c.ink }}>{a.agents.length ? `On it: ${a.agents.join(', ')}` : 'No agents are on it.'}</Text>

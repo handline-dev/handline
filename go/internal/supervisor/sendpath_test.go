@@ -176,7 +176,7 @@ func TestAMessageLeavesTheLedgerWhenEveryRequestItCarriedLandsOrIsClosed(t *test
 	if v, _ := db.Cursor(r.DB, ledgerKey("bob", op)); v != sendWritten {
 		t.Fatalf("one of two landed: the message is still out (%d)", v)
 	}
-	if ok, err := db.CloseIfQueued(r.DB, b, "withdrawn", "", db.CloseOpts{}); !ok || err != nil {
+	if ok, err := db.CloseIfQueued(r.DB, b, "withdrawn", ""); !ok || err != nil {
 		t.Fatal(ok, err)
 	}
 	if v, _ := db.Cursor(r.DB, ledgerKey("bob", op)); v != 0 {
@@ -264,43 +264,6 @@ func TestAnEchoDuringTheWriteIsNotOverwrittenToHeld(t *testing.T) {
 	}
 }
 
-func TestHeldAnswersAreAnnouncedOnlyOnceTheyAreOut(t *testing.T) {
-	r, fa := structuredRig(t)
-	fa.live["bob"] = false
-	r.answered("bob") // while it has no session, so nothing tells it yet
-	fa.live["bob"] = true
-	fa.state = delivery.Queued
-	if sent, _ := r.DeliverAnswers(r.DB, "bob"); sent {
-		t.Fatal("held answers were announced")
-	}
-	if got, _ := db.UnannouncedAnswers(r.DB, "bob"); len(got) != 1 {
-		t.Fatalf("%d unannounced while held", len(got))
-	}
-	r.must(r.SessionLost(r.DB, "bob")) // the session ended before the turn did: owed again
-	fa.state, fa.seen = delivery.Sent, nil
-	if sent, _ := r.DeliverAnswers(r.DB, "bob"); !sent || len(fa.sent) != 2 {
-		t.Fatalf("not told again: %v %+v", sent, fa.sent)
-	}
-	if got, _ := db.UnannouncedAnswers(r.DB, "bob"); len(got) != 0 {
-		t.Fatal("still unannounced after the write")
-	}
-}
-
-func TestHeldAnswersAreAnnouncedWhenTheEchoComes(t *testing.T) {
-	r, fa := structuredRig(t)
-	fa.live["bob"] = false
-	r.answered("bob") // while it has no session, so nothing tells it yet
-	fa.live["bob"] = true
-	fa.state = delivery.Queued
-	r.DeliverAnswers(r.DB, "bob")
-	var op string
-	r.must(r.DB.QueryRow("SELECT substr(name, length('send:bob:')+1) FROM cursors WHERE name LIKE 'send:bob:answers:%'").Scan(&op))
-	r.must(r.SessionConfirmed(r.DB, "bob", op))
-	if got, _ := db.UnannouncedAnswers(r.DB, "bob"); len(got) != 0 {
-		t.Fatal("not announced on the echo")
-	}
-}
-
 func TestOneStuckSessionDoesNotBlockAnotherAgentsSend(t *testing.T) {
 	r, fa := structuredRig(t)
 	fa.live["alice"] = true
@@ -332,70 +295,19 @@ func TestOneStuckSessionDoesNotBlockAnotherAgentsSend(t *testing.T) {
 	<-stuck
 }
 
-func TestAnUnknownPendingOrAnswersOpIsRecordedAndNotWrittenAgain(t *testing.T) {
+func TestAnUnknownPendingOrNoticeOpIsRecordedAndNotWrittenAgain(t *testing.T) {
 	r, fa := structuredRig(t)
-	for _, op := range []string{"pending:3", "answers:4"} {
+	for _, op := range []string{"pending:3", "notice:4"} {
 		r.sendOnce(r.DB, "bob", op, "x", delivery.Now)
 	}
 	r.must(r.SessionLost(r.DB, "bob"))
-	for _, op := range []string{"pending:3", "answers:4"} {
+	for _, op := range []string{"pending:3", "notice:4"} {
 		if state, _ := r.sendOnce(r.DB, "bob", op, "x", delivery.Now); state != Unknown {
 			t.Fatalf("%s: %v", op, state)
 		}
 	}
 	if len(fa.sent) != 2 {
 		t.Fatalf("%+v", fa.sent)
-	}
-}
-
-// answered gives bob an answer that came back from alice, not yet announced.
-func (r *rig) answered(asker string) {
-	r.t.Helper()
-	rid := r.ask(asker, "alice", "q?", "ask")
-	_, _, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "the answer", Notify: true})
-	r.must(err)
-	if got, _ := db.UnannouncedAnswers(r.DB, asker); len(got) == 0 {
-		r.t.Fatal("no answer to announce")
-	}
-}
-
-func TestAnswersThatArriveWhileOthersAreHeldAreNotToldTwice(t *testing.T) {
-	r, fa := structuredRig(t)
-	fa.live["bob"] = false
-	r.answered("bob")
-	fa.live["bob"], fa.state = true, delivery.Queued
-	r.DeliverAnswers(r.DB, "bob") // answer one is held behind the running turn
-	fa.live["bob"] = false
-	r.answered("bob") // a second one arrives during the same turn
-	fa.live["bob"] = true
-	r.DeliverAnswers(r.DB, "bob")
-	r.DeliverAnswers(r.DB, "bob")
-	var told int
-	for _, m := range fa.sent {
-		if strings.Contains(m.text, "the answer") {
-			told += strings.Count(m.text, "the answer")
-		}
-	}
-	if told != 2 {
-		t.Fatalf("the answers were written %d times in all, want once each: %+v", told, fa.sent)
-	}
-}
-
-func TestAWrittenAnswersBatchIsAnnouncedOnceNotAgainByItsEcho(t *testing.T) {
-	r, fa := structuredRig(t)
-	fa.live["bob"] = false
-	r.answered("bob")
-	fa.live["bob"] = true
-	if sent, _ := r.DeliverAnswers(r.DB, "bob"); !sent {
-		t.Fatal("not sent")
-	}
-	var op string
-	r.must(r.DB.QueryRow("SELECT substr(name, length('send:bob:')+1) FROM cursors WHERE name LIKE 'send:bob:answers:%'").Scan(&op))
-	r.must(r.SessionConfirmed(r.DB, "bob", op))
-	var n int
-	r.DB.QueryRow("SELECT COUNT(*) FROM events WHERE agent = 'bob' AND kind = 'answered'").Scan(&n)
-	if n != 1 {
-		t.Fatalf("%d answered events", n)
 	}
 }
 

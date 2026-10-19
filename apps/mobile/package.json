@@ -9,7 +9,7 @@
     "start": "expo start --dev-client",
     "ios": "expo run:ios",
     "fake-listener": "node scripts/fake-listener.ts",
-    "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts && vitest run",
+    "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts && ../../tools/heavy-slot.sh vitest run",
     "typecheck": "tsc -p .",
     "lint": "eslint ."
   },
@@ -29,7 +29,8 @@
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-native": "0.86.3",
-    "react-native-svg": "15.15.4"
+    "react-native-svg": "15.15.4",
+    "react-native-view-shot": "5.1.0"
   },
   "devDependencies": {
     "@handline/config": "workspace:*",

@@ -17,6 +17,9 @@
  "account.set": {
   "role": "founder"
  },
+ "account.wake": {
+  "role": "founder"
+ },
  "accounts.list": {
   "role": "agent"
  },
@@ -25,6 +28,9 @@
  },
  "agent.fold": {
   "role": "agent"
+ },
+ "agent.force_start": {
+  "role": "founder"
  },
  "agent.get": {
   "role": "agent"
@@ -78,9 +84,6 @@
  "chat.cancel": {
   "role": "member"
  },
- "chat.dismiss": {
-  "role": "member"
- },
  "chat.locate": {
   "role": "member"
  },
@@ -108,6 +111,9 @@
  "chat.transcript": {
   "role": "member"
  },
+ "connection.get": {
+  "role": "founder"
+ },
  "daemon.status": {
   "role": "agent"
  },
@@ -129,6 +135,12 @@
  "events.feed": {
   "role": "agent"
  },
+ "file.read": {
+  "role": "founder"
+ },
+ "file.write": {
+  "role": "founder"
+ },
  "hello": {
   "role": "anonymous"
  },
@@ -149,9 +161,6 @@
  },
  "hr.withdraw": {
   "role": "agent"
- },
- "inbox.answer": {
-  "role": "member"
  },
  "inbox.get": {
   "role": "agent"
@@ -343,6 +352,9 @@
   "role": "member"
  },
  "task.start": {
+  "role": "agent"
+ },
+ "task.time": {
   "role": "agent"
  },
  "task.view.delete": {

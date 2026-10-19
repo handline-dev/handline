@@ -1,4 +1,4 @@
-// The list a `#` at the end of the compose box opens: the agent's newest requests (chat.refs); a pick is a reference as a picked message is.
+// The list a lone `#` at the end of the compose box opens: the agent's newest requests (chat.refs), each as its words, since a message shows no id; a pick is a reference as a picked message is. `#42` is a pull request and opens nothing.
 // A daemon that does not list chat.refs shows nothing.
 import { Pressable, Text, View } from 'react-native';
 import { useChatRefs, useServes } from '@handline/app-data';
@@ -9,7 +9,7 @@ import { usePalette } from '../theme.ts';
 /** What a reply needs of the message it answers. */
 export type Ref = Pick<ChatMessage, 'id' | 'from' | 'to' | 'body'>;
 
-const TRAILING = /(^|\s)#(\d*)$/;
+const TRAILING = /(^|\s)#$/;
 
 export function ChatRefs(props: { agent: string; text: string; onPick: (r: Ref, rest: string) => void }) {
   const c = usePalette();
@@ -17,7 +17,7 @@ export function ChatRefs(props: { agent: string; text: string; onPick: (r: Ref, 
   const at = TRAILING.exec(props.text);
   const refs = useChatRefs(props.agent, served && !!at);
   if (!served || !at) return null;
-  const rows = (refs.data?.requests ?? []).filter((r) => String(r.request).startsWith(at[2]!));
+  const rows = refs.data?.requests ?? [];
   if (!rows.length) return null;
   const rest = props.text.slice(0, at.index + at[1]!.length);
   return (
@@ -33,7 +33,7 @@ export function ChatRefs(props: { agent: string; text: string; onPick: (r: Ref, 
           style={{ padding: space.sm }}
         >
           <Text numberOfLines={1} style={{ color: c.ink }}>
-            #{r.request} {r.line}
+            {r.line}
           </Text>
         </Pressable>
       ))}
