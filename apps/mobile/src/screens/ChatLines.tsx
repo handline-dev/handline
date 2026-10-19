@@ -30,7 +30,7 @@ export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: Transcri
   if (i.kind === 'reply')
     return (
       <View testID={`reply-${i.id}`} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.xs }}>
-        <View style={{ flexShrink: 1, padding: space.md }}>
+        <View style={{ flex: 1, padding: space.md }}>
           <Markdown text={i.text ?? ''} breaks />
           {onReply && (
             <Pressable
