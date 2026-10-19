@@ -131,3 +131,12 @@ test('a card about a task is titled with the task and says who asks; a decision 
   assert.equal(cards[0]!.from, 'handline.pc');
   assert.deepEqual(cards[0]!.actions.slice(0, cards[0]!.primary).map((a) => a.type), ['answer', 'done']);
 });
+
+test('an item with fix open_terminal has Open terminal as its first button, before the reply', () => {
+  const [c] = myTurn({ items: [item({ id: 9, kind: 'decision', fix: 'open_terminal' })], agents: [], tasks: [] });
+  assert.deepEqual(c!.actions.slice(0, 2).map((a) => a.type), ['terminal', 'answer']);
+  assert.equal(c!.actions[0]!.type === 'terminal' && c!.actions[0]!.agent, 'a');
+  assert.equal(c!.primary, 2);
+  const [plain] = myTurn({ items: [item({ id: 9, kind: 'decision' })], agents: [], tasks: [] });
+  assert.equal(plain!.actions.some((a) => a.type === 'terminal'), false);
+});

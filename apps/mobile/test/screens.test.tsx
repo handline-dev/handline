@@ -94,6 +94,20 @@ describe('the inbox tab', () => {
     m.store.stop();
   });
 
+  it('offers Open terminal on a card the daemon could not heal, and it opens that agent\'s terminal', async () => {
+    const m = await mount((s) => {
+      const r = s.daemon.inbox['items'].find((i) => i.id === RESULT)!;
+      Object.assign(r, { agent: ARCH, fix: 'open_terminal' });
+    });
+    await tab('inbox');
+    await until(() => item(RESULT), 'the items');
+    expect($(`inbox-terminal-${RESULT}`)).toBeNull();
+    await press($(`inbox-open-${RESULT}`));
+    await press($(`inbox-terminal-${RESULT}`));
+    await until(() => m.store.page?.agent === ARCH && m.store.page.tab === 'terminal', 'the terminal');
+    m.store.stop();
+  });
+
   it('marks a result read from its card, and Mark all read then the last decision empty the list into the empty sentence', async () => {
     const m = await mount(withDecisionTask);
     await tab('inbox');

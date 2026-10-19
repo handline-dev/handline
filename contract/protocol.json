@@ -10642,6 +10642,13 @@
         "type": "null"
        }
       ]
+     },
+     "fix": {
+      "type": "string",
+      "enum": [
+       "open_terminal"
+      ],
+      "description": "Only on a card the daemon raised after its own recovery failed: the action to offer as a button. open_terminal opens the item's agent's terminal, since every step the daemon could take was taken."
      }
     },
     "required": [
