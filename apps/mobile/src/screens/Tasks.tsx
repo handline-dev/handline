@@ -222,6 +222,12 @@ function Body({ t }: { t: TaskDetail }) {
         <Section title="Waits on">{t.blockers.map((b, i) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`, i))}</Section>
       ) : null}
       {t.children.length ? <Section title="Subtasks">{t.children.map((k, i) => line(`${taskRef(k)}`, i))}</Section> : null}
+      {t.discarded ? (
+        <Section title="Closed">
+          {line(`${t.discarded.by} discarded it${t.discarded.batch ? ' in a batch' : ''}${t.discarded.withdrew?.length ? `, withdrawing ${t.discarded.withdrew.length} ${t.discarded.withdrew.length === 1 ? 'request' : 'requests'}` : ''}`)}
+          {t.discarded.reason ? line(t.discarded.reason, 'why') : null}
+        </Section>
+      ) : null}
       {t.evidence ? <Section title="Evidence"><PrBody id={`evidence-${t.id}`} agent={t.to} body={t.evidence} /></Section> : null}
       {t.deliveries.length ? (
         <Section title="Delivery">{line(deliverySummary(t.deliveries))}</Section>

@@ -18,6 +18,7 @@ import { PrBody } from './PrBody.tsx';
 import { ChatFind } from './ChatFind.tsx';
 import { ChatRefs, type Ref } from './ChatRefs.tsx';
 import { HandoffLine } from './HandoffLine.tsx';
+import { Detail } from './Tasks.tsx';
 import { NeedsYouCard } from './NeedsYouCard.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { useChatImages } from './ChatImages.tsx';
@@ -56,6 +57,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
   const [text, setTextState] = useState(drafts.get(agent) ?? '');
+  const [openTask, setOpenTask] = useState<number | null>(null); // a task a batch card opened, drawn in place of the chat
   const scroll = useRef<ScrollView>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
   const [going, setGoing] = useState<number | null>(null); // a message number being found
@@ -137,6 +139,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   };
   const failure = chat.status === 'error' ? sentence(classify(chat.error)) : null;
   const working = chat.working.turn_running;
+  if (openTask !== null) return <Detail id={openTask} onBack={() => setOpenTask(null)} />;
   return (
     <View style={{ flex: 1 }}>
       {props.searching && (
@@ -208,6 +211,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
               key={`i${e.id}`}
               i={e.item}
               agent={agent}
+              onTask={setOpenTask}
               onReply={
                 canSend && canReplyItem
                   ? (i) => {

@@ -222,7 +222,7 @@ export class FakeTasks {
       children: this.rows.filter((r) => r.parent === t.id).map((r) => r.id),
       handoffs: [],
       asker: t.from,
-      discarded: null,
+      discarded: t.state === 'discarded' ? { by: t.from, reason: t.hold_reason ?? '', at: t.done ?? this.now(), withdrew: [], batch: null } : null,
       merged_into: null,
       time: t.state === 'done' || t.state === 'discarded' ? null : (t.clock ?? null),
       parent_title: this.rows.find((r) => r.id === t.parent)?.title ?? null,
