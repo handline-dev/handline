@@ -284,3 +284,12 @@ test('the live restart line reads as one sentence', () => {
   assert.equal(restartingLine({ cause: 'context_full', phase: 'writing' }), 'Restarting: context full. Writing the handoff…');
   assert.equal(restartingLine({ cause: 'context_full', phase: 'starting' }), 'Restarting: context full. Starting a new session…');
 });
+
+test('a permission request is a tool step: Activity lists it under tools, Chat keeps only other dialogs', () => {
+  const perm = item({ id: 20, kind: 'prompt', open: false, prompt: { kind: 'permission', tool: 'Bash', command: 'git status' } as TranscriptItem['prompt'] });
+  const dialog = item({ id: 21, kind: 'prompt', open: true, prompt: { kind: 'choice' } as TranscriptItem['prompt'] });
+  const key = (es: { kind: string; id: number }[]) => es.map((e) => `${e.kind}${e.id}`);
+  assert.deepEqual(key(chatEntries([], [perm, dialog], A)), ['item21']);
+  assert.deepEqual(key(activity([], [], [perm, dialog], A)), ['item20']);
+  assert.deepEqual(teamActivityOf([], [perm], 'human').map((r) => [r.kind, r.text]), [['tools', 'Asked permission: Bash git status']]);
+});

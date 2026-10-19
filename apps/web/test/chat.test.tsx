@@ -307,10 +307,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
   it('draws the prompt, session and task lines as cards with icons and the words as tooltips', async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
-    const prompt = $('[data-kind="prompt"]')!;
-    expect(icon(prompt, 'Asked permission: Bash')).not.toBeNull();
-    expect(text(prompt)).toContain('git status');
-    expect(icon(prompt, 'Answered')).not.toBeNull();
+    expect($('[data-kind="prompt"]')).toBeNull(); // a permission request is a tool step: Activity's
     expect(text($('[data-kind="session"]')!)).toContain('New session');
     const events = $$('[data-kind="task_event"]');
     expect(icon(events[0], 'Task added')).not.toBeNull();
