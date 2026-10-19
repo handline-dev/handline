@@ -198,8 +198,8 @@ func (c *chat) receiptOf(r row, landing string) (map[string]any, string, error) 
 	return map[string]any{"state": state, "uuid": kept.UUID}, landing, nil
 }
 
-// decisionActions are the one-tap buttons a message to the founder carries for its task, from the task's state alone: a report waiting on
-// the founder is accepted or sent back, an open task of the founder's is answered OK or No (No hands it back to whoever opened it).
+// decisionActions are the one-tap buttons a message to the founder carries for its task, from the task's state alone: an open task of the
+// founder's is answered OK or No (No hands it back to whoever opened it).
 func decisionActions(id int64, t row) []any {
 	act := func(key, label, verb string, params map[string]any, needs string) any {
 		params["task"] = id
@@ -212,27 +212,14 @@ func decisionActions(id int64, t row) []any {
 	if t.str("done_evidence") != "" || t.str("discarded_by") != "" {
 		return nil
 	}
-	switch answersTo := orDefault(t.str("reporter"), t.str("opened_by")); {
-	case t["reported_at"] != nil:
-		if answersTo != human {
-			return nil
-		}
-		return []any{act("accept", "Accept", "task.accept", map[string]any{}, ""), act("send_back", "Send back", "task.reject", map[string]any{}, "note")}
-	case t.str("owner") == human:
-		out := []any{act("ok", "OK", "task.done", map[string]any{"evidence": "OK"}, "")}
-		if opener := t.str("opened_by"); opener != human {
-			out = append(out, act("no", "No", "task.handoff", map[string]any{"to": opener, "note": "No"}, ""))
-		}
-		return out
+	if t.str("owner") != human {
+		return nil
 	}
-	return nil
-}
-
-func orDefault(s, d string) string {
-	if s != "" {
-		return s
+	out := []any{act("ok", "OK", "task.done", map[string]any{"evidence": "OK"}, "")}
+	if opener := t.str("opened_by"); opener != human {
+		out = append(out, act("no", "No", "task.handoff", map[string]any{"to": opener, "note": "No"}, ""))
 	}
-	return d
+	return out
 }
 
 func (c *chat) messageOf(r row) (map[string]any, error) {
@@ -251,7 +238,7 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	var actions []any
 	for _, id := range ids {
-		t, err := queryOne(c.e.DB, "SELECT title, owner, opened_by, reporter, reported_at, done_evidence, discarded_by FROM tasks WHERE id = ?", id)
+		t, err := queryOne(c.e.DB, "SELECT title, owner, opened_by, reporter, done_evidence, discarded_by FROM tasks WHERE id = ?", id)
 		if err != nil {
 			return nil, err
 		}
@@ -426,19 +413,20 @@ func (e *Env) chatMessages(c *rpc.Conn, params map[string]any) (any, error) {
 	return map[string]any{"messages": msgs, "more": more}, nil
 }
 
-// What a task event moves a task to; doing is not stored, so the two events that put a task in its owner's hands stand for it.
+// What a task event moves a task to; doing is not stored, so the two events that put a task in its owner's hands stand for it. accept_task
+// and reject_task are from when a done waited on an accept: they read as the done and the requeue they were.
 var stateAfter = map[string]string{"draft_task": "draft", "queue_task": "queued", "task_begin": "doing", "task_start": "doing",
 	"mark_task_done": "done", "close_task": "closed", "discard_task": "discarded", "reopen_task": "queued",
-	"task_report": "review", "accept_task": "done", "reject_task": "queued"}
+	"accept_task": "done", "reject_task": "queued"}
 
-// stateAfterEvent is stateAfter for one event: a reopened discarded task is a draft until it is queued again, a task accepted with a PR
-// stays in review until the merge.
+// stateAfterEvent is stateAfter for one event: a reopened discarded task is a draft until it is queued again; an accept that waited on a
+// PR's merge ended nothing.
 func stateAfterEvent(kind string, p map[string]any) (string, bool) {
 	switch {
 	case kind == "reopen_task" && p["was"] == "discarded":
 		return "draft", true
 	case kind == "accept_task" && p["pr"] != nil:
-		return "review", true
+		return "", false
 	}
 	s, ok := stateAfter[kind]
 	return s, ok

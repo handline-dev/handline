@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/supervisor"
+	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/tick"
@@ -162,7 +164,13 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	}}
 	startup := func() {
 		runStartup(logLine, startPorts{Reconcile: reconciler.Reconcile, StartWaiting: t.StartWaiting,
-			Migrate: func() error { return env.MigrateOldMessages(q) }, Reload: func() error { return env.ReloadPending(q) }})
+			Migrate: func() error {
+				moved, err := taskwrites.EndReviews(q, home, env)
+				for _, m := range moved {
+					logLine("  " + m)
+				}
+				return errors.Join(err, env.MigrateOldMessages(q))
+			}, Reload: func() error { return env.ReloadPending(q) }})
 	}
 	return &Tick{Tick: t, Loop: loop, dev: dev, Startup: startup}
 }
@@ -201,7 +209,7 @@ func runStartup(log func(string), s startPorts) {
 		return
 	}
 	if err := s.Migrate(); err != nil {
-		log(fmt.Sprintf("  migrate old messages: %v", err))
+		log(fmt.Sprintf("  migrate: %v", err))
 	}
 	for _, a := range s.StartWaiting() {
 		log("  " + a)

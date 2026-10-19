@@ -19,8 +19,7 @@ import (
 var shaLike = regexp.MustCompile(`^[0-9a-fA-F]{4,40}$`)
 
 // doneMethod is task.done (actions.mark_task_done): the owner's or the founder's call, with exactly one of a merge sha on main, a
-// request already answered, or a one-line fact. A done that needs a review (reviewer), the founder's included, files it as an answer for
-// task.accept.
+// request already answered, or a one-line fact. Done closes the task: a review is the task handed to its reviewer before the done.
 func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		tid, err := taskID(p)
@@ -112,11 +111,7 @@ func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, ma
 		if err == nil && decided != nil {
 			decided()
 		}
-		switch {
-		case err != nil || done == nil || tell == nil:
-		case done.Reported:
-			tell.Reported(tid, done.Owner, done.Told, done.Forget)
-		default:
+		if err == nil && done != nil && tell != nil {
 			tell.Done(tid, by, done.Owner, done.Told, done.Forget, done.Finished)
 		}
 		return out, err
@@ -136,8 +131,6 @@ type DoneIn struct {
 	// Commit is the sha the work was done at (it need not be on main); Shots are absolute paths of PNG files. Both are optional.
 	Commit string
 	Shots  []string
-	// Close is a done the daemon makes in the founder's name when the task is no longer needed: it closes, never an answer.
-	Close bool
 }
 
 // DoneResult is what a MarkDone leaves for the telling that follows the commit. Finished is false when only a leftover request of an
@@ -148,8 +141,6 @@ type DoneResult struct {
 	Told     []db.Notice
 	Forget   []db.InboxFile
 	Finished bool
-	// Reported is a done filed for acceptance: the task is still open.
-	Reported bool
 	// Keep puts the task's screenshots in place; the caller runs it once the end has committed. nil when there are none.
 	Keep func() error
 }
@@ -186,22 +177,8 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		}
 		return nil, refusal(fmt.Sprintf("task T%d is already done (%s)", tid, t.DoneEvidence.String))
 	}
-	merged := t.AcceptedBy.String != "" && sha != "" // an accepted task closes at its PR's merge, by anyone who may review it
-	if merged && by != t.Owner && by != human {
-		ok, err := mayReview(home, by, t)
-		if err != nil {
-			return nil, err
-		}
-		merged = ok
-	}
-	if by != t.Owner && by != human && !merged {
+	if by != t.Owner && by != human {
 		return nil, refusal(fmt.Sprintf("task T%d can only be marked done by its owner (%s) or the founder", tid, t.Owner))
-	}
-	if t.reported() && by != human && !merged {
-		if t.AcceptedBy.String != "" {
-			return nil, refusal(fmt.Sprintf("task T%d is accepted by %s and closes when PR #%d merges: mark it done with the merge sha", tid, t.AcceptedBy.String, t.PR.Int64))
-		}
-		return nil, refusal(fmt.Sprintf("task T%d is already answered (%s) and is in review - accept, reject or take it back", tid, t.Report.String))
 	}
 	var mark, via string
 	switch {
@@ -254,15 +231,6 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 	from, err := state(tx, t)
 	if err != nil {
 		return nil, err
-	}
-	if !merged {
-		to, err := reviewer(home, by, t, in.Close)
-		if err != nil {
-			return nil, err
-		}
-		if to != "" {
-			return fileReport(tx, by, to, t, mark, via, from, result, finalize)
-		}
 	}
 	won, err := db.MarkTaskDone(tx, tid, mark, via)
 	if err != nil {
