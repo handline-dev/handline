@@ -1773,6 +1773,8 @@ export interface Methods {
 }; result: Accepted };
   "input.take": { params: {
   agent: AgentName;
+  /** Take the input from the person or device that holds it instead of being refused; the holder notice tells them. It never types into the agent's own turn: typing still waits for it. */
+  force?: boolean;
   request_id: RequestId;
 }; result: Accepted & {
     holder: InputHolder;

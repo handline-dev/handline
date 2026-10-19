@@ -65,6 +65,39 @@ func TestTakeAndReleaseAreTheHoldersAlone(t *testing.T) {
 	}
 }
 
+func TestForceTakesFromAnotherHolderWhoIsTold(t *testing.T) {
+	r, _, c := typingRig(t)
+	told := []string{}
+	r.e.Holds.Changed = func(_ string, h []map[string]any) { told = append(told, h[0]["name"].(string)) }
+	r.e.Holds.Take("ann", "device", "sam")
+	if g := refused(c.call("input.take", map[string]any{"agent": "ann", "request_id": rid("f1")})); g != "input_holder" {
+		t.Fatalf("without force: gate %q", g)
+	}
+	if f := badField(c.call("input.take", map[string]any{"agent": "ann", "force": "yes", "request_id": rid("f2")})); f != "force" {
+		t.Fatalf("field %q", f)
+	}
+	got := result(t, c.call("input.take", map[string]any{"agent": "ann", "force": true, "request_id": rid("f3")}))
+	if got["holder"].(map[string]any)["name"] != c.name {
+		t.Fatalf("take %v", got)
+	}
+	if strings.Join(told, ",") != "sam,"+c.name { // the holder notice reaches every pane on the terminal, sam's too
+		t.Fatalf("told %v", told)
+	}
+}
+
+func TestForceDoesNotTypeIntoAnAgentsTurn(t *testing.T) {
+	r, h, c := typingRig(t)
+	busy := lock.TakeTerminal(r.e.Home, "ann") // the tick, mid-turn
+	defer busy.Release()
+	result(t, c.call("input.take", map[string]any{"agent": "ann", "force": true, "request_id": rid("f1")}))
+	if g := refused(c.call("session.type", map[string]any{"agent": "ann", "text": "x", "request_id": rid("f2")})); g != "terminal_lock" {
+		t.Fatalf("gate %q", g)
+	}
+	if len(h.sent) != 0 {
+		t.Fatalf("sent %q", h.sent)
+	}
+}
+
 func TestKeysAndTypeSendWhatTheyNameAndSkipTheDialogCheck(t *testing.T) {
 	r, h, c := typingRig(t)
 	h.rows = []string{"Do you want to proceed?", "Enter to confirm · Esc to cancel"} // a dialog is open

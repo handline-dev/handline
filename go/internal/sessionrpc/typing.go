@@ -75,24 +75,40 @@ func (e *Env) take(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := e.holderGate(c, agent); err != nil {
-		return nil, err
-	}
-	won, err := e.Holds.Take(agent, holderKind(c), callerName(c))
+	force, err := flag(params, "force")
 	if err != nil {
 		return nil, err
 	}
-	if !won { // another took it first
-		if err := e.holderGate(c, agent); err != nil {
+	if force { // from another person or device; the agent's own turn keeps the terminal lock, which typing still waits on
+		if err := e.Holds.Seize(agent, holderKind(c), callerName(c)); err != nil {
 			return nil, err
 		}
-		return nil, rpc.Refused(agent+"'s terminal was taken by someone else", "input_holder", "")
+	} else if err := e.takeFree(c, agent); err != nil {
+		return nil, err
 	}
 	view, err := e.Holds.View(agent)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]any{"accepted": true, "said": agent + ": you hold its input", "holder": view[0]}, nil
+}
+
+// takeFree takes agent's input unless a person or device other than the caller holds it.
+func (e *Env) takeFree(c *rpc.Conn, agent string) error {
+	if err := e.holderGate(c, agent); err != nil {
+		return err
+	}
+	won, err := e.Holds.Take(agent, holderKind(c), callerName(c))
+	if err != nil {
+		return err
+	}
+	if !won { // another took it first
+		if err := e.holderGate(c, agent); err != nil {
+			return err
+		}
+		return rpc.Refused(agent+"'s terminal was taken by someone else", "input_holder", "")
+	}
+	return nil
 }
 
 func (e *Env) release(c *rpc.Conn, params map[string]any) (any, error) {
