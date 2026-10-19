@@ -2,10 +2,10 @@
 // the list at once. A decision ends its task with Done. Tap a card for its detail and verbs; a verb the daemon does not serve is disabled.
 import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
-import { ago, NOTICE_SENDER } from '@handline/app-core';
+import { ago, NO_TERMINAL, NOTICE_SENDER } from '@handline/app-core';
 import type { InboxItem } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
-import { useInbox, usePending, useServes, useUnread, useWrite } from '@handline/app-data';
+import { useAgents, useInbox, usePending, useServes, useUnread, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Button, PageHeader } from './parts.tsx';
@@ -51,6 +51,8 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
   const read = useWrite('inbox.mark_read');
   const done = useWrite('task.done');
   const reply = useWrite('inbox.reply');
+  const row = useAgents().data?.agents.find((a) => a.name === i.agent);
+  const noTerminal = row?.state === 'no_terminal' && !row.structured;
   const off = { read: useOff('inbox.mark_read'), decide: useOff('task.done'), reply: useOff('inbox.reply') };
   const send = () => {
     if (!text.trim()) return;
@@ -129,7 +131,8 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
               {i.fix === 'open_terminal' && i.agent ? (
                 <Button
                   testID={`inbox-terminal-${i.id}`}
-                  label="Open terminal"
+                  label={noTerminal ? `Open terminal: ${NO_TERMINAL}` : 'Open terminal'}
+                  disabled={noTerminal}
                   onPress={() => void store.openAgent(i.agent!).then(() => store.setTab('terminal'))}
                 />
               ) : null}
@@ -178,7 +181,9 @@ function Group(props: { id: 'digest' | 'read'; label: string; open: boolean; onT
         onPress={props.onToggle}
         style={{ padding: space.lg, minHeight: 48, justifyContent: 'center' }}
       >
-        <Text style={{ color: props.id === 'read' ? c.muted : c.ink, fontWeight: '600' }}>{`${props.open ? '▾' : '▸'} ${props.label}`}</Text>
+        <Text
+          style={{ color: props.id === 'read' ? c.muted : c.ink, fontWeight: '600' }}
+        >{`${props.open ? '▾' : '▸'} ${props.label}`}</Text>
       </Pressable>
       {props.open ? props.children : null}
     </View>
@@ -199,7 +204,10 @@ export function Inbox() {
   const pendingReply = usePending('inbox.reply').map((p) => p.id);
   const all = query.data?.items ?? [];
   const items = all.filter((i) => waits(i, pendingRead.includes(i.id)));
-  const rows = entries(items, all.filter((i) => !items.includes(i)));
+  const rows = entries(
+    items,
+    all.filter((i) => !items.includes(i)),
+  );
   const card = (item: InboxItem) => (
     <Card
       key={item.id}
@@ -228,14 +236,7 @@ export function Inbox() {
           </>
         }
       />
-      <Loadable
-        query={query}
-        served={served}
-        isEmpty={all.length === 0}
-        skeleton="inbox"
-        label="the inbox"
-        empty="Nothing waits on you."
-      >
+      <Loadable query={query} served={served} isEmpty={all.length === 0} skeleton="inbox" label="the inbox" empty="Nothing waits on you.">
         {items.length === 0 && (
           <Text testID="inbox-clear" style={{ color: c.muted, padding: space.lg }}>
             Nothing waits on you.

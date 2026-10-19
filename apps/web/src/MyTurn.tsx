@@ -64,6 +64,9 @@ function label(a: CardAction): string {
   }
 }
 
+/** Why an action cannot be taken, when it cannot. */
+const off = (a: CardAction): string | undefined => (a.type === 'terminal' ? a.off : undefined);
+
 function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; onOpen: (task: number) => void }) {
   const answer = useWrite('inbox.reply');
   const prompt = useWrite('prompt.answer');
@@ -135,7 +138,11 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
           <h3 className="m-0 min-w-0 flex-1 truncate text-[15px] font-medium">{card.title}</h3>
         </header>
         <p className="muted m-0 mt-0.5 flex flex-wrap gap-x-3 text-hint">
-          {card.from ? <span>from <span className="mono">{card.from}</span></span> : null}
+          {card.from ? (
+            <span>
+              from <span className="mono">{card.from}</span>
+            </span>
+          ) : null}
           {card.task != null ? <span className="mono">T{card.task}</span> : null}
           {card.due != null ? <span>{dueText(card.due)}</span> : null}
           {card.since ? <span>waiting {ago(new Date(card.since).toISOString())}</span> : null}
@@ -148,14 +155,21 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {main.map((a, i) => (
-          <Button key={a.type + i} variant={i === 0 ? 'solid' : 'outline'} label={label(a)} onClick={() => run(a)}>
+          <Button
+            key={a.type + i}
+            variant={i === 0 ? 'solid' : 'outline'}
+            label={label(a)}
+            disabled={!!off(a)}
+            title={off(a)}
+            onClick={() => run(a)}
+          >
             {label(a)}
           </Button>
         ))}
         {rest.length ? (
           <MenuButton label="More" icon="menu">
             {rest.map((a, i) => (
-              <MenuItem key={a.type + i} onSelect={() => run(a)}>
+              <MenuItem key={a.type + i} disabled={!!off(a)} onSelect={() => run(a)}>
                 {label(a)}
               </MenuItem>
             ))}
@@ -178,7 +192,14 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
             setText('');
           }}
         >
-          <Input grow autoFocus aria-label="Your reply" placeholder={card.from ? `Reply to ${card.from}` : 'Reply'} value={text} onChange={(e) => setText(e.target.value)} />
+          <Input
+            grow
+            autoFocus
+            aria-label="Your reply"
+            placeholder={card.from ? `Reply to ${card.from}` : 'Reply'}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
           <Button label="Send reply" type="submit" disabled={!text.trim()}>
             <Icon name="reply" aria-hidden /> Send
           </Button>

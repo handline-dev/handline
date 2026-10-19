@@ -13,7 +13,8 @@ export type CardAction =
   | { type: 'reject'; task: number }
   | { type: 'done'; item: InboxItem }
   | { type: 'open'; to: string }
-  | { type: 'terminal'; agent: string }
+  /** `off` is why it cannot open: the agent has no terminal. */
+  | { type: 'terminal'; agent: string; off?: string }
   | { type: 'read'; id: number };
 
 export interface Card {
@@ -49,6 +50,9 @@ const NO_PRIORITY = 4;
 const ms = (iso: string | null | undefined) => (iso ? Date.parse(iso) : NaN);
 const at = (iso: string | null | undefined) => (Number.isFinite(ms(iso)) ? ms(iso) : 0);
 
+/** Why Open terminal is off for an agent with none. */
+export const NO_TERMINAL = 'No terminal. Start the agent to open one.';
+
 /** The cards, most urgent first: task priority, then the earliest deadline (none last), then the one waiting longest. */
 export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
   const byTask = new Map(tasks.map((t) => [t.id, t]));
@@ -56,6 +60,11 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
     const t = task == null ? undefined : byTask.get(task);
     const end = ms(t?.time?.end);
     return { priority: t?.priority ?? NO_PRIORITY, due: Number.isFinite(end) ? end : null };
+  };
+  // An agent with no terminal has none to open: the button stays, off, with the reason.
+  const terminal = (agent: string): CardAction => {
+    const a = agents.find((x) => x.name === agent);
+    return a && a.state === 'no_terminal' && !a.structured ? { type: 'terminal', agent, off: NO_TERMINAL } : { type: 'terminal', agent };
   };
   const cards: Card[] = [];
   const prompted = new Set<string>();
@@ -98,14 +107,14 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
         actions: [
           ...(yes && i.agent ? [{ type: 'allow', agent: i.agent, prompt: i.prompt.id, choice: yes.key } as const] : []),
           ...(no && i.agent ? [{ type: 'deny', agent: i.agent, prompt: i.prompt.id, choice: no.key } as const] : []),
-          ...(i.agent ? [{ type: 'terminal', agent: i.agent } as const] : []),
+          ...(i.agent ? [terminal(i.agent)] : []),
           ...open,
         ],
       });
     } else if (KINDS[i.kind]) {
       const decide = i.kind === 'decision' && i.task != null ? [{ type: 'done', item: i } as const] : [];
       // A card the daemon raised after its own recovery failed: its fix is the first button.
-      const fix = i.fix === 'open_terminal' && i.agent ? [{ type: 'terminal', agent: i.agent } as const] : [];
+      const fix = i.fix === 'open_terminal' && i.agent ? [terminal(i.agent)] : [];
       cards.push({
         ...base,
         key: `item:${i.id}`,
@@ -163,12 +172,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
       since: at(n.since),
       primary: 1,
       // A dialog the daemon does not know has no Allow or Deny: the terminal is the only way.
-      actions: dialog
-        ? [{ type: 'terminal', agent: a.name }]
-        : [
-            { type: 'open', to: `#/agents/${encodeURIComponent(a.name)}` },
-            { type: 'terminal', agent: a.name },
-          ],
+      actions: dialog ? [terminal(a.name)] : [{ type: 'open', to: `#/agents/${encodeURIComponent(a.name)}` }, terminal(a.name)],
     });
   }
 

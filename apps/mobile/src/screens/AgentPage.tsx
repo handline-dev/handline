@@ -151,7 +151,12 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
           }
           stops={[
             ...(ctl.stop && !structured ? [{ id: 'exit', label: 'Exit', danger: false }] : []),
-            ...(ctl.stop ? [{ id: 'close', label: 'Close', danger: false }, { id: 'kill', label: 'Kill', danger: true }] : []),
+            ...(ctl.stop
+              ? [
+                  { id: 'close', label: 'Close', danger: false },
+                  { id: 'kill', label: 'Kill', danger: true },
+                ]
+              : []),
           ]}
           onStop={(mode) => stop(mode as StopMode)}
           disabled={busy}
@@ -163,7 +168,14 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
                 </Text>
               )}
               {onChat && (
-                <Pressable testID="search-open" accessibilityRole="button" accessibilityLabel="Search this chat" accessibilityState={{ selected: searching }} hitSlop={12} onPress={() => setSearching(!searching)}>
+                <Pressable
+                  testID="search-open"
+                  accessibilityRole="button"
+                  accessibilityLabel="Search this chat"
+                  accessibilityState={{ selected: searching }}
+                  hitSlop={12}
+                  onPress={() => setSearching(!searching)}
+                >
                   <Icon name="search" size={20} color={searching ? c.accent : c.muted} />
                 </Pressable>
               )}
@@ -179,7 +191,12 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
           />
         )}
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.sm }}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }}
+        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.sm }}
+      >
         {pageTab('chat', 'Chat')}
         {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
         {hasChat && tab('activity', 'Activity', showActivity, () => setExtra('activity'))}
@@ -195,7 +212,13 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       ) : (
         <>
           {!(structured && current === 'terminal') && current !== 'chat' && <PromptSlot agent={name} prompt={detail.prompt ?? null} />}
-          {current === 'chat' ? <Chat detail={detail} searching={searching} /> : structured ? <TranscriptTab detail={detail} /> : <Terminal detail={detail} />}
+          {current === 'chat' ? (
+            <Chat detail={detail} searching={searching} />
+          ) : structured ? (
+            <TranscriptTab detail={detail} />
+          ) : (
+            <Terminal detail={detail} />
+          )}
         </>
       )}
     </View>
@@ -219,7 +242,8 @@ function TranscriptTab(props: { detail: AgentDetail }) {
 
 function Terminal(props: { detail: AgentDetail }) {
   const view = useSelector((s) => s.page!.view);
-  if (!view) return null; // a structured agent has no terminal
+  const c = usePalette();
+  if (!view) return <Text style={{ color: c.muted, padding: space.md }}>No terminal. Start the agent to open one.</Text>; // only a non-structured agent comes here: it has none
   return <TerminalOf detail={props.detail} view={view} />;
 }
 

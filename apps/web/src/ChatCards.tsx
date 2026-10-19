@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
-import { ago, clockTime, decidedProposals, restartingLine, restartShown } from '@handline/app-core';
+import { ago, clockTime, decidedProposals, NO_TERMINAL, restartingLine, restartShown } from '@handline/app-core';
 import { classify, sentence, useHr, useWrite } from '@handline/app-data';
 import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOfView } from './ui/index.ts';
 import { goTeam } from './route.ts';
@@ -63,12 +63,14 @@ export function ChatBanner({ detail }: { detail: AgentDetail }) {
 }
 
 /** The state in words: a restarting agent says so (as its rail row does), else the daemon's word with why it is not running. */
-const stateWord = (d: AgentDetail) => (d.handoff ? 'Restarting…' : d.state_detail ? `${d.state}: ${d.state_detail}` : d.state);
+const words = (state: string) => state.replace(/_/g, ' '); // no_terminal reads as the words it is
+const stateWord = (d: AgentDetail) =>
+  d.handoff ? 'Restarting…' : d.state_detail ? `${words(d.state)}: ${d.state_detail}` : words(d.state);
 
 /** The room's name over the chat, with the agent's state. */
 export const RoomTitle = ({ agent, detail }: { agent: string; detail: AgentDetail }) => (
   <h2 className="m-0 min-w-0 flex-1 truncate text-body font-medium">
-    {agent} <span className="muted text-hint font-normal">{detail.handoff ? 'Restarting…' : detail.state}</span>
+    {agent} <span className="muted text-hint font-normal">{detail.handoff ? 'Restarting…' : words(detail.state)}</span>
   </h2>
 );
 
@@ -208,7 +210,14 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
         {need.text ? <span className="muted">{need.text}</span> : null}
         <span className="muted">{ago(need.since)}</span>
       </CardWhat>
-      <Button icon="terminal" label="Open terminal" size="sm" disabled={!reachable} onClick={openTerminal} />
+      <Button
+        icon="terminal"
+        label="Open terminal"
+        size="sm"
+        disabled={!reachable}
+        title={reachable ? undefined : NO_TERMINAL}
+        onClick={openTerminal}
+      />
     </Card>
   );
 }

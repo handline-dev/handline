@@ -122,21 +122,47 @@ test('has_dialog without needs_you is a dialog card with only Open terminal', ()
 
 test('a card about a task is titled with the task and says who asks; a decision has Done beside Reply', () => {
   const cards = myTurn({
-    items: [item({ id: 7, task: 9, kind: 'decision', title: 'Decision needed: the release', body: 'Decision needed: the release\nPick A or B.', agent: 'human' })],
+    items: [
+      item({
+        id: 7,
+        task: 9,
+        kind: 'decision',
+        title: 'Decision needed: the release',
+        body: 'Decision needed: the release\nPick A or B.',
+        agent: 'human',
+      }),
+    ],
     agents: [],
     tasks: [task({ id: 9, title: 'Pick login timeout fix', from: 'handline.pc' } as Partial<Task>)],
   });
   assert.equal(cards[0]!.title, 'Pick login timeout fix');
   assert.match(cards[0]!.detail, /Pick A or B/);
   assert.equal(cards[0]!.from, 'handline.pc');
-  assert.deepEqual(cards[0]!.actions.slice(0, cards[0]!.primary).map((a) => a.type), ['answer', 'done']);
+  assert.deepEqual(
+    cards[0]!.actions.slice(0, cards[0]!.primary).map((a) => a.type),
+    ['answer', 'done'],
+  );
 });
 
 test('an item with fix open_terminal has Open terminal as its first button, before the reply', () => {
   const [c] = myTurn({ items: [item({ id: 9, kind: 'decision', fix: 'open_terminal' })], agents: [], tasks: [] });
-  assert.deepEqual(c!.actions.slice(0, 2).map((a) => a.type), ['terminal', 'answer']);
+  assert.deepEqual(
+    c!.actions.slice(0, 2).map((a) => a.type),
+    ['terminal', 'answer'],
+  );
   assert.equal(c!.actions[0]!.type === 'terminal' && c!.actions[0]!.agent, 'a');
   assert.equal(c!.primary, 2);
   const [plain] = myTurn({ items: [item({ id: 9, kind: 'decision' })], agents: [], tasks: [] });
-  assert.equal(plain!.actions.some((a) => a.type === 'terminal'), false);
+  assert.equal(
+    plain!.actions.some((a) => a.type === 'terminal'),
+    false,
+  );
+});
+
+test('Open terminal is off, with the reason, for an agent that has no terminal; a structured one keeps it', () => {
+  const items = [item({ id: 9, kind: 'decision', fix: 'open_terminal' })];
+  const none = myTurn({ items, agents: [agent({ name: 'a', state: 'no_terminal' })], tasks: [] })[0]!.actions[0];
+  assert.deepEqual(none, { type: 'terminal', agent: 'a', off: 'No terminal. Start the agent to open one.' });
+  const structured = myTurn({ items, agents: [agent({ name: 'a', state: 'no_terminal', structured: true })], tasks: [] })[0]!.actions[0];
+  assert.deepEqual(structured, { type: 'terminal', agent: 'a' });
 });
