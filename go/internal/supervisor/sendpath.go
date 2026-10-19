@@ -129,6 +129,17 @@ func (e *Env) sendOnce(q db.Q, agent, op, text string, d delivery.Delivery) (Sen
 	return stateOfLedger(v), ""
 }
 
+// handingOff is why nothing more is typed at agent's session: it was asked for its handoff note and is closed after it, so what arrives
+// meanwhile goes to the session that follows; "" when no such wait is kept.
+func (e *Env) handingOff(q db.Q, agent string) string {
+	_, since, ok, err := db.NoteWait(q, agent)
+	check(err)
+	if ok && e.now()-since <= db.NoteWaitStaleS {
+		return "held: it is writing its handoff note, and the next session is told"
+	}
+	return ""
+}
+
 // moveLedger sets a ledger row to to if it is still from, in one statement.
 func moveLedger(q db.Q, key string, from, to int64) error {
 	_, err := q.Exec("UPDATE cursors SET row_id = ?, updated = ? WHERE name = ? AND row_id = ?", to, db.Now(), key, from)
@@ -294,6 +305,9 @@ func (e *Env) tellStructured(q db.Q, row *db.Request, d delivery.Delivery) (what
 	agent, rid := row.Target, row.ID
 	if !e.Agents.Live(agent) {
 		return "queued - no live session; told when it is up", NotSent, nil
+	}
+	if why := e.handingOff(q, agent); why != "" {
+		return "queued - " + why, NotSent, nil
 	}
 	if !must(db.MarkDelivered(q, rid)) {
 		return "withdrawn first", NotSent, nil
