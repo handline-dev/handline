@@ -24,7 +24,7 @@ Disconnected is the app's, not the page's: the status bar says it, the page keep
 - **Authored** (the cache is patched at once): the new value shows in `--muted` italics with a hollow dot `○` before the changed cell until the daemon settles it, then `--ink` without animation. On refusal the value reverts, the cell shows `--block` text "not changed" for 6 s, and a toast gives the daemon's reason with the call's name. The person's text stays in its box.
 - **Decided** (the cache is not changed): the pending mark: the clicked button reads "…" and the other options of that card or row are disabled; on error the mark goes and the reason shows. A reply slower than 10 s adds "still waiting" in `--muted`; nothing is abandoned.
 
-Kinds used here, from the §8.5 table: authored are `task.done` `task.reopen` `task.queue` `task.draft` `task.withdraw` `task.cancel` `task.edit` `task.new` `task.merge`, the memo writes, `inbox.mark_read` `inbox.answer` `inbox.reply`; decided are `prompt.answer` and `task.discard`, which keeps its reason prompt as the confirmation. A task transition the client cannot compute (`taskAfter` returns nothing) is decided. A change made from another tab or device arrives through the topic and replaces the row without a mark.
+Kinds used here, from the §8.5 table: authored are `task.done` `task.reopen` `task.queue` `task.draft` `task.withdraw` `task.cancel` `task.edit` `task.new` `task.merge`, the memo writes, `inbox.mark_read` `inbox.reply`; decided are `prompt.answer` and `task.discard`, which keeps its reason prompt as the confirmation. A task transition the client cannot compute (`taskAfter` returns nothing) is decided. A change made from another tab or device arrives through the topic and replaces the row without a mark.
 
 **Keys.** Every key works only when no text field has focus. `?` opens the key sheet (the bridge's `question_mark`), listing exactly this page's keys. Arrow keys and `j` `k` move the row cursor; Escape leaves a detail, closes a sheet, then clears marks. Every key is also a visible button (the bridge's action bar), because phones have none. A confirmation is a small inline sheet under the row, not a modal: it names the thing, the verb, and takes Enter or Escape.
 
@@ -96,7 +96,7 @@ A card's "open" jumps to the task or chat it came from (`task` or `agent` on the
 - **Empty**: "Nothing waits on you." and under it, in `--muted`, "Results, questions and blocks from your agents land here." With a filter on and no match: "No items match" with a "Clear filters" button.
 - **Error**: the strip of §1; cached cards stay.
 - **Not served**: `inbox.list` missing, §1.
-- **Pending marks**: mark read flips the dot at once (hollow `○`, §1); dismiss folds with Undo; answer is authored: the item shows its answer at once with the pending dot, and a refusal reverts it and shows "Already answered by <who>".
+- **Pending marks**: mark read flips the dot at once (hollow `○`, §1); a reply is authored: it shows at once with the pending dot, and a refusal reverts it and shows the reason. A decision closes with `task.done` on its task.
 - **A new item** arrives at the top with a 2 s `--accent` left rule that fades (none under reduced motion), without moving the card under the pointer: if the list is scrolled, new items collect behind a "2 new" pill at the top instead of pushing.
 
 ### 3.4 Phone

@@ -198,7 +198,7 @@ Rules for both: the write is idempotent through the `request_id` the client adds
 | `task.done` `task.reopen` `task.queue` `task.draft` `task.release` `task.withdraw` `task.cancel` `task.edit` | authored | the state change from `taskAfter(verb, task)` (pure, in `app-core`; it returns nothing for a transition it does not know, and then the write is **Decided**) | restore the row and the detail |
 | `task.merge` | authored | merged rows leave the list | restore the list |
 | `task.memo.add` `task.memo.edit` `task.memo.delete` | authored | the memo in the list | restore |
-| `inbox.mark_read` `inbox.answer` `inbox.reply` | authored | the read mark and the bell count; an answered decision shows its answer | restore the item |
+| `inbox.mark_read` `inbox.reply` | authored | the read mark and the bell count | restore the item |
 | `agent.set` `settings.set` `account.set` `schedule.add` `schedule.edit` `schedule.remove` `answer.add` `answer.remove` `trust.remove` | authored | the new value | restore the value; a founder-only write is greyed from `whoami`, so a refusal is rare |
 | `session.start` `session.wake` `session.restart` `session.park` `session.stop` `session.interrupt` `agent.fold` `agent.move` | decided | pending mark on the row | the mark goes, the reason shows |
 | `prompt.answer` | decided | the card shows "answering…" and keeps its buttons off; it leaves when the prompt's id changes by event | `stale_prompt`: refetch the prompt, the card refreshes; any other refusal: buttons back, reason shown |
