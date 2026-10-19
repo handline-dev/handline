@@ -100,7 +100,7 @@ func (e *Env) RequestLine(agent string) (string, error) {
 	if lines := textsafe.SplitLines(head.Body); len(lines) > 0 {
 		first = cutRunes(lines[0], 120)
 	}
-	return fmt.Sprintf("request: #%d from %s - %s", head.ID, head.Requester, first), nil
+	return fmt.Sprintf("request: %s from %s - %s", head.Name(e.DB), head.Requester, first), nil
 }
 
 func progressKey(requestID int64) string { return fmt.Sprintf("progress:%d", requestID) }
@@ -129,7 +129,7 @@ func (e *Env) SetProgress(agent, note string) (ok bool, msg string, err error) {
 		}
 		return true, "you (no request in progress)", db.SetMeta(e.DB, db.AgentProgressKey(agent), note)
 	}
-	return true, fmt.Sprintf("#%d", head.ID), db.SetMeta(e.DB, progressKey(head.ID), note)
+	return true, head.Name(e.DB), db.SetMeta(e.DB, progressKey(head.ID), note)
 }
 
 // ProgressOf is the progress note kept on this request, whether or not it is the head; "" for none.

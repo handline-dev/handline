@@ -115,7 +115,7 @@ func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
 func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 	p, _, _, _ := wired(t)
 	tk := p.Tick(cfgOf(p), TickConfig{})
-	if len(tk.Tick.Passes) != 9 {
+	if len(tk.Tick.Passes) != 10 {
 		t.Fatalf("passes: %d", len(tk.Tick.Passes))
 	}
 	var logs []string
@@ -378,10 +378,10 @@ func TestBeforeTheCutoverTheTickSweepsNobodysSchedules(t *testing.T) {
 	}
 }
 
-func TestTheDiskWatchEntryTellsTheFounderOnceFromTheTaskBoard(t *testing.T) {
+func TestTheDiskWatchEntryRaisesOneCardFromTheTaskBoard(t *testing.T) {
 	p, _, _, _ := wired(t)
 	cfg := cfgOf(p)
-	cfg.DiskFree = func(string) (int64, int64, error) { return 13 << 30, 500 << 30, nil }
+	cfg.DiskFree = func(string) (int64, int64, error) { return 9 << 30, 500 << 30, nil }
 	tk := p.Tick(cfg, TickConfig{Stop: make(chan struct{})})
 	var watch *tick.NamedSweep
 	for i, h := range tk.Loop.Housekeeping {
@@ -411,8 +411,13 @@ func TestTheDiskWatchEntryTellsTheFounderOnceFromTheTaskBoard(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := told()
-	if len(got) != 1 || !strings.HasPrefix(got[0], dbpkg.NoticeRequester+": ") || !strings.Contains(got[0], "13 GB free of 500 GB") {
+	if len(got) != 1 || !strings.HasPrefix(got[0], dbpkg.NoticeRequester+": disk 9 GB left (of 500 GB") {
 		t.Fatalf("the founder's inbox after a low volume: %q", got)
+	}
+	var cards int
+	p.db.QueryRow("SELECT COUNT(*) FROM tasks WHERE owner = ? AND expects = 'decision'", dbpkg.Human).Scan(&cards)
+	if cards != 1 {
+		t.Fatalf("the card is a decision of the founder's: %d", cards)
 	}
 	if err := watch.Run(p.db, now+601); err != nil {
 		t.Fatal(err)

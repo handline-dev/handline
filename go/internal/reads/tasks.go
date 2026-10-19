@@ -10,6 +10,7 @@ import (
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/team"
 )
 
 const human = "human"
@@ -43,6 +44,17 @@ type board struct {
 	children map[int64][]int64
 	current  map[string]int64
 	held     map[int64]row // the tasks owners hold now, for whether each ended
+	team     *team.Team    // read on first use, once per board
+	teamRead bool
+}
+
+// leadOf is team.LeadOf, with the team file read once per board.
+func (b *board) leadOf(home, agent string) string {
+	if !b.teamRead {
+		b.team, _ = team.LoadTeam(home)
+		b.teamRead = true
+	}
+	return b.team.LeadOf(agent)
 }
 
 func (e *Env) loadBoard() (*board, error) {
@@ -117,7 +129,7 @@ func (b *board) state(t row) string {
 		return "done"
 	}
 	if t.set("reported_at") {
-		return "answered"
+		return "review"
 	}
 	asked := b.asked(t.i("id"))
 	if asked && b.holds(t) {
@@ -254,7 +266,7 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 			cond("COALESCE(discarded_by, '') != ''")
 		case "done":
 			cond("COALESCE(discarded_by, '') = '' AND COALESCE(done_evidence, '') != ''")
-		case "answered":
+		case "review":
 			cond("reported_at IS NOT NULL AND " + openTask)
 		default:
 			cond("reported_at IS NULL")
@@ -291,7 +303,7 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	page := ""
 	sqlDecides := state == nil && !turn // my_turn leaves out drafts, which only the board knows
 	if state != nil {
-		sqlDecides = *state == "answered" || *state == "done" || *state == "discarded"
+		sqlDecides = *state == "review" || *state == "done" || *state == "discarded"
 	}
 	if sqlDecides { // SQL alone decides: it pages too
 		page = fmt.Sprintf(" LIMIT %d", limit+1)
@@ -319,7 +331,7 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 		if i >= limit {
 			break
 		}
-		task, err := e.taskOf(r.t, r.state)
+		task, err := e.taskOf(r.t, r.state, b)
 		if err != nil {
 			return nil, err
 		}
@@ -361,7 +373,7 @@ func (e *Env) blockers(tid int64) ([]row, error) {
 }
 
 // taskOf is the spec's Task: the row as the board shows it, without its body.
-func (e *Env) taskOf(t row, state string) (map[string]any, error) {
+func (e *Env) taskOf(t row, state string, b *board) (map[string]any, error) {
 	first, err := e.firstRequest(t.i("id"))
 	if err != nil {
 		return nil, err
@@ -398,12 +410,25 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 		}
 	}
 	sort.Slice(blockedBy, func(i, j int) bool { return blockedBy[i] < blockedBy[j] })
-	waiting, err := e.waitingOf(t, state, waits, rec)
+	waiting, waitSince, err := e.waitingOf(t, state, waits, rec)
 	if err != nil {
 		return nil, err
 	}
+	var report map[string]any // the done in review, and who it waits on
+	if state == "review" {
+		report = e.review(t, b)
+	}
+	reviewer, _ := report["waits_on"].(string)
+	st, err := e.statusOf(t, state, reviewer, waiting, waitSince)
+	if err != nil {
+		return nil, err
+	}
+	var waitingOut any // a nil map would not read as nil
+	if waiting != nil {
+		waitingOut = waiting
+	}
 	task := map[string]any{
-		"blocked_by": blockedBy, "waits": waitList, "waiting": waiting, "time": clock,
+		"blocked_by": blockedBy, "waits": waitList, "waiting": waitingOut, "time": clock, "status": st.Map(),
 		"asker": asker, "id": t.i("id"), "from": t.str("opened_by"), "to": t.str("owner"), "title": t.str("title"), "state": state,
 		"relation": first.str("relation"), "response": first.str("response"), "time_box": nil,
 		"parent": t.intOrNil("parent_task"), "created": ts(t["created_at"]), "delivered": ts(t["delivered_at"]),
@@ -413,7 +438,7 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	linked := make([]map[string]any, len(reqs))
 	for i, r := range reqs {
 		active = max(active, r.i("touched"))
-		linked[i] = map[string]any{"id": r.i("id"), "ref": r.str("ref"), "from": r.str("requester"), "to": r.str("target"),
+		linked[i] = map[string]any{"id": r.i("id"), "ref": r.str("ref"), "name": db.MsgNameOf(e.DB, r.str("ref")), "from": r.str("requester"), "to": r.str("target"),
 			"state": r.str("state"), "at": ts(r["ts"])}
 	}
 	tagRows, err := query(e.DB, "SELECT tag FROM task_tags WHERE task_id = ? ORDER BY tag", t.i("id"))
@@ -426,11 +451,22 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	}
 	task["last_activity"], task["edited_by"], task["requests"], task["tags"] = ts(active), t.strOrNil("edited_by"), linked, tags
 	task["discarded"], task["report"] = nil, nil
-	if state == "answered" {
-		task["report"] = map[string]any{"by": t.str("owner"), "evidence": t.str("report"), "at": ts(t["reported_at"])}
+	task["pr"] = t.intOrNil("pr")
+	if report != nil {
+		task["report"] = report
 	}
 	if t.str("discarded_by") != "" {
-		task["discarded"] = map[string]any{"by": t.str("discarded_by"), "reason": t.str("discard_reason"), "at": ts(t["discarded_at"])}
+		d := map[string]any{"by": t.str("discarded_by"), "reason": t.str("discard_reason"), "at": ts(t["discarded_at"]), "withdrew": []any{}, "batch": nil}
+		ev, err := queryOne(e.DB, "SELECT payload FROM events WHERE kind = 'discard_task' AND "+eventTask+" = ? ORDER BY id DESC LIMIT 1", t.i("id"))
+		if err != nil {
+			return nil, err
+		}
+		p := decodeObject(ev.str("payload"))
+		if w, ok := p["withdrew"].([]any); ok {
+			d["withdrew"] = w
+		}
+		d["batch"] = p["batch"]
+		task["discarded"] = d
 	}
 	task["mismatch"] = taskMismatch(t, state, reqs)
 	if t.i("timeout_s") != 0 {
@@ -451,10 +487,10 @@ func tids(ids []int64) string {
 }
 
 // waitingOf is the spec's Task.waiting for an open task: behind its open blockers (a child blocks its parent), else on an open request to
-// the founder, else the cause the supervisor's sweep stored with its reason. nil when nothing waits.
-func (e *Env) waitingOf(t row, state string, waits []row, rec map[string]any) (any, error) {
+// the founder, else the cause the supervisor's sweep stored with its reason, and since when, unix seconds. nil when nothing waits.
+func (e *Env) waitingOf(t row, state string, waits []row, rec map[string]any) (map[string]any, int64, error) {
 	if state != "queued" && state != "doing" {
-		return nil, nil
+		return nil, 0, nil
 	}
 	var on []int64
 	var since int64
@@ -468,25 +504,25 @@ func (e *Env) waitingOf(t row, state string, waits []row, rec map[string]any) (a
 	}
 	if len(on) > 0 {
 		sort.Slice(on, func(i, j int) bool { return on[i] < on[j] })
-		return map[string]any{"on": "task", "text": "blocked by " + tids(on), "tasks": on, "since": ts(since)}, nil
+		return map[string]any{"on": "task", "text": "blocked by " + tids(on), "tasks": on, "since": ts(since)}, since, nil
 	}
 	asked, err := queryOne(e.DB, "SELECT MIN(r.ts) AS since FROM requests r JOIN task_requests l ON l.request_id = r.id "+
 		"WHERE l.task_id = ? AND r.target = ? AND "+founderOpen, t.i("id"), human)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if asked.set("since") {
-		return map[string]any{"on": "founder", "text": "waiting on you", "tasks": []int64{}, "since": ts(asked.i("since"))}, nil
+		return map[string]any{"on": "founder", "text": "waiting on you", "tasks": []int64{}, "since": ts(asked.i("since"))}, asked.i("since"), nil
 	}
 	if len(rec) == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 	cause, _ := rec["on"].(string)
 	if cause == "" {
 		cause = "owner" // kept before the sweep stored a cause
 	}
 	since, _ = recInt(rec["since"])
-	return map[string]any{"on": cause, "text": pyStr(rec["why"]), "tasks": []int64{}, "since": ts(since)}, nil
+	return map[string]any{"on": cause, "text": pyStr(rec["why"]), "tasks": []int64{}, "since": ts(since)}, since, nil
 }
 
 // recInt is a whole number of a decoded record.
@@ -506,11 +542,6 @@ func taskMismatch(t row, state string, reqs []row) any {
 	}
 	sent := t.set("sent_at")
 	if t.str("queued_by") == "" && sent {
-		for _, r := range reqs {
-			if r.str("state") == "queued" || (r.str("state") == "landed" && r.str("kind") == "task" && r.set("queue_order")) {
-				return fmt.Sprintf("draft with work out (#%d) - its opener has not queued it", r.i("id"))
-			}
-		}
 		return "draft with work out - its opener has not queued it"
 	}
 	if state == "queued" && !sent && t.str("owner") != human {
@@ -583,7 +614,7 @@ func (e *Env) Tasks(ids []int64) (map[int64]map[string]any, error) {
 		if t == nil {
 			continue
 		}
-		if out[id], err = e.taskOf(t, b.state(t)); err != nil {
+		if out[id], err = e.taskOf(t, b.state(t), b); err != nil {
 			return nil, err
 		}
 	}
@@ -608,7 +639,7 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	task, err := e.taskOf(t, b.state(t))
+	task, err := e.taskOf(t, b.state(t), b)
 	if err != nil {
 		return nil, err
 	}
@@ -838,4 +869,23 @@ func (e *Env) taskMemoList(c *rpc.Conn, params map[string]any) (any, error) {
 		}
 	}
 	return map[string]any{"memos": memos, "more": more}, nil
+}
+
+// review is a task's answer in review, and who it waits on: the founder's merge OK once accepted with a PR, else the assignee's lead,
+// else whoever it answers to.
+func (e *Env) review(t row, b *board) map[string]any {
+	r := map[string]any{"by": t.str("owner"), "evidence": t.str("report"), "at": ts(t["reported_at"]), "accepted": nil}
+	if by := t.str("accepted_by"); by != "" {
+		r["accepted"] = map[string]any{"by": by, "at": ts(t["accepted_at"])}
+		r["waits_on"] = human
+		return r
+	}
+	r["waits_on"] = b.leadOf(e.Home, t.str("owner"))
+	if r["waits_on"] == "" {
+		r["waits_on"] = t.str("reporter")
+		if r["waits_on"] == "" {
+			r["waits_on"] = t.str("opened_by")
+		}
+	}
+	return r
 }

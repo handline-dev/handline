@@ -229,6 +229,20 @@ const settings: Record<string, WriteSpec> = {
       );
     },
   },
+  // Wake on a stalled account row, as on a stalled agent's: the row shows it usable at once.
+  'account.wake': {
+    kind: 'authored',
+    label: 'wake',
+    touches: (d) => [qk.accounts(d)],
+    patch: (c, p) => {
+      const { account } = as<{ account: string }>(p);
+      edit<List<'accounts', Account>>(
+        c.qc,
+        qk.accounts(c.d),
+        listOf('accounts', (l) => l.map((a) => (a.name === account ? { ...a, stalled: null } : a))),
+      );
+    },
+  },
 };
 
 const scheduleKeys = (d: string) => [['d', d, 'schedules'] as const];

@@ -134,11 +134,12 @@ A method marked write takes a required `request_id`.
 | `tasks.list` | agent |  | `owner?`, `reporter?`, `from?`, `state?`, `tags?`, `parent?`, `under?`, `before?`, `limit?`, `all?`, `everyone?`, `my_turn?`, `reason_gaps?` | `{items, more, reason_gaps}` |  |  |
 | `task.get` | agent |  | `task` | `TaskDetail` | `not_found` |  |
 | `task.history` | agent |  | `task` | `{task, rows}` | `not_found`, `bad_request` |  |
+| `task.time` | agent |  | `task` | `{task, start, end, segments}` | `not_found`, `bad_request` |  |
 | `task.shot` | member |  | `task`, `n`, `offset?` | `{mime, bytes, offset, data, done}` | `not_found`, `bad_request` |  |
 | `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box?`, `parent?`, `duplicate_ok?`, `blocked_by?`, `priority?`, `tags?`, `expects?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` | duplicate_title |
 | `task.handoff` | agent | yes | `task`, `to`, `note?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `commit?`, `shots?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | open_children |
-| `task.accept` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.accept` | agent | yes | `task`, `request_id`, `by_founder?` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reject` | agent | yes | `task`, `note`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.progress` | agent (only agent) | yes | `task?`, `note`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
@@ -156,11 +157,11 @@ A method marked write takes a required `request_id`.
 | `task.draft` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.release` | agent | yes | `task`, `to?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `task.discard` | agent | yes | `task`, `reason`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.discard` | agent | yes | `task?`, `tasks?`, `reason?`, `reasons?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.board` | agent |  | `everyone?` | `{mine, reports}` |  |  |
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.cancel` | member | yes | `task`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.edit` | agent | yes | `task`, `owner?`, `reporter?`, `title?`, `body?`, `time_box?`, `priority?`, `blocked_by?`, `unblock?`, `add_tags?`, `remove_tags?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.edit` | agent | yes | `task`, `owner?`, `reporter?`, `title?`, `body?`, `time_box?`, `priority?`, `blocked_by?`, `unblock?`, `add_tags?`, `remove_tags?`, `request_id`, `pr?` | `Accepted` | `refused`, `not_found` |  |
 | `task.ask` | member | yes | `task`, `to`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `files?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
 | `hook.record` | agent (only agent) | yes | `agent`, `kind`, `at`, `data`, `request_id` | `Accepted` | `refused` | not_self |
@@ -177,6 +178,7 @@ A method marked write takes a required `request_id`.
 | `accounts.list` | agent |  | `roster?`, `usage?` | `{accounts}` | `bad_request` |  |
 | `status.pick` | agent |  | none | `{picked, candidates, agent_costs}` |  |  |
 | `account.set` | founder | yes | `account`, `label?`, `cap?`, `recover?`, `cycle?`, `cycle_end?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `account.wake` | founder | yes | `account`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | state |
 | `account.add` | founder | yes | `account`, `vendor?`, `request_id` | `Accepted & {account}` | `refused`, `bad_request` | role, state |
 | `account.login` | founder | yes | `account`, `request_id` | `Accepted & {login_id, state, url}` | `refused`, `not_found` | role, state |
 | `account.login_cancel` | founder | yes | `login_id`, `request_id` | `Accepted` | `refused`, `not_found` | role |
@@ -467,6 +469,10 @@ One task with body, delivery history and linked events.
 
 Every change to a task, newest first: one row per field changed, with who made it, the value before and after, and when. It is read from the events each task write keeps in its own transaction, so it is never edited or deleted; a fix is a later row. A deleted memo's words stay in it. Anyone may edit a task (task.edit); this history is what makes that safe to undo by hand.
 
+### `task.time`
+
+Where a task's time went, from its opening to its end (or now): segments in order that cover it with no gap or overlap. Read from what the daemon already records (the task's state events, its blockers, its asks of the founder, its holder's parks and starts); nothing is timed twice. Where two causes overlap, the stretch shows one, in this order: waiting on the founder, blocked by a task, waiting on another agent, queued, at an account's wall, starting, working.
+
 ### `task.shot`
 
 A screenshot kept with a finished task. One screenshot of a task whose end recorded it, in chunks. A task or number the result does not hold is not_found.
@@ -477,23 +483,23 @@ Create a task. The founder or a member device opens one for an agent only, and i
 
 ### `task.handoff`
 
-Hand a task to another agent. Anyone may hand an open task on, not only its owner (the asker takes an answered task back so); the move clears an answer, and task.history's row names who made it (by).
+Hand a task to another agent. Anyone may hand an open task on, not only its owner (the asker takes a task in review back so); the move clears an answer and an accept, and task.history's row names who made it (by).
 
 ### `task.done`
 
-Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner, when the task answers to someone else (its reporter, or its opener), does not close it: the task turns answered, stays with its owner, and waits for task.accept, task.reject or a reassign by anyone (task.handoff, task.edit). The founder's done on a task they hold that someone else asked is an answer too. A done by an owner the task answers to, or the founder's on a task they do not hold (or one already answered), closes it at once. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`.
+Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner goes to review when the task answers to someone else (its reporter, or its opener) and the owner has a lead (its team's manager, else its supervisor): the task turns review, stays with its owner, and waits for task.accept, task.reject or a reassign by anyone (task.handoff, task.edit), its lead told. A done by an owner the task answers to, by its team's auditor (named like the team plus .auditor) or by an owner with no lead closes it at once; so does the founder's, except on a task they hold that someone else asked, which waits on that asker. A task accepted with a PR closes with a done whose evidence is the merge sha on main, by its owner, the founder or anyone who may accept it. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`.
 
 ### `task.accept`
 
-Accept a task's report: it closes done. The task must be answered (an owner it does not answer to ran task.done). Only whoever it answers to, its opener or the founder may accept. It closes with the report as its evidence; the owner is told.
+Accept a task's report: it closes done. The task must be in review. Its assignee's lead or its team's auditor, its reporter, its opener or the founder may accept. It closes with the report as its evidence and the owner is told; a task with a PR (task.edit pr) is accepted instead and stays in review, waiting on that PR's merge (a second accept is refused). With by_founder the founder's chat OK is checked and kept in the task's accept_task event (`hl task accept T<n> --by-founder <message id>`).
 
 ### `task.reject`
 
-Reject a task's report: it goes back to its owner. The task must be answered. Only whoever it answers to, its opener or the founder may reject. The report and its commit and shots are dropped, the task is queued again for its owner, and the note is told to the owner.
+Reject a task's report: it goes back to its owner. The task must be in review, accepted or not. Its assignee's lead or its team's auditor, its reporter, its opener or the founder may reject. The report (and an accept) and its commit and shots are dropped, the task is queued again for its owner, and the note is told to the owner.
 
 ### `task.reopen`
 
-Reopen a done task: anyone may, with a reason the opener and assignee are told.
+Reopen a done task: anyone may, with a reason the opener and assignee are told. A discarded task comes back as a draft, to be queued again.
 
 ### `task.progress`
 
@@ -557,7 +563,7 @@ Take a doing task back to queued or draft: anyone may, with a reason the opener 
 
 ### `task.discard`
 
-Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told.
+Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told. A request still open on it refuses, unless the caller leads a team whose tree holds the task (its owner or opener is the lead or reports to it): then each open request is withdrawn and its target told. tasks in place of task discards a batch in one call, all or none, with one discard_batch event: the one task_batch card in the caller's chat.
 
 ### `task.board`
 
@@ -638,6 +644,10 @@ Which account the next agent would be placed on, each account's reason, and what
 ### `account.set`
 
 The account Settings form in one call: alias, cap, usage recovery and the month cycle; nothing is written if any is refused. Fields not given are left alone. Chosen over set_cycle_on/set_cycle_end methods because the UI saves these together and the CLI twins (cap, cycle, recover, alias) each write one of these fields.
+
+### `account.wake`
+
+Wake a STALLED account: its stall ends, agents may be placed on it again and the agents stalled with it are released, as session.wake clears a stalled agent (hl account wake). A login on the account, or a turn that ends well there, ends the stall too. Refused (gate state) when the account is not stalled.
 
 ### `account.add`
 
@@ -812,7 +822,7 @@ Every `hl` command an agent runs today and the method that serves it.
 
 Agent commands the spec does not keep at agent role, for the founder to decide. Each is founder-only or a person's act today, or is not a daemon call.
 
-- **Founder only today:** `hl cancel`; `hl unstall`; `hl team seal`; `hl hr approve|reject|apply|relabel|rehome|links`; `hl trust remove|apply|mcp`; `hl schedule add|edit|remove`; `hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)`; `hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)`; `hl dev-mode`; `hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)`; `hl service ...`
+- **Founder only today:** `hl cancel`; `hl unstall`; `hl team seal`; `hl hr approve|reject|apply|relabel|rehome|links`; `hl trust remove|apply|mcp`; `hl schedule add|edit|remove`; `hl account add|remove|register|cap|cycle|recover|wake (set; the billing-cycle and cap reads are for the next spec task)`; `hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)`; `hl dev-mode`; `hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)`; `hl service ...`
 - **Needs a decision:** `hl spawn (a founder's act; it calls session.start, and agent.create serves it to the founder's apps)`; `hl agent register (a roster change, founder)`
 - **Not daemon methods:** `hl init`; `hl login`; `hl launch`; `hl doctor`; `hl hooks`; `hl go`; `hl sandbox-repo`; `hl install-hooks`; `hl backup`; `hl venv`; `hl bridge`; `hl top`; `hl watch`; `hl guide`; `hl withdraw`; `hl memory migrate`; `hl task note (suppressed)`
 
@@ -864,6 +874,44 @@ What the daemon sends for each of its own states:
 | no state row or no terminal, and nothing waiting for it (checked before IDLE) | `no_terminal` |
 
 PENDING is two words, by what it waits for: `queued` when nothing but the next tick stands between it and a start, `parked` when it waits for a time. A client draws both as waiting its turn, and the clock in state_detail tells them apart. MOVING is `parked` with state_detail `moving`.
+
+## Status
+
+Every agent (AgentView.status) and every task (Task.status) carries one status: a state, the reason for it, and the line a client shows as it is. Both lists are closed for the daemon and open for a client: a word it does not know is drawn from `text`. The daemon fills it from the facts it acts on (the state row, the wake gate, the account it would wake on, the board), never from free text, and never sends a bare queued or an unknown where it knows the cause. state, state_detail, hold_reason, block_reason and waiting stay until the apps read status.
+
+| State | Meaning |
+|---|---|
+| `preparing` | Has work and the daemon starts or sends it at its next tick; nothing stands in the way. Reasons: work, restart, retry. |
+| `starting` | A launch is in progress (agents). Reason: launch. |
+| `running` | Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, handoff, background. |
+| `waiting` | Held by something the daemon names: a person, another task, the owner, a clock, an account move. Reasons: you, review, opener, task, owner, clock, move. |
+| `stopped` | Will not go on by itself: no account has room (until the reset when it is known) or a person must unstall it. Reasons: wall, cap, stalled. |
+| `idle` | At its prompt with nothing to do (agents). Reason: none. |
+| `off` | Registered with no terminal and nothing waiting for it (agents). Reason: none. |
+| `done` | Closed (tasks). Reasons: done (its owner finished it), discarded. |
+
+| Reason | Meaning |
+|---|---|
+| `work` | Work waits for it and nothing is in the way: the next tick types or starts it. |
+| `restart` | Between two sessions of a restart; the next one begins at the next tick. |
+| `retry` | A failed start is retried; text says which attempt. |
+| `launch` | Its terminal is starting. |
+| `turn` | A turn is running (agents); the owner has the task (tasks). |
+| `handoff` | A hand-off to a new session is moving. |
+| `background` | Background work runs while the agent sits at its prompt. |
+| `you` | A person must answer: a dialog or prompt on the agent, an open request to the founder on the task, or a task the founder owns. |
+| `review` | Answered: waits on its asker's accept or reject. |
+| `opener` | A draft: waits on its opener to queue it. |
+| `task` | Waits on other tasks; tasks lists them. |
+| `owner` | Waits on its owner, busy with something text names. |
+| `clock` | Waits for a time: until says when. |
+| `move` | An account move is settling. |
+| `wall` | The account it would run on is at a usage limit; until is when the window rolls over, null when not known. |
+| `cap` | No account has a free slot; it starts when a running turn ends. |
+| `stalled` | Stopped until a person unstalls it; text says why it stopped. |
+| `none` | Nothing to say beyond the state. |
+| `done` | Its owner finished it. |
+| `discarded` | Thrown away; text says why. |
 
 ## Notifications
 

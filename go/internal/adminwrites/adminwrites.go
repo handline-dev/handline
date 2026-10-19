@@ -34,6 +34,7 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("worktree.set_status", rpc.Method{Role: "member", Write: true, Handler: e.worktreeSetStatus})
 	s.Register("settings.set", rpc.Method{Role: "founder", Write: true, Handler: e.settingsSet})
 	s.Register("account.set", rpc.Method{Role: "founder", Write: true, Handler: e.accountSet})
+	s.Register("account.wake", rpc.Method{Role: "founder", Write: true, Handler: e.accountWake})
 	s.Register("account.add", rpc.Method{Role: "founder", Write: true, Handler: e.accountAdd})
 	// Unkept and OwnEvent: a dry run writes and records nothing, and a removal that happened is judged again by a retry (no such account).
 	s.Register("account.remove", rpc.Method{Role: "founder", Write: true, Unkept: true, OwnEvent: true, Handler: e.accountRemove})

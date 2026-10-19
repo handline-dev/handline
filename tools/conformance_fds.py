@@ -49,6 +49,7 @@ def session_line(pid: int) -> str | None:
 PAIRS = 512
 AGENT_PAIRS = 128
 AGENT = "c.agent"  # the agent the role `agent` connects as
+LEAD = "c"  # its team's manager, who a done it files for review waits on
 # The words a view stores (the spec's x-state-words that fixtures pin): one agent each, as the Python daemon's tick would have left it.
 STATES = ["running", "idle", "queued", "parked", "waiting", "stalled", "no_terminal"]
 
@@ -59,7 +60,7 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
     names = {w: f"s.{w}" for w in STATES}
     output_agent = "s.output"
     ask_agent = ASK_AGENT
-    for n in [*names.values(), output_agent, ask_agent, AGENT, *RETIRE]:
+    for n in [*names.values(), output_agent, ask_agent, AGENT, LEAD, *RETIRE]:
         (home / "agents" / n).mkdir(parents=True)
         (home / "agents" / n / "agent.yaml").write_text("role: seeded by conformance_fds\n")
     for _ in range(200):
@@ -76,7 +77,7 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
             seed_workroom(home, con)
             seed_open_question(con, ask_agent)
             typing = seed_typing_gates(home, con)
-            write_team(home, [*names.values(), output_agent, ask_agent, AGENT, *RETIRE, *typing.values()])
+            write_team(home, [*names.values(), output_agent, ask_agent, AGENT, LEAD, *RETIRE, *typing.values()])
             con.commit()
             con.close()
             return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, "session_agent": output_agent,
@@ -120,8 +121,8 @@ RETIRE = ["r.gone", "r.boss", "r.boss.kid"]
 
 
 def write_team(home: Path, agents: list[str]) -> None:
-    """A team where the person may say to any agent, which chat.send needs."""
-    (home / "team.yaml").write_text("agents:\n" + "".join(f"  {n}: {{}}\n" for n in agents) + """edges:
+    """A team where the person may say to any agent, which chat.send needs, and AGENT has LEAD for its lead."""
+    (home / "team.yaml").write_text(f"teams:\n  {LEAD}: [{LEAD}, {AGENT}]\nagents:\n" + "".join(f"  {n}: {{}}\n" for n in agents) + """edges:
   - { from: "*", to: "*", relation: peer, response: async }
   - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
 """)

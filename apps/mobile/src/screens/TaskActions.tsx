@@ -185,7 +185,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       </View>
       {menu === 'status' && (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-          {open && verb('done', isPerson(t.from, me) ? 'Answered' : 'Done', off.done, 'done')}
+          {open && verb('done', isPerson(t.from, me) ? 'Send for review' : 'Done', off.done, 'done')}
           {t.state === 'done' && mine && verb('reopen', 'Reopen', off.reopen, 'reopen')}
           {t.state === 'draft' && (
             <Button
@@ -216,7 +216,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
           {open && verb('discard', 'Discard', off.discard, 'discard')}
         </View>
       )}
-      {t.state === 'answered' && (mine || founder) && <ReportVerbs t={t} />}
+      {t.state === 'review' && (mine || founder) && <ReportVerbs t={t} />}
       {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: 12 }}>{Object.values(off).find(Boolean)}</Text>}
       {ask === 'done' && (
         <ReasonSheet

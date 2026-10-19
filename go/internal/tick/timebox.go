@@ -48,6 +48,8 @@ type TimeboxPorts interface {
 	TaskDoing(q db.Q, t *db.Task) bool
 	// SupervisorOf is actions.supervisor_of(routing(), agent), "" when it has none.
 	SupervisorOf(agent string) string
+	// LeadOf is team.LeadOf: who a task in review waits on, "" when its assignee has no lead.
+	LeadOf(agent string) string
 	// StopWaitReason is actions.stop_wait_reason ("" for none).
 	StopWaitReason(q db.Q, agent string) string
 	// SendNotice is delivery.type_notice, sent through the session: true when the line was sent.
@@ -198,18 +200,22 @@ func shortTitle(title string) string {
 	return title
 }
 
-// remindReported is the clock of a task whose done waits on acceptance: it runs on from where the doing left it, and past it whoever the task
-// answers to is reminded, again every stretch until they accept or reject it. A task reported with its clock not running (before its
-// first tick, or paused on a wait) has it started here, so it is reminded too.
+// remindReported is the clock of a task in review: it runs on from where the doing left it, and past it who the review waits on (its
+// assignee's lead, else whoever it answers to) is reminded, again every stretch until they accept or reject it. A task reported with its
+// clock not running (before its first tick, or paused on a wait) has it started here, so it is reminded too. One accepted waits on its
+// PR's merge, not on anyone's accept: it is not reminded.
 func (b *Timebox) remindReported(t *Tick, row *db.Task, now int64) {
 	if !row.TimeoutAt.Valid {
 		check(db.AdvanceTaskTimeout(t.Q, row.ID, now, db.DefaultTaskTimeoutS))
 		return
 	}
-	if row.TimeoutAt.Int64 > now {
+	if row.TimeoutAt.Int64 > now || row.AcceptedBy.String != "" {
 		return
 	}
-	to := row.AnswersTo()
+	to := b.Ports.LeadOf(row.Owner)
+	if to == "" {
+		to = row.AnswersTo()
+	}
 	text := fmt.Sprintf("T%d (%s) was answered by %s and waits on you: accept it (`hl task accept T%d`), send it back (`hl task reject T%d \"<note>\"`) "+
 		"or take it back (`hl task handoff T%d %s \"<note>\"`).", row.ID, shortTitle(row.Title), row.Owner, row.ID, row.ID, row.ID, to)
 	b.note(t, to, text)
@@ -410,9 +416,19 @@ func (b *Timebox) SweepForgottenResolveCapped(t *Tick, now int64) {
 			tid = found.Task.ID
 		}
 		who := b.answerer(t, agent, tid)
-		on := fmt.Sprintf("#%d", found.HeadID)
-		if found.Task != nil {
-			on = fmt.Sprintf("T%d (#%d)", found.Task.ID, found.HeadID)
+		// The founder's screens show no message id: told to them, the message is named by its task or not at all.
+		name, read := db.MsgName(t.Q, found.HeadID), ""
+		if who != db.Human {
+			read = fmt.Sprintf("`hl read %s`; ", name)
+		}
+		on := name
+		switch {
+		case found.Task != nil && who == db.Human:
+			on = fmt.Sprintf("T%d", found.Task.ID)
+		case found.Task != nil:
+			on = fmt.Sprintf("T%d (%s)", found.Task.ID, name)
+		case who == db.Human:
+			on = "a message"
 		}
 		after := fmt.Sprintf("after %d reminders", b.Ports.NudgeScheduleLen())
 		more := ""
@@ -421,16 +437,16 @@ func (b *Timebox) SweepForgottenResolveCapped(t *Tick, now int64) {
 		}
 		var look string
 		if found.Task != nil {
-			look = fmt.Sprintf("Look at it: `hl read %d`; take it back with `hl task release T%d \"<reason>\"`, or ask %s by message (`hl say %s \"...\"`).",
-				found.HeadID, found.Task.ID, agent, agent)
+			look = fmt.Sprintf("Look at it: %stake it back with `hl task release T%d \"<reason>\"`, or ask %s by message (`hl say %s \"...\"`).",
+				read, found.Task.ID, agent, agent)
 		} else {
-			look = fmt.Sprintf("Look at it: `hl read %d`, or message %s (`hl say %s \"...\"`).", found.HeadID, agent, agent)
+			look = fmt.Sprintf("Look at it: %smessage %s (`hl say %s \"...\"`).", read, agent, agent)
 		}
 		text := fmt.Sprintf("%s has been idle %s on %s %s%s. %s", agent, timefmt.Ago(found.IdleS), on, after, more, look)
 		if b.tell(t, who, text, now) {
 			check(db.SetCursor(t.Q, toldKey, found.HeadID))
 			must(db.AddEvent(t.Q, agent, "forgotten_resolve_capped", db.KV{K: "request_id", V: found.HeadID}, db.KV{K: "idle_s", V: found.IdleS}, db.KV{K: "told", V: who}))
-			t.logf("  %s: idle %s on #%d, nudge cap reached - %s told", agent, timefmt.Ago(found.IdleS), found.HeadID, who)
+			t.logf("  %s: idle %s on request %d, nudge cap reached - %s told", agent, timefmt.Ago(found.IdleS), found.HeadID, who)
 		}
 	}
 }

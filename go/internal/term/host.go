@@ -11,9 +11,9 @@ import (
 
 // Host is what a backend adds to start and end the terminals the daemon runs agents in.
 type Host interface {
-	// CreateTerminal opens a window in cwd, types command at its shell and answers the new pane's handle. A handle "" with why "" is a
-	// window that started whose handle could not be read.
-	CreateTerminal(command, cwd, title string) (handle, why string)
+	// CreateTerminal opens a window in cwd for agent, stamps its pane with the agent, types command at its shell and answers the new
+	// pane's handle. A handle "" with why "" is a window that started whose handle could not be read.
+	CreateTerminal(command, cwd, title, agent string) (handle, why string)
 	// CloseTerminal closes the pane's window (its pane alone when tab is false).
 	CloseTerminal(handle string, tab bool) (bool, string)
 	// RespawnTerminal ends everything running in the pane and leaves a fresh shell there, in the pane's directory.
@@ -32,7 +32,10 @@ func (t Tmux) serverUp() bool {
 	return code == 0
 }
 
-func (t Tmux) CreateTerminal(command, cwd, title string) (string, string) {
+// AgentOption is the tmux pane option that says which agent the daemon opened the pane for; a pane without it is not ours to close.
+const AgentOption = "@hl_agent"
+
+func (t Tmux) CreateTerminal(command, cwd, title, agent string) (string, string) {
 	var args []string
 	if title != "" {
 		args = append(args, "-n", windowNameRE.ReplaceAllString(title, "_"))
@@ -61,6 +64,12 @@ func (t Tmux) CreateTerminal(command, cwd, title string) (string, string) {
 		}
 		return "", err
 	}
+	if agent != "" {
+		if code, _, err := t.tmux(tmuxTimeout, "", "set-option", "-p", "-t", pane, AgentOption, agent); code != 0 {
+			t.CloseTerminal(pane, true)
+			return "", "could not stamp the new window with its agent: " + err
+		}
+	}
 	if ok, why := t.Send(pane, command, true); !ok {
 		t.CloseTerminal(pane, true)
 		return "", "could not type the command into the new window: " + why
@@ -86,6 +95,34 @@ func (t Tmux) RespawnTerminal(handle string) (bool, string) {
 	}
 	code, _, err := t.tmux(tmuxTimeout, "", "respawn-pane", "-k", "-t", handle)
 	return code == 0, err
+}
+
+// PaneAgent is the agent the daemon stamped the pane with; "" for a pane it did not open for an agent, known false when tmux cannot say.
+func (t Tmux) PaneAgent(handle string) (agent string, known bool) {
+	if !paneRE.MatchString(handle) {
+		return "", false
+	}
+	code, out, _ := t.tmux(tmuxTimeout, "", "display-message", "-p", "-t", handle, "#{"+AgentOption+"}")
+	return strings.TrimSpace(out), code == 0
+}
+
+type paneAgenter interface {
+	PaneAgent(handle string) (string, bool)
+}
+
+func (d dynamic) PaneAgent(handle string) (string, bool) {
+	if h, ok := d.cur().(paneAgenter); ok {
+		return h.PaneAgent(handle)
+	}
+	return "", false
+}
+
+// PaneAgent is the agent the terminal was stamped for; known is false when the host cannot say.
+func (t *Term) PaneAgent(handle string) (string, bool) {
+	if h, ok := t.Backend.(paneAgenter); ok {
+		return h.PaneAgent(handle)
+	}
+	return "", false
 }
 
 // PanePid is the pid of the process the pane runs (its shell); 0 when tmux cannot say.
@@ -123,9 +160,9 @@ func (d dynamic) host() Host {
 	return h
 }
 
-func (d dynamic) CreateTerminal(command, cwd, title string) (string, string) {
+func (d dynamic) CreateTerminal(command, cwd, title, agent string) (string, string) {
 	if h := d.host(); h != nil {
-		return h.CreateTerminal(command, cwd, title)
+		return h.CreateTerminal(command, cwd, title, agent)
 	}
 	return "", "the " + d.Name() + " terminal host cannot start terminals"
 }
@@ -147,9 +184,9 @@ func (d dynamic) RespawnTerminal(handle string) (bool, string) {
 func (t *Term) host() Host { h, _ := t.Backend.(Host); return h }
 
 // CreateTerminal starts a terminal running command, with the reason it could not.
-func (t *Term) CreateTerminal(command, cwd, title string) (string, string) {
+func (t *Term) CreateTerminal(command, cwd, title, agent string) (string, string) {
 	if h := t.host(); h != nil {
-		return h.CreateTerminal(command, cwd, title)
+		return h.CreateTerminal(command, cwd, title, agent)
 	}
 	return "", "the " + t.Backend.Name() + " terminal host cannot start terminals"
 }

@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
-	osexec "os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,16 +38,7 @@ func newResultRig(t *testing.T) (home, repo, onMain, offMain string, done func(a
 		os.WriteFile(filepath.Join(home, "agents", a, "agent.yaml"), nil, 0o644)
 	}
 	repo = t.TempDir()
-	git := func(args ...string) string {
-		t.Helper()
-		cmd := osexec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
-		cmd.Dir = repo
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %s", args, out)
-		}
-		return strings.TrimSpace(string(out))
-	}
+	git := gitIn(t, repo)
 	git("init", "-q", "-b", "main")
 	git("commit", "-q", "--allow-empty", "-m", "on main")
 	onMain = git("rev-parse", "HEAD")

@@ -137,7 +137,7 @@ func TestPushesAreCheckedBeforeAnythingIsHandedOn(t *testing.T) {
 		`{"verb":"push","target":"human"}`:           "human is not an agent",
 		`{"verb":"push","target":"nobody"}`:          "nobody is not an agent",
 		`{"verb":"push_answer","requester":"human"}`: "human is not an agent",
-		`{"verb":"notify_cancelled","rid":99}`:       "no request #99",
+		`{"verb":"notify_cancelled","rid":99}`:       "no such message",
 	} {
 		if got := r.ask(line); got["ok"] != false || got["said"] != said {
 			t.Errorf("%s: %v", line, got)

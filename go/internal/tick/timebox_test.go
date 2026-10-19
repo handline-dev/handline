@@ -2,6 +2,7 @@ package tick
 
 import (
 	"fmt"
+	"github.com/handline/handline/go/internal/msgtest"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ type tbPorts struct {
 	TimeboxPorts
 	doing      map[int64]bool
 	boss       string
+	lead       string
 	stopWait   string
 	sendOK     bool
 	sent       []string // "who: text", typed at once
@@ -35,6 +37,7 @@ type tbPorts struct {
 
 func (p *tbPorts) TaskDoing(_ db.Q, t *db.Task) bool           { return p.doing[t.ID] }
 func (p *tbPorts) SupervisorOf(string) string                  { return p.boss }
+func (p *tbPorts) LeadOf(string) string                        { return p.lead }
 func (p *tbPorts) StopWaitReason(db.Q, string) string          { return p.stopWait }
 func (p *tbPorts) BgStale(db.Q, string, int64) bool            { return p.bgStale }
 func (p *tbPorts) BgOwesNothing(db.Q, string) bool             { return p.bgOwes }
@@ -129,6 +132,25 @@ func TestAReportedTasksClockRunsOnAndRemindsWhoeverItAnswersTo(t *testing.T) {
 	}
 	if len(p.sent) != 0 {
 		t.Fatalf("the reminder is typed at once: %v", p.sent)
+	}
+}
+
+func TestAReportedTaskRemindsTheAssigneesLeadAndAnAcceptedOneNoOne(t *testing.T) {
+	tk, _, b, p := timebox(t)
+	p.lead = "lead"
+	tid := newTask(t, tk, "a", "boss", 100)
+	report(t, tk, tid)
+	b.SweepTaskTimeouts(tk, 1000)
+	b.SweepTaskTimeouts(tk, 1200)
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "lead: T") || !strings.Contains(p.batched[0], "hl task handoff T1 lead") {
+		t.Fatalf("the lead is reminded, not whoever the task answers to: %v", p.batched)
+	}
+	if _, err := tk.Q.Exec("UPDATE tasks SET accepted_by = 'lead', accepted_at = 1250 WHERE id = ?", tid); err != nil {
+		t.Fatal(err)
+	}
+	b.SweepTaskTimeouts(tk, 1400)
+	if len(p.batched) != 1 {
+		t.Fatalf("an accepted task waits on its merge and is reminded to no one: %v", p.batched)
 	}
 }
 
@@ -443,10 +465,14 @@ func TestAHeadNobodyResolvedTellsItsTasksOpenerOnceItsNudgeScheduleIsUsedUp(t *t
 	tk, _, b, p := timebox(t)
 	p.boss = "lead"
 	tid := newTask(t, tk, "a", "asker", 0)
+	if _, err := tk.Q.Exec("INSERT INTO requests(id, ts, requester, target, body, state, edge_ok) VALUES(7, 1, 'asker', 'a', 'x', 'landed', 1), " +
+		"(8, 1, 'lead', 'a', 'y', 'landed', 1)"); err != nil {
+		t.Fatal(err)
+	}
 	p.forgotten = &Forgotten{HeadID: 7, IdleS: 3600, Behind: 2, Exhausted: true, Task: &db.Task{ID: tid}}
 	b.SweepForgottenResolveCapped(tk, 1000)
 	b.SweepForgottenResolveCapped(tk, 1100)
-	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "asker: ") || !strings.Contains(p.sent[0], fmt.Sprintf("T%d (#7)", tid)) || !strings.Contains(p.sent[0], "after 3 reminders") || !strings.Contains(p.sent[0], "2 more waiting") {
+	if len(p.sent) != 1 || !strings.HasPrefix(p.sent[0], "asker: ") || !strings.Contains(msgtest.IDs(tk.Q, p.sent[0]), fmt.Sprintf("T%d (#7)", tid)) || !strings.Contains(p.sent[0], "after 3 reminders") || !strings.Contains(p.sent[0], "2 more waiting") {
 		t.Fatalf("%v", p.sent)
 	}
 	// Blocked on record, or not yet exhausted: nothing, and the mark clears so a later head is told.
@@ -455,7 +481,7 @@ func TestAHeadNobodyResolvedTellsItsTasksOpenerOnceItsNudgeScheduleIsUsedUp(t *t
 	// A head that is no task goes to the supervisor.
 	p.forgotten = &Forgotten{HeadID: 8, IdleS: 100, Exhausted: true}
 	b.SweepForgottenResolveCapped(tk, 1300+NoticeRetryS)
-	if len(p.sent) != 2 || !strings.HasPrefix(p.sent[1], "lead: ") || !strings.Contains(p.sent[1], "#8") {
+	if len(p.sent) != 2 || !strings.HasPrefix(p.sent[1], "lead: ") || !strings.Contains(msgtest.IDs(tk.Q, p.sent[1]), "#8") {
 		t.Fatalf("%v", p.sent)
 	}
 }

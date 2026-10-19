@@ -105,7 +105,11 @@ func launcher(home string, d *sql.DB, roster *team.Roster) *lifecycle.Launcher {
 		McpApproved:    team.NewTrust(home).MCPApproved,
 		TerminalHandle: func() string { h, _ := launchTerminal(); return h },
 		WorktreeID:     func() string { _, wt := launchTerminal(); return wt },
-		Warn:           func(s string) { fmt.Fprintln(os.Stderr, s) },
+		PaneAgent: func(handle string) string {
+			a, _ := term.Tmux{Home: home}.PaneAgent(handle)
+			return a
+		},
+		Warn: func(s string) { fmt.Fprintln(os.Stderr, s) },
 		Exec: func(argv0 string, argv, env []string) error {
 			d.Close() // the session is not handed the database
 			return syscall.Exec(argv0, argv, env)

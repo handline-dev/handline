@@ -2,8 +2,8 @@ package taskwrites
 
 import (
 	"fmt"
+	"github.com/handline/handline/go/internal/msgtest"
 	"os"
-	osexec "os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,16 +24,7 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 		os.WriteFile(filepath.Join(home, "agents", a, "agent.yaml"), nil, 0o644)
 	}
 	repo := t.TempDir()
-	git := func(args ...string) string {
-		t.Helper()
-		cmd := osexec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
-		cmd.Dir = repo
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %s", args, out)
-		}
-		return strings.TrimSpace(string(out))
-	}
+	git := gitIn(t, repo)
 	git("init", "-q", "-b", "main")
 	git("commit", "-q", "--allow-empty", "-m", "on main")
 	onMain := git("rev-parse", "HEAD")
@@ -65,7 +56,7 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 	}
 	refused := func(why string, r map[string]any, want string) {
 		t.Helper()
-		if got := errText(r); got != want {
+		if got := msgtest.IDs(db, errText(r)); got != want {
 			t.Fatalf("%s: %q, want %q", why, got, want)
 		}
 	}

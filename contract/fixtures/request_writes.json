@@ -197,7 +197,7 @@
      },
      "result": {
       "ok": false,
-      "plan": "#999999999 is gone"
+      "plan": "that message is gone"
      }
     }
    ]
@@ -233,7 +233,7 @@
      },
      "result": {
       "ok": false,
-      "said": "not cancelled - #999999999 is gone"
+      "said": "not cancelled - that message is gone"
      }
     }
    ]

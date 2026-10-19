@@ -77,7 +77,7 @@ describe('my turn', () => {
       from,
       to: ARCH,
       title: `Report ${id}`,
-      state: 'answered',
+      state: 'review',
       report: { by: ARCH, evidence: 'built', at: new Date().toISOString() },
     });
 
