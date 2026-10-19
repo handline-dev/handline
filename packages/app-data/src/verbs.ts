@@ -19,6 +19,7 @@ export function useVerbRun(agent: string) {
   const fold = useWrite('agent.fold', agent);
   const move = useWrite('agent.move', agent);
   const unstall = useWrite('agent.unstall', agent);
+  const forceStart = useWrite('agent.force_start', agent);
   return (v: Verb, account?: string, on?: VerbDone) => {
     const p = callOf(v, agent, account).params as never;
     if (v.method === 'session.interrupt') interrupt.mutate(p, on);
@@ -28,6 +29,7 @@ export function useVerbRun(agent: string) {
     else if (v.method === 'agent.fold') fold.mutate(p, on);
     else if (v.method === 'agent.move') move.mutate(p, on);
     else if (v.method === 'agent.unstall') unstall.mutate(p, on);
+    else if (v.method === 'agent.force_start') forceStart.mutate(p, on);
   };
 }
 
@@ -48,6 +50,7 @@ export function useVerbMark(agent: string, skip: VerbId[] = []): string | null {
     [mine(usePending('agent.fold')).length > 0, 'fold'],
     [mine(usePending('agent.move')).length > 0, 'move'],
     [mine(usePending('agent.unstall')).length > 0, 'clear_stall'],
+    [mine(usePending('agent.force_start')).length > 0, 'force_start'],
   ];
   const hit = hits.find(([on, id]) => on && !skip.includes(id));
   return hit ? VERBS[hit[1]].gerund : null;

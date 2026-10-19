@@ -99,6 +99,7 @@ func (p *Parts) agentView(cfg Config, cutover, terminals bool, tu tickUsage) *ag
 		Now:      func() int64 { return nowOf(cfg.Now)().Unix() },
 		Log:      func(s string) { cfg.Log("%s", s) },
 		DropGone: cutover,
+		LoadHeld: lc.Gate.Held,
 		Walled: func(agent string, row *db.AgentState) *agentview.Wall {
 			if yes, err := lc.Manager.WouldWake(row); err != nil || !yes {
 				return nil

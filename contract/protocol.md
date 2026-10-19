@@ -85,6 +85,7 @@ A method marked write takes a required `request_id`.
 | `agent.fold` | agent | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `agent.move` | agent | yes | `agent`, `account`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `agent.unstall` | founder | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | terminal_lock, state |
+| `agent.force_start` | founder | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | state |
 | `agent.retire` | founder | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | state |
 | `agent.create` | founder | yes | `name`, `role`, `repo`, `base?`, `model?`, `effort?`, `parent?`, `account?`, `request_id` | `OperationStarted` | `refused`, `not_found`, `bad_request` | state |
 | `session.start` | agent | yes | `agent`, `account?`, `repo?`, `base?`, `request_id` | `Accepted` | `refused`, `not_found` | terminal_lock, state |
@@ -272,6 +273,10 @@ Move an agent to another account (legacy move).
 ### `agent.unstall`
 
 Clear a STALLED agent: it goes to queued with its failure counters reset, as hl unstall does. Refused (gate state) when the agent is not stalled.
+
+### `agent.force_start`
+
+Let work the machine's load holds for an agent (status reason load) go past the load limits once: it starts at the next tick, and agent.timeline records it (load_limit_passed). Refused (gate state) when the load holds nothing of the agent's.
 
 ### `agent.retire`
 
@@ -884,7 +889,7 @@ Every agent (AgentView.status) and every task (Task.status) carries one status: 
 | `preparing` | Has work and the daemon starts or sends it at its next tick; nothing stands in the way. Reasons: work, restart, retry. |
 | `starting` | A launch is in progress (agents). Reason: launch. |
 | `running` | Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, handoff, background. |
-| `waiting` | Held by something the daemon names: a person, another task, the owner, a clock, an account move. Reasons: you, review, opener, task, owner, clock, move. |
+| `waiting` | Held by something the daemon names: a person, another task, the owner, a clock, an account move, the machine's load. Reasons: you, review, opener, task, owner, clock, move, load. |
 | `stopped` | Will not go on by itself: no account has room (until the reset when it is known) or a person must unstall it. Reasons: wall, cap, stalled. |
 | `idle` | At its prompt with nothing to do (agents). Reason: none. |
 | `off` | Registered with no terminal and nothing waiting for it (agents). Reason: none. |
@@ -906,6 +911,7 @@ Every agent (AgentView.status) and every task (Task.status) carries one status: 
 | `owner` | Waits on its owner, busy with something text names. |
 | `clock` | Waits for a time: until says when. |
 | `move` | An account move is settling. |
+| `load` | The machine is over a load limit (host_active_cap, load_per_core_pct, ram_free_min_pct): the daemon starts none of its work until it is under, by itself; text names the limit that tripped. agent.force_start lets it go once. |
 | `wall` | The account it would run on is at a usage limit; until is when the window rolls over, null when not known. |
 | `cap` | No account has a free slot; it starts when a running turn ends. |
 | `stalled` | Stopped until a person unstalls it; text says why it stopped. |

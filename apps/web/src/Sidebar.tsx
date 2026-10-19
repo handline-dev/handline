@@ -4,19 +4,17 @@ import { Fragment, useState, type ReactNode } from 'react';
 import { dotOf, railRows, teamOf, visibleRows, RAIL_FILTERS, type Dot, type KV, taskRef } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useConnection } from '@handline/app-react';
-import { useAgents, useUnreached, useServes, useUnread, useWorktrees } from '@handline/app-data';
+import { useAgents, useUnreached, useServes, useWorktrees } from '@handline/app-data';
 import { useMyTurn } from './MyTurn.tsx';
 import { useHrCount } from './TeamPage.tsx';
 import { Mark, MARKS } from './RailIcons.tsx';
 import { Button, Icon, MenuButton, MenuCheckItem, MenuItem, MenuLabel, MenuSeparator } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import {
-  goInbox,
   goTasks,
   goTeam,
   goWorktrees,
   useAccountsRoute,
-  useInboxRoute,
   usePageRoute,
   useTeamRoute,
   useWorktreesRoute,
@@ -77,9 +75,7 @@ export function Sidebar({
   }
   const counts = new Map<Dot, number>();
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
-  const unread = useUnread().length;
   const myTurn = useMyTurn().cards.length;
-  const onInbox = useInboxRoute().open;
   const hr = useHrCount();
   const onTeam = !!useTeamRoute();
   const onAccounts = useAccountsRoute().open;
@@ -172,10 +168,7 @@ export function Sidebar({
           aria-current={pageRoute === 'my-turn' ? 'page' : undefined}
           onClick={() => void (location.hash = '#/my-turn')}
         >
-          <Icon name="decision" size={14} aria-hidden /> My turn{myTurn ? ` ${myTurn}` : ''}
-        </button>
-        <button className={navOf(onInbox)} aria-current={onInbox ? 'page' : undefined} onClick={goInbox}>
-          <Icon name="inbox" size={14} aria-hidden /> Inbox{unread ? ` ${unread}` : ''}
+          <Icon name="inbox" size={14} aria-hidden /> Inbox{myTurn ? ` ${myTurn}` : ''}
         </button>
         <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           <Icon name="tasks" size={14} aria-hidden /> Tasks

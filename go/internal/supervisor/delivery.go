@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -183,6 +184,14 @@ func (e *Env) DeliverQueued(q db.Q, agent string) (sent bool, err error) {
 			why = "peer_inbox is off in agent.yaml; nothing types any more" // a terminal is up, but nothing here reaches it
 		}
 		return e.holdBack(agent, head, why, false), nil
+	}
+	// A task starts a turn in an agent at its prompt, which the load holds; one mid-turn adds no load by being told.
+	if e.LoadHeld != nil {
+		if st := stateOf(q, agent); st == nil || st.State != states.Running {
+			if why := e.LoadHeld(agent); why != "" {
+				return e.holdBack(agent, head, why, false), nil
+			}
+		}
 	}
 	depth := 0
 	for _, r := range must(db.QueuedFor(q, agent)) {

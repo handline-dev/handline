@@ -30,7 +30,7 @@ const options = () => $$('.palette [role="option"]').map((o) => text(o));
 
 async function mount(daemon: { chat?: boolean } = {}) {
   const store = new Store(setup({ daemon }).client);
-  location.hash = '#/inbox';
+  location.hash = '#/my-turn';
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
   await act(async () => {

@@ -15,5 +15,5 @@ export default defineConfig({
       { find: 'expo-secure-store', replacement: new URL('./test/secure-store-stub.ts', import.meta.url).pathname },
     ],
   },
-  test: { environment: 'happy-dom', include: ['test/**/*.test.tsx'] },
+  test: { environment: 'happy-dom', include: ['test/**/*.test.tsx'], maxWorkers: 2 }, // several teams' runs share one machine
 });
