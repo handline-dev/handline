@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -75,13 +76,13 @@ func (p *Parts) terminalSession(agent string, live map[string]bool) (sessionRec,
 	if row.Account.String != "" { // the recorded account first: a session found there is the expected one
 		accts = append([]string{row.Account.String}, accts...)
 	}
-	result := sessionNone
+	result, mine := sessionNone, p.inPane(row.Terminal.String)
 	for _, acct := range accts {
 		dir, err := team.AccountConfigDir(p.home, acct)
 		if err != nil {
 			continue
 		}
-		switch rec, found := sessionIn(filepath.Join(dir, "sessions"), wt); found {
+		switch rec, found := sessionIn(filepath.Join(dir, "sessions"), wt, mine); found {
 		case sessionFound:
 			return rec, acct, sessionFound
 		case sessionUnknown:
@@ -104,9 +105,26 @@ func alive(pid int) bool {
 	return err == nil || err == syscall.EPERM
 }
 
-// sessionIn is the running session whose working directory is wt; of several the newest by updatedAt. A directory that cannot be listed, or a
-// file under a live pid that cannot be read or parsed, makes the answer unknown unless a session is found beside it.
-func sessionIn(dir, wt string) (sessionRec, lookup) {
+// inPane is whether a process runs inside the terminal handle, read from the process table once, when first asked; nil when the host
+// cannot name the pane's process or the table cannot be read, and then the worktree alone decides.
+func (p *Parts) inPane(handle string) func(pid int) bool {
+	root := p.panePid(handle)
+	if root <= 0 {
+		return nil
+	}
+	var parent map[int]int
+	var once sync.Once
+	return func(pid int) bool {
+		once.Do(func() { parent = parents() })
+		return parent == nil || under(parent, pid, root)
+	}
+}
+
+// sessionIn is the running session whose working directory is wt and, given mine, whose process is the agent's own; of several the newest
+// by updatedAt. Agents can share a worktree, and without mine one agent would take another's session for its own (and resume it). A
+// directory that cannot be listed, or a file under a live pid that cannot be read or parsed, makes the answer unknown unless a session is
+// found beside it.
+func sessionIn(dir, wt string, mine func(pid int) bool) (sessionRec, lookup) {
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return sessionRec{}, sessionNone
@@ -134,7 +152,7 @@ func sessionIn(dir, wt string) (sessionRec, lookup) {
 			unknown = true // a half-written file, or one that cannot be read: this may be the session
 			continue
 		}
-		if !sameDir(rec.Cwd, wt) {
+		if !sameDir(rec.Cwd, wt) || mine != nil && !mine(pid) {
 			continue
 		}
 		if best.Pid == 0 || rec.UpdatedAt > bestAt {
