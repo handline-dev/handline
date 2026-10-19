@@ -161,7 +161,7 @@ A method marked write takes a required `request_id`.
 | `task.board` | agent |  | `everyone?` | `{mine, reports}` |  |  |
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.cancel` | member | yes | `task`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
-| `task.edit` | agent | yes | `task`, `owner?`, `reporter?`, `title?`, `body?`, `time_box?`, `priority?`, `blocked_by?`, `unblock?`, `add_tags?`, `remove_tags?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.edit` | agent | yes | `task`, `owner?`, `reporter?`, `title?`, `body?`, `time_box?`, `priority?`, `blocked_by?`, `unblock?`, `add_tags?`, `remove_tags?`, `request_id`, `pr?` | `Accepted` | `refused`, `not_found` |  |
 | `task.ask` | member | yes | `task`, `to`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `say` | agent | yes | `target`, `body`, `task?`, `no_task?`, `parent?`, `files?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
 | `hook.record` | agent (only agent) | yes | `agent`, `kind`, `at`, `data`, `request_id` | `Accepted` | `refused` | not_self |
@@ -483,19 +483,19 @@ Create a task. The founder or a member device opens one for an agent only, and i
 
 ### `task.handoff`
 
-Hand a task to another agent. Anyone may hand an open task on, not only its owner (the asker takes an answered task back so); the move clears an answer, and task.history's row names who made it (by).
+Hand a task to another agent. Anyone may hand an open task on, not only its owner (the asker takes a task in review back so); the move clears an answer and an accept, and task.history's row names who made it (by).
 
 ### `task.done`
 
-Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner, when the task answers to someone else (its reporter, or its opener), does not close it: the task turns answered, stays with its owner, and waits for task.accept, task.reject or a reassign by anyone (task.handoff, task.edit). The founder's done on a task they hold that someone else asked is an answer too. A done by an owner the task answers to, or the founder's on a task they do not hold (or one already answered), closes it at once. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`.
+Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner goes to review when the task answers to someone else (its reporter, or its opener) and the owner has a lead (its team's manager, else its supervisor): the task turns review, stays with its owner, and waits for task.accept, task.reject or a reassign by anyone (task.handoff, task.edit), its lead told. A done by an owner the task answers to, by its team's auditor (named like the team plus .auditor) or by an owner with no lead closes it at once; so does the founder's, except on a task they hold that someone else asked, which waits on that asker. A task accepted with a PR closes with a done whose evidence is the merge sha on main, by its owner, the founder or anyone who may accept it. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`.
 
 ### `task.accept`
 
-Accept a task's report: it closes done. The task must be answered (an owner it does not answer to ran task.done). Only whoever it answers to, its opener or the founder may accept. It closes with the report as its evidence; the owner is told. With by_founder a lead records the founder's chat OK instead of asking for a second tap (`hl task accept T<n> --by-founder <message id>`); the message id is kept in the task's accept_task event.
+Accept a task's report: it closes done. The task must be in review. Its assignee's lead or its team's auditor, its reporter, its opener or the founder may accept. It closes with the report as its evidence and the owner is told; a task with a PR (task.edit pr) is accepted instead and stays in review, waiting on that PR's merge (a second accept is refused). With by_founder the founder's chat OK is checked and kept in the task's accept_task event (`hl task accept T<n> --by-founder <message id>`).
 
 ### `task.reject`
 
-Reject a task's report: it goes back to its owner. The task must be answered. Only whoever it answers to, its opener or the founder may reject. The report and its commit and shots are dropped, the task is queued again for its owner, and the note is told to the owner.
+Reject a task's report: it goes back to its owner. The task must be in review, accepted or not. Its assignee's lead or its team's auditor, its reporter, its opener or the founder may reject. The report (and an accept) and its commit and shots are dropped, the task is queued again for its owner, and the note is told to the owner.
 
 ### `task.reopen`
 

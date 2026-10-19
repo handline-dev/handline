@@ -116,7 +116,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
   }
 
   for (const t of tasks) {
-    if (t.state !== 'answered' || !t.report || !isPerson(t.from, me)) continue; // only the person it answers to can accept
+    if (t.state !== 'review' || !t.report || !isPerson(t.from, me)) continue; // only the person it answers to can accept
     cards.push({
       key: `accept:${t.id}`,
       kind: 'accept',

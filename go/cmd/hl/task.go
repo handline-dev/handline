@@ -436,7 +436,7 @@ func taskQueue(queued bool) taskCmd {
 
 func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	p, ok := parse(args, []string{"--assign", "--owner", "--title", "--body", "--body-file", "--priority", "--blocked-by", "--unblock",
-		"--timeout", "--tag", "--untag"}, nil, nil)
+		"--timeout", "--tag", "--untag", "--pr"}, nil, nil)
 	if !ok || len(p.pos) != 1 {
 		return 0, false
 	}
@@ -445,7 +445,9 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	blocked, hasBlocked, ok2 := optTask(p, "--blocked-by")
 	unblock, hasUnblock, ok3 := optTask(p, "--unblock")
 	timeout, hasTimeout, ok4 := optTimeout(p, "--timeout")
-	if !ok || !ok1 || !ok2 || !ok3 || !ok4 {
+	prText, hasPR := p.opt("--pr")
+	pr, err := strconv.ParseInt(strings.TrimPrefix(prText, "#"), 10, 64)
+	if !ok || !ok1 || !ok2 || !ok3 || !ok4 || hasPR && (err != nil || pr <= 0) {
 		return 0, false
 	}
 	mutating(c, "edit")
@@ -493,6 +495,9 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	if hasBlocked {
 		params["blocked_by"] = blocked
 	}
+	if hasPR {
+		params["pr"] = pr
+	}
 	if hasUnblock {
 		params["unblock"] = unblock
 	}
@@ -503,7 +508,7 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 		params["remove_tags"] = tags
 	}
 	if len(params) == 1 {
-		fmt.Println("edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, --timeout, --tag or --untag")
+		fmt.Println("edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, --timeout, --tag, --untag or --pr")
 		return 1, true
 	}
 	return said(c.Write("task.edit", params)), true

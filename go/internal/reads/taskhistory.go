@@ -15,7 +15,7 @@ var historyKinds = []string{"task_new", "task_begin", "edit_task", "block_task",
 // editFields is how an edit_task event's keys read as fields, in the order a row lists them: the owner column is who works the task (its
 // assignee), the reporter who answers for it (its owner).
 var editFields = [][2]string{{"owner", "assignee"}, {"reporter", "owner"}, {"title", "title"}, {"body", "body"}, {"priority", "priority"},
-	{"timeout", "timeout"}}
+	{"timeout", "timeout"}, {"pr", "pr"}}
 
 // historyState is the state an event leaves the task in: chat's stateAfter, and the three only the history shows.
 func historyState(kind string, p map[string]any) (string, bool) {
@@ -101,7 +101,7 @@ func (e *Env) taskHistory(c *rpc.Conn, params map[string]any) (any, error) {
 			add("memo", text(p["was"]), text(p["now"]))["memo"] = int64(seconds(p["memo"]))
 		}
 		now, ok := historyState(kind, p)
-		if !ok && state == "answered" && len(rows) > before && rows[len(rows)-1]["field"] == "assignee" {
+		if !ok && state == "review" && len(rows) > before && rows[len(rows)-1]["field"] == "assignee" {
 			now, ok = "queued", true // a reassign ends an answer: the task waits on its new holder
 		}
 		if ok {

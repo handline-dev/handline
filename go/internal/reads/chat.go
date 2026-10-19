@@ -474,12 +474,16 @@ func (e *Env) chatMessages(c *rpc.Conn, params map[string]any) (any, error) {
 // What a task event moves a task to; doing is not stored, so the two events that put a task in its owner's hands stand for it.
 var stateAfter = map[string]string{"draft_task": "draft", "queue_task": "queued", "task_begin": "doing", "task_start": "doing",
 	"mark_task_done": "done", "close_task": "closed", "discard_task": "discarded", "reopen_task": "queued",
-	"task_report": "answered", "accept_task": "done", "reject_task": "queued"}
+	"task_report": "review", "accept_task": "done", "reject_task": "queued"}
 
-// stateAfterEvent is stateAfter for one event: a reopened discarded task is a draft until it is queued again.
+// stateAfterEvent is stateAfter for one event: a reopened discarded task is a draft until it is queued again, a task accepted with a PR
+// stays in review until the merge.
 func stateAfterEvent(kind string, p map[string]any) (string, bool) {
-	if kind == "reopen_task" && p["was"] == "discarded" {
+	switch {
+	case kind == "reopen_task" && p["was"] == "discarded":
 		return "draft", true
+	case kind == "accept_task" && p["pr"] != nil:
+		return "review", true
 	}
 	s, ok := stateAfter[kind]
 	return s, ok
