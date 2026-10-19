@@ -278,7 +278,7 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 		if err := json.Unmarshal([]byte(line), &r); err != nil {
 			return nil, fmt.Errorf("the daemon sent what is not JSON: %w", err)
 		}
-		// An error about the connection itself is not followed by the request's answer.
+		// An error on the connection, the hello or the call ends the call: no answer follows it.
 		if err := r.err(); err != nil && (r.ID == connID || r.ID == helloID || r.ID == callID) {
 			return nil, err
 		}
