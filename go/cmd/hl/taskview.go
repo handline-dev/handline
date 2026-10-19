@@ -242,7 +242,7 @@ func resultLines(r obj, tid int64, home string) []string {
 	return out
 }
 
-// waitsOn is what holds a task's clock (cli/task._waits_on): the founder when they hold it or must accept it, else its open blockers and
+// waitsOn is what holds a task's clock: the founder when they hold it or must accept it, else its open blockers and
 // open children, each the founder holds marked so; "" for none.
 func waitsOn(t obj) string {
 	asker := str(t, "asker")
