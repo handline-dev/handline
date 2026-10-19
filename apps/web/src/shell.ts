@@ -20,6 +20,8 @@ type Call =
   | 'phone'
   | 'preview'
   | 'capturePreview'
+  | 'deviceShot'
+  | 'deviceTap'
   | 'captureWindows'
   | 'captureWindow'
   | 'pathOf'

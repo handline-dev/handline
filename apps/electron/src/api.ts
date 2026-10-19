@@ -41,6 +41,8 @@ export function makeApi(ipc: Ipc, zoom: () => number = () => 1): ShellApi {
     captureWindow: (a) => call(CHANNELS.captureWindow, a),
     preview: (a) => call(CHANNELS.preview, a),
     capturePreview: () => call(CHANNELS.capturePreview),
+    deviceShot: (a) => call(CHANNELS.deviceShot, a),
+    deviceTap: (a) => call(CHANNELS.deviceTap, a),
     mode: () => call(CHANNELS.mode),
     setMode: (m) => call(CHANNELS.setMode, m),
     phone: () => call(CHANNELS.phone),

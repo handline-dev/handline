@@ -29,6 +29,7 @@ import { Badges } from './Badges.tsx';
 import { DropZones } from './DropZones.tsx';
 import { ChangesTab } from './ChangesTab.tsx';
 import { FileTab } from './FileTab.tsx';
+import { DeviceTab } from './DeviceTab.tsx';
 import { WebTab } from './WebTab.tsx';
 import { BytesTab } from './BytesTab.tsx';
 import { wantsBytes } from './terminal/choose.ts';
@@ -55,6 +56,10 @@ const label = (t: Tab, structured = false): string =>
           ? 'Changes'
           : t.kind === 'file'
             ? String(t.params.path ?? 'File').split('/').pop()!
+          : t.kind === 'android'
+            ? 'Android'
+          : t.kind === 'ios'
+            ? 'iOS'
           : t.kind === 'web'
             ? String(t.params.url ?? 'Preview').replace(/^https?:\/\//, '')
           : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
@@ -62,7 +67,7 @@ const label = (t: Tab, structured = false): string =>
           : t.kind === 'terminal'
             ? 'Claude Code'
             : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
-const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history', activity: 'team', changes: 'changes', file: 'reference', web: 'web', new: 'plus' };
+const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history', activity: 'team', changes: 'changes', file: 'reference', web: 'web', android: 'device', ios: 'device', new: 'plus' };
 
 const TAB_KEYS: KeyRows = [
   ['Alt+Left Alt+Right', 'move the focused tab along the strip'],
@@ -85,6 +90,8 @@ export function Pane({ group }: { group: Group }) {
     { kind: 'changes', params: {}, label: 'Changes', icon: 'changes', disabled: !detail.worktree },
     { kind: 'file', params: { id: 'new' }, label: 'File', icon: 'reference', disabled: !detail.worktree },
     { kind: 'web', params: { id: 'new' }, label: 'Preview', icon: 'web' },
+    { kind: 'android', params: { id: 'new' }, label: 'Android', icon: 'device' },
+    { kind: 'ios', params: { id: 'new' }, label: 'iOS', icon: 'device' },
   ];
   // The preview opens in a pane of its own next to the chat when there is room, else as a tab here.
   const besideChat = (w: Workspace, c: (typeof choices)[number]) => {
@@ -248,6 +255,8 @@ export function Pane({ group }: { group: Group }) {
             hidden={!!dragging}
             onUrl={(u) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, url: u } } } }))}
           />
+        ) : tab.kind === 'android' || tab.kind === 'ios' ? (
+          <DeviceTab agent={agent} kind={tab.kind} hidden={!!dragging} />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (
           <Watch
             agent={agent}

@@ -26,6 +26,7 @@ import {
   Pencil,
   Play,
   Settings,
+  Smartphone,
   SquareTerminal,
   Terminal,
   Trash2,
@@ -183,6 +184,7 @@ const ICONS = {
   // chat: verbs
   send: [SendHorizontal, 'Send'],
   web: [Globe, 'Preview'],
+  device: [Smartphone, 'Device'],
   reference: [CornerUpLeft, 'Reply to this'],
   open: [ExternalLink, 'Open'],
   sendNow: [Zap, 'Send now'],
