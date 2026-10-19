@@ -28,14 +28,15 @@ test('chat.locate refuses a # name, a hash shorter than 6, and a hash two messag
   const { daemon, client } = setup();
   await client.start();
   const agent = 'locate.probe';
-  for (const ref of ['abcdef000001', 'abcdef000002']) daemon.chat.seed(agent, { body: ref, from: 'human', to: agent, ref });
-  for (const request of ['#12', 'msg_abcde', 'abcdef']) {
+  const refs = ['abcdef000001', 'abcdef000002'];
+  for (const ref of refs) daemon.chat.seed(agent, { body: ref, from: 'human', to: agent, ref });
+  for (const request of ['#12', 'msg_' + refs[0].slice(0, 5), refs[0].slice(0, 6)]) {
     await assert.rejects(
       client.call('chat.locate', { request }),
       (e: RpcError) => /pull request|hex characters|ambiguous/.test(e.message),
       request,
     );
   }
-  const got = await client.call('chat.locate', { request: 'msg_abcdef000002' });
-  assert.equal(got.message.body, 'abcdef000002');
+  const got = await client.call('chat.locate', { request: 'msg_' + refs[1] });
+  assert.equal(got.message.body, refs[1]);
 });
