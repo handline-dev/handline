@@ -438,6 +438,16 @@ func TestLastFailureIsTheCLIsOwnErrorTheLastTurnEndedOnOnThatAccount(t *testing.
 		t.Errorf("a failure before the Stop counted: %v", got)
 	}
 	on("A", "StopFailure", `{"error": "oauth_org_not_allowed"}`)
+	if _, ok, _ := LastFailure(w.DB, "a", "A"); !ok {
+		t.Fatal("a failure after the Stop is the account's")
+	}
+	on("A", "account_unmarked", `{"account": "A"}`)
+	if _, ok, _ := LastFailure(w.DB, "a", "A"); ok {
+		t.Error("a failure before hl account unmark marked A again")
+	}
+	if got, _ := Failures(w.DB, "A", "oauth_org_not_allowed"); len(got) != 0 {
+		t.Errorf("a failure before the unmark counted: %v", got)
+	}
 	w.event("a", "UserPromptSubmit", "")
 	if _, ok, _ := LastFailure(w.DB, "a", "A"); ok {
 		t.Error("a prompt after the failure means it works again")
