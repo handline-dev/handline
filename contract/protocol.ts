@@ -1063,8 +1063,6 @@ export type SettingsValues = {
   bg_check_s?: number;
   /** Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. */
   notice_digest_s?: number;
-  /** Backstop for a stop-wait. */
-  stop_wait_backstop_s?: number;
   /** Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored. */
   token_prices?: { [key: string]: number };
   /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). */
@@ -1103,8 +1101,6 @@ export type SettingsChanges = {
   bg_check_s?: number | null;
   /** Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. null removes the key (back to the default). */
   notice_digest_s?: number | null;
-  /** Backstop for a stop-wait. null removes the key (back to the default). */
-  stop_wait_backstop_s?: number | null;
   /** Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored. null removes the key (back to the default). */
   token_prices?: { [key: string]: number } | null;
   /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). null removes the key (back to the default). */

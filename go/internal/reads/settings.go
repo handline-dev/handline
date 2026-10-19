@@ -15,9 +15,6 @@ import (
 	"github.com/handline/handline/go/internal/usage"
 )
 
-// The numbers the settings screen shows as defaults (timebox.py, delivery.py): the daemon's own constants, not config.
-const stopWaitBackstopS = 900
-
 // perAgent is rpc_settings.PER_AGENT: the settings an agent.yaml may override.
 var perAgent = []string{"park_timeout_s", "ignore_cache_expiry", "bg_notice_s", "bg_grace_s", "bg_check_s", "notice_digest_s", handoff.PromptKey}
 
@@ -115,10 +112,9 @@ func (e *Env) settingsValues() map[string]any {
 		"dev_mode":    DevMode(cfg),
 		"bg_notice_s": s.ConfigSeconds("bg_notice_s", bgNotice), "bg_grace_s": s.ConfigSeconds("bg_grace_s", lifecycle.BgGraceS),
 		"bg_check_s": s.ConfigSeconds("bg_check_s", lifecycle.BgCheckS), "notice_digest_s": s.ConfigSeconds("notice_digest_s", lifecycle.NoticeDigestS),
-		"stop_wait_backstop_s": s.ConfigSeconds("stop_wait_backstop_s", stopWaitBackstopS),
-		"token_prices":         prices,
-		"input_hold_idle_s":    s.ConfigSeconds("input_hold_idle_s", defaultHoldIdleS),
-		handoff.PromptKey:      handoffPrompt(s.TextSetting("", handoff.PromptKey)),
+		"token_prices":      prices,
+		"input_hold_idle_s": s.ConfigSeconds("input_hold_idle_s", defaultHoldIdleS),
+		handoff.PromptKey:   handoffPrompt(s.TextSetting("", handoff.PromptKey)),
 		// Whether each notifications event raises a notice on the founder's devices; the event is on the topic either way.
 		"push_prompt_asked": s.Flag("push_prompt_asked", true), "push_task_done": s.Flag("push_task_done", true),
 		"push_stall": s.Flag("push_stall", true), "push_account_out": s.Flag("push_account_out", true),

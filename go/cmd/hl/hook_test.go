@@ -81,8 +81,8 @@ func TestHookIsGoForEveryEventAndNeverPython(t *testing.T) {
 	}
 }
 
-// The stop gate refuses a stop while the current task has no recorded wait, once per session, and the refusal is recorded.
-func TestStopIsRefusedOncePerSessionWhileTheCurrentTaskHasNoWait(t *testing.T) {
+// A Stop is never refused, a current task with no recorded wait included: it is recorded and let through.
+func TestAStopIsLetThroughAndRecorded(t *testing.T) {
 	r := hookRig(t, false)
 	calls := r.daemon(nil)
 	d, err := store.Open(paths.DBFile(r.home))
@@ -98,18 +98,8 @@ func TestStopIsRefusedOncePerSessionWhileTheCurrentTaskHasNoWait(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	stop := `{"hook_event_name": "Stop", "session_id": "s1"}`
-	out, _, _ := r.runIn(stop, asAgent, "hook", "Stop")
-	if !strings.Contains(out, `"decision": "block"`) || !strings.Contains(out, "T7 is current with no recorded wait") {
-		t.Fatalf("not refused: %q", out)
-	}
-	if out, _, _ := r.runIn(stop, asAgent, "hook", "Stop"); out != "{}\n" {
-		t.Fatalf("refused twice in one session: %q", out)
-	}
-	var n int
-	d.QueryRow("SELECT COUNT(*) FROM events WHERE agent = 'a.one' AND kind = 'stop_gate' AND json_extract(payload, '$.task_id') = 7").Scan(&n)
-	if n != 1 {
-		t.Fatalf("stop_gate events: %d", n)
+	if out, _, _ := r.runIn(`{"hook_event_name": "Stop", "session_id": "s1"}`, asAgent, "hook", "Stop"); out != "{}\n" {
+		t.Fatalf("refused: %q", out)
 	}
 	recorded := 0
 	for _, c := range calls() {
@@ -118,7 +108,7 @@ func TestStopIsRefusedOncePerSessionWhileTheCurrentTaskHasNoWait(t *testing.T) {
 		}
 	}
 	if recorded != 1 {
-		t.Fatalf("the stop let through is recorded, the refused one is not: %d", recorded)
+		t.Fatalf("the stop is recorded: %d", recorded)
 	}
 }
 
