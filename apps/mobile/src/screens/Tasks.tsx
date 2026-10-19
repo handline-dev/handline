@@ -10,6 +10,7 @@ import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
+import { Icon, type IconName } from './Icon.tsx';
 import { Loadable } from './Loadable.tsx';
 import { Button, ListRow, MenuItem, MenuSheet, PageHeader, Pill } from './parts.tsx';
 import { MemoBox, MemoRow } from './Memos.tsx';
@@ -61,8 +62,8 @@ function List(props: { onSelect: (id: number) => void }) {
         title="Tasks"
         actions={
           <>
-            <Button testID="new-task-open" label="New task" onPress={() => setCreating(true)} />
-            <Button testID="tasks-menu" label="⋯" accessibilityLabel="More" onPress={() => setMenu(!menu)} />
+            <Button testID="new-task-open" label="New task" icon="plus" onPress={() => setCreating(true)} />
+            <Button testID="tasks-menu" label="" icon="menu" accessibilityLabel="More" onPress={() => setMenu(!menu)} />
           </>
         }
       />
@@ -70,6 +71,7 @@ function List(props: { onSelect: (id: number) => void }) {
         <MenuSheet onClose={() => setMenu(false)}>
           <MenuItem
             testID="graph-toggle"
+            icon={graph ? 'viewList' : 'viewTree'}
             label={graph ? 'List' : 'Graph'}
             onPress={() => {
               setGraph(!graph);
@@ -134,11 +136,24 @@ function List(props: { onSelect: (id: number) => void }) {
   );
 }
 
+const TASK_ICON: Record<string, IconName> = {
+  draft: 'taskDraft',
+  queued: 'taskQueued',
+  doing: 'taskDoing',
+  blocked: 'taskBlocked',
+  done: 'taskDone',
+  discarded: 'taskDiscarded',
+  pending: 'taskPending',
+  review: 'taskPending',
+};
+
 function Row(props: { t: Task; onPress: () => void }) {
   const t = props.t;
+  const c = usePalette();
   const now = Date.now();
   const meta = [`→ ${t.to}`, t.state, idleText(t, now) || ago(t.created)];
-  return <ListRow testID={`task-${t.id}`} title={t.title} meta={meta.filter(Boolean).join(' · ')} onPress={props.onPress} />;
+  const icon = TASK_ICON[t.state] ?? 'taskPending';
+  return <ListRow testID={`task-${t.id}`} lead={<Icon name={icon} label={t.state} size={18} color={t.state === 'blocked' ? c.block : c.muted} />} title={t.title} meta={meta.filter(Boolean).join(' · ')} onPress={props.onPress} />;
 }
 
 export function Detail(props: { id: number; onBack: () => void }) {

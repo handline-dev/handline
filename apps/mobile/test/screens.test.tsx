@@ -11,7 +11,7 @@ describe('the agent list', () => {
     await until(() => $(`agent-${ARCH}`), 'the rows', 5000);
     await sleep(400); // the skeleton stays at least 300 ms once shown
     expect($('skeleton-agents')).toBeNull();
-    expect(rowHeightOf($(`agent-${ARCH}`))).toBe(skeletonRowHeight);
+    expect(getComputedStyle($(`agent-${ARCH}`)!).minHeight).toBe(skeletonRowHeight); // the row may grow with a larger font, never shrink below the skeleton's
     expect(text()).toContain(ARCH);
     m.store.stop();
   });
@@ -262,6 +262,7 @@ describe('the chat tab', () => {
     });
   const msgOf = (body: string) =>
     [...box.querySelectorAll<HTMLElement>('[data-testid^="msg-"]')].find((e) => e.textContent?.includes(body));
+  const tick = (e: HTMLElement | undefined) => e?.querySelector('[data-testid^="landing-"]')?.getAttribute('aria-label');
   async function openChat() {
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
@@ -300,8 +301,8 @@ describe('the chat tab', () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await until(() => msgOf('Use the contract fixtures.'), 'the messages');
-    expect(msgOf('Use the contract fixtures.')!.textContent).toContain('✓✓');
-    expect(msgOf('Draft the web chat tab plan.')!.textContent).toContain('✓✓');
+    expect(tick(msgOf('Use the contract fixtures.')!)).toBe('Answered');
+    expect(tick(msgOf('Draft the web chat tab plan.')!)).toBe('Answered');
     expect(text()).not.toContain('Delivered'); // ticks, no word
     expect(msgOf('Use the contract fixtures.')!.textContent).not.toContain('#'); // no message numbers on screen
     expect(text()).toContain('Here is the plan: three units, chat first.'); // the agent's reply
@@ -325,7 +326,7 @@ describe('the chat tab', () => {
     await act(async () => void [1, 2, 3].forEach(() => m.daemon.tick())); // typed, delivered, thinking
     await until(() => $('working'), 'the working line');
     expect($('working')!.textContent).toContain('Reading the code');
-    expect(msgOf('run the tests')!.textContent).toContain('✓');
+    expect(tick(msgOf('run the tests')!)).toBe('Answered');
     m.store.stop();
   });
 
@@ -337,7 +338,7 @@ describe('the chat tab', () => {
     await until(() => msgOf('please retry me')?.textContent?.includes('the daemon is resting'), 'the failed row');
     const row = msgOf('please retry me')!;
     await press(row.querySelector<HTMLElement>('[data-testid^="retry-"]'));
-    await until(() => msgOf('please retry me')?.textContent?.includes('…'), 'the retried message');
+    await until(() => tick(msgOf('please retry me')) === 'Sending', 'the retried message');
     expect(msgOf('please retry me')!.textContent).not.toContain('the daemon is resting');
     m.store.stop();
   });
@@ -356,7 +357,7 @@ describe('the chat tab', () => {
     const id = Number(msgOf('about that')!.getAttribute('data-testid')!.slice(4));
     await press($(`takeback-${id}`));
     await until(() => ($('chat-input') as HTMLTextAreaElement).value === 'about that', 'the words back in the box');
-    expect(msgOf('about that')!.textContent).toContain('Withdrawn');
+    expect(tick(msgOf('about that')!)).toBe('Withdrawn');
     m.store.stop();
   });
 

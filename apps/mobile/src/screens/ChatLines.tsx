@@ -5,19 +5,21 @@ import type { Proposal, TranscriptItem } from '@handline/client';
 import { clockTime, sessionLine } from '@handline/app-core';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
+import { Icon, iconLabel, type IconName } from './Icon.tsx';
 import { Markdown } from './Markdown.tsx';
 import { Sheet } from './TaskActions.tsx';
 
 /** The time of a message and, for the person's own, how far it got, as a small column beside its bubble. */
-export function Stamp({ m, time, ticks }: { m: { id: number }; time: string | null; ticks: string | null }) {
+export function Stamp({ m, time, ticks }: { m: { id: number }; time: string | null; ticks: IconName | null }) {
   const c = usePalette();
   return (
     <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
       {time ? <Text style={{ color: c.muted, fontSize: 11 }}>{time}</Text> : null}
       {ticks ? (
-        <Text testID={`landing-${m.id}`} style={{ color: c.muted, fontSize: 11 }}>
-          {ticks}
-        </Text>
+        <View testID={`landing-${m.id}`} accessible accessibilityLabel={iconLabel(ticks)} style={{ alignItems: 'flex-end' }}>
+          <Icon name={ticks} decorative size={16} color={c.ink} />
+          {ticks === 'withdrawn' ? <Text style={{ color: c.muted, fontSize: 11 }}>{iconLabel(ticks)}</Text> : null}
+        </View>
       ) : null}
     </View>
   );
@@ -40,7 +42,10 @@ export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: Transcri
               hitSlop={8}
               onPress={() => onReply(i)}
             >
-              <Text style={{ color: c.accent, fontSize: 12, fontWeight: '600' }}>↩ Reply</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+                <Icon name="reference" decorative size={14} color={c.accent} />
+                <Text style={{ color: c.accent, fontSize: 12, fontWeight: '600' }}>Reply</Text>
+              </View>
             </Pressable>
           )}
         </View>
@@ -51,7 +56,7 @@ export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: Transcri
     const p = i.prompt;
     return (
       <Text style={small} numberOfLines={2}>
-        {i.open ? '⏳' : '✓'} {p?.kind === 'permission' ? `Asked permission: ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`}
+        <Icon name={i.open ? 'waiting' : 'delivered'} label={i.open ? 'Open' : 'Answered'} size={12} color={c.muted} /> {p?.kind === 'permission' ? `Asked permission: ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`}
         {p?.command ? ` ${p.command}` : ''} · {clockTime(i.at)}
       </Text>
     );

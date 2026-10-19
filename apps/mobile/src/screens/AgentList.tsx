@@ -39,11 +39,12 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
         actions={
           <>
             {founder && create ? (
-              <Button testID="new-agent-open" label="+" accessibilityLabel="New agent" onPress={() => props.onPage('new')} style={{ paddingVertical: space.sm }} />
+              <Button testID="new-agent-open" label="" icon="plus" accessibilityLabel="New agent" onPress={() => props.onPage('new')} style={{ paddingVertical: space.sm }} />
             ) : null}
             <Button
               testID="agents-menu"
-              label={hr ? '⋯ ●' : '⋯'}
+              label={hr ? '●' : ''}
+              icon="menu"
               accessibilityLabel="More"
               onPress={() => setMenu(!menu)}
               style={{ paddingVertical: space.sm }}
@@ -54,8 +55,8 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
       {menu && (
         <MenuSheet testID="agents-menu-list" onClose={() => setMenu(false)}>
           <TeamButton onPress={() => go('team')} />
-          <MenuItem testID="worktrees-open" label="Worktrees" onPress={() => go('worktrees')} />
-          <MenuItem testID="settings-open" label="Settings" onPress={() => go('settings')} />
+          <MenuItem testID="worktrees-open" label="Worktrees" icon="worktrees" onPress={() => go('worktrees')} />
+          <MenuItem testID="settings-open" label="Settings" icon="settings" onPress={() => go('settings')} />
         </MenuSheet>
       )}
       <Loadable query={query} served={served} isEmpty={agents.length === 0} skeleton="agents" label="agents" empty="No agents.">

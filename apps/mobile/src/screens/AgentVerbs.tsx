@@ -10,6 +10,19 @@ import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Sheet, useWhyNot } from './TaskActions.tsx';
 import { Button, MenuItem, MenuSheet, Row } from './parts.tsx';
+import type { IconName } from './Icon.tsx';
+
+const VERB_ICON: Record<VerbId, IconName> = {
+  interrupt: 'cancel',
+  close: 'close',
+  restart: 'retry',
+  restart_fresh: 'session',
+  park: 'asleep',
+  fold: 'closed',
+  move: 'accounts',
+  clear_stall: 'refresh',
+};
+const STOP_ICON: Record<string, IconName> = { exit: 'back', close: 'close', kill: 'full' };
 
 const HIDDEN: VerbId[] = ['interrupt', 'close', 'clear_stall'];
 
@@ -46,7 +59,7 @@ export function AgentVerbs(props: {
     <View style={{ gap: space.sm }}>
       <Row style={{ flexWrap: 'wrap' }}>
         {props.lead}
-        <Button testID="verbs-open" label="⋯" onPress={() => setOpen(!open)} accessibilityLabel="More" />
+        <Button testID="verbs-open" label="" icon="menu" onPress={() => setOpen(!open)} accessibilityLabel="More" />
         <View style={{ flex: 1 }} />
         {props.trail}
       </Row>
@@ -60,6 +73,7 @@ export function AgentVerbs(props: {
               key={s.id}
               testID={`stop-${s.id}`}
               label={s.label}
+              icon={STOP_ICON[s.id]}
               danger={s.danger}
               disabled={props.disabled}
               onPress={() => {
@@ -71,6 +85,7 @@ export function AgentVerbs(props: {
           <MenuItem
             testID="verb-settings"
             label="Settings and schedules"
+            icon="settings"
             onPress={() => {
               setOpen(false);
               props.onSettings();
@@ -85,7 +100,7 @@ export function AgentVerbs(props: {
 
 function VerbItem(props: { v: Verb; onPress: () => void }) {
   const why = useWhyNot(props.v.method);
-  return <MenuItem testID={`verb-${props.v.id}`} label={props.v.label} disabled={!!why} note={why} onPress={props.onPress} />;
+  return <MenuItem testID={`verb-${props.v.id}`} label={props.v.label} icon={VERB_ICON[props.v.id]} disabled={!!why} note={why} onPress={props.onPress} />;
 }
 
 function VerbSheet(props: {

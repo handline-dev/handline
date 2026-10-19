@@ -13,7 +13,7 @@ import { StateMark } from './StateMark.tsx';
 import { AgentSettings } from './AgentSettings.tsx';
 import { AgentStrip } from './AgentStrip.tsx';
 import { AgentTasks } from './AgentTasks.tsx';
-import { Icon } from './Icon.tsx';
+import { Icon, type IconName } from './Icon.tsx';
 import { Activity } from './Activity.tsx';
 import { AgentVerbs } from './AgentVerbs.tsx';
 import { Chat } from './Chat.tsx';
@@ -103,7 +103,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       { text: 'Cancel', style: 'cancel' },
       { text: 'Start new', style: 'destructive', onPress: () => start.mutate({ agent: name }) },
     ]);
-  const tab = (id: string, label: string, on: boolean, onPress: () => void) => (
+  const tab = (id: string, label: string, icon: IconName, on: boolean, onPress: () => void) => (
     <Pressable
       testID={`tab-${id}`}
       accessibilityRole="tab"
@@ -118,13 +118,14 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         borderBottomColor: on ? c.accent : 'transparent',
       }}
     >
-      <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: '600', fontSize: 13 }}>
+      <Icon name={icon} decorative size={16} color={on ? c.accent : c.muted} />
+      <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: '600', fontSize: 12 }}>
         {label}
       </Text>
     </Pressable>
   );
   const pageTab = (t: 'chat' | 'terminal', label: string) =>
-    tab(t, label, !showTasks && !showActivity && current === t, () => {
+    tab(t, label, t, !showTasks && !showActivity && current === t, () => {
       setExtra(null);
       store.setTab(t);
     });
@@ -176,8 +177,8 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.sm }}>
         {pageTab('chat', 'Chat')}
         {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
-        {hasChat && tab('activity', 'Activity', showActivity, () => setExtra('activity'))}
-        {hasTasks && tab('tasks', 'Tasks', showTasks, () => setExtra('tasks'))}
+        {hasChat && tab('activity', 'Activity', 'history', showActivity, () => setExtra('activity'))}
+        {hasTasks && tab('tasks', 'Tasks', 'tasks', showTasks, () => setExtra('tasks'))}
       </ScrollView>
       {showActivity ? (
         <Activity agent={name} />
