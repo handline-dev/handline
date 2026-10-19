@@ -1,6 +1,6 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
-import { badgesOf, controlsOf, needsConfirm, shortName, type StopMode } from '@handline/app-core';
+import { badgesOf, controlsOf, fontFor, needsConfirm, shortName, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView, TerminalView } from '@handline/client';
@@ -20,6 +20,7 @@ import { AgentVerbs } from './AgentVerbs.tsx';
 import { Chat } from './Chat.tsx';
 import { Loadable } from './Loadable.tsx';
 import { PromptSlot } from './PromptCard.tsx';
+import { TerminalControl } from './TerminalControl.tsx';
 import { Transcript } from './Transcript.tsx';
 import { AboveKeyboard, Button, Row } from './parts.tsx';
 
@@ -231,11 +232,14 @@ function TerminalOf(props: { detail: AgentDetail; view: TerminalView }) {
   // An open session whose snapshot has not come yet.
   const waiting = props.detail.session_open && view.frame.length === 0 && view.history.length === 0;
   const scroll = useRef<ScrollView>(null);
+  const [pane, setPane] = useState({ width: 0, height: 0 });
+  const size = pane.width && view.cols ? fontFor(pane.width, view.cols) : 11; // the host's whole width, or the phone's own size when it fits
   return (
     <View style={{ flex: 1 }}>
       <ScrollView
         ref={scroll}
         testID="terminal"
+        onLayout={(e) => setPane({ width: e.nativeEvent.layout.width - 2 * space.sm, height: e.nativeEvent.layout.height - 2 * space.sm })}
         style={{ flex: 1, backgroundColor: c.termBg }}
         contentContainerStyle={{ padding: space.sm }}
         onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })}
@@ -244,11 +248,12 @@ function TerminalOf(props: { detail: AgentDetail; view: TerminalView }) {
         {waiting ? (
           <Skeleton shape="terminal" loading label="the terminal" />
         ) : (
-          <Text testID="terminal-text" style={{ color: c.termInk, fontFamily: 'Menlo', fontSize: 11 }}>
+          <Text testID="terminal-text" style={{ color: c.termInk, fontFamily: 'Menlo', fontSize: size, lineHeight: size * 1.2 }}>
             {lines.length ? drawRows(lines, c.termInk, c.termBg) : 'No terminal output.'}
           </Text>
         )}
       </ScrollView>
+      <TerminalControl detail={props.detail} view={view} pane={pane} />
     </View>
   );
 }
