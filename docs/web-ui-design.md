@@ -315,7 +315,7 @@ Cross-cutting needs for the contract:
 
 ### Chat data (screen B, from the bridge's chat model)
 
-1. **Messages of a chat**, paged: per request id, created time, time of its last state change, requester, target, state, body, answer (id, text, time), dismissed flag, `delivered_at`/`typed_at`/`landed_at`, parent id, kind, linked task ids and title, whether it is a task question. Scopes: *mine* (person and agent) and *all* (everything the agent sent or received). Paging: newest N, older before id, newer since id.
+1. **Messages of a chat**, paged: per request id, created time, time of its last state change, requester, target, state, body, `delivered_at`/`typed_at`/`landed_at`, parent id, kind, linked task ids and title. Scopes: *mine* (person and agent) and *all* (everything the agent sent or received). Paging: newest N, older before id, newer since id.
 2. **Landing state per message** (queued, typed, delivered, delivered-not-answered) with the reason a message is still sending.
 3. **The agent's side of the conversation and its work**: reply text and tool activity from the transcript, as ordered items with ids, so a client can append and not redraw; a working/waiting line (what it waits for or is blocked by); whether a turn is running.
 4. **Prompt cards in the stream**: the permission or question prompt (id, tool, command, reason, options) and whether it is still open, answerable through the same call as in §3.2.
