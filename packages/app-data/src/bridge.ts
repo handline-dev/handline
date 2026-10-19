@@ -47,6 +47,8 @@ const rules: Record<string, Rule> = {
     void qc.invalidateQueries({ queryKey: qk.taskHistory(d, t.id) });
     patchTaskLists(qc, d, t);
     void qc.invalidateQueries({ queryKey: ['d', d, 'board'] });
+    // A message's buttons depend on the task's state, so the pages that hold messages are read again.
+    void qc.invalidateQueries({ queryKey: ['d', d, 'chat-messages'] });
   },
   'inbox.added': inbox,
   'inbox.changed': inbox,

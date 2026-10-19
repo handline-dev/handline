@@ -2,15 +2,16 @@
 // session lines as small cards. What a line is and where it stands is an icon with its words as the tooltip; a click on a message picks it
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent, type ReactNode } from 'react';
-import type { ChatMessage, TranscriptItem } from '@handline/client';
+import type { ChatAction, ChatMessage, TranscriptItem } from '@handline/client';
 import { type TaskChange, clockTime, isPerson, landingLabel, openTask, restartCause, sideOf, taskRow, tickLevel } from '@handline/app-core';
-import { useChatActions } from '@handline/app-data';
+import { useChatAction, useChatActions } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 import { Pictures } from './ChatAttach.tsx';
 import { Markdown } from './Markdown.tsx';
 import { RichText } from './RichText.tsx';
+import { ReasonSheet } from './taskui.tsx';
 import { useWorkspace } from './Workspace.tsx';
 
 /** A plain click on a task link opens the task in the workspace; a modified or middle click keeps the browser's own. */
@@ -88,6 +89,41 @@ function Ticks({ level, label, receipt }: { level: 0 | 1 | 2; label: string; rec
         <Icon name="delivered" size={13} strokeWidth={3} className="relative" aria-hidden />
       </span>
     </span>
+  );
+}
+
+/** The buttons of a message that waits on a decision; a button that needs a note asks for it first. */
+function DecideButtons({ m }: { m: ChatMessage }) {
+  const run = useChatAction();
+  const [asking, setAsking] = useState<ChatAction | null>(null);
+  if (!m.actions?.length) return null;
+  return (
+    <div className="msg-actions mt-1.5 flex flex-wrap gap-1.5">
+      {m.actions.map((a) => (
+        <Button
+          key={a.key}
+          variant={a.key === 'accept' || a.key === 'ok' ? 'solid' : 'outline'}
+          size="sm"
+          label={a.label}
+          data-action={a.key}
+          disabled={run.isPending}
+          onClick={() => (a.needs ? setAsking(a) : run.mutate({ action: a }))}
+        >
+          {a.label}
+        </Button>
+      ))}
+      {asking ? (
+        <ReasonSheet
+          label={asking.needs === 'note' ? 'What is missing' : asking.label}
+          submit={asking.label}
+          onCancel={() => setAsking(null)}
+          onSubmit={(text) => {
+            run.mutate({ action: asking, extra: { [asking.needs!]: text } });
+            setAsking(null);
+          }}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -182,6 +218,7 @@ export function Message(props: {
             {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
           </>
         )}
+        <DecideButtons m={m} />
         {m.receipt?.state === 'unknown' ? (
           <div className={MSG_FAILED} role="note">
             <Icon name="maybeRan" size={13} /> This message may or may not have run. It is not sent again; send it again yourself if it

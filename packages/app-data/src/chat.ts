@@ -1,9 +1,9 @@
 // Chat of one agent on the data layer: the person's messages and the agent's transcript as paged queries, and send as a write whose
 // row shows at once and, if refused, stays with its text and a Retry.
 import { useState } from 'react';
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
-import type { ChatMessage, TranscriptItem, Working } from '@handline/client';
+import type { ChatAction, ChatMessage, TranscriptItem, Working } from '@handline/client';
 import { mapPages, type Pages } from './cache.ts';
 import { NOT_WORKING, type MsgPage, type TrPage } from './chat-events.ts';
 import { useData, useFeed, useServes } from './provider.ts';
@@ -197,4 +197,17 @@ export function useChatWindow(agent: string, scope: ChatScope): ChatWindow {
     loadNewer: () => held && !loading && held.newer && read(held, { since: Math.max(...held.messages.map((m) => m.id)) }, 'newer'),
     close: () => setHeld(null),
   };
+}
+
+/** A tap on a message's button: its verb with its params and a request id; the buttons go when the task event arrives. */
+export function useChatAction() {
+  const store = useStore();
+  const { daemon } = useData();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (a: { action: ChatAction; extra?: Record<string, unknown> }) =>
+      (store.client.call as (m: string, p: unknown) => Promise<unknown>)(a.action.verb, { ...a.action.params, ...a.extra, request_id: newOperationId() }),
+    onError: (e) => store.reportError('decide', e),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['d', daemon, 'chat-messages'] }),
+  });
 }
