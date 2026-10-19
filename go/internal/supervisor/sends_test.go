@@ -24,7 +24,7 @@ func TestSayVerbQueuesAndTypesAtOnce(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	out := r.say(SayVerbIn{Requester: "alice", Target: "bob", Body: "psst"})
-	if !out.OK || !strings.HasPrefix(out.Msg, "queued as #1 for bob (response=async)") {
+	if !out.OK || out.Msg != "queued as #1 for bob" {
 		t.Fatalf("%+v", out)
 	}
 	if !strings.Contains(r.term.last(), "#1 from alice, waiting for you:\npsst") {
@@ -37,8 +37,8 @@ func TestSayVerbQueuesAndTypesAtOnce(t *testing.T) {
 
 func TestSayToAReportWithoutATaskIsRefusedWithTheTaskThatWouldReachIt(t *testing.T) {
 	r := newRig(t)
-	// bob reports to alice by a supervisor edge; written before the table is first read and sealed
-	os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "edges:\n", "edges:\n  - { from: alice, to: bob, relation: supervisor, response: async }\n", 1)), 0o644)
+	// bob reports to alice, the member its team is named after; written before the table is first read and sealed
+	os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "eng: [alice, bob]", "alice: [alice, bob]", 1)), 0o644)
 	out := r.say(SayVerbIn{Requester: "alice", Target: "bob", Body: "fix the bug"})
 	want := "work cannot reach a report by message: make it a task (`hl task new`), or say --task T<n> to memo one. Try:\n  hl task new --assign bob -t 2h '<title>' 'fix the bug'"
 	if out.OK || out.Msg != want {

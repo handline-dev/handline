@@ -282,19 +282,14 @@ func pyText(v any) string {
 	return fmt.Sprint(v)
 }
 
-var relationRe = regexp.MustCompile(`^[\w.-]+$`)
-
 // linkText adds one edge. It goes before the first edge with a wildcard or a team at an end, because the first match wins and a specific edge
 // behind a wildcard one would never be reached.
-func (e *Env) linkText(text, frm, to, response, relation string) (string, error) {
+func (e *Env) linkText(text, frm, to string) (string, error) {
 	if err := textOnly("agent", frm); err != nil {
 		return "", err
 	}
 	if err := textOnly("agent", to); err != nil {
 		return "", err
-	}
-	if relation != "" && !relationRe.MatchString(relation) {
-		return "", configErr("bad relation: %s", pyRepr(relation))
 	}
 	lines := splitLines(text)
 	head, end, err := block(lines, "edges:")
@@ -324,15 +319,7 @@ func (e *Env) linkText(text, frm, to, response, relation string) (string, error)
 			at = found[len(found)-1].at + 1
 		}
 	}
-	parts := []string{fmt.Sprintf(`from: "%s"`, frm), fmt.Sprintf(`to: "%s"`, to)}
-	if relation != "" {
-		parts = append(parts, "relation: "+relation)
-	}
-	if response == "" {
-		response = "async"
-	}
-	parts = append(parts, "response: "+response)
-	return joinLines(insertAt(lines, at, "  - { "+strings.Join(parts, ", ")+" }")), nil
+	return joinLines(insertAt(lines, at, fmt.Sprintf(`  - { from: "%s", to: "%s" }`, frm, to))), nil
 }
 
 func unlinkText(text, frm, to string) (string, error) {
