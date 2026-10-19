@@ -13,7 +13,6 @@ import { usePalette } from '../theme.ts';
 import { ImageBodyInput } from './ImageBodyInput.tsx';
 import { Button, Card, PageHeader, Pill } from './parts.tsx';
 import { AskAbout } from './TaskAsk.tsx';
-import { ReportVerbs } from './TaskReport.tsx';
 import { AssignTask } from './TaskAssign.tsx';
 import { MergeTasks, ReleaseTask } from './TaskReleaseMerge.tsx';
 
@@ -217,7 +216,6 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
           {open && verb('discard', 'Discard', off.discard, 'discard')}
         </View>
       )}
-      {t.state === 'review' && (mine || founder) && <ReportVerbs t={t} />}
       {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: 12 }}>{Object.values(off).find(Boolean)}</Text>}
       {ask === 'done' && (
         <ReasonSheet

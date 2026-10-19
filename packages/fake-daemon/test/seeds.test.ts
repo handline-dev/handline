@@ -24,7 +24,7 @@ test('inbox-terminal and hr come through the ordinary methods', async () => {
   client.close();
 });
 
-test('chat-actions puts the four buttons on two messages', async () => {
+test('chat-actions puts the OK and No buttons on a message', async () => {
   const { client, daemon } = setup();
   applySeeds(daemon, 'chat-actions');
   await client.start();
@@ -33,7 +33,7 @@ test('chat-actions puts the four buttons on two messages', async () => {
     .flatMap((m) => m.actions ?? [])
     .map((a) => a.key)
     .sort();
-  assert.deepEqual(keys, ['accept', 'no', 'ok', 'send_back']);
+  assert.deepEqual(keys, ['no', 'ok']);
   client.close();
 });
 

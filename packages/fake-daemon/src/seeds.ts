@@ -53,7 +53,7 @@ export const SEEDS: Record<string, Seed> = {
 
   /** 200 tasks, so a list has to scroll and page. */
   'tasks-200': (d) => {
-    const states = ['queued', 'doing', 'review', 'done', 'draft'];
+    const states = ['queued', 'doing', 'done', 'draft'];
     for (let i = 0; i < 200; i++) {
       task(d, 6000 + i, {
         id: 6000 + i,
@@ -66,27 +66,9 @@ export const SEEDS: Record<string, Seed> = {
     }
   },
 
-  /** Chat messages with one-tap actions: Accept / Send back on a reported task, OK / No on an open one the founder owns. */
+  /** Chat messages with one-tap actions: OK / No on an open task the founder owns. */
   'chat-actions': (d) => {
-    task(d, 6901, {
-      id: 6901,
-      from: ME,
-      to: ARCH,
-      title: 'Reported task waiting on the founder',
-      state: 'review',
-      report: { by: ARCH, evidence: 'pnpm test: 212 passed', at: new Date().toISOString(), waits_on: ME, accepted: null },
-    });
     task(d, 6902, { id: 6902, from: ARCH, to: ME, title: 'Open task the founder owns', state: 'doing' });
-    d.chat.seed(ARCH, {
-      from: ARCH,
-      to: ME,
-      body: 'T6901 is done: tests pass.',
-      tasks: [{ id: 6901, title: 'Reported task waiting on the founder' }],
-      actions: [
-        { key: 'accept', label: 'Accept', verb: 'task.accept', task: 6901, params: { task: 6901 } },
-        { key: 'send_back', label: 'Send back', verb: 'task.reject', task: 6901, params: { task: 6901 }, needs: 'note' },
-      ],
-    });
     d.chat.seed(ARCH, {
       from: ARCH,
       to: ME,

@@ -21,7 +21,7 @@ export function ChatActions({ id, actions }: { id: number; actions: ChatAction[]
     setBusy(true);
     setFailure('');
     client
-      .call(a.verb, { task: a.task, ...a.params, ...extra } as never)
+      .call(a.verb as 'task.done' | 'task.handoff', { task: a.task, ...a.params, ...extra } as never)
       .then(() => setAsking(null))
       .catch((e: unknown) => setFailure(sentence(classify(e))))
       .finally(() => setBusy(false));
@@ -38,7 +38,7 @@ export function ChatActions({ id, actions }: { id: number; actions: ChatAction[]
           <Button
             key={a.key}
             testID={`action-${id}-${a.key}`}
-            kind={a.key === 'accept' || a.key === 'ok' ? 'yes' : 'no'}
+            kind={a.key === 'ok' ? 'yes' : 'no'}
             label={a.label}
             disabled={busy}
             onPress={() => tap(a)}

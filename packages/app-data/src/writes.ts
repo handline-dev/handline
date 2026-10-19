@@ -103,9 +103,6 @@ const tasks: Record<string, WriteSpec> = {
   'task.queue': verb('queue', 'queue'),
   'task.draft': verb('draft', 'draft'),
   'task.release': verb('release', 'release'),
-  // A report is the opener's to judge: nothing shows until the daemon says it is closed or sent back.
-  'task.accept': decided('accept'),
-  'task.reject': decided('reject'),
   'task.withdraw': verb('withdraw', 'withdraw'),
   'task.cancel': verb('cancel', 'cancel'),
   'task.edit': verb('edit', 'edit'),

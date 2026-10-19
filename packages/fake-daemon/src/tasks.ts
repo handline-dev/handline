@@ -268,7 +268,7 @@ export class FakeTasks {
     const waitOn = typeof p.blocked_by === 'number' ? this.find(p.blocked_by).id : null;
     this.change(t, {
       ...(waitOn !== null && !t.blockers.some((b) => b.task === waitOn) ? { blockers: [...t.blockers, { task: waitOn, reason: '', at: this.now() }] } : {}),
-      ...(p.owner !== undefined ? { to: String(p.owner), ...(t.state === 'review' ? { state: 'queued', report: null } : {}) } : {}),
+      ...(p.owner !== undefined ? { to: String(p.owner) } : {}),
       ...fieldsOf(p),
     });
   }
@@ -285,44 +285,13 @@ export class FakeTasks {
 
   // ---- the verbs of the daemon's task plan (D3), served only when the fake is asked to ----
 
-  /** A done by the holder (the founder too) of a task someone else asked is an answer in review: it stays theirs until accept, reject or a
-   * reassign. The fake has no teams, so the review waits on whoever asked. */
-  done(p: Record<string, unknown>, person: string): string {
+  /** A done closes the task; a review is a task.handoff of the task itself. */
+  done(p: Record<string, unknown>): string {
     const t = this.find(p.task);
     if (t.state !== 'doing' && t.state !== 'queued') throw new TaskFailure('refused', `task ${t.id} is ${t.state}, not open`);
     const evidence = String(p.evidence ?? '') || null;
-    // a person who is no agent is the founder, who holds what is assigned to human
-    if (t.from !== person && (person === t.to || (t.to === 'human' && !this.isAgent(person) && this.isAgent(t.from)))) {
-      this.change(t, { state: 'review', report: { by: t.to, evidence: evidence ?? '', at: this.now(), waits_on: t.from, accepted: null } });
-      return `task T${t.id} answered (${evidence ?? ''}); it stays with ${t.to} until ${t.from} accepts it or takes it back`;
-    }
     this.change(t, { state: 'done', done: this.now(), evidence });
     return `task T${t.id} done`;
-  }
-  /** The report a person may accept or reject: only the task's opener or the founder. */
-  private reportFor(p: Record<string, unknown>, person: string, verb: string): Row {
-    const t = this.find(p.task);
-    if (t.state !== 'review' || !t.report) throw new TaskFailure('refused', `task ${t.id} has no answer waiting: nothing to ${verb}`);
-    if (person !== t.from && person !== 'founder') throw new TaskFailure('refused', `task ${t.id}'s answer can only be ${verb}ed by whoever it answers to`);
-    return t;
-  }
-  accept(p: Record<string, unknown>, person: string): void {
-    const t = this.reportFor(p, person, 'accept');
-    this.change(t, { state: 'done', done: this.now(), evidence: t.report!.evidence, report: null });
-  }
-  /** The report is dropped and the task is queued again for its owner. The note is one line of words, then only its image references. */
-  reject(p: Record<string, unknown>, person: string, agent = false): void {
-    const note = String(p.note ?? '');
-    const first = note.search(/!\[[^\]]*\]\(attachment:/);
-    const words = (first < 0 ? note : note.slice(0, first)).replace(/\s+/g, ' ').trim();
-    if (!words) throw invalidParams('note is the one line that says what is missing', 'note');
-    const images = first < 0 ? '' : note.slice(first);
-    if (images.replace(/!\[[^\]]*\]\(attachment:[^)]*\)/g, '').trim())
-      throw invalidParams('note is one line of words, then only its image references', 'note');
-    const t = this.reportFor(p, person, 'reject');
-    this.images(images, '', 'note', agent);
-    const kept = [words, ...(images.match(/!\[[^\]]*\]\(attachment:[^)]*\)/g) ?? [])].join('\n');
-    this.change(t, { state: 'queued', evidence: null, report: null, notes: [...(t.notes ?? []), { at: this.now(), who: person, text: kept }] });
   }
   reopen(p: Record<string, unknown>, person: string): void {
     const t = this.find(p.task);
@@ -362,8 +331,6 @@ export class FakeTasks {
 const BASIC = new Set(['tasks.list', 'task.get', 'task.history', 'task.time', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel', 'task.ask']);
 const VERBS = new Set([
   'task.done',
-  'task.accept',
-  'task.reject',
   'task.reopen',
   'task.queue',
   'task.draft',
@@ -414,11 +381,7 @@ export function taskCall(
         return ok('Asked.', { request: ask(tasks.find(p.task).id, p.to, p.text.trim()) });
       }
       case 'task.done':
-        return ok(tasks.done(p, person));
-      case 'task.accept':
-        return (tasks.accept(p, person), ok('Task accepted.'));
-      case 'task.reject':
-        return (tasks.reject(p, person, agent), ok('Task sent back.'));
+        return ok(tasks.done(p));
       case 'task.reopen':
         return (tasks.reopen(p, person), ok('Task reopened.'));
       case 'task.queue':

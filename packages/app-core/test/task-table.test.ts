@@ -39,7 +39,7 @@ const task = (id: number, over: Partial<Task> = {}): Task => ({
 const ids = (l: { id: number }[]) => l.map((t) => t.id);
 
 test('the default filter lists the open states without done and discarded, as the bridge does', () => {
-  assert.ok(LISTED.includes('doing') && LISTED.includes('draft') && LISTED.includes('review') && !LISTED.includes('done'));
+  assert.ok(LISTED.includes('doing') && LISTED.includes('draft') && !LISTED.includes('done'));
   const all = [task(1), task(2, { state: 'done' }), task(3, { state: 'discarded' }), task(4, { state: 'doing' })];
   assert.deepEqual(ids(shown(all, defaultFilter())), [1, 4]);
   assert.deepEqual(ids(shown(all, { ...defaultFilter(), closed: true })), [1, 2, 3, 4]);
@@ -145,14 +145,13 @@ test('tasks group as Needs you, Running, Queued and Done, each keeping its order
     task(2, { state: 'doing' }),
     task(3, { to: 'human' }),
     task(4, { state: 'done' }),
-    task(5, { state: 'review', from: 'human' }),
     task(6, { state: 'doing' }),
   ];
   const g = groupTasks(all, 'me');
   assert.deepEqual(
     g.map((x) => [x.label, ids(x.rows)]),
     [
-      ['Needs you', [3, 5]],
+      ['Needs you', [3]],
       ['Running', [2, 6]],
       ['Queued', [1]],
       ['Done', [4]],

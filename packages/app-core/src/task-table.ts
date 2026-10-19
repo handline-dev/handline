@@ -4,7 +4,7 @@ import type { Task } from '@handline/client';
 import { isPerson } from './chat.ts';
 import { taskRef } from './tasks.ts';
 
-export const TASK_STATES = ['pending', 'draft', 'queued', 'doing', 'blocked', 'review', 'done', 'discarded'] as const;
+export const TASK_STATES = ['pending', 'draft', 'queued', 'doing', 'blocked', 'done', 'discarded'] as const;
 /** What a list shows when it opens: done and discarded are out of the way until asked for. */
 export const LISTED: readonly string[] = TASK_STATES.filter((s) => s !== 'done' && s !== 'discarded');
 export const CLOSED: readonly string[] = ['done', 'discarded'];
@@ -156,7 +156,7 @@ export const TASK_GROUPS: readonly { key: TaskGroupKey; label: string }[] = [
 /** The group a task sits in: what waits on the person, what runs, what waits its turn, what is closed. */
 export function taskGroup(t: Task, me: string): TaskGroupKey {
   if (CLOSED.includes(t.state)) return 'done';
-  if (isPerson(t.to, me) || (t.state === 'review' && isPerson(t.from, me))) return 'needs';
+  if (isPerson(t.to, me)) return 'needs';
   return t.state === 'doing' ? 'running' : 'queued';
 }
 

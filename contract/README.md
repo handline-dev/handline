@@ -48,7 +48,7 @@ A file is `{"fixtures": [Fixture, ...]}`. A fixture is `{name, spec, about, as, 
 - `agent_view_attention.json` needs `--var view_fire_agent`, `view_ask_agent`, `view_alert_agent`, `view_stuck_agent`, `view_ignored_agent`, `view_broken_agent`, and reuses `view_busy_agent` and `view_plain_agent` of `agent_view_fields.json`: agents shaped as each name says (triggers apply and context at its limit; an open ask to the founder; a dialog open; a delivery not moving or a usage limit; resume ignoring cache expiry; configuration unreadable). `view_plain_agent` must also have nothing the founder should look at. The Go run does not supply them yet (`go/conformance-needvar.txt`). The TS fake plays them (`view.fire` and so on, with `--conformance`).
 - `agent_page.json` needs `--var page_agent=NAME`: any agent the daemon knows. The Go run seeds it (`tools/conformance_fds.py`).
 - `agent_triggers.json` needs `--var triggers_agent=NAME`: any agent the daemon knows. The Go run seeds it (`tools/conformance_fds.py`).
-- `task_report.json`'s accept, reject and close-at-once fixtures run as an agent beside a founder connection.
+- `task_done.json` runs as an agent beside a founder connection.
 - `task_page.json`'s first fixture needs `--var task_owner=NAME`: an agent other than the caller, whom the caller opens a task for. It runs as an agent. The Go run seeds it.
 - `admin_writes.json` needs `--var account=NAME` (an account the daemon has) and `--var schedule_agent=NAME` (an agent it knows). The Go run seeds them.
 - `needs_you.json`'s dialog-rule fixture needs `--var dialogs_retired=1`: a daemon that answers no dialog and refuses to save a dialog rule (the var only names that it is so). The Python daemon keeps saving them until the cutover.
