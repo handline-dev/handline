@@ -17,7 +17,7 @@ const FILTERS = ['All', 'Messages', 'Tasks', 'Sessions', 'Tools'] as const;
 type Filter = (typeof FILTERS)[number];
 
 const kindOf = (e: Exclude<TimelineEntry, { kind: 'proposal' }>): Filter =>
-  e.kind === 'message' ? 'Messages' : e.kind === 'note' ? 'Tasks' : e.item.kind === 'tool' ? 'Tools' : e.item.kind === 'session' ? 'Sessions' : 'Tasks';
+  e.kind === 'message' ? 'Messages' : e.kind === 'note' ? 'Tasks' : e.item.kind === 'tool' || e.item.kind === 'prompt' ? 'Tools' : e.item.kind === 'session' ? 'Sessions' : 'Tasks';
 
 const TEXT = { fontSize: 13 } as const; // one size for every row
 
@@ -62,7 +62,7 @@ export function Activity(props: { agent: string }) {
           </Text>
         )}
         {entries.map((e) => {
-          if (e.kind === 'item') return e.item.kind === 'session' ? <SessionMark key={`i${e.id}`} i={e.item} /> : e.item.kind === 'tool' ? <ToolRow key={`i${e.id}`} i={e.item} /> : <TaskRow key={`i${e.id}`} i={e.item} />;
+          if (e.kind === 'item') return e.item.kind === 'session' ? <SessionMark key={`i${e.id}`} i={e.item} /> : e.item.kind === 'tool' || e.item.kind === 'prompt' ? <ToolRow key={`i${e.id}`} i={e.item} /> : <TaskRow key={`i${e.id}`} i={e.item} />;
           const k = `m${e.id}`;
           return (
             <Pressable key={k} testID={`activity-msg-${e.id}`} accessibilityRole="button" onPress={() => toggle(k)}>
@@ -94,7 +94,7 @@ function TaskRow({ i }: { i: TranscriptItem }) {
   );
 }
 
-/** A tool line: the command, and a tap shows what it printed in place, in full; a second tap folds it. */
+/** A tool line, or a permission request: the command, and a tap shows what it printed in place, in full; a second tap folds it. */
 function ToolRow({ i }: { i: TranscriptItem }) {
   const c = usePalette();
   const [open, setOpen] = useState(false);
@@ -103,8 +103,7 @@ function ToolRow({ i }: { i: TranscriptItem }) {
     <Row>
       <Icon name="tool" color={c.muted} />
       <Text testID={`tool-${i.id}`} numberOfLines={2} style={{ ...TEXT, color: c.muted, flex: 1 }}>
-        {i.tool}
-        {i.text ? ` ${i.text}` : ''}
+        {i.kind === 'prompt' ? `Asked permission: ${i.prompt?.tool ?? ''}${i.prompt?.command ? ` ${i.prompt.command}` : ''}` : `${i.tool}${i.text ? ` ${i.text}` : ''}`}
         {!i.output && cut > 0 ? ` · ${cut} more line${cut === 1 ? '' : 's'} let go` : ''}
       </Text>
       {i.output ? <Icon name={open ? "less" : "more"} color={c.muted} /> : null}
