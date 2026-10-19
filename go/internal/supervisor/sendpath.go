@@ -132,9 +132,9 @@ func (e *Env) sendOnce(q db.Q, agent, op, text string, d delivery.Delivery) (Sen
 // handingOff is why nothing more is typed at agent's session: it was asked for its handoff note and is closed after it, so what arrives
 // meanwhile goes to the session that follows; "" when no such wait is kept.
 func (e *Env) handingOff(q db.Q, agent string) string {
-	_, since, ok, err := db.NoteWait(q, agent)
+	_, _, kept, err := db.NoteWaitKept(q, agent, e.now())
 	check(err)
-	if ok && e.now()-since <= db.NoteWaitStaleS {
+	if kept {
 		return "held: it is writing its handoff note, and the next session is told"
 	}
 	return ""

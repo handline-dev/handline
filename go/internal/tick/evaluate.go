@@ -414,7 +414,7 @@ func (t *Tick) supervise(agent string, now int64, samples map[string][]Sample, a
 		trig = Trigger{true, FreshKind, "its task is done and it starts a fresh session after each"}
 	}
 	// A handoff that asked for the agent's note goes on once the note's turn is over: the reading that fired it may not be trusted yet.
-	if kind, since, waiting := must3(db.NoteWait(q, agent)); !trig.Fired && waiting && now-since <= db.NoteWaitStaleS && !t.Handoff.NoteHold(q, agent, now) {
+	if kind, _, kept := must3(db.NoteWaitKept(q, agent, now)); !trig.Fired && kept && !t.Handoff.NoteHold(q, agent, now) {
 		trig = Trigger{true, kind, "its handoff note is written"}
 	}
 	if trig.Fired {

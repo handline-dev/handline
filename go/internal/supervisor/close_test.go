@@ -234,4 +234,9 @@ func TestNothingIsTypedAtASessionWritingItsHandoffNote(t *testing.T) {
 	if got, _ := r.TellNow(r.DB, rid); got != "sent" {
 		t.Fatal(got)
 	}
+	// a wait nobody acted on for longer than NoteWaitStaleS holds nothing
+	r.must(db.MarkNoteWait(r.DB, "bob", "context", r.now()-db.NoteWaitStaleS-1))
+	if got, _ := r.TellNow(r.DB, r.ask("alice", "bob", "after a stale wait", "ask")); got != "sent" {
+		t.Fatalf("a stale wait still holds: %q", got)
+	}
 }
