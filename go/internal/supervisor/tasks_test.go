@@ -505,8 +505,7 @@ func TestAMemoIsToldAtOnceOnlyToWhomItIsAimedAt(t *testing.T) {
 func TestAHeldMemoUnreadForAnHourIsToldToTheReadersLeadOnce(t *testing.T) {
 	r := newRig(t)
 	r.register("carol")
-	r.must(os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "edges:\n",
-		"edges:\n  - { from: bob, to: carol, relation: supervisor, response: async }\n", 1)), 0o644))
+	r.must(os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "teams:\n", "teams:\n  bob: [bob, carol]\n", 1)), 0o644))
 	r.agentUp("bob")
 	r.agentUp("carol")
 	r.must(db.SetAgentState(r.DB, "carol", states.Running, 0, ""))

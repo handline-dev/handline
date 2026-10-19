@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/db"
 )
@@ -23,7 +24,7 @@ func TestSayVerbQueuesAndTypesAtOnce(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	out := r.say(SayVerbIn{Requester: "alice", Target: "bob", Body: "psst"})
-	if !out.OK || !strings.HasPrefix(out.Msg, "queued as #1 for bob (response=async)") {
+	if !out.OK || out.Msg != "queued as #1 for bob" {
 		t.Fatalf("%+v", out)
 	}
 	if !strings.Contains(r.term.last(), "#1 from alice, waiting for you:\npsst") {
@@ -36,8 +37,8 @@ func TestSayVerbQueuesAndTypesAtOnce(t *testing.T) {
 
 func TestSayToAReportWithoutATaskIsRefusedWithTheTaskThatWouldReachIt(t *testing.T) {
 	r := newRig(t)
-	// bob reports to alice by a supervisor edge; written before the table is first read and sealed
-	os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "edges:\n", "edges:\n  - { from: alice, to: bob, relation: supervisor, response: async }\n", 1)), 0o644)
+	// bob reports to alice, the member its team is named after; written before the table is first read and sealed
+	os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "eng: [alice, bob]", "alice: [alice, bob]", 1)), 0o644)
 	out := r.say(SayVerbIn{Requester: "alice", Target: "bob", Body: "fix the bug"})
 	want := "work cannot reach a report by message: make it a task (`hl task new`), or say --task T<n> to memo one. Try:\n  hl task new --assign bob -t 2h '<title>' 'fix the bug'"
 	if out.OK || out.Msg != want {
@@ -275,5 +276,32 @@ func TestMemoEditAndDeleteAreForTheAuthorOrTheFounder(t *testing.T) {
 	}
 	if m, _ := db.GetMemo(r.DB, mid); m != nil {
 		t.Fatal("memo kept")
+	}
+}
+
+// The daemon closes the database, and a test its home, only once a telling started off the caller has ended.
+func TestWaitReturnsOnceTheTellingsOffTheCallerHaveEnded(t *testing.T) {
+	RunInline = false
+	t.Cleanup(func() { RunInline = true })
+	e := &Env{}
+	release, ended := make(chan struct{}), make(chan bool, 1)
+	e.background("a telling", func() {
+		<-release
+		ended <- true
+	})
+	waited := make(chan struct{})
+	go func() {
+		e.Wait()
+		close(waited)
+	}()
+	select {
+	case <-waited:
+		t.Fatal("Wait returned while the telling still ran")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	<-waited
+	if len(ended) != 1 {
+		t.Fatal("Wait returned before the telling ended")
 	}
 }

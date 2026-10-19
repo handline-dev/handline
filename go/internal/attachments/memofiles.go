@@ -104,11 +104,31 @@ func (s *Store) AddFiles(q db.Q, home, by string, founder bool, paths []string) 
 	return out, nil
 }
 
+// AddImages is AddFiles for a message: only images, which a chat shows.
+func (s *Store) AddImages(q db.Q, home, by string, founder bool, paths []string) ([]Info, error) {
+	for _, p := range paths {
+		if strings.EqualFold(filepath.Ext(p), ".md") {
+			return nil, badParam(p+" is not an image: a message carries PNG, JPEG, GIF or WebP files", "files")
+		}
+	}
+	return s.AddFiles(q, home, by, founder, paths)
+}
+
+// Carry records files as the images of message rid and claims them.
+func (s *Store) Carry(q db.Q, rid int64, files []Info) error {
+	return s.keep(files, func() error { return Record(q, rid, files) })
+}
+
 func (s *Store) AttachMemo(q db.Q, mid int64, files []Info) error {
+	return s.keep(files, func() error { return LinkMemo(q, mid, files) })
+}
+
+// keep links files with link, then claims them; no files is nothing to do.
+func (s *Store) keep(files []Info, link func() error) error {
 	if len(files) == 0 {
 		return nil
 	}
-	if err := LinkMemo(q, mid, files); err != nil {
+	if err := link(); err != nil {
 		return err
 	}
 	ids := make([]string, len(files))

@@ -603,6 +603,9 @@ func (d *Daemon) Close() {
 		d.logins.Close()
 	}
 	d.wg.Wait()
+	if d.envMade != nil {
+		d.envMade.Wait()
+	}
 	if d.cfg.BeforeClose != nil {
 		d.cfg.BeforeClose()
 	}
