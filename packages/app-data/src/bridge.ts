@@ -47,6 +47,8 @@ const rules: Record<string, Rule> = {
     void qc.invalidateQueries({ queryKey: qk.taskHistory(d, t.id) });
     patchTaskLists(qc, d, t);
     void qc.invalidateQueries({ queryKey: ['d', d, 'board'] });
+    // A message's one-tap actions follow its task's state, so the chat is read again.
+    void qc.invalidateQueries({ queryKey: ['d', d, 'chat-messages'] });
   },
   'inbox.added': inbox,
   'inbox.changed': inbox,

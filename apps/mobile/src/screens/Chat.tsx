@@ -13,6 +13,7 @@ import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
 import { Decided, Line } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
+import { ChatActions } from './ChatActions.tsx';
 import { PrBody } from './PrBody.tsx';
 import { ChatFind } from './ChatFind.tsx';
 import { ChatRefs, type Ref } from './ChatRefs.tsx';
@@ -346,6 +347,7 @@ function Bubble(props: {
       )}
       {m.body ? <PrBody id={m.id} agent={agent} body={m.body} /> : null}
       {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
+      {m.actions?.length ? <ChatActions id={m.id} actions={m.actions} /> : null}
       <Text style={{ color: c.muted, fontSize: 11 }}>
         {clockTime(m.at)}
         {side === 'person' && !failed && (
