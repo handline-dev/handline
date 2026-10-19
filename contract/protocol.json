@@ -6275,7 +6275,8 @@
     {
      "$ref": "#/components/errors/bad_request"
     }
-   ]
+   ],
+   "description": "A request that already landed in its agent's session does not refuse the task's asker or the founder: the task is discarded, that request closes with it and its holder is told why; anyone else is refused."
   },
   {
    "name": "task.board",
