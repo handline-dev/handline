@@ -445,6 +445,9 @@ func TestAMessageToTheFounderCarriesTheButtonsItsTaskStateAsksFor(t *testing.T) 
 	}
 }
 
+// The names chat.locate is given in the tests below: msg_ and a prefix of the refs they insert.
+const nameA, nameB = "msg_aaaa111", "msg_bbbb333" // local-ref-ok: test messages
+
 func TestChatLocateTakesAMessageNameAndReturnsTheTranscriptOfItsWindow(t *testing.T) {
 	e := testEnv(t)
 	addAgent(t, e, "bob", "")
@@ -470,7 +473,7 @@ func TestChatLocateTakesAMessageNameAndReturnsTheTranscriptOfItsWindow(t *testin
 		}
 		return out
 	}
-	for _, name := range []string{"msg_bbbb333", "bbbb33334444"} {
+	for _, name := range []string{nameB, "bbbb33334444"} {
 		got, err := e.chatLocate(nil, map[string]any{"request": name})
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -484,7 +487,7 @@ func TestChatLocateTakesAMessageNameAndReturnsTheTranscriptOfItsWindow(t *testin
 			t.Fatalf("%s: %v", name, tools(got))
 		}
 	}
-	got, err := e.chatLocate(nil, map[string]any{"request": "msg_bbbb333", "limit": json.Number("1")})
+	got, err := e.chatLocate(nil, map[string]any{"request": nameB, "limit": json.Number("1")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +514,7 @@ func TestChatLocateKeepsAPageOfTheTranscriptAroundTheMessage(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := e.chatLocate(nil, map[string]any{"request": "msg_aaaa111"})
+	got, err := e.chatLocate(nil, map[string]any{"request": nameA})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +525,7 @@ func TestChatLocateKeepsAPageOfTheTranscriptAroundTheMessage(t *testing.T) {
 	if len(items) != maxLimit || first != "at 1000" || last != fmt.Sprintf("at %d", 1000+maxLimit-1) || m["transcript_more_older"] != false || m["transcript_more_newer"] != true {
 		t.Fatalf("%d items, %v .. %v, older %v newer %v", len(items), first, last, m["transcript_more_older"], m["transcript_more_newer"])
 	}
-	got, _ = e.chatLocate(nil, map[string]any{"request": "msg_bbbb333"})
+	got, _ = e.chatLocate(nil, map[string]any{"request": nameB})
 	m = got.(map[string]any)
 	items = m["transcript"].([]any)
 	if mid := items[maxLimit/2].(map[string]any)["text"]; len(items) != maxLimit || mid != "at 1200" || m["transcript_more_older"] != true || m["transcript_more_newer"] != true {
