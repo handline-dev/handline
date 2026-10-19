@@ -13532,12 +13532,6 @@
       "default": 300,
       "description": "Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent."
      },
-     "stop_wait_backstop_s": {
-      "type": "integer",
-      "minimum": 1,
-      "default": 900,
-      "description": "Backstop for a stop-wait."
-     },
      "token_prices": {
       "type": "object",
       "additionalProperties": {
@@ -13700,18 +13694,6 @@
        }
       ],
       "description": "Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. null removes the key (back to the default)."
-     },
-     "stop_wait_backstop_s": {
-      "oneOf": [
-       {
-        "type": "integer",
-        "minimum": 1
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "description": "Backstop for a stop-wait. null removes the key (back to the default)."
      },
      "token_prices": {
       "oneOf": [

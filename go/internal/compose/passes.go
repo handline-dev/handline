@@ -5,7 +5,6 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/heal"
-	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/schedules"
@@ -120,11 +119,6 @@ func (t timeboxPorts) SupervisorOf(agent string) string {
 func (t timeboxPorts) LeadOf(agent string) string {
 	tm, _ := team.LoadTeam(t.home)
 	return tm.LeadOf(agent)
-}
-
-// StopWaitReason is actions.stop_wait_reason (hooks.StopWaitReason): the Stop hook asks the same.
-func (t timeboxPorts) StopWaitReason(q db.Q, agent string) string {
-	return hooks.StopWaitReason(q, t.home, agent)
 }
 
 func (t timeboxPorts) SendNotice(q db.Q, agent, text string) bool {

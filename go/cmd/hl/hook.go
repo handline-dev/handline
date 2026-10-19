@@ -41,7 +41,7 @@ var collected = map[string]bool{"SessionStart": true, "UserPromptSubmit": true, 
 
 // hook is `hl hook <event>` (session/events.record_from_stdin). PreToolUse runs the guard chain; PostToolUse and its failure take away the
 // wait a permission prompt raised and record the event, and a PostToolUse notes a memory file used and a command started in the background;
-// Stop runs the stop gate; the captured events are recorded, and the turn-edge ones pull the session's status snapshot. It always exits 0,
+// the captured events are recorded, and the turn-edge ones pull the session's status snapshot. It always exits 0,
 // as a hook that fails must never take the session with it.
 func hook(c *hlclient.Client, args []string) (int, bool) {
 	event := ""
@@ -123,15 +123,9 @@ func newRequestID() string {
 	return hex.EncodeToString(b)
 }
 
-// capture is the rest of record_from_stdin: the stop gate for a Stop, then the record of an event that is kept and the status snapshot on a
-// turn's edge. Anything else is answered and left alone.
+// capture is the rest of record_from_stdin: the record of an event that is kept and the status snapshot on a turn's edge. Anything else is
+// answered and left alone.
 func capture(c *hlclient.Client, d *sql.DB, agent, event string, raw map[string]any) int {
-	if event == "Stop" {
-		if block, reason := stopDecide(d, c.Home, agent, raw); block {
-			fmt.Println(rpc.PyJSON(map[string]any{"decision": "block", "reason": reason}, true, true))
-			return 0
-		}
-	}
 	if !captured[event] {
 		fmt.Println("{}")
 		return 0

@@ -286,8 +286,7 @@ func AgentOfTerminal(q Q, terminal string) (string, error) {
 // ActivityKinds are the events that move an agent's activity clock: its own turns and commands, never what ocp does to it.
 var ActivityKinds = []string{"ask", "cancel", "commit", "raise_decision", "report", "resolve", "withdraw", "no_task",
 	"task_new", "task_start", "task_note", "task_begin", "task_handoff",
-	"UserPromptSubmit", "Stop", "StopFailure", "SubagentStop", "PostCompact", "PermissionRequest", "TeammateIdle",
-	"stop_gate"}
+	"UserPromptSubmit", "Stop", "StopFailure", "SubagentStop", "PostCompact", "PermissionRequest", "TeammateIdle"}
 
 func marks(n int) string {
 	s := ""

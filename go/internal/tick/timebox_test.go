@@ -16,7 +16,6 @@ type tbPorts struct {
 	doing      map[int64]bool
 	boss       string
 	lead       string
-	stopWait   string
 	sendOK     bool
 	sent       []string // "who: text", typed at once
 	batched    []string // "who: text", for the digest
@@ -38,7 +37,6 @@ type tbPorts struct {
 func (p *tbPorts) TaskDoing(_ db.Q, t *db.Task) bool           { return p.doing[t.ID] }
 func (p *tbPorts) SupervisorOf(string) string                  { return p.boss }
 func (p *tbPorts) LeadOf(string) string                        { return p.lead }
-func (p *tbPorts) StopWaitReason(db.Q, string) string          { return p.stopWait }
 func (p *tbPorts) BgStale(db.Q, string, int64) bool            { return p.bgStale }
 func (p *tbPorts) BgOwesNothing(db.Q, string) bool             { return p.bgOwes }
 func (p *tbPorts) NeverCloses(string) bool                     { return p.never }
@@ -414,53 +412,6 @@ func TestTheBackgroundCheckAsksAnIdleAgentWhichJobsToStopEveryCheckInterval(t *t
 	}
 }
 
-func TestTheStopWaitBackstopTellsTheTasksOpenerOnceWhenAnIdleAgentHasNoRecordedWait(t *testing.T) {
-	tk, w, b, p := timebox(t)
-	p.boss = "lead"
-	tid := newTask(t, tk, "a", "asker", 0)
-	setState(t, tk, "a", states.Idle, 0)
-	db.SetCurrentTask(tk.Q, "a", tid, true)
-	p.stopWait = "its task has no wait recorded"
-	b.SweepStopWaitBackstop(tk, 1000)
-	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS-1)
-	if len(p.batched) != 0 {
-		t.Fatalf("told before the limit: %v", p.batched)
-	}
-	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS)
-	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS+100)
-	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "asker: a has been idle") || countEvents(t, tk, "a", "stop_wait_stuck") != 1 || !w.logged("asker told") {
-		t.Fatalf("told once, to the opener: %v %v", p.batched, w.logs)
-	}
-	if len(p.sent) != 0 {
-		t.Fatalf("the lead's idle notice is typed at once: %v", p.sent)
-	}
-}
-
-func TestTheStopWaitBackstopTellsTheSupervisorWhenTheFounderOrTheAgentOpenedTheTask(t *testing.T) {
-	for _, opener := range []string{db.Human, "a"} {
-		tk, _, b, p := timebox(t)
-		p.boss = "lead"
-		setState(t, tk, "a", states.Idle, 0)
-		db.SetCurrentTask(tk.Q, "a", newTask(t, tk, "a", opener, 0), true)
-		p.stopWait = "its task has no wait recorded"
-		b.SweepStopWaitBackstop(tk, 1000)
-		b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS)
-		if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "lead: ") {
-			t.Fatalf("opened by %s: %v", opener, p.batched)
-		}
-	}
-	// No supervisor either: the founder, as an event.
-	tk, w, b, p := timebox(t)
-	setState(t, tk, "a", states.Idle, 0)
-	db.SetCurrentTask(tk.Q, "a", newTask(t, tk, "a", db.Human, 0), true)
-	p.stopWait = "its task has no wait recorded"
-	b.SweepStopWaitBackstop(tk, 1000)
-	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS)
-	if len(p.batched) != 0 || countEvents(t, tk, "a", "stop_wait_stuck") != 1 || !w.logged("human told") {
-		t.Fatalf("%v %v", p.batched, w.logs)
-	}
-}
-
 func TestAHeadNobodyResolvedTellsItsTasksOpenerOnceItsNudgeScheduleIsUsedUp(t *testing.T) {
 	tk, _, b, p := timebox(t)
 	p.boss = "lead"
@@ -490,7 +441,7 @@ func TestOneNoticesFailureStopsTheRestAsAnExceptionDid(t *testing.T) {
 	tk, _, b, p := timebox(t)
 	setState(t, tk, "a", states.Idle, 0)
 	p.forgotten = &Forgotten{HeadID: 1}
-	// StopWaitReason panics through the guard: Sweep returns that as its error and the later notice does not run.
+	// BgStale panics through the guard: Sweep returns that as its error and the later notice does not run.
 	b.Ports = &panicking{p}
 	if err := b.Sweep(tk, 1000); err == nil {
 		t.Fatal("a failed notice was swallowed")
@@ -499,7 +450,7 @@ func TestOneNoticesFailureStopsTheRestAsAnExceptionDid(t *testing.T) {
 
 type panicking struct{ *tbPorts }
 
-func (p *panicking) StopWaitReason(db.Q, string) string { panic("boom") }
+func (p *panicking) BgStale(db.Q, string, int64) bool { panic("boom") }
 
 func TestATaskGivenNoTimeoutRunsFourHoursBeforeItsOpenerIsTold(t *testing.T) {
 	tk, _, b, p := timebox(t)
