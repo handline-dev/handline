@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { ago, NOTICE_SENDER } from '@handline/app-core';
 import type { InboxItem } from '@handline/client';
-import { useConnection } from '@handline/app-react';
+import { useConnection, useStore } from '@handline/app-react';
 import { useInbox, usePending, useServes, useUnread, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
@@ -43,6 +43,7 @@ const NO_UI: Ui = { open: false, box: null, text: '' };
 function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch: Partial<Ui>) => void; done: () => void }) {
   const c = usePalette();
   const i = props.item;
+  const store = useStore();
   const { open, box, text } = props.ui;
   const setOpen = (v: boolean) => props.setUi({ open: v });
   const setBox = (v: Ui['box']) => props.setUi({ box: v });
@@ -123,6 +124,13 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
                       () => {}, // the refusal is reported by the write itself
                     );
                   }}
+                />
+              ) : null}
+              {i.fix === 'open_terminal' && i.agent ? (
+                <Button
+                  testID={`inbox-terminal-${i.id}`}
+                  label="Open terminal"
+                  onPress={() => void store.openAgent(i.agent!).then(() => store.setTab('terminal'))}
                 />
               ) : null}
               {i.kind !== 'decision' && !i.prompt && i.kind !== 'block' ? (
