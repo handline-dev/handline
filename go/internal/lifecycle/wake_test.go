@@ -629,3 +629,29 @@ func TestASlowStartOpensOneTerminalWhoeverElseAsksMeanwhile(t *testing.T) {
 		t.Fatalf("one terminal and no stall: %v %+v", sp.opened, row)
 	}
 }
+
+func TestTheLoadHoldsTheDaemonsOwnStartsButNotAPersons(t *testing.T) {
+	m, _, _ := newManager(t)
+	m.LoadHeld = func(string) string { return "held: machine load - load 2.00 per core, limit 1.50" }
+	m.Agents = fakeAgents{repo: "/repo"}
+	sp := m.Spawn.(*fakeSpawn)
+	db.AddPending(m.Q, "a", "x", 1)
+	if said, _ := m.StartForWork("a"); !strings.Contains(said, "a: not started - held: machine load") || len(sp.spawned) != 0 {
+		t.Fatalf("a start for work went past the load: %q %v", said, sp.spawned)
+	}
+	db.SetTerminal(m.Q, "b", "t1", "/wt")
+	db.SetClosed(m.Q, "b", "sess-1")
+	db.SetAgentState(m.Q, "b", states.Idle, 0, "")
+	db.AddPending(m.Q, "b", "hi", 1)
+	if ok, said, _ := m.WakeAgent("b", WakeOpts{}); ok || !strings.Contains(said, "held: machine load") {
+		t.Fatalf("the daemon's wake went past the load: %v %q", ok, said)
+	}
+	if row, _ := db.GetAgentState(m.Q, "b"); row.WakeFailures != 0 {
+		t.Fatalf("a held wake counted as a failure: %d", row.WakeFailures)
+	}
+	for _, o := range []WakeOpts{{Person: true}, {Force: true}} {
+		if _, said, _ := m.WakeAgent("b", o); strings.Contains(said, "held: machine load") {
+			t.Fatalf("%+v: a person's wake or a restart was held: %q", o, said)
+		}
+	}
+}

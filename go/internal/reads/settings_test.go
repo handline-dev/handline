@@ -116,3 +116,16 @@ func TestEveryNotificationKindPushesUntilTheFounderTurnsItOff(t *testing.T) {
 		}
 	}
 }
+
+func TestTheLoadLimitsShowTheirDefaultsAndWhatIsSet(t *testing.T) {
+	home := t.TempDir()
+	e := &Env{Home: home}
+	v := e.settingsValues()
+	if v["host_active_cap"] != 0 || v["load_per_core_pct"] != 150 || v["ram_free_min_pct"] != 10 {
+		t.Fatalf("defaults: %v %v %v", v["host_active_cap"], v["load_per_core_pct"], v["ram_free_min_pct"])
+	}
+	os.WriteFile(filepath.Join(home, "config.yaml"), []byte("host_active_cap: 4\nload_per_core_pct: 0\n"), 0o644)
+	if v = e.settingsValues(); v["host_active_cap"] != 4 || v["load_per_core_pct"] != 0 {
+		t.Fatalf("set: %v %v", v["host_active_cap"], v["load_per_core_pct"])
+	}
+}
