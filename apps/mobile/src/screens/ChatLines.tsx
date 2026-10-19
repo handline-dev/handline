@@ -9,11 +9,11 @@ import { Markdown } from './Markdown.tsx';
 import { Sheet } from './TaskActions.tsx';
 
 /** The time of a message and, for the person's own, how far it got, as a small column beside its bubble. */
-export function Stamp({ m, time, ticks }: { m: { id: number }; time: string; ticks: string | null }) {
+export function Stamp({ m, time, ticks }: { m: { id: number }; time: string | null; ticks: string | null }) {
   const c = usePalette();
   return (
     <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
-      <Text style={{ color: c.muted, fontSize: 11 }}>{time}</Text>
+      {time ? <Text style={{ color: c.muted, fontSize: 11 }}>{time}</Text> : null}
       {ticks ? (
         <Text testID={`landing-${m.id}`} style={{ color: c.muted, fontSize: 11 }}>
           {ticks}

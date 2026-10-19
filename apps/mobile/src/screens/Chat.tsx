@@ -314,7 +314,7 @@ function Bubble(props: {
   const stamp = (
     <Stamp
       m={m}
-      time={clockTime(m.at)}
+      time={props.picked ? clockTime(m.at) : null}
       ticks={
         side === 'person' && !failed
           ? m.landing === 'withdrawn'
@@ -326,7 +326,7 @@ function Bubble(props: {
       }
     />
   );
-  // Like the PC chat: the time and the ticks sit beside the bubble, at its bottom, not on a line under it.
+  // Like the PC chat: the ticks sit beside the bubble at its bottom, and the time shows once the row is picked (PC shows it on hover).
   return (
     <Pressable
       testID={`msg-${m.id}`}
@@ -339,6 +339,7 @@ function Bubble(props: {
       <View
         style={{
           flexShrink: 1,
+          maxWidth: '88%',
           gap: 4,
           padding: space.md,
           borderRadius: radius.lg,
