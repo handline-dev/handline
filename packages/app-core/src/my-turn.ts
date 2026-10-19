@@ -104,13 +104,15 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
       });
     } else if (KINDS[i.kind]) {
       const decide = i.kind === 'decision' && i.task != null ? [{ type: 'done', item: i } as const] : [];
+      // A card the daemon raised after its own recovery failed: its fix is the first button.
+      const fix = i.fix === 'open_terminal' && i.agent ? [{ type: 'terminal', agent: i.agent } as const] : [];
       cards.push({
         ...base,
         key: `item:${i.id}`,
         kind: 'decision',
         title,
-        primary: 1 + decide.length,
-        actions: [{ type: 'answer', id: i.id }, ...decide, ...open],
+        primary: 1 + decide.length + fix.length,
+        actions: [...fix, { type: 'answer', id: i.id }, ...decide, ...open],
       });
     }
   }
