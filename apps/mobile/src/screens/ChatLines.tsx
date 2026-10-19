@@ -8,26 +8,43 @@ import { usePalette } from '../theme.ts';
 import { Markdown } from './Markdown.tsx';
 import { Sheet } from './TaskActions.tsx';
 
+/** The time of a message and, for the person's own, how far it got, as a small column beside its bubble. */
+export function Stamp({ m, time, ticks }: { m: { id: number }; time: string; ticks: string | null }) {
+  const c = usePalette();
+  return (
+    <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
+      <Text style={{ color: c.muted, fontSize: 11 }}>{time}</Text>
+      {ticks ? (
+        <Text testID={`landing-${m.id}`} style={{ color: c.muted, fontSize: 11 }}>
+          {ticks}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 /** A transcript line that is not a message. */
 export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: TranscriptItem) => void }) {
   const c = usePalette();
   const small = { color: c.muted, fontSize: 12 } as const;
   if (i.kind === 'reply')
     return (
-      <View testID={`reply-${i.id}`} style={{ alignSelf: 'flex-start', maxWidth: '88%', padding: space.md }}>
-        <Markdown text={i.text ?? ''} breaks />
-        <Text style={small}>{clockTime(i.at)}</Text>
-        {onReply && (
-          <Pressable
-            testID={`reply-to-${i.id}`}
-            accessibilityRole="button"
-            accessibilityLabel="Reply to this"
-            hitSlop={8}
-            onPress={() => onReply(i)}
-          >
-            <Text style={{ color: c.accent, fontSize: 12, fontWeight: '600' }}>↩ Reply</Text>
-          </Pressable>
-        )}
+      <View testID={`reply-${i.id}`} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.xs }}>
+        <View style={{ flexShrink: 1, padding: space.md }}>
+          <Markdown text={i.text ?? ''} breaks />
+          {onReply && (
+            <Pressable
+              testID={`reply-to-${i.id}`}
+              accessibilityRole="button"
+              accessibilityLabel="Reply to this"
+              hitSlop={8}
+              onPress={() => onReply(i)}
+            >
+              <Text style={{ color: c.accent, fontSize: 12, fontWeight: '600' }}>↩ Reply</Text>
+            </Pressable>
+          )}
+        </View>
+        <Stamp m={i} time={clockTime(i.at)} ticks={null} />
       </View>
     );
   if (i.kind === 'prompt') {
