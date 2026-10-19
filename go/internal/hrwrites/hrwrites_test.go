@@ -878,6 +878,34 @@ func TestProposeRenameTeamAndBundleAreDraftedAsHrPyDraftsThem(t *testing.T) {
 }
 
 // The founder's own hr add is applied at once, its approval on record as any other's, and hr.list shows it.
+// The repo is checked again when a proposal is applied: one raised before the check (a relative path) or whose checkout is gone since is
+// refused then, with nothing registered.
+func TestAnApproveChecksTheRepoAgain(t *testing.T) {
+	r := newRig(t)
+	gone := gitDir(t)
+	os.RemoveAll(gone)
+	for i, c := range []struct{ kind, repo, want string }{
+		{"add", "orcapipe/handline", "repo orcapipe/handline is not an absolute path"},
+		{"add", gone, "is not a folder"},
+		{"team", gone, "is not a folder"},
+	} {
+		id := fmt.Sprintf("aaab000%d", i)
+		fields := []string{"kind", c.kind, "agent", "carol", "repo", c.repo}
+		if c.kind == "team" {
+			fields = append(fields, "members", "carol.a", "repo.carol.a", gitDir(t))
+		}
+		p, n := r.propose(id, fields...)
+		res := r.decide(n, "approve", p.subject(), "d"+id)
+		msg, _ := res["error"].(map[string]any)["message"].(string)
+		if !strings.Contains(msg, c.want) {
+			t.Fatalf("%s %s: %v", c.kind, c.repo, res)
+		}
+		if _, err := os.Stat(filepath.Join(r.home, "agents", "carol")); err == nil {
+			t.Fatalf("%s %s: carol is registered", c.kind, c.repo)
+		}
+	}
+}
+
 func TestTheFoundersOwnAddIsAppliedAtOnce(t *testing.T) {
 	r := newRig(t)
 	repo := t.TempDir()

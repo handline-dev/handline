@@ -270,13 +270,29 @@ func (e *Env) checkout(actor, repo string) (string, string) {
 		path = filepath.Join(base, path)
 	}
 	path = filepath.Clean(path)
+	return path, checkoutProblem(repo, path)
+}
+
+// checkoutProblem is why path (as repo was given) is not an existing git checkout, or "" when it is.
+func checkoutProblem(repo, path string) string {
 	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
-		return "", fmt.Sprintf("repo %s is not a folder (%s): give the absolute path of a git checkout", repo, path)
+		return fmt.Sprintf("repo %s is not a folder (%s): give the absolute path of a git checkout", repo, path)
 	}
 	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
-		return "", fmt.Sprintf("repo %s is not a git checkout (%s has no .git): give the absolute path of one", repo, path)
+		return fmt.Sprintf("repo %s is not a git checkout (%s has no .git): give the absolute path of one", repo, path)
 	}
-	return path, ""
+	return ""
+}
+
+// applyRepoProblem checks a kept repo again when the proposal is applied: it may predate the check at raising, or the checkout may be gone.
+func applyRepoProblem(repo string) string {
+	if repo == "" {
+		return ""
+	}
+	if !filepath.IsAbs(repo) {
+		return fmt.Sprintf("repo %s is not an absolute path: reject this proposal and raise it again with the absolute path of the checkout", repo)
+	}
+	return checkoutProblem(repo, repo)
 }
 
 // newProp is a proposal's header: a fresh id, what it is about, who asks and why.
