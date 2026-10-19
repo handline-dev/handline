@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, until, $, text, press, mount, fill, value } from './harness.tsx';
+import { ARCH, until, sleep, $, text, press, mount, fill, value, verb } from './harness.tsx';
 import type { setup } from '@handline/fake-daemon/helpers';
 
 const tab = (name: string) => press($(`nav-${name}`));
@@ -12,6 +12,16 @@ async function openTask(id: number) {
   await until(() => $(`task-${id}`), 'the task row');
   await press($(`task-${id}`));
   await until(() => $('task-detail'), 'the detail');
+}
+
+/** A verb that appears once the daemon has moved the task: the menus are opened for it until it is there. */
+async function verbShown(id: string) {
+  for (let t = 0; t < 400; t++) {
+    const el = await verb(id);
+    if (el) return el;
+    await sleep(10);
+  }
+  throw new Error(`timed out waiting for ${id}`);
 }
 
 const verbs = (s: ReturnType<typeof setup>) => void (s.daemon.tasks.verbs = true); // the daemon's plan D3
@@ -43,16 +53,16 @@ describe('the task verbs', () => {
   it('done wants a reason, closes the task at once, and a refusal puts it back with the sentence', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DOING);
-    await press($('verb-done'));
+    await press(await verb('done'));
     await press($('sheet-submit'));
     expect($('sheet-error')?.textContent).toBe('A reason is required.');
     await fill('sheet-text', 'shipped');
     m.daemon.knobs.latency(300);
     m.daemon.knobs.refuse('task.done', 'state', 'that task is waiting on an audit');
     await press($('sheet-submit'));
-    await until(() => text().includes('done ·') || text().includes('· done ·'), 'the optimistic state', 250);
+    await until(() => text().includes('done ▾'), 'the optimistic state', 250);
     await until(() => text().includes('that task is waiting on an audit'), 'the reason', 3000);
-    await until(() => text().includes('· doing ·') && $('sheet'), 'the task back, the sheet open');
+    await until(() => text().includes('doing ▾') && $('sheet'), 'the task back, the sheet open');
     expect(value('sheet-text')).toBe('shipped');
     m.daemon.knobs.clear();
     await press($('sheet-submit'));
@@ -64,11 +74,10 @@ describe('the task verbs', () => {
   it('reopens a done task of mine with a reason', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DOING);
-    await press($('verb-done'));
+    await press(await verb('done'));
     await fill('sheet-text', 'shipped');
     await press($('sheet-submit'));
-    await until(() => $('verb-reopen'), 'Reopen');
-    await press($('verb-reopen'));
+    await press(await verbShown('reopen'));
     await fill('sheet-text', 'one more thing');
     await press($('sheet-submit'));
     await until(() => m.daemon.tasks.get({ task: MINE_DOING }).state !== 'done', 'the daemon');
@@ -78,19 +87,19 @@ describe('the task verbs', () => {
   it('withdraws a draft after its confirmation, and cancels a running task with an optional reason', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DRAFT);
-    expect($('verb-cancel')?.textContent).toBe('Cancel');
-    await press($('verb-withdraw'));
+    expect((await verb('cancel'))?.textContent).toBe('Cancel');
+    await press(await verb('withdraw'));
     expect(text()).toContain(`withdraw T${MINE_DRAFT}?`);
     await press($('sheet-cancel'));
     expect($('sheet')).toBeNull(); // nothing sent
     expect(m.daemon.tasks.get({ task: MINE_DRAFT }).state).toBe('draft');
-    await press($('verb-withdraw'));
+    await press(await verb('withdraw'));
     await press($('sheet-submit'));
     await until(() => m.daemon.tasks.get({ task: MINE_DRAFT }).state !== 'draft', 'the daemon');
     await press($('task-back'));
     await openTask(MINE_DOING);
-    expect($('verb-cancel')?.textContent).toBe('Stop');
-    await press($('verb-cancel'));
+    expect((await verb('cancel'))?.textContent).toBe('Stop');
+    await press(await verb('cancel'));
     expect(text()).toContain(`stop T${MINE_DOING}? why (optional):`);
     await press($('sheet-submit')); // no reason is fine
     await until(() => m.daemon.tasks.get({ task: MINE_DOING }).state !== 'doing', 'the daemon');
@@ -100,11 +109,10 @@ describe('the task verbs', () => {
   it('queues a draft and sends a queued task back to draft', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DRAFT);
-    expect($('verb-draft')).toBeNull();
-    await press($('verb-queue'));
+    expect(await verb('draft')).toBeNull();
+    await press(await verb('queue'));
     await until(() => m.daemon.tasks.get({ task: MINE_DRAFT }).state === 'queued', 'the daemon');
-    await until(() => $('verb-draft'), 'Back to draft');
-    await press($('verb-draft'));
+    await press(await verbShown('draft'));
     await until(() => m.daemon.tasks.get({ task: MINE_DRAFT }).state === 'draft', 'the daemon');
     m.store.stop();
   }, 20000);
@@ -112,11 +120,11 @@ describe('the task verbs', () => {
   it('discard wants a reason, sends nothing when cancelled, and shows the refusal', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DRAFT);
-    await press($('verb-discard'));
+    await press(await verb('discard'));
     expect(text()).toContain(`discard T${MINE_DRAFT}? why:`);
     await press($('sheet-cancel'));
     expect(m.daemon.tasks.get({ task: MINE_DRAFT }).state).toBe('draft');
-    await press($('verb-discard'));
+    await press(await verb('discard'));
     await press($('sheet-submit'));
     expect($('sheet-error')?.textContent).toBe('A reason is required.');
     await fill('sheet-text', 'not wanted');
@@ -133,7 +141,7 @@ describe('the task verbs', () => {
   it('edits a task and sends only what changed', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DRAFT);
-    await press($('verb-edit'));
+    await press(await verb('edit'));
     await fill('et-title', '');
     await press($('sheet-submit'));
     expect($('sheet-error')?.textContent).toBe('A task needs a title.');
@@ -156,7 +164,7 @@ describe('the task verbs', () => {
   it('keeps the edit sheet and its text when the daemon refuses, and shows the reason', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DRAFT);
-    await press($('verb-edit'));
+    await press(await verb('edit'));
     await fill('et-title', 'A better title');
     m.daemon.knobs.refuse('task.edit', 'state', 'that task is being merged');
     await press($('sheet-submit'));
@@ -171,9 +179,9 @@ describe('the task verbs', () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DRAFT);
     m.daemon.knobs.refuse('task.queue', 'state', 'the queue is full');
-    await press($('verb-queue'));
+    await press(await verb('queue'));
     await until(() => text().includes('the queue is full'), 'the reason', 3000);
-    expect($('verb-queue')).not.toBeNull();
+    expect(await verb('queue')).not.toBeNull();
     expect(m.daemon.tasks.get({ task: MINE_DRAFT }).state).toBe('draft');
     m.store.stop();
   }, 20000);
@@ -275,7 +283,7 @@ describe('the task verbs', () => {
   it('disables a verb the daemon does not serve and says why', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openTask(MINE_DOING);
-    expect($('verb-done')?.getAttribute('aria-disabled')).toBe('true');
+    expect((await verb('done'))?.getAttribute('aria-disabled')).toBe('true');
     expect(text()).toContain('this daemon does not serve task.done');
     expect($('memo-send')?.getAttribute('aria-disabled')).toBe('true'); // the fake serves no memos
     expect(text()).toContain('this daemon does not serve task.memo.add');
