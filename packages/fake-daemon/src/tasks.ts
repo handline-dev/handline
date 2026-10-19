@@ -410,8 +410,7 @@ export function taskCall(
         if (!Number.isInteger(p.task)) throw invalidParams('task is a task number', 'task');
         if (typeof p.to !== 'string' || !p.to) throw invalidParams("to is an agent's name", 'to');
         if (typeof p.text !== 'string' || !p.text.trim()) throw invalidParams('text is the question, not empty', 'text');
-        tasks.find(p.task);
-        return ok('Asked.', { request: ask(p.task as number, p.to, p.text.trim()) });
+        return ok('Asked.', { request: ask(tasks.find(p.task).id, p.to, p.text.trim()) });
       }
       case 'task.done':
         return ok(tasks.done(p, person));
