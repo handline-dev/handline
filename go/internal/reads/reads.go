@@ -47,7 +47,11 @@ type Env struct {
 	PullRequests func(ctx context.Context, repo string, numbers []int) ([]int, error)
 	// Resources is the latest measure of what the machine and each agent use (sysres.Sampler.Latest); nil serves none.
 	Resources func() map[string]any
-	prs       *prCache
+	// AccountWall is when an account's work stops and starts again, for a task's expected start and end: blockedUntil, the reset that
+	// lifts the limit it is at now (0 when it is not); runsOutAt, when it reaches a limit at the current burn (0 when it does not or
+	// is not known); resetsAt, when that limit lifts. nil reads the usage files.
+	AccountWall func(account string, now int64) (blockedUntil, runsOutAt, resetsAt int64)
+	prs         *prCache
 }
 
 // Register adds the read methods to the server's table.

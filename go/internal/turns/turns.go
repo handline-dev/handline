@@ -66,6 +66,7 @@ type turn struct {
 	at         int64 // when the hook that set state ran
 	background []string
 	bgKnown    bool          // background is what the last Stop said; an interrupt leaves it unknown
+	settled    bool          // a Stop closed the turn and no prompt has been raised since
 	changed    chan struct{} // closed on every change
 	unwatch    func()
 	pid        int // the session process watched for its exit
@@ -85,7 +86,7 @@ func (t *Tracker) get(agent string) *turn {
 }
 
 func (tr *turn) set(s State) {
-	tr.state = s
+	tr.state, tr.settled = s, false
 	close(tr.changed)
 	tr.changed = make(chan struct{})
 }
@@ -202,6 +203,13 @@ func (t *Tracker) hook(tr *turn, agent, event string, raw map[string]any, at int
 		tr.stopWatch()
 		tr.at, tr.background, tr.bgKnown = at, runningTasks(raw["background_tasks"]), true
 		tr.set(Idle)
+		tr.settled = event == "Stop" // a StopFailure may leave the usage-limit dialog up
+	case "PermissionRequest":
+		tr.settled = false
+	case "Notification":
+		if raw["notification_type"] == "permission_prompt" {
+			tr.settled = false
+		}
 	}
 }
 
@@ -290,6 +298,18 @@ func (t *Tracker) WaitIdle(handle string, timeout time.Duration) (idle, known bo
 			return false, true
 		}
 	}
+}
+
+// Settled is whether a Stop closed the turn at handle and no prompt has been raised since: no dialog of the session's waits on anyone.
+func (t *Tracker) Settled(handle string) bool {
+	agent := t.Agent(handle)
+	if agent == "" {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	tr := t.agents[agent]
+	return tr != nil && tr.settled
 }
 
 // Background is the work the last Stop said still runs, as the footer would count it ("" is none).

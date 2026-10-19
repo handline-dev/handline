@@ -3,7 +3,7 @@
 import type { HistoryRow, Memo, MemoFile, Task, TaskClock, TaskDetail } from '@handline/contract';
 import { seedTasks } from './fixtures.ts';
 import { invalidParams, refused, storeFailure } from './errors.ts';
-import { changes, timeOf } from './history.ts';
+import { changes, fieldsOf, timeOf } from './history.ts';
 import { refs, type FakeAttachments } from './attachments.ts';
 import { discardAll } from './discardbatch.ts';
 
@@ -27,6 +27,8 @@ type Row = Task & {
   notes?: { at: string; who: string; text: string }[]; // the notes it was sent back with
   blockers: { task: number; reason: string; at?: string }[];
   clock?: TaskClock | null;
+  /** Story points; task.time serves it. */
+  estimate?: number | null;
   /** What changed, oldest first; task.history answers it newest first. */
   history?: HistoryRow[];
 };
@@ -116,7 +118,7 @@ export class FakeTasks {
     return t.to === 'human' ? { on: 'founder', text: 'waiting on you', tasks: [], since: t.created } : null;
   }
   private view(row: Row): Task {
-    const { body: _body, memos: _memos, notes: _notes, blockers, clock, ...t } = row;
+    const { body: _body, memos: _memos, notes: _notes, blockers, clock, estimate: _estimate, ...t } = row;
     const ended = t.state === 'done' || t.state === 'discarded';
     return {
       ...t,
@@ -249,6 +251,7 @@ export class FakeTasks {
       time_box: String(p.time_box ?? '2h'),
       clock: { length_s: 7200, default: p.time_box === undefined, start: null, end: null, overdue_since: null, told: 0, left_s: null },
       priority: (p.priority as 1 | 2 | 3 | undefined) ?? undefined,
+      estimate: typeof p.estimate === 'number' ? p.estimate : null,
       parent: typeof p.parent === 'number' ? p.parent : null,
       blockers: typeof p.blocked_by === 'number' ? [{ task: this.find(p.blocked_by).id, reason: '', at: this.now() }] : [],
     });
@@ -266,10 +269,7 @@ export class FakeTasks {
     this.change(t, {
       ...(waitOn !== null && !t.blockers.some((b) => b.task === waitOn) ? { blockers: [...t.blockers, { task: waitOn, reason: '', at: this.now() }] } : {}),
       ...(p.owner !== undefined ? { to: String(p.owner), ...(t.state === 'review' ? { state: 'queued', report: null } : {}) } : {}),
-      ...(p.title !== undefined ? { title: String(p.title) } : {}),
-      ...(p.body !== undefined ? { body: String(p.body) } : {}),
-      ...(p.time_box !== undefined ? { time_box: String(p.time_box) } : {}),
-      ...(p.priority !== undefined ? { priority: p.priority as 1 | 2 | 3 } : {}),
+      ...fieldsOf(p),
     });
   }
 

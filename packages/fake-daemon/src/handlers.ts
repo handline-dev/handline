@@ -132,10 +132,12 @@ const BASE: Record<string, (h: Call) => unknown> = {
     return script.accepted('Answered.');
   },
   'input.take': (h) => {
-    const { c, actor, script, agent, iso } = h;
+    const { c, p, actor, script, agent, iso } = h;
     const s = agent();
-    if (s.holder.kind !== 'daemon' && s.holder.name !== c.caller.name) throw refused('input_holder', `${s.holder.name} holds the input`);
-    if (s.holder.kind === 'daemon')
+    if (p.force !== undefined && typeof p.force !== 'boolean') throw badRequest('force is true or false', 'force');
+    const other = s.holder.kind !== 'daemon' && s.holder.name !== c.caller.name;
+    if (other && !p.force) throw refused('input_holder', `${s.holder.name} holds the input`);
+    if (s.holder.kind === 'daemon' || other)
       s.holder = { kind: c.caller.kind === 'device' ? 'device' : 'person', name: c.caller.name, since: iso() };
     script.control(s, actor, 'input.take', `${actor.name} took the input`);
     script.holderChanged(s);

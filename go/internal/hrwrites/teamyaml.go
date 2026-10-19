@@ -285,11 +285,10 @@ func pyText(v any) string {
 // linkText adds one edge. It goes before the first edge with a wildcard or a team at an end, because the first match wins and a specific edge
 // behind a wildcard one would never be reached.
 func (e *Env) linkText(text, frm, to string) (string, error) {
-	if err := textOnly("agent", frm); err != nil {
-		return "", err
-	}
-	if err := textOnly("agent", to); err != nil {
-		return "", err
+	for _, end := range []string{frm, to} {
+		if err := textOnly("agent", end); err != nil && !patternEnd(end) {
+			return "", err
+		}
 	}
 	lines := splitLines(text)
 	head, end, err := block(lines, "edges:")

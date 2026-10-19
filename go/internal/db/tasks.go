@@ -343,10 +343,11 @@ type TaskEdit struct {
 	Owner, Title       *string
 	Reporter           *string
 	Priority, TimeoutS *int64
+	Estimate           *int64 // story points; 0 clears it
 	IsDoing            bool
 }
 
-// EditTask is db.edit_task: a changed owner, reporter, title, priority or timeout, stamped with who and when. The caller has checked permission and
+// EditTask is db.edit_task: a changed owner, reporter, title, priority, estimate or timeout, stamped with who and when. The caller has checked permission and
 // that something changed; this only writes. A new owner has not had the task yet, so delivered_at and sent_at clear, and has not answered it.
 func EditTask(q Q, tid int64, by string, ed TaskEdit) error {
 	now := Now()
@@ -368,6 +369,14 @@ func EditTask(q Q, tid int64, by string, ed TaskEdit) error {
 	if ed.Priority != nil {
 		sets = append(sets, "priority = ?")
 		args = append(args, *ed.Priority)
+	}
+	if ed.Estimate != nil {
+		var points any
+		if *ed.Estimate != 0 {
+			points = *ed.Estimate
+		}
+		sets = append(sets, "estimate = ?")
+		args = append(args, points)
 	}
 	if ed.TimeoutS != nil {
 		var at any

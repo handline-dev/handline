@@ -73,7 +73,7 @@ func (t *Tick) loginExpired(agent string, row *db.AgentState, acct string, actio
 	if dest == "" {
 		// Nothing is waiting out a window here, so a retry loop would only fail again: the agent is shown as stopped, and the
 		// reconciler's lift releases it once the account's stall ends.
-		detail := fmt.Sprintf("%s on %s and %s (%s) - hl login %s or hl account wake %s", word, acct, LoginStall, noMove, acct, acct)
+		detail := fmt.Sprintf("%s on %s and %s (%s) - log %s in, or wake it, in the app's Accounts page", word, acct, LoginStall, noMove, acct)
 		check(db.SetAgentState(t.Q, agent, states.Stalled, 0, cut(detail, 300)))
 		*actions = append(*actions, fmt.Sprintf("%s: STALLED, %s on %s", agent, word, acct))
 		t.logf("  %s: %s", agent, detail)

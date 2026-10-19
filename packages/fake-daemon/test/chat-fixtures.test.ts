@@ -20,7 +20,16 @@ test('every case of chat.json passes on the fake', async () => {
     // A case that needs an agent session is skipped, and --allow-skip says that is meant (exit 3 otherwise).
     const run = spawn(
       'python3',
-      [join(ROOT, 'contract/conformance.py'), sock, '--allow-skip', '--var', 'founder_key=x', join(ROOT, 'contract/fixtures/chat.json')],
+      [
+        join(ROOT, 'contract/conformance.py'),
+        sock,
+        '--allow-skip',
+        '--var',
+        'founder_key=x',
+        '--var',
+        'ask_agent=handline.auditor',
+        join(ROOT, 'contract/fixtures/chat.json'),
+      ],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
     let out = '';

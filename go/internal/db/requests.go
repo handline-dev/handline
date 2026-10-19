@@ -411,6 +411,23 @@ func MarkNoticesShown(q Q, rids []int64, session string) error {
 	return nil
 }
 
+// MarkFounderAuthored records that the request's words are the founder's own. Only chat.send calls it, and only for a connection whose
+// proven role is founder: never from a name, the text, or a requester an agent can write.
+func MarkFounderAuthored(q Q, rid int64) error {
+	_, err := q.Exec("UPDATE requests SET founder_auth = 1 WHERE id = ?", rid)
+	return err
+}
+
+// FounderAuthored is whether MarkFounderAuthored marked the request.
+func FounderAuthored(q Q, rid int64) (bool, error) {
+	var v int
+	err := q.QueryRow("SELECT founder_auth FROM requests WHERE id = ?", rid).Scan(&v)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return v == 1, err
+}
+
 // MarkDelivered is db.mark_delivered: shown to its target, once. False when it was withdrawn or replaced first.
 func MarkDelivered(q Q, rid int64) (bool, error) {
 	res, err := q.Exec("UPDATE requests SET delivered_at = COALESCE(delivered_at, ?) WHERE id = ? AND state = 'queued'", Now(), rid)

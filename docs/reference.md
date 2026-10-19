@@ -1,68 +1,47 @@
 # Command reference
 
-One line each. `ocp <command> --help` has the options, and `hl guide <topic>` prints longer notes
-(topics: accounts, doctor, hooks, launch, memory, status, team, work).
-
-## Setup
-
-| | |
-|---|---|
-| `hl init` | Create `~/.orcapipe` and install the shared settings and hooks. |
-| `hl venv install` / `status` | Create or check the virtual environment the bridge needs. |
-| `hl doctor` | Check every precondition and name what is wrong. |
-| `hl account add <name>` / `remove` / `list` / `cap` | Manage accounts. `add` starts Claude's login. |
-| `hl login <name>` | Log an account in again, or list who is logged in. |
-| `hl agent register <name>` | Add or update an agent. |
-| `hl team init` / `seal` | Write a starter `team.yaml`; accept hand edits to `team.yaml` and `agent.yaml`. |
-| `hl trust add <folder>` | Let ocp answer Claude's "trust this folder" screen for a folder. |
-| `hl trust mcp <folder>` | Founder only: approve the MCP servers in a declared folder's `.mcp.json` as they read now, so a launch there enables them without Claude asking. A server added or changed later is asked about. |
-| `hl device pair [--name N]` / `list` / `revoke <id>` | Founder only, from your own terminal: make a one-time pairing code with its uri, address and fingerprint (none in Tailscale mode); list the paired devices; cancel one at once. They talk to the gateway's local socket (`<home>/gateway.sock`) and say plainly when no gateway runs. |
-| `hl backup install` | Snapshot `~/.orcapipe` every five minutes when it changed. |
-
-## Run
-
-| | |
-|---|---|
-| `hl service install` / `uninstall` / `status` / `logs` | Run the daemon as a launchd job. |
-| `hl launch <agent>` | Start Claude as that agent, on its account. Run it inside an Orca terminal. |
-| `hl spawn <agent> --repo <path>` | Give an agent its own worktree and start it there. |
-| `hl ps` | State of the daemon and each agent. |
-| `hl triggers` | What the daemon would decide now, without acting. |
-| `hl status` | Why the daemon picked the account it picked. |
-| `hl close <agent>` | End an idle session and keep its terminal. |
-| `hl restart <agent> [--fresh] [--force]` | End the session and start it again at once in the same terminal; `--fresh` is a new conversation, `--force` waits out a turn in progress. |
-| `hl resume <agent>` | Hand a parked agent its handoff. |
-| `hl` | The screen the team is run from. |
+`hl` is what an agent needs in a turn, plus first install. Everything else is a screen in the app (accounts and logins, devices,
+closing and restarting agents, settings, cancelling a queued message, HR decisions, sealing hand edits) or the daemon does it itself.
 
 ## Work
 
 | | |
 |---|---|
-| `hl task new --assign <agent> -t <time> "<title>" "<body>" [--reply <msg> "<text>"]` | Give work, or ask something that needs an answer. `--assign` is who works it; `--owner` is who answers for it (you when not given). The last line printed is the new `T<n>`; `--reply` also answers the founder's message with `{task}` filled in as that number. |
-| `hl task list` | The board. |
+| `hl task new --assign <agent> -t <time> "<title>" "<body>"` | Give work, or ask something that needs an answer. `--assign` is who works it; `--owner` is who answers for it (you when not given). The last line printed is the new `T<n>`. |
+| `hl task list` / `board` | The tasks you hold or gave; the board. |
 | `hl task show T<n>` | One task in full: brief, memos, blockers, children, handoffs. |
 | `hl task done T<n> "<evidence>"` | Finish your task. A sha must be on `main`. |
 | `hl task handoff T<n> <agent> "<note>"` | Pass your task to someone else. |
+| `hl task edit T<n> --blocked-by T<m>` | Record what the task waits on (also its timeout and other fields). |
+| `hl task accept` / `reject T<n>` | The opener takes a result, or sends it back with a note. |
 | `hl task reopen T<n> "<why>"` | The asker says a result is wrong. |
-| `hl task discard T<n> "<why>"` | Throw away a task that is not done. |
-| `hl task discard T1 T2 --why "<why>" [--why-each T2="<why>"]` | Throw several away in one call (all or none), shown as one card in your chat. A team lead may discard a task of its team that still has requests open: they are withdrawn and their targets told. |
-| `hl task memo T<n> add "..."` | Correct a task you gave. |
-| `hl say <target> "..." --attach shot.png` | Send an image the app shows in chat (also `--attach` on `task memo add`); never paste a path. |
-| `hl progress "<note>"` | Record what is done and what is left on your task. |
-| `hl say <agent> "..."` | A message that needs no answer. |
+| `hl task release T<n> "<why>"` | Give a task back to its queue. |
+| `hl task discard T<n> "<why>"` | Throw away a task that is not done; `discard T1 T2 --why "<why>"` throws several away in one call. |
+| `hl task memo T<n> add "..."` / `list` / `edit` / `delete` | Correct or comment on a task. `--attach shot.png` adds an image. |
+| `hl progress "done: ... left: ..."` | Record what is done and what is left on your task. |
+| `hl say <target> "..."` | A message; `--parent <msg>` answers one, `--attach shot.png` sends an image the app shows. |
 | `hl inbox` / `hl inbox --all` | What is waiting for you, or the whole queue. |
-| `hl read <id>` | One request in full, with its answer. |
-| `hl cancel <id>` | The founder takes a request out of an agent's queue. |
+| `hl read <msg>` | One message in full, with its answer. |
+| `hl withdraw <msg>` | Take back a message you sent that has not been read. |
 
 ## Team
 
 | | |
 |---|---|
 | `hl team` | Who you may reach, and what each is doing. |
-| `hl hr team` / `add` / `retire` / `rename` / `link` / `unlink` | Propose a roster change. |
-| `hl hr diff --file F --why W` | Propose several changes as one (roster, `settings`, `schedule`, `global`): the founder decides once, they apply in order or not at all, you get one message. |
-| `hl hr links [--apply]` | Move team.yaml onto the name links (founder). |
-| `hl hr list [--json]` / `approve <id>… \| --all [--yes]` / `reject <id> [reason] \| --all [--reason R]` / `apply <id>` | See proposals; the founder approves (applied at once) or rejects; `apply` retries an approved one that failed. |
-| `hl memory status` | Size of each agent's `ROLE.md` and `base.md` against its limit. |
-| `hl schedule` | Messages the daemon types at an agent on a cron schedule. From an agent's session, `add`/`edit`/`remove` with `--why` raise a proposal; so do `hl agent register` and setting a global switch (`idle-timeout`, `notice-digest`, `ignore-cache-expiry`, `auto-accept`, `dev-mode`). |
-| `agent.fold` (the app's "Fold into handoff") | Fold recorded events into the digest. The only model call. |
+| `hl hr add` / `retire` / `rename` / `link` / `unlink` / `team` / `context` | Propose a roster change; the founder decides it in the app's HR tab. A link's ends are agents, `*` or `human`. |
+| `hl hr list` / `withdraw <id>` | See proposals; take back one of yours. |
+
+## Install and the daemon's own
+
+| | |
+|---|---|
+| `hl init` | Create the home and install the shared settings and hooks. |
+| `hl service install` / `uninstall` | Run the daemon as a launchd job. |
+| `hl team seal` | Founder: accept your own hand edits to `team.yaml` and `agent.yaml` (until the app has a seal control). |
+| `hl device pair [--name N]` | Founder, from your own terminal: a one-time code that pairs a first device when no paired app can make one. |
+| `hl launch <agent>` | Start Claude as that agent, on its account (the daemon runs it). |
+| `hl hook <event>` | A Claude Code hook (the installed settings run it). |
+| `hl sandbox-repo <repo> [allowance ...]` | Founder: what a repo's sandboxed sessions may do beyond the sandbox. |
+| `hl idle-background` / `notice-digest` | Founder: the background-work and notice-digest timings. |
+| `hl dev on` / `off` / `rebuild <team>` | A team's dev instance beside the live daemon. |

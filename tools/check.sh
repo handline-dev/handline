@@ -46,6 +46,9 @@ if [ "$kind" = go ]; then
     [ -n "${HANDLINE_HEAVY_SLOT:-}" ] || exec tools/heavy-slot.sh "$PWD/tools/check.sh" "$@"
     run="$(tools/leakcheck.py begin)" || exit 1
     export TMPDIR="$run/tmp/" TMUX_TMPDIR="$run"
+    # Stopped by a signal, the run still says what it left and takes its directory with it, once the step it was in has ended.
+    stopped() { trap - INT TERM HUP; tools/leakcheck.py end --interrupted "$run"; exit "$1"; }
+    trap 'stopped 130' INT; trap 'stopped 143' TERM; trap 'stopped 129' HUP
 fi
 case "$kind" in
     none) echo "nothing changed against $base: no tests to run" >&2 ;;
