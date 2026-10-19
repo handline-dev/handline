@@ -11,6 +11,8 @@ import (
 
 func line(v any) string { return textsafe.Oneline(fmt.Sprint(v)) }
 
+// The founder's own verbs left in hl, each for what no app can do yet.
+
 // device is `hl device pair`: the code that pairs a first device when no paired app can make one. The daemon refuses it to an agent
 // session. Listing and revoking devices are the app's.
 func device(c *hlclient.Client, args []string) (int, bool) {
@@ -42,6 +44,16 @@ func device(c *hlclient.Client, args []string) (int, bool) {
 		fmt.Println("fingerprint: none (the gateway runs plain on the Tailscale address; the tailnet encrypts it)")
 	}
 	return 0, true
+}
+
+// teamSeal is `hl team seal`: the founder accepts team.yaml and the agent files as they are now. Kept until the app has a seal control.
+func teamSeal(c *hlclient.Client) int {
+	ok, text := c.Write("team.seal", nil)
+	fmt.Println(text)
+	if !ok {
+		return 1
+	}
+	return 0
 }
 
 func orEmpty(v any) any {

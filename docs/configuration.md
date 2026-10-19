@@ -63,7 +63,7 @@ once and tells the agent that asked. `hl hr list` shows proposals and what becam
 ## agent.yaml
 
 Written by `hl agent register`. Edit it by registering again with new options, not by hand,
-unless you also seal it (below). The fields you will use: `vendor`, `model`, `effort`, `weight`
+unless you also run `hl team seal`. The fields you will use: `vendor`, `model`, `effort`, `weight`
 (`light` or `heavy`), `repo`, `chrome`, and `mcp_config`. Which account an
 agent is on is not in this file. The daemon records it, and `hl agent move` changes it.
 
@@ -93,7 +93,11 @@ store at `~/.config/orcapipe/protected`. If a file no longer matches, `hl` refus
 and `hl doctor` names it. This stops an agent from editing its own permissions, because every
 agent can write to `~/.orcapipe`.
 
-If you edit one of these files yourself, read it over and seal it in the app's Team page.
+If you edit one of these files yourself, read it over and run:
+
+```bash
+hl team seal
+```
 
 ## Accounts and limits
 

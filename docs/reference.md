@@ -38,6 +38,7 @@ closing and restarting agents, settings, cancelling a queued message, HR decisio
 |---|---|
 | `hl init` | Create the home and install the shared settings and hooks. |
 | `hl service install` / `uninstall` | Run the daemon as a launchd job. |
+| `hl team seal` | Founder: accept your own hand edits to `team.yaml` and `agent.yaml` (until the app has a seal control). |
 | `hl device pair [--name N]` | Founder, from your own terminal: a one-time code that pairs a first device when no paired app can make one. |
 | `hl launch <agent>` | Start Claude as that agent, on its account (the daemon runs it). |
 | `hl hook <event>` | A Claude Code hook (the installed settings run it). |
