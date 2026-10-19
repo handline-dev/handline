@@ -243,6 +243,7 @@ export function Pane({ group }: { group: Group }) {
           <FileTab agent={agent} detail={detail} path={typeof tab.params.path === 'string' ? tab.params.path : ''} onPath={(p) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, path: p } } } }))} />
         ) : tab.kind === 'web' ? (
           <WebTab
+            agent={agent}
             url={typeof tab.params.url === 'string' ? tab.params.url : ''}
             hidden={!!dragging}
             onUrl={(u) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, url: u } } } }))}

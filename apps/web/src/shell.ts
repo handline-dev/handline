@@ -19,6 +19,7 @@ type Call =
   | 'pairRemote'
   | 'phone'
   | 'preview'
+  | 'capturePreview'
   | 'captureWindows'
   | 'captureWindow'
   | 'pathOf'

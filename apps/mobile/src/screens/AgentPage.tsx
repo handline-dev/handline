@@ -190,7 +190,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       {showFile ? (
         <AgentFile agent={name} />
       ) : showPreview ? (
-        <AgentPreview />
+        <AgentPreview agent={name} />
       ) : showActivity ? (
         <Activity agent={name} />
       ) : showTasks ? (

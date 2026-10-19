@@ -62,6 +62,14 @@ export class Preview {
     return { ok: true };
   }
 
+  /** The page as drawn now, for the person to mark. */
+  async capture(e: Sender): Promise<{ ok: true; png: string } | Fail<'bad_request' | 'unavailable'>> {
+    if (!fromWindow(e, this.origin)) return bad('not from the app window');
+    if (!this.view) return { ok: false, code: 'unavailable', message: 'The preview is not showing.' };
+    const image = await this.view.webContents.capturePage();
+    return image.isEmpty() ? { ok: false, code: 'unavailable', message: 'The preview is blank.' } : { ok: true, png: image.toPNG().toString('base64') };
+  }
+
   close(): void {
     const w = this.window();
     if (this.view && w && !w.isDestroyed()) w.contentView.removeChildView(this.view);

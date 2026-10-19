@@ -22,6 +22,7 @@ export const CHANNELS = {
   settingsGet: 'handline:settingsGet',
   settingsSet: 'handline:settingsSet',
   preview: 'handline:preview',
+  capturePreview: 'handline:capturePreview',
 } as const;
 
 /** The part of an IPC event this checks: the frame that sent it. */

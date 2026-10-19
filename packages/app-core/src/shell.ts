@@ -72,6 +72,8 @@ export interface ShellApi {
   >;
   /** Shows an address in a native view over the given rectangle of the window (CSS pixels), or removes the view with null. Absent in a shell that lacks it. */
   preview?(a: { url: string; x: number; y: number; width: number; height: number } | null): Promise<{ ok: true } | Fail<'bad_request'>>;
+  /** The preview as it is on screen, a PNG (base64). */
+  capturePreview?(): Promise<{ ok: true; png: string } | Fail<'bad_request' | 'unavailable'>>;
   /** Which daemon the app talks to: its mode and, in connect mode, the paired device's address. Absent in a shell with one mode. */
   mode?(): Promise<{ ok: true; mode: 'connect' | 'own'; remote: string | null; phone: boolean } | Fail<'bad_request'>>;
   /** Switches the mode; the app relaunches. */

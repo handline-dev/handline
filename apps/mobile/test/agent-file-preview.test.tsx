@@ -43,3 +43,25 @@ describe('the Preview tab of the agent page', () => {
     expect($('preview-web')!.getAttribute('data-uri')).toBe('http://my-mac.ts.net:5173');
   });
 });
+
+describe('Mark an area and Open outside on the Preview tab', () => {
+  it('opens the address outside the app, and the picture of the page opens to be marked', async () => {
+    const opened: string[] = [];
+    const real = window.open;
+    window.open = ((u: string) => void opened.push(u)) as typeof window.open;
+    try {
+      await openTab('preview');
+      await fill('preview-address', 'my-mac.ts.net:5173');
+      await press($('preview-go'));
+      await until(() => $('preview-outside'), 'the buttons');
+      await press($('preview-outside'));
+      expect(opened[0]).toContain('http://my-mac.ts.net:5173');
+      await press($('preview-mark'));
+      await until(() => $('mark-done'), 'the marks editor');
+      await press($('mark-cancel'));
+      await until(() => !$('mark-done'), 'the editor to close');
+    } finally {
+      window.open = real;
+    }
+  });
+});

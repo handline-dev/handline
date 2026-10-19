@@ -241,6 +241,7 @@ if (!app.requestSingleInstanceLock()) {
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
     const preview = new Preview(origin, () => win);
     ipcMain.handle(CHANNELS.preview, (e, arg) => preview.set(e, arg));
+    ipcMain.handle(CHANNELS.capturePreview, (e) => preview.capture(e));
     handleSettings(origin, client, remote);
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
     const opener = new Opener(origin, {
