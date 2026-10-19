@@ -61,7 +61,7 @@ func (e *Env) taskHistory(c *rpc.Conn, params map[string]any) (any, error) {
 	var rows []map[string]any
 	state := ""
 	for _, ev := range events {
-		p, kind := decodeObject(ev.str("payload")), ev.str("kind")
+		p, kind, before := decodeObject(ev.str("payload")), ev.str("kind"), len(rows)
 		add := func(field, was, now string) map[string]any {
 			r := map[string]any{"at": ts(ev["ts"]), "by": ev.str("agent"), "field": field, "was": was, "now": now}
 			rows = append(rows, r)
@@ -100,7 +100,11 @@ func (e *Env) taskHistory(c *rpc.Conn, params map[string]any) (any, error) {
 		case "memo_add", "memo_edit", "memo_delete":
 			add("memo", text(p["was"]), text(p["now"]))["memo"] = int64(seconds(p["memo"]))
 		}
-		if now, ok := historyState(kind, p); ok {
+		now, ok := historyState(kind, p)
+		if !ok && state == "answered" && len(rows) > before && rows[len(rows)-1]["field"] == "assignee" {
+			now, ok = "queued", true // a reassign ends an answer: the task waits on its new holder
+		}
+		if ok {
 			r := add("state", state, now)
 			for _, key := range []string{"done", "report", "reason", "note"} {
 				note(r, key)

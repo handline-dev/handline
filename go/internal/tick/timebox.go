@@ -210,8 +210,8 @@ func (b *Timebox) remindReported(t *Tick, row *db.Task, now int64) {
 		return
 	}
 	to := row.AnswersTo()
-	text := fmt.Sprintf("T%d (%s) was reported done by %s and waits on you: accept it (`hl task accept T%d`) or send it back (`hl task reject T%d \"<note>\"`).",
-		row.ID, shortTitle(row.Title), row.Owner, row.ID, row.ID)
+	text := fmt.Sprintf("T%d (%s) was answered by %s and waits on you: accept it (`hl task accept T%d`), send it back (`hl task reject T%d \"<note>\"`) "+
+		"or take it back (`hl task handoff T%d %s \"<note>\"`).", row.ID, shortTitle(row.Title), row.Owner, row.ID, row.ID, row.ID, to)
 	b.note(t, to, text)
 	check(db.AdvanceTaskTimeout(t.Q, row.ID, now, db.DefaultTaskTimeoutS))
 	next := must(db.GetTask(t.Q, row.ID))

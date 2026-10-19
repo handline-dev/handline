@@ -145,7 +145,8 @@ func (t *Trust) decisionRefusal(pid string, tid int64, subject string, cardID in
 }
 
 // answerOf is decisions.answer_of: none (no task to read), open (not answered), discarded (withdrawn, handed back, thrown away or
-// closed by someone but the founder: nothing was decided) or answered, with the task and the founder's verdict.
+// closed by someone but the founder: nothing was decided) or answered (closed by the founder, or answered and still theirs), with the task
+// and the founder's verdict.
 func answerOf(q db.Q, prop Proposal) (state string, task *db.Task, verdict string, err error) {
 	tid, _ := prop.Get("task").(int64)
 	if tid == 0 {
@@ -170,6 +171,8 @@ func answerOf(q db.Q, prop Proposal) (state string, task *db.Task, verdict strin
 			return "discarded", task, "", err
 		}
 		return "answered", task, task.DoneEvidence.String, nil
+	case task.Reported() && task.Owner == db.Human: // the founder's answer leaves their task open, answered, until the proposer accepts it
+		return "answered", task, task.Report.String, nil
 	}
 	return "open", task, "", nil
 }
