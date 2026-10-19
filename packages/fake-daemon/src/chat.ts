@@ -128,8 +128,14 @@ export class FakeChat {
     Object.assign(m, patch, { state_at: this.now() });
     this.emit('chat.message', m.agent, this.view(m));
   }
+  /** The state of a task, for the decision buttons: they are offered only while it asks for one. */
+  taskState: (id: number) => string | undefined = () => undefined;
   private view({ agent: _agent, ...m }: ChatMessage & { agent: string }): ChatMessage {
-    return { ...m, tasks: [...m.tasks] };
+    const open = (a: NonNullable<ChatMessage['actions']>[number]) => {
+      const st = this.taskState(a.task);
+      return st === undefined || (a.key === 'accept' || a.key === 'send_back' ? st === 'review' : st !== 'done' && st !== 'discarded');
+    };
+    return { ...m, tasks: [...m.tasks], ...(m.actions ? { actions: m.actions.filter(open) } : {}) };
   }
 
   /** Adds a message without events: history that was there before any client connected. */

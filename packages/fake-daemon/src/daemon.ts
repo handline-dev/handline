@@ -104,6 +104,13 @@ export class FakeDaemon {
       () => this.iso(),
       this.sessions,
     );
+    this.chat.taskState = (id) => {
+      try {
+        return this.tasks.find(id).state;
+      } catch {
+        return undefined;
+      }
+    };
     for (const fx of AGENTS) this.sessions.set(fx.name, newSession(fx, this.iso()));
     this.transcript = new FakeTranscript(this, () => this.iso(), opts.transcript ?? true);
     seedChat(this.chat, this.iso());

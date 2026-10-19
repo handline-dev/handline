@@ -73,6 +73,7 @@ describe('decide buttons on a chat message', () => {
     await mount(s);
     await click($('[data-action="accept"]')!);
     await until(() => s.daemon.tasks.get({ task: 9101 }).state === 'done', 'the daemon');
+    await until(() => !$('.msg-actions'), 'the buttons gone once the task left review');
   });
 
   it('Send back asks for a note, then calls task.reject with it', async () => {
@@ -87,5 +88,6 @@ describe('decide buttons on a chat message', () => {
     });
     await click([...box.querySelectorAll<HTMLElement>('.msg-actions button')].find((b) => b.textContent === 'Send back' && b.closest('form'))!);
     await until(() => s.daemon.tasks.get({ task: 9102 }).state === 'queued', 'the daemon');
+    await until(() => !$('.msg-actions'), 'the buttons gone once the task was sent back');
   });
 });
