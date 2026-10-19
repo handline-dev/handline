@@ -313,31 +313,42 @@ func pyStr(v any) string {
 	return fmt.Sprint(v)
 }
 
-// edgeRefusal is why this edge cannot be added or removed, or "" when it can. Read against the team.yaml as it is now, less the edges an
-// earlier unlink of the same bundle removes (unlinked); the write checks again, on the text it edits.
-func (e *Env) edgeRefusal(kind, frm, to string, registered []string, coming map[string]bool, unlinked map[[2]string]bool) string {
-	if to == "" || !contains(registered, to) {
-		shown := to
-		if shown == "" {
-			shown = "a target"
+// patternEnd is an edge end that names no one agent: anyone ("*") or the founder.
+func patternEnd(end string) bool { return end == "*" || end == team.Human }
+
+func hasEdge(t *team.Team, frm, to string) bool {
+	for _, ed := range t.Edges {
+		if pyStr(ed.From) == frm && pyStr(ed.To) == to {
+			return true
 		}
-		return shown + " is not an agent (an edge is between two agents)"
 	}
-	if to == frm {
-		return "an agent cannot ask itself"
+	return false
+}
+
+// edgeRefusal is why this edge cannot be added or removed, or "" when it can. Read against the team.yaml as it is now, less the edges an
+// earlier unlink of the same bundle removes (unlinked); the write checks again, on the text it edits. A link's ends are agents, * or human;
+// an unlink takes any edge team.yaml has, so an edge to a retired agent can go.
+func (e *Env) edgeRefusal(kind, frm, to string, registered []string, coming map[string]bool, unlinked map[[2]string]bool) string {
+	if kind == "link" {
+		if to == "" || !contains(registered, to) && !patternEnd(to) {
+			shown := to
+			if shown == "" {
+				shown = "a target"
+			}
+			return shown + " is not an agent, * or human"
+		}
+		if to == frm {
+			return "an agent cannot ask itself"
+		}
 	}
 	t, err := team.LoadTeam(e.Home)
 	if err != nil {
 		return fmt.Sprintf("team.yaml cannot be read (%s)", err)
 	}
-	exact := false
-	for _, ed := range t.Edges {
-		exact = exact || (pyStr(ed.From) == frm && pyStr(ed.To) == to)
-	}
-	exact = exact && !unlinked[[2]string{frm, to}]
+	exact := hasEdge(t, frm, to) && !unlinked[[2]string{frm, to}]
 	if kind == "link" {
 		for _, end := range []string{frm, to} {
-			if _, in := t.Agents[end]; !in && !coming[end] {
+			if _, in := t.Agents[end]; !in && !coming[end] && !patternEnd(end) {
 				return end + " is not in team.yaml agents - add it there first"
 			}
 		}
@@ -390,6 +401,9 @@ func (e *Env) doLink(p step) (bool, string, error) {
 	}
 	ok, said, err := e.editTeamYaml(func(t string) (string, error) { return e.linkText(t, frm, to) }, "", "",
 		func(tm *team.Team) error {
+			if patternEnd(frm) || patternEnd(to) {
+				return need(hasEdge(tm, frm, to), fmt.Sprintf("the edge %s -> %s is not in team.yaml", frm, to))
+			}
 			return need(tm.Route(frm, to, 0).Allowed, fmt.Sprintf("%s -> %s is not routable", frm, to))
 		})
 	if err != nil || !ok {
@@ -404,12 +418,7 @@ func (e *Env) doUnlink(p step) (bool, string, error) {
 		return false, why, nil
 	}
 	ok, said, err := e.editTeamYaml(func(t string) (string, error) { return unlinkText(t, frm, to) }, "", "", func(tm *team.Team) error {
-		for _, ed := range tm.Edges {
-			if pyStr(ed.From) == frm && pyStr(ed.To) == to {
-				return configErr("the edge is still there")
-			}
-		}
-		return nil
+		return need(!hasEdge(tm, frm, to), "the edge is still there")
 	})
 	if err != nil || !ok {
 		return false, said, err

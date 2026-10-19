@@ -248,7 +248,13 @@ func TestAddRegistersTheAgentAndPutsItInTeamYaml(t *testing.T) {
 // withOldEdge gives team.yaml an alice -> bob edge with the relation and response keys links no longer have, and returns it.
 func (r *rig) withOldEdge() string {
 	r.t.Helper()
-	yml := strings.Replace(teamYAML, "edges:\n", "edges:\n  - { from: \"alice\", to: \"bob\", relation: peer, response: async }\n", 1)
+	return r.withEdges(`  - { from: "alice", to: "bob", relation: peer, response: async }` + "\n")
+}
+
+// withEdges puts edges (whole lines) first in team.yaml's edges and returns the file.
+func (r *rig) withEdges(edges string) string {
+	r.t.Helper()
+	yml := strings.Replace(teamYAML, "edges:\n", "edges:\n"+edges, 1)
 	if err := os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(yml), 0o644); err != nil {
 		r.t.Fatal(err)
 	}
@@ -297,6 +303,61 @@ func TestABundleThatFailsAfterItsUnlinkPutsTheEdgeBack(t *testing.T) {
 	msg := r.decide(id, "approve", p.subject(), "d1")["error"].(map[string]any)["message"].(string)
 	if !strings.Contains(msg, "step 3 of 3 (link alice) failed") || r.file("team.yaml") != before {
 		t.Fatalf("%s\n%s", msg, r.file("team.yaml"))
+	}
+}
+
+// approveBundle raises changes as one bundle from alice and approves it; the error reply, or nil.
+func (r *rig) approveBundle(changes string) any {
+	r.t.Helper()
+	m := r.callAs("alice", "hr.propose", `{"kind":"bundle","args":{"name":"changes","changes":[`+changes+`]},"why":"w","request_id":"p1"}`)
+	n, ok := m["result"].(map[string]any)["proposal"].(float64)
+	if !ok {
+		r.t.Fatalf("proposed: %v", m)
+	}
+	p, err := r.e.load(fmt.Sprintf("%08x", int64(n)))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return r.decide(int64(n), "approve", p.subject(), "d1")["error"]
+}
+
+// An edge whose end is no agent (retired, or never one) can still be unlinked, from either end.
+func TestAnEdgeToAnAgentThatIsGoneCanBeUnlinked(t *testing.T) {
+	r := newRig(t)
+	r.withEdges(`  - { from: "alice", to: "ghost" }` + "\n" + `  - { from: "ghost", to: "bob" }` + "\n")
+	if err := r.approveBundle(`{"kind":"unlink","name":"alice","to":"ghost"},{"kind":"unlink","name":"ghost","to":"bob"}`); err != nil {
+		t.Fatalf("%v", err)
+	}
+	if yml := r.file("team.yaml"); strings.Contains(yml, "ghost") {
+		t.Fatalf("both edges are gone:\n%s", yml)
+	}
+	m := r.callAs("alice", "hr.propose", `{"kind":"unlink","args":{"name":"alice","to":"ghost"},"why":"w","request_id":"p2"}`)
+	if msg, _ := m["error"].(map[string]any)["message"].(string); !strings.Contains(msg, "no edge exactly alice -> ghost") {
+		t.Fatalf("an edge that is not there is still refused: %v", m)
+	}
+}
+
+// The wildcard and founder edges are rewritten like any other: unlinked, then linked again with from and to alone.
+func TestABundleRewritesAWildcardEdgeAndAFounderEdge(t *testing.T) {
+	r := newRig(t)
+	yml := strings.Replace(r.withEdges(`  - { from: "*", to: "bob", relation: peer }`+"\n"), `{ from: "human", to: "*" }`, `{ from: "human", to: "*", response: async }`, 1)
+	if err := os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(yml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sealed.New(r.home).Seal(sealed.Team, yml); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.approveBundle(`{"kind":"unlink","name":"*","to":"bob"},{"kind":"link","name":"*","to":"bob"},` +
+		`{"kind":"unlink","name":"human","to":"*"},{"kind":"link","name":"human","to":"*"}`); err != nil {
+		t.Fatalf("%v", err)
+	}
+	got := r.file("team.yaml")
+	if !strings.Contains(got, `{ from: "*", to: "bob" }`) || !strings.Contains(got, `{ from: "human", to: "*" }`) ||
+		strings.Contains(got, "relation") || strings.Contains(got, "response") {
+		t.Fatalf("both edges are rewritten:\n%s", got)
+	}
+	if tm, err := team.LoadTeam(r.home); err != nil || !tm.Route("alice", "bob", 0).Allowed {
+		t.Fatalf("the new edges load: %v", err)
 	}
 }
 
