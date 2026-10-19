@@ -210,3 +210,16 @@ func TestHrListServesAScheduleAndAGlobalProposalWithTheirWords(t *testing.T) {
 		t.Fatalf("%q", d)
 	}
 }
+
+// 10-20: an id of digits, an e and digits is written plain, as the store's YAML reads it back as a string; hr.list read it as a float and
+// left the proposal out, so the founder was never asked.
+func TestAProposalWhoseIdLooksLikeAnExponentIsListed(t *testing.T) {
+	e := testEnv(t)
+	putProposal(t, e, "149628e2", "id: 149628e2\nkind: unlink\nagent: handline.daemon\nrequested_by: handline.architect\ncreated: 1792426073\nstate: proposed\nto: handline.pr\n")
+	if ids := hrIDs(t, e, map[string]any{}); len(ids) != 1 || ids[0] != 0x149628e2 {
+		t.Fatalf("%v", ids)
+	}
+	if _, err := scalar("1.5"); err == nil {
+		t.Fatal("a float is still no field value")
+	}
+}
