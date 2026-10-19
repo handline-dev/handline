@@ -233,6 +233,43 @@ func (c *chat) receiptOf(r row, landing string) (map[string]any, string, error) 
 	return map[string]any{"state": state, "uuid": kept.UUID}, landing, nil
 }
 
+// decisionActions are the one-tap buttons a message to the founder carries for its task, from the task's state alone: a report waiting on
+// the founder is accepted or sent back, an open task of the founder's is answered OK or No (No hands it back to whoever opened it).
+func decisionActions(id int64, t row) []any {
+	act := func(key, label, verb string, params map[string]any, needs string) any {
+		params["task"] = id
+		a := map[string]any{"key": key, "label": label, "verb": verb, "task": id, "params": params}
+		if needs != "" {
+			a["needs"] = needs
+		}
+		return a
+	}
+	if t.str("done_evidence") != "" || t.str("discarded_by") != "" {
+		return nil
+	}
+	switch answersTo := orDefault(t.str("reporter"), t.str("opened_by")); {
+	case t["reported_at"] != nil:
+		if answersTo != human {
+			return nil
+		}
+		return []any{act("accept", "Accept", "task.accept", map[string]any{}, ""), act("send_back", "Send back", "task.reject", map[string]any{}, "note")}
+	case t.str("owner") == human:
+		out := []any{act("ok", "OK", "task.done", map[string]any{"evidence": "OK"}, "")}
+		if opener := t.str("opened_by"); opener != human {
+			out = append(out, act("no", "No", "task.handoff", map[string]any{"to": opener, "note": "No"}, ""))
+		}
+		return out
+	}
+	return nil
+}
+
+func orDefault(s, d string) string {
+	if s != "" {
+		return s
+	}
+	return d
+}
+
 func (c *chat) messageOf(r row) (map[string]any, error) {
 	state := landingOf(r)
 	receipt, state, err := c.receiptOf(r, state)
@@ -248,12 +285,16 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 		}
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	var actions []any
 	for _, id := range ids {
-		t, err := queryOne(c.e.DB, "SELECT title FROM tasks WHERE id = ?", id)
+		t, err := queryOne(c.e.DB, "SELECT title, owner, opened_by, reporter, reported_at, done_evidence, discarded_by FROM tasks WHERE id = ?", id)
 		if err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, map[string]any{"id": id, "title": t.str("title")})
+		if r.str("target") == human {
+			actions = append(actions, decisionActions(id, t)...)
+		}
 	}
 	var why any
 	if (state == "queued" || state == "typed") && r.str("target") != human {
@@ -278,6 +319,9 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 		"state": r.str("state"), "landing": state, "sending_reason": why, "body": orEmpty(r["body"]), "answer": answer,
 		"dismissed": dismissed, "delivered_at": ts(r["delivered_at"]), "typed_at": ts(r["typed_at"]), "landed_at": ts(r["landed_at"]),
 		"parent": r.intOrNil("parent_id"), "kind": orEmpty(r["kind"]), "tasks": tasks, "is_task_question": r.i("task_question") != 0}
+	if len(actions) > 0 {
+		m["actions"] = actions
+	}
 	if receipt != nil {
 		m["receipt"] = receipt
 	}
@@ -432,6 +476,15 @@ var stateAfter = map[string]string{"draft_task": "draft", "queue_task": "queued"
 	"mark_task_done": "done", "close_task": "closed", "discard_task": "discarded", "reopen_task": "queued",
 	"task_report": "answered", "accept_task": "done", "reject_task": "queued"}
 
+// stateAfterEvent is stateAfter for one event: a reopened discarded task is a draft until it is queued again.
+func stateAfterEvent(kind string, p map[string]any) (string, bool) {
+	if kind == "reopen_task" && p["was"] == "discarded" {
+		return "draft", true
+	}
+	s, ok := stateAfter[kind]
+	return s, ok
+}
+
 var chatEventKinds = []string{"draft_task", "queue_task", "task_begin", "task_start", "mark_task_done", "close_task", "discard_task",
 	"reopen_task", "task_handoff", "edit_task"}
 
@@ -525,12 +578,11 @@ func (c *chat) taskEvents(rs []row) ([]map[string]any, error) {
 	}
 	var steps []step
 	for _, e := range evs {
-		kind := e.str("kind")
-		if after, ok := stateAfter[kind]; ok {
+		kind, p := e.str("kind"), decodeObject(e.str("payload"))
+		if after, ok := stateAfterEvent(kind, p); ok {
 			steps = append(steps, step{at: e.i("ts"), task: e.i("tid"), who: e.str("agent"), after: after})
 			continue
 		}
-		p := decodeObject(e.str("payload"))
 		if kind == "task_handoff" {
 			steps = append(steps, step{at: e.i("ts"), task: e.i("tid"), who: e.str("agent"), change: "handed to " + jsonStr(p["to"]),
 				note: jsonStr(orEmpty(p["note"])), request: p["request_id"], ref: e["request_ref"]})
@@ -933,6 +985,9 @@ var transcriptEvents = map[string]string{"task_new": "opened", "task_begin": "ch
 	"task_handoff": "changed", "queue_task": "changed", "draft_task": "changed", "reopen_task": "changed", "release_task": "changed",
 	"merge_task": "changed", "mark_task_done": "done", "discard_task": "withdrawn", "close_task": "withdrawn"}
 
+// batchKind is a batch discard's one event: the task_batch card, apart from transcriptEvents since it names no one task.
+const batchKind = "discard_batch"
+
 func repliesOf(r row, agent string) []map[string]any {
 	var out []map[string]any
 	shown, hasShown := shownVerdict(r)
@@ -949,10 +1004,23 @@ func promptItemOf(agent string, b row) map[string]any {
 		"prompt": promptOf(agent, b), "open": !b.set("gone_at")}
 }
 
-// taskItemOf is one task event of the events table as a transcript item and the task it names; false when the chat does not show it.
+// taskItemOf is one task event of the events table as a transcript item and the task it names; false when the chat does not show it. A
+// batch discard is one task_batch item naming no one task, shown in its author's chat.
 func taskItemOf(ev row) (item map[string]any, task int64, ok bool) {
 	event, known := transcriptEvents[ev.str("kind")]
 	p := decodeObject(ev.str("payload"))
+	id := itemID(ev.i("ts"), itemTask, ev.i("id"))
+	if ev.str("kind") == batchKind {
+		var tasks []any
+		list, _ := p["tasks"].([]any)
+		for _, x := range list {
+			t, _ := x.(map[string]any)
+			tid, _ := rpc.AsInt(t["task_id"])
+			tasks = append(tasks, map[string]any{"task": tid, "title": text(t["title"]), "reason": text(t["reason"])})
+		}
+		return map[string]any{"id": id, "at": ts(ev["ts"]), "kind": "task_batch",
+			"task_batch": map[string]any{"batch": text(p["batch"]), "who": ev.str("agent"), "tasks": tasks}}, 0, true
+	}
 	tid, isInt := rpc.AsInt(p["task_id"])
 	if !known || !isInt {
 		return nil, 0, false
@@ -967,7 +1035,12 @@ func taskItemOf(ev row) (item map[string]any, task int64, ok bool) {
 	if change := changeOf(ev.str("kind"), p); change != "" {
 		body["change"] = change
 	}
-	return map[string]any{"id": itemID(ev.i("ts"), itemTask, ev.i("id")), "at": ts(ev["ts"]), "kind": "task_event", "task_event": body}, tid, true
+	return map[string]any{"id": id, "at": ts(ev["ts"]), "kind": "task_event", "task_event": body}, tid, true
+}
+
+// inBatchCard is whether a task event is already on the batch card agent's chat shows: a discard of a batch agent made.
+func inBatchCard(ev row, agent string) bool {
+	return ev.str("kind") == "discard_task" && ev.str("agent") == agent && text(decodeObject(ev.str("payload"))["batch"]) != ""
 }
 
 // changeOf is what a "changed" event changed, in the words chat.requests gives it: an edit's fields, "handed to X". "" for an event that says
@@ -1055,17 +1128,16 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 			items = append(items, item)
 		}
 	}
-	kinds := make([]string, 0, len(transcriptEvents))
-	for k := range transcriptEvents {
-		kinds = append(kinds, k)
-	}
-	sort.Strings(kinds)
-	evs, err := query(e.DB, "SELECT id, ts, agent, kind, payload FROM events WHERE kind IN ("+placeholders(len(kinds))+") AND "+eventTask+
-		" IN (SELECT id FROM tasks WHERE owner = ?) ORDER BY id DESC LIMIT ?", append(anySlice(kinds), agent, perSource)...)
+	kinds := ChatTaskKinds()
+	evs, err := query(e.DB, "SELECT id, ts, agent, kind, payload FROM events WHERE kind IN ("+placeholders(len(kinds))+") AND ("+eventTask+
+		" IN (SELECT id FROM tasks WHERE owner = ?) OR (kind = '"+batchKind+"' AND agent = ?)) ORDER BY id DESC LIMIT ?", append(anySlice(kinds), agent, agent, perSource)...)
 	if err != nil {
 		return nil, err
 	}
 	for _, ev := range evs {
+		if inBatchCard(ev, agent) {
+			continue
+		}
 		if item, _, ok := taskItemOf(ev); ok {
 			items = append(items, item)
 		}

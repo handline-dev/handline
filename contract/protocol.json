@@ -136,7 +136,7 @@
    "hl hr approve|reject|apply|relabel|rehome|links",
    "hl trust remove|apply|mcp",
    "hl schedule add|edit|remove",
-   "hl account add|remove|register|cap|cycle|recover (set; the billing-cycle and cap reads are for the next spec task)",
+   "hl account add|remove|register|cap|cycle|recover|wake (set; the billing-cycle and cap reads are for the next spec task)",
    "hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)",
    "hl dev-mode",
    "hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)",
@@ -268,6 +268,41 @@
    "no state row or no terminal, and nothing waiting for it (checked before IDLE)": "no_terminal"
   },
   "pending": "PENDING is two words, by what it waits for: `queued` when nothing but the next tick stands between it and a start, `parked` when it waits for a time. A client draws both as waiting its turn, and the clock in state_detail tells them apart. MOVING is `parked` with state_detail `moving`."
+ },
+ "x-status": {
+  "rule": "Every agent (AgentView.status) and every task (Task.status) carries one status: a state, the reason for it, and the line a client shows as it is. Both lists are closed for the daemon and open for a client: a word it does not know is drawn from `text`. The daemon fills it from the facts it acts on (the state row, the wake gate, the account it would wake on, the board), never from free text, and never sends a bare queued or an unknown where it knows the cause. state, state_detail, hold_reason, block_reason and waiting stay until the apps read status.",
+  "states": {
+   "preparing": "Has work and the daemon starts or sends it at its next tick; nothing stands in the way. Reasons: work, restart, retry.",
+   "starting": "A launch is in progress (agents). Reason: launch.",
+   "running": "Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, handoff, background.",
+   "waiting": "Held by something the daemon names: a person, another task, the owner, a clock, an account move. Reasons: you, review, opener, task, owner, clock, move.",
+   "stopped": "Will not go on by itself: no account has room (until the reset when it is known) or a person must unstall it. Reasons: wall, cap, stalled.",
+   "idle": "At its prompt with nothing to do (agents). Reason: none.",
+   "off": "Registered with no terminal and nothing waiting for it (agents). Reason: none.",
+   "done": "Closed (tasks). Reasons: done (its owner finished it), discarded."
+  },
+  "reasons": {
+   "work": "Work waits for it and nothing is in the way: the next tick types or starts it.",
+   "restart": "Between two sessions of a restart; the next one begins at the next tick.",
+   "retry": "A failed start is retried; text says which attempt.",
+   "launch": "Its terminal is starting.",
+   "turn": "A turn is running (agents); the owner has the task (tasks).",
+   "handoff": "A hand-off to a new session is moving.",
+   "background": "Background work runs while the agent sits at its prompt.",
+   "you": "A person must answer: a dialog or prompt on the agent, an open request to the founder on the task, or a task the founder owns.",
+   "review": "Answered: waits on its asker's accept or reject.",
+   "opener": "A draft: waits on its opener to queue it.",
+   "task": "Waits on other tasks; tasks lists them.",
+   "owner": "Waits on its owner, busy with something text names.",
+   "clock": "Waits for a time: until says when.",
+   "move": "An account move is settling.",
+   "wall": "The account it would run on is at a usage limit; until is when the window rolls over, null when not known.",
+   "cap": "No account has a free slot; it starts when a running turn ends.",
+   "stalled": "Stopped until a person unstalls it; text says why it stopped.",
+   "none": "Nothing to say beyond the state.",
+   "done": "Its owner finished it.",
+   "discarded": "Thrown away; text says why."
+  }
  },
  "x-dialogs": {
   "rule": "A dialog in an agent's terminal is routine, a human's or unknown. The daemon answers only the routine ones, and only at launch, once, from what the founder already decided; it never answers any other (no key into a pane after launch). A human's dialog and an unknown one are `needs_you` on the agent (AgentView), and the person answers them at the terminal terminal.open points to. Unknown is a person: a dialog the table does not name is class human, kind dialog. The class is decided from the hook or session file that reported it, never from the screen, except the launch's folder-trust screen, which the launch reads once.",
@@ -5209,6 +5244,14 @@
      "schema": {
       "$ref": "#/components/schemas/RequestId"
      }
+    },
+    {
+     "name": "by_founder",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "A chat message id: the founder's OK on this task, kept with the accept as its proof. Refused unless the founder wrote the message, it is tied to the task and it came after the report."
+     }
     }
    ],
    "result": {
@@ -5231,7 +5274,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "The task must be answered (an owner it does not answer to ran task.done). Only whoever it answers to, its opener or the founder may accept. It closes with the report as its evidence; the owner is told."
+   "description": "The task must be answered (an owner it does not answer to ran task.done). Only whoever it answers to, its opener or the founder may accept. It closes with the report as its evidence; the owner is told. With by_founder a lead records the founder's chat OK instead of asking for a second tap (`hl task accept T<n> --by-founder <message id>`); the message id is kept in the task's accept_task event."
   },
   {
    "name": "task.reject",
@@ -5285,7 +5328,7 @@
   },
   {
    "name": "task.reopen",
-   "summary": "Reopen a done task: anyone may, with a reason the opener and assignee are told.",
+   "summary": "Reopen a done task: anyone may, with a reason the opener and assignee are told. A discarded task comes back as a draft, to be queued again.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -6102,22 +6145,46 @@
   },
   {
    "name": "task.discard",
-   "summary": "Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told.",
+   "summary": "Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told. A request still open on it refuses, unless the caller leads a team whose tree holds the task (its owner or opener is the lead or reports to it): then each open request is withdrawn and its target told. tasks in place of task discards a batch in one call, all or none, with one discard_batch event: the one task_batch card in the caller's chat.",
    "paramStructure": "by-name",
    "params": [
     {
      "name": "task",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "integer"
-     }
+     },
+     "description": "One task. Give this or tasks."
+    },
+    {
+     "name": "tasks",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      }
+     },
+     "description": "A batch: these tasks, discarded together or not at all."
     },
     {
      "name": "reason",
-     "required": true,
+     "required": false,
      "schema": {
       "type": "string"
-     }
+     },
+     "description": "Required with task. With tasks, the reason of each task reasons does not name."
+    },
+    {
+     "name": "reasons",
+     "required": false,
+     "schema": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      }
+     },
+     "description": "With tasks: a reason of its own per task, keyed by task number (\"2\" or \"T2\")."
     },
     {
      "name": "request_id",
@@ -7363,6 +7430,50 @@
     }
    ],
    "description": "Fields not given are left alone. Chosen over set_cycle_on/set_cycle_end methods because the UI saves these together and the CLI twins (cap, cycle, recover, alias) each write one of these fields."
+  },
+  {
+   "name": "account.wake",
+   "summary": "Wake a STALLED account: its stall ends, agents may be placed on it again and the agents stalled with it are released, as session.wake clears a stalled agent (hl account wake). A login on the account, or a turn that ends well there, ends the stall too. Refused (gate state) when the account is not stalled.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "account",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
+    "state"
+   ]
   },
   {
    "name": "account.add",
@@ -9443,6 +9554,10 @@
        }
       ],
       "description": "Set while a session hands off, so a chat that sits still can say why. Cleared when the new session's start item appears. Every change is an agent.changed. A handoff that waits for a usage window to reset shows `writing` only; it is not `starting` until a launch is due. null when none. Absent from a daemon that does not serve it."
+     },
+     "status": {
+      "$ref": "#/components/schemas/Status",
+      "description": "What it is doing and why (x-status). Absent from a daemon that does not send it."
      }
     },
     "required": [
@@ -10005,6 +10120,24 @@
          },
          "at": {
           "$ref": "#/components/schemas/Timestamp"
+         },
+         "withdrew": {
+          "type": "array",
+          "items": {
+           "type": "integer"
+          },
+          "description": "The requests the discard withdrew with it (a lead's or the founder's), as request ids."
+         },
+         "batch": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "description": "The batch it was discarded in, null for a discard of its own."
          }
         },
         "required": [
@@ -10139,6 +10272,10 @@
        }
       ],
       "description": "The done that waits on acceptance while the task is answered; null otherwise. Absent from a daemon that does not send it."
+     },
+     "status": {
+      "$ref": "#/components/schemas/Status",
+      "description": "What it is doing and why (x-status). Absent from a daemon that does not send it."
      }
     },
     "required": [
@@ -10187,6 +10324,61 @@
      "since"
     ],
     "description": "Why a task waits (Task.waiting)."
+   },
+   "Status": {
+    "type": "object",
+    "description": "What an agent or task is doing and why (x-status).",
+    "properties": {
+     "state": {
+      "type": "string",
+      "description": "One of x-status states."
+     },
+     "reason": {
+      "type": "string",
+      "description": "One of x-status reasons."
+     },
+     "text": {
+      "type": "string",
+      "description": "The line every view shows for it, as it is."
+     },
+     "until": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "When it ends by itself (a clock, a wall's reset); null when nothing says."
+     },
+     "since": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Since when it has been so; null when not known."
+     },
+     "tasks": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "description": "The tasks it waits on, for reason task; empty otherwise."
+     }
+    },
+    "required": [
+     "state",
+     "reason",
+     "text",
+     "until",
+     "since",
+     "tasks"
+    ]
    },
    "TaskDetail": {
     "allOf": [
@@ -11168,6 +11360,40 @@
      "assign_reason": {
       "type": "string",
       "description": "Only with accounts.list `usage: true`. Why assignable is what it is."
+     },
+     "stalled": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "reason": {
+          "type": "string",
+          "description": "The line a row shows beside STALLED, as an agent's stall does: `login expired` for authentication_failed, else the error itself."
+         },
+         "error": {
+          "type": "string",
+          "description": "The StopFailure error that stalled it, as the CLI gave it."
+         },
+         "detail": {
+          "type": "string",
+          "description": "The turn that showed it, in words."
+         },
+         "since": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "reason",
+         "error",
+         "detail",
+         "since"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Set while the account is STALLED: a turn on it ended on an error that says the account itself cannot be used (a refused login, an org that disallows it, a hold or billing problem), or on one error the daemon does not name four times with no good turn between. No agent is placed on it; account.wake, a login or a good turn there ends it. null while it is usable. Absent from a daemon that does not send it."
      }
     },
     "required": [
@@ -12448,6 +12674,13 @@
      "proposal": {
       "type": "integer",
       "description": "Only on the message that tells an agent how the founder decided its HR proposal: that proposal's id, as hr.list gives it. A client that draws the decided proposal as a card can leave this line out."
+     },
+     "actions": {
+      "type": "array",
+      "description": "One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task's state asks for one: answered, and it answers to the founder (Accept, Send back), or owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb.",
+      "items": {
+       "$ref": "#/components/schemas/ChatAction"
+      }
      }
     },
     "required": [
@@ -12486,7 +12719,8 @@
        "tool",
        "prompt",
        "task_event",
-       "session"
+       "session",
+       "task_batch"
       ]
      },
      "text": {
@@ -12592,6 +12826,45 @@
        "id",
        "started",
        "handoff"
+      ]
+     },
+     "task_batch": {
+      "type": "object",
+      "description": "For kind task_batch: a batch discard, shown once in the chat of whoever made it.",
+      "properties": {
+       "batch": {
+        "type": "string"
+       },
+       "who": {
+        "type": "string"
+       },
+       "tasks": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "task": {
+           "type": "integer"
+          },
+          "title": {
+           "type": "string"
+          },
+          "reason": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "task",
+          "title",
+          "reason"
+         ]
+        }
+       }
+      },
+      "required": [
+       "batch",
+       "who",
+       "tasks"
       ]
      }
     },
@@ -14582,6 +14855,13 @@
      "memo": {
       "type": "integer",
       "description": "With a memo row: the memo's id."
+     },
+     "withdrew": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "description": "With a discarded state row: the requests withdrawn with it. Absent when none were."
      }
     },
     "required": [
@@ -14779,6 +15059,50 @@
      }
     ],
     "description": "A request named by its integer id, or by its ref: the 12 hex characters, with or without a leading #, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist."
+   },
+   "ChatAction": {
+    "type": "object",
+    "properties": {
+     "key": {
+      "type": "string",
+      "enum": [
+       "accept",
+       "send_back",
+       "ok",
+       "no"
+      ]
+     },
+     "label": {
+      "type": "string"
+     },
+     "verb": {
+      "type": "string",
+      "enum": [
+       "task.accept",
+       "task.reject",
+       "task.done",
+       "task.handoff"
+      ]
+     },
+     "task": {
+      "type": "integer"
+     },
+     "params": {
+      "type": "object",
+      "description": "The verb's params but request_id."
+     },
+     "needs": {
+      "type": "string",
+      "description": "A param the person must write before the tap sends (`note` for Send back)."
+     }
+    },
+    "required": [
+     "key",
+     "label",
+     "verb",
+     "task",
+     "params"
+    ]
    }
   },
   "errors": {

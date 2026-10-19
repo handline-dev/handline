@@ -115,7 +115,11 @@ func (e *Env) Cancelled(tid int64, by, owner string, stop bool, closed []taskwri
 			e.log("  telling after T%d was cancelled, request %d failed: %v", tid, r.RID, err)
 			continue
 		}
-		if _, _, _, err := e.closeTell(e.DB, r.RID, row, CancelVerdict, r.Notify); err != nil {
+		verdict := r.Verdict
+		if verdict == "" {
+			verdict = CancelVerdict
+		}
+		if _, _, _, err := e.closeTell(e.DB, r.RID, row, verdict, r.Notify); err != nil {
 			e.log("  telling after T%d was cancelled, request %d failed: %v", tid, r.RID, err)
 		}
 	}

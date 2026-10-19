@@ -91,12 +91,17 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 			[]string{`task.done {"commit":"abc1234","evidence":"w","repo":"/r","shots":["` + real + `/b.png","/s/c.png"],"task":3}`}},
 		{"", []string{"task", "reopen", "T3", "why"}, []string{`task.reopen {"note":"why","task":3}`}},
 		{"", []string{"task", "discard", "T3", "why"}, []string{`task.discard {"reason":"why","task":3}`}},
+		{"", []string{"task", "discard", "T1", "T2", "--why", "done", "--why-each", "T2=merged", "--why-each=T1=moot"},
+			[]string{`task.discard {"reason":"done","reasons":{"1":"moot","2":"merged"},"tasks":[1,2]}`}},
+		{"", []string{"task", "discard", "T1", "T2", "--why-each", "T1=a", "--why-each", "T2=b"},
+			[]string{`task.discard {"reason":"","reasons":{"1":"a","2":"b"},"tasks":[1,2]}`}},
 		{"", []string{"task", "release", "T3", "why"}, []string{`task.release {"reason":"why","task":3}`}},
 		{"", []string{"task", "release", "T3"}, []string{`task.release {"task":3}`}},
 		{"", []string{"task", "reopen", "T3"}, []string{`task.reopen {"task":3}`}},
 		{"", []string{"task", "handoff", "T3", "b.two"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "handoff", "T3", "b.two", "-"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "accept", "T3"}, []string{`task.accept {"task":3}`}},
+		{"", []string{"task", "accept", "T3", "--by-founder", "#41"}, []string{`task.accept {"by_founder":41,"task":3}`}},
 		{"", []string{"task", "reject", "T3", "no tests"}, []string{`task.reject {"note":"no tests","task":3}`}},
 	}
 	seen := 0
