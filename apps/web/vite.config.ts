@@ -62,5 +62,6 @@ function realGateway(): Plugin {
 export default defineConfig({
   plugins: [tailwindcss(), fakeDaemon(), realGateway()],
   server: { host: '127.0.0.1', watch: { usePolling: true, interval: 300 } },
-  test: { environment: 'happy-dom', setupFiles: ['test/setup.ts'], include: ['test/**/*.test.tsx'], testTimeout: 20_000 },
+  // maxWorkers: several teams' runs share one machine
+  test: { environment: 'happy-dom', setupFiles: ['test/setup.ts'], include: ['test/**/*.test.tsx'], testTimeout: 20_000, maxWorkers: 2 },
 });
