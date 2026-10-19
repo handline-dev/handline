@@ -137,14 +137,17 @@ export function Pill(props: { on: boolean; label: string; testID: string; onPres
 }
 
 /** A list row of a title over one muted line, set off by a rule above it. `style` adds to the row (a mark on its edge, dimming). */
-export function ListRow(props: { title: string; meta: string; metaColor?: string; onPress: () => void; testID: string; style?: ViewStyle; lead?: React.ReactNode }) {
+export function ListRow(props: { title: string; meta: string; metaColor?: string; onPress: () => void; onLongPress?: () => void; selected?: boolean; testID: string; style?: ViewStyle; lead?: React.ReactNode; trail?: React.ReactNode }) {
   const c = usePalette();
   return (
     <Pressable
       testID={props.testID}
       onPress={props.onPress}
+      onLongPress={props.onLongPress}
+      accessibilityState={props.selected === undefined ? undefined : { selected: props.selected }}
       style={{
         minHeight: 48,
+        backgroundColor: props.selected ? c.panel : undefined,
         justifyContent: 'center',
         paddingHorizontal: space.lg,
         paddingVertical: space.sm,
@@ -163,6 +166,7 @@ export function ListRow(props: { title: string; meta: string; metaColor?: string
         </Text>
         <Text style={{ color: props.metaColor ?? c.muted, fontSize: 12 }}>{props.meta}</Text>
       </View>
+      {props.trail}
     </Pressable>
   );
 }
