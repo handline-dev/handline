@@ -287,7 +287,7 @@ func AgentOfTerminal(q Q, terminal string) (string, error) {
 var ActivityKinds = []string{"ask", "cancel", "commit", "raise_decision", "report", "resolve", "withdraw", "no_task",
 	"task_new", "task_start", "task_note", "task_begin", "task_handoff",
 	"UserPromptSubmit", "Stop", "StopFailure", "SubagentStop", "PostCompact", "PermissionRequest", "TeammateIdle",
-	"stop_gate", "edit_gate"}
+	"stop_gate"}
 
 func marks(n int) string {
 	s := ""

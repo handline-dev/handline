@@ -71,8 +71,7 @@ func hook(c *hlclient.Client, args []string) (int, bool) {
 	}
 	tool, _ := raw["tool_name"].(string)
 	input := raw["tool_input"]
-	// No migration from a hook: a database this cannot use as it stands lets the edit gate's call through, as a failing
-	// guard does, and loses a background job's note.
+	// No migration from a hook: a database this cannot use as it stands loses a background job's note.
 	d, _ := sql.Open("sqlite", "file:"+paths.DBFile(c.Home)+"?mode=rw&_pragma=busy_timeout(5000)")
 	defer d.Close()
 	if event != "PreToolUse" && event != "PostToolUse" && event != "PostToolUseFailure" {
@@ -94,7 +93,7 @@ func hook(c *hlclient.Client, args []string) (int, bool) {
 		fmt.Println("{}")
 		return 0, true
 	}
-	why := session.PreToolUse(d, c.Home, agent, tool, input)
+	why := session.Guard(tool, input)
 	if why == "" {
 		fmt.Println("{}")
 		return 0, true
