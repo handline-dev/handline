@@ -121,6 +121,8 @@ type Spawner interface {
 	// Trust marks worktree trusted for agent's vendor before a launch there.
 	Trust(agent, worktree string)
 	SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error)
+	// Recreate makes the recorded worktree that is gone again from its branch in repo: its path, or "" and why it cannot be.
+	Recreate(agent, repo, recorded string) (path, why string)
 }
 
 // AgentsPort is team/agents.py, trust.py and measure as the lifecycle reads them.
