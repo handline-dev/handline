@@ -1,7 +1,7 @@
 // The change history of a task: one row per field, fields of one edit under one time, memo changes folded under All, the chips, a long text opening to its full diff.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
@@ -23,6 +23,8 @@ const chip = (word: string) =>
   [...box.querySelectorAll<HTMLButtonElement>('.thistory [aria-pressed]')].find((b) => b.textContent!.startsWith(word))!;
 const rows = () => [...box.querySelectorAll<HTMLElement>('.thistory [data-field]')];
 
+// The fixture history reaches back some hours from now; at noon it stays on one local day, so no midnight splits a fold.
+beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 9, 20, 12, 0) }));
 async function mount() {
   const s = setup();
   location.hash = '#/tasks/1684';
@@ -39,6 +41,7 @@ async function mount() {
   return s;
 }
 afterEach(async () => {
+  vi.useRealTimers();
   await act(async () => root?.unmount());
   root = null;
   box?.remove();
