@@ -764,7 +764,7 @@ func TestTheProposerIsToldHowEachDecisionWentInTheWordsHrPyUsed(t *testing.T) {
 	}
 }
 
-// Proposals decided together reach their proposer as one digest: each outcome is a notice from the board that asks nothing, not the founder
+// Proposals decided together reach their proposer, and the agents they name, as one digest each: each outcome is a notice from the board that asks nothing, not the founder
 // speaking, which would ask for an answer once per proposal.
 func TestABatchOfDecisionsWaitsForTheProposersDigestAndNothingIsFromTheFounder(t *testing.T) {
 	r := newRig(t)
@@ -772,8 +772,10 @@ func TestABatchOfDecisionsWaitsForTheProposersDigestAndNothingIsFromTheFounder(t
 		p, id := r.propose(fmt.Sprintf("aaaa002%d", i), "kind", "link", "agent", "alice", "to", "bob")
 		r.decide(id, ifThen(i%2 == 0, "approve", "reject"), p.subject(), fmt.Sprintf("b%d", i))
 	}
-	if pending, err := dbpkg.PendingNotices(r.db, "alice"); err != nil || len(pending) != 5 {
-		t.Fatalf("five outcomes wait for one digest: %d %v", len(pending), err)
+	for _, who := range []string{"alice", "bob"} { // alice raised and is linked, bob is the other end: each is told once per proposal
+		if pending, err := dbpkg.PendingNotices(r.db, who); err != nil || len(pending) != 5 {
+			t.Fatalf("%s: five outcomes wait for one digest: %d %v", who, len(pending), err)
+		}
 	}
 	var fromFounder int
 	r.db.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'alice' AND requester = 'human'").Scan(&fromFounder)

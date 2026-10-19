@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -79,13 +82,39 @@ func (e *Env) open(pid string) (*Prop, string) {
 	return p, ""
 }
 
-// tell tells the proposer how it went, as a notice from the task board: an outcome asks nothing, and the outcomes of proposals decided
-// together reach the proposer as one digest, one line each. A notice that cannot be written never undoes the decision.
+// tell tells the proposer, and every agent the proposal names, how it went, as a notice from the task board: an outcome asks nothing, and the
+// outcomes of proposals decided together reach each of them as one digest, one line each. A notice that cannot be written never undoes the
+// decision.
 func (e *Env) tell(p *Prop, text string) {
-	who := p.str("requested_by")
-	if who == "" || who == db.Human || e.Say == nil {
+	if e.Say == nil {
 		return
 	}
+	for _, who := range e.concerned(p) {
+		e.notify(p, who, text)
+	}
+}
+
+// concerned is the proposer and the registered agents a proposal (or any of its items) names as agent or to, each once; never the founder
+// or a pattern.
+func (e *Env) concerned(p *Prop) []string {
+	var out []string
+	add := func(name string) {
+		if name == "" || name == db.Human || slices.Contains(out, name) {
+			return
+		}
+		if _, err := os.Stat(filepath.Join(e.Home, "agents", name, "agent.yaml")); err == nil {
+			out = append(out, name)
+		}
+	}
+	add(p.str("requested_by"))
+	for _, it := range append([]*Prop{p}, p.items()...) {
+		add(it.str("agent"))
+		add(it.str("to"))
+	}
+	return out
+}
+
+func (e *Env) notify(p *Prop, who, text string) {
 	err := func() error {
 		tx, err := e.DB.Begin()
 		if err != nil {
