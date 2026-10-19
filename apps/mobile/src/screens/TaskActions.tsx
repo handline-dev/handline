@@ -179,9 +179,9 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   return (
     <View style={{ gap: space.md }}>
       <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-        <Pill testID="status-menu" on={menu === 'status'} label={`${t.state} ▾`} onPress={() => setMenu(menu === 'status' ? null : 'status')} />
-        {open && <Pill testID="assignee-menu" on={ask === 'assign'} label={`→ ${t.to} ▾`} onPress={() => setAsk(ask === 'assign' ? null : 'assign')} />}
-        <Pill testID="more-menu" on={menu === 'more'} label="More ▾" onPress={() => setMenu(menu === 'more' ? null : 'more')} />
+        <Pill testID="status-menu" on={menu === 'status'} label={`${t.state} ▾`} onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'status' ? null : 'status'))} />
+        {open && <Pill testID="assignee-menu" on={ask === 'assign'} label={`→ ${t.to} ▾`} onPress={() => (setMenu(null), setAsk(ask === 'assign' ? null : 'assign'))} />}
+        <Pill testID="more-menu" on={menu === 'more'} label="More ▾" onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'more' ? null : 'more'))} />
       </View>
       {menu === 'status' && (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
