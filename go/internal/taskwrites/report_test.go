@@ -266,13 +266,13 @@ func TestAcceptByFounderKeepsTheirChatMessageAndRefusesOneThatIsNotTheirs(t *tes
 	for mid, why := range map[int]string{
 		51: "message #51 is from mgr, not the founder",
 		52: "message #52 is not tied to task T1",
-		50: "message #50 was sent before T1 was reported",
+		50: "message #50 was sent before T1 was answered",
 	} {
 		if r := run("mgr", "task.accept", fmt.Sprint("a", mid), fmt.Sprintf(`,"task":1,"by_founder":%d`, mid)); errText(r) != why {
 			t.Fatalf("#%d: %v", mid, r)
 		}
 	}
-	if taskState(t, sdb, 1) != "reported" {
+	if taskState(t, sdb, 1) != "answered" {
 		t.Fatal("a refused proof closed the task")
 	}
 	said(t, run("mgr", "task.accept", "a53", `,"task":1,"by_founder":53`))
@@ -294,8 +294,8 @@ func TestALeadAcceptsAReportForTheFounderWithTheirReplyAsProof(t *testing.T) {
 	)
 	said(t, run("w", "task.done", "d1", `,"task":1,"evidence":"shipped"`))
 	for _, c := range []struct{ who, rid, params, why string }{
-		{"mgr", "a1", `,"task":1`, "task T1's report can only be accepted by human - whoever it answers to - or the founder"},
-		{"boss", "a2", `,"task":1,"by_founder":60`, "task T1's report can only be accepted by human - whoever it answers to - or the founder"},
+		{"mgr", "a1", `,"task":1`, "task T1's answer can only be accepted by human - whoever it answers to - or the founder"},
+		{"boss", "a2", `,"task":1,"by_founder":60`, "task T1's answer can only be accepted by human - whoever it answers to - or the founder"},
 		{"mgr", "a3", `,"task":1,"by_founder":0`, "by_founder is a message id"},
 	} {
 		if r := run(c.who, "task.accept", c.rid, c.params); !strings.Contains(errText(r), c.why) {
