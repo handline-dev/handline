@@ -11,7 +11,7 @@ const MARKS: Record<Dot, { glyph: string; label: string }> = {
   blocked: { glyph: '✕', label: 'Blocked' },
   idle: { glyph: '○', label: 'Idle' },
   parked: { glyph: '❚❚', label: 'Parked' },
-  none: { glyph: '–', label: 'No terminal' },
+  none: { glyph: '–', label: 'Stopped' },
 };
 
 export function StateMark({ agent }: { agent: Pick<AgentView, 'state' | 'has_dialog' | 'block'> }) {
