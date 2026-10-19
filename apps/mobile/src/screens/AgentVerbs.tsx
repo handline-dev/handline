@@ -21,6 +21,7 @@ const VERB_ICON: Record<VerbId, IconName> = {
   fold: 'closed',
   move: 'accounts',
   clear_stall: 'refresh',
+  force_start: 'play',
 };
 const STOP_ICON: Record<string, IconName> = { exit: 'back', close: 'close', kill: 'full' };
 
@@ -42,6 +43,7 @@ export function AgentVerbs(props: {
   const [open, setOpen] = useState(false);
   const [verb, setVerb] = useState<Verb | null>(null);
   const run = useVerbRun(detail.name);
+  const c = usePalette();
   const verbs = row ? verbsOf(row, detail).filter((v) => !HIDDEN.includes(v.id)) : [];
   if (!row)
     return (
@@ -55,8 +57,17 @@ export function AgentVerbs(props: {
     else run(v);
     setOpen(false);
   };
+  const held = verbs.find((v) => v.id === 'force_start');
   return (
     <View style={{ gap: space.sm }}>
+      {held && (
+        <Row style={{ flexWrap: 'wrap' }}>
+          <Text testID="held-load" style={{ color: c.wait, flex: 1 }}>
+            Held: the machine is over its load limit.
+          </Text>
+          <Button testID="force-start" label={held.label} icon={VERB_ICON.force_start} onPress={() => pick(held)} />
+        </Row>
+      )}
       <Row style={{ flexWrap: 'wrap' }}>
         {props.lead}
         <Button testID="verbs-open" label="" icon="menu" onPress={() => setOpen(!open)} accessibilityLabel="More" />
