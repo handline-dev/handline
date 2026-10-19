@@ -281,7 +281,7 @@ func (s *Spawns) Recreate(agent, repo, recorded string) (string, string) {
 		return "", fmt.Sprintf("%s: its recorded worktree %q is not an absolute path", agent, recorded)
 	}
 	branch := filepath.Base(path)
-	if filepath.Base(filepath.Dir(path)) != filepath.Base(repo)+".worktrees" || branch != agent && !strings.HasPrefix(branch, agent+"-") {
+	if filepath.Base(filepath.Dir(path)) != filepath.Base(repo)+".worktrees" || !spawnBranch(agent, branch) {
 		return "", fmt.Sprintf("%s: its worktree %s is gone and is not one a spawn made for it (%s.worktrees/%s) - not made again", agent,
 			path, filepath.Base(repo), agent)
 	}
@@ -302,6 +302,12 @@ func (s *Spawns) Recreate(agent, repo, recorded string) (string, string) {
 			strings.TrimSpace(r.Stderr))
 	}
 	return path, ""
+}
+
+// spawnBranch is whether branch is one a spawn names for agent: its name, or <name>-<n> when that was taken.
+func spawnBranch(agent, branch string) bool {
+	n, ok := strings.CutPrefix(branch, agent+"-")
+	return branch == agent || ok && n != "" && strings.Trim(n, "0123456789") == ""
 }
 
 // ExtraPaths is the agent's further worktrees that are still there, out of what its row holds. A path gone is not listed (and
