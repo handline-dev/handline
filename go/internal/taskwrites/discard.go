@@ -54,6 +54,16 @@ func withdrawMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (a
 	}
 }
 
+// allLanded is whether every open request on a task has landed in its agent's session (none is still waiting to be typed); false for none.
+func allLanded(live []linked) bool {
+	for _, r := range live {
+		if !r.LandedAt.Valid && r.State != "landed" {
+			return false
+		}
+	}
+	return len(live) > 0
+}
+
 // discard throws one task away (discardOne) and does its telling once that commits.
 func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason string, stop, own bool) (any, error) {
 	tid, err := taskID(p)
@@ -233,6 +243,15 @@ func discardOne(tx *sql.Tx, home, by string, tid int64, reason, batch string, st
 			return nil, err
 		}
 	}
+	// A request that already landed is held by its agent and no cancel can take it back: the asker or the founder discards the task
+	// all the same, the hold ends with it and the holder is told.
+	var holders []string
+	if !stops && (by == who || by == human) && allLanded(live) {
+		for _, r := range live {
+			holders = append(holders, r.Target)
+		}
+		live = nil
+	}
 	inHand := false
 	var withdrew []any
 	if stops && len(live) > 0 { // the open requests are cancelled instead of refusing
@@ -269,6 +288,10 @@ func discardOne(tx *sql.Tx, home, by string, tid int64, reason, batch string, st
 		for _, r := range live {
 			open = append(open, fmt.Sprintf("%s (with %s)", db.MsgName(tx, r.ID), r.Target))
 		}
+		if allLanded(live) {
+			return nil, refusal(fmt.Sprintf("task T%d is in its holder's hands (%s) - only %s, who it answers to, or the founder can discard it now",
+				tid, strings.Join(open, ", "), who))
+		}
 		return nil, refusal(fmt.Sprintf("task T%d still has a request open: %s - withdraw or cancel it first (the founder's `hl cancel <id>`), "+
 			"or its target keeps working on thrown-away work", tid, strings.Join(open, ", ")))
 	}
@@ -304,6 +327,7 @@ func discardOne(tx *sql.Tx, home, by string, tid int64, reason, batch string, st
 		also = append(also, t.Owner)
 	}
 	also = append(also, who, t.OpenedBy)
+	also = append(also, holders...)
 	ended, gone, err := endTask(tx, home, tid, by, t, strings.TrimRight(fmt.Sprintf("T%d discarded by %s: %s", tid, byWord, said), ": "), false, also)
 	if err != nil {
 		return nil, err

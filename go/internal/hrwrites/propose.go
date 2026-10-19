@@ -114,8 +114,9 @@ func (e *Env) teamNames(name string, members []string, repos map[string]string, 
 	return full, ""
 }
 
-// draft checks one change against the roster `registered` (and the agents an earlier step makes, `coming`) and returns it as a proposal, or why not (_draft in hr.py).
-func (e *Env) draft(actor, kind string, args map[string]any, why string, registered []string, coming map[string]bool) (*Prop, string) {
+// draft checks one change against the roster `registered` (and the agents an earlier step makes, `coming`, and the edges an earlier step
+// unlinks, `unlinked`) and returns it as a proposal, or why not (_draft in hr.py).
+func (e *Env) draft(actor, kind string, args map[string]any, why string, registered []string, coming map[string]bool, unlinked map[[2]string]bool) (*Prop, string) {
 	name := argStr(args, "name")
 	str := func(k string) string { return argStr(args, k) }
 	why = strings.TrimSpace(why)
@@ -152,7 +153,7 @@ func (e *Env) draft(actor, kind string, args map[string]any, why string, registe
 		}
 	}
 	if kind == "link" || kind == "unlink" {
-		if msg := e.edgeRefusal(kind, name, to, registered, coming); msg != "" {
+		if msg := e.edgeRefusal(kind, name, to, registered, coming, unlinked); msg != "" {
 			return nil, msg
 		}
 	}
@@ -323,7 +324,7 @@ func (e *Env) proposeMethod(c *rpc.Conn, params map[string]any) (any, error) {
 		changes, _ := args["changes"].([]any)
 		return e.proposeBundle(c, changes, argStr(params, "why"))
 	}
-	prop, why := e.draft(c.Caller.Actor(), argStr(params, "kind"), args, argStr(params, "why"), paths.ListAgents(e.Home), nil)
+	prop, why := e.draft(c.Caller.Actor(), argStr(params, "kind"), args, argStr(params, "why"), paths.ListAgents(e.Home), nil, nil)
 	if why != "" {
 		return refuse("%s", why)
 	}
@@ -374,11 +375,15 @@ func (e *Env) proposeBundle(c *rpc.Conn, raw []any, why string) (any, error) {
 	now := paths.ListAgents(e.Home)
 	registered := now
 	coming := map[string]bool{}
+	unlinked := map[[2]string]bool{} // so a link after its unlink rewrites the edge
 	var flat []yamlcompat.Pair
 	for n, s := range steps {
-		d, msg := e.draft(c.Caller.Actor(), s.kind, s.args, why, registered, coming)
+		d, msg := e.draft(c.Caller.Actor(), s.kind, s.args, why, registered, coming, unlinked)
 		if msg != "" {
 			return refuse("change %d (%s %s): %s", s.n, s.kind, argStr(s.args, "name"), msg)
+		}
+		if s.kind == "unlink" {
+			unlinked[[2]string{d.str("agent"), d.str("to")}] = true
 		}
 		for _, kv := range d.pairs {
 			switch kv.Key {

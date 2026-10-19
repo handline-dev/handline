@@ -245,6 +245,61 @@ func TestAddRegistersTheAgentAndPutsItInTeamYaml(t *testing.T) {
 	}
 }
 
+// withOldEdge gives team.yaml an alice -> bob edge with the relation and response keys links no longer have, and returns it.
+func (r *rig) withOldEdge() string {
+	r.t.Helper()
+	yml := strings.Replace(teamYAML, "edges:\n", "edges:\n  - { from: \"alice\", to: \"bob\", relation: peer, response: async }\n", 1)
+	if err := os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(yml), 0o644); err != nil {
+		r.t.Fatal(err)
+	}
+	if err := sealed.New(r.home).Seal(sealed.Team, yml); err != nil {
+		r.t.Fatal(err)
+	}
+	return yml
+}
+
+// A bundle applies its unlinks before its links, so an unlink and a link of the same edge rewrite it to from and to alone.
+func TestABundleRewritesAnEdgeByUnlinkingThenLinkingIt(t *testing.T) {
+	r := newRig(t)
+	r.withOldEdge()
+	if tm, err := team.LoadTeam(r.home); err != nil || !tm.Route("alice", "bob", 0).Allowed {
+		t.Fatalf("the old keys load: %v", err)
+	}
+	m := r.callAs("alice", "hr.propose", `{"kind":"bundle","args":{"name":"2 changes","changes":[{"kind":"link","name":"alice","to":"bob"},`+
+		`{"kind":"unlink","name":"alice","to":"bob"}]},"why":"drop the old keys","request_id":"p1"}`)
+	n, ok := m["result"].(map[string]any)["proposal"].(float64)
+	if !ok {
+		t.Fatalf("the link counts the bundle's unlink: %v", m)
+	}
+	p, err := r.e.load(fmt.Sprintf("%08x", int64(n)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res := r.decide(int64(n), "approve", p.subject(), "d1"); res["error"] != nil {
+		t.Fatalf("%v", res)
+	}
+	yml := r.file("team.yaml")
+	if !strings.Contains(yml, `{ from: "alice", to: "bob" }`) || strings.Contains(yml, "response") {
+		t.Fatalf("the edge is rewritten:\n%s", yml)
+	}
+	if tm, err := team.LoadTeam(r.home); err != nil || !tm.Route("alice", "bob", 0).Allowed {
+		t.Fatalf("the new edge loads: %v", err)
+	}
+}
+
+func TestABundleThatFailsAfterItsUnlinkPutsTheEdgeBack(t *testing.T) {
+	r := newRig(t)
+	before := r.withOldEdge()
+	p, id := r.propose("aaaa0006", "kind", "bundle", "agent", "3 changes",
+		"i1.kind", "unlink", "i1.agent", "alice", "i1.to", "bob",
+		"i2.kind", "link", "i2.agent", "alice", "i2.to", "bob",
+		"i3.kind", "link", "i3.agent", "alice", "i3.to", "nobody")
+	msg := r.decide(id, "approve", p.subject(), "d1")["error"].(map[string]any)["message"].(string)
+	if !strings.Contains(msg, "step 3 of 3 (link alice) failed") || r.file("team.yaml") != before {
+		t.Fatalf("%s\n%s", msg, r.file("team.yaml"))
+	}
+}
+
 func TestADiffThatFailsHalfwayPutsEverythingBack(t *testing.T) {
 	r := newRig(t)
 	before := r.file("team.yaml")

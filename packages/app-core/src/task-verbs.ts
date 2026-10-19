@@ -1,6 +1,7 @@
 // What can be done to a task from the Tasks views, one or many: which tasks a verb applies to, one write per task so each has its own
 // result, and a selection with shift-click ranges. The daemon decides what is allowed; this only skips what could never apply.
 import type { Task } from '@handline/client';
+import { taskRef } from './tasks.ts';
 import { CLOSED } from './task-table.ts';
 
 export type RowVerb =
@@ -26,10 +27,10 @@ const startable = (t: Task) => ['draft', 'queued', 'pending'].includes(t.state);
 
 /** Why a verb cannot apply to a task (as `me` sees it), or null when it can. */
 export function whyNot(verb: RowVerb, t: Task, me: string): string | null {
-  const closed = `#${t.id} is already closed`;
+  const closed = `${taskRef(t.id)} is already closed`;
   switch (verb) {
     case 'done':
-      return t.state === 'draft' ? `#${t.id} is a draft, queue it first` : open(t) ? null : closed;
+      return t.state === 'draft' ? `${taskRef(t.id)} is a draft, queue it first` : open(t) ? null : closed;
     case 'cancel':
     case 'discard':
     case 'owner':
@@ -37,15 +38,15 @@ export function whyNot(verb: RowVerb, t: Task, me: string): string | null {
     case 'timebox':
       return open(t) ? null : closed;
     case 'queue':
-      return t.state === 'draft' ? null : `#${t.id} is not a draft`;
+      return t.state === 'draft' ? null : `${taskRef(t.id)} is not a draft`;
     case 'draft':
-      return t.state === 'queued' || t.state === 'doing' ? null : `#${t.id} is not queued or running`;
+      return t.state === 'queued' || t.state === 'doing' ? null : `${taskRef(t.id)} is not queued or running`;
     case 'release':
-      return t.state === 'doing' ? null : `#${t.id} is not running`;
+      return t.state === 'doing' ? null : `${taskRef(t.id)} is not running`;
     case 'reopen':
-      return t.state === 'done' && t.from === me ? null : `#${t.id} is not a finished task you asked`;
+      return t.state === 'done' && t.from === me ? null : `${taskRef(t.id)} is not a finished task you asked`;
     case 'withdraw':
-      return startable(t) && t.from === me ? null : `#${t.id} was not asked by you or has started`;
+      return startable(t) && t.from === me ? null : `${taskRef(t.id)} was not asked by you or has started`;
   }
 }
 
