@@ -1,4 +1,4 @@
-// The My turn page: cards from the inbox, agents that need the person and reports to accept, most urgent first.
+// The My turn page: cards from the inbox, agents that need the person, most urgent first.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { act } from 'react';
@@ -71,58 +71,26 @@ describe('my turn', () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, v);
       el.dispatchEvent(new Event('input', { bubbles: true }));
     });
-  const report = (s: ReturnType<typeof setup>, id: number, from: string) =>
-    s.daemon.tasks.seed({
-      id,
-      from,
-      to: ARCH,
-      title: `Report ${id}`,
-      state: 'review',
-      report: { by: ARCH, evidence: 'built', at: new Date().toISOString() },
-    });
-
-  it('Accept closes a report that answers to the founder, and no card is made for one that answers to an agent', async () => {
-    const s = setup();
-    report(s, 9001, ME);
-    report(s, 9002, 'handline.auditor');
-    await open(s);
-    await until(() => box.querySelector('[data-card="accept:9001"]'), 'the accept card');
-    expect(box.querySelector('[data-card="accept:9002"]')).toBeNull();
-    await click(button(box.querySelector('[data-card="accept:9001"]')!, 'Accept'));
-    await until(() => s.daemon.tasks.get({ task: 9001 }).state === 'done', 'the daemon');
-  });
-
-  it('Send back asks what is missing and sends it', async () => {
-    const s = setup();
-    report(s, 9001, ME);
-    await open(s);
-    await until(() => box.querySelector('[data-card="accept:9001"]'), 'the accept card');
-    const c = box.querySelector('[data-card="accept:9001"]')!;
-    await click(button(c, 'More'));
-    await click([...document.body.querySelectorAll('[role=menuitem]')].find((b) => b.textContent === 'Send back')); // the menu is a portal
-    const field = c.querySelector('input, textarea')!;
-    await act(async () => {
-      const proto = field instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
-      Object.getOwnPropertyDescriptor(proto.prototype, 'value')!.set!.call(field, 'Tests missing');
-      field.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await click(button(c, 'Send back'));
-    await until(() => s.daemon.tasks.get({ task: 9001 }).state === 'queued', 'the daemon');
-  });
+  /** A decision about a task, so its card has a task to open. */
+  const decision = (s: ReturnType<typeof setup>, id: number) => {
+    s.daemon.tasks.seed({ id, from: ME, to: ARCH, title: `Task ${id}`, state: 'doing' });
+    s.daemon.inbox.add({ kind: 'decision', agent: ARCH, title: `Decide ${id}`, body: 'Pick A or B.', task: id, created: new Date().toISOString(), read: false });
+  };
 
   it('a row opens its task in a detail beside the list on a wide window; Back closes it', async () => {
     const media = (matches: boolean) => vi.stubGlobal('matchMedia', () => ({ matches, addEventListener() {}, removeEventListener() {} }));
     media(true);
     keep = () => void vi.unstubAllGlobals();
     const s = setup();
-    report(s, 9002, ME);
+    decision(s, 9002);
     await open(s);
-    await until(() => box.querySelector('[data-card="accept:9002"]'), 'the accept card');
-    const c = box.querySelector('[data-card="accept:9002"]')!;
+    const card = () => cards().find((c) => c.textContent?.includes('Task 9002'));
+    await until(card, 'the decision card');
+    const c = card()!;
     await click(c.querySelector('[role=button]') ?? undefined);
     await until(() => box.querySelector('.tdetail'), 'the task detail');
     expect(box.querySelector('.my-turn-split .my-turn')).not.toBeNull(); // beside the list, not instead of it
-    expect(box.querySelector('[data-card="accept:9002"]')!.getAttribute('aria-current')).toBe('true');
+    expect(card()!.getAttribute('aria-current')).toBe('true');
     await until(() => box.querySelector('.tdetail .tbody'), 'the task body');
     // jsdom does not match :focus-visible, so the cascade is checked in the rules: a later, more specific one than the base ring.
     const css = readFileSync(join(process.cwd(), 'src/styles/base.css'), 'utf8');
@@ -131,18 +99,6 @@ describe('my turn', () => {
     expect(box.querySelector('.tdetail .tbody')).not.toBeNull();
     await click(box.querySelector('.tdetail .back') ?? undefined);
     expect(box.querySelector('.tdetail')).toBeNull();
-  });
-
-  it("shows the daemon's refusal on the card and keeps Accept usable", async () => {
-    const s = setup();
-    report(s, 9001, ME);
-    await open(s);
-    await until(() => box.querySelector('[data-card="accept:9001"]'), 'the accept card');
-    s.daemon.tasks.verbs = false; // the daemon does not serve task.accept
-    const c = box.querySelector('[data-card="accept:9001"]')!;
-    await click(button(c, 'Accept'));
-    await until(() => c.querySelector('[role=alert]'), 'the refusal');
-    expect(button(c, 'Accept')!.hasAttribute('disabled')).toBe(false);
   });
 
   it('Reply sends the written answer of a decision', async () => {

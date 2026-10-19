@@ -13,7 +13,7 @@ A name that does not exist is an error.
 | `inbox-terminal` | An inbox card for `handline.auditor` with `fix: open_terminal`. |
 | `hr` | Three proposals: add `handline.new-builder` (team `handline`, model `sonnet`), a setting change `model: sonnet -> opus`, and a retire to reject. |
 | `tasks-200` | 200 tasks, T6000 to T6199, in every state. |
-| `chat-actions` | Two messages from `handline.architect` with actions: Accept / Send back on a reported task (T6901), OK / No on an open task the founder owns (T6902). |
+| `chat-actions` | A message from `handline.architect` with OK / No actions on an open task the founder owns (T6902). |
 
 Switch on:
 
