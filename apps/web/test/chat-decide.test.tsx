@@ -36,8 +36,8 @@ function seeded(task: number) {
     from: ME,
     to: ARCH,
     title: `Report ${task}`,
-    state: 'reported',
-    report: { by: ARCH, evidence: 'built', at: new Date().toISOString() },
+    state: 'review',
+    report: { by: ARCH, evidence: 'built', at: new Date().toISOString(), waits_on: ME, accepted: null },
   });
   (s.daemon as unknown as { chat: { seed: (a: string, m: object) => number } }).chat.seed(ARCH, {
     body: `T${task} is reported`,
@@ -79,7 +79,7 @@ describe('decide buttons on a chat message', () => {
     const s = seeded(9102);
     await mount(s);
     await click($('[data-action="send_back"]')!);
-    expect(s.daemon.tasks.get({ task: 9102 }).state).toBe('reported');
+    expect(s.daemon.tasks.get({ task: 9102 }).state).toBe('review');
     const field = $('.msg-actions input')!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, 'Tests missing');
