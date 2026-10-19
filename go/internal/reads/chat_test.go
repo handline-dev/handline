@@ -532,3 +532,34 @@ func TestChatLocateKeepsAPageOfTheTranscriptAroundTheMessage(t *testing.T) {
 		t.Fatalf("centred on message 2: %d items, middle %v", len(items), mid)
 	}
 }
+
+// More tool calls than a page before the message: the span is read around it, not from the window's start.
+func TestChatLocateReadsTheToolsAroundTheMessage(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for _, q := range []string{
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, ref) VALUES(1, 1000, 'human', 'bob', 'first', 'queued', 'say', 'aaaa11112222')",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, ref) VALUES(2, 1700, 'human', 'bob', 'second', 'queued', 'say', 'bbbb33334444')",
+	} {
+		if _, err := e.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 900; i++ {
+		at := int64(1000 + i)
+		body := fmt.Sprintf(`{"tool_use":{"id":"u%d","tool":"Bash","input":{"command":"at %d"}}}`, i, at)
+		if _, err := e.DB.Exec(`INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('bob', ?, 's', NULL, ?, 'tool_use', NULL, ?)`, i+1, at, body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := e.chatLocate(nil, map[string]any{"request": nameB})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := got.(map[string]any)
+	items := m["transcript"].([]any)
+	first, last := items[0].(map[string]any)["text"], items[len(items)-1].(map[string]any)["text"]
+	if len(items) != maxLimit || first != "at 1600" || last != "at 1799" || m["transcript_more_older"] != true || m["transcript_more_newer"] != true {
+		t.Fatalf("%d items, %v .. %v, older %v newer %v", len(items), first, last, m["transcript_more_older"], m["transcript_more_newer"])
+	}
+}

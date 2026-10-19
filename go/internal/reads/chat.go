@@ -868,7 +868,23 @@ func (e *Env) chatLocate(c *rpc.Conn, params map[string]any) (any, error) {
 // transcriptSpan are agent's transcript items with ids from from up to to (0: no end), oldest first: up to maxLimit, kept around at.
 // cutOlder and cutNewer are whether the span has more at that end, for chat.transcript before and since to go on from.
 func (e *Env) transcriptSpan(agent string, from, to, at int64) (items []any, cutOlder, cutNewer bool, err error) {
-	all, err := e.transcriptItems(agent, transcript.ToolWindow{Since: from, Limit: perSource + 1})
+	// The tool calls are read from at both ways, a page each; where a page is full, what lies past its last call is not read, so the span
+	// ends there and says it was cut.
+	older, err := transcript.Tools(e.DB, agent, transcript.ToolWindow{Before: at, Limit: maxLimit + 1})
+	if err != nil {
+		return nil, false, false, err
+	}
+	newer, err := transcript.Tools(e.DB, agent, transcript.ToolWindow{Since: at, Limit: maxLimit + 1})
+	if err != nil {
+		return nil, false, false, err
+	}
+	if len(older) > maxLimit && older[0].ID > from {
+		from, cutOlder = older[0].ID, true
+	}
+	if len(newer) > maxLimit && (to == 0 || newer[len(newer)-1].ID < to) {
+		to, cutNewer = newer[len(newer)-1].ID+1, true
+	}
+	all, err := e.transcriptItems(agent, append(older, newer...))
 	if err != nil {
 		return nil, false, false, err
 	}
@@ -881,7 +897,7 @@ func (e *Env) transcriptSpan(agent string, from, to, at int64) (items []any, cut
 	if len(span) > maxLimit {
 		mid := sort.Search(len(span), func(i int) bool { return span[i]["id"].(int64) >= at })
 		lo := max(0, min(mid-maxLimit/2, len(span)-maxLimit))
-		cutOlder, cutNewer = lo > 0, lo+maxLimit < len(span)
+		cutOlder, cutNewer = cutOlder || lo > 0, cutNewer || lo+maxLimit < len(span)
 		span = span[lo : lo+maxLimit]
 	}
 	fitToolOutput(span)
@@ -1024,9 +1040,9 @@ func changeOf(kind string, p map[string]any) string {
 	return ""
 }
 
-// transcriptItems are agent's transcript items, oldest first: its replies, its tool calls in window, its prompt cards, its session starts
+// transcriptItems are agent's transcript items, oldest first: its replies, the tool calls given, its prompt cards, its session starts
 // and its tasks' events, each source up to perSource of its newest.
-func (e *Env) transcriptItems(agent string, window transcript.ToolWindow) ([]map[string]any, error) {
+func (e *Env) transcriptItems(agent string, tools []transcript.Tool) ([]map[string]any, error) {
 	var items []map[string]any
 	// A structured session's text blocks are its replies: each is a transcript event, and the event holds this item's id.
 	texts, err := transcript.Replies(e.DB, agent, perSource)
@@ -1035,10 +1051,6 @@ func (e *Env) transcriptItems(agent string, window transcript.ToolWindow) ([]map
 	}
 	for _, t := range texts {
 		items = append(items, map[string]any{"id": t.ID, "at": ts(t.At), "kind": "reply", "text": t.Text})
-	}
-	tools, err := transcript.Tools(e.DB, agent, window)
-	if err != nil {
-		return nil, err
 	}
 	for _, t := range tools {
 		item := map[string]any{"id": t.ID, "at": ts(t.At), "kind": "tool", "tool": t.Name, "text": t.Text}
@@ -1110,7 +1122,11 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 	} else if before != nil {
 		window.Before = *before
 	}
-	items, err := e.transcriptItems(agent, window)
+	tools, err := transcript.Tools(e.DB, agent, window)
+	if err != nil {
+		return nil, err
+	}
+	items, err := e.transcriptItems(agent, tools)
 	if err != nil {
 		return nil, err
 	}
