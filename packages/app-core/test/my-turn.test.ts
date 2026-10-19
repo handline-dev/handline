@@ -79,7 +79,7 @@ test('a reported task is an Accept card with Accept first', () => {
   const cards = myTurn({
     items: [],
     agents: [],
-    tasks: [task({ id: 9, from: 'human', state: 'answered', report: { by: 'a', evidence: 'ok', at: '2026-10-15T00:00:00Z' } })],
+    tasks: [task({ id: 9, from: 'human', state: 'review', report: { by: 'a', evidence: 'ok', at: '2026-10-15T00:00:00Z' } })],
   });
   assert.deepEqual(
     cards[0]!.actions.map((a) => a.type),
@@ -99,9 +99,9 @@ test('inboxGroup: decision and ask are decisions, a permission prompt is an appr
 test('a report that answers to an agent is no Accept card; one that answers to the caller is', () => {
   const report = { by: 'a', evidence: 'ok', at: '2026-10-15T00:00:00Z' };
   const tasks = [
-    task({ id: 1, from: 'b', state: 'answered', report }),
-    task({ id: 2, from: 'me', state: 'answered', report }),
-    task({ id: 3, from: 'human', state: 'answered', report }),
+    task({ id: 1, from: 'b', state: 'review', report }),
+    task({ id: 2, from: 'me', state: 'review', report }),
+    task({ id: 3, from: 'human', state: 'review', report }),
   ];
   assert.deepEqual(
     myTurn({ items: [], agents: [], tasks, me: 'me' })

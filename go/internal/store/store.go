@@ -154,6 +154,7 @@ var byHand = map[int]func(*sql.Tx) error{
 	16: addTaskReport,     // task_report
 	17: addTimeoutLeft,    // task_timeout_left
 	19: addRequestRef,     // requests_ref
+	21: addTaskReview,     // task_review
 }
 
 // addExtraWorktrees is _agent_extra_worktrees in schema.py: a database made before the column has none.
@@ -178,7 +179,17 @@ func addTaskReporter(tx *sql.Tx) error {
 
 // addTaskReport is _task_report in schema.py: a database made before the columns has none.
 func addTaskReport(tx *sql.Tx) error {
-	for _, c := range [][2]string{{"reported_at", "INTEGER"}, {"report", "TEXT"}, {"report_via", "TEXT"}} {
+	return addTaskColumns(tx, [][2]string{{"reported_at", "INTEGER"}, {"report", "TEXT"}, {"report_via", "TEXT"}})
+}
+
+// addTaskReview is a task's PR and the accept that left it waiting on that PR's merge.
+func addTaskReview(tx *sql.Tx) error {
+	return addTaskColumns(tx, [][2]string{{"pr", "INTEGER"}, {"accepted_by", "TEXT"}, {"accepted_at", "INTEGER"}})
+}
+
+// addTaskColumns adds each (name, type) column the tasks table does not have yet.
+func addTaskColumns(tx *sql.Tx, cols [][2]string) error {
+	for _, c := range cols {
 		var n int
 		if err := tx.QueryRow("SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = ?", c[0]).Scan(&n); err != nil {
 			return err

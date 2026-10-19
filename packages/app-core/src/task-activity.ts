@@ -23,7 +23,7 @@ const STATE_WORD: Record<string, string> = {
   discarded: 'discarded it',
   queued: 'queued it',
   draft: 'moved it back to draft',
-  reported: 'reported it',
+  review: 'reported it',
   blocked: 'blocked it',
 };
 

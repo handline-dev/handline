@@ -10,6 +10,7 @@ import (
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/team"
 )
 
 const human = "human"
@@ -117,7 +118,7 @@ func (b *board) state(t row) string {
 		return "done"
 	}
 	if t.set("reported_at") {
-		return "answered"
+		return "review"
 	}
 	asked := b.asked(t.i("id"))
 	if asked && b.holds(t) {
@@ -254,7 +255,7 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 			cond("COALESCE(discarded_by, '') != ''")
 		case "done":
 			cond("COALESCE(discarded_by, '') = '' AND COALESCE(done_evidence, '') != ''")
-		case "answered":
+		case "review":
 			cond("reported_at IS NOT NULL AND " + openTask)
 		default:
 			cond("reported_at IS NULL")
@@ -291,7 +292,7 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	page := ""
 	sqlDecides := state == nil && !turn // my_turn leaves out drafts, which only the board knows
 	if state != nil {
-		sqlDecides = *state == "answered" || *state == "done" || *state == "discarded"
+		sqlDecides = *state == "review" || *state == "done" || *state == "discarded"
 	}
 	if sqlDecides { // SQL alone decides: it pages too
 		page = fmt.Sprintf(" LIMIT %d", limit+1)
@@ -397,7 +398,12 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	st, err := e.statusOf(t, state, asker, waiting, waitSince)
+	var report map[string]any // the done in review, and who it waits on
+	if state == "review" {
+		report = e.review(t)
+	}
+	reviewer, _ := report["waits_on"].(string)
+	st, err := e.statusOf(t, state, reviewer, waiting, waitSince)
 	if err != nil {
 		return nil, err
 	}
@@ -428,8 +434,9 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	}
 	task["last_activity"], task["edited_by"], task["requests"], task["tags"] = ts(active), t.strOrNil("edited_by"), linked, tags
 	task["discarded"], task["report"] = nil, nil
-	if state == "answered" {
-		task["report"] = map[string]any{"by": t.str("owner"), "evidence": t.str("report"), "at": ts(t["reported_at"])}
+	task["pr"] = t.intOrNil("pr")
+	if report != nil {
+		task["report"] = report
 	}
 	if t.str("discarded_by") != "" {
 		d := map[string]any{"by": t.str("discarded_by"), "reason": t.str("discard_reason"), "at": ts(t["discarded_at"]), "withdrew": []any{}, "batch": nil}
@@ -850,4 +857,24 @@ func (e *Env) taskMemoList(c *rpc.Conn, params map[string]any) (any, error) {
 		}
 	}
 	return map[string]any{"memos": memos, "more": more}, nil
+}
+
+// review is a task's answer in review, and who it waits on: the founder's merge OK once accepted with a PR, else the assignee's lead,
+// else whoever it answers to.
+func (e *Env) review(t row) map[string]any {
+	r := map[string]any{"by": t.str("owner"), "evidence": t.str("report"), "at": ts(t["reported_at"]), "accepted": nil}
+	if by := t.str("accepted_by"); by != "" {
+		r["accepted"] = map[string]any{"by": by, "at": ts(t["accepted_at"])}
+		r["waits_on"] = human
+		return r
+	}
+	tm, _ := team.LoadTeam(e.Home)
+	r["waits_on"] = tm.LeadOf(t.str("owner"))
+	if r["waits_on"] == "" {
+		r["waits_on"] = t.str("reporter")
+		if r["waits_on"] == "" {
+			r["waits_on"] = t.str("opened_by")
+		}
+	}
+	return r
 }

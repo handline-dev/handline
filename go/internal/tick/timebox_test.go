@@ -35,6 +35,7 @@ type tbPorts struct {
 
 func (p *tbPorts) TaskDoing(_ db.Q, t *db.Task) bool           { return p.doing[t.ID] }
 func (p *tbPorts) SupervisorOf(string) string                  { return p.boss }
+func (p *tbPorts) LeadOf(string) string                        { return "" }
 func (p *tbPorts) StopWaitReason(db.Q, string) string          { return p.stopWait }
 func (p *tbPorts) BgStale(db.Q, string, int64) bool            { return p.bgStale }
 func (p *tbPorts) BgOwesNothing(db.Q, string) bool             { return p.bgOwes }

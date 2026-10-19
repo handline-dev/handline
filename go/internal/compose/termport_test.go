@@ -75,7 +75,7 @@ func (f *fakeTerminals) Send(_, text string, enter bool) (bool, string) {
 	f.sent = append(f.sent, text)
 	return true, ""
 }
-func (f *fakeTerminals) CreateTerminal(command, cwd, title string) (string, string) {
+func (f *fakeTerminals) CreateTerminal(command, cwd, title, agent string) (string, string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	handle := "%" + string(rune('1'+len(f.opened)))

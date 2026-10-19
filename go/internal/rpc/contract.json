@@ -351,6 +351,9 @@
  "task.start": {
   "role": "agent"
  },
+ "task.time": {
+  "role": "agent"
+ },
  "task.view.delete": {
   "role": "member"
  },
