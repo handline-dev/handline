@@ -34,7 +34,7 @@ func setProgress(tx *sql.Tx, agent, note string) (string, error) {
 		}
 		return "you (no request in progress)", db.SetMeta(tx, db.AgentProgressKey(agent), note)
 	}
-	return fmt.Sprintf("#%d", head.ID), db.SetMeta(tx, requestProgressKey(head.ID), note)
+	return db.MsgName(tx, head.ID), db.SetMeta(tx, requestProgressKey(head.ID), note)
 }
 
 // progress is task.progress: the caller's note on what is done and what is left, kept where the handoff and the wake prompt read it.

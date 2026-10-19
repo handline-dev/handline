@@ -45,7 +45,9 @@ type Env struct {
 	LoginState func(account string) (loggedIn, known bool)
 	// PullRequests answers which of the numbers are pull requests of a GitHub repo; nil asks gh.
 	PullRequests func(ctx context.Context, repo string, numbers []int) ([]int, error)
-	prs          *prCache
+	// Resources is the latest measure of what the machine and each agent use (sysres.Sampler.Latest); nil serves none.
+	Resources func() map[string]any
+	prs       *prCache
 }
 
 // Register adds the read methods to the server's table.

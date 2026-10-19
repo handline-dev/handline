@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -68,19 +69,13 @@ func mailbox(q db.Q) ([]mailRow, error) {
 	return out, nil
 }
 
-func itemParam(p map[string]any, key string) (int64, error) {
-	n, ok := rpc.AsInt(p[key])
-	if !ok {
-		return 0, badParam(key+" is an item id", key)
-	}
-	return n, nil
-}
-
 func noItem(i int64) *rpc.Error {
 	return notFound("item", strconv.FormatInt(i, 10), fmt.Sprintf("no item %d in this inbox", i))
 }
 
-func idList(p map[string]any) ([]int64, error) {
+func noItemNamed(name string) error { return notFound("item", name, "no item "+name+" in this inbox") }
+
+func (w *writes) idList(c *rpc.Conn, p map[string]any) ([]int64, error) {
 	list, ok := p["ids"].([]any)
 	bad := badParam(fmt.Sprintf("ids is a list of 1 to %d item ids", maxIDs), "ids")
 	if !ok || len(list) == 0 || len(list) > maxIDs {
@@ -89,9 +84,12 @@ func idList(p map[string]any) ([]int64, error) {
 	seen := map[int64]bool{}
 	var ids []int64
 	for _, v := range list {
-		n, ok := rpc.AsInt(v)
-		if !ok {
-			return nil, bad
+		n, err := requestref.Resolve(w.e.DB, w.e.Home, v, requestref.Viewer(c), "ids")
+		if name, missing := requestref.Missing(err); missing {
+			return nil, noItemNamed(name)
+		}
+		if err != nil {
+			return nil, err
 		}
 		if !seen[n] {
 			seen[n] = true
@@ -113,7 +111,7 @@ type seenMark struct {
 }
 
 func (w *writes) markRead(c *rpc.Conn, p map[string]any) (any, error) {
-	ids, err := idList(p)
+	ids, err := w.idList(c, p)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +240,7 @@ func (w *writes) markRead(c *rpc.Conn, p map[string]any) (any, error) {
 }
 
 func (w *writes) inboxAnswer(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := itemParam(p, "id")
+	rid, err := w.refParam(w.e.DB, c, p, "id", noItemNamed)
 	if err != nil {
 		return nil, err
 	}
@@ -283,11 +281,11 @@ func (w *writes) inboxAnswer(c *rpc.Conn, p map[string]any) (any, error) {
 func inboxText(p map[string]any, key string) (string, error) { return text(p, key) }
 
 func (w *writes) inboxReply(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := itemParam(p, "id")
+	body, err := text(p, "text")
 	if err != nil {
 		return nil, err
 	}
-	body, err := text(p, "text")
+	rid, err := w.refParam(w.e.DB, c, p, "id", noItemNamed)
 	if err != nil {
 		return nil, err
 	}

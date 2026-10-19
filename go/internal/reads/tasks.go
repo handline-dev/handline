@@ -438,7 +438,7 @@ func (e *Env) taskOf(t row, state string, b *board) (map[string]any, error) {
 	linked := make([]map[string]any, len(reqs))
 	for i, r := range reqs {
 		active = max(active, r.i("touched"))
-		linked[i] = map[string]any{"id": r.i("id"), "ref": r.str("ref"), "from": r.str("requester"), "to": r.str("target"),
+		linked[i] = map[string]any{"id": r.i("id"), "ref": r.str("ref"), "name": db.MsgNameOf(e.DB, r.str("ref")), "from": r.str("requester"), "to": r.str("target"),
 			"state": r.str("state"), "at": ts(r["ts"])}
 	}
 	tagRows, err := query(e.DB, "SELECT tag FROM task_tags WHERE task_id = ? ORDER BY tag", t.i("id"))
@@ -542,11 +542,6 @@ func taskMismatch(t row, state string, reqs []row) any {
 	}
 	sent := t.set("sent_at")
 	if t.str("queued_by") == "" && sent {
-		for _, r := range reqs {
-			if r.str("state") == "queued" || (r.str("state") == "landed" && r.str("kind") == "task" && r.set("queue_order")) {
-				return fmt.Sprintf("draft with work out (#%d) - its opener has not queued it", r.i("id"))
-			}
-		}
 		return "draft with work out - its opener has not queued it"
 	}
 	if state == "queued" && !sent && t.str("owner") != human {
