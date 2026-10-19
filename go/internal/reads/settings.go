@@ -9,6 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/loadgate"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
@@ -96,6 +97,7 @@ func (e *Env) settingsValues() map[string]any {
 	cfg := usage.LoadConfig(e.Home)
 	s := &lifecycle.Settings{Home: e.Home}
 	park := s.DefaultCloseTimeoutS()
+	limits := loadgate.LimitsOf(cfg)
 	bgNotice := park
 	if bgNotice == 0 {
 		bgNotice = 1
@@ -118,6 +120,7 @@ func (e *Env) settingsValues() map[string]any {
 		// Whether each notifications event raises a notice on the founder's devices; the event is on the topic either way.
 		"push_prompt_asked": s.Flag("push_prompt_asked", true), "push_task_done": s.Flag("push_task_done", true),
 		"push_stall": s.Flag("push_stall", true), "push_account_out": s.Flag("push_account_out", true),
+		loadgate.AgentCapKey: limits.Agents, loadgate.LoadPctKey: limits.LoadPct, loadgate.RAMFreePctKey: limits.RAMFreePct,
 	}
 }
 

@@ -14,7 +14,31 @@ import (
 func (p *Parts) SessionRPC(cfg Config) *sessionrpc.Env {
 	c := controls{p: p, lc: p.LC}
 	f := &fold.Env{Home: cfg.Home, DB: p.db, InTx: func(fn func(db.Q) error) error { return inTx(p.db, fn) }, Usage: p.LC.usage, Accounts: team.Accounts{Home: cfg.Home}, Today: today(cfg)}
-	return &sessionrpc.Env{DB: p.db, Home: cfg.Home, Controls: c, Move: c.Move, Now: cfg.Now, Fold: f.Fold, Roster: p.LC.roster}
+	return &sessionrpc.Env{DB: p.db, Home: cfg.Home, Controls: c, Move: c.Move, Now: cfg.Now, Fold: f.Fold, Roster: p.LC.roster,
+		ForceStart: c.ForceStart}
+}
+
+// ForceStart is agent.force_start: work the machine's load holds for the agent goes past the limits for its next start, at the next tick.
+// Refused when the load holds nothing of the agent's: no work waits, or the machine is under its limits.
+func (c controls) ForceStart(agent string) (bool, string, error) {
+	m := c.lc.Manager
+	why := c.lc.Gate.Held(agent)
+	row, err := db.GetAgentState(m.Q, agent)
+	if err != nil {
+		return false, "", err
+	}
+	owed, _, err := m.StartOrWakeNeeded(agent, row)
+	if err != nil {
+		return false, "", err
+	}
+	if why == "" || (owed == "" && !c.lc.Launch.Ports.WaitingFor(m.Q, agent)) {
+		return false, agent + ": the machine's load holds nothing of its", nil
+	}
+	c.lc.Gate.Pass(agent)
+	if _, err := db.AddEvent(m.Q, agent, "load_limit_passed", db.KV{K: "held", V: why}); err != nil {
+		return false, "", err
+	}
+	return true, agent + ": starts at the next tick past the load limits (" + why + ")", nil
 }
 
 // controls is sessionrpc.Controls over the lifecycle manager.

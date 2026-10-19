@@ -95,6 +95,8 @@ type Config struct {
 	// Watch runs the detectors that have moved here from the Python daemon's watcher, which write their rows to the stream. Off while that
 	// watcher still runs: a second writer would double every event.
 	Watch bool
+	// Resources, when set, is the sampler shared with the load gate, run whether or not Watch is; nil makes one for Watch.
+	Resources *sysres.Sampler
 	// Context is the model id and context figures of an agent on an account (agent.strip). Nil leaves them null.
 	Context func(agent, account string) (string, *int, *int64, int)
 	// Delivery is what the supervisor knows of why a queued line waits (a chat line's sending_reason). Nil leaves out the reasons that need it.
@@ -280,8 +282,13 @@ func Start(cfg Config) (*Daemon, error) {
 			w.Run(d.stop)
 		}()
 	}
-	if cfg.Watch && !cfg.Gateway {
-		d.res = &sysres.Sampler{Home: cfg.Home, Panes: d.agentPanes, Log: func(s string) { cfg.Log("%s", s) }}
+	// The sampler only reads: it runs for the load gate (Resources) even where the watcher does not.
+	if (cfg.Watch || cfg.Resources != nil) && !cfg.Gateway {
+		d.res = cfg.Resources
+		if d.res == nil {
+			d.res = &sysres.Sampler{Home: cfg.Home, Log: func(s string) { cfg.Log("%s", s) }}
+		}
+		d.res.Panes = d.agentPanes
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()

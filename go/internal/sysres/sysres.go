@@ -159,6 +159,17 @@ func (s *Sampler) Run(stop <-chan struct{}) {
 	}
 }
 
+// LatestMachine is the machine in the latest snapshot; nil before the first.
+func (s *Sampler) LatestMachine() *Machine {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.last == nil {
+		return nil
+	}
+	m := s.last.Machine
+	return &m
+}
+
 // Latest is the latest snapshot as daemon.status serves it; nil before the first.
 func (s *Sampler) Latest() map[string]any {
 	s.mu.Lock()

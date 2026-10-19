@@ -153,6 +153,23 @@ func TestSettingsSetWritesEveryKeyOrNoneAndClearsOnNull(t *testing.T) {
 	}
 }
 
+func TestTheLoadLimitsAreWholeNumbersForTheWholeMachine(t *testing.T) {
+	r := newRig(t)
+	r.result(r.one("settings.set", `{"changes":{"host_active_cap":0,"load_per_core_pct":200,"ram_free_min_pct":100},"request_id":"l1"}`))
+	if got := r.file("config.yaml"); !strings.Contains(got, "host_active_cap: 0") || !strings.Contains(got, "load_per_core_pct: 200") ||
+		!strings.Contains(got, "ram_free_min_pct: 100") {
+		t.Fatalf("%q", got)
+	}
+	for i, bad := range []string{`{"ram_free_min_pct":101}`, `{"host_active_cap":-1}`, `{"load_per_core_pct":1.5}`} {
+		if r.code(r.one("settings.set", `{"changes":`+bad+`,"request_id":"l`+strconv.Itoa(i+2)+`"}`)) != "bad_request" {
+			t.Fatalf("%s was taken", bad)
+		}
+	}
+	if r.code(r.one("settings.set", `{"changes":{"host_active_cap":2},"agent":"alice","request_id":"l9"}`)) != "bad_request" {
+		t.Fatal("a load limit has no per-agent value")
+	}
+}
+
 func TestEveryPushSwitchIsAFounderFlagForTheWholeTeam(t *testing.T) {
 	for _, key := range []string{"push_prompt_asked", "push_task_done", "push_stall", "push_account_out"} {
 		r := newRig(t)
