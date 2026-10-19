@@ -10,7 +10,7 @@ import (
 	"github.com/handline/handline/go/internal/supervisor"
 )
 
-// registerRequests adds what `hl withdraw` and `hl cancel` call.
+// registerRequests adds what `hl withdraw` and the app's cancel call.
 func (w *writes) registerRequests(s *rpc.Server) {
 	s.Register("request.withdraw", rpc.Method{Role: "agent", Write: true, Handler: w.withdrawRequest})
 	// Unkept and OwnEvent: a dry run writes and records nothing, and a cancel that happened is judged again by a retry (already closed).

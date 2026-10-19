@@ -116,7 +116,7 @@ func TestAnUnknownCommandIsRefused(t *testing.T) {
 
 func TestNoVerbTakesAnArgumentItDoesNotParse(t *testing.T) {
 	r := newRig(t)
-	for _, verb := range []string{"say", "task", "progress", "read", "inbox", "withdraw", "team", "hr", "account", "device", "cancel", "service"} {
+	for _, verb := range []string{"say", "task", "progress", "read", "inbox", "withdraw", "team", "hr", "device", "service"} {
 		out, errs, code := r.run(nil, verb, "--no-such-flag")
 		if code != 2 || out != "" || !strings.Contains(errs, "arguments not understood") {
 			t.Errorf("%s: %q %q %d", verb, out, errs, code)

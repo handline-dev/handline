@@ -125,7 +125,7 @@ func (e *Env) settingsValues() map[string]any {
 	}
 }
 
-// DevMode is whether config turns dev mode on (hl dev-mode): the daemon restarts itself when its own code changed.
+// DevMode is whether config turns dev mode on (dev_mode in config.yaml): the daemon restarts itself when its own code changed.
 func DevMode(cfg usage.Config) bool { return truthy(cfg["dev_mode"]) }
 
 // handoffPrompt is the handoff prompt as set, or the built-in one it falls back to.

@@ -245,8 +245,8 @@ func (b *Timebox) SweepStaleBackground(t *Tick, now int64) {
 			since = now
 		}
 		text := fmt.Sprintf("%s has had background work for %s and shown nothing for %s. In %s its session may be closed, which stops that work, "+
-			"unless it shows activity or `hl idle-timeout never --agent %s` is set.",
-			agent, timefmt.Ago(now-since), timefmt.Ago(silent), timefmt.Ago(b.Ports.StaleBgVetoS()), agent)
+			"unless it shows activity or its idle timeout is set to never in the app's settings.",
+			agent, timefmt.Ago(now-since), timefmt.Ago(silent), timefmt.Ago(b.Ports.StaleBgVetoS()))
 		if b.tell(t, boss, text, now) {
 			check(db.SetCursor(t.Q, key, now))
 			must(db.AddEvent(t.Q, agent, "stale_background", db.KV{K: "told", V: boss}, db.KV{K: "silent_s", V: silent}))

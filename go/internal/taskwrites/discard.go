@@ -292,7 +292,7 @@ func discardOne(tx *sql.Tx, home, by string, tid int64, reason, batch string, st
 			return nil, refusal(fmt.Sprintf("task T%d is in its holder's hands (%s) - only %s, who it answers to, or the founder can discard it now",
 				tid, strings.Join(open, ", "), who))
 		}
-		return nil, refusal(fmt.Sprintf("task T%d still has a request open: %s - withdraw or cancel it first (the founder's `hl cancel <id>`), "+
+		return nil, refusal(fmt.Sprintf("task T%d still has a request open: %s - withdraw or cancel it first (the founder cancels it in the app), "+
 			"or its target keeps working on thrown-away work", tid, strings.Join(open, ", ")))
 	}
 	res, err := tx.Exec("UPDATE tasks SET discarded_by = ?, discarded_at = ?, discard_reason = ? WHERE id = ? AND "+openSQL, by, time.Now().Unix(), said, tid)

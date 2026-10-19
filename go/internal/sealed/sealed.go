@@ -166,5 +166,5 @@ func (s *Seals) Check(key, text, where string) error {
 	if st == "changed" {
 		why = "was changed outside the founder's path"
 	}
-	return &yamlcompat.ConfigError{Msg: fmt.Sprintf("%s %s and is not trusted. Roster and routing change only through an approved `hl hr` proposal or the founder's own session; if this file is the founder's, run `hl team seal`.", where, why)}
+	return &yamlcompat.ConfigError{Msg: fmt.Sprintf("%s %s and is not trusted. Roster and routing change only through an approved `hl hr` proposal or the founder's own session; if this file is the founder's, seal it in the app's Team page.", where, why)}
 }

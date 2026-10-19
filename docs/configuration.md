@@ -57,14 +57,13 @@ hl hr link reviewer backend --why "backend may ask the reviewer for a second loo
 ```
 
 An older `team.yaml` is moved onto the name links by `hl hr links` (it shows the plan; `--apply`
-writes it). `hl hr` files a proposal for you to decide. `hl hr approve <id>` applies it at once and
-tells the agent that asked; `hl hr reject <id> "why"` turns it down. `hl hr list` shows proposals
-and what became of them.
+writes it). `hl hr` files a proposal for you to decide in the app's HR tab: an approve applies it at
+once and tells the agent that asked. `hl hr list` shows proposals and what became of them.
 
 ## agent.yaml
 
 Written by `hl agent register`. Edit it by registering again with new options, not by hand,
-unless you also run `hl team seal`. The fields you will use: `vendor`, `model`, `effort`, `weight`
+unless you also seal it (below). The fields you will use: `vendor`, `model`, `effort`, `weight`
 (`light` or `heavy`), `repo`, `chrome`, and `mcp_config`. Which account an
 agent is on is not in this file. The daemon records it, and `hl agent move` changes it.
 
@@ -94,20 +93,13 @@ store at `~/.config/orcapipe/protected`. If a file no longer matches, `hl` refus
 and `hl doctor` names it. This stops an agent from editing its own permissions, because every
 agent can write to `~/.orcapipe`.
 
-If you edit one of these files yourself, read it over and run:
-
-```bash
-hl team seal
-```
+If you edit one of these files yourself, read it over and seal it in the app's Team page.
 
 ## Accounts and limits
 
-```bash
-hl account list              # usage windows, agents per account, whether it takes work
-hl account cap alpha 3       # how many agents may be mid-turn on alpha at once (default 2)
-hl account wake alpha        # end the stall a refused turn left on alpha (a login or a good turn there ends it too)
-hl status                    # why the daemon picked the account it did
-```
+The app's Accounts page shows each account's usage windows, its agents and whether it takes work. There
+you set how many agents may be mid-turn on it at once (default 2) and wake an account a refused turn
+stalled (a login or a good turn there ends the stall too).
 
 An agent's account is a preference. A session goes there unless the account is at its limit, at
 its cap, or filling too fast, or is STALLED: a turn on it ended on an error that says the account
