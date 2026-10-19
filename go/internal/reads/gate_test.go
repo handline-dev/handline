@@ -24,6 +24,9 @@ func TestAGateTaskShowsItsWatchAndIsRunningWhileItWatches(t *testing.T) {
 	task := get()
 	w, _ := task["watch"].(map[string]any)
 	st, _ := task["status"].(map[string]any)
+	if x := expectedOf(t, e, 1, 2000); x != nil {
+		t.Fatalf("a gate has no expected time: %v", x)
+	}
 	if task["state"] != "doing" || w["repo"] != "o/r" || w["pr"] != float64(412) || w["on"] != "ci" || w["result"] != nil ||
 		st["state"] != "running" || st["reason"] != "watch" || st["text"] != "watching PR #412 CI" {
 		t.Fatalf("%v", task)
