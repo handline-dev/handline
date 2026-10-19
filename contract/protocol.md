@@ -98,7 +98,7 @@ A method marked write takes a required `request_id`.
 | `session.interrupt` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role, terminal_lock, input_holder |
 | `prompt.list` | member |  | `agent` | `{prompts}` | `not_found` |  |
 | `prompt.answer` | member | yes | `agent`, `prompt`, `choice`, `request_id` | `Accepted` | `refused`, `not_found`, `stale_prompt` | role, terminal_lock, input_holder |
-| `input.take` | member | yes | `agent`, `request_id` | `Accepted & {holder}` | `refused`, `not_found` | role, input_holder, unsupported |
+| `input.take` | member | yes | `agent`, `force?`, `request_id` | `Accepted & {holder}` | `refused`, `not_found` | role, input_holder, unsupported |
 | `input.release` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role, unsupported |
 | `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{messages, more}` | `not_found`, `bad_request` |  |
 | `chat.requests` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{items, more, version, cursor}` | `not_found`, `bad_request` |  |

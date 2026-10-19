@@ -2168,6 +2168,14 @@
      }
     },
     {
+     "name": "force",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Take the input from the person or device that holds it instead of being refused; the holder notice tells them. It never types into the agent's own turn: typing still waits for it."
+     }
+    },
+    {
      "name": "request_id",
      "required": true,
      "schema": {

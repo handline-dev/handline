@@ -129,6 +129,17 @@ func (s *Store) Take(agent, kind, name string) (bool, error) {
 	return false, nil
 }
 
+// Seize holds agent's input as name whoever holds it now (input.take with force); the holder it replaces is told like any take.
+func (s *Store) Seize(agent, kind, name string) error {
+	now := s.now()
+	if _, err := s.DB.Exec("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES(?,?,?,?,?) "+
+		"ON CONFLICT(agent) DO UPDATE SET kind = excluded.kind, name = excluded.name, since = excluded.since, last_typed = excluded.last_typed",
+		agent, kind, name, now, now); err != nil {
+		return err
+	}
+	return s.changed(agent)
+}
+
 // Release gives the input back to the daemon.
 func (s *Store) Release(agent string) error {
 	if _, err := s.DB.Exec("DELETE FROM input_holders WHERE agent = ?", agent); err != nil {
