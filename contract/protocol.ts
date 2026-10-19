@@ -655,6 +655,8 @@ export type Proposal = {
   requested_by?: string;
   /** Why it asks, as the agent wrote it. Text only, from an agent: a client draws it as plain text, never as markup, and drops control characters. Optional. */
   reason?: string;
+  /** The founder's note on the decision (why it was rejected, say), as hr.decide took it. Absent when the founder gave none or it is still open. */
+  note?: string;
   /** The fields the proposal asks for (vendor, model, effort, team, repo, to, then each `set <key>`). Every value is text from an agent (same rule as `reason`); optional, and a key it did not ask for is absent. Absent for kind bundle: its `diff` carries the changes. members, repos, relation, response and context texts are in `diff` only. */
   asked?: {
     vendor?: string;

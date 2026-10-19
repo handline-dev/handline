@@ -177,6 +177,21 @@ func gate(m map[string]any) string {
 	return g
 }
 
+// hr.list reads back the founder's note on a decision, and no note when none was given.
+func TestTheFoundersNoteOnADecisionIsListed(t *testing.T) {
+	r := newRig(t)
+	_, noted := r.propose("aaaa0001", "kind", "link", "agent", "alice", "to", "bob")
+	_, bare := r.propose("aaaa0002", "kind", "link", "agent", "bob", "to", "alice")
+	r.call("hr.decide", fmt.Sprintf(`{"proposal":%d,"decision":"reject","note":"not before the redesign","request_id":"d1"}`, noted))
+	r.decide(bare, "reject", "", "d2")
+	if v := r.e.reader().HRView("aaaa0001"); v["note"] != "not before the redesign" {
+		t.Fatalf("%v", v)
+	}
+	if v := r.e.reader().HRView("aaaa0002"); v["state"] != "rejected" || v["note"] != nil {
+		t.Fatalf("%v", v)
+	}
+}
+
 func TestRejectIsRecordedOnceAndAFixedProposalIsRefusedAgain(t *testing.T) {
 	r := newRig(t)
 	_, id := r.propose("aaaa0001", "kind", "link", "agent", "alice", "to", "bob")
@@ -900,8 +915,8 @@ func TestTheFoundersOwnAddIsAppliedAtOnce(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(r.home, "agents", "carol", "agent.yaml")); err != nil {
 		t.Fatal("registered")
 	}
-	if v := r.e.reader().HRView(id); v == nil || v["state"] != "approved" || v["requested_by"] != "human" {
-		t.Fatalf("hr.list shows it: %v", v)
+	if v := r.e.reader().HRView(id); v == nil || v["state"] != "approved" || v["requested_by"] != "human" || v["note"] != nil {
+		t.Fatalf("hr.list shows it, with no note: %v", v)
 	}
 }
 

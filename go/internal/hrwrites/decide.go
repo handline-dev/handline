@@ -231,6 +231,9 @@ func (e *Env) decide(pid, call, by, note, subject string, tell bool) (bool, stri
 		verdict = call
 	}
 	prop.set("verdict", verdict)
+	if note != "" {
+		prop.set("note", note) // the founder's own words, apart from the verdict's call word or system text
+	}
 	prop.set("decided", time.Now().Unix())
 	if err := e.save(prop); err != nil {
 		finish("ROLLBACK")
