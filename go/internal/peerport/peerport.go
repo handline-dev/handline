@@ -5,6 +5,9 @@
 // A write is not an echo. Send answers Sent at once and delivers in the background, one message at a time per agent and in order; the
 // outcome comes back through OnDelivered (the transcript showed it) or OnFailed (it did not after the resend: the agent needs a person).
 // The receiver queues a message that arrives mid-turn and reads it when the turn ends, so Now and Queue are the same write.
+//
+// The founder's own words are the one exception (Typed): the inbox shows everything it carries as another session's, so they are typed
+// into the agent's terminal, and only when nothing on it would take them for an answer.
 package peerport
 
 import (
@@ -19,6 +22,7 @@ import (
 // Deliverer is what the port needs of the inbox: *peerinbox.Sender.
 type Deliverer interface {
 	Deliver(ctx context.Context, sess peerinbox.Session, text string, from peerinbox.From) peerinbox.Result
+	Type(ctx context.Context, sess peerinbox.Session, text string, typeIn func(text string) error) peerinbox.Result
 }
 
 // Port delivers to terminal agents.
@@ -35,6 +39,11 @@ type Port struct {
 	Ctx         context.Context
 	// From says who the message op to agent is from and the permission class attested for it; nil is the daemon, attesting none.
 	From func(agent, op string) peerinbox.From
+	// Typed says the message op is typed, not sent to the inbox. Typeable is "" when the agent's terminal may be typed at now, else why
+	// not; TypeIn types text there and presses Enter.
+	Typed    func(agent, op string) bool
+	Typeable func(agent string) string
+	TypeIn   func(agent, text string) error
 
 	mu    sync.Mutex
 	lines map[string]*line
@@ -43,6 +52,7 @@ type Port struct {
 type job struct {
 	op, text string
 	from     peerinbox.From
+	typed    bool
 }
 
 type line struct {
@@ -64,6 +74,12 @@ func (p *Port) Send(agent, op, text string, _ delivery.Delivery) (delivery.Recei
 	if _, err := p.Find(agent); err != nil {
 		return delivery.Receipt{}, errors.New(agent + " has no live session inbox: " + err.Error())
 	}
+	typed := p.Typed != nil && p.Typed(agent, op)
+	if typed {
+		if why := p.Typeable(agent); why != "" {
+			return delivery.Receipt{}, errors.New(agent + ": not typed - " + why)
+		}
+	}
 	var from peerinbox.From
 	if p.From != nil {
 		from = p.From(agent, op)
@@ -78,7 +94,7 @@ func (p *Port) Send(agent, op, text string, _ delivery.Delivery) (delivery.Recei
 		l = &line{}
 		p.lines[agent] = l
 	}
-	l.jobs = append(l.jobs, job{op, text, from})
+	l.jobs = append(l.jobs, job{op, text, from, typed})
 	if !l.running {
 		l.running = true
 		go p.drain(agent, l)
@@ -121,7 +137,12 @@ func (p *Port) deliver(ctx context.Context, agent string, j job) {
 		p.failed(agent, j.op, err.Error(), false)
 		return
 	}
-	res := p.Sender.Deliver(ctx, sess, j.text, j.from)
+	var res peerinbox.Result
+	if j.typed {
+		res = p.Sender.Type(ctx, sess, j.text, func(text string) error { return p.TypeIn(agent, text) })
+	} else {
+		res = p.Sender.Deliver(ctx, sess, j.text, j.from)
+	}
 	if res.Kind == peerinbox.Delivered {
 		if p.OnDelivered != nil {
 			p.OnDelivered(agent, j.op)
@@ -140,7 +161,7 @@ func (p *Port) deliver(ctx context.Context, agent string, j job) {
 		}
 		return
 	}
-	p.failed(agent, j.op, res.Why, res.Kind != peerinbox.NoSocket)
+	p.failed(agent, j.op, res.Why, res.Kind != peerinbox.NoSocket && (!j.typed || res.Attempts > 0))
 }
 
 func (p *Port) failed(agent, op, why string, written bool) {

@@ -30,6 +30,16 @@ func (f *fakeInbox) Deliver(_ context.Context, _ peerinbox.Session, text string,
 	return peerinbox.Result{Kind: peerinbox.Delivered}
 }
 
+func (f *fakeInbox) Type(_ context.Context, _ peerinbox.Session, text string, typeIn func(string) error) peerinbox.Result {
+	if err := typeIn(text); err != nil {
+		return peerinbox.Result{Kind: peerinbox.NotDelivered, Why: err.Error()}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.texts = append(f.texts, "typed: "+text)
+	return peerinbox.Result{Kind: peerinbox.Delivered, Attempts: 1}
+}
+
 type events struct {
 	mu   sync.Mutex
 	list []string
@@ -141,5 +151,31 @@ func TestAQueuedMessageIsConfirmedLaterAndNeverFailed(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if got := ev.get(); len(got) != 1 {
 		t.Fatalf("an unconfirmed queued message raised %v", got)
+	}
+}
+
+func TestTheFoundersWordsAreTypedOnlyWhenTheTerminalMayBeTypedAt(t *testing.T) {
+	in, ev := &fakeInbox{}, &events{}
+	p := rigOf(in, ev)
+	why := "a dialog is open on its screen"
+	var typedAt []string
+	p.Typed = func(_, op string) bool { return op == "founder:1" }
+	p.Typeable = func(string) string { return why }
+	p.TypeIn = func(a, text string) error { typedAt = append(typedAt, a); return nil }
+	if _, err := p.Send("bob", "founder:1", "hi", delivery.Now); err == nil {
+		t.Fatal("over a dialog nothing is written, and the send path keeps it owed")
+	}
+	why = ""
+	if _, err := p.Send("bob", "founder:1", "hi", delivery.Now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Send("bob", "request:2", "from alice", delivery.Now); err != nil {
+		t.Fatal(err)
+	}
+	if got := waitFor(t, ev, 2); got[0] != "delivered bob founder:1" || got[1] != "delivered bob request:2" {
+		t.Fatalf("%v", got)
+	}
+	if in.texts[0] != "typed: hi" || in.texts[1] != "from alice" || len(typedAt) != 1 {
+		t.Fatalf("only the founder's op is typed: %v %v", in.texts, typedAt)
 	}
 }
