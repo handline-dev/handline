@@ -51,7 +51,7 @@ describe('my turn', () => {
     const dialog = cards().find((c) => c.dataset.kind === 'dialog')!;
     expect(dialog.textContent).toContain('Trust this folder?');
     expect([...dialog.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Open terminal']);
-    expect(box.querySelector('.rail-nav')!.textContent).toMatch(/My turn \d+/);
+    expect(box.querySelector('.rail-nav')!.textContent).toMatch(/Inbox \d+/);
   });
   async function open(s = setup()) {
     s.daemon.tasks.verbs = true;

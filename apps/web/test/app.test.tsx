@@ -110,7 +110,7 @@ describe('the workspace', () => {
     expect($('.side')).toBeNull();
     const top = $$('.rail-top button').map((b) => b.getAttribute('aria-label') ?? '');
     expect(top.slice(0, 3)).toEqual(['Hide the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']);
-    expect(text($('.rail-nav'))).toMatch(/My turn.*Inbox.*Tasks.*More/);
+    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*More/);
     expect($$('.rail-nav .nav svg').length).toBe(4);
     await openMore();
     expect(menuItems().map((t) => t.trim().split(' ')[0])).toEqual(['Team', 'Worktrees', 'Usage']);
@@ -140,7 +140,7 @@ describe('the workspace', () => {
     await mount(ARCH);
     await until(() => $('.rail'), 'sidebar');
     await click($$('.rail-nav .nav').find((b) => text(b).trim().startsWith('Inbox'))!);
-    expect(location.hash).toBe('#/inbox');
+    expect(location.hash).toBe('#/my-turn');
     await openMore();
     await click(moreItem('Usage'));
     expect(location.hash).toBe('#/accounts');

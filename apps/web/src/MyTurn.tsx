@@ -88,7 +88,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
       case 'reject':
         return setBack(true);
       case 'done':
-        return void (done.mutate({ task: a.item.task!, evidence: 'decided in My turn', reason: true }), read.mutate({ ids: [a.item.id] }));
+        return void (done.mutate({ task: a.item.task!, evidence: 'decided in the Inbox', reason: true }), read.mutate({ ids: [a.item.id] }));
       case 'open':
         return card.task != null ? onOpen(card.task) : void (location.hash = a.to);
       case 'terminal':
@@ -206,10 +206,10 @@ export function MyTurnPage() {
   // Narrow: the task takes the page, with Back. Wide: it opens beside the list, as on the Tasks page.
   if (open !== null && !wide) return <TaskDetail id={open} onBack={() => setOpen(null)} />;
   const list = (
-    <ScrollPage beside={open !== null} className="my-turn" aria-label="My turn">
+    <ScrollPage beside={open !== null} className="my-turn" aria-label="Inbox">
       <PageHead>
         <PageTitle>
-          My turn <span className="muted">{cards.length}</span>
+          Inbox <span className="muted">{cards.length}</span>
         </PageTitle>
       </PageHead>
       {loading ? (
