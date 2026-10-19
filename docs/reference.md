@@ -17,7 +17,7 @@ closing and restarting agents, settings, cancelling a queued message, HR decisio
 | `hl task reopen T<n> "<why>"` | The asker says a result is wrong. |
 | `hl task release T<n> "<why>"` | Give a task back to its queue. |
 | `hl task discard T<n> "<why>"` | Throw away a task that is not done; `discard T1 T2 --why "<why>"` throws several away in one call. |
-| `hl task memo T<n> add "..."` / `list` / `edit` / `delete` | Correct or comment on a task. `--attach shot.png` adds an image. |
+| `hl task comment T<n> add "..."` / `list` / `edit` / `delete` | Correct or comment on a task (`hl task memo` is its old name). `--attach shot.png` adds an image. |
 | `hl progress "done: ... left: ..."` | Record what is done and what is left on your task. |
 | `hl say <target> "..."` | A message; `--parent <msg>` answers one, `--attach shot.png` sends an image the app shows. |
 | `hl inbox` / `hl inbox --all` | What is waiting for you, or the whole queue. |

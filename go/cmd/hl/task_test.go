@@ -72,6 +72,7 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 			[]string{`task.memo.add {"files":["/x/a.png","/x/b.md"],"task":3,"text":"hi"}`}},
 		{"from stdin", []string{"task", "memo", "T3", "edit", "4", "-"}, []string{`task.memo.edit {"memo":4,"task":3,"text":"from stdin"}`}},
 		{"", []string{"task", "memo", "T3", "delete", "4"}, []string{`task.memo.delete {"memo":4,"task":3}`}},
+		{"", []string{"task", "comment", "T3", "add", "hi"}, []string{`task.memo.add {"task":3,"text":"hi"}`}},
 		{"", []string{"task", "queue", "T1", "T2"}, []string{`task.queue {"tasks":[1]}`, `task.queue {"tasks":[2]}`}},
 		{"", []string{"task", "draft", "T1"}, []string{`task.draft {"tasks":[1]}`}},
 		{"", []string{"task", "edit", "T3", "--title", "t", "--priority", "3", "--timeout", "2h", "--unblock", "T4"},
