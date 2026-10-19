@@ -112,11 +112,63 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	m := &lifecycle.Manager{Q: q, Home: home, Log: cfg.Log, Settings: settings,
 		Delivery: lc.Env, Handoff: hp, Term: termPort{tm}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawns,
 		Agents: agentsPort{home: home, roster: roster, accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q},
-		Observe: observer{p: p}, Typing: terminalLock{home: p.home}, TermRun: termRun{p}, Locks: p.Locks, OnLaunch: onLaunch}
+		Observe: observer{p: p}, Typing: terminalLock{home: p.home}, TermRun: termRun{p}, Locks: p.Locks, OnLaunch: onLaunch,
+		OnStartStall: tellLeadOfStall(home, lc.Env, cfg.Log)}
 	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho, Env: lc.Env, usage: uenv, roster: roster, term: tm}
 	hp.mover = func() *lifecycle.Mover { return p.LC.Mover }
 	p.LC.Mover = p.newMover(m, uenv, lc.Env, func() int64 { return nowOf(cfg.Now)().Unix() })
 	return p.LC
+}
+
+// tellLead tells the agent's lead a notice about it: the daemon log alone reaches no one. An agent with no lead is told to no one.
+func tellLead(home string, env *supervisor.Env, log func(string, ...any), q db.Q, agent, text, reason string) {
+	tm, _ := team.LoadTeam(home)
+	lead := tm.LeadOf(agent)
+	if lead == "" {
+		return
+	}
+	if _, err := env.Notice(q, lead, text, reason); err != nil {
+		log("  %s: %s was not told to %s: %v", agent, reason, lead, err)
+	}
+}
+
+// tellLeadOfStall tells the agent's lead that its starts for waiting work failed and it is stalled.
+func tellLeadOfStall(home string, env *supervisor.Env, log func(string, ...any)) func(db.Q, string, string) {
+	return func(q db.Q, agent, why string) {
+		tellLead(home, env, log, q, agent, fmt.Sprintf("%s is STALLED: %d starts for the work waiting for it failed. The last said: %s. "+
+			"Fix that (often its repo: in agent.yaml), then clear the stall in the app.", agent, states.MaxFailedAttempts, why), "start_stall")
+	}
+}
+
+// CheckRepos tells each agent's lead when the repo its agent.yaml names is no git checkout, since a start there fails. Once per break: a
+// daemon restart does not tell it again, and a repo fixed and broken again is told again.
+func CheckRepos(q db.Q, home string, env *supervisor.Env, log func(string, ...any)) {
+	roster := team.NewRoster(home)
+	for _, agent := range paths.ListAgents(home) {
+		repo := roster.RepoOf(agent)
+		why := ""
+		if repo != "" {
+			why = team.CheckoutProblem(repo)
+		}
+		_, last, _, err := db.LastEvent(q, agent, "bad_repo")
+		told, _ := last["repo"].(string)
+		if err != nil || why == "" && told == "" || why != "" && told == repo {
+			continue
+		}
+		bad := repo
+		if why == "" {
+			bad = "" // fixed: the record says nothing is told
+		}
+		if _, err := db.AddEvent(q, agent, "bad_repo", db.KV{K: "repo", V: bad}); err != nil {
+			log("  %s: bad_repo not recorded: %v", agent, err)
+			continue
+		}
+		if why != "" {
+			log("  %s: repo %s %s", agent, repo, why)
+			tellLead(home, env, log, q, agent, fmt.Sprintf("%s's repo %s %s, so it cannot be started there. Give it the absolute path of a "+
+				"git checkout (repo: in its agent.yaml).", agent, repo, why), "bad_repo")
+		}
+	}
 }
 
 func nowOf(f func() time.Time) func() time.Time {
