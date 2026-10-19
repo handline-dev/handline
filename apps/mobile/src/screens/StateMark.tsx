@@ -12,7 +12,7 @@ const MARKS: Record<Dot, { icon: IconName; label: string }> = {
   blocked: { icon: 'blocked', label: 'Blocked' },
   idle: { icon: 'idle', label: 'Idle' },
   parked: { icon: 'asleep', label: 'Parked' },
-  none: { icon: 'noTerminal', label: 'No terminal' },
+  none: { icon: 'noTerminal', label: 'Stopped' },
 };
 
 export function StateMark({ agent }: { agent: Pick<AgentView, 'state' | 'has_dialog' | 'block'> }) {
