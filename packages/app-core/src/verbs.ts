@@ -1,13 +1,13 @@
 // The agent verbs of the bridge's AGENT_KEYS (tui.py): which apply to a row, which ask first, and what each is called while it runs.
 import type { AgentDetail, AgentView } from '@handline/client';
 
-export type VerbId = 'interrupt' | 'close' | 'restart' | 'restart_fresh' | 'park' | 'fold' | 'move' | 'clear_stall';
+export type VerbId = 'interrupt' | 'close' | 'restart' | 'restart_fresh' | 'park' | 'fold' | 'move' | 'clear_stall' | 'force_start';
 
 export interface Verb {
   id: VerbId;
   label: string;
   /** The daemon method behind it; a verb whose method the daemon does not list shows disabled. */
-  method: 'session.interrupt' | 'session.stop' | 'session.restart' | 'session.park' | 'agent.fold' | 'agent.move' | 'agent.unstall';
+  method: 'session.interrupt' | 'session.stop' | 'session.restart' | 'session.park' | 'agent.fold' | 'agent.move' | 'agent.unstall' | 'agent.force_start';
   /** Shown while the write is in flight, in the state cell. */
   gerund: string;
   /** One sentence of consequence for the confirmation; absent when the verb asks nothing. */
@@ -33,11 +33,12 @@ export const VERBS: Record<VerbId, Verb> = Object.fromEntries([
   V('park', 'Park', 'session.park', 'parking…', 'Its session ends; it wakes on the next task.'),
   V('fold', 'Fold into handoff', 'agent.fold', 'folding…'),
   V('move', 'Move account', 'agent.move', 'moving…'),
+  V('force_start', 'Force start', 'agent.force_start', 'starting…', 'The machine is over its load limit; this starts the work now, once.'),
   V('clear_stall', 'Clear stall', 'agent.unstall', 'waking…', 'The stall is cleared and the agent is woken.'),
 ] as [VerbId, Verb][]) as Record<VerbId, Verb>;
 
 /** The bridge's CONFIRM (close, restart, park, fold) with restart fresh as a restart (a person never wakes an agent by hand: a message does). */
-export const CONFIRM_VERBS: ReadonlySet<VerbId> = new Set(['close', 'restart', 'restart_fresh', 'park', 'fold', 'clear_stall']);
+export const CONFIRM_VERBS: ReadonlySet<VerbId> = new Set(['close', 'restart', 'restart_fresh', 'park', 'fold', 'clear_stall', 'force_start']);
 export const needsAsk = (id: VerbId): boolean => CONFIRM_VERBS.has(id);
 
 /** The verbs that apply to this row now, in menu order. A verb that does not apply is absent, not greyed. */
@@ -47,6 +48,7 @@ export function verbsOf(a: AgentView, d: Pick<AgentDetail, 'session_open' | 'ses
   if (d.structured && d.session_open && (a.state === 'running' || a.state === 'waiting')) ids.push('interrupt');
   const stalled = a.state === 'stalled';
   if (stalled) ids.push('clear_stall');
+  if (a.status?.reason === 'load') ids.push('force_start');
   if (d.session_open) ids.push('restart', 'restart_fresh', 'close', 'park', 'fold');
   ids.push('move');
   return ids.map((id) => VERBS[id]);

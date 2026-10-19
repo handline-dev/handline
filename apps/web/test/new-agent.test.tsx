@@ -297,7 +297,7 @@ describe('X3 New agent', () => {
   });
 
   it('has the sidebar button for the founder only, and opens the sheet', async () => {
-    await mount('#/inbox');
+    await mount('#/my-turn');
     await until(() => $$('.rail button').some((b) => text(b).includes('New agent')), 'the button');
     await click($$('.rail button').find((b) => text(b).includes('New agent')));
     expect(location.hash).toBe('#/new');

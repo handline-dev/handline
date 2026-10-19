@@ -157,7 +157,7 @@ describe('X1 Worktrees', () => {
   });
 
   it('has a rail entry when served, and it opens the page', async () => {
-    await mount('#/inbox');
+    await mount('#/my-turn');
     await click($('.rail-nav [aria-label^="More"]')!);
     const entry = () => [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((b) => text(b).includes('Worktrees'));
     await until(entry, 'the entry');
