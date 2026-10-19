@@ -117,17 +117,17 @@ func (e *Env) agentQueue(whose string, newest int64, all bool) (any, error) {
 				return nil, err
 			}
 		}
-		out["head"] = map[string]any{"id": first.ID, "requester": first.Requester, "chain_depth": first.ChainDepth, "body": first.Body,
+		out["head"] = map[string]any{"id": first.ID, "name": first.Name(e.DB), "requester": first.Requester, "chain_depth": first.ChainDepth, "body": first.Body,
 			"more_waiting": depth - 1, "more_waiting_line": supervisor.MoreWaiting(first.Kind.String, depth-1), "how_to_close": closes}
 	}
 	if all {
-		rows, err := query(e.DB, "SELECT id, requester, state, chain_depth, body FROM requests WHERE target = ? AND edge_ok ORDER BY id", whose)
+		rows, err := query(e.DB, "SELECT id, ref, requester, state, chain_depth, body FROM requests WHERE target = ? AND edge_ok ORDER BY id", whose)
 		if err != nil {
 			return nil, err
 		}
 		history := []any{}
 		for _, r := range rows {
-			history = append(history, map[string]any{"id": r.i("id"), "requester": r.str("requester"), "state": r.str("state"),
+			history = append(history, map[string]any{"id": r.i("id"), "name": db.MsgNameOf(e.DB, r.str("ref")), "requester": r.str("requester"), "state": r.str("state"),
 				"chain_depth": r.i("chain_depth"), "line": head(oneline(r.str("body")), lineShown)})
 		}
 		out["history"] = history
@@ -192,14 +192,14 @@ func (e *Env) founderQueue(all bool) (any, error) {
 			kind = "ask"
 		}
 		listed[l.id] = true
-		shown = append(shown, map[string]any{"id": l.id, "from": l.from, "kind": kind, "decision": l.gate, "answer": l.ans,
+		shown = append(shown, map[string]any{"id": l.id, "name": db.MsgNameOf(e.DB, l.ref), "from": l.from, "kind": kind, "decision": l.gate, "answer": l.ans,
 			"line": head(oneline(firstLine(l.body)), lineShown), "unread": l.unread})
 	}
 	out := map[string]any{"whose": human, "newest": newest, "head": nil, "waiting": len(rows), "lines": shown}
 	if !all {
 		return out, nil
 	}
-	done, err := query(e.DB, "SELECT id, requester, target, state, body, "+dismissedSQL+", "+answerSQL+" FROM requests "+
+	done, err := query(e.DB, "SELECT id, ref, requester, target, state, body, "+dismissedSQL+", "+answerSQL+" FROM requests "+
 		"WHERE (target = ? OR requester = ?) AND state != 'queued' ORDER BY id DESC LIMIT ?", human, human, dealtShown)
 	if err != nil {
 		return nil, err
@@ -217,7 +217,7 @@ func (e *Env) founderQueue(all bool) (any, error) {
 		if verdict, has := shownVerdict(r); has && verdict != "" {
 			text = verdict
 		}
-		dealt = append(dealt, map[string]any{"id": r.i("id"), "outgoing": outgoing, "agent": other, "state": r.str("state"),
+		dealt = append(dealt, map[string]any{"id": r.i("id"), "name": db.MsgNameOf(e.DB, r.str("ref")), "outgoing": outgoing, "agent": other, "state": r.str("state"),
 			"line": head(oneline(firstLine(text)), lineShown)})
 	}
 	out["dealt"] = dealt

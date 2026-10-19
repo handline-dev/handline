@@ -1,10 +1,11 @@
 // The fake daemon's repos and worktrees: read-only, as the Python and Go daemons serve them today.
+import { createHash } from 'node:crypto';
 import type { Repo, Worktree } from '@handline/contract';
-import { Failure, invalidParams } from './errors.ts';
+import { Failure, invalidParams, refused } from './errors.ts';
 import { AGENTS } from './fixtures.ts';
 
 /** The methods this answers. */
-const WORKTREES = /^(repos\.list|worktrees\.list|worktree\.diff)$/;
+const WORKTREES = /^(repos\.list|worktrees\.list|worktree\.diff|file\.read|file\.write)$/;
 
 const REPOS: Repo[] = [
   { name: 'handline', path: '/work/handline', default_branch: 'main' },
@@ -84,7 +85,19 @@ const seed = (): Worktree[] => {
   return rows;
 };
 
+/** The folders and file names file.write never touches, and the only endings it writes, as the contract's `denied` gate says. */
+const DENIED_DIRS = ['.git', '.claude', '.github', '.husky', '.codex', '.cursor', '.vscode', '.devcontainer', 'hooks'];
+const DENIED_NAMES = ['settings.json', 'settings.local.json', '.mcp.json', 'mcp.json', 'hooks.json', 'package.json', '.claude.json', 'tsconfig.json', 'turbo.json', 'deno.json', 'composer.json', 'lefthook.json'];
+const etagOf = (text: string) => createHash('sha256').update(text).digest('hex');
+const FILE_CAP = 1 << 20;
+
 export class FakeWorktrees {
+  /** The files file.read serves, by `agent:path`; file.write changes them. */
+  files = new Map<string, { text: string; mtime: string }>([
+    ['handline.architect:docs/big.md', { text: 'a'.repeat((1 << 20) + 10), mtime: '2026-10-17T09:00:00Z' }],
+    ['handline.architect:docs/pc-app-gaps.md', { text: '# PC app gaps\n\n- the File tab\n', mtime: '2026-10-17T09:00:00Z' }],
+  ]);
+
   private on: boolean;
   /** What worktrees.list serves; a test replaces it. */
   rows: Worktree[] = seed();
@@ -119,8 +132,44 @@ export class FakeWorktrees {
         const files = row.changed.filter((c) => (p.file === undefined ? c.status !== '?' : c.path === p.file));
         return { path: p.path, file: p.file ?? null, diff: files.map(unified).join(''), truncated: false };
       }
+      case 'file.read':
+      case 'file.write':
+        return this.file(method, p);
       default:
         throw new Failure('refused', `the fake daemon does not serve ${method}`, { reason: 'unsupported', gate: 'unsupported' });
     }
+  }
+
+  private file(method: string, p: Record<string, unknown>): unknown {
+    const { agent, path } = p;
+    if (typeof agent !== 'string' || !agent) throw invalidParams('agent is an agent name', 'agent');
+    if (typeof path !== 'string' || !path || path.startsWith('/') || /[\\\0]/.test(path) || path.split('/').some((x) => x === '' || x === '.' || x === '..'))
+      throw invalidParams('path is relative to the agent worktree', 'path');
+    const key = `${agent}:${path}`;
+    const have = this.files.get(key);
+    if (method === 'file.read') {
+      if (!have) throw new Failure('not_found', `${path} is not there`, { what: 'file' });
+      const cut = have.text.length > FILE_CAP;
+      return { text: have.text.slice(0, FILE_CAP), size: have.text.length, truncated: cut, mtime: have.mtime, etag: etagOf(have.text) };
+    }
+    const { text, etag } = p;
+    if (typeof text !== 'string' || text.length > FILE_CAP) throw invalidParams('text is the whole new content', 'text');
+    if (typeof etag !== 'string') throw invalidParams('etag is the etag read, or empty for a new file', 'etag');
+    const parts = path.toLowerCase().split('/');
+    const name = parts.pop()!;
+    if (parts.some((d) => DENIED_DIRS.includes(d)) || DENIED_NAMES.includes(name) || !/\.(md|json)$/.test(name))
+      throw refused('denied', `${path} is not a file the daemon writes`);
+    if (name.endsWith('.json')) {
+      try {
+        JSON.parse(text);
+      } catch {
+        throw invalidParams('text is not valid JSON', 'text');
+      }
+    }
+    if (have && have.text.length > FILE_CAP) throw refused('too_big', `${path} is over 1 MiB: it is not written back`);
+    if (have ? etagOf(have.text) !== etag : etag !== '') throw refused('stale', `${path} changed since that etag: read it again`);
+    const mtime = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    this.files.set(key, { text, mtime });
+    return { size: text.length, mtime, etag: etagOf(text) };
   }
 }

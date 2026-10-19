@@ -132,10 +132,11 @@ func LatestHandoff(q Q, agent string) (*HandoffRow, error) {
 	return handoffRow(q, "agent = ? ORDER BY updated DESC", agent)
 }
 
-// LastSessionStart is when the agent's latest session start was kept, 0 when none was.
-func LastSessionStart(q Q, agent string) (int64, error) {
+// LastBoundSessionStart is when the agent's latest session start that has its session id was kept, 0 when none has: the start the
+// chat shows as a New session line.
+func LastBoundSessionStart(q Q, agent string) (int64, error) {
 	var ts int64
-	err := q.QueryRow("SELECT COALESCE(MAX(ts), 0) FROM session_starts WHERE agent = ?", agent).Scan(&ts)
+	err := q.QueryRow("SELECT COALESCE(MAX(ts), 0) FROM session_starts WHERE agent = ? AND session_id IS NOT NULL", agent).Scan(&ts)
 	return ts, err
 }
 

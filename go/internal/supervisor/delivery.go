@@ -12,18 +12,6 @@ import (
 
 const sayKind = "say"
 
-func strOf(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
-}
-
-// RepliesTo is ask.replies_to: does a request from requester to target answer parent, one target sent to requester.
-func RepliesTo(parent *db.Request, requester, target string) bool {
-	return parent != nil && parent.Target == requester && parent.Requester == target
-}
-
 // EnforceEdges checks every request still waiting for the agent against the founder's routing table. A request whose edge the table does
 // not allow is denied before anyone is told of it. False when the table cannot be trusted (changed, unsealed or unreadable): nothing is
 // delivered until the founder has looked. A request from a name that is not a registered agent (the system's own) is not an
@@ -58,17 +46,13 @@ func (e *Env) EnforceEdges(q db.Q, agent string) (ok bool, err error) {
 			check(db.ClearEdge(q, r.ID))
 			continue
 		}
-		var parent *db.Request
-		if r.ParentID.Valid {
-			parent = must(db.GetRequest(q, r.ParentID.Int64))
-		}
-		d := t.Route(r.Requester, r.Target, int(r.ChainDepth), RepliesTo(parent, r.Requester, r.Target))
+		d := t.Route(r.Requester, r.Target, int(r.ChainDepth))
 		if d.Allowed {
 			check(db.ClearEdge(q, r.ID))
 			continue
 		}
 		must(db.RetireQueued(q, r.ID, "denied", "refused at delivery: "+d.Reason))
-		e.log("  %s: #%d from %s refused - %s", agent, r.ID, r.Requester, d.Reason)
+		e.log("  %s: request %d from %s refused - %s", agent, r.ID, r.Requester, d.Reason)
 	}
 	return true, nil
 }
@@ -112,7 +96,7 @@ func (e *Env) holdBack(agent string, head *db.Request, why string, contestable b
 	e.held[agent] = why
 	e.mu.Unlock()
 	if !same {
-		e.log("  %s: #%d is held - %s", agent, head.ID, why)
+		e.log("  %s: request %d is held - %s", agent, head.ID, why)
 	}
 	return false
 }

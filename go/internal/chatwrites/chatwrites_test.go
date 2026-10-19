@@ -238,21 +238,59 @@ func TestSendUnderAQuestionIsOnlyASayUnderIt(t *testing.T) {
 	}
 }
 
-func TestAnswerOnADecisionCardDecidesItsTask(t *testing.T) {
+// decideOn is the founder's task.done on a task with an open card (DecideCard past its guards): committed, with its telling.
+func decideOn(t *testing.T, r *rig, tid int64, words string) string {
+	t.Helper()
+	tx, err := r.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	res, err := decide(r.env, r.env, tx, tid, words, nil)
+	if err != nil || !res.OK {
+		t.Fatalf("%v %+v", err, res)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	return res.Tell()
+}
+
+// The founder's decision on an agent's card is their done on its task: answered, still the founder's, until alice accepts or takes it back.
+func TestDecisionOnACardAnswersItsTask(t *testing.T) {
 	r := newRig(t)
-	s := r.server("")
 	card := r.request("alice", "human", "which one?")
 	tid, err := dbpkg.NewTask(r.db, "which one?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	dbpkg.LinkRequest(r.db, tid, card)
-	res := r.result(r.one(s, "inbox.answer", fmt.Sprintf(`{"id":%d,"text":"the first","request_id":"d1"}`, card)))
-	if res["said"] != fmt.Sprintf("T%d decided", tid) {
-		t.Fatal(res)
+	if said := decideOn(t, r, tid, "the first"); said != fmt.Sprintf("T%d decided", tid) {
+		t.Fatal(said)
 	}
-	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence = 'the first'", tid) != 1 {
-		t.Fatal("the answer is the task's evidence")
+	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND owner = 'human' AND report = 'the first' AND reported_at IS NOT NULL AND done_evidence IS NULL", tid) != 1 {
+		t.Fatal("the answer is kept on the task, which stays open with the founder")
+	}
+	if r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND state != 'queued'", card) != 1 {
+		t.Fatal("the card is answered")
+	}
+	if r.count("SELECT COUNT(*) FROM requests WHERE target = 'alice' AND body LIKE ?", fmt.Sprintf("T%d answered by the founder: the first - accept it%%", tid)) != 1 {
+		t.Fatal("alice is told how to accept or take it back")
+	}
+}
+
+// The founder's decision on their own card closes the task: nobody else asked it.
+func TestDecisionOnTheFoundersOwnCardClosesItsTask(t *testing.T) {
+	r := newRig(t)
+	card := r.request("human", "human", "remember the milk")
+	tid, err := dbpkg.NewTask(r.db, "remember the milk", "human", "human", 0, dbpkg.DefaultPriority, "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dbpkg.LinkRequest(r.db, tid, card)
+	decideOn(t, r, tid, "bought")
+	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence = 'bought'", tid) != 1 {
+		t.Fatal("the founder's own task closes with the answer")
 	}
 }
 
@@ -275,7 +313,7 @@ func TestDecideCardLeavesATaskTheFounderDoesNotOwnToTaskDone(t *testing.T) {
 	}
 }
 
-func TestDecideMarksATaskDoneWhenItsCardWasClosedSomeOtherWay(t *testing.T) {
+func TestDecideAnswersATaskWhenItsCardWasClosedSomeOtherWay(t *testing.T) {
 	r := newRig(t)
 	gone := r.request("alice", "human", "which one?")
 	dbpkg.MarkDelivered(r.db, gone)
@@ -297,41 +335,32 @@ func TestDecideMarksATaskDoneWhenItsCardWasClosedSomeOtherWay(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if res.Tell() != fmt.Sprintf("T%d decided", tid) || note != fmt.Sprintf("task T%d done (the second)", tid) {
+	if res.Tell() != fmt.Sprintf("T%d decided", tid) || note != fmt.Sprintf("task T%d answered (the second); it stays with human until alice accepts it or takes it back", tid) {
 		t.Fatalf("%q %q", res.Tell(), note)
 	}
-	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence = 'the second'", tid) != 1 {
-		t.Fatal("the decision is the task's evidence, though no open card settled it")
+	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND report = 'the second' AND done_evidence IS NULL", tid) != 1 {
+		t.Fatal("the decision is the task's answer, though no open card settled it")
 	}
 }
 
-func TestAnswerOnADecisionCardRefusesWhileTheTaskHasAnOpenChild(t *testing.T) {
+func TestDecideRefusesWhileTheTaskHasAnOpenChild(t *testing.T) {
 	r := newRig(t)
-	s := r.server("")
 	card := r.request("alice", "human", "which one?")
 	tid, _ := dbpkg.NewTask(r.db, "which one?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0, "")
 	dbpkg.LinkRequest(r.db, tid, card)
 	dbpkg.NewTask(r.db, "first this", "alice", "alice", tid, dbpkg.DefaultPriority, "report", 0, "")
-	r.refusedWith(r.one(s, "inbox.answer", fmt.Sprintf(`{"id":%d,"text":"x","request_id":"d3"}`, card)), "")
+	tx, err := r.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := decide(r.env, r.env, tx, tid, "x", func(dbpkg.Q, string) error { return nil })
+	tx.Rollback()
+	if err != nil || res.OK {
+		t.Fatalf("%v %+v", err, res)
+	}
 	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence IS NOT NULL", tid) != 0 || r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND state = 'queued'", card) != 1 {
 		t.Fatal("a refused decision writes nothing")
 	}
-}
-
-func TestDismissTakesARowOffWithoutAnAnswer(t *testing.T) {
-	r := newRig(t)
-	s := r.server("")
-	asked := r.request("alice", "human", "fyi?")
-	res := r.result(r.one(s, "chat.dismiss", fmt.Sprintf(`{"request":%d,"request_id":"x1"}`, asked)))
-	if res["accepted"] != true {
-		t.Fatal(res)
-	}
-	var state string
-	r.db.QueryRow("SELECT state FROM requests WHERE id = ?", asked).Scan(&state)
-	if state != "landed" || r.count("SELECT COUNT(*) FROM requests WHERE settles = ?", asked) != 0 || r.count("SELECT COUNT(*) FROM events WHERE kind = 'dismissed'") != 1 {
-		t.Fatalf("closed as dismissed, with no answer: %s", state)
-	}
-	r.refusedWith(r.one(s, "chat.dismiss", fmt.Sprintf(`{"request":%d,"request_id":"x2"}`, r.request("alice", "bob", "x"))), "state")
 }
 
 func TestCancelNeedsAConfirmOnceDeliveredAndClosesAsRejected(t *testing.T) {

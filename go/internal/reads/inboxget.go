@@ -8,9 +8,9 @@ import (
 
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/supervisor"
-	"github.com/handline/handline/go/internal/team"
 )
 
 // inboxGet is inbox.get: one request read whole, seen from the caller, held up to wait_s until it settles (landed, or a state
@@ -23,37 +23,21 @@ func (e *Env) inboxGet(c *rpc.Conn, params map[string]any) (any, error) {
 	return e.itemOf(r, viewer)
 }
 
-// mayRead is whether viewer may read request r: the founder, its requester or target, either one's supervisor, the assignee, owner or
-// opener of a task linked to it, and the target of a message the founder sent under one of the founder's own (a quote). Anyone else is told what a missing number is told.
 func (e *Env) mayRead(viewer string, r row) bool {
-	if viewer == human || viewer == r.str("requester") || viewer == r.str("target") {
-		return true
-	}
-	t, _ := team.LoadTeam(e.Home)
-	if t.SupervisorOf(r.str("requester")) == viewer || t.SupervisorOf(r.str("target")) == viewer {
-		return true
-	}
-	var linked int
-	e.DB.QueryRow("SELECT (SELECT COUNT(*) FROM task_requests l JOIN tasks t ON t.id = l.task_id WHERE l.request_id = ?1 AND "+
-		"(t.owner = ?2 OR t.opened_by = ?2 OR t.reporter = ?2)) + (SELECT COUNT(*) FROM requests q WHERE q.parent_id = ?1 AND q.target = ?2 AND "+
-		"q.requester = ?3)", r.i("id"), viewer, human).Scan(&linked)
-	return linked > 0
+	return requestref.MayRead(e.DB, e.Home, viewer, r.i("id"), r.str("requester"), r.str("target"))
 }
 
 // settledRequest is the request params names and who reads it, held up to wait_s while it is still queued. One the reader may not see is
 // not_found: a request to an agent that the routing table has not passed yet is not that agent's to read, nor is anyone else's.
 func (e *Env) settledRequest(c *rpc.Conn, params map[string]any) (row, string, error) {
-	id, ok := rpc.AsInt(params["id"])
-	if !ok {
-		return nil, "", badParam("id is a request number", "id")
+	viewer := requestref.Viewer(c)
+	id, err := requestref.Resolve(e.DB, e.Home, params["id"], viewer, "id")
+	if err != nil {
+		return nil, "", err
 	}
 	wait, err := optInt(params, "wait_s")
 	if err != nil || (wait != nil && (*wait < 0 || *wait > maxWaitS)) {
 		return nil, "", badParam("wait_s is an integer from 0 to 600", "wait_s")
-	}
-	viewer := human
-	if c.Caller.Role == "agent" {
-		viewer = c.Caller.Info["name"].(string)
 	}
 	var until time.Time
 	if wait != nil {
@@ -64,7 +48,7 @@ func (e *Env) settledRequest(c *rpc.Conn, params map[string]any) (row, string, e
 		if err != nil {
 			return nil, "", err
 		}
-		if r == nil || (viewer == r.str("target") && viewer != human && r.i("edge_ok") == 0) || !e.mayRead(viewer, r) {
+		if r == nil || (viewer == r.str("target") && viewer != human && r.i("edge_ok") == 0) {
 			err := rpc.NotFoundError("no request " + strconv.FormatInt(id, 10))
 			err.Data = map[string]any{"what": "request", "name": strconv.FormatInt(id, 10)}
 			return nil, "", err
@@ -110,7 +94,7 @@ func (e *Env) requestRead(c *rpc.Conn, params map[string]any) (any, error) {
 		kind = "ask"
 	}
 	out := map[string]any{
-		"id": id, "ref": r.str("ref"), "requester": r.str("requester"), "target": r.str("target"), "kind": kind, "state": r.str("state"), "created": ts(r["ts"]),
+		"id": id, "ref": r.str("ref"), "name": db.MsgNameOf(e.DB, r.str("ref")), "requester": r.str("requester"), "target": r.str("target"), "kind": kind, "state": r.str("state"), "created": ts(r["ts"]),
 		"relation": r.strOrNil("relation"), "response": r.strOrNil("response"), "chain_depth": r.i("chain_depth"), "parent": nil,
 		"body": r.str("body"), "answer": nil, "dismissal": nil,
 	}
@@ -120,7 +104,8 @@ func (e *Env) requestRead(c *rpc.Conn, params map[string]any) (any, error) {
 			return nil, err
 		}
 		if parent != nil && e.mayRead(viewer, parent) { // the quoted line is the parent's body
-			out["parent"] = map[string]any{"id": parent.i("id"), "ref": parent.str("ref"), "line": parentLine(parent.str("body"))}
+			out["parent"] = map[string]any{"id": parent.i("id"), "ref": parent.str("ref"), "name": db.MsgNameOf(e.DB, parent.str("ref")),
+				"line": parentLine(parent.str("body"))}
 		}
 	}
 	if dismissed, by, reason := dismissal(r); dismissed {

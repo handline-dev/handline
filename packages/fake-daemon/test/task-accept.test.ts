@@ -20,9 +20,9 @@ async function reported() {
 
 test('a done by an owner the task does not answer to leaves it reported, with the report', async () => {
   const { client, owner, task, said, daemon } = await reported();
-  assert.match(String(said.said), /reported done/);
+  assert.match(String(said.said), /answered/);
   const t = await client.call('task.get', { task });
-  assert.deepEqual([t.state, t.evidence, t.report?.by, t.report?.evidence], ['reported', null, ARCH, 'built and tested']);
+  assert.deepEqual([t.state, t.evidence, t.report?.by, t.report?.evidence], ['review', null, ARCH, 'built and tested']);
   const again = await owner.call('task.done', { task, evidence: 'again', request_id: 'a3' }).catch((e) => e);
   assert.equal(code(again), 'refused');
   owner.close();
@@ -85,10 +85,27 @@ test('a task can be seeded as reported', async () => {
     from: 'boss',
     to: ARCH,
     title: 'seeded',
-    state: 'reported',
-    report: { by: ARCH, evidence: 'seen', at: new Date().toISOString() },
+    state: 'review',
+    report: { by: ARCH, evidence: 'seen', at: new Date().toISOString(), waits_on: 'boss', accepted: null },
   });
   await client.call('task.accept', { task: 7001, request_id: 'e1' });
   assert.equal((await client.call('task.get', { task: 7001 })).state, 'done');
   client.close();
+});
+
+test("the founder's done on a task an agent gave them leaves it in review, with them, and off my_turn", async () => {
+  const s = setup();
+  s.daemon.tasks.verbs = true;
+  await s.client.start();
+  const agent = second(s.daemon, s.net, { client: ARCH });
+  await agent.start();
+  const task = (await agent.call('task.new', { owner: 'human', title: 'merge it', request_id: 'f1' })).task as number;
+  const turn = async () => ((await s.client.call('tasks.list', { my_turn: true })).items as { id: number }[]).map((t) => t.id);
+  assert.deepEqual(await turn(), [task]);
+  assert.match(String((await s.client.call('task.done', { task, evidence: 'merged', request_id: 'f2' })).said), /answered/);
+  const t = await s.client.call('task.get', { task });
+  assert.deepEqual([t.state, t.to, t.report?.evidence], ['review', 'human', 'merged']);
+  assert.deepEqual(await turn(), []);
+  agent.close();
+  s.client.close();
 });

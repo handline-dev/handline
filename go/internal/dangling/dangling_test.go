@@ -17,10 +17,11 @@ import (
 type host struct {
 	live    map[string]bool // nil: the host cannot say
 	started map[string]int64
-	session map[string]int // pane -> the pid of the session in it
-	running map[int]int64  // pid -> its start time
-	survive bool           // a session goes on when its pane closes
-	keep    bool           // a close reports ok and the pane stays
+	session map[string]int    // pane -> the pid of the session in it
+	stamp   map[string]string // pane -> the agent the daemon stamped it for; a missing pane is unstamped
+	running map[int]int64     // pid -> its start time
+	survive bool              // a session goes on when its pane closes
+	keep    bool              // a close reports ok and the pane stays
 	askErr  error
 	asked   []int
 	closed  []string
@@ -35,8 +36,9 @@ func (h *host) PaneStarted(handle string) int64 {
 	}
 	return 900
 }
-func (h *host) PaneSession(handle string) (int, bool) { return h.session[handle], true }
-func (h *host) Ask(pid int, _ string) error           { h.asked = append(h.asked, pid); return h.askErr }
+func (h *host) PaneAgent(handle string) (string, bool) { return h.stamp[handle], true }
+func (h *host) PaneSession(handle string) (int, bool)  { return h.session[handle], true }
+func (h *host) Ask(pid int, _ string) error            { h.asked = append(h.asked, pid); return h.askErr }
 func (h *host) Close(handle string) (bool, string) {
 	h.closed = append(h.closed, handle)
 	if h.keep {
@@ -86,7 +88,7 @@ func newRig(t *testing.T) *rig {
 		t.Fatal(err)
 	}
 	home := t.TempDir()
-	h := &host{live: map[string]bool{"%1": true, "%2": true}, started: map[string]int64{}, session: map[string]int{}, running: map[int]int64{}}
+	h := &host{live: map[string]bool{"%1": true, "%2": true}, started: map[string]int64{}, session: map[string]int{}, stamp: map[string]string{"%1": "a.b", "%2": "a.b"}, running: map[int]int64{}}
 	return &rig{q: q, h: h, home: home, s: &Sweep{Q: q, Home: home, Ports: h}}
 }
 
@@ -200,6 +202,26 @@ func TestPanesTheDaemonDidNotOpenForAnAgentAreNeverTouched(t *testing.T) {
 	}
 	if !r.closedAt(t, "%1").Valid {
 		t.Fatal("the stale record of a reused handle is closed")
+	}
+}
+
+// A pane is closed only when the daemon stamped it for the agent whose record names it: one it did not stamp, or stamped for another
+// agent, keeps its live session, and the stale record is closed.
+func TestAPaneNotStampedForTheRecordedAgentIsNeverClosed(t *testing.T) {
+	for name, stamp := range map[string]string{"unstamped": "", "another agent's": "x.y"} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t)
+			r.h.stamp["%1"] = stamp
+			r.h.session["%1"], r.h.running[37735] = 37735, 1000
+			r.run(t, 3000)
+			r.run(t, 3000+AskWaitS+5)
+			if len(r.h.closed) != 0 || len(r.h.asked) != 0 || len(r.h.told) != 0 {
+				t.Fatalf("the pane is left alone: closed %v asked %v told %v", r.h.closed, r.h.asked, r.h.told)
+			}
+			if !r.closedAt(t, "%1").Valid {
+				t.Fatal("the stale record of it is closed")
+			}
+		})
 	}
 }
 

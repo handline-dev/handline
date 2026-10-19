@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"unicode"
@@ -15,7 +16,7 @@ const sayUsage = `usage: hl say <target> '<one sentence>'
        hl say <target> --file - <<'EOF'
        <the body, in Markdown: as many lines as it needs>
        EOF
-options: --parent <id> (a reply, in its thread), --task T<n>, --no-task '<why>', --file PATH`
+options: --parent <id> (a reply, in its thread), --task T<n>, --no-task '<why>', --file PATH, --attach IMAGE (repeatable)`
 
 // oneLineMax is the longest body hl say takes on one line without a hint to break it into lines.
 const oneLineMax = 300
@@ -26,14 +27,15 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 		fmt.Println(sayUsage)
 		return 0, true
 	}
-	p, ok := parse(args, []string{"--file", "--parent", "--task", "--no-task"}, nil, nil)
+	p, ok := parse(args, []string{"--file", "--parent", "--task", "--no-task", "--attach"}, nil, nil)
 	if !ok || len(p.pos) > 2 {
 		return 0, false
 	}
 	parent, hasParent := p.opt("--parent")
-	parentN, ok1 := 0, true
+	var parentN any
+	ok1 := true
 	if hasParent {
-		parentN, ok1 = integer(parent)
+		parentN, ok1 = requestArg(parent)
 	}
 	taskN, hasTask, ok2 := optTask(p, "--task")
 	noTask, hasNoTask := p.opt("--no-task")
@@ -62,6 +64,11 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 			"inside double quotes run as commands). Resend with single quotes, or `--file -` and a " +
 			"heredoc, if text is missing.")
 	}
+	attach, abs := p.each["--attach"], []string(nil)
+	for _, a := range attach {
+		f, _ := filepath.Abs(a) // the daemon reads it from its own cwd
+		abs = append(abs, f)
+	}
 	if !strings.Contains(strings.TrimSpace(body), "\n") && utf8.RuneCountInString(body) > oneLineMax {
 		fmt.Printf("hint: this body is %d characters on one line. The receiver sees its lines: next time put each point on "+
 			"its own line, with `hl say %s --file - <<'EOF'`.\n", utf8.RuneCountInString(body), p.pos[0])
@@ -78,6 +85,9 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if hasNoTask {
 		params["no_task"] = noTask
+	}
+	if len(abs) > 0 {
+		params["files"] = abs
 	}
 	return said(c.Write("say", params)), true
 }

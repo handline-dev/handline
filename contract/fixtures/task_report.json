@@ -85,7 +85,7 @@
    "with": {
     "boss": "founder"
    },
-   "about": "A done by an owner the task does not answer to leaves it reported, the done its report; the opener's accept closes it with that evidence.",
+   "about": "A done by an owner the task does not answer to, with a lead, leaves it in review, the done its report, waiting on that lead; the opener's accept closes it with that evidence.",
    "steps": [
     {
      "send": {
@@ -126,7 +126,7 @@
       "method": "task.new",
       "params": {
        "owner": "{{me}}",
-       "title": "a reported task",
+       "title": "an answered task",
        "body": "build it; done is it built and tested",
        "time_box": "1h",
        "request_id": "conf-accept-1"
@@ -154,7 +154,7 @@
      "result": {
       "accepted": true,
       "said": {
-       "$regex": "reported done"
+       "$regex": "answered"
       }
      }
     },
@@ -168,7 +168,7 @@
       }
      },
      "result": {
-      "state": "reported",
+      "state": "review",
       "evidence": {
        "$type": "null"
       },
@@ -177,6 +177,12 @@
        "evidence": "built and tested",
        "at": {
         "$type": "timestamp"
+       },
+       "waits_on": {
+        "$type": "string"
+       },
+       "accepted": {
+        "$type": "null"
        }
       }
      }
@@ -281,7 +287,7 @@
       "method": "task.new",
       "params": {
        "owner": "{{me}}",
-       "title": "a reported task",
+       "title": "an answered task",
        "body": "build it; done is it built and tested",
        "time_box": "1h",
        "request_id": "conf-reject-1"
@@ -309,7 +315,7 @@
      "result": {
       "accepted": true,
       "said": {
-       "$regex": "reported done"
+       "$regex": "answered"
       }
      }
     },

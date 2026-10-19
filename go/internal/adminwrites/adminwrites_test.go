@@ -15,6 +15,7 @@ import (
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/team"
 )
 
 type auth struct{}
@@ -152,6 +153,26 @@ func TestSettingsSetWritesEveryKeyOrNoneAndClearsOnNull(t *testing.T) {
 	}
 }
 
+func TestEveryPushSwitchIsAFounderFlagForTheWholeTeam(t *testing.T) {
+	for _, key := range []string{"push_prompt_asked", "push_task_done", "push_stall", "push_account_out"} {
+		r := newRig(t)
+		r.result(r.one("settings.set", `{"changes":{"`+key+`":false},"request_id":"p1"}`))
+		if !strings.Contains(r.file("config.yaml"), key+": false") {
+			t.Fatalf("%s: %q", key, r.file("config.yaml"))
+		}
+		if r.code(r.one("settings.set", `{"changes":{"`+key+`":"no"},"request_id":"p2"}`)) != "bad_request" {
+			t.Fatalf("%s: a push switch is true or false", key)
+		}
+		if r.code(r.one("settings.set", `{"changes":{"`+key+`":false},"agent":"alice","request_id":"p3"}`)) != "bad_request" {
+			t.Fatalf("%s: a push switch has no per-agent value", key)
+		}
+		r.result(r.one("settings.set", `{"changes":{"`+key+`":null},"request_id":"p4"}`))
+		if strings.Contains(r.file("config.yaml"), key) {
+			t.Fatalf("%s: null clears it back to the default", key)
+		}
+	}
+}
+
 func TestTheHandoffPromptIsOneLineOfTextGloballyOrForOneAgent(t *testing.T) {
 	r := newRig(t)
 	r.result(r.one("settings.set", `{"changes":{"handoff_prompt":"Write {path}: what is next, 100%."},"request_id":"h1"}`))
@@ -194,3 +215,28 @@ func TestAccountSetWritesConfigAndRefusesWhatNeedsTheProfile(t *testing.T) {
 }
 
 func (auth) SessionsReadable() error { return nil }
+
+func TestAccountWakeEndsTheStallAndSaysTheFailuresBeforeItAreOld(t *testing.T) {
+	r := newRig(t)
+	dir := filepath.Join(r.home, "accounts", "main", ".claude")
+	os.MkdirAll(dir, 0o755)
+	cred := filepath.Join(dir, ".credentials.json")
+	os.WriteFile(cred, []byte("c"), 0o600)
+	old := time.Now().Add(-time.Hour)
+	os.Chtimes(cred, old, old)
+	accounts := team.Accounts{Home: r.home}
+	if r.code(r.one("account.wake", `{"account":"main","request_id":"u1"}`)) != "refused" {
+		t.Fatal("an account that is not stalled has nothing to wake")
+	}
+	if _, err := accounts.StallAccount("main", "oauth_org_not_allowed", "refused", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if res := r.result(r.one("account.wake", `{"account":"main","request_id":"u2"}`)); res["said"] != "main: STALLED -> usable" {
+		t.Fatalf("%v", res)
+	}
+	var n int
+	r.e.DB.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'account_woken' AND account = 'main'").Scan(&n)
+	if accounts.Stalled("main") != nil || n != 1 {
+		t.Fatalf("still stalled, or %d account_woken events", n)
+	}
+}

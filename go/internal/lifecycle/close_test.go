@@ -211,3 +211,30 @@ func TestATaskTheHolderRuleHoldsWakesNobody(t *testing.T) {
 		t.Fatalf("not woken for work it can take: %+v", c)
 	}
 }
+
+func TestRestartHungEndsABusyTurnWithoutWaitingAndWakesItInANewTerminal(t *testing.T) {
+	m, d, tm := newManager(t)
+	tm.launchOK = true
+	d.waitingMsg, d.tookPrompt = "Restarted.", true
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetAgentState(m.Q, "a", states.Running, 0, "")
+	tm.busy = true // its screen stays mid-turn
+	if ok, said, _ := m.RestartAgent("a", SessionStatus{SessionID: "sess-1"}, RestartOpts{Force: true}); ok {
+		t.Fatalf("a forced restart waits for the busy turn and gives up: %q", said)
+	}
+	sp := m.Spawn.(*fakeSpawn)
+	sp.ok = true
+	ok, said, err := m.RestartHung("a", SessionStatus{SessionID: "sess-1"}, false, "the daemon", "heal")
+	if err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if !tm.closedPane || len(sp.startedIn) != 1 || sp.startedIn[0] != "a@/wt" {
+		t.Fatalf("pane closed %v, started in %v", tm.closedPane, sp.startedIn)
+	}
+	if _, owed, ok, _ := db.LastEvent(m.Q, "a", RestartOwedKind); !ok || owed["fresh"] != false || owed["by"] != "the daemon" {
+		t.Fatalf("the restart is recorded as resuming its conversation: %v", owed)
+	}
+	if row, _ := db.GetAgentState(m.Q, "a"); row.State == states.Running {
+		t.Fatalf("still RUNNING: %+v", row)
+	}
+}

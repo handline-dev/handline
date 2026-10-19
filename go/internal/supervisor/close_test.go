@@ -16,7 +16,7 @@ func TestWithdrawTakesBackAnUndeliveredRequestOnlyForItsRequester(t *testing.T) 
 	}
 	ok, msg, err := r.WithdrawWrite(r.DB, after, rid, "alice", "wrong target", nil)
 	r.must(err)
-	if !ok || msg != "request #1 to bob withdrawn" {
+	if !ok || r.ids(msg) != "request #1 to bob withdrawn" {
 		t.Fatalf("%v %s", ok, msg)
 	}
 	row, _ := db.GetRequest(r.DB, rid)
@@ -30,7 +30,7 @@ func TestWithdrawTakesBackAnUndeliveredRequestOnlyForItsRequester(t *testing.T) 
 	rid2 := r.ask("alice", "bob", "second", "ask")
 	db.MarkDelivered(r.DB, rid2)
 	ok, msg, _ = r.WithdrawWrite(r.DB, after, rid2, "alice", "", nil)
-	if ok || !strings.Contains(msg, "was already delivered to bob - too late to withdraw; tell bob with a message (`hl say bob \"...\" --parent 2`)") {
+	if ok || !strings.Contains(r.ids(msg), "was already delivered to bob - too late to withdraw; tell bob with a message (`hl say bob \"...\" --parent #2`)") {
 		t.Fatalf("%s", msg)
 	}
 }
@@ -51,10 +51,10 @@ func TestCancelClosesADeliveredRequestAndTellsItsAgentToStop(t *testing.T) {
 	}
 	out, err := r.CancelTell(r.DB, plan)
 	r.must(err)
-	if !strings.HasPrefix(out, "#1 to bob cancelled (bob was told to stop)\nrequest #1 -> rejected") {
+	if !strings.HasPrefix(r.ids(out), "#1 to bob cancelled (bob was told to stop)\nrequest #1 -> rejected") {
 		t.Fatalf("%q", out)
 	}
-	if got := r.term.typed[len(r.term.typed)-2]; got != "#1 from alice was cancelled: withdrawn by the founder. Stop work on it; it is closed and needs no resolve. `hl read 1` shows it." {
+	if got := r.ids(r.term.typed[len(r.term.typed)-2]); got != "#1 from alice was cancelled: withdrawn by the founder. Stop work on it; it is closed and needs no resolve. `hl read #1` shows it." {
 		t.Fatalf("%q", got)
 	}
 	row, _ := db.GetRequest(r.DB, rid)
@@ -75,16 +75,16 @@ func TestCancelOfTheFoundersUndeliveredRequestIsAWithdrawal(t *testing.T) {
 	after := &After{}
 	plan, ok, msg, err := r.CancelWrite(r.DB, after, rid, nil, nil)
 	r.must(err)
-	if !ok || plan != nil || msg != "request #1 to bob withdrawn" {
+	if !ok || plan != nil || r.ids(msg) != "request #1 to bob withdrawn" {
 		t.Fatalf("%v %v %q", ok, plan, msg)
 	}
 }
 
-// The edge human -> * says fire_and_forget, which is no longer read: the founder's request is async, and its close still wakes nobody.
-func TestTheFoundersRequestIsAsyncAndItsCloseWakesNobody(t *testing.T) {
+// A link only allows a message: the founder's request carries no response kind, and its close wakes nobody.
+func TestTheFoundersRequestCarriesNoResponseAndItsCloseWakesNobody(t *testing.T) {
 	r := newRig(t)
 	rid := r.ask("human", "bob", "do x", "")
-	if row, _ := db.GetRequest(r.DB, rid); row.Response.String != "async" {
+	if row, _ := db.GetRequest(r.DB, rid); row.Response.Valid || row.Relation.Valid {
 		t.Fatalf("%+v", row)
 	}
 	if ok, msg, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "done", Notify: true}); err != nil || !ok {
@@ -108,18 +108,19 @@ func TestCancelGuardRefusesInsideTheTransaction(t *testing.T) {
 	}
 }
 
-func TestResolveRefusesToOverwriteAnAnswerAndQueuesTheAskerOnce(t *testing.T) {
+// Nothing waits on an answer any more, so a resolve wakes nobody: work that needs an answer is a task, whose done tells its opener.
+func TestResolveRefusesToOverwriteAnAnswerAndWakesNobody(t *testing.T) {
 	r := newRig(t)
 	rid := r.ask("alice", "bob", "q", "ask")
 	ok, msg, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "yes", Notify: true})
 	r.must(err)
-	if !ok || !strings.HasPrefix(msg, "request #1 -> done") {
+	if !ok || !strings.HasPrefix(r.ids(msg), "request #1 -> done") {
 		t.Fatalf("%v %q", ok, msg)
 	}
-	if len(r.eval.calls) != 1 || r.eval.calls[0] != "alice: request 1 resolved: done" {
+	if len(r.eval.calls) != 0 {
 		t.Fatalf("%v", r.eval.calls)
 	}
-	if ok, msg, _ := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "no", Notify: true}); ok || msg != "#1 is already landed - nothing to resolve" {
+	if ok, msg, _ := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "no", Notify: true}); ok || r.ids(msg) != "#1 is already landed - nothing to resolve" {
 		t.Fatalf("%v %q", ok, msg)
 	}
 	if ok, msg, _ := r.Resolve(r.DB, ResolveIn{RID: 99}); ok || msg != "request 99 does not exist" {
@@ -165,7 +166,7 @@ func TestResolveRefusedLeavesNothingWhenItLostTheRace(t *testing.T) {
 	tx, _ := r.DB.Begin()
 	defer tx.Rollback()
 	_, ok, msg, _ := r.ResolveWrite(tx, ResolveIn{RID: rid, Verdict: "second"})
-	if ok || msg != "#1 is already landed - nothing to resolve" {
+	if ok || r.ids(msg) != "#1 is already landed - nothing to resolve" {
 		t.Fatalf("%v %q", ok, msg)
 	}
 	if a, _ := db.AnswerRowOf(tx, rid); a == nil || a.Body != "first" {
@@ -193,7 +194,7 @@ func TestRetireWriteClosesAHeldRequestWithoutSettlingItsDecisionTask(t *testing.
 	if _, err := r.RetireTell(r.DB, plan); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, why, _ := r.RetireWrite(r.DB, card, "again", nil, true); ok || why != "#1 is already withdrawn - nothing to retire" {
+	if _, ok, why, _ := r.RetireWrite(r.DB, card, "again", nil, true); ok || r.ids(why) != "#1 is already withdrawn - nothing to retire" {
 		t.Fatalf("%v %q", ok, why)
 	}
 }

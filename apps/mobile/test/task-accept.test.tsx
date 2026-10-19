@@ -13,7 +13,7 @@ const seeded = (s: ReturnType<typeof setup>) => {
     from: 'founder',
     to: 'handline.architect',
     title: 'Reported work',
-    state: 'reported',
+    state: 'review',
     report: { by: 'handline.architect', evidence: 'built and tested', at: new Date().toISOString() },
   });
 };
@@ -41,7 +41,7 @@ describe('a reported task', () => {
     await press($('verb-reject'));
     await press($('sheet-submit'));
     expect($('sheet-error')?.textContent).toBe('A note is required.');
-    expect(stateOf(m, REPORTED)).toBe('reported');
+    expect(stateOf(m, REPORTED)).toBe('review');
     await fill('reject-note', 'the tests are missing');
     await press($('sheet-submit'));
     await until(() => stateOf(m, REPORTED) === 'queued', 'the reject');
@@ -57,7 +57,7 @@ describe('a reported task', () => {
     await press($('sheet-submit'));
     await until(() => text().includes('the report moved on'), 'the reason', 3000);
     expect(value('reject-note')).toBe('not enough');
-    expect(stateOf(m, REPORTED)).toBe('reported');
+    expect(stateOf(m, REPORTED)).toBe('review');
     m.store.stop();
   }, 20000);
 

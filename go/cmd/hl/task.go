@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -230,7 +231,7 @@ func taskBegin(c *hlclient.Client, args []string) (int, bool) {
 	}
 	chatText, hasChat := p.opt("--chat")
 	why, hasWhy := p.opt("--why")
-	chat, ok1 := integer(chatText)
+	chat, ok1 := requestArg(chatText)
 	prio, hasPrio, ok2 := optPriority(p, "--priority")
 	exp := "report"
 	if v, given := p.opt("--expects"); given {
@@ -435,7 +436,7 @@ func taskQueue(queued bool) taskCmd {
 
 func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	p, ok := parse(args, []string{"--assign", "--owner", "--title", "--body", "--body-file", "--priority", "--blocked-by", "--unblock",
-		"--timeout", "--tag", "--untag"}, nil, nil)
+		"--timeout", "--tag", "--untag", "--pr"}, nil, nil)
 	if !ok || len(p.pos) != 1 {
 		return 0, false
 	}
@@ -444,7 +445,9 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	blocked, hasBlocked, ok2 := optTask(p, "--blocked-by")
 	unblock, hasUnblock, ok3 := optTask(p, "--unblock")
 	timeout, hasTimeout, ok4 := optTimeout(p, "--timeout")
-	if !ok || !ok1 || !ok2 || !ok3 || !ok4 {
+	prText, hasPR := p.opt("--pr")
+	pr, err := strconv.ParseInt(strings.TrimPrefix(prText, "#"), 10, 64)
+	if !ok || !ok1 || !ok2 || !ok3 || !ok4 || hasPR && (err != nil || pr <= 0) {
 		return 0, false
 	}
 	mutating(c, "edit")
@@ -492,6 +495,9 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	if hasBlocked {
 		params["blocked_by"] = blocked
 	}
+	if hasPR {
+		params["pr"] = pr
+	}
 	if hasUnblock {
 		params["unblock"] = unblock
 	}
@@ -502,7 +508,7 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 		params["remove_tags"] = tags
 	}
 	if len(params) == 1 {
-		fmt.Println("edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, --timeout, --tag or --untag")
+		fmt.Println("edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, --timeout, --tag, --untag or --pr")
 		return 1, true
 	}
 	return said(c.Write("task.edit", params)), true
@@ -534,7 +540,7 @@ func taskDone(c *hlclient.Client, args []string) (int, bool) {
 		return 0, false
 	}
 	req, hasReq := p.opt("--request")
-	request, ok := integer(req)
+	request, ok := requestArg(req)
 	if hasReq && !ok {
 		return 0, false
 	}
@@ -597,8 +603,38 @@ func taskReopen(c *hlclient.Client, args []string) (int, bool) {
 	return taskWithReason(c, args, "reopen", "reopen a task", "task.reopen", "note", true)
 }
 
+// taskDiscard is `hl task discard T<n> "<why>"`, or a batch: `hl task discard T1 T2 --why "<why>" [--why-each T2="<why>"]...`, one call
+// that discards all of them or none.
 func taskDiscard(c *hlclient.Client, args []string) (int, bool) {
-	return taskWithReason(c, args, "discard", "discard a task", "task.discard", "reason", false)
+	p, ok := parse(args, []string{"--why", "--why-each"}, nil, nil)
+	if !ok {
+		return 0, false
+	}
+	if p.opts["--why"] == "" && len(p.each["--why-each"]) == 0 {
+		return taskWithReason(c, args, "discard", "discard a task", "task.discard", "reason", false)
+	}
+	tids, ok := taskRefs(p.pos)
+	if !ok || len(tids) == 0 {
+		return 0, false
+	}
+	reasons := map[string]any{}
+	for _, e := range p.each["--why-each"] {
+		ref, why, cut := strings.Cut(e, "=")
+		tid, isTask := taskRef(ref)
+		if !cut || !isTask || strings.TrimSpace(why) == "" {
+			return 0, false
+		}
+		reasons[strconv.Itoa(tid)] = why
+	}
+	mutating(c, "discard")
+	if !asking(c, "discard tasks") {
+		return 1, true
+	}
+	list := make([]any, len(tids))
+	for i, t := range tids {
+		list[i] = t
+	}
+	return said(c.Write("task.discard", map[string]any{"tasks": list, "reason": p.opts["--why"], "reasons": reasons})), true
 }
 
 // taskWithReason is a subcommand taking T<n> and a reason, sent as key; with optional the reason may be left out.
@@ -623,15 +659,27 @@ func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key st
 }
 
 func taskAccept(c *hlclient.Client, args []string) (int, bool) {
-	tid, ok := oneTask(args)
+	p, ok := parse(args, []string{"--by-founder"}, nil, nil)
+	if !ok || len(p.pos) != 1 {
+		return 0, false
+	}
+	tid, ok := taskRef(p.pos[0])
 	if !ok {
 		return 0, false
+	}
+	params := map[string]any{"task": tid}
+	if v, has := p.opt("--by-founder"); has {
+		mid, err := strconv.Atoi(strings.TrimPrefix(v, "#"))
+		if err != nil || mid < 1 {
+			return 0, false
+		}
+		params["by_founder"] = mid
 	}
 	mutating(c, "accept")
 	if !asking(c, "accept a task") {
 		return 1, true
 	}
-	return said(c.Write("task.accept", map[string]any{"task": tid})), true
+	return said(c.Write("task.accept", params)), true
 }
 
 func taskReject(c *hlclient.Client, args []string) (int, bool) {

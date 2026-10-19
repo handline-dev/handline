@@ -16,8 +16,9 @@ type Retired struct {
 	RID               int64
 	Requester, Target string
 	Held, Delivered   bool
-	Notify            bool // the requester is told of the close
-	Park              bool // a draft took the held task back: its target is moved on to its next task
+	Notify            bool   // the requester is told of the close
+	Park              bool   // a draft took the held task back: its target is moved on to its next task
+	Verdict           string // what a cancel closed it under, "" for CancelVerdict
 }
 
 // releaseMethod is task.release (actions.release_task): anyone's call, with a one-line reason, to take a doing task back to queued or
@@ -109,7 +110,7 @@ func releaseMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 					return nil, err
 				}
 				if !ok {
-					failed = append(failed, fmt.Sprintf("#%d: was closed while this ran - nothing to retire", r.ID))
+					failed = append(failed, fmt.Sprintf("%s: was closed while this ran - nothing to retire", db.MsgName(tx, r.ID)))
 					continue
 				}
 				if err := addEvent(tx, r.Requester, "closed_under", kv{"request_id", r.ID}, kv{"target", r.Target}); err != nil {

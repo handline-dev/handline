@@ -50,15 +50,13 @@ function renumber<T extends { id: number }>(rows: T[], provisional: (r: T) => bo
 }
 
 const newTask = (c: Ctx, p: never): Task => {
-  const v = as<{ owner: string; title: string; time_box?: string; relation?: string; parent?: number }>(p);
+  const v = as<{ owner: string; title: string; time_box?: string; parent?: number }>(p);
   return {
     id: provisionalId(),
     from: c.me,
     to: v.owner,
     title: v.title,
     state: 'pending',
-    relation: v.relation ?? 'manager',
-    response: 'async', // still required by the contract; goes with it
     time_box: v.time_box ?? null,
     parent: v.parent ?? null,
     created: c.now,
@@ -159,6 +157,7 @@ const tasks: Record<string, WriteSpec> = {
       changeMemos(c, task, (l) => l.filter((m) => m.id !== memo));
     },
   },
+  'file.write': decided('save file'), // the page keeps the new etag from the reply
   'task.view.save': { kind: 'decided', label: 'save view', touches: (d) => [qk.taskViews(d)] },
   'task.view.delete': { kind: 'decided', label: 'delete view', touches: (d) => [qk.taskViews(d)] },
 };
@@ -227,6 +226,20 @@ const settings: Record<string, WriteSpec> = {
         c.qc,
         qk.accounts(c.d),
         listOf('accounts', (l) => l.map((a) => (a.name === account ? accountAfter(a, as<AccountChange>(p)) : a))),
+      );
+    },
+  },
+  // Wake on a stalled account row, as on a stalled agent's: the row shows it usable at once.
+  'account.wake': {
+    kind: 'authored',
+    label: 'wake',
+    touches: (d) => [qk.accounts(d)],
+    patch: (c, p) => {
+      const { account } = as<{ account: string }>(p);
+      edit<List<'accounts', Account>>(
+        c.qc,
+        qk.accounts(c.d),
+        listOf('accounts', (l) => l.map((a) => (a.name === account ? { ...a, stalled: null } : a))),
       );
     },
   },
@@ -376,9 +389,6 @@ export const PAIRING = ['device.redeem'] as const;
 
 /** Agent commands: an agent sends these, the UI never does. Guard test 2 reads this list. */
 export const NOT_FROM_UI = [
-  // No screen sends these any more; they leave the contract with the answer model.
-  'chat.dismiss',
-  'inbox.answer',
   'session.wake', // a message to a closed agent starts it; no screen wakes one by hand
   'say',
   'hook.record',

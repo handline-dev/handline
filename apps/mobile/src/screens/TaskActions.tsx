@@ -204,7 +204,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
         {open && verb('edit', 'Edit', off.edit, 'edit')}
         {open && verb('discard', 'Discard', off.discard, 'discard')}
       </View>
-      {t.state === 'reported' && (mine || founder) && <ReportVerbs t={t} />}
+      {t.state === 'review' && (mine || founder) && <ReportVerbs t={t} />}
       {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: 12 }}>{Object.values(off).find(Boolean)}</Text>}
       {ask === 'done' && (
         <ReasonSheet

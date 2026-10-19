@@ -146,6 +146,10 @@ func TestInboxQueueOfTheFounderPrintsAsHlInboxDid(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 	first := got["lines"].([]any)[0].(map[string]any)
+	if name, _ := first["name"].(string); !strings.HasPrefix(name, "msg_") {
+		t.Fatalf("a line is named msg_<hash>: %v", first)
+	}
+	delete(first, "name")
 	if want := map[string]any{"id": int64(5), "from": "bob", "kind": "task", "decision": true, "answer": false, "line": "approve the plan", "unread": 1}; !reflect.DeepEqual(first, want) {
 		t.Fatalf("a decision comes first: %v", first)
 	}

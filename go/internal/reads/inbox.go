@@ -141,9 +141,19 @@ func (e *Env) item(id int64, ref, kind, agent, body string, at int64, read, answ
 	if len(tasks) > 0 {
 		evidence, task = tasks[0].strOrNil("done_evidence"), tasks[0].i("id")
 	}
-	return map[string]any{"id": id, "ref": ref, "kind": kind, "agent": agent, "title": head(firstLine(body), 200), "body": body,
+	// fix is the action a card raised by the daemon's own healing offers as a button (heal.FixRestartTerminal).
+	fix, err := queryOne(e.DB, "SELECT json_extract(payload, '$.fix') AS fix FROM events WHERE kind = 'raise_decision' AND "+
+		"CASE WHEN json_valid(payload) THEN json_extract(payload, '$.request_id') END = ? ORDER BY id DESC LIMIT 1", id)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{"id": id, "ref": ref, "kind": kind, "agent": agent, "title": head(firstLine(body), 200), "body": body,
 		"evidence": evidence, "task": task, "created": ts(at), "read": read, "answered": answered,
-		"options": []any{}, "prompt": nil}, nil
+		"options": []any{}, "prompt": nil}
+	if fix.set("fix") {
+		out["fix"] = fix["fix"]
+	}
+	return out, nil
 }
 
 // founderItems is the mailbox the screen draws.

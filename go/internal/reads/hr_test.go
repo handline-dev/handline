@@ -53,13 +53,13 @@ func TestHrListServesWaitingOldestFirstThenSettledNewestFirstWithinAWeek(t *test
 	putProposal(t, e, "0000000d", proposalFile("0000000d", "rejected", now-3*day, now-2*day, ""))
 	putProposal(t, e, "0000000e", proposalFile("0000000e", "withdrawn", now-3*day, now-day, ""))
 	putProposal(t, e, "0000000f", proposalFile("0000000f", "enacting", now-3*day, now-day, ""))                        // not a state it serves
-	putProposal(t, e, "00000010", proposalFile("00000010", "applied", now-3*day, now-day, "")+"requested_by: human\n") // the founder's own
+	putProposal(t, e, "00000010", proposalFile("00000010", "applied", now-3*day, now-day, "")+"requested_by: human\n") // the founder's own, listed as any other
 	putProposal(t, e, "bad", "id: [\n")
 	putProposal(t, e, "notone", "kind: nothing\n")
-	if got, want := hrIDs(t, e, map[string]any{}), []int64{10, 11, 14, 13}; !reflect.DeepEqual(got, want) {
+	if got, want := hrIDs(t, e, map[string]any{}), []int64{10, 11, 16, 14, 13}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
-	if got, want := hrIDs(t, e, map[string]any{"state": "approved"}), []int64{12}; !reflect.DeepEqual(got, want) {
+	if got, want := hrIDs(t, e, map[string]any{"state": "approved"}), []int64{16, 12}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("a state has no window: got %v want %v", got, want)
 	}
 	if got := hrIDs(t, e, map[string]any{"state": "no_such_state"}); len(got) != 0 {
@@ -108,7 +108,7 @@ func TestProposalDiffIsOneChangePerLineInTheSpecsWords(t *testing.T) {
 		{"add", "kind: add\nagent: new\nteam: eng\nmodel: opus\nvendor: codex\n", "register new, team eng, model opus, vendor codex"},
 		{"settings", "kind: settings\nagent: w\nset.model: opus\nset.effort: \"\"\n", "set model of w to opus\nset effort of w to (none)"},
 		{"settings with nothing set", "kind: settings\nagent: w\n", "change the settings of w"},
-		{"link", "kind: link\nagent: a\nto: b\nrelation: peer\n", "allow a to ask b (response async, relation peer)"},
+		{"link", "kind: link\nagent: a\nto: b\nrelation: peer\n", "allow a to ask b"},
 		{"unlink", "kind: unlink\nagent: a\nto: b\n", "remove the edge a -> b"},
 		{"team", "kind: team\nagent: eng\nrepo: r\nmembers: \"a,b\"\n", "create team eng (working in r) with members a, b"},
 		{"context", "kind: context\nagent: w\nset.ROLE.md: \"\\\"x\\\"\"\n", "replace ROLE.md of w"},

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
 )
@@ -87,7 +88,7 @@ func discardEnv(t *testing.T) (*sql.DB, func(agent string, tell ...Teller) *rpc.
 		os.WriteFile(filepath.Join(home, "agents", a, "agent.yaml"), nil, 0o644)
 	}
 	os.WriteFile(filepath.Join(home, "team.yaml"), []byte("teams:\n  crew: [worker, other]\nagents:\n  gp: {}\n  worker: {}\n  other: {}\n  manager: {}\n"+
-		"edges:\n  - {from: manager, to: worker, relation: supervisor, response: async}\n  - {from: manager, to: other, relation: supervisor, response: async}\n"), 0o644)
+		"edges:\n  - {from: manager, to: worker}\n  - {from: manager, to: other}\n"), 0o644)
 	return db, func(agent string, tell ...Teller) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
@@ -233,7 +234,7 @@ func TestTheAskerOrTheFounderDiscardsATaskWhoseRequestLandedAndTheHolderIsTold(t
 			"(19, 'manager', 'worker', 'do c', 'queued', 'task', 19, 1, NULL, NULL)",
 		"INSERT INTO task_requests(task_id, request_id) VALUES(7, 17), (8, 18), (9, 19)")
 	r := call(t, mk("other"), discardLine(2, 7, "x", "o1"))
-	if msg := errText(r[0]); msg != "task T7 is in its holder's hands (#17 (with worker)) - only manager, who it answers to, or the founder can discard it now" ||
+	if msg := errText(r[0]); msg != "task T7 is in its holder's hands ("+dbpkg.MsgName(db, 17)+" (with worker)) - only manager, who it answers to, or the founder can discard it now" ||
 		count(t, db, "SELECT COUNT(*) FROM tasks WHERE id = 7 AND discarded_by IS NULL") != 1 {
 		t.Fatalf("neither its asker nor the founder: %v", r[0])
 	}

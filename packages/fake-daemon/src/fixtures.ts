@@ -78,8 +78,8 @@ export function seedChat(chat: FakeChat, at: string): void {
   const A = 'handline.architect',
     me = 'human';
   const ago = (min: number) => new Date(Date.parse(at) - min * 60_000).toISOString();
-  chat.seed(A, { from: me, to: A, body: 'Draft the web chat tab plan.', at: ago(50), landing: 'answered' });
-  chat.seed(A, { from: me, to: A, body: 'Use the contract fixtures.', at: ago(30), landing: 'delivered_unanswered' });
+  chat.seed(A, { from: me, to: A, body: 'Draft the web chat tab plan.', at: ago(50), landing: 'delivered' });
+  chat.seed(A, { from: me, to: A, body: 'Use the contract fixtures.', at: ago(30), landing: 'delivered' });
   chat.seed(A, { from: me, to: A, body: 'Hold that, scope changed.', at: ago(20), landing: 'withdrawn' });
   chat.seed(A, { from: me, to: A, body: 'Also add the list of gaps.', at: ago(5), landing: 'typed', landed_at: null, delivered_at: null });
   chat.seed(A, {
@@ -88,8 +88,7 @@ export function seedChat(chat: FakeChat, at: string): void {
     body: 'Which gap list should come first?',
     at: ago(10),
     kind: 'question',
-    is_task_question: true,
-    landing: 'delivered_unanswered',
+    landing: 'delivered',
   });
   chat.seed(A, { from: 'handline.auditor', to: A, body: 'Review is done, see the notes.', at: ago(40), landing: 'delivered' });
   chat.seedItem(A, { at: ago(49), kind: 'reply', text: 'Here is the plan: three units, chat first.' });
@@ -141,10 +140,6 @@ export function seedInbox(inbox: FakeInbox, at: string): void {
     agent: 'handline.architect',
     title: 'Should the daemon relay through the Go front door?',
     body: 'Both work; relaying means one socket for every client.',
-    options: [
-      { id: 'yes', label: 'Yes' },
-      { id: 'no', label: 'No' },
-    ],
     created: ago(12),
   });
   inbox.add({

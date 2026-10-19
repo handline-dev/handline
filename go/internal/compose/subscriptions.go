@@ -44,7 +44,7 @@ func (c founderCloser) MarkDoneByFounder(_ db.Q, tid int64, reason string) (bool
 	if err != nil {
 		return false, "", err
 	}
-	res, err := taskwrites.MarkDone(tx, c.home, db.Human, taskwrites.DoneIn{Task: tid, Words: reason})
+	res, err := taskwrites.MarkDone(tx, c.home, db.Human, taskwrites.DoneIn{Task: tid, Words: reason, Close: true})
 	if err != nil {
 		tx.Rollback()
 		var re *rpc.Error

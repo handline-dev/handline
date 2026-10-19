@@ -147,7 +147,7 @@ func (r *Runner) agent(agent string, items []reads.Schedule, now int64) error {
 			if _, err := db.AddEvent(r.Q, agent, "schedule_fired", db.KV{K: "cron", V: it.Cron}, db.KV{K: "request_id", V: rid}); err != nil {
 				return err
 			}
-			r.Log(fmt.Sprintf("  %s: schedule '%s' is due - message #%d sent", agent, it.Cron, rid))
+			r.Log(fmt.Sprintf("  %s: schedule '%s' is due - message request %d sent", agent, it.Cron, rid))
 			return nil
 		})
 		if err != nil {

@@ -185,6 +185,7 @@ func main() {
 			}
 		}
 		cfg.Session = func() *sessionrpc.Env { return parts.SessionRPC(ccfg) }
+		cfg.BeforeClose = parts.Wait
 		cfg.Context = parts.Context
 	}
 	if *gateway {

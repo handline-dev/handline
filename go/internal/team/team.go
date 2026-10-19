@@ -36,14 +36,14 @@ agents:
   archivist: {}
 
 edges:
-  - { from: "*", to: "reviewer", relation: peer, response: async }
-  - { from: "reviewer", to: "*", kind: verdict, response: async }
-  - { from: "*", to: "archivist", relation: peer, response: fire_and_forget }
+  - { from: "*", to: "reviewer" }
+  - { from: "reviewer", to: "*" }
+  - { from: "*", to: "archivist" }
   # The founder. Not an agent - no account, no session, no terminal - but a
   # routable name, so an agent has somewhere to send a decision only a person
   # can make, and the person has a way back down.
-  - { from: "*", to: "human", kind: task }
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human" }
+  - { from: "human", to: "*" }
 
 deny: []
 
@@ -61,20 +61,16 @@ func ParentName(agent string) string {
 	return agent[:i]
 }
 
-// Decision is what routing says about one request.
+// Decision is what routing says about one request: a link only allows a message.
 type Decision struct {
 	Allowed    bool
 	Reason     string
-	Relation   *string
-	Response   string
-	Kind       *string
 	ChainDepth int
 }
 
 // Edge is one edge or deny entry of team.yaml, its values as read.
 type Edge struct {
 	From, To, Reason any
-	Relation         any // read only by SupervisorOf
 	has              map[string]bool
 }
 
@@ -243,7 +239,7 @@ func NewTeam(doc *yamlcompat.OMap) (*Team, error) {
 }
 
 func edgeOf(o *yamlcompat.OMap) Edge {
-	e := Edge{From: o.M["from"], To: o.M["to"], Reason: o.M["reason"], Relation: o.M["relation"], has: map[string]bool{}}
+	e := Edge{From: o.M["from"], To: o.M["to"], Reason: o.M["reason"], has: map[string]bool{}}
 	for k := range o.M {
 		e.has[k] = true
 	}
@@ -407,39 +403,68 @@ func (t *Team) Managers() map[string]string {
 	return out
 }
 
-func sp(s string) *string { return &s }
+// ManagerOf is the manager of the team agent belongs to, or "" when it is in none or is that manager itself.
+func (t *Team) ManagerOf(agent string) string {
+	for name := range t.Managers() {
+		if name != agent && contains(t.Teams[name], agent) {
+			return name
+		}
+	}
+	return ""
+}
+
+// LeadOf is who agent answers to: its team's manager, else its supervisor; "" for none.
+func (t *Team) LeadOf(agent string) string {
+	if t == nil {
+		return ""
+	}
+	if m := t.ManagerOf(agent); m != "" {
+		return m
+	}
+	return t.SupervisorOf(agent)
+}
+
+// AuditorOf is the auditor of agent's team, the member named like the team plus ".auditor"; "" when it has none.
+func (t *Team) AuditorOf(agent string) string {
+	if t == nil {
+		return ""
+	}
+	for _, name := range t.teamOrder {
+		if a := name + ".auditor"; contains(t.Teams[name], agent) && contains(t.Teams[name], a) {
+			return a
+		}
+	}
+	return ""
+}
 
 // DefaultLink is the link the default links give this pair, or nil.
 func (t *Team) DefaultLink(requester, target string) *Decision {
-	hit := func(why string, relation, kind *string) *Decision {
-		return &Decision{Allowed: true, Reason: "default link: " + why, Relation: relation, Response: "async", Kind: kind}
-	}
+	hit := func(why string) *Decision { return &Decision{Allowed: true, Reason: "default link: " + why} }
 	mine, theirs := ParentName(requester), ParentName(target)
 	switch {
 	case theirs == requester:
-		return hit(requester+" is "+target+"'s parent", sp("supervisor"), nil)
+		return hit(requester + " is " + target + "'s parent")
 	case mine == target:
-		return hit(requester+" is "+target+"'s child", sp("subordinate"), nil)
+		return hit(requester + " is " + target + "'s child")
 	case mine != "" && mine == theirs:
-		return hit(requester+" and "+target+" are siblings under "+mine, sp("peer"), nil)
+		return hit(requester + " and " + target + " are siblings under " + mine)
 	}
 	if _, isManager := t.Managers()[requester]; target == Human && isManager {
-		return hit(requester+" may ask the founder", nil, sp("task"))
+		return hit(requester + " may ask the founder")
 	}
 	return nil
 }
 
-// Route decides a request. reply: this answers a request target sent to requester; it needs no edge back, but an explicit deny
-// still wins.
-func (t *Team) Route(requester, target string, chainDepth int, reply bool) Decision {
+// Route decides a request.
+func (t *Team) Route(requester, target string, chainDepth int) Decision {
 	if requester == target {
-		return Decision{Reason: "an agent cannot ask itself", Response: "async"}
+		return Decision{Reason: "an agent cannot ask itself"}
 	}
 	if !t.Known(target) && !(target == Human && t.DefaultLink(requester, target) != nil) {
-		return Decision{Reason: fmt.Sprintf("unknown target '%s'", target), Response: "async"}
+		return Decision{Reason: fmt.Sprintf("unknown target '%s'", target)}
 	}
 	if chainDepth >= t.MaxChainDepth {
-		return Decision{Reason: fmt.Sprintf("chain depth %d reached the limit %d (loop guard)", chainDepth, t.MaxChainDepth), Response: "async"}
+		return Decision{Reason: fmt.Sprintf("chain depth %d reached the limit %d (loop guard)", chainDepth, t.MaxChainDepth)}
 	}
 	// Explicit denies win over any allow, so a deny cannot be shadowed by an earlier wildcard edge.
 	for _, d := range t.Deny {
@@ -448,23 +473,20 @@ func (t *Team) Route(requester, target string, chainDepth int, reply bool) Decis
 			if truthy(d.Reason) {
 				why = pyStr(d.Reason)
 			}
-			return Decision{Reason: fmt.Sprintf("denied: %s -> %s: %s", requester, target, why), Response: "async"}
+			return Decision{Reason: fmt.Sprintf("denied: %s -> %s: %s", requester, target, why)}
 		}
 	}
 	// First match wins, like firewall rules: order in team.yaml is significant.
 	for _, e := range t.Edges {
 		if t.Matches(pyStr(e.From), requester) && t.Matches(pyStr(e.To), target) {
-			return Decision{Allowed: true, Reason: fmt.Sprintf("edge %s -> %s", pyStr(e.From), pyStr(e.To)), Response: "async", ChainDepth: chainDepth}
+			return Decision{Allowed: true, Reason: fmt.Sprintf("edge %s -> %s", pyStr(e.From), pyStr(e.To)), ChainDepth: chainDepth}
 		}
 	}
 	if d := t.DefaultLink(requester, target); d != nil {
 		d.ChainDepth = chainDepth
 		return *d
 	}
-	if reply {
-		return Decision{Allowed: true, Reason: fmt.Sprintf("reply: %s asked %s", target, requester), Response: "fire_and_forget", ChainDepth: chainDepth}
-	}
-	return Decision{Reason: fmt.Sprintf("denied: no edge declares %s -> %s (unlisted edges are denied by default)", requester, target), Response: "async"}
+	return Decision{Reason: fmt.Sprintf("denied: no edge declares %s -> %s (unlisted edges are denied by default)", requester, target)}
 }
 
 func pyStrOr(v any, has bool) string {

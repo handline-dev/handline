@@ -9,8 +9,6 @@ const task = (state: string): Task => ({
   to: 'a',
   title: 't',
   state,
-  relation: 'manager',
-  response: 'async',
   time_box: null,
   parent: null,
   created: '2026-01-01T00:00:00Z',

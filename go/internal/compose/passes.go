@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/heal"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/reads"
@@ -14,9 +15,9 @@ import (
 	"github.com/handline/handline/go/internal/tick"
 )
 
-// passes are the guarded passes the tick makes after its per-agent turns, in daemon/evaluate.py's order: the timebox, the notices, the stuck waits and
-// the settings a launch read. A structured session records no launch parts yet, so applying changed settings finds nothing recorded and
-// restarts nobody until it does.
+// passes are the guarded passes the tick makes after its per-agent turns, in daemon/evaluate.py's order: the timebox, the notices, the stuck waits,
+// the settings a launch read, and last the healing of stuck agents. A structured session records no launch parts yet, so applying changed
+// settings finds nothing recorded and restarts nobody until it does.
 func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSweep {
 	lc := p.LC
 	timebox := &tick.Timebox{Ports: timeboxPorts{p: p, env: lc.Env, set: lc.Manager.Settings, home: cfg.Home}, Cutover: cutover}
@@ -26,6 +27,8 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 		Plans: vendorPlans{cfg.Home, cfg.CLI}, Now: cfg.Now, Log: cfg.Log}
 	sched := &schedules.Runner{Q: p.db, Agents: func() []string { return paths.ListAgents(cfg.Home) }, Schedules: (&reads.Env{DB: p.db, Home: cfg.Home}).SchedulesOf,
 		Say: lc.Env.SystemSayThen, Log: func(s string) { cfg.Log("%s", s) }}
+	healer := &heal.Healer{Ports: healPorts{lc: lc, home: cfg.Home}, Log: func(s string) { cfg.Log("%s", s) }}
+	p.healer = healer
 	return []tick.NamedSweep{
 		{Name: "timebox", Run: func(q db.Q, now int64) error { return timebox.Sweep(tk, now) }},
 		{Name: "notice-digest", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepNotices(now) })},
@@ -35,6 +38,7 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 		{Name: "wait-for", Run: fromCutover(cutover, func(q db.Q, now int64) error { return wait.Sweep(q, now) })},
 		{Name: "schedules", Run: fromCutover(cutover, func(q db.Q, now int64) error { return sched.Sweep(now) })},
 		{Name: "apply-settings", Run: func(q db.Q, now int64) error { return apply.Sweep(tk, now) }},
+		{Name: "heal", Run: fromCutover(cutover, healer.Sweep)},
 	}
 }
 
@@ -112,6 +116,10 @@ func (t timeboxPorts) SupervisorOf(agent string) string {
 		return ""
 	}
 	return tm.SupervisorOf(agent)
+}
+func (t timeboxPorts) LeadOf(agent string) string {
+	tm, _ := team.LoadTeam(t.home)
+	return tm.LeadOf(agent)
 }
 
 // StopWaitReason is actions.stop_wait_reason (hooks.StopWaitReason): the Stop hook asks the same.

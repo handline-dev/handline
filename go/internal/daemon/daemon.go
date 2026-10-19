@@ -18,6 +18,7 @@ import (
 	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/debugterm"
 	"github.com/handline/handline/go/internal/devices"
+	"github.com/handline/handline/go/internal/filerw"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/hrwrites"
 	"github.com/handline/handline/go/internal/inputhold"
@@ -32,6 +33,7 @@ import (
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/stream"
 	"github.com/handline/handline/go/internal/supervisor"
+	"github.com/handline/handline/go/internal/sysres"
 	"github.com/handline/handline/go/internal/taskresult"
 	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/term"
@@ -102,6 +104,9 @@ type Config struct {
 	Session func() *sessionrpc.Env
 	// OnOpen is given the database once it is open, for the parts built before it was (the supervisor's ports, the tick).
 	OnOpen func(db *sql.DB, env *supervisor.Env)
+	// BeforeClose is called by Close once the connections have ended, before the database closes, to wait for work the parts run off
+	// the caller (the heal steps).
+	BeforeClose func()
 }
 
 // Daemon is a running daemon. Close stops the listeners and waits for the connections to end.
@@ -115,6 +120,7 @@ type Daemon struct {
 	acctSeq map[string]uint64 // the number of the last move published for each account
 	prompts *prompts.Env      // nil on a gateway: the Python daemon alone presses keys
 	tchan   *termchan.Env     // the terminal channel and the input hold; nil on a gateway
+	res     *sysres.Sampler   // what the machine and each agent use; nil when the daemon does not watch
 	holds   *inputhold.Store  // who holds each terminal's input; nil on a gateway
 	single  *lock.Hold        // the daemon singleton, held while this daemon runs; nil on a gateway
 	stop    chan struct{}     // closed by Close: the spool loop ends
@@ -274,6 +280,14 @@ func Start(cfg Config) (*Daemon, error) {
 			w.Run(d.stop)
 		}()
 	}
+	if cfg.Watch && !cfg.Gateway {
+		d.res = &sysres.Sampler{Home: cfg.Home, Panes: d.agentPanes, Log: func(s string) { cfg.Log("%s", s) }}
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			d.res.Run(d.stop)
+		}()
+	}
 	if cfg.OwnPrompts && d.prompts != nil {
 		d.wg.Add(1)
 		go func() {
@@ -283,6 +297,39 @@ func Start(cfg Config) (*Daemon, error) {
 	}
 	cfg.Log("handlined %s serving %q", version.Sha, cfg.SocketFile)
 	return d, nil
+}
+
+// agentPanes is each agent's terminal pane process, from one listing of the host's panes; none when the host cannot list them.
+func (d *Daemon) agentPanes() map[string]int {
+	host := d.cfg.Terminal
+	if host == nil {
+		host = term.Current(d.cfg.Home)
+	}
+	lister, ok := host.(term.PaneLister)
+	if !ok {
+		return nil
+	}
+	panes, ok := lister.ListPanes()
+	if !ok {
+		return nil
+	}
+	pid := map[string]int{}
+	for _, p := range panes {
+		pid[p.Handle] = p.PID
+	}
+	rows, err := d.db.Query("SELECT agent, terminal FROM agent_state WHERE COALESCE(terminal, '') != ''")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var agent, handle string
+		if rows.Scan(&agent, &handle) == nil && pid[handle] != 0 {
+			out[agent] = pid[handle]
+		}
+	}
+	return out
 }
 
 // env is the telling layer the writes run on.
@@ -373,6 +420,7 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 		func(s *rpc.Server) {
 			debugterm.Register(s, &debugterm.Env{DB: d.db, Backend: d.tchan.Backend, Procs: debugterm.ReadProcs, Now: time.Now})
 		},
+		func(s *rpc.Server) { filerw.Register(s, &filerw.Env{DB: d.db, Log: d.cfg.Log}) },
 		func(s *rpc.Server) { d.hooks.Register(s) },
 		func(s *rpc.Server) { hrwrites.Register(s, d.hrEnv()) },
 		func(s *rpc.Server) { prompts.Register(s, d.prompts) },
@@ -441,10 +489,14 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 		s.DeclareCapabilities(func() map[string]any { return map[string]any{"transcript": true} })
 	}
 	renv.Context = d.cfg.Context
+	if d.res != nil {
+		renv.Resources = d.res.Latest
+	}
 	if d.logins != nil {
 		renv.Login = d.logins.Of
 	}
 	reads.Register(s, renv)
+	s.Register("connection.get", rpc.Method{Role: "founder", Handler: d.connectionGet})
 	if d.cfg.Gateway {
 		d.gatewayMethods(s, transport)
 	}
@@ -597,6 +649,12 @@ func (d *Daemon) Close() {
 		d.logins.Close()
 	}
 	d.wg.Wait()
+	if d.envMade != nil {
+		d.envMade.Wait()
+	}
+	if d.cfg.BeforeClose != nil {
+		d.cfg.BeforeClose()
+	}
 	d.pidFile.remove()
 	if d.single != nil {
 		d.single.Release()
