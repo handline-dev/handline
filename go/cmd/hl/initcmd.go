@@ -70,7 +70,7 @@ func initCmd(c *hlclient.Client, args []string) (int, bool) {
 		fmt.Printf("initialized git repo in %s\n", h)
 	}
 	fmt.Printf("initialized %s\n", h)
-	fmt.Println("next: hl account add <name> - it registers the account and logs it in")
+	fmt.Println("next: add an account in the app's Accounts page - it registers the account and logs it in")
 	return 0, true
 }
 

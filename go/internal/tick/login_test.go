@@ -134,7 +134,7 @@ func TestAStallNamesTheErrorAndBothWaysOut(t *testing.T) {
 	actions := supervise(tk, "a")
 	row, _ := db.GetAgentState(tk.Q, "a")
 	if !has(actions, "a: STALLED, account_on_hold on acct") || !strings.Contains(row.Detail.String, LoginStall) ||
-		!strings.Contains(row.Detail.String, "hl account wake acct") {
+		!strings.Contains(row.Detail.String, "log acct in, or wake it") {
 		t.Fatalf("%v %+v", actions, row)
 	}
 }

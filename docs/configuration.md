@@ -60,9 +60,8 @@ A link's ends are agents, `*` or `human`. `hl hr unlink` removes any edge that i
 so an edge to a retired agent can go.
 
 An older `team.yaml` is moved onto the name links by `hl hr links` (it shows the plan; `--apply`
-writes it). `hl hr` files a proposal for you to decide. `hl hr approve <id>` applies it at once and
-tells the agent that asked; `hl hr reject <id> "why"` turns it down. `hl hr list` shows proposals
-and what became of them.
+writes it). `hl hr` files a proposal for you to decide in the app's HR tab: an approve applies it at
+once and tells the agent that asked. `hl hr list` shows proposals and what became of them.
 
 ## agent.yaml
 
@@ -105,12 +104,9 @@ hl team seal
 
 ## Accounts and limits
 
-```bash
-hl account list              # usage windows, agents per account, whether it takes work
-hl account cap alpha 3       # how many agents may be mid-turn on alpha at once (default 2)
-hl account wake alpha        # end the stall a refused turn left on alpha (a login or a good turn there ends it too)
-hl status                    # why the daemon picked the account it did
-```
+The app's Accounts page shows each account's usage windows, its agents and whether it takes work. There
+you set how many agents may be mid-turn on it at once (default 2) and wake an account a refused turn
+stalled (a login or a good turn there ends the stall too).
 
 An agent's account is a preference. A session goes there unless the account is at its limit, at
 its cap, or filling too fast, or is STALLED: a turn on it ended on an error that says the account

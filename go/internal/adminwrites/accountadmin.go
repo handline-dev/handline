@@ -40,7 +40,7 @@ func (e *Env) accountAdd(c *rpc.Conn, p map[string]any) (any, error) {
 	case err != nil:
 		return nil, refused(err.Error(), "")
 	}
-	out, err := wrote(c, fmt.Sprintf("registered account '%s'; log it in with: hl login %s", acct, acct), map[string]any{"account": acct})
+	out, err := wrote(c, fmt.Sprintf("registered account '%s'; log it in from the app's Accounts page", acct), map[string]any{"account": acct})
 	if err == nil && e.Changed != nil {
 		e.Changed(acct)
 	}

@@ -391,7 +391,7 @@ func (l *Launcher) NoRoom(agent string) string {
 	named := paths.ListAccounts(l.Home)
 	if len(l.mayStartAccounts()) == 0 {
 		if len(named) == 0 {
-			return "no account is registered - `hl account add <name>` first"
+			return "no account is registered - add one in the app's Accounts page first"
 		}
 		cmd, _ := l.Ports.Accounts.LoginCommand(named[0])
 		return fmt.Sprintf("no account is logged in. A human has to do this once (ocp never touches credentials):\n\n  %s\n", cmd)

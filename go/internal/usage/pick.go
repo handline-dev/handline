@@ -53,7 +53,7 @@ func (e *Env) endedWhy(acct string) string {
 	if !ok || now.Before(end) {
 		return ""
 	}
-	return fmt.Sprintf("subscription ended %s (month cycle) - not picked; after resubscribing, `hl account cycle %s --end YYYY-MM-DD` sets the new end",
+	return fmt.Sprintf("subscription ended %s (month cycle) - not picked; after resubscribing, set the new end day in the app's settings for %s",
 		cfg.EndDate(e.Home, acct, now), acct)
 }
 

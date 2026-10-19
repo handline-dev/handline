@@ -14,31 +14,23 @@ import (
 type command func(c *hlclient.Client, args []string) (code int, ok bool)
 
 var commands = map[string]command{
-	"account":             account,
-	"cancel":              cancel,
-	"device":              device,
-	"auto-accept":         autoAccept,
-	"close":               closeCmd,
-	"dev":                 dev,
-	"dev-mode":            devMode,
-	"hook":                hook,
-	"idle-background":     idleBackground,
-	"hr":                  hr,
-	"idle-timeout":        idleTimeout,
-	"init":                initCmd,
-	"inbox":               inbox,
-	"ignore-cache-expiry": ignoreCacheExpiry,
-	"launch":              launch,
-	"notice-digest":       noticeDigest,
-	"progress":            progress,
-	"read":                read,
-	"restart":             restart,
-	"sandbox-repo":        sandboxRepo,
-	"say":                 say,
-	"service":             service,
-	"task":                task,
-	"team":                teamCmd,
-	"withdraw":            withdraw,
+	"dev":             dev,
+	"device":          device,
+	"hook":            hook,
+	"idle-background": idleBackground,
+	"hr":              hr,
+	"init":            initCmd,
+	"inbox":           inbox,
+	"launch":          launch,
+	"notice-digest":   noticeDigest,
+	"progress":        progress,
+	"read":            read,
+	"sandbox-repo":    sandboxRepo,
+	"say":             say,
+	"service":         service,
+	"task":            task,
+	"team":            teamCmd,
+	"withdraw":        withdraw,
 }
 
 func main() {
@@ -60,8 +52,20 @@ func main() {
 	if code, ok := run(c, argv[1:]); ok {
 		os.Exit(code)
 	}
-	fmt.Fprintf(os.Stderr, "hl %s: arguments not understood: %s\nSee the skill for the form each verb takes.\n", argv[0], strings.Join(argv[1:], " "))
+	refuseArgs(argv[0], argv[1:])
 	os.Exit(2)
+}
+
+// refuseArgs says on stderr what is wrong with a verb's arguments, then the verb's form and one example.
+func refuseArgs(verb string, args []string) {
+	why := ""
+	if argProblem != "" {
+		why = " (" + argProblem + ")"
+	}
+	fmt.Fprintf(os.Stderr, "hl %s: arguments not understood%s: %s\n", verb, why, strings.Join(args, " "))
+	if u, ok := usageOf(verb, args); ok {
+		fmt.Fprintf(os.Stderr, "usage: %s\ne.g.   %s\n", u[0], u[1])
+	}
 }
 
 func names() []string {

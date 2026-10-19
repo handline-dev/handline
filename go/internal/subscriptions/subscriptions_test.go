@@ -136,7 +136,7 @@ func TestTheFounderIsToldOnceInsideTheWarningWindow(t *testing.T) {
 		t.Fatalf("raised %q by %q", w.asker.raised, w.asker.openers)
 	}
 	body := w.asker.raised[0]
-	for _, want := range []string{"acme subscription ends 2026-10-12\n\n", "ends 2026-10-12 (its last usable day), in 60.0 h.", "`hl account cycle acme --end YYYY-MM-DD`"} {
+	for _, want := range []string{"acme subscription ends 2026-10-12\n\n", "ends 2026-10-12 (its last usable day), in 60.0 h.", "the app's settings for acme"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("notice lacks %q:\n%s", want, body)
 		}

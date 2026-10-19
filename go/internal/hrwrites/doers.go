@@ -216,7 +216,7 @@ func (e *Env) doRename(p step) (bool, string, error) {
 		return false, fmt.Sprintf("could not confirm whether %s has a session running just now - try again in a moment.", old), nil
 	}
 	if live[old] {
-		return false, fmt.Sprintf("%s has a session running. Close it first (`hl close %s`, or `c` on the screen) - an identity cannot change under a running session.", old, old), nil
+		return false, fmt.Sprintf("%s has a session running. Close it first (Close in its menu in the app) - an identity cannot change under a running session.", old), nil
 	}
 	src, dest := paths.AgentDir(e.Home, old), paths.AgentDir(e.Home, new)
 	if _, err := os.Stat(dest); err == nil {
