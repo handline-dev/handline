@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/store"
@@ -106,13 +107,13 @@ func gateState(t *testing.T, sdb *sql.DB) (evidence, result string, blocked int)
 }
 
 // A gate whose PR's CI finished is done in fixed words; the task it blocked is free and its holder is told by the ordinary done path.
-// It is looked at once a minute, and a PR that cannot be read leaves it watching.
+// A PR that cannot be read leaves it watching.
 func TestTheSweepOpensAGateWhenItsCIFinishes(t *testing.T) {
 	sdb, tell, s := gateRig(t)
 	pr := &PR{State: "OPEN", Checks: []Check{{Name: "go", Pending: true}}}
-	var reads int
+
 	s.Fetch = func(_ context.Context, repo string, n int64) (*PR, error) {
-		reads++
+
 		if repo != "o/r" || n != 7 {
 			t.Fatalf("read %s #%d", repo, n)
 		}
@@ -127,22 +128,17 @@ func TestTheSweepOpensAGateWhenItsCIFinishes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	must(s.Run(sdb, 1000))
+	must(s.Pass(context.Background(), 1000))
 	if e, _, b := gateState(t, sdb); e != "" || b != 1 {
 		t.Fatalf("opened while its CI runs: %q %d", e, b)
 	}
-	pr = &PR{State: "OPEN", Checks: []Check{{Name: "go", Success: true}}}
-	must(s.Run(sdb, 1030))
-	if reads != 1 {
-		t.Fatalf("looked again within the minute: %d reads", reads)
-	}
 	pr = nil
-	must(s.Run(sdb, 1060))
+	must(s.Pass(context.Background(), 1060))
 	if e, _, _ := gateState(t, sdb); e != "" {
 		t.Fatal("a PR that cannot be read opened the gate")
 	}
 	pr = &PR{State: "OPEN", Checks: []Check{{Name: "go", Success: true}}}
-	must(s.Run(sdb, 1120))
+	must(s.Pass(context.Background(), 1120))
 	if e, r, b := gateState(t, sdb); e != "ci passed" || r != "passed" || b != 0 {
 		t.Fatalf("%q %q %d", e, r, b)
 	}
@@ -155,10 +151,36 @@ func TestTheSweepOpensAGateWhenItsCIFinishes(t *testing.T) {
 func TestAGatePastItsDeadlineOpensTimedOut(t *testing.T) {
 	sdb, _, s := gateRig(t)
 	s.Fetch = func(context.Context, string, int64) (*PR, error) { t.Fatal("read past the deadline"); return nil, nil }
-	if err := s.Run(sdb, 5000); err != nil {
+	if err := s.Pass(context.Background(), 5000); err != nil {
 		t.Fatal(err)
 	}
 	if e, r, b := gateState(t, sdb); e != "timed out" || r != "timed_out" || b != 0 {
 		t.Fatalf("%q %q %d", e, r, b)
+	}
+}
+
+// Run passes on its own clock, and closing stop ends it even while a read of GitHub hangs.
+func TestTheSweepStopsWithTheDaemonMidRead(t *testing.T) {
+	sdb, _, s := gateRig(t)
+	if _, err := sdb.Exec("UPDATE tasks SET timeout_at = ? WHERE id = 1", time.Now().Unix()+3600); err != nil {
+		t.Fatal(err)
+	}
+	reading := make(chan struct{})
+	s.Fetch = func(ctx context.Context, _ string, _ int64) (*PR, error) {
+		close(reading)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() { s.Run(stop); close(done) }()
+	<-reading
+	close(stop)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sweep did not stop")
+	}
+	if e, _, _ := gateState(t, sdb); e != "" {
+		t.Fatalf("opened on a cut-short read: %q", e)
 	}
 }

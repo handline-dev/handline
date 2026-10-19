@@ -277,7 +277,7 @@ func (e *Env) tellBodyEdited(q db.Q, tid int64, by string) {
 	var latest sql.NullString
 	err := q.QueryRow("SELECT json_extract(payload, '$.body.new') FROM events WHERE kind = 'edit_task' AND json_valid(payload) AND "+
 		"json_extract(payload, '$.task_id') = ? AND json_type(payload, '$.body') = 'object' ORDER BY id DESC LIMIT 1", tid).Scan(&latest)
-	if err == sql.ErrNoRows || row == nil || row.Owner == db.Human || row.Owner == by || must(db.TaskState(q, row)) != "doing" {
+	if err == sql.ErrNoRows || row == nil || row.Owner == db.Human || row.Owner == db.Gate || row.Owner == by || must(db.TaskState(q, row)) != "doing" {
 		return
 	}
 	check(err)
