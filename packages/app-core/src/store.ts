@@ -125,13 +125,14 @@ export class Store {
     if (seq !== this.openSeq) return;
     let attached = false;
     try {
-      // The daemon refuses a terminal to a structured agent; a failed read is left to the attach to report.
-      const structured = await this.client.call('agent.get', { agent }).then(
-        (d) => d.structured === true,
-        () => false,
+      // The daemon refuses a terminal to a structured agent, and an agent with no terminal has none to attach: both pages open without
+      // one (chat, tasks and actions work; the terminal tab offers to start one). A failed read is left to the attach to report.
+      const { structured, bare } = await this.client.call('agent.get', { agent }).then(
+        (d) => ({ structured: d.structured === true, bare: d.terminal === null }),
+        () => ({ structured: false, bare: false }),
       );
       if (seq !== this.openSeq) throw new Superseded();
-      if (structured) {
+      if (structured || bare) {
         this.error = null;
         this.page = { agent, tab: 'chat', view: null };
         this.emit();
@@ -148,6 +149,17 @@ export class Store {
       if (attached) await this.client.detachTerminal(agent).catch(() => {});
       if (!(e instanceof Superseded)) this.reportError('open', e);
     }
+  }
+  /** Attaches the open page's terminal once the agent has one (it was started from the page); a refusal leaves the page as it is. */
+  async attachView(): Promise<void> {
+    const p = this.page;
+    if (!p || p.view) return;
+    const view = await this.client.attachTerminal(p.agent).catch(() => null);
+    if (!view) return;
+    if (this.page !== p) return void this.client.detachTerminal(p.agent).catch(() => {});
+    this.unwatchView = view.subscribe(() => this.emit());
+    this.page = { ...p, view };
+    this.emit();
   }
   async closeAgent(): Promise<void> {
     const p = this.page;

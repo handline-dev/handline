@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { badgesOf, controlsOf, needsConfirm, shortName, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
@@ -218,9 +218,29 @@ function TranscriptTab(props: { detail: AgentDetail }) {
 }
 
 function Terminal(props: { detail: AgentDetail }) {
+  const c = usePalette();
+  const store = useStore();
   const view = useSelector((s) => s.page!.view);
-  if (!view) return null; // a structured agent has no terminal
-  return <TerminalOf detail={props.detail} view={view} />;
+  const start = useWrite('session.start', props.detail.name);
+  const opened = !!props.detail.terminal;
+  // The agent was started from this page: its terminal now exists and is attached.
+  useEffect(() => {
+    if (opened && !view) void store.attachView();
+  }, [opened, view, store]);
+  if (view) return <TerminalOf detail={props.detail} view={view} />;
+  const name = props.detail.name;
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.lg }}>
+      <Button
+        testID="terminal-start"
+        label={start.isPending ? 'Starting…' : 'Start terminal'}
+        kind="yes"
+        disabled={start.isPending}
+        onPress={() => start.mutate({ agent: name })}
+      />
+      {start.error ? <Text style={{ color: c.block, marginTop: space.sm }}>{(start.error as Error).message}</Text> : null}
+    </View>
+  );
 }
 
 function TerminalOf(props: { detail: AgentDetail; view: TerminalView }) {
@@ -245,7 +265,7 @@ function TerminalOf(props: { detail: AgentDetail; view: TerminalView }) {
           <Skeleton shape="terminal" loading label="the terminal" />
         ) : (
           <Text testID="terminal-text" style={{ color: c.termInk, fontFamily: 'Menlo', fontSize: 11 }}>
-            {lines.length ? drawRows(lines, c.termInk, c.termBg) : 'No terminal output.'}
+            {drawRows(lines, c.termInk, c.termBg)}
           </Text>
         )}
       </ScrollView>
