@@ -113,8 +113,9 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       accessibilityState={{ selected: on }}
       onPress={onPress}
       style={{
-        flex: 1,
+        flexGrow: 1,
         alignItems: 'center',
+        paddingHorizontal: space.sm,
         paddingVertical: space.md,
         borderBottomWidth: 2,
         borderBottomColor: on ? c.accent : 'transparent',
@@ -178,13 +179,13 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
           />
         )}
       </View>
-      <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm, paddingHorizontal: space.sm }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.sm }}>
         {pageTab('chat', 'Chat')}
         {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
         {hasChat && tab('activity', 'Activity', showActivity, () => setExtra('activity'))}
         {hasTasks && tab('tasks', 'Tasks', showTasks, () => setExtra('tasks'))}
         {hasTimeline && tab('timeline', 'Timeline', showTimeline, () => setExtra('timeline'))}
-      </Row>
+      </ScrollView>
       {showActivity ? (
         <Activity agent={name} />
       ) : showTimeline ? (

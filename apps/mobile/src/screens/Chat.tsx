@@ -255,7 +255,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
           onChangeText={setText}
           editable={canSend}
           multiline
-          placeholder={canSend ? 'Send a message…' : 'This daemon does not accept chat messages'}
+          placeholder={canSend ? 'Message…' : 'This daemon does not accept chat messages'}
           placeholderTextColor={c.muted}
           style={{
             flex: 1,

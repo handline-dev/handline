@@ -80,7 +80,8 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
                   flexDirection: 'row',
                   alignItems: 'center',
                   gap: space.md,
-                  height: rowHeight.agent, // the skeleton row is exactly this tall
+                  minHeight: rowHeight.agent, // the skeleton row's height; a larger font grows the row
+                  paddingVertical: space.sm,
                   paddingHorizontal: space.lg,
                   borderTopWidth: 1,
                   borderTopColor: c.line,
