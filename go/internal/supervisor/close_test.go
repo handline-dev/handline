@@ -80,11 +80,11 @@ func TestCancelOfTheFoundersUndeliveredRequestIsAWithdrawal(t *testing.T) {
 	}
 }
 
-// The edge human -> * says fire_and_forget, which is no longer read: the founder's request is async, and its close still wakes nobody.
-func TestTheFoundersRequestIsAsyncAndItsCloseWakesNobody(t *testing.T) {
+// A link only allows a message: the founder's request carries no response kind, and its close wakes nobody.
+func TestTheFoundersRequestCarriesNoResponseAndItsCloseWakesNobody(t *testing.T) {
 	r := newRig(t)
 	rid := r.ask("human", "bob", "do x", "")
-	if row, _ := db.GetRequest(r.DB, rid); row.Response.String != "async" {
+	if row, _ := db.GetRequest(r.DB, rid); row.Response.Valid || row.Relation.Valid {
 		t.Fatalf("%+v", row)
 	}
 	if ok, msg, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "done", Notify: true}); err != nil || !ok {
@@ -108,7 +108,8 @@ func TestCancelGuardRefusesInsideTheTransaction(t *testing.T) {
 	}
 }
 
-func TestResolveRefusesToOverwriteAnAnswerAndQueuesTheAskerOnce(t *testing.T) {
+// Nothing waits on an answer any more, so a resolve wakes nobody: work that needs an answer is a task, whose done tells its opener.
+func TestResolveRefusesToOverwriteAnAnswerAndWakesNobody(t *testing.T) {
 	r := newRig(t)
 	rid := r.ask("alice", "bob", "q", "ask")
 	ok, msg, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "yes", Notify: true})
@@ -116,7 +117,7 @@ func TestResolveRefusesToOverwriteAnAnswerAndQueuesTheAskerOnce(t *testing.T) {
 	if !ok || !strings.HasPrefix(r.ids(msg), "request #1 -> done") {
 		t.Fatalf("%v %q", ok, msg)
 	}
-	if len(r.eval.calls) != 1 || r.eval.calls[0] != "alice: request 1 resolved: done" {
+	if len(r.eval.calls) != 0 {
 		t.Fatalf("%v", r.eval.calls)
 	}
 	if ok, msg, _ := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "no", Notify: true}); ok || r.ids(msg) != "#1 is already landed - nothing to resolve" {

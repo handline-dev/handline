@@ -15,7 +15,6 @@ import (
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/msgtest"
 	"github.com/handline/handline/go/internal/store"
-	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/term"
 )
 
@@ -25,9 +24,9 @@ agents:
   alice: {}
   bob: {}
 edges:
-  - { from: "*", to: "human", kind: task }
-  - { from: "*", to: "*", relation: peer, response: async }
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "human" }
+  - { from: "*", to: "*" }
+  - { from: "human", to: "*" }
 limits:
   max_chain_depth: 4
 `
@@ -330,8 +329,6 @@ func (fakeProposals) OpenProposalOf(int64) string { return "" }
 func (fakeProposals) Answered(db.Q, string, *db.Request, string) (string, string, error) {
 	return "", "", nil
 }
-
-func team0() team.Decision { return team.Decision{Allowed: true, Response: "async"} }
 
 func readInbox(r *rig, rid int64) ([]byte, error) {
 	return os.ReadFile(filepath.Join(r.home, "agents", "bob", "inbox", inboxName(rid)))

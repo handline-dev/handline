@@ -10,7 +10,6 @@ import (
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
-	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
 )
 
@@ -33,8 +32,8 @@ var resultNotice = regexp.MustCompile(`(?s)\AT(\d+) (done|discarded) by (.+?):\s
 
 // say writes one message to `to` from the task board, written and queued: not a notice, so it wakes a closed agent once told.
 func (e *Env) say(q db.Q, to, text, reason string) int64 {
-	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Response: "fire_and_forget", Kind: "say"}))
-	if err := e.deliver(rid, db.NoticeRequester, to, text, "", team.Decision{Allowed: true, Reason: reason, Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Kind: "say"}))
+	if err := e.deliver(rid, db.NoticeRequester, to, text, "", "say", 0); err != nil {
 		e.log("  request %d: the inbox file for %s was not written: %v", rid, to, err)
 	}
 	must(db.AddEvent(q, db.NoticeRequester, "notice_told", db.KV{K: "request_id", V: rid}, db.KV{K: "to", V: to}, db.KV{K: "reason", V: reason}))
@@ -44,8 +43,8 @@ func (e *Env) say(q db.Q, to, text, reason string) int64 {
 // Notice writes one notice from the task board to `to` (delivery.ClassBatch): it waits for the next digest or rides on the next delivery.
 func (e *Env) Notice(q db.Q, to, text, reason string) (rid int64, err error) {
 	defer Catch(&err)
-	rid = must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Response: "fire_and_forget", Kind: "say", Notice: true}))
-	if err := e.deliver(rid, db.NoticeRequester, to, text, "", team.Decision{Allowed: true, Reason: reason, Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
+	rid = must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Kind: "say", Notice: true}))
+	if err := e.deliver(rid, db.NoticeRequester, to, text, "", "say", 0); err != nil {
 		e.log("  request %d: the inbox file for %s was not written: %v", rid, to, err)
 	}
 	return rid, nil

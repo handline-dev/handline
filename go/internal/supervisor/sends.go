@@ -46,8 +46,15 @@ func (e *Env) background(name string, fn func()) {
 		run()
 		return
 	}
-	go run()
+	e.bg.Add(1)
+	go func() {
+		defer e.bg.Done()
+		run()
+	}()
 }
+
+// Wait returns once every telling started off the caller has ended: the daemon closes the database, and a test its home, only after.
+func (e *Env) Wait() { e.bg.Wait() }
 
 func (e *Env) after(rid int64, target string) {
 	if rid == 0 || target == db.Human {

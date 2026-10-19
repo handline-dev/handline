@@ -246,7 +246,7 @@ export function Chat(props: { detail: AgentDetail }) {
           </Text>
         )}
       </ScrollView>
-      <HandoffLine handoff={props.detail.handoff ?? null} />
+      <HandoffLine handoff={props.detail.handoff ?? null} items={chat.items} />
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
       {picked && (
         <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>

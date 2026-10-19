@@ -217,6 +217,11 @@ func (l *Launcher) ExecAgent(agent string, extra []string, force bool, promptFil
 		return err
 	}
 	prompt := TakePrompt(promptFile)
+	if promptFile == "" && !slices.Contains(extra, "--resume") {
+		if prompt, err = l.handLaunchPrompt(agent); err != nil {
+			return err
+		}
+	}
 	if err := l.keepWhatItStartsWith(agent, extra, prompt, why, by); err != nil {
 		return err // Python reads the waiting handoff outside its never-block try
 	}
@@ -249,6 +254,23 @@ func (l *Launcher) ExecAgent(agent string, extra []string, force bool, promptFil
 		flat = append(flat, k+"="+env[k])
 	}
 	return l.Ports.Exec(argv[0], argv, flat)
+}
+
+// handLaunchPrompt starts the first turn of a fresh session a person launched: without one it sits at an empty prompt, and the daemon
+// types nothing to an agent whose task is already in hand.
+func (l *Launcher) handLaunchPrompt(agent string) (string, error) {
+	handoff, err := db.GetHandoff(l.Q, agent)
+	if err != nil {
+		return "", err
+	}
+	if handoff != "" {
+		return "This is a fresh session. Your handoff is in your system prompt above; pick the task back up from it.", nil
+	}
+	tid, held, err := db.CurrentTask(l.Q, agent)
+	if err != nil || !held {
+		return "", err
+	}
+	return fmt.Sprintf("This is a fresh session and your context is empty. You hold T%d: read it with `hl task show T%d` and carry on with it.", tid, tid), nil
 }
 
 // recordTerminal remembers where we are about to become the agent: the terminal, the account, and what Build produced this launch with.

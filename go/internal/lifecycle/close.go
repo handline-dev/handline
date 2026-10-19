@@ -495,6 +495,43 @@ func (m *Manager) RestartAgent(agent string, st SessionStatus, o RestartOpts) (o
 	return true, agent + ": restarted" + how + note, nil
 }
 
+// RestartHung restarts an agent whose turn is hung without waiting for that turn, which a forced RestartAgent does: its terminal is closed
+// with the session in it, the agent recorded closed, and woken in a new terminal - resuming its conversation, or with fresh a new one from
+// its handoff record (CloseFresh). The wake is owed until a session is up, as any restart's is.
+func (m *Manager) RestartHung(agent string, st SessionStatus, fresh bool, by, cause string) (ok bool, said string, err error) {
+	defer catch(&err)
+	handle := must(db.Terminal(m.Q, agent))
+	if handle == "" || !m.Term.Available() {
+		return false, "no terminal to close", nil
+	}
+	if ok, why := m.Term.CloseTerminal(handle); !ok {
+		return false, "its terminal would not close: " + why, nil
+	}
+	wt := ""
+	if row := must(db.GetAgentState(m.Q, agent)); row != nil {
+		wt = row.Worktree.String
+	}
+	check(db.SetTerminal(m.Q, agent, "", wt))
+	must(db.AddEvent(m.Q, agent, "terminal_closed", db.KV{K: "handle", V: handle}))
+	check(db.SetClosed(m.Q, agent, st.SessionID))
+	check(db.SetAgentState(m.Q, agent, states.Idle, 0, "its hung turn was ended"))
+	if fresh {
+		if ok, said, err := m.CloseFresh(agent, st, CloseOpts{}); err != nil || !ok {
+			return false, said, err
+		}
+	}
+	must(db.AddEvent(m.Q, agent, RestartOwedKind, db.KV{K: "by", V: by}, db.KV{K: "fresh", V: fresh}, db.KV{K: "cause", V: cause}))
+	ok, why, err := m.WakeAgent(agent, WakeOpts{Force: true, Warm: !fresh, Cause: cause, RestartedBy: by})
+	if err != nil || !ok {
+		return false, "its terminal was closed but it was not started again - " + why, err
+	}
+	how := ", resuming its conversation"
+	if fresh {
+		how = " as a new conversation"
+	}
+	return true, agent + ": its hung turn was ended and it was restarted in a new terminal" + how, nil
+}
+
 func (m *Manager) closeAgent(agent string, st SessionStatus, o CloseOpts) (bool, string) {
 	row := must(db.GetAgentState(m.Q, agent))
 	if row != nil && (row.State == states.Running || row.State == states.Handoff) && !(o.Force && row.State == states.Running) {
