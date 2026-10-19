@@ -138,7 +138,7 @@ A method marked write takes a required `request_id`.
 | `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box?`, `parent?`, `duplicate_ok?`, `blocked_by?`, `priority?`, `tags?`, `expects?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` | duplicate_title |
 | `task.handoff` | agent | yes | `task`, `to`, `note?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `commit?`, `shots?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | open_children |
-| `task.accept` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.accept` | agent | yes | `task`, `request_id`, `by_founder?` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reject` | agent | yes | `task`, `note`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.progress` | agent (only agent) | yes | `task?`, `note`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
@@ -485,7 +485,7 @@ Finish a task with evidence. Exactly one of evidence, request or reason-with-evi
 
 ### `task.accept`
 
-Accept a task's report: it closes done. The task must be answered (an owner it does not answer to ran task.done). Only whoever it answers to, its opener or the founder may accept. It closes with the report as its evidence; the owner is told.
+Accept a task's report: it closes done. The task must be answered (an owner it does not answer to ran task.done). Only whoever it answers to, its opener or the founder may accept. It closes with the report as its evidence; the owner is told. With by_founder a lead records the founder's chat OK instead of asking for a second tap (`hl task accept T<n> --by-founder <message id>`); the message id is kept in the task's accept_task event.
 
 ### `task.reject`
 

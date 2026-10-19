@@ -858,6 +858,8 @@ export type ChatMessage = {
   } | null;
   /** Only on the message that tells an agent how the founder decided its HR proposal: that proposal's id, as hr.list gives it. A client that draws the decided proposal as a card can leave this line out. */
   proposal?: number;
+  /** One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task's state asks for one: answered, and it answers to the founder (Accept, Send back), or owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb. */
+  actions?: ChatAction[];
 };
 
 export type TranscriptItem = {
@@ -1484,6 +1486,17 @@ export type TaskView = {
   /** Who saved it last. */
   by: string;
   at: Timestamp;
+};
+
+export type ChatAction = {
+  key: "accept" | "send_back" | "ok" | "no";
+  label: string;
+  verb: "task.accept" | "task.reject" | "task.done" | "task.handoff";
+  task: number;
+  /** The verb's params but request_id. */
+  params: { [key: string]: unknown };
+  /** A param the person must write before the tap sends (`note` for Send back). */
+  needs?: string;
 };
 
 export interface Methods {
@@ -2174,6 +2187,8 @@ export interface Methods {
   "task.accept": { params: {
   task: number;
   request_id: RequestId;
+  /** A chat message id: the founder's OK on this task, kept with the accept as its proof. Refused unless the founder wrote the message, it is tied to the task and it came after the report. */
+  by_founder?: number;
 }; result: Accepted };
   "task.reject": { params: {
   task: number;

@@ -654,15 +654,27 @@ func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key st
 }
 
 func taskAccept(c *hlclient.Client, args []string) (int, bool) {
-	tid, ok := oneTask(args)
+	p, ok := parse(args, []string{"--by-founder"}, nil, nil)
+	if !ok || len(p.pos) != 1 {
+		return 0, false
+	}
+	tid, ok := taskRef(p.pos[0])
 	if !ok {
 		return 0, false
+	}
+	params := map[string]any{"task": tid}
+	if v, has := p.opt("--by-founder"); has {
+		mid, err := strconv.Atoi(strings.TrimPrefix(v, "#"))
+		if err != nil || mid < 1 {
+			return 0, false
+		}
+		params["by_founder"] = mid
 	}
 	mutating(c, "accept")
 	if !asking(c, "accept a task") {
 		return 1, true
 	}
-	return said(c.Write("task.accept", map[string]any{"task": tid})), true
+	return said(c.Write("task.accept", params)), true
 }
 
 func taskReject(c *hlclient.Client, args []string) (int, bool) {

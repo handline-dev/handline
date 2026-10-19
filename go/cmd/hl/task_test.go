@@ -98,6 +98,7 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "handoff", "T3", "b.two"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "handoff", "T3", "b.two", "-"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "accept", "T3"},[]string{`task.accept {"task":3}`}},
+		{"", []string{"task", "accept", "T3", "--by-founder", "#41"}, []string{`task.accept {"by_founder":41,"task":3}`}},
 		{"", []string{"task", "reject", "T3", "no tests"}, []string{`task.reject {"note":"no tests","task":3}`}},
 	}
 	seen := 0
