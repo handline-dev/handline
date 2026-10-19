@@ -2,11 +2,11 @@
 // `useWrite`: an authored one shows at once and rolls back with the daemon's reason on a refusal; a verb the daemon does not serve is
 // disabled with the reason. The sheets keep what was typed until the daemon accepts.
 import { useState, type ReactNode } from 'react';
-import { taskRef } from '@handline/app-core';
+import { assignGroups, isPerson, taskRef } from '@handline/app-core';
 import { Text, TextInput, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
-import { classify, sentence, useAgents, usePending, useServes, useWrite } from '@handline/app-data';
+import { classify, sentence, useAgents, usePending, useServes, useTeam, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { useConnection } from '@handline/app-react';
 import { usePalette } from '../theme.ts';
@@ -134,13 +134,14 @@ function ReasonSheet(props: {
   );
 }
 
-type Ask = null | 'ask' | 'done' | 'reopen' | 'withdraw' | 'cancel' | 'discard' | 'edit' | 'release' | 'merge';
+type Ask = null | 'ask' | 'done' | 'reopen' | 'withdraw' | 'cancel' | 'discard' | 'edit' | 'release' | 'merge' | 'assign';
 
 /** The verbs of one task; each is shown only when it applies, and disabled with its reason when the daemon does not serve it. */
 export function TaskVerbs({ t }: { t: TaskDetail }) {
   const c = usePalette();
   const me = useStore().me;
   const [ask, setAsk] = useState<Ask>(null);
+  const [menu, setMenu] = useState<null | 'status' | 'more'>(null);
   const done = useWrite('task.done');
   const reopen = useWrite('task.reopen');
   const withdraw = useWrite('task.withdraw');
@@ -173,37 +174,48 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       () => {},
     );
   const verb = (id: string, label: string, why: string | null, to: Ask) => (
-    <Button key={id} testID={`verb-${id}`} label={label} disabled={!!why || ask !== null} onPress={() => setAsk(to)} />
+    <Button key={id} testID={`verb-${id}`} label={label} disabled={!!why || ask !== null} onPress={() => (setMenu(null), setAsk(to))} />
   );
   return (
     <View style={{ gap: space.md }}>
       <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-        {open && verb('done', 'Done', off.done, 'done')}
-        {t.state === 'done' && mine && verb('reopen', 'Reopen', off.reopen, 'reopen')}
-        {startable && mine && verb('withdraw', 'Withdraw', off.withdraw, 'withdraw')}
-        {open && verb('cancel', running ? 'Stop' : 'Cancel', off.cancel, 'cancel')}
-        {t.state === 'draft' && (
-          <Button
-            testID="verb-queue"
-            label="Queue"
-            disabled={!!off.queue || ask !== null || queue.isPending}
-            onPress={() => void queue.mutateAsync({ tasks: [t.id] }).catch(() => {})}
-          />
-        )}
-        {t.state === 'queued' && (
-          <Button
-            testID="verb-draft"
-            label="Back to draft"
-            disabled={!!off.draft || ask !== null || draft.isPending}
-            onPress={() => void draft.mutateAsync({ tasks: [t.id] }).catch(() => {})}
-          />
-        )}
-        {verb('ask', 'Ask', off.ask, 'ask')}
-        {running && verb('release', 'Release', off.release, 'release')}
-        {open && verb('merge', 'Merge…', off.merge, 'merge')}
-        {open && verb('edit', 'Edit', off.edit, 'edit')}
-        {open && verb('discard', 'Discard', off.discard, 'discard')}
+        <Pill testID="status-menu" on={menu === 'status'} label={`${t.state} ▾`} onPress={() => setMenu(menu === 'status' ? null : 'status')} />
+        {open && <Pill testID="assignee-menu" on={ask === 'assign'} label={`→ ${t.to} ▾`} onPress={() => setAsk(ask === 'assign' ? null : 'assign')} />}
+        <Pill testID="more-menu" on={menu === 'more'} label="More ▾" onPress={() => setMenu(menu === 'more' ? null : 'more')} />
       </View>
+      {menu === 'status' && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+          {open && verb('done', isPerson(t.from, me) ? 'Answered' : 'Done', off.done, 'done')}
+          {t.state === 'done' && mine && verb('reopen', 'Reopen', off.reopen, 'reopen')}
+          {t.state === 'draft' && (
+            <Button
+              testID="verb-queue"
+              label="Queue"
+              disabled={!!off.queue || ask !== null || queue.isPending}
+              onPress={() => (setMenu(null), void queue.mutateAsync({ tasks: [t.id] }).catch(() => {}))}
+            />
+          )}
+          {t.state === 'queued' && (
+            <Button
+              testID="verb-draft"
+              label="Back to draft"
+              disabled={!!off.draft || ask !== null || draft.isPending}
+              onPress={() => (setMenu(null), void draft.mutateAsync({ tasks: [t.id] }).catch(() => {}))}
+            />
+          )}
+          {running && verb('release', 'Release', off.release, 'release')}
+        </View>
+      )}
+      {menu === 'more' && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+          {startable && mine && verb('withdraw', 'Withdraw', off.withdraw, 'withdraw')}
+          {open && verb('cancel', running ? 'Stop' : 'Cancel', off.cancel, 'cancel')}
+          {verb('ask', 'Ask', off.ask, 'ask')}
+          {open && verb('merge', 'Merge…', off.merge, 'merge')}
+          {open && verb('edit', 'Edit', off.edit, 'edit')}
+          {open && verb('discard', 'Discard', off.discard, 'discard')}
+        </View>
+      )}
       {t.state === 'answered' && (mine || founder) && <ReportVerbs t={t} />}
       {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: 12 }}>{Object.values(off).find(Boolean)}</Text>}
       {ask === 'done' && (
@@ -258,6 +270,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       {ask === 'ask' && <AskAbout t={t} onClose={() => setAsk(null)} />}
       {ask === 'release' && <ReleaseTask t={t} onClose={() => setAsk(null)} />}
       {ask === 'merge' && <MergeTasks t={t} onClose={() => setAsk(null)} />}
+      {ask === 'assign' && <AssignTask t={t} onClose={() => setAsk(null)} />}
       {ask === 'edit' && <EditTask t={t} onClose={() => setAsk(null)} />}
     </View>
   );
@@ -380,6 +393,41 @@ function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
           <Pill role="radio" key={p} on={priority === p} label={l} onPress={() => setPriority(p)} testID={`et-priority-${p}`} />
         ))}
       </View>
+    </Sheet>
+  );
+}
+
+/** Anyone can hand an open task to someone else: who it can go to, in the web's groups. */
+function AssignTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
+  const c = usePalette();
+  const me = useStore().me;
+  const edit = useWrite('task.edit');
+  const off = useWhyNot('task.edit');
+  const known = useAgents().data?.agents.map((a) => a.name) ?? [];
+  const team = useTeam().data ?? { agents: [] };
+  const groups = assignGroups(t, team, known, me);
+  return (
+    <Sheet label={`assign ${taskRef(t.id)} to…`} onCancel={onClose} error={off ?? (edit.isError ? sentence(classify(edit.error)) : undefined)}>
+      {groups.length ? (
+        groups.map((g) => (
+          <View key={g.key} style={{ gap: space.xs }}>
+            <Text style={{ color: c.muted, fontSize: 12 }}>{g.label}</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+              {g.names.map((n) => (
+                <Pill
+                  key={n}
+                  testID={`assign-${n}`}
+                  on={false}
+                  label={n}
+                  onPress={() => void (!off && edit.mutateAsync({ task: t.id, owner: n }).then(onClose, () => {}))}
+                />
+              ))}
+            </View>
+          </View>
+        ))
+      ) : (
+        <Text style={{ color: c.muted }}>There is no one else to assign it to.</Text>
+      )}
     </Sheet>
   );
 }
