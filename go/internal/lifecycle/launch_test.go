@@ -762,3 +762,19 @@ func TestExecAgentLocksItsWorktreeForThisProcess(t *testing.T) {
 		t.Fatalf("%v", held)
 	}
 }
+
+// A resume Build puts on an account that does not hold the session finds it there all the same: carried over from the old account.
+func TestAResumeBuildCarriesTheSessionToItsAccount(t *testing.T) {
+	r := newLaunchRig(t)
+	r.l.Ports.CurrentAccount = func(db.Q, string) string { return "main" }
+	old, _ := team.AccountConfigDir(r.l.Home, "old")
+	os.MkdirAll(filepath.Join(old, "projects", "-wt"), 0o755)
+	os.WriteFile(filepath.Join(old, "projects", "-wt", "s1.jsonl"), []byte("{}\n"), 0o600)
+	if _, _, err := r.l.Build("ann", []string{"--resume", "s1"}, false, ""); err != nil {
+		t.Fatal(err)
+	}
+	main, _ := team.AccountConfigDir(r.l.Home, "main")
+	if sessionIn(main, "s1") == "" {
+		t.Fatal("the session was not carried to the account the resume runs on")
+	}
+}
