@@ -14,7 +14,7 @@ import (
 // EndReviews runs at daemon start: a task has no review state any more, so each one an older daemon left in review is moved, once, to a
 // task that is queued or doing. Its answer is kept as a memo by "daemon". One not yet accepted is handed to whom it waited on (its owner's
 // lead, else its reporter, else its opener); an accepted one stays with its owner, the memo naming the PR it waits on. It answers a line per
-// task moved.
+// task moved; a task that cannot be moved is left for the next start, and the others still move.
 func EndReviews(d *sql.DB, home string, tell Teller) (said []string, err error) {
 	type review struct {
 		id                      int64
@@ -45,6 +45,7 @@ func EndReviews(d *sql.DB, home string, tell Teller) (said []string, err error) 
 		return nil, err
 	}
 	agents := paths.ListAgents(home)
+	var failed error
 	for _, r := range all {
 		to := ""
 		memo := fmt.Sprintf("Answered while tasks had a review state: %s", r.report)
@@ -68,7 +69,7 @@ func EndReviews(d *sql.DB, home string, tell Teller) (said []string, err error) 
 		var asked *Asked
 		tx, err := d.Begin()
 		if err != nil {
-			return said, err
+			return said, errors.Join(failed, err)
 		}
 		err = func() error {
 			if _, err := tx.Exec("UPDATE tasks SET reported_at = NULL, report = NULL, report_via = NULL, accepted_by = NULL, accepted_at = NULL WHERE id = ?", r.id); err != nil {
@@ -88,12 +89,13 @@ func EndReviews(d *sql.DB, home string, tell Teller) (said []string, err error) 
 			}
 			return err
 		}()
+		if err == nil {
+			err = tx.Commit()
+		}
 		if err != nil {
 			tx.Rollback()
-			return said, fmt.Errorf("T%d: %w", r.id, err)
-		}
-		if err := tx.Commit(); err != nil {
-			return said, err
+			failed = errors.Join(failed, fmt.Errorf("T%d: %w", r.id, err))
+			continue
 		}
 		if to == "" {
 			said = append(said, fmt.Sprintf("T%d left review: queued with %s", r.id, r.owner))
@@ -105,5 +107,5 @@ func EndReviews(d *sql.DB, home string, tell Teller) (said []string, err error) 
 		tell.HandedOver(h)
 		said = append(said, fmt.Sprintf("T%d left review: handed to %s", r.id, to))
 	}
-	return said, nil
+	return said, failed
 }

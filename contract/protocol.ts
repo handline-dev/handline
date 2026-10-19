@@ -419,7 +419,7 @@ export type TaskDetail = Task & {
     at: Timestamp;
     /** The author, or `from → to` for a handoff. */
     who: string;
-    /** memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note). */
+    /** memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note), from before a review was a handoff. */
     kind: "memo" | "handoff" | "request" | "edit" | "state" | "reject";
     /** Already stripped of control characters: a client draws it as it is. */
     text: string;
@@ -1571,13 +1571,13 @@ export type TimeSegment = {
 };
 
 export type ChatAction = {
-  key: "accept" | "send_back" | "ok" | "no";
+  key: "ok" | "no";
   label: string;
-  verb: "task.accept" | "task.reject" | "task.done" | "task.handoff";
+  verb: "task.done" | "task.handoff";
   task: number;
   /** The verb's params but request_id. */
   params: { [key: string]: unknown };
-  /** A param the person must write before the tap sends (`note` for Send back). */
+  /** A param the person must write before the tap sends. */
   needs?: string;
 };
 

@@ -36,7 +36,7 @@ What the table says in a line: nobody does all six together. The agent IDEs (Orc
 | Piece | Today | Where |
 |---|---|---|
 | Image attach in chat | `attachment.put` then `attachments` on `chat.send` (PNG, JPEG, GIF, WebP) | web `ChatAttach.tsx`; not yet on the phone |
-| Task states with a reported step | `reported` waits for `task.accept` or `task.reject` (note), `task.reopen`; the Go daemon serves them; the fake gets them in branch fake-task-accept (T3856), not yet merged | contract, Go daemon |
+| Task states with a reported step | `reported` waits for `task.accept` or `task.reject` (note), `task.reopen`; the Go daemon serves them; the fake gets them in branch fake-task-accept (T3856), not yet merged | contract, Go daemon *(10-20: gone: a done closes the task, and a review is a handoff, T5223)* |
 | Time | `TaskClock` (time box, start, end, overdue since, overdue notices); `deliveries` on `task.get` | `TaskTime.tsx` |
 | History in part | `assignments` (who changed the assignee or owner), `memos` | `TaskDetail` |
 | Links | `parent`, `blocked_by`, `subtasks` | `Task` |
@@ -78,7 +78,7 @@ The same reason text is the edge label in the graph (1-6) and the grey stretch i
 | Unit | PC app | Phone | Daemon work |
 |---|---|---|---|
 | 1-1 capture, circle, send | A Capture button in the title bar and ⌘⇧C: pick a window (the app, the simulator), draw on it (pen, arrow, box, text), write the order, send. It opens as a new task, or as a comment on the open one. The shot is the task's spec | Attach a screenshot (the picker is a native package, so a rebuilt dev client) and circle it in the same editor (the editor of §6); the phone cannot capture the simulator, so it comments on a task | A comment of a task that carries attachments (memo with `attachments`); `attachment.put` exists and takes an upload from any paired device (direction C) |
-| 1-2 review in the task | A Review card at the top of the task when it is `reported`: before and after pictures, the diff stat, Approve and Send back (circle and note) | The same card; Approve and Send back call `task.accept` and `task.reject` | Report carries before/after attachments; `task.accept`, `task.reject` exist |
+| 1-2 review in the task | A Review card at the top of the task when it is `reported`: before and after pictures, the diff stat, Approve and Send back (circle and note) | The same card; Approve and Send back call `task.accept` and `task.reject` | Report carries before/after attachments; `task.accept`, `task.reject` exist *(10-20: gone: a done closes the task, and a review is a handoff, T5223)* |
 | 1-3 tags and filters | Chips on a row, a tag field in the task, a filter in the Tasks bar that saves a named view | A filter sheet; tags show as chips | `tags` on a task, a filter on `tasks.list`, saved views |
 | 1-4 history | A History tab on the task: who, field, was, now, when; a fix is a new row, not an erase | The same list under the task | An append-only `task.history`; every edit writes rows |
 | 1-5 where the time went | One segmented bar under the title: waiting on a person, working, agent started or restarted; the estimate is a tick on it; an overrun shows the agent's own review as text | A thin bar in the task row; the detail on tap | The segments come from state events and deliveries; the self-review is an agent message at the overrun |
@@ -169,7 +169,7 @@ The founder does not drive agents; stopping and changing work is done on the tas
 3. Changed: no drawing tools of our own. Use a library as far as possible, MIT or another compatible licence.
 4. Changed: the list and the graph share one logic layer (nodes, edges, order, waiting reasons) in packages/app-core; the phone gets the graph too, drawn from that layer.
 5. Yes. History cannot be deleted; a fix is a new row.
-6. Yes. Approve is `task.accept`, Send back is `task.reject` with the circled picture.
+6. Yes. Approve is `task.accept`, Send back is `task.reject` with the circled picture. *(10-20: gone: a done closes the task, and a review is a handoff, T5223)*
 7. Yes. Waiting reasons are one field of the task.
 
 New directions:

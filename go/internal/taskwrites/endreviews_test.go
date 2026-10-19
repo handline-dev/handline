@@ -40,3 +40,26 @@ func TestEndReviewsMovesEachTaskLeftInReview(t *testing.T) {
 		t.Fatalf("%q %v", again, err)
 	}
 }
+
+// With no lead, a review left open goes to the task's reporter, else its opener; one that would go back to its own owner stays, queued.
+// A handoff that is refused leaves that task for the next start, and the rest still move.
+func TestEndReviewsFallsBackToTheReporterThenTheOpener(t *testing.T) {
+	home := t.TempDir()
+	sdb, f, _ := reportEnvIn(t, home,
+		"INSERT INTO tasks(id, title, owner, opened_by, reporter, created_at, queued_by, reported_at, report) "+
+			"VALUES(1, 'to the founder', 'boss', 'w', 'human', 1, 'w', 5, 'a'), (2, 'its own', 'boss', 'boss', NULL, 1, 'boss', 5, 'b')",
+	)
+	said, err := EndReviews(sdb, home, f)
+	if err != nil || fmt.Sprint(said) != "[T1 left review: handed to human T2 left review: queued with boss]" {
+		t.Fatalf("%q %v", said, err)
+	}
+	sdb, f, _ = reportEnvIn(t, t.TempDir(),
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, reported_at, report) VALUES(1, 'refused', 'w', 'boss', 1, 'boss', 5, 'a')",
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, reported_at, report, accepted_by) VALUES(2, 'stays', 'w', 'boss', 1, 'boss', 5, 'b', 'lead')",
+	)
+	f.deny = "no route"
+	said, err = EndReviews(sdb, home, f)
+	if err == nil || fmt.Sprint(said) != "[T2 left review: queued with w]" || count(t, sdb, "SELECT COUNT(*) FROM tasks WHERE id = 1 AND reported_at IS NOT NULL") != 1 {
+		t.Fatalf("%q %v", said, err)
+	}
+}
