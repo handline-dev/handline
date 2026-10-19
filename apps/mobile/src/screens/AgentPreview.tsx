@@ -6,11 +6,11 @@ import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Button } from './parts.tsx';
 
-/** What was typed as an address: `my-mac.ts.net:5173` is a page too. Null when it cannot be one. */
+/** What was typed as an address: a bare host is https, except on the tailnet (.ts.net), the one place the phone allows plain http. Null when it cannot be one. */
 export function addressOf(typed: string): string | null {
   const t = typed.trim();
   if (!t) return null;
-  const url = /^https?:\/\//i.test(t) ? t : `http://${t}`;
+  const url = /^https?:\/\//i.test(t) ? t : `${/^[^/:]+\.ts\.net(:|\/|$)/i.test(t) ? 'http' : 'https'}://${t}`;
   try {
     return new URL(url).host ? url : null;
   } catch {

@@ -12,7 +12,8 @@ async function openTab(tab: string) {
 }
 
 describe('addressOf', () => {
-  it('adds http to a bare host and port', () => expect(addressOf(' my-mac.ts.net:5173 ')).toBe('http://my-mac.ts.net:5173'));
+  it('adds https to a bare host', () => expect(addressOf('example.com')).toBe('https://example.com'));
+  it('adds http to a bare tailnet host and port', () => expect(addressOf(' my-mac.ts.net:5173 ')).toBe('http://my-mac.ts.net:5173'));
   it('keeps a full address and refuses an empty one', () => {
     expect(addressOf('https://a.dev/x')).toBe('https://a.dev/x');
     expect(addressOf('  ')).toBeNull();
