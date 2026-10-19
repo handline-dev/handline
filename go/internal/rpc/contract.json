@@ -29,6 +29,9 @@
  "agent.fold": {
   "role": "agent"
  },
+ "agent.force_start": {
+  "role": "founder"
+ },
  "agent.get": {
   "role": "agent"
  },

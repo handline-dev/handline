@@ -138,6 +138,9 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 		}
 		return fmt.Sprintf("%s: %s waiting and it has no terminal - set `repo:` in its agent.yaml, or start it by hand (t)", agent, w), nil
 	}
+	if why := m.loadHeld(agent); why != "" {
+		return fmt.Sprintf("%s: not started - %s", agent, why), nil
+	}
 	// With no room `hl launch` would refuse in the new terminal, and the refusal would count against the agent though it is the accounts
 	// that are full.
 	if !m.Launch.ChooseAccount(m.Q, agent) {
@@ -312,6 +315,12 @@ func (m *Manager) wakeAgent(agent string, o WakeOpts) (bool, string) {
 // closing cheap) and a fresh start the fallback, not the plan.
 func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string, o WakeOpts) (bool, string) {
 	force, warm, cause, restartedBy, movedTo := o.Force, o.Warm, o.Cause, o.RestartedBy, o.MovedTo
+	// The load holds the daemon's own wakes; one a person asked for, or a restart, goes.
+	if !force && !o.Person {
+		if why := m.loadHeld(agent); why != "" {
+			return false, why
+		}
+	}
 	if owed := m.restartOwed(agent, row); owed != nil {
 		// The restart that closed it is finished by this wake, as it was asked: same conversation unless it was fresh, same requester. A
 		// person's own force is not made to wait.

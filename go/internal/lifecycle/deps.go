@@ -180,6 +180,8 @@ type Manager struct {
 	OnLaunch func(agent string)
 	// OnStartStall is told once, when starts for waiting work have failed often enough to stall the agent, with the last one's reason.
 	OnStartStall func(q db.Q, agent, why string)
+	// LoadHeld is why the machine's load holds the daemon's own start of an agent, "" when it does not (loadgate); nil holds nothing.
+	LoadHeld func(agent string) string
 
 	Locks *AgentLocks // shared with Spawns, so a spawn and a wake take the same lock; made on first use when nil
 	once  sync.Once
@@ -204,3 +206,11 @@ func (m *Manager) sleep(d time.Duration) {
 }
 
 var _ Delivery = (*supervisor.Env)(nil)
+
+// loadHeld is why the machine's load holds a start of agent the daemon makes on its own, "" when nothing does.
+func (m *Manager) loadHeld(agent string) string {
+	if m.LoadHeld == nil {
+		return ""
+	}
+	return m.LoadHeld(agent)
+}

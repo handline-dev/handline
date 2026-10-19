@@ -22,6 +22,7 @@ import (
 	"github.com/handline/handline/go/internal/sessionrpc"
 	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/supervisor"
+	"github.com/handline/handline/go/internal/sysres"
 	"github.com/handline/handline/go/internal/turns"
 	"github.com/handline/handline/go/internal/version"
 )
@@ -168,6 +169,8 @@ func main() {
 		if tracker != nil {
 			ccfg.Turns = tracker
 		}
+		cfg.Resources = &sysres.Sampler{Home: homeDir, Log: func(s string) { log.Print(s) }}
+		ccfg.Machine = cfg.Resources.LatestMachine
 		parts := compose.New(ccfg)
 		cfg.Watch = *terminalTick && *cutover
 		cfg.Delivery = parts.Delivery()

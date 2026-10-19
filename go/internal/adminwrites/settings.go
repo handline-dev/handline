@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/handline/handline/go/internal/handoff"
+	"github.com/handline/handline/go/internal/loadgate"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
@@ -19,6 +20,7 @@ import (
 const (
 	int1  = "int>=1"
 	int0  = "int>=0"
+	pct   = "int 0-100"
 	flag_ = "bool"
 	line  = "line"
 )
@@ -29,7 +31,8 @@ const LineMax = 4000
 var settingKinds = map[string]string{"active_cap": int1, "park_timeout_s": int0, "handoff_note": flag_, "auto_accept_dialogs": flag_,
 	"ignore_cache_expiry": flag_, "dev_mode": flag_, "bg_notice_s": int1, "bg_grace_s": int1, "bg_check_s": int1, "notice_digest_s": int1,
 	"input_hold_idle_s": int1, handoff.PromptKey: line,
-	"push_prompt_asked": flag_, "push_task_done": flag_, "push_stall": flag_, "push_account_out": flag_}
+	"push_prompt_asked": flag_, "push_task_done": flag_, "push_stall": flag_, "push_account_out": flag_,
+	loadgate.AgentCapKey: int0, loadgate.LoadPctKey: int0, loadgate.RAMFreePctKey: pct}
 
 var perAgent = map[string]bool{"park_timeout_s": true, "ignore_cache_expiry": true, "bg_notice_s": true, "bg_grace_s": true, "bg_check_s": true,
 	"notice_digest_s": true, handoff.PromptKey: true}
@@ -48,12 +51,13 @@ func settingValue(key string, v any) (any, error) {
 			return s, nil
 		}
 	default:
-		if n, ok := rpc.AsInt(v); ok && n >= map[string]int64{int1: 1, int0: 0}[kind] {
+		if n, ok := rpc.AsInt(v); ok && n >= map[string]int64{int1: 1}[kind] && (kind != pct || n <= 100) {
 			return n, nil
 		}
 	}
-	what := map[string]string{int1: "a whole number, at least 1", int0: "a whole number, at least 0", flag_: "true or false",
-		line: fmt.Sprintf("one line of text, at most %d characters", LineMax)}[kind]
+	what := map[string]string{int1: "a whole number, at least 1", int0: "a whole number, at least 0", pct: "a whole number from 0 to 100",
+		flag_: "true or false",
+		line:  fmt.Sprintf("one line of text, at most %d characters", LineMax)}[kind]
 	return nil, badParam(fmt.Sprintf("%s is %s, or null", key, what), key)
 }
 
