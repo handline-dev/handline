@@ -9,6 +9,7 @@ import (
 	"regexp"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/peerinbox"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -140,6 +141,29 @@ func ShownIn(transcript, ref string, whole bool) bool {
 	}
 }
 
+// shownIn is ShownIn for row, or for a founder's message that was typed (typedRow), whether the transcript shows its words as typed.
+func (e *Env) shownIn(q db.Q, row *db.Request, transcript string, whole bool) bool {
+	if !e.typedRow(row) {
+		return ShownIn(transcript, row.Ref, whole)
+	}
+	text := founderText(row, e.imageLines(q, row))
+	f, err := os.Open(transcript)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	r := bufio.NewReaderSize(f, 1<<20)
+	for {
+		line, err := r.ReadString('\n')
+		if peerinbox.ShowsTyped(line, text) {
+			return true
+		}
+		if err != nil {
+			return false
+		}
+	}
+}
+
 func (e *Env) transcriptsOf(sessions []string, acct string) []string {
 	var out []string
 	for _, s := range sessions {
@@ -183,7 +207,7 @@ func (e *Env) landedAlready(q db.Q, agent string, rid int64) bool {
 		return false
 	}
 	for _, p := range e.transcriptsOf(distinct(row.TypedSess.String, e.liveSession(q, agent)), acct) {
-		if ShownIn(p, row.Ref, false) {
+		if e.shownIn(q, row, p, false) {
 			return true
 		}
 	}
@@ -221,7 +245,7 @@ func (e *Env) LandingSweep(q db.Q, agent string) (err error) {
 		expired := gone || !e.typedRecently(r.ID, now)
 		shown := false
 		for _, p := range e.transcriptsOf(sessions, acct) {
-			if ShownIn(p, r.Ref, expired) {
+			if e.shownIn(q, r, p, expired) {
 				shown = true
 				break
 			}

@@ -61,6 +61,9 @@ func unansweredQuestion(d *sql.DB, agent string) (int64, string, bool) {
 	if parent.Valid || (sender != db.Human && !question.MatchString(body)) {
 		return 0, "", false
 	}
+	if typed, _ := db.Cursor(d, db.FounderTypedCursor(rid)); typed != 0 { // its reply is the agent's text, read from the transcript
+		return 0, "", false
+	}
 	if seen, _, _ := db.Meta(d, "answer_reminded:"+agent); seen == strconv.FormatInt(rid, 10) {
 		return 0, "", false
 	}
