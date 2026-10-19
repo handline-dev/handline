@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/handline/handline/go/internal/atomicfile"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
@@ -131,7 +132,7 @@ func (s *Settings) SetFlag(key string, value bool) error {
 	if err != nil {
 		return err
 	}
-	return writeAtomic(path, text)
+	return atomicfile.Write(path, text)
 }
 
 func bytesTrim(b []byte) []byte {

@@ -258,21 +258,8 @@ func ForYouSeen(q db.Q, agent string, upto int64) error {
 	if err := db.SetCursor(q, key, upto); err != nil {
 		return err
 	}
-	rows, err := q.Query("SELECT id FROM requests WHERE target = ? AND requester = ? AND id <= ? AND read_at IS NULL", db.Human, agent, upto)
+	ids, err := db.IDs(q, "SELECT id FROM requests WHERE target = ? AND requester = ? AND id <= ? AND read_at IS NULL", db.Human, agent, upto)
 	if err != nil {
-		return err
-	}
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
-		}
-		ids = append(ids, id)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
 		return err
 	}
 	return db.MarkRead(q, ids)

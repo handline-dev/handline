@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -199,7 +200,7 @@ func mergeRefusal(tx *sql.Tx, keep, r *mergeRow) (string, error) {
 	if under {
 		return fmt.Sprintf("task T%d is under T%d - folding T%d into it would loop them", keep.ID, r.ID, r.ID), nil
 	}
-	deps, err := ids(tx, "SELECT task_id FROM task_blocks WHERE blocks_on = ? ORDER BY task_id", r.ID)
+	deps, err := db.IDs(tx, "SELECT task_id FROM task_blocks WHERE blocks_on = ? ORDER BY task_id", r.ID)
 	if err != nil {
 		return "", err
 	}
@@ -238,7 +239,7 @@ func isUnder(tx *sql.Tx, tid, ancestor int64) (bool, error) {
 
 // blocksOn is db.blocks_on_ids: every edge tid itself names, closed blockers too.
 func blocksOn(tx *sql.Tx, tid int64) ([]int64, error) {
-	return ids(tx, "SELECT blocks_on FROM task_blocks WHERE task_id = ?", tid)
+	return db.IDs(tx, "SELECT blocks_on FROM task_blocks WHERE task_id = ?", tid)
 }
 
 // blockedByCycle is _blocked_by_cycle: tid waiting on `on` would close a loop.

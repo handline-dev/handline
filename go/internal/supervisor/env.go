@@ -174,23 +174,5 @@ func (e *Env) guard(what string, out *string) {
 
 func sortStrings(xs []string) { sort.Strings(xs) }
 
-// idsOf is the first column of each row as an id.
-func idsOf(q db.Q, query string, args ...any) ([]int64, error) {
-	rows, err := q.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
-}
-
 // pyQuote is a string as Python's json.dumps writes it (non-ASCII escaped).
 func pyQuote(s string) string { return rpc.PyJSON(s, false, true) }

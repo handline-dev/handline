@@ -151,10 +151,10 @@ func hrList(c *hlclient.Client, args []string) (int, bool) {
 		fmt.Fprintf(os.Stderr, "the proposals cannot be read: %v\n", err)
 		return 1, true
 	}
-	props := rows(got["proposals"])
+	props := list(got, "proposals")
 	if p.flags["--json"] {
 		if !p.flags["--all"] {
-			props = slices.DeleteFunc(props, func(r map[string]any) bool { s := text(r["state"]); return s != "open" && s != "apply_failed" })
+			props = slices.DeleteFunc(props, func(r map[string]any) bool { s := str(r, "state"); return s != "open" && s != "apply_failed" })
 		}
 		out, _ := json.MarshalIndent(props, "", "  ")
 		fmt.Println(string(out))
@@ -166,15 +166,15 @@ func hrList(c *hlclient.Client, args []string) (int, bool) {
 	}
 	var names []string
 	for _, r := range props {
-		names = append(names, textsafe.Oneline(text(r["agent"])))
+		names = append(names, textsafe.Oneline(str(r, "agent")))
 	}
 	w := nameCol(names)
 	for _, r := range props {
-		by := text(r["requested_by"])
+		by := str(r, "requested_by")
 		if by == "" {
 			by = "?"
 		}
-		fmt.Printf("%08x  %s%s%sby %s\n", anum(r["id"]), pad(text(r["kind"]), 7), pad(textsafe.Oneline(text(r["agent"])), w), pad(text(r["state"]), 13), textsafe.Oneline(by))
+		fmt.Printf("%08x  %s%s%sby %s\n", num(r, "id"), pad(str(r, "kind"), 7), pad(textsafe.Oneline(str(r, "agent")), w), pad(str(r, "state"), 13), textsafe.Oneline(by))
 	}
 	return 0, true
 }

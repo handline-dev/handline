@@ -79,22 +79,12 @@ func start(c *rpc.Conn, p map[string]any) (any, error) {
 
 // promoteOwn moves the task's still-queued requests for `me` to the front of what is queued for them (db.promote_to_front).
 func promoteOwn(tx *sql.Tx, tid int64, me string) error {
-	rows, err := tx.Query("SELECT r.id FROM requests r JOIN task_requests l ON l.request_id = r.id "+
+	ids, err := db.IDs(tx, "SELECT r.id FROM requests r JOIN task_requests l ON l.request_id = r.id "+
 		"WHERE l.task_id = ? AND r.target = ? AND r.delivered_at IS NULL AND "+
 		"(r.state = 'queued' OR (r.state = 'landed' AND r.kind = 'task' AND r.queue_order IS NOT NULL)) ORDER BY r.id", tid, me)
 	if err != nil {
 		return err
 	}
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return err
-		}
-		ids = append(ids, id)
-	}
-	rows.Close()
 	for _, id := range ids {
 		var state string
 		if err := tx.QueryRow("SELECT state FROM requests WHERE id = ?", id).Scan(&state); err != nil {

@@ -129,7 +129,7 @@ func (c *Chat) taskEvents(q *sql.DB, emit Emit) error {
 		marks += "?"
 		args = append(args, k)
 	}
-	ids, err := ids(q, "SELECT id FROM events WHERE id > ? AND kind IN ("+marks+") ORDER BY id", args...)
+	ids, err := db.IDs(q, "SELECT id FROM events WHERE id > ? AND kind IN ("+marks+") ORDER BY id", args...)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func (c *Chat) prompts(q *sql.DB, emit Emit) error {
 	}
 	if c.open == nil { // a prompt open before this daemon started is told closed when it closes
 		c.open = map[int64]bool{}
-		open, err := ids(q, "SELECT id FROM prompt_blocks WHERE gone_at IS NULL AND id <= ?", shown)
+		open, err := db.IDs(q, "SELECT id FROM prompt_blocks WHERE gone_at IS NULL AND id <= ?", shown)
 		if err != nil {
 			return err
 		}
@@ -165,7 +165,7 @@ func (c *Chat) prompts(q *sql.DB, emit Emit) error {
 			c.open[id] = true
 		}
 	}
-	fresh, err := ids(q, "SELECT id FROM prompt_blocks WHERE id > ? ORDER BY id", shown)
+	fresh, err := db.IDs(q, "SELECT id FROM prompt_blocks WHERE id > ? ORDER BY id", shown)
 	if err != nil {
 		return err
 	}
@@ -216,7 +216,7 @@ func (c *Chat) sessions(q *sql.DB, emit Emit) error {
 	if err != nil {
 		return err
 	}
-	waiting, err := ids(q, "SELECT id FROM session_starts WHERE resumed = 0 AND session_id IS NULL AND ts >= ?", db.Now()-db.BindWindowS)
+	waiting, err := db.IDs(q, "SELECT id FROM session_starts WHERE resumed = 0 AND session_id IS NULL AND ts >= ?", db.Now()-db.BindWindowS)
 	if err != nil {
 		return err
 	}
@@ -237,7 +237,7 @@ func (c *Chat) sessions(q *sql.DB, emit Emit) error {
 		}
 	}
 	c.unbound = now
-	fresh, err := ids(q, "SELECT id FROM session_starts WHERE id > ? ORDER BY id", shown)
+	fresh, err := db.IDs(q, "SELECT id FROM session_starts WHERE id > ? ORDER BY id", shown)
 	if err != nil {
 		return err
 	}
@@ -297,21 +297,4 @@ func (c *Chat) workingStates(q *sql.DB, emit Emit) error {
 		}
 	}
 	return nil
-}
-
-func ids(q *sql.DB, query string, args ...any) ([]int64, error) {
-	rows, err := q.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
 }

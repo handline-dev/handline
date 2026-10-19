@@ -324,10 +324,11 @@ func QueueDepth(q Q, target string) (int, error) {
 
 // OpenAskIDs is db.open_ask_ids_of: what the agent asked that nobody has answered.
 func OpenAskIDs(q Q, requester string) ([]int64, error) {
-	return ids(q, "SELECT id FROM requests WHERE requester = ? AND state = 'queued' ORDER BY id", requester)
+	return IDs(q, "SELECT id FROM requests WHERE requester = ? AND state = 'queued' ORDER BY id", requester)
 }
 
-func ids(q Q, query string, args ...any) ([]int64, error) {
+// IDs is the first column of each row as an id.
+func IDs(q Q, query string, args ...any) ([]int64, error) {
 	rows, err := q.Query(query, args...)
 	if err != nil {
 		return nil, err

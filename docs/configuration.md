@@ -59,8 +59,7 @@ hl hr link reviewer backend --why "backend may ask the reviewer for a second loo
 A link's ends are agents, `*` or `human`. `hl hr unlink` removes any edge that is in `team.yaml`,
 so an edge to a retired agent can go.
 
-An older `team.yaml` is moved onto the name links by `hl hr links` (it shows the plan; `--apply`
-writes it). `hl hr` files a proposal for you to decide in the app's HR tab: an approve applies it at
+`hl hr` files a proposal for you to decide in the app's HR tab: an approve applies it at
 once and tells the agent that asked. `hl hr list` shows proposals and what became of them.
 
 ## agent.yaml

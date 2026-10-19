@@ -365,7 +365,7 @@ func (e *Env) ReleaseEndedBlockers() (freed []int64, err error) {
 		{"SELECT DISTINCT b.blocks_on FROM task_blocks b JOIN tasks t ON t.id = b.blocks_on JOIN tasks d ON d.id = b.task_id " +
 			"WHERE t.done_evidence IS NOT NULL AND t.discarded_by IS NULL AND d.done_evidence IS NULL AND d.discarded_by IS NULL", "done"},
 	} {
-		for _, tid := range must(idsOf(e.DB, step.query)) {
+		for _, tid := range must(db.IDs(e.DB, step.query)) {
 			waiting, ferr := e.releaseOne(tid, step.how)
 			if ferr != nil {
 				e.log("  T%d: releasing the tasks it blocked failed: %v", tid, ferr)
