@@ -11,7 +11,7 @@ import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client'
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
-import { Decided, Line, Stamp } from './ChatLines.tsx';
+import { Decided, Line, Stamp, useBubbleWidth } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
 import { ChatActions } from './ChatActions.tsx';
 import { PrBody } from './PrBody.tsx';
@@ -292,6 +292,7 @@ function Bubble(props: {
   onRestore: (text: string) => void;
 }) {
   const c = usePalette();
+  const bubble = useBubbleWidth();
   const { m, agent } = props;
   const act = useChatActions(agent);
   const side = sideOf(m, agent, useStore().me);
@@ -339,7 +340,7 @@ function Bubble(props: {
       <View
         style={{
           flexShrink: 1,
-          maxWidth: '88%',
+          maxWidth: bubble,
           gap: 4,
           padding: space.md,
           borderRadius: radius.lg,

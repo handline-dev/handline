@@ -1,6 +1,6 @@
 // The lines of the chat that are not messages: the agent's reply, its prompt and session lines.
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import type { Proposal, TranscriptItem } from '@handline/client';
 import { clockTime, sessionLine } from '@handline/app-core';
 import { space } from '@handline/tokens';
@@ -21,6 +21,11 @@ export function Stamp({ m, time, ticks }: { m: { id: number }; time: string | nu
       ) : null}
     </View>
   );
+}
+
+/** The widest a chat bubble gets, in points. A percentage here lets Android measure the text at one width and draw it at another, so lines overlap. */
+export function useBubbleWidth(): number {
+  return Math.floor(useWindowDimensions().width * 0.88);
 }
 
 /** A transcript line that is not a message. */
