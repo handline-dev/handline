@@ -141,7 +141,9 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 	if len(py) != len(events) || len(py) != 5 {
 		t.Fatalf("python wrote %d rows, go %d", len(py), len(events))
 	}
-	// Go's data must equal Python's on every field of the Task: the Python CLI reads them all.
+	// Go's data must equal Python's on every field of the Task: the Python CLI reads them all. report left the contract with the review
+	// state.
+	dropped := map[string]bool{"report": true}
 	for i, e := range events {
 		sameRow(t, i, py[i], e)
 		pyTask, _ := norm(py[i]["data"]).(map[string]any)
@@ -149,6 +151,7 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 		for k, v := range pyTask {
 			g, has := goTask[k]
 			switch {
+			case dropped[k]:
 			case !has:
 				t.Errorf("row %d: Go's Task lacks %s", i, k)
 			case !same(v, g):
