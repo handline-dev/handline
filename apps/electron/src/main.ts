@@ -11,6 +11,7 @@ import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from 
 import { serveCapture } from './capture.ts';
 import { gitView, scratch } from './git-view.ts';
 import { Opener } from './open.ts';
+import { Preview } from './preview.ts';
 import { followMain, takeRoute } from './follow-app.ts';
 import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from './mode.ts';
 import { ownDaemon, readFounderKey, type Own } from './own.ts';
@@ -238,6 +239,8 @@ if (!app.requestSingleInstanceLock()) {
     handleConnection(origin, own, current.mode, remote);
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
+    const preview = new Preview(origin, () => win);
+    ipcMain.handle(CHANNELS.preview, (e, arg) => preview.set(e, arg));
     handleSettings(origin, client, remote);
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
     const opener = new Opener(origin, {

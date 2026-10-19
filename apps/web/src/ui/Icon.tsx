@@ -13,6 +13,7 @@ import {
   Clock,
   FileText,
   Gauge,
+  Globe,
   GitCompare,
   HelpCircle,
   Inbox,
@@ -181,6 +182,7 @@ const ICONS = {
   maybeRan: [TriangleAlert, 'May or may not have run'],
   // chat: verbs
   send: [SendHorizontal, 'Send'],
+  web: [Globe, 'Preview'],
   reference: [CornerUpLeft, 'Reply to this'],
   open: [ExternalLink, 'Open'],
   sendNow: [Zap, 'Send now'],

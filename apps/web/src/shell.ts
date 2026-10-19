@@ -18,6 +18,7 @@ type Call =
   | 'setMode'
   | 'pairRemote'
   | 'phone'
+  | 'preview'
   | 'captureWindows'
   | 'captureWindow'
   | 'pathOf'
