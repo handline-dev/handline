@@ -403,7 +403,12 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	st, err := e.statusOf(t, state, asker, waiting, waitSince)
+	var report map[string]any // the done in review, and who it waits on
+	if state == "review" {
+		report = e.review(t)
+	}
+	reviewer, _ := report["waits_on"].(string)
+	st, err := e.statusOf(t, state, reviewer, waiting, waitSince)
 	if err != nil {
 		return nil, err
 	}
@@ -436,8 +441,8 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	task["last_activity"], task["edited_by"], task["requests"], task["tags"] = ts(active), t.strOrNil("edited_by"), linked, tags
 	task["discarded"], task["report"] = nil, nil
 	task["pr"] = t.intOrNil("pr")
-	if state == "review" {
-		task["report"] = e.review(t)
+	if report != nil {
+		task["report"] = report
 	}
 	if t.str("discarded_by") != "" {
 		d := map[string]any{"by": t.str("discarded_by"), "reason": t.str("discard_reason"), "at": ts(t["discarded_at"]), "withdrew": []any{}, "batch": nil}

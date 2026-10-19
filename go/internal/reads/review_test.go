@@ -29,12 +29,13 @@ func TestATaskInReviewWaitsOnTheLeadThenOnTheMerge(t *testing.T) {
 		rep, _ := task["report"].(map[string]any)
 		return task, rep
 	}
-	if task, rep := review(); rep["waits_on"] != "lead" || rep["accepted"] != nil || task["pr"] != int64(12) {
-		t.Fatalf("before the accept: pr %v report %v", task["pr"], rep)
+	text := func(task map[string]any) any { return task["status"].(map[string]any)["text"] }
+	if task, rep := review(); rep["waits_on"] != "lead" || rep["accepted"] != nil || task["pr"] != int64(12) || text(task) != "review: waits on lead to accept it" {
+		t.Fatalf("before the accept: pr %v report %v status %v", task["pr"], rep, task["status"])
 	}
 	run(t, e, "UPDATE tasks SET accepted_by = 'lead', accepted_at = 3 WHERE id = 1")
-	if _, rep := review(); rep["waits_on"] != "human" || rep["accepted"].(map[string]any)["by"] != "lead" {
-		t.Fatalf("after the accept: %v", rep)
+	if task, rep := review(); rep["waits_on"] != "human" || rep["accepted"].(map[string]any)["by"] != "lead" || text(task) != "accepted: waits on PR #12 to merge" {
+		t.Fatalf("after the accept: %v status %v", rep, task["status"])
 	}
 }
 
