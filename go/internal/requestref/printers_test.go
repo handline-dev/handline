@@ -17,6 +17,14 @@ var hashAllowed = []struct{ file, line, why string }{
 	{"cmd/hl/taskview.go", `"#" + fmt.Sprint(tag)`, "a tag"},
 	{"internal/watcher/tasks.go", `"#" + extra[id]`, "the watcher's separator"},
 	{"internal/msgtest/msgtest.go", `fmt.Sprintf("#%d", ids[0])`, "tests read a printed name back as its id"},
+	{"cmd/hl/taskview.go", `PR #%d`, "a task's PR"},
+	{"internal/reads/taskstatus.go", `PR #%d`, "a task's PR"},
+	{"internal/taskwrites/done.go", `PR #%d`, "a task's PR"},
+	{"internal/taskwrites/report.go", `PR #%d`, "a task's PR"},
+	{"internal/taskwrites/edit.go", `PR #%d`, "a task's PR"},
+	{"internal/taskwrites/edit.go", `fmt.Sprintf("#%d", t.PR.Int64)`, "a task's PR"},
+	{"internal/taskwrites/edit.go", `fmt.Sprintf("#%d", pr)`, "a task's PR"},
+	{"internal/taskwrites/edit.go", `-> '#%d'`, "a task's PR"},
 }
 
 // A # before a verb (with flags, a width or an argument index: #%-5d, #%[1]d), a "#" joined by + , a "#" argument of a Sprint or Print
