@@ -15,6 +15,7 @@ import (
 	"github.com/handline/handline/go/internal/hlclient"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/peer"
 	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/team"
@@ -82,7 +83,11 @@ func launcher(home string, d *sql.DB, roster *team.Roster) *lifecycle.Launcher {
 	return &lifecycle.Launcher{Q: d, Home: home, Roster: roster, Tokens: sessiontoken.New(home), Ports: lifecycle.LaunchPorts{
 		Usage: &lifecycle.UsageAdapter{Env: uenv, Q: d},
 		HoldWorktree: func(dir, agent string, pid int) error {
-			return worktreelock.Hold(dir, agent, pid, worktreelock.Alive)
+			started, ok := peer.Started(pid)
+			if !ok {
+				return fmt.Errorf("process %d's start time cannot be read", pid)
+			}
+			return worktreelock.Hold(dir, agent, pid, started.Unix(), worktreelock.Running)
 		},
 		Accounts:       team.Accounts{Home: home},
 		Vendors:        launchVendors{home: home, roster: roster},
