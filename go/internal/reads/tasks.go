@@ -398,12 +398,20 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 		}
 	}
 	sort.Slice(blockedBy, func(i, j int) bool { return blockedBy[i] < blockedBy[j] })
-	waiting, err := e.waitingOf(t, state, waits, rec)
+	waiting, waitSince, err := e.waitingOf(t, state, waits, rec)
 	if err != nil {
 		return nil, err
 	}
+	st, err := e.statusOf(t, state, asker, waiting, waitSince)
+	if err != nil {
+		return nil, err
+	}
+	var waitingOut any // a nil map would not read as nil
+	if waiting != nil {
+		waitingOut = waiting
+	}
 	task := map[string]any{
-		"blocked_by": blockedBy, "waits": waitList, "waiting": waiting, "time": clock,
+		"blocked_by": blockedBy, "waits": waitList, "waiting": waitingOut, "time": clock, "status": st.Map(),
 		"asker": asker, "id": t.i("id"), "from": t.str("opened_by"), "to": t.str("owner"), "title": t.str("title"), "state": state,
 		"relation": first.str("relation"), "response": first.str("response"), "time_box": nil,
 		"parent": t.intOrNil("parent_task"), "created": ts(t["created_at"]), "delivered": ts(t["delivered_at"]),
@@ -461,10 +469,10 @@ func tids(ids []int64) string {
 }
 
 // waitingOf is the spec's Task.waiting for an open task: behind its open blockers (a child blocks its parent), else on an open request to
-// the founder, else the cause the supervisor's sweep stored with its reason. nil when nothing waits.
-func (e *Env) waitingOf(t row, state string, waits []row, rec map[string]any) (any, error) {
+// the founder, else the cause the supervisor's sweep stored with its reason, and since when, unix seconds. nil when nothing waits.
+func (e *Env) waitingOf(t row, state string, waits []row, rec map[string]any) (map[string]any, int64, error) {
 	if state != "queued" && state != "doing" {
-		return nil, nil
+		return nil, 0, nil
 	}
 	var on []int64
 	var since int64
@@ -478,25 +486,25 @@ func (e *Env) waitingOf(t row, state string, waits []row, rec map[string]any) (a
 	}
 	if len(on) > 0 {
 		sort.Slice(on, func(i, j int) bool { return on[i] < on[j] })
-		return map[string]any{"on": "task", "text": "blocked by " + tids(on), "tasks": on, "since": ts(since)}, nil
+		return map[string]any{"on": "task", "text": "blocked by " + tids(on), "tasks": on, "since": ts(since)}, since, nil
 	}
 	asked, err := queryOne(e.DB, "SELECT MIN(r.ts) AS since FROM requests r JOIN task_requests l ON l.request_id = r.id "+
 		"WHERE l.task_id = ? AND r.target = ? AND "+founderOpen, t.i("id"), human)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if asked.set("since") {
-		return map[string]any{"on": "founder", "text": "waiting on you", "tasks": []int64{}, "since": ts(asked.i("since"))}, nil
+		return map[string]any{"on": "founder", "text": "waiting on you", "tasks": []int64{}, "since": ts(asked.i("since"))}, asked.i("since"), nil
 	}
 	if len(rec) == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 	cause, _ := rec["on"].(string)
 	if cause == "" {
 		cause = "owner" // kept before the sweep stored a cause
 	}
 	since, _ = recInt(rec["since"])
-	return map[string]any{"on": cause, "text": pyStr(rec["why"]), "tasks": []int64{}, "since": ts(since)}, nil
+	return map[string]any{"on": cause, "text": pyStr(rec["why"]), "tasks": []int64{}, "since": ts(since)}, since, nil
 }
 
 // recInt is a whole number of a decoded record.

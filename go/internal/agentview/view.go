@@ -85,6 +85,8 @@ type Env struct {
 	// DropGone has Refresh delete the row of any agent that is gone. Off while the Python daemon still keeps the rows of terminal
 	// agents: then the rows this Env does not write are none of its business, gone or not.
 	DropGone bool
+	// Walled is what holds back a wake of agent that is due, nil when nothing does or nothing would wake it. Nil is never.
+	Walled func(agent string, row *db.AgentState) *Wall
 }
 
 func (e *Env) now() int64 {
@@ -381,6 +383,7 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		"would_wake": row != nil && must(e.WouldWake(row)),
 		"blocker":    blocker, "account": account, "task": task, "cache_until": cache, "ctx_pct": ctx,
 		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(needs), "handoff": handoff,
+		"status": e.status(agent, row, state, detail, handoff, now).Map(),
 	}, nil
 }
 

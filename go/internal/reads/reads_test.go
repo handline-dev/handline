@@ -72,6 +72,9 @@ func TestAnAgentWithNoStoredViewIsListedWithItsRoleAndTheNoTerminalState(t *test
 		out.Agents[1]["state"] != "no_terminal" || out.Agents[1]["role"] != "Does   the work." {
 		t.Fatalf("%s", b)
 	}
+	if s, _ := out.Agents[1]["status"].(map[string]any); s["state"] != "off" || s["reason"] != "none" {
+		t.Fatalf("status %v", out.Agents[1]["status"])
+	}
 }
 
 func TestTheWordForNoStoredViewIsOneOfTheSpecs(t *testing.T) {
