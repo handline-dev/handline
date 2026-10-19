@@ -113,10 +113,7 @@ func (e *Env) WaitingPrompt(q db.Q, agent string) (text string, told func(sessio
 	if edges, err := e.EnforceEdges(q, agent); !edges || err != nil {
 		return "", nil, false, err
 	}
-	if head := e.effectiveHeadOrMarked(q, agent); head != nil {
-		if !must(db.MarkDelivered(q, head.ID)) {
-			return "", nil, false, nil
-		}
+	if head := e.untoldHead(q, agent); head != nil {
 		depth := must(db.QueueDepth(q, agent))
 		folded := foldedNotices(q, agent)
 		return tellText(q, head, depth, nil, false, folded, e.imageLines(q, head)), func(session string) (err error) {
@@ -138,6 +135,21 @@ func (e *Env) WaitingPrompt(q db.Q, agent string) (text string, told func(sessio
 		return row.Text, func(string) (err error) { defer Catch(&err); return db.DeletePending(q, row.ID) }, true, nil
 	}
 	return "", nil, false, nil
+}
+
+// untoldHead is the effective head, or with none the oldest send_now_pending row, marked delivered; nil when nothing is left to mark.
+// A task the agent holds stays at the head after it lands and cannot be marked again: its session has it, so the say behind it is what waits.
+func (e *Env) untoldHead(q db.Q, agent string) *db.Request {
+	rows := must(db.SendNowPending(q, agent))
+	if h := e.effectiveHead(q, agent); h != nil {
+		rows = append([]*db.Request{h}, rows...)
+	}
+	for _, r := range rows {
+		if must(db.MarkDelivered(q, r.ID)) {
+			return r
+		}
+	}
+	return nil
 }
 
 // NotifyCancelled tells an agent that a request it was handed has been closed under it, with delivery's gates; (told, why not).
