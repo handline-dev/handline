@@ -79,6 +79,9 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"new brief", []string{"task", "edit", "T3", "--body", "-", "--assign", "b.two", "--owner", "a.one", "--blocked-by", "T9"},
 			[]string{`task.edit {"blocked_by":9,"body":"new brief","owner":"b.two","reporter":"a.one","task":3}`}},
 		{"", []string{"task", "edit", "T3", "--tag", "fe", "--untag", "be"}, []string{`task.edit {"add_tags":["fe"],"remove_tags":["be"],"task":3}`}},
+		{"", []string{"task", "edit", "T3", "--estimate", "5"}, []string{`task.edit {"estimate":5,"task":3}`}},
+		{"", []string{"task", "edit", "T3", "--estimate", "none"}, []string{`task.edit {"estimate":null,"task":3}`}},
+		{"", []string{"task", "new", "--assign", "b.two", "--estimate", "3", "x"}, []string{`task.new {"estimate":3,"owner":"b.two","title":"x"}`}},
 		{"", []string{"task", "merge", "T1", "T2", "T3"}, []string{`task.merge {"into":1,"tasks":[2,3]}`}},
 		{"", []string{"task", "done", "T3", "abc", "--reason", "--repo", "./a//b/"},
 			[]string{`task.done {"evidence":"abc","reason":true,"repo":"a/b","task":3}`}},
@@ -151,7 +154,7 @@ func TestTaskRefusalsBeforeAnyCall(t *testing.T) {
 		{asAgent, []string{"task", "handoff", "T3", "b.two", "n", "--file", "f"}, "give note inline or with --file, not both\n"},
 		{asAgent, []string{"task", "edit", "T3", "--owner", "b.two"}, "--owner is who answers for a task, not who works it, so it needs --assign too. To move the work:\n" +
 			"  hl task edit T3 --assign b.two\nTo change only who answers for it, name the assignee it keeps:\n  hl task edit T3 --owner b.two --assign <its assignee>\n"},
-		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, --timeout, --tag, --untag or --pr\n"},
+		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new assignee, a new owner, a new title, --body, --priority, --estimate, --blocked-by, --unblock, --timeout, --tag, --untag or --pr\n"},
 		{asAgent, []string{"task", "memo", "T3", "add"}, "add takes the memo text\n"},
 		{asAgent, []string{"task", "memo", "T3", "delete", "4", "--now"}, "--now goes with add\n"},
 		{asAgent, []string{"task", "memo", "T3", "edit", "4"}, "edit takes the memo id, then the new text\n"},
@@ -178,6 +181,7 @@ func TestWhatTheTaskPortDoesNotParseIsRefused(t *testing.T) {
 		{"task", "list", "--state", "nope"}, {"task", "begin", "x", "--chat", "a", "--why", "w"}, {"task", "begin", "x", "--why", "w"}, {"task", "begin", "x"},
 		{"task", "memo", "T1", "bogus"}, {"task", "memo", "T1", "delete", "abc"}, {"task", "done", "T1", "--request", "x"},
 		{"task", "edit", "T1", "--title"}, {"task", "queue"}, {"task", "merge", "T1"},
+		{"task", "edit", "T1", "--estimate", "big"}, {"task", "new", "--assign", "b", "--estimate", "none", "x"},
 	} {
 		out, errs, code := r.run(asAgent, args...)
 		if code != 2 || out != "" || !strings.Contains(errs, "arguments not understood") {

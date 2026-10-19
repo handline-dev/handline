@@ -1465,7 +1465,7 @@ export type HistoryRow = {
   /** Who made the change: an agent, or human. */
   by: string;
   /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, review, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
-  field: "title" | "assignee" | "owner" | "body" | "priority" | "timeout" | "state" | "tag" | "blocked_by" | "merged_into" | "memo";
+  field: "title" | "assignee" | "owner" | "body" | "priority" | "estimate" | "timeout" | "state" | "tag" | "blocked_by" | "merged_into" | "memo";
   /** The value before; empty when there was none (a task just opened, a wait just added, a memo just added). */
   was: string;
   /** The value after; empty when it is gone (a wait removed, a memo deleted). */
@@ -2215,6 +2215,23 @@ export interface Methods {
     start: Timestamp;
     end: Timestamp | null;
     segments: TimeSegment[];
+    /** Its story points; null when it has none. */
+    estimate: number | null;
+    /** When it is expected to start and end, deterministic from its queue, its owner's account and the history of done tasks by estimate; computed on each read, so it moves as they do. */
+    expected: {
+      /** When it is expected to start: when it started for one being worked on; after the owner's current task and every task ahead of it in the order they are handed out, and no earlier than the reset of a limit the owner's account is at. Null when a task ahead has no expected duration. */
+      start: Timestamp | null;
+      /** start plus duration_s, and the wait for a reset when the account runs out at its current burn before then. Null when the duration is unknown. */
+      end: Timestamp | null;
+      /** How long it is expected to take (for one being worked on, what is left); null when unknown. */
+      duration_s: number | null;
+      /** What the duration rests on: the median working time of the last 20 done tasks of its estimate (history), else their median time per point times its points (points), else its time box (time_box); null for none. */
+      basis: ("history" | "points" | "time_box") | null;
+      /** The tasks its owner does first, by number. */
+      ahead: number[];
+      /** The reset of the account limit that holds it back; null when none does. */
+      wall_until: Timestamp | null;
+    } | null;
   } };
   "task.shot": { params: {
   task: number;
@@ -2245,6 +2262,8 @@ export interface Methods {
   blocked_by?: number;
   /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
   priority?: 1 | 2 | 3;
+  /** Story points: what the task is expected to take, for its expected start and end (task.time). None when absent. */
+  estimate?: 1 | 2 | 3 | 5 | 8 | 13;
   /** Its tags; each is kept as a history row of the task. */
   tags?: Tag[];
   expects?: Expects;
@@ -2421,6 +2440,8 @@ export interface Methods {
   time_box?: Duration;
   /** 1 high, 2 default, 3 low (written P1-P3). */
   priority?: 1 | 2 | 3;
+  /** Story points (as task.new); null clears it. */
+  estimate?: (1 | 2 | 3 | 5 | 8 | 13) | null;
   /** A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them. */
   blocked_by?: number;
   /** A task number this one no longer waits on; clearing the last one lets its owner's current task advance. */

@@ -82,6 +82,19 @@ func optPriority(p parsed, name string) (int, bool, bool) {
 	return n, true, ok
 }
 
+// optEstimate is --estimate: story points (the daemon says which), or none to clear it (nil). ok false for anything else.
+func optEstimate(p parsed) (points any, given, ok bool) {
+	v, given := p.opt("--estimate")
+	if !given {
+		return nil, false, true
+	}
+	if v == "none" {
+		return nil, true, true
+	}
+	n, err := strconv.Atoi(v)
+	return n, true, err == nil
+}
+
 func optTimeout(p parsed, name string) (int64, bool, bool) {
 	v, given := p.opt(name)
 	if !given {
@@ -101,7 +114,7 @@ func oneTask(args []string) (int, bool) {
 }
 
 func taskNew(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--file", "--assign", "--owner", "--parent", "--blocked-by", "--priority", "--expects", "--timeout", "--tag"},
+	p, ok := parse(args, []string{"--file", "--assign", "--owner", "--parent", "--blocked-by", "--priority", "--estimate", "--expects", "--timeout", "--tag"},
 		[]string{"--duplicate-ok"}, map[string]string{"-t": "--timeout"})
 	if !ok || len(p.pos) < 1 || len(p.pos) > 2 {
 		return 0, false
@@ -113,7 +126,8 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	blocked, hasBlocked, ok2 := optTask(p, "--blocked-by")
 	prio, hasPrio, ok3 := optPriority(p, "--priority")
 	timeout, hasTimeout, ok4 := optTimeout(p, "--timeout")
-	if !ok1 || !ok2 || !ok3 || !ok4 { // --expects is accepted and ignored: a done is a report its owner accepts
+	points, hasEstimate, ok5 := optEstimate(p)
+	if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 || (hasEstimate && points == nil) { // --expects is accepted and ignored: a done is a report its owner accepts
 		return 0, false
 	}
 	mutating(c, "new")
@@ -152,6 +166,9 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 		}
 		if hasPrio {
 			parts = append(parts, fmt.Sprintf("--priority P%d", prio))
+		}
+		if hasEstimate {
+			parts = append(parts, fmt.Sprintf("--estimate %d", points))
 		}
 		for _, tag := range p.each["--tag"] {
 			parts = append(parts, "--tag", shQuote(tag))
@@ -208,6 +225,9 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if hasPrio {
 		params["priority"] = prio
+	}
+	if hasEstimate {
+		params["estimate"] = points
 	}
 	if hasOwner {
 		params["reporter"] = accountable
@@ -435,7 +455,7 @@ func taskQueue(queued bool) taskCmd {
 }
 
 func taskEdit(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--assign", "--owner", "--title", "--body", "--body-file", "--priority", "--blocked-by", "--unblock",
+	p, ok := parse(args, []string{"--assign", "--owner", "--title", "--body", "--body-file", "--priority", "--estimate", "--blocked-by", "--unblock",
 		"--timeout", "--tag", "--untag", "--pr"}, nil, nil)
 	if !ok || len(p.pos) != 1 {
 		return 0, false
@@ -447,7 +467,8 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	timeout, hasTimeout, ok4 := optTimeout(p, "--timeout")
 	prText, hasPR := p.opt("--pr")
 	pr, err := strconv.ParseInt(strings.TrimPrefix(prText, "#"), 10, 64)
-	if !ok || !ok1 || !ok2 || !ok3 || !ok4 || hasPR && (err != nil || pr <= 0) {
+	points, hasEstimate, ok5 := optEstimate(p)
+	if !ok || !ok1 || !ok2 || !ok3 || !ok4 || !ok5 || hasPR && (err != nil || pr <= 0) {
 		return 0, false
 	}
 	mutating(c, "edit")
@@ -489,6 +510,9 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 	if hasPrio {
 		params["priority"] = prio
 	}
+	if hasEstimate {
+		params["estimate"] = points
+	}
 	if hasTimeout {
 		params["time_box"] = fmt.Sprintf("%ds", timeout)
 	}
@@ -508,7 +532,7 @@ func taskEdit(c *hlclient.Client, args []string) (int, bool) {
 		params["remove_tags"] = tags
 	}
 	if len(params) == 1 {
-		fmt.Println("edit needs a new assignee, a new owner, a new title, --body, --priority, --blocked-by, --unblock, --timeout, --tag, --untag or --pr")
+		fmt.Println("edit needs a new assignee, a new owner, a new title, --body, --priority, --estimate, --blocked-by, --unblock, --timeout, --tag, --untag or --pr")
 		return 1, true
 	}
 	return said(c.Write("task.edit", params)), true
