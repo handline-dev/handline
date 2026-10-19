@@ -135,7 +135,6 @@ async function untilUp(f: () => Promise<unknown>): Promise<void> {
   }
 }
 
-/** The app window: the page gets window.handline and nothing else, and the window never leaves the loopback origin. */
 function makeUpdater(page: Page, composer: Composer): Updater {
   return new Updater({
     build: () => buildId({ page: path.join(dist, 'index.html'), main: import.meta.filename }),
@@ -161,6 +160,7 @@ function makeUpdater(page: Page, composer: Composer): Updater {
   });
 }
 
+/** The app window: the page gets window.handline and nothing else, and the window never leaves the loopback origin. */
 function createWindow(origin: string, onReady: () => void): BrowserWindow {
   const w = new BrowserWindow({
     width: 1280,
