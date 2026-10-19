@@ -2,6 +2,7 @@
 // idle and timeout words of a row. The columns and the default states follow the bridge's tasks_view.py (`HEADS`, `LISTED`).
 import type { Task } from '@handline/client';
 import { isPerson } from './chat.ts';
+import { taskRef } from './tasks.ts';
 
 export const TASK_STATES = ['pending', 'draft', 'queued', 'doing', 'blocked', 'review', 'done', 'discarded'] as const;
 /** What a list shows when it opens: done and discarded are out of the way until asked for. */
@@ -158,6 +159,15 @@ export function taskGroup(t: Task, me: string): TaskGroupKey {
   if (isPerson(t.to, me) || (t.state === 'review' && isPerson(t.from, me))) return 'needs';
   return t.state === 'doing' ? 'running' : 'queued';
 }
+
+/** A task matches a search that is in its number, title, owner or asker. */
+export const taskMatches = (query: string) => {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return (t: Task) => {
+    const hay = `${taskRef(t.id)} ${t.title} ${t.to} ${t.from}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  };
+};
 
 /** The rows in their order, split into the groups that have any; each group keeps the order of `rows`. */
 export function groupTasks(rows: readonly Task[], me: string): { key: TaskGroupKey; label: string; rows: Task[] }[] {
