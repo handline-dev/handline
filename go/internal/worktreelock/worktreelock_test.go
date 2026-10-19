@@ -43,17 +43,17 @@ func lockText(t *testing.T, wt string) string {
 func TestARunningAgentsWorktreeIsLockedAndLetGoOnceItsProcessIsGone(t *testing.T) {
 	main, wt := repo(t)
 	running := map[int]bool{100: true}
-	alive := func(pid int) bool { return running[pid] }
-	if err := Hold(wt, "shop.sea", 100, alive); err != nil {
+	alive := func(pid int, started int64) bool { return running[pid] && started == 7 }
+	if err := Hold(wt, "shop.sea", 100, 7, alive); err != nil {
 		t.Fatal(err)
 	}
-	if got := lockText(t, wt); got != "handline: shop.sea runs here (pid 100)" {
+	if got := lockText(t, wt); got != "handline: shop.sea runs here (pid 100, started 7)" {
 		t.Fatalf("lock reason %q", got)
 	}
 	if r := gitrun.Run(main, "worktree", "remove", wt); r.RC == 0 {
 		t.Fatal("a locked worktree was removed")
 	}
-	if err := Hold(wt, "shop.air", 200, alive); err == nil || !strings.Contains(err.Error(), "still runs (pid 100)") {
+	if err := Hold(wt, "shop.air", 200, 7, alive); err == nil || !strings.Contains(err.Error(), "still runs (pid 100)") {
 		t.Fatalf("another session took a live one's lock: %v", err)
 	}
 	if done, err := Release(wt, alive); done || err != nil {
@@ -64,8 +64,8 @@ func TestARunningAgentsWorktreeIsLockedAndLetGoOnceItsProcessIsGone(t *testing.T
 		t.Fatalf("not let go once its process is gone: %v %v", done, err)
 	}
 	// A stale lock of ours is taken over by the next session; a person's own lock is never lifted.
-	Hold(wt, "shop.sea", 100, alive)
-	if err := Hold(wt, "shop.sea", 300, alive); err != nil || lockText(t, wt) != "handline: shop.sea runs here (pid 300)" {
+	Hold(wt, "shop.sea", 100, 7, alive)
+	if err := Hold(wt, "shop.sea", 300, 7, alive); err != nil || lockText(t, wt) != "handline: shop.sea runs here (pid 300, started 7)" {
 		t.Fatalf("a stale lock was not taken over: %v", err)
 	}
 	git(t, main, "worktree", "unlock", wt)
@@ -73,7 +73,17 @@ func TestARunningAgentsWorktreeIsLockedAndLetGoOnceItsProcessIsGone(t *testing.T
 	if done, _ := Release(wt, alive); done || lockText(t, wt) != "keep: founder" {
 		t.Fatal("a person's lock was lifted")
 	}
-	if err := Hold(main, "shop.sea", 100, alive); err != nil {
+	// A pid given out again is another process: the lock it seems to hold is a gone session's.
+	git(t, main, "worktree", "unlock", wt)
+	running[100] = true
+	Hold(wt, "shop.sea", 100, 6, alive)
+	if done, _ := Release(wt, alive); !done {
+		t.Fatal("a reused pid kept a gone session's lock")
+	}
+	if got := Linked(main); len(got) != 1 || canonical(got[0]) != canonical(wt) {
+		t.Fatalf("linked worktrees: %v", got)
+	}
+	if err := Hold(main, "shop.sea", 100, 7, alive); err != nil {
 		t.Fatalf("the main worktree is left as it is: %v", err)
 	}
 }

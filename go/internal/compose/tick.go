@@ -728,15 +728,24 @@ func (c tickConfig) AgentConfig(agent string) map[string]any {
 }
 func (c tickConfig) Seconds(key string, def int64) int64 { return c.set.ConfigSeconds(key, def) }
 
-// releaseWorktreeLocks lets go of each agent's worktree lock once the session that took it is gone (worktreelock.Release).
+// releaseWorktreeLocks lets go of every lock a session that is gone took (worktreelock.Release), over each linked worktree of the
+// repositories the agents work in, so a retired agent's is let go too.
 func releaseWorktreeLocks(q db.Q, _ int64) error {
 	rows, err := db.AllAgentStates(q)
 	if err != nil {
 		return err
 	}
+	seen := map[string]bool{}
 	for _, r := range rows {
-		if wt := lifecycle.WorktreePath(r.Worktree.String); wt != "" {
-			_, _ = worktreelock.Release(wt, worktreelock.Alive) // a worktree that is gone or no checkout has no lock to let go
+		wt := lifecycle.WorktreePath(r.Worktree.String)
+		if wt == "" {
+			continue
+		}
+		for _, linked := range worktreelock.Linked(wt) {
+			if !seen[linked] {
+				seen[linked] = true
+				_, _ = worktreelock.Release(linked, worktreelock.Running) // one that is gone or no checkout has no lock to let go
+			}
 		}
 	}
 	return nil
