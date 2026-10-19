@@ -44,6 +44,17 @@ type board struct {
 	children map[int64][]int64
 	current  map[string]int64
 	held     map[int64]row // the tasks owners hold now, for whether each ended
+	team     *team.Team    // read on first use, once per board
+	teamRead bool
+}
+
+// leadOf is team.LeadOf, with the team file read once per board.
+func (b *board) leadOf(home, agent string) string {
+	if !b.teamRead {
+		b.team, _ = team.LoadTeam(home)
+		b.teamRead = true
+	}
+	return b.team.LeadOf(agent)
 }
 
 func (e *Env) loadBoard() (*board, error) {
@@ -320,7 +331,7 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 		if i >= limit {
 			break
 		}
-		task, err := e.taskOf(r.t, r.state)
+		task, err := e.taskOf(r.t, r.state, b)
 		if err != nil {
 			return nil, err
 		}
@@ -362,7 +373,7 @@ func (e *Env) blockers(tid int64) ([]row, error) {
 }
 
 // taskOf is the spec's Task: the row as the board shows it, without its body.
-func (e *Env) taskOf(t row, state string) (map[string]any, error) {
+func (e *Env) taskOf(t row, state string, b *board) (map[string]any, error) {
 	waits, err := query(e.DB, "SELECT b.blocks_on AS task, b.created_at, t.discarded_by IS NULL AND t.done_evidence IS NULL AS open "+
 		"FROM task_blocks b JOIN tasks t ON t.id = b.blocks_on WHERE b.task_id = ? AND b.dormant = 0 ORDER BY b.created_at, b.blocks_on", t.i("id"))
 	if err != nil {
@@ -400,7 +411,7 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	}
 	var report map[string]any // the done in review, and who it waits on
 	if state == "review" {
-		report = e.review(t)
+		report = e.review(t, b)
 	}
 	reviewer, _ := report["waits_on"].(string)
 	st, err := e.statusOf(t, state, reviewer, waiting, waitSince)
@@ -597,7 +608,7 @@ func (e *Env) Tasks(ids []int64) (map[int64]map[string]any, error) {
 		if t == nil {
 			continue
 		}
-		if out[id], err = e.taskOf(t, b.state(t)); err != nil {
+		if out[id], err = e.taskOf(t, b.state(t), b); err != nil {
 			return nil, err
 		}
 	}
@@ -622,7 +633,7 @@ func (e *Env) taskGet(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	task, err := e.taskOf(t, b.state(t))
+	task, err := e.taskOf(t, b.state(t), b)
 	if err != nil {
 		return nil, err
 	}
@@ -856,15 +867,14 @@ func (e *Env) taskMemoList(c *rpc.Conn, params map[string]any) (any, error) {
 
 // review is a task's answer in review, and who it waits on: the founder's merge OK once accepted with a PR, else the assignee's lead,
 // else whoever it answers to.
-func (e *Env) review(t row) map[string]any {
+func (e *Env) review(t row, b *board) map[string]any {
 	r := map[string]any{"by": t.str("owner"), "evidence": t.str("report"), "at": ts(t["reported_at"]), "accepted": nil}
 	if by := t.str("accepted_by"); by != "" {
 		r["accepted"] = map[string]any{"by": by, "at": ts(t["accepted_at"])}
 		r["waits_on"] = human
 		return r
 	}
-	tm, _ := team.LoadTeam(e.Home)
-	r["waits_on"] = tm.LeadOf(t.str("owner"))
+	r["waits_on"] = b.leadOf(e.Home, t.str("owner"))
 	if r["waits_on"] == "" {
 		r["waits_on"] = t.str("reporter")
 		if r["waits_on"] == "" {

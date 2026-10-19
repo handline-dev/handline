@@ -184,7 +184,7 @@ func TestABoardReadsAReportedTaskAsReportedAndFreesItsOwner(t *testing.T) {
 	if got := b.state(rows[1]); got != "doing" {
 		t.Fatalf("the owner of a reported task is free for the next: %s", got)
 	}
-	task, err := e.taskOf(rows[0], "review")
+	task, err := e.taskOf(rows[0], "review", b)
 	if err != nil {
 		t.Fatal(err)
 	}
