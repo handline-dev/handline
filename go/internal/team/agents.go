@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/protected"
 	"github.com/handline/handline/go/internal/sealed"
@@ -553,6 +554,9 @@ func present(p *string) bool { return p != nil && *p != "" }
 func (r *Roster) Register(name string, o RegisterOpts) (string, error) {
 	if name == "" || strings.Contains(name, "/") || strings.HasPrefix(name, ".") || textsafe.HasUnsafe(name) {
 		return "", fmt.Errorf("bad agent name: %s", pyQuote(name))
+	}
+	if name == db.Human || name == db.Gate {
+		return "", fmt.Errorf("bad agent name: %s is the board's own name for the founder or a gate", pyQuote(name))
 	}
 	if !yamlcompat.IsPlainText(name) {
 		return "", fmt.Errorf("bad agent name: %s. %s", pyQuote(name), NotText)

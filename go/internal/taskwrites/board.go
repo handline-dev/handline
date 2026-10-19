@@ -94,7 +94,7 @@ func readsDoing(tx *sql.Tx, t *task) (bool, error) {
 
 // holdsCurrent is holds_current: the task is the one its owner holds, or its owner holds none (or one that has ended).
 func holdsCurrent(tx *sql.Tx, t *task) (bool, error) {
-	if t.Owner == human {
+	if t.Owner == human || t.Owner == db.Gate {
 		return true, nil
 	}
 	var held sql.NullInt64

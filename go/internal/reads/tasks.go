@@ -98,10 +98,10 @@ func (e *Env) loadBoard() (*board, error) {
 	return b, nil
 }
 
-// holds is whether the task is the one its owner holds: the founder holds none and every task of theirs reads as held.
+// holds is whether the task is the one its owner holds: the founder and the gates hold none, and every task of theirs reads as held.
 func (b *board) holds(t row) bool {
 	held, has := b.current[t.str("owner")]
-	if t.str("owner") == human || !has || held == t.i("id") {
+	if t.str("owner") == human || t.str("owner") == db.Gate || !has || held == t.i("id") {
 		return true
 	}
 	cur, ok := b.held[held]
@@ -446,6 +446,10 @@ func (e *Env) taskOf(t row, state string, b *board) (map[string]any, error) {
 	task["last_activity"], task["edited_by"], task["requests"], task["tags"] = ts(active), t.strOrNil("edited_by"), linked, tags
 	task["discarded"], task["report"] = nil, nil
 	task["pr"] = t.intOrNil("pr")
+	task["watch"] = nil
+	if t.set("watch_repo") {
+		task["watch"] = map[string]any{"repo": t.str("watch_repo"), "pr": t.i("watch_pr"), "on": t.str("watch_on"), "result": t.strOrNil("watch_result")}
+	}
 	if report != nil {
 		task["report"] = report
 	}

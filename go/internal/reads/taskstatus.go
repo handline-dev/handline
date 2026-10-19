@@ -29,6 +29,9 @@ func (e *Env) statusOf(t row, state, reviewer string, waiting map[string]any, si
 	}
 	if waiting == nil {
 		switch {
+		case owner == db.Gate:
+			w := db.Watch{PR: t.i("watch_pr"), On: t.str("watch_on")}
+			return at(status.Running, status.Watch, "watching "+w.Said(), t.i("sent_at")), nil
 		case owner == human:
 			return at(status.Waiting, status.You, "yours to do", t.i("created_at")), nil
 		case state == "queued":
