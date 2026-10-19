@@ -1,6 +1,6 @@
 // The marks editor of a picked picture: the picture with no toolbar over it. A tap pins a circle, a drag draws a box, going round something
 // marks an area; the memo box opens at the mark and the picture shrinks above the keyboard so the mark stays in view. Done draws the kept
-// marks (red, numbered) into a PNG of the picture's own size and hands it back with the marks; a mark without words is dropped.
+// marks (red, numbered) into a PNG of the picture's size (at most 2048 on the long side) and hands it back with the marks; a mark without words is dropped.
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   Image,
@@ -21,6 +21,9 @@ import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Link } from './parts.tsx';
 
+const MAX_SIDE = 2048;
+const MEMO_W = 220;
+
 export interface Marked {
   blob: Blob;
   marks: Mark[];
@@ -37,6 +40,8 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
   const [room, setRoom] = useState({ w: 0, h: 0 });
   const [capturing, setCapturing] = useState(false);
   const shot = useRef<View>(null);
+  const surface = useRef<View>(null);
+  const origin = useRef({ x: 0, y: 0 });
   useEffect(
     () =>
       void Image.getSize(
@@ -57,9 +62,11 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
   const kept = keptMarks(marks);
 
   const pan = useMemo(() => {
-    const at = (e: { nativeEvent: { locationX: number; locationY: number } }) => ({
-      x: e.nativeEvent.locationX * k,
-      y: e.nativeEvent.locationY * k,
+    // Page coordinates against the surface's own origin: the keyboard closing at the first touch moves the picture, and locationX/Y
+    // would shift under the finger.
+    const at = (e: { nativeEvent: { pageX: number; pageY: number } }) => ({
+      x: Math.min(natural.w, Math.max(0, (e.nativeEvent.pageX - origin.current.x) * k)),
+      y: Math.min(natural.h, Math.max(0, (e.nativeEvent.pageY - origin.current.y) * k)),
     });
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -69,7 +76,7 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
       onPanResponderRelease: (e) => dispatch({ type: 'up', ...at(e) }),
       onPanResponderTerminate: () => dispatch({ type: 'cancel' }),
     });
-  }, [k]);
+  }, [k, natural.w, natural.h]);
 
   const draw = shapesToSvg(marksToShapes(capturing ? kept : marks, line, !capturing), natural.w || 1, natural.h || 1);
   const draft = state.draft?.map((p) => `${p.x},${p.y}`).join(' ');
@@ -79,7 +86,8 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
     setCapturing(true);
     await new Promise((ok) => requestAnimationFrame(() => ok(null)));
     try {
-      const uri = await captureRef(shot, { format: 'png', result: 'tmpfile', width: natural.w, height: natural.h });
+      const cap = Math.min(1, MAX_SIDE / Math.max(natural.w, natural.h)); // a full-size photo would pass the attachment limit
+      const uri = await captureRef(shot, { format: 'png', result: 'tmpfile', width: Math.round(natural.w * cap), height: Math.round(natural.h * cap) });
       props.onDone({ blob: await (await fetch(uri)).blob(), marks });
     } catch {
       props.onDone({ blob: new Blob(), marks }); // the words still go; the picture as it was
@@ -109,7 +117,9 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
               <View ref={shot} collapsable={false} style={{ width: shown.w, height: shown.h }}>
                 <Image source={{ uri: props.uri }} accessibilityLabel="The picture" style={{ width: shown.w, height: shown.h }} />
                 <View
+                  ref={surface}
                   testID="mark-surface"
+                  onLayout={() => surface.current?.measureInWindow((x, y) => (origin.current = { x, y }))}
                   style={{ position: 'absolute', left: 0, top: 0, width: shown.w, height: shown.h }}
                   {...(capturing ? {} : pan.panHandlers)}
                 >
@@ -165,13 +175,13 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
                     style={{
                       position: 'absolute',
                       // At the mark: below and to the right, flipped where that would leave the picture.
-                      ...(current.rect.x / natural.w > 0.55
+                      ...((current.rect.x + current.rect.w) / k + MEMO_W > shown.w
                         ? { right: Math.max(0, shown.w - (current.rect.x + current.rect.w) / k) }
                         : { left: (current.rect.x + current.rect.w) / k }),
                       ...(current.rect.y / natural.h > 0.6
                         ? { bottom: Math.max(0, shown.h - current.rect.y / k + 8) }
                         : { top: (current.rect.y + current.rect.h) / k + 8 }),
-                      width: Math.min(220, shown.w),
+                      width: Math.min(MEMO_W, shown.w),
                       flexDirection: 'row',
                       gap: space.xs,
                       padding: space.xs,
