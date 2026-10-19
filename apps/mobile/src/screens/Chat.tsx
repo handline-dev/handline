@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { clockTime, decidedProposals, sideOf, takeBack as canTakeBack, chatEntries, tickLevel } from '@handline/app-core';
-import { classify, sentence, useAgents, useChat, useChatActions, useHr, useInbox, useWrite } from '@handline/app-data';
+import { classify, sentence, useChat, useChatActions, useHr, useInbox, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
@@ -64,7 +64,6 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
     drafts.set(agent, v);
     setTextState(v);
   };
-  const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
   const hr = useHr({});
   const entries = chatEntries(chat.messages, chat.items, agent, decidedProposals(hr.data?.proposals, agent));
   const takeable = Math.max(0, ...chat.messages.filter((m) => m.id > 0 && m.state !== 'failed' && canTakeBack(m)).map((m) => m.id)); // only the newest can be taken back
