@@ -336,3 +336,45 @@ func TestAnExitedSessionNotYetReapedIsNotWatched(t *testing.T) {
 		t.Fatalf("the turn moved: idle=%v known=%v", ok, known)
 	}
 }
+
+func TestAnEndedSessionIsKnownGoneUntilALaunchOrANewStart(t *testing.T) {
+	tr, _ := tracker(t)
+	if _, known := tr.Session("%1"); known {
+		t.Fatal("a session no hook spoke of is known")
+	}
+	first, kill := session(t)
+	current := first
+	var mu sync.Mutex
+	ended := make(chan string, 4)
+	tr.OnEnd(func(string) int { mu.Lock(); defer mu.Unlock(); return current }, func(a string) { ended <- a })
+	tr.Hook("amy", "SessionStart", nil, 10)
+	if running, known := tr.Session("%1"); !running || !known {
+		t.Fatalf("a watched session process: running=%v known=%v", running, known)
+	}
+	kill()
+	select {
+	case <-ended:
+	case <-time.After(wait):
+		t.Fatal("the exit was not told")
+	}
+	if running, known := tr.Session("%1"); running || !known {
+		t.Fatalf("after its process exited: running=%v known=%v", running, known)
+	}
+	tr.Launched("amy")
+	if _, known := tr.Session("%1"); known {
+		t.Fatal("a launch left the old session's end standing")
+	}
+	next, _ := session(t)
+	mu.Lock()
+	current = next
+	mu.Unlock()
+	tr.Hook("amy", "SessionStart", nil, 20)
+	tr.Hook("amy", "SessionEnd", nil, 21)
+	if running, known := tr.Session("%1"); running || !known {
+		t.Fatalf("after SessionEnd, its process not yet gone: running=%v known=%v", running, known)
+	}
+	tr.Hook("amy", "SessionStart", nil, 22)
+	if running, known := tr.Session("%1"); !running || !known {
+		t.Fatalf("a new start in the same process: running=%v known=%v", running, known)
+	}
+}

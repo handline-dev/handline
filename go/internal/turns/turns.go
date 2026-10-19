@@ -44,6 +44,17 @@ func (t *Tracker) OnChange(f func(agent string)) {
 	t.mu.Unlock()
 }
 
+// Launched is told when a launch has begun at the agent's terminal: a session ended before it no longer says none runs there. Its view
+// is told, as Refresh tells it.
+func (t *Tracker) Launched(agent string) {
+	t.mu.Lock()
+	if tr := t.agents[agent]; tr != nil {
+		tr.ended = false
+	}
+	t.mu.Unlock()
+	t.Refresh(agent)
+}
+
 // Refresh tells OnChange's func of a change to the agent's view that is not its turn's.
 func (t *Tracker) Refresh(agent string) {
 	t.mu.Lock()
@@ -67,6 +78,7 @@ type turn struct {
 	background []string
 	bgKnown    bool          // background is what the last Stop said; an interrupt leaves it unknown
 	settled    bool          // a Stop closed the turn and no prompt has been raised since
+	ended      bool          // SessionEnd or the process's exit ended the session, and no launch or SessionStart came since
 	changed    chan struct{} // closed on every change
 	unwatch    func()
 	pid        int // the session process watched for its exit
@@ -171,6 +183,7 @@ func (t *Tracker) exited(agent string, pid int) {
 	}
 	tr.unwatchPid, tr.pid = nil, 0
 	tr.stopWatch()
+	tr.ended = true
 	was := tr.state
 	tr.background, tr.bgKnown = nil, false
 	tr.set(Unknown)
@@ -193,6 +206,7 @@ func (t *Tracker) hook(tr *turn, agent, event string, raw map[string]any, at int
 		tr.stopWatch()
 		tr.at, tr.background, tr.bgKnown = at, nil, false
 		tr.set(Unknown)
+		tr.ended = event == "SessionEnd"
 	case "UserPromptSubmit":
 		tr.at = at
 		tr.set(Working)
@@ -310,6 +324,26 @@ func (t *Tracker) Settled(handle string) bool {
 	defer t.mu.Unlock()
 	tr := t.agents[agent]
 	return tr != nil && tr.settled
+}
+
+// Session is whether a session runs at handle: known once SessionEnd or its process's exit said it ended, or while its process is
+// watched (whose exit is told at once). Otherwise known is false and the caller reads the screen.
+func (t *Tracker) Session(handle string) (running, known bool) {
+	agent := t.Agent(handle)
+	if agent == "" {
+		return false, false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	switch tr := t.agents[agent]; {
+	case tr == nil:
+		return false, false
+	case tr.ended:
+		return false, true
+	case tr.pid != 0:
+		return true, true
+	}
+	return false, false
 }
 
 // Background is the work the last Stop said still runs, as the footer would count it ("" is none).

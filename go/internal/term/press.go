@@ -488,9 +488,13 @@ func (t *Term) ConfirmTrust(handle string) (bool, string) {
 
 // ---- reading a screen the other ways
 
-// SessionOnScreen is whether this terminal's screen shows an agent's session: the vendor's composer box, a dialog's footer, or a
-// turn the vendor's screen says is running. A shell prompt is none of those. known is false when the screen cannot be read.
+// SessionOnScreen is whether an agent's session is at this terminal: as its hooks and process say when they know (SessionByHooks), else
+// as the screen shows it: the vendor's composer box, a dialog's footer, or a turn the vendor's screen says is running. A shell prompt
+// is none of those. known is false when the screen cannot be read.
 func (t *Term) SessionOnScreen(handle string) (session, known bool) {
+	if running, known := t.SessionByHooks(handle); known {
+		return running, true
+	}
 	scr := t.screen(handle, 40)
 	if scr == nil {
 		return false, false
@@ -590,6 +594,15 @@ type Turns interface {
 	WaitIdle(handle string, timeout time.Duration) (idle, known bool)
 	Background(handle string) (running string, known bool)
 	Settled(handle string) bool
+	Session(handle string) (running, known bool)
+}
+
+// SessionByHooks is whether a session runs at handle as its hooks and process say; known false leaves it to the screen.
+func (t *Term) SessionByHooks(handle string) (running, known bool) {
+	if t.Turns == nil {
+		return false, false
+	}
+	return t.Turns.Session(handle)
 }
 
 // WaitIdle is whether the agent at handle is idle within timeoutMs.
