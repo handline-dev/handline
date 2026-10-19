@@ -175,8 +175,8 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 		}
 		box := row.TimeoutS.Int64
 		title := shortTitle(row.Title)
-		text := fmt.Sprintf("T%d (%s), held by %s, has been doing past its %s timeout. Keep it going: `hl task edit T%d --timeout <duration>`. "+
-			"Stop it: `hl task release T%d \"<reason>\"` takes it back.", tid, title, row.Owner, timefmt.Ago(box), tid, tid)
+		text := fmt.Sprintf("T%d (%s), held by %s, has been doing past its %s timeout. Keep it going: `hl task edit T%d --timeout <duration>` (at most %s). "+
+			"Stop it: `hl task release T%d \"<reason>\"` takes it back.", tid, title, row.Owner, timefmt.Ago(box), tid, timefmt.Span(db.MaxTaskTimeoutS, false), tid)
 		b.note(t, row.OpenedBy, text)
 		check(db.AdvanceTaskTimeout(t.Q, tid, now, db.DefaultTaskTimeoutS))
 		// the deadline missed and the one that replaced it: a screen chains notices by them

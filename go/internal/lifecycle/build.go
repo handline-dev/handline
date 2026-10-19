@@ -46,6 +46,11 @@ func (l *Launcher) Build(agent string, extra []string, force bool, account strin
 	if theirs := p.Vendors.AccountVendor(acct); theirs != drv.Name() {
 		return nil, nil, refuse("agent '%s' is a %s agent and account '%s' is a %s account - refusing to start it there.", agent, drv.Name(), acct, theirs)
 	}
+	if resuming && drv.Name() == "claude" {
+		if err := carrySession(l.Home, acct, extra); err != nil {
+			l.warn("warning: the session %s resumes is under another account and could not be copied to %s: %v", resumeID(extra), acct, err)
+		}
+	}
 
 	if hooks := drv.Hooks(); hooks != nil {
 		// An unreadable settings file is doctor's to report, not a reason not to start.

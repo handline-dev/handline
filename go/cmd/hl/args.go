@@ -122,12 +122,10 @@ func expects(text string) (string, bool) {
 	return "", false
 }
 
-// maxTaskTimeout is actions.MAX_TASK_TIMEOUT_S.
-const maxTaskTimeout = 4 * 3600
-
+// taskTimeout reads a span; how long one may be is the daemon's to say, so a span past it is refused there, with the limit named.
 func taskTimeout(text string) (int64, bool) {
 	secs, err := timefmt.ParseSpan(text)
-	return secs, err == nil && secs <= maxTaskTimeout
+	return secs, err == nil
 }
 
 // integer is argparse's type=int for the plain forms; anything fancier is Python's.
