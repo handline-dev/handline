@@ -7,6 +7,7 @@ import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
 import { PromptCard } from './PromptCard.tsx';
+import { Icon } from './Icon.tsx';
 import { Button, Row } from './parts.tsx';
 
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, 80);
@@ -20,9 +21,10 @@ function Fold(props: { id: string; head: string; body: string; tint?: string }) 
   const [open, setOpen] = useState(false);
   return (
     <Pressable testID={props.id} onPress={() => setOpen(!open)} style={{ paddingVertical: 2 }}>
-      <Text style={{ color: props.tint ?? c.muted, fontFamily: 'Menlo', fontSize: 12 }}>
-        {open ? '▾' : '▸'} {props.head}
-      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+        <Icon name={open ? 'chevron' : 'chevronRight'} decorative size={14} color={props.tint ?? c.muted} />
+        <Text style={{ color: props.tint ?? c.muted, fontFamily: 'Menlo', fontSize: 12, flex: 1 }}>{props.head}</Text>
+      </View>
       {open && <Text style={{ color: c.ink, fontFamily: 'Menlo', fontSize: 11, paddingLeft: space.md }}>{props.body}</Text>}
     </Pressable>
   );

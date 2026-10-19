@@ -85,7 +85,7 @@ function TaskRow({ i }: { i: TranscriptItem }) {
   const e = i.task_event;
   return (
     <Row>
-      <Icon name="task" color={c.muted} />
+      <Icon name="tasks" color={c.muted} />
       <Text numberOfLines={2} style={{ ...TEXT, color: c.muted, flex: 1 }}>
         T{e?.task} {e?.event ?? 'changed'}
         {e?.evidence ? ` · ${e.evidence}` : ''} · {clockTime(i.at)}
@@ -107,7 +107,7 @@ function ToolRow({ i }: { i: TranscriptItem }) {
         {i.text ? ` ${i.text}` : ''}
         {!i.output && cut > 0 ? ` · ${cut} more line${cut === 1 ? '' : 's'} let go` : ''}
       </Text>
-      {i.output ? <Icon name={open ? 'up' : 'down'} color={c.muted} /> : null}
+      {i.output ? <Icon name={open ? "less" : "more"} color={c.muted} /> : null}
     </Row>
   );
   if (!i.output) return line;

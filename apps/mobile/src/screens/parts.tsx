@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Keyboard, Modal, Platform, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
+import { Icon, type IconName } from './Icon.tsx';
 
 export function Banner(props: { text: string; error?: boolean; onPress?: () => void }) {
   const c = usePalette();
@@ -27,6 +28,8 @@ export function Button(props: {
   style?: ViewStyle;
   testID?: string;
   accessibilityLabel?: string;
+  /** Drawn before the label; with an empty label it is the whole button. */
+  icon?: IconName;
 }) {
   const c = usePalette();
   const bg = props.kind === 'yes' ? c.run : props.kind === 'no' ? c.block : c.panel;
@@ -47,10 +50,14 @@ export function Button(props: {
         paddingHorizontal: space.lg,
         opacity: props.disabled ? 0.4 : 1,
         alignItems: 'center',
+        flexDirection: 'row',
+        justifyContent: 'center',
+        gap: space.sm,
         ...props.style,
       }}
     >
-      <Text style={{ color: ink, fontWeight: '600' }}>{props.label}</Text>
+      {props.icon ? <Icon name={props.icon} decorative size={18} color={ink} /> : null}
+      {props.label ? <Text style={{ color: ink, fontWeight: '600' }}>{props.label}</Text> : null}
     </Pressable>
   );
 }
@@ -130,7 +137,7 @@ export function Pill(props: { on: boolean; label: string; testID: string; onPres
 }
 
 /** A list row of a title over one muted line, set off by a rule above it. `style` adds to the row (a mark on its edge, dimming). */
-export function ListRow(props: { title: string; meta: string; metaColor?: string; onPress: () => void; testID: string; style?: ViewStyle }) {
+export function ListRow(props: { title: string; meta: string; metaColor?: string; onPress: () => void; testID: string; style?: ViewStyle; lead?: React.ReactNode }) {
   const c = usePalette();
   return (
     <Pressable
@@ -143,13 +150,19 @@ export function ListRow(props: { title: string; meta: string; metaColor?: string
         paddingVertical: space.sm,
         borderTopWidth: 1,
         borderTopColor: c.line,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.md,
         ...props.style,
       }}
     >
-      <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '600' }}>
-        {props.title}
-      </Text>
-      <Text style={{ color: props.metaColor ?? c.muted, fontSize: 12 }}>{props.meta}</Text>
+      {props.lead}
+      <View style={{ flex: 1 }}>
+        <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '600' }}>
+          {props.title}
+        </Text>
+        <Text style={{ color: props.metaColor ?? c.muted, fontSize: 12 }}>{props.meta}</Text>
+      </View>
     </Pressable>
   );
 }
@@ -211,7 +224,7 @@ export function MenuSheet(props: { onClose: () => void; children: React.ReactNod
 }
 
 /** One row of a MenuSheet; a reason it cannot be used sits under the label. */
-export function MenuItem(props: { label: string; onPress: () => void; testID?: string; danger?: boolean; disabled?: boolean; note?: string | null }) {
+export function MenuItem(props: { label: string; onPress: () => void; testID?: string; danger?: boolean; disabled?: boolean; note?: string | null; icon?: IconName }) {
   const c = usePalette();
   return (
     <Pressable
@@ -219,10 +232,22 @@ export function MenuItem(props: { label: string; onPress: () => void; testID?: s
       accessibilityRole="button"
       disabled={props.disabled}
       onPress={props.onPress}
-      style={{ minHeight: 52, justifyContent: 'center', paddingHorizontal: space.lg, borderBottomWidth: 1, borderBottomColor: c.line, opacity: props.disabled ? 0.4 : 1 }}
+      style={{
+        minHeight: 52,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.md,
+        paddingHorizontal: space.lg,
+        borderBottomWidth: 1,
+        borderBottomColor: c.line,
+        opacity: props.disabled ? 0.4 : 1,
+      }}
     >
-      <Text style={{ color: props.danger ? c.block : c.ink, fontSize: 16 }}>{props.label}</Text>
-      {props.note ? <Text style={{ color: c.muted, fontSize: 12 }}>{props.note}</Text> : null}
+      {props.icon ? <Icon name={props.icon} decorative size={20} color={props.danger ? c.block : c.muted} /> : null}
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: props.danger ? c.block : c.ink, fontSize: 16 }}>{props.label}</Text>
+        {props.note ? <Text style={{ color: c.muted, fontSize: 12 }}>{props.note}</Text> : null}
+      </View>
     </Pressable>
   );
 }

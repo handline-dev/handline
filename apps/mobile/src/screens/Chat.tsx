@@ -21,10 +21,11 @@ import { HandoffLine } from './HandoffLine.tsx';
 import { NeedsYouCard } from './NeedsYouCard.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { useChatImages } from './ChatImages.tsx';
+import { Icon } from './Icon.tsx';
 import { Button, Link, Row } from './parts.tsx';
 
 /** How far the person's message got, as ticks: not sent yet, sent, read. */
-const TICKS = ['…', '✓', '✓✓'] as const;
+const TICKS = ['queued', 'delivered', 'answered'] as const;
 
 /** Unsent text per agent, kept while the person goes to another tab or agent (not across a restart). */
 const drafts = new Map<string, string>();
@@ -227,21 +228,23 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
       {picked && (
         <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
+          <Icon name="reference" decorative size={14} color={c.muted} />
           <Text testID="replying" numberOfLines={1} style={{ color: c.muted, fontSize: 12, flex: 1 }}>
-            ↩ {snippet(picked.body)}
+            {snippet(picked.body)}
           </Text>
           <Pressable testID="drop-reply" accessibilityLabel="Drop the reply" hitSlop={12} onPress={() => setPicked(null)}>
-            <Text style={{ color: c.muted, fontSize: 16 }}>✕</Text>
+            <Icon name="close" decorative size={18} color={c.muted} />
           </Pressable>
         </Row>
       )}
       {item && (
         <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
+          <Icon name="reference" decorative size={14} color={c.muted} />
           <Text testID="replying-item" numberOfLines={1} style={{ color: c.muted, fontSize: 12, flex: 1 }}>
-            ↩ {snippet((item.text ?? '').replace(/\s+/g, ' '))}
+            {snippet((item.text ?? '').replace(/\s+/g, ' '))}
           </Text>
           <Pressable testID="drop-reply-item" accessibilityLabel="Drop the reply" hitSlop={12} onPress={() => setItem(null)}>
-            <Text style={{ color: c.muted, fontSize: 16 }}>✕</Text>
+            <Icon name="close" decorative size={18} color={c.muted} />
           </Pressable>
         </Row>
       )}
@@ -318,9 +321,9 @@ function Bubble(props: {
       ticks={
         side === 'person' && !failed
           ? m.landing === 'withdrawn'
-            ? '✕ Withdrawn'
+            ? 'withdrawn'
             : m.receipt?.state === 'unknown'
-              ? '?'
+              ? 'maybeRan'
               : TICKS[tickLevel(m)]
           : null
       }
@@ -370,7 +373,10 @@ function Bubble(props: {
         {m.actions?.length ? <ChatActions id={m.id} actions={m.actions} /> : null}
         {failed && (
           <View accessibilityRole="alert" style={{ gap: space.xs }}>
-            <Text style={{ color: c.block, fontSize: 12 }}>✕ {m.sending_reason}</Text>
+            <Row>
+              <Icon name="failed" decorative size={14} color={c.block} />
+              <Text style={{ color: c.block, fontSize: 12, flex: 1 }}>{m.sending_reason}</Text>
+            </Row>
             <Row>
               <Button testID={`retry-${m.id}`} label="Retry" onPress={() => act.retry(m.id)} />
               <Button testID={`discard-${m.id}`} label="Discard" kind="no" onPress={() => act.discard(m.id)} />

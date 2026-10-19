@@ -12,7 +12,8 @@ export function TeamButton(props: { onPress: () => void }) {
   return (
     <MenuItem
       testID="team-open"
-      label={count ? `● Team ${count}` : 'Team'}
+      icon="team"
+      label={count ? `Team ${count}` : 'Team'}
       onPress={props.onPress}
     />
   );
