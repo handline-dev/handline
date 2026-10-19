@@ -598,8 +598,38 @@ func taskReopen(c *hlclient.Client, args []string) (int, bool) {
 	return taskWithReason(c, args, "reopen", "reopen a task", "task.reopen", "note", true)
 }
 
+// taskDiscard is `hl task discard T<n> "<why>"`, or a batch: `hl task discard T1 T2 --why "<why>" [--why-each T2="<why>"]...`, one call
+// that discards all of them or none.
 func taskDiscard(c *hlclient.Client, args []string) (int, bool) {
-	return taskWithReason(c, args, "discard", "discard a task", "task.discard", "reason", false)
+	p, ok := parse(args, []string{"--why", "--why-each"}, nil, nil)
+	if !ok {
+		return 0, false
+	}
+	if p.opts["--why"] == "" && len(p.each["--why-each"]) == 0 {
+		return taskWithReason(c, args, "discard", "discard a task", "task.discard", "reason", false)
+	}
+	tids, ok := taskRefs(p.pos)
+	if !ok || len(tids) == 0 {
+		return 0, false
+	}
+	reasons := map[string]any{}
+	for _, e := range p.each["--why-each"] {
+		ref, why, cut := strings.Cut(e, "=")
+		tid, isTask := taskRef(ref)
+		if !cut || !isTask || strings.TrimSpace(why) == "" {
+			return 0, false
+		}
+		reasons[strconv.Itoa(tid)] = why
+	}
+	mutating(c, "discard")
+	if !asking(c, "discard tasks") {
+		return 1, true
+	}
+	list := make([]any, len(tids))
+	for i, t := range tids {
+		list[i] = t
+	}
+	return said(c.Write("task.discard", map[string]any{"tasks": list, "reason": p.opts["--why"], "reasons": reasons})), true
 }
 
 // taskWithReason is a subcommand taking T<n> and a reason, sent as key; with optional the reason may be left out.

@@ -430,7 +430,17 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 		task["report"] = map[string]any{"by": t.str("owner"), "evidence": t.str("report"), "at": ts(t["reported_at"])}
 	}
 	if t.str("discarded_by") != "" {
-		task["discarded"] = map[string]any{"by": t.str("discarded_by"), "reason": t.str("discard_reason"), "at": ts(t["discarded_at"])}
+		d := map[string]any{"by": t.str("discarded_by"), "reason": t.str("discard_reason"), "at": ts(t["discarded_at"]), "withdrew": []any{}, "batch": nil}
+		ev, err := queryOne(e.DB, "SELECT payload FROM events WHERE kind = 'discard_task' AND "+eventTask+" = ? ORDER BY id DESC LIMIT 1", t.i("id"))
+		if err != nil {
+			return nil, err
+		}
+		p := decodeObject(ev.str("payload"))
+		if w, ok := p["withdrew"].([]any); ok {
+			d["withdrew"] = w
+		}
+		d["batch"] = p["batch"]
+		task["discarded"] = d
 	}
 	task["mismatch"] = taskMismatch(t, state, reqs)
 	if t.i("timeout_s") != 0 {

@@ -300,6 +300,10 @@ export type Task = {
     by: string;
     reason: string;
     at: Timestamp;
+    /** The requests the discard withdrew with it (a lead's or the founder's), as request ids. */
+    withdrew?: number[];
+    /** The batch it was discarded in, null for a discard of its own. */
+    batch?: string | null;
   } | null;
   /** Where the task's state and its delivery disagree (a draft with work out, an approved task nothing is out for), in words; null when they agree. */
   mismatch?: string | null;
@@ -864,7 +868,7 @@ export type TranscriptItem = {
   /** Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. For kind reply it is also what chat.send takes as parent_item. A reply has one of two sources, told apart by the last digit of its number within the second: a structured session's text block (even; the same id on every read and in the live event's `item`) and the answer to a request (odd); each is the same on every read, and chat.transcript lists both. Source numbers within the second: 0 reply, 1 prompt, 2 task event, 3 tool call, 4 session start (its number is the session_starts row). */
   id: number;
   at: Timestamp;
-  kind: "reply" | "tool" | "prompt" | "task_event" | "session";
+  kind: "reply" | "tool" | "prompt" | "task_event" | "session" | "task_batch";
   text?: string;
   tool?: string;
   /** For kind tool: the text the tool printed, as the store holds it. Absent when the store holds none. */
@@ -891,6 +895,16 @@ export type TranscriptItem = {
     handoff: string | null;
     /** Why the conversation began. Words the daemon writes: `launch` (first start of a spawned agent), `start` (work arrived for a closed agent), `wake` (a closed agent woken), `restart`, `fresh close` (the old conversation was closed and not resumed; the one word with a space), `move` (to another account), `handoff` (folded into a handoff), and, where the daemon knows it, `context_full`, `settings_applied`, `crash_recovery`, `idle_close`. Open set: a client draws a word it does not know as text. Absent from a daemon that does not serve it. */
     cause?: string;
+  };
+  /** For kind task_batch: a batch discard, shown once in the chat of whoever made it. */
+  task_batch?: {
+    batch: string;
+    who: string;
+    tasks: {
+      task: number;
+      title: string;
+      reason: string;
+    }[];
   };
 };
 
@@ -1419,6 +1433,8 @@ export type HistoryRow = {
   note?: string;
   /** With a memo row: the memo's id. */
   memo?: number;
+  /** With a discarded state row: the requests withdrawn with it. Absent when none were. */
+  withdrew?: number[];
 };
 
 /** The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else. */
@@ -2281,8 +2297,10 @@ export interface Methods {
   request_id: RequestId;
 }; result: Accepted };
   "task.discard": { params: {
-  task: number;
-  reason: string;
+  task?: number;
+  tasks?: number[];
+  reason?: string;
+  reasons?: { [key: string]: string };
   request_id: RequestId;
 }; result: Accepted };
   "task.board": { params: {
