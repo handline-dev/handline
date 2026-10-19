@@ -40,6 +40,7 @@ type world struct {
 	movePlan    string
 	moved       bool
 	performOK   bool
+	onHandoff   func() // runs as a handoff is performed
 	bgWork      bool
 	idleSince   int64
 	idleHave    bool
@@ -169,6 +170,9 @@ func (h wHandoff) MovePlan(db.Q, string, string) (string, string) { return h.w.m
 func (h wHandoff) MoveToRoom(db.Q, string, Trigger) bool          { h.w.call("moveroom"); return h.w.moved }
 func (h wHandoff) PerformHandoff(_ db.Q, a string, t Trigger, dest string) bool {
 	h.w.call("handoff %s %s", a, t.Kind)
+	if h.w.onHandoff != nil {
+		h.w.onHandoff()
+	}
 	return h.w.performOK
 }
 func (h wHandoff) NoteHold(db.Q, string, int64) bool           { return h.w.hold }

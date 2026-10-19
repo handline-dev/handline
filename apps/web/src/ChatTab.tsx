@@ -332,7 +332,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           })}
         </AnimatedList>
         <HrCards agent={agent} />
-        <HandoffCard detail={detail} />
+        <HandoffCard detail={detail} items={chat.items} />
         {detail.prompt ? null : <NeedsYouCard detail={detail} />}
         {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
         <div className="working-slot flex h-6 flex-none items-center self-start">
