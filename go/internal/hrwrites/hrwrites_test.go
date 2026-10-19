@@ -730,7 +730,7 @@ func TestAPairedDeviceDecidesAndAnAgentSessionIsRefused(t *testing.T) {
 
 func (r *rig) told(who string) []string {
 	r.t.Helper()
-	rows, err := r.db.Query("SELECT body FROM requests WHERE target = ? AND requester = 'human' ORDER BY id", who)
+	rows, err := r.db.Query("SELECT body FROM requests WHERE target = ? AND requester = ? AND notice >= 1 ORDER BY id", who, dbpkg.NoticeRequester)
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -764,6 +764,31 @@ func TestTheProposerIsToldHowEachDecisionWentInTheWordsHrPyUsed(t *testing.T) {
 	}
 }
 
+// Proposals decided together reach their proposer as one digest: each outcome is a notice from the board that asks nothing, not the founder
+// speaking, which would ask for an answer once per proposal.
+func TestABatchOfDecisionsWaitsForTheProposersDigestAndNothingIsFromTheFounder(t *testing.T) {
+	r := newRig(t)
+	for i := 0; i < 5; i++ {
+		p, id := r.propose(fmt.Sprintf("aaaa002%d", i), "kind", "link", "agent", "alice", "to", "bob")
+		r.decide(id, ifThen(i%2 == 0, "approve", "reject"), p.subject(), fmt.Sprintf("b%d", i))
+	}
+	if pending, err := dbpkg.PendingNotices(r.db, "alice"); err != nil || len(pending) != 5 {
+		t.Fatalf("five outcomes wait for one digest: %d %v", len(pending), err)
+	}
+	var fromFounder int
+	r.db.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'alice' AND requester = 'human'").Scan(&fromFounder)
+	if fromFounder != 0 {
+		t.Fatalf("%d outcomes were said as the founder", fromFounder)
+	}
+}
+
+func ifThen(c bool, a, b string) string {
+	if c {
+		return a
+	}
+	return b
+}
+
 func TestEachOutcomeMessageNamesTheProposalItIsAbout(t *testing.T) {
 	r := newRig(t)
 	_, rejected := r.propose("aaaa0015", "kind", "link", "agent", "alice", "to", "bob")
@@ -771,7 +796,7 @@ func TestEachOutcomeMessageNamesTheProposalItIsAbout(t *testing.T) {
 	p, applied := r.propose("aaaa0016", "kind", "link", "agent", "alice", "to", "bob")
 	r.decide(applied, "approve", p.subject(), "o2")
 	rows, err := r.db.Query("SELECT json_extract(e.payload, '$.proposal') FROM requests q LEFT JOIN events e ON e.dedup_key = 'hr_outcome:' || q.id " +
-		"WHERE q.target = 'alice' AND q.requester = 'human' ORDER BY q.id")
+		"WHERE q.target = 'alice' AND q.notice >= 1 ORDER BY q.id")
 	if err != nil {
 		t.Fatal(err)
 	}
