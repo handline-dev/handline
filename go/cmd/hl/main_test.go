@@ -217,3 +217,49 @@ func TestProgressWritesAndShowsTheNoteThroughTheDaemon(t *testing.T) {
 		t.Fatalf("params %v", p)
 	}
 }
+
+// A refused command line says what is wrong with it, then the verb's form and an example.
+func TestARefusalSaysWhatIsWrongAndShowsTheForm(t *testing.T) {
+	r := newRig(t)
+	for _, c := range []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"hr", "retire", "old.agent"}, []string{"(--why is missing", "usage: hl hr retire <agent> --why", "e.g.   hl hr retire"}},
+		{[]string{"task", "new", "-x", "1h", "t"}, []string{"(unknown option -x)", "usage: hl task new --assign"}},
+		{[]string{"task", "new", "--assign", "a", "-t", "soon", "t"}, []string{`(--timeout is a span like 30m or 2h, not "soon")`}},
+		{[]string{"task", "show", "12"}, []string{`("12" is not a task: T<n>)`, "usage: hl task show T<n>"}},
+		{[]string{"task", "reject", "T1"}, []string{"(it takes T<n> and the note in quotes, and got 1 word(s))", "usage: hl task reject"}},
+		{[]string{"say", "bob", "two", "words"}, []string{"(too many words", "usage: hl say <target>"}},
+		{[]string{"inbox", "--timeout"}, []string{"(--timeout needs a value after it)"}},
+	} {
+		_, errs, code := r.run(asAgent, c.args...)
+		for _, w := range c.want {
+			if code != 2 || !strings.Contains(errs, w) {
+				t.Errorf("%v: %d %q, want %q", c.args, code, errs, w)
+			}
+		}
+	}
+}
+
+// Every verb, and every task and hr subverb, has a form to show when its arguments are refused.
+func TestEveryVerbHasAUsage(t *testing.T) {
+	for verb := range commands {
+		if _, ok := usages[verb]; !ok {
+			t.Errorf("no usage for %s", verb)
+		}
+	}
+	subs := []string{"add", "retire", "rename", "link", "unlink", "team", "context", "list", "withdraw"}
+	for sub := range taskCmds {
+		subs = append(subs, "task "+sub)
+	}
+	for _, s := range subs {
+		key := s
+		if !strings.HasPrefix(s, "task ") {
+			key = "hr " + s
+		}
+		if _, ok := usages[key]; !ok {
+			t.Errorf("no usage for %s", key)
+		}
+	}
+}

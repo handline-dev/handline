@@ -60,21 +60,24 @@ func hrPropose(c *hlclient.Client, kind string, args []string) (int, bool) {
 	if kind == "link" || kind == "unlink" {
 		want = 2
 	}
-	if !ok || len(p.pos) != want {
+	if !ok {
 		return 0, false
+	}
+	if len(p.pos) != want {
+		return wrongArgs("it takes %s, and got %d word(s)", map[int]string{1: "one agent", 2: "two agents"}[want], len(p.pos))
 	}
 	why, hasWhy := p.opt("--why")
 	if !hasWhy {
-		return 0, false
+		return wrongArgs("--why is missing: say why, for the founder to decide")
 	}
 	if _, ok := p.opt("--to"); kind == "rename" && !ok {
-		return 0, false
+		return wrongArgs("--to is missing: the new name")
 	}
 	if len(p.each["--member"]) == 0 && kind == "team" {
-		return 0, false
+		return wrongArgs("--member is missing: at least one")
 	}
 	if effort, ok := p.opt("--effort"); ok && !slices.Contains(team.ValidEffort, effort) {
-		return 0, false
+		return wrongArgs("--effort is one of %s", strings.Join(team.ValidEffort, ", "))
 	}
 	me := c.AskingAgent()
 	if me == "" {
