@@ -6,7 +6,8 @@ import (
 	dbpkg "github.com/handline/handline/go/internal/db"
 )
 
-// Whatever the tick wakes a closed agent for, the prompt its wake types carries: else the resume is refused and the agent stays down.
+// The tick wakes a closed agent exactly when its wake's prompt has something to carry: a wake for nothing is refused and the agent stays
+// down, and work the prompt could carry with no wake waits unseen.
 func TestWhatWakesAClosedAgentIsWhatItsWakePromptCarries(t *testing.T) {
 	type q = dbpkg.Q
 	must := func(t *testing.T, err error) {
@@ -45,6 +46,9 @@ func TestWhatWakesAClosedAgentIsWhatItsWakePromptCarries(t *testing.T) {
 		must(t, err)
 	}
 	for name, shape := range map[string]func(*testing.T, q){
+		// nothing to wake it for: its session has the task it holds
+		"only the task it holds":         func(t *testing.T, d q) { held(t, d, "the one it holds") },
+		"only the blocked task it holds": func(t *testing.T, d q) { blockOn(t, d, held(t, d, "blocked")) },
 		"a new task":                     func(t *testing.T, d q) { task(t, d, "new work") },
 		"a say":                          func(t *testing.T, d q) { say(t, d, "T9 is unblocked") },
 		"a say behind the task it holds": func(t *testing.T, d q) { held(t, d, "the one it holds"); say(t, d, "T9 is unblocked") },
@@ -77,7 +81,7 @@ func TestWhatWakesAClosedAgentIsWhatItsWakePromptCarries(t *testing.T) {
 			must(t, err)
 			_, _, ok, err := env.WaitingPrompt(d, "alice")
 			must(t, err)
-			if cause == "" || !ok {
+			if (cause != "") != ok {
 				t.Fatalf("the tick's cause %q, the prompt has something: %v", cause, ok)
 			}
 		})
