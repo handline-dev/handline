@@ -399,3 +399,48 @@ func TestEveryTaskEventNamesWhoDidIt(t *testing.T) {
 		}
 	}
 }
+
+func TestAMessageToTheFounderCarriesTheButtonsItsTaskStateAsksFor(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	for _, q := range []string{
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, reported_at, report) VALUES(1, 'reported', 'bob', 'human', 1, 5, 'shipped')",
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(2, 'decide', 'human', 'bob', 1)",
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, reported_at, report) VALUES(3, 'not theirs', 'bob', 'bob', 1, 5, 'x')",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(1, 1, 'bob', 'human', 'T1 reported', 'queued', 'say'), (2, 2, 'bob', 'human', 'T2 please decide', 'queued', 'task'), " +
+			"(3, 3, 'bob', 'human', 'a question with no task', 'queued', 'say'), (4, 4, 'bob', 'human', 'T3 reported', 'queued', 'say')",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 1), (2, 2), (3, 4)",
+	} {
+		if _, err := e.DB.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := e.chatMessages(nil, map[string]any{"agent": "bob", "scope": "mine"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	var out struct{ Messages []map[string]any }
+	json.Unmarshal(b, &out)
+	keys := map[float64][]string{}
+	verbs := map[string]string{}
+	for _, m := range out.Messages {
+		actions, _ := m["actions"].([]any)
+		for _, a := range actions {
+			am := a.(map[string]any)
+			keys[m["id"].(float64)] = append(keys[m["id"].(float64)], am["key"].(string))
+			verbs[am["key"].(string)] = am["verb"].(string)
+		}
+	}
+	if fmt.Sprint(keys) != "map[1:[accept send_back] 2:[ok no]]" ||
+		verbs["accept"] != "task.accept" || verbs["send_back"] != "task.reject" || verbs["ok"] != "task.done" || verbs["no"] != "task.handoff" {
+		t.Fatalf("%v %v: %s", keys, verbs, b)
+	}
+	if _, err := e.DB.Exec("UPDATE tasks SET done_evidence = 'ok', reported_at = NULL WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = e.chatMessages(nil, map[string]any{"agent": "bob", "scope": "mine"})
+	if b, _ = json.Marshal(got); strings.Contains(string(b), `"accept"`) {
+		t.Fatalf("a closed task keeps its buttons: %s", b)
+	}
+}

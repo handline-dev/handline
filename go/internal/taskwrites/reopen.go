@@ -11,7 +11,7 @@ import (
 )
 
 // reopenMethod is task.reopen: a done task sent back to doing (actions.reopen_task) by anyone, with a one-line reason its opener and
-// assignee are told.
+// assignee are told. A discarded task comes back as a draft: its requests were closed with it, so it is queued again to be sent.
 func reopenMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		tid, err := taskID(p)
@@ -34,13 +34,36 @@ func reopenMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any
 			if t == nil {
 				return nil, refusal(fmt.Sprintf("no task T%d", tid))
 			}
-			if !t.done() {
+			discarded := t.DiscardedBy.Valid && t.DiscardedBy.String != ""
+			if !t.done() && !discarded {
 				return nil, refusal(fmt.Sprintf("task T%d is not done - nothing to reopen", tid))
 			}
 			said := strings.TrimSpace(textsafe.Oneline(note))
-			msg := fmt.Sprintf("task T%d reopened by %s", tid, by)
+			how := ""
+			if discarded {
+				how = " as a draft"
+			}
+			msg := fmt.Sprintf("task T%d reopened%s by %s", tid, how, by)
 			if said != "" {
 				msg += ": " + said
+			}
+			if discarded {
+				res, err := tx.Exec("UPDATE tasks SET discarded_by = NULL, discarded_at = NULL, discard_reason = NULL, queued_by = NULL "+
+					"WHERE id = ? AND discarded_by IS NOT NULL", tid)
+				if err != nil {
+					return nil, err
+				}
+				if n, _ := res.RowsAffected(); n == 0 {
+					return nil, refusal(fmt.Sprintf("task T%d was reopened by someone else just now", tid))
+				}
+				msg += fmt.Sprintf(" - `hl task queue T%d` sends it again", tid)
+				if err := addEvent(tx, by, "reopen_task", kv{"task_id", tid}, kv{"reason", said}, kv{"was", "discarded"}); err != nil {
+					return nil, err
+				}
+				if notes, err = tellTask(tx, home, by, msg, t.OpenedBy, t.Owner); err != nil {
+					return nil, err
+				}
+				return accepted(msg, nil), nil
 			}
 			if err := refreshSent(tx, tid); err != nil { // done cleared it; a request still out on it sends it again
 				return nil, err

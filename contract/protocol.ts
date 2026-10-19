@@ -187,6 +187,8 @@ export type AgentView = {
     phase: "writing" | "starting";
     since: Timestamp;
   } | null;
+  /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
+  status?: Status;
 };
 
 export type AgentDetail = AgentView & {
@@ -300,6 +302,10 @@ export type Task = {
     by: string;
     reason: string;
     at: Timestamp;
+    /** The requests the discard withdrew with it (a lead's or the founder's), as request ids. */
+    withdrew?: number[];
+    /** The batch it was discarded in, null for a discard of its own. */
+    batch?: string | null;
   } | null;
   /** Where the task's state and its delivery disagree (a draft with work out, an approved task nothing is out for), in words; null when they agree. */
   mismatch?: string | null;
@@ -329,6 +335,8 @@ export type Task = {
     evidence: string;
     at: Timestamp;
   } | null;
+  /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
+  status?: Status;
 };
 
 /** Why a task waits (Task.waiting). */
@@ -340,6 +348,22 @@ export type TaskWaiting = {
   /** The tasks it waits on, for on task (by id, also one outside the caller's scope); empty otherwise. */
   tasks: number[];
   since: Timestamp;
+};
+
+/** What an agent or task is doing and why (x-status). */
+export type Status = {
+  /** One of x-status states. */
+  state: string;
+  /** One of x-status reasons. */
+  reason: string;
+  /** The line every view shows for it, as it is. */
+  text: string;
+  /** When it ends by itself (a clock, a wall's reset); null when nothing says. */
+  until: Timestamp | null;
+  /** Since when it has been so; null when not known. */
+  since: Timestamp | null;
+  /** The tasks it waits on, for reason task; empty otherwise. */
+  tasks: number[];
 };
 
 export type TaskDetail = Task & {
@@ -444,6 +468,8 @@ export type InboxItem = {
   created: Timestamp;
   read: boolean;
   prompt: Prompt | null;
+  /** Only on a card the daemon raised after its own recovery failed: the action to offer as a button. open_terminal opens the item's agent's terminal, since every step the daemon could take was taken. */
+  fix?: "open_terminal";
 };
 
 export type Event = {
@@ -854,13 +880,15 @@ export type ChatMessage = {
   } | null;
   /** Only on the message that tells an agent how the founder decided its HR proposal: that proposal's id, as hr.list gives it. A client that draws the decided proposal as a card can leave this line out. */
   proposal?: number;
+  /** One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task's state asks for one: answered, and it answers to the founder (Accept, Send back), or owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb. */
+  actions?: ChatAction[];
 };
 
 export type TranscriptItem = {
   /** Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. For kind reply it is also what chat.send takes as parent_item. A reply has one of two sources, told apart by the last digit of its number within the second: a structured session's text block (even; the same id on every read and in the live event's `item`) and the answer to a request (odd); each is the same on every read, and chat.transcript lists both. Source numbers within the second: 0 reply, 1 prompt, 2 task event, 3 tool call, 4 session start (its number is the session_starts row). */
   id: number;
   at: Timestamp;
-  kind: "reply" | "tool" | "prompt" | "task_event" | "session";
+  kind: "reply" | "tool" | "prompt" | "task_event" | "session" | "task_batch";
   text?: string;
   tool?: string;
   /** For kind tool: the text the tool printed, as the store holds it. Absent when the store holds none. */
@@ -887,6 +915,16 @@ export type TranscriptItem = {
     handoff: string | null;
     /** Why the conversation began. Words the daemon writes: `launch` (first start of a spawned agent), `start` (work arrived for a closed agent), `wake` (a closed agent woken), `restart`, `fresh close` (the old conversation was closed and not resumed; the one word with a space), `move` (to another account), `handoff` (folded into a handoff), and, where the daemon knows it, `context_full`, `settings_applied`, `crash_recovery`, `idle_close`. Open set: a client draws a word it does not know as text. Absent from a daemon that does not serve it. */
     cause?: string;
+  };
+  /** For kind task_batch: a batch discard, shown once in the chat of whoever made it. */
+  task_batch?: {
+    batch: string;
+    who: string;
+    tasks: {
+      task: number;
+      title: string;
+      reason: string;
+    }[];
   };
 };
 
@@ -1415,6 +1453,8 @@ export type HistoryRow = {
   note?: string;
   /** With a memo row: the memo's id. */
   memo?: number;
+  /** With a discarded state row: the requests withdrawn with it. Absent when none were. */
+  withdrew?: number[];
 };
 
 /** The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else. */
@@ -1482,6 +1522,17 @@ export type TimeSegment = {
   to: Timestamp;
   /** to less from. */
   seconds: number;
+};
+
+export type ChatAction = {
+  key: "accept" | "send_back" | "ok" | "no";
+  label: string;
+  verb: "task.accept" | "task.reject" | "task.done" | "task.handoff";
+  task: number;
+  /** The verb's params but request_id. */
+  params: { [key: string]: unknown };
+  /** A param the person must write before the tap sends (`note` for Send back). */
+  needs?: string;
 };
 
 export interface Methods {
@@ -2180,6 +2231,8 @@ export interface Methods {
   "task.accept": { params: {
   task: number;
   request_id: RequestId;
+  /** A chat message id: the founder's OK on this task, kept with the accept as its proof. Refused unless the founder wrote the message, it is tied to the task and it came after the report. */
+  by_founder?: number;
 }; result: Accepted };
   "task.reject": { params: {
   task: number;
@@ -2286,8 +2339,10 @@ export interface Methods {
   request_id: RequestId;
 }; result: Accepted };
   "task.discard": { params: {
-  task: number;
-  reason: string;
+  task?: number;
+  tasks?: number[];
+  reason?: string;
+  reasons?: { [key: string]: string };
   request_id: RequestId;
 }; result: Accepted };
   "task.board": { params: {
@@ -2877,5 +2932,9 @@ export interface Notifications {
 
 /** The state words the daemon sends; an open set, so a client keeps a fallback. */
 export const STATE_WORDS = ["running", "idle", "queued", "starting", "parked", "waiting", "stalled", "blocked", "no_terminal"] as const;
+
+/** x-status: the state and reason every agent and task carries; open sets for a client, which shows `text` for a word it does not know. */
+export const STATUS_STATES = ["preparing", "starting", "running", "waiting", "stopped", "idle", "off", "done"] as const;
+export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "handoff", "background", "you", "review", "opener", "task", "owner", "clock", "move", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];
