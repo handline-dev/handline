@@ -21,6 +21,7 @@ import (
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/tick"
 	"github.com/handline/handline/go/internal/usage"
+	"github.com/handline/handline/go/internal/worktreelock"
 )
 
 // This file builds the policy tick. With TickConfig.Terminals it supervises the terminal agents, reading their sessions from
@@ -151,6 +152,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
 		{Name: "attachment sweep", Run: func(q db.Q, _ int64) error { return attachments.New(home).Sweep(q) }},
+		{Name: "worktree locks", Run: releaseWorktreeLocks},
 		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Raise: raiseFromTaskBoard(env), Free: cfg.DiskFree}).Check},
 	}, Signalled: func() bool {
 		select {
@@ -725,3 +727,17 @@ func (c tickConfig) AgentConfig(agent string) map[string]any {
 	return cfg
 }
 func (c tickConfig) Seconds(key string, def int64) int64 { return c.set.ConfigSeconds(key, def) }
+
+// releaseWorktreeLocks lets go of each agent's worktree lock once the session that took it is gone (worktreelock.Release).
+func releaseWorktreeLocks(q db.Q, _ int64) error {
+	rows, err := db.AllAgentStates(q)
+	if err != nil {
+		return err
+	}
+	for _, r := range rows {
+		if wt := lifecycle.WorktreePath(r.Worktree.String); wt != "" {
+			_, _ = worktreelock.Release(wt, worktreelock.Alive) // a worktree that is gone or no checkout has no lock to let go
+		}
+	}
+	return nil
+}

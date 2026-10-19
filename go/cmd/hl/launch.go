@@ -20,6 +20,7 @@ import (
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/usage"
+	"github.com/handline/handline/go/internal/worktreelock"
 )
 
 const launchUsage = "usage: hl launch [--force] [--account ACCOUNT] [--prompt-file PROMPT_FILE] [--why WHY] [--by BY] agent [extra ...]"
@@ -79,7 +80,10 @@ func launcher(home string, d *sql.DB, roster *team.Roster) *lifecycle.Launcher {
 	uenv := &usage.Env{Home: home}
 	routing := func() *team.Team { t, _ := team.LoadTeam(home); return t }
 	return &lifecycle.Launcher{Q: d, Home: home, Roster: roster, Tokens: sessiontoken.New(home), Ports: lifecycle.LaunchPorts{
-		Usage:          &lifecycle.UsageAdapter{Env: uenv, Q: d},
+		Usage: &lifecycle.UsageAdapter{Env: uenv, Q: d},
+		HoldWorktree: func(dir, agent string, pid int) error {
+			return worktreelock.Hold(dir, agent, pid, worktreelock.Alive)
+		},
 		Accounts:       team.Accounts{Home: home},
 		Vendors:        launchVendors{home: home, roster: roster},
 		CurrentAccount: func(q db.Q, agent string) string { a, _ := team.CurrentAccount(q, agent); return a },
