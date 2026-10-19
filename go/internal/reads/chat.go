@@ -232,6 +232,43 @@ func (c *chat) receiptOf(r row, landing string) (map[string]any, string, error) 
 	return map[string]any{"state": state, "uuid": kept.UUID}, landing, nil
 }
 
+// decisionActions are the one-tap buttons a message to the founder carries for its task, from the task's state alone: a report waiting on
+// the founder is accepted or sent back, an open task of the founder's is answered OK or No (No hands it back to whoever opened it).
+func decisionActions(id int64, t row) []any {
+	act := func(key, label, verb string, params map[string]any, needs string) any {
+		params["task"] = id
+		a := map[string]any{"key": key, "label": label, "verb": verb, "task": id, "params": params}
+		if needs != "" {
+			a["needs"] = needs
+		}
+		return a
+	}
+	if t.str("done_evidence") != "" || t.str("discarded_by") != "" {
+		return nil
+	}
+	switch answersTo := orDefault(t.str("reporter"), t.str("opened_by")); {
+	case t["reported_at"] != nil:
+		if answersTo != human {
+			return nil
+		}
+		return []any{act("accept", "Accept", "task.accept", map[string]any{}, ""), act("send_back", "Send back", "task.reject", map[string]any{}, "note")}
+	case t.str("owner") == human:
+		out := []any{act("ok", "OK", "task.done", map[string]any{"evidence": "OK"}, "")}
+		if opener := t.str("opened_by"); opener != human {
+			out = append(out, act("no", "No", "task.handoff", map[string]any{"to": opener, "note": "No"}, ""))
+		}
+		return out
+	}
+	return nil
+}
+
+func orDefault(s, d string) string {
+	if s != "" {
+		return s
+	}
+	return d
+}
+
 func (c *chat) messageOf(r row) (map[string]any, error) {
 	state := landingOf(r)
 	receipt, state, err := c.receiptOf(r, state)
@@ -247,12 +284,16 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 		}
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	var actions []any
 	for _, id := range ids {
-		t, err := queryOne(c.e.DB, "SELECT title FROM tasks WHERE id = ?", id)
+		t, err := queryOne(c.e.DB, "SELECT title, owner, opened_by, reporter, reported_at, done_evidence, discarded_by FROM tasks WHERE id = ?", id)
 		if err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, map[string]any{"id": id, "title": t.str("title")})
+		if r.str("target") == human {
+			actions = append(actions, decisionActions(id, t)...)
+		}
 	}
 	var why any
 	if (state == "queued" || state == "typed") && r.str("target") != human {
@@ -277,6 +318,9 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 		"state": r.str("state"), "landing": state, "sending_reason": why, "body": orEmpty(r["body"]), "answer": answer,
 		"dismissed": dismissed, "delivered_at": ts(r["delivered_at"]), "typed_at": ts(r["typed_at"]), "landed_at": ts(r["landed_at"]),
 		"parent": r.intOrNil("parent_id"), "kind": orEmpty(r["kind"]), "tasks": tasks, "is_task_question": r.i("task_question") != 0}
+	if len(actions) > 0 {
+		m["actions"] = actions
+	}
 	if receipt != nil {
 		m["receipt"] = receipt
 	}
