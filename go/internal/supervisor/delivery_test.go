@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/states"
 )
 
 func (r *rig) ask(from, to, body, kind string) int64 {
@@ -110,6 +111,23 @@ func TestDeliverQueuedExplainsWhyItIsHolding(t *testing.T) {
 	r.DeliverQueued(r.DB, "bob")
 	if r.logged("is held") {
 		t.Fatal("the same reason is logged on every tick")
+	}
+}
+
+func TestTheLoadHoldsATaskForAnAgentAtItsPromptButNotOneMidTurn(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.task("bob", "alice", "job")
+	r.LoadHeld = func(string) string { return "held: machine load - 3 of 3 agents mid-turn" }
+	if sent, _ := r.DeliverQueued(r.DB, "bob"); sent || len(r.term.typed) != 0 {
+		t.Fatal("a task started a turn past the load")
+	}
+	if why, _, ok := r.HeldReason("bob", r.clock); !ok || why != "held: machine load - 3 of 3 agents mid-turn" {
+		t.Fatalf("%q %v", why, ok)
+	}
+	r.must(db.SetAgentState(r.DB, "bob", states.Running, 0, ""))
+	if sent, _ := r.DeliverQueued(r.DB, "bob"); !sent {
+		t.Fatal("an agent mid-turn was not told")
 	}
 }
 

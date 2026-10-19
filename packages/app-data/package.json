@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "../../tools/heavy-slot.sh vitest run",
     "typecheck": "tsc -p .",
     "lint": "eslint ."
   },

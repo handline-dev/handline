@@ -9,6 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/loadgate"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessiontoken"
@@ -31,6 +32,9 @@ type Lifecycle struct {
 	Env     *supervisor.Env
 	// Mover is the handoff and the move to another account.
 	Mover *lifecycle.Mover
+
+	// Gate holds the daemon's own starts while the machine is over a load limit (agent.force_start passes it).
+	Gate *loadgate.Gate
 
 	usage  *usage.Env
 	roster *team.Roster
@@ -108,12 +112,24 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 		return false
 	}
 	launcher.Ports.WaitingFor = waiting
+	gate := &loadgate.Gate{Limits: func() loadgate.Limits { return loadgate.LimitsOf(usage.LoadConfig(home)) },
+		// A read that fails counts none mid-turn, which holds nothing: the gate must never be what stalls work.
+		Active: func() int {
+			by, _ := uenv.ActiveByAccount(q)
+			n := 0
+			for _, agents := range by {
+				n += len(agents)
+			}
+			return n
+		}, Machine: cfg.Machine, Now: cfg.Now}
+	lc.Env.LoadHeld = gate.Held
 	hp := &handoffPort{env: ho, q: q, now: nowOf(cfg.Now)}
 	m := &lifecycle.Manager{Q: q, Home: home, Log: cfg.Log, Settings: settings,
 		Delivery: lc.Env, Handoff: hp, Term: termPort{tm}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawns,
 		Agents: agentsPort{home: home, roster: roster, accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q},
-		Observe: observer{p: p}, Typing: terminalLock{home: p.home}, TermRun: termRun{p}, Locks: p.Locks, OnLaunch: onLaunch}
-	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho, Env: lc.Env, usage: uenv, roster: roster, term: tm}
+		Observe: observer{p: p}, Typing: terminalLock{home: p.home}, TermRun: termRun{p}, Locks: p.Locks, OnLaunch: onLaunch,
+		LoadHeld: gate.Held}
+	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho, Env: lc.Env, Gate: gate, usage: uenv, roster: roster, term: tm}
 	hp.mover = func() *lifecycle.Mover { return p.LC.Mover }
 	p.LC.Mover = p.newMover(m, uenv, lc.Env, func() int64 { return nowOf(cfg.Now)().Unix() })
 	return p.LC

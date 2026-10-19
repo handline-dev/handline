@@ -24,6 +24,12 @@ func (e *Env) status(agent string, row *db.AgentState, state, detail string, han
 	at := func(st, reason, text string) status.Status {
 		return status.Status{State: st, Reason: reason, Text: text, Since: since}
 	}
+	loadHeld := func() string {
+		if e.LoadHeld == nil {
+			return ""
+		}
+		return e.LoadHeld(agent)
+	}
 	switch state {
 	case "running":
 		if row != nil && row.State == states.Handoff {
@@ -54,6 +60,9 @@ func (e *Env) status(agent string, row *db.AgentState, state, detail string, han
 		}
 		s := at(status.Waiting, status.Clock, "wakes at "+timefmt.Stamp(row.WakeAt.Int64, timefmt.Clock))
 		if row.WakeAt.Int64 <= now {
+			if why := loadHeld(); why != "" {
+				return at(status.Waiting, status.Load, why)
+			}
 			s.Text = "due to wake now"
 		}
 		s.Until = row.WakeAt.Int64
@@ -64,6 +73,9 @@ func (e *Env) status(agent string, row *db.AgentState, state, detail string, han
 		}
 		if h, ok := handoff.(map[string]any); ok && h["phase"] == "starting" {
 			return at(status.Preparing, status.Restart, "restarting: the new session begins at the next tick")
+		}
+		if why := loadHeld(); why != "" {
+			return at(status.Waiting, status.Load, why)
 		}
 		return at(status.Preparing, status.Work, "has work: starts at the next tick")
 	case "no_terminal":
