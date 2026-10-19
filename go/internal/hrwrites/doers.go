@@ -313,9 +313,9 @@ func pyStr(v any) string {
 	return fmt.Sprint(v)
 }
 
-// edgeRefusal is why this edge cannot be added or removed, or "" when it can. Read against the team.yaml as it is now; the write checks again,
-// on the text it edits.
-func (e *Env) edgeRefusal(kind, frm, to string, registered []string, coming map[string]bool) string {
+// edgeRefusal is why this edge cannot be added or removed, or "" when it can. Read against the team.yaml as it is now, less the edges an
+// earlier unlink of the same bundle removes (unlinked); the write checks again, on the text it edits.
+func (e *Env) edgeRefusal(kind, frm, to string, registered []string, coming map[string]bool, unlinked map[[2]string]bool) string {
 	if to == "" || !contains(registered, to) {
 		shown := to
 		if shown == "" {
@@ -334,6 +334,7 @@ func (e *Env) edgeRefusal(kind, frm, to string, registered []string, coming map[
 	for _, ed := range t.Edges {
 		exact = exact || (pyStr(ed.From) == frm && pyStr(ed.To) == to)
 	}
+	exact = exact && !unlinked[[2]string{frm, to}]
 	if kind == "link" {
 		for _, end := range []string{frm, to} {
 			if _, in := t.Agents[end]; !in && !coming[end] {
@@ -384,7 +385,7 @@ func unlinkCaveat(t *team.Team, frm, to string) string {
 
 func (e *Env) doLink(p step) (bool, string, error) {
 	frm, to := p.str("agent"), p.str("to")
-	if why := e.edgeRefusal("link", frm, to, paths.ListAgents(e.Home), nil); why != "" {
+	if why := e.edgeRefusal("link", frm, to, paths.ListAgents(e.Home), nil, nil); why != "" {
 		return false, why, nil
 	}
 	ok, said, err := e.editTeamYaml(func(t string) (string, error) { return e.linkText(t, frm, to) }, "", "",
@@ -399,7 +400,7 @@ func (e *Env) doLink(p step) (bool, string, error) {
 
 func (e *Env) doUnlink(p step) (bool, string, error) {
 	frm, to := p.str("agent"), p.str("to")
-	if why := e.edgeRefusal("unlink", frm, to, paths.ListAgents(e.Home), nil); why != "" {
+	if why := e.edgeRefusal("unlink", frm, to, paths.ListAgents(e.Home), nil, nil); why != "" {
 		return false, why, nil
 	}
 	ok, said, err := e.editTeamYaml(func(t string) (string, error) { return unlinkText(t, frm, to) }, "", "", func(tm *team.Team) error {

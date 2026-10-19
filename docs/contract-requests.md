@@ -20,7 +20,7 @@ Under each is the bridge's own code to reuse, so what the daemon does is what th
 - Whether the agent can be typed at is the delivery's question, not the call's. An agent at its usage wall, behind a terminal lock, or with a dialog open leaves the message queued and stamped, and it is typed at the first moment it can be, ahead of any request already open in the agent's queue. So `terminal_lock`, `input_holder`, `wall` and `screen_blocker` never refuse this call: like `chat.send` it needs no input hold.
 - `landing` in the result is the message's state when the call returns: `typed` if the push typed it, else `queued`.
 - A second call on a stamped message is accepted again and keeps the first stamp. A retry with the same `request_id` replays.
-- `refused`, gate `state`, reason naming the landing: the message is not waiting any more (typed, delivered, answered, dismissed, withdrawn), or it is not a person's message.
+- `refused`, gate `state`, reason naming the landing: the message is not waiting any more (typed, delivered, withdrawn), or it is not a person's message.
 - `not_found`: no such request. An agent session is refused at the role gate, so add `chat.send_now` to `BARRED_FROM_AGENTS` in `tests/infra/test_contract.py`.
 - **Events.** Topic `chat`, `chat.message` (ChatMessage): once when the stamp is set, and at each later change of `landing`, as for any message.
 
@@ -94,7 +94,7 @@ Under each is the bridge's own code to reuse, so what the daemon does is what th
 
 | Method | Role | Write | Params | Result | Errors | Gates |
 |---|---|---|---|---|---|---|
-| `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `priority?`, `waits_on?`, `request_id` | `Accepted` | `refused`, `not_found` | state |
+| `task.edit` | agent | yes | `task`, `owner?`, `title?`, `body?`, `time_box?`, `priority?`, `request_id` | `Accepted` | `refused`, `not_found` | state |
 
 > Change a task: owner, title and priority by its opener or manager (its owner may record what it waits on), body and time box until it is delivered. The holder is told of every change but a priority.
 

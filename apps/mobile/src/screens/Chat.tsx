@@ -228,7 +228,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
       {picked && (
         <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
           <Text testID="replying" numberOfLines={1} style={{ color: c.muted, fontSize: 12, flex: 1 }}>
-            ↩ #{picked.id} {snippet(picked.body)}
+            ↩ {snippet(picked.body)}
           </Text>
           <Pressable testID="drop-reply" accessibilityLabel="Drop the reply" hitSlop={12} onPress={() => setPicked(null)}>
             <Text style={{ color: c.muted, fontSize: 16 }}>✕</Text>

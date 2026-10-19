@@ -56,7 +56,7 @@ are listed first, then every writer found.
 | function | writes | state |
 |---|---|---|
 | accounts.remove_account, remove_preview | clear_cursor, UPDATE agent_state | **gap**: with account.remove |
-| ask.ask, ask.withdraw, ask.cancel, ask.resolve, ask._close_replied | requests, events, queue state | inside: what say, ask, chat.withdraw, inbox.answer and inbox.reply run; each of those methods writes its record in the same transaction (slice b made ask and resolve take it) |
+| ask.ask, ask.withdraw, ask.cancel, ask.resolve | requests, events, queue state | inside: what say, ask, chat.withdraw and inbox.reply run; each of those methods writes its record in the same transaction (slice b made ask and resolve take it) |
 | ask._note_nested, ask.note_verb_chain | add_event | inside: events about a command's own process chain, written where the command is served |
 | spawn.spawn, spawn.start_in | set_terminal, open_terminal | inside: agent.create's start step and session.start |
 | trust.propose, trust.apply | open_decision, settle_moot | **gap**: trust.propose, trust.list, trust.remove |
