@@ -312,7 +312,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
   return (
     <ScrollPage
       beside={selected !== null}
-      className="tasks flex flex-col pt-4 outline-none"
+      className="tasks flex flex-col outline-none"
       ref={root}
       tabIndex={0}
       aria-label="Tasks"

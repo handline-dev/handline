@@ -83,7 +83,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
         <p className="settings-lede m-0 basis-full text-body text-ink-2">Defaults for every agent. Each change saves as you make it.</p>
       </PageHead>
       <p className="settings-phone muted hidden max-sm:block">Open this on a computer.</p>
-      <div className="settings-layout grid grid-cols-[160px_minmax(0,var(--w-form))] justify-center gap-6 max-[960px]:grid-cols-[minmax(0,var(--w-form))]">
+      <div className="settings-layout grid grid-cols-[160px_minmax(0,1fr)] gap-6 max-[960px]:grid-cols-[minmax(0,1fr)]">
         {served ? <SectionNav ready={!!v} /> : null}
         <div className="settings-body flex min-w-0 flex-col gap-4 max-sm:hidden">
           {!served ? (

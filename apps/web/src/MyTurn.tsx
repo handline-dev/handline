@@ -7,7 +7,7 @@ import { classify, sentence, useAgents, useInbox, useTasks, useWrite } from '@ha
 import { goTerminal } from './route.ts';
 import { ReasonSheet, useWide } from './taskui.tsx';
 import { TaskDetail } from './TaskDetail.tsx';
-import { Button, Icon, Input, MenuButton, MenuItem } from './ui/index.ts';
+import { Button, Icon, Input, MenuButton, MenuItem, PageHead, PageTitle, ScrollPage } from './ui/index.ts';
 
 /** The cards the person's turn holds: unread items, agents that need them, reports to accept. */
 export function useMyTurn(): { cards: Card[]; loading: boolean } {
@@ -206,15 +206,12 @@ export function MyTurnPage() {
   // Narrow: the task takes the page, with Back. Wide: it opens beside the list, as on the Tasks page.
   if (open !== null && !wide) return <TaskDetail id={open} onBack={() => setOpen(null)} />;
   const list = (
-    <section
-      className={`my-turn h-full min-w-0 flex-1 overflow-auto px-4 pb-6${open === null ? ' mx-auto max-w-[760px]' : ''}`}
-      aria-label="My turn"
-    >
-      <header className="sticky top-0 z-1 bg-canvas py-3">
-        <h2 className="m-0 text-[18px]">
+    <ScrollPage beside={open !== null} className="my-turn" aria-label="My turn">
+      <PageHead>
+        <PageTitle>
           My turn <span className="muted">{cards.length}</span>
-        </h2>
-      </header>
+        </PageTitle>
+      </PageHead>
       {loading ? (
         <p className="muted">Loading…</p>
       ) : cards.length ? (
@@ -229,7 +226,7 @@ export function MyTurnPage() {
           <p>Decisions, approvals and reports to accept show here.</p>
         </div>
       )}
-    </section>
+    </ScrollPage>
   );
   if (open === null) return list;
   return (

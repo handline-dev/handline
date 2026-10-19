@@ -163,7 +163,7 @@ export function AdminPage() {
       <PageHead>
         <PageTitle>Admin</PageTitle>
       </PageHead>
-      <div className="mx-auto flex w-full max-w-[var(--w-form)] flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
         <Daemon />
         <Usage />
         <Wakes />

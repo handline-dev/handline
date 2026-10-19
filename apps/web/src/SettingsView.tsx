@@ -62,7 +62,7 @@ export function SettingsView({ agent }: { agent: string }) {
       {served && !editable ? <p className="muted pad">Only the founder edits agent settings.</p> : null}
       <View q={q} served shape="settings" what={`${agent} settings`}>
         {d ? (
-          <div className="settings-body settings-agent mx-auto flex max-w-[var(--w-form)] min-w-0 flex-col gap-4 max-sm:hidden">
+          <div className="settings-body settings-agent flex min-w-0 flex-col gap-4 max-sm:hidden">
             <SettingsCard>
               <SettingsRow>
                 <RowText>
