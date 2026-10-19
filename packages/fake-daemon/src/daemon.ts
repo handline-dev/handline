@@ -70,7 +70,7 @@ export class FakeDaemon {
   private retention: number;
   private now: () => Date;
   private pairing = new FakePairing();
-  private script = new Script({
+  readonly script = new Script({
     iso: () => this.iso(),
     emit: (topic, type, f) => this.emit(topic, type, f),
     sessions: () => this.sessions,
