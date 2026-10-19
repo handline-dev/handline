@@ -2168,6 +2168,14 @@
      }
     },
     {
+     "name": "force",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Take the input from the person or device that holds it instead of being refused; the holder notice tells them. It never types into the agent's own turn: typing still waits for it."
+     }
+    },
+    {
      "name": "request_id",
      "required": true,
      "schema": {
@@ -2568,7 +2576,7 @@
   },
   {
    "name": "chat.locate",
-   "summary": "Where a message number sits: its conversation, scope, and the page of messages around it.",
+   "summary": "Where a message sits (its msg_ name, a bare hash or its number): its conversation, scope, the page of messages around it and the transcript of the same span.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2605,7 +2613,10 @@
       "message",
       "messages",
       "more_older",
-      "more_newer"
+      "more_newer",
+      "transcript",
+      "transcript_more_older",
+      "transcript_more_newer"
      ],
      "properties": {
       "agent": {
@@ -2635,6 +2646,21 @@
       },
       "more_newer": {
        "type": "boolean"
+      },
+      "transcript": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/TranscriptItem"
+       },
+       "description": "chat.transcript's items for the agent from the second of the page's oldest message to the end of its newest's (on to now when more_newer is false), oldest first: up to 200, kept around message."
+      },
+      "transcript_more_older": {
+       "type": "boolean",
+       "description": "The span has older items than transcript holds; continue with chat.transcript before the first item's id."
+      },
+      "transcript_more_newer": {
+       "type": "boolean",
+       "description": "The span has newer items than transcript holds; continue with chat.transcript since the last item's id."
       }
      }
     }
@@ -4890,13 +4916,115 @@
        "items": {
         "$ref": "#/components/schemas/TimeSegment"
        }
+      },
+      "estimate": {
+       "oneOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Its story points; null when it has none."
+      },
+      "expected": {
+       "oneOf": [
+        {
+         "type": "object",
+         "properties": {
+          "start": {
+           "oneOf": [
+            {
+             "$ref": "#/components/schemas/Timestamp"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "description": "When it is expected to start: when it started for one being worked on; after the owner's current task and every task ahead of it in the order they are handed out, and no earlier than the reset of a limit the owner's account is at. Null when a task ahead has no expected duration."
+          },
+          "end": {
+           "oneOf": [
+            {
+             "$ref": "#/components/schemas/Timestamp"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "description": "start plus duration_s, and the wait for a reset when the account runs out at its current burn before then. Null when the duration is unknown."
+          },
+          "duration_s": {
+           "oneOf": [
+            {
+             "type": "integer"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "description": "How long it is expected to take (for one being worked on, what is left); null when unknown."
+          },
+          "basis": {
+           "oneOf": [
+            {
+             "type": "string",
+             "enum": [
+              "history",
+              "points",
+              "time_box"
+             ]
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "description": "What the duration rests on: the median working time of the last 20 done tasks of its estimate (history), else their median time per point times its points (points), else its time box (time_box); null for none."
+          },
+          "ahead": {
+           "type": "array",
+           "items": {
+            "type": "integer"
+           },
+           "description": "The tasks its owner does first, by number."
+          },
+          "wall_until": {
+           "oneOf": [
+            {
+             "$ref": "#/components/schemas/Timestamp"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "description": "The reset of the account limit that holds it back; null when none does."
+          }
+         },
+         "required": [
+          "start",
+          "end",
+          "duration_s",
+          "basis",
+          "ahead",
+          "wall_until"
+         ]
+        },
+        {
+         "type": "null",
+         "description": "An ended task, or one the founder holds."
+        }
+       ],
+       "description": "When it is expected to start and end, deterministic from its queue, its owner's account and the history of done tasks by estimate; computed on each read, so it moves as they do."
       }
      },
      "required": [
       "task",
       "start",
       "end",
-      "segments"
+      "segments",
+      "estimate",
+      "expected"
      ]
     }
    },
@@ -5066,6 +5194,22 @@
        3
       ],
       "description": "1 high, 2 default, 3 low (written P1-P3). Absent means 2."
+     }
+    },
+    {
+     "name": "estimate",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "enum": [
+       1,
+       2,
+       3,
+       5,
+       8,
+       13
+      ],
+      "description": "Story points: what the task is expected to take, for its expected start and end (task.time). None when absent."
      }
     },
     {
@@ -6463,6 +6607,29 @@
        3
       ],
       "description": "1 high, 2 default, 3 low (written P1-P3)."
+     }
+    },
+    {
+     "name": "estimate",
+     "required": false,
+     "schema": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "enum": [
+         1,
+         2,
+         3,
+         5,
+         8,
+         13
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Story points (as task.new); null clears it."
      }
     },
     {
@@ -11722,6 +11889,10 @@
       "type": "string",
       "description": "Why it asks, as the agent wrote it. Text only, from an agent: a client draws it as plain text, never as markup, and drops control characters. Optional."
      },
+     "note": {
+      "type": "string",
+      "description": "The founder's note on the decision (why it was rejected, say), as hr.decide took it. Absent when the founder gave none or it is still open."
+     },
      "asked": {
       "type": "object",
       "description": "The fields the proposal asks for (vendor, model, effort, team, repo, to, then each `set <key>`). Every value is text from an agent (same rule as `reason`); optional, and a key it did not ask for is absent. Absent for kind bundle: its `diff` carries the changes. members, repos, relation, response and context texts are in `diff` only.",
@@ -13373,12 +13544,6 @@
       "default": 300,
       "description": "Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent."
      },
-     "stop_wait_backstop_s": {
-      "type": "integer",
-      "minimum": 1,
-      "default": 900,
-      "description": "Backstop for a stop-wait."
-     },
      "token_prices": {
       "type": "object",
       "additionalProperties": {
@@ -13541,18 +13706,6 @@
        }
       ],
       "description": "Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. null removes the key (back to the default)."
-     },
-     "stop_wait_backstop_s": {
-      "oneOf": [
-       {
-        "type": "integer",
-        "minimum": 1
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "description": "Backstop for a stop-wait. null removes the key (back to the default)."
      },
      "token_prices": {
       "oneOf": [
@@ -14951,6 +15104,7 @@
        "owner",
        "body",
        "priority",
+       "estimate",
        "timeout",
        "state",
        "tag",
@@ -15175,10 +15329,10 @@
      },
      {
       "type": "string",
-      "pattern": "^#?[0-9a-fA-F]{6,12}$"
+      "pattern": "^(msg_)?[0-9a-fA-F]{6,12}$"
      }
     ],
-    "description": "A request named by its integer id, or by its ref: the 12 hex characters, with or without a leading #, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist."
+    "description": "A request named by its integer id, or by its ref: msg_ and the 12 hex characters, or the hash alone, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist."
    },
    "Resources": {
     "type": "object",

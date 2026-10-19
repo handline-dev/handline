@@ -282,7 +282,7 @@ func addAccounts(t *testing.T, r *launchRig, names ...string) {
 
 func TestRoomIsTheLoggedInAccountNothingSaysIsBad(t *testing.T) {
 	r := newLaunchRig(t)
-	if got := r.l.NoRoom("ann"); got != "no account is registered - `hl account add <name>` first" {
+	if got := r.l.NoRoom("ann"); got != "no account is registered - add one in the app's Accounts page first" {
 		t.Fatal(got)
 	}
 	addAccounts(t, r, "a", "b")

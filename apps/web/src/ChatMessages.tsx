@@ -4,7 +4,7 @@
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { type TaskChange, clockTime, isPerson, landingLabel, openTask, restartCause, sideOf, taskRow, tickLevel } from '@handline/app-core';
-import { useChatActions } from '@handline/app-data';
+import { useChatActions, useWrite } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
@@ -340,6 +340,40 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
   );
 }
 
+/** A batch discard as one card: a line per task with its title and reason; the line opens the task, Reopen brings it back as a draft. */
+function BatchCard({ i }: { i: TranscriptItem }) {
+  const { apply } = useWorkspace();
+  const reopen = useWrite('task.reopen');
+  const b = i.task_batch;
+  if (!b) return null;
+  return (
+    <Card variant="chat" className="card-batch flex-col items-stretch" data-kind="task_batch">
+      <div className="flex items-baseline gap-x-2">
+        <Icon name="withdrawn" size={14} label="Discarded" />
+        <span className="card-event text-meta font-semibold uppercase tracking-wide">Discarded {b.tasks.length}</span>
+        <span className="muted card-time ml-auto">{clockTime(i.at)}</span>
+      </div>
+      {b.tasks.map((t) => (
+        <div key={t.task} className="flex items-baseline gap-x-2" data-task={t.task}>
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 cursor-pointer flex-wrap items-baseline gap-x-2 border-0 bg-transparent p-0 text-left text-body"
+            title={`Open T${t.task} in the Tasks tab`}
+            onClick={() => apply((w) => openTask(w, t.task))}
+          >
+            <span className="mono">T{t.task}</span>
+            <span className="max-w-[28ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{t.title}</span>
+            <span className="muted min-w-0 break-words">{t.reason}</span>
+          </button>
+          <Button label={`Reopen T${t.task}`} onClick={() => reopen.mutate({ task: t.task, note: 'reopened from the batch card' })}>
+            Reopen
+          </Button>
+        </div>
+      ))}
+    </Card>
+  );
+}
+
 /** A transcript line that is not a message: a reply, tool, prompt, session or task line. */
 export function Item({
   i,
@@ -396,5 +430,6 @@ export function Item({
     );
   }
   if (i.kind === 'session') return <SessionCard i={i} />;
+  if (i.kind === 'task_batch') return <BatchCard i={i} />;
   return <TaskLine i={i} titles={titles} agent={agent} />;
 }

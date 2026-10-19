@@ -320,6 +320,23 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(changed.className).toContain('w-fit');
   });
 
+  it('a batch discard is one card with a line per task: the line opens the task, Reopen brings it back', async () => {
+    const s = setup();
+    s.daemon.chat.seedItem(ARCH, {
+      at: new Date().toISOString(),
+      kind: 'task_batch',
+      task_batch: { batch: 'b1', who: ARCH, tasks: [{ task: 1684, title: 'Gap list', reason: 'merged into T1700' }, { task: 1685, title: 'Second', reason: 'stale' }] },
+    });
+    await mount(ARCH, s);
+    await until(() => $('[data-kind="task_batch"]'), 'the batch card');
+    const card = $('[data-kind="task_batch"]')!;
+    expect(text(card)).toContain('Discarded 2');
+    expect($$('[data-kind="task_batch"] [data-task]').map((l) => l.getAttribute('data-task'))).toEqual(['1684', '1685']);
+    expect(text(card.querySelector('[data-task="1684"]'))).toContain('merged into T1700');
+    await click(card.querySelector('[data-task="1684"] button')!);
+    await until(() => text($('.tdetail-head')).includes('1684'), 'task 1684 in the detail');
+  });
+
   it('a click on a task line opens that task in the Tasks tab', async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');

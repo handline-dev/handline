@@ -851,7 +851,61 @@ func (e *Env) chatLocate(c *rpc.Conn, params map[string]any) (any, error) {
 	if everyone {
 		scope = "all"
 	}
-	return map[string]any{"agent": chatAgent, "scope": scope, "message": message, "messages": page, "more_older": older, "more_newer": newer}, nil
+	// The transcript of the same stretch of time, so the client draws the window with no second call: from the second of the oldest message
+	// to the end of that of the newest, or on to now when nothing is newer.
+	from, to := all[len(all)-1].i("ts")*1_000_000, int64(0)
+	if newer {
+		to = (all[0].i("ts") + 1) * 1_000_000
+	}
+	items, cutOlder, cutNewer, err := e.transcriptSpan(chatAgent, from, to, r.i("ts")*1_000_000)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"agent": chatAgent, "scope": scope, "message": message, "messages": page, "more_older": older, "more_newer": newer,
+		"transcript": items, "transcript_more_older": cutOlder, "transcript_more_newer": cutNewer}, nil
+}
+
+// transcriptSpan are agent's transcript items with ids from from up to to (0: no end), oldest first: up to maxLimit, kept around at.
+// cutOlder and cutNewer are whether the span has more at that end, for chat.transcript before and since to go on from.
+func (e *Env) transcriptSpan(agent string, from, to, at int64) (items []any, cutOlder, cutNewer bool, err error) {
+	// The tool calls are read from at both ways, a page each; where a page is full, what lies past its last call is not read, so the span
+	// ends there and says it was cut.
+	older, err := transcript.Tools(e.DB, agent, transcript.ToolWindow{Before: at, Limit: maxLimit + 1})
+	if err != nil {
+		return nil, false, false, err
+	}
+	newer, err := transcript.Tools(e.DB, agent, transcript.ToolWindow{Since: at, Limit: maxLimit + 1})
+	if err != nil {
+		return nil, false, false, err
+	}
+	if len(older) > maxLimit && older[0].ID > from {
+		from, cutOlder = older[0].ID, true
+	}
+	if len(newer) > maxLimit && (to == 0 || newer[len(newer)-1].ID < to) {
+		to, cutNewer = newer[len(newer)-1].ID+1, true
+	}
+	all, err := e.transcriptItems(agent, append(older, newer...))
+	if err != nil {
+		return nil, false, false, err
+	}
+	var span []map[string]any
+	for _, it := range all {
+		if id := it["id"].(int64); id >= from && (to == 0 || id < to) {
+			span = append(span, it)
+		}
+	}
+	if len(span) > maxLimit {
+		mid := sort.Search(len(span), func(i int) bool { return span[i]["id"].(int64) >= at })
+		lo := max(0, min(mid-maxLimit/2, len(span)-maxLimit))
+		cutOlder, cutNewer = cutOlder || lo > 0, cutNewer || lo+maxLimit < len(span)
+		span = span[lo : lo+maxLimit]
+	}
+	fitToolOutput(span)
+	items = make([]any, len(span))
+	for i, it := range span {
+		items[i] = it
+	}
+	return items, cutOlder, cutNewer, nil
 }
 
 func (e *Env) chatSearch(c *rpc.Conn, params map[string]any) (any, error) {
@@ -986,26 +1040,9 @@ func changeOf(kind string, p map[string]any) string {
 	return ""
 }
 
-func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
-	before, err := rangedInt(params, "before", 0, 0)
-	if err != nil {
-		return nil, err
-	}
-	since, err := rangedInt(params, "since", 0, 0)
-	if err != nil {
-		return nil, err
-	}
-	limit, err := limitOr(params, maxLimit, defaultLimit)
-	if err != nil {
-		return nil, err
-	}
-	if before != nil && since != nil {
-		return nil, badParam("before and since are one or the other", "since")
-	}
-	agent, err := e.chatAgent(params, true)
-	if err != nil {
-		return nil, err
-	}
+// transcriptItems are agent's transcript items, oldest first: its replies, the tool calls given, its prompt cards, its session starts
+// and its tasks' events, each source up to perSource of its newest.
+func (e *Env) transcriptItems(agent string, tools []transcript.Tool) ([]map[string]any, error) {
 	var items []map[string]any
 	// A structured session's text blocks are its replies: each is a transcript event, and the event holds this item's id.
 	texts, err := transcript.Replies(e.DB, agent, perSource)
@@ -1014,16 +1051,6 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	for _, t := range texts {
 		items = append(items, map[string]any{"id": t.ID, "at": ts(t.At), "kind": "reply", "text": t.Text})
-	}
-	window := transcript.ToolWindow{Limit: limit + 1} // what a before page keeps, and one more to say there is more
-	if since != nil {
-		window.Since, window.Limit = *since, maxLimit+1 // a since page keeps up to maxLimit of every source, whatever limit says
-	} else if before != nil {
-		window.Before = *before
-	}
-	tools, err := transcript.Tools(e.DB, agent, window)
-	if err != nil {
-		return nil, err
 	}
 	for _, t := range tools {
 		item := map[string]any{"id": t.ID, "at": ts(t.At), "kind": "tool", "tool": t.Name, "text": t.Text}
@@ -1066,6 +1093,43 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 		}
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i]["id"].(int64) < items[j]["id"].(int64) })
+	return items, nil
+}
+
+func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
+	before, err := rangedInt(params, "before", 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	since, err := rangedInt(params, "since", 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	limit, err := limitOr(params, maxLimit, defaultLimit)
+	if err != nil {
+		return nil, err
+	}
+	if before != nil && since != nil {
+		return nil, badParam("before and since are one or the other", "since")
+	}
+	agent, err := e.chatAgent(params, true)
+	if err != nil {
+		return nil, err
+	}
+	window := transcript.ToolWindow{Limit: limit + 1} // what a before page keeps, and one more to say there is more
+	if since != nil {
+		window.Since, window.Limit = *since, maxLimit+1 // a since page keeps up to maxLimit of every source, whatever limit says
+	} else if before != nil {
+		window.Before = *before
+	}
+	tools, err := transcript.Tools(e.DB, agent, window)
+	if err != nil {
+		return nil, err
+	}
+	items, err := e.transcriptItems(agent, tools)
+	if err != nil {
+		return nil, err
+	}
 	more := false
 	if since != nil { // from the second since is in: a source that wrote later in it has an id below it
 		floor := *since / 1_000_000 * 1_000_000

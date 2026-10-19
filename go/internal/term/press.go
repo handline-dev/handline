@@ -589,6 +589,7 @@ const (
 type Turns interface {
 	WaitIdle(handle string, timeout time.Duration) (idle, known bool)
 	Background(handle string) (running string, known bool)
+	Settled(handle string) bool
 }
 
 // WaitIdle is whether the agent at handle is idle within timeoutMs.

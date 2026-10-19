@@ -142,8 +142,8 @@ func (e *Env) SweepEndings() error {
 			"%s subscription ends %s\n\n"+
 				"Account %s's one-month subscription ends %s (its last usable day), in "+
 				"%s h. After that it is shown as ended and no agent is placed on it; "+
-				"it is not removed. To keep it, resubscribe and run "+
-				"`hl account cycle %s --end YYYY-MM-DD`; to let it end, do nothing. "+
+				"it is not removed. To keep it, resubscribe and set the new end day in "+
+				"the app's settings for %s; to let it end, do nothing. "+
 				"This task closes by itself once the account has ended or its end date changes.", acct, day, acct, day, hours, acct),
 			"subscription ending")
 		if err != nil {

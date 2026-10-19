@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -87,8 +88,10 @@ func TestTwoSlotsLetTwoRunsAtOnce(t *testing.T) {
 // A holder killed outright frees its slot: the kernel drops its lock, no one has to clean up after it.
 func TestAKilledHolderFreesItsSlot(t *testing.T) {
 	bin, slots := build(t)
-	a, _ := start(t, bin, slots, nil, "sleep", "60")
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	a, _ := start(t, bin, slots, nil, "sh", "-c", `echo $$ >"$0"; exec sleep 60`, pidFile)
 	waitHeld(t, slots)
+	t.Cleanup(func() { syscall.Kill(-readPid(t, pidFile), syscall.SIGKILL) }) // the sleep's own group, which the holder's kill misses
 	b, berr := start(t, bin, slots, nil, "true")
 	time.Sleep(300 * time.Millisecond)
 	if err := a.Process.Kill(); err != nil { // the holder only: its sleep lives on, and must not hold the slot
@@ -103,6 +106,84 @@ func TestAKilledHolderFreesItsSlot(t *testing.T) {
 		}
 	case <-time.After(3 * poll):
 		t.Fatalf("the slot stayed held after its holder was killed: %s", berr)
+	}
+}
+
+// readPid waits for the pid a command wrote to path.
+func readPid(t *testing.T, path string) int {
+	t.Helper()
+	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		if b, err := os.ReadFile(path); err == nil {
+			if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && pid > 0 {
+				return pid
+			}
+		}
+	}
+	t.Fatal("the command never wrote its pid")
+	return 0
+}
+
+// A signal to the run reaches everything the command started, not only the command: a step it was in stops at once.
+func TestASignalStopsEverythingTheRunStarted(t *testing.T) {
+	bin, slots := build(t)
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	c, _ := start(t, bin, slots, nil, "sh", "-c", `sleep 60 & echo $! >"$0"; wait`, pidFile)
+	sleep := readPid(t, pidFile)
+	t.Cleanup(func() { syscall.Kill(sleep, syscall.SIGKILL) })
+	if err := c.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	// Before Wait, which a child that outlived the signal holds up through the stderr pipe it shares.
+	for end := time.Now().Add(5 * time.Second); syscall.Kill(sleep, 0) == nil; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatal("the command's child outlived the signal")
+		}
+	}
+	c.Wait()
+}
+
+// On a terminal the command stays in the terminal's foreground group: a step that sets the terminal's modes is not stopped.
+func TestOnATerminalAStepMaySetItsModes(t *testing.T) {
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("no python3 to open a pty with")
+	}
+	bin, slots := build(t)
+	// The child of forkpty runs heavyslot on the pty; the parent prints what it reads until the child exits.
+	script := `import os, sys
+pid, fd = os.forkpty()
+if pid == 0:
+    os.execv(sys.argv[1], sys.argv[1:])
+out = b""
+while True:
+    try:
+        b = os.read(fd, 1024)
+    except OSError:
+        break
+    if not b:
+        break
+    out += b
+os.waitpid(pid, 0)
+sys.stdout.write(out.decode(errors="replace"))
+`
+	cmd := exec.Command(py, "-c", script, bin, "--", "sh", "-c", "stty -echo; stty echo; echo ok")
+	cmd.Env = append(os.Environ(), "HANDLINE_HEAVY_DIR="+slots, "HANDLINE_HEAVY_SLOT=", "HANDLINE_HEAVY_SLOTS=", "OCP_AGENT=tester")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil || !strings.Contains(out.String(), "ok") {
+			t.Fatalf("%v %q", err, out.String())
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("a step that set the terminal's modes hung")
 	}
 }
 

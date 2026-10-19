@@ -7,7 +7,7 @@ import (
 )
 
 // Answering the dialogs a working agent meets all day, behind one global setting, on by default: `auto_accept_dialogs` in
-// config.yaml, `hl auto-accept`.
+// config.yaml, set from the app's settings.
 //
 // Two things are answered. A dialog the founder gave a standing answer (team/dialog_rules) is answered with that rule's option, by
 // its number on the screen just read; a dialog no rule matches is left for the founder. The folder-trust screen is lifecycle's

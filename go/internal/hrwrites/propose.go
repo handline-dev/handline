@@ -147,8 +147,9 @@ func (e *Env) draft(actor, kind string, args map[string]any, why string, registe
 		if slices.Contains(registered, name) {
 			return nil, fmt.Sprintf("%s is already an agent", name)
 		}
+	case "unlink": // edgeRefusal checks the edge is in team.yaml, whatever its ends
 	default:
-		if !slices.Contains(registered, name) {
+		if !slices.Contains(registered, name) && !(kind == "link" && patternEnd(name)) {
 			return nil, fmt.Sprintf("%s is not an agent", name)
 		}
 	}
@@ -303,7 +304,7 @@ func (e *Env) raised(c *rpc.Conn, prop *Prop, said string) (any, error) {
 	if c.Caller.Actor() == db.Human {
 		// The founder's own change is applied at once: the gate stops an agent changing the roster on its own, and asking the founder to approve
 		// what they just typed is ceremony. It goes through decide, so the approval is on record as any other's; a failed apply stays listed.
-		done, applied, err := e.decide(prop.id(), "approved", db.Human, "enacted by the founder", prop.subject(), false)
+		done, applied, err := e.decide(prop.id(), "approved", db.Human, "", prop.subject(), false)
 		if err != nil {
 			return nil, err
 		}

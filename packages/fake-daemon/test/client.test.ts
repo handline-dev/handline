@@ -212,6 +212,22 @@ test('the input holder: others are refused, release hands back to the daemon', a
   b.close();
 });
 
+test('force takes the input from another holder, who is told', async () => {
+  const { client: a, daemon, net } = setup({ client: 'web-a' });
+  await a.start();
+  await a.startSession(A);
+  const b = second(daemon, net, { client: 'phone-b', reconnect: false });
+  await b.start();
+  await a.takeInput(A);
+  await assert.rejects(b.takeInput(A), (e: RpcError) => e.gate === 'input_holder');
+  await assert.rejects(b.call('input.take', { agent: A, force: 'yes' as unknown as boolean }), (e: RpcError) => e.data?.field === 'force');
+  const taken = await b.call('input.take', { agent: A, force: true });
+  assert.equal(taken.holder.name, 'phone-b');
+  await assert.rejects(a.sendInput(A, 'hi'), (e: RpcError) => e.gate === 'input_holder' && /phone-b holds/.test(e.message));
+  a.close();
+  b.close();
+});
+
 test('stop, restart and park pass the lifecycle gates, not the holder gate', async () => {
   const { client: a, daemon, net } = setup({ client: 'web-a' });
   await a.start();
