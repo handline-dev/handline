@@ -26,13 +26,16 @@ let root: Root | null = null;
 let box: HTMLElement;
 const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const msg = (body: string) => [...box.querySelectorAll<HTMLElement>('.msg')].find((m) => m.textContent?.includes(body));
+const ids: number[] = [];
 const rows = () => box.querySelectorAll('.stream .msg[data-id]').length;
 
 /** The chat with the plan message far below the newest page, and a reference to it in the newest message; the reference is clicked and the window is open. */
 async function jumped() {
   const s = setup();
   for (let i = 0; i < 120; i++)
-    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: `filler ${i}`, at: new Date(Date.UTC(2031, 0, 1, 0, i)).toISOString() });
+    ids.push(
+      s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: `filler ${i}`, at: new Date(Date.UTC(2031, 0, 1, 0, i)).toISOString() }),
+    );
   s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'see #100 for the plan', at: '2032-01-01T00:00:00Z' }); // local-ref-ok
   location.hash = `#/agents/${ARCH}`;
   box = document.body.appendChild(document.createElement('div'));
@@ -46,6 +49,7 @@ async function jumped() {
 }
 
 afterEach(async () => {
+  ids.length = 0;
   await act(async () => root?.unmount());
   root = null;
   box?.remove();
@@ -85,5 +89,13 @@ describe('a jump to an old message', () => {
     await act(async () => void $('.stream')!.dispatchEvent(new Event('wheel', { bubbles: true })));
     await fire();
     await until(() => rows() > before, 'a page after the person scrolls');
+  });
+
+  it('a second jump to a message the window does not hold relocates to it', async () => {
+    await jumped();
+    const far = ids[119]!; // the newest filler: not in the window around #100
+    expect(msg('filler 119')).toBeUndefined();
+    await act(async () => void (location.hash = `#/agents/${ARCH}?m=${far}`));
+    await until(() => msg('filler 119'), 'the window of the second target');
   });
 });

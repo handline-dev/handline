@@ -259,7 +259,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     wanted.done();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wanted.id, chat.status]);
-  const where = locate.data?.scope;
+  const found = locate.data?.message.id === going ? locate.data : undefined; // the read keeps the last jump's answer while the next loads
+  const where = found?.scope;
   useEffect(() => {
     if (going === null || !where) return;
     if (where !== scope) {
@@ -268,7 +269,6 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
       return setGoing(null);
     }
     if (jumpTo(going)) return setGoing(null);
-    const found = locate.data;
     if (!found) return;
     if (win.target !== going) {
       // Not drawn: the stretch around it is read at once, not paged up to.
@@ -276,7 +276,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
       win.open(going, found.messages, found.more_older, found.more_newer);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [going, where, scope, locate.data, windowed, entries.length]);
+  }, [going, where, scope, found, windowed, entries.length]);
 
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
