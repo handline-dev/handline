@@ -1,6 +1,6 @@
 {
   "agentGuidance": false,
-  "globalPassThroughEnv": ["TMPDIR"],
+  "globalPassThroughEnv": ["TMPDIR", "HANDLINE_HEAVY_SLOT", "HANDLINE_HEAVY_SLOTS", "HANDLINE_HEAVY_DIR"],
   "cacheDir": ".turbo/cache",
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
