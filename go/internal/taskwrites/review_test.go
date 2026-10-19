@@ -106,6 +106,9 @@ func TestAnAcceptedTaskWithAPRWaitsOnItsMerge(t *testing.T) {
 	if r := run("w", "task.done", "d2", `,"task":1,"evidence":"merged now"`); !strings.Contains(errText(r), "closes when PR #12 merges: mark it done with the merge sha") {
 		t.Fatalf("words do not close it: %v", r)
 	}
+	if r := run("boss", "task.done", "d4", fmt.Sprintf(`,"task":1,"evidence":%q,"repo":%q`, merge, repo)); !strings.Contains(errText(r), "can only be marked done by its owner (w)") {
+		t.Fatalf("the merge sha closes it only by one who may review it: %v", r)
+	}
 	if got := said(t, run("lead", "task.done", "d3", fmt.Sprintf(`,"task":1,"evidence":%q,"repo":%q`, merge, repo))); got != "task T1 done ("+merge+")" {
 		t.Fatalf("the merge closes it, done by the lead: %q", got)
 	}

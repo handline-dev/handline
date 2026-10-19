@@ -22,7 +22,7 @@ func TestATaskInReviewWaitsOnTheLeadThenOnTheMerge(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		task, err := e.taskOf(rows[0], "review")
+		task, err := e.taskOf(rows[0], "review", &board{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -74,5 +74,23 @@ func TestTheHistorySaysWhoMovedATaskThroughReview(t *testing.T) {
 	}
 	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("got:\n%s\nwant:\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestABoardReadsTheTeamOnce(t *testing.T) {
+	e := testEnv(t)
+	team := filepath.Join(e.Home, "team.yaml")
+	if err := os.WriteFile(team, []byte("teams:\n  lead: [lead, w]\nagents:\n  lead: {}\n  w: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := &board{}
+	if got := b.leadOf(e.Home, "w"); got != "lead" {
+		t.Fatalf("lead %q", got)
+	}
+	if err := os.Remove(team); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.leadOf(e.Home, "w"); got != "lead" {
+		t.Fatalf("the team was read again: %q", got)
 	}
 }
