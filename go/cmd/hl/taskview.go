@@ -134,6 +134,9 @@ func detailLines(t obj, now float64, home string) []string {
 	}
 	if r, ok := t["report"].(obj); ok {
 		out = append(out, fmt.Sprintf("answered %s: %s", stamp(r["at"]), str(r, "evidence")))
+		if a, ok := r["accepted"].(obj); ok {
+			out = append(out, fmt.Sprintf("accepted %s by %s: closes when PR #%d merges", stamp(a["at"]), str(a, "by"), num(t, "pr")))
+		}
 	}
 	if r, ok := t["result"].(obj); ok {
 		out = append(out, resultLines(r, num(t, "id"), home)...)
@@ -253,7 +256,7 @@ func waitsOn(t obj) string {
 	if asker == "" {
 		asker = str(t, "from")
 	}
-	if str(t, "to") == "human" || str(t, "state") == "answered" && asker == "human" {
+	if str(t, "to") == "human" || str(t, "state") == "review" && reviewWaitsOn(t) == "human" {
 		return "human"
 	}
 	var on []string
@@ -332,7 +335,7 @@ func taskList(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if state, given := p.opt("--state"); given {
 		switch state {
-		case "draft", "queued", "doing", "answered", "done", "discarded":
+		case "draft", "queued", "doing", "review", "done", "discarded":
 			params["state"] = state
 		default:
 			return 0, false
@@ -457,7 +460,7 @@ func taskBoard(c *hlclient.Client, args []string) (int, bool) {
 		}
 		fmt.Println(fit100(fmt.Sprintf("%-5s %s%s", fmt.Sprintf("T%d", num(t, "id")), textsafe.Oneline(str(t, "title")), parent)))
 		said := nowSaid(now)
-		if str(t, "state") == "answered" {
+		if str(t, "state") == "review" {
 			said = stateSaid(t)
 		}
 		fmt.Println(fit100(fmt.Sprintf("      assignee %s  owner %s  now: %s", str(t, "to"), str(t, "asker"), said)))
@@ -471,16 +474,18 @@ func taskBoard(c *hlclient.Client, args []string) (int, bool) {
 	return 0, true
 }
 
-// stateSaid is a task's state as read: an answered one names who it waits on, its asker, else its opener (cli/task._state).
+// stateSaid is a task's state as read: one in review names who it waits on.
 func stateSaid(t obj) string {
-	if str(t, "state") != "answered" {
+	if str(t, "state") != "review" {
 		return str(t, "state")
 	}
-	who := str(t, "asker")
-	if who == "" {
-		who = str(t, "from")
-	}
-	return "answered, awaiting " + who
+	return "review, awaiting " + reviewWaitsOn(t)
+}
+
+// reviewWaitsOn is who a task in review waits on, as its report says.
+func reviewWaitsOn(t obj) string {
+	r, _ := t["report"].(obj)
+	return str(r, "waits_on")
 }
 
 // nowSaid is who holds a task now, in words (cli/task.cmd_task_board).

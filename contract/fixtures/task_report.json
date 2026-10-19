@@ -85,7 +85,7 @@
    "with": {
     "boss": "founder"
    },
-   "about": "A done by an owner the task does not answer to leaves it answered, the done its report; the opener's accept closes it with that evidence.",
+   "about": "A done by an owner the task does not answer to, with a lead, leaves it in review, the done its report, waiting on that lead; the opener's accept closes it with that evidence.",
    "steps": [
     {
      "send": {
@@ -168,7 +168,7 @@
       }
      },
      "result": {
-      "state": "answered",
+      "state": "review",
       "evidence": {
        "$type": "null"
       },
@@ -177,6 +177,12 @@
        "evidence": "built and tested",
        "at": {
         "$type": "timestamp"
+       },
+       "waits_on": {
+        "$type": "string"
+       },
+       "accepted": {
+        "$type": "null"
        }
       }
      }

@@ -82,9 +82,9 @@ func TestTaskHistoryShowsAnAnswerAndWhoTookTheTaskBack(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("%v %s: %q -> %q", m["by"], m["field"], m["was"], m["now"]))
 	}
 	want := []string{
-		`boss state: "answered" -> "queued"`,
+		`boss state: "review" -> "queued"`,
 		`boss assignee: "human" -> "boss"`,
-		`human state: "opened" -> "answered"`,
+		`human state: "opened" -> "review"`,
 		`boss state: "" -> "opened"`,
 		`boss assignee: "" -> "human"`,
 		`boss title: "" -> "merge it"`,

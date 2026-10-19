@@ -233,3 +233,27 @@ func newHome(t *testing.T) string {
 	}
 	return home
 }
+
+func TestLeadAndAuditorOfAnAgent(t *testing.T) {
+	home := newHome(t)
+	os.WriteFile(filepath.Join(home, "team.yaml"), []byte("teams:\n  web: [web, web.dev, web.auditor]\n  ops: [ops.dev]\n"+
+		"agents:\n  web: {}\n  web.dev: {}\n  web.auditor: {}\n  ops: {}\n  ops.dev: {}\n"), 0o644)
+	tm, err := LoadTeam(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ agent, lead, auditor string }{
+		{"web.dev", "web", "web.auditor"},
+		{"web.auditor", "web", "web.auditor"},
+		{"ops.dev", "ops", ""}, // no manager in its team: the agent its name hangs under
+		{"web", "", "web.auditor"},
+	} {
+		if l, a := tm.LeadOf(c.agent), tm.AuditorOf(c.agent); l != c.lead || a != c.auditor {
+			t.Errorf("%s: lead %q auditor %q, want %q %q", c.agent, l, a, c.lead, c.auditor)
+		}
+	}
+	var none *Team
+	if none.LeadOf("web.dev") != "" || none.AuditorOf("web.dev") != "" {
+		t.Error("no team.yaml: no lead, no auditor")
+	}
+}
