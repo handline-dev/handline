@@ -580,6 +580,16 @@ export type Account = {
   assignable?: boolean;
   /** Only with accounts.list `usage: true`. Why assignable is what it is. */
   assign_reason?: string;
+  /** Set while the account is STALLED: a turn on it ended on an error that says the account itself cannot be used (a refused login, an org that disallows it, a hold or billing problem), or on one error the daemon does not name four times with no good turn between. No agent is placed on it; account.wake, a login or a good turn there ends it. null while it is usable. Absent from a daemon that does not send it. */
+  stalled?: {
+    /** The line a row shows beside STALLED, as an agent's stall does: `login expired` for authentication_failed, else the error itself. */
+    reason: string;
+    /** The StopFailure error that stalled it, as the CLI gave it. */
+    error: string;
+    /** The turn that showed it, in words. */
+    detail: string;
+    since: Timestamp;
+  } | null;
 };
 
 export type DaemonStatus = {
@@ -1537,6 +1547,20 @@ export type Resources = {
   };
 };
 
+/** One stretch of a task's time: one block of the bar under its title, sized by seconds. */
+export type TimeSegment = {
+  /** queued: not yet with its holder. waiting: held up, on says by what. starting: its holder's session is being launched, woken or handed off. working: its holder has it and nothing holds it up. */
+  kind: "queued" | "waiting" | "starting" | "working";
+  on: ("founder" | "task" | "agent" | "account") | null;
+  /** The reason as shown: `waiting on you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working. */
+  text: string;
+  task: number | null;
+  from: Timestamp;
+  to: Timestamp;
+  /** to less from. */
+  seconds: number;
+};
+
 export type ChatAction = {
   key: "accept" | "send_back" | "ok" | "no";
   label: string;
@@ -2172,6 +2196,14 @@ export interface Methods {
     task: number;
     rows: HistoryRow[];
   } };
+  "task.time": { params: {
+  task: number;
+}; result: {
+    task: number;
+    start: Timestamp;
+    end: Timestamp | null;
+    segments: TimeSegment[];
+  } };
   "task.shot": { params: {
   task: number;
   /** The screenshot's number in the task's result, from 1. */
@@ -2527,6 +2559,10 @@ export interface Methods {
   cycle_end?: string | null;
   request_id: RequestId;
 }; result: Accepted };
+  "account.wake": { params: {
+  account: string;
+  request_id: RequestId;
+}; result: Accepted };
   "account.add": { params: {
   /** The new account's name: one plain line, no slash, not starting with a dot. */
   account: string;
@@ -2783,6 +2819,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.get": { role: "agent", callers: null, write: false, since: 1 },
   "task.history": { role: "agent", callers: null, write: false, since: 1 },
+  "task.time": { role: "agent", callers: null, write: false, since: 1 },
   "task.shot": { role: "member", callers: null, write: false, since: 1 },
   "task.new": { role: "agent", callers: null, write: true, since: 1 },
   "task.handoff": { role: "agent", callers: null, write: true, since: 1 },
@@ -2826,6 +2863,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "accounts.list": { role: "agent", callers: null, write: false, since: 1 },
   "status.pick": { role: "agent", callers: null, write: false, since: 1 },
   "account.set": { role: "founder", callers: null, write: true, since: 1 },
+  "account.wake": { role: "founder", callers: null, write: true, since: 1 },
   "account.add": { role: "founder", callers: null, write: true, since: 1 },
   "account.login": { role: "founder", callers: null, write: true, since: 1 },
   "account.login_cancel": { role: "founder", callers: null, write: true, since: 1 },

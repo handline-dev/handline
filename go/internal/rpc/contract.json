@@ -17,6 +17,9 @@
  "account.set": {
   "role": "founder"
  },
+ "account.wake": {
+  "role": "founder"
+ },
  "accounts.list": {
   "role": "agent"
  },
@@ -346,6 +349,9 @@
   "role": "member"
  },
  "task.start": {
+  "role": "agent"
+ },
+ "task.time": {
   "role": "agent"
  },
  "task.view.delete": {

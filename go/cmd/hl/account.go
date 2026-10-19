@@ -7,12 +7,34 @@ import (
 	"github.com/handline/handline/go/internal/hlclient"
 )
 
-// account is the `hl account` subcommands ported so far: cap. The rest print what accounts.list does not carry yet.
+// account is the `hl account` subcommands ported so far: cap and wake. The rest print what accounts.list does not carry yet.
 func account(c *hlclient.Client, args []string) (int, bool) {
-	if len(args) == 0 || args[0] != "cap" {
+	if len(args) == 0 {
 		return 0, false
 	}
-	return accountCap(c, args[1:])
+	switch args[0] {
+	case "cap":
+		return accountCap(c, args[1:])
+	case "wake":
+		return accountWake(c, args[1:])
+	}
+	return 0, false
+}
+
+// accountWake ends a STALLED account's stall, through account.wake, as hl wake does for a stalled agent; the founder's.
+func accountWake(c *hlclient.Client, args []string) (int, bool) {
+	p, ok := parse(args, nil, nil, nil)
+	if !ok || len(p.pos) != 1 || !settingsCaller(c) {
+		return 0, false
+	}
+	c.NoteVerbChain([]string{"account", "wake"})
+	ok, said := c.Write("account.wake", map[string]any{"account": p.pos[0]})
+	if !ok {
+		fmt.Fprintln(os.Stderr, said)
+		return 1, true
+	}
+	fmt.Println(said)
+	return 0, true
 }
 
 // accountCap shows or sets the most agents mid-turn on an account (cli/account.py cmd_account_cap): the cap in force from
