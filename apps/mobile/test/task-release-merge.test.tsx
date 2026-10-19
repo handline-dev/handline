@@ -2,7 +2,7 @@
 // least one other task chosen and folds them, and a refusal keeps the sheet with its reason.
 import { describe, expect, it } from 'vitest';
 import type { setup } from '@handline/fake-daemon/helpers';
-import { $, fill, mount, press, text, until, value } from './harness.tsx';
+import { $, fill, mount, press, text, until, value , verb } from './harness.tsx';
 
 const DOING = 1684;
 const OTHER = 1690; // queued
@@ -20,7 +20,7 @@ describe('Release a task', () => {
   it('sends nothing without a reason, then releases and the task leaves doing', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(DOING);
-    await press($('verb-release'));
+    await press(await verb('release'));
     await press($('sheet-submit'));
     expect($('sheet-error')?.textContent).toBe('A reason is required.');
     expect(stateOf(m, DOING)).toBe('doing');
@@ -34,7 +34,7 @@ describe('Release a task', () => {
   it('keeps the reason and says why when the daemon refuses', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(DOING);
-    await press($('verb-release'));
+    await press(await verb('release'));
     await fill('release-reason', 'moving on');
     m.daemon.knobs.refuse('task.release', 'state', 'the agent is mid-turn');
     await press($('sheet-submit'));
@@ -55,7 +55,7 @@ describe('Merge tasks', () => {
   it('needs one other task chosen, then folds it into this one', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(DOING);
-    await press($('verb-merge'));
+    await press(await verb('merge'));
     await press($('sheet-submit'));
     expect($('sheet-error')?.textContent).toBe('Pick at least one task to fold in.');
     expect($(`merge-${DOING}`)).toBeNull();
@@ -70,7 +70,7 @@ describe('Merge tasks', () => {
   it('says why on a refusal and keeps the choice', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(DOING);
-    await press($('verb-merge'));
+    await press(await verb('merge'));
     await until(() => $(`merge-${OTHER}`), 'the other task');
     await press($(`merge-${OTHER}`));
     m.daemon.knobs.refuse('task.merge', 'state', 'that task is held');
@@ -84,7 +84,7 @@ describe('Merge tasks', () => {
   it('disables the control, with the reason, on a daemon without the verbs', async () => {
     const m = await mount(undefined, undefined, 'founder');
     await openTask(DOING);
-    await until(() => $('verb-merge'), 'the verbs');
+    await verb('merge');
     expect(($('verb-merge') as HTMLButtonElement).disabled).toBe(true);
     m.store.stop();
   }, 20000);

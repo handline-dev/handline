@@ -19,12 +19,15 @@ func (f fakeSessions) Structured(a string) bool { return f.structured[a] }
 func (f fakeSessions) Alive(a string) bool      { return f.alive[a] }
 func (f fakeSessions) Busy(a string) bool       { return f.busy[a] }
 
-type fakeBackground struct{ wallErr map[string]error }
+type fakeBackground struct {
+	wallErr map[string]error
+	work    map[string]bool
+}
 
-func (fakeBackground) HasBackgroundWork(db.Q, string) (bool, error) { return false, nil }
-func (fakeBackground) BgSince(db.Q, string) (int64, bool, error)    { return 0, false, nil }
-func (fakeBackground) BgStale(db.Q, string, int64) (bool, error)    { return false, nil }
-func (fakeBackground) BgPromptedAt(db.Q, string) (int64, error)     { return 0, nil }
+func (f fakeBackground) HasBackgroundWork(_ db.Q, a string) (bool, error) { return f.work[a], nil }
+func (fakeBackground) BgSince(db.Q, string) (int64, bool, error)          { return 0, false, nil }
+func (fakeBackground) BgStale(db.Q, string, int64) (bool, error)          { return false, nil }
+func (fakeBackground) BgPromptedAt(db.Q, string) (int64, error)           { return 0, nil }
 func (f fakeBackground) WallReason(_ db.Q, a string, _ *db.AgentState) (string, error) {
 	return "", f.wallErr[a]
 }
@@ -54,7 +57,7 @@ func newRig(t *testing.T, structured ...string) *rig {
 	t.Cleanup(func() { d.Close() })
 	r := &rig{
 		sess: fakeSessions{map[string]bool{}, map[string]bool{}, map[string]bool{}},
-		bg:   fakeBackground{wallErr: map[string]error{}},
+		bg:   fakeBackground{wallErr: map[string]error{}, work: map[string]bool{}},
 		pr:   fakePrompts{open: map[string]*prompts.Block{}},
 	}
 	names := []string{}
@@ -322,11 +325,18 @@ func TestAHandoffShowsFromTheNoteWaitThroughTheLaunchUntilTheNewSessionBegins(t 
 		t.Fatalf("a restart reads %v %q", v["state"], v["state_detail"])
 	}
 
+	// One restart is one state: the line stays until the chat can show the New session line, which needs the session's id.
 	if _, err := db.NoteSessionStart(r.env.Q, "a", "context_full", false, "", "", "", ""); err != nil {
 		t.Fatal(err)
 	}
+	if h := handoff(); h == nil {
+		t.Fatal("a launch with no session id yet has no New session line, so the restart is still on")
+	}
+	if _, err := r.env.Q.Exec("UPDATE session_starts SET session_id = 's2' WHERE agent = 'a'"); err != nil {
+		t.Fatal(err)
+	}
 	if h := handoff(); h != nil {
-		t.Fatalf("the new session began, got %v", h)
+		t.Fatalf("the new session is shown, got %v", h)
 	}
 }
 

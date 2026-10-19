@@ -117,7 +117,7 @@ func (v *Mover) MovePlan(agent, kind string, starting bool) (dest, why string, e
 		d := float64(max(0, reset-now))
 		resetIn = &d
 	}
-	work := starting || len(must(db.QueuedFor(m.Q, agent))) > 0 || len(must(db.UnannouncedAnswers(m.Q, agent))) > 0
+	work := starting || len(must(db.QueuedFor(m.Q, agent))) > 0
 	if kind != LoginTrigger {
 		within := min(v.E.StayWithin(v.E.ColdStartPct(m.Q), w.ShortS), states.PromptCacheS)
 		if move, why := v.E.StayOrMove(work, resetIn, within); !move {

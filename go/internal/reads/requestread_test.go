@@ -38,90 +38,67 @@ func TestRequestReadIsTheRequestAsHlReadPrintsIt(t *testing.T) {
 	run(t, e, "INSERT INTO requests(id, ref, ts, requester, target, body, state, kind, edge_ok) VALUES(2, 'aaaaaaaaaaa2', 20, 'bob', 'amy', ?, 'landed', NULL, 1)", long+"\r\nand why")
 	run(t, e, "INSERT INTO requests(id, ref, ts, requester, target, body, state, kind, edge_ok, parent_id, relation, response, chain_depth) "+
 		"VALUES(3, 'aaaaaaaaaaa3', 30, 'amy', 'bob', 'the first', 'landed', 'say', 1, 2, 'peer', 'async', 2)")
-	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, settles) VALUES(6, 60, 'bob', 'amy', 'done as asked', 'landed', 'say', 1, 3)")
+	run(t, e, `INSERT INTO events(ts, agent, kind, payload) VALUES(60, 'bob', 'request_reason', '{"request_id": 3, "reason": "done as asked"}')`)
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, parent_id) VALUES(4, 40, 'amy', 'bob', 'orphan', 'queued', 'say', 1, 99)")
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, parent_id) VALUES(5, 50, 'amy', 'bob', 'x', 'queued', 'say', 1, 1)")
 	want := map[string]any{
-		"id": int64(3), "ref": "aaaaaaaaaaa3", "requester": "amy", "target": "bob", "kind": "say", "state": "landed", "created": "1970-01-01T00:00:30Z",
-		"relation": "peer", "response": "async", "chain_depth": int64(2),
-		"parent": map[string]any{"id": int64(2), "ref": "aaaaaaaaaaa2", "line": "which of the two branches should land fi…"},
-		"body":   "the first", "answer": "done as asked", "dismissal": nil,
+		"id": int64(3), "ref": "aaaaaaaaaaa3", "name": "msg_aaaaaaaaaaa3", "requester": "amy", "target": "bob", "kind": "say", "state": "landed", "created": "1970-01-01T00:00:30Z", // local-ref-ok: made-up refs
+		"chain_depth": int64(2),
+		"parent":      map[string]any{"id": int64(2), "ref": "aaaaaaaaaaa2", "name": "msg_aaaaaaaaaaa2", "line": "which of the two branches should land fi…"}, // local-ref-ok: made-up refs
+		"body":        "the first", "answer": "done as asked",
 	}
 	// the founder is neither end and sees both ends, as hl read prints them
 	if got := read(t, e, asFounder, 3); !reflect.DeepEqual(got, want) {
 		t.Fatalf("%v", got)
 	}
-	if got := read(t, e, asBob, 2); got["kind"] != "ask" || got["parent"] != nil || got["answer"] != nil || got["relation"] != nil {
+	if got := read(t, e, asBob, 2); got["kind"] != "ask" || got["parent"] != nil || got["answer"] != nil {
 		t.Fatalf("a request with no kind, parent or answer: %v", got)
 	}
 	if got := read(t, e, asBob, 4); got["parent"] != nil {
 		t.Fatalf("a parent that is gone: %v", got)
 	}
-	if got := read(t, e, asBob, 5); !reflect.DeepEqual(got["parent"], map[string]any{"id": int64(1), "ref": "aaaaaaaaaaa1", "line": ""}) {
+	if got := read(t, e, asBob, 5); !reflect.DeepEqual(got["parent"], map[string]any{"id": int64(1), "ref": "aaaaaaaaaaa1", "name": "msg_aaaaaaaaaaa1", "line": ""}) { // local-ref-ok: made-up refs
 		t.Fatalf("a parent whose first line is empty: %v", got["parent"])
 	}
 }
 
-func TestRequestReadSaysADismissalAndNotAnAnswer(t *testing.T) {
+func TestRequestReadAnswersWhyItClosed(t *testing.T) {
 	e := testEnv(t)
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES"+
-		"(1, 1, 'amy', 'bob', 'a', 'landed', 'ask', 1), (2, 2, 'amy', 'bob', 'b', 'landed', 'ask', 1), (3, 3, 'amy', 'bob', 'c', 'withdrawn', 'ask', 1), "+
-		"(4, 4, 'amy', 'bob', 'd', 'landed', 'ask', 1)")
+		"(1, 1, 'amy', 'bob', 'a', 'landed', 'ask', 1), (3, 3, 'amy', 'bob', 'c', 'withdrawn', 'ask', 1), (4, 4, 'amy', 'bob', 'd', 'landed', 'ask', 1)")
 	run(t, e, `INSERT INTO events(ts, agent, kind, payload) VALUES(5, 'bob', 'request_reason', '{"request_id": 1, "reason": "read - no reply: not needed"}'), `+
-		`(5, 'bob', 'request_reason', '{"request_id": 2, "reason": "read - no reply"}'), (5, 'amy', 'request_reason', '{"request_id": 3, "reason": "taken back"}'), `+
-		`(5, 'bob', 'dismissed', '{"request_id": 4, "by": "human", "reason": "stale"}')`)
-	for id, want := range map[int64]any{
-		1: map[string]any{"by": nil, "reason": "not needed"},
-		2: map[string]any{"by": nil, "reason": nil},
-		4: map[string]any{"by": "human", "reason": "stale"},
-	} {
-		if got := read(t, e, asBob, id); !reflect.DeepEqual(got["dismissal"], want) || got["answer"] != nil {
-			t.Errorf("#%d: %v %v", id, got["dismissal"], got["answer"])
+		`(5, 'amy', 'request_reason', '{"request_id": 3, "reason": "taken back"}'), (5, 'bob', 'dismissed', '{"request_id": 4, "by": "human", "reason": "stale"}')`)
+	for id, want := range map[int64]any{1: "read - no reply: not needed", 3: "taken back", 4: nil} {
+		if got := read(t, e, asBob, id); got["answer"] != want {
+			t.Errorf("#%d: %v", id, got["answer"])
 		}
-	}
-	if got := read(t, e, asBob, 3); got["dismissal"] != nil || got["answer"] != "taken back" || got["state"] != "withdrawn" {
-		t.Fatalf("why a withdrawn request closed is its answer: %v", got)
+		if _, has := read(t, e, asBob, id)["dismissal"]; has {
+			t.Errorf("#%d carries a dismissal", id)
+		}
 	}
 }
 
 func TestOnlyTheFounderReadingARequestOpensIt(t *testing.T) {
 	e := testEnv(t)
-	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, settles) VALUES"+
-		"(1, 1, 'bob', 'human', 'a report', 'queued', 'say', 1, NULL), (2, 2, 'human', 'bob', 'a question', 'landed', 'ask', 1, NULL), "+
-		"(3, 3, 'bob', 'human', 'its answer', 'landed', 'say', 1, 2)")
-	// opened is whether the report is read and whether the answer to the founder's question is told
-	opened := func() (bool, bool) {
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES"+
+		"(1, 1, 'bob', 'human', 'a report', 'queued', 'say', 1), (2, 2, 'human', 'bob', 'a question', 'landed', 'ask', 1)")
+	isRead := func() bool {
 		report, err := queryOne(e.DB, "SELECT read_at FROM requests WHERE id = 1")
 		if err != nil {
 			t.Fatal(err)
 		}
-		answer, err := queryOne(e.DB, "SELECT delivered_at FROM requests WHERE id = 3")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return report.set("read_at"), answer.set("delivered_at")
+		return report.set("read_at")
 	}
 	asMember := &rpc.Conn{Caller: rpc.Caller{Role: "founder", Info: map[string]any{"kind": "device", "device": "d1", "name": "phone"}}}
 	for _, c := range []*rpc.Conn{asBob, asMember} {
 		read(t, e, c, 1)
-		read(t, e, c, 2)
-		if r, told := opened(); r || told {
-			t.Fatalf("a %s reading them opened them: %v %v", c.Caller.Role, r, told)
+		if isRead() {
+			t.Fatalf("a %s reading it opened it", c.Caller.Role)
 		}
 	}
 	read(t, e, asFounder, 1)
-	if r, told := opened(); !r || told {
-		t.Fatalf("the founder read the report alone: %v %v", r, told)
-	}
-	read(t, e, asFounder, 2)
-	if _, told := opened(); !told {
-		t.Fatal("the founder read the question they asked, so its answer is told")
-	}
-	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, settles) VALUES"+
-		"(4, 4, 'bob', 'amy', 'between agents', 'landed', 'ask', 1, NULL), (5, 5, 'amy', 'bob', 'its answer', 'landed', 'say', 1, 4)")
-	read(t, e, asFounder, 4)
-	if told, err := queryOne(e.DB, "SELECT delivered_at FROM requests WHERE id = 5"); err != nil || told.set("delivered_at") {
-		t.Fatalf("the founder read a question they did not ask, and its answer was marked told: %v %v", told, err)
+	if !isRead() {
+		t.Fatal("the founder read the report")
 	}
 }
 
@@ -262,5 +239,23 @@ func TestRequestReadLetsTheTargetOfTheFoundersQuoteReadWhatWasQuoted(t *testing.
 	}
 	if _, err := e.requestRead(asBob, map[string]any{"id": num64(2)}); err == nil {
 		t.Fatal("another agent's quote does not open a request")
+	}
+}
+
+func TestRequestReadTakesARefOrPrefixUnderTheSameRule(t *testing.T) {
+	e := testEnv(t)
+	os.WriteFile(filepath.Join(e.Home, "team.yaml"), []byte("agents:\n  amy: {}\n  bob: {}\n  cat: {}\n"), 0o644)
+	run(t, e, "INSERT INTO requests(id, ref, ts, requester, target, body, state, kind, edge_ok) VALUES(1, 'c0ffee000001', 10, 'amy', 'bob', 'private', 'landed', 'ask', 1)")
+	agent := func(name string) *rpc.Conn {
+		return &rpc.Conn{Caller: rpc.Caller{Role: "agent", Info: map[string]any{"kind": "agent", "name": name}}}
+	}
+	for _, ref := range []string{"c0ffee000001", "msg_c0ffee000001", "c0ffee", "MSG_C0FFEE"} { // local-ref-ok: made-up refs
+		if got, err := e.requestRead(agent("bob"), map[string]any{"id": ref}); err != nil || got.(map[string]any)["id"] != int64(1) {
+			t.Errorf("%s: %v %v", ref, got, err)
+		}
+		var nf *rpc.Error
+		if _, err := e.requestRead(agent("cat"), map[string]any{"id": ref}); !errors.As(err, &nf) || nf.Code != "not_found" {
+			t.Errorf("a stranger's %s: %v", ref, err)
+		}
 	}
 }

@@ -83,13 +83,14 @@ func TestTheInboxIsToldWhenAnItemArrivesChangesOrLeavesAndTheFirstLookSaysNothin
 	if got = inboxRows(t, l); len(got) != 8 { // item 5 arrives and the quiet edit of item 4 is told with it
 		t.Fatalf("%d rows", len(got))
 	}
-	// an item leaves the founder's inbox: answered
-	exec(t, d, "UPDATE requests SET state = 'answered', state_at = ? WHERE id = 5", t0+20)
+	// an item leaves the founder's inbox: dealt with
+	exec(t, d, "UPDATE requests SET state = 'landed', state_at = ? WHERE id = 5", t0+20)
 	in.Scan(d, emit)
 	got = inboxRows(t, l)
 	last := got[len(got)-1]
 	json.Unmarshal(last.Data, &item)
-	if len(got) != 9 || last.Type != "inbox.changed" || item["id"] != float64(5) || item["read"] != true || item["answered"] != false {
+	_, answered := item["answered"]
+	if len(got) != 9 || last.Type != "inbox.changed" || item["id"] != float64(5) || item["read"] != true || answered {
 		t.Fatalf("%d rows: %+v %s", len(got), last, last.Data)
 	}
 }

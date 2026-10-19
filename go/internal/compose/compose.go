@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/heal"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/term"
@@ -51,6 +52,14 @@ type Parts struct {
 	notified bool // Config.NotifiedNeedsYou
 	tell     Telling
 	log      func(format string, args ...any)
+	healer   *heal.Healer // the tick's, once Tick has built it
+}
+
+// Wait returns once the heal steps still running off the tick have ended: the daemon closes the database only after.
+func (p *Parts) Wait() {
+	if p.healer != nil {
+		p.healer.Wait()
+	}
 }
 
 // Telling is what the supervisor's Env does with a session's end of a send: the operation is delivered once the session showed it, and

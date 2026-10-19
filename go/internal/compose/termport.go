@@ -58,8 +58,8 @@ func (p termPort) SessionOnScreen(handle string) (bool, bool) { return p.t.Sessi
 // lifecycle.Host
 func (h termHost) Available() bool { return h.t.Backend.Available() }
 func (h termHost) Missing() string { return h.t.Missing() }
-func (h termHost) OpenTerminal(cmd, cwd, title string) (string, string) {
-	return h.t.CreateTerminal(cmd, cwd, title)
+func (h termHost) OpenTerminal(cmd, cwd, title, agent string) (string, string) {
+	return h.t.CreateTerminal(cmd, cwd, title, agent)
 }
 
 // CreateWorktree is a sibling directory `<repo>.worktrees/<name>` on a new branch `<name>`; a name already taken becomes `<name>-2`,

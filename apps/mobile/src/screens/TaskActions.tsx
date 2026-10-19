@@ -2,7 +2,7 @@
 // `useWrite`: an authored one shows at once and rolls back with the daemon's reason on a refusal; a verb the daemon does not serve is
 // disabled with the reason. The sheets keep what was typed until the daemon accepts.
 import { useState, type ReactNode } from 'react';
-import { taskRef } from '@handline/app-core';
+import { isPerson, taskRef } from '@handline/app-core';
 import { Text, TextInput, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
@@ -14,6 +14,7 @@ import { ImageBodyInput } from './ImageBodyInput.tsx';
 import { Button, Card, PageHeader, Pill } from './parts.tsx';
 import { AskAbout } from './TaskAsk.tsx';
 import { ReportVerbs } from './TaskReport.tsx';
+import { AssignTask } from './TaskAssign.tsx';
 import { MergeTasks, ReleaseTask } from './TaskReleaseMerge.tsx';
 
 const CLOSED = ['done', 'discarded'];
@@ -134,13 +135,14 @@ function ReasonSheet(props: {
   );
 }
 
-type Ask = null | 'ask' | 'done' | 'reopen' | 'withdraw' | 'cancel' | 'discard' | 'edit' | 'release' | 'merge';
+type Ask = null | 'ask' | 'done' | 'reopen' | 'withdraw' | 'cancel' | 'discard' | 'edit' | 'release' | 'merge' | 'assign';
 
 /** The verbs of one task; each is shown only when it applies, and disabled with its reason when the daemon does not serve it. */
 export function TaskVerbs({ t }: { t: TaskDetail }) {
   const c = usePalette();
   const me = useStore().me;
   const [ask, setAsk] = useState<Ask>(null);
+  const [menu, setMenu] = useState<null | 'status' | 'more'>(null);
   const done = useWrite('task.done');
   const reopen = useWrite('task.reopen');
   const withdraw = useWrite('task.withdraw');
@@ -173,38 +175,49 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       () => {},
     );
   const verb = (id: string, label: string, why: string | null, to: Ask) => (
-    <Button key={id} testID={`verb-${id}`} label={label} disabled={!!why || ask !== null} onPress={() => setAsk(to)} />
+    <Button key={id} testID={`verb-${id}`} label={label} disabled={!!why || ask !== null} onPress={() => (setMenu(null), setAsk(to))} />
   );
   return (
     <View style={{ gap: space.md }}>
       <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-        {open && verb('done', 'Done', off.done, 'done')}
-        {t.state === 'done' && mine && verb('reopen', 'Reopen', off.reopen, 'reopen')}
-        {startable && mine && verb('withdraw', 'Withdraw', off.withdraw, 'withdraw')}
-        {open && verb('cancel', running ? 'Stop' : 'Cancel', off.cancel, 'cancel')}
-        {t.state === 'draft' && (
-          <Button
-            testID="verb-queue"
-            label="Queue"
-            disabled={!!off.queue || ask !== null || queue.isPending}
-            onPress={() => void queue.mutateAsync({ tasks: [t.id] }).catch(() => {})}
-          />
-        )}
-        {t.state === 'queued' && (
-          <Button
-            testID="verb-draft"
-            label="Back to draft"
-            disabled={!!off.draft || ask !== null || draft.isPending}
-            onPress={() => void draft.mutateAsync({ tasks: [t.id] }).catch(() => {})}
-          />
-        )}
-        {verb('ask', 'Ask', off.ask, 'ask')}
-        {running && verb('release', 'Release', off.release, 'release')}
-        {open && verb('merge', 'Merge…', off.merge, 'merge')}
-        {open && verb('edit', 'Edit', off.edit, 'edit')}
-        {open && verb('discard', 'Discard', off.discard, 'discard')}
+        <Pill testID="status-menu" on={menu === 'status'} label={`${t.state} ▾`} onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'status' ? null : 'status'))} />
+        {open && <Pill testID="assignee-menu" on={ask === 'assign'} label={`→ ${t.to} ▾`} onPress={() => (setMenu(null), setAsk(ask === 'assign' ? null : 'assign'))} />}
+        <Pill testID="more-menu" on={menu === 'more'} label="More ▾" onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'more' ? null : 'more'))} />
       </View>
-      {t.state === 'reported' && (mine || founder) && <ReportVerbs t={t} />}
+      {menu === 'status' && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+          {open && verb('done', isPerson(t.from, me) ? 'Send for review' : 'Done', off.done, 'done')}
+          {t.state === 'done' && mine && verb('reopen', 'Reopen', off.reopen, 'reopen')}
+          {t.state === 'draft' && (
+            <Button
+              testID="verb-queue"
+              label="Queue"
+              disabled={!!off.queue || ask !== null || queue.isPending}
+              onPress={() => (setMenu(null), void queue.mutateAsync({ tasks: [t.id] }).catch(() => {}))}
+            />
+          )}
+          {t.state === 'queued' && (
+            <Button
+              testID="verb-draft"
+              label="Back to draft"
+              disabled={!!off.draft || ask !== null || draft.isPending}
+              onPress={() => (setMenu(null), void draft.mutateAsync({ tasks: [t.id] }).catch(() => {}))}
+            />
+          )}
+          {running && verb('release', 'Release', off.release, 'release')}
+        </View>
+      )}
+      {menu === 'more' && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+          {startable && mine && verb('withdraw', 'Withdraw', off.withdraw, 'withdraw')}
+          {open && verb('cancel', running ? 'Stop' : 'Cancel', off.cancel, 'cancel')}
+          {verb('ask', 'Ask', off.ask, 'ask')}
+          {open && verb('merge', 'Merge…', off.merge, 'merge')}
+          {open && verb('edit', 'Edit', off.edit, 'edit')}
+          {open && verb('discard', 'Discard', off.discard, 'discard')}
+        </View>
+      )}
+      {t.state === 'review' && (mine || founder) && <ReportVerbs t={t} />}
       {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: 12 }}>{Object.values(off).find(Boolean)}</Text>}
       {ask === 'done' && (
         <ReasonSheet
@@ -258,6 +271,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       {ask === 'ask' && <AskAbout t={t} onClose={() => setAsk(null)} />}
       {ask === 'release' && <ReleaseTask t={t} onClose={() => setAsk(null)} />}
       {ask === 'merge' && <MergeTasks t={t} onClose={() => setAsk(null)} />}
+      {ask === 'assign' && <AssignTask t={t} onClose={() => setAsk(null)} />}
       {ask === 'edit' && <EditTask t={t} onClose={() => setAsk(null)} />}
     </View>
   );

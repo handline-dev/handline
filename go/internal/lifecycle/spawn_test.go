@@ -89,7 +89,7 @@ type fakeHost struct {
 
 func (*fakeHost) Available() bool { return true }
 func (*fakeHost) HasRuns() bool   { return false }
-func (h *fakeHost) OpenTerminal(cmd, cwd, title string) (string, string) {
+func (h *fakeHost) OpenTerminal(cmd, cwd, title, agent string) (string, string) {
 	h.opened = append(h.opened, cmd+"|"+cwd+"|"+title)
 	return h.handle, ""
 }

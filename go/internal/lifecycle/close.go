@@ -161,9 +161,6 @@ func (m *Manager) ClosedWakeCause(agent string, row *db.AgentState) (c *WakeCaus
 	if waiting > 0 {
 		return &WakeCause{"work", fmt.Sprintf("%d waiting request(s)", waiting)}, nil
 	}
-	if n := len(must(db.UnannouncedAnswers(m.Q, agent))); n > 0 {
-		return &WakeCause{"answer", fmt.Sprintf("%d answer(s) it asked for", n)}, nil
-	}
 	if n := len(must(db.ListPending(m.Q, agent))); n > 0 {
 		return &WakeCause{"message", fmt.Sprintf("%d pending message(s)", n)}, nil
 	}
@@ -187,7 +184,7 @@ func (m *Manager) StartOrWakeNeeded(agent string, row *db.AgentState) (kind, wha
 		return "", "", nil
 	}
 	if !m.hasSession(agent, row) && !m.ResumableWithoutTerminal(row) {
-		if len(must(db.QueuedFor(m.Q, agent))) > 0 || len(must(db.UnannouncedAnswers(m.Q, agent))) > 0 || len(must(db.ListPending(m.Q, agent))) > 0 {
+		if len(must(db.QueuedFor(m.Q, agent))) > 0 || len(must(db.ListPending(m.Q, agent))) > 0 {
 			return "start", "work waiting", nil
 		}
 		return "", "", nil
@@ -235,7 +232,7 @@ func (m *Manager) recordDue(agent string) bool {
 }
 
 func (m *Manager) waitingFor(agent string) bool {
-	return m.recordDue(agent) || must(m.Delivery.EffectiveHead(m.Q, agent)) != nil || len(must(db.UnannouncedAnswers(m.Q, agent))) > 0 ||
+	return m.recordDue(agent) || must(m.Delivery.EffectiveHead(m.Q, agent)) != nil ||
 		len(must(db.SendNowPending(m.Q, agent))) > 0 || len(must(db.ListPending(m.Q, agent))) > 0
 }
 
@@ -254,7 +251,7 @@ func (m *Manager) ColdBeforeTyping(agent string, row *db.AgentState, now int64, 
 	told := head != nil && must(db.Cursor(m.Q, "notify:"+agent)) == head.ID && !must(m.Delivery.SessionChanged(m.Q, agent))
 	found := must(m.Delivery.ForgottenResolve(m.Q, agent, row, now))
 	nudge := found != nil && found.IdleS >= supervisor.NudgeAfterS && must(db.Cursor(m.Q, "nudge:"+agent)) != found.Head.ID
-	if !(len(must(db.UnannouncedAnswers(m.Q, agent))) > 0 || (head != nil && !told) || nudge) {
+	if !((head != nil && !told) || nudge) {
 		return false, false, nil
 	}
 	ok, _, err := m.CloseAgent(agent, st, CloseOpts{})
@@ -493,6 +490,43 @@ func (m *Manager) RestartAgent(agent string, st SessionStatus, o RestartOpts) (o
 		how = " as a new conversation"
 	}
 	return true, agent + ": restarted" + how + note, nil
+}
+
+// RestartHung restarts an agent whose turn is hung without waiting for that turn, which a forced RestartAgent does: its terminal is closed
+// with the session in it, the agent recorded closed, and woken in a new terminal - resuming its conversation, or with fresh a new one from
+// its handoff record (CloseFresh). The wake is owed until a session is up, as any restart's is.
+func (m *Manager) RestartHung(agent string, st SessionStatus, fresh bool, by, cause string) (ok bool, said string, err error) {
+	defer catch(&err)
+	handle := must(db.Terminal(m.Q, agent))
+	if handle == "" || !m.Term.Available() {
+		return false, "no terminal to close", nil
+	}
+	if ok, why := m.Term.CloseTerminal(handle); !ok {
+		return false, "its terminal would not close: " + why, nil
+	}
+	wt := ""
+	if row := must(db.GetAgentState(m.Q, agent)); row != nil {
+		wt = row.Worktree.String
+	}
+	check(db.SetTerminal(m.Q, agent, "", wt))
+	must(db.AddEvent(m.Q, agent, "terminal_closed", db.KV{K: "handle", V: handle}))
+	check(db.SetClosed(m.Q, agent, st.SessionID))
+	check(db.SetAgentState(m.Q, agent, states.Idle, 0, "its hung turn was ended"))
+	if fresh {
+		if ok, said, err := m.CloseFresh(agent, st, CloseOpts{}); err != nil || !ok {
+			return false, said, err
+		}
+	}
+	must(db.AddEvent(m.Q, agent, RestartOwedKind, db.KV{K: "by", V: by}, db.KV{K: "fresh", V: fresh}, db.KV{K: "cause", V: cause}))
+	ok, why, err := m.WakeAgent(agent, WakeOpts{Force: true, Warm: !fresh, Cause: cause, RestartedBy: by})
+	if err != nil || !ok {
+		return false, "its terminal was closed but it was not started again - " + why, err
+	}
+	how := ", resuming its conversation"
+	if fresh {
+		how = " as a new conversation"
+	}
+	return true, agent + ": its hung turn was ended and it was restarted in a new terminal" + how, nil
 }
 
 func (m *Manager) closeAgent(agent string, st SessionStatus, o CloseOpts) (bool, string) {

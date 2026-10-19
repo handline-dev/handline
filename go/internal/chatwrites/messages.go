@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/supervisor"
@@ -56,10 +57,7 @@ func (w *writes) say(c *rpc.Conn, p map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	parent, err := numberParam(p, "parent")
-	if err != nil {
-		return nil, err
-	}
+
 	var noTask *string
 	if v := p["no_task"]; v != nil {
 		s, ok := v.(string)
@@ -68,6 +66,10 @@ func (w *writes) say(c *rpc.Conn, p map[string]any) (any, error) {
 		}
 		noTask = &s
 	}
+	paths, err := attachments.FilePaths(p)
+	if err != nil {
+		return nil, err
+	}
 	me, speaker := sender(c)
 	body = textsafe.Text(body)
 	var out *supervisor.SayVerbOut
@@ -75,9 +77,20 @@ func (w *writes) say(c *rpc.Conn, p map[string]any) (any, error) {
 		if _, err := w.images.CheckMessage(tx, body, "body", nil, c.Caller.Role == "agent"); err != nil {
 			return nil, err
 		}
-		var err error
+		var parent int64
+		if p["parent"] != nil {
+			var err error
+			if parent, err = w.refParam(tx, c, p, "parent", func(name string) error { return kept("parent request " + name + " does not exist") }); err != nil {
+				return nil, err
+			}
+		}
+		files, err := w.images.AddImages(tx, w.e.Home, me, me == db.Human, paths)
+		if err != nil {
+			return nil, err
+		}
 		out, err = w.e.SayVerb(tx, supervisor.SayVerbIn{Requester: me, Speaker: speaker, Target: target, Body: body, Task: task, NoTask: noTask,
-			Parent: parent, Effect: func(_ db.Q, _ string, _ int64) error { return nil }})
+			Parent: parent, Effect: func(q db.Q, _ string, rid int64) error { return w.images.Carry(q, rid, files) },
+			MemoEffect: func(q db.Q, mid int64) error { return w.images.AttachMemo(q, mid, files) }})
 		if err != nil {
 			return nil, err
 		}

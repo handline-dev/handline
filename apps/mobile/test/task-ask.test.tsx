@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { setup } from '@handline/fake-daemon/helpers';
-import { $, fill, mount, press, text, until, value } from './harness.tsx';
+import { $, fill, mount, press, text, until, value , verb } from './harness.tsx';
 
 const MINE = 1700; // asked by the founder, a draft
 const verbs = (s: ReturnType<typeof setup>) => void (s.daemon.tasks.verbs = true);
@@ -16,7 +16,7 @@ describe('Ask about a task', () => {
   it('sends nothing for an empty question, then asks and shows the question in the holder chat', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE);
-    await press($('verb-ask'));
+    await press(await verb('ask'));
     await press($('sheet-submit'));
     expect($('sheet-error')?.textContent).toBe('Type the question.');
     await fill('ask-text', 'Where are you on this?');
@@ -31,7 +31,7 @@ describe('Ask about a task', () => {
   it('keeps the question and says why when the daemon refuses', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE);
-    await press($('verb-ask'));
+    await press(await verb('ask'));
     await fill('ask-text', 'Any news?');
     m.daemon.knobs.refuse('task.ask', 'state', 'that agent is resting');
     await press($('sheet-submit'));

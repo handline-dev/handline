@@ -34,6 +34,8 @@ func (d danglingPorts) PaneStarted(handle string) int64 {
 	return termRun{}.PidStart(pid)
 }
 
+func (d danglingPorts) PaneAgent(handle string) (string, bool) { return d.p.LC.term.PaneAgent(handle) }
+
 // PaneSession is the live session, in any account's session files, whose process runs inside the pane.
 func (d danglingPorts) PaneSession(handle string) (int, bool) {
 	panePid := d.p.LC.term.PanePid(handle)

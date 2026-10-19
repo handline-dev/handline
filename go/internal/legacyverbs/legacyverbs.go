@@ -2,8 +2,8 @@
 // socket_server.py): one {ok, said} reply, then a hangup. The checks and the words are the Python daemon's; the work is the Go writes that
 // already exist (the supervisor's say and pushes, the session controls, the agent roster, the prompt answers).
 //
-// Served: say, push, push_answer, notify_cancelled, close, restart, agent_set, answer_block. Not served, because nothing sends them any
-// more (the UI and the bridge call the JSON-RPC methods): message, wake, park, fold, move, start and trust. A verb not served here is left
+// Served: say, push, notify_cancelled, close, restart, agent_set, answer_block. Not served, because nothing sends them any
+// more (the UI and the bridge call the JSON-RPC methods): message, wake, park, fold, move, start and trust; push_answer went with the answers it pushed. A verb not served here is left
 // to the server's own answer.
 //
 // None of these verbs acts on the strength of who the caller is: the socket is private to the user, and the requester and speaker in a
@@ -26,7 +26,7 @@ import (
 type Env struct {
 	DB   *sql.DB
 	Home string
-	// Sup is the telling layer: say, push, push_answer and notify_cancelled.
+	// Sup is the telling layer: say, push and notify_cancelled.
 	Sup *supervisor.Env
 	// Controls is the session lifecycle, for close and restart; it may answer nil while the daemon has no sessions to drive.
 	Controls func() sessionrpc.Controls
@@ -40,7 +40,7 @@ type Env struct {
 type verb func(e *Env, p map[string]any) (ok bool, said string, err error)
 
 var verbs = map[string]verb{
-	"say": (*Env).say, "push": (*Env).push, "push_answer": (*Env).pushAnswer, "notify_cancelled": (*Env).notifyCancelled,
+	"say": (*Env).say, "push": (*Env).push, "notify_cancelled": (*Env).notifyCancelled,
 	"close": (*Env).close, "restart": (*Env).restart, "agent_set": (*Env).agentSet, "answer_block": (*Env).answerBlock,
 }
 
@@ -66,7 +66,7 @@ func (e *Env) Legacy(p map[string]any, _ int) (reply map[string]any) {
 // serves says whether the ports a verb runs on are there.
 func (e *Env) serves(name string) bool {
 	switch name {
-	case "say", "push", "push_answer", "notify_cancelled":
+	case "say", "push", "notify_cancelled":
 		return e.Sup != nil
 	case "agent_set":
 		return e.SetByAgent != nil

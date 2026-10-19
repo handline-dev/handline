@@ -9,6 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/gitrun"
+	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/taskresult"
 	"github.com/handline/handline/go/internal/team"
@@ -18,7 +19,8 @@ import (
 var shaLike = regexp.MustCompile(`^[0-9a-fA-F]{4,40}$`)
 
 // doneMethod is task.done (actions.mark_task_done): the owner's or the founder's call, with exactly one of a merge sha on main, a
-// request already answered, or a one-line fact. An owner the task does not answer to files it as a report for task.accept.
+// request already answered, or a one-line fact. A done that needs a review (reviewer), the founder's included, files it as an answer for
+// task.accept.
 func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		tid, err := taskID(p)
@@ -34,12 +36,8 @@ func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, ma
 			evidence = &s
 		}
 		var request *int64
-		if v := p["request"]; v != nil {
-			n, ok := rpc.AsInt(v)
-			if !ok {
-				return nil, badParam("request is a request number", "request")
-			}
-			request = &n
+		if p["request"] != nil {
+			request = new(int64) // resolved in the write's transaction
 		}
 		if (evidence == nil) == (request == nil) {
 			return nil, badParam("done takes exactly one of evidence or request", "evidence")
@@ -78,6 +76,16 @@ func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, ma
 		var done *DoneResult
 		var decided func()
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+			if request != nil {
+				var err error
+				*request, err = requestref.Resolve(tx, home, p["request"], requestref.Viewer(c), "request")
+				if name, missing := requestref.Missing(err); missing {
+					return nil, refusal("no request #" + name)
+				}
+				if err != nil {
+					return nil, err
+				}
+			}
 			in.Sha, in.Words, in.Request, in.Repo = sha, words, request, repo
 			if decide != nil && by == db.Human && words != "" && in.Commit == "" && len(in.Shots) == 0 {
 				handled, said, then, err := decide(tx, tid, words)
@@ -128,6 +136,8 @@ type DoneIn struct {
 	// Commit is the sha the work was done at (it need not be on main); Shots are absolute paths of PNG files. Both are optional.
 	Commit string
 	Shots  []string
+	// Close is a done the daemon makes in the founder's name when the task is no longer needed: it closes, never an answer.
+	Close bool
 }
 
 // DoneResult is what a MarkDone leaves for the telling that follows the commit. Finished is false when only a leftover request of an
@@ -176,11 +186,22 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		}
 		return nil, refusal(fmt.Sprintf("task T%d is already done (%s)", tid, t.DoneEvidence.String))
 	}
-	if by != t.Owner && by != human {
+	merged := t.AcceptedBy.String != "" && sha != "" // an accepted task closes at its PR's merge, by anyone who may review it
+	if merged && by != t.Owner && by != human {
+		ok, err := mayReview(home, by, t)
+		if err != nil {
+			return nil, err
+		}
+		merged = ok
+	}
+	if by != t.Owner && by != human && !merged {
 		return nil, refusal(fmt.Sprintf("task T%d can only be marked done by its owner (%s) or the founder", tid, t.Owner))
 	}
-	if t.reported() && by != human {
-		return nil, refusal(fmt.Sprintf("task T%d is already reported done (%s) and waits on %s to accept or reject it", tid, t.Report.String, t.reporter()))
+	if t.reported() && by != human && !merged {
+		if t.AcceptedBy.String != "" {
+			return nil, refusal(fmt.Sprintf("task T%d is accepted by %s and closes when PR #%d merges: mark it done with the merge sha", tid, t.AcceptedBy.String, t.PR.Int64))
+		}
+		return nil, refusal(fmt.Sprintf("task T%d is already answered (%s) and is in review - accept, reject or take it back", tid, t.Report.String))
 	}
 	var mark, via string
 	switch {
@@ -197,14 +218,14 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		var state string
 		switch err := tx.QueryRow("SELECT state FROM requests WHERE id = ?", *request).Scan(&state); {
 		case err == sql.ErrNoRows:
-			return nil, refusal(fmt.Sprintf("no request #%d", *request))
+			return nil, refusal("no such message")
 		case err != nil:
 			return nil, err
 		}
 		if state == "queued" {
-			return nil, refusal(fmt.Sprintf("request #%d is still queued - not answered yet", *request))
+			return nil, refusal(fmt.Sprintf("request %s is still queued - not answered yet", db.MsgName(tx, *request)))
 		}
-		mark, via = fmt.Sprintf("request #%d", *request), "request"
+		mark, via = fmt.Sprintf("request %s", db.MsgName(tx, *request)), "request"
 	default:
 		mark, via = words, "reason"
 	}
@@ -234,8 +255,14 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if by != human && by != t.reporter() && by != t.OpenedBy {
-		return fileReport(tx, by, t, mark, via, from, result, finalize)
+	if !merged {
+		to, err := reviewer(home, by, t, in.Close)
+		if err != nil {
+			return nil, err
+		}
+		if to != "" {
+			return fileReport(tx, by, to, t, mark, via, from, result, finalize)
+		}
 	}
 	won, err := db.MarkTaskDone(tx, tid, mark, via)
 	if err != nil {

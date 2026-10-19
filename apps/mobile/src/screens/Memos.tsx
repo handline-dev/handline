@@ -83,14 +83,14 @@ export function MemoBox({ id }: { id: number }) {
     <View style={{ gap: space.sm }}>
       <ImageBodyInput
         testID="memo-text"
-        label="Memo"
-        placeholder="Add a memo"
+        label="Comment"
+        placeholder="Add a comment (@agent asks that agent)"
         titled={false}
         editable={!why}
         value={text}
         onChange={setText}
       />
-      <Button testID="memo-send" label="Add memo" disabled={!!why || !text.trim()} onPress={send} />
+      <Button testID="memo-send" label="Comment" disabled={!!why || !text.trim()} onPress={send} />
       {why && <Text style={{ color: c.muted, fontSize: 12 }}>{why}</Text>}
     </View>
   );

@@ -10,7 +10,6 @@ import (
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
-	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
 )
 
@@ -33,9 +32,9 @@ var resultNotice = regexp.MustCompile(`(?s)\AT(\d+) (done|discarded) by (.+?):\s
 
 // say writes one message to `to` from the task board, written and queued: not a notice, so it wakes a closed agent once told.
 func (e *Env) say(q db.Q, to, text, reason string) int64 {
-	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Response: "fire_and_forget", Kind: "say"}))
-	if err := e.deliver(rid, db.NoticeRequester, to, text, "", team.Decision{Allowed: true, Reason: reason, Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
-		e.log("  #%d: the inbox file for %s was not written: %v", rid, to, err)
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Kind: "say"}))
+	if err := e.deliver(rid, db.NoticeRequester, to, text, "", "say", 0); err != nil {
+		e.log("  request %d: the inbox file for %s was not written: %v", rid, to, err)
 	}
 	must(db.AddEvent(q, db.NoticeRequester, "notice_told", db.KV{K: "request_id", V: rid}, db.KV{K: "to", V: to}, db.KV{K: "reason", V: reason}))
 	return rid
@@ -44,9 +43,9 @@ func (e *Env) say(q db.Q, to, text, reason string) int64 {
 // Notice writes one notice from the task board to `to` (delivery.ClassBatch): it waits for the next digest or rides on the next delivery.
 func (e *Env) Notice(q db.Q, to, text, reason string) (rid int64, err error) {
 	defer Catch(&err)
-	rid = must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Response: "fire_and_forget", Kind: "say", Notice: true}))
-	if err := e.deliver(rid, db.NoticeRequester, to, text, "", team.Decision{Allowed: true, Reason: reason, Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
-		e.log("  #%d: the inbox file for %s was not written: %v", rid, to, err)
+	rid = must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Kind: "say", Notice: true}))
+	if err := e.deliver(rid, db.NoticeRequester, to, text, "", "say", 0); err != nil {
+		e.log("  request %d: the inbox file for %s was not written: %v", rid, to, err)
 	}
 	return rid, nil
 }
@@ -56,22 +55,22 @@ func (e *Env) tellNowSay(q db.Q, to, text, reason string) {
 	must(e.TellNow(q, rid))
 }
 
-// DigestLine is `T<n> · who · result (#id)` for a result notice; any other notice is its own text. A memo's file lines follow, one each, so
+// DigestLine is `T<n> · who · result (msg_<hash>)` for a result notice; any other notice is its own text. A memo's file lines follow, one each, so
 // every path can be read whole.
-func DigestLine(r *db.Request) string {
+func DigestLine(q db.Q, r *db.Request) string {
 	text, files := attachments.SplitFileLines(r.Body)
-	line := digestSummary(text, r.ID)
+	line := digestSummary(text, r.Name(q))
 	for _, f := range files {
 		line += "\n  " + textsafe.Oneline(f)
 	}
 	return line
 }
 
-func digestSummary(text string, id int64) string {
+func digestSummary(text, name string) string {
 	body := oneSpace(textsafe.Oneline(text))
 	m := resultNotice.FindStringSubmatch(body)
 	if m == nil {
-		return fmt.Sprintf("%s (#%d)", firstRunes(body, ResultShown+30), id)
+		return fmt.Sprintf("%s (%s)", firstRunes(body, ResultShown+30), name)
 	}
 	tid, how, who, result := m[1], m[2], m[3], m[4]
 	if how != "done" {
@@ -80,7 +79,7 @@ func digestSummary(text string, id int64) string {
 	if utf8.RuneCountInString(result) > ResultShown {
 		result = strings.TrimRight(string([]rune(result)[:ResultShown]), " \t\n\r\v\f") + "…"
 	}
-	return fmt.Sprintf("T%s · %s · %s (#%d)", tid, who, result, id)
+	return fmt.Sprintf("T%s · %s · %s (%s)", tid, who, result, name)
 }
 
 func firstRunes(s string, n int) string {
@@ -91,7 +90,7 @@ func firstRunes(s string, n int) string {
 }
 
 // DigestText is the one message of a waiting agent's results.
-func DigestText(rows []*db.Request) string {
+func DigestText(q db.Q, rows []*db.Request) string {
 	shown := rows
 	if len(shown) > DigestMaxLines {
 		shown = rows[:DigestMaxLines]
@@ -105,7 +104,7 @@ func DigestText(rows []*db.Request) string {
 		time.Unix(rows[0].LandedAt.Int64, 0).Format("15:04"))
 	lines := []string{head}
 	for _, r := range shown {
-		lines = append(lines, DigestLine(r))
+		lines = append(lines, DigestLine(q, r))
 	}
 	if left > 0 {
 		lines = append(lines, fmt.Sprintf("(+%d more: `hl inbox --all`)", left))
@@ -133,12 +132,12 @@ func (e *Env) SweepDigests(now int64) (err error) {
 			continue
 		}
 		// Written and marked before it is told: a tell that raises leaves the digest queued for TellUndelivered, and no second digest is built.
-		rid := e.say(q, w.Agent, DigestText(rows), "notice digest")
+		rid := e.say(q, w.Agent, DigestText(q, rows), "notice digest")
 		ids := requestIDs(rows)
 		check(db.MarkNoticesDigested(q, ids))
 		must(db.AddEvent(q, db.NoticeRequester, "notices_digested", db.KV{K: "request_id", V: rid}, db.KV{K: "to", V: w.Agent}, db.KV{K: "notices", V: ids}))
 		must(e.TellNow(q, rid))
-		e.log("  %s: %d waiting result(s) told in one digest (#%d)", w.Agent, len(rows), rid)
+		e.log("  %s: %d waiting result(s) told in one digest (request %d)", w.Agent, len(rows), rid)
 	}
 	return nil
 }

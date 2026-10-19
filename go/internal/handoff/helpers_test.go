@@ -113,8 +113,9 @@ func (w *world) event(agent, kind, payload string) int64 {
 	return id
 }
 
+// told is a delivered request; its ref begins with its id in 7 hex digits, so it is named msg_000000<id>.
 func told(id int64, requester, body string) *db.Request {
-	return &db.Request{ID: id, Requester: requester, Body: body, DeliveredAt: sql.NullInt64{Int64: 5, Valid: true}}
+	return &db.Request{ID: id, Ref: fmt.Sprintf("%07x00000", id), Requester: requester, Body: body, DeliveredAt: sql.NullInt64{Int64: 5, Valid: true}}
 }
 
 // gitRepo makes a repository with one commit and returns its path.

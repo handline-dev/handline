@@ -1,7 +1,7 @@
 // The task page: why it waits in one line, chips for owner, priority and time box, a folded brief, and one Activity list.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
@@ -35,6 +35,7 @@ async function mount(hash: string, s = setup()) {
   return s;
 }
 afterEach(async () => {
+  vi.useRealTimers();
   await act(async () => root?.unmount());
   root = null;
   box?.remove();
@@ -94,6 +95,8 @@ describe('the task page', () => {
   });
 
   it('lists what closed today under a folded "Done today" that opens on a click', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); // "1 h ago" and "3 days ago" land on the same days only at noon
+    vi.setSystemTime(new Date(2026, 5, 15, 12, 0));
     const s = setup();
     const rows = (s.daemon.tasks as unknown as { rows: { id: number; done: string | null }[] }).rows;
     rows.find((r) => r.id === 1650)!.done = new Date(Date.now() - 3_600_000).toISOString();
@@ -106,6 +109,8 @@ describe('the task page', () => {
   });
 
   it('splits Closed by the day a task closed', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); // "1 h ago" and "3 days ago" land on the same days only at noon
+    vi.setSystemTime(new Date(2026, 5, 15, 12, 0));
     const s = setup();
     const rows = (s.daemon.tasks as unknown as { rows: { id: number; done: string | null }[] }).rows;
     rows.find((r) => r.id === 1650)!.done = new Date(Date.now() - 3 * 86_400_000).toISOString();

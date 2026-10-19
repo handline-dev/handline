@@ -4,12 +4,16 @@ import { Image, Pressable, Text, View } from 'react-native';
 import { radius, space } from '@handline/tokens';
 import type { ImageDraft } from '@handline/app-data';
 import { usePalette } from '../theme.ts';
+import { Link } from './parts.tsx';
 
 export function ImageChips(props: {
   drafts: ImageDraft[];
   problem: string | null;
   onRetry: (key: number) => void;
   onRemove: (key: number) => void;
+  /** A chip whose picture arrived can be marked up; the one marked says so. */
+  onMark?: (key: number) => void;
+  marked?: number | null;
 }) {
   const c = usePalette();
   if (!props.drafts.length && !props.problem) return null;
@@ -45,6 +49,8 @@ export function ImageChips(props: {
             <Text testID={`image-progress-${d.key}`} style={{ color: c.muted, fontSize: 12 }}>
               {Math.round(d.progress * 100)}%
             </Text>
+          ) : props.onMark && d.attachment ? (
+            <Link testID={`image-mark-${d.key}`} label={props.marked === d.key ? 'Marked' : 'Mark'} onPress={() => props.onMark!(d.key)} />
           ) : null}
           <Pressable
             testID={`image-remove-${d.key}`}

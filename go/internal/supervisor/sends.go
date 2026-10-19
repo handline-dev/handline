@@ -20,7 +20,7 @@ const Handed = "handed to the daemon; it is typed as soon as the agent can take 
 // tell is what follows the reply: a task keeps the one-at-a-time head rule (PushHere), everything else is typed at once (TellNow).
 func (e *Env) tell(rid int64, target string) {
 	var out string
-	defer e.guard(fmt.Sprintf("telling %s about #%d", target, rid), &out)
+	defer e.guard(fmt.Sprintf("telling %s about request %d", target, rid), &out)
 	q := db.Q(e.DB)
 	row := must(db.GetRequest(q, rid))
 	if row == nil || row.State != "queued" {
@@ -46,14 +46,21 @@ func (e *Env) background(name string, fn func()) {
 		run()
 		return
 	}
-	go run()
+	e.bg.Add(1)
+	go func() {
+		defer e.bg.Done()
+		run()
+	}()
 }
+
+// Wait returns once every telling started off the caller has ended: the daemon closes the database, and a test its home, only after.
+func (e *Env) Wait() { e.bg.Wait() }
 
 func (e *Env) after(rid int64, target string) {
 	if rid == 0 || target == db.Human {
 		return
 	}
-	e.background(fmt.Sprintf("telling %s about #%d", target, rid), func() { e.tell(rid, target) })
+	e.background(fmt.Sprintf("telling %s about request %d", target, rid), func() { e.tell(rid, target) })
 }
 
 // shellQuote is shlex.quote.
@@ -81,10 +88,10 @@ func (e *Env) isReportOf(me, target string) bool {
 }
 
 // sayCmd is a `hl say` line ready to paste: the body as sent, quoted, with the flags that would have worked.
-func sayCmd(target, body string, parent int64, flags ...string) string {
+func sayCmd(q db.Q, target, body string, parent int64, flags ...string) string {
 	parts := []string{"hl say", target, shellQuote(body)}
 	if parent != 0 {
-		parts = append(parts, fmt.Sprintf("--parent %d", parent))
+		parts = append(parts, "--parent "+db.MsgName(q, parent))
 	}
 	return strings.Join(append(parts, flags...), " ")
 }
@@ -94,13 +101,13 @@ func sayCmd(target, body string, parent int64, flags ...string) string {
 func (e *Env) workingSay(q db.Q, me, target, body string, parent, task int64) string {
 	if task != 0 {
 		if row := must(db.GetTask(q, task)); row != nil && row.Owner == target {
-			return sayCmd(target, body, parent, fmt.Sprintf("--task T%d", task))
+			return sayCmd(q, target, body, parent, fmt.Sprintf("--task T%d", task))
 		}
 	}
 	if parent == 0 && e.isReportOf(me, target) {
 		return fmt.Sprintf("hl task new --assign %s -t 2h '<title>' %s", target, shellQuote(body))
 	}
-	return sayCmd(target, body, parent)
+	return sayCmd(q, target, body, parent)
 }
 
 // SayVerbIn is the `say` verb's arguments. Task 0 is none; NoTask nil is not given.
@@ -114,9 +121,11 @@ type SayVerbIn struct {
 	Parent    int64
 	// Effect is the daemon's record of the write, made in the transaction that writes the message and what is written with it.
 	Effect func(q db.Q, message string, rid int64) error
+	// MemoEffect is the same for a say that became a memo of the task it names: mid is the memo.
+	MemoEffect func(q db.Q, mid int64) error
 }
 
-// SayVerbOut is the verb's answer; After runs once the writes have committed (the telling, the settled request's tell, the memo holder's say).
+// SayVerbOut is the verb's answer; After runs once the writes have committed (the telling, the memo holder's say).
 type SayVerbOut struct {
 	OK    bool
 	Msg   string
@@ -131,6 +140,11 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 		return fail(noWho)
 	}
 	me, target, task, body := in.Requester, in.Target, in.Task, in.Body
+	if target == db.Human && me != db.Human {
+		if named := db.MessageNamedIn(q, body); named != "" {
+			return fail(fmt.Sprintf("not sent: this names a message (%s), and the founder sees no message ids - say in words what that message was about", named))
+		}
+	}
 	var parent *db.Request
 	if in.Parent != 0 {
 		parent = must(db.GetRequest(q, in.Parent))
@@ -179,9 +193,9 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 				}
 				var tries []string
 				for _, t := range m {
-					tries = append(tries, sayCmd(target, body, in.Parent, fmt.Sprintf("--task T%d", t)))
+					tries = append(tries, sayCmd(q, target, body, in.Parent, fmt.Sprintf("--task T%d", t)))
 				}
-				tries = append(tries, sayCmd(target, body, in.Parent, "--no-task '<why>'"))
+				tries = append(tries, sayCmd(q, target, body, in.Parent, "--no-task '<why>'"))
 				return fail(refusal + "\nTry:\n  " + strings.Join(tries, "\n  "))
 			}
 		}
@@ -193,7 +207,7 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 					for _, tid := range askedOn {
 						check(db.LinkRequest(c, tid, rid))
 					}
-				} else if must(db.GetRequest(c, in.Parent)).State != "queued" { // it settled, not lost a race
+				} else {
 					e.recordHumanResolve(c, in.Parent, tasks, in.NoTask, me)
 				}
 			}()
@@ -202,7 +216,7 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 			}
 			return effect(c, note, rid)
 		}
-		res, settled, serr := e.Say(q, SayIn{Target: target, Body: body, Requester: me, ParentID: in.Parent, Speaker: in.Speaker, Within: within})
+		res, serr := e.Say(q, SayIn{Target: target, Body: body, Requester: me, ParentID: in.Parent, Speaker: in.Speaker, Within: within})
 		if serr != nil {
 			return nil, serr
 		}
@@ -212,7 +226,6 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 		}
 		return &SayVerbOut{OK: res.OK, Msg: msg, After: func() {
 			res.After.Run()
-			e.settledAfter(settled)
 			if res.OK {
 				e.after(res.RID, target)
 			}
@@ -240,27 +253,26 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 				}
 				return effect(c, note, rid)
 			}
-			res, settled, serr := e.Say(q, SayIn{Target: target, Body: body, Requester: me, ParentID: in.Parent, Speaker: in.Speaker, Within: within})
+			res, serr := e.Say(q, SayIn{Target: target, Body: body, Requester: me, ParentID: in.Parent, Speaker: in.Speaker, Within: within})
 			if serr != nil {
 				return nil, serr
 			}
 			return &SayVerbOut{OK: res.OK, Msg: res.Message, After: func() {
 				res.After.Run()
-				e.settledAfter(settled)
 				if res.OK && res.RID != 0 {
 					e.after(res.RID, target)
 				}
 			}}, nil
 		}
 		if row.Owner != target {
-			return fail(fmt.Sprintf("T%d is with %s, not %s. Try:\n  %s", task, row.Owner, target, sayCmd(row.Owner, body, in.Parent, fmt.Sprintf("--task T%d", task))))
+			return fail(fmt.Sprintf("T%d is with %s, not %s. Try:\n  %s", task, row.Owner, target, sayCmd(q, row.Owner, body, in.Parent, fmt.Sprintf("--task T%d", task))))
 		}
-		ok, msg, _, merr := e.MemoAdd(q, task, me, body)
+		ok, msg, mid, merr := e.MemoAdd(q, task, me, body)
 		if merr != nil {
 			return nil, merr
 		}
-		if ok && in.Effect != nil {
-			if err := in.Effect(q, msg, 0); err != nil {
+		if ok && in.MemoEffect != nil {
+			if err := in.MemoEffect(q, mid); err != nil {
 				return nil, err
 			}
 		}
@@ -276,28 +288,16 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 	if in.Effect != nil {
 		within = in.Effect
 	}
-	res, settled, serr := e.Say(q, SayIn{Target: target, Body: body, Requester: me, ParentID: in.Parent, Speaker: in.Speaker, Within: within})
+	res, serr := e.Say(q, SayIn{Target: target, Body: body, Requester: me, ParentID: in.Parent, Speaker: in.Speaker, Within: within})
 	if serr != nil {
 		return nil, serr
 	}
 	return &SayVerbOut{OK: res.OK, Msg: res.Message, After: func() {
 		res.After.Run()
-		e.settledAfter(settled)
 		if res.OK {
 			e.after(res.RID, target)
 		}
 	}}, nil
-}
-
-func (e *Env) settledAfter(s *Settled) {
-	if s == nil {
-		return
-	}
-	var out string
-	defer e.guard("telling the asker of a settled request", &out)
-	if _, err := e.SettledTell(e.DB, s); err != nil {
-		e.log("  telling the asker of #%d failed: %v", s.RID, err)
-	}
 }
 
 // PushCheck is why target cannot be pushed to, "" for none.
@@ -327,40 +327,18 @@ func (e *Env) PushVerb(target string, rid int64) (bool, string) {
 	return true, e.PushAct(target, rid)
 }
 
-// PushAnswerCheck is why an answer cannot be pushed to requester, "" for none.
-func (e *Env) PushAnswerCheck(requester string) string {
-	if requester == db.Human || !e.registered(requester) {
-		return requester + " is not an agent"
-	}
-	return ""
-}
-
-// PushAnswerAct puts the answer in front of the agent that asked, on a goroutine of its own.
-func (e *Env) PushAnswerAct(requester string) string {
-	e.background("push-answer-"+requester, func() { e.PushAnswerHere(e.DB, requester) })
-	return Handed
-}
-
-// PushAnswerVerb is the `push.answer` verb: (ok, message).
-func (e *Env) PushAnswerVerb(requester string) (bool, string) {
-	if why := e.PushAnswerCheck(requester); why != "" {
-		return false, why
-	}
-	return true, e.PushAnswerAct(requester)
-}
-
 // NotifyCancelledCheck is the request NotifyCancelledVerb would tell about and why not: (row, "") or (nil, why). Pure reads.
 func (e *Env) NotifyCancelledCheck(q db.Q, rid int64) (row *db.Request, why string, err error) {
 	defer Catch(&err)
 	row = must(db.GetRequest(q, rid))
 	if row == nil {
-		return nil, fmt.Sprintf("no request #%d", rid), nil
+		return nil, "no such message", nil
 	}
 	if row.Target == db.Human || !e.registered(row.Target) {
 		return nil, row.Target + " is not an agent", nil
 	}
 	if row.State != "landed" || !row.DeliveredAt.Valid || !must(db.ClosedUnder(q, row.ID)) {
-		return nil, fmt.Sprintf("#%d was not cancelled after it was delivered", row.ID), nil
+		return nil, fmt.Sprintf("%s was not cancelled after it was delivered", db.MsgName(q, row.ID)), nil
 	}
 	return row, "", nil
 }
@@ -368,7 +346,7 @@ func (e *Env) NotifyCancelledCheck(q db.Q, rid int64) (row *db.Request, why stri
 // NotifyCancelledAct types the cancel at the agent on a goroutine of its own.
 func (e *Env) NotifyCancelledAct(row *db.Request) string {
 	e.background(fmt.Sprintf("notify-cancelled-%d", row.ID), func() {
-		if _, _, err := e.NotifyCancelled(e.DB, row, shownVerdict(row)); err != nil {
+		if _, _, err := e.NotifyCancelled(e.DB, row, row.Reason.String); err != nil {
 			e.log("  notify-cancelled-%d failed: %v", row.ID, err)
 		}
 	})
@@ -414,8 +392,8 @@ func (e *Env) checkHumanResolve(q db.Q, row *db.Request, tasks []int64, noTask *
 		if oneTask {
 			names = "--task T<n>"
 		}
-		return fmt.Sprintf("#%d is the founder's: say whether work follows it. %s names the tasks it opened (one per deliverable promised), "+
-			"--no-task 'reason' says nothing needs building. `hl task new --assign NAME 'title' -t 2h` makes a task.", row.ID, names)
+		return fmt.Sprintf("%s is the founder's: say whether work follows it. %s names the tasks it opened (one per deliverable promised), "+
+			"--no-task 'reason' says nothing needs building. `hl task new --assign NAME 'title' -t 2h` makes a task.", row.Name(q), names)
 	}
 	return ""
 }

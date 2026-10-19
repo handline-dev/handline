@@ -163,7 +163,21 @@ func (v *accountView) of(a string) map[string]any {
 	if l := e.loginOf(a); l != nil {
 		acct["login"] = l
 	}
+	acct["stalled"] = stallOf(team.Accounts{Home: e.Home}.Stalled(a))
 	return acct
+}
+
+// stallOf is Account.stalled: the reason a row shows beside STALLED, the StopFailure error, the turn that showed it and since when;
+// nil while the account is usable.
+func stallOf(s *team.Stall) any {
+	if s == nil {
+		return nil
+	}
+	errType := s.Error
+	if errType == "" {
+		errType = "authentication_failed"
+	}
+	return map[string]any{"reason": team.StallWord(errType), "error": errType, "detail": s.Why, "since": ts(s.At)}
 }
 
 // addUsage adds what `hl account list` shows beside the windows: the plan, the windows' report, the context figure, the age of the

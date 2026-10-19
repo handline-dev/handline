@@ -3,6 +3,7 @@ package daemon
 import (
 	"database/sql"
 	"fmt"
+	"github.com/handline/handline/go/internal/msgtest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,7 +28,7 @@ func trustDaemon(t *testing.T) (d *Daemon, id string, card int64, root string) {
 		t.Fatal(err)
 	}
 	raise := func(title, text string) (bool, string, int64, int64, error) {
-		rid, err := db.AddRequest(d.db, db.NewRequest{Requester: "alice", Target: db.Human, Body: text, Response: "async", Kind: "task"})
+		rid, err := db.AddRequest(d.db, db.NewRequest{Requester: "alice", Target: db.Human, Body: text, Kind: "task"})
 		if err != nil {
 			return false, "", 0, 0, err
 		}
@@ -57,11 +58,12 @@ func doneCard(t *testing.T, d *Daemon, card int64, text string) {
 // decisions are how the founder decides a trust proposal: task.done on its decision task.
 var decisions = map[string]func(*testing.T, *Daemon, int64, string){"task.done": doneCard}
 
-// reply is the answer the proposer is told.
+// reply is what the card closed with: the founder's words, then the apply line, as its reasons in order.
 func reply(t *testing.T, d *Daemon, card int64) string {
 	t.Helper()
 	var body string
-	if err := d.db.QueryRow("SELECT body FROM requests WHERE settles = ?", card).Scan(&body); err != nil {
+	if err := d.db.QueryRow("SELECT group_concat(reason, char(10) || char(10)) FROM (SELECT json_extract(payload, '$.reason') AS reason FROM events "+
+		"WHERE kind = 'request_reason' AND json_extract(payload, '$.request_id') = ? ORDER BY id)", card).Scan(&body); err != nil {
 		t.Fatal(err)
 	}
 	return body
@@ -76,7 +78,7 @@ func reportsToFounder(t *testing.T, d *Daemon, body string) int {
 	return n
 }
 
-// The founder's approve declares the root as the proposer asked for it, marks the proposal applied and tells the proposer so; the
+// The founder's approve declares the root as the proposer asked for it, marks the proposal applied and keeps that on the card; the
 // founder is reported nothing.
 func TestTheFoundersApproveDeclaresTheProposedRoot(t *testing.T) {
 	for name, decide := range decisions {
@@ -206,7 +208,7 @@ func TestAnApproveDeclaresNothingWhenTheCardNoLongerNamesTheRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	ok, said, err := tr.Apply(d.db, id)
-	if err != nil || ok || !strings.Contains(said, fmt.Sprintf("does not match what #%d asked the founder to approve", card)) {
+	if err != nil || ok || !strings.Contains(msgtest.IDs(d.db, said), fmt.Sprintf("does not match what #%d asked the founder to approve", card)) {
 		t.Fatal(ok, said, err)
 	}
 	if len(tr.Declared()) != 0 {

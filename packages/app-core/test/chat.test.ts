@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, handoffLine, sideOf, taskRow, changeParts, timeline, chatEntries, activity, restartCause, restartingLine, teamActivityOf } from '../src/index.ts';
+import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, handoffLine, sideOf, taskRow, changeParts, timeline, chatEntries, activity, restartCause, restartingLine, restartShown, teamActivityOf } from '../src/index.ts';
 
 const A = 'handline.architect';
 const msg = (over: Partial<ChatMessage>): ChatMessage => ({
@@ -270,6 +270,14 @@ test('restartCause is the daemon word in short words, null when it sent none', (
   assert.equal(restartCause(item('context_full')), 'context was full');
   assert.equal(restartCause(item('odd')), 'odd');
   assert.equal(restartCause(item()), null);
+});
+
+test('the restart line ends where the New session line begins, never both', () => {
+  const since = '2026-10-18T20:55:00.000Z';
+  const session = (at: string) => ({ id: 1, at, kind: 'session', session: { id: 's', started: at, handoff: null, cause: 'context_full' } }) as unknown as TranscriptItem;
+  assert.equal(restartShown({ since }, []), true);
+  assert.equal(restartShown({ since }, [session('2026-10-18T20:40:00.000Z')]), true); // an earlier session's line
+  assert.equal(restartShown({ since }, [session('2026-10-18T20:55:45.000Z')]), false);
 });
 
 test('the live restart line reads as one sentence', () => {

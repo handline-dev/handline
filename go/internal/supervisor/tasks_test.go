@@ -78,16 +78,17 @@ func TestAdvanceDeliversATaskHandedBackToItsOpenerAsItsOwnWork(t *testing.T) {
 	}
 }
 
-func TestSelfDeliveryCarriesTheAnswersSoFar(t *testing.T) {
+func TestSelfDeliveryCarriesWhatItsRequestsClosedWith(t *testing.T) {
 	r := newRig(t)
 	tid := r.newTask("bob", "bob", "finish the doc")
 	asked := r.ask("bob", "alice", "which format?", "ask")
 	r.must(db.LinkRequest(r.DB, tid, asked))
-	_, err := db.AddAnswer(r.DB, asked, "pdf", 0, true)
-	r.must(err)
+	if ok, err := db.CloseIfQueued(r.DB, asked, "done", "pdf"); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
 	task, _ := db.GetTask(r.DB, tid)
 	row, _ := db.GetRequest(r.DB, r.selfDelivery(r.DB, "bob", task))
-	if row.Body != fmt.Sprintf("finish the doc\n\nanswer to #%d: pdf", asked) {
+	if r.ids(row.Body) != fmt.Sprintf("finish the doc\n\nanswer to #%d: pdf", asked) {
 		t.Fatal(row.Body)
 	}
 }
@@ -505,8 +506,7 @@ func TestAMemoIsToldAtOnceOnlyToWhomItIsAimedAt(t *testing.T) {
 func TestAHeldMemoUnreadForAnHourIsToldToTheReadersLeadOnce(t *testing.T) {
 	r := newRig(t)
 	r.register("carol")
-	r.must(os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "edges:\n",
-		"edges:\n  - { from: bob, to: carol, relation: supervisor, response: async }\n", 1)), 0o644))
+	r.must(os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(teamYAML, "teams:\n", "teams:\n  bob: [bob, carol]\n", 1)), 0o644))
 	r.agentUp("bob")
 	r.agentUp("carol")
 	r.must(db.SetAgentState(r.DB, "carol", states.Running, 0, ""))

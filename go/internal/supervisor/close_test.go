@@ -16,11 +16,11 @@ func TestWithdrawTakesBackAnUndeliveredRequestOnlyForItsRequester(t *testing.T) 
 	}
 	ok, msg, err := r.WithdrawWrite(r.DB, after, rid, "alice", "wrong target", nil)
 	r.must(err)
-	if !ok || msg != "request #1 to bob withdrawn" {
+	if !ok || r.ids(msg) != "request #1 to bob withdrawn" {
 		t.Fatalf("%v %s", ok, msg)
 	}
 	row, _ := db.GetRequest(r.DB, rid)
-	if row.State != "withdrawn" || row.Answer.String != "withdrawn: wrong target" {
+	if row.State != "withdrawn" || row.Reason.String != "withdrawn: wrong target" {
 		t.Fatalf("%+v", row)
 	}
 	if ok, msg, _ := r.WithdrawWrite(r.DB, after, rid, "alice", "", nil); ok || !strings.Contains(msg, "already withdrawn") {
@@ -30,7 +30,7 @@ func TestWithdrawTakesBackAnUndeliveredRequestOnlyForItsRequester(t *testing.T) 
 	rid2 := r.ask("alice", "bob", "second", "ask")
 	db.MarkDelivered(r.DB, rid2)
 	ok, msg, _ = r.WithdrawWrite(r.DB, after, rid2, "alice", "", nil)
-	if ok || !strings.Contains(msg, "was already delivered to bob - too late to withdraw; tell bob with a message (`hl say bob \"...\" --parent 2`)") {
+	if ok || !strings.Contains(r.ids(msg), "was already delivered to bob - too late to withdraw; tell bob with a message (`hl say bob \"...\" --parent #2`)") {
 		t.Fatalf("%s", msg)
 	}
 }
@@ -51,14 +51,14 @@ func TestCancelClosesADeliveredRequestAndTellsItsAgentToStop(t *testing.T) {
 	}
 	out, err := r.CancelTell(r.DB, plan)
 	r.must(err)
-	if !strings.HasPrefix(out, "#1 to bob cancelled (bob was told to stop)\nrequest #1 -> rejected") {
+	if !strings.HasPrefix(r.ids(out), "#1 to bob cancelled (bob was told to stop)\nrequest #1 -> rejected") {
 		t.Fatalf("%q", out)
 	}
-	if got := r.term.typed[len(r.term.typed)-2]; got != "#1 from alice was cancelled: withdrawn by the founder. Stop work on it; it is closed and needs no resolve. `hl read 1` shows it." {
+	if got := r.ids(r.term.last()); got != "#1 from alice was cancelled: withdrawn by the founder. Stop work on it; it is closed and needs no resolve. `hl read #1` shows it." {
 		t.Fatalf("%q", got)
 	}
 	row, _ := db.GetRequest(r.DB, rid)
-	if row.State != "landed" || row.Answer.String != "withdrawn by the founder" {
+	if row.State != "landed" || row.Reason.String != "withdrawn by the founder" {
 		t.Fatalf("%+v", row)
 	}
 	if yes, _ := db.ClosedUnder(r.DB, rid); !yes {
@@ -75,19 +75,21 @@ func TestCancelOfTheFoundersUndeliveredRequestIsAWithdrawal(t *testing.T) {
 	after := &After{}
 	plan, ok, msg, err := r.CancelWrite(r.DB, after, rid, nil, nil)
 	r.must(err)
-	if !ok || plan != nil || msg != "request #1 to bob withdrawn" {
+	if !ok || plan != nil || r.ids(msg) != "request #1 to bob withdrawn" {
 		t.Fatalf("%v %v %q", ok, plan, msg)
 	}
 }
 
-// The edge human -> * says fire_and_forget, which is no longer read: the founder's request is async, and its close still wakes nobody.
-func TestTheFoundersRequestIsAsyncAndItsCloseWakesNobody(t *testing.T) {
+// A link only allows a message: the founder's request carries no response kind, and its close wakes nobody.
+func TestTheFoundersRequestCarriesNoResponseAndItsCloseWakesNobody(t *testing.T) {
 	r := newRig(t)
 	rid := r.ask("human", "bob", "do x", "")
-	if row, _ := db.GetRequest(r.DB, rid); row.Response.String != "async" {
-		t.Fatalf("%+v", row)
+	var unset bool
+	r.DB.QueryRow("SELECT relation IS NULL AND response IS NULL AND settles IS NULL FROM requests WHERE id = ?", rid).Scan(&unset)
+	if !unset {
+		t.Fatal("relation, response and settles are written NULL")
 	}
-	if ok, msg, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "done", Notify: true}); err != nil || !ok {
+	if ok, msg, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "done"}); err != nil || !ok {
 		t.Fatalf("%v %q %v", ok, msg, err)
 	}
 	if len(r.eval.calls) != 0 {
@@ -108,18 +110,19 @@ func TestCancelGuardRefusesInsideTheTransaction(t *testing.T) {
 	}
 }
 
-func TestResolveRefusesToOverwriteAnAnswerAndQueuesTheAskerOnce(t *testing.T) {
+// Nothing waits on an answer any more, so a resolve wakes nobody: work that needs an answer is a task, whose done tells its opener.
+func TestResolveRefusesToOverwriteAnAnswerAndWakesNobody(t *testing.T) {
 	r := newRig(t)
 	rid := r.ask("alice", "bob", "q", "ask")
-	ok, msg, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "yes", Notify: true})
+	ok, msg, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "yes"})
 	r.must(err)
-	if !ok || !strings.HasPrefix(msg, "request #1 -> done") {
+	if !ok || !strings.HasPrefix(r.ids(msg), "request #1 -> done") {
 		t.Fatalf("%v %q", ok, msg)
 	}
-	if len(r.eval.calls) != 1 || r.eval.calls[0] != "alice: request 1 resolved: done" {
+	if len(r.eval.calls) != 0 {
 		t.Fatalf("%v", r.eval.calls)
 	}
-	if ok, msg, _ := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "no", Notify: true}); ok || msg != "#1 is already landed - nothing to resolve" {
+	if ok, msg, _ := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "no"}); ok || r.ids(msg) != "#1 is already landed - nothing to resolve" {
 		t.Fatalf("%v %q", ok, msg)
 	}
 	if ok, msg, _ := r.Resolve(r.DB, ResolveIn{RID: 99}); ok || msg != "request 99 does not exist" {
@@ -129,7 +132,7 @@ func TestResolveRefusesToOverwriteAnAnswerAndQueuesTheAskerOnce(t *testing.T) {
 	a := r.ask("alice", "bob", "q1", "ask")
 	r.ask("alice", "bob", "q2", "ask")
 	r.eval.calls = nil
-	r.Resolve(r.DB, ResolveIn{RID: a, Verdict: "ok", Notify: true})
+	r.Resolve(r.DB, ResolveIn{RID: a, Verdict: "ok"})
 	if len(r.eval.calls) != 0 {
 		t.Fatalf("the asker is queued with another ask outstanding: %v", r.eval.calls)
 	}
@@ -140,7 +143,7 @@ func TestResolveOpensTasksInTheSameWriteAndNamesThem(t *testing.T) {
 	rid := r.ask("alice", "bob", "plan?", "ask")
 	tx, err := r.DB.Begin()
 	r.must(err)
-	res, ok, msg, err := r.ResolveWrite(tx, ResolveIn{RID: rid, Verdict: "do it", Notify: true,
+	res, ok, msg, err := r.ResolveWrite(tx, ResolveIn{RID: rid, Verdict: "do it",
 		OpenTasks: func(q db.Q) ([]int64, error) {
 			a, _ := db.NewTask(q, "step", "bob", "bob", 0, db.DefaultPriority, "", 0, "")
 			return []int64{a}, nil
@@ -153,36 +156,35 @@ func TestResolveOpensTasksInTheSameWriteAndNamesThem(t *testing.T) {
 	if res.Verdict != "do it\n\nOpened as task(s): T1" {
 		t.Fatalf("%q", res.Verdict)
 	}
-	if row, _ := db.GetRequest(r.DB, rid); row.Answer.String != res.Verdict {
-		t.Fatalf("%q", row.Answer.String)
+	if row, _ := db.GetRequest(r.DB, rid); row.Reason.String != res.Verdict {
+		t.Fatalf("%q", row.Reason.String)
 	}
 }
 
 func TestResolveRefusedLeavesNothingWhenItLostTheRace(t *testing.T) {
 	r := newRig(t)
 	rid := r.ask("alice", "bob", "q", "ask")
-	db.CloseIfQueued(r.DB, rid, "done", "first", db.CloseOpts{})
+	db.CloseIfQueued(r.DB, rid, "done", "first")
 	tx, _ := r.DB.Begin()
 	defer tx.Rollback()
 	_, ok, msg, _ := r.ResolveWrite(tx, ResolveIn{RID: rid, Verdict: "second"})
-	if ok || msg != "#1 is already landed - nothing to resolve" {
+	if ok || r.ids(msg) != "#1 is already landed - nothing to resolve" {
 		t.Fatalf("%v %q", ok, msg)
 	}
-	if a, _ := db.AnswerRowOf(tx, rid); a == nil || a.Body != "first" {
-		t.Fatalf("%+v", a)
+	if row, _ := db.GetRequest(tx, rid); row.Reason.String != "first" {
+		t.Fatalf("the first close's reason stands: %+v", row)
 	}
 }
 
-func TestRetireWriteClosesAHeldRequestWithoutSettlingItsDecisionTask(t *testing.T) {
+func TestRetireWriteClosesAHeldRequestAndLeavesItsDecisionTaskOpen(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("alice")
 	card := r.ask("alice", "human", "decide", "")
-	tid, _ := db.DecisionTaskOfCard(r.DB, card)
+	tid, _ := db.TaskOfCard(r.DB, card)
 	if tid == 0 {
 		t.Fatal("no decision task")
 	}
-	no := false
-	plan, ok, why, err := r.RetireWrite(r.DB, card, "released", &no, false)
+	plan, ok, why, err := r.RetireWrite(r.DB, card, "released")
 	r.must(err)
 	if !ok {
 		t.Fatal(why)
@@ -193,7 +195,7 @@ func TestRetireWriteClosesAHeldRequestWithoutSettlingItsDecisionTask(t *testing.
 	if _, err := r.RetireTell(r.DB, plan); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, why, _ := r.RetireWrite(r.DB, card, "again", nil, true); ok || why != "#1 is already withdrawn - nothing to retire" {
+	if _, ok, why, _ := r.RetireWrite(r.DB, card, "again"); ok || r.ids(why) != "#1 is already withdrawn - nothing to retire" {
 		t.Fatalf("%v %q", ok, why)
 	}
 }
@@ -202,7 +204,7 @@ func TestRetireWriteClosesAHeldRequestWithoutSettlingItsDecisionTask(t *testing.
 func TestResolveQueuesNoStateRowForARequesterThatIsNoAgent(t *testing.T) {
 	r := newRig(t)
 	rid := r.ask("ghost", "bob", "q", "ask")
-	_, _, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "yes", Notify: true})
+	_, _, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "yes"})
 	r.must(err)
 	if len(r.eval.calls) != 0 {
 		t.Fatalf("a requester no agent has was queued: %v", r.eval.calls)

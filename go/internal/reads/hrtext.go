@@ -252,11 +252,7 @@ func changeLines(it flat) []string {
 	kind, agent, to := it.text("kind"), it.text("agent"), it.text("to")
 	switch kind {
 	case "link":
-		line := fmt.Sprintf("allow %s to ask %s (response %s", agent, to, orStr(it.text("response"), "async"))
-		if it.truthy("relation") {
-			line += ", relation " + it.text("relation")
-		}
-		return []string{line + ")"}
+		return []string{fmt.Sprintf("allow %s to ask %s", agent, to)}
 	case "unlink":
 		return []string{fmt.Sprintf("remove the edge %s -> %s", agent, to)}
 	case "add":

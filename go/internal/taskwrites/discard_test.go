@@ -87,7 +87,7 @@ func discardEnv(t *testing.T) (*sql.DB, func(agent string, tell ...Teller) *rpc.
 		os.WriteFile(filepath.Join(home, "agents", a, "agent.yaml"), nil, 0o644)
 	}
 	os.WriteFile(filepath.Join(home, "team.yaml"), []byte("teams:\n  crew: [worker, other]\nagents:\n  gp: {}\n  worker: {}\n  other: {}\n  manager: {}\n"+
-		"edges:\n  - {from: manager, to: worker, relation: supervisor, response: async}\n  - {from: manager, to: other, relation: supervisor, response: async}\n"), 0o644)
+		"edges:\n  - {from: manager, to: worker}\n  - {from: manager, to: other}\n"), 0o644)
 	return db, func(agent string, tell ...Teller) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db
@@ -211,9 +211,8 @@ func TestClosingQueuedDeliveriesQuietly(t *testing.T) {
 		count(t, db, "SELECT COUNT(*) FROM requests WHERE id = 61 AND state = 'withdrawn' AND queue_order IS NULL") != 1 {
 		t.Fatal("a landed one closes as read, an unseen one is withdrawn")
 	}
-	if count(t, db, "SELECT COUNT(*) FROM requests WHERE settles = 60 AND body = '' AND requester = 'worker' AND target = 'manager' AND delivered_at IS NOT NULL AND state = 'landed'") != 1 ||
-		count(t, db, "SELECT COUNT(*) FROM requests WHERE settles = 61") != 0 {
-		t.Fatal("only the landed one gets its empty answer, already told")
+	if count(t, db, "SELECT COUNT(*) FROM requests WHERE requester = 'worker' AND target = 'manager'") != 0 {
+		t.Fatal("closing quietly writes no answer back")
 	}
 	if count(t, db, "SELECT COUNT(*) FROM tasks WHERE id = 50 AND sent_at IS NULL") != 1 {
 		t.Fatal("the task no longer reads as sent")

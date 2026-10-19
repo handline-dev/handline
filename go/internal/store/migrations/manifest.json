@@ -98,5 +98,10 @@
   "version": 20,
   "name": "task_tags_and_views",
   "additive": true
+ },
+ {
+  "version": 21,
+  "name": "task_review",
+  "additive": true
  }
 ]

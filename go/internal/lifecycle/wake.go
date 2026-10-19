@@ -118,6 +118,9 @@ func (m *Manager) WakePrompt(agent string, resumed bool, in WakePromptIn) (text 
 	return strings.Join(parts, "\n\n"), nil
 }
 
+// StartCause is what a start for waiting work is recorded as: the contract's word for work arriving for a closed agent.
+const StartCause = "start"
+
 // StartForWork gives an agent somewhere to run, because work is waiting for it. Counted against the same streak a failed wake is: a repo
 // that will never check out would otherwise be retried every tick for ever. After MaxFailedAttempts it stalls and says so.
 func (m *Manager) StartForWork(agent string) (said string, err error) {
@@ -129,18 +132,9 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	}
 	repo := m.Agents.RepoOf(agent)
 	if repo == "" {
-		asked := len(must(db.QueuedFor(m.Q, agent)))
-		answers := len(must(db.UnannouncedAnswers(m.Q, agent)))
-		var what []string
-		if asked > 0 {
-			what = append(what, fmt.Sprintf("%d request(s)", asked))
-		}
-		if answers > 0 {
-			what = append(what, fmt.Sprintf("%d answer(s)", answers))
-		}
-		w := strings.Join(what, ", ")
-		if w == "" {
-			w = "work"
+		w := "work"
+		if asked := len(must(db.QueuedFor(m.Q, agent))); asked > 0 {
+			w = fmt.Sprintf("%d request(s)", asked)
 		}
 		return fmt.Sprintf("%s: %s waiting and it has no terminal - set `repo:` in its agent.yaml, or start it by hand (t)", agent, w), nil
 	}
@@ -177,16 +171,22 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	// standing with nothing in it counts as the failed wake it is.
 	var ok bool
 	if wt != "" {
-		ok, said, err = m.Spawn.StartIn(agent, wt, "")
+		cmd, cerr := m.Launch.CommandFor(agent, "", StartCause, "")
+		check(cerr)
+		ok, said, err = m.Spawn.StartIn(agent, wt, cmd)
 	} else {
-		ok, said, err = m.Spawn.Spawn(agent, realpath(expandUser(repo)))
+		ok, said, err = m.Spawn.SpawnWith(agent, realpath(expandUser(repo)), SpawnOpts{Why: StartCause})
 	}
 	// A start that could not be tried (git cannot run, no descriptors) is no failed start of the agent's own: it is not counted.
 	check(err)
 	first := strings.SplitN(said, "\n", 2)[0]
 	if ok {
 		check(db.ResetCounter(m.Q, agent, "wake_failures"))
-		must(db.AddEvent(m.Q, agent, "started_for_work", db.KV{K: "repo", V: repo}))
+		ev := []db.KV{{K: "repo", V: repo}}
+		if head := must(db.HeadOfQueue(m.Q, agent, 0)); head != nil {
+			ev = append(ev, db.KV{K: "request_id", V: head.ID}) // the work that was waiting
+		}
+		must(db.AddEvent(m.Q, agent, "started_for_work", ev...))
 		m.Log("  %s: started in %s - work was waiting for it", agent, repo)
 		return fmt.Sprintf("%s: started for work waiting - %s", agent, first), nil
 	}

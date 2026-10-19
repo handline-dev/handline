@@ -187,6 +187,8 @@ export type AgentView = {
     phase: "writing" | "starting";
     since: Timestamp;
   } | null;
+  /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
+  status?: Status;
 };
 
 export type AgentDetail = AgentView & {
@@ -275,7 +277,7 @@ export type Task = {
   from: string;
   to: string;
   title: string;
-  /** draft, queued, doing, reported (its owner's done waits on task.accept or task.reject), done or discarded. */
+  /** draft, queued, doing, review (its assignee's done waits on task.accept, task.reject or a reassign, or, accepted with a PR, on that PR's merge), done or discarded. */
   state: string;
   time_box: Duration | null;
   parent: number | null;
@@ -300,6 +302,10 @@ export type Task = {
     by: string;
     reason: string;
     at: Timestamp;
+    /** The requests the discard withdrew with it (a lead's or the founder's), as request ids. */
+    withdrew?: number[];
+    /** The batch it was discarded in, null for a discard of its own. */
+    batch?: string | null;
   } | null;
   /** Where the task's state and its delivery disagree (a draft with work out, an approved task nothing is out for), in words; null when they agree. */
   mismatch?: string | null;
@@ -323,12 +329,23 @@ export type Task = {
   waiting?: TaskWaiting | null;
   /** The task's clock, the same object task.get gives; null once it is done or discarded. Absent from a daemon that does not send it. */
   time?: TaskClock | null;
-  /** The done that waits on acceptance while the task is reported; null otherwise. Absent from a daemon that does not send it. */
+  /** The done in review while the task's state is review; null otherwise. Absent from a daemon that does not send it. */
   report?: {
     by: string;
     evidence: string;
     at: Timestamp;
+    /** Who the review waits on: the assignee's lead, else whoever it answers to; human once it is accepted with a PR (the founder's merge OK). Absent from a daemon that does not send it. */
+    waits_on?: string;
+    /** The accept of a task with a PR, which then waits on that PR's merge; null until then. Absent from a daemon that does not send it. */
+    accepted?: {
+      by: string;
+      at: Timestamp;
+    } | null;
   } | null;
+  /** The pull request its work merges in (task.edit pr); an accepted task with one closes at that merge. Absent from a daemon that does not send it. */
+  pr?: number | null;
+  /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
+  status?: Status;
 };
 
 /** Why a task waits (Task.waiting). */
@@ -340,6 +357,22 @@ export type TaskWaiting = {
   /** The tasks it waits on, for on task (by id, also one outside the caller's scope); empty otherwise. */
   tasks: number[];
   since: Timestamp;
+};
+
+/** What an agent or task is doing and why (x-status). */
+export type Status = {
+  /** One of x-status states. */
+  state: string;
+  /** One of x-status reasons. */
+  reason: string;
+  /** The line every view shows for it, as it is. */
+  text: string;
+  /** When it ends by itself (a clock, a wall's reset); null when nothing says. */
+  until: Timestamp | null;
+  /** Since when it has been so; null when not known. */
+  since: Timestamp | null;
+  /** The tasks it waits on, for reason task; empty otherwise. */
+  tasks: number[];
 };
 
 export type TaskDetail = Task & {
@@ -556,6 +589,16 @@ export type Account = {
   assignable?: boolean;
   /** Only with accounts.list `usage: true`. Why assignable is what it is. */
   assign_reason?: string;
+  /** Set while the account is STALLED: a turn on it ended on an error that says the account itself cannot be used (a refused login, an org that disallows it, a hold or billing problem), or on one error the daemon does not name four times with no good turn between. No agent is placed on it; account.wake, a login or a good turn there ends it. null while it is usable. Absent from a daemon that does not send it. */
+  stalled?: {
+    /** The line a row shows beside STALLED, as an agent's stall does: `login expired` for authentication_failed, else the error itself. */
+    reason: string;
+    /** The StopFailure error that stalled it, as the CLI gave it. */
+    error: string;
+    /** The turn that showed it, in words. */
+    detail: string;
+    since: Timestamp;
+  } | null;
 };
 
 export type DaemonStatus = {
@@ -858,13 +901,15 @@ export type ChatMessage = {
   } | null;
   /** Only on the message that tells an agent how the founder decided its HR proposal: that proposal's id, as hr.list gives it. A client that draws the decided proposal as a card can leave this line out. */
   proposal?: number;
+  /** One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task's state asks for one: in review, and it answers to the founder (Accept, Send back), or owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb. */
+  actions?: ChatAction[];
 };
 
 export type TranscriptItem = {
   /** Its time and its source's row, so it never changes. An item that arrives in a second a client has read up to can sort before the last one it has: `since` reads from that second and a client drops the ids it already holds. For kind reply it is also what chat.send takes as parent_item. A reply has one of two sources, told apart by the last digit of its number within the second: a structured session's text block (even; the same id on every read and in the live event's `item`) and the answer to a request (odd); each is the same on every read, and chat.transcript lists both. Source numbers within the second: 0 reply, 1 prompt, 2 task event, 3 tool call, 4 session start (its number is the session_starts row). */
   id: number;
   at: Timestamp;
-  kind: "reply" | "tool" | "prompt" | "task_event" | "session";
+  kind: "reply" | "tool" | "prompt" | "task_event" | "session" | "task_batch";
   text?: string;
   tool?: string;
   /** For kind tool: the text the tool printed, as the store holds it. Absent when the store holds none. */
@@ -891,6 +936,16 @@ export type TranscriptItem = {
     handoff: string | null;
     /** Why the conversation began. Words the daemon writes: `launch` (first start of a spawned agent), `start` (work arrived for a closed agent), `wake` (a closed agent woken), `restart`, `fresh close` (the old conversation was closed and not resumed; the one word with a space), `move` (to another account), `handoff` (folded into a handoff), and, where the daemon knows it, `context_full`, `settings_applied`, `crash_recovery`, `idle_close`. Open set: a client draws a word it does not know as text. Absent from a daemon that does not serve it. */
     cause?: string;
+  };
+  /** For kind task_batch: a batch discard, shown once in the chat of whoever made it. */
+  task_batch?: {
+    batch: string;
+    who: string;
+    tasks: {
+      task: number;
+      title: string;
+      reason: string;
+    }[];
   };
 };
 
@@ -1409,7 +1464,7 @@ export type HistoryRow = {
   at: Timestamp;
   /** Who made the change: an agent, or human. */
   by: string;
-  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
+  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, review, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
   field: "title" | "assignee" | "owner" | "body" | "priority" | "timeout" | "state" | "tag" | "blocked_by" | "merged_into" | "memo";
   /** The value before; empty when there was none (a task just opened, a wait just added, a memo just added). */
   was: string;
@@ -1419,6 +1474,8 @@ export type HistoryRow = {
   note?: string;
   /** With a memo row: the memo's id. */
   memo?: number;
+  /** With a discarded state row: the requests withdrawn with it. Absent when none were. */
+  withdrew?: number[];
 };
 
 /** The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else. */
@@ -1456,7 +1513,7 @@ export type Tag = string;
 export type TaskFilter = {
   /** Tasks that carry every one of these tags. */
   tags?: Tag[];
-  state?: "draft" | "queued" | "doing" | "reported" | "done" | "discarded";
+  state?: "draft" | "queued" | "doing" | "review" | "done" | "discarded";
   /** Who works the task (its assignee). */
   owner?: string;
   /** Who the task answers to (its asker: hl's --owner). */
@@ -1473,6 +1530,9 @@ export type TaskView = {
   by: string;
   at: Timestamp;
 };
+
+/** A request named by its integer id, or by its ref: the 12 hex characters, with or without a leading #, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist. */
+export type RequestName = number | string;
 
 /** What the machine and each agent use, measured every 15 s: one ps read for every agent. A figure the daemon could not read is 0. */
 export type Resources = {
@@ -1497,6 +1557,31 @@ export type Resources = {
     disk_free_bytes: number;
     disk_total_bytes: number;
   };
+};
+
+/** One stretch of a task's time: one block of the bar under its title, sized by seconds. */
+export type TimeSegment = {
+  /** queued: not yet with its holder. waiting: held up, on says by what. starting: its holder's session is being launched, woken or handed off. working: its holder has it and nothing holds it up. */
+  kind: "queued" | "waiting" | "starting" | "working";
+  on: ("founder" | "task" | "agent" | "account") | null;
+  /** The reason as shown: `waiting on you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working. */
+  text: string;
+  task: number | null;
+  from: Timestamp;
+  to: Timestamp;
+  /** to less from. */
+  seconds: number;
+};
+
+export type ChatAction = {
+  key: "accept" | "send_back" | "ok" | "no";
+  label: string;
+  verb: "task.accept" | "task.reject" | "task.done" | "task.handoff";
+  task: number;
+  /** The verb's params but request_id. */
+  params: { [key: string]: unknown };
+  /** A param the person must write before the tap sends (`note` for Send back). */
+  needs?: string;
 };
 
 export interface Methods {
@@ -1748,7 +1833,7 @@ export interface Methods {
   limit?: number;
 }; result: TranscriptEvents };
   "chat.locate": { params: {
-  request: number;
+  request: RequestName;
   /** Optional: the daemon finds the conversation from the message itself. */
   agent?: AgentName;
   /** Page size, default 50. */
@@ -1813,7 +1898,7 @@ export interface Methods {
     time_box?: Duration;
   };
   /** The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found. The message goes to agent whoever the parent's requester or target is, so a row relayed from another agent can be quoted in this agent's chat. request in the result is the new message. */
-  parent?: number;
+  parent?: RequestName;
   /** Images from attachment.put to send with this message, drawn after those the body names (x-attachments, flow); an id the body names too counts once, and the two together are at most 6 (bad_request, field attachments when the list goes over). Then body may be empty. An id may be sent again. A malformed id or an unfinished upload is bad_request, field attachments; an image never put or no longer kept is not_found, what attachment. Not with task (bad_request): a brief names its images in its text. */
   attachments?: AttachmentId[];
   /** A reply of the agent's own that this message answers: the `id` of an item of kind reply that chat.transcript lists for this agent (a structured session's text block, whose live event carries the same id as `item`, or the answer to a request). The agent's turn text has no message number, so it cannot be `parent`; the two do not go together, nor does this with task (bad_request, field parent_item). It may go with attachments. An id that is no item of this agent's transcript, or one of another agent's, is not_found (what: item); one that is not a reply (a tool call, a prompt, a task event, a session) is bad_request. */
@@ -1827,13 +1912,13 @@ export interface Methods {
   } };
   "chat.send_now": { params: {
   /** A ChatMessage.id still in state queued. */
-  request: number;
+  request: RequestName;
   request_id: RequestId;
 }; result: Accepted & {
     receipt?: Receipt;
   } };
   "chat.cancel": { params: {
-  request: number;
+  request: RequestName;
   /** Needed once the agent has been told the message. Without it the call is refused (gate confirm) and error data.plan holds what cancelling would do and who is told; send it again with confirm true to do it. */
   confirm?: boolean;
   request_id: RequestId;
@@ -2002,12 +2087,12 @@ export interface Methods {
     }[];
   } };
   "inbox.get": { params: {
-  id: number;
+  id: RequestName;
   /** Hold the call up to this many seconds until the request settles. Default 0, at most 600. */
   wait_s?: number;
 }; result: InboxItem };
   "request.read": { params: {
-  id: number;
+  id: RequestName;
   /** Hold the call up to this many seconds while the request is queued. Default 0, at most 600. */
   wait_s?: number;
 }; result: {
@@ -2034,7 +2119,7 @@ export interface Methods {
     parts?: (TextPart | ImagePart)[];
   } };
   "request.withdraw": { params: {
-  id: number;
+  id: RequestName;
   /** Why, kept with the withdrawal. Not empty when given. */
   reason?: string;
   request_id: RequestId;
@@ -2045,7 +2130,7 @@ export interface Methods {
     said: string;
   } };
   "request.cancel": { params: {
-  id: number;
+  id: RequestName;
   /** Change nothing: answer `plan`. */
   dry_run?: boolean;
   request_id: RequestId;
@@ -2070,11 +2155,11 @@ export interface Methods {
     said?: string;
   } };
   "inbox.mark_read": { params: {
-  ids: number[];
+  ids: RequestName[];
   request_id: RequestId;
 }; result: Accepted };
   "inbox.reply": { params: {
-  id: number;
+  id: RequestName;
   /** Markdown. It may name images (x-attachments, texts). */
   text: string;
   request_id: RequestId;
@@ -2098,6 +2183,8 @@ export interface Methods {
   all?: boolean;
   /** Every team's tasks, not only the caller's and its reports'. */
   everyone?: boolean;
+  /** Only the tasks the caller holds that wait on it: queued or doing, never draft, in review or ended; the founder's are the ones assigned to human. One row per task. It takes no owner. */
+  my_turn?: boolean;
   /** Also count, over the last 30 days, the requests that ended with no reason and how tasks were closed (the `reason_gaps` of the result). It costs seconds on a large database: a screen that polls never asks. */
   reason_gaps?: boolean;
 }; result: {
@@ -2120,6 +2207,14 @@ export interface Methods {
 }; result: {
     task: number;
     rows: HistoryRow[];
+  } };
+  "task.time": { params: {
+  task: number;
+}; result: {
+    task: number;
+    start: Timestamp;
+    end: Timestamp | null;
+    segments: TimeSegment[];
   } };
   "task.shot": { params: {
   task: number;
@@ -2171,7 +2266,7 @@ export interface Methods {
   /** A merge sha on main, or a reason in words. */
   evidence?: string;
   /** A request where the result was already reported. */
-  request?: number;
+  request?: RequestName;
   /** The repo whose main a sha is checked against. */
   repo?: string;
   /** Record evidence as words even if it looks like hex. */
@@ -2185,6 +2280,8 @@ export interface Methods {
   "task.accept": { params: {
   task: number;
   request_id: RequestId;
+  /** A chat message id: the founder's OK on this task, kept with the accept as its proof. Refused unless the founder wrote the message, it is tied to the task and it came after the report. */
+  by_founder?: number;
 }; result: Accepted };
   "task.reject": { params: {
   task: number;
@@ -2210,7 +2307,7 @@ export interface Methods {
   title: string;
   body?: string;
   /** The founder's message it answers. */
-  message: number;
+  message: RequestName;
   priority?: 1 | 2 | 3;
   expects?: Expects;
   /** What led to this, in a line; optional, since the linked message is the reason. */
@@ -2291,8 +2388,10 @@ export interface Methods {
   request_id: RequestId;
 }; result: Accepted };
   "task.discard": { params: {
-  task: number;
-  reason: string;
+  task?: number;
+  tasks?: number[];
+  reason?: string;
+  reasons?: { [key: string]: string };
   request_id: RequestId;
 }; result: Accepted };
   "task.board": { params: {
@@ -2331,6 +2430,8 @@ export interface Methods {
   /** Tags to remove; one it has not got is left as it is. */
   remove_tags?: Tag[];
   request_id: RequestId;
+  /** The pull request the task's work merges in (`hl task edit T<n> --pr <n>`), on an open task. Accepted, the task then waits on that PR's merge. */
+  pr?: number;
 }; result: Accepted };
   "task.ask": { params: {
   task: number;
@@ -2346,7 +2447,9 @@ export interface Methods {
   task?: number;
   /** Why this carries no task. */
   no_task?: string;
-  parent?: number;
+  parent?: RequestName;
+  /** Absolute paths of images the message carries (ChatMessage.attachments): PNG, JPEG, GIF or WebP, at most 10 MiB each, at most 6. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file that is not an image, or an image whose first bytes do not match its ending is bad_request (field files); the message is not written. */
+  files?: string[];
   request_id: RequestId;
 }; result: Accepted };
   "hook.record": { params: {
@@ -2468,6 +2571,10 @@ export interface Methods {
   cycle?: boolean;
   /** Last usable day YYYY-MM-DD; a date alone turns the cycle on, as `hl account cycle --end` does; null clears it. */
   cycle_end?: string | null;
+  request_id: RequestId;
+}; result: Accepted };
+  "account.wake": { params: {
+  account: string;
   request_id: RequestId;
 }; result: Accepted };
   "account.add": { params: {
@@ -2726,6 +2833,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.get": { role: "agent", callers: null, write: false, since: 1 },
   "task.history": { role: "agent", callers: null, write: false, since: 1 },
+  "task.time": { role: "agent", callers: null, write: false, since: 1 },
   "task.shot": { role: "member", callers: null, write: false, since: 1 },
   "task.new": { role: "agent", callers: null, write: true, since: 1 },
   "task.handoff": { role: "agent", callers: null, write: true, since: 1 },
@@ -2769,6 +2877,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "accounts.list": { role: "agent", callers: null, write: false, since: 1 },
   "status.pick": { role: "agent", callers: null, write: false, since: 1 },
   "account.set": { role: "founder", callers: null, write: true, since: 1 },
+  "account.wake": { role: "founder", callers: null, write: true, since: 1 },
   "account.add": { role: "founder", callers: null, write: true, since: 1 },
   "account.login": { role: "founder", callers: null, write: true, since: 1 },
   "account.login_cancel": { role: "founder", callers: null, write: true, since: 1 },
@@ -2879,5 +2988,9 @@ export interface Notifications {
 
 /** The state words the daemon sends; an open set, so a client keeps a fallback. */
 export const STATE_WORDS = ["running", "idle", "queued", "starting", "parked", "waiting", "stalled", "blocked", "no_terminal"] as const;
+
+/** x-status: the state and reason every agent and task carries; open sets for a client, which shows `text` for a word it does not know. */
+export const STATUS_STATES = ["preparing", "starting", "running", "waiting", "stopped", "idle", "off", "done"] as const;
+export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "handoff", "background", "you", "review", "opener", "task", "owner", "clock", "move", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];

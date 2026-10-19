@@ -115,6 +115,21 @@ const AUTHORED: [string, object, [Key, unknown][], boolean][] = [
   ['settings.set', { changes: { idle_close: '9' } }, settingsSeed, true],
   ['trust.remove', { root: '/w' }, [[['d', D, 'trust'], { roots: ['/w'], proposals: [] }]], true],
   ['account.set', { account: 'x', label: 'Main', cap: 2 }, [[qk.accounts(D), { accounts: [account] }]], true],
+  [
+    'account.wake',
+    { account: 'x' },
+    [
+      [
+        qk.accounts(D),
+        {
+          accounts: [
+            { ...account, stalled: { reason: 'login expired', error: 'authentication_failed', detail: '', since: '2026-10-19T00:00:00Z' } },
+          ],
+        },
+      ],
+    ],
+    true,
+  ],
   ['schedule.add', { target: 'a', cron: '0 * * * *', message: 'ping' }, schedSeed, true],
   ['schedule.edit', { schedule: 3, message: 'changed' }, schedSeed, true],
   ['schedule.remove', { schedule: 3 }, schedSeed, true],
