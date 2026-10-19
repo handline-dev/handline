@@ -121,19 +121,31 @@ follower that is caught up.
 **Manual, the epoch.** Each leader holds an **epoch** that grows by one at every change, and every log
 entry carries it. A node that sees a higher epoch stops leading at once and follows. If a lost leader
 returns, or the founder said yes on two cut-off nodes, the higher epoch wins. The other node's entries
-that never reached it are set aside as an import source (section 2), not replayed. Manual is the only safe
-mode with two machines: with two nodes, no vote can tell a dead leader from a cut network.
+that never reached it are set aside as an import source (section 2), not replayed. Without a third vote, manual
+is the only safe mode: two nodes cannot tell a dead leader from a cut network.
 
 **Automatic, Raft.** The leader is the leader of a `hashicorp/raft` group inside the daemon. The write
 log is the Raft log, the daemon's SQLite is the Raft state machine (FSM `Apply` runs the same entries),
 and snapshots are SQLite snapshots. Raft's own term plays the epoch's part.
 
 **Refusing automatic with fewer than three nodes.** The write checks the node list:
-- fewer than 3 voting nodes, or any of them not caught up and reachable: refused with gate
+- fewer than 3 voters (a witness counts as a voter), or any data node not caught up and reachable
+  (a witness holds no data, so only its reachability is checked): refused with gate
   `too_few_nodes` ("automatic election needs three or more nodes; you have 2"), and nothing changes;
 - under automatic, removing a node that would leave fewer than 3 voters is refused the same way;
   switch to manual first. A node that is merely lost is not removed, so the group keeps its size and
   waits for a majority.
+
+**Two nodes: manual or a witness.** Manual (above) is the design for two nodes. The alternative is a
+**witness**: a tiny always-on process that only votes (a Raft non-data voter; no agents, no SQLite copy),
+making three votes.
+- *Manual:* no extra process. Loses time: a dead leader means nothing is scheduled until the founder
+  taps promote, and a wrong tap during a cut network splits the cluster (the epoch repairs it).
+- *Witness:* automatic failover in seconds, and no split from a cut network (the side without the
+  witness cannot lead). Loses simplicity: a third always-on machine or container to run and keep
+  reachable from both nodes; without it the cluster is back to two votes.
+Start with manual. The witness joins later as one more voter on the same Raft group, so nothing built
+for manual is thrown away.
 
 **Switching.**
 - *Manual to automatic:* the leader checks the rule above, takes a snapshot at index N, and bootstraps
@@ -184,7 +196,7 @@ node's replica and forwarding.
 ## Open questions for the founder
 
 1. Which machines are in scope first: this Mac plus one more Mac, or also a Linux box? With two
-   nodes, only manual election is possible.
+   nodes and no witness, only manual election is possible.
 2. May one account's login live on two machines? The account cap would then be counted across nodes.
 3. Import: bring chat history as a read-only archive, or not at all?
 4. Is 60 s right before a node counts as lost? And should a long-lost node's tasks ever go back to

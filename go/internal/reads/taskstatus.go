@@ -19,8 +19,8 @@ func (e *Env) statusOf(t row, state, asker string, waiting map[string]any, since
 		return at(status.Done, status.Discarded, "discarded: "+t.str("discard_reason"), t.i("discarded_at")), nil
 	case "draft":
 		return at(status.Waiting, status.Opener, "draft: "+t.str("opened_by")+" has not queued it", t.i("created_at")), nil
-	case "reported":
-		return at(status.Waiting, status.Review, "reported: waits on "+asker+" to accept it", t.i("reported_at")), nil
+	case "answered":
+		return at(status.Waiting, status.Review, "answered: waits on "+asker+" to accept it", t.i("reported_at")), nil
 	}
 	if waiting == nil {
 		switch {

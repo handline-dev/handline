@@ -277,7 +277,7 @@ export type Task = {
   from: string;
   to: string;
   title: string;
-  /** draft, queued, doing, reported (its owner's done waits on task.accept or task.reject), done or discarded. */
+  /** draft, queued, doing, answered (its owner's done waits on task.accept, task.reject or a reassign), done or discarded. */
   state: string;
   time_box: Duration | null;
   parent: number | null;
@@ -325,7 +325,7 @@ export type Task = {
   waiting?: TaskWaiting | null;
   /** The task's clock, the same object task.get gives; null once it is done or discarded. Absent from a daemon that does not send it. */
   time?: TaskClock | null;
-  /** The done that waits on acceptance while the task is reported; null otherwise. Absent from a daemon that does not send it. */
+  /** The done that waits on acceptance while the task is answered; null otherwise. Absent from a daemon that does not send it. */
   report?: {
     by: string;
     evidence: string;
@@ -1425,7 +1425,7 @@ export type HistoryRow = {
   at: Timestamp;
   /** Who made the change: an agent, or human. */
   by: string;
-  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
+  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, answered, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
   field: "title" | "assignee" | "owner" | "body" | "priority" | "timeout" | "state" | "tag" | "blocked_by" | "merged_into" | "memo";
   /** The value before; empty when there was none (a task just opened, a wait just added, a memo just added). */
   was: string;
@@ -1472,7 +1472,7 @@ export type Tag = string;
 export type TaskFilter = {
   /** Tasks that carry every one of these tags. */
   tags?: Tag[];
-  state?: "draft" | "queued" | "doing" | "reported" | "done" | "discarded";
+  state?: "draft" | "queued" | "doing" | "answered" | "done" | "discarded";
   /** Who works the task (its assignee). */
   owner?: string;
   /** Who the task answers to (its asker: hl's --owner). */
@@ -2089,6 +2089,8 @@ export interface Methods {
   all?: boolean;
   /** Every team's tasks, not only the caller's and its reports'. */
   everyone?: boolean;
+  /** Only the tasks the caller holds that wait on it: queued or doing, never draft, answered or ended; the founder's are the ones assigned to human. One row per task. It takes no owner. */
+  my_turn?: boolean;
   /** Also count, over the last 30 days, the requests that ended with no reason and how tasks were closed (the `reason_gaps` of the result). It costs seconds on a large database: a screen that polls never asks. */
   reason_gaps?: boolean;
 }; result: {
@@ -2338,6 +2340,8 @@ export interface Methods {
   /** Why this carries no task. */
   no_task?: string;
   parent?: number;
+  /** Absolute paths of images the message carries (ChatMessage.attachments): PNG, JPEG, GIF or WebP, at most 10 MiB each, at most 6. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file that is not an image, or an image whose first bytes do not match its ending is bad_request (field files); the message is not written. */
+  files?: string[];
   request_id: RequestId;
 }; result: Accepted };
   "hook.record": { params: {

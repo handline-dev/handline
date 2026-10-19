@@ -21,6 +21,8 @@ func TestSaySendsItsParamsAndPrintsWhatTheDaemonSaid(t *testing.T) {
 		{"from stdin", []string{"say", "b.two", "-"}, `say {"body":"from stdin","target":"b.two"}`},
 		{"piped", []string{"say", "b.two"}, `say {"body":"piped","target":"b.two"}`},
 		{"heredoc\n", []string{"say", "b.two", "--file", "-"}, `say {"body":"heredoc\n","target":"b.two"}`},
+		{"", []string{"say", "human", "look", "--attach", "/tmp/a.png", "--attach", "/tmp/b.png"},
+			`say {"body":"look","files":["/tmp/a.png","/tmp/b.png"],"target":"human"}`},
 	}
 	seen := 0
 	for _, c := range cases {

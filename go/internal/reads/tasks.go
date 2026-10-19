@@ -108,7 +108,7 @@ func (b *board) asked(id int64) bool {
 	return false
 }
 
-// state is one of draft, queued, doing, reported, done, discarded.
+// state is one of draft, queued, doing, answered, done, discarded.
 func (b *board) state(t row) string {
 	if t.str("discarded_by") != "" {
 		return "discarded"
@@ -117,7 +117,7 @@ func (b *board) state(t row) string {
 		return "done"
 	}
 	if t.set("reported_at") {
-		return "reported"
+		return "answered"
 	}
 	asked := b.asked(t.i("id"))
 	if asked && b.holds(t) {
@@ -213,6 +213,17 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	turn, err := optBool(params, "my_turn") // the caller's own open tasks that wait on it: queued or doing, not draft or answered
+	if err != nil {
+		return nil, err
+	}
+	if turn {
+		if owner != nil {
+			return nil, badParam("my_turn is the caller's own tasks: it takes no owner", "owner")
+		}
+		me := c.Caller.Actor()
+		owner = &me
+	}
 	var owners map[string]bool
 	if !everyone && c.Caller.Role == "agent" {
 		if owners, err = e.reach(c.Caller.Info["name"].(string)); err != nil {
@@ -234,13 +245,16 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	if !(withEnded || under != nil || (state != nil && (*state == "done" || *state == "discarded"))) {
 		cond(openTask)
 	}
+	if turn {
+		cond("reported_at IS NULL")
+	}
 	if state != nil {
 		switch *state {
 		case "discarded":
 			cond("COALESCE(discarded_by, '') != ''")
 		case "done":
 			cond("COALESCE(discarded_by, '') = '' AND COALESCE(done_evidence, '') != ''")
-		case "reported":
+		case "answered":
 			cond("reported_at IS NOT NULL AND " + openTask)
 		default:
 			cond("reported_at IS NULL")
@@ -275,7 +289,11 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 		cond("EXISTS (SELECT 1 FROM task_tags g WHERE g.task_id = tasks.id AND g.tag = ?)", tag)
 	}
 	page := ""
-	if state == nil || *state == "reported" || *state == "done" || *state == "discarded" { // SQL alone decides: it pages too
+	sqlDecides := state == nil && !turn // my_turn leaves out drafts, which only the board knows
+	if state != nil {
+		sqlDecides = *state == "answered" || *state == "done" || *state == "discarded"
+	}
+	if sqlDecides { // SQL alone decides: it pages too
 		page = fmt.Sprintf(" LIMIT %d", limit+1)
 	}
 	shown, err := query(e.DB, "SELECT * FROM tasks WHERE "+strings.Join(where, " AND ")+" ORDER BY id DESC"+page, args...)
@@ -292,7 +310,7 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	var rows []item
 	for _, t := range shown {
-		if st := b.state(t); state == nil || st == *state {
+		if st := b.state(t); (state == nil || st == *state) && (!turn || st == "queued" || st == "doing") {
 			rows = append(rows, item{t, st})
 		}
 	}
@@ -416,7 +434,7 @@ func (e *Env) taskOf(t row, state string) (map[string]any, error) {
 	}
 	task["last_activity"], task["edited_by"], task["requests"], task["tags"] = ts(active), t.strOrNil("edited_by"), linked, tags
 	task["discarded"], task["report"] = nil, nil
-	if state == "reported" {
+	if state == "answered" {
 		task["report"] = map[string]any{"by": t.str("owner"), "evidence": t.str("report"), "at": ts(t["reported_at"])}
 	}
 	if t.str("discarded_by") != "" {
