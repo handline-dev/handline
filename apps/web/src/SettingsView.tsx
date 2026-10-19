@@ -52,7 +52,7 @@ export function SettingsView({ agent }: { agent: string }) {
   return (
     <ScrollPage className="settings" aria-label={`${agent} settings`}>
       <PageHead className="settings-head settings-agent">
-        <Button className="back self-end mb-4 [&_svg]:rotate-180" icon="chevronRight" label={`Back to ${agent}`} onClick={() => goAgent(agent)}>
+        <Button className="back" icon="back" label={`Back to ${agent}`} onClick={() => goAgent(agent)}>
           {agent}
         </Button>
         <PageTitle>Settings</PageTitle>
