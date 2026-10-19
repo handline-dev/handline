@@ -148,12 +148,11 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	dev.Exe, _ = os.Executable()
 	dev.Baseline()
 	fds := &housekeeping.FDs{Log: logLine}
-	gateSweep := &gates.Sweep{DB: q, Home: home, Tell: env, Log: cfg.Log}
+	go (&gates.Sweep{DB: q, Home: home, Tell: env, Log: cfg.Log}).Run(tc.Stop)
 	loop := &tick.Loop{Tick: t, Log: logLine, Stop: tc.Stop, Dev: dev, Wake: wake, Housekeeping: []tick.NamedSweep{
 		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
 		{Name: "attachment sweep", Run: func(q db.Q, _ int64) error { return attachments.New(home).Sweep(q) }},
-		{Name: "gate sweep", Run: gateSweep.Run},
 		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Raise: raiseFromTaskBoard(env), Free: cfg.DiskFree}).Check},
 	}, Signalled: func() bool {
 		select {

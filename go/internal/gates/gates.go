@@ -16,7 +16,7 @@ import (
 	"github.com/handline/handline/go/internal/taskwrites"
 )
 
-// EveryS is how often the gates are looked at; FetchWait is how long one PR's read may take.
+// EveryS is how often the gates are looked at (Run); FetchWait is how long one PR's read may take.
 const (
 	EveryS    = 60
 	FetchWait = 20 * time.Second
@@ -36,7 +36,7 @@ type Check struct {
 	Pending, Success bool
 }
 
-// Sweep is the gate pass, run after each tick (tick.NamedSweep); it looks at most every EveryS.
+// Sweep is the gate pass. It runs on its own clock (Run), off the tick, so a slow read of GitHub never holds up a wake or a delivery.
 type Sweep struct {
 	DB   *sql.DB
 	Home string
@@ -44,15 +44,35 @@ type Sweep struct {
 	Log  func(format string, args ...any)
 	// Fetch reads a PR; nil is the gh CLI (FetchGH).
 	Fetch func(ctx context.Context, repo string, pr int64) (*PR, error)
-	last  int64
 }
 
-// Run opens every gate whose state changed or whose deadline passed.
-func (s *Sweep) Run(_ db.Q, now int64) error {
-	if now-s.last < EveryS {
-		return nil
+// Run passes every EveryS until stop closes; stop also cuts short a read in hand.
+func (s *Sweep) Run(stop <-chan struct{}) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-stop:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	t := time.NewTicker(EveryS * time.Second)
+	defer t.Stop()
+	for {
+		if err := s.Pass(ctx, time.Now().Unix()); err != nil {
+			s.logf("  gates: %v", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
 	}
-	s.last = now
+}
+
+// Pass opens every gate whose state changed or whose deadline passed.
+func (s *Sweep) Pass(ctx context.Context, now int64) error {
 	ids, watches, deadlines, err := db.OpenGates(s.DB)
 	if err != nil {
 		return err
@@ -62,13 +82,16 @@ func (s *Sweep) Run(_ db.Q, now int64) error {
 		fetch = FetchGH
 	}
 	for i, tid := range ids {
+		if ctx.Err() != nil {
+			return nil
+		}
 		w := watches[i]
 		evidence, result := "", ""
 		if deadlines[i] != 0 && now >= deadlines[i] {
 			evidence, result = "timed out", "timed_out"
 		} else {
-			ctx, cancel := context.WithTimeout(context.Background(), FetchWait)
-			pr, err := fetch(ctx, w.Repo, w.PR)
+			read, cancel := context.WithTimeout(ctx, FetchWait)
+			pr, err := fetch(read, w.Repo, w.PR)
 			cancel()
 			if err != nil {
 				s.logf("  T%d: %s %s could not be read: %v", tid, w.Repo, w.Said(), err)

@@ -124,7 +124,7 @@ func waitIsOwnBookkeeping(tx *sql.Tx, home string, tid, other int64) (bool, erro
 	if b.Owner == "" || b.Owner == human {
 		return false, nil
 	}
-	if b.Owner == t.Owner {
+	if b.Owner == t.Owner || b.Owner == db.Gate { // a wait on its own PR is its owner's own
 		return true, nil
 	}
 	tm, err := team.LoadTeam(home)
