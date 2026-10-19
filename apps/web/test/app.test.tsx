@@ -111,7 +111,7 @@ describe('the workspace', () => {
     const top = $$('.rail-top button').map((b) => b.getAttribute('aria-label') ?? '');
     expect(top.slice(0, 3)).toEqual(['Hide the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']);
     expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*More/);
-    expect($$('.rail-nav .nav svg').length).toBe(4);
+    expect($$('.rail-nav .nav svg').length).toBe(3);
     await openMore();
     expect(menuItems().map((t) => t.trim().split(' ')[0])).toEqual(['Team', 'Worktrees', 'Usage']);
     await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
