@@ -6,6 +6,7 @@
   "exports": {
     "./daemon": "./src/daemon.ts",
     "./serve": "./src/serve.ts",
+    "./seeds": "./src/seeds.ts",
     "./helpers": "./src/helpers.ts"
   },
   "scripts": {
