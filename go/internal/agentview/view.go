@@ -216,6 +216,9 @@ func (e *Env) word(agent string, row *db.AgentState, now int64, needs *NeedsYou)
 		if strings.HasPrefix(detail, states.MovingMark) {
 			return "MOVING", ""
 		}
+		if e.Alive(agent) && e.Busy(agent) { // a message woke it: the turn runs whatever the parked row says
+			return "RUNNING", ""
+		}
 		if !row.WakeAt.Valid || row.WakeAt.Int64 == 0 {
 			return "PENDING", ""
 		}

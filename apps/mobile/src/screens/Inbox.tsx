@@ -226,7 +226,7 @@ export function Inbox() {
         isEmpty={all.length === 0}
         skeleton="inbox"
         label="the inbox"
-        empty="Nothing waits on you. Results, questions and blocks from your agents land here."
+        empty="Nothing waits on you."
       >
         {items.length === 0 && (
           <Text testID="inbox-clear" style={{ color: c.muted, padding: space.lg }}>

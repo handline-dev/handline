@@ -186,6 +186,22 @@ func TestALiveTurnShowsRunningWhateverTheRowSays(t *testing.T) {
 	}
 }
 
+func TestAParkedAgentWhoseTurnRunsShowsRunning(t *testing.T) {
+	r := newRig(t, "a", "b")
+	r.state(t, "a", states.Parked, "")
+	r.state(t, "b", states.Parked, "")
+	r.sess.alive["a"], r.sess.busy["a"] = true, true
+	r.sess.alive["b"] = true
+	r.env.RefreshOne("a")
+	r.env.RefreshOne("b")
+	if got := r.stored(t, "a")["state"]; got != "running" {
+		t.Errorf("busy: state %v, want running", got)
+	}
+	if got := r.stored(t, "b")["state"]; got == "running" {
+		t.Errorf("not busy: state %v, want not running", got)
+	}
+}
+
 func TestAQueuedMoveIsParkedMoving(t *testing.T) {
 	r := newRig(t, "a")
 	r.state(t, "a", states.Queued, states.MovingMark+" to b")

@@ -174,23 +174,22 @@ describe('a structured agent’s prompt and its stored session', () => {
   });
 });
 
+const buttons = () => [...document.querySelectorAll<HTMLElement>('[role="button"]')].map((b) => b.textContent);
 const button = (label: string) =>
   [...document.querySelectorAll<HTMLElement>('[role="button"]')].find((b) => b.textContent === label) ?? null;
 
-// Session controls are in the ⋯ menu, not on the page.
-const openMenu = async () => press($('verbs-open'));
-const controls = () => [...document.querySelectorAll<HTMLElement>('[data-testid^="control-"]')].map((b) => b.textContent);
-
-describe('the session controls of a structured agent', () => {
-  it('lists Close and Kill in the menu while idle, with no Exit and no Interrupt, and none on the page itself', async () => {
+describe('the header row of a structured agent', () => {
+  it('keeps Close and Kill under the ⋯ menu while idle, with no Exit and no Interrupt', async () => {
     const m = await mount();
     await until(() => $(`agent-${AUD}`), 'the rows');
     await press($(`agent-${AUD}`));
-    await until(() => $('verbs-open'), 'the menu button');
-    expect(controls()).toEqual([]);
-    await openMenu();
-    // The fixture agent is stalled, and the stalled mark now sits first in the menu.
-    expect(controls()).toEqual([expect.stringMatching(/^blocked: wall/), 'Close', 'Kill']);
+    await until(() => $('verbs-open'), 'the header row');
+    expect(buttons()).not.toContain('Kill');
+    await press($('verbs-open'));
+    await until(() => button('Close'), 'the menu');
+    expect(buttons()).toContain('Kill');
+    expect(buttons()).not.toContain('Exit');
+    expect(buttons()).not.toContain('Interrupt');
     m.store.stop();
   });
 
@@ -201,10 +200,8 @@ describe('the session controls of a structured agent', () => {
     });
     await until(() => $(`agent-${AUD}`), 'the rows');
     await press($(`agent-${AUD}`));
-    await until(() => $('verbs-open'), 'the menu button');
-    await openMenu();
-    expect(controls()).toContain('Interrupt');
-    expect(controls()).not.toContain('Exit');
+    await until(() => button('Interrupt'), 'Interrupt');
+    expect(buttons()).not.toContain('Exit');
     m.store.stop();
   });
 
@@ -213,12 +210,10 @@ describe('the session controls of a structured agent', () => {
     await until(() => $(`agent-${AUD}`), 'the rows');
     await act(async () => void (await m.store.client.stopSession(AUD, 'close')));
     await press($(`agent-${AUD}`));
-    await until(() => $('verbs-open'), 'the menu button');
-    await openMenu();
-    expect(controls()).toContain('Start new');
-    expect(controls()).not.toContain('Resume');
+    await until(() => button('Start new'), 'Start new');
+    expect(button('Resume')).toBeFalsy();
     const alert = vi.spyOn(Alert, 'alert');
-    await press($('control-start-new'));
+    await press(button('Start new'));
     expect(alert).toHaveBeenCalledWith(expect.stringContaining('over?'), expect.anything(), expect.anything());
     expect(m.daemon.sessions.get(AUD)!.open).toBe(false);
     alert.mockRestore();
@@ -240,7 +235,7 @@ describe('a refused transcript read of a structured agent', () => {
   });
 });
 
-describe('tool output in the chat', () => {
+describe('tool output in the activity', () => {
   const tool = (extra: object) => (s: ReturnType<typeof setup>) =>
     s.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'seq 1 10', ...extra });
   const chat = async (extra: object) => {
@@ -248,6 +243,8 @@ describe('tool output in the chat', () => {
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
     await until(() => $('chat-input'), 'the chat');
+    expect(document.body.querySelector('[data-testid^="tool-"]')).toBeNull(); // tools are not in the chat
+    await press($('tab-activity'));
     return m;
   };
   const opener = () => document.body.querySelector<HTMLElement>('[data-testid^="tool-open-"]');
@@ -259,8 +256,9 @@ describe('tool output in the chat', () => {
     await press(opener());
     expect($('tool-output')!.textContent).toBe('1\n2\n');
     expect($('tool-cut')!.textContent).toBe('8 more lines let go');
-    await press($('sheet-cancel'));
-    expect($('sheet')).toBeNull();
+    expect($('sheet')).toBeNull(); // in place, no sheet and no Close button
+    await press(opener());
+    expect($('tool-output')).toBeNull(); // a second tap folds it
     m.store.stop();
   });
 

@@ -78,6 +78,10 @@ export interface ShellApi {
   phone?(): Promise<{ ok: true } | Fail<'bad_request' | 'cannot_pair'>>;
   /** Pairs with another device's gateway, from its `handline://` link or its address and code; the app relaunches on it. */
   pairRemote?(a: { link?: string; address?: string; code?: string }): Promise<{ ok: true } | Fail<'bad_request' | 'cannot_pair'>>;
+  /** The page's zoom factor (1 = 100%), read from the window itself: `outerWidth` lags a full-screen change, so the page cannot tell it from its own size. */
+  zoom?(): number;
+  /** The window entered or left full screen (the traffic lights are gone in it); called once with the current state on registering. Returns the way to stop listening. */
+  onFullScreen?(cb: (full: boolean) => void): () => void;
   /** settings.get through the shell's own daemon connection, for a window that is a paired device and may not read settings. Absent in a shell that lacks it. */
   settingsGet?(a?: {
     agent?: string;

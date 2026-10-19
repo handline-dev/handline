@@ -10,7 +10,7 @@ import { VerbSheet } from './AgentVerbs.tsx';
 import { useScreenKeys, type KeyRows } from './screenKeys.ts';
 import { useCan } from './taskui.tsx';
 import { AttachChips, attachHandlers, PickButton, useAttachDraft } from './ChatAttach.tsx';
-import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow } from './ui/index.ts';
+import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow, sendKey } from './ui/index.ts';
 
 const COMPOSE_KEYS: KeyRows = [
   ['Enter', 'send the message'],
@@ -139,10 +139,8 @@ export function Compose(props: {
       setAt(0);
       return setCtrlR(!ctrlR);
     }
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      send();
-    } else if (e.key === 'Escape') {
+    if (sendKey(e, send)) return;
+    if (e.key === 'Escape') {
       e.preventDefault();
       if (target || item) onClear?.();
       else if (text && !clearing)
@@ -238,7 +236,7 @@ export function Compose(props: {
         {choosing ? (
           <label
             className="compose-now inline-flex gap-0.5 self-center text-ink-2"
-            title="Join the running turn now; otherwise it waits and is sent when the turn ends"
+            title="Send now"
           >
             <input type="checkbox" checked={now} onChange={(e) => setNow(e.target.checked)} /> Now
           </label>

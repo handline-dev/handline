@@ -409,11 +409,7 @@ func (e *Env) chatMessages(c *rpc.Conn, params map[string]any) (any, error) {
 	var rs []row
 	var more bool
 	if q.since != nil {
-		next := *q.since + 1
-		rs, more, err = ch.page(agent, q.everyone, nil, &next, 0)
-		if len(rs) > q.limit {
-			rs = rs[len(rs)-q.limit:]
-		}
+		rs, more, err = ch.after(agent, q.everyone, *q.since, q.limit)
 	} else {
 		rs, more, err = ch.page(agent, q.everyone, q.before, nil, q.limit)
 	}

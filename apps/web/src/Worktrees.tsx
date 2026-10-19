@@ -146,7 +146,7 @@ export function Worktrees({ path, storage }: { path: string | null; storage: KV 
           className={`wt-body grid grid-cols-[minmax(0,1fr)] items-start gap-4${path ? ' grid-cols-[minmax(0,1fr)_minmax(280px,380px)] max-[760px]:grid-cols-[minmax(0,1fr)]' : ''}`}
         >
           {!q.data ? null : all.length === 0 ? (
-            <Empty icon="worktrees" name="No worktrees yet." hint="A worktree appears when an agent is started in a repo." />
+            <Empty icon="worktrees" name="No worktrees." />
           ) : shown.length === 0 ? (
             <div className="wt-none grid justify-items-center gap-3 py-6">
               <Empty icon="filter" name="No worktree matches" />

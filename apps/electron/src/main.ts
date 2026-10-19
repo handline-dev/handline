@@ -150,6 +150,11 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
       preload: path.join(import.meta.dirname, 'preload.cjs'),
     },
   });
+  // The traffic lights are gone in full screen: the page drops the room it keeps for them (shell.ts).
+  const tellFull = () => w.webContents.send(CHANNELS.fullScreen, w.isFullScreen());
+  w.on('enter-full-screen', tellFull);
+  w.on('leave-full-screen', tellFull);
+  w.webContents.on('did-finish-load', tellFull);
   w.once('ready-to-show', onReady);
   confine(w.webContents, origin);
   return w;
@@ -162,7 +167,8 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
  */
 function confine(contents: WebContents, origin: string): void {
   contents.setWindowOpenHandler(({ url }) => {
-    if (isDebugWindow(url, origin)) return { action: 'allow', overrideBrowserWindowOptions: { width: 1280, height: 820, title: 'Terminals (debug)' } };
+    if (isDebugWindow(url, origin))
+      return { action: 'allow', overrideBrowserWindowOptions: { width: 1280, height: 820, title: 'Terminals (debug)' } };
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });

@@ -26,3 +26,9 @@ Pure TypeScript, no DOM, no React Native. Coordinates are image pixels (origin t
 ## Preview (`shapesToSvg`)
 `shapesToSvg(shapes, width, height)` → `{ viewBox, elements }`: `path {d, stroke, strokeWidth}` (stroke, no fill, round caps/joins)
 or `text {x, y, fontSize, fill, text}` (top-left anchored). No SVG library imported; the view maps elements to its own components.
+
+## Memo marks (`marks.ts`)
+The capture dialog's way of marking: no tools. `marksReducer(state, action)` with `down|move|up {x,y}` turns one gesture into one mark (a tap within `slop` is a `pin`
+circle, a loop that returns near its start is an `area`, any other drag is a `box`) and opens its memo; `memo`, `open`, `remove`, `undo`, `cancel`, `scale` (size
+of a tap and a pin for the picture). `keptMarks` drops marks with no words; `markText(note, marks)` is the message (note, `n. words` lines, a fenced `marks`
+JSON block of `{n, shape, x, y, w, h, text}` in picture pixels); `marksToShapes(marks, lineWidth)` gives shapes for `exportAnnotated`/`shapesToSvg`.

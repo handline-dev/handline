@@ -184,8 +184,10 @@ export class FakeChat {
     );
     if (typeof p.before === 'number') list = list.filter((m) => m.id < (p.before as number));
     if (typeof p.since === 'number') list = list.filter((m) => m.id > (p.since as number));
-    list = list.sort((a, b) => b.id - a.id);
-    return { messages: list.slice(0, limit).map((m) => this.view(m)), more: list.length > limit };
+    // since pages forward from the id (the oldest after it first), before pages back from the newest.
+    list = list.sort((a, b) => (typeof p.since === 'number' ? a.id - b.id : b.id - a.id));
+    const page = list.slice(0, limit).sort((a, b) => b.id - a.id);
+    return { messages: page.map((m) => this.view(m)), more: list.length > limit };
   }
 
   transcriptOf(p: Record<string, unknown>) {
@@ -263,6 +265,12 @@ export class FakeChat {
   private land(id: number) {
     const m = this.live(id);
     if (m) this.change(m, { landing: 'delivered', state: 'delivered', landed_at: this.now(), delivered_at: this.now() });
+  }
+  /** The agent's turn runs or ends without any message of the person to answer (another agent's message, a task's): only the working line moves. */
+  setWorking(agent: string, running: boolean, line: string | null = null) {
+    const t = this.thread(agent);
+    t.working = running ? { turn_running: true, line, since: this.now() } : { ...IDLE };
+    this.emit('chat.working', agent, t.working);
   }
   /** The agent starts its turn: the working line shows and a tool runs. */
   private think(id: number) {

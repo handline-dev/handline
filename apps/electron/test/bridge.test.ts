@@ -52,16 +52,21 @@ test('unsent is unknown until the page calls it, then follows the page; only a b
 
 function fakeIpc() {
   const calls: [string, unknown][] = [];
-  let push: ((e: unknown, to: NavigateTo) => void) | null = null;
+  const push = new Map<string, (e: unknown, arg: unknown) => void>();
   const ipc: Ipc & { fail?: Error } = {
     async invoke(channel, arg) {
       calls.push([channel, arg]);
       if (ipc.fail) throw ipc.fail;
       return { ok: true };
     },
-    on: (_c, f) => void (push = f),
+    on: (c, f) => void push.set(c, f),
   };
-  return { ipc, calls, click: (to: NavigateTo) => push!(null, to) };
+  return {
+    ipc,
+    calls,
+    click: (to: NavigateTo) => push.get(CHANNELS.navigate)!(null, to),
+    fullScreen: (on: boolean) => push.get(CHANNELS.fullScreen)!(null, on),
+  };
 }
 
 test('the page API says api 1 and sends each call on its own channel', async () => {
@@ -74,6 +79,18 @@ test('the page API says api 1 and sends each call on its own channel', async () 
     [CHANNELS.screen, { agent: 'a' }],
     [CHANNELS.unsent, true],
   ]);
+});
+
+test('onFullScreen tells the state at once and each change, until it is stopped', () => {
+  const f = fakeIpc();
+  const api = makeApi(f.ipc);
+  const seen: boolean[] = [];
+  const off = api.onFullScreen!((on) => seen.push(on));
+  f.fullScreen(true);
+  f.fullScreen(false);
+  off();
+  f.fullScreen(true);
+  assert.deepEqual(seen, [false, true, false]);
 });
 
 test('a call that the shell fails comes back as a result, not a throw', async () => {

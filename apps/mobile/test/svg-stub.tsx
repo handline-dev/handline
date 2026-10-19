@@ -16,3 +16,4 @@ export const G = el('div');
 export const Path = el('span');
 export const Rect = el('span');
 export const Text = el('span');
+export const Polyline = el('span');

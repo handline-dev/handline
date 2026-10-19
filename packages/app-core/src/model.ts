@@ -9,7 +9,7 @@ export function dotOf(a: Pick<AgentView, 'state' | 'has_dialog' | 'block' | 'han
   if (a.has_dialog || a.state === 'waiting') return 'waiting';
   if (a.block || a.state === 'stalled' || a.state === 'blocked') return 'blocked';
   if (a.state === 'no_terminal') return 'none';
-  if (a.state === 'queued' || a.handoff?.phase === 'starting') return 'waking'; // a restarting agent is coming back, whatever state word it carries
+  if (a.state === 'queued' || a.state === 'starting' || a.handoff?.phase === 'starting') return 'waking'; // a restarting agent is coming back, whatever state word it carries
   if (a.state === 'parked') return 'parked';
   if (a.state === 'running') return 'running';
   return 'idle';
@@ -37,15 +37,17 @@ export const shortName = (name: string, team: string): string => (name.startsWit
 export const rowName = (name: string, depth: number, team: string): string =>
   depth > 0 ? name.slice(name.lastIndexOf('.') + 1) : shortName(name, team);
 
-/** The agent list as one list: waiting ones sort up, an agent that is restarting stays whatever the filter says, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off. */
+/** The agent list as one list: waiting ones sort up, an agent that is restarting stays whatever the filter says, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off (a hidden parent still shows while a child does). */
 export function railRows(agents: AgentView[], opts: { hidden?: ReadonlySet<Dot>; search?: string } = {}): RailRow[] {
   const q = (opts.search ?? '').trim().toLowerCase();
-  const shown = agents.filter(
-    (a) =>
-      (!opts.hidden?.has(dotOf(a)) || !!a.handoff) &&
-      (!q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q)),
-  );
-  const names = new Set(shown.map((a) => a.name));
+  const found = (a: AgentView) => !q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q);
+  const match = agents.filter((a) => (!opts.hidden?.has(dotOf(a)) || !!a.handoff) && found(a));
+  // Keep the parents a dot filter hides while a child shows, so the children do not float to the top level.
+  const byName = new Map(agents.map((a) => [a.name, a]));
+  const names = new Set(match.map((a) => a.name));
+  for (const a of match)
+    for (let p = byName.get(a.parent ?? ''); p && !names.has(p.name) && found(p); p = byName.get(p.parent ?? '')) names.add(p.name);
+  const shown = agents.filter((a) => names.has(a.name));
   const order = (a: AgentView, b: AgentView) => URGENCY[dotOf(a)] - URGENCY[dotOf(b)] || a.name.localeCompare(b.name);
   const rows: RailRow[] = [];
   const walk = (a: AgentView, depth: number) => {

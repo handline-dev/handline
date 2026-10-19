@@ -1,4 +1,4 @@
-// The lines of the chat that are not messages: the agent's reply and its tool, prompt, task and session lines.
+// The lines of the chat that are not messages: the agent's reply, its prompt and session lines.
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { Proposal, TranscriptItem } from '@handline/client';
@@ -30,7 +30,6 @@ export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: Transcri
         )}
       </View>
     );
-  if (i.kind === 'tool') return <ToolLine i={i} />;
   if (i.kind === 'prompt') {
     const p = i.prompt;
     return (
@@ -41,57 +40,11 @@ export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: Transcri
     );
   }
   if (i.kind === 'session') return <SessionMark i={i} />;
-  const e = i.task_event;
-  return (
-    <Text style={small} numberOfLines={2}>
-      ▣ T{e?.task} {e?.event ?? 'changed'}
-      {e?.evidence ? ` · ${e.evidence}` : ''} · {clockTime(i.at)}
-    </Text>
-  );
-}
-
-/** A tool line: the command, and what it printed, in full, in a sheet behind a tap. */
-function ToolLine({ i }: { i: TranscriptItem }) {
-  const c = usePalette();
-  const [open, setOpen] = useState(false);
-  const cut = i.dropped_lines ?? 0;
-  const line = (
-    <Text testID={`tool-${i.id}`} style={{ color: c.muted, fontSize: 12 }} numberOfLines={2}>
-      ⚙ {i.tool}
-      {i.text ? ` ${i.text}` : ''}
-      {i.output ? ' · Output' : ''}
-      {!i.output && cut > 0 ? ` · ${cut} more line${cut === 1 ? '' : 's'} let go` : ''}
-    </Text>
-  );
-  if (!i.output) return line;
-  return (
-    <View>
-      <Pressable
-        testID={`tool-open-${i.id}`}
-        accessibilityRole="button"
-        style={{ minHeight: 44, justifyContent: 'center' }}
-        onPress={() => setOpen(true)}
-      >
-        {line}
-      </Pressable>
-      {open && (
-        <Sheet label="Output" onCancel={() => setOpen(false)}>
-          <Text testID="tool-output" style={{ color: c.ink, fontFamily: 'Menlo' }}>
-            {i.output}
-          </Text>
-          {cut > 0 && (
-            <Text testID="tool-cut" style={{ color: c.muted, fontSize: 12 }}>
-              {cut} more line{cut === 1 ? '' : 's'} let go
-            </Text>
-          )}
-        </Sheet>
-      )}
-    </View>
-  );
+  return null;
 }
 
 /** Where a session started; one that was given a handoff opens it in a sheet on a tap. */
-function SessionMark({ i }: { i: TranscriptItem }) {
+export function SessionMark({ i }: { i: TranscriptItem }) {
   const c = usePalette();
   const [open, setOpen] = useState(false);
   const { reason, handoff } = sessionLine(i);

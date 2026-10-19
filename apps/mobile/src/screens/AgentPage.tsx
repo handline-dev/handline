@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { Alert, BackHandler, Pressable, ScrollView, Text, View } from 'react-native';
-import { badgesOf, controlsOf, needsConfirm, type StopMode } from '@handline/app-core';
+import { useRef } from 'react';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { badgesOf, controlsOf, needsConfirm, shortName, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView, TerminalView } from '@handline/client';
@@ -8,11 +8,15 @@ import { space } from '@handline/tokens';
 import { drawRows } from './termspans.tsx';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
+import { useHistoryValue } from '../history.tsx';
 import { StateMark } from './StateMark.tsx';
 import { AgentSettings } from './AgentSettings.tsx';
+import { AgentStrip } from './AgentStrip.tsx';
 import { AgentTasks } from './AgentTasks.tsx';
+import { Icon } from './Icon.tsx';
+import { Activity } from './Activity.tsx';
 import { AgentTimeline } from './AgentTimeline.tsx';
-import { AgentVerbs, type Control } from './AgentVerbs.tsx';
+import { AgentVerbs } from './AgentVerbs.tsx';
 import { Chat } from './Chat.tsx';
 import { Loadable } from './Loadable.tsx';
 import { PromptSlot } from './PromptCard.tsx';
@@ -36,22 +40,11 @@ export function AgentPage() {
   const detailQuery = useRead('agent.get', { agent: name }, { enabled: name !== '' });
   const { served } = useServes('agent.get');
   const row = useAgents().data?.agents.find((a) => a.name === name);
-  const [settings, setSettings] = useState(false);
-  const goBack = useRef<() => void>(() => void store.closeAgent());
-  // The Android back button goes from the agent page to the list; the list leaves the app.
-  useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      goBack.current();
-      return true;
-    });
-    return () => sub.remove();
-  }, []);
+  const [settings, setSettings] = useHistoryValue(`agent.settings:${name}`, false);
   if (!page) return null;
   const detail = detailQuery.data;
   const state = detail?.state ?? row?.state ?? 'unknown';
-  const sub = detail ?? row;
   const back = () => void store.closeAgent();
-  goBack.current = back;
   return (
     <AboveKeyboard>
       <Row style={{ padding: space.md }}>
@@ -59,13 +52,11 @@ export function AgentPage() {
           <Text style={{ color: c.accent, fontSize: 16 }}>‹ Agents</Text>
         </Pressable>
         <StateMark agent={{ state, has_dialog: row?.has_dialog ?? false, block: row?.block }} />
-        <View style={{ flex: 1 }}>
-          <Text style={{ color: c.ink, fontWeight: '700', fontSize: 16 }}>{name}</Text>
-          <Text style={{ color: c.muted, fontSize: 12 }}>
-            {[state, sub?.account && `acct ${sub.account}`, sub?.model].filter(Boolean).join(' · ')}
-          </Text>
-        </View>
+        <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '700', fontSize: 16, flex: 1 }}>
+          {shortName(name, name.split('.')[0]!)}
+        </Text>
       </Row>
+      <AgentStrip agent={name} />
       <Loadable query={detailQuery} served={served} skeleton="agentDetail" label="the agent" empty={`${name} is gone`}>
         {detail &&
           (settings ? (
@@ -85,11 +76,15 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const { detail, agent: row, tab: current } = props;
   const name = detail.name;
   const ctl = controlsOf(detail, me);
-  const [extra, setExtra] = useState<'tasks' | 'timeline' | null>(null); // the Tasks and Timeline tabs sit beside the store's two tabs
+  const [extra, setExtra] = useHistoryValue<'tasks' | 'timeline' | 'activity' | null>(`agent.extra:${name}`, null); // the Tasks and Timeline tabs sit beside the store's two tabs
   const hasTasks = useServes('tasks.list').served;
   const hasTimeline = useServes('agent.timeline').served;
   const showTasks = extra === 'tasks' && hasTasks;
   const showTimeline = extra === 'timeline' && hasTimeline;
+  const hasChat = useServes('chat.messages').served;
+  const showActivity = extra === 'activity' && hasChat;
+  const [searching, setSearching] = useHistoryValue(`chat.search:${name}`, false);
+  const onChat = !showTasks && !showTimeline && !showActivity && current === 'chat';
   const stalled = badgesOf(detail, me).find((b) => b.kind === 'stalled');
   const verbMark = useVerbMark(name, ['close']);
   const mark = useAgentMark(name) ?? verbMark;
@@ -121,67 +116,85 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         flex: 1,
         alignItems: 'center',
         paddingVertical: space.md,
-        paddingHorizontal: space.xs,
         borderBottomWidth: 2,
         borderBottomColor: on ? c.accent : 'transparent',
       }}
     >
-      <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: '600' }}>
+      <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: '600', fontSize: 13 }}>
         {label}
       </Text>
     </Pressable>
   );
   const pageTab = (t: 'chat' | 'terminal', label: string) =>
-    tab(t, label, !showTasks && !showTimeline && current === t, () => {
+    tab(t, label, !showTasks && !showTimeline && !showActivity && current === t, () => {
       setExtra(null);
       store.setTab(t);
     });
   const busy = mark !== null;
-  // The daemon says which agents run as a structured session: those are watched as a transcript (permission cards included), the rest keep the terminal.
+  // A structured session is watched as a transcript in place of its terminal; its permission cards are in the transcript.
+  // The daemon says which agents it runs as a structured session: those are watched as a transcript, the rest keep the terminal.
   const structured = detail.structured === true;
-  const controls: Control[] = [
-    ...(stalled && hasTimeline && !showTimeline
-      ? [
-          {
-            id: 'stalled',
-            label: stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`,
-            onPress: () => setExtra('timeline'),
-            kind: 'no' as const,
-          },
-        ]
-      : []),
-    ...(ctl.start ? [{ id: 'start', label: 'Start', onPress: () => start.mutate({ agent: name }) }] : []),
-    ...(ctl.resume ? [{ id: 'start-new', label: 'Start new', onPress: startNew }] : []),
-    ...((structured ? ctl.interrupt : ctl.stop) ? [{ id: 'interrupt', label: 'Interrupt', onPress: () => stop('interrupt') }] : []),
-    ...(ctl.stop && !structured ? [{ id: 'exit', label: 'Exit', onPress: () => stop('exit') }] : []),
-    ...(ctl.stop ? [{ id: 'close', label: 'Close', onPress: () => stop('close') }] : []),
-    ...(ctl.stop && stalled ? [{ id: 'kill', label: 'Kill', onPress: () => stop('kill'), kind: 'no' as const }] : []),
-  ].map((x) => ({ ...x, disabled: busy }));
   return (
     <View style={{ flex: 1 }}>
-      <AgentVerbs
-        detail={detail}
-        row={row}
-        onSettings={props.onSettings}
-        controls={controls}
-        note={mark}
-        tabs={
-          <>
-            {pageTab('chat', 'Chat')}
-            {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
-            {hasTasks && tab('tasks', 'Tasks', showTasks, () => setExtra('tasks'))}
-            {hasTimeline && tab('timeline', 'Timeline', showTimeline, () => setExtra('timeline'))}
-          </>
-        }
-      />
-      {showTimeline ? (
+      <View style={{ paddingHorizontal: space.md }}>
+        <AgentVerbs
+          detail={detail}
+          row={row}
+          onSettings={props.onSettings}
+          lead={
+            <>
+              {ctl.start && <Button label="Start" disabled={busy} onPress={() => start.mutate({ agent: name })} />}
+              {ctl.resume && <Button label="Start new" disabled={busy} onPress={startNew} />}
+              {(structured ? ctl.interrupt : ctl.stop) && <Button label="Interrupt" disabled={busy} onPress={() => stop('interrupt')} />}
+            </>
+          }
+          stops={[
+            ...(ctl.stop && !structured ? [{ id: 'exit', label: 'Exit', danger: false }] : []),
+            ...(ctl.stop ? [{ id: 'close', label: 'Close', danger: false }, { id: 'kill', label: 'Kill', danger: true }] : []),
+          ]}
+          onStop={(mode) => stop(mode as StopMode)}
+          disabled={busy}
+          trail={
+            <>
+              {mark && (
+                <Text testID="pending-mark" style={{ color: c.muted }}>
+                  {mark}
+                </Text>
+              )}
+              {onChat && (
+                <Pressable testID="search-open" accessibilityRole="button" accessibilityLabel="Search this chat" accessibilityState={{ selected: searching }} hitSlop={12} onPress={() => setSearching(!searching)}>
+                  <Icon name="search" size={20} color={searching ? c.accent : c.muted} />
+                </Pressable>
+              )}
+            </>
+          }
+        />
+        {stalled && hasTimeline && !showTimeline && (
+          <Button
+            testID="badge-stalled"
+            label={stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`}
+            kind="no"
+            onPress={() => setExtra('timeline')}
+          />
+        )}
+      </View>
+      <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm, paddingHorizontal: space.sm }}>
+        {pageTab('chat', 'Chat')}
+        {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
+        {hasChat && tab('activity', 'Activity', showActivity, () => setExtra('activity'))}
+        {hasTasks && tab('tasks', 'Tasks', showTasks, () => setExtra('tasks'))}
+        {hasTimeline && tab('timeline', 'Timeline', showTimeline, () => setExtra('timeline'))}
+      </Row>
+      {showActivity ? (
+        <Activity agent={name} />
+      ) : showTimeline ? (
         <AgentTimeline agent={name} />
       ) : showTasks ? (
         <AgentTasks agent={name} />
       ) : (
         <>
           {!(structured && current === 'terminal') && current !== 'chat' && <PromptSlot agent={name} prompt={detail.prompt ?? null} />}
-          {current === 'chat' ? <Chat detail={detail} /> : structured ? <TranscriptTab detail={detail} /> : <Terminal detail={detail} />}
+          {current === 'chat' ? <Chat detail={detail} searching={searching} /> : structured ? <TranscriptTab detail={detail} /> : <Terminal detail={detail} />}
         </>
       )}
     </View>

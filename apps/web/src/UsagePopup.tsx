@@ -1,7 +1,7 @@
 // The status bar's usage item and its popup: one line per account with the 5 h and week gauges, the agents on it and the runway. A line opens
 // that account's page; the popup follows the accounts topic. Narrow widths drop the reset countdowns first, then the percentages (CSS).
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { headroom, span } from '@handline/app-core';
+import { capacityOf, headroom, span } from '@handline/app-core';
 import { useAccounts, useOutlook, useServes } from '@handline/app-data';
 import { agentsLine } from './Accounts.tsx';
 import { Meter } from './RailIcons.tsx';
@@ -64,6 +64,11 @@ export function UsagePopup() {
   const list = data?.accounts ?? [];
   const summary = list.map((a) => `${a.label} ${a.five_hour ? `${Math.round(a.five_hour.used_pct)}%` : '–'}`).join(' · ');
   const worst = Math.max(0, ...list.map((a) => Math.round(a.five_hour?.used_pct ?? 0)));
+  const cap = capacityOf(list);
+  const stops = (cap?.usable ?? []).flatMap(
+    (a) => headroom(a.five_hour, outlook.find((r) => r.account === a.name)?.runs_out_in_seconds ?? null, now).stopAt ?? [],
+  );
+  const runway = stops.length ? span(Math.min(...stops) - now) : null;
   return (
     <div className="usage relative" ref={root}>
       <button
@@ -74,7 +79,9 @@ export function UsagePopup() {
         aria-label={`Account usage, 5 h: ${summary || 'none'}`}
       >
         <Meter pct={worst} label="busiest account, 5 h" />
-        <span className="count">{list.length ? `${worst}%` : '–'}</span>
+        <span className={`count ${!cap || cap.word === 'plenty' ? '' : cap.word === 'tight' ? 'text-wait' : 'text-bad'}`}>
+          {cap ? `usage: ${cap.word}, ${cap.left}% left${runway ? `, out in ${runway}` : ''}` : 'usage: –'}
+        </span>
       </button>
       {open ? (
         <div className={POP} style={at} role="dialog" aria-label="Account usage">

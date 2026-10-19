@@ -1,7 +1,7 @@
 // Capture a window of this machine (desktop shell only): lists the windows, marks the picked one up (Annotate.tsx), and sends it from one bottom bar
-// (a comment on the open task, else a new task). The numbers' words go into the message as 1. 2. lines.
+// (a comment on the open task, else a new task). One message carries the plain picture, the marked one, the memos as 1. 2. lines and each mark's shape and rect.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { titleFromNote, withImages } from '@handline/app-core';
+import { keptMarks, markText, titleFromNote, withImages, type Mark } from '@handline/app-core';
 import { classify, sentence, useAgents, useTasks, useUploadImage, useWrite } from '@handline/app-data';
 import { Annotator } from './Annotate.tsx';
 import { useTasksRoute } from './route.ts';
@@ -60,7 +60,7 @@ export function CaptureDialog({
   const [problem, setProblem] = useState('');
   const [shot, setShot] = useState<{ name: string; blob: Blob } | null>(null);
   const [marked, setMarked] = useState<Blob | null>(null);
-  const [pinned, setPinned] = useState<string[]>([]); // the words of the notes pinned on the picture, numbered as it shows them
+  const [marks, setMarks] = useState<Mark[]>([]); // the memos marked on the picture; one with no words is left out when it goes
   const [note, setNote] = useState('');
   const [dest, setDest] = useState<Destination>({ as: task === null ? 'task' : 'comment', target: task, owner: '' });
   const [choosing, setChoosing] = useState(false);
@@ -111,12 +111,14 @@ export function CaptureDialog({
     setSending(true);
     setProblem('');
     try {
-      const a = await upload(picture, shot.name, 'image/png');
-      const said = [note.trim(), ...pinned.map((t, i) => `${i + 1}. ${t}`)].filter(Boolean).join('\n');
-      const text = withImages(said, [a.id], shot.name.replace(/\.png$/, ''));
+      const kept = keptMarks(marks);
+      const alt = shot.name.replace(/\.png$/, '');
+      const plain = await upload(shot.blob, shot.name, 'image/png');
+      const drawn = kept.length ? await upload(picture, `${alt} marked.png`, 'image/png') : null;
+      const text = withImages(markText(note, marks), drawn ? [plain.id, drawn.id] : [plain.id], alt);
       if (as === 'comment' && target !== null) await memo.mutateAsync({ task: target, text });
       else
-        await ask.mutateAsync({ owner, title: titleFromNote(note || pinned[0] || '', 'Capture'), body: text, time_box: '2h', priority: 2 });
+        await ask.mutateAsync({ owner, title: titleFromNote(note || keptMarks(marks)[0]?.text || '', 'Capture'), body: text, time_box: '2h', priority: 2 });
       if (!gone.current) onClose();
     } catch (e) {
       if (!gone.current) {
@@ -167,7 +169,7 @@ export function CaptureDialog({
           <Button label="Refresh" onClick={() => void list()} />
         </div>
       ) : (
-        <Annotator image={shot.blob} onChange={(b, notes) => (setMarked(b), setPinned(notes))} />
+        <Annotator image={shot.blob} onChange={(b, m) => (setMarked(b), setMarks(m))} />
       )}
       {problem ? (
         <p className={`${NOTE} text-bad`} role="alert">

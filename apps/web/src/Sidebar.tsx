@@ -122,45 +122,49 @@ export function Sidebar({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <MenuButton
-          icon="filter"
-          label={hidden.size ? `View: ${hidden.size} hidden` : 'View'}
-          name="View"
-          className={hidden.size ? 'text-primary' : ''}
-        >
-          <MenuLabel>Show agents that are</MenuLabel>
-          {RAIL_FILTERS.map((f) => {
-            const on = f.dots.some((d) => !hidden.has(d));
-            const n = f.dots.reduce((t, d) => t + (counts.get(d) ?? 0), 0);
-            return (
-              <MenuCheckItem
-                key={f.id}
-                checked={on}
-                icon={<Mark dot={f.dots[0]!} title={MARKS[f.dots[0]!].label} />}
-                onCheckedChange={() => {
-                  const next = new Set(hidden);
-                  for (const d of f.dots) {
-                    if (on) next.add(d);
-                    else next.delete(d);
-                  }
-                  setting(storage, 'hiddenDots', '').save([...next].join(','));
-                  setHidden(next);
-                }}
-              >
-                <span className="flex-1">{f.label}</span>
-                <span className="muted count">{n}</span>
-              </MenuCheckItem>
-            );
-          })}
-          <MenuSeparator />
-          <MenuLabel>List</MenuLabel>
-          <MenuCheckItem checked={grouped} onCheckedChange={(on) => toggle('groupTeams', on, setGrouped)}>
-            Group by team
-          </MenuCheckItem>
-          <MenuCheckItem checked={activity} onCheckedChange={(on) => toggle('activityLines', on, setActivity)}>
-            Show what each agent is doing
-          </MenuCheckItem>
-        </MenuButton>
+        <span className="relative inline-flex">
+          <MenuButton icon="filter" label={hidden.size ? `View: ${hidden.size} hidden` : 'View'} name="View">
+            <MenuLabel>Show agents that are</MenuLabel>
+            {RAIL_FILTERS.map((f) => {
+              const on = f.dots.every((d) => !hidden.has(d));
+              const n = f.dots.reduce((t, d) => t + (counts.get(d) ?? 0), 0);
+              return (
+                <MenuCheckItem
+                  key={f.id}
+                  checked={on}
+                  icon={<Mark dot={f.dots[0]!} title={MARKS[f.dots[0]!].label} />}
+                  onCheckedChange={() => {
+                    const next = new Set(hidden);
+                    for (const d of f.dots) {
+                      if (on) next.add(d);
+                      else next.delete(d);
+                    }
+                    setting(storage, 'hiddenDots', '').save([...next].join(','));
+                    setHidden(next);
+                  }}
+                >
+                  <span className="flex-1">{f.label}</span>
+                  <span className="muted count">{n}</span>
+                </MenuCheckItem>
+              );
+            })}
+            <MenuSeparator />
+            <MenuLabel>List</MenuLabel>
+            <MenuCheckItem checked={grouped} onCheckedChange={(on) => toggle('groupTeams', on, setGrouped)}>
+              Group by team
+            </MenuCheckItem>
+            <MenuCheckItem checked={activity} onCheckedChange={(on) => toggle('activityLines', on, setActivity)}>
+              Show what each agent is doing
+            </MenuCheckItem>
+          </MenuButton>
+          {hidden.size ? (
+            <span
+              aria-hidden
+              data-testid="filter-active"
+              className="pointer-events-none absolute right-1 top-1 size-2 rounded-full bg-focus"
+            />
+          ) : null}
+        </span>
       </div>
       <div className="rail-nav flex flex-wrap gap-0.5 border-b border-line px-1.5 pb-1.5">
         <button

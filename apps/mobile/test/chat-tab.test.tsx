@@ -45,17 +45,22 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
-  it('shows the conversation with how far each message got, and Mine hides what agents tell each other', async () => {
+  it('shows the conversation with how far each message got, and what agents tell each other is in Activity', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await until(() => msgOf('Use the contract fixtures.'), 'the messages');
-    expect(msgOf('Use the contract fixtures.')!.textContent).toContain('Delivered');
-    expect(msgOf('Draft the web chat tab plan.')!.textContent).toContain('Delivered');
+    expect(msgOf('Use the contract fixtures.')!.textContent).toContain('✓✓');
+    expect(msgOf('Draft the web chat tab plan.')!.textContent).toContain('✓✓');
+    expect(text()).not.toContain('Delivered'); // ticks, no word
+    expect(msgOf('Use the contract fixtures.')!.textContent).not.toContain('#'); // no message numbers on screen
     expect(text()).toContain('Here is the plan: three units, chat first.'); // the agent's reply
     expect(msgOf('Review is done, see the notes.')).toBeUndefined();
-    await press($('scope-all'));
-    await until(() => msgOf('Review is done, see the notes.'), 'the agents’ messages');
-    expect(msgOf('Review is done, see the notes.')!.textContent).toContain('handline.auditor → handline.architect');
+    expect($('scope-all')).toBeNull(); // no Mine/All menu
+    await press($('tab-activity'));
+    await until(() => text().includes('Review is done, see the notes.'), 'the agents’ messages');
+    expect(text()).toContain('auditor → architect'); // the team prefix is left off
+    expect(text()).not.toContain('handline.');
+    expect(text()).not.toContain('Not a reply');
     m.store.stop();
   });
 
@@ -69,7 +74,7 @@ describe('the chat tab', () => {
     await act(async () => void [1, 2, 3].forEach(() => m.daemon.tick())); // typed, delivered, thinking
     await until(() => $('working'), 'the working line');
     expect($('working')!.textContent).toContain('Reading the code');
-    expect(msgOf('run the tests')!.textContent).toContain('Delivered');
+    expect(msgOf('run the tests')!.textContent).toContain('✓');
     m.store.stop();
   });
 
@@ -81,7 +86,7 @@ describe('the chat tab', () => {
     await until(() => msgOf('please retry me')?.textContent?.includes('the daemon is resting'), 'the failed row');
     const row = msgOf('please retry me')!;
     await press(row.querySelector<HTMLElement>('[data-testid^="retry-"]'));
-    await until(() => msgOf('please retry me')?.textContent?.includes('Sending'), 'the retried message');
+    await until(() => msgOf('please retry me')?.textContent?.includes('…'), 'the retried message');
     expect(msgOf('please retry me')!.textContent).not.toContain('the daemon is resting');
     m.store.stop();
   });
@@ -95,7 +100,7 @@ describe('the chat tab', () => {
     await type('chat-input', 'about that');
     await press($('chat-send'));
     await until(() => msgOf('about that'), 'the reply');
-    expect(msgOf('about that')!.textContent).toContain('↩ #');
+    expect(msgOf('about that')!.textContent).toContain('↩ reply');
     expect($('replying')).toBeNull();
     m.store.stop();
   });
@@ -109,21 +114,7 @@ describe('the chat tab', () => {
     await type('chat-input', 'web first');
     await press($('chat-send'));
     await until(() => msgOf('web first'), 'the reply');
-    expect(msgOf('web first')!.textContent).toContain('↩ #');
-    m.store.stop();
-  });
-
-  it('a reply quoting another agent’s message stays in this chat, with the quote as its link', async () => {
-    const m = await mount(() => {}, undefined, 'founder');
-    await openChat();
-    const quoted = 'Review is done, see the notes.'; // said by handline.auditor, shown under All
-    await press($('scope-all'));
-    await until(() => msgOf(quoted), 'the quoted message');
-    await press(msgOf(quoted)!);
-    await type('chat-input', 'thanks, merging');
-    await press($('chat-send'));
-    await until(() => msgOf('thanks, merging'), 'the reply in this chat');
-    expect(msgOf('thanks, merging')!.textContent).toContain('↩ #');
+    expect(msgOf('web first')!.textContent).toContain('↩ reply');
     m.store.stop();
   });
 
