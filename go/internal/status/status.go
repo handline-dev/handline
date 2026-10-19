@@ -23,6 +23,7 @@ const (
 	Retry      = "retry"
 	Launch     = "launch"
 	Turn       = "turn"
+	Watch      = "watch"
 	Handoff    = "handoff"
 	Background = "background"
 	You        = "you"
@@ -43,7 +44,7 @@ const (
 // States and Reasons are every word, for the test that holds them to the contract.
 var (
 	States  = []string{Preparing, Starting, Running, Waiting, Stopped, Idle, Off, Done}
-	Reasons = []string{Work, Restart, Retry, Launch, Turn, Handoff, Background, You, Review, Opener, Task, Owner, Clock, Move, Load, Wall,
+	Reasons = []string{Work, Restart, Retry, Launch, Turn, Watch, Handoff, Background, You, Review, Opener, Task, Owner, Clock, Move, Load, Wall,
 		Cap, Stalled, None, Done, Discarded}
 )
 

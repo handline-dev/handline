@@ -99,8 +99,15 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if err != nil {
 			return nil, err
 		}
-		if owner != human && !contains(paths.ListAgents(home), owner) {
+		if owner != human && owner != db.Gate && !contains(paths.ListAgents(home), owner) {
 			return nil, agentNotFound(owner)
+		}
+		watch, err := watchParam(p, owner)
+		if err != nil {
+			return nil, err
+		}
+		if watch != nil && secs == 0 {
+			secs = db.GateDeadlineS
 		}
 		reporter := ""
 		if p["reporter"] != nil {
@@ -164,7 +171,8 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			}
 			var err error
 			tid, asked, err = OpenTask(tx, tell, me, NewIn{Owner: owner, Title: clean, Body: body, Secs: secs, Prio: prio, Estimate: points, Expects: expects,
-				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter, UI: ui, DuplicateOK: duplicateOK, Tags: tags})
+				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter, UI: ui, DuplicateOK: duplicateOK, Tags: tags,
+				Watch: watch})
 			if err != nil {
 				return nil, err
 			}
@@ -208,8 +216,36 @@ type NewIn struct {
 	Parent, Blocker    int64
 	HasParent          bool
 	HasBlocker         bool
-	UI                 bool // the task shows something on a screen (a label; done never requires a screenshot)
-	DuplicateOK        bool // open it even when an open task under the parent has nearly its title
+	UI                 bool      // the task shows something on a screen (a label; done never requires a screenshot)
+	DuplicateOK        bool      // open it even when an open task under the parent has nearly its title
+	Watch              *db.Watch // what a gate (Owner db.Gate) watches; nil for any other owner
+}
+
+// watchParam is task.new's watch {repo, pr, on}: required with owner gate, refused with any other.
+func watchParam(p map[string]any, owner string) (*db.Watch, error) {
+	raw, given := p["watch"]
+	switch {
+	case owner == db.Gate && !given:
+		return nil, badParam("a gate watches something: watch {repo, pr, on}", "watch")
+	case owner != db.Gate && given:
+		return nil, badParam("watch goes with owner gate", "watch")
+	case !given:
+		return nil, nil
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return nil, badParam("watch is {repo, pr, on}", "watch")
+	}
+	w := db.Watch{}
+	w.Repo, _ = m["repo"].(string)
+	w.On, _ = m["on"].(string)
+	if n, ok := rpc.AsInt(m["pr"]); ok {
+		w.PR = n
+	}
+	if why := db.WatchRefusal(w); why != "" {
+		return nil, badParam(why, "watch")
+	}
+	return &w, nil
 }
 
 // OpenTask is actions.task_new in the caller's transaction: the owner is asked through the routing table and the task row, its link and
@@ -276,12 +312,14 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 				return err
 			}
 		}
-		if err := db.LinkRequest(tx, tid, rid); err != nil {
-			return err
+		if rid != 0 {
+			if err := db.LinkRequest(tx, tid, rid); err != nil {
+				return err
+			}
 		}
 		if _, held, err := db.CurrentTask(tx, owner); err != nil {
 			return err
-		} else if owner != human && !held {
+		} else if owner != human && owner != db.Gate && !held {
 			if err := db.SetCurrentTask(tx, owner, tid, true); err != nil {
 				return err
 			}
@@ -314,6 +352,16 @@ func OpenTask(tx *sql.Tx, tell Teller, me string, in NewIn) (tid int64, asked *A
 			}
 		}
 		return nil
+	}
+	if in.Watch != nil {
+		// A gate asks no one: the daemon holds it and closes it when what it watches changes.
+		if err := open(0); err != nil {
+			return 0, nil, err
+		}
+		if err := db.OpenGate(tx, tid, me, *in.Watch); err != nil {
+			return 0, nil, err
+		}
+		return tid, &Asked{OK: true, Msg: "watching " + in.Watch.Said()}, nil
 	}
 	if me == human && owner == human {
 		// A todo of the founder's own: routing has no founder-to-founder edge, so its brief is written as the request any task to the

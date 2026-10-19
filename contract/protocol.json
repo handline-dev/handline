@@ -273,7 +273,7 @@
   "states": {
    "preparing": "Has work and the daemon starts or sends it at its next tick; nothing stands in the way. Reasons: work, restart, retry.",
    "starting": "A launch is in progress (agents). Reason: launch.",
-   "running": "Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, handoff, background.",
+   "running": "Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, watch, handoff, background.",
    "waiting": "Held by something the daemon names: a person, another task, the owner, a clock, an account move, the machine's load. Reasons: you, review, opener, task, owner, clock, move, load.",
    "stopped": "Will not go on by itself: no account has room (until the reset when it is known) or a person must unstall it. Reasons: wall, cap, stalled.",
    "idle": "At its prompt with nothing to do (agents). Reason: none.",
@@ -286,6 +286,7 @@
    "retry": "A failed start is retried; text says which attempt.",
    "launch": "Its terminal is starting.",
    "turn": "A turn is running (agents); the owner has the task (tasks).",
+   "watch": "A gate watches outside state; text names it (\"watching PR #412 CI\").",
    "handoff": "A hand-off to a new session is moving.",
    "background": "Background work runs while the agent sits at its prompt.",
    "you": "A person must answer: a dialog or prompt on the agent, an open request to the founder on the task, or a task the founder owns.",
@@ -5169,7 +5170,8 @@
      "name": "owner",
      "required": true,
      "schema": {
-      "type": "string"
+      "type": "string",
+      "description": "An agent, human, or gate: a task the daemon holds that watches a PR (watch) and closes when it changes."
      }
     },
     {
@@ -5223,6 +5225,14 @@
      "schema": {
       "type": "integer",
       "description": "Cannot be worked until this task closes."
+     }
+    },
+    {
+     "name": "watch",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/Watch",
+      "description": "With owner gate, required, and refused with any other owner. The gate is doing from the start; its time box (default 24h) is its deadline. The daemon marks it done when the PR changes, in fixed words: \"ci passed\", \"ci failed: <check names>\", \"merged <sha>\", \"closed unmerged\", or \"timed out\" past its deadline. A task blocked by it (blocked_by) then comes back to its holder, who decides what follows."
      }
     },
     {
@@ -10620,6 +10630,17 @@
       ],
       "description": "The pull request its work merges in (task.edit pr); an accepted task with one closes at that merge. Absent from a daemon that does not send it."
      },
+     "watch": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/TaskWatch"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What the task watches when its owner is gate; null for any other. Absent from a daemon that does not send it."
+     },
      "status": {
       "$ref": "#/components/schemas/Status",
       "description": "What it is doing and why (x-status). Absent from a daemon that does not send it."
@@ -15644,6 +15665,75 @@
      "verb",
      "task",
      "params"
+    ]
+   },
+   "Watch": {
+    "type": "object",
+    "description": "What a gate watches: a GitHub pull request's CI (on ci: every check has concluded, or the PR closed first) or its close (on close: merged or closed unmerged).",
+    "properties": {
+     "repo": {
+      "type": "string",
+      "description": "owner/name on GitHub."
+     },
+     "pr": {
+      "type": "integer"
+     },
+     "on": {
+      "type": "string",
+      "enum": [
+       "ci",
+       "close"
+      ]
+     }
+    },
+    "required": [
+     "repo",
+     "pr",
+     "on"
+    ]
+   },
+   "TaskWatch": {
+    "type": "object",
+    "description": "A gate's watch as the task carries it, with what it opened with.",
+    "properties": {
+     "repo": {
+      "type": "string",
+      "description": "owner/name on GitHub."
+     },
+     "pr": {
+      "type": "integer"
+     },
+     "on": {
+      "type": "string",
+      "enum": [
+       "ci",
+       "close"
+      ]
+     },
+     "result": {
+      "oneOf": [
+       {
+        "type": "string",
+        "enum": [
+         "passed",
+         "failed",
+         "merged",
+         "closed",
+         "timed_out"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What it opened with; null while it watches."
+     }
+    },
+    "required": [
+     "repo",
+     "pr",
+     "on",
+     "result"
     ]
    }
   },
