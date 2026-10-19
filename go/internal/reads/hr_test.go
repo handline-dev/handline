@@ -101,6 +101,23 @@ func TestHrListProposalFields(t *testing.T) {
 	}
 }
 
+// A decided proposal reads the founder's note; the verdict alone is no note.
+func TestHrListServesTheFoundersNoteOnADecision(t *testing.T) {
+	e := testEnv(t)
+	now := time.Now().Unix()
+	putProposal(t, e, "000000b1", proposalFile("000000b1", "rejected", now-20, now-10, "verdict: \"not now: wait for the redesign\"\nnote: \"not now: wait for the redesign\"\n"))
+	putProposal(t, e, "000000b2", proposalFile("000000b2", "applied", now-20, now-5, "verdict: approved\n"))
+	got, _ := e.hrList(nil, map[string]any{})
+	notes := map[int64]any{}
+	for _, p := range got.(map[string]any)["proposals"].([]any) {
+		m := p.(map[string]any)
+		notes[m["id"].(int64)] = m["note"]
+	}
+	if want := map[int64]any{0xb1: "not now: wait for the redesign", 0xb2: nil}; !reflect.DeepEqual(notes, want) {
+		t.Fatalf("%v", notes)
+	}
+}
+
 // A proposal's diff is what approving does, in words, one change per line (the spec's Proposal.diff), as rpc_hr._change_lines words it.
 func TestProposalDiffIsOneChangePerLineInTheSpecsWords(t *testing.T) {
 	cases := []struct{ name, file, want string }{
