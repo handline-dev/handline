@@ -26,7 +26,7 @@ func TestAgentRetireRefusesARunningOrDependedOnAgentAndRetiresOneThatIsNot(t *te
 		t.Fatal(msg)
 	}
 	r.live["bob"] = false
-	// alice reports to bob by an edge, and bob.kid hangs under its name
+	// bob.kid hangs under bob's name; a supervisor edge from bob no longer makes alice its report
 	withEdge := strings.NewReplacer("  bob: {}\n", "  bob: {}\n  bob.kid: {}\n",
 		"edges:\n", "edges:\n  - { from: \"bob\", to: \"alice\", relation: supervisor }\n").Replace(teamYAML)
 	if err := os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(withEdge), 0o644); err != nil {
@@ -38,7 +38,7 @@ func TestAgentRetireRefusesARunningOrDependedOnAgentAndRetiresOneThatIsNot(t *te
 	if _, err := team.NewRoster(r.home).Register("bob.kid", team.RegisterOpts{Role: "r"}); err != nil {
 		t.Fatal(err)
 	}
-	if msg := refusal(r.call("agent.retire", `{"agent":"bob","request_id":"r2"}`)); !strings.Contains(msg, "bob has agents under it (alice, bob.kid)") {
+	if msg := refusal(r.call("agent.retire", `{"agent":"bob","request_id":"r2"}`)); !strings.Contains(msg, "bob has agents under it (bob.kid)") {
 		t.Fatal(msg)
 	}
 	if !strings.Contains(r.file("team.yaml"), "  bob: {}") {

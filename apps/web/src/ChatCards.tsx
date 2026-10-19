@@ -2,8 +2,8 @@
 // that concern it, decided where they were discussed.
 import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
-import type { AgentDetail, Proposal } from '@handline/client';
-import { ago, clockTime, decidedProposals, restartingLine } from '@handline/app-core';
+import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
+import { ago, clockTime, decidedProposals, restartingLine, restartShown } from '@handline/app-core';
 import { classify, sentence, useHr, useWrite } from '@handline/app-data';
 import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOfView } from './ui/index.ts';
 import { goTeam } from './route.ts';
@@ -214,9 +214,9 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
 }
 
 /** While a session hands off: one centered line, its icon turning and its words changing in place, until the new session's line takes over. */
-export function HandoffCard({ detail }: { detail: AgentDetail }) {
+export function HandoffCard({ detail, items }: { detail: AgentDetail; items: TranscriptItem[] }) {
   const h = detail.handoff;
-  if (!h) return null;
+  if (!h || !restartShown(h, items)) return null;
   return (
     <div className="card-handoff flex items-center gap-3 text-meta text-primary" data-kind="handoff" data-phase={h.phase} role="status">
       <hr className="m-0 h-px flex-1 border-0 bg-line" />

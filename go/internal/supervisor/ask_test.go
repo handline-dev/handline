@@ -15,7 +15,7 @@ func TestAskQueuesWritesTheInboxFileAndTellsOnlyAfterTheCommit(t *testing.T) {
 	r.agentUp("bob")
 	out, err := r.Ask(r.DB, AskIn{Target: "bob", Body: "please look", Requester: "alice", Notify: false})
 	r.must(err)
-	if !out.OK || out.RID == 0 || !strings.HasPrefix(out.Message, "queued as #") || !strings.Contains(out.Message, "for bob (response=async)") {
+	if !out.OK || out.RID == 0 || !strings.HasPrefix(out.Message, "queued as #") || !strings.HasSuffix(out.Message, "for bob") {
 		t.Fatalf("%+v", out)
 	}
 	if _, err := os.Stat(filepath.Join(r.home, "agents", "bob", "inbox", inboxName(out.RID))); err == nil {
@@ -29,9 +29,7 @@ func TestAskQueuesWritesTheInboxFileAndTellsOnlyAfterTheCommit(t *testing.T) {
   "ts": 100000,
   "from": "alice",
   "to": "bob",
-  "relation": null,
   "kind": null,
-  "response": "async",
   "chain_depth": 0,
   "files": [],
   "body": "please look"
@@ -112,7 +110,7 @@ func TestTheDecisionRaisedForARunawayIsOneCardPerShape(t *testing.T) {
 		t.Fatal("a different text shares a card")
 	}
 	card, _ := db.GetRequest(r.DB, a)
-	if card.Target != "human" || card.Kind.String != "task" || card.Response.String != "fire_and_forget" {
+	if card.Target != "human" || card.Kind.String != "task" || card.Response.Valid {
 		t.Fatalf("%+v", card)
 	}
 	tid, _ := db.DecisionTaskOfCard(r.DB, a)

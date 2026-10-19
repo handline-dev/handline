@@ -87,7 +87,7 @@ func discardEnv(t *testing.T) (*sql.DB, func(agent string, tell ...Teller) *rpc.
 		os.WriteFile(filepath.Join(home, "agents", a, "agent.yaml"), nil, 0o644)
 	}
 	os.WriteFile(filepath.Join(home, "team.yaml"), []byte("teams:\n  crew: [worker, other]\nagents:\n  gp: {}\n  worker: {}\n  other: {}\n  manager: {}\n"+
-		"edges:\n  - {from: manager, to: worker, relation: supervisor, response: async}\n  - {from: manager, to: other, relation: supervisor, response: async}\n"), 0o644)
+		"edges:\n  - {from: manager, to: worker}\n  - {from: manager, to: other}\n"), 0o644)
 	return db, func(agent string, tell ...Teller) *rpc.Server {
 		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 		s.DB = db

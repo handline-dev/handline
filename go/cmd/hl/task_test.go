@@ -88,12 +88,17 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 			[]string{`task.done {"commit":"abc1234","evidence":"w","repo":"/r","shots":["` + real + `/b.png","/s/c.png"],"task":3}`}},
 		{"", []string{"task", "reopen", "T3", "why"}, []string{`task.reopen {"note":"why","task":3}`}},
 		{"", []string{"task", "discard", "T3", "why"}, []string{`task.discard {"reason":"why","task":3}`}},
+		{"", []string{"task", "discard", "T1", "T2", "--why", "done", "--why-each", "T2=merged", "--why-each=T1=moot"},
+			[]string{`task.discard {"reason":"done","reasons":{"1":"moot","2":"merged"},"tasks":[1,2]}`}},
+		{"", []string{"task", "discard", "T1", "T2", "--why-each", "T1=a", "--why-each", "T2=b"},
+			[]string{`task.discard {"reason":"","reasons":{"1":"a","2":"b"},"tasks":[1,2]}`}},
 		{"", []string{"task", "release", "T3", "why"}, []string{`task.release {"reason":"why","task":3}`}},
 		{"", []string{"task", "release", "T3"}, []string{`task.release {"task":3}`}},
 		{"", []string{"task", "reopen", "T3"}, []string{`task.reopen {"task":3}`}},
 		{"", []string{"task", "handoff", "T3", "b.two"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "handoff", "T3", "b.two", "-"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "accept", "T3"},[]string{`task.accept {"task":3}`}},
+		{"", []string{"task", "accept", "T3", "--by-founder", "#41"}, []string{`task.accept {"by_founder":41,"task":3}`}},
 		{"", []string{"task", "reject", "T3", "no tests"}, []string{`task.reject {"note":"no tests","task":3}`}},
 	}
 	seen := 0
@@ -183,22 +188,22 @@ func TestWhatTheTaskPortDoesNotParseIsRefused(t *testing.T) {
 
 func TestAReportedTaskReadsAsAwaitingWhoItAnswersTo(t *testing.T) {
 	r := agentsRig(t)
-	task := `"id":7,"title":"Fix it","state":"reported","to":"b.two","from":"a.one","asker":"c","priority":2,"parent":null,"hold_reason":"","mismatch":""`
+	task := `"id":7,"title":"Fix it","state":"answered","to":"b.two","from":"a.one","asker":"c","priority":2,"parent":null,"hold_reason":"","mismatch":""`
 	r.daemon(map[string]string{
 		"task.get": `{` + task + `,"created":"2026-10-01T10:00:00Z","time":null,"evidence":null,"done":null,"discarded":null,"body":"",
 			"report":{"by":"b.two","evidence":"built","at":"2026-10-02T11:30:00Z"},"memos":[]}`,
 		"tasks.list": `{"items":[{` + task + `,"evidence":null,"block_reason":"","last_activity":"2026-10-01T10:00:00Z","requests":[]}],"more":false}`,
 		"task.board": `{"mine":[{"task":{` + task + `},"now":{"kind":"none","tasks":[],"agents":[]}}],"reports":[]}`,
 	})
-	show := "T7  Fix it\nstate reported, awaiting c   assignee b.two   owner c   opened by a.one   P2   created 2026-10-01 10:00\n" +
-		"reported 2026-10-02 11:30: built\n\nbrief\n(none)\n"
+	show := "T7  Fix it\nstate answered, awaiting c   assignee b.two   owner c   opened by a.one   P2   created 2026-10-01 10:00\n" +
+		"answered 2026-10-02 11:30: built\n\nbrief\n(none)\n"
 	if out, _, code := r.run(asAgent, "task", "show", "T7"); code != 0 || out != show {
 		t.Errorf("show: %d\n%q", code, out)
 	}
-	if out, _, _ := r.run(asAgent, "task", "list"); !strings.HasPrefix(out, "T7    Fix it  [b.two] reported, awaiting c  P2") {
+	if out, _, _ := r.run(asAgent, "task", "list"); !strings.HasPrefix(out, "T7    Fix it  [b.two] answered, awaiting c  P2") {
 		t.Errorf("list: %q", out)
 	}
-	if out, _, _ := r.run(asAgent, "task", "board"); out != "T7    Fix it\n      assignee b.two  owner c  now: reported, awaiting c\n" {
+	if out, _, _ := r.run(asAgent, "task", "board"); out != "T7    Fix it\n      assignee b.two  owner c  now: answered, awaiting c\n" {
 		t.Errorf("board: %q", out)
 	}
 }
@@ -214,7 +219,7 @@ func TestTaskShowReadsAPausedClock(t *testing.T) {
 		{obj{"subtasks": held["subtasks"]}, "timeout paused: waiting on T8"},
 		{obj{}, "paused, 1h20m left"},
 		{obj{"to": "human"}, "timeout paused: waiting on human"},
-		{obj{"state": "reported", "from": "human"}, "timeout paused: waiting on human"},
+		{obj{"state": "answered", "from": "human"}, "timeout paused: waiting on human"},
 		{obj{"blockers": []any{obj{"task": float64(9), "owner": "human"}}}, "timeout paused: waiting on T9 (human)"},
 	} {
 		if got := timeoutLines(box, 0, waitsOn(c.task)); len(got) != 2 || got[0] != "timeout 2h00m" || got[1] != c.want {

@@ -109,6 +109,7 @@ func rigWith(t *testing.T, edit func(*Config)) (*Parts, string) {
 		cfg.Term = newFakeTerminals().term() // no test reaches a real tmux
 	}
 	p := New(cfg)
+	t.Cleanup(p.Wait) // a heal step still running writes into the database
 	rigConfigs.Store(p, cfg)
 	return p, home
 }
@@ -199,6 +200,7 @@ func wiredWith(t *testing.T, ft *fakeTerminals) (*Parts, *Lifecycle, *supervisor
 		t.Fatal(err) // what a closed agent is woken for
 	}
 	env := &supervisor.Env{DB: d, Home: home, Log: func(string, ...any) {}}
+	t.Cleanup(env.Wait) // a telling still running writes into home
 	cfg := Config{DB: d, Home: home, CLI: cfgOf(p).CLI, Env: []string{"FAKE_CLAUDE=1"}, Log: func(string, ...any) {}, Term: ft.term()}
 	rigConfigs.Store(p, cfg)
 	lc := p.Lifecycle(cfg, LifecycleConfig{Env: env})

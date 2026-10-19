@@ -12,7 +12,7 @@ func TestWithdrawReadAndInboxAnswerWithoutPython(t *testing.T) {
 	calls := r.daemon(map[string]string{
 		"request.withdraw": `{"accepted":true,"said":"#7 withdrawn"}`,
 		"request.read": `{"id":7,"requester":"a.one","target":"b.two","kind":"say","state":"landed","created":"2026-10-16T00:00:00Z","parent":null,
-			"relation":"peer","response":"fire_and_forget","chain_depth":0,"body":"hello","answer":"fine","dismissal":null,"parts":[]}`,
+			"chain_depth":0,"body":"hello","answer":"fine","parts":[]}`,
 		"inbox.queue": `{"newest":9,"head":{"id":9,"requester":"a.one","chain_depth":1,"body":"do it","more_waiting_line":"","how_to_close":"answer with hl say"},"history":[]}`,
 	})
 	if out, _, code := r.run(asAgent, "withdraw", "7", "--reason", "oops"); code != 0 || out != "#7 withdrawn\n" {
@@ -20,7 +20,7 @@ func TestWithdrawReadAndInboxAnswerWithoutPython(t *testing.T) {
 	}
 	out, _, code := r.run(asAgent, "read", "7")
 	if code != 0 || !strings.Contains(out, "#7  a.one → b.two  say  landed") || !strings.Contains(out, "hello") ||
-		!strings.Contains(out, "--- answered by b.two ---\nfine") {
+		!strings.Contains(out, "--- reply from b.two ---\nfine") {
 		t.Errorf("read: %d %q", code, out)
 	}
 	out, _, code = r.run(asAgent, "inbox")

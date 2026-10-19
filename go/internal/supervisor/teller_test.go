@@ -39,11 +39,11 @@ func TestTheTellerAfterADiscardAdvancesTheOwnerTypesTheSaysAndForgetsInboxFiles(
 	r.AdvanceCurrentTask(r.DB, "bob")
 	db.DiscardTask(r.DB, first, "alice", "not needed")
 	rid := r.ask("alice", "bob", "x", "ask")
-	if err := r.deliver(rid, "alice", "bob", "x", "", team0()); err != nil {
+	if err := r.deliver(rid, "alice", "bob", "x", "", "task", 0); err != nil {
 		t.Fatal(err)
 	}
 	r.term.typed = nil
-	say, _ := db.AddRequest(r.DB, db.NewRequest{Requester: db.NoticeRequester, Target: "bob", Body: "T1 discarded by alice: not needed", Kind: "say", Response: "fire_and_forget"})
+	say, _ := db.AddRequest(r.DB, db.NewRequest{Requester: db.NoticeRequester, Target: "bob", Body: "T1 discarded by alice: not needed", Kind: "say"})
 	r.Discarded("bob", []db.Notice{{RID: say, To: "bob", Text: "T1 discarded by alice: not needed"}}, nil, []db.InboxFile{{Target: "bob", RID: rid}})
 	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != second {
 		t.Fatalf("the owner was not moved on: %d", cur)

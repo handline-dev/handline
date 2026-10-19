@@ -1,7 +1,7 @@
 // U11: the Tasks page on app-data, against the fake daemon's tasks with its latency and refusal knobs.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
@@ -59,6 +59,7 @@ async function mount(hash = '#/tasks', s = setup(), storage: KV = memory()) {
   return { store, storage, ...s };
 }
 afterEach(async () => {
+  vi.useRealTimers();
   await act(async () => root?.unmount());
   root = null;
   box?.remove();
@@ -75,6 +76,8 @@ const mark = (id: number) => click($(`input[aria-label="Mark T${id}"]`));
 
 describe('the list', () => {
   it('groups the open tasks by status, sorted by priority inside a group, and leaves done ones out until asked', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] }); // the done task closed 25 h before now: only at noon is that "Yesterday"
+    vi.setSystemTime(new Date(2026, 5, 15, 12, 0));
     await mount();
     await loaded();
     expect(rowIds()).toEqual([1684, 1688, 1700, 1690]); // P1, then P2 by number, then P3

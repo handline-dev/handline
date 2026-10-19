@@ -120,7 +120,7 @@ type Spawner interface {
 	StartIn(agent, worktree, cmd string) (bool, string, error)
 	// Trust marks worktree trusted for agent's vendor before a launch there.
 	Trust(agent, worktree string)
-	Spawn(agent, repo string) (bool, string, error)
+	SpawnWith(agent, repo string, o SpawnOpts) (bool, string, error)
 }
 
 // AgentsPort is team/agents.py, trust.py and measure as the lifecycle reads them.

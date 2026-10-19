@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/db"
@@ -78,10 +79,10 @@ func TestAnOwnersDoneOnATaskItDoesNotAnswerForIsAReportThatWaitsOpen(t *testing.
 		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10)",
 		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('w', 'IDLE', 1, 1)",
 	)
-	if got := said(t, run("w", "task.done", "d1", `,"task":1,"evidence":"built and tested"`)); got != "task T1 reported done (built and tested); it closes when boss accepts it" {
+	if got := said(t, run("w", "task.done", "d1", `,"task":1,"evidence":"built and tested"`)); got != "task T1 answered (built and tested); it stays with w until boss accepts it or takes it back" {
 		t.Fatalf("said %q", got)
 	}
-	if st := taskState(t, sdb, 1); st != "reported" {
+	if st := taskState(t, sdb, 1); st != "answered" {
 		t.Fatalf("state %q, want reported", st)
 	}
 	if count(t, sdb, "SELECT COUNT(*) FROM tasks WHERE id = 1 AND done_evidence IS NULL AND report = 'built and tested' AND report_via = 'reason' AND sent_at IS NULL") != 1 ||
@@ -91,7 +92,7 @@ func TestAnOwnersDoneOnATaskItDoesNotAnswerForIsAReportThatWaitsOpen(t *testing.
 	if count(t, sdb, "SELECT COUNT(*) FROM requests WHERE id = 10 AND state = 'withdrawn'") != 1 {
 		t.Fatal("the owner's queued delivery closes")
 	}
-	if count(t, sdb, "SELECT COUNT(*) FROM requests WHERE target = 'boss' AND state = 'queued' AND notice IS NULL AND body LIKE 'T1 reported done by w: built and tested - accept it (`hl task accept T1`)%'") != 1 {
+	if count(t, sdb, "SELECT COUNT(*) FROM requests WHERE target = 'boss' AND state = 'queued' AND notice IS NULL AND body LIKE 'T1 answered by w: built and tested - accept it (`hl task accept T1`)%'") != 1 {
 		t.Fatal("whoever the task answers to has the report in its queue, with how to accept or reject it")
 	}
 	if len(f.reported) != 1 || f.reported[0] != "T1 w 1" || len(f.done) != 0 {
@@ -108,7 +109,7 @@ func TestAnOwnersDoneOnATaskItDoesNotAnswerForIsAReportThatWaitsOpen(t *testing.
 		t.Fatalf("the owner is free and the reported task is not sent again: %v %v", waiting, stillAsking)
 	}
 
-	if r := run("w", "task.done", "d2", `,"task":1,"evidence":"again"`); errText(r) != "task T1 is already reported done (built and tested) and waits on boss to accept or reject it" {
+	if r := run("w", "task.done", "d2", `,"task":1,"evidence":"again"`); errText(r) != "task T1 is already answered (built and tested) and waits on boss to accept, reject or take it back" {
 		t.Fatalf("a second done: %v", r)
 	}
 	if r := run("boss", "task.done", "d3", `,"task":1,"evidence":"mine"`); errText(r) != "task T1 can only be marked done by its owner (w) or the founder" {
@@ -144,14 +145,14 @@ func TestAcceptClosesWithTheReportAndTellsTheOwner(t *testing.T) {
 		"INSERT INTO tasks(id, title, owner, opened_by, created_at, reporter) VALUES(1, 'a', 'w', 'boss', 1, 'mgr'), (2, 'b', 'w', 'boss', 1, NULL)",
 		"INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(2, 1, 1)",
 	)
-	if r := run("mgr", "task.accept", "a0", `,"task":1`); errText(r) != "task T1 has no report waiting - nothing to accept" {
+	if r := run("mgr", "task.accept", "a0", `,"task":1`); errText(r) != "task T1 has no answer waiting - nothing to accept" {
 		t.Fatalf("nothing to accept: %v", r)
 	}
 	said(t, run("w", "task.done", "d1", `,"task":1,"evidence":"shipped"`))
-	if count(t, sdb, "SELECT COUNT(*) FROM requests WHERE target = 'mgr' AND body LIKE 'T1 reported done by w:%'") != 1 {
+	if count(t, sdb, "SELECT COUNT(*) FROM requests WHERE target = 'mgr' AND body LIKE 'T1 answered by w:%'") != 1 {
 		t.Fatal("the report goes to the task's reporter")
 	}
-	if r := run("w", "task.accept", "a1", `,"task":1`); errText(r) != "task T1's report can only be accepted by mgr - whoever it answers to - or the founder" {
+	if r := run("w", "task.accept", "a1", `,"task":1`); errText(r) != "task T1's answer can only be accepted by mgr - whoever it answers to - or the founder" {
 		t.Fatalf("the owner cannot accept its own report: %v", r)
 	}
 	if got := said(t, run("boss", "task.accept", "a2", `,"task":1`)); got != "task T1 done (shipped), accepted by boss" {
@@ -168,7 +169,7 @@ func TestAcceptClosesWithTheReportAndTellsTheOwner(t *testing.T) {
 	if len(f.done) != 1 || f.done[0] != "T1 boss w 2 true" {
 		t.Fatalf("the teller releases what it blocked: %v", f.done)
 	}
-	if r := run("boss", "task.accept", "a3", `,"task":1`); errText(r) != "task T1 has no report waiting - nothing to accept" {
+	if r := run("boss", "task.accept", "a3", `,"task":1`); errText(r) != "task T1 has no answer waiting - nothing to accept" {
 		t.Fatalf("accepting twice: %v", r)
 	}
 }
@@ -183,7 +184,7 @@ func TestRejectSendsTheTaskBackToItsOwnerWithTheNote(t *testing.T) {
 	if r := run("boss", "task.reject", "r0", `,"task":1`); errText(r) != "note is the one line that says what is missing" {
 		t.Fatalf("a reject needs a note: %v", r)
 	}
-	if r := run("mgr", "task.reject", "r1", `,"task":1,"note":"no"`); errText(r) != "task T1's report can only be rejected by boss - whoever it answers to - or the founder" {
+	if r := run("mgr", "task.reject", "r1", `,"task":1,"note":"no"`); errText(r) != "task T1's answer can only be rejected by boss - whoever it answers to - or the founder" {
 		t.Fatalf("only whoever it answers to rejects: %v", r)
 	}
 	if got := said(t, run("boss", "task.reject", "r2", `,"task":1,"note":"the tests are missing"`)); got != "task T1 sent back to w: the tests are missing - delivered T1" {
@@ -206,7 +207,7 @@ func TestRejectSendsTheTaskBackToItsOwnerWithTheNote(t *testing.T) {
 	if len(waiting) != 1 || waiting[0].Task.ID != 1 {
 		t.Fatalf("the rejected task is due to its owner again, though it was delivered before: %v", waiting)
 	}
-	if got := said(t, run("w", "task.done", "d2", `,"task":1,"evidence":"all of it"`)); got != "task T1 reported done (all of it); it closes when boss accepts it" {
+	if got := said(t, run("w", "task.done", "d2", `,"task":1,"evidence":"all of it"`)); got != "task T1 answered (all of it); it stays with w until boss accepts it or takes it back" {
 		t.Fatalf("a second report: %q", got)
 	}
 }
@@ -216,7 +217,7 @@ func TestADiscardedTasksReportCanBeNeitherAcceptedNorRejected(t *testing.T) {
 	said(t, run("w", "task.done", "d1", `,"task":1,"evidence":"done"`))
 	said(t, run("boss", "task.discard", "x1", `,"task":1,"reason":"not needed"`))
 	for _, verb := range []string{"accept", "reject"} {
-		if r := run("boss", "task."+verb, verb, `,"task":1,"note":"redo"`); errText(r) != "task T1 has no report waiting - nothing to "+verb {
+		if r := run("boss", "task."+verb, verb, `,"task":1,"note":"redo"`); errText(r) != "task T1 has no answer waiting - nothing to "+verb {
 			t.Fatalf("%s on a discarded task: %v", verb, r)
 		}
 	}
@@ -246,10 +247,63 @@ func TestAReportFreesTheQueueItsLandedDeliveryHeldSoTheNextRequestIsDelivered(t 
 		t.Fatalf("before the report the landed delivery holds the queue: head #%d", h)
 	}
 	said(t, run("w", "task.done", "d1", `,"task":1,"evidence":"built and tested"`))
-	if st := taskState(t, sdb, 1); st != "reported" {
+	if st := taskState(t, sdb, 1); st != "answered" {
 		t.Fatalf("state %q, want reported", st)
 	}
 	if h := head(); h != 11 {
 		t.Fatalf("after the report the next request is the head: #%d", h)
+	}
+}
+
+func TestAcceptByFounderKeepsTheirChatMessageAndRefusesOneThatIsNotTheirs(t *testing.T) {
+	sdb, _, run := reportEnv(t,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, reporter) VALUES(1, 'a', 'w', 'boss', 1, 'mgr')",
+		"INSERT INTO requests(id, ts, requester, target, kind, state, body) VALUES(50, 1, 'human', 'mgr', 'say', 'queued', 'ok'), (51, 9999999999, 'mgr', 'human', 'say', 'queued', 'ok?'), "+
+			"(52, 9999999999, 'human', 'mgr', 'say', 'queued', 'unrelated'), (53, 9999999999, 'human', 'mgr', 'say', 'queued', 'approve')",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 50), (1, 51), (1, 53)",
+	)
+	said(t, run("w", "task.done", "d1", `,"task":1,"evidence":"shipped"`))
+	for mid, why := range map[int]string{
+		51: "message #51 is from mgr, not the founder",
+		52: "message #52 is not tied to task T1",
+		50: "message #50 was sent before T1 was answered",
+	} {
+		if r := run("mgr", "task.accept", fmt.Sprint("a", mid), fmt.Sprintf(`,"task":1,"by_founder":%d`, mid)); errText(r) != why {
+			t.Fatalf("#%d: %v", mid, r)
+		}
+	}
+	if taskState(t, sdb, 1) != "answered" {
+		t.Fatal("a refused proof closed the task")
+	}
+	said(t, run("mgr", "task.accept", "a53", `,"task":1,"by_founder":53`))
+	if count(t, sdb, "SELECT COUNT(*) FROM events WHERE kind = 'accept_task' AND json_extract(payload, '$.by_founder') = 53") != 1 {
+		t.Fatal("the message is kept as the proof")
+	}
+}
+
+// The case --by-founder is for: a report that answers to the founder (a task the founder opened), accepted by the owner's lead, with the
+// founder's OK as a reply under the task's message rather than tied to the task itself.
+func TestALeadAcceptsAReportForTheFounderWithTheirReplyAsProof(t *testing.T) {
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, "team.yaml"), []byte("teams:\n  mgr: [mgr, w]\nagents:\n  mgr: {}\n  w: {}\n  boss: {}\n"), 0o644)
+	sdb, _, run := reportEnvIn(t, home,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'a', 'w', 'human', 1)",
+		"INSERT INTO requests(id, ts, requester, target, kind, state, body) VALUES(61, 9999999999, 'mgr', 'human', 'say', 'queued', 'T1 is reported: ok?')",
+		"INSERT INTO requests(id, ts, requester, target, kind, state, body, parent_id) VALUES(60, 9999999999, 'human', 'mgr', 'say', 'queued', 'OK', 61)",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 61)",
+	)
+	said(t, run("w", "task.done", "d1", `,"task":1,"evidence":"shipped"`))
+	for _, c := range []struct{ who, rid, params, why string }{
+		{"mgr", "a1", `,"task":1`, "task T1's answer can only be accepted by human - whoever it answers to - or the founder"},
+		{"boss", "a2", `,"task":1,"by_founder":60`, "task T1's answer can only be accepted by human - whoever it answers to - or the founder"},
+		{"mgr", "a3", `,"task":1,"by_founder":0`, "by_founder is a message id"},
+	} {
+		if r := run(c.who, "task.accept", c.rid, c.params); !strings.Contains(errText(r), c.why) {
+			t.Fatalf("%s %s: %v", c.who, c.params, r)
+		}
+	}
+	said(t, run("mgr", "task.accept", "a4", `,"task":1,"by_founder":60`))
+	if taskState(t, sdb, 1) != "done" || count(t, sdb, "SELECT COUNT(*) FROM events WHERE kind = 'accept_task' AND json_extract(payload, '$.by_founder') = 60") != 1 {
+		t.Fatal("the lead's accept closes the task and keeps the founder's reply as the proof")
 	}
 }

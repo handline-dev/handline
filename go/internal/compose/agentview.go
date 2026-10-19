@@ -4,6 +4,7 @@ import (
 	"github.com/handline/handline/go/internal/agentview"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/handoff"
+	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/prompts"
 	"github.com/handline/handline/go/internal/team"
@@ -98,6 +99,20 @@ func (p *Parts) agentView(cfg Config, cutover, terminals bool, tu tickUsage) *ag
 		Now:      func() int64 { return nowOf(cfg.Now)().Unix() },
 		Log:      func(s string) { cfg.Log("%s", s) },
 		DropGone: cutover,
+		Walled: func(agent string, row *db.AgentState) *agentview.Wall {
+			if yes, err := lc.Manager.WouldWake(row); err != nil || !yes {
+				return nil
+			}
+			w := lc.Launch.WakeWait(q, agent, row)
+			if w == nil {
+				return nil
+			}
+			out := &agentview.Wall{Text: lifecycle.DescribeWakeWait(w), Slot: w.Slot}
+			if !w.Slot {
+				out.Reset = w.Reset
+			}
+			return out
+		},
 	}
 }
 

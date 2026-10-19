@@ -29,7 +29,7 @@ func newRig(t *testing.T) *rig {
 	g.r = &Runner{Q: d, Agents: func() []string { return []string{"bob"} }, Schedules: func(string) []reads.Schedule { return g.items },
 		Log: func(string) {},
 		Say: func(requester, target, body string, recorded func(int64) error) error {
-			rid, err := db.AddRequest(d, db.NewRequest{Requester: requester, Target: target, Body: body, Response: "fire_and_forget", Kind: "say"})
+			rid, err := db.AddRequest(d, db.NewRequest{Requester: requester, Target: target, Body: body, Kind: "say"})
 			if err != nil {
 				return err
 			}
