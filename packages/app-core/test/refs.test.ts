@@ -16,10 +16,10 @@ test('what is not a task number is left alone', () => {
   assert.deepEqual(found('MAT3 T12abc t12 T 5 T0 a/T5 x.T5 T1234567890 &#38;'), []);
 });
 
-test('a message number counts only where messages are asked for, and never inside an entity', () => {
+test('a #N is a pull request only when the caller says so, and never inside an entity', () => {
   assert.deepEqual(found('see #42 and T9 &#38;'), [['T9', 'task', 9]]);
-  assert.deepEqual(found('see #42 and T9 &#38;', { messages: true }), [
-    ['#42', 'message', 42],
+  assert.deepEqual(found('see #42 and T9 &#38;', { pr: (n) => n === 42 }), [
+    ['#42', 'pr', 42],
     ['T9', 'task', 9],
   ]);
 });

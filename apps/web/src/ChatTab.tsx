@@ -330,7 +330,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-start"
               >
                 {e.kind === 'message' ? (
-                  <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} onRef={jump} group={groupOf(scope, entries[i - 1], e.message)} />
+                  <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} group={groupOf(scope, entries[i - 1], e.message)} />
                 ) : e.kind === 'proposal' ? (
                   <DecidedCard p={e.proposal} />
                 ) : e.kind === 'note' ? (

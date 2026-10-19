@@ -100,7 +100,6 @@ export function Message(props: {
   /** The messages the page holds, to say what a reply refers to. */
   byId?: Map<number, ChatMessage>;
   /** A message number in the text was clicked. */
-  onRef?: (id: number) => void;
   /** In the all-messages room: the sender's name over a message that is not the person's (null when the one before is from the same sender), never `from -> to`. */
   group?: { name: string | null };
 }) {
@@ -161,7 +160,7 @@ export function Message(props: {
             'text' in p ? (
               p.text ? (
                 <div key={n} className={MSG_BODY}>
-                  <Markdown text={p.text} agent={agent} onRef={props.onRef} />
+                  <Markdown text={p.text} agent={agent} />
                 </div>
               ) : null
             ) : p.gone ? (
@@ -176,7 +175,7 @@ export function Message(props: {
           <>
             {m.body ? (
               <div className={MSG_BODY}>
-                <Markdown text={m.body} agent={agent} onRef={props.onRef} />
+                <Markdown text={m.body} agent={agent} />
               </div>
             ) : null}
             {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
