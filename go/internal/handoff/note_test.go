@@ -423,7 +423,7 @@ func TestLastFailureIsTheCLIsOwnErrorTheLastTurnEndedOnOnThatAccount(t *testing.
 	}
 	// The agent moved to B and has not been prompted there: A's refusal is still its last event, and says nothing of B.
 	if _, ok, _ := LastFailure(w.DB, "a", "B"); ok {
-		t.Error("a refusal on A marked B")
+		t.Error("a refusal on A stalled B")
 	}
 	if got, _ := Failures(w.DB, "A", "authentication_failed"); len(got) != 1 {
 		t.Errorf("%v", got)
@@ -441,12 +441,12 @@ func TestLastFailureIsTheCLIsOwnErrorTheLastTurnEndedOnOnThatAccount(t *testing.
 	if _, ok, _ := LastFailure(w.DB, "a", "A"); !ok {
 		t.Fatal("a failure after the Stop is the account's")
 	}
-	on("A", "account_unmarked", `{"account": "A"}`)
+	on("A", "account_woken", `{"account": "A"}`)
 	if _, ok, _ := LastFailure(w.DB, "a", "A"); ok {
-		t.Error("a failure before hl account unmark marked A again")
+		t.Error("a failure before hl account wake stalled A again")
 	}
 	if got, _ := Failures(w.DB, "A", "oauth_org_not_allowed"); len(got) != 0 {
-		t.Errorf("a failure before the unmark counted: %v", got)
+		t.Errorf("a failure before the wake counted: %v", got)
 	}
 	w.event("a", "UserPromptSubmit", "")
 	if _, ok, _ := LastFailure(w.DB, "a", "A"); ok {

@@ -171,14 +171,14 @@ func TestAnExpiredLoginIsMarkedAndGoesWithANewerCredential(t *testing.T) {
 	old := time.Now().Add(-time.Hour)
 	os.Chtimes(cred, old, old)
 	now := time.Now()
-	if ok, err := a.MarkLoginExpired("alpha", "authentication_failed", "401 on refresh", now); !ok || err != nil {
+	if ok, err := a.StallAccount("alpha", "authentication_failed", "401 on refresh", now); !ok || err != nil {
 		t.Fatalf("%v %v", ok, err)
 	}
-	if ok, _ := a.MarkLoginExpired("alpha", "authentication_failed", "second sighting", now); ok {
+	if ok, _ := a.StallAccount("alpha", "authentication_failed", "second sighting", now); ok {
 		t.Fatal("the first sighting stands")
 	}
 	time.Sleep(10 * time.Millisecond)
-	m := a.LoginExpired("alpha")
+	m := a.Stalled("alpha")
 	if m == nil || m.Why != "401 on refresh" || m.Error != "authentication_failed" {
 		t.Fatalf("%+v", m)
 	}
@@ -192,7 +192,7 @@ func TestAnExpiredLoginIsMarkedAndGoesWithANewerCredential(t *testing.T) {
 	delete(modified, modifiedKey{home, "alpha"})
 	modifiedMu.Unlock()
 	os.Chtimes(cred, time.Now().Add(time.Minute), time.Now().Add(time.Minute)) // a login writes it anew
-	if a.LoginExpired("alpha") != nil {
+	if a.Stalled("alpha") != nil {
 		t.Fatal("a login after the mark clears it")
 	}
 	if _, err := os.Stat(filepath.Join(home, "accounts", "alpha", "login_expired.json")); err == nil {

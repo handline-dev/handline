@@ -216,7 +216,7 @@ func TestAccountSetWritesConfigAndRefusesWhatNeedsTheProfile(t *testing.T) {
 
 func (auth) SessionsReadable() error { return nil }
 
-func TestAccountSetUnmarkLiftsTheMarkAndSaysTheFailuresBeforeItAreOld(t *testing.T) {
+func TestAccountWakeEndsTheStallAndSaysTheFailuresBeforeItAreOld(t *testing.T) {
 	r := newRig(t)
 	dir := filepath.Join(r.home, "accounts", "main", ".claude")
 	os.MkdirAll(dir, 0o755)
@@ -225,18 +225,18 @@ func TestAccountSetUnmarkLiftsTheMarkAndSaysTheFailuresBeforeItAreOld(t *testing
 	old := time.Now().Add(-time.Hour)
 	os.Chtimes(cred, old, old)
 	accounts := team.Accounts{Home: r.home}
-	if r.result(r.one("account.set", `{"account":"main","unmark":true,"request_id":"u1"}`))["said"] != "nothing changed" {
-		t.Fatal("an account with no mark has nothing to lift")
+	if r.code(r.one("account.wake", `{"account":"main","request_id":"u1"}`)) != "refused" {
+		t.Fatal("an account that is not stalled has nothing to wake")
 	}
-	if _, err := accounts.MarkLoginExpired("main", "oauth_org_not_allowed", "refused", time.Now()); err != nil {
+	if _, err := accounts.StallAccount("main", "oauth_org_not_allowed", "refused", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if res := r.result(r.one("account.set", `{"account":"main","unmark":true,"request_id":"u2"}`)); res["said"] != "main: mark lifted" {
+	if res := r.result(r.one("account.wake", `{"account":"main","request_id":"u2"}`)); res["said"] != "main: STALLED -> usable" {
 		t.Fatalf("%v", res)
 	}
 	var n int
-	r.e.DB.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'account_unmarked' AND account = 'main'").Scan(&n)
-	if accounts.LoginExpired("main") != nil || n != 1 {
-		t.Fatalf("mark still there, or %d account_unmarked events", n)
+	r.e.DB.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'account_woken' AND account = 'main'").Scan(&n)
+	if accounts.Stalled("main") != nil || n != 1 {
+		t.Fatalf("still stalled, or %d account_woken events", n)
 	}
 }

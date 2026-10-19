@@ -22,7 +22,7 @@ import (
 type Accounts struct{ Home string }
 
 // ModifiedTTLS: the keychain read behind a credential's modification time is a subprocess, and every tick asks for each agent on
-// a marked account, so a login is seen within this long.
+// a stalled account, so a login is seen within this long.
 const ModifiedTTLS = 5
 
 // modifiedKey is one account of one home: two homes in a process (a test's, or the daemon's and a probe's) never share a stamp.
@@ -37,7 +37,7 @@ var (
 	mdatRe = regexp.MustCompile(`"mdat"<timedate>=\S+\s+"(\d{14})Z`)
 )
 
-func (a Accounts) expiredFile(acct string) string {
+func (a Accounts) stallFile(acct string) string {
 	return filepath.Join(paths.AccountDir(a.Home, acct), "login_expired.json")
 }
 
@@ -84,18 +84,27 @@ func claudeCredentialModified(configDir string) *float64 {
 	return &v
 }
 
-// Expired is why and when an account was found unusable, until a login after that time. Error is the StopFailure error that marked
-// it; empty is authentication_failed (a mark written before the field).
-type Expired struct {
+// Stall is why and when an account was found unusable, until a login after that time or a wake. Error is the StopFailure error that
+// stalled it; empty is authentication_failed (a file written before the field).
+type Stall struct {
 	Why   string
 	Error string
 	At    float64
 }
 
-// LoginExpired is the mark, when there is one. The credential is still there, so its presence says nothing; its modification
-// time does: a login writes it anew, and the mark then goes. A vendor that cannot give the time keeps the mark until cleared.
-func (a Accounts) LoginExpired(acct string) *Expired {
-	b, err := os.ReadFile(a.expiredFile(acct))
+// StallWord is the reason a stall gives for errType, on the agent's line and the account's card: an expired login, or the error itself.
+func StallWord(errType string) string {
+	if errType == "" || errType == "authentication_failed" {
+		return "login expired"
+	}
+	return errType
+}
+
+// Stalled is the account's stall, when there is one (login_expired.json, Python's name for it). The credential is still there, so its
+// presence says nothing; its modification time does: a login writes it anew, and the stall then ends. A vendor that cannot give the
+// time keeps the stall until it is woken.
+func (a Accounts) Stalled(acct string) *Stall {
+	b, err := os.ReadFile(a.stallFile(acct))
 	if err != nil {
 		return nil
 	}
@@ -108,10 +117,10 @@ func (a Accounts) LoginExpired(acct string) *Expired {
 		return nil
 	}
 	if changed := a.credentialModified(acct); changed != nil && *changed > *data.At {
-		a.ClearLoginExpired(acct)
+		a.ClearStall(acct)
 		return nil
 	}
-	return &Expired{Why: pyStr(data.Why), Error: data.Error, At: *data.At}
+	return &Stall{Why: pyStr(data.Why), Error: data.Error, At: *data.At}
 }
 
 // LoggedInSince is whether the account's credential changed after the refusal that happened in epoch second at: a login made since
@@ -121,13 +130,13 @@ func (a Accounts) LoggedInSince(acct string, at int64) bool {
 	return changed != nil && *changed > float64(at+1)
 }
 
-// MarkLoginExpired records that an account was found unusable, on errType, at the given time (the refusal's, not the sighting's, so a
-// login made between the two drops the mark at once). False when it already is marked: the first sighting stands.
-func (a Accounts) MarkLoginExpired(acct, errType, why string, now time.Time) (bool, error) {
-	if a.LoginExpired(acct) != nil {
+// StallAccount records that an account was found unusable, on errType, at the given time (the refusal's, not the sighting's, so a
+// login made between the two ends the stall at once). False when it already is stalled: the first sighting stands.
+func (a Accounts) StallAccount(acct, errType, why string, now time.Time) (bool, error) {
+	if a.Stalled(acct) != nil {
 		return false, nil
 	}
-	f := a.expiredFile(acct)
+	f := a.stallFile(acct)
 	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
 		return false, err
 	}
@@ -137,8 +146,8 @@ func (a Accounts) MarkLoginExpired(acct, errType, why string, now time.Time) (bo
 	return true, os.WriteFile(f, []byte(text), 0o644)
 }
 
-// ClearLoginExpired drops the mark.
-func (a Accounts) ClearLoginExpired(acct string) { _ = os.Remove(a.expiredFile(acct)) }
+// ClearStall ends the stall.
+func (a Accounts) ClearStall(acct string) { _ = os.Remove(a.stallFile(acct)) }
 
 // LoginState is whether the account has credentials, as its driver answers: a file's existence for claude, a run of `opencode
 // auth list` for opencode. An account whose vendor has no driver cannot be driven, so it is not logged in. An account found with
@@ -148,7 +157,7 @@ func (a Accounts) LoginState(acct string) (loggedIn, known bool) {
 	if CheckVendor(vendor) != nil {
 		return false, true
 	}
-	if a.LoginExpired(acct) != nil {
+	if a.Stalled(acct) != nil {
 		return false, true
 	}
 	dir, _ := AccountConfigDir(a.Home, acct)
@@ -167,7 +176,7 @@ func (a Accounts) MayStart(acct string) bool {
 // GoneSince is from when the account is counted as gone from the graphs and forecasts; ok is false while it is not. A logged-out
 // account is assumed not to come back: from the moment its expired login was found, or from now for one with no credential.
 func (a Accounts) GoneSince(acct string, now float64) (float64, bool) {
-	if m := a.LoginExpired(acct); m != nil {
+	if m := a.Stalled(acct); m != nil {
 		return m.At, true
 	}
 	if in, known := a.LoginState(acct); known && !in {

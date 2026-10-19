@@ -13,8 +13,8 @@ import (
 	"github.com/handline/handline/go/internal/team"
 )
 
-// markWorld is a database and a home whose account "acct" has a credential written an hour ago.
-func markWorld(t *testing.T) (*sql.DB, team.Accounts, string) {
+// stallWorld is a database and a home whose account "acct" has a credential written an hour ago.
+func stallWorld(t *testing.T) (*sql.DB, team.Accounts, string) {
 	t.Helper()
 	home := t.TempDir()
 	dir := filepath.Join(home, "accounts", "acct", ".claude")
@@ -40,27 +40,27 @@ func addEvent(t *testing.T, d *sql.DB, ts int64, agent, kind, payload string) {
 	}
 }
 
-func TestAStopOnAMarkedAccountLiftsTheMark(t *testing.T) {
-	d, accounts, _ := markWorld(t)
+func TestAStopOnAStalledAccountLiftsTheStall(t *testing.T) {
+	d, accounts, _ := stallWorld(t)
 	p := loginPorts(accounts)
 	now := time.Now().Unix()
-	if !p.Mark(d, "a", "acct", "oauth_org_not_allowed", "refused", now-10) {
-		t.Fatal("not marked")
+	if !p.Stall(d, "a", "acct", "oauth_org_not_allowed", "refused", now-10) {
+		t.Fatal("not stalled")
 	}
-	if _, errType, ok := p.Expired(d, "acct"); !ok || errType != "oauth_org_not_allowed" || accounts.MayStart("acct") {
-		t.Fatalf("%v %v: no agent may be placed on a marked account", errType, ok)
+	if _, errType, ok := p.Stalled(d, "acct"); !ok || errType != "oauth_org_not_allowed" || accounts.MayStart("acct") {
+		t.Fatalf("%v %v: no agent may be placed on a stalled account", errType, ok)
 	}
 	addEvent(t, d, now, "b", "Stop", `{}`)
-	if _, _, ok := p.Expired(d, "acct"); ok || accounts.LoginExpired("acct") != nil {
-		t.Fatal("a Stop on the account since the mark lifts it")
+	if _, _, ok := p.Stalled(d, "acct"); ok || accounts.Stalled("acct") != nil {
+		t.Fatal("a Stop on the account since the stall lifts it")
 	}
 }
 
 func TestOneCardPerAccountNotPerAgent(t *testing.T) {
-	d, accounts, _ := markWorld(t)
+	d, accounts, _ := stallWorld(t)
 	p := loginPorts(accounts)
 	now := time.Now().Unix()
-	if !p.Mark(d, "a", "acct", "oauth_org_not_allowed", "refused", now) || p.Mark(d, "b", "acct", "oauth_org_not_allowed", "refused", now) {
+	if !p.Stall(d, "a", "acct", "oauth_org_not_allowed", "refused", now) || p.Stall(d, "b", "acct", "oauth_org_not_allowed", "refused", now) {
 		t.Fatal("the first sighting stands")
 	}
 	var n int
@@ -71,7 +71,7 @@ func TestOneCardPerAccountNotPerAgent(t *testing.T) {
 }
 
 func TestUnliftedFailuresOfOneErrorAreCountedOnTheAccount(t *testing.T) {
-	d, accounts, _ := markWorld(t)
+	d, accounts, _ := stallWorld(t)
 	p := loginPorts(accounts)
 	then := time.Now().Add(-10 * time.Minute).Unix()
 	for i, agent := range []string{"a", "b", "a", "b"} {
@@ -84,7 +84,7 @@ func TestUnliftedFailuresOfOneErrorAreCountedOnTheAccount(t *testing.T) {
 }
 
 func TestALoginSinceTheFailuresLiftsThemAndStopsTheirCount(t *testing.T) {
-	d, accounts, cred := markWorld(t)
+	d, accounts, cred := stallWorld(t)
 	p := loginPorts(accounts)
 	then := time.Now().Add(-10 * time.Minute).Unix()
 	for i := int64(0); i < 4; i++ {
@@ -96,12 +96,12 @@ func TestALoginSinceTheFailuresLiftsThemAndStopsTheirCount(t *testing.T) {
 	}
 }
 
-func TestTheReconcilerReleasesAStalledAgentOnceAStopLiftsTheMark(t *testing.T) {
-	d, accounts, _ := markWorld(t)
+func TestTheReconcilerReleasesAStalledAgentOnceAStopLiftsTheStall(t *testing.T) {
+	d, accounts, _ := stallWorld(t)
 	p := loginPorts(accounts)
 	now := time.Now().Unix()
 	addEvent(t, d, now-10, "a", "StopFailure", `{"error": "account_on_hold"}`)
-	p.Mark(d, "a", "acct", "account_on_hold", "held", now-10)
+	p.Stall(d, "a", "acct", "account_on_hold", "held", now-10)
 	if err := db.SetAgentState(d, "a", states.Stalled, 0, "account_on_hold on acct and no other account can take it (none) - hl login acct"); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestTheReconcilerReleasesAStalledAgentOnceAStopLiftsTheMark(t *testing.T) {
 	var actions []string
 	row, _ := db.GetAgentState(d, "a")
 	if lift(d, "a", row, &actions); len(actions) != 0 {
-		t.Fatalf("lifted while marked: %v", actions)
+		t.Fatalf("lifted while stalled: %v", actions)
 	}
 	addEvent(t, d, now, "b", "Stop", `{}`)
 	if lift(d, "a", row, &actions); len(actions) != 1 {

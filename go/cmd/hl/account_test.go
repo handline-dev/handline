@@ -48,3 +48,21 @@ func TestAccountCapIsRefusedForWhatTheDaemonDoesNotSettle(t *testing.T) {
 		}
 	}
 }
+
+func TestAccountWakeEndsTheStallThroughTheDaemon(t *testing.T) {
+	r := founderRig(t)
+	calls := r.daemon(map[string]string{"account.wake": `{"accepted":true,"said":"alpha: STALLED -> usable"}`})
+	if out, _, code := r.run(nil, "account", "wake", "alpha"); code != 0 || out != "alpha: STALLED -> usable\n" {
+		t.Errorf("wake: %q %d", out, code)
+	}
+	if got := sent(calls()); !reflect.DeepEqual(got, []string{`account.wake {"account":"alpha"}`}) {
+		t.Fatalf("calls %v", got)
+	}
+	r.daemon(map[string]string{"account.wake": "error:alpha: not STALLED"})
+	if out, errs, code := r.run(nil, "account", "wake", "alpha"); code != 1 || out != "" || errs != "alpha: not STALLED\n" {
+		t.Errorf("refused: %q %q %d", out, errs, code)
+	}
+	if out, _, code := r.run(asAgent, "account", "wake", "alpha"); code != 2 || out != "" {
+		t.Errorf("from an agent's session: %q %d", out, code)
+	}
+}

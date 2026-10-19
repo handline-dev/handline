@@ -142,7 +142,7 @@ func TestGoAndPythonWriteTheSameNotifications(t *testing.T) {
 	}
 }
 
-func TestAnAccountMarkedOnAnotherErrorSaysTheErrorNotALogin(t *testing.T) {
+func TestAnAccountStalledOnAnotherErrorSaysTheErrorNotALogin(t *testing.T) {
 	d, l := rig(t)
 	emit := func(e stream.Entry) (*stream.Event, error) { return l.Append(e) }
 	n := &Notifications{Reads: &reads.Env{DB: d}}
@@ -155,7 +155,7 @@ func TestAnAccountMarkedOnAnotherErrorSaysTheErrorNotALogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := notes(t, l)
-	if len(got) != 2 || *got[0].Title != "gamma cannot be used: oauth_org_not_allowed" || *got[1].Title != "main needs logging in" {
+	if len(got) != 2 || *got[0].Title != "gamma stalled: oauth_org_not_allowed" || *got[1].Title != "main needs logging in" {
 		t.Fatalf("%+v", got)
 	}
 }

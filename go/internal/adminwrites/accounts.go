@@ -13,7 +13,7 @@ import (
 	"github.com/handline/handline/go/internal/weblogin"
 )
 
-// account.set: an account's cap, alias, usage recovery and month cycle, in config.yaml, and lifting its StopFailure mark. It
+// account.set: an account's cap, alias, usage recovery and month cycle, in config.yaml; account.wake ends its stall. account.set
 // writes what a retry writes again. settings.trust stays with the Python daemon; account.add and account.remove are in accountadmin.go.
 
 const labelMax = 40
@@ -54,10 +54,6 @@ func (e *Env) accountSet(c *rpc.Conn, p map[string]any) (any, error) {
 		return nil, err
 	}
 	cycleOn, hasCycle, err := flagParam(p, "cycle")
-	if err != nil {
-		return nil, err
-	}
-	unmark, _, err := flagParam(p, "unmark")
 	if err != nil {
 		return nil, err
 	}
@@ -127,19 +123,30 @@ func (e *Env) accountSet(c *rpc.Conn, p map[string]any) (any, error) {
 			return nil, refused(err.Error(), "")
 		}
 	}
-	if accounts := (team.Accounts{Home: e.Home}); unmark && accounts.LoginExpired(acct) != nil {
-		accounts.ClearLoginExpired(acct)
-		// The failures before it say nothing of the account now (handoff.LastFailure).
-		if _, err := db.AddEventFor(e.DB, db.Human, acct, "account_unmarked", db.KV{K: "account", V: acct}); err != nil {
-			return nil, refused(err.Error(), "")
-		}
-		said = append(said, acct+": mark lifted")
-	}
 	out := strings.Join(said, "; ")
 	if out == "" {
 		out = "nothing changed"
 	}
 	return wrote(c, out, nil)
+}
+
+// accountWake is account.wake: a STALLED account's stall ends, so agents may be placed on it again and the agents stalled with it
+// are released (compose liftLogin), as session.wake clears a stalled agent. One that is not stalled is refused.
+func (e *Env) accountWake(c *rpc.Conn, p map[string]any) (any, error) {
+	acct, err := e.accountNamed(p)
+	if err != nil {
+		return nil, err
+	}
+	accounts := team.Accounts{Home: e.Home}
+	if accounts.Stalled(acct) == nil {
+		return nil, refused(acct+": not STALLED", "state")
+	}
+	accounts.ClearStall(acct)
+	// The failures before it say nothing of the account now (handoff.LastFailure).
+	if _, err := db.AddEventFor(e.DB, db.Human, acct, "account_woken", db.KV{K: "account", V: acct}); err != nil {
+		return nil, refused(err.Error(), "")
+	}
+	return wrote(c, acct+": STALLED -> usable", nil)
 }
 
 // currentLabel is the alias shown for the account, "" when it is shown under its own name.

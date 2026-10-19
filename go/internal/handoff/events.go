@@ -46,16 +46,16 @@ type Failure struct {
 	Error, Details string
 }
 
-// sinceWorked is the newest event id on acct that says the account works or was cleared: a Stop on it, or account_unmarked.
+// sinceWorked is the newest event id on acct that says the account works or was woken: a Stop on it, or account_woken.
 // A failure at or before it says nothing about the account now.
 func sinceWorked(q db.Q, acct string) (int64, error) {
 	var id int64
-	err := q.QueryRow("SELECT COALESCE(MAX(id), 0) FROM events WHERE account = ? AND kind IN ('Stop', 'account_unmarked')", acct).Scan(&id)
+	err := q.QueryRow("SELECT COALESCE(MAX(id), 0) FROM events WHERE account = ? AND kind IN ('Stop', 'account_woken')", acct).Scan(&id)
 	return id, err
 }
 
 // LastFailure is the StopFailure this agent's last turn ended on, if nothing has run since, it happened on acct and the account has not
-// worked or been cleared since: the CLI's own error field, never text. A failure on another account is not this one's (a move off it
+// worked or been woken since: the CLI's own error field, never text. A failure on another account is not this one's (a move off it
 // leaves that failure as the last event until the new session is prompted). ok is false otherwise.
 func LastFailure(q db.Q, agent, acct string) (f Failure, ok bool, err error) {
 	var kind string
@@ -82,7 +82,7 @@ func LastFailure(q db.Q, agent, acct string) (f Failure, ok bool, err error) {
 	return f, true, nil
 }
 
-// Failures is the time of each StopFailure on errType on acct, by any agent, since the account last worked or was cleared.
+// Failures is the time of each StopFailure on errType on acct, by any agent, since the account last worked or was woken.
 func Failures(q db.Q, acct, errType string) ([]int64, error) {
 	worked, err := sinceWorked(q, acct)
 	if err != nil {
