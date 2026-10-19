@@ -784,6 +784,22 @@ func TestABatchOfDecisionsWaitsForTheProposersDigestAndNothingIsFromTheFounder(t
 	}
 }
 
+// A bundle's items name agents too, and an agent named twice (proposer and subject) is told once.
+func TestAnOutcomeReachesTheAgentsABundleNamesOnceEach(t *testing.T) {
+	r := newRig(t)
+	if _, err := team.NewRoster(r.home).Register("carol", team.RegisterOpts{Role: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	_, id := r.propose("aaaa0031", "kind", "bundle", "agent", "2 changes",
+		"i1.kind", "link", "i1.agent", "carol", "i1.to", "bob", "i2.kind", "link", "i2.agent", "alice", "i2.to", "alice")
+	r.decide(id, "reject", "", "n1")
+	for who, want := range map[string]int{"alice": 1, "bob": 1, "carol": 1} {
+		if got := len(r.told(who)); got != want {
+			t.Errorf("%s was told %d times, want %d", who, got, want)
+		}
+	}
+}
+
 func ifThen(c bool, a, b string) string {
 	if c {
 		return a

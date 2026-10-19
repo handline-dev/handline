@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -102,7 +101,7 @@ func (e *Env) concerned(p *Prop) []string {
 		if name == "" || name == db.Human || slices.Contains(out, name) {
 			return
 		}
-		if _, err := os.Stat(filepath.Join(e.Home, "agents", name, "agent.yaml")); err == nil {
+		if _, err := os.Stat(e.roster().AgentFile(name)); err == nil {
 			out = append(out, name)
 		}
 	}
