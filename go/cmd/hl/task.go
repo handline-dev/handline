@@ -351,7 +351,7 @@ func taskNote(c *hlclient.Client, args []string) (int, bool) {
 		return 0, false
 	}
 	mutating(c, "note")
-	if !asking(c, "write a memo") {
+	if !asking(c, "write a comment") {
 		return 1, true
 	}
 	return said(c.Write("task.memo.add", map[string]any{"task": tid, "text": p.pos[1]})), true
@@ -378,7 +378,7 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 		}
 	}
 	mutating(c, "memo")
-	if !asking(c, "write a memo") {
+	if !asking(c, "write a comment") {
 		return 1, true
 	}
 	if now && verb != "add" {
@@ -398,7 +398,7 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 			inline = &rest[len(rest)-1]
 			rest = rest[:len(rest)-1]
 		}
-		text, why := textArg(inline, file, "memo text")
+		text, why := textArg(inline, file, "comment text")
 		if why != "" {
 			fmt.Println(why)
 			return 1, true
@@ -406,8 +406,8 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 		rest = append(rest, text)
 	}
 	if len(rest) != shape {
-		fmt.Println(map[string]string{"list": "list takes nothing more", "add": "add takes the memo text",
-			"edit": "edit takes the memo id, then the new text", "delete": "delete takes the memo id"}[verb])
+		fmt.Println(map[string]string{"list": "list takes nothing more", "add": "add takes the comment text",
+			"edit": "edit takes the comment id, then the new text", "delete": "delete takes the comment id"}[verb])
 		return 1, true
 	}
 	switch verb {
