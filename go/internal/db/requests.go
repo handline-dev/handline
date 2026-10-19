@@ -462,9 +462,10 @@ func ClearDelivered(q Q, rid int64) error {
 // from the transcript.
 func FounderTypedCursor(rid int64) string { return "founder_typed:" + strconv.FormatInt(rid, 10) }
 
-// MarkTyped is db.mark_typed: the send went through into session's terminal; not delivered until MarkLanded.
+// MarkTyped is db.mark_typed: the send went through into session's terminal; not delivered until MarkLanded. The CLI's echo can land the
+// request before the send records its typing: a landed request is stamped only when it has no typing yet.
 func MarkTyped(q Q, rid int64, session string) error {
-	_, err := q.Exec("UPDATE requests SET typed_at = ?, typed_session = ? WHERE id = ? AND landed_at IS NULL", Now(), nullStr(session), rid)
+	_, err := q.Exec("UPDATE requests SET typed_at = ?, typed_session = ? WHERE id = ? AND (landed_at IS NULL OR typed_at IS NULL)", Now(), nullStr(session), rid)
 	return err
 }
 
