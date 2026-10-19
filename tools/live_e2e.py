@@ -481,24 +481,25 @@ def scratch(root: Path, account: dict, terminal: bool = False) -> tuple[Path, st
     return home, key
 
 
-def start_daemon(binary: str, root: Path, home: Path, account: dict, tmux: str | None = None) -> int:
+def start_daemon(binary: str, root: Path, home: Path, account: dict, tmux: str, terminal: bool = True) -> int:
     """The test daemon as production runs it (structured sessions, the tick, the cutover), in a process group of its own so its
     sessions go with it; returns that group. Like launchd's daemon it has no parent: an agent's hl counts the Claude Codes
     above it, and the one running this run must not be one. The agent's row names its checkout: the daemon makes no worktrees yet."""
     env = {k: v for k, v in os.environ.items() if k not in ("HANDLINE_AGENT", "OCP_AGENT", "HANDLINE_HOME", "OCP_HOME")}
     env |= {"HANDLINE_TEST_ROOT": str(root), "HANDLINE_LIVE_ACCOUNTS": account["home"]}
-    terminal = []
-    if tmux:     # a tmux server of the run's own: the live one is never touched
+    # A tmux server of the run's own, named so the run can stop it: the live one is never touched, and a stopped daemon leaves its own.
+    env |= {"HANDLINE_TMUX_SOCKET": tmux, "OCP_TMUX_SOCKET": tmux}
+    flags = []
+    if terminal:
         hl = str(REPO / "bin" / "hl")      # this checkout's hl, whose launch takes the real config dir under a test root
         subprocess.run([str(REPO / "tools" / "build-hl.sh")], check=True, stdout=subprocess.DEVNULL)
-        env |= {"HANDLINE_TMUX_SOCKET": tmux, "OCP_TMUX_SOCKET": tmux, "HANDLINE_HOME": str(home), "OCP_HOME": str(home),
-                "HANDLINE_BIN": hl, "OCP_BIN": hl}
-        terminal = ["-terminal-tick", "-turns-from-hooks", "-notification-needs-you"]
+        env |= {"HANDLINE_HOME": str(home), "OCP_HOME": str(home), "HANDLINE_BIN": hl, "OCP_BIN": hl}
+        flags = ["-terminal-tick", "-turns-from-hooks", "-notification-needs-you"]
     claude = shutil.which("claude")
     if not claude:
         raise Refused("no claude on PATH")
     sh = subprocess.Popen(["/bin/sh", "-c", '"$@" >/dev/null 2>"$LOG" & echo $!', "sh", binary, "-home", str(home), "-claude",
-                           claude, "-cutover", *terminal],
+                           claude, "-cutover", *flags],
                           env=env | {"LOG": str(root / "daemon.log")}, stdout=subprocess.PIPE, start_new_session=True)
     pid = int(sh.stdout.readline())
     sh.wait()
@@ -506,6 +507,7 @@ def start_daemon(binary: str, root: Path, home: Path, account: dict, tmux: str |
     until = time.time() + 30
     while not sock.exists():
         if not alive(pid) or time.time() > until:
+            stop_daemon(sh.pid)
             raise Refused(f"the test daemon did not come up; its log: {root / 'daemon.log'}")
         time.sleep(0.1)
     con = sqlite3.connect(home / "db.sqlite", timeout=10)
@@ -524,6 +526,7 @@ def alive(pid: int) -> bool:
 
 
 def stop_daemon(group: int) -> None:
+    """Ends the test daemon's group: SIGTERM, then SIGKILL for whatever is still there 30 s later."""
     try:
         os.killpg(group, signal.SIGTERM)
     except ProcessLookupError:
@@ -535,31 +538,45 @@ def stop_daemon(group: int) -> None:
         except ProcessLookupError:
             return
         time.sleep(0.2)
+    try:
+        os.killpg(group, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+
+
+def end_on_signals() -> None:
+    """SIGTERM and SIGHUP (a closed session, a tool's timeout) end the run as Ctrl-C does, so its teardown runs: by default
+    they end Python without it, and the test daemon and tmux server outlive the run."""
+    def interrupt(signum, frame):
+        raise KeyboardInterrupt
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, interrupt)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--daemon", help="the handlined binary to test; by default this checkout's is built")
     ap.add_argument("--json", action="store_true", help="print the table as JSON at the end")
-    ap.add_argument("--keep", action="store_true", help="keep the test root (home, daemon log) for a look afterwards")
+    ap.add_argument("--keep", action="store_true", help="keep the test root (home, daemon log, worktree) for a look afterwards")
     ap.add_argument("--terminal", action="store_true", help="a terminal agent: working and idle from hooks, a normal turn, an Esc, a hard kill")
     args = ap.parse_args()
     if os.environ.get("HANDLINE_LIVE") != "1":
         print("live-e2e: spends real tokens; HANDLINE_LIVE=1 runs it", file=sys.stderr)
         return 2
 
+    end_on_signals()
     account = live_account.pick_live()
     print(f"live-e2e: account {account['account']}: {account['why']}", flush=True)
     root = Path(tempfile.mkdtemp(prefix="live-e2e.")).resolve()
     daemon, r = None, None
-    tmux = f"live-e2e-{os.getpid()}" if args.terminal else None
+    tmux = f"live-e2e-{os.getpid()}"
     try:
         binary = args.daemon
         if not binary:
             binary = str(root / "handlined")
             subprocess.run(["go", "build", "-o", binary, "./cmd/handlined"], cwd=REPO / "go", check=True)
         home, key = scratch(root, account, args.terminal)
-        daemon = start_daemon(binary, root, home, account, tmux)
+        daemon = start_daemon(binary, root, home, account, tmux, args.terminal)
         d = Daemon(home / "daemon.sock", key)
         s = Stream(home / "daemon.sock", key)
         r = Run(d, s, Answerer(home / "daemon.sock", key, s, AGENT), AGENT)
@@ -578,10 +595,8 @@ def main() -> int:
     finally:
         if daemon:
             stop_daemon(daemon)
-        if tmux and args.keep:
-            print(f"live-e2e: kept the tmux server (tmux -L {tmux}) and the worktree {root / 'work'}", file=sys.stderr)
-        elif tmux:
-            tmuxsock.stop(tmux)
+        tmuxsock.stop(tmux)
+        if args.terminal and not args.keep:
             subprocess.run(["git", "worktree", "remove", "--force", str(root / "work")], cwd=REPO, capture_output=True)
         if args.keep:
             print(f"live-e2e: kept {root}", file=sys.stderr)
