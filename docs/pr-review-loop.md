@@ -36,20 +36,24 @@ What repeats:
 
 ### 3.1 Who opens PRs
 
-A **GitHub App** owned by the founder's org, installed on the repos, named for the team. The
-daemon mints a short-lived installation token from the App's private key and gives it to the
-agent's `gh` through its environment. PRs show `<app>[bot]` as the author, so the founder can
-approve and request changes.
+A **Handline GitHub App per user**. Each user creates their own App on their own GitHub account
+or org from a "Connect GitHub" button in the app (GitHub's App manifest flow, section 4), then
+installs it on their repos. Handline runs no shared App and no server that holds keys. The user's
+daemon mints a short-lived installation token from that App's private key and gives it to the
+agent's `gh` through its environment. PRs show `<app>[bot]` as the author, so the user can approve
+and request changes. The founder is the first user.
 
-- A machine-user account with a token is the fallback when an App cannot be installed. It works
-  the same for approval, but costs a seat and holds a long-lived token.
-- One App for all agents: the agent is named in the PR body, not by a GitHub account per agent.
+- A machine-user account with a token is the fallback when an App cannot be created or installed
+  (for example an org that restricts App creation). It works the same for approval, but costs a
+  seat and holds a long-lived token.
+- One App per user for all that user's agents: the agent is named in the PR body, not by a GitHub
+  account per agent.
 - Confirmed by `handline.daemon`: pushes and PRs made with an installation token start the
   required `check` workflow (only a workflow's own `GITHUB_TOKEN` is kept from doing so), provided
   branch protection does not exclude the App from pushing. Still to test on a sandbox repo: that
   `pull_request_review` data is readable for bot-authored PRs.
-- Per `story7`, identity stays per team config; this only makes the App the recommended default
-  and lets the daemon mint its token.
+- Per `story7`, identity stays per team config; this only makes the per-user App the recommended
+  default and lets the daemon mint its token.
 
 ### 3.2 How a review becomes work
 
@@ -69,7 +73,7 @@ finished work to their lead. So by the time a PR opens its build tasks are done 
 
 Rules shared by all rows:
 
-- Only reviewers on a per-repo list (the founder, to start) trigger anything.
+- Only reviewers on the user's per-repo list (the user alone, to start) trigger anything.
 - The agent that gets a change request replies on each thread when fixed, and the daemon
   resolves the thread. A 👀 reaction on the comment shows it was received.
 - A per-PR cursor (last review id handled) makes each review act once.
@@ -81,7 +85,7 @@ The apps drive the same flow instead of replacing GitHub's diff:
 
 - **Task page, PR section:** state, rolled-up CI, open review threads, and a link to the diff.
 - **Approve / Request changes** buttons with a text box. The daemon posts the review to GitHub
-  with the founder's own `gh` login, because the founder is no longer the author. The webhook or
+  with the user's own `gh` login, because the user is no longer the author. The webhook or
   poll then returns it as the same event and the 3.2 mapping runs, so there is one path whether the
   founder clicked in the app or on github.com.
 - **Line comments in the app are a later step.** Until then the app links to the diff on GitHub
@@ -94,34 +98,50 @@ Checked by `handline.daemon` against main (memo 2146 on T4397): feasible. The da
 `gh` (`go/cmd/hl/land.go`), and `reopen`, `accept`, `reject`, memo and say exist; the router is new
 code on them.
 
-1. **PR link on a task:** `{repo, number, branch, task, head sha, review cursor}`, written by
+1. **Connect GitHub (manifest flow):** the button opens a local daemon page that posts a manifest
+   (App name, permissions, no webhook) to `github.com/settings/apps/new`, or under
+   `organizations/<org>/settings/apps/new`. GitHub sends the browser back to `redirect_url`
+   with a one-time `code` (valid 1 h); the daemon exchanges it at
+   `POST /app-manifests/{code}/conversions` for the App id and private key and stores both in the
+   protected store. The daemon has no public URL, so `redirect_url` is a localhost callback on the
+   daemon's port (`http://127.0.0.1:<port>/github/app/callback`, with a `state` value checked on
+   return); the browser doing the redirect is on the same machine, so it needs no tunnel. The same
+   page then sends the user to install the App; the daemon lists installations with an App JWT.
+   Still to test: that GitHub accepts a localhost `redirect_url` in a manifest.
+2. **PR link on a task:** `{repo, number, branch, task, head sha, review cursor}`, written by
    `handline.pr` when it opens the PR, from the request it already gets (branch, head sha, task
    `T<n>`, asked by). No branch-name fallback. The writer is that task's assignee; its owner is the
    lead who forwards finished work.
-2. **Identity provider:** mint and refresh App installation tokens (1 h life) from the App key in
-   the protected store, never in an agent's env. Agents get the token as `GH_TOKEN`. The founder's
+3. **Identity provider:** mint and refresh App installation tokens (1 h life) from that user's App
+   key in the protected store, never in an agent's env. Agents get the token as `GH_TOKEN`. The user's
    `gh` login stays the daemon's alone, for posting verdicts. Today agents share it, so the pr-gate
    (#274) is a guard, not an auth boundary; the App token makes it one.
-3. **Review feed:** poll, not webhook (the daemon runs on the founder's Mac with no public URL).
+4. **Review feed:** poll, not webhook (the daemon runs on the user's machine with no public URL).
    One conditional `GET pulls?state=open` per repo per minute (`If-None-Match`; a 304 costs no rate
    limit); fetch reviews and comments only for a linked PR whose `updated_at` moved. Cursor per PR
    in the db.
-4. **Router:** the table in 3.2. No wake path of its own: `reopen` and `say` use normal delivery,
+5. **Router:** the table in 3.2. No wake path of its own: `reopen` and `say` use normal delivery,
    which already wakes a closed holder (#267).
-5. **Writes:** post a review (verdict, body) as the founder, reply to a thread, resolve a thread,
+6. **Writes:** post a review (verdict, body) as the user, reply to a thread, resolve a thread,
    add a reaction.
-6. **Guards:** reviewer allowlist, ignore own bot, review cursor, round limit.
-7. **API for the apps:** PR section data and the two verdict actions, both over the existing
+7. **Guards:** reviewer allowlist, ignore own bot, review cursor, round limit.
+8. **API for the apps:** PR section data, the Connect GitHub start and status, and the two verdict actions, both over the existing
    gateway auth.
 
-Slices: 7-1 (read-only, already planned) then **A** link, identity and the review-to-task router
-for the three verdicts, **B** verdict buttons in the apps, **C** thread reply/resolve and line
-comments in the apps.
+Slices: 7-1 (read-only, already planned) then **A0** Connect GitHub (manifest flow, key storage,
+installation), **A** link, token minting and the review-to-task router for the three verdicts,
+**B** verdict buttons in the apps, **C** thread reply/resolve and line comments in the apps. A0 is
+the one button that comes before B: without a per-user App there is no identity to mint tokens
+from, and A cannot be proven on a sandbox repo. It can be driven by `hl` for the founder before
+any app screen exists, so A is not held up by app work.
 
 ## 5. Founder decisions
 
-- **App or machine user** as the PR author. Recommendation: App.
-- **Reviewers allowed to trigger agents:** only the founder, or named others.
+- **Per-user App or machine user** as the PR author. Recommendation: a per-user App made by the
+  manifest flow; the machine user stays the fallback where an App cannot be created.
+- **Reviewers allowed to trigger agents:** a list per user and repo; default only that user, named
+  others added by them.
 - **Does approve mean merge?** Recommendation: no; approve marks the founder merge task ready and
   merge is a separate action.
-- **Slice order:** A first; apps (B) after the identity change is proven on a sandbox repo.
+- **Slice order:** A0 and A first; apps (B) after the identity change is proven on a sandbox repo
+  with the founder as the first user.
