@@ -33,12 +33,18 @@ func holder(why string) (agent string, pid int, started int64, ok bool) {
 	return m[1], pid, started, true
 }
 
-// canonical is p with its links resolved (macOS's /var is /private/var), or cleaned when it cannot be.
+// canonical is p with its links resolved (macOS's /var is /private/var) as far as it exists: a worktree whose folder is gone still
+// compares equal to the path git lists for it.
 func canonical(p string) string {
-	if real, err := filepath.EvalSymlinks(p); err == nil {
-		return real
+	p = filepath.Clean(p)
+	for cur, rest := p, ""; ; cur, rest = filepath.Dir(cur), filepath.Join(filepath.Base(cur), rest) {
+		if real, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(real, rest)
+		}
+		if cur == filepath.Dir(cur) {
+			return p
+		}
 	}
-	return filepath.Clean(p)
 }
 
 func reason(agent string, pid int, started int64) string {
@@ -53,14 +59,20 @@ func lockOf(dir string) (top string, linked, locked bool, why string, err error)
 		return "", false, false, "", nil
 	}
 	top = filepath.Clean(strings.TrimSpace(r.Stdout))
-	r = gitrun.Run(dir, "worktree", "list", "--porcelain")
+	linked, locked, why, err = entry(dir, top)
+	return top, linked, locked, why, err
+}
+
+// entry is path's lock as repo lists its worktrees: read from the repository, so a worktree whose folder is gone still has one.
+func entry(repo, path string) (linked, locked bool, why string, err error) {
+	r := gitrun.Run(repo, "worktree", "list", "--porcelain")
 	if r.RC != 0 {
-		return top, false, false, "", fmt.Errorf("git worktree list: %s", strings.TrimSpace(r.Stderr))
+		return false, false, "", fmt.Errorf("git worktree list: %s", strings.TrimSpace(r.Stderr))
 	}
-	for i, entry := range strings.Split(strings.TrimSpace(r.Stdout), "\n\n") {
-		lines := strings.Split(entry, "\n")
-		path, _ := strings.CutPrefix(lines[0], "worktree ")
-		if canonical(path) != canonical(top) {
+	for i, e := range strings.Split(strings.TrimSpace(r.Stdout), "\n\n") {
+		lines := strings.Split(e, "\n")
+		p, _ := strings.CutPrefix(lines[0], "worktree ")
+		if canonical(p) != canonical(path) {
 			continue
 		}
 		for _, l := range lines[1:] {
@@ -68,9 +80,9 @@ func lockOf(dir string) (top string, linked, locked bool, why string, err error)
 				locked, why = true, strings.TrimPrefix(strings.TrimPrefix(l, "locked"), " ")
 			}
 		}
-		return top, i > 0, locked, why, nil
+		return i > 0, locked, why, nil
 	}
-	return top, false, false, "", nil
+	return false, false, "", nil
 }
 
 // Hold locks the worktree dir is in for agent's session, process pid started at started. A lock another session still holds is left
@@ -98,19 +110,30 @@ func Hold(dir, agent string, pid int, started int64, running func(int, int64) bo
 	return nil
 }
 
-// Release unlocks the worktree dir is in when its lock is a session's that is gone; any other lock is left. It says whether it unlocked.
-func Release(dir string, running func(int, int64) bool) (bool, error) {
-	top, linked, locked, why, err := lockOf(dir)
+// Release unlocks repo's worktree at path, its folder there or gone, when its lock is a session's that is gone; any other lock is left.
+// It says whether it unlocked.
+func Release(repo, path string, running func(int, int64) bool) (bool, error) {
+	linked, locked, why, err := entry(repo, path)
 	if err != nil || !linked || !locked {
 		return false, err
 	}
 	if _, n, at, ok := holder(why); !ok || running(n, at) {
 		return false, nil
 	}
-	if r := gitrun.Run(top, "worktree", "unlock", top); r.RC != 0 {
+	if r := gitrun.Run(repo, "worktree", "unlock", path); r.RC != 0 {
 		return false, fmt.Errorf("git worktree unlock: %s", strings.TrimSpace(r.Stderr))
 	}
 	return true, nil
+}
+
+// Held is the agent whose live session holds repo's worktree at path, "" for none.
+func Held(repo, path string, running func(int, int64) bool) string {
+	if _, locked, why, err := entry(repo, path); err == nil && locked {
+		if agent, n, at, ok := holder(why); ok && running(n, at) {
+			return agent
+		}
+	}
+	return ""
 }
 
 // Linked is every linked worktree of the repository dir is in: where a retired agent's lock may still stand.
