@@ -5,7 +5,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/team"
@@ -24,32 +26,39 @@ func resumeID(extra []string) string {
 	return ""
 }
 
-// carrySession copies the conversation a resume names into acct's config when it is saved only under another account. A move or a
-// restart can put an agent on another account, and claude finds a session only in the config it runs with: without the copy the resume
-// fails with "No conversation found". The copy, not a link, since the old account's file is no longer written. Nothing found anywhere
-// is left to claude to refuse.
+var sessionName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// carrySession brings the conversation a resume names into acct's config when another account holds a newer copy. A move or a restart
+// can put an agent on another account, and claude finds a session only in the config it runs with: without the copy the resume fails
+// with "No conversation found", and after a move back it would resume the copy left there, without what was said since. Saved nowhere,
+// it is left to claude to refuse.
 func carrySession(home, acct string, extra []string) error {
 	sid := resumeID(extra)
 	to, err := team.AccountConfigDir(home, acct)
-	if sid == "" || err != nil || strings.ContainsAny(sid, `/\`) || sessionIn(to, sid) != "" {
+	if !sessionName.MatchString(sid) || err != nil {
 		return nil
 	}
+	here := sessionIn(to, sid)
+	newest, newestAt := here, modTime(here)
 	for _, other := range paths.ListAccounts(home) {
 		from, err := team.AccountConfigDir(home, other)
 		if other == acct || err != nil {
 			continue
 		}
-		if file := sessionIn(from, sid); file != "" {
-			project := filepath.Join(to, "projects", filepath.Base(filepath.Dir(file)))
-			if err := copyFile(file, filepath.Join(project, sid+".jsonl")); err != nil {
-				return err
-			}
-			// its subagents' transcripts and tool results, when it has any
-			if dir := strings.TrimSuffix(file, ".jsonl"); isDir(dir) {
-				return copyTree(dir, filepath.Join(project, sid))
-			}
-			return nil
+		if file := sessionIn(from, sid); file != "" && modTime(file).After(newestAt) {
+			newest, newestAt = file, modTime(file)
 		}
+	}
+	if newest == here {
+		return nil
+	}
+	project := filepath.Join(to, "projects", filepath.Base(filepath.Dir(newest)))
+	if err := copyFile(newest, filepath.Join(project, sid+".jsonl")); err != nil {
+		return err
+	}
+	// its subagents' transcripts and tool results, when it has any
+	if dir := strings.TrimSuffix(newest, ".jsonl"); isDir(dir) {
+		return copyTree(dir, filepath.Join(project, sid))
 	}
 	return nil
 }
@@ -61,6 +70,14 @@ func sessionIn(config, sid string) string {
 		return ""
 	}
 	return m[0]
+}
+
+func modTime(p string) time.Time {
+	fi, err := os.Stat(p)
+	if p == "" || err != nil {
+		return time.Time{}
+	}
+	return fi.ModTime()
 }
 
 func isDir(p string) bool {
@@ -84,6 +101,7 @@ func copyTree(from, to string) error {
 	})
 }
 
+// copyFile replaces to with from's content whole: written beside it and renamed, so a copy cut short never stands as the file.
 func copyFile(from, to string) error {
 	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
 		return err
@@ -93,13 +111,17 @@ func copyFile(from, to string) error {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	out, err := os.CreateTemp(filepath.Dir(to), "."+filepath.Base(to)+".*")
 	if err != nil {
 		return err
 	}
+	defer os.Remove(out.Name())
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
 		return err
 	}
-	return out.Close()
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Rename(out.Name(), to)
 }
