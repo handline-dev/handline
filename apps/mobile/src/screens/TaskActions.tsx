@@ -187,7 +187,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       {menu === 'status' && (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
           {open && verb('done', isPerson(t.from, me) ? 'Send for review' : 'Done', off.done, 'done')}
-          {t.state === 'done' && mine && verb('reopen', 'Reopen', off.reopen, 'reopen')}
+          {(t.state === 'discarded' || (t.state === 'done' && mine)) && verb('reopen', 'Reopen', off.reopen, 'reopen')}
           {t.state === 'draft' && (
             <Button
               testID="verb-queue"

@@ -31,7 +31,7 @@ export function useBubbleWidth(): number {
 }
 
 /** A transcript line that is not a message. */
-export function Line({ i, agent, onReply }: { i: TranscriptItem; agent: string; onReply?: (i: TranscriptItem) => void }) {
+export function Line({ i, agent, onReply, onTask }: { i: TranscriptItem; agent: string; onReply?: (i: TranscriptItem) => void; onTask?: (task: number) => void }) {
   const c = usePalette();
   const small = { color: c.muted, fontSize: 12 } as const;
   if (i.kind === 'reply')
@@ -67,7 +67,37 @@ export function Line({ i, agent, onReply }: { i: TranscriptItem; agent: string; 
     );
   }
   if (i.kind === 'session') return <SessionMark i={i} />;
+  if (i.kind === 'task_batch' && i.task_batch) return <BatchCard i={i} onTask={onTask} />;
   return null;
+}
+
+/** A batch discard as one card: a line per task with its title and reason; a tap opens the task, where it can be reopened. */
+export function BatchCard({ i, onTask }: { i: TranscriptItem; onTask?: (task: number) => void }) {
+  const c = usePalette();
+  const b = i.task_batch;
+  if (!b) return null;
+  return (
+    <View testID={`batch-${i.id}`} style={{ borderWidth: 1, borderColor: c.line, borderRadius: 8, padding: space.md, gap: space.xs }}>
+      <Text style={{ color: c.ink, fontWeight: '700' }}>
+        {b.who} discarded {b.tasks.length} {b.tasks.length === 1 ? 'task' : 'tasks'} · {clockTime(i.at)}
+      </Text>
+      {b.tasks.map((t) => (
+        <Pressable
+          key={t.task}
+          testID={`batch-task-${t.task}`}
+          accessibilityRole="button"
+          accessibilityLabel={`Open T${t.task}`}
+          style={{ minHeight: 44, justifyContent: 'center' }}
+          onPress={() => onTask?.(t.task)}
+        >
+          <Text style={{ color: c.accent, fontWeight: '600' }}>
+            T{t.task} {t.title}
+          </Text>
+          {t.reason ? <Text style={{ color: c.muted, fontSize: 12 }}>{t.reason}</Text> : null}
+        </Pressable>
+      ))}
+    </View>
+  );
 }
 
 /** Where a session started; one that was given a handoff opens it in a sheet on a tap. */
