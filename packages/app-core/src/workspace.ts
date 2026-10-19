@@ -6,7 +6,7 @@ import { detach, group, groupOf, groupsOf, replaceGroup } from './layout-tree.ts
 
 export { groupOf, groupsOf };
 
-export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'web' | 'markdown' | 'review' | 'timeline' | 'activity' | 'changes' | 'file' | 'new';
+export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'android' | 'ios' | 'web' | 'markdown' | 'review' | 'timeline' | 'activity' | 'changes' | 'file' | 'new';
 export const TAB_KINDS: readonly TabKind[] = [
   'chat',
   'tasks',
@@ -14,6 +14,8 @@ export const TAB_KINDS: readonly TabKind[] = [
   'transcript',
   'shell',
   'emulator',
+  'android',
+  'ios',
   'web',
   'markdown',
   'review',

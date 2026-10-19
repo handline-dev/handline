@@ -74,6 +74,10 @@ export interface ShellApi {
   preview?(a: { url: string; x: number; y: number; width: number; height: number } | null): Promise<{ ok: true } | Fail<'bad_request'>>;
   /** The preview as it is on screen, a PNG (base64). */
   capturePreview?(): Promise<{ ok: true; png: string } | Fail<'bad_request' | 'unavailable'>>;
+  /** The picture of a running Android emulator or device (adb) or iOS simulator (simctl) as a PNG (base64); `unavailable` says plainly why there is none. */
+  deviceShot?(kind: 'android' | 'ios'): Promise<{ ok: true; png: string } | Fail<'bad_request' | 'unavailable'>>;
+  /** A tap on the Android device at a place in its last picture, as fractions (0 to 1) of its width and height. */
+  deviceTap?(a: { x: number; y: number }): Promise<{ ok: true } | Fail<'bad_request' | 'unavailable'>>;
   /** Which daemon the app talks to: its mode and, in connect mode, the paired device's address. Absent in a shell with one mode. */
   mode?(): Promise<{ ok: true; mode: 'connect' | 'own'; remote: string | null; phone: boolean } | Fail<'bad_request'>>;
   /** Switches the mode; the app relaunches. */
