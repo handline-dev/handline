@@ -32,7 +32,6 @@ import { Palette } from './Palette.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { FoldedControls, RailControls } from './RailControls.tsx';
 import { DaemonDown } from './DaemonDown.tsx';
-import { HrBanner } from './HrBanner.tsx';
 import { terminalOwnsKey } from './terminal/core.ts';
 import { StatusBar } from './StatusBar.tsx';
 import { CaptureHost } from './Capture.tsx';
@@ -176,7 +175,6 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             </div>
           )}
         </main>
-        <HrBanner />
         {newAgent.open ? <NewAgent onClose={() => void (location.hash = '')} /> : null}
         {error ? (
           <div

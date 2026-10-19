@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Proposal } from '@handline/client';
-import { decideMany, raised, settled, splitStale } from '../src/proposals.ts';
+import { decideMany, settled, splitStale } from '../src/proposals.ts';
 
 const p = (id: number, over: object = {}): Proposal =>
   ({ id, title: `settings a${id}`, subject: `s${id}`, state: 'open', ...over }) as Proposal;
@@ -55,23 +55,6 @@ test('settled turns an accepted approve whose apply failed into a failed row wit
     ],
   );
   assert.equal(settled([{ id: 4, title: 'd', ok: true }], [p(4, { state: 'apply_failed' })])[0]!.error, 'the change was not applied');
-});
-
-test('raised keeps open proposals only, newest first, and counts those that did not fit', () => {
-  const at = (n: number) => new Date(Date.UTC(2026, 0, n)).toISOString();
-  const l = [
-    p(1, { created: at(1) }),
-    p(2, { created: at(2) }),
-    p(3, { created: at(3) }),
-    p(4, { created: at(4), state: 'apply_failed' }),
-    p(5, { created: at(5), state: 'approved' }),
-  ];
-  const r = raised(l, 2);
-  assert.deepEqual(
-    r.shown.map((x) => x.id),
-    [3, 2],
-  );
-  assert.equal(r.more, 1);
 });
 
 test('splitStale moves a waiting proposal nobody answered for 14 days to stale', () => {
