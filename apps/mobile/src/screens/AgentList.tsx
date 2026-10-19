@@ -8,7 +8,7 @@ import { ago } from '@handline/app-core';
 import { KIND } from './NeedsYouCard.tsx';
 import { usePalette } from '../theme.ts';
 import { StateMark } from './StateMark.tsx';
-import { Button, PageHeader } from './parts.tsx';
+import { Button, MenuItem, MenuSheet, PageHeader } from './parts.tsx';
 import { useHrCount } from './Hr.tsx';
 import { TeamButton } from './TeamEntry.tsx';
 import { Loadable } from './Loadable.tsx';
@@ -52,11 +52,11 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
         }
       />
       {menu && (
-        <View testID="agents-menu-list" style={{ gap: space.xs, paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+        <MenuSheet testID="agents-menu-list" onClose={() => setMenu(false)}>
           <TeamButton onPress={() => go('team')} />
-          <Button testID="worktrees-open" label="Worktrees" onPress={() => go('worktrees')} />
-          <Button testID="settings-open" label="Settings" onPress={() => go('settings')} />
-        </View>
+          <MenuItem testID="worktrees-open" label="Worktrees" onPress={() => go('worktrees')} />
+          <MenuItem testID="settings-open" label="Settings" onPress={() => go('settings')} />
+        </MenuSheet>
       )}
       <Loadable query={query} served={served} isEmpty={agents.length === 0} skeleton="agents" label="agents" empty="No agents.">
         <SectionList
