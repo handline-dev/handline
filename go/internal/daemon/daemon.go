@@ -18,6 +18,7 @@ import (
 	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/debugterm"
 	"github.com/handline/handline/go/internal/devices"
+	"github.com/handline/handline/go/internal/filerw"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/hrwrites"
 	"github.com/handline/handline/go/internal/inputhold"
@@ -373,6 +374,7 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 		func(s *rpc.Server) {
 			debugterm.Register(s, &debugterm.Env{DB: d.db, Backend: d.tchan.Backend, Procs: debugterm.ReadProcs, Now: time.Now})
 		},
+		func(s *rpc.Server) { filerw.Register(s, &filerw.Env{DB: d.db, Log: d.cfg.Log}) },
 		func(s *rpc.Server) { d.hooks.Register(s) },
 		func(s *rpc.Server) { hrwrites.Register(s, d.hrEnv()) },
 		func(s *rpc.Server) { prompts.Register(s, d.prompts) },
@@ -445,6 +447,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 		renv.Login = d.logins.Of
 	}
 	reads.Register(s, renv)
+	s.Register("connection.get", rpc.Method{Role: "founder", Handler: d.connectionGet})
 	if d.cfg.Gateway {
 		d.gatewayMethods(s, transport)
 	}
@@ -597,6 +600,9 @@ func (d *Daemon) Close() {
 		d.logins.Close()
 	}
 	d.wg.Wait()
+	if d.envMade != nil {
+		d.envMade.Wait()
+	}
 	d.pidFile.remove()
 	if d.single != nil {
 		d.single.Release()

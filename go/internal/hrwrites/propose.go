@@ -152,7 +152,7 @@ func (e *Env) draft(actor, kind string, args map[string]any, why string, registe
 		}
 	}
 	if kind == "link" || kind == "unlink" {
-		if msg := e.edgeRefusal(kind, name, to, "", "", registered, coming); msg != "" {
+		if msg := e.edgeRefusal(kind, name, to, registered, coming); msg != "" {
 			return nil, msg
 		}
 	}

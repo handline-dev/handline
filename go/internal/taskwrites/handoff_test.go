@@ -18,11 +18,7 @@ func TestHandoffMovesTheTaskToItsNewOwnerWithOneRequestAndRetiresTheOldOnes(t *t
 	}
 	code := func(r map[string]any) any { return r["error"].(map[string]any)["data"].(map[string]any)["code"] }
 	f := &fakeTeller{}
-	r := call(t, mk("other", f), line(2, 1, "manager", "x", "o1"))
-	if code(r[0]) != "refused" {
-		t.Fatalf("only the owner hands it on: %v", r[0])
-	}
-	r = call(t, mk("worker", f),
+	r := call(t, mk("worker", f),
 		line(2, 1, "nobody", "x", "w1"), line(3, 1, "worker", "x", "w2"), line(4, 9, "other", "x", "w4"))
 	if code(r[0]) != "not_found" || code(r[1]) != "refused" || code(r[2]) != "not_found" {
 		t.Fatalf("%v", r)

@@ -21,8 +21,8 @@ agents:
   bob: {}
 edges:
   - { from: "*", to: "human", kind: task }
-  - { from: "*", to: "*", relation: peer, response: async }
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "*" }
+  - { from: "human", to: "*" }
 limits:
   max_chain_depth: 4
   ask_rate_per_hour: 50

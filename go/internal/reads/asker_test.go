@@ -2,6 +2,7 @@ package reads
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"testing"
 
@@ -98,5 +99,33 @@ func TestATaskGetListsEachAssigneeAndOwnerChange(t *testing.T) {
 	if a["what"] != "assignee" || a["from"] != "al" || a["to"] != "bob" || a["by"] != "carol" ||
 		o["what"] != "owner" || o["from"] != "human" || o["to"] != "carol" {
 		t.Fatalf("%v", as)
+	}
+}
+
+// my_turn is the founder's open tasks that wait on them, one row a task: an answered one, a draft, another's and an ended one are not in it,
+// and a task with many messages on it is still one row.
+func TestMyTurnListsTheTasksAssignedToTheFounderThatAreNotAnswered(t *testing.T) {
+	e := testEnv(t)
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, reported_at, report, done_evidence) VALUES"+
+		"(1, 'waits', 'human', 'amy', 1, 'amy', NULL, NULL, NULL), (2, 'answered', 'human', 'amy', 1, 'amy', 5, 'yes', NULL), "+
+		"(3, 'draft', 'human', 'amy', 1, NULL, NULL, NULL, NULL), (4, 'amys', 'amy', 'human', 1, 'human', NULL, NULL, NULL), "+
+		"(5, 'ended', 'human', 'amy', 1, 'amy', NULL, NULL, 'done')")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES"+
+		"(1, 1, 'amy', 'human', 'waits', 'landed', 'task', 1), (2, 2, 'amy', 'human', 'more', 'landed', 'say', 1), (3, 3, 'amy', 'human', 'and more', 'landed', 'say', 1)")
+	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 1), (1, 2), (1, 3)")
+	founder := &rpc.Conn{Caller: rpc.Caller{Role: "founder"}}
+	list, err := e.tasksList(founder, map[string]any{"my_turn": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []any
+	for _, it := range list.(map[string]any)["items"].([]any) {
+		ids = append(ids, it.(map[string]any)["id"])
+	}
+	if fmt.Sprint(ids) != "[1]" {
+		t.Fatalf("my turn: %v", ids)
+	}
+	if _, err := e.tasksList(founder, map[string]any{"my_turn": true, "owner": "amy"}); err == nil {
+		t.Fatal("my_turn takes no owner")
 	}
 }

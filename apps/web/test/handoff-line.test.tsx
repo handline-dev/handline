@@ -70,6 +70,17 @@ describe('handoff line', () => {
     expect(box.querySelectorAll('.card-handoff')).toHaveLength(1);
   });
 
+  it('drops the line once the new session line is in the chat, never showing both', async () => {
+    const s = setup();
+    const fx = s.daemon.sessions.get(ARCH)!.fx;
+    keep = () => void (fx.view = undefined);
+    fx.view = { handoff: { cause: 'context_full', phase: 'starting', since: new Date(Date.now() - 2 * 3600_000).toISOString() } }; // before the seeded session line
+    await mount(s);
+    await until(() => box.querySelector('.msg, .card-session, [data-kind="session"]'), 'the chat');
+    await wait(300);
+    expect(card()).toBeNull();
+  });
+
   it('shows nothing when no handoff runs', async () => {
     const s = setup();
     await mount(s);

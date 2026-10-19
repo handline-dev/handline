@@ -571,7 +571,7 @@ func TestAnAgentIsToldItsTeamFromTeamYAML(t *testing.T) {
 	r := newLaunchRig(t)
 	v, err := yamlcompat.ParseOrdered(`
 teams:
-  dev: [manager, marina, keeper]
+  manager: [manager, marina, keeper]
   lone: [scout]
 agents:
   manager: {}
@@ -579,9 +579,8 @@ agents:
   keeper: {}
   scout: {}
 edges:
-  - { from: "manager", to: "dev.*", relation: supervisor, response: fire_and_forget }
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
-  - { from: "*", to: "human", kind: task }
+  - { from: "human", to: "*" }
+  - { from: "*", to: "human" }
 `)
 	if err != nil {
 		t.Fatal(err)
@@ -625,7 +624,7 @@ edges:
 		t.Fatal(err)
 	}
 	mgr, dev, scout := context("manager"), context("marina"), context("scout")
-	rules := "# Rules for team dev\n" + strings.TrimSpace(team.DefaultRules)
+	rules := "# Rules for team manager\n" + strings.TrimSpace(team.DefaultRules)
 	for who, text := range map[string]string{"manager": mgr, "marina": dev} {
 		if !strings.Contains(text, rules) {
 			t.Errorf("%s: the seeded team file is not in the prompt:\n%s", who, text)

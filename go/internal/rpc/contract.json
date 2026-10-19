@@ -105,6 +105,9 @@
  "chat.transcript": {
   "role": "member"
  },
+ "connection.get": {
+  "role": "founder"
+ },
  "daemon.status": {
   "role": "agent"
  },
@@ -125,6 +128,12 @@
  },
  "events.feed": {
   "role": "agent"
+ },
+ "file.read": {
+  "role": "founder"
+ },
+ "file.write": {
+  "role": "founder"
  },
  "hello": {
   "role": "anonymous"

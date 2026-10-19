@@ -275,7 +275,7 @@ export type Task = {
   from: string;
   to: string;
   title: string;
-  /** draft, queued, doing, reported (its owner's done waits on task.accept or task.reject), done or discarded. */
+  /** draft, queued, doing, answered (its owner's done waits on task.accept, task.reject or a reassign), done or discarded. */
   state: string;
   time_box: Duration | null;
   parent: number | null;
@@ -323,7 +323,7 @@ export type Task = {
   waiting?: TaskWaiting | null;
   /** The task's clock, the same object task.get gives; null once it is done or discarded. Absent from a daemon that does not send it. */
   time?: TaskClock | null;
-  /** The done that waits on acceptance while the task is reported; null otherwise. Absent from a daemon that does not send it. */
+  /** The done that waits on acceptance while the task is answered; null otherwise. Absent from a daemon that does not send it. */
   report?: {
     by: string;
     evidence: string;
@@ -1010,6 +1010,14 @@ export type SettingsValues = {
   input_hold_idle_s?: number;
   /** The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. */
   handoff_prompt?: string;
+  /** Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
+  push_prompt_asked?: boolean;
+  /** Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
+  push_task_done?: boolean;
+  /** Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
+  push_stall?: boolean;
+  /** Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
+  push_account_out?: boolean;
 };
 
 /** settings.set's changes: any of SettingsValues' keys; null removes one. */
@@ -1042,6 +1050,14 @@ export type SettingsChanges = {
   input_hold_idle_s?: number | null;
   /** The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. An empty string is the built-in prompt; null removes the key (back to the default). */
   handoff_prompt?: string | null;
+  /** Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default). */
+  push_prompt_asked?: boolean | null;
+  /** Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default). */
+  push_task_done?: boolean | null;
+  /** Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default). */
+  push_stall?: boolean | null;
+  /** Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default). */
+  push_account_out?: boolean | null;
 };
 
 /** One method as a daemon lists it: its role and whether this caller may call it. */
@@ -1389,7 +1405,7 @@ export type HistoryRow = {
   at: Timestamp;
   /** Who made the change: an agent, or human. */
   by: string;
-  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
+  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, answered, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
   field: "title" | "assignee" | "owner" | "body" | "priority" | "timeout" | "state" | "tag" | "blocked_by" | "merged_into" | "memo";
   /** The value before; empty when there was none (a task just opened, a wait just added, a memo just added). */
   was: string;
@@ -1404,6 +1420,31 @@ export type HistoryRow = {
 /** The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else. */
 export type RequestRef = string;
 
+/** How this process is reached, read only. */
+export type ConnectionInfo = {
+  /** Which process answered. A daemon behind a gateway has no listener of its own; ask the gateway's local socket for the gateway's. */
+  served_by: "daemon" | "gateway";
+  /** The network listener of this process; null when it has none. */
+  listener: null | {
+    /** The host:port a pairing names (-advertise, else where the listener binds). */
+    address: string;
+    /** none is Tailscale mode: plain ws on a Tailscale or loopback address. */
+    encryption: "tls" | "none";
+    /** sha256 of the certificate presented; null in Tailscale mode. */
+    fingerprint: string | null;
+    /** The address's host when it is a *.ts.net name, else null. */
+    tailscale_host: string | null;
+  };
+  heavy_slots: {
+    /** HANDLINE_HEAVY_SLOTS as this process sees it, default 1. */
+    slots: number;
+    /** Where the slot locks are kept: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots. */
+    dir: string | null;
+  };
+  /** SettingsValues.dev_mode. */
+  dev_mode: boolean;
+};
+
 /** A free label on a task, such as fe or be: lowercase letters, digits, '.', '_' or '-', up to 32. A writer lowercases what it is given; a task carries at most 20. */
 export type Tag = string;
 
@@ -1411,7 +1452,7 @@ export type Tag = string;
 export type TaskFilter = {
   /** Tasks that carry every one of these tags. */
   tags?: Tag[];
-  state?: "draft" | "queued" | "doing" | "reported" | "done" | "discarded";
+  state?: "draft" | "queued" | "doing" | "answered" | "done" | "discarded";
   /** Who works the task (its assignee). */
   owner?: string;
   /** Who the task answers to (its asker: hl's --owner). */
@@ -2042,6 +2083,8 @@ export interface Methods {
   all?: boolean;
   /** Every team's tasks, not only the caller's and its reports'. */
   everyone?: boolean;
+  /** Only the tasks the caller holds that wait on it: queued or doing, never draft, answered or ended; the founder's are the ones assigned to human. One row per task. It takes no owner. */
+  my_turn?: boolean;
   /** Also count, over the last 30 days, the requests that ended with no reason and how tasks were closed (the `reason_gaps` of the result). It costs seconds on a large database: a screen that polls never asks. */
   reason_gaps?: boolean;
 }; result: {
@@ -2299,6 +2342,8 @@ export interface Methods {
   /** Why this carries no task. */
   no_task?: string;
   parent?: number;
+  /** Absolute paths of images the message carries (ChatMessage.attachments): PNG, JPEG, GIF or WebP, at most 10 MiB each, at most 6. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file that is not an image, or an image whose first bytes do not match its ending is bad_request (field files); the message is not written. */
+  files?: string[];
   request_id: RequestId;
 }; result: Accepted };
   "hook.record": { params: {
@@ -2483,6 +2528,36 @@ export interface Methods {
     diff: string;
     truncated: boolean;
   } };
+  "file.read": { params: {
+  agent: AgentName;
+  /** Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise. */
+  path: string;
+}; result: {
+    /** UTF-8 text; the first 1 MiB when the file is longer (truncated). */
+    text: string;
+    /** The file's size in bytes. */
+    size: number;
+    /** The file is over 1 MiB and text is its first 1 MiB. Do not write it back. */
+    truncated: boolean;
+    mtime: Timestamp;
+    /** SHA-256 of the whole file, hex: file.write takes it back. */
+    etag: string;
+  } };
+  "file.write": { params: {
+  agent: AgentName;
+  /** Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise. */
+  path: string;
+  /** The whole new content: UTF-8 text without NUL, at most 1 MiB; for a .json file, valid JSON. */
+  text: string;
+  /** The etag file.read gave; empty to create a file that must not exist (its folder must). */
+  etag: string;
+  request_id: RequestId;
+}; result: {
+    size: number;
+    mtime: Timestamp;
+    /** The new file's etag. */
+    etag: string;
+  } };
   "worktree.set_status": { params: {
   path: string;
   status: string;
@@ -2521,6 +2596,7 @@ export interface Methods {
   /** Also give `overlay` for this pick: an agent's name, or `grp:<name>` for the group of agents whose dotted names start with `<name>.` (and the agent `<name>` itself), the key of a row of the agents table a client draws. It rides on this call and not on a method of its own because the curve is read against `past` and must be sampled at the same moment as it; one pick costs one array, not one per agent. */
   agent?: string;
 }; result: Outlook };
+  "connection.get": { params: { [key: string]: unknown }; result: ConnectionInfo };
   "settings.get": { params: {
   /** Return that agent's own overrides in `overrides`. */
   agent?: AgentName;
@@ -2699,6 +2775,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "repos.list": { role: "member", callers: null, write: false, since: 1 },
   "worktrees.list": { role: "member", callers: null, write: false, since: 1 },
   "worktree.diff": { role: "member", callers: null, write: false, since: 1 },
+  "file.read": { role: "founder", callers: null, write: false, since: 1 },
+  "file.write": { role: "founder", callers: null, write: true, since: 1 },
   "worktree.set_status": { role: "member", callers: null, write: true, since: 1 },
   "schedules.list": { role: "agent", callers: null, write: false, since: 1 },
   "schedule.add": { role: "founder", callers: null, write: true, since: 1 },
@@ -2706,6 +2784,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "schedule.remove": { role: "founder", callers: null, write: true, since: 1 },
   "stats.get": { role: "member", callers: null, write: false, since: 1 },
   "stats.outlook": { role: "member", callers: null, write: false, since: 1 },
+  "connection.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.set": { role: "founder", callers: null, write: true, since: 1 },
   "answers.list": { role: "founder", callers: null, write: false, since: 1 },
