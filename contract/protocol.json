@@ -4890,13 +4890,115 @@
        "items": {
         "$ref": "#/components/schemas/TimeSegment"
        }
+      },
+      "estimate": {
+       "oneOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "Its story points; null when it has none."
+      },
+      "expected": {
+       "oneOf": [
+        {
+         "type": "object",
+         "properties": {
+          "start": {
+           "oneOf": [
+            {
+             "$ref": "#/components/schemas/Timestamp"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "description": "When it is expected to start: when it started for one being worked on; after the owner's current task and every task ahead of it in the order they are handed out, and no earlier than the reset of a limit the owner's account is at. Null when a task ahead has no expected duration."
+          },
+          "end": {
+           "oneOf": [
+            {
+             "$ref": "#/components/schemas/Timestamp"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "description": "start plus duration_s, and the wait for a reset when the account runs out at its current burn before then. Null when the duration is unknown."
+          },
+          "duration_s": {
+           "oneOf": [
+            {
+             "type": "integer"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "description": "How long it is expected to take (for one being worked on, what is left); null when unknown."
+          },
+          "basis": {
+           "oneOf": [
+            {
+             "type": "string",
+             "enum": [
+              "history",
+              "points",
+              "time_box"
+             ]
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "description": "What the duration rests on: the median working time of the last 20 done tasks of its estimate (history), else their median time per point times its points (points), else its time box (time_box); null for none."
+          },
+          "ahead": {
+           "type": "array",
+           "items": {
+            "type": "integer"
+           },
+           "description": "The tasks its owner does first, by number."
+          },
+          "wall_until": {
+           "oneOf": [
+            {
+             "$ref": "#/components/schemas/Timestamp"
+            },
+            {
+             "type": "null"
+            }
+           ],
+           "description": "The reset of the account limit that holds it back; null when none does."
+          }
+         },
+         "required": [
+          "start",
+          "end",
+          "duration_s",
+          "basis",
+          "ahead",
+          "wall_until"
+         ]
+        },
+        {
+         "type": "null",
+         "description": "An ended task, or one the founder holds."
+        }
+       ],
+       "description": "When it is expected to start and end, deterministic from its queue, its owner's account and the history of done tasks by estimate; computed on each read, so it moves as they do."
       }
      },
      "required": [
       "task",
       "start",
       "end",
-      "segments"
+      "segments",
+      "estimate",
+      "expected"
      ]
     }
    },
@@ -5066,6 +5168,22 @@
        3
       ],
       "description": "1 high, 2 default, 3 low (written P1-P3). Absent means 2."
+     }
+    },
+    {
+     "name": "estimate",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "enum": [
+       1,
+       2,
+       3,
+       5,
+       8,
+       13
+      ],
+      "description": "Story points: what the task is expected to take, for its expected start and end (task.time). None when absent."
      }
     },
     {
@@ -6463,6 +6581,29 @@
        3
       ],
       "description": "1 high, 2 default, 3 low (written P1-P3)."
+     }
+    },
+    {
+     "name": "estimate",
+     "required": false,
+     "schema": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "enum": [
+         1,
+         2,
+         3,
+         5,
+         8,
+         13
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Story points (as task.new); null clears it."
      }
     },
     {
@@ -14951,6 +15092,7 @@
        "owner",
        "body",
        "priority",
+       "estimate",
        "timeout",
        "state",
        "tag",

@@ -155,6 +155,7 @@ var byHand = map[int]func(*sql.Tx) error{
 	17: addTimeoutLeft,    // task_timeout_left
 	19: addRequestRef,     // requests_ref
 	21: addTaskReview,     // task_review
+	22: addTaskEstimate,   // task_estimate
 }
 
 // addExtraWorktrees is _agent_extra_worktrees in schema.py: a database made before the column has none.
@@ -185,6 +186,11 @@ func addTaskReport(tx *sql.Tx) error {
 // addTaskReview is a task's PR and the accept that left it waiting on that PR's merge.
 func addTaskReview(tx *sql.Tx) error {
 	return addTaskColumns(tx, [][2]string{{"pr", "INTEGER"}, {"accepted_by", "TEXT"}, {"accepted_at", "INTEGER"}})
+}
+
+// addTaskEstimate is a task's estimate, in story points (reads/taskexpect.go).
+func addTaskEstimate(tx *sql.Tx) error {
+	return addTaskColumns(tx, [][2]string{{"estimate", "INTEGER"}})
 }
 
 // addTaskColumns adds each (name, type) column the tasks table does not have yet.
