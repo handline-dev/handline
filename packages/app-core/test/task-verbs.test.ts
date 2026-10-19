@@ -31,7 +31,7 @@ test('a plan splits the marked tasks into those it runs on and those it skips wi
     p.skip.map((s) => s.task.id),
     [2],
   );
-  assert.match(p.skip[0]!.why, /#2 is already closed/);
+  assert.match(p.skip[0]!.why, /T2 is already closed/);
 });
 
 test('applyEach gives every task its own outcome: one refusal does not stop the rest', async () => {
