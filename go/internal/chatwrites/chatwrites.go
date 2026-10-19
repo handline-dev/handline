@@ -235,6 +235,10 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 			if err == nil && res.OK && len(images) > 0 {
 				err = attachments.Record(tx, res.Request, images)
 			}
+			// The connection proved the founder (the founder key, or a paired device): these are the founder's own words.
+			if err == nil && res.OK && res.Request != 0 && c.Caller.Role == "founder" {
+				err = db.MarkFounderAuthored(tx, res.Request)
+			}
 			return res, map[string]any{"request": res.Request}, err
 		}
 		return nil, nil, err

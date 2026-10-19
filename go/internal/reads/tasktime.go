@@ -51,8 +51,11 @@ func (e *Env) taskTime(c *rpc.Conn, params map[string]any) (any, error) {
 	return e.taskTimeAt(*tid, time.Now().Unix())
 }
 
+// taskRowSQL is the task row task.time and the expectation read.
+const taskRowSQL = "SELECT id, owner, created_at, estimate, timeout_s, COALESCE(done_at, discarded_at, closed_at) AS ended FROM tasks WHERE id = ?"
+
 func (e *Env) taskTimeAt(tid, now int64) (any, error) {
-	t, err := queryOne(e.DB, "SELECT id, owner, created_at, COALESCE(done_at, discarded_at, closed_at) AS ended FROM tasks WHERE id = ?", tid)
+	t, err := queryOne(e.DB, taskRowSQL, tid)
 	if err != nil {
 		return nil, err
 	}
@@ -61,15 +64,10 @@ func (e *Env) taskTimeAt(tid, now int64) (any, error) {
 		nf.Data = map[string]any{"what": "task", "id": tid}
 		return nil, nf
 	}
-	start, end := t.i("created_at"), now
-	if t.set("ended") {
-		end = t.i("ended")
-	}
-	spans, err := e.taskSpans(t, start, end)
+	start, end, segs, err := e.segments(t, now)
 	if err != nil {
 		return nil, err
 	}
-	segs := cover(spans, start, end)
 	out := make([]map[string]any, len(segs))
 	for i, s := range segs {
 		k := segKinds[s.rank]
@@ -86,7 +84,24 @@ func (e *Env) taskTimeAt(tid, now int64) (any, error) {
 	if t.set("ended") {
 		endAt = ts(end)
 	}
-	return map[string]any{"task": tid, "start": ts(start), "end": endAt, "segments": out}, nil
+	expected, err := (&expectation{e: e, now: now, worked: map[int64]int64{}}).of(t, segs)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"task": tid, "start": ts(start), "end": endAt, "segments": out, "estimate": t.intOrNil("estimate"), "expected": expected}, nil
+}
+
+// segments is the task's time from its opening to its end (or now), covered with no gap or overlap.
+func (e *Env) segments(t row, now int64) (start, end int64, segs []stretch, err error) {
+	start, end = t.i("created_at"), now
+	if t.set("ended") {
+		end = t.i("ended")
+	}
+	spans, err := e.taskSpans(t, start, end)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	return start, end, cover(spans, start, end), nil
 }
 
 // taskSpans is every stretch the db records for the task, overlapping as they happened: its state (queued, doing, reported), its blockers,

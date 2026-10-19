@@ -114,3 +114,34 @@ func TestEditAllowsAnEmptyBody(t *testing.T) {
 		t.Fatalf("%v", r[0])
 	}
 }
+
+func TestAnEstimateIsStoryPointsSetWhenATaskOpensChangedAndCleared(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'one', 'worker', 'manager', 1)")
+	line := func(id int, method, params, rid string) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":%q,"params":{%s"request_id":%q}}`, id, method, params, rid)
+	}
+	f := &fakeTeller{}
+	r := call(t, mk("manager", f),
+		line(2, "task.edit", `"task":1,"estimate":4,`, "e1"),
+		line(3, "task.edit", `"task":1,"estimate":5,`, "e2"),
+		line(4, "task.edit", `"task":1,"estimate":5,`, "e3"),
+		line(5, "task.edit", `"task":1,"estimate":null,`, "e4"),
+		line(6, "task.new", `"owner":"worker","title":"sized","time_box":"1h","estimate":8,`, "e5"))
+	if d := r[0]["error"].(map[string]any)["data"].(map[string]any); d["code"] != "bad_request" || d["field"] != "estimate" {
+		t.Fatalf("4 is not a story point: %v", r[0])
+	}
+	if got := r[1]["result"].(map[string]any)["said"]; got != "task T1 edited by manager: estimate '' -> '5 points'" {
+		t.Fatalf("%v", got)
+	}
+	if r[2]["error"] == nil {
+		t.Fatalf("the same estimate again changes nothing: %v", r[2])
+	}
+	if got := r[3]["result"].(map[string]any)["said"]; got != "task T1 edited by manager: estimate '5 points' -> ''" ||
+		count(t, db, "SELECT COUNT(*) FROM tasks WHERE id = 1 AND estimate IS NULL") != 1 {
+		t.Fatalf("null clears it: %v", got)
+	}
+	if r[4]["result"] == nil || count(t, db, "SELECT COUNT(*) FROM tasks WHERE title = 'sized' AND estimate = 8") != 1 {
+		t.Fatalf("task.new takes an estimate: %v", r[4])
+	}
+}

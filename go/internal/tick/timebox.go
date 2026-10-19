@@ -22,8 +22,7 @@ import (
 // A notice to an agent is a line sent to its open session, so one that cannot be sent now is tried again; a notice to the human has no
 // session to type at and is an event.
 const (
-	TitleShown        = 60
-	StopWaitBackstopS = 900
+	TitleShown = 60
 	// NoticeRetryS: a notice that could not be sent (mid-turn, awaiting a permission, no session) is not tried again for this long, per agent.
 	NoticeRetryS = 60
 )
@@ -50,8 +49,6 @@ type TimeboxPorts interface {
 	SupervisorOf(agent string) string
 	// LeadOf is team.LeadOf: who a task in review waits on, "" when its assignee has no lead.
 	LeadOf(agent string) string
-	// StopWaitReason is actions.stop_wait_reason ("" for none).
-	StopWaitReason(q db.Q, agent string) string
 	// SendNotice is delivery.type_notice, sent through the session: true when the line was sent.
 	SendNotice(q db.Q, agent, text string) bool
 	// SendBatch writes text as a notice for the agent's next digest (delivery.ClassBatch).
@@ -245,8 +242,8 @@ func (b *Timebox) SweepStaleBackground(t *Tick, now int64) {
 			since = now
 		}
 		text := fmt.Sprintf("%s has had background work for %s and shown nothing for %s. In %s its session may be closed, which stops that work, "+
-			"unless it shows activity or `hl idle-timeout never --agent %s` is set.",
-			agent, timefmt.Ago(now-since), timefmt.Ago(silent), timefmt.Ago(b.Ports.StaleBgVetoS()), agent)
+			"unless it shows activity or its idle timeout is set to never in the app's settings.",
+			agent, timefmt.Ago(now-since), timefmt.Ago(silent), timefmt.Ago(b.Ports.StaleBgVetoS()))
 		if b.tell(t, boss, text, now) {
 			check(db.SetCursor(t.Q, key, now))
 			must(db.AddEvent(t.Q, agent, "stale_background", db.KV{K: "told", V: boss}, db.KV{K: "silent_s", V: silent}))
@@ -354,48 +351,6 @@ func (b *Timebox) SweepBackgroundCheck(t *Tick, now int64) {
 	}
 }
 
-// SweepStopWaitBackstop is the gate's own backstop: the clock starts the moment the task-level wait goes missing and only clears once it is
-// recorded or the task moves on - even to another with no recorded wait in between; a RUNNING turn in between does not buy a fresh
-// 15 minutes. It only tells while IDLE now, once, past the limit.
-func (b *Timebox) SweepStopWaitBackstop(t *Tick, now int64) {
-	limit := t.Config.Seconds("stop_wait_backstop_s", StopWaitBackstopS)
-	for _, agent := range t.Host.Agents() {
-		sinceKey, toldKey, taskKey := "stop_wait_since:"+agent, "stop_wait_told:"+agent, "stop_wait_task:"+agent
-		row := must(db.GetAgentState(t.Q, agent))
-		why := ""
-		if row != nil && !closedAt(row) {
-			why = b.Ports.StopWaitReason(t.Q, agent)
-		}
-		if why == "" {
-			check(db.ClearCursor(t.Q, sinceKey))
-			check(db.ClearCursor(t.Q, toldKey))
-			check(db.ClearCursor(t.Q, taskKey))
-			continue
-		}
-		tid, _ := must2(db.CurrentTask(t.Q, agent))
-		if must(db.Cursor(t.Q, taskKey)) != tid { // the clock is the task's, not the agent's
-			check(db.SetCursor(t.Q, taskKey, tid))
-			check(db.ClearCursor(t.Q, sinceKey))
-			check(db.ClearCursor(t.Q, toldKey))
-		}
-		since := must(db.Cursor(t.Q, sinceKey))
-		if since == 0 {
-			check(db.SetCursor(t.Q, sinceKey, now))
-			continue
-		}
-		if row.State != states.Idle || now-since < limit || must(db.Cursor(t.Q, toldKey)) != 0 {
-			continue
-		}
-		who := b.answerer(t, agent, tid)
-		text := fmt.Sprintf("%s has been idle %s on T%d: %s. Ask it what it waits on: `hl say %s \"...\" --task T%d`.",
-			agent, timefmt.Ago(now-since), tid, why, agent, tid)
-		b.note(t, who, text)
-		check(db.SetCursor(t.Q, toldKey, 1))
-		must(db.AddEvent(t.Q, agent, "stop_wait_stuck", db.KV{K: "why", V: why}, db.KV{K: "for_s", V: now - since}, db.KV{K: "told", V: who}))
-		t.logf("  %s: %s, idle %s with nothing recorded - %s told", agent, why, timefmt.Ago(now-since), who)
-	}
-}
-
 // SweepForgottenResolveCapped: the nudge about a forgotten head stops once its schedule is used up rather than
 // nudging the agent forever - an agent that turns out to be genuinely stuck, not forgetful, still needs someone to look, so the head's
 // task opener (else its supervisor) is told once instead. Cleared as soon as it no longer applies, so a later head that is also forgotten and also runs out the
@@ -458,7 +413,6 @@ func (b *Timebox) Sweep(t *Tick, now int64) error {
 		b.SweepStaleBackground(t, now)
 		b.SweepForgottenBackground(t, now)
 		b.SweepBackgroundCheck(t, now)
-		b.SweepStopWaitBackstop(t, now)
 		b.SweepForgottenResolveCapped(t, now)
 	})
 }

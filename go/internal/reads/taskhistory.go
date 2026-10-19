@@ -15,7 +15,7 @@ var historyKinds = []string{"task_new", "task_begin", "edit_task", "block_task",
 // editFields is how an edit_task event's keys read as fields, in the order a row lists them: the owner column is who works the task (its
 // assignee), the reporter who answers for it (its owner).
 var editFields = [][2]string{{"owner", "assignee"}, {"reporter", "owner"}, {"title", "title"}, {"body", "body"}, {"priority", "priority"},
-	{"timeout", "timeout"}, {"pr", "pr"}}
+	{"estimate", "estimate"}, {"timeout", "timeout"}, {"pr", "pr"}}
 
 // historyState is the state an event leaves the task in: chat's stateAfter, and the three only the history shows.
 func historyState(kind string, p map[string]any) (string, bool) {

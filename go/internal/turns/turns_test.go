@@ -161,6 +161,36 @@ func TestStopSaysWhetherBackgroundWorkStillRuns(t *testing.T) {
 	}
 }
 
+func TestOnlyAStopWithNoPromptSinceSettlesTheTurn(t *testing.T) {
+	tr, _ := tracker(t)
+	at := int64(10)
+	hook := func(event string, raw map[string]any) { tr.Hook("amy", event, raw, at); at++ }
+	cases := []struct {
+		events  []string
+		raw     map[string]any
+		settled bool
+	}{
+		{[]string{"UserPromptSubmit"}, nil, false},
+		{[]string{"UserPromptSubmit", "Stop"}, nil, true},
+		{[]string{"UserPromptSubmit", "StopFailure"}, nil, false},
+		{[]string{"UserPromptSubmit", "Stop", "PermissionRequest"}, nil, false},
+		{[]string{"UserPromptSubmit", "Stop", "Notification"}, map[string]any{"notification_type": "permission_prompt"}, false},
+		{[]string{"UserPromptSubmit", "Stop", "Notification"}, map[string]any{"notification_type": "idle_prompt"}, true},
+		{[]string{"UserPromptSubmit", "Stop", "SessionEnd"}, nil, false},
+	}
+	for _, c := range cases {
+		for _, e := range c.events {
+			hook(e, c.raw)
+		}
+		if got := tr.Settled("%1"); got != c.settled {
+			t.Fatalf("%v: settled %v", c.events, got)
+		}
+	}
+	if tr.Settled("%9") {
+		t.Fatal("a terminal of no agent read as settled")
+	}
+}
+
 func TestAChangeIsToldOnceTheTurnOpensOrClosesAndNotOtherwise(t *testing.T) {
 	tr, _ := tracker(t)
 	var told []string

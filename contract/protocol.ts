@@ -655,6 +655,8 @@ export type Proposal = {
   requested_by?: string;
   /** Why it asks, as the agent wrote it. Text only, from an agent: a client draws it as plain text, never as markup, and drops control characters. Optional. */
   reason?: string;
+  /** The founder's note on the decision (why it was rejected, say), as hr.decide took it. Absent when the founder gave none or it is still open. */
+  note?: string;
   /** The fields the proposal asks for (vendor, model, effort, team, repo, to, then each `set <key>`). Every value is text from an agent (same rule as `reason`); optional, and a key it did not ask for is absent. Absent for kind bundle: its `diff` carries the changes. members, repos, relation, response and context texts are in `diff` only. */
   asked?: {
     vendor?: string;
@@ -1061,8 +1063,6 @@ export type SettingsValues = {
   bg_check_s?: number;
   /** Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. */
   notice_digest_s?: number;
-  /** Backstop for a stop-wait. */
-  stop_wait_backstop_s?: number;
   /** Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored. */
   token_prices?: { [key: string]: number };
   /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). */
@@ -1101,8 +1101,6 @@ export type SettingsChanges = {
   bg_check_s?: number | null;
   /** Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. null removes the key (back to the default). */
   notice_digest_s?: number | null;
-  /** Backstop for a stop-wait. null removes the key (back to the default). */
-  stop_wait_backstop_s?: number | null;
   /** Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored. null removes the key (back to the default). */
   token_prices?: { [key: string]: number } | null;
   /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). null removes the key (back to the default). */
@@ -1465,7 +1463,7 @@ export type HistoryRow = {
   /** Who made the change: an agent, or human. */
   by: string;
   /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, review, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
-  field: "title" | "assignee" | "owner" | "body" | "priority" | "timeout" | "state" | "tag" | "blocked_by" | "merged_into" | "memo";
+  field: "title" | "assignee" | "owner" | "body" | "priority" | "estimate" | "timeout" | "state" | "tag" | "blocked_by" | "merged_into" | "memo";
   /** The value before; empty when there was none (a task just opened, a wait just added, a memo just added). */
   was: string;
   /** The value after; empty when it is gone (a wait removed, a memo deleted). */
@@ -1531,7 +1529,7 @@ export type TaskView = {
   at: Timestamp;
 };
 
-/** A request named by its integer id, or by its ref: the 12 hex characters, with or without a leading #, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist. */
+/** A request named by its integer id, or by its ref: msg_ and the 12 hex characters, or the hash alone, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist. */
 export type RequestName = number | string;
 
 /** What the machine and each agent use, measured every 15 s: one ps read for every agent. A figure the daemon could not read is 0. */
@@ -1775,6 +1773,8 @@ export interface Methods {
 }; result: Accepted };
   "input.take": { params: {
   agent: AgentName;
+  /** Take the input from the person or device that holds it instead of being refused; the holder notice tells them. It never types into the agent's own turn: typing still waits for it. */
+  force?: boolean;
   request_id: RequestId;
 }; result: Accepted & {
     holder: InputHolder;
@@ -1848,6 +1848,12 @@ export interface Methods {
     messages: ChatMessage[];
     more_older: boolean;
     more_newer: boolean;
+    /** chat.transcript's items for the agent from the second of the page's oldest message to the end of its newest's (on to now when more_newer is false), oldest first: up to 200, kept around message. */
+    transcript: TranscriptItem[];
+    /** The span has older items than transcript holds; continue with chat.transcript before the first item's id. */
+    transcript_more_older: boolean;
+    /** The span has newer items than transcript holds; continue with chat.transcript since the last item's id. */
+    transcript_more_newer: boolean;
   } };
   "agent.strip": { params: {
   agent: AgentName;
@@ -2215,6 +2221,23 @@ export interface Methods {
     start: Timestamp;
     end: Timestamp | null;
     segments: TimeSegment[];
+    /** Its story points; null when it has none. */
+    estimate: number | null;
+    /** When it is expected to start and end, deterministic from its queue, its owner's account and the history of done tasks by estimate; computed on each read, so it moves as they do. */
+    expected: {
+      /** When it is expected to start: when it started for one being worked on; after the owner's current task and every task ahead of it in the order they are handed out, and no earlier than the reset of a limit the owner's account is at. Null when a task ahead has no expected duration. */
+      start: Timestamp | null;
+      /** start plus duration_s, and the wait for a reset when the account runs out at its current burn before then. Null when the duration is unknown. */
+      end: Timestamp | null;
+      /** How long it is expected to take (for one being worked on, what is left); null when unknown. */
+      duration_s: number | null;
+      /** What the duration rests on: the median working time of the last 20 done tasks of its estimate (history), else their median time per point times its points (points), else its time box (time_box); null for none. */
+      basis: ("history" | "points" | "time_box") | null;
+      /** The tasks its owner does first, by number. */
+      ahead: number[];
+      /** The reset of the account limit that holds it back; null when none does. */
+      wall_until: Timestamp | null;
+    } | null;
   } };
   "task.shot": { params: {
   task: number;
@@ -2245,6 +2268,8 @@ export interface Methods {
   blocked_by?: number;
   /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
   priority?: 1 | 2 | 3;
+  /** Story points: what the task is expected to take, for its expected start and end (task.time). None when absent. */
+  estimate?: 1 | 2 | 3 | 5 | 8 | 13;
   /** Its tags; each is kept as a history row of the task. */
   tags?: Tag[];
   expects?: Expects;
@@ -2421,6 +2446,8 @@ export interface Methods {
   time_box?: Duration;
   /** 1 high, 2 default, 3 low (written P1-P3). */
   priority?: 1 | 2 | 3;
+  /** Story points (as task.new); null clears it. */
+  estimate?: (1 | 2 | 3 | 5 | 8 | 13) | null;
   /** A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them. */
   blocked_by?: number;
   /** A task number this one no longer waits on; clearing the last one lets its owner's current task advance. */

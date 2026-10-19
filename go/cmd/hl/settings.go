@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/handline/handline/go/internal/hlclient"
 	"github.com/handline/handline/go/internal/protected"
@@ -73,55 +72,6 @@ func failed(why string) int {
 func clearNeedsAgent() int {
 	fmt.Fprintln(os.Stderr, "--clear only applies with --agent")
 	return 1
-}
-
-func idleTimeout(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--agent", "--why"}, []string{"--clear"}, nil)
-	if !ok || len(p.pos) > 1 || !settingsCaller(c) {
-		return 0, false
-	}
-	var secs any
-	if len(p.pos) == 1 {
-		t := strings.TrimSpace(p.pos[0])
-		if strings.ToLower(t) == "never" {
-			secs = 0
-		} else if n, ok := integer(t); ok {
-			secs = n
-		} else {
-			return 0, false
-		}
-	}
-	c.NoteVerbChain([]string{"idle-timeout", ""})
-	agent, _ := p.opt("--agent")
-	if p.flags["--clear"] && agent == "" {
-		return clearNeedsAgent(), true
-	}
-	if p.flags["--clear"] || secs != nil {
-		if p.flags["--clear"] {
-			secs = nil
-		}
-		if why := setSettings(c, agent, map[string]any{"park_timeout_s": secs}); why != "" {
-			return failed(why), true
-		}
-	}
-	s, err := getSettings(c, agent)
-	if err != nil {
-		return failed(err.Error()), true
-	}
-	if agent != "" {
-		fmt.Printf("%s: %s\n", agent, describeTimeout(s.own("park_timeout_s", -1)))
-	} else {
-		n, _ := seconds(s.values["park_timeout_s"])
-		fmt.Printf("default: %s\n", describeTimeout(n))
-	}
-	return 0, true
-}
-
-func describeTimeout(secs int64) string {
-	if secs == 0 {
-		return "never closes while idle"
-	}
-	return fmt.Sprintf("closes after %ds idle", secs)
 }
 
 // idleBackground is the global form only: an agent's notice follows its own idle window unless config.yaml names one,
@@ -202,111 +152,5 @@ func noticeDigest(c *hlclient.Client, args []string) (int, bool) {
 	}
 	fmt.Printf("%s: notices are told in one digest at its prompt, from %s after the first and never mid-turn (sooner with any message); "+
 		"a failure, block or FATAL at once\n", who, timefmt.Ago(secs))
-	return 0, true
-}
-
-// onOff is an optional on/off positional: (value, given, ok).
-func onOff(p parsed) (bool, bool, bool) {
-	if len(p.pos) == 0 {
-		return false, false, true
-	}
-	switch p.pos[0] {
-	case "on":
-		return true, true, true
-	case "off":
-		return false, true, true
-	}
-	return false, false, false
-}
-
-func ignoreCacheExpiry(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--agent", "--why"}, []string{"--clear"}, nil)
-	on, given, ok2 := onOff(p)
-	if !ok || !ok2 || len(p.pos) > 1 || !settingsCaller(c) {
-		return 0, false
-	}
-	c.NoteVerbChain([]string{"ignore-cache-expiry", ""})
-	agent, _ := p.opt("--agent")
-	if p.flags["--clear"] && agent == "" {
-		return clearNeedsAgent(), true
-	}
-	if p.flags["--clear"] || given {
-		var v any = on
-		if p.flags["--clear"] {
-			v = nil
-		}
-		if why := setSettings(c, agent, map[string]any{"ignore_cache_expiry": v}); why != "" {
-			return failed(why), true
-		}
-	}
-	s, err := getSettings(c, agent)
-	if err != nil {
-		return failed(err.Error()), true
-	}
-	now, _ := s.values["ignore_cache_expiry"].(bool)
-	who := "default"
-	if agent != "" {
-		who = agent
-		if v, ok := s.overrides["ignore_cache_expiry"].(bool); ok {
-			now = v
-		}
-	}
-	text := "a resume starts fresh once its prompt cache has expired (today's behaviour)"
-	if now {
-		text = "a resume may reuse its session however long it has been closed"
-	}
-	fmt.Printf("%s: %s\n", who, text)
-	return 0, true
-}
-
-func autoAccept(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--why"}, nil, nil)
-	on, given, ok2 := onOff(p)
-	if !ok || !ok2 || len(p.pos) > 1 || !settingsCaller(c) {
-		return 0, false
-	}
-	c.NoteVerbChain([]string{"auto-accept", ""})
-	if given {
-		if why := setSettings(c, "", map[string]any{"auto_accept_dialogs": on}); why != "" {
-			return failed(why), true
-		}
-	}
-	s, err := getSettings(c, "")
-	if err != nil {
-		return failed(err.Error()), true
-	}
-	if now, _ := s.values["auto_accept_dialogs"].(bool); now {
-		fmt.Println("auto-accept: on - browser tool calls are said yes to once, and a declared folder's trust screen is accepted")
-	} else {
-		fmt.Println("auto-accept: off - every dialog is left for a person")
-	}
-	return 0, true
-}
-
-// devMode is `hl dev-mode [on|off]` (cli/daemon.py cmd_dev_mode): whether the daemon restarts itself when its own code
-// changed.
-func devMode(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--why"}, nil, nil)
-	on, given, ok2 := onOff(p)
-	if !ok || !ok2 || len(p.pos) > 1 || !settingsCaller(c) {
-		return 0, false
-	}
-	if !given {
-		s, err := getSettings(c, "")
-		if err != nil {
-			return failed(err.Error()), true
-		}
-		if now, _ := s.values["dev_mode"].(bool); now {
-			fmt.Println("on")
-		} else {
-			fmt.Println("off")
-		}
-		return 0, true
-	}
-	if why := setSettings(c, "", map[string]any{"dev_mode": on}); why != "" {
-		fmt.Fprintln(os.Stderr, why)
-		return 1, true
-	}
-	fmt.Printf("dev-mode: %s\n", p.pos[0])
 	return 0, true
 }

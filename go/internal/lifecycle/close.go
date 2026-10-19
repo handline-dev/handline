@@ -547,7 +547,7 @@ func (m *Manager) closeAgent(agent string, st SessionStatus, o CloseOpts) (bool,
 	if st.SessionID == "" && !o.Discard {
 		// Closing is only cheap because waking resumes the same session. With no id to come back to, closing is just throwing the context
 		// away - which --fresh asks for, and is the one way out of a live session whose id was never recorded.
-		return false, "no session id on record; not closing (`hl restart --fresh` starts a new conversation from its handoff)"
+		return false, "no session id on record; not closing (a fresh restart from its menu in the app starts a new conversation from its handoff)"
 	}
 	// A record already waiting is the park's, and names the session from before its /clear: this close must neither replace it nor, if
 	// it fails, delete it. One it takes itself is kept only whole - a wake that moves elsewhere drops the resume id, the only complete

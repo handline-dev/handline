@@ -231,6 +231,9 @@ func (e *Env) decide(pid, call, by, note, subject string, tell bool) (bool, stri
 		verdict = call
 	}
 	prop.set("verdict", verdict)
+	if note != "" {
+		prop.set("note", note) // the founder's own words, apart from the verdict's call word or system text
+	}
 	prop.set("decided", time.Now().Unix())
 	if err := e.save(prop); err != nil {
 		finish("ROLLBACK")
@@ -262,7 +265,7 @@ func (e *Env) apply(pid string, tell bool) (bool, string, error) {
 	case state == "applied":
 		return false, fmt.Sprintf("proposal %s was already applied on %s", pid, stamp(prop.get("applied"))), nil
 	case state != "approved":
-		return false, fmt.Sprintf("proposal %s is %s, not approved - the founder decides it with `hl hr approve %s`", pid, state, pid), nil
+		return false, fmt.Sprintf("proposal %s is %s, not approved - the founder decides it in the app's HR tab", pid, state), nil
 	}
 	got := e.decisionOf(pid)
 	if got == nil || got["call"] != "approved" {

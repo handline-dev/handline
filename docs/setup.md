@@ -56,23 +56,17 @@ there.
 
 ## Accounts
 
-```bash
-hl account add alpha
-hl account add beta
-hl account list
-```
-
-`account add` registers the name and then starts Claude's own login in your terminal. You complete
-the login yourself. Use a different Anthropic login for each account, because that is how you get
-more usage windows. To register a name now and log in later, use `--no-login` and then
-`hl login <name>`.
+Add each account in the app's Accounts page. Adding one registers the name and then starts Claude's
+own login, which you complete yourself. Use a different Anthropic login for each account, because
+that is how you get more usage windows. An account registered without a login is logged in from the
+same page later.
 
 `hl` never reads, writes, or copies credentials. They stay in Claude's own config directory for
 the account, `~/.orcapipe/accounts/<name>/.claude`. A refresh token works once and then rotates,
 so two copies of one login would invalidate each other. That is why `hl` does not copy them.
 
-To remove an account: `hl account remove <name>`. It logs the account out and moves its directory
-aside. It refuses while an agent is running on it.
+Removing an account in the same page logs it out and moves its directory aside. It refuses while an
+agent is running on it.
 
 ## Agents
 
@@ -127,8 +121,8 @@ keeps the command, so after a restart the agent comes back on the same account.
 | You see | Cause and fix |
 |---|---|
 | `hl` prints a venv message | Run `hl venv install`. |
-| `hl doctor`: no accounts registered | `hl account add <name>`. |
-| `hl doctor`: agent has no claude account | Add one: `hl account add <name>`. |
+| `hl doctor`: no accounts registered | Add one in the app's Accounts page. |
+| `hl doctor`: agent has no claude account | Add one in the app's Accounts page. |
 | `hl doctor`: team.yaml names agents ocp does not have | Register them, or delete them from `team.yaml`. |
 | `hl doctor`: seals have not begun | Review `team.yaml` and the `agent.yaml` files, then run `hl team seal`. |
 | `needs a repo` on `agent register` | Add `--repo <path>`. |

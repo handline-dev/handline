@@ -2,6 +2,7 @@ package inputhold
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,6 +48,21 @@ func TestOneTakesAndAnotherIsRefusedUntilTheFirstReleasesOrGoesIdle(t *testing.T
 	s.Release("ann")
 	if v, _ := s.View("ann"); v[0]["kind"] != "daemon" {
 		t.Fatalf("view %v", v)
+	}
+}
+
+func TestSeizeReplacesTheHolder(t *testing.T) {
+	s, told, now := rig(t)
+	s.Take("ann", "person", "pat")
+	*now = now.Add(10 * time.Second)
+	if err := s.Seize("ann", "device", "sam"); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := s.Holder("ann"); r == nil || r.Kind != "device" || r.Name != "sam" || r.Since != now.Unix() {
+		t.Fatalf("holder %+v", r)
+	}
+	if got := strings.Join(*told, ","); got != "ann:pat,ann:sam" {
+		t.Fatalf("told %v", got)
 	}
 }
 
