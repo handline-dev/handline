@@ -169,5 +169,16 @@ export function statusReply(sessions: Map<string, Session>, unread: number, star
     terminal_host: { name: 'fake', health: 'ok' },
     agents: { total: sessions.size, by_state },
     inbox: { unread },
+    resources: fakeResources(sessions, startedAt),
   };
+}
+
+const GB = 2 ** 30;
+
+/** The daemon's measure of what each agent and the machine use, with fixed figures: a running agent works a core, the rest idle. */
+function fakeResources(sessions: Map<string, Session>, at: Timestamp) {
+  const agents: Record<string, { cpu_pct: number; rss_bytes: number }> = {};
+  for (const [name, s] of sessions) agents[name] = { cpu_pct: s.state === 'running' ? 95 : 0.5, rss_bytes: 400 * 2 ** 20 };
+  const machine = { ram_total_bytes: 32 * GB, ram_used_bytes: 20 * GB, ram_free_bytes: 12 * GB, load_1m: 3.2, cores: 10 };
+  return { at, agents, machine: { ...machine, disk_free_bytes: 120 * GB, disk_total_bytes: 500 * GB } };
 }
