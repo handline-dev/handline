@@ -611,6 +611,8 @@ export type DaemonStatus = {
   inbox: {
     unread: number;
   };
+  /** Null until the first measure, and on a daemon that does not measure. */
+  resources?: Resources | null;
 };
 
 export type TeamAgent = {
@@ -1518,6 +1520,31 @@ export type TaskView = {
   /** Who saved it last. */
   by: string;
   at: Timestamp;
+};
+
+/** What the machine and each agent use, measured every 15 s: one ps read for every agent. A figure the daemon could not read is 0. */
+export type Resources = {
+  /** When it was measured. */
+  at: Timestamp;
+  /** Per agent with a terminal pane: its pane process and every process under it. */
+  agents: { [key: string]: {
+    /** CPU in percent of one core, summed over the tree (ps %cpu): over 100 on several cores. */
+    cpu_pct: number;
+    /** Resident memory summed over the tree. */
+    rss_bytes: number;
+  } };
+  machine: {
+    ram_total_bytes: number;
+    ram_used_bytes: number;
+    /** Free for use: macOS free, inactive and speculative pages; Linux MemAvailable. */
+    ram_free_bytes: number;
+    /** The 1-minute load average; compare with cores. */
+    load_1m: number;
+    cores: number;
+    /** Free space of the volume the daemon home is on. */
+    disk_free_bytes: number;
+    disk_total_bytes: number;
+  };
 };
 
 /** One stretch of a task's time: one block of the bar under its title, sized by seconds. */

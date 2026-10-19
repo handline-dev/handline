@@ -36,5 +36,14 @@ func (e *Env) status(c *rpc.Conn, params map[string]any) (any, error) {
 		"terminal_host": map[string]any{"name": "none", "health": "down", "detail": "this daemon does not drive a terminal host yet"},
 		"agents":        map[string]any{"total": len(names), "by_state": byState},
 		"inbox":         map[string]any{"unread": len(items)},
+		"resources":     e.resources(),
 	}, nil
+}
+
+// resources is the latest measure for daemon.status: null until the sampler has measured, or on a daemon that does not.
+func (e *Env) resources() map[string]any {
+	if e.Resources == nil {
+		return nil
+	}
+	return e.Resources()
 }
