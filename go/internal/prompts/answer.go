@@ -29,7 +29,7 @@ func (e *Env) Answer(blockID int64, c Choice) (bool, string) {
 		return false, err.Error()
 	}
 	if row == nil {
-		return false, fmt.Sprintf("no prompt #%d", blockID)
+		return false, fmt.Sprintf("no prompt %d", blockID)
 	}
 	agent := row.Agent
 	if row.GoneAt.Valid {

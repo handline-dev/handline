@@ -88,7 +88,7 @@ func TestSelfDeliveryCarriesWhatItsRequestsClosedWith(t *testing.T) {
 	}
 	task, _ := db.GetTask(r.DB, tid)
 	row, _ := db.GetRequest(r.DB, r.selfDelivery(r.DB, "bob", task))
-	if row.Body != fmt.Sprintf("finish the doc\n\nanswer to #%d: pdf", asked) {
+	if r.ids(row.Body) != fmt.Sprintf("finish the doc\n\nanswer to #%d: pdf", asked) {
 		t.Fatal(row.Body)
 	}
 }

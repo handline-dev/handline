@@ -42,9 +42,9 @@ func TestRequestReadIsTheRequestAsHlReadPrintsIt(t *testing.T) {
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, parent_id) VALUES(4, 40, 'amy', 'bob', 'orphan', 'queued', 'say', 1, 99)")
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok, parent_id) VALUES(5, 50, 'amy', 'bob', 'x', 'queued', 'say', 1, 1)")
 	want := map[string]any{
-		"id": int64(3), "ref": "aaaaaaaaaaa3", "requester": "amy", "target": "bob", "kind": "say", "state": "landed", "created": "1970-01-01T00:00:30Z",
+		"id": int64(3), "ref": "aaaaaaaaaaa3", "name": "msg_aaaaaaaaaaa3", "requester": "amy", "target": "bob", "kind": "say", "state": "landed", "created": "1970-01-01T00:00:30Z", // local-ref-ok: made-up refs
 		"chain_depth": int64(2),
-		"parent":      map[string]any{"id": int64(2), "ref": "aaaaaaaaaaa2", "line": "which of the two branches should land fi…"},
+		"parent":      map[string]any{"id": int64(2), "ref": "aaaaaaaaaaa2", "name": "msg_aaaaaaaaaaa2", "line": "which of the two branches should land fi…"}, // local-ref-ok: made-up refs
 		"body":        "the first", "answer": "done as asked",
 	}
 	// the founder is neither end and sees both ends, as hl read prints them
@@ -57,7 +57,7 @@ func TestRequestReadIsTheRequestAsHlReadPrintsIt(t *testing.T) {
 	if got := read(t, e, asBob, 4); got["parent"] != nil {
 		t.Fatalf("a parent that is gone: %v", got)
 	}
-	if got := read(t, e, asBob, 5); !reflect.DeepEqual(got["parent"], map[string]any{"id": int64(1), "ref": "aaaaaaaaaaa1", "line": ""}) {
+	if got := read(t, e, asBob, 5); !reflect.DeepEqual(got["parent"], map[string]any{"id": int64(1), "ref": "aaaaaaaaaaa1", "name": "msg_aaaaaaaaaaa1", "line": ""}) { // local-ref-ok: made-up refs
 		t.Fatalf("a parent whose first line is empty: %v", got["parent"])
 	}
 }
@@ -239,5 +239,23 @@ func TestRequestReadLetsTheTargetOfTheFoundersQuoteReadWhatWasQuoted(t *testing.
 	}
 	if _, err := e.requestRead(asBob, map[string]any{"id": num64(2)}); err == nil {
 		t.Fatal("another agent's quote does not open a request")
+	}
+}
+
+func TestRequestReadTakesARefOrPrefixUnderTheSameRule(t *testing.T) {
+	e := testEnv(t)
+	os.WriteFile(filepath.Join(e.Home, "team.yaml"), []byte("agents:\n  amy: {}\n  bob: {}\n  cat: {}\n"), 0o644)
+	run(t, e, "INSERT INTO requests(id, ref, ts, requester, target, body, state, kind, edge_ok) VALUES(1, 'c0ffee000001', 10, 'amy', 'bob', 'private', 'landed', 'ask', 1)")
+	agent := func(name string) *rpc.Conn {
+		return &rpc.Conn{Caller: rpc.Caller{Role: "agent", Info: map[string]any{"kind": "agent", "name": name}}}
+	}
+	for _, ref := range []string{"c0ffee000001", "msg_c0ffee000001", "c0ffee", "MSG_C0FFEE"} { // local-ref-ok: made-up refs
+		if got, err := e.requestRead(agent("bob"), map[string]any{"id": ref}); err != nil || got.(map[string]any)["id"] != int64(1) {
+			t.Errorf("%s: %v %v", ref, got, err)
+		}
+		var nf *rpc.Error
+		if _, err := e.requestRead(agent("cat"), map[string]any{"id": ref}); !errors.As(err, &nf) || nf.Code != "not_found" {
+			t.Errorf("a stranger's %s: %v", ref, err)
+		}
 	}
 }

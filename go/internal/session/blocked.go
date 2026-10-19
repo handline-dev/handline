@@ -186,7 +186,7 @@ func (e *Env) WorkWaiting(agent string, row *AgentRow, now int64) (string, error
 		return "", err
 	}
 	if head != nil && (notified != head.ID || d.SessionChanged(agent)) {
-		s := fmt.Sprintf("request #%d", head.ID)
+		s := "a message"
 		if behind := d.QueueDepth(agent) - 1; behind > 0 {
 			s += fmt.Sprintf(" (+%d behind)", behind)
 		}
@@ -198,7 +198,7 @@ func (e *Env) WorkWaiting(agent string, row *AgentRow, now int64) (string, error
 		return "", err
 	}
 	if idle != nil && idle.IdleS >= d.NudgeAfterS() && nudged != idle.Head.ID && !d.HeadTaskBlocked(agent, idle.Head) {
-		parts = append(parts, fmt.Sprintf("reminder to resolve #%d", idle.Head.ID))
+		parts = append(parts, "a reminder to resolve a message")
 	}
 	return strings.Join(parts, "; "), nil
 }
@@ -794,7 +794,7 @@ func (e *Env) raise(recs []*Block, now int64) error {
 	if err := e.BlockSetRequest(agents, rid); err != nil {
 		return err
 	}
-	e.log("  blocked: raised #%d for %s", rid, strings.Join(agents, ", "))
+	e.log("  blocked: raised request %d for %s", rid, strings.Join(agents, ", "))
 	return nil
 }
 

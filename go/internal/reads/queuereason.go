@@ -1,8 +1,6 @@
 package reads
 
 import (
-	"fmt"
-
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/states"
@@ -60,7 +58,7 @@ func (e *Env) QueueReason(agent string, rid int64) (string, error) {
 		return "", err
 	}
 	if head != nil && head.ID != rid {
-		return fmt.Sprintf("behind #%d", head.ID), nil
+		return "behind an earlier message", nil
 	}
 	return e.deliveryState(agent, "waiting for the agent")
 }

@@ -2575,7 +2575,7 @@
      "name": "request",
      "required": true,
      "schema": {
-      "type": "integer"
+      "$ref": "#/components/schemas/RequestName"
      }
     },
     {
@@ -2962,7 +2962,7 @@
      "name": "parent",
      "required": false,
      "schema": {
-      "type": "integer",
+      "$ref": "#/components/schemas/RequestName",
       "description": "The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found. The message goes to agent whoever the parent's requester or target is, so a row relayed from another agent can be quoted in this agent's chat. request in the result is the new message."
      }
     },
@@ -3056,7 +3056,7 @@
      "name": "request",
      "required": true,
      "schema": {
-      "type": "integer",
+      "$ref": "#/components/schemas/RequestName",
       "description": "A ChatMessage.id still in state queued."
      }
     },
@@ -3111,7 +3111,7 @@
      "name": "request",
      "required": true,
      "schema": {
-      "type": "integer"
+      "$ref": "#/components/schemas/RequestName"
      }
     },
     {
@@ -4170,7 +4170,7 @@
      "name": "id",
      "required": true,
      "schema": {
-      "type": "integer"
+      "$ref": "#/components/schemas/RequestName"
      }
     },
     {
@@ -4212,7 +4212,7 @@
      "name": "id",
      "required": true,
      "schema": {
-      "type": "integer"
+      "$ref": "#/components/schemas/RequestName"
      }
     },
     {
@@ -4348,7 +4348,7 @@
      "name": "id",
      "required": true,
      "schema": {
-      "type": "integer"
+      "$ref": "#/components/schemas/RequestName"
      }
     },
     {
@@ -4406,7 +4406,7 @@
      "name": "id",
      "required": true,
      "schema": {
-      "type": "integer"
+      "$ref": "#/components/schemas/RequestName"
      }
     },
     {
@@ -4528,7 +4528,7 @@
      "schema": {
       "type": "array",
       "items": {
-       "type": "integer"
+       "$ref": "#/components/schemas/RequestName"
       }
      }
     },
@@ -4571,7 +4571,7 @@
      "name": "id",
      "required": true,
      "schema": {
-      "type": "integer"
+      "$ref": "#/components/schemas/RequestName"
      }
     },
     {
@@ -5214,7 +5214,7 @@
      "name": "request",
      "required": false,
      "schema": {
-      "type": "integer",
+      "$ref": "#/components/schemas/RequestName",
       "description": "A request where the result was already reported."
      }
     },
@@ -5544,7 +5544,7 @@
      "name": "message",
      "required": true,
      "schema": {
-      "type": "integer",
+      "$ref": "#/components/schemas/RequestName",
       "description": "The founder's message it answers."
      }
     },
@@ -6631,7 +6631,7 @@
      "name": "parent",
      "required": false,
      "schema": {
-      "type": "integer"
+      "$ref": "#/components/schemas/RequestName"
      }
     },
     {
@@ -15166,6 +15166,18 @@
      "by",
      "at"
     ]
+   },
+   "RequestName": {
+    "oneOf": [
+     {
+      "type": "integer"
+     },
+     {
+      "type": "string",
+      "pattern": "^#?[0-9a-fA-F]{6,12}$"
+     }
+    ],
+    "description": "A request named by its integer id, or by its ref: the 12 hex characters, with or without a leading #, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist."
    },
    "Resources": {
     "type": "object",

@@ -19,10 +19,10 @@ func (e *Env) WithdrawWrite(q db.Q, after *After, rid int64, requester, reason s
 		return false, fmt.Sprintf("request %d does not exist", rid), nil
 	}
 	if row.Requester != requester {
-		return false, fmt.Sprintf("#%d is %s -> %s, not yours to withdraw", rid, row.Requester, row.Target), nil
+		return false, fmt.Sprintf("%s is %s -> %s, not yours to withdraw", db.MsgName(q, rid), row.Requester, row.Target), nil
 	}
 	if row.State != "queued" && !(row.State == "landed" && row.DeliveredAt.Valid) {
-		return false, fmt.Sprintf("#%d is already %s - nothing to withdraw", rid, row.State), nil
+		return false, fmt.Sprintf("%s is already %s - nothing to withdraw", db.MsgName(q, rid), row.State), nil
 	}
 	release := ""
 	if row.Kind.String == "task" {
@@ -30,8 +30,8 @@ func (e *Env) WithdrawWrite(q db.Q, after *After, rid int64, requester, reason s
 			release = fmt.Sprintf(", or `hl task release T%d \"<reason>\"`", linked[0].ID)
 		}
 	}
-	tooLate := fmt.Sprintf("#%d was already delivered to %s - too late to withdraw; tell %s with a message (`hl say %s \"...\" --parent %d`)%s",
-		rid, row.Target, row.Target, row.Target, rid, release)
+	tooLate := fmt.Sprintf("%s was already delivered to %s - too late to withdraw; tell %s with a message (`hl say %s \"...\" --parent %s`)%s",
+		db.MsgName(q, rid), row.Target, row.Target, row.Target, db.MsgName(q, rid), release)
 	if row.DeliveredAt.Valid {
 		return false, tooLate, nil
 	}
@@ -41,7 +41,7 @@ func (e *Env) WithdrawWrite(q db.Q, after *After, rid int64, requester, reason s
 	if reason != "" {
 		verdict = "withdrawn: " + reason
 	}
-	said := fmt.Sprintf("request #%d to %s withdrawn", rid, row.Target)
+	said := fmt.Sprintf("request %s to %s withdrawn", db.MsgName(q, rid), row.Target)
 	if !must(db.RetireIfUndelivered(q, rid, "withdrawn", verdict)) {
 		return false, tooLate, nil // a delivery landed between the read and the write
 	}
@@ -69,6 +69,14 @@ func (e *Env) closeWrite(q db.Q, rid int64, row *db.Request, verdict string) boo
 	return true
 }
 
+// lostClose says why a closeWrite that returned false closed nothing.
+func lostClose(q db.Q, rid int64, done, verb string) string {
+	if must(db.IsStillQueued(q, rid)) {
+		return fmt.Sprintf("%s was not %s - it is still queued", db.MsgName(q, rid), done)
+	}
+	return fmt.Sprintf("%s was closed while this ran - nothing to %s", db.MsgName(q, rid), verb)
+}
+
 // closeTell is what follows closeWrite once it has committed: the target told to stop, the queue moved up.
 func (e *Env) closeTell(q db.Q, rid int64, row *db.Request, verdict string) (target, msg string, said []string, err error) {
 	defer Catch(&err)
@@ -81,7 +89,7 @@ func (e *Env) closeTell(q db.Q, rid int64, row *db.Request, verdict string) (tar
 		if typed {
 			said = append(said, target+" was told to stop")
 		} else {
-			said = append(said, fmt.Sprintf("%s could not be told now (%s); resolving #%d is refused to it, so it cannot undo this", target, why, rid))
+			said = append(said, fmt.Sprintf("%s could not be told now (%s); resolving %s is refused to it, so it cannot undo this", target, why, db.MsgName(q, rid)))
 		}
 	}
 	msg, err = e.AfterClose(q, rid, row, "rejected")
@@ -111,7 +119,7 @@ func (e *Env) CancelWrite(q db.Q, after *After, rid int64, effect func(q db.Q, m
 				stop = fmt.Sprintf(" - stop its task with `hl task discard T%d` or hand it back", tasks[0].ID)
 			}
 		}
-		return nil, false, fmt.Sprintf("#%d is already %s - nothing to cancel%s", rid, row.State, stop), nil
+		return nil, false, fmt.Sprintf("%s is already %s - nothing to cancel%s", db.MsgName(q, rid), row.State, stop), nil
 	}
 	if row.Requester == db.Human && !row.DeliveredAt.Valid {
 		ok, msg, err := e.WithdrawWrite(q, after, rid, db.Human, "", effect)
@@ -126,15 +134,12 @@ func (e *Env) CancelWrite(q db.Q, after *After, rid int64, effect func(q db.Q, m
 		}
 	}
 	if !e.closeWrite(q, rid, row, CancelVerdict) {
-		if must(db.IsStillQueued(q, rid)) {
-			return nil, false, fmt.Sprintf("#%d was not cancelled - it is still queued", rid), nil
-		}
-		return nil, false, fmt.Sprintf("#%d was closed while this ran - nothing to cancel", rid), nil
+		return nil, false, lostClose(q, rid, "cancelled", "cancel"), nil
 	}
 	must(db.AddEvent(q, db.Human, "cancel", db.KV{K: "request_id", V: rid}, db.KV{K: "target", V: row.Target}, db.KV{K: "requester", V: row.Requester},
 		db.KV{K: "delivered", V: row.DeliveredAt.Valid && row.DeliveredAt.Int64 != 0}))
 	if effect != nil {
-		if err := effect(q, fmt.Sprintf("#%d to %s cancelled", rid, row.Target)); err != nil {
+		if err := effect(q, fmt.Sprintf("%s to %s cancelled", db.MsgName(q, rid), row.Target)); err != nil {
 			return nil, false, "", err
 		}
 	}
@@ -147,7 +152,7 @@ func (e *Env) CancelTell(q db.Q, p *CancelPlan) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out := fmt.Sprintf("#%d to %s cancelled", p.RID, target)
+	out := fmt.Sprintf("%s to %s cancelled", db.MsgName(q, p.RID), target)
 	if len(said) > 0 {
 		out += " (" + strings.Join(said, "; ") + ")"
 	}
@@ -167,16 +172,13 @@ func (e *Env) RetireWrite(q db.Q, rid int64, verdict string) (plan *RetirePlan, 
 	defer Catch(&err)
 	row := must(db.GetRequest(q, rid))
 	if row == nil {
-		return nil, false, fmt.Sprintf("#%d is gone", rid), nil
+		return nil, false, fmt.Sprintf("%s is gone", db.MsgName(q, rid)), nil
 	}
 	if row.State != "queued" {
-		return nil, false, fmt.Sprintf("#%d is already %s - nothing to retire", rid, row.State), nil
+		return nil, false, fmt.Sprintf("%s is already %s - nothing to retire", db.MsgName(q, rid), row.State), nil
 	}
 	if !e.closeWrite(q, rid, row, verdict) {
-		if must(db.IsStillQueued(q, rid)) {
-			return nil, false, fmt.Sprintf("#%d was not retired - it is still queued", rid), nil
-		}
-		return nil, false, fmt.Sprintf("#%d was closed while this ran - nothing to retire", rid), nil
+		return nil, false, lostClose(q, rid, "retired", "retire"), nil
 	}
 	return &RetirePlan{rid, row, verdict}, true, "", nil
 }
@@ -187,7 +189,7 @@ func (e *Env) RetireTell(q db.Q, p *RetirePlan) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out := fmt.Sprintf("#%d to %s retired", p.RID, target)
+	out := fmt.Sprintf("%s to %s retired", db.MsgName(q, p.RID), target)
 	if len(said) > 0 {
 		out += " (" + strings.Join(said, "; ") + ")"
 	}
@@ -211,7 +213,7 @@ func (e *Env) AfterClose(q db.Q, rid int64, row *db.Request, state string) (msg 
 		}
 		said += e.Push(q, row.Target, 0)
 	}
-	msg = fmt.Sprintf("request #%d -> %s", rid, state)
+	msg = fmt.Sprintf("request %s -> %s", db.MsgName(q, rid), state)
 	if said != "" {
 		msg += "\n" + said
 	}
@@ -271,16 +273,16 @@ func (e *Env) ResolveWrite(q db.Q, in ResolveIn) (r *Resolved, ok bool, msg stri
 	// Conditional on 'queued', the same as cancel's close: two answers landing on the same row at once must not have the second overwrite the first.
 	closed := must(db.CloseIfQueued(q, in.RID, state, verdict))
 	if closed && in.Effect != nil {
-		if err := in.Effect(q, fmt.Sprintf("#%d answered", in.RID)); err != nil {
+		if err := in.Effect(q, fmt.Sprintf("%s answered", db.MsgName(q, in.RID))); err != nil {
 			return nil, false, "", err
 		}
 	}
 	if !closed {
 		fresh := must(db.GetRequest(q, in.RID))
 		if fresh.State == "queued" {
-			return nil, false, fmt.Sprintf("#%d was not resolved - it is still queued", in.RID), nil
+			return nil, false, fmt.Sprintf("%s was not resolved - it is still queued", db.MsgName(q, in.RID)), nil
 		}
-		return nil, false, fmt.Sprintf("#%d is already %s - nothing to resolve", in.RID, fresh.State), nil
+		return nil, false, fmt.Sprintf("%s is already %s - nothing to resolve", db.MsgName(q, in.RID), fresh.State), nil
 	}
 	return &Resolved{in, row, proposal, verdict, state}, true, "", nil
 }

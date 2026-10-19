@@ -52,7 +52,7 @@ func (e *Env) EnforceEdges(q db.Q, agent string) (ok bool, err error) {
 			continue
 		}
 		must(db.CloseIfQueued(q, r.ID, "denied", "refused at delivery: "+d.Reason))
-		e.log("  %s: #%d from %s refused - %s", agent, r.ID, r.Requester, d.Reason)
+		e.log("  %s: request %d from %s refused - %s", agent, r.ID, r.Requester, d.Reason)
 	}
 	return true, nil
 }
@@ -96,7 +96,7 @@ func (e *Env) holdBack(agent string, head *db.Request, why string, contestable b
 	e.held[agent] = why
 	e.mu.Unlock()
 	if !same {
-		e.log("  %s: #%d is held - %s", agent, head.ID, why)
+		e.log("  %s: request %d is held - %s", agent, head.ID, why)
 	}
 	return false
 }

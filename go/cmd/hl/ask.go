@@ -42,7 +42,7 @@ func withdraw(c *hlclient.Client, args []string) (int, bool) {
 	if !ok || len(p.pos) != 1 {
 		return 0, false
 	}
-	id, ok := integer(p.pos[0])
+	id, ok := requestArg(p.pos[0])
 	if !ok {
 		return 0, false
 	}
@@ -173,7 +173,7 @@ func inbox(c *hlclient.Client, args []string) (int, bool) {
 		}
 		fmt.Printf("%d total. `hl read <id>` shows one whole.\n", len(hist))
 		for _, r := range hist {
-			fmt.Printf("#%-5d from %s %s depth=%d %s\n", anum(r["id"]), pad(text(r["requester"]), 12), pad(text(r["state"]), 9),
+			fmt.Printf("%-12s from %s %s depth=%d %s\n", text(r["name"]), pad(text(r["requester"]), 12), pad(text(r["state"]), 9),
 				anum(r["chain_depth"]), textsafe.Oneline(text(r["line"])))
 		}
 		return 0, true
@@ -183,7 +183,7 @@ func inbox(c *hlclient.Client, args []string) (int, bool) {
 		fmt.Printf("%s: inbox empty\n", agent)
 		return 0, true
 	}
-	fmt.Printf("#%d from %s  depth=%d\n\n", anum(head["id"]), text(head["requester"]), anum(head["chain_depth"]))
+	fmt.Printf("%s from %s  depth=%d\n\n", text(head["name"]), text(head["requester"]), anum(head["chain_depth"]))
 	body := text(head["body"])
 	if body == "" {
 		body = "(empty)"
@@ -196,7 +196,7 @@ func inbox(c *hlclient.Client, args []string) (int, bool) {
 	// Only a look at one's own queue counts as being told.
 	if agent == caller {
 		if ok, why := c.Write("inbox.mark_read", map[string]any{"ids": []any{anum(head["id"])}}); !ok {
-			fmt.Fprintf(os.Stderr, "#%d is shown but not marked read: %s\n", anum(head["id"]), why)
+			fmt.Fprintf(os.Stderr, "%s is shown but not marked read: %s\n", text(head["name"]), why)
 		}
 	}
 	return 0, true
@@ -226,7 +226,7 @@ func humanInbox(got map[string]any, showAll bool) int {
 		if u := anum(m["unread"]); u > 1 {
 			behind = fmt.Sprintf(" (+%d)", u-1)
 		}
-		fmt.Printf("%s #%-5d %s %s %s%s\n", mark, anum(m["id"]), pad(text(m["from"]), 12), pad(text(m["kind"]), 9), textsafe.Oneline(text(m["line"])), behind)
+		fmt.Printf("%s %-12s %s %s %s%s\n", mark, text(m["name"]), pad(text(m["from"]), 12), pad(text(m["kind"]), 9), textsafe.Oneline(text(m["line"])), behind)
 	}
 	fmt.Println("`hl say <who> --parent <id> \"<text>\"` replies to one, in its thread.")
 	if showAll {
@@ -237,7 +237,7 @@ func humanInbox(got map[string]any, showAll bool) int {
 			if r["outgoing"] == true {
 				arrow = "→"
 			}
-			fmt.Printf("  #%-5d %s %s %s %s\n", anum(r["id"]), arrow, pad(text(r["agent"]), 12), pad(text(r["state"]), 9), textsafe.Oneline(text(r["line"])))
+			fmt.Printf("  %-12s %s %s %s %s\n", text(r["name"]), arrow, pad(text(r["agent"]), 12), pad(text(r["state"]), 9), textsafe.Oneline(text(r["line"])))
 		}
 	}
 	return 0
@@ -256,7 +256,7 @@ func read(c *hlclient.Client, args []string) (int, bool) {
 	if !ok || len(p.pos) != 1 {
 		return 0, false
 	}
-	id, ok := integer(p.pos[0])
+	id, ok := requestArg(p.pos[0])
 	if !ok {
 		return 0, false
 	}
@@ -279,9 +279,9 @@ func read(c *hlclient.Client, args []string) (int, bool) {
 		if err != nil {
 			var rpcErr *hlclient.RPCError
 			if errors.As(err, &rpcErr) && rpcErr.Code == "not_found" {
-				fmt.Printf("no request #%d\n", id)
+				fmt.Printf("no message %v\n", id)
 			} else {
-				fmt.Fprintf(os.Stderr, "could not read #%d: %v\n", id, err)
+				fmt.Fprintf(os.Stderr, "could not read %v: %v\n", id, err)
 			}
 			return 1, true
 		}
@@ -291,20 +291,20 @@ func read(c *hlclient.Client, args []string) (int, bool) {
 		}
 	}
 	if wait && !settled(text(row["state"])) {
-		fmt.Fprintf(os.Stderr, "nothing after %ds: #%d has no answer yet\n", timeout, id)
+		fmt.Fprintf(os.Stderr, "nothing after %ds: %v has no answer yet\n", timeout, id)
 		return 1, true
 	}
 	when := text(row["created"])
 	if ts, err := time.Parse(time.RFC3339, when); err == nil {
 		when = timefmt.Stamp(ts.Unix(), "2006-01-02 15:04")
 	}
-	fmt.Printf("#%d  %s → %s  %s  %s  %s\n", anum(row["id"]), text(row["requester"]), text(row["target"]), text(row["kind"]), text(row["state"]), when)
+	fmt.Printf("%s  %s → %s  %s  %s  %s\n", text(row["name"]), text(row["requester"]), text(row["target"]), text(row["kind"]), text(row["state"]), when)
 	if parent, ok := row["parent"].(map[string]any); ok {
 		line := ""
 		if l := text(parent["line"]); l != "" {
 			line = ": " + textsafe.Oneline(l)
 		}
-		fmt.Printf("in reply to #%d%s\n", anum(parent["id"]), line)
+		fmt.Printf("in reply to %s%s\n", text(parent["name"]), line)
 	}
 	fmt.Printf("depth %d\n\n", anum(row["chain_depth"]))
 	body := text(row["body"])

@@ -209,14 +209,14 @@ func CancelPlan(q db.Q, rid int64) (bool, string, error) {
 		return false, "", err
 	}
 	if row == nil {
-		return false, fmt.Sprintf("#%d is gone", rid), nil
+		return false, "that message is gone", nil
 	}
 	if row.State != "queued" {
-		return false, fmt.Sprintf("#%d is already %s", rid, row.State), nil
+		return false, fmt.Sprintf("%s is already %s", db.MsgName(q, rid), row.State), nil
 	}
 	target, requester := row.Target, row.Requester
 	if requester == db.Human && !row.DeliveredAt.Valid {
-		return true, fmt.Sprintf("withdraw #%d to %s: not delivered yet, so nobody is told", rid, target), nil
+		return true, fmt.Sprintf("withdraw %s to %s: not delivered yet, so nobody is told", db.MsgName(q, rid), target), nil
 	}
 	queued, err := db.QueuedFor(q, target)
 	if err != nil {
@@ -237,9 +237,9 @@ func CancelPlan(q db.Q, rid int64) (bool, string, error) {
 	if row.DeliveredAt.Valid {
 		way = "delivered to"
 	}
-	out := fmt.Sprintf("cancel #%d (%s %s): closed as rejected, '%s'; %s", rid, way, target, supervisor.CancelVerdict, told)
+	out := fmt.Sprintf("cancel %s (%s %s): closed as rejected, '%s'; %s", db.MsgName(q, rid), way, target, supervisor.CancelVerdict, told)
 	if row.DeliveredAt.Valid && behind != 0 {
-		out += fmt.Sprintf("; #%d delivers next", behind)
+		out += fmt.Sprintf("; %s delivers next", db.MsgName(q, behind))
 	}
 	return true, out, nil
 }

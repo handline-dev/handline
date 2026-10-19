@@ -108,7 +108,7 @@ func releaseMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 					return nil, err
 				}
 				if !ok {
-					failed = append(failed, fmt.Sprintf("#%d: was closed while this ran - nothing to retire", r.ID))
+					failed = append(failed, fmt.Sprintf("%s: was closed while this ran - nothing to retire", db.MsgName(tx, r.ID)))
 					continue
 				}
 				if err := addEvent(tx, r.Requester, "closed_under", kv{"request_id", r.ID}, kv{"target", r.Target}); err != nil {

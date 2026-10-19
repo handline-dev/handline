@@ -104,7 +104,7 @@
      },
      "reply": {
       "ok": false,
-      "said": "no request #999999999",
+      "said": "no such message",
       "$exact": true
      }
     }
@@ -171,7 +171,7 @@
      },
      "reply": {
       "ok": false,
-      "said": "no prompt #999999999",
+      "said": "no prompt 999999999",
       "$exact": true
      }
     }

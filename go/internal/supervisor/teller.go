@@ -73,7 +73,7 @@ func (e *Env) Released(tid int64, why string, retired []taskwrites.Retired) []st
 			} else if changed {
 				e.Push(e.DB, r.Target, 0)
 			}
-			said = append(said, fmt.Sprintf("#%d ended; %s told to stop and moved on", r.RID, r.Target))
+			said = append(said, fmt.Sprintf("%s ended; %s told to stop and moved on", db.MsgName(e.DB, r.RID), r.Target))
 			continue
 		}
 		if r.Held {
@@ -81,20 +81,20 @@ func (e *Env) Released(tid int64, why string, retired []taskwrites.Retired) []st
 			if r.RID == 0 {
 				said = append(said, r.Target+" told to stop")
 			} else {
-				said = append(said, fmt.Sprintf("#%d ended; %s told to stop", r.RID, r.Target))
+				said = append(said, fmt.Sprintf("%s ended; %s told to stop", db.MsgName(e.DB, r.RID), r.Target))
 			}
 			continue
 		}
 		row, err := db.GetRequest(e.DB, r.RID)
 		if err != nil || row == nil {
-			e.log("  telling after T%d released #%d failed: %v", tid, r.RID, err)
+			e.log("  telling after T%d released request %d failed: %v", tid, r.RID, err)
 			continue
 		}
 		target, _, extra, err := e.closeTell(e.DB, r.RID, row, why)
 		if err != nil {
-			e.log("  telling after T%d released #%d failed: %v", tid, r.RID, err)
+			e.log("  telling after T%d released request %d failed: %v", tid, r.RID, err)
 		}
-		line := fmt.Sprintf("#%d to %s retired", r.RID, target)
+		line := fmt.Sprintf("%s to %s retired", db.MsgName(e.DB, r.RID), target)
 		if len(extra) > 0 {
 			line += " (" + strings.Join(extra, "; ") + ")"
 		}
@@ -112,7 +112,7 @@ func (e *Env) Cancelled(tid int64, by, owner string, stop bool, closed []taskwri
 	for _, r := range closed {
 		row, err := db.GetRequest(e.DB, r.RID)
 		if err != nil || row == nil {
-			e.log("  telling after T%d was cancelled, #%d failed: %v", tid, r.RID, err)
+			e.log("  telling after T%d was cancelled, request %d failed: %v", tid, r.RID, err)
 			continue
 		}
 		verdict := r.Verdict
@@ -120,7 +120,7 @@ func (e *Env) Cancelled(tid int64, by, owner string, stop bool, closed []taskwri
 			verdict = CancelVerdict
 		}
 		if _, _, _, err := e.closeTell(e.DB, r.RID, row, verdict); err != nil {
-			e.log("  telling after T%d was cancelled, #%d failed: %v", tid, r.RID, err)
+			e.log("  telling after T%d was cancelled, request %d failed: %v", tid, r.RID, err)
 		}
 	}
 	if stop {
@@ -210,7 +210,7 @@ func (e *Env) HandoffRetire(tx *sql.Tx, rid int64, verdict string) (func(), erro
 	}
 	return func() {
 		if _, err := e.ResolveTell(e.DB, r); err != nil {
-			e.log("  telling after #%d was handed over failed: %v", rid, err)
+			e.log("  telling after request %d was handed over failed: %v", rid, err)
 		}
 	}, nil
 }

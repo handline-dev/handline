@@ -1531,6 +1531,9 @@ export type TaskView = {
   at: Timestamp;
 };
 
+/** A request named by its integer id, or by its ref: the 12 hex characters, with or without a leading #, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist. */
+export type RequestName = number | string;
+
 /** What the machine and each agent use, measured every 15 s: one ps read for every agent. A figure the daemon could not read is 0. */
 export type Resources = {
   /** When it was measured. */
@@ -1830,7 +1833,7 @@ export interface Methods {
   limit?: number;
 }; result: TranscriptEvents };
   "chat.locate": { params: {
-  request: number;
+  request: RequestName;
   /** Optional: the daemon finds the conversation from the message itself. */
   agent?: AgentName;
   /** Page size, default 50. */
@@ -1895,7 +1898,7 @@ export interface Methods {
     time_box?: Duration;
   };
   /** The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found. The message goes to agent whoever the parent's requester or target is, so a row relayed from another agent can be quoted in this agent's chat. request in the result is the new message. */
-  parent?: number;
+  parent?: RequestName;
   /** Images from attachment.put to send with this message, drawn after those the body names (x-attachments, flow); an id the body names too counts once, and the two together are at most 6 (bad_request, field attachments when the list goes over). Then body may be empty. An id may be sent again. A malformed id or an unfinished upload is bad_request, field attachments; an image never put or no longer kept is not_found, what attachment. Not with task (bad_request): a brief names its images in its text. */
   attachments?: AttachmentId[];
   /** A reply of the agent's own that this message answers: the `id` of an item of kind reply that chat.transcript lists for this agent (a structured session's text block, whose live event carries the same id as `item`, or the answer to a request). The agent's turn text has no message number, so it cannot be `parent`; the two do not go together, nor does this with task (bad_request, field parent_item). It may go with attachments. An id that is no item of this agent's transcript, or one of another agent's, is not_found (what: item); one that is not a reply (a tool call, a prompt, a task event, a session) is bad_request. */
@@ -1909,13 +1912,13 @@ export interface Methods {
   } };
   "chat.send_now": { params: {
   /** A ChatMessage.id still in state queued. */
-  request: number;
+  request: RequestName;
   request_id: RequestId;
 }; result: Accepted & {
     receipt?: Receipt;
   } };
   "chat.cancel": { params: {
-  request: number;
+  request: RequestName;
   /** Needed once the agent has been told the message. Without it the call is refused (gate confirm) and error data.plan holds what cancelling would do and who is told; send it again with confirm true to do it. */
   confirm?: boolean;
   request_id: RequestId;
@@ -2084,12 +2087,12 @@ export interface Methods {
     }[];
   } };
   "inbox.get": { params: {
-  id: number;
+  id: RequestName;
   /** Hold the call up to this many seconds until the request settles. Default 0, at most 600. */
   wait_s?: number;
 }; result: InboxItem };
   "request.read": { params: {
-  id: number;
+  id: RequestName;
   /** Hold the call up to this many seconds while the request is queued. Default 0, at most 600. */
   wait_s?: number;
 }; result: {
@@ -2116,7 +2119,7 @@ export interface Methods {
     parts?: (TextPart | ImagePart)[];
   } };
   "request.withdraw": { params: {
-  id: number;
+  id: RequestName;
   /** Why, kept with the withdrawal. Not empty when given. */
   reason?: string;
   request_id: RequestId;
@@ -2127,7 +2130,7 @@ export interface Methods {
     said: string;
   } };
   "request.cancel": { params: {
-  id: number;
+  id: RequestName;
   /** Change nothing: answer `plan`. */
   dry_run?: boolean;
   request_id: RequestId;
@@ -2152,11 +2155,11 @@ export interface Methods {
     said?: string;
   } };
   "inbox.mark_read": { params: {
-  ids: number[];
+  ids: RequestName[];
   request_id: RequestId;
 }; result: Accepted };
   "inbox.reply": { params: {
-  id: number;
+  id: RequestName;
   /** Markdown. It may name images (x-attachments, texts). */
   text: string;
   request_id: RequestId;
@@ -2263,7 +2266,7 @@ export interface Methods {
   /** A merge sha on main, or a reason in words. */
   evidence?: string;
   /** A request where the result was already reported. */
-  request?: number;
+  request?: RequestName;
   /** The repo whose main a sha is checked against. */
   repo?: string;
   /** Record evidence as words even if it looks like hex. */
@@ -2304,7 +2307,7 @@ export interface Methods {
   title: string;
   body?: string;
   /** The founder's message it answers. */
-  message: number;
+  message: RequestName;
   priority?: 1 | 2 | 3;
   expects?: Expects;
   /** What led to this, in a line; optional, since the linked message is the reason. */
@@ -2444,7 +2447,7 @@ export interface Methods {
   task?: number;
   /** Why this carries no task. */
   no_task?: string;
-  parent?: number;
+  parent?: RequestName;
   /** Absolute paths of images the message carries (ChatMessage.attachments): PNG, JPEG, GIF or WebP, at most 10 MiB each, at most 6. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file that is not an image, or an image whose first bytes do not match its ending is bad_request (field files); the message is not written. */
   files?: string[];
   request_id: RequestId;

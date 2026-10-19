@@ -141,16 +141,16 @@ func founderProof(tx *sql.Tx, t *task, mid int64) error {
 	err := tx.QueryRow("SELECT r.requester, r.ts FROM requests r WHERE r.id = ? AND EXISTS (SELECT 1 FROM task_requests l "+
 		"WHERE l.task_id = ? AND l.request_id IN (r.id, r.parent_id))", mid, t.ID).Scan(&from, &at)
 	if err == sql.ErrNoRows {
-		return refusal(fmt.Sprintf("message #%d is not tied to task T%d", mid, t.ID))
+		return refusal(fmt.Sprintf("%s is not tied to task T%d", db.MsgName(tx, mid), t.ID))
 	}
 	if err != nil {
 		return err
 	}
 	if from != human {
-		return refusal(fmt.Sprintf("message #%d is from %s, not the founder", mid, from))
+		return refusal(fmt.Sprintf("%s is from %s, not the founder", db.MsgName(tx, mid), from))
 	}
 	if at < t.ReportedAt.Int64 {
-		return refusal(fmt.Sprintf("message #%d was sent before T%d was answered", mid, t.ID))
+		return refusal(fmt.Sprintf("%s was sent before T%d was answered", db.MsgName(tx, mid), t.ID))
 	}
 	return nil
 }

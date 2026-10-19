@@ -34,13 +34,14 @@ func same(a, b any) bool {
 	return string(x) == string(y)
 }
 
-// withoutRefs is v without the requests' refs: they are random, and newer than the recorded rows.
+// withoutRefs is v without the requests' refs and the names made from them: they are random, and newer than the recorded rows.
 func withoutRefs(v any) any {
 	switch x := v.(type) {
 	case map[string]any:
 		out := map[string]any{}
+		_, named := x["ref"]
 		for k, e := range x {
-			if k != "ref" && k != "request_ref" {
+			if k != "ref" && k != "request_ref" && !(named && k == "name") {
 				out[k] = withoutRefs(e)
 			}
 		}
@@ -167,8 +168,8 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 				t.Errorf("a queued task nothing is out for says so: %v", goTask["mismatch"])
 			}
 		case "5":
-			if goTask["mismatch"] != "draft with work out (#51) - its opener has not queued it" {
-				t.Errorf("a draft with work out names the request: %v", goTask["mismatch"])
+			if goTask["mismatch"] != "draft with work out - its opener has not queued it" {
+				t.Errorf("a draft with work out says so, with no message id: %v", goTask["mismatch"])
 			}
 			if reqs, _ := goTask["requests"].([]any); len(reqs) != 2 {
 				t.Errorf("both linked requests, oldest first: %v", goTask["requests"])

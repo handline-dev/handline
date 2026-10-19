@@ -9,6 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/delivery"
 	"github.com/handline/handline/go/internal/gitrun"
+	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/taskresult"
 	"github.com/handline/handline/go/internal/team"
@@ -35,12 +36,8 @@ func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, ma
 			evidence = &s
 		}
 		var request *int64
-		if v := p["request"]; v != nil {
-			n, ok := rpc.AsInt(v)
-			if !ok {
-				return nil, badParam("request is a request number", "request")
-			}
-			request = &n
+		if p["request"] != nil {
+			request = new(int64) // resolved in the write's transaction
 		}
 		if (evidence == nil) == (request == nil) {
 			return nil, badParam("done takes exactly one of evidence or request", "evidence")
@@ -79,6 +76,16 @@ func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, ma
 		var done *DoneResult
 		var decided func()
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+			if request != nil {
+				var err error
+				*request, err = requestref.Resolve(tx, home, p["request"], requestref.Viewer(c), "request")
+				if name, missing := requestref.Missing(err); missing {
+					return nil, refusal("no request #" + name)
+				}
+				if err != nil {
+					return nil, err
+				}
+			}
 			in.Sha, in.Words, in.Request, in.Repo = sha, words, request, repo
 			if decide != nil && by == db.Human && words != "" && in.Commit == "" && len(in.Shots) == 0 {
 				handled, said, then, err := decide(tx, tid, words)
@@ -211,14 +218,14 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		var state string
 		switch err := tx.QueryRow("SELECT state FROM requests WHERE id = ?", *request).Scan(&state); {
 		case err == sql.ErrNoRows:
-			return nil, refusal(fmt.Sprintf("no request #%d", *request))
+			return nil, refusal("no such message")
 		case err != nil:
 			return nil, err
 		}
 		if state == "queued" {
-			return nil, refusal(fmt.Sprintf("request #%d is still queued - not answered yet", *request))
+			return nil, refusal(fmt.Sprintf("request %s is still queued - not answered yet", db.MsgName(tx, *request)))
 		}
-		mark, via = fmt.Sprintf("request #%d", *request), "request"
+		mark, via = fmt.Sprintf("request %s", db.MsgName(tx, *request)), "request"
 	default:
 		mark, via = words, "reason"
 	}

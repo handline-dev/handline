@@ -15,7 +15,7 @@ func TestAskQueuesWritesTheInboxFileAndTellsOnlyAfterTheCommit(t *testing.T) {
 	r.agentUp("bob")
 	out, err := r.Ask(r.DB, AskIn{Target: "bob", Body: "please look", Requester: "alice", Notify: false})
 	r.must(err)
-	if !out.OK || out.RID == 0 || !strings.HasPrefix(out.Message, "queued as #") || !strings.HasSuffix(out.Message, "for bob") {
+	if !out.OK || out.RID == 0 || !strings.HasPrefix(r.ids(out.Message), "queued as #") || !strings.HasSuffix(out.Message, "for bob") {
 		t.Fatalf("%+v", out)
 	}
 	if _, err := os.Stat(filepath.Join(r.home, "agents", "bob", "inbox", inboxName(out.RID))); err == nil {
@@ -78,14 +78,13 @@ func TestADeniedAskKeepsItsTextOnceAndSaysWhy(t *testing.T) {
 	}
 }
 
-
 func TestACycleInAChainIsRaisedToTheFounderButASayBackIsNot(t *testing.T) {
 	r := newRig(t)
 	first, _ := r.Ask(r.DB, AskIn{Target: "bob", Body: "start", Requester: "alice"})
 	out, err := r.Ask(r.DB, AskIn{Target: "alice", Body: "back to you", Requester: "bob", ParentID: first.RID, Kind: "ask"})
 	r.must(err)
-	if out.OK || !strings.Contains(out.Message, fmt.Sprintf("cycle: alice already asked bob in this chain (request #%d), and this would send it straight back", first.RID)) ||
-		!strings.Contains(out.Message, "Raised to the founder as #") {
+	if out.OK || !strings.Contains(r.ids(out.Message), fmt.Sprintf("cycle: alice already asked bob in this chain (request #%d), and this would send it straight back", first.RID)) ||
+		!strings.Contains(r.ids(out.Message), "Raised to the founder as #") {
 		t.Fatalf("%+v", out)
 	}
 	out.Finish()
