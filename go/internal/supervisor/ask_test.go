@@ -91,7 +91,7 @@ func TestACycleInAChainIsRaisedToTheFounderButASayBackIsNot(t *testing.T) {
 	if ids, _ := db.OpenDecisionCardIDs(r.DB, "bob", "[stopped] bob -> alice was stopped: cycle", nil); len(ids) != 1 {
 		t.Fatalf("the runaway is not on the founder's board: %v", ids)
 	}
-	if reply, _, err := r.Say(r.DB, SayIn{Target: "alice", Body: "back to you", Requester: "bob", ParentID: first.RID}); err != nil || !reply.OK {
+	if reply, err := r.Say(r.DB, SayIn{Target: "alice", Body: "back to you", Requester: "bob", ParentID: first.RID}); err != nil || !reply.OK {
 		t.Fatalf("a say back is the ordinary shape: %+v %v", reply, err)
 	}
 }
@@ -109,10 +109,10 @@ func TestTheDecisionRaisedForARunawayIsOneCardPerShape(t *testing.T) {
 		t.Fatal("a different text shares a card")
 	}
 	card, _ := db.GetRequest(r.DB, a)
-	if card.Target != "human" || card.Kind.String != "task" || card.Response.Valid {
+	if card.Target != "human" || card.Kind.String != "task" {
 		t.Fatalf("%+v", card)
 	}
-	tid, _ := db.DecisionTaskOfCard(r.DB, a)
+	tid, _ := db.TaskOfCard(r.DB, a)
 	task, _ := db.GetTask(r.DB, tid)
 	if task.Owner != "human" || task.OpenedBy != "alice" || task.Title != "need a call" || task.Expects.String != "decision" || task.QueuedBy.String != "human" {
 		t.Fatalf("%+v", task)
@@ -140,31 +140,29 @@ func TestAnAskToTheFounderOpensADecisionTask(t *testing.T) {
 	if !out.OK {
 		t.Fatal(out.Message)
 	}
-	tid, _ := db.DecisionTaskOfCard(r.DB, out.RID)
+	tid, _ := db.TaskOfCard(r.DB, out.RID)
 	if tid == 0 {
 		t.Fatal("no decision task")
 	}
 	// task new says NoCard and opens its own
 	out2, _ := r.Ask(r.DB, AskIn{Target: "human", Body: "other", Requester: "alice", NoCard: true})
-	if tid, _ := db.DecisionTaskOfCard(r.DB, out2.RID); tid != 0 {
+	if tid, _ := db.TaskOfCard(r.DB, out2.RID); tid != 0 {
 		t.Fatal("NoCard still opened a task")
 	}
 }
 
-func TestSayRepliesSettleTheQuestionInTheSameWrite(t *testing.T) {
+func TestASayReplyLinksIntoTheThreadAndClosesNothing(t *testing.T) {
 	r := newRig(t)
 	q, _ := r.Ask(r.DB, AskIn{Target: "bob", Body: "what time?", Requester: "alice"})
-	out, settled, err := r.Say(r.DB, SayIn{Target: "alice", Body: "noon", Requester: "bob", ParentID: q.RID})
+	out, err := r.Say(r.DB, SayIn{Target: "alice", Body: "noon", Requester: "bob", ParentID: q.RID})
 	r.must(err)
-	if !out.OK || settled == nil {
-		t.Fatalf("%+v %+v", out, settled)
+	if !out.OK {
+		t.Fatal(out.Message)
 	}
-	question, _ := db.GetRequest(r.DB, q.RID)
-	if question.State != "landed" || question.Answer.String != "noon" {
-		t.Fatalf("%+v", question)
+	if question, _ := db.GetRequest(r.DB, q.RID); question.State != "queued" {
+		t.Fatalf("a reply settles nothing: %+v", question)
 	}
-	ans, _ := db.AnswerRowOf(r.DB, q.RID)
-	if ans == nil || ans.ID != out.RID || ans.Settles.Int64 != q.RID || ans.State != "queued" {
-		t.Fatalf("the reply is the answer, still to be told: %+v", ans)
+	if reply, _ := db.GetRequest(r.DB, out.RID); reply.ParentID.Int64 != q.RID || reply.Kind.String != "say" {
+		t.Fatalf("the reply is a say in the question's thread: %+v", reply)
 	}
 }

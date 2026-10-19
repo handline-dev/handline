@@ -366,7 +366,7 @@ func taskList(ids []int64) string {
 // discard calling this ends it.
 func cancelRequest(tx *sql.Tx, r linked, by, verdict string) (*Retired, error) {
 	if r.Requester == by && !r.DeliveredAt.Valid {
-		ok, err := db.RetireIfUndelivered(tx, r.ID, "withdrawn", "", true)
+		ok, err := db.RetireIfUndelivered(tx, r.ID, "withdrawn", "")
 		if err != nil || !ok {
 			return nil, err
 		}
@@ -375,8 +375,7 @@ func cancelRequest(tx *sql.Tx, r linked, by, verdict string) (*Retired, error) {
 		}
 		return &Retired{}, nil
 	}
-	notify := r.Requester != by
-	ok, err := db.CloseIfQueued(tx, r.ID, "rejected", verdict, db.CloseOpts{Announced: !notify, NoSettle: true})
+	ok, err := db.CloseIfQueued(tx, r.ID, "rejected", verdict)
 	if err != nil || !ok {
 		return nil, err
 	}
@@ -386,5 +385,5 @@ func cancelRequest(tx *sql.Tx, r linked, by, verdict string) (*Retired, error) {
 	if err := addEvent(tx, by, "cancel", kv{"request_id", r.ID}, kv{"target", r.Target}, kv{"requester", r.Requester}, kv{"delivered", r.DeliveredAt.Valid}); err != nil {
 		return nil, err
 	}
-	return &Retired{RID: r.ID, Requester: r.Requester, Target: r.Target, Delivered: r.DeliveredAt.Valid, Notify: notify, Verdict: verdict}, nil
+	return &Retired{RID: r.ID, Requester: r.Requester, Target: r.Target, Delivered: r.DeliveredAt.Valid, Verdict: verdict}, nil
 }

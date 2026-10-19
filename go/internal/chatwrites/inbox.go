@@ -5,23 +5,21 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
-// inbox.mark_read, inbox.answer and inbox.reply (handline/daemon/rpc_inbox.py): the writes beside inbox.list.
+// inbox.mark_read and inbox.reply (handline/daemon/rpc_inbox.py): the writes beside inbox.list.
 
 const maxIDs = 200
 
-// mailRow is one row of the person's mailbox as the writes need it (actions.mailbox_rows): who it is from, what a chat's mark is compared
-// with, and whether it is a decision or a reply owed.
+// mailRow is one row of the person's mailbox as the writes need it (actions.mailbox_rows): who it is from and whether it is a decision.
 type mailRow struct {
-	id, seq       int64
-	from          string
-	gate, waiting bool
+	id   int64
+	from string
+	gate bool
 }
 
 func mailbox(q db.Q) ([]mailRow, error) {
@@ -33,40 +31,22 @@ func mailbox(q db.Q) ([]mailRow, error) {
 	for _, g := range gates {
 		isGate[g] = true
 	}
-	rows, err := q.Query("SELECT id, requester, kind, response FROM requests WHERE target = ? AND (state = 'queued' OR "+
-		"(kind = 'say' AND state = 'landed' AND landed_at IS NOT NULL AND read_at IS NULL AND settles IS NULL)) ORDER BY id", db.Human)
+	rows, err := q.Query("SELECT id, requester FROM requests WHERE target = ? AND (state = 'queued' OR "+
+		"(kind = 'say' AND state = 'landed' AND landed_at IS NOT NULL AND read_at IS NULL)) ORDER BY id", db.Human)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	var out []mailRow
 	for rows.Next() {
 		var id int64
 		var requester string
-		var kind, response sql.NullString
-		if err := rows.Scan(&id, &requester, &kind, &response); err != nil {
-			rows.Close()
+		if err := rows.Scan(&id, &requester); err != nil {
 			return nil, err
 		}
-		out = append(out, mailRow{id: id, seq: id, from: requester, gate: isGate[id], waiting: response.String == "async" && kind.String != "say"})
+		out = append(out, mailRow{id: id, from: requester, gate: isGate[id]})
 	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	answers, err := db.UnannouncedAnswers(q, db.Human)
-	if err != nil {
-		return nil, err
-	}
-	for _, r := range answers {
-		seq := r.ID
-		if a, err := db.AnswerRowOf(q, r.ID); err != nil {
-			return nil, err
-		} else if a != nil {
-			seq = a.ID
-		}
-		out = append(out, mailRow{id: r.ID, seq: seq, from: r.Target})
-	}
-	return out, nil
+	return out, rows.Err()
 }
 
 func noItem(i int64) *rpc.Error {
@@ -166,7 +146,7 @@ func (w *writes) markRead(c *rpc.Conn, p map[string]any) (any, error) {
 				if err != nil {
 					return nil, err
 				}
-				if m.seq > cur {
+				if m.id > cur {
 					unseen[m.id] = m
 					byAgent[m.from] = append(byAgent[m.from], m)
 				}
@@ -188,23 +168,23 @@ func (w *writes) markRead(c *rpc.Conn, p map[string]any) (any, error) {
 			for _, a := range agents {
 				var upto int64
 				for _, i := range inBox {
-					if box[i].from == a && box[i].seq > upto {
-						upto = box[i].seq
+					if box[i].from == a && box[i].id > upto {
+						upto = box[i].id
 					}
 				}
 				owed := int64(0)
 				for _, m := range byAgent[a] {
-					if (m.gate || m.waiting) && (owed == 0 || m.seq < owed) {
-						owed = m.seq
+					if m.gate && (owed == 0 || m.id < owed) {
+						owed = m.id
 					}
 				}
 				var top int64
 				n := 0
 				for _, m := range byAgent[a] {
-					if m.seq <= upto && !(m.gate || m.waiting) && (owed == 0 || m.seq < owed) {
+					if m.id <= upto && !m.gate && (owed == 0 || m.id < owed) {
 						n++
-						if m.seq > top {
-							top = m.seq
+						if m.id > top {
+							top = m.id
 						}
 					}
 				}
@@ -216,7 +196,7 @@ func (w *writes) markRead(c *rpc.Conn, p map[string]any) (any, error) {
 			if read == 0 {
 				for _, i := range inBox {
 					if _, in := unseen[i]; in {
-						return nil, rpc.Refused("a decision or a reply owed is answered, never read away", "state", "")
+						return nil, rpc.Refused("a decision is closed with task.done, never read away", "state", "")
 					}
 				}
 			}
@@ -236,45 +216,6 @@ func (w *writes) markRead(c *rpc.Conn, p map[string]any) (any, error) {
 			}
 		}
 		return map[string]any{"accepted": true, "said": said}, nil
-	})
-}
-
-func (w *writes) inboxAnswer(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := w.refParam(w.e.DB, c, p, "id", noItemNamed)
-	if err != nil {
-		return nil, err
-	}
-	option, text := p["option"], p["text"]
-	if (option == nil) == (text == nil) {
-		return nil, badParam("an answer is an option or text, one of them", "text")
-	}
-	if option != nil {
-		return nil, badParam("no item offers options yet: answer with text", "option")
-	}
-	body, err := inboxText(p, "text")
-	if err != nil {
-		return nil, err
-	}
-	gone := func(r *Result) error {
-		if strings.HasSuffix(r.Msg, "is gone") {
-			return noItem(rid)
-		}
-		return refuse(r)
-	}
-	return w.writeResult(c, gone, func(tx *sql.Tx) (*Result, map[string]any, error) {
-		rows, err := mailbox(tx)
-		if err != nil {
-			return nil, nil, err
-		}
-		in := false
-		for _, m := range rows {
-			in = in || m.id == rid
-		}
-		if !in {
-			return nil, nil, noItem(rid)
-		}
-		res, err := AnswerWrite(w.e, w.tell, tx, rid, body, nil)
-		return res, nil, err
 	})
 }
 
@@ -306,23 +247,17 @@ func (w *writes) inboxReply(c *rpc.Conn, p map[string]any) (any, error) {
 			if err != nil {
 				return nil, nil, err
 			}
-			found := false
-			for _, m := range rows {
-				if m.id == rid {
-					found, target = true, m.from
+			var found *mailRow
+			for i := range rows {
+				if rows[i].id == rid {
+					found, target = &rows[i], rows[i].from
 				}
 			}
-			if !found || row == nil {
+			if found == nil || row == nil {
 				return nil, nil, noItem(rid)
 			}
-			if row.State == "queued" && row.Target == db.Human {
-				tid, err := db.DecisionTaskOfCard(tx, rid)
-				if err != nil {
-					return nil, nil, err
-				}
-				if tid != 0 {
-					return nil, nil, rpc.Refused("a decision is a task: close it with task.done, not a reply", "state", "")
-				}
+			if found.gate {
+				return nil, nil, rpc.Refused("a decision is a task: close it with task.done, not a reply", "state", "")
 			}
 		}
 		if _, err := w.images.CheckMessage(tx, body, "text", nil, c.Caller.Role == "agent"); err != nil {

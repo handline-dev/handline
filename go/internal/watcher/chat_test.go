@@ -80,23 +80,19 @@ func TestAChangedRequestIsOneChatMessageToEachAgentOfItAndNotToTheFounder(t *tes
 	wantTypes(t, r.types(), "chat.message:bob", "chat.message:amy", "chat.message:bob", "chat.message:amy")
 }
 
-func TestAnAnswerToTheFoundersMessageIsAMessageAndAReplyItem(t *testing.T) {
+func TestAReplyToTheFoundersMessageIsAMessageOfItsOwn(t *testing.T) {
 	r := newChatRig(t)
 	c := r.chat()
 	r.scan(c)
 	exec(t, r.d, "INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(1, 100, 'human', 'bob', 'q', 'landed', 'say')")
 	r.scan(c)
 	wantTypes(t, r.types(), "chat.message:bob")
-	exec(t, r.d, "INSERT INTO requests(id, ts, requester, target, body, state, kind, settles) VALUES(2, 150, 'bob', 'human', 'the answer', 'landed', 'say', 1)")
+	exec(t, r.d, "INSERT INTO requests(id, ts, requester, target, body, state, kind, parent_id) VALUES(2, 150, 'bob', 'human', 'the answer', 'landed', 'say', 1)")
 	r.scan(c)
-	got := r.types()
-	if len(got) < 2 || got[1] != "chat.message:bob" {
-		t.Fatalf("the settled request is said again: %v", got)
-	}
-	for _, e := range r.rows()[2:] {
-		if e.Type != "chat.transcript" || *e.Agent != "bob" {
-			t.Fatalf("%v", got)
-		}
+	wantTypes(t, r.types(), "chat.message:bob", "chat.message:bob")
+	var m map[string]any
+	if json.Unmarshal(r.rows()[1].Data, &m) != nil || m["id"] != float64(2) || m["parent"] != float64(1) {
+		t.Fatalf("%s", r.rows()[1].Data)
 	}
 }
 

@@ -374,10 +374,6 @@ func (e *Env) blockers(tid int64) ([]row, error) {
 
 // taskOf is the spec's Task: the row as the board shows it, without its body.
 func (e *Env) taskOf(t row, state string, b *board) (map[string]any, error) {
-	first, err := e.firstRequest(t.i("id"))
-	if err != nil {
-		return nil, err
-	}
 	waits, err := query(e.DB, "SELECT b.blocks_on AS task, b.created_at, t.discarded_by IS NULL AND t.done_evidence IS NULL AS open "+
 		"FROM task_blocks b JOIN tasks t ON t.id = b.blocks_on WHERE b.task_id = ? AND b.dormant = 0 ORDER BY b.created_at, b.blocks_on", t.i("id"))
 	if err != nil {
@@ -396,8 +392,7 @@ func (e *Env) taskOf(t row, state string, b *board) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	reqs, err := query(e.DB, "SELECT r.*, MAX(COALESCE(r.ts, 0), COALESCE(r.state_at, 0), "+
-		"COALESCE((SELECT MAX(a.ts) FROM requests a WHERE a.settles = r.id), 0)) AS touched "+
+	reqs, err := query(e.DB, "SELECT r.*, MAX(COALESCE(r.ts, 0), COALESCE(r.state_at, 0)) AS touched "+
 		"FROM requests r JOIN task_requests l ON l.request_id = r.id WHERE l.task_id = ? ORDER BY r.id", t.i("id"))
 	if err != nil {
 		return nil, err
@@ -429,8 +424,7 @@ func (e *Env) taskOf(t row, state string, b *board) (map[string]any, error) {
 	}
 	task := map[string]any{
 		"blocked_by": blockedBy, "waits": waitList, "waiting": waitingOut, "time": clock, "status": st.Map(),
-		"asker": asker, "id": t.i("id"), "from": t.str("opened_by"), "to": t.str("owner"), "title": t.str("title"), "state": state,
-		"relation": first.str("relation"), "response": first.str("response"), "time_box": nil,
+		"asker": asker, "id": t.i("id"), "from": t.str("opened_by"), "to": t.str("owner"), "title": t.str("title"), "state": state, "time_box": nil,
 		"parent": t.intOrNil("parent_task"), "created": ts(t["created_at"]), "delivered": ts(t["delivered_at"]),
 		"done": ts(t["done_at"]), "priority": t.i("priority"), "hold_reason": hold, "block_reason": nil, "evidence": t.strOrNil("done_evidence"),
 	}

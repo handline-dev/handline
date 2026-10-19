@@ -106,8 +106,8 @@ func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, ah
 }
 
 // WaitingPrompt is the message waiting for a parked agent, as the first prompt of the session that resumes or restarts it, and what to record
-// once that session is up (told, called with the session id, "" for a fresh one; q must stay usable until then); ok false when nothing waits. It is the tell DeliverQueued and DeliverAnswers would type
-// on the next tick. Marked delivered here, before the launch, for the reason tellBatch is.
+// once that session is up (told, called with the session id, "" for a fresh one; q must stay usable until then); ok false when nothing waits.
+// It is the tell DeliverQueued would type on the next tick. Marked delivered here, before the launch, for the reason tellBatch is.
 func (e *Env) WaitingPrompt(q db.Q, agent string) (text string, told func(session string) error, ok bool, err error) {
 	defer Catch(&err)
 	if edges, err := e.EnforceEdges(q, agent); !edges || err != nil {
@@ -132,47 +132,12 @@ func (e *Env) WaitingPrompt(q db.Q, agent string) (text string, told func(sessio
 			return nil
 		}, true, nil
 	}
-	if answered := must(db.UnannouncedAnswers(q, agent)); len(answered) > 0 {
-		return AnswersText(q, answered), func(string) (err error) { defer Catch(&err); e.recordAnswers(q, agent, answered); return nil }, true, nil
-	}
-	// A pending message is the same kind of "owed" as a head or an answer. Typed as-is, not wrapped like a request's tell.
+	// A pending message is the same kind of "owed" as a head. Typed as-is, not wrapped like a request's tell.
 	if pending := must(db.ListPending(q, agent)); len(pending) > 0 {
 		row := pending[0]
 		return row.Text, func(string) (err error) { defer Catch(&err); return db.DeletePending(q, row.ID) }, true, nil
 	}
 	return "", nil, false, nil
-}
-
-func (e *Env) recordAnswers(q db.Q, agent string, answered []*db.Request) {
-	check(db.MarkAnnounced(q, requestIDs(answered)))
-	must(db.AddEvent(q, agent, "answered", db.KV{K: "count", V: len(answered)}))
-	e.log("  %s: told about %d answer(s)", agent, len(answered))
-}
-
-// DeliverAnswers tells an agent what came back from something it asked. Told once, and marked on the row: two answers can come back in
-// either order, and a high-water mark then loses the older one for good.
-func (e *Env) DeliverAnswers(q db.Q, agent string) (sent bool, err error) {
-	defer Catch(&err)
-	answered := must(db.UnannouncedAnswers(q, agent))
-	if len(answered) == 0 {
-		return false, nil
-	}
-	if !e.structuredAgent(agent) {
-		return false, nil // stays unannounced; told when it has a session
-	}
-	// The same answers are the same operation; held behind a running turn. They are announced once they are out: a held one is
-	// announced by the echo, and owed again if the session ends first.
-	answered = e.notHeld(q, agent, answered)
-	if len(answered) == 0 {
-		return false, nil
-	}
-	ids := requestIDs(answered)
-	state, _ := e.sendOnce(q, agent, answersOp(ids), AnswersText(q, answered), delivery.Queue)
-	if state == NotSent || state == Held {
-		return false, nil
-	}
-	e.recordAnswers(q, agent, answered)
-	return true, nil
 }
 
 // NotifyCancelled tells an agent that a request it was handed has been closed under it, with delivery's gates; (told, why not).

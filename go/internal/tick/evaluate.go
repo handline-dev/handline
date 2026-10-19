@@ -275,14 +275,12 @@ func (t *Tick) supervise(agent string, now int64, samples map[string][]Sample, a
 	atWall := t.Usage.AtLimit(q, agent)
 	openIdle := state != states.Running && state != states.Handoff && !wokeNow && atWall == nil && !closedAt(row)
 	if openIdle {
-		// An answer first: an agent that asked something and parked is waiting on that.
 		closed := t.Lifecycle.ColdBeforeSend(q, agent, row, now, st)
 		if closed != nil && *closed {
 			*actions = append(*actions, fmt.Sprintf("%s: cache expired; session closed, the wake delivers", agent))
 			row = must(db.GetAgentState(q, agent))
 		}
 		if closed == nil {
-			t.Delivery.DeliverAnswers(q, agent)
 			// A task told past an idle head starts a turn: the nudge about that head waits.
 			if !t.Delivery.DeliverQueued(q, agent) {
 				t.Delivery.NudgeForgottenResolve(q, agent, row, now)

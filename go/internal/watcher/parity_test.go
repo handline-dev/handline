@@ -211,7 +211,7 @@ func TestGoAndPythonWriteTheSameRowsForTheSameAgentChanges(t *testing.T) {
 }
 
 func TestGoAndPythonWriteTheSameRowsForTheSameChatChanges(t *testing.T) {
-	ins := "INSERT INTO requests(id, ts, requester, target, body, state, kind, settles) VALUES(?, ?, ?, ?, ?, ?, 'say', ?)"
+	ins := "INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(?, ?, ?, ?, ?, ?, 'say')"
 	pb := "INSERT INTO prompt_blocks(agent, kind, fingerprint, title, panel, detail, answerable, first_seen, last_seen) VALUES(?, 'question', 'f', 't', '[]', '{}', 1, ?, ?)"
 	py, events := parity(t, func(d *sql.DB) Detector { return &Chat{Reads: &reads.Env{DB: d}} },
 		func(run func(string, ...any)) {
@@ -220,9 +220,9 @@ func TestGoAndPythonWriteTheSameRowsForTheSameChatChanges(t *testing.T) {
 			run(pb, "amy", 1, 1)
 		},
 		func(run func(string, ...any)) {
-			run(ins, 1, 100, "human", "bob", "question", "landed", nil)
-			run(ins, 2, 150, "bob", "human", "the answer", "landed", 1)
-			run(ins, 3, 200, "amy", "bob", "hello", "landed", nil)
+			run(ins, 1, 100, "human", "bob", "question", "landed")
+			run(ins, 2, 150, "bob", "human", "the answer", "landed")
+			run(ins, 3, 200, "amy", "bob", "hello", "landed")
 			run("INSERT INTO events(ts, agent, kind, payload) VALUES(5, 'bob', 'task_begin', '{\"task_id\":1}')")
 			run(pb, "bob", 6, 6)
 			run("UPDATE prompt_blocks SET gone_at = 9 WHERE id = 1")

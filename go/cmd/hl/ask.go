@@ -221,8 +221,6 @@ func humanInbox(got map[string]any, showAll bool) int {
 		mark := "."
 		if m["decision"] == true {
 			mark = "!"
-		} else if m["answer"] != nil && m["answer"] != false {
-			mark = "<"
 		}
 		behind := ""
 		if u := anum(m["unread"]); u > 1 {
@@ -230,7 +228,7 @@ func humanInbox(got map[string]any, showAll bool) int {
 		}
 		fmt.Printf("%s %-12s %s %s %s%s\n", mark, text(m["name"]), pad(text(m["from"]), 12), pad(text(m["kind"]), 9), textsafe.Oneline(text(m["line"])), behind)
 	}
-	fmt.Println("`hl say <who> --parent <id> \"<text>\"` replies to one, and on a `<` row it goes back in that thread.")
+	fmt.Println("`hl say <who> --parent <id> \"<text>\"` replies to one, in its thread.")
 	if showAll {
 		dealt := rows(got["dealt"])
 		fmt.Printf("\n%d most recent, already dealt with:\n", len(dealt))

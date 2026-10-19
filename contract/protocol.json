@@ -61,7 +61,6 @@
   "message": null,
   "say": "say",
   "push": null,
-  "push_answer": null,
   "notify_cancelled": null,
   "wake": "session.wake",
   "close": "session.stop{mode:close}",

@@ -9,65 +9,33 @@ import (
 )
 
 const (
-	maxWaitS      = 600
-	pollEvery     = 500 * time.Millisecond
-	legacyDismiss = "read - no reply"
-	cancelVerdict = "withdrawn by the founder"
+	maxWaitS  = 600
+	pollEvery = 500 * time.Millisecond
 )
 
-// closingSQL and answerSQL: what a request closed with, as text: the say that answered it, else the reason it closed
-// without one (db/requests.py CLOSING_SQL, ANSWER_SQL).
-const (
-	reasonEvent = "FROM events e WHERE e.kind = 'request_reason' AND " +
-		"CASE WHEN json_valid(e.payload) THEN json_extract(e.payload, '$.request_id') END = requests.id"
-	closingSQL = "COALESCE((SELECT a.body FROM requests a WHERE a.settles = requests.id ORDER BY a.id LIMIT 1), " +
-		"(SELECT json_extract(e.payload, '$.reason') " + reasonEvent + " ORDER BY e.id DESC LIMIT 1))"
-	answerSQL = closingSQL + " AS answer, (SELECT a.ts FROM requests a WHERE a.settles = requests.id ORDER BY a.id LIMIT 1) AS answered_at"
-
-	dismissedEvent = "FROM events e WHERE e.kind = 'dismissed' AND " +
-		"CASE WHEN json_valid(e.payload) THEN json_extract(e.payload, '$.request_id') END = requests.id"
-	dismissedSQL = "(SELECT json_extract(e.payload, '$.by') " + dismissedEvent + " ORDER BY e.id DESC LIMIT 1) AS dismisser, " +
-		"(SELECT json_extract(e.payload, '$.reason') " + dismissedEvent + " ORDER BY e.id DESC LIMIT 1) AS dismiss_reason"
-)
+// reasonSQL is what a request closed with, as text, read as its answer (db/requests.go reasonSQL): the last reason recorded for it.
+const reasonSQL = "(SELECT json_extract(e.payload, '$.reason') FROM events e WHERE e.kind = 'request_reason' AND " +
+	"CASE WHEN json_valid(e.payload) THEN json_extract(e.payload, '$.request_id') END = requests.id ORDER BY e.id DESC LIMIT 1) AS answer"
 
 // shownVerdict is what a screen may print as a request's answer (db.shown_verdict).
 func shownVerdict(r row) (string, bool) {
 	text, has := r["answer"].(string)
-	by, reason := r.str("dismisser"), r.str("dismiss_reason")
-	switch {
-	case by != "":
-	case has && text == legacyDismiss:
-		by, reason = "", ""
-	case has && strings.HasPrefix(text, legacyDismiss+": "):
-		by, reason = "", text[len(legacyDismiss)+2:]
-	default:
-		return text, has
-	}
-	out := "dismissed"
-	if by != "" {
-		out += " by " + by
-	}
-	if reason != "" {
-		out += " - " + reason
-	}
-	return out, true
+	return text, has
 }
 
-// mailbox is one row of the founder's mailbox: a request that waits for them, or an answer to one of theirs.
+// mailbox is one row of the founder's mailbox: a request that waits for them. gate is a decision: the card of a task the founder owns.
 type mailbox struct {
-	id        int64
-	ts        int64
-	ref       string
-	from      string
-	kind      string
-	body      string
-	seq       int64
-	gate, ans bool
-	waiting   bool // its sender asked for a reply and parked on it
+	id   int64
+	ts   int64
+	ref  string
+	from string
+	kind string
+	body string
+	gate bool
 }
 
-// founderOpen is a request to the founder still in their inbox: not yet dealt with, or a say not yet read or answered.
-const founderOpen = "(state = 'queued' OR (kind = 'say' AND state = 'landed' AND landed_at IS NOT NULL AND read_at IS NULL AND settles IS NULL))"
+// founderOpen is a request to the founder still in their inbox: not yet dealt with, or a say not yet read.
+const founderOpen = "(state = 'queued' OR (kind = 'say' AND state = 'landed' AND landed_at IS NOT NULL AND read_at IS NULL))"
 
 func (e *Env) mailboxRows() ([]mailbox, error) {
 	gateRows, err := query(e.DB, "SELECT id FROM requests WHERE target = ? AND state = 'queued' AND id IN "+
@@ -80,44 +48,14 @@ func (e *Env) mailboxRows() ([]mailbox, error) {
 	for _, g := range gateRows {
 		gates[g.i("id")] = true
 	}
-	rows, err := query(e.DB, "SELECT id, ref, ts, requester, kind, response, body FROM requests WHERE target = ? AND "+founderOpen+" ORDER BY id", human)
+	rows, err := query(e.DB, "SELECT id, ref, ts, requester, kind, body FROM requests WHERE target = ? AND "+founderOpen+" ORDER BY id", human)
 	if err != nil {
 		return nil, err
 	}
 	var out []mailbox
 	for _, r := range rows {
 		out = append(out, mailbox{id: r.i("id"), ref: r.str("ref"), ts: r.i("ts"), from: r.str("requester"), kind: r.str("kind"),
-			body: r.str("body"), seq: r.i("id"), gate: gates[r.i("id")], waiting: r.str("response") == "async" && r.str("kind") != "say"})
-	}
-	answers, err := query(e.DB, "SELECT id, ref, ts, state_at, target, kind, state, body, parent_id, chain_id, "+dismissedSQL+", "+answerSQL+
-		" FROM requests WHERE requester = ? AND state IN ('landed', 'withdrawn') AND EXISTS (SELECT 1 FROM requests a "+
-		"WHERE a.settles = requests.id AND a.state = 'landed' AND a.delivered_at IS NULL) ORDER BY id", human)
-	if err != nil {
-		return nil, err
-	}
-	for _, r := range answers {
-		verdict, has := shownVerdict(r)
-		kind := "answer"
-		if r.str("state") == "withdrawn" || (has && verdict == cancelVerdict) {
-			kind = "refused"
-		}
-		at := r["answered_at"]
-		if r.i("answered_at") == 0 {
-			at = r["state_at"]
-			if r.i("state_at") == 0 {
-				at = r["ts"]
-			}
-		}
-		if !has || verdict == "" {
-			verdict = "(answered with nothing written)"
-		}
-		seq := r.i("id")
-		if a, err := queryOne(e.DB, "SELECT id FROM requests WHERE settles = ? ORDER BY id LIMIT 1", r.i("id")); err != nil {
-			return nil, err
-		} else if a != nil {
-			seq = a.i("id")
-		}
-		out = append(out, mailbox{id: r.i("id"), ref: r.str("ref"), ts: num(at), from: r.str("target"), kind: kind, body: verdict, seq: seq, ans: true})
+			body: r.str("body"), gate: gates[r.i("id")]})
 	}
 	return out, nil
 }
@@ -132,7 +70,7 @@ func firstLine(text string) string {
 	return "(empty)"
 }
 
-func (e *Env) item(id int64, ref, kind, agent, body string, at int64, read, answered bool) (map[string]any, error) {
+func (e *Env) item(id int64, ref, kind, agent, body string, at int64, read bool) (map[string]any, error) {
 	tasks, err := query(e.DB, "SELECT t.* FROM tasks t JOIN task_requests l ON l.task_id = t.id WHERE l.request_id = ? ORDER BY t.id", id)
 	if err != nil {
 		return nil, err
@@ -148,8 +86,7 @@ func (e *Env) item(id int64, ref, kind, agent, body string, at int64, read, answ
 		return nil, err
 	}
 	out := map[string]any{"id": id, "ref": ref, "kind": kind, "agent": agent, "title": head(firstLine(body), 200), "body": body,
-		"evidence": evidence, "task": task, "created": ts(at), "read": read, "answered": answered,
-		"options": []any{}, "prompt": nil}
+		"evidence": evidence, "task": task, "created": ts(at), "read": read, "prompt": nil}
 	if fix.set("fix") {
 		out["fix"] = fix["fix"]
 	}
@@ -186,7 +123,7 @@ func (e *Env) FounderItems(since int64) ([]map[string]any, error) {
 		} else if kind == "" {
 			kind = "ask"
 		}
-		it, err := e.item(m.id, m.ref, kind, m.from, m.body, m.ts, m.seq <= cursor, false)
+		it, err := e.item(m.id, m.ref, kind, m.from, m.body, m.ts, m.id <= cursor)
 		if err != nil {
 			return nil, err
 		}
@@ -204,7 +141,7 @@ func (e *Env) AgentItems(agent string, only int64) ([]map[string]any, error) {
 	if only != 0 {
 		which, args = "AND id = ? ", append(args, only)
 	}
-	rows, err := query(e.DB, "SELECT id, ref, ts, requester, kind, body, read_at, state, "+answerSQL+" FROM requests "+
+	rows, err := query(e.DB, "SELECT id, ref, ts, requester, kind, body, read_at, state FROM requests "+
 		"WHERE target = ? "+which+"AND edge_ok AND COALESCE(notice, 0) = 0 ORDER BY id", args...)
 	if err != nil {
 		return nil, err
@@ -216,22 +153,13 @@ func (e *Env) AgentItems(agent string, only int64) ([]map[string]any, error) {
 			kind = "ask"
 		}
 		it, err := e.item(r.i("id"), r.str("ref"), kind, r.str("requester"), r.str("body"), r.i("ts"),
-			r.set("read_at") || r.str("state") != "queued", r.set("answer"))
+			r.set("read_at") || r.str("state") != "queued")
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, it)
 	}
 	return out, nil
-}
-
-// Answered is whether the request has been answered, by the rule an agent's item gives: something closed it with words.
-func (e *Env) Answered(id int64) (bool, error) {
-	r, err := queryOne(e.DB, "SELECT "+answerSQL+" FROM requests WHERE id = ?", id)
-	if err != nil || r == nil {
-		return false, err
-	}
-	return r.set("answer"), nil
 }
 
 func (e *Env) inboxPage(c *rpc.Conn, params map[string]any) (map[string]any, error) {

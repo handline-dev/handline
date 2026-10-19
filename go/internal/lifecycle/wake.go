@@ -132,18 +132,9 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	}
 	repo := m.Agents.RepoOf(agent)
 	if repo == "" {
-		asked := len(must(db.QueuedFor(m.Q, agent)))
-		answers := len(must(db.UnannouncedAnswers(m.Q, agent)))
-		var what []string
-		if asked > 0 {
-			what = append(what, fmt.Sprintf("%d request(s)", asked))
-		}
-		if answers > 0 {
-			what = append(what, fmt.Sprintf("%d answer(s)", answers))
-		}
-		w := strings.Join(what, ", ")
-		if w == "" {
-			w = "work"
+		w := "work"
+		if asked := len(must(db.QueuedFor(m.Q, agent))); asked > 0 {
+			w = fmt.Sprintf("%d request(s)", asked)
 		}
 		return fmt.Sprintf("%s: %s waiting and it has no terminal - set `repo:` in its agent.yaml, or start it by hand (t)", agent, w), nil
 	}

@@ -23,7 +23,7 @@ func supervise(tk *Tick, agent string) []string {
 
 func addRequest(t *testing.T, tk *Tick, target string) {
 	t.Helper()
-	if _, err := db.AddRequest(tk.Q, db.NewRequest{Requester: "human", Target: target, Body: "x", Response: "async", Kind: "ask"}); err != nil {
+	if _, err := db.AddRequest(tk.Q, db.NewRequest{Requester: "human", Target: target, Body: "x", Kind: "ask"}); err != nil {
 		t.Fatal(err)
 	}
 }

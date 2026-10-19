@@ -162,20 +162,11 @@ func TestEveryWriterChangesItsRow(t *testing.T) {
 		t.Fatal("still delivered")
 	}
 	ClearEdge(q, rid)
-	if ok, _ := RetireIfUndelivered(q, rid, "withdrawn", "taken back", false); !ok {
+	if ok, _ := RetireIfUndelivered(q, rid, "withdrawn", "taken back"); !ok {
 		t.Fatal("not retired")
 	}
-	if r, _ := GetRequest(q, rid); r.State != "withdrawn" || r.Answer.String != "taken back" {
+	if r, _ := GetRequest(q, rid); r.State != "withdrawn" || r.Reason.String != "taken back" {
 		t.Fatalf("%+v", r)
-	}
-	asked := ask(t, q, "a", "b", "q2", "ask")
-	CloseIfQueued(q, asked, "done", "yes", CloseOpts{Announced: true})
-	AppendVerdict(q, asked, "also this")
-	if r, _ := GetRequest(q, asked); r.Answer.String != "yes\n\nalso this" {
-		t.Fatalf("%q", r.Answer.String)
-	}
-	if a, _ := AnswerRowOf(q, asked); a == nil || a.Requester != "b" {
-		t.Fatalf("%+v", a)
 	}
 }
 
@@ -227,17 +218,17 @@ func TestSingleValueReads(t *testing.T) {
 	if h, _ := HeadOfQueueOrMarked(q, "b"); h == nil || h.ID != rid {
 		t.Fatalf("%+v", h)
 	}
-	CloseIfQueued(q, rid, "done", "", CloseOpts{})
+	CloseIfQueued(q, rid, "done", "")
 	if h, _ := HeadOfQueueOrMarked(q, "b"); h == nil || h.ID != say {
 		t.Fatalf("a say-only queue still has its marked row: %+v", h)
 	}
 	if n, _ := UnreachedCount(q, "b"); n != 1 {
 		t.Fatal(n)
 	}
-	if n, _ := UnreachedCount(q, "a"); n != 1 {
-		t.Fatalf("the unannounced answer counts: %d", n)
+	if n, _ := UnreachedCount(q, "a"); n != 0 {
+		t.Fatalf("a closed ask leaves its asker nothing owed: %d", n)
 	}
-	RetireQueued(q, say, "withdrawn", "")
+	CloseIfQueued(q, say, "withdrawn", "")
 	AddEvent(q, "a", "closed_under", KV{"request_id", rid})
 	if yes, _ := ClosedUnder(q, rid); !yes {
 		t.Fatal("closed_under not seen")

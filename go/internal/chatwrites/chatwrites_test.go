@@ -143,7 +143,7 @@ func (r *rig) count(q string, args ...any) int {
 
 func (r *rig) request(requester, target, body string) int64 {
 	r.t.Helper()
-	rid, err := dbpkg.AddRequest(r.db, dbpkg.NewRequest{Requester: requester, Target: target, Body: body, Response: "async", Kind: "ask"})
+	rid, err := dbpkg.AddRequest(r.db, dbpkg.NewRequest{Requester: requester, Target: target, Body: body, Kind: "ask"})
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -382,8 +382,8 @@ func TestCancelNeedsAConfirmOnceDeliveredAndClosesAsRejected(t *testing.T) {
 	}
 	var state string
 	r.db.QueryRow("SELECT state FROM requests WHERE id = ?", rid).Scan(&state)
-	if state != "landed" || r.count("SELECT COUNT(*) FROM requests WHERE settles = ? AND body = ?", rid, supervisor.CancelVerdict) != 1 {
-		t.Fatalf("closed with the cancel verdict as its answer: %s", state)
+	if state != "landed" || r.count("SELECT COUNT(*) FROM events WHERE kind = 'request_reason' AND json_extract(payload, '$.request_id') = ? AND json_extract(payload, '$.reason') = ?", rid, supervisor.CancelVerdict) != 1 {
+		t.Fatalf("closed with the cancel verdict as its reason: %s", state)
 	}
 	// an undelivered message is simply withdrawn
 	plain := r.request("human", "bob", "never mind")

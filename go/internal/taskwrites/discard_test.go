@@ -211,9 +211,8 @@ func TestClosingQueuedDeliveriesQuietly(t *testing.T) {
 		count(t, db, "SELECT COUNT(*) FROM requests WHERE id = 61 AND state = 'withdrawn' AND queue_order IS NULL") != 1 {
 		t.Fatal("a landed one closes as read, an unseen one is withdrawn")
 	}
-	if count(t, db, "SELECT COUNT(*) FROM requests WHERE settles = 60 AND body = '' AND requester = 'worker' AND target = 'manager' AND delivered_at IS NOT NULL AND state = 'landed'") != 1 ||
-		count(t, db, "SELECT COUNT(*) FROM requests WHERE settles = 61") != 0 {
-		t.Fatal("only the landed one gets its empty answer, already told")
+	if count(t, db, "SELECT COUNT(*) FROM requests WHERE requester = 'worker' AND target = 'manager'") != 0 {
+		t.Fatal("closing quietly writes no answer back")
 	}
 	if count(t, db, "SELECT COUNT(*) FROM tasks WHERE id = 50 AND sent_at IS NULL") != 1 {
 		t.Fatal("the task no longer reads as sent")

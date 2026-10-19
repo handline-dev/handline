@@ -119,39 +119,36 @@ func TestADialogInTheWayOfWorkIsSaidOnceAndClearsItself(t *testing.T) {
 	}
 }
 
-func TestWorkWaitingNamesTheRequestTheAnswersAndTheReminder(t *testing.T) {
+func TestWorkWaitingNamesTheRequestAndTheReminder(t *testing.T) {
 	b := newBlockedFixture(t)
 	b.del.depth["backend"] = 3
-	b.del.answers["backend"] = []int64{4, 5, 6, 7, 8}
 	b.del.forgotten["backend"] = &Forgotten{IdleS: 700, Head: &Request{ID: 9}}
 	row, _ := b.GetAgentState("backend")
-	want := "a message (+2 behind); 5 answers; a reminder to resolve a message"
+	want := "a message (+2 behind); a reminder to resolve a message"
 	if got := b.workWaiting("backend", row, b.now); got != want {
 		t.Errorf("got %q", got)
 	}
 	b.SetCursor("notify:backend", 1)
 	b.SetCursor("nudge:backend", 9)
-	b.del.answers["backend"] = []int64{4}
-	if got := b.workWaiting("backend", row, b.now); got != "an answer" {
+	if got := b.workWaiting("backend", row, b.now); got != "" {
 		t.Errorf("a told head and a nudged reminder: %q", got)
 	}
 	b.del.changed["backend"] = true
-	if got := b.workWaiting("backend", row, b.now); got != "a message (+2 behind); an answer" {
+	if got := b.workWaiting("backend", row, b.now); got != "a message (+2 behind)" {
 		t.Errorf("a new session is told again: %q", got)
 	}
 	b.del.changed["backend"] = false
 	b.SetCursor("nudge:backend", 0)
 	b.del.forgotten["backend"].IdleS = 599
-	if got := b.workWaiting("backend", row, b.now); got != "an answer" {
+	if got := b.workWaiting("backend", row, b.now); got != "" {
 		t.Errorf("a reminder before NudgeAfterS: %q", got)
 	}
 	b.del.forgotten["backend"].IdleS = 600
 	b.del.taskBlock = true
-	if got := b.workWaiting("backend", row, b.now); got != "an answer" {
+	if got := b.workWaiting("backend", row, b.now); got != "" {
 		t.Errorf("a reminder for a blocked head task: %q", got)
 	}
 	b.del.head["backend"] = nil
-	b.del.answers["backend"] = nil
 	b.del.forgotten["backend"] = nil
 	if got := b.workWaiting("backend", row, b.now); got != "" {
 		t.Errorf("nothing waiting: %q", got)

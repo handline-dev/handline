@@ -253,7 +253,7 @@ func (e *Env) forgottenResolve(q db.Q, agent string, row *db.AgentState, now int
 	if head == nil || !head.DeliveredAt.Valid || must(db.Cursor(q, "notify:"+agent)) != head.ID {
 		return nil
 	}
-	if e.waitingOnAsk(q, agent, head) || len(must(db.UnannouncedAnswers(q, agent))) > 0 {
+	if e.waitingOnAsk(q, agent, head) {
 		return nil
 	}
 	since, _ := e.idleSince(q, agent)

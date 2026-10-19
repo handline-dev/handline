@@ -67,8 +67,8 @@ func (e *Env) selfDelivery(q db.Q, agent string, task *db.Task) int64 {
 	body := task.Title
 	for _, linked := range must(db.TaskRequests(q, task.ID)) {
 		r := must(db.GetRequest(q, linked.ID))
-		if r.Answer.Valid && r.Answer.String != "" {
-			body += fmt.Sprintf("\n\nanswer to %s: %s", db.MsgName(q, r.ID), r.Answer.String)
+		if r.Reason.Valid && r.Reason.String != "" {
+			body += fmt.Sprintf("\n\nanswer to %s: %s", db.MsgName(q, r.ID), r.Reason.String)
 		}
 	}
 	return must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: agent, Body: body, Kind: "task"}))
@@ -333,7 +333,7 @@ func (e *Env) deliverUnblocked(q db.Q, notices []db.Notice, freed []string) {
 	for _, n := range notices {
 		if n.Unblocked != 0 && moved[n.To] {
 			if cur, ok := ok2(db.CurrentTask(q, n.To)); ok && cur == n.Unblocked {
-				must(db.RetireIfUndelivered(q, n.RID, "withdrawn", "the task itself went out to its owner in the same step", false))
+				must(db.RetireIfUndelivered(q, n.RID, "withdrawn", "the task itself went out to its owner in the same step"))
 				continue
 			}
 		}

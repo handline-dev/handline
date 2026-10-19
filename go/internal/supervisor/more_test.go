@@ -82,11 +82,11 @@ func TestSweepNoticesRunsTheStoppedAndDigestSweeps(t *testing.T) {
 	}
 }
 
-func TestTheTextsOfAReplyAndADismissal(t *testing.T) {
+func TestTheTextsOfAReply(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	q := r.ask("alice", "bob", "first line of the question\nsecond", "ask")
-	out, _, _ := r.Say(r.DB, SayIn{Target: "alice", Body: "the answer", Requester: "bob", ParentID: q})
+	out, _ := r.Say(r.DB, SayIn{Target: "alice", Body: "the answer", Requester: "bob", ParentID: q})
 	head := mustReq(r, out.RID)
 	if got := r.ids(inReplyTo(r.DB, head)); got != "in reply to #"+itoa(q)+": first line of the question" {
 		t.Fatalf("%q", got)
@@ -104,13 +104,6 @@ func TestTheTextsOfAReplyAndADismissal(t *testing.T) {
 	}
 	if MoreWaiting("ask", 2) != "2 more waiting - the next comes when you answer this one." || MoreWaiting("say", 3) != "" || MoreWaiting("task", 0) != "" {
 		t.Fatal("more waiting")
-	}
-	// a dismissal reads as a state label
-	card := r.ask("alice", "human", "pick", "")
-	db.CloseIfQueued(r.DB, card, "done", "", db.CloseOpts{DismissedBy: "human", DismissedReason: "later"})
-	row, _ := db.GetRequest(r.DB, card)
-	if line, _ := AnswerLine(r.DB, row); !strings.Contains(line, "human: dismissed by human - later") {
-		t.Fatalf("%q", line)
 	}
 }
 

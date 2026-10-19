@@ -44,7 +44,7 @@ func (e *Env) settledRequest(c *rpc.Conn, params map[string]any) (row, string, e
 		until = time.Now().Add(time.Duration(*wait) * time.Second)
 	}
 	for {
-		r, err := queryOne(e.DB, "SELECT *, "+answerSQL+", "+dismissedSQL+" FROM requests WHERE id = ?", id)
+		r, err := queryOne(e.DB, "SELECT *, "+reasonSQL+" FROM requests WHERE id = ?", id)
 		if err != nil {
 			return nil, "", err
 		}
@@ -83,11 +83,6 @@ func (e *Env) requestRead(c *rpc.Conn, params map[string]any) (any, error) {
 		if err := db.MarkRead(e.DB, []int64{id}); err != nil {
 			return nil, err
 		}
-		if r.str("requester") == human && r.str("state") != "queued" { // an answer to the founder: read is told
-			if err := db.MarkAnnounced(e.DB, []int64{id}); err != nil {
-				return nil, err
-			}
-		}
 	}
 	kind := r.str("kind")
 	if kind == "" {
@@ -95,8 +90,7 @@ func (e *Env) requestRead(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	out := map[string]any{
 		"id": id, "ref": r.str("ref"), "name": db.MsgNameOf(e.DB, r.str("ref")), "requester": r.str("requester"), "target": r.str("target"), "kind": kind, "state": r.str("state"), "created": ts(r["ts"]),
-		"relation": r.strOrNil("relation"), "response": r.strOrNil("response"), "chain_depth": r.i("chain_depth"), "parent": nil,
-		"body": r.str("body"), "answer": nil, "dismissal": nil,
+		"chain_depth": r.i("chain_depth"), "parent": nil, "body": r.str("body"), "answer": nil,
 	}
 	if r.set("parent_id") {
 		parent, err := queryOne(e.DB, "SELECT id, ref, body, requester, target FROM requests WHERE id = ?", r.i("parent_id"))
@@ -108,9 +102,7 @@ func (e *Env) requestRead(c *rpc.Conn, params map[string]any) (any, error) {
 				"line": parentLine(parent.str("body"))}
 		}
 	}
-	if dismissed, by, reason := dismissal(r); dismissed {
-		out["dismissal"] = map[string]any{"by": by, "reason": reason}
-	} else if text, has := r["answer"].(string); has && text != "" {
+	if text, has := r["answer"].(string); has && text != "" {
 		out["answer"] = text
 	}
 	if parts := attachments.New(e.Home).MessageParts(e.DB, id, r.str("body"), isAgent(c)); parts != nil {
@@ -141,6 +133,5 @@ func (e *Env) itemOf(r row, viewer string) (any, error) {
 	if kind == "" {
 		kind = "ask"
 	}
-	_, answered := shownVerdict(r)
-	return e.item(r.i("id"), r.str("ref"), kind, other, r.str("body"), r.i("ts"), r.set("read_at") || r.str("state") != "queued", answered)
+	return e.item(r.i("id"), r.str("ref"), kind, other, r.str("body"), r.i("ts"), r.set("read_at") || r.str("state") != "queued")
 }

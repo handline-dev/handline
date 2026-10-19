@@ -98,7 +98,7 @@ func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
 		t.Fatal("a finished child is no wait")
 	}
 	// A decision the agent opened and the founder has not answered is one; so is a roster proposal waiting on the founder.
-	card, _ := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "alice", Target: "human", Body: "which?", Response: "async", Kind: "task"})
+	card, _ := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "alice", Target: "human", Body: "which?", Kind: "task"})
 	dec, _ := dbpkg.NewTask(d, "which?", "human", "alice", 0, dbpkg.DefaultPriority, "decision", 0, "")
 	dbpkg.LinkRequest(d, dec, card)
 	if got := tp.StopWaitReason(d, "alice"); got != "" {
@@ -464,14 +464,14 @@ func TestTheNoticeSweepsRunInTheGoTickOnlyFromTheCutover(t *testing.T) {
 func TestTheStartupBringsUpWaitingWorkAndSettlesAnOldToldSayButNotAnOwedOneBeforeAnyTick(t *testing.T) {
 	p, _, _, _ := wired(t)
 	d := p.db
-	say, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "old", Response: "none", Kind: "say"})
+	say, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "old", Kind: "say"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := dbpkg.MarkDelivered(d, say); err != nil { // told by the daemon before
 		t.Fatal(err)
 	}
-	owed, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "sent just before the restart", Response: "none", Kind: "say"})
+	owed, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "carol", Target: "bob", Body: "sent just before the restart", Kind: "say"})
 	if err != nil {
 		t.Fatal(err)
 	}

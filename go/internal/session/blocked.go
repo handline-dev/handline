@@ -192,11 +192,6 @@ func (e *Env) WorkWaiting(agent string, row *AgentRow, now int64) (string, error
 		}
 		parts = append(parts, s)
 	}
-	if answers := d.UnannouncedAnswers(agent); len(answers) == 1 {
-		parts = append(parts, "an answer")
-	} else if len(answers) > 1 {
-		parts = append(parts, fmt.Sprintf("%d answers", len(answers)))
-	}
 	idle := d.ForgottenResolve(agent, row, now)
 	nudged, err := e.GetCursor(fmt.Sprintf("nudge:%s", agent))
 	if err != nil {

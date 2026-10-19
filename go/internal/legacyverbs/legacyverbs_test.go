@@ -134,14 +134,16 @@ func TestSayWritesTheRowAndAnswersLikeThePythonVerb(t *testing.T) {
 func TestPushesAreCheckedBeforeAnythingIsHandedOn(t *testing.T) {
 	r := newRig(t)
 	for line, said := range map[string]string{
-		`{"verb":"push","target":"human"}`:           "human is not an agent",
-		`{"verb":"push","target":"nobody"}`:          "nobody is not an agent",
-		`{"verb":"push_answer","requester":"human"}`: "human is not an agent",
-		`{"verb":"notify_cancelled","rid":99}`:       "no such message",
+		`{"verb":"push","target":"human"}`:     "human is not an agent",
+		`{"verb":"push","target":"nobody"}`:    "nobody is not an agent",
+		`{"verb":"notify_cancelled","rid":99}`: "no such message",
 	} {
 		if got := r.ask(line); got["ok"] != false || got["said"] != said {
 			t.Errorf("%s: %v", line, got)
 		}
+	}
+	if got := r.ask(`{"verb":"push_answer","requester":"bob"}`); len(got) != 0 {
+		t.Fatalf("push_answer went with the answers it pushed: it is left to the server: %v", got)
 	}
 }
 

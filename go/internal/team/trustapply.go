@@ -113,7 +113,7 @@ func (p TrustProposals) Answered(q db.Q, pid string, card *db.Request, verdict s
 		line = fmt.Sprintf("proposal %s could not be applied: %s", pid, said)
 		report = fmt.Sprintf("%s\nThe proposal is still open; `hl trust apply %s` retries it.", line, pid)
 	}
-	return line, report, db.AppendVerdict(q, card.ID, line)
+	return line, report, db.AddReason(q, card.ID, line)
 }
 
 // recordDecision is decisions.record: the founder's call on proposal pid, answered on decision task tid, and what it was decided on.

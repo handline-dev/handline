@@ -42,7 +42,7 @@ func (e *Env) WithdrawWrite(q db.Q, after *After, rid int64, requester, reason s
 		verdict = "withdrawn: " + reason
 	}
 	said := fmt.Sprintf("request %s to %s withdrawn", db.MsgName(q, rid), row.Target)
-	if !must(db.RetireIfUndelivered(q, rid, "withdrawn", verdict, false)) {
+	if !must(db.RetireIfUndelivered(q, rid, "withdrawn", verdict)) {
 		return false, tooLate, nil // a delivery landed between the read and the write
 	}
 	var why any
@@ -61,8 +61,8 @@ func (e *Env) WithdrawWrite(q db.Q, after *After, rid int64, requester, reason s
 }
 
 // closeWrite is the write of closeAndTell, alone: false if this call lost the race to close the row.
-func (e *Env) closeWrite(q db.Q, rid int64, row *db.Request, verdict string, notify, settle bool) bool {
-	if !must(db.CloseIfQueued(q, rid, "rejected", verdict, db.CloseOpts{Announced: !notify, NoSettle: !settle})) {
+func (e *Env) closeWrite(q db.Q, rid int64, row *db.Request, verdict string) bool {
+	if !must(db.CloseIfQueued(q, rid, "rejected", verdict)) {
 		return false
 	}
 	must(db.AddEvent(q, row.Requester, "closed_under", db.KV{K: "request_id", V: rid}, db.KV{K: "target", V: row.Target}))
@@ -77,8 +77,8 @@ func lostClose(q db.Q, rid int64, done, verb string) string {
 	return fmt.Sprintf("%s was closed while this ran - nothing to %s", db.MsgName(q, rid), verb)
 }
 
-// closeTell is what follows closeWrite once it has committed: the target told to stop, the requester told, the queue moved up.
-func (e *Env) closeTell(q db.Q, rid int64, row *db.Request, verdict string, notify bool) (target, msg string, said []string, err error) {
+// closeTell is what follows closeWrite once it has committed: the target told to stop, the queue moved up.
+func (e *Env) closeTell(q db.Q, rid int64, row *db.Request, verdict string) (target, msg string, said []string, err error) {
 	defer Catch(&err)
 	target = row.Target
 	if row.DeliveredAt.Valid {
@@ -92,15 +92,14 @@ func (e *Env) closeTell(q db.Q, rid int64, row *db.Request, verdict string, noti
 			said = append(said, fmt.Sprintf("%s could not be told now (%s); resolving %s is refused to it, so it cannot undo this", target, why, db.MsgName(q, rid)))
 		}
 	}
-	msg, err = e.AfterClose(q, rid, row, "rejected", notify)
+	msg, err = e.AfterClose(q, rid, row, "rejected")
 	return target, msg, said, err
 }
 
 // CancelPlan is what CancelWrite leaves for CancelTell.
 type CancelPlan struct {
-	RID    int64
-	Row    *db.Request
-	Notify bool
+	RID int64
+	Row *db.Request
 }
 
 // CancelWrite is the founder taking a request out of an agent's queue. WithdrawWrite is the requester's own and stops at delivery; this clears
@@ -126,7 +125,6 @@ func (e *Env) CancelWrite(q db.Q, after *After, rid int64, effect func(q db.Q, m
 		ok, msg, err := e.WithdrawWrite(q, after, rid, db.Human, "", effect)
 		return nil, ok, msg, err
 	}
-	notify := row.Requester != db.Human
 	if guard != nil {
 		row = must(db.GetRequest(q, rid))
 		if row != nil && row.State == "queued" {
@@ -135,7 +133,7 @@ func (e *Env) CancelWrite(q db.Q, after *After, rid int64, effect func(q db.Q, m
 			}
 		}
 	}
-	if !e.closeWrite(q, rid, row, CancelVerdict, notify, true) {
+	if !e.closeWrite(q, rid, row, CancelVerdict) {
 		return nil, false, lostClose(q, rid, "cancelled", "cancel"), nil
 	}
 	must(db.AddEvent(q, db.Human, "cancel", db.KV{K: "request_id", V: rid}, db.KV{K: "target", V: row.Target}, db.KV{K: "requester", V: row.Requester},
@@ -145,12 +143,12 @@ func (e *Env) CancelWrite(q db.Q, after *After, rid int64, effect func(q db.Q, m
 			return nil, false, "", err
 		}
 	}
-	return &CancelPlan{rid, row, notify}, true, "", nil
+	return &CancelPlan{rid, row}, true, "", nil
 }
 
 // CancelTell is what Cancel says once CancelWrite has committed.
 func (e *Env) CancelTell(q db.Q, p *CancelPlan) (string, error) {
-	target, msg, said, err := e.closeTell(q, p.RID, p.Row, CancelVerdict, p.Notify)
+	target, msg, said, err := e.closeTell(q, p.RID, p.Row, CancelVerdict)
 	if err != nil {
 		return "", err
 	}
@@ -166,34 +164,28 @@ type RetirePlan struct {
 	RID     int64
 	Row     *db.Request
 	Verdict string
-	Notify  bool
 }
 
 // RetireWrite closes a request still queued, out from under whoever holds it: CancelWrite's close, reached from `hl task release` so it can
-// end a task's own open requests the same way. notify nil follows cancel: the requester is told unless it is the founder. settle false
-// keeps the decision task open when this request is its card.
-func (e *Env) RetireWrite(q db.Q, rid int64, verdict string, notify *bool, settle bool) (plan *RetirePlan, ok bool, why string, err error) {
+// end a task's own open requests the same way.
+func (e *Env) RetireWrite(q db.Q, rid int64, verdict string) (plan *RetirePlan, ok bool, why string, err error) {
 	defer Catch(&err)
 	row := must(db.GetRequest(q, rid))
 	if row == nil {
 		return nil, false, fmt.Sprintf("%s is gone", db.MsgName(q, rid)), nil
 	}
-	n := row.Requester != db.Human
-	if notify != nil {
-		n = *notify
-	}
 	if row.State != "queued" {
 		return nil, false, fmt.Sprintf("%s is already %s - nothing to retire", db.MsgName(q, rid), row.State), nil
 	}
-	if !e.closeWrite(q, rid, row, verdict, n, settle) {
+	if !e.closeWrite(q, rid, row, verdict) {
 		return nil, false, lostClose(q, rid, "retired", "retire"), nil
 	}
-	return &RetirePlan{rid, row, verdict, n}, true, "", nil
+	return &RetirePlan{rid, row, verdict}, true, "", nil
 }
 
 // RetireTell is what retire_open says once RetireWrite has committed.
 func (e *Env) RetireTell(q db.Q, p *RetirePlan) (string, error) {
-	target, msg, said, err := e.closeTell(q, p.RID, p.Row, p.Verdict, p.Notify)
+	target, msg, said, err := e.closeTell(q, p.RID, p.Row, p.Verdict)
 	if err != nil {
 		return "", err
 	}
@@ -204,16 +196,13 @@ func (e *Env) RetireTell(q db.Q, p *RetirePlan) (string, error) {
 	return out + "\n" + msg, nil
 }
 
-// AfterClose is what follows moving a request out of 'queued', shared by resolve and cancel: the event log, the requester (if told), and
-// whatever was behind it in the target's own queue.
-func (e *Env) AfterClose(q db.Q, rid int64, row *db.Request, state string, notify bool) (msg string, err error) {
+// AfterClose is what follows moving a request out of 'queued', shared by resolve and cancel: the event log and whatever was behind it in
+// the target's own queue.
+func (e *Env) AfterClose(q db.Q, rid int64, row *db.Request, state string) (msg string, err error) {
 	defer Catch(&err)
 	must(db.AddEvent(q, row.Target, "resolve", db.KV{K: "request_id", V: rid}, db.KV{K: "state", V: state}, db.KV{K: "requester", V: row.Requester}))
 	e.ForgetInbox(row.Target, rid)
 	said := ""
-	if notify {
-		said = e.PushAnswer(q, row.Requester)
-	}
 	// This row may have been what kept the target's current task worth holding.
 	if _, _, err := e.AdvanceCurrentTask(q, row.Target); err != nil {
 		return "", err
@@ -231,17 +220,11 @@ func (e *Env) AfterClose(q db.Q, rid int64, row *db.Request, state string, notif
 	return msg, nil
 }
 
-// ResolveIn is resolve's arguments. Notify false is `dismiss`'s case: settle the row without telling the requester. Settle false closes the
-// request without settling the decision task it is the card of (a handoff closes the old holder's request). AnsweredBy is the reply row
-// that is itself the answer.
+// ResolveIn is resolve's arguments.
 type ResolveIn struct {
-	RID                          int64
-	Verdict                      string
-	State                        string // "": done
-	Notify                       bool
-	NoSettle                     bool
-	DismissedBy, DismissedReason string
-	AnsweredBy                   int64
+	RID     int64
+	Verdict string
+	State   string // "": done
 	// OpenTasks opens tasks in the same transaction as the close; their numbers are appended to the verdict.
 	OpenTasks func(q db.Q) ([]int64, error)
 	// Effect is more to write in the transaction of the close: the daemon's record of it.
@@ -288,8 +271,7 @@ func (e *Env) ResolveWrite(q db.Q, in ResolveIn) (r *Resolved, ok bool, msg stri
 		verdict += "\n\nOpened as task(s): " + strings.Join(names, ", ")
 	}
 	// Conditional on 'queued', the same as cancel's close: two answers landing on the same row at once must not have the second overwrite the first.
-	closed := must(db.CloseIfQueued(q, in.RID, state, verdict, db.CloseOpts{Announced: !in.Notify, DismissedBy: in.DismissedBy,
-		DismissedReason: in.DismissedReason, AnsweredBy: in.AnsweredBy, NoSettle: in.NoSettle}))
+	closed := must(db.CloseIfQueued(q, in.RID, state, verdict))
 	if closed && in.Effect != nil {
 		if err := in.Effect(q, fmt.Sprintf("%s answered", db.MsgName(q, in.RID))); err != nil {
 			return nil, false, "", err
@@ -322,7 +304,7 @@ func (e *Env) ResolveTell(q db.Q, r *Resolved) (string, error) {
 			after.Run()
 		}
 	}
-	msg, err := e.AfterClose(q, r.In.RID, r.Row, r.State, r.In.Notify)
+	msg, err := e.AfterClose(q, r.In.RID, r.Row, r.State)
 	if err != nil {
 		return "", err
 	}

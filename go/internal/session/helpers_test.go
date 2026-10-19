@@ -129,7 +129,6 @@ type fakeDelivery struct {
 	head       map[string]*Request
 	changed    map[string]bool
 	depth      map[string]int
-	answers    map[string][]int64
 	forgotten  map[string]*Forgotten
 	nudgeAfter int64
 	taskBlock  bool
@@ -140,15 +139,14 @@ type fakeDelivery struct {
 }
 
 func newFakeDelivery() *fakeDelivery {
-	return &fakeDelivery{head: map[string]*Request{}, changed: map[string]bool{}, depth: map[string]int{}, answers: map[string][]int64{},
+	return &fakeDelivery{head: map[string]*Request{}, changed: map[string]bool{}, depth: map[string]int{},
 		forgotten: map[string]*Forgotten{}, nudgeAfter: 600, wall: map[string]string{}, present: map[string]bool{},
 		listed: map[string]*bool{}, drawn: map[string]bool{}}
 }
 
-func (d *fakeDelivery) EffectiveHead(a string) *Request     { return d.head[a] }
-func (d *fakeDelivery) SessionChanged(a string) bool        { return d.changed[a] }
-func (d *fakeDelivery) QueueDepth(a string) int             { return d.depth[a] }
-func (d *fakeDelivery) UnannouncedAnswers(a string) []int64 { return d.answers[a] }
+func (d *fakeDelivery) EffectiveHead(a string) *Request { return d.head[a] }
+func (d *fakeDelivery) SessionChanged(a string) bool    { return d.changed[a] }
+func (d *fakeDelivery) QueueDepth(a string) int         { return d.depth[a] }
 func (d *fakeDelivery) ForgottenResolve(a string, _ *AgentRow, _ int64) *Forgotten {
 	return d.forgotten[a]
 }

@@ -157,8 +157,8 @@ func addSay(tx *sql.Tx, from, to, body string, notice bool) (int64, error) {
 	if notice {
 		noticeCol = 1
 	}
-	res, err := tx.Exec("INSERT INTO requests(ts, requester, target, body, files, relation, response, kind, chain_depth, parent_id, "+
-		"state, chain_id, edge_ok, landed_at, state_at, notice) VALUES(?,?,?,?,NULL,NULL,NULL,'say',0,NULL,?,NULL,1,?,?,?)",
+	res, err := tx.Exec("INSERT INTO requests(ts, requester, target, body, kind, chain_depth, "+
+		"state, edge_ok, landed_at, state_at, notice) VALUES(?,?,?,?,'say',0,?,1,?,?,?)",
 		now, from, to, body, state, landedAt, now, noticeCol)
 	if err != nil {
 		return 0, err
@@ -168,8 +168,8 @@ func addSay(tx *sql.Tx, from, to, body string, notice bool) (int64, error) {
 	return rid, err
 }
 
-// closeQueuedQuietly is db.close_if_queued(rid, state, None, announced=True, settle=False): the request leaves the queue because its
-// task ended; a landed one closes as read, with an empty answer already told.
+// closeQueuedQuietly is db.close_if_queued(rid, state, None): the request leaves the queue because its task ended; a landed one closes
+// as read.
 func closeQueuedQuietly(tx *sql.Tx, r linked) (closed bool, err error) {
 	state := "withdrawn"
 	if r.LandedAt.Valid {
@@ -182,24 +182,6 @@ func closeQueuedQuietly(tx *sql.Tx, r linked) (closed bool, err error) {
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return false, nil
-	}
-	if state == "landed" && r.Kind != "say" { // a closed task delivery tells its asker with a say of its own
-		var requester, target, chain string
-		var depth int64
-		var chainID sql.NullString
-		if err := tx.QueryRow("SELECT requester, target, chain_depth, chain_id FROM requests WHERE id = ?", r.ID).Scan(&requester, &target, &depth, &chainID); err != nil {
-			return false, err
-		}
-		chain = chainID.String
-		a, err := tx.Exec("INSERT INTO requests(ts, requester, target, body, kind, chain_depth, parent_id, settles, chain_id, state, delivered_at, state_at, edge_ok) "+
-			"VALUES(?,?,?,?,'say',?,?,?,?,'landed',?,?,1)", now, target, requester, "", depth, r.ID, r.ID, chain, now, now)
-		if err != nil {
-			return false, err
-		}
-		aid, _ := a.LastInsertId()
-		if _, err := tx.Exec("UPDATE requests SET queue_order = ? WHERE id = ?", aid, aid); err != nil {
-			return false, err
-		}
 	}
 	var tids []int64
 	if tids, err = ids(tx, "SELECT task_id FROM task_requests WHERE request_id = ?", r.ID); err != nil {
