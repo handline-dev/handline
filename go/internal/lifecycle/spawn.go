@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/gitrun"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
 )
@@ -250,17 +251,44 @@ func (s *Spawns) WorktreePath(recorded string) string { return WorktreePath(reco
 
 // WorktreePath is Spawns.WorktreePath without the tool.
 func WorktreePath(recorded string) string {
-	if recorded == "" {
-		return ""
+	path := recordedPath(recorded)
+	if st, err := os.Stat(path); path != "" && err == nil && st.IsDir() {
+		return path
 	}
+	return ""
+}
+
+// recordedPath is the path a worktree column holds (it may be `<repo>::<path>`); "" for none, or for a relative one, which would be read
+// against the daemon's own working directory.
+func recordedPath(recorded string) string {
 	path := recorded
 	if i := strings.Index(recorded, "::"); i >= 0 {
 		path = recorded[i+2:]
 	}
-	if st, err := os.Stat(path); err == nil && st.IsDir() {
-		return path
+	if !filepath.IsAbs(path) {
+		return ""
 	}
-	return ""
+	return path
+}
+
+// Recreate is Spawner.Recreate: the worktree a spawn made is <...>/<branch>, so a recorded one that is gone is added again at its path on
+// that branch, when the branch is still in repo. Never a new worktree in its place: that would leave the branch's work behind.
+func (s *Spawns) Recreate(agent, repo, recorded string) (string, string) {
+	path := recordedPath(recorded)
+	if path == "" {
+		return "", fmt.Sprintf("%s: its recorded worktree %q is not an absolute path", agent, recorded)
+	}
+	branch := filepath.Base(path)
+	_ = gitrun.Run(repo, "worktree", "prune") // the gone worktree's entry, which would refuse the add
+	if r := gitrun.Run(repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); r.RC != 0 {
+		return "", fmt.Sprintf("%s: its worktree %s is gone and its branch %s is not in %s - not started in a new worktree, which would "+
+			"leave its work behind", agent, path, branch, repo)
+	}
+	if r := gitrun.RunTimeout(repo, 120*time.Second, "worktree", "add", path, branch); r.RC != 0 {
+		return "", fmt.Sprintf("%s: its worktree %s is gone and could not be made again from branch %s: %s", agent, path, branch,
+			strings.TrimSpace(r.Stderr))
+	}
+	return path, ""
 }
 
 // ExtraPaths is the agent's further worktrees that are still there, out of what its row holds. A path gone is not listed (and
