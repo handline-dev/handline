@@ -115,7 +115,7 @@ func TestTheStopWaitReasonIsACurrentTaskWithNothingItWaitsOn(t *testing.T) {
 func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 	p, _, _, _ := wired(t)
 	tk := p.Tick(cfgOf(p), TickConfig{})
-	if len(tk.Tick.Passes) != 9 {
+	if len(tk.Tick.Passes) != 10 {
 		t.Fatalf("passes: %d", len(tk.Tick.Passes))
 	}
 	var logs []string

@@ -109,6 +109,7 @@ func rigWith(t *testing.T, edit func(*Config)) (*Parts, string) {
 		cfg.Term = newFakeTerminals().term() // no test reaches a real tmux
 	}
 	p := New(cfg)
+	t.Cleanup(p.Wait) // a heal step still running writes into the database
 	rigConfigs.Store(p, cfg)
 	return p, home
 }
