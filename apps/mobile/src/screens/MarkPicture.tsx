@@ -1,12 +1,13 @@
 // The marks editor of a picked picture: the picture with no toolbar over it. A tap pins a circle, a drag draws a box, going round something
 // marks an area; the memo box opens at the mark and the picture shrinks above the keyboard so the mark stays in view. Done draws the kept
-// marks (red, numbered) into a PNG of the picture's size (at most 2048 on the long side) and hands it back with the marks; a mark without words is dropped.
+// marks (red, numbered) into a JPEG of the picture's size (at most 2048 on the long side) and hands it back with the marks; a mark without words is dropped.
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   Image,
   KeyboardAvoidingView,
   Modal,
   PanResponder,
+  PixelRatio,
   Platform,
   SafeAreaView,
   Text,
@@ -86,8 +87,15 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
     setCapturing(true);
     await new Promise((ok) => requestAnimationFrame(() => ok(null)));
     try {
-      const cap = Math.min(1, MAX_SIDE / Math.max(natural.w, natural.h)); // a full-size photo would pass the attachment limit
-      const uri = await captureRef(shot, { format: 'png', result: 'tmpfile', width: Math.round(natural.w * cap), height: Math.round(natural.h * cap) });
+      // captureRef sizes are in points and the device multiplies them by its pixel ratio; a JPEG keeps a photo under the attachment limit.
+      const cap = Math.min(1, MAX_SIDE / Math.max(natural.w, natural.h)) / PixelRatio.get();
+      const uri = await captureRef(shot, {
+        format: 'jpg',
+        quality: 0.9,
+        result: 'tmpfile',
+        width: Math.round(natural.w * cap),
+        height: Math.round(natural.h * cap),
+      });
       props.onDone({ blob: await (await fetch(uri)).blob(), marks });
     } catch {
       props.onDone({ blob: new Blob(), marks }); // the words still go; the picture as it was

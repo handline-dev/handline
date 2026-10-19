@@ -38,7 +38,7 @@ export function useChatImages(canSend: boolean) {
       const { blob, marks } = marked;
       const text = markText(note, marks);
       if (!blob.size) return { text, attachments: d.ids };
-      return upload(blob, 'marked.png', 'image/png').then((drawn) => ({ text, attachments: [...d.ids, drawn.id] }));
+      return upload(blob, 'marked.jpg', 'image/jpeg').then((drawn) => ({ text, attachments: [...d.ids, drawn.id] }));
     },
     chips: (
       <>
