@@ -52,7 +52,7 @@ func TestCancelIsTheFoundersDiscardThatStopsTheRequestsOutOnTheTask(t *testing.T
 		count("SELECT COUNT(*) FROM events WHERE kind = 'cancel' AND payload LIKE '%\"request_id\": 10%'") != 1 {
 		t.Fatal("the delivered request is closed and the cancel recorded")
 	}
-	if len(f.cancelled) != 1 || f.cancelled[0].RID != 10 || !f.cancelled[0].Delivered || !f.cancelled[0].Notify || f.stopped {
+	if len(f.cancelled) != 1 || f.cancelled[0].RID != 10 || !f.cancelled[0].Delivered || f.stopped {
 		t.Fatalf("the target of a delivered request is stopped by the cancel itself: %+v %v", f.cancelled, f.stopped)
 	}
 

@@ -2,7 +2,6 @@ package db
 
 import (
 	"database/sql"
-	"fmt"
 	"strings"
 )
 
@@ -276,9 +275,6 @@ func TasksBlockedBy(q Q, tid int64) ([]int64, error) {
 	return ids(q, "SELECT task_id FROM task_blocks WHERE blocks_on = ? ORDER BY task_id", tid)
 }
 
-const decisionCardSQL = "SELECT t.id FROM tasks t WHERE t.owner = ? AND t.discarded_by IS NULL AND t.done_evidence IS NULL AND " +
-	"(SELECT MIN(request_id) FROM task_requests WHERE task_id = t.id) = ?"
-
 const openDecisionCardsSQL = "(SELECT MIN(l.request_id) FROM task_requests l JOIN tasks t ON t.id = l.task_id " +
 	"WHERE t.owner = ? AND t.discarded_by IS NULL AND t.done_evidence IS NULL GROUP BY t.id)"
 
@@ -321,16 +317,6 @@ func FounderClosed(q Q, t *Task) (bool, error) {
 	return kind == "settle_decision_task" || kind == "mark_task_done" && agent == Human, nil
 }
 
-// DecisionTaskOfCard is db.decision_task_of_card: the open task of the founder's whose card is request rid, 0 for none.
-func DecisionTaskOfCard(q Q, rid int64) (int64, error) {
-	var id int64
-	err := q.QueryRow(decisionCardSQL, Human, rid).Scan(&id)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
-	return id, err
-}
-
 // OpenDecisionCardIDs is db.open_decision_card_ids: the queued cards of the founder's open decision tasks, oldest first; about
 // agent (its requester) when given, whose body starts with prefix when given, and is exactly body when hasBody.
 func OpenDecisionCardIDs(q Q, agent, prefix string, body *string) ([]int64, error) {
@@ -349,34 +335,6 @@ func OpenDecisionCardIDs(q Q, agent, prefix string, body *string) ([]int64, erro
 		args = append(args, *body)
 	}
 	return ids(q, query+" ORDER BY id", args...)
-}
-
-// SettleDecisionTasks is db.settle_decision_tasks: a request that is the card of a decision task has left 'queued', and the task
-// goes with it: done with the answer as evidence, else discarded.
-func SettleDecisionTasks(q Q, rid int64, state, verdict, dismissedBy string) error {
-	tid, err := DecisionTaskOfCard(q, rid)
-	if err != nil || tid == 0 {
-		return err
-	}
-	if state == "done" && verdict != "" && dismissedBy == "" {
-		if _, err := MarkTaskDone(q, tid, verdict, "reason"); err != nil {
-			return err
-		}
-	} else {
-		how := state
-		if dismissedBy != "" {
-			how = "dismissed"
-		}
-		reason := fmt.Sprintf("its request was %s", how)
-		if verdict != "" && dismissedBy == "" {
-			reason += ": " + verdict
-		}
-		if _, err := DiscardTask(q, tid, Human, reason); err != nil {
-			return err
-		}
-	}
-	_, err = AddEvent(q, Human, "settle_decision_task", KV{"task_id", tid}, KV{"request_id", rid}, KV{"state", state})
-	return err
 }
 
 // TaskEdit is what EditTask writes; a nil field is left as it is. TimeoutS, given, always writes, and starts timeout_at from now only when

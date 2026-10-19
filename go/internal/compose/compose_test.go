@@ -196,7 +196,7 @@ func wiredWith(t *testing.T, ft *fakeTerminals) (*Parts, *Lifecycle, *supervisor
 	if err := dbpkg.SetClosed(d, "alice", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "alice", Body: "begin", Response: "async", Kind: "ask"}); err != nil {
+	if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "alice", Body: "begin", Kind: "ask"}); err != nil {
 		t.Fatal(err) // what a closed agent is woken for
 	}
 	env := &supervisor.Env{DB: d, Home: home, Log: func(string, ...any) {}}
@@ -253,7 +253,7 @@ func TestADecisionAndAColdStartMeasurementAreReallyMade(t *testing.T) {
 func TestSettlingPeerSendsAtStartTellsTheSenderThroughTheWiredPorts(t *testing.T) {
 	p, _, env, _ := wired(t)
 	d := p.db
-	rid, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "alice", Target: "bob", Body: "hello", Response: "async", Kind: "say"})
+	rid, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "alice", Target: "bob", Body: "hello", Kind: "say"})
 	if err != nil {
 		t.Fatal(err)
 	}

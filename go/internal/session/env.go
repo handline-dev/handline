@@ -35,8 +35,6 @@ type Delivery interface {
 	SessionChanged(agent string) bool
 	// QueueDepth is how many requests are queued at the agent.
 	QueueDepth(agent string) int
-	// UnannouncedAnswers is the ids of what the agent asked that came back and it has not been told, oldest first.
-	UnannouncedAnswers(agent string) []int64
 	// ForgottenResolve is the request the agent has sat idle on without resolving, nil when it has not.
 	ForgottenResolve(agent string, row *AgentRow, now int64) *Forgotten
 	// NudgeAfterS is how long an idle agent is left before it is reminded to resolve.

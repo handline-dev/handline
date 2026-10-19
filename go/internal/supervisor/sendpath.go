@@ -84,54 +84,6 @@ func ridsOfOp(op string) []int64 {
 	return out
 }
 
-// answersOp is the operation id of a message that tells the agent the answers to these requests of its own.
-func answersOp(rids []int64) string { return "answers:" + idList(rids) }
-
-func answerIDs(op string) ([]int64, bool) {
-	list, ok := strings.CutPrefix(op, "answers:")
-	if !ok {
-		return nil, false
-	}
-	var out []int64
-	for _, p := range strings.Split(list, ",") {
-		if n, err := strconv.ParseInt(p, 10, 64); err == nil {
-			out = append(out, n)
-		}
-	}
-	return out, true
-}
-
-// notHeld is the answers not already in a held batch: those are told when their batch goes out, not in a second one.
-func (e *Env) notHeld(q db.Q, agent string, answered []*db.Request) []*db.Request {
-	prefix := ledgerKey(agent, "answers:")
-	rows := must(q.Query("SELECT name FROM cursors WHERE name LIKE ? ESCAPE '\\' AND row_id = ?", likeEscape(prefix)+"%", sendHeld))
-	held := map[int64]bool{}
-	for rows.Next() {
-		var name string
-		check(rows.Scan(&name))
-		ids, _ := answerIDs(strings.TrimPrefix(name, ledgerKey(agent, "")))
-		for _, id := range ids {
-			held[id] = true
-		}
-	}
-	check(rows.Err())
-	rows.Close()
-	var out []*db.Request
-	for _, r := range answered {
-		if !held[r.ID] {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-// announced records that these answers were told: the requests they settle are not announced again.
-func (e *Env) announced(q db.Q, agent string, ids []int64) {
-	check(db.MarkAnnounced(q, ids))
-	must(db.AddEvent(q, agent, "answered", db.KV{K: "count", V: len(ids)}))
-	e.log("  %s: told about %d answer(s)", agent, len(ids))
-}
-
 // nextOp is a fresh operation id for a message nothing else names (a notice, a nudge).
 func (e *Env) nextOp(q db.Q, prefix string) string {
 	n := must(db.Cursor(q, "send_seq")) + 1
@@ -214,9 +166,6 @@ func (e *Env) SessionConfirmed(q db.Q, agent, op string) (err error) {
 		}
 		check(db.MarkLanded(q, rid))
 		must(db.AddEvent(q, agent, "landed", db.KV{K: "request_id", V: rid}))
-	}
-	if ids, ok := answerIDs(op); ok && was == sendHeld { // a written batch was announced when it went out
-		e.announced(q, agent, ids)
 	}
 	return nil
 }

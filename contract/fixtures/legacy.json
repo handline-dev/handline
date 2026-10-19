@@ -93,24 +93,6 @@
    ]
   },
   {
-   "name": "legacy.push_answer_to_the_human_is_not_an_agent",
-   "spec": "x-legacy",
-   "about": "push_answer puts an answer in front of the agent that asked; the founder is not one.",
-   "steps": [
-    {
-     "legacy": {
-      "verb": "push_answer",
-      "requester": "human"
-     },
-     "reply": {
-      "ok": false,
-      "said": "human is not an agent",
-      "$exact": true
-     }
-    }
-   ]
-  },
-  {
    "name": "legacy.notify_cancelled_for_no_request",
    "spec": "x-legacy",
    "about": "notify_cancelled names a request.",

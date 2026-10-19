@@ -61,7 +61,6 @@ func TestAFailedStatementComesBackAsAnErrorFromEveryExportedReader(t *testing.T)
 		"TypeSay":            func() error { return r.TypeSay(q, "bob", "x", "y") },
 		"WallReason":         func() error { _, err := r.WallReason(q, "bob", nil); return err },
 		"DeliverQueued":      func() error { _, err := r.DeliverQueued(q, "bob"); return err },
-		"DeliverAnswers":     func() error { _, err := r.DeliverAnswers(q, "bob"); return err },
 		"TellNow":            func() error { _, err := r.TellNow(q, req); return err },
 		"LandingSweep":       func() error { return r.LandingSweep(q, "bob") },
 		"AdvanceCurrentTask": func() error { _, _, err := r.AdvanceCurrentTask(q, "bob"); return err },
@@ -90,10 +89,8 @@ func TestAFailedStatementAfterTheCommitIsLoggedAndSaidNotRaised(t *testing.T) {
 	rid := r.ask("alice", "bob", "x", "ask")
 	r.breakDB()
 	for name, said := range map[string]string{
-		"Push":           r.Push(r.DB, "bob", rid),
-		"PushHere":       r.PushHere(r.DB, "bob", 0),
-		"PushAnswer":     r.PushAnswer(r.DB, "bob"),
-		"PushAnswerHere": r.PushAnswerHere(r.DB, "bob"),
+		"Push":     r.Push(r.DB, "bob", rid),
+		"PushHere": r.PushHere(r.DB, "bob", 0),
 	} {
 		if !strings.Contains(said, "failed") {
 			t.Errorf("%s said %q", name, said)
@@ -119,7 +116,7 @@ func TestWaitingPromptsToldStepReturnsItsFailure(t *testing.T) {
 	}
 }
 
-func TestWithoutTheProposalsPortNothingIsAnsweredAndAnUnregisteredAskerIsToldInPythonsWords(t *testing.T) {
+func TestWithoutTheProposalsPortNothingIsResolved(t *testing.T) {
 	r := newRig(t)
 	rid := r.ask("alice", "bob", "q", "ask")
 	if ok, _, err := r.Resolve(r.DB, ResolveIn{RID: rid, Verdict: "yes"}); err != nil || !ok {
@@ -130,14 +127,8 @@ func TestWithoutTheProposalsPortNothingIsAnsweredAndAnUnregisteredAskerIsToldInP
 	if _, ok, _, err := r.ResolveWrite(r.DB, ResolveIn{RID: rid2, Verdict: "yes"}); err == nil || ok || !strings.Contains(err.Error(), "proposals port is not wired") {
 		t.Fatalf("%v %v", ok, err)
 	}
-	if _, _, err := r.Say(r.DB, SayIn{Target: "alice", Body: "a", Requester: "bob", ParentID: rid2}); err == nil {
-		t.Fatal("a reply closed a request without the proposals port")
-	}
 	if row, _ := db.GetRequest(r.DB, rid2); row.State != "queued" {
 		t.Fatalf("%+v", row)
-	}
-	if got := r.PushAnswer(r.DB, "stranger"); got != "  stranger is not registered with ocp - nothing to tell" {
-		t.Fatalf("%q", got)
 	}
 }
 

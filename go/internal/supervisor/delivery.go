@@ -51,7 +51,7 @@ func (e *Env) EnforceEdges(q db.Q, agent string) (ok bool, err error) {
 			check(db.ClearEdge(q, r.ID))
 			continue
 		}
-		must(db.RetireQueued(q, r.ID, "denied", "refused at delivery: "+d.Reason))
+		must(db.CloseIfQueued(q, r.ID, "denied", "refused at delivery: "+d.Reason))
 		e.log("  %s: #%d from %s refused - %s", agent, r.ID, r.Requester, d.Reason)
 	}
 	return true, nil

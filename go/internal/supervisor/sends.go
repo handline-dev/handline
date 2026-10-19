@@ -125,7 +125,7 @@ type SayVerbIn struct {
 	MemoEffect func(q db.Q, mid int64) error
 }
 
-// SayVerbOut is the verb's answer; After runs once the writes have committed (the telling, the settled request's tell, the memo holder's say).
+// SayVerbOut is the verb's answer; After runs once the writes have committed (the telling, the memo holder's say).
 type SayVerbOut struct {
 	OK    bool
 	Msg   string
@@ -202,7 +202,7 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 					for _, tid := range askedOn {
 						check(db.LinkRequest(c, tid, rid))
 					}
-				} else if must(db.GetRequest(c, in.Parent)).State != "queued" { // it settled, not lost a race
+				} else {
 					e.recordHumanResolve(c, in.Parent, tasks, in.NoTask, me)
 				}
 			}()
@@ -211,7 +211,7 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 			}
 			return effect(c, note, rid)
 		}
-		res, settled, serr := e.Say(q, SayIn{Target: target, Body: body, Requester: me, ParentID: in.Parent, Speaker: in.Speaker, Within: within})
+		res, serr := e.Say(q, SayIn{Target: target, Body: body, Requester: me, ParentID: in.Parent, Speaker: in.Speaker, Within: within})
 		if serr != nil {
 			return nil, serr
 		}
@@ -221,7 +221,6 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 		}
 		return &SayVerbOut{OK: res.OK, Msg: msg, After: func() {
 			res.After.Run()
-			e.settledAfter(settled)
 			if res.OK {
 				e.after(res.RID, target)
 			}
@@ -249,13 +248,12 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 				}
 				return effect(c, note, rid)
 			}
-			res, settled, serr := e.Say(q, SayIn{Target: target, Body: body, Requester: me, ParentID: in.Parent, Speaker: in.Speaker, Within: within})
+			res, serr := e.Say(q, SayIn{Target: target, Body: body, Requester: me, ParentID: in.Parent, Speaker: in.Speaker, Within: within})
 			if serr != nil {
 				return nil, serr
 			}
 			return &SayVerbOut{OK: res.OK, Msg: res.Message, After: func() {
 				res.After.Run()
-				e.settledAfter(settled)
 				if res.OK && res.RID != 0 {
 					e.after(res.RID, target)
 				}
@@ -285,28 +283,16 @@ func (e *Env) SayVerb(q db.Q, in SayVerbIn) (out *SayVerbOut, err error) {
 	if in.Effect != nil {
 		within = in.Effect
 	}
-	res, settled, serr := e.Say(q, SayIn{Target: target, Body: body, Requester: me, ParentID: in.Parent, Speaker: in.Speaker, Within: within})
+	res, serr := e.Say(q, SayIn{Target: target, Body: body, Requester: me, ParentID: in.Parent, Speaker: in.Speaker, Within: within})
 	if serr != nil {
 		return nil, serr
 	}
 	return &SayVerbOut{OK: res.OK, Msg: res.Message, After: func() {
 		res.After.Run()
-		e.settledAfter(settled)
 		if res.OK {
 			e.after(res.RID, target)
 		}
 	}}, nil
-}
-
-func (e *Env) settledAfter(s *Settled) {
-	if s == nil {
-		return
-	}
-	var out string
-	defer e.guard("telling the asker of a settled request", &out)
-	if _, err := e.SettledTell(e.DB, s); err != nil {
-		e.log("  telling the asker of #%d failed: %v", s.RID, err)
-	}
 }
 
 // PushCheck is why target cannot be pushed to, "" for none.
@@ -336,28 +322,6 @@ func (e *Env) PushVerb(target string, rid int64) (bool, string) {
 	return true, e.PushAct(target, rid)
 }
 
-// PushAnswerCheck is why an answer cannot be pushed to requester, "" for none.
-func (e *Env) PushAnswerCheck(requester string) string {
-	if requester == db.Human || !e.registered(requester) {
-		return requester + " is not an agent"
-	}
-	return ""
-}
-
-// PushAnswerAct puts the answer in front of the agent that asked, on a goroutine of its own.
-func (e *Env) PushAnswerAct(requester string) string {
-	e.background("push-answer-"+requester, func() { e.PushAnswerHere(e.DB, requester) })
-	return Handed
-}
-
-// PushAnswerVerb is the `push.answer` verb: (ok, message).
-func (e *Env) PushAnswerVerb(requester string) (bool, string) {
-	if why := e.PushAnswerCheck(requester); why != "" {
-		return false, why
-	}
-	return true, e.PushAnswerAct(requester)
-}
-
 // NotifyCancelledCheck is the request NotifyCancelledVerb would tell about and why not: (row, "") or (nil, why). Pure reads.
 func (e *Env) NotifyCancelledCheck(q db.Q, rid int64) (row *db.Request, why string, err error) {
 	defer Catch(&err)
@@ -377,7 +341,7 @@ func (e *Env) NotifyCancelledCheck(q db.Q, rid int64) (row *db.Request, why stri
 // NotifyCancelledAct types the cancel at the agent on a goroutine of its own.
 func (e *Env) NotifyCancelledAct(row *db.Request) string {
 	e.background(fmt.Sprintf("notify-cancelled-%d", row.ID), func() {
-		if _, _, err := e.NotifyCancelled(e.DB, row, shownVerdict(row)); err != nil {
+		if _, _, err := e.NotifyCancelled(e.DB, row, row.Reason.String); err != nil {
 			e.log("  notify-cancelled-%d failed: %v", row.ID, err)
 		}
 	})

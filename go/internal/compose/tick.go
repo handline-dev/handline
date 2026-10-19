@@ -101,7 +101,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		StillDrawn:       func(string) bool { return false },
 		ResumableSession: func(q db.Q, agent string) string { return p.resumableSession(q, agent, tu) },
 		Resolve: func(id int64, why string) error {
-			_, _, err := env.Resolve(q, supervisor.ResolveIn{RID: id, Verdict: why, NoSettle: true})
+			_, _, err := env.Resolve(q, supervisor.ResolveIn{RID: id, Verdict: why})
 			return err
 		},
 		Term: reconcileTerm{p: p, on: tc.Terminals},
@@ -465,7 +465,6 @@ func (d tickDelivery) NoteFailure(agent, why string) { d.env.NoteFailure(agent, 
 func (d tickDelivery) TrackBackgroundWork(q db.Q, agent string, row *db.AgentState) {
 	d.env.TrackBackgroundWork(q, agent, row)
 }
-func (d tickDelivery) DeliverAnswers(q db.Q, agent string) { d.env.DeliverAnswers(q, agent) }
 func (d tickDelivery) DeliverQueued(q db.Q, agent string) bool {
 	sent, _ := d.env.DeliverQueued(q, agent)
 	return sent

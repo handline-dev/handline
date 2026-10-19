@@ -10,7 +10,7 @@ import (
 	"github.com/handline/handline/go/internal/taskwrites"
 )
 
-// The actions the chat page and the mailbox share (handline/actions/requests.py): answer, dismiss, the cancel plan and "seen". Each does its
+// The actions the chat page and the mailbox share (handline/actions/requests.py): the founder's decision, a say, the cancel plan and "seen". Each does its
 // writes on the Q it is given (the caller's transaction) and leaves the telling to the Tell it returns, to run once that transaction has committed.
 
 // Result is what an action wrote. OK false is a refusal and Msg its reason; Keep says its writes stand all the same (a request the routing
@@ -30,9 +30,6 @@ func refusal(msg string) *Result { return &Result{Msg: msg} }
 func said(msg string) *Result {
 	return &Result{OK: true, Note: msg, Tell: func() string { return msg }}
 }
-
-// IsAnswerToHuman is a row the person asked that is no longer queued: what it holds now is the agent's verdict.
-func IsAnswerToHuman(r *db.Request) bool { return r.Requester == db.Human && r.State != "queued" }
 
 // guarded runs what follows a commit: a failure there is logged and the message left empty, since the write is done and the tick is the net.
 // With a port missing (the daemon serves the writes before every port has landed) nothing is told.
@@ -60,78 +57,7 @@ func logf(e *supervisor.Env, format string, args ...any) {
 	}
 }
 
-// AnswerWrite is answer_ok: reply to one row of the person's mailbox, whichever way it points. A request to the person is closed with a
-// verdict; an answer to something they asked is replied to, as a new request back in that answer's thread. effect is the daemon's record of
-// the write, made in the same transaction.
-func AnswerWrite(e *supervisor.Env, tell taskwrites.Teller, q db.Q, rid int64, verdict string, effect func(q db.Q, message string) error) (*Result, error) {
-	if strings.TrimSpace(verdict) == "" {
-		return refusal("nothing sent: no answer typed"), nil
-	}
-	var note string
-	inner := effect
-	effect = func(c db.Q, n string) error {
-		note = n
-		if inner == nil {
-			return nil
-		}
-		return inner(c, n)
-	}
-	res, err := answerWrite(e, tell, q, rid, verdict, effect)
-	if res != nil {
-		res.Note = note
-	}
-	return res, err
-}
-
-func answerWrite(e *supervisor.Env, tell taskwrites.Teller, q db.Q, rid int64, verdict string, effect func(q db.Q, message string) error) (*Result, error) {
-	row, err := db.GetRequest(q, rid)
-	if err != nil {
-		return nil, err
-	}
-	if row == nil {
-		return refusal(fmt.Sprintf("#%d is gone", rid)), nil
-	}
-	if row.State == "queued" && row.Target == db.Human {
-		tid, err := db.DecisionTaskOfCard(q, rid)
-		if err != nil {
-			return nil, err
-		}
-		if tid != 0 {
-			return decide(e, tell, q, tid, verdict, effect)
-		}
-	}
-	if IsAnswerToHuman(row) {
-		parent := rid
-		if a, err := db.AnswerRowOf(q, rid); err != nil {
-			return nil, err
-		} else if a != nil {
-			parent = a.ID
-		}
-		// Replied to is read: leaving it in the mailbox would ask the person to dismiss what they have just answered.
-		within := func(c db.Q, note string, _ int64) error {
-			if err := db.MarkAnnounced(c, []int64{rid}); err != nil {
-				return err
-			}
-			if effect != nil {
-				return effect(c, note)
-			}
-			return nil
-		}
-		return SayWrite(e, q, db.Human, row.Target, verdict, parent, within)
-	}
-	r, ok, msg, err := e.ResolveWrite(q, supervisor.ResolveIn{RID: rid, Verdict: verdict, Notify: true, Effect: effect})
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return refusal(msg), nil
-	}
-	return &Result{OK: true, Tell: func() string {
-		return guarded(e, fmt.Sprintf("telling after the answer to #%d", rid), func() (string, error) { return e.ResolveTell(e.DB, r) })
-	}}, nil
-}
-
-// decide is tasks.decide: the person's decision on a task they own is the answer to its card, and their done on the task.
+// decide is tasks.decide: the person's decision on a task they own closes its card with their words, and is their done on the task.
 func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text string, effect func(q db.Q, message string) error) (*Result, error) {
 	text = strings.TrimSpace(text)
 	t, err := db.GetTask(q, tid)
@@ -163,7 +89,7 @@ func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text s
 	}
 	var resolved *supervisor.Resolved
 	if card != nil && card.State == "queued" && card.Target == db.Human {
-		r, ok, msg, err := e.ResolveWrite(q, supervisor.ResolveIn{RID: card.ID, Verdict: text, Notify: true, NoSettle: true, Effect: effect})
+		r, ok, msg, err := e.ResolveWrite(q, supervisor.ResolveIn{RID: card.ID, Verdict: text, Effect: effect})
 		if err != nil {
 			return nil, err
 		}
@@ -172,8 +98,8 @@ func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text s
 		}
 		resolved, effect = r, nil
 	}
-	// The card closes unsettled: the founder's words then go through task.done's rules, which leave a task someone else asked answered, with
-	// the founder, and close the founder's own (or one already answered).
+	// The founder's words then go through task.done's rules, which leave a task someone else asked answered, with the founder, and close
+	// the founder's own (or one already answered).
 	tx, ok := q.(*sql.Tx)
 	if !ok || tell == nil {
 		return nil, fmt.Errorf("deciding T%d needs the call's transaction and the task teller", tid)
@@ -214,7 +140,7 @@ func cardOf(q db.Q, tid int64) (*db.Request, error) {
 }
 
 // DecideCard is task.done's way to decide (taskwrites.CardDecider): the founder's words on a task they own whose card still waits on them
-// are decided as the card's answer, as inbox.answer did.
+// close the card and the task.
 func DecideCard(e *supervisor.Env, tell taskwrites.Teller) taskwrites.CardDecider {
 	return func(tx *sql.Tx, tid int64, words string) (bool, string, func(), error) {
 		if !e.Wired() { // no card can be resolved before every port has its owner: the task is marked done as before, its card left
@@ -239,21 +165,16 @@ func DecideCard(e *supervisor.Env, tell taskwrites.Teller) taskwrites.CardDecide
 	}
 }
 
-// SayWrite is askmod.say as requester: the message is routed and written (a denied one is kept as a row), and settles the request it
-// replies to when parent names one. within is more to write in the same transaction, given the message and the new request's id.
+// SayWrite is askmod.say as requester: the message is routed and written (a denied one is kept as a row); parent, when set, links it into
+// that message's thread. within is more to write in the same transaction, given the message and the new request's id.
 func SayWrite(e *supervisor.Env, q db.Q, requester, target, body string, parent int64, within func(q db.Q, note string, rid int64) error) (*Result, error) {
 	return sayWrite(e, q, requester, target, body, parent, within, nil)
 }
 
 // sayWrite is SayWrite with act, if set, doing what follows the commit in place of the usual push to the target.
 func sayWrite(e *supervisor.Env, q db.Q, requester, target, body string, parent int64, within func(q db.Q, note string, rid int64) error, act func(rid int64)) (*Result, error) {
-	return sayWriteLinked(e, q, requester, target, body, parent, false, within, act)
-}
-
-// sayWriteLinked is sayWrite where link makes parent only a link: the message it names is not closed by the reply.
-func sayWriteLinked(e *supervisor.Env, q db.Q, requester, target, body string, parent int64, link bool, within func(q db.Q, note string, rid int64) error, act func(rid int64)) (*Result, error) {
 	var note string
-	res, settled, err := e.Say(q, supervisor.SayIn{Target: target, Body: body, Requester: requester, ParentID: parent, Link: link,
+	res, err := e.Say(q, supervisor.SayIn{Target: target, Body: body, Requester: requester, ParentID: parent,
 		Within: func(c db.Q, n string, rid int64) error {
 			note = n
 			if within == nil {
@@ -269,7 +190,6 @@ func sayWriteLinked(e *supervisor.Env, q db.Q, requester, target, body string, p
 	}
 	return &Result{OK: true, Note: note, Request: res.RID, Tell: func() string {
 		extra := res.After.Run()
-		guarded(e, "telling the asker of a settled request", func() (string, error) { return e.SettledTell(e.DB, settled) })
 		if act != nil {
 			act(res.RID)
 		} else if e.Wired() {
@@ -279,78 +199,6 @@ func sayWriteLinked(e *supervisor.Env, q db.Q, requester, target, body string, p
 			return res.Message + "\n" + extra
 		}
 		return res.Message
-	}}, nil
-}
-
-// DismissWrite is dismiss: take one row off the mailbox without replying to it. A still-queued row is closed as dismissed (by me, with
-// reason as typed) and carries no answer; a row that already carries a verdict keeps it, and is marked read by whoever asked for it. Read by
-// the one who wrote the verdict there is nothing left to do. A refusal by the guard is the only not-OK.
-func DismissWrite(e *supervisor.Env, q db.Q, rid int64, me, reason string, tasks []int64, noTask *string, effect func(q db.Q, message string) error) (*Result, error) {
-	var note string
-	inner := effect
-	effect = func(c db.Q, n string) error {
-		note = n
-		if inner == nil {
-			return nil
-		}
-		return inner(c, n)
-	}
-	row, err := db.GetRequest(q, rid)
-	if err != nil {
-		return nil, err
-	}
-	if row == nil {
-		return said(fmt.Sprintf("#%d is gone", rid)), nil
-	}
-	record := func(msg string) (*Result, error) {
-		if effect != nil {
-			if err := effect(q, msg); err != nil {
-				return nil, err
-			}
-		}
-		return said(msg), nil
-	}
-	founders := row.State == "queued" && row.Requester == db.Human
-	if founders || len(tasks) > 0 {
-		refused, err := e.CheckHumanResolve(q, row, tasks, noTask, me, false)
-		if err != nil {
-			return nil, err
-		}
-		if refused != "" {
-			return refusal(refused), nil
-		}
-	}
-	if row.State != "queued" {
-		if me != "" && me == row.Target {
-			return record(fmt.Sprintf("#%d was already answered - nothing more for you to do", rid))
-		}
-		if err := db.MarkAnnounced(q, []int64{rid}); err != nil {
-			return nil, err
-		}
-		return record(fmt.Sprintf("#%d marked read", rid))
-	}
-	by := me
-	if by == "" {
-		by = "unknown"
-	}
-	if founders || len(tasks) > 0 || (noTask != nil && *noTask != "") {
-		// Linked before the row is closed: a failure between the two leaves a link on a still-queued row, never an answered row attached to nothing.
-		if err := e.RecordHumanResolve(q, rid, tasks, noTask, me); err != nil {
-			return nil, err
-		}
-	}
-	// Closed, not announced: a dismissal is not an answer, so nothing is typed at the asker.
-	r, ok, msg, err := e.ResolveWrite(q, supervisor.ResolveIn{RID: rid, State: "done", Notify: false, DismissedBy: by, DismissedReason: reason, Effect: effect})
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return refusal(msg), nil
-	}
-	requester := row.Requester
-	return &Result{OK: true, Note: note, Tell: func() string {
-		told := guarded(e, fmt.Sprintf("telling after the dismissal of #%d", rid), func() (string, error) { return e.ResolveTell(e.DB, r) })
-		return fmt.Sprintf("%s (dismissed; %s is not told)", told, requester)
 	}}, nil
 }
 
@@ -381,20 +229,15 @@ func CancelPlan(q db.Q, rid int64) (bool, string, error) {
 			break
 		}
 	}
-	var told []string
+	told := requester + " is not told"
 	if row.DeliveredAt.Valid {
-		told = append(told, target+" is told to stop")
-	}
-	if requester == db.Human {
-		told = append(told, "you are not told")
-	} else {
-		told = append(told, fmt.Sprintf("%s is told '%s'", requester, supervisor.CancelVerdict))
+		told = target + " is told to stop, " + told
 	}
 	way := "queued for"
 	if row.DeliveredAt.Valid {
 		way = "delivered to"
 	}
-	out := fmt.Sprintf("cancel #%d (%s %s): closed as rejected, '%s'; %s", rid, way, target, supervisor.CancelVerdict, strings.Join(told, ", "))
+	out := fmt.Sprintf("cancel #%d (%s %s): closed as rejected, '%s'; %s", rid, way, target, supervisor.CancelVerdict, told)
 	if row.DeliveredAt.Valid && behind != 0 {
 		out += fmt.Sprintf("; #%d delivers next", behind)
 	}

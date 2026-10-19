@@ -78,13 +78,14 @@ func TestAdvanceDeliversATaskHandedBackToItsOpenerAsItsOwnWork(t *testing.T) {
 	}
 }
 
-func TestSelfDeliveryCarriesTheAnswersSoFar(t *testing.T) {
+func TestSelfDeliveryCarriesWhatItsRequestsClosedWith(t *testing.T) {
 	r := newRig(t)
 	tid := r.newTask("bob", "bob", "finish the doc")
 	asked := r.ask("bob", "alice", "which format?", "ask")
 	r.must(db.LinkRequest(r.DB, tid, asked))
-	_, err := db.AddAnswer(r.DB, asked, "pdf", 0, true)
-	r.must(err)
+	if ok, err := db.CloseIfQueued(r.DB, asked, "done", "pdf"); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
 	task, _ := db.GetTask(r.DB, tid)
 	row, _ := db.GetRequest(r.DB, r.selfDelivery(r.DB, "bob", task))
 	if row.Body != fmt.Sprintf("finish the doc\n\nanswer to #%d: pdf", asked) {

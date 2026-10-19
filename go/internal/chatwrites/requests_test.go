@@ -83,7 +83,7 @@ func TestCancelPlansWithoutWritingAndClosesAnyQueuedRequest(t *testing.T) {
 	}
 	// the same request_id is not a kept reply: the dry run and the cancel may share one
 	res := cancel(rid, "", "c1")
-	if res["ok"] != true || r.state(rid) != "landed" || r.count("SELECT COUNT(*) FROM requests WHERE settles = ? AND body = ?", rid, supervisor.CancelVerdict) != 1 {
+	if res["ok"] != true || r.state(rid) != "landed" || r.count("SELECT COUNT(*) FROM events WHERE kind = 'request_reason' AND json_extract(payload, '$.request_id') = ? AND json_extract(payload, '$.reason') = ?", rid, supervisor.CancelVerdict) != 1 {
 		t.Fatalf("an agent's delivered request is closed with the cancel verdict: %v %s", res, r.state(rid))
 	}
 	if r.count("SELECT COUNT(*) FROM events WHERE kind = 'rpc_write'") != 1 {

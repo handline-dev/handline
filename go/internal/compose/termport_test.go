@@ -190,7 +190,7 @@ func TestAWakesLaunchIsShownStartingAtOnceAndUntilItsSessionsFirstHook(t *testin
 	ft.started = sessionRecordIn(dir)
 	dbpkg.SetTerminal(d, "bob", "", wt)
 	dbpkg.SetClosed(d, "bob", "11111111-1111-4111-8111-111111111111")
-	dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "bob", Body: "begin", Response: "async", Kind: "ask"})
+	dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "bob", Body: "begin", Kind: "ask"})
 	state := func() string {
 		t.Helper()
 		var raw string
@@ -230,7 +230,7 @@ func TestAClosedTerminalAgentIsWokenInANewTerminalResumingItsSession(t *testing.
 	if err := dbpkg.SetClosed(d, "bob", "11111111-1111-4111-8111-111111111111"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "bob", Body: "begin", Response: "async", Kind: "ask"}); err != nil {
+	if _, err := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "bob", Body: "begin", Kind: "ask"}); err != nil {
 		t.Fatal(err)
 	}
 	ok, said, err := lc.Manager.WakeAgent("bob", lifecycle.WakeOpts{Warm: true})

@@ -161,9 +161,6 @@ func (m *Manager) ClosedWakeCause(agent string, row *db.AgentState) (c *WakeCaus
 	if waiting > 0 {
 		return &WakeCause{"work", fmt.Sprintf("%d waiting request(s)", waiting)}, nil
 	}
-	if n := len(must(db.UnannouncedAnswers(m.Q, agent))); n > 0 {
-		return &WakeCause{"answer", fmt.Sprintf("%d answer(s) it asked for", n)}, nil
-	}
 	if n := len(must(db.ListPending(m.Q, agent))); n > 0 {
 		return &WakeCause{"message", fmt.Sprintf("%d pending message(s)", n)}, nil
 	}
@@ -187,7 +184,7 @@ func (m *Manager) StartOrWakeNeeded(agent string, row *db.AgentState) (kind, wha
 		return "", "", nil
 	}
 	if !m.hasSession(agent, row) && !m.ResumableWithoutTerminal(row) {
-		if len(must(db.QueuedFor(m.Q, agent))) > 0 || len(must(db.UnannouncedAnswers(m.Q, agent))) > 0 || len(must(db.ListPending(m.Q, agent))) > 0 {
+		if len(must(db.QueuedFor(m.Q, agent))) > 0 || len(must(db.ListPending(m.Q, agent))) > 0 {
 			return "start", "work waiting", nil
 		}
 		return "", "", nil
@@ -235,7 +232,7 @@ func (m *Manager) recordDue(agent string) bool {
 }
 
 func (m *Manager) waitingFor(agent string) bool {
-	return m.recordDue(agent) || must(m.Delivery.EffectiveHead(m.Q, agent)) != nil || len(must(db.UnannouncedAnswers(m.Q, agent))) > 0 ||
+	return m.recordDue(agent) || must(m.Delivery.EffectiveHead(m.Q, agent)) != nil ||
 		len(must(db.SendNowPending(m.Q, agent))) > 0 || len(must(db.ListPending(m.Q, agent))) > 0
 }
 
@@ -254,7 +251,7 @@ func (m *Manager) ColdBeforeTyping(agent string, row *db.AgentState, now int64, 
 	told := head != nil && must(db.Cursor(m.Q, "notify:"+agent)) == head.ID && !must(m.Delivery.SessionChanged(m.Q, agent))
 	found := must(m.Delivery.ForgottenResolve(m.Q, agent, row, now))
 	nudge := found != nil && found.IdleS >= supervisor.NudgeAfterS && must(db.Cursor(m.Q, "nudge:"+agent)) != found.Head.ID
-	if !(len(must(db.UnannouncedAnswers(m.Q, agent))) > 0 || (head != nil && !told) || nudge) {
+	if !((head != nil && !told) || nudge) {
 		return false, false, nil
 	}
 	ok, _, err := m.CloseAgent(agent, st, CloseOpts{})

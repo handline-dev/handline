@@ -223,7 +223,7 @@ func TestUndeliveredMessageIsPushed(t *testing.T) {
 	q := openDB(t)
 	now := time.Now().Unix()
 	must(t, db.SetAgentState(q, "a", states.Idle, 0, ""))
-	task, err := db.AddRequest(q, db.NewRequest{Requester: "b", Target: "a", Body: "a task", Kind: "task", Response: "async"})
+	task, err := db.AddRequest(q, db.NewRequest{Requester: "b", Target: "a", Body: "a task", Kind: "task"})
 	must(t, err)
 	_, err = q.Exec("UPDATE requests SET ts = ? WHERE id = ?", now-3600, task)
 	must(t, err)
@@ -234,7 +234,7 @@ func TestUndeliveredMessageIsPushed(t *testing.T) {
 		t.Fatalf("a task queued for an idle agent is the task queue's, not a stuck delivery: %v", f.did)
 	}
 
-	msg, err := db.AddRequest(q, db.NewRequest{Requester: "b", Target: "a", Body: "hello", Kind: "say", Response: "fire_and_forget"})
+	msg, err := db.AddRequest(q, db.NewRequest{Requester: "b", Target: "a", Body: "hello", Kind: "say"})
 	must(t, err)
 	must(t, h.Sweep(q, now))
 	if len(f.did) != 0 {

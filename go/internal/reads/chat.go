@@ -23,7 +23,6 @@ const (
 	searchDefault = 20
 	searchMax     = 100
 	perSource     = 500
-	itemReply     = 0
 	itemPrompt    = 1
 	itemTask      = 2
 )
@@ -31,13 +30,11 @@ const (
 // neverReached are the states of a request that no chat draws: withdrawn, replaced, denied.
 const neverReached = "('denied', 'withdrawn', 'replaced')"
 
-const requestSelect = "SELECT id, ref, ts, state_at, requester, target, state, body, " + answerSQL + ", " + dismissedSQL + ", " +
-	"delivered_at, typed_at, landed_at, parent_id, kind, settles, " +
+const requestSelect = "SELECT id, ref, ts, state_at, requester, target, state, body, " +
+	"delivered_at, typed_at, landed_at, parent_id, kind, " +
 	"(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks, " +
 	"(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, " +
 	"(SELECT MIN(task_id) FROM task_requests WHERE request_id = requests.id) AS task_id, " +
-	"(SELECT a.id FROM requests a WHERE a.settles = requests.id ORDER BY a.id LIMIT 1) AS answer_id, " +
-	"EXISTS (SELECT 1 FROM events WHERE dedup_key = 'task_question:' || requests.id) AS task_question, " +
 	"(SELECT json_extract(payload, '$.proposal') FROM events WHERE dedup_key = 'hr_outcome:' || requests.id) AS proposal FROM requests"
 
 // chat is what one call reads with: the database and the task board, loaded when a task delivery needs it.
@@ -101,7 +98,7 @@ func (c *chat) requestRow(id int64) (row, error) {
 // page is a chat's requests, oldest first, and whether older ones remain; since reads from that id on.
 func (c *chat) page(agent string, everyone bool, before, since *int64, limit int) ([]row, bool, error) {
 	where, args := chatScope(agent, everyone)
-	q := requestSelect + " WHERE state NOT IN " + neverReached + " AND settles IS NULL AND " + where
+	q := requestSelect + " WHERE state NOT IN " + neverReached + " AND " + where
 	if since != nil {
 		rs, err := query(c.e.DB, q+" AND id >= ? ORDER BY id", append(args, *since)...)
 		if err != nil {
@@ -132,7 +129,7 @@ func (c *chat) page(agent string, everyone bool, before, since *int64, limit int
 // after is the limit requests just newer than id, oldest first, and whether newer ones remain.
 func (c *chat) after(agent string, everyone bool, id int64, limit int) ([]row, bool, error) {
 	where, args := chatScope(agent, everyone)
-	rs, err := query(c.e.DB, requestSelect+" WHERE state NOT IN "+neverReached+" AND settles IS NULL AND "+where+
+	rs, err := query(c.e.DB, requestSelect+" WHERE state NOT IN "+neverReached+" AND "+where+
 		" AND id > ? ORDER BY id LIMIT ?", append(args, id, limit+1)...)
 	if err != nil {
 		return nil, false, err
@@ -145,48 +142,16 @@ func (c *chat) after(agent string, everyone bool, id int64, limit int) ([]row, b
 	return rs, more, err
 }
 
-func dismissal(r row) (bool, any, any) {
-	if by := r.str("dismisser"); by != "" {
-		return true, by, r.strOrNil("dismiss_reason")
-	}
-	text := r.str("answer")
-	if text == legacyDismiss {
-		return true, nil, nil
-	}
-	if strings.HasPrefix(text, legacyDismiss+": ") {
-		return true, nil, text[len(legacyDismiss)+2:]
-	}
-	return false, nil, nil
-}
-
-func answeredAt(r row) any {
-	for _, k := range []string{"answered_at", "state_at", "ts"} {
-		if n := r.i(k); n != 0 {
-			return r[k]
-		}
-	}
-	return r["ts"]
-}
-
 func landingOf(r row) string {
 	switch r.str("state") {
 	case "denied", "withdrawn", "replaced":
 		return "withdrawn"
-	}
-	if d, _, _ := dismissal(r); d {
-		return "dismissed"
-	}
-	if r["answer"] != nil {
-		return "answered"
 	}
 	state := "queued"
 	if r.i("landed_at") != 0 {
 		state = "delivered"
 	} else if r.i("typed_at") != 0 {
 		state = "typed"
-	}
-	if kind := r.str("kind"); state == "delivered" && kind != "" && kind != "say" {
-		return "delivered_unanswered"
 	}
 	return state
 }
@@ -202,7 +167,7 @@ func orEmpty(v any) any {
 // the session never took. Landing follows it: queued is queued, sent and unknown are typed, confirmed is delivered.
 func (c *chat) receiptOf(r row, landing string) (map[string]any, string, error) {
 	switch landing {
-	case "queued", "typed", "delivered", "delivered_unanswered":
+	case "queued", "typed", "delivered":
 	default:
 		return nil, landing, nil
 	}
@@ -275,7 +240,6 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	verdict, hasVerdict := shownVerdict(r)
 	tasks := []any{}
 	var ids []int64
 	for _, s := range strings.Split(r.str("tasks"), ",") {
@@ -309,15 +273,10 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 	if r.i("state_at") == 0 {
 		stateAt = r["ts"]
 	}
-	var answer any
-	if r["answer_id"] != nil && hasVerdict && verdict != "" {
-		answer = map[string]any{"id": r.i("answer_id"), "text": verdict, "at": ts(answeredAt(r))}
-	}
-	dismissed, _, _ := dismissal(r)
 	m := map[string]any{"id": r.i("id"), "ref": r.str("ref"), "at": ts(r["ts"]), "state_at": ts(stateAt), "from": r.str("requester"), "to": r.str("target"),
-		"state": r.str("state"), "landing": state, "sending_reason": why, "body": orEmpty(r["body"]), "answer": answer,
-		"dismissed": dismissed, "delivered_at": ts(r["delivered_at"]), "typed_at": ts(r["typed_at"]), "landed_at": ts(r["landed_at"]),
-		"parent": r.intOrNil("parent_id"), "kind": orEmpty(r["kind"]), "tasks": tasks, "is_task_question": r.i("task_question") != 0}
+		"state": r.str("state"), "landing": state, "sending_reason": why, "body": orEmpty(r["body"]),
+		"delivered_at": ts(r["delivered_at"]), "typed_at": ts(r["typed_at"]), "landed_at": ts(r["landed_at"]),
+		"parent": r.intOrNil("parent_id"), "kind": orEmpty(r["kind"]), "tasks": tasks}
 	if len(actions) > 0 {
 		m["actions"] = actions
 	}
@@ -676,7 +635,7 @@ func sessionItemOf(s row) (map[string]any, bool) {
 func (c *chat) version(agent string, everyone bool) (string, error) {
 	where, args := chatScope(agent, everyone)
 	r, err := queryOne(c.e.DB, "SELECT COUNT(*) AS a, COALESCE(MAX(id), 0) AS b, "+
-		"COALESCE(MAX(MAX(COALESCE(requests.state_at, 0), COALESCE((SELECT MAX(a.ts) FROM requests a WHERE a.settles = requests.id), 0))), 0) AS c, "+
+		"COALESCE(MAX(state_at), 0) AS c, "+
 		"COALESCE(MAX(delivered_at), 0) AS d, COUNT(delivered_at) AS e, COALESCE(MAX(landed_at), 0) AS f, COUNT(landed_at) AS g, "+
 		"COALESCE(MAX(typed_at), 0) AS h, COALESCE(SUM(state = 'queued'), 0) AS i FROM requests WHERE state NOT IN "+neverReached+" AND "+where, args...)
 	if err != nil {
@@ -724,12 +683,7 @@ func (e *Env) chatRequests(c *rpc.Conn, params map[string]any) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		dismissed, by, reason := dismissal(r)
-		var dis any
-		if dismissed {
-			dis = map[string]any{"by": by, "reason": reason}
-		}
-		items = append(items, item{map[string]any{"type": "request", "at": ts(when(r)), "message": msg, "dismissal": dis,
+		items = append(items, item{map[string]any{"type": "request", "at": ts(when(r)), "message": msg,
 			"task_state": r["task_state"]}, when(r), r.i("id")})
 	}
 	evs, err := ch.taskEvents(rs)
@@ -791,19 +745,13 @@ type located struct {
 	tab     string
 }
 
-// locateMessage is the chat mid (a request's number, or the number of the answer that settles one) is drawn in.
+// locateMessage is the chat the request numbered mid is drawn in.
 func (e *Env) locateMessage(mid int64, agent string, everyone bool) (located, error) {
-	r, err := queryOne(e.DB, "SELECT id, requester, target, state, settles FROM requests WHERE id = ?", mid)
+	r, err := queryOne(e.DB, "SELECT id, requester, target, state FROM requests WHERE id = ?", mid)
 	if err != nil || r == nil {
 		return located{kind: "alone"}, err
 	}
 	req := r.i("id")
-	if r.set("settles") {
-		req = r.i("settles")
-		if r, err = queryOne(e.DB, "SELECT id, requester, target, state FROM requests WHERE id = ?", req); err != nil || r == nil {
-			return located{kind: "alone"}, err
-		}
-	}
 	switch r.str("state") {
 	case "denied", "withdrawn", "replaced":
 		return located{kind: "alone", request: req}, nil
@@ -859,13 +807,6 @@ func (e *Env) chatLocate(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, err
 	}
 	if agent == "" {
-		if r.set("settles") {
-			if s, err := queryOne(e.DB, "SELECT * FROM requests WHERE id = ?", r.i("settles")); err != nil {
-				return nil, err
-			} else if s != nil {
-				r = s
-			}
-		}
 		agent = ownerOfChat(r)
 	}
 	nothing := fmt.Sprintf("no chat shows message %d", mid)
@@ -934,9 +875,9 @@ func (e *Env) chatSearch(c *rpc.Conn, params map[string]any) (any, error) {
 	if agent != "" {
 		where, scopeArgs = chatScope(agent, everyone)
 	}
-	hits, err := query(e.DB, "SELECT id FROM requests WHERE state NOT IN "+neverReached+" AND settles IS NULL AND "+where+
-		` AND (body LIKE ? ESCAPE '\' OR EXISTS (SELECT 1 FROM requests a WHERE a.settles = requests.id AND a.body LIKE ? ESCAPE '\')) `+
-		"ORDER BY id DESC LIMIT ?", append(scopeArgs, like, like, limit)...)
+	hits, err := query(e.DB, "SELECT id FROM requests WHERE state NOT IN "+neverReached+" AND "+where+
+		` AND body LIKE ? ESCAPE '\' `+
+		"ORDER BY id DESC LIMIT ?", append(scopeArgs, like, limit)...)
 	if err != nil {
 		return nil, err
 	}
@@ -986,16 +927,6 @@ var transcriptEvents = map[string]string{"task_new": "opened", "task_begin": "ch
 
 // batchKind is a batch discard's one event: the task_batch card, apart from transcriptEvents since it names no one task.
 const batchKind = "discard_batch"
-
-func repliesOf(r row, agent string) []map[string]any {
-	var out []map[string]any
-	shown, hasShown := shownVerdict(r)
-	if d, _, _ := dismissal(r); r.str("requester") == human && r.str("target") == agent && hasShown && shown != "" && r["answer_id"] != nil && !d {
-		at := answeredAt(r)
-		out = append(out, map[string]any{"id": itemID(num(at), itemReply, r.i("id")*2+1), "at": ts(at), "kind": "reply", "text": shown})
-	}
-	return out
-}
 
 // promptItemOf is a prompt block as a transcript item.
 func promptItemOf(agent string, b row) map[string]any {
@@ -1074,15 +1005,7 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ch := &chat{e: e, agent: isAgent(c)}
-	rs, _, err := ch.page(agent, false, nil, nil, perSource)
-	if err != nil {
-		return nil, err
-	}
 	var items []map[string]any
-	for _, r := range rs {
-		items = append(items, repliesOf(r, agent)...)
-	}
 	// A structured session's text blocks are its replies: each is a transcript event, and the event holds this item's id.
 	texts, err := transcript.Replies(e.DB, agent, perSource)
 	if err != nil {

@@ -222,7 +222,7 @@ func TestADiscardTypesItsSaysAndMovesTheOwnerOn(t *testing.T) {
 	db.SetTaskQueued(d.db, second, "human")
 	reqs, _ := db.TaskRequests(d.db, 1)
 	for _, q := range reqs {
-		db.CloseIfQueued(d.db, q.ID, "dismissed", "", db.CloseOpts{})
+		db.CloseIfQueued(d.db, q.ID, "dismissed", "")
 	}
 	agents.typed = map[string][]string{}
 	f := pipeTo(t, d, "k")

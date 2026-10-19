@@ -984,7 +984,6 @@ Format `text` sends plain text rows (frame notices). Format `styled` sends the s
 | `message` | none |
 | `say` | `say` |
 | `push` | none |
-| `push_answer` | none |
 | `notify_cancelled` | none |
 | `wake` | `session.wake` |
 | `close` | `session.stop{mode:close}` |

@@ -90,7 +90,7 @@ func (e *Env) Released(tid int64, why string, retired []taskwrites.Retired) []st
 			e.log("  telling after T%d released #%d failed: %v", tid, r.RID, err)
 			continue
 		}
-		target, _, extra, err := e.closeTell(e.DB, r.RID, row, why, r.Notify)
+		target, _, extra, err := e.closeTell(e.DB, r.RID, row, why)
 		if err != nil {
 			e.log("  telling after T%d released #%d failed: %v", tid, r.RID, err)
 		}
@@ -104,7 +104,7 @@ func (e *Env) Released(tid int64, why string, retired []taskwrites.Retired) []st
 }
 
 // Cancelled is what the founder's cancel does after it commits, ahead of the discard's own telling: each request it closed is told like any
-// cancel (the target told to stop if it had it, the requester told, the queue moved up), and an owner holding the task without a delivery is
+// cancel (the target told to stop if it had it, the queue moved up), and an owner holding the task without a delivery is
 // typed to stop.
 func (e *Env) Cancelled(tid int64, by, owner string, stop bool, closed []taskwrites.Retired) {
 	var out string
@@ -119,7 +119,7 @@ func (e *Env) Cancelled(tid int64, by, owner string, stop bool, closed []taskwri
 		if verdict == "" {
 			verdict = CancelVerdict
 		}
-		if _, _, _, err := e.closeTell(e.DB, r.RID, row, verdict, r.Notify); err != nil {
+		if _, _, _, err := e.closeTell(e.DB, r.RID, row, verdict); err != nil {
 			e.log("  telling after T%d was cancelled, #%d failed: %v", tid, r.RID, err)
 		}
 	}
@@ -194,7 +194,7 @@ func askedOf(out *AskOut, notify bool) *taskwrites.Asked {
 
 // TaskSay sends the founder's question about a task as a say, typed at once; within links it to the task in the transaction that writes it.
 func (e *Env) TaskSay(tx *sql.Tx, to, body string, within func(rid int64, note string) error) (*taskwrites.Asked, error) {
-	out, _, err := e.Say(tx, SayIn{Target: to, Body: body, Requester: db.Human, Notify: true,
+	out, err := e.Say(tx, SayIn{Target: to, Body: body, Requester: db.Human, Notify: true,
 		Within: func(_ db.Q, note string, rid int64) error { return within(rid, note) }})
 	if err != nil {
 		return nil, err
@@ -202,10 +202,9 @@ func (e *Env) TaskSay(tx *sql.Tx, to, body string, within func(rid int64, note s
 	return askedOf(out, true), nil
 }
 
-// HandoffRetire closes a request of the old owner's as resolve does for a handoff: done, the requester not told, the decision task it is the
-// card of not settled. A request closed in the meantime is left as it is.
+// HandoffRetire closes a request of the old owner's as resolve does for a handoff: done. A request closed in the meantime is left as it is.
 func (e *Env) HandoffRetire(tx *sql.Tx, rid int64, verdict string) (func(), error) {
-	r, ok, _, err := e.ResolveWrite(tx, ResolveIn{RID: rid, Verdict: verdict, NoSettle: true})
+	r, ok, _, err := e.ResolveWrite(tx, ResolveIn{RID: rid, Verdict: verdict})
 	if err != nil || !ok {
 		return nil, err
 	}

@@ -102,8 +102,8 @@ func TestAReplyToTheFoundersRequestMustSayWhatItBecomes(t *testing.T) {
 	if !found {
 		t.Fatalf("the founder's request is not linked to the task: %+v", links)
 	}
-	if row, _ := db.GetRequest(r.DB, ask); row.State != "landed" || row.Answer.String != "on it" {
-		t.Fatalf("%+v", row)
+	if row, _ := db.GetRequest(r.DB, ask); row.State != "queued" {
+		t.Fatalf("a reply links the founder's request to the task and closes nothing: %+v", row)
 	}
 }
 
@@ -199,12 +199,6 @@ func TestPushVerbsCheckTheirTargetsAndHandOver(t *testing.T) {
 	r.term.typed = nil
 	if ok, _ := r.PushVerb("bob", task); !ok {
 		t.Fatal("task push refused")
-	}
-	if ok, msg := r.PushAnswerVerb("human"); ok || msg != "human is not an agent" {
-		t.Fatal(msg)
-	}
-	if ok, msg := r.PushAnswerVerb("bob"); !ok || msg != Handed {
-		t.Fatal(msg)
 	}
 }
 

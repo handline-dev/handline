@@ -16,7 +16,6 @@ type Retired struct {
 	RID               int64
 	Requester, Target string
 	Held, Delivered   bool
-	Notify            bool   // the requester is told of the close
 	Park              bool   // a draft took the held task back: its target is moved on to its next task
 	Verdict           string // what a cancel closed it under, "" for CancelVerdict
 }
@@ -104,8 +103,7 @@ func releaseMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 					retired = append(retired, Retired{RID: r.ID, Requester: r.Requester, Target: r.Target, Held: true})
 					continue
 				}
-				notify := r.Requester != human
-				ok, err := db.CloseIfQueued(tx, r.ID, "rejected", why, db.CloseOpts{Announced: !notify, NoSettle: true})
+				ok, err := db.CloseIfQueued(tx, r.ID, "rejected", why)
 				if err != nil {
 					return nil, err
 				}
@@ -117,7 +115,7 @@ func releaseMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 					return nil, err
 				}
 				ids = append(ids, r.ID)
-				retired = append(retired, Retired{RID: r.ID, Requester: r.Requester, Target: r.Target, Delivered: r.DeliveredAt.Valid, Notify: notify})
+				retired = append(retired, Retired{RID: r.ID, Requester: r.Requester, Target: r.Target, Delivered: r.DeliveredAt.Valid})
 			}
 			if bare { // its owner holds it on the founder's word or its own: the release ends that, and the owner is told to stop
 				retired = append(retired, Retired{Target: t.Owner, Held: true})

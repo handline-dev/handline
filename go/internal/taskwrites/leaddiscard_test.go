@@ -49,8 +49,8 @@ func TestALeadDiscardsATaskOfItsTeamWithdrawingItsOpenRequest(t *testing.T) {
 	if count(t, d, "SELECT COUNT(*) FROM requests WHERE id = 5 AND state != 'queued'") != 1 {
 		t.Fatal("the open request is withdrawn")
 	}
-	if len(f.cancelled) != 1 || f.cancelled[0].RID != 5 || f.cancelled[0].Verdict != "withdrawn by lead: PR merged" || !f.cancelled[0].Notify {
-		t.Fatalf("its requester is told under the lead's words: %+v", f.cancelled)
+	if len(f.cancelled) != 1 || f.cancelled[0].RID != 5 || f.cancelled[0].Verdict != "withdrawn by lead: PR merged" {
+		t.Fatalf("its request closes under the lead's words: %+v", f.cancelled)
 	}
 	told := false
 	for _, n := range f.told {

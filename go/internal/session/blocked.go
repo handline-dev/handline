@@ -192,17 +192,6 @@ func (e *Env) WorkWaiting(agent string, row *AgentRow, now int64) (string, error
 		}
 		parts = append(parts, s)
 	}
-	if answers := d.UnannouncedAnswers(agent); len(answers) > 0 {
-		var ids []string
-		for _, id := range answers[:min(3, len(answers))] {
-			ids = append(ids, fmt.Sprintf("#%d", id))
-		}
-		s := "answer " + strings.Join(ids, ", ")
-		if len(answers) > 3 {
-			s += fmt.Sprintf(" (+%d)", len(answers)-3)
-		}
-		parts = append(parts, s)
-	}
 	idle := d.ForgottenResolve(agent, row, now)
 	nudged, err := e.GetCursor(fmt.Sprintf("nudge:%s", agent))
 	if err != nil {

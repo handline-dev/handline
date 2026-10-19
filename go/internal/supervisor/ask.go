@@ -314,75 +314,26 @@ func (e *Env) Ask(q db.Q, in AskIn) (out *AskOut, err error) {
 	return &AskOut{OK: true, Message: msg, RID: rid, After: after, notify: in.Notify, target: in.Target}, nil
 }
 
+// errNoProposals is what a resolve raises while the trust proposals port is not wired: a card that is a proposal's must not be closed
+// without applying it, so nothing is closed.
+var errNoProposals = errors.New("the trust proposals port is not wired: a request cannot be answered until it is")
+
 // SayIn is say's arguments.
 type SayIn struct {
 	Target, Body, Requester string
 	ParentID                int64
 	Speaker                 *string
 	Notify                  bool
-	// Link makes ParentID only a link: the request it names is not closed by this reply.
-	Link bool
-	// Within(q, message, request id) is more to write in the transaction that writes the reply and settles the request it answers.
+	// Within(q, message, request id) is more to write in the transaction that writes the say.
 	Within func(q db.Q, message string, rid int64) error
 }
 
-// Say is a question answered from a look-up, not new work: always ahead of the queue, never a head, and the sender never parked on
-// it. ParentID replies to and settles the request it answers. The returned *Settled, when set, is for the caller to run SettledTell on
-// once the writes commit.
-func (e *Env) Say(q db.Q, in SayIn) (*AskOut, *Settled, error) {
-	var settled *Settled
+// Say is a message, not new work: always ahead of the queue, never a head, and the sender never parked on it. ParentID only links it
+// into the thread of the request it replies to; nothing is closed by it.
+func (e *Env) Say(q db.Q, in SayIn) (*AskOut, error) {
 	ask := AskIn{Target: in.Target, Body: in.Body, Requester: in.Requester, ParentID: in.ParentID, Kind: sayKind, Speaker: in.Speaker, Notify: in.Notify}
-	if in.ParentID != 0 || in.Within != nil {
-		ask.Within = func(c db.Q, rid int64, note string) (err error) {
-			defer Catch(&err)
-			if in.ParentID != 0 && !in.Link {
-				settled = e.closeReplied(c, in.ParentID, rid, in.Body)
-			}
-			if in.Within != nil {
-				return in.Within(c, note, rid)
-			}
-			return nil
-		}
+	if in.Within != nil {
+		ask.Within = func(c db.Q, rid int64, note string) error { return in.Within(c, note, rid) }
 	}
-	out, err := e.Ask(q, ask)
-	if err != nil || !out.OK {
-		return out, nil, err
-	}
-	return out, settled, nil
-}
-
-// errNoProposals is what a reply or a resolve raises while the trust proposals port is not wired: a card that is a proposal's must not be
-// closed without applying it, so nothing is closed.
-var errNoProposals = errors.New("the trust proposals port is not wired: a request cannot be answered until it is")
-
-// Settled is what closeReplied closed, for the tell after the commit (the arguments of afterClose).
-type Settled struct {
-	RID    int64
-	Row    *db.Request
-	State  string
-	Notify bool
-}
-
-// SettledTell runs the tell of a request a reply settled.
-func (e *Env) SettledTell(q db.Q, s *Settled) (string, error) {
-	if s == nil {
-		return "", nil
-	}
-	return e.AfterClose(q, s.RID, s.Row, s.State, s.Notify)
-}
-
-// closeReplied: a reply settles the request it answers, silently - the reply is what the asker is told, and it is marked as the
-// answer. Only when it comes from the request's own target, to its requester, and the request is no roster proposal and no task.
-func (e *Env) closeReplied(q db.Q, parentID, replyID int64, replyBody string) *Settled {
-	parent, reply := must(db.GetRequest(q, parentID)), must(db.GetRequest(q, replyID))
-	if e.Proposals == nil {
-		panic(dbFailure{errNoProposals})
-	}
-	proposal := parent != nil && e.Proposals.OpenProposalOf(parentID) != ""
-	if parent != nil && parent.State == "queued" && !proposal && parent.Kind.String != "task" &&
-		reply != nil && reply.Requester == parent.Target && reply.Target == parent.Requester &&
-		must(db.CloseIfQueued(q, parentID, "done", replyBody, db.CloseOpts{Announced: true, AnsweredBy: replyID})) {
-		return &Settled{parentID, parent, "done", false}
-	}
-	return nil
+	return e.Ask(q, ask)
 }

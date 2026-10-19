@@ -263,25 +263,7 @@ func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, 
 	if _, err := message(tx, parent); err != nil {
 		return nil, err
 	}
-	return sayWriteLinked(w.e, tx, db.Human, agent, body, parent, true, nil, act)
-}
-
-func (w *writes) dismiss(c *rpc.Conn, p map[string]any) (any, error) {
-	rid, err := requestParam(p, "request")
-	if err != nil {
-		return nil, err
-	}
-	return w.writeResult(c, refuse, func(tx *sql.Tx) (*Result, map[string]any, error) {
-		row, err := message(tx, rid)
-		if err != nil {
-			return nil, nil, err
-		}
-		if row.Target != db.Human && row.Requester != db.Human {
-			return nil, nil, rpc.Refused(fmt.Sprintf("#%d is not between the person and an agent", rid), "state", "")
-		}
-		res, err := DismissWrite(w.e, tx, rid, c.Caller.Actor(), "", nil, nil, nil)
-		return res, nil, err
-	})
+	return sayWrite(w.e, tx, db.Human, agent, body, parent, nil, act)
 }
 
 func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {

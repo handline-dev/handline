@@ -18,12 +18,10 @@ const (
 	chatStarts  = "stream:chat_sessions" // Go's alone: the Python watcher does not tell session items
 )
 
-const chatTouchedNewest = "SELECT COALESCE(MAX(m), 0) FROM (SELECT MAX(COALESCE(state_at, ts)) AS m FROM requests WHERE settles IS NULL " +
-	"UNION ALL SELECT MAX(ts) FROM requests WHERE settles IS NOT NULL)"
+const chatTouchedNewest = "SELECT COALESCE(MAX(COALESCE(state_at, ts)), 0) FROM requests"
 
-// Chat is the chat topic: a request of a chat that appeared or changed (chat.message, with the replies its chat shows as chat.transcript),
-// a prompt an agent opened or closed, a task event of a task it owns and a conversation it began (chat.transcript), and an agent's working
-// state (chat.working).
+// Chat is the chat topic: a request of a chat that appeared or changed (chat.message), a prompt an agent opened or closed, a task event
+// of a task it owns and a conversation it began (chat.transcript), and an agent's working state (chat.working).
 // Each is said once, to the chat of every agent it belongs to, and its data is what the chat reads return (reads.ChatRequest and the
 // other builders). The first look says nothing, and neither does a restart: the requests touched in the second the cursor is at are
 // taken as seen.
@@ -103,11 +101,6 @@ func (c *Chat) requests(q *sql.DB, emit Emit) error {
 			told = append(told, agent)
 			if err := c.say(emit, "chat.message", agent, req.Message); err != nil {
 				return err
-			}
-			for _, item := range req.Replies(agent) {
-				if err := c.say(emit, "chat.transcript", agent, item); err != nil {
-					return err
-				}
 			}
 		}
 		if t.when.Int64 > last {

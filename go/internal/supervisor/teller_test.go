@@ -70,7 +70,7 @@ func TestTheTellerTypesTheNextTaskAtTheOwnerAfterADiscard(t *testing.T) {
 	db.DiscardTask(r.DB, first, "alice", "not needed")
 	reqs, _ := db.TaskRequests(r.DB, first)
 	for _, q := range reqs {
-		db.CloseIfQueued(r.DB, q.ID, "dismissed", "", db.CloseOpts{})
+		db.CloseIfQueued(r.DB, q.ID, "dismissed", "")
 	}
 	r.clock += BatchEveryS
 	r.term.typed = nil
@@ -108,8 +108,8 @@ func TestTheTellerAfterAReleaseTypesTheStopAtAHolderAndRetiresAQueuedRequest(t *
 		t.Fatalf("%q %q", said, r.term.typed)
 	}
 	db.MarkDelivered(r.DB, queued) // the target has it, so it is told to stop
-	db.CloseIfQueued(r.DB, queued, "rejected", "T1 released by alice", db.CloseOpts{NoSettle: true})
-	said = r.Released(1, "T1 released by alice", []taskwrites.Retired{{RID: queued, Requester: "alice", Target: "bob", Notify: true}})
+	db.CloseIfQueued(r.DB, queued, "rejected", "T1 released by alice")
+	said = r.Released(1, "T1 released by alice", []taskwrites.Retired{{RID: queued, Requester: "alice", Target: "bob"}})
 	if len(said) != 1 || said[0] != fmt.Sprintf("#%d to bob retired (bob was told to stop)", queued) {
 		t.Fatalf("%q", said)
 	}
@@ -145,9 +145,9 @@ func TestTheTellerAfterACancelClosesTheTellsAndTypesTheStopToAnOwnerWithNoDelive
 	r := newRig(t)
 	r.agentUp("bob")
 	rid := r.ask("alice", "bob", "x", "task")
-	db.CloseIfQueued(r.DB, rid, "rejected", CancelVerdict, db.CloseOpts{})
+	db.CloseIfQueued(r.DB, rid, "rejected", CancelVerdict)
 	r.term.typed = nil
-	r.Cancelled(1, "human", "bob", true, []taskwrites.Retired{{RID: rid, Requester: "alice", Target: "bob", Delivered: true, Notify: true}})
+	r.Cancelled(1, "human", "bob", true, []taskwrites.Retired{{RID: rid, Requester: "alice", Target: "bob", Delivered: true}})
 	if typed := strings.Join(r.term.typed, "\n"); !strings.Contains(typed, "T1 discarded by human - stop work on it") {
 		t.Fatalf("%q", typed)
 	}

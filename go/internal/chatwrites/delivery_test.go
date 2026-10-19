@@ -248,7 +248,7 @@ func TestCancelOfAConfirmedMessageNeedsTheConfirmAndTellsTheAgentToStop(t *testi
 		t.Fatalf("a refused cancel leaves the message as it was: %s", state)
 	}
 	r.result(r.one(s, "chat.cancel", fmt.Sprintf(`{"request":%d,"confirm":true,"request_id":"c2"}`, rid)))
-	if r.count("SELECT COUNT(*) FROM requests WHERE settles = ? AND body = ?", rid, supervisor.CancelVerdict) != 1 {
+	if r.count("SELECT COUNT(*) FROM events WHERE kind = 'request_reason' AND json_extract(payload, '$.request_id') = ? AND json_extract(payload, '$.reason') = ?", rid, supervisor.CancelVerdict) != 1 {
 		t.Fatal("closed as rejected with the cancel verdict")
 	}
 	row, _ := dbpkg.GetRequest(r.db, rid)
