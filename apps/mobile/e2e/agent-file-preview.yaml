@@ -19,10 +19,10 @@ appId: dev.handline.mobile
 - tapOn: { id: file-open }
 - assertVisible: the File tab
 - hideKeyboard
-- takeScreenshot: shots/android/agent-file-tab
+- takeScreenshot: agent-file-tab
 - tapOn: { id: tab-preview }
 - tapOn: { id: preview-address }
 - inputText: example.com
 - tapOn: { id: preview-go }
 - extendedWaitUntil: { visible: Example Domain, timeout: 20000 }
-- takeScreenshot: shots/android/agent-preview-tab
+- takeScreenshot: agent-preview-tab
