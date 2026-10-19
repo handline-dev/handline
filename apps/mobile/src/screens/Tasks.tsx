@@ -51,7 +51,6 @@ function List(props: { onSelect: (id: number) => void }) {
   const [marked, setMarked] = useState<ReadonlySet<number>>(new Set());
   const [acting, setActing] = useState(false);
   const [selecting, setSelecting] = useState(false);
-  const picking = selecting;
   const stopSelecting = () => (setSelecting(false), setMarked(new Set()));
   const toggle = (id: number) => {
     setSelecting(true);
@@ -147,9 +146,9 @@ function List(props: { onSelect: (id: number) => void }) {
               renderItem={({ item: t }) => (
                 <Row
                   t={t}
-                  picking={picking}
+                  selecting={selecting}
                   marked={marked.has(t.id)}
-                  onPress={() => (picking ? toggle(t.id) : props.onSelect(t.id))}
+                  onPress={() => (selecting ? toggle(t.id) : props.onSelect(t.id))}
                   onLongPress={() => toggle(t.id)}
                 />
               )}
@@ -157,7 +156,7 @@ function List(props: { onSelect: (id: number) => void }) {
           </Loadable>
         </>
       )}
-      {picking && (
+      {selecting && (
         <View testID="tasks-bar" style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderTopWidth: 1 }}>
           <Text style={{ flex: 1, fontWeight: '600' }}>{`${marked.size} selected`}</Text>
           <Button testID="tasks-bar-actions" label="Actions" disabled={!marked.size} onPress={() => setActing(true)} />
@@ -217,7 +216,7 @@ const TASK_ICON: Record<string, IconName> = {
 /** "3h" for a task not running reads as the time it has: "3h left" (as on the PC row). */
 const left = (text: string) => (/^[\dhdm]+$/.test(text) ? `${text} left` : text);
 
-function Row(props: { t: Task; picking: boolean; marked: boolean; onPress: () => void; onLongPress: () => void }) {
+function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () => void; onLongPress: () => void }) {
   const t = props.t;
   const c = usePalette();
   const now = Date.now();
@@ -228,7 +227,7 @@ function Row(props: { t: Task; picking: boolean; marked: boolean; onPress: () =>
     <ListRow
       testID={`task-${t.id}`}
       lead={
-        props.picking ? (
+        props.selecting ? (
           <Icon name={props.marked ? 'taskDone' : 'taskDraft'} label={props.marked ? 'Selected' : 'Not selected'} size={18} color={props.marked ? c.ink : c.muted} />
         ) : (
           <Icon name={icon} label={t.state} size={18} color={t.state === 'blocked' ? c.block : c.muted} />
@@ -236,7 +235,7 @@ function Row(props: { t: Task; picking: boolean; marked: boolean; onPress: () =>
       }
       title={t.title}
       meta={meta.filter(Boolean).join(' · ')}
-      selected={props.picking ? props.marked : undefined}
+      selected={props.selecting ? props.marked : undefined}
       trail={
         <View style={{ alignItems: 'flex-end' }}>
           {t.priority ? <Text style={{ color: t.priority === 1 ? c.block : c.muted, fontWeight: '700', fontSize: 12 }}>{PRIORITY[t.priority]}</Text> : null}

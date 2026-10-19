@@ -13,7 +13,6 @@ import {
   type RowVerb,
   type TaskColumn,
   type TaskFilter,
-  taskRef,
 } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useStore } from '@handline/app-react';
