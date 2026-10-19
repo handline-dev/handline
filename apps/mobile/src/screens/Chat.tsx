@@ -12,7 +12,7 @@ import type { AgentDetail, ChatMessage, Landing, TranscriptItem } from '@handlin
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
-import { Decided, Line } from './ChatLines.tsx';
+import { Decided, Line, useBubbleWidth } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
 import { PrBody } from './PrBody.tsx';
 import { ChatFind } from './ChatFind.tsx';
@@ -313,6 +313,7 @@ function Bubble(props: {
   onPick: (m: ChatMessage) => void;
 }) {
   const c = usePalette();
+  const bubble = useBubbleWidth();
   const { m, agent } = props;
   const act = useChatActions(agent);
   const side = sideOf(m, agent, useStore().me);
@@ -328,7 +329,7 @@ function Bubble(props: {
       onPress={() => props.onPick(m)}
       style={{
         alignSelf: side === 'person' ? 'flex-end' : 'flex-start',
-        maxWidth: '88%',
+        maxWidth: bubble,
         gap: 4,
         padding: space.md,
         borderRadius: radius.lg,

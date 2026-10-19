@@ -1,6 +1,6 @@
 // The lines of the chat that are not messages: the agent's reply and its tool, prompt, task and session lines.
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import type { Proposal, TranscriptItem } from '@handline/client';
 import { clockTime, sessionLine } from '@handline/app-core';
 import { space } from '@handline/tokens';
@@ -8,13 +8,19 @@ import { usePalette } from '../theme.ts';
 import { Markdown } from './Markdown.tsx';
 import { Sheet } from './TaskActions.tsx';
 
+/** The widest a chat bubble gets, in points. A percentage here lets Android measure the text at one width and draw it at another, so lines overlap. */
+export function useBubbleWidth(): number {
+  return Math.floor(useWindowDimensions().width * 0.88);
+}
+
 /** A transcript line that is not a message. */
 export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: TranscriptItem) => void }) {
   const c = usePalette();
+  const bubble = useBubbleWidth();
   const small = { color: c.muted, fontSize: 12 } as const;
   if (i.kind === 'reply')
     return (
-      <View testID={`reply-${i.id}`} style={{ alignSelf: 'flex-start', maxWidth: '88%', padding: space.md }}>
+      <View testID={`reply-${i.id}`} style={{ alignSelf: 'flex-start', maxWidth: bubble, padding: space.md }}>
         <Markdown text={i.text ?? ''} breaks />
         <Text style={small}>{clockTime(i.at)}</Text>
         {onReply && (
