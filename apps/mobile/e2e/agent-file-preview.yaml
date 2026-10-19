@@ -26,3 +26,8 @@ appId: dev.handline.mobile
 - tapOn: { id: preview-go }
 - extendedWaitUntil: { visible: Example Domain, timeout: 20000 }
 - takeScreenshot: agent-preview-tab
+- hideKeyboard
+- tapOn: { id: preview-mark }
+- assertVisible: 'Done'
+- takeScreenshot: agent-mark-an-area
+- tapOn: { id: mark-cancel }
