@@ -136,6 +136,31 @@ async function untilUp(f: () => Promise<unknown>): Promise<void> {
 }
 
 /** The app window: the page gets window.handline and nothing else, and the window never leaves the loopback origin. */
+function makeUpdater(page: Page, composer: Composer): Updater {
+  return new Updater({
+    build: () => buildId({ page: path.join(dist, 'index.html'), main: import.meta.filename }),
+    // The page says when it holds something unsent; until it has said so once, the shell looks into the page itself.
+    idle: async () => {
+      if (!win || win.isDestroyed() || composer.running) return false; // an open editor counts as unsent
+      if (page.unsent !== null) return !page.unsent;
+      return !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true));
+    },
+    ask: async () =>
+      (
+        await dialog.showMessageBox(win!, {
+          message: 'Handline was updated. Restart now?',
+          buttons: ['Restart', 'Not now'],
+          defaultId: 0,
+          cancelId: 1,
+        })
+      ).response === 0,
+    restart: () => {
+      app.relaunch();
+      app.quit();
+    },
+  });
+}
+
 function createWindow(origin: string, onReady: () => void): BrowserWindow {
   const w = new BrowserWindow({
     width: 1280,
@@ -272,28 +297,7 @@ if (!app.requestSingleInstanceLock()) {
     app.on('window-all-closed', () => undefined);
     app.on('quit', () => web.close());
 
-    const updater = new Updater({
-      build: () => buildId({ page: path.join(dist, 'index.html'), main: import.meta.filename }),
-      // The page says when it holds something unsent; until it has said so once, the shell looks into the page itself.
-      idle: async () => {
-        if (!win || win.isDestroyed() || composer.running) return false; // an open editor counts as unsent
-        if (page.unsent !== null) return !page.unsent;
-        return !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true));
-      },
-      ask: async () =>
-        (
-          await dialog.showMessageBox(win!, {
-            message: 'Handline was updated. Restart now?',
-            buttons: ['Restart', 'Not now'],
-            defaultId: 0,
-            cancelId: 1,
-          })
-        ).response === 0,
-      restart: () => {
-        app.relaunch();
-        app.quit();
-      },
-    });
+    const updater = makeUpdater(page, composer);
     void own
       .ready()
       .then((at) => {

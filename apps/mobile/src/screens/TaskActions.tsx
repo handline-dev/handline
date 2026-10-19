@@ -164,7 +164,6 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   };
   const open = !CLOSED.includes(t.state);
   const mine = t.from === me;
-  const founder = useStore().client.hello?.role === 'founder';
   const running = t.state === 'doing';
   const startable = t.state === 'draft' || t.state === 'queued' || t.state === 'pending';
   // The sheet closes when the daemon accepts; a refusal leaves it open with the text (the write reports the reason).
