@@ -50,7 +50,14 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	uenv := &usage.Env{Home: home}
 	accounts := team.Accounts{Home: home}
 	routing := func() *team.Team { t, _ := team.LoadTeam(home); return t }
-	launcher := &lifecycle.Launcher{Q: q, Home: home, Roster: roster, Tokens: sessiontoken.New(home), Now: cfg.Now, Ports: lifecycle.LaunchPorts{
+	var founderTyped func(agent string) bool // the founder's words typed at the agents the peer inbox reaches
+	if cfg.FounderTyped {
+		founderTyped = p.Peer
+	}
+	if lc.Env != nil {
+		lc.Env.FounderTyped = founderTyped
+	}
+	launcher := &lifecycle.Launcher{Q: q, Home: home, Roster: roster, Tokens: sessiontoken.New(home), Now: cfg.Now, FounderTyped: founderTyped, Ports: lifecycle.LaunchPorts{
 		Usage:          &lifecycle.UsageAdapter{Env: uenv, Q: q},
 		Accounts:       accounts,
 		Vendors:        vendors{home: home, roster: roster},
