@@ -295,6 +295,12 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
     </>
   );
 
+  /** The row's menu acts on that row, or on the marked rows when it is one of them. */
+  function rowVerb(id: number, verb: RowVerb) {
+    if (!marked.has(id)) setMarked(new Set([id]));
+    verbs.pick(verb);
+  }
+
   function rowProps(t: Task) {
     return {
       marked: marked.has(t.id),
@@ -302,6 +308,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
       open: selected === t.id,
       mark: (t.id < 0 || bulk.authored.has(t.id) ? 'authored' : bulk.decided.has(t.id) ? 'decided' : null) as 'authored' | 'decided' | null,
       failed: bulk.failed.has(t.id),
+      verbs: { cans, onPick: (v: RowVerb) => rowVerb(t.id, v) },
       onCursor: () => setCursor(t.id),
       onMark: (range: boolean) => toggle(t.id, range),
     };

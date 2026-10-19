@@ -372,6 +372,10 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await until(() => $('.tasks-tab-row'), 'the agent tasks');
     const rows = $$('.tasks-tab-row');
     expect(rows.length).toBeGreaterThan(0);
+    const li = rows[0]!.parentElement!;
+    expect(li.querySelector('button[aria-label="Actions"]')).not.toBeNull();
+    await act(async () => void li.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+    await until(() => document.querySelector('[role=menu]'), 'the row menu on a right-click');
     await click(rows[0]!);
     await until(() => $('.tdetail'), 'the task detail');
     await click($('.tdetail .back')!);
