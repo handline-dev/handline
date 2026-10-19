@@ -83,7 +83,9 @@ describe('HR proposals in the chat', () => {
 
   it('a proposal already decided keeps its place in the timeline, by the time it was settled, and is not pinned after the newest message', async () => {
     const s = setup();
-    const hr = (s.daemon as unknown as { script: { hr: { raise: (p: object) => { id: number }; settle: (p: object, st: string) => void } } }).script.hr;
+    const hr = (
+      s.daemon as unknown as { script: { hr: { raise: (p: object) => { id: number }; settle: (p: object, st: string) => void } } }
+    ).script.hr;
     const p = hr.raise({ id: 43, title: 'context handline.pr', diff: 'replace ROLE.md', agent: ARCH });
     hr.settle(p, 'approved');
     (p as unknown as { settled: string }).settled = '2000-01-01T00:00:00Z'; // before every message
@@ -93,5 +95,41 @@ describe('HR proposals in the chat', () => {
     expect(text(line)).toContain('context handline.pr');
     const all = [...document.querySelectorAll('.stream *')];
     expect(all.indexOf(line)).toBeLessThan(all.indexOf(msg('Which gap list')!));
+  });
+});
+
+describe('what a decided proposal did', () => {
+  it('names the team and model of a new agent and the settings a set changed, on the same line', async () => {
+    const s = setup();
+    const hr = (s.daemon as unknown as { script: { hr: { raise: (p: object) => object; settle: (p: object, st: string) => void } } }).script
+      .hr;
+    hr.settle(
+      hr.raise({
+        id: 51,
+        title: 'add handline.sea',
+        kind: 'add',
+        diff: 'register',
+        agent: ARCH,
+        asked: { team: 'handline', model: 'opus' },
+      }),
+      'approved',
+    );
+    hr.settle(
+      hr.raise({
+        id: 52,
+        title: 'settings handline.sea',
+        kind: 'settings',
+        diff: 'set',
+        agent: ARCH,
+        asked: { sets: { model: 'sonnet' } },
+      }),
+      'approved',
+    );
+    await mount(ARCH, s);
+    await until(() => $$('.card-hr.decided').length === 2, 'both lines');
+    const line = (id: number) => text($(`.card-hr[data-proposal="${id}"]`));
+    expect(line(51)).toMatch(/Applied by you.*team handline, model opus/);
+    expect(line(52)).toMatch(/Applied by you.*model sonnet/);
+    expect(line(51)).not.toContain('.bak');
   });
 });

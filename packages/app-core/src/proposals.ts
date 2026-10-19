@@ -92,3 +92,16 @@ export function raised(l: readonly Proposal[], max: number): { shown: Proposal[]
   const open = l.filter((p) => p.state === 'open').sort((a, b) => Date.parse(b.created) - Date.parse(a.created));
   return { shown: open.slice(0, max), more: Math.max(0, open.length - max) };
 }
+
+/** What a settled proposal did, for its one line: a new agent's team and model, the settings a `settings` one set. Empty when the wire says nothing more. */
+export function outcomeOf(p: Proposal): string {
+  const a = p.asked;
+  if (!a || p.state !== 'approved') return '';
+  const parts =
+    kindOf(p) === 'settings'
+      ? Object.entries(a.sets ?? {}).map(([k, v]) => `${k} ${textSafe(v)}`)
+      : kindOf(p) === 'add'
+        ? [a.team && `team ${a.team}`, a.model && `model ${a.model}`].filter((s): s is string => !!s).map(textSafe)
+        : [];
+  return parts.join(', ');
+}

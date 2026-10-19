@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
-import { ago, clockTime, decidedProposals, restartingLine, restartShown } from '@handline/app-core';
+import { ago, clockTime, decidedProposals, outcomeOf, restartingLine, restartShown } from '@handline/app-core';
 import { classify, sentence, useHr, useWrite } from '@handline/app-data';
 import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOfView } from './ui/index.ts';
 import { goTeam } from './route.ts';
@@ -80,14 +80,15 @@ export const useDecided = (agent: string) => decidedProposals(useHr({}).data?.pr
 
 /** A decided proposal in the timeline: one compact line with the result. Only the person decides (hr.decide), so it was them. */
 export function DecidedCard({ p }: { p: Proposal }) {
-  const word =
-    p.state === 'rejected' ? 'Rejected' : p.kind === 'add' && p.asked?.team ? `Applied: ${p.agent} added to ${p.asked.team}` : 'Applied';
+  const word = p.state === 'rejected' ? 'Rejected' : 'Applied';
+  const outcome = outcomeOf(p);
   return (
     <div className="card-hr decided flex items-center gap-2 text-hint text-ink-2" data-kind="hr" data-proposal={p.id} data-state={p.state}>
       <Icon name="team" size={13} label="Proposal" />
-      <span className="min-w-0 truncate">
+      <span className="min-w-0 break-words">
         <strong className="font-medium text-ink">{p.title}</strong> · <span className="outcome">{word} by you</span> ·{' '}
         {p.settled ? clockTime(p.settled) : ''}
+        {outcome ? <span className="result"> · {outcome}</span> : null}
       </span>
       <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
     </div>
