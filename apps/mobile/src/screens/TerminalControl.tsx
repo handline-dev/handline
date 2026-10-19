@@ -7,7 +7,7 @@ import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, TerminalView } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
-import { AboveKeyboard, Button, Row } from './parts.tsx';
+import { Button, Row } from './parts.tsx';
 
 const BYTES: Record<string, string> = { esc: '\x1b', 'ctrl-c': '\x03', enter: '\r', up: '\x1b[A', down: '\x1b[B', tab: '\t', 'shift-tab': '\x1b[Z' };
 const reasonOf = (e: unknown) => (e as { reason?: string }).reason ?? (e as Error).message;
@@ -64,7 +64,7 @@ export function TerminalControl(props: { detail: AgentDetail; view: TerminalView
   const ask = other && live && (asked || sizeBreaks(view.cols, fit));
 
   return (
-    <AboveKeyboard>
+    <View>
       {ask && (
         <View testID="terminal-ask" style={{ padding: space.md, gap: space.sm, borderTopWidth: 1, borderTopColor: c.line }}>
           <Text style={{ color: c.ink }}>
@@ -107,6 +107,6 @@ export function TerminalControl(props: { detail: AgentDetail; view: TerminalView
         />
         <Button testID="terminal-send" label="Send" disabled={!mine || !live} onPress={submit} />
       </Row>
-    </AboveKeyboard>
+    </View>
   );
 }
