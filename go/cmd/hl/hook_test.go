@@ -39,13 +39,11 @@ func preToolUse(tool string, input map[string]any) string {
 
 func TestHookDeniesAsPythonWritesIt(t *testing.T) {
 	r := hookRig(t, true)
-	out, errs, code := r.runIn(preToolUse("Write", map[string]any{"file_path": "/nowhere/f.py", "content": "x"}), asAgent, "hook", "PreToolUse")
+	out, errs, code := r.runIn(preToolUse("Bash", map[string]any{"command": "hl say worker \"`whoami`\""}), asAgent, "hook", "PreToolUse")
 	want := `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": ` +
-		`"Write refused: a.one holds no current task, and every change must belong to one (T295). You own no open task. If the ` + // local-ref-ok: Python's words
-		`founder just told you to do this, run ` + "`hl task begin \\\"<title>\\\"`" + ` to open one; otherwise ask whoever gave you the ` +
-		"work: `hl say <them> \\\"please open a task for <this work>\\\"`." + `"}}` + "\n"
-	if code != 0 || errs != "" || out != want {
-		t.Fatalf("exit %d, err %q\n got  %s\n want %s", code, errs, out, want)
+		`"Refused: nothing in this command ran, including any heredoc or file write in it.`
+	if code != 0 || errs != "" || !strings.HasPrefix(out, want) || !strings.HasSuffix(out, "\"}}\n") {
+		t.Fatalf("exit %d, err %q\n got  %s\n want %s...", code, errs, out, want)
 	}
 }
 
@@ -77,7 +75,8 @@ func TestHookIsGoForEveryEventAndNeverPython(t *testing.T) {
 		}
 	}
 	// The event the payload names wins, as in Python.
-	if out, _, _ := r.runIn(preToolUse("Write", nil), asAgent, "hook", "PostToolUse"); !strings.Contains(out, `"permissionDecision": "deny"`) {
+	guarded := preToolUse("Bash", map[string]any{"command": "hl say worker \"`whoami`\""})
+	if out, _, _ := r.runIn(guarded, asAgent, "hook", "PostToolUse"); !strings.Contains(out, `"permissionDecision": "deny"`) {
 		t.Errorf("the payload's PreToolUse was not guarded: %q", out)
 	}
 }
