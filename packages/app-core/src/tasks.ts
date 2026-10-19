@@ -65,3 +65,20 @@ export function agentTasks(items: readonly Task[], agent: string, now = Date.now
     .map((task): AgentTask => ({ task, role: task.to === agent ? 'owner' : 'assigned' }))
     .sort((a, b) => rank(a.task) - rank(b.task) || b.task.id - a.task.id);
 }
+
+/** The owner of a task the daemon holds to watch a pull request: not an agent, so it is never linked, opened or assigned. */
+export const GATE = 'gate';
+export const isGate = (t: Pick<Task, 'to'>): boolean => t.to === GATE;
+
+const RESULT_WORDS = { passed: 'passed', failed: 'failed', merged: 'merged', closed: 'closed unmerged', timed_out: 'timed out' } as const;
+
+/** What a gate watches: its pull request link and what it says, with the result once it has one. Null for a task with no watch. */
+export function watchLine(t: Pick<Task, 'watch'>): { url: string; text: string; result: string | null } | null {
+  const w = t.watch;
+  if (!w) return null;
+  return {
+    url: `https://github.com/${w.repo}/pull/${w.pr}`,
+    text: `${w.repo}#${w.pr} ${w.on === 'ci' ? 'CI' : 'close'}`,
+    result: w.result ? RESULT_WORDS[w.result] : null,
+  };
+}

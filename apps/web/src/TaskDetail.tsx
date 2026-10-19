@@ -10,7 +10,7 @@ import { Button, MenuButton, MenuItem, MenuSeparator } from './ui/index.ts';
 import { goTasks } from './route.ts';
 import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
 import { AssignSheet } from './TaskPeople.tsx';
-import { CancelSheet, TaskChips, TaskLinks } from './TaskDetailParts.tsx';
+import { CancelSheet, TaskChips, TaskWatch, TaskLinks } from './TaskDetailParts.tsx';
 import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from './TaskInline.tsx';
 import { TaskHistory } from './TaskHistory.tsx';
 import { Activity } from './TaskActivity.tsx';
@@ -205,6 +205,7 @@ function Body({ t }: { t: Detail }) {
           </>
         ) : null}
       </p>
+      <TaskWatch t={t} />
       {why ? (
         <p className="twhy m-0 mt-3 rounded-card border border-wait px-3 py-2 text-wait" role="status">
           <RichText text={why} />

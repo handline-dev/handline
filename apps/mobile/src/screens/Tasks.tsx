@@ -3,8 +3,8 @@
 // chips narrow the list as on the web.
 import { useState } from 'react';
 import { useHistoryValue } from '../history.tsx';
-import { SectionList, ScrollView, Text, TextInput, View } from 'react-native';
-import { activityOf, ago, CLOSED, defaultFilter, foldEvents, groupTasks, idleText, shown, sortTasks, TASK_STATES, taskMatches, timeoutText, taskRef } from '@handline/app-core';
+import { Linking, SectionList, ScrollView, Text, TextInput, View } from 'react-native';
+import { activityOf, ago, CLOSED, defaultFilter, foldEvents, groupTasks, idleText, shown, sortTasks, TASK_STATES, taskMatches, timeoutText, taskRef, watchLine } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
@@ -289,6 +289,7 @@ function Body({ t }: { t: TaskDetail }) {
   const c = usePalette();
   const now = Date.now();
   const sending = useTaskPending(t.id);
+  const watch = watchLine(t);
   const line = (s: string, key: string | number = s) => (
     <Text key={key} style={{ color: c.ink }}>
       {s}
@@ -301,6 +302,15 @@ function Body({ t }: { t: TaskDetail }) {
       <Text style={{ color: c.muted }}>
         {[`${taskRef(t.id)}`, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, timeoutText(t, now)].filter(Boolean).join(' · ')}
       </Text>
+      {watch && (
+        <Text testID="task-watch" style={{ color: c.muted }}>
+          Watches{' '}
+          <Text style={{ color: c.accent, textDecorationLine: 'underline' }} accessibilityRole="link" onPress={() => void Linking.openURL(watch.url)}>
+            {watch.text}
+          </Text>
+          {watch.result ? ` · ${watch.result}` : ''}
+        </Text>
+      )}
       {sending && (
         <Text testID="task-sending" style={{ color: c.muted }}>
           Sending…

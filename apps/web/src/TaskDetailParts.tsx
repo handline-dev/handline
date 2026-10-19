@@ -1,6 +1,6 @@
 // The task detail's presentational parts: the owner, priority and time box chips, the link sections and the cancel sheet.
 import { useState } from 'react';
-import { taskRef, timeBoxText } from '@handline/app-core';
+import { isGate, taskRef, timeBoxText, watchLine } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { Icon, type IconName } from './ui/Icon.tsx';
 import { Sheet } from './taskui.tsx';
@@ -14,7 +14,7 @@ const LI = 'flex items-baseline gap-1.5 py-0.5';
 /** Owner, priority and time box as chips: the first two open a choice, the time box edits where it is. A closed task shows them as plain words. */
 export function TaskChips({ t, now, onAssign }: { t: Detail; now: number; onAssign: () => void }) {
   const edit = useEditTask(t);
-  const can = edit.can.ok && t.state !== 'done' && t.state !== 'discarded';
+  const can = edit.can.ok && t.state !== 'done' && t.state !== 'discarded' && !isGate(t);
   const box = timeBoxText(t, now);
   const owner = `Owner · ${t.to}`;
   const priority = `Priority · P${t.priority ?? 2}`;
@@ -92,5 +92,20 @@ export function CancelSheet(props: { running: boolean; id: number; onCancel: () 
     >
       <Input grow className="tinput" value={reason} aria-label="Reason" onChange={(e) => setReason(e.target.value)} />
     </Sheet>
+  );
+}
+
+/** The pull request a gate task watches, as a link, with the result once it has one. */
+export function TaskWatch({ t }: { t: Detail }) {
+  const watch = watchLine(t);
+  if (!watch) return null;
+  return (
+    <p className="twatch m-0 mt-1 text-hint text-ink-3">
+      Watches{' '}
+      <a href={watch.url} target="_blank" rel="noreferrer">
+        {watch.text}
+      </a>
+      {watch.result ? ` · ${watch.result}` : ''}
+    </p>
   );
 }

@@ -331,6 +331,8 @@ export type Task = {
   time?: TaskClock | null;
   /** The pull request its work merges in (task.edit pr), as a link. Absent from a daemon that does not send it. */
   pr?: number | null;
+  /** What the task watches when its owner is gate; null for any other. Absent from a daemon that does not send it. */
+  watch?: TaskWatch | null;
   /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
   status?: Status;
 };
@@ -1581,6 +1583,24 @@ export type ChatAction = {
   needs?: string;
 };
 
+/** What a gate watches: a GitHub pull request's CI (on ci: every check has concluded, or the PR closed first) or its close (on close: merged or closed unmerged). */
+export type Watch = {
+  /** owner/name on GitHub. */
+  repo: string;
+  pr: number;
+  on: "ci" | "close";
+};
+
+/** A gate's watch as the task carries it, with what it opened with. */
+export type TaskWatch = {
+  /** owner/name on GitHub. */
+  repo: string;
+  pr: number;
+  on: "ci" | "close";
+  /** What it opened with; null while it watches. */
+  result: ("passed" | "failed" | "merged" | "closed" | "timed_out") | null;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -2257,6 +2277,7 @@ export interface Methods {
     done: boolean;
   } };
   "task.new": { params: {
+  /** An agent, human, or gate: a task the daemon holds that watches a PR (watch) and closes when it changes. */
   owner: string;
   /** Who the task answers to: told when it ends, and may edit or reassign it. Default: the caller. */
   reporter?: string;
@@ -2269,6 +2290,8 @@ export interface Methods {
   duplicate_ok?: boolean;
   /** Cannot be worked until this task closes. */
   blocked_by?: number;
+  /** With owner gate, required, and refused with any other owner. The gate is doing from the start; its time box (default 24h) is its deadline. The daemon marks it done when the PR changes, in fixed words: "ci passed", "ci failed: <check names>", "merged <sha>", "closed unmerged", or "timed out" past its deadline. A task blocked by it (blocked_by) then comes back to its holder, who decides what follows. */
+  watch?: Watch;
   /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
   priority?: 1 | 2 | 3;
   /** Story points: what the task is expected to take, for its expected start and end (task.time). None when absent. */
@@ -3008,6 +3031,6 @@ export const STATE_WORDS = ["running", "idle", "queued", "starting", "parked", "
 
 /** x-status: the state and reason every agent and task carries; open sets for a client, which shows `text` for a word it does not know. */
 export const STATUS_STATES = ["preparing", "starting", "running", "waiting", "stopped", "idle", "off", "done"] as const;
-export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "handoff", "background", "you", "opener", "task", "owner", "clock", "move", "load", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
+export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "watch", "handoff", "background", "you", "opener", "task", "owner", "clock", "move", "load", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];
