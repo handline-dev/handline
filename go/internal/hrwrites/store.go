@@ -21,7 +21,7 @@ import (
 // before anything names them, links come before an agent is retired, and the standing context of what is left is last.
 var (
 	itemKinds = []string{"add", "retire", "rename", "link", "unlink", "team", "settings", "context", "schedule", "global"}
-	stepOrder = []string{"team", "add", "rename", "settings", "schedule", "link", "unlink", "retire", "context", "global"}
+	stepOrder = []string{"team", "add", "rename", "settings", "schedule", "unlink", "link", "retire", "context", "global"}
 )
 
 const bundle = "bundle"
