@@ -241,3 +241,25 @@ func TestARefusalSaysWhatIsWrongAndShowsTheForm(t *testing.T) {
 		}
 	}
 }
+
+// Every verb, and every task and hr subverb, has a form to show when its arguments are refused.
+func TestEveryVerbHasAUsage(t *testing.T) {
+	for verb := range commands {
+		if _, ok := usages[verb]; !ok {
+			t.Errorf("no usage for %s", verb)
+		}
+	}
+	subs := []string{"add", "retire", "rename", "link", "unlink", "team", "context", "list", "withdraw"}
+	for sub := range taskCmds {
+		subs = append(subs, "task "+sub)
+	}
+	for _, s := range subs {
+		key := s
+		if !strings.HasPrefix(s, "task ") {
+			key = "hr " + s
+		}
+		if _, ok := usages[key]; !ok {
+			t.Errorf("no usage for %s", key)
+		}
+	}
+}
