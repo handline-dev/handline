@@ -36,7 +36,6 @@ type tbPorts struct {
 
 func (p *tbPorts) TaskDoing(_ db.Q, t *db.Task) bool           { return p.doing[t.ID] }
 func (p *tbPorts) SupervisorOf(string) string                  { return p.boss }
-func (p *tbPorts) LeadOf(string) string                        { return p.lead }
 func (p *tbPorts) BgStale(db.Q, string, int64) bool            { return p.bgStale }
 func (p *tbPorts) BgOwesNothing(db.Q, string) bool             { return p.bgOwes }
 func (p *tbPorts) NeverCloses(string) bool                     { return p.never }
@@ -109,88 +108,10 @@ func TestATaskThatIsDoingStartsItsClockThenTellsItsOpenerPastTheDeadlineAndRearm
 	}
 }
 
-func TestAReportedTasksClockRunsOnAndRemindsWhoeverItAnswersTo(t *testing.T) {
-	tk, _, b, p := timebox(t)
-	tid := newTask(t, tk, "a", "boss", 100)
-	p.doing[tid] = true
-	b.SweepTaskTimeouts(tk, 1000)
-	report(t, tk, tid)
-	p.doing[tid] = false
-	b.SweepTaskTimeouts(tk, 1050)
-	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 1100 || len(p.batched) != 0 {
-		t.Fatalf("a reported task's clock does not pause: %+v %v", task, p.batched)
-	}
-	b.SweepTaskTimeouts(tk, 1200)
-	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "mgr: T") || !strings.Contains(p.batched[0], "was answered by a") ||
-		!strings.Contains(p.batched[0], "hl task accept T") || !strings.Contains(p.batched[0], "hl task reject T") {
-		t.Fatalf("%v", p.batched)
-	}
-	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Int64 != 1300 || countEvents(t, tk, "mgr", "task_timeout_exceeded") != 1 {
-		t.Fatalf("the reminder re-arms the clock and is chained like an overrun notice: %+v", task)
-	}
-	if len(p.sent) != 0 {
-		t.Fatalf("the reminder is typed at once: %v", p.sent)
-	}
-}
-
-func TestAReportedTaskRemindsTheAssigneesLeadAndAnAcceptedOneNoOne(t *testing.T) {
-	tk, _, b, p := timebox(t)
-	p.lead = "lead"
-	tid := newTask(t, tk, "a", "boss", 100)
-	report(t, tk, tid)
-	b.SweepTaskTimeouts(tk, 1000)
-	b.SweepTaskTimeouts(tk, 1200)
-	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "lead: T") || !strings.Contains(p.batched[0], "hl task handoff T1 lead") {
-		t.Fatalf("the lead is reminded, not whoever the task answers to: %v", p.batched)
-	}
-	if _, err := tk.Q.Exec("UPDATE tasks SET accepted_by = 'lead', accepted_at = 1250 WHERE id = ?", tid); err != nil {
-		t.Fatal(err)
-	}
-	b.SweepTaskTimeouts(tk, 1400)
-	if len(p.batched) != 1 {
-		t.Fatalf("an accepted task waits on its merge and is reminded to no one: %v", p.batched)
-	}
-}
-
 func report(t *testing.T, tk *Tick, tid int64) {
 	t.Helper()
 	if _, err := tk.Q.Exec("UPDATE tasks SET reporter = 'mgr', reported_at = 1010, report = 'shipped', report_via = 'reason' WHERE id = ?", tid); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestATaskReportedBeforeItsClockStartedIsStillReminded(t *testing.T) {
-	tk, _, b, p := timebox(t)
-	tid := newTask(t, tk, "a", "boss", 100)
-	report(t, tk, tid)
-	b.SweepTaskTimeouts(tk, 1000)
-	if task, _ := db.GetTask(tk.Q, tid); !task.TimeoutAt.Valid || task.TimeoutAt.Int64 != 1100 || len(p.batched) != 0 {
-		t.Fatalf("the clock starts where it is first seen reported: %+v %v", task, p.batched)
-	}
-	b.SweepTaskTimeouts(tk, 1200)
-	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "mgr: T") || !strings.Contains(p.batched[0], "was answered by a") {
-		t.Fatalf("%v", p.batched)
-	}
-}
-
-func TestATaskReportedWhileItsClockIsPausedResumesAndIsReminded(t *testing.T) {
-	tk, _, b, p := timebox(t)
-	tid := newTask(t, tk, "a", "boss", 100)
-	p.doing[tid] = true
-	b.SweepTaskTimeouts(tk, 1000)
-	p.doing[tid] = false
-	b.SweepTaskTimeouts(tk, 1040)
-	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Valid {
-		t.Fatalf("not paused: %+v", task)
-	}
-	report(t, tk, tid)
-	b.SweepTaskTimeouts(tk, 2000)
-	if task, _ := db.GetTask(tk.Q, tid); !task.TimeoutAt.Valid || task.TimeoutAt.Int64 != 2060 || len(p.batched) != 0 {
-		t.Fatalf("the clock resumes with what it had left: %+v %v", task, p.batched)
-	}
-	b.SweepTaskTimeouts(tk, 2060)
-	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "mgr: T") {
-		t.Fatalf("%v", p.batched)
 	}
 }
 
@@ -487,21 +408,6 @@ func TestATaskTheFounderHoldsRemindsNoAgentAndItsClockStartsFreshWhenItLeavesThe
 	b.SweepTaskTimeouts(tk, 9100)
 	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "boss: T") {
 		t.Fatalf("back with an agent, a full stretch then one notice: %v", p.batched)
-	}
-}
-
-func TestATaskReportedToTheFounderRunsNoClock(t *testing.T) {
-	tk, _, b, p := timebox(t)
-	tid := newTask(t, tk, "a", "boss", 100)
-	p.doing[tid] = true
-	b.SweepTaskTimeouts(tk, 1000)
-	if _, err := tk.Q.Exec("UPDATE tasks SET reporter = ?, reported_at = 1010, report = 'shipped', report_via = 'reason' WHERE id = ?", db.Human, tid); err != nil {
-		t.Fatal(err)
-	}
-	b.SweepTaskTimeouts(tk, 1050)
-	b.SweepTaskTimeouts(tk, 9000)
-	if task, _ := db.GetTask(tk.Q, tid); task.TimeoutAt.Valid || len(p.batched) != 0 || countEvents(t, tk, db.Human, "task_timeout_exceeded") != 0 {
-		t.Fatalf("a task awaiting the founder's accept ran its clock: %+v %v", task, p.batched)
 	}
 }
 

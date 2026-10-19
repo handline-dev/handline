@@ -92,29 +92,11 @@ func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 			msg   string
 		)
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
-			h, asked = Handover{}, nil
-			t, err := getTask(tx, tid)
-			if err != nil {
-				return nil, err
-			}
-			if t == nil {
-				return nil, refusal(fmt.Sprintf("no task T%d", tid))
-			}
-			if why := handoffRefusal(t, to, agents); why != "" {
-				return nil, refusal(why)
-			}
 			if err := claimImages(tx, home, me, said, "", "note"); err != nil {
 				return nil, err
 			}
-			h = Handover{Task: tid, By: me, From: t.Owner, To: to, Title: t.Title}
-			if tell == nil {
-				return nil, fmt.Errorf("task.handoff needs the supervisor to route its ask")
-			}
-			asked, err = tell.TaskAsk(tx, AskReq{From: me, To: to, Kind: "task", Body: fmt.Sprintf("T%d handed to you by %s: %s\n\n%s", tid, me, t.Title, said),
-				Within: func(rid int64) error {
-					h.RID = rid
-					return moveTask(tx, tell, &h, said)
-				}})
+			var err error
+			h, asked, err = handOff(tx, tell, tid, me, to, said, agents)
 			if err != nil {
 				return nil, err
 			}
@@ -136,6 +118,31 @@ func handoffMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 		}
 		return out, nil
 	}
+}
+
+// handOff routes task tid to `to` in tx and, once the ask is allowed, moves it (moveTask). A refusal is the error; asked.OK false is a denied
+// ask, whose writes stand. The caller runs asked.After and tell.HandedOver after the commit.
+func handOff(tx *sql.Tx, tell Teller, tid int64, by, to, note string, agents []string) (Handover, *Asked, error) {
+	t, err := getTask(tx, tid)
+	if err != nil {
+		return Handover{}, nil, err
+	}
+	if t == nil {
+		return Handover{}, nil, refusal(fmt.Sprintf("no task T%d", tid))
+	}
+	if why := handoffRefusal(t, to, agents); why != "" {
+		return Handover{}, nil, refusal(why)
+	}
+	if tell == nil {
+		return Handover{}, nil, fmt.Errorf("task.handoff needs the supervisor to route its ask")
+	}
+	h := Handover{Task: tid, By: by, From: t.Owner, To: to, Title: t.Title}
+	asked, err := tell.TaskAsk(tx, AskReq{From: by, To: to, Kind: "task", Body: fmt.Sprintf("T%d handed to you by %s: %s\n\n%s", tid, by, t.Title, note),
+		Within: func(rid int64) error {
+			h.RID = rid
+			return moveTask(tx, tell, &h, note)
+		}})
+	return h, asked, err
 }
 
 // moveTask is what follows an allowed ask, in its transaction: the old owner's open requests close, the task changes hands and links the

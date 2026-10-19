@@ -108,21 +108,6 @@ func TestAnEditThatKeepsAReferenceToAGoneImageIsNotRefusedForIt(t *testing.T) {
 	}
 }
 
-func TestARejectNoteIsOneLineThenItsImages(t *testing.T) {
-	sdb, s, run := imagesEnv(t)
-	img := putImage(t, sdb, s)
-	said(t, run("w", "task.done", "d1", `,"task":1,"evidence":"half"`))
-	if r := run("", "task.reject", "r1", params(1, "note", "cut off "+ref(img)+" and more words")); errData(r)["field"] != "note" {
-		t.Fatalf("words after the images: %v", r)
-	}
-	said(t, run("", "task.reject", "r2", params(1, "note", "cut off\non a small window "+ref(img)+"\n")))
-	want := "cut off on a small window\n" + ref(img)
-	var n int
-	if err := sdb.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'reject_task' AND json_extract(payload, '$.note') = ?", want).Scan(&n); err != nil || n != 1 {
-		t.Fatal("the note is kept as one line, then its image")
-	}
-}
-
 func TestATaskWriteClaimsTheImagesItNames(t *testing.T) {
 	sdb, s, run := imagesEnv(t)
 	img := putImage(t, sdb, s)

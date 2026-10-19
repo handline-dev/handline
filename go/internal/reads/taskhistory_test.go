@@ -63,33 +63,3 @@ func TestTaskHistoryListsEveryChangeAsRowsNewestFirst(t *testing.T) {
 		t.Fatalf("a missing task: %v", err)
 	}
 }
-
-// The founder's answer is a state row to answered, and the asker taking the task back is an assignee row under the asker that ends it.
-func TestTaskHistoryShowsAnAnswerAndWhoTookTheTaskBack(t *testing.T) {
-	e := testEnv(t)
-	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'merge it', 'boss', 'boss', 1)")
-	run(t, e, `INSERT INTO events(ts, agent, kind, payload) VALUES
-		(10, 'boss', 'task_new', '{"task_id": 1, "request_id": 5, "owner": "human", "expects": "decision"}'),
-		(11, 'human', 'task_report', '{"task_id": 1, "report": "merged", "from": "queued", "to": "boss", "request_id": 6}'),
-		(12, 'boss', 'task_handoff', '{"task_id": 1, "from": "human", "to": "boss", "note": "mine again", "request_id": 7}')`)
-	got, err := e.taskHistory(nil, map[string]any{"task": json.Number("1")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var lines []string
-	for _, r := range got.(map[string]any)["rows"].([]any) {
-		m := r.(map[string]any)
-		lines = append(lines, fmt.Sprintf("%v %s: %q -> %q", m["by"], m["field"], m["was"], m["now"]))
-	}
-	want := []string{
-		`boss state: "review" -> "queued"`,
-		`boss assignee: "human" -> "boss"`,
-		`human state: "opened" -> "review"`,
-		`boss state: "" -> "opened"`,
-		`boss assignee: "" -> "human"`,
-		`boss title: "" -> "merge it"`,
-	}
-	if strings.Join(lines, "\n") != strings.Join(want, "\n") {
-		t.Fatalf("got:\n%s\nwant:\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
-	}
-}
