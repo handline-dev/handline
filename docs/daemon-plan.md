@@ -213,7 +213,7 @@ pushed on a topic; `topics` are `status`, `accounts`, `agents`, `inbox`, `tasks`
 | Session, terminal | `terminal.attach`, `terminal.history`, `terminal.resize`. |
 | Session, actions | `session.*`, `input.*`, `prompt.answer` above; each replies accepted or `refused {reason}` and takes `request_id`. |
 | Inbox | `inbox.list` (kind, agent, title, body, evidence, task, times, read or answered, decision options, prompt payload), `inbox.mark_read`, `inbox.answer`, `inbox.reply`. Live. |
-| Tasks | `tasks.list`, `task.get` (state, relation, response mode, time box, times, evidence, hold or block reason, delivery history, linked events), `task.new`, `task.withdraw`, `task.cancel`, `task.edit`. Live. |
+| Tasks | `tasks.list`, `task.get` (state, time box, times, evidence, hold or block reason, delivery history, linked events), `task.new`, `task.withdraw`, `task.cancel`, `task.edit`. Live. |
 | Team | `team.get` (agents, roles, allowed edges, role and base file metadata), `hr.list` (proposals with their diff), `hr.decide`. |
 | Accounts | `accounts.list` (login state, 5-hour and weekly use with reset and source mark, cap, agents on it, recent moves), `account.login`, which returns a terminal to `terminal.attach`. Live. |
 | Worktrees | `repos.list`, `worktrees.list` (path, branch, owner, parent and child, status, changed files), `worktree.diff {path, file}`. The diff is read-only git run by the daemon; new. |
@@ -221,7 +221,7 @@ pushed on a topic; `topics` are `status`, `accounts`, `agents`, `inbox`, `tasks`
 | Schedules | `schedules.list`; founder only: `schedule.add`, `schedule.edit`, `schedule.remove`. |
 | Stats | `stats.get {window}` for 24 hours or 7 days. |
 | Settings | `settings.get` (timings, terminal host choice and health, trust folders, hooks installed), `settings.set`, `devices.list` (with last seen), `device.pair`, `device.redeem`, `device.revoke`. |
-| Chat | `chat.messages {scope}`, `chat.transcript` (replies, tool activity, prompt cards, task events, working state), `chat.locate`, `chat.send`, `chat.answer`, `chat.dismiss`. Live on `chat`. `hello` carries `capabilities` (chat, review). |
+| Chat | `chat.messages {scope}`, `chat.transcript` (replies, tool activity, prompt cards, task events, working state), `chat.locate`, `chat.send`. Live on `chat`. `hello` carries `capabilities` (chat, review). |
 | Notifications | `events.feed {since}`: task done, prompt asked, stall, account out, each with a deep-link target; resumable by cursor. Live. |
 | Everywhere | `whoami` (viewer, device, role, methods allowed); every write is an event with its actor, shown in `events.feed` and `agent.timeline`. |
 

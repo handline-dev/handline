@@ -194,7 +194,6 @@ Rules for both: the write is idempotent through the `request_id` the client adds
 | Write | Kind | Immediately | Rollback / failure |
 |---|---|---|---|
 | `chat.send` | authored | a message row with `state: sending`, keyed by its `request_id`, at the top of *mine* | the row turns `failed` with **Retry** and **Discard**; the text is never lost |
-| `chat.dismiss` `chat.answer` | authored | the message's flag or answer | restore the message |
 | `task.new` | authored | a provisional row (negative id, `pending`) | row removed, form refilled |
 | `task.done` `task.reopen` `task.queue` `task.draft` `task.release` `task.withdraw` `task.cancel` `task.edit` | authored | the state change from `taskAfter(verb, task)` (pure, in `app-core`; it returns nothing for a transition it does not know, and then the write is **Decided**) | restore the row and the detail |
 | `task.merge` | authored | merged rows leave the list | restore the list |

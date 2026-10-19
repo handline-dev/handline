@@ -84,9 +84,8 @@ A card's "open" jumps to the task or chat it came from (`task` or `agent` on the
 | Key | Verb | Notes |
 |---|---|---|
 | Enter | open | the task or chat the item came from |
-| `a` | answer | focuses the answer field or the first option |
+| `a` | reply | focuses the reply field (`inbox.reply`) |
 | `e` | answer in editor | desktop wrapper only (E3); hidden in the browser |
-| `x` | dismiss | authored (`chat.dismiss`), pending dot; the card folds with "Undo" for 6 s |
 | `m` | mark read | authored (`inbox.mark_read`) |
 | `M` | mark all read | confirm inline when more than 10 are unread |
 | `?` | key sheet | |

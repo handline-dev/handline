@@ -29,7 +29,7 @@ agents:
   reviewer:  {}
 
 edges:
-  - { from: "*", to: "reviewer", relation: peer, response: async }
+  - { from: "*", to: "reviewer" }
   - { from: "*", to: "human", kind: task }
 
 deny: []
