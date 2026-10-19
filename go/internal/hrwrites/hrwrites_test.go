@@ -989,7 +989,7 @@ func TestAProposedRepoIsKeptAbsoluteAndMustBeAGitCheckout(t *testing.T) {
 		t.Fatalf("%q %q", tm.str("repo"), tm.str("repo.zed.sea"))
 	}
 	for _, c := range []struct{ as, params, want string }{
-		{"alice", `"kind":"add","args":{"name":"dan","repo":"plain"},"why":"w"`, "repo plain is not a git checkout (" + filepath.Join(base, "plain") + " has no .git)"},
+		{"alice", `"kind":"add","args":{"name":"dan","repo":"plain"},"why":"w"`, "repo plain is not a git checkout (" + filepath.Join(base, "plain") + ")"},
 		{"alice", `"kind":"add","args":{"name":"dan","repo":"orcapipe/handline"},"why":"w"`, "repo orcapipe/handline is not a folder"},
 		{"alice", `"kind":"team","args":{"name":"zed","repo":"app","members":["sea"],"repos":{"zed.sea":"plain"}},"why":"w"`, "repo plain is not a git checkout"},
 		{"", `"kind":"add","args":{"name":"dan","repo":"app"},"why":"w"`, "repo app is a relative path and human has no repo to take it from"},
