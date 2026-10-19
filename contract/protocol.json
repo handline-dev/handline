@@ -4851,6 +4851,69 @@
    ]
   },
   {
+   "name": "task.time",
+   "summary": "Where a task's time went, from its opening to its end (or now): segments in order that cover it with no gap or overlap. Read from what the daemon already records (the task's state events, its blockers, its asks of the founder, its holder's parks and starts); nothing is timed twice. Where two causes overlap, the stretch shows one, in this order: waiting on the founder, blocked by a task, waiting on another agent, queued, at an account's wall, starting, working.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "task": {
+       "type": "integer"
+      },
+      "start": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "end": {
+       "oneOf": [
+        {
+         "$ref": "#/components/schemas/Timestamp",
+         "description": "When it was done, discarded or closed."
+        },
+        {
+         "type": "null",
+         "description": "Still open: the last segment runs to now."
+        }
+       ]
+      },
+      "segments": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/TimeSegment"
+       }
+      }
+     },
+     "required": [
+      "task",
+      "start",
+      "end",
+      "segments"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "task.shot",
    "summary": "A screenshot kept with a finished task.",
    "paramStructure": "by-name",
@@ -15046,6 +15109,73 @@
      "filter",
      "by",
      "at"
+    ]
+   },
+   "TimeSegment": {
+    "type": "object",
+    "description": "One stretch of a task's time: one block of the bar under its title, sized by seconds.",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "queued",
+       "waiting",
+       "starting",
+       "working"
+      ],
+      "description": "queued: not yet with its holder. waiting: held up, on says by what. starting: its holder's session is being launched, woken or handed off. working: its holder has it and nothing holds it up."
+     },
+     "on": {
+      "oneOf": [
+       {
+        "type": "string",
+        "enum": [
+         "founder",
+         "task",
+         "agent",
+         "account"
+        ],
+        "description": "What a waiting segment waits on: the founder's answer or acceptance, another task, another agent's acceptance of a report, an account's plan or usage limit."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "text": {
+      "type": "string",
+      "description": "The reason as shown: `waiting on you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working."
+     },
+     "task": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "description": "The task it is blocked by."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "from": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "to": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "seconds": {
+      "type": "integer",
+      "description": "to less from."
+     }
+    },
+    "required": [
+     "kind",
+     "on",
+     "text",
+     "task",
+     "from",
+     "to",
+     "seconds"
     ]
    },
    "ChatAction": {

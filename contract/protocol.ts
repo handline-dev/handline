@@ -1520,6 +1520,20 @@ export type TaskView = {
   at: Timestamp;
 };
 
+/** One stretch of a task's time: one block of the bar under its title, sized by seconds. */
+export type TimeSegment = {
+  /** queued: not yet with its holder. waiting: held up, on says by what. starting: its holder's session is being launched, woken or handed off. working: its holder has it and nothing holds it up. */
+  kind: "queued" | "waiting" | "starting" | "working";
+  on: ("founder" | "task" | "agent" | "account") | null;
+  /** The reason as shown: `waiting on you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working. */
+  text: string;
+  task: number | null;
+  from: Timestamp;
+  to: Timestamp;
+  /** to less from. */
+  seconds: number;
+};
+
 export type ChatAction = {
   key: "accept" | "send_back" | "ok" | "no";
   label: string;
@@ -2155,6 +2169,14 @@ export interface Methods {
     task: number;
     rows: HistoryRow[];
   } };
+  "task.time": { params: {
+  task: number;
+}; result: {
+    task: number;
+    start: Timestamp;
+    end: Timestamp | null;
+    segments: TimeSegment[];
+  } };
   "task.shot": { params: {
   task: number;
   /** The screenshot's number in the task's result, from 1. */
@@ -2770,6 +2792,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.get": { role: "agent", callers: null, write: false, since: 1 },
   "task.history": { role: "agent", callers: null, write: false, since: 1 },
+  "task.time": { role: "agent", callers: null, write: false, since: 1 },
   "task.shot": { role: "member", callers: null, write: false, since: 1 },
   "task.new": { role: "agent", callers: null, write: true, since: 1 },
   "task.handoff": { role: "agent", callers: null, write: true, since: 1 },
