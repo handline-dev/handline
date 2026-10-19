@@ -22,6 +22,15 @@ type parsed struct {
 
 func (p parsed) opt(name string) (string, bool) { v, ok := p.opts[name]; return v, ok }
 
+// argProblem is what was wrong with the command line, for the refusal main prints: parse names the option, a verb the piece it missed.
+var argProblem string
+
+// wrongArgs refuses the command line, saying why.
+func wrongArgs(format string, a ...any) (int, bool) {
+	argProblem = fmt.Sprintf(format, a...)
+	return 0, false
+}
+
 // tags is every tag given under name, each value a tag or several split by commas (`--tag fe --tag be`, `--tag fe,be`).
 func (p parsed) tags(name string) []any {
 	var out []any
@@ -71,7 +80,14 @@ func parse(args []string, valued, flags []string, alias map[string]string) (pars
 		case isValued[name] && i+1 < len(args) && !looksLikeOption(args[i+1]):
 			i++
 			p.set(name, args[i])
+		case isFlag[name]:
+			argProblem = name + " takes no value"
+			return p, false
+		case isValued[name]:
+			argProblem = name + " needs a value after it"
+			return p, false
 		default:
+			argProblem = "unknown option " + name
 			return p, false
 		}
 	}

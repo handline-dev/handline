@@ -63,23 +63,29 @@ func said(ok bool, text string) int {
 	return 1
 }
 
-// optTask, optPriority and optTimeout are an optional option of that type: (value, given, ok).
-func optTask(p parsed, name string) (int, bool, bool) {
+// optOf is an optional option read by read: (value, given, ok); a value read refuses names what the option wants.
+func optOf[T any](p parsed, name, wants string, read func(string) (T, bool)) (T, bool, bool) {
 	v, given := p.opt(name)
 	if !given {
-		return 0, false, true
+		var zero T
+		return zero, false, true
 	}
-	n, ok := taskRef(v)
+	n, ok := read(v)
+	if !ok {
+		argProblem = fmt.Sprintf("%s %s, not %q", name, wants, v)
+	}
 	return n, true, ok
 }
 
+// optTask, optPriority and optTimeout are an optional option of that type.
+func optTask(p parsed, name string) (int, bool, bool) {
+	return optOf(p, name, "wants a task, T<n>", taskRef)
+}
 func optPriority(p parsed, name string) (int, bool, bool) {
-	v, given := p.opt(name)
-	if !given {
-		return 0, false, true
-	}
-	n, ok := priority(v)
-	return n, true, ok
+	return optOf(p, name, "is 1 to 5", priority)
+}
+func optTimeout(p parsed, name string) (int64, bool, bool) {
+	return optOf(p, name, "is a span like 30m or 2h", taskTimeout)
 }
 
 // optEstimate is --estimate: story points (the daemon says which), or none to clear it (nil). ok false for anything else.
@@ -92,32 +98,36 @@ func optEstimate(p parsed) (points any, given, ok bool) {
 		return nil, true, true
 	}
 	n, err := strconv.Atoi(v)
-	return n, true, err == nil
-}
-
-func optTimeout(p parsed, name string) (int64, bool, bool) {
-	v, given := p.opt(name)
-	if !given {
-		return 0, false, true
+	if err != nil {
+		argProblem = fmt.Sprintf("--estimate is a number of points or none, not %q", v)
 	}
-	n, ok := taskTimeout(v)
-	return n, true, ok
+	return n, true, err == nil
 }
 
 // oneTask is a subcommand that takes T<n> and nothing else.
 func oneTask(args []string) (int, bool) {
 	p, ok := parse(args, nil, nil, nil)
-	if !ok || len(p.pos) != 1 {
+	if !ok {
 		return 0, false
 	}
-	return taskRef(p.pos[0])
+	if len(p.pos) != 1 {
+		return wrongArgs("it takes one task, T<n>, and got %d word(s)", len(p.pos))
+	}
+	tid, ok := taskRef(p.pos[0])
+	if !ok {
+		argProblem = fmt.Sprintf("%q is not a task: T<n>", p.pos[0])
+	}
+	return tid, ok
 }
 
 func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	p, ok := parse(args, []string{"--file", "--assign", "--owner", "--parent", "--blocked-by", "--priority", "--estimate", "--expects", "--timeout", "--tag"},
 		[]string{"--duplicate-ok"}, map[string]string{"-t": "--timeout"})
-	if !ok || len(p.pos) < 1 || len(p.pos) > 2 {
+	if !ok {
 		return 0, false
+	}
+	if len(p.pos) < 1 || len(p.pos) > 2 {
+		return wrongArgs("it takes the title and the body, each in quotes, and got %d word(s)", len(p.pos))
 	}
 	// --assign is who works the task; --owner is who answers for it, the opener when not given.
 	assignee, hasAssign := p.opt("--assign")
@@ -664,12 +674,15 @@ func taskDiscard(c *hlclient.Client, args []string) (int, bool) {
 // taskWithReason is a subcommand taking T<n> and a reason, sent as key; with optional the reason may be left out.
 func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key string, optional bool) (int, bool) {
 	p, ok := parse(args, nil, nil, nil)
-	if !ok || len(p.pos) > 2 || len(p.pos) < 2 && !(optional && len(p.pos) == 1) {
+	if !ok {
 		return 0, false
+	}
+	if len(p.pos) > 2 || len(p.pos) < 2 && !(optional && len(p.pos) == 1) {
+		return wrongArgs("it takes T<n> and the %s in quotes, and got %d word(s)", key, len(p.pos))
 	}
 	tid, ok := taskRef(p.pos[0])
 	if !ok {
-		return 0, false
+		return wrongArgs("%q is not a task: T<n>", p.pos[0])
 	}
 	mutating(c, sub)
 	if !asking(c, verb) {

@@ -28,8 +28,11 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 		return 0, true
 	}
 	p, ok := parse(args, []string{"--file", "--parent", "--task", "--no-task", "--attach"}, nil, nil)
-	if !ok || len(p.pos) > 2 {
+	if !ok {
 		return 0, false
+	}
+	if len(p.pos) > 2 {
+		return wrongArgs("too many words: the target, then the whole text in one pair of quotes")
 	}
 	parent, hasParent := p.opt("--parent")
 	var parentN any

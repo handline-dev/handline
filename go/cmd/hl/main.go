@@ -52,8 +52,20 @@ func main() {
 	if code, ok := run(c, argv[1:]); ok {
 		os.Exit(code)
 	}
-	fmt.Fprintf(os.Stderr, "hl %s: arguments not understood: %s\nSee the skill for the form each verb takes.\n", argv[0], strings.Join(argv[1:], " "))
+	refuseArgs(argv[0], argv[1:])
 	os.Exit(2)
+}
+
+// refuseArgs says on stderr what is wrong with a verb's arguments, then the verb's form and one example.
+func refuseArgs(verb string, args []string) {
+	why := ""
+	if argProblem != "" {
+		why = " (" + argProblem + ")"
+	}
+	fmt.Fprintf(os.Stderr, "hl %s: arguments not understood%s: %s\n", verb, why, strings.Join(args, " "))
+	if u, ok := usageOf(verb, args); ok {
+		fmt.Fprintf(os.Stderr, "usage: %s\ne.g.   %s\n", u[0], u[1])
+	}
 }
 
 func names() []string {
