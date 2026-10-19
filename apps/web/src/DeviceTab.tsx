@@ -54,7 +54,7 @@ export function DeviceTab({ agent, kind, hidden }: { agent: string; kind: 'andro
   return (
     <div className="device-tab flex min-h-0 flex-col">
       <div className="flex flex-none items-center gap-1.5 border-b border-line px-2 py-1.5">
-        <span className="flex-1 text-body text-ink-2">{kind === 'android' ? 'Click the picture to tap the device.' : 'A picture of the booted simulator.'}</span>
+        <span className="flex-1 text-body text-ink-2">{why ? '' : kind === 'android' ? 'Click the picture to tap the device.' : 'A picture of the booted simulator.'}</span>
         <Button size="sm" icon="refresh" label="Refresh" onClick={() => setNow((n) => n + 1)} />
         {shot ? (
           <Button size="sm" variant="outline" label="Mark an area to ask" onClick={() => setMarking(latest.current)}>
@@ -91,7 +91,7 @@ export function DeviceTab({ agent, kind, hidden }: { agent: string; kind: 'andro
             }}
           />
         ) : (
-          <p className="m-0 p-6 text-center text-ink-2">Looking for a {name} {kind === 'android' ? 'device' : 'simulator'}…</p>
+          <p className="m-0 p-6 text-center text-ink-2">Looking for {kind === 'android' ? 'an Android device' : 'an iOS simulator'}…</p>
         )}
       </div>
     </div>
