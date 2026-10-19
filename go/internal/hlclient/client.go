@@ -203,6 +203,13 @@ func (c *Client) Connect() (net.Conn, error) {
 	return nil, down(fmt.Sprintf("launchd started it but it did not answer within %.0fs", c.Wait.Seconds()))
 }
 
+// The ids of a call's two messages, and of an error the daemon sends about the connection itself (a line too long to read, say).
+const (
+	connID  = 0
+	helloID = 1
+	callID  = 2
+)
+
 type reply struct {
 	ID     int             `json:"id"`
 	Result json.RawMessage `json:"result"`
@@ -247,8 +254,8 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 	}
 	var out []byte
 	for i, m := range []map[string]any{
-		{"jsonrpc": "2.0", "id": 1, "method": "hello", "params": hello},
-		{"jsonrpc": "2.0", "id": 2, "method": method, "params": params},
+		{"jsonrpc": "2.0", "id": helloID, "method": "hello", "params": hello},
+		{"jsonrpc": "2.0", "id": callID, "method": method, "params": params},
 	} {
 		b, err := json.Marshal(m)
 		if err != nil {
@@ -271,11 +278,11 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 		if err := json.Unmarshal([]byte(line), &r); err != nil {
 			return nil, fmt.Errorf("the daemon sent what is not JSON: %w", err)
 		}
-		// An error with no id is about the connection itself (a line too long to read, say): the request is not answered after it.
-		if err := r.err(); err != nil && (r.ID == 0 || r.ID == 1 || r.ID == 2) {
+		// An error about the connection itself is not followed by the request's answer.
+		if err := r.err(); err != nil && (r.ID == connID || r.ID == helloID || r.ID == callID) {
 			return nil, err
 		}
-		if r.ID == 2 {
+		if r.ID == callID {
 			var res map[string]any
 			if err := json.Unmarshal(r.Result, &res); err != nil {
 				return nil, fmt.Errorf("the daemon's result is not an object: %w", err)
