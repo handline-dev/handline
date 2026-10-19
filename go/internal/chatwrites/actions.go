@@ -131,7 +131,7 @@ func answerWrite(e *supervisor.Env, tell taskwrites.Teller, q db.Q, rid int64, v
 	}}, nil
 }
 
-// decide is tasks.decide: the person's decision on a task they own is the answer to its card. The card's close settles the task (db.SettleDecisionTasks).
+// decide is tasks.decide: the person's decision on a task they own is the answer to its card, and their done on the task.
 func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text string, effect func(q db.Q, message string) error) (*Result, error) {
 	text = strings.TrimSpace(text)
 	t, err := db.GetTask(q, tid)
@@ -163,7 +163,7 @@ func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text s
 	}
 	var resolved *supervisor.Resolved
 	if card != nil && card.State == "queued" && card.Target == db.Human {
-		r, ok, msg, err := e.ResolveWrite(q, supervisor.ResolveIn{RID: card.ID, Verdict: text, Notify: true, Effect: effect})
+		r, ok, msg, err := e.ResolveWrite(q, supervisor.ResolveIn{RID: card.ID, Verdict: text, Notify: true, NoSettle: true, Effect: effect})
 		if err != nil {
 			return nil, err
 		}
@@ -172,24 +172,19 @@ func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text s
 		}
 		resolved, effect = r, nil
 	}
-	// Settling the card settled the task too (db.SettleDecisionTasks); only a card that was already closed some other way leaves it here to
-	// be marked done.
-	if t, err = db.GetTask(q, tid); err != nil {
+	// The card closes unsettled: the founder's words then go through task.done's rules, which leave a task someone else asked answered, with
+	// the founder, and close the founder's own (or one already answered).
+	tx, ok := q.(*sql.Tx)
+	if !ok || tell == nil {
+		return nil, fmt.Errorf("deciding T%d needs the call's transaction and the task teller", tid)
+	}
+	done, err := taskwrites.MarkDone(tx, e.Home, db.Human, taskwrites.DoneIn{Task: tid, Words: text})
+	if err != nil {
 		return nil, err
 	}
-	var done *taskwrites.DoneResult
-	if !t.Ended() {
-		tx, ok := q.(*sql.Tx)
-		if !ok || tell == nil {
-			return nil, fmt.Errorf("deciding T%d needs the call's transaction and the task teller", tid)
-		}
-		if done, err = taskwrites.MarkDone(tx, e.Home, db.Human, taskwrites.DoneIn{Task: tid, Words: text}); err != nil {
+	if effect != nil {
+		if err := effect(q, done.Said); err != nil {
 			return nil, err
-		}
-		if effect != nil {
-			if err := effect(q, done.Said); err != nil {
-				return nil, err
-			}
 		}
 	}
 	decided := fmt.Sprintf("T%d decided", tid)
@@ -197,12 +192,14 @@ func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text s
 		if resolved != nil {
 			guarded(e, fmt.Sprintf("telling after the decision on T%d", tid), func() (string, error) { return e.ResolveTell(e.DB, resolved) })
 		}
-		if done != nil {
-			guarded(e, fmt.Sprintf("telling after T%d was decided", tid), func() (string, error) {
+		guarded(e, fmt.Sprintf("telling after T%d was decided", tid), func() (string, error) {
+			if done.Reported {
+				tell.Reported(tid, done.Owner, done.Told, done.Forget)
+			} else {
 				tell.Done(tid, db.Human, done.Owner, done.Told, done.Forget, done.Finished)
-				return "", nil
-			})
-		}
+			}
+			return "", nil
+		})
 		return decided
 	}}, nil
 }

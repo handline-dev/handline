@@ -4671,6 +4671,14 @@
      }
     },
     {
+     "name": "my_turn",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Only the tasks the caller holds that wait on it: queued or doing, never draft, answered or ended; the founder's are the ones assigned to human. One row per task. It takes no owner."
+     }
+    },
+    {
      "name": "reason_gaps",
      "required": false,
      "schema": {
@@ -5082,7 +5090,8 @@
     {
      "$ref": "#/components/errors/not_found"
     }
-   ]
+   ],
+   "description": "Anyone may hand an open task on, not only its owner (the asker takes an answered task back so); the move clears an answer, and task.history's row names who made it (by)."
   },
   {
    "name": "task.done",
@@ -5180,7 +5189,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner, when the task answers to someone else (its reporter, or its opener), does not close it: the task turns reported and waits for task.accept or task.reject by them. A done by the founder, or by an owner the task answers to, closes it at once. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`."
+   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner, when the task answers to someone else (its reporter, or its opener), does not close it: the task turns answered, stays with its owner, and waits for task.accept, task.reject or a reassign by anyone (task.handoff, task.edit). The founder's done on a task they hold that someone else asked is an answer too. A done by an owner the task answers to, or the founder's on a task they do not hold (or one already answered), closes it at once. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`."
   },
   {
    "name": "task.accept",
@@ -5222,7 +5231,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "The task must be reported (an owner it does not answer to ran task.done). Only whoever it answers to, its opener or the founder may accept. It closes with the report as its evidence; the owner is told."
+   "description": "The task must be answered (an owner it does not answer to ran task.done). Only whoever it answers to, its opener or the founder may accept. It closes with the report as its evidence; the owner is told."
   },
   {
    "name": "task.reject",
@@ -5272,7 +5281,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "The task must be reported. Only whoever it answers to, its opener or the founder may reject. The report and its commit and shots are dropped, the task is queued again for its owner, and the note is told to the owner."
+   "description": "The task must be answered. Only whoever it answers to, its opener or the founder may reject. The report and its commit and shots are dropped, the task is queued again for its owner, and the note is told to the owner."
   },
   {
    "name": "task.reopen",
@@ -6486,6 +6495,18 @@
      "required": false,
      "schema": {
       "$ref": "#/components/schemas/RequestName"
+     }
+    },
+    {
+     "name": "files",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+       "type": "string"
+      },
+      "description": "Absolute paths of images the message carries (ChatMessage.attachments): PNG, JPEG, GIF or WebP, at most 10 MiB each, at most 6. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file that is not an image, or an image whose first bytes do not match its ending is bad_request (field files); the message is not written."
      }
     },
     {
@@ -9861,7 +9882,7 @@
      },
      "state": {
       "type": "string",
-      "description": "draft, queued, doing, reported (its owner's done waits on task.accept or task.reject), done or discarded."
+      "description": "draft, queued, doing, answered (its owner's done waits on task.accept, task.reject or a reassign), done or discarded."
      },
      "time_box": {
       "oneOf": [
@@ -10117,7 +10138,7 @@
         "type": "null"
        }
       ],
-      "description": "The done that waits on acceptance while the task is reported; null otherwise. Absent from a daemon that does not send it."
+      "description": "The done that waits on acceptance while the task is answered; null otherwise. Absent from a daemon that does not send it."
      }
     },
     "required": [
@@ -14537,7 +14558,7 @@
        "merged_into",
        "memo"
       ],
-      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, reported, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty)."
+      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, answered, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty)."
      },
      "was": {
       "type": "string",
@@ -14695,7 +14716,7 @@
        "draft",
        "queued",
        "doing",
-       "reported",
+       "answered",
        "done",
        "discarded"
       ]

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/supervisor"
@@ -65,6 +66,10 @@ func (w *writes) say(c *rpc.Conn, p map[string]any) (any, error) {
 		}
 		noTask = &s
 	}
+	paths, err := attachments.FilePaths(p)
+	if err != nil {
+		return nil, err
+	}
 	me, speaker := sender(c)
 	body = textsafe.Text(body)
 	var out *supervisor.SayVerbOut
@@ -79,9 +84,13 @@ func (w *writes) say(c *rpc.Conn, p map[string]any) (any, error) {
 				return nil, err
 			}
 		}
-		var err error
+		files, err := w.images.AddImages(tx, w.e.Home, me, me == db.Human, paths)
+		if err != nil {
+			return nil, err
+		}
 		out, err = w.e.SayVerb(tx, supervisor.SayVerbIn{Requester: me, Speaker: speaker, Target: target, Body: body, Task: task, NoTask: noTask,
-			Parent: parent, Effect: func(_ db.Q, _ string, _ int64) error { return nil }})
+			Parent: parent, Effect: func(q db.Q, _ string, rid int64) error { return w.images.Carry(q, rid, files) },
+			MemoEffect: func(q db.Q, mid int64) error { return w.images.AttachMemo(q, mid, files) }})
 		if err != nil {
 			return nil, err
 		}
