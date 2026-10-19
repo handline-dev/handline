@@ -118,7 +118,7 @@ it does not answer within 2 s (`infra/hookspool.append`); the Go daemon ingests 
 |---|---|---|
 | `PreToolUse` | shell guard, edit gate; prints a deny | same, behind the switch |
 | `PostToolUse`, `PostToolUseFailure` | clear the permission wait, record; `PostToolUse` also notes memory use and background jobs | same, behind the switch |
-| `Stop` | stop gate (`session/stopgate`), then record and snapshot | none |
+| `Stop` | unanswered-question reminder (`session/stopgate`), then record and snapshot | none |
 | `SessionStart`, `UserPromptSubmit`, `StopFailure`, `PostCompact` | record, snapshot | none |
 | `SessionEnd`, `SubagentStop`, `PermissionRequest`, `TeammateIdle` | record | none |
 | `hl hook commit` | `events.record_commit` straight into the db | none; `handoff.RecordCommit` exists with no caller. Nothing installs a git hook that runs it. |

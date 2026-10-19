@@ -6,18 +6,14 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/lifecycle"
-	"github.com/handline/handline/go/internal/protected"
 	"github.com/handline/handline/go/internal/states"
 )
 
-// The Stop hook gate (session/stopgate.py): an agent may not end its turn while its current task has no recorded wait, and is reminded,
-// once per message, of a question put to it that it has not answered. On unless the founder switched it off (gates/stop_wait), which
-// only the founder's protected store can say.
+// The Stop hook (session/stopgate.py): an agent is reminded, once per message, of a question put to it that it has not answered. A stop
+// with no recorded wait is let through; the tick tells the agent's lead (tick.SweepStopWaitBackstop).
 
 // atLimit is whether the agent's last turn ended on the usage limit with nothing run since (events.at_limit).
 func atLimit(d *sql.DB, agent string) bool {
@@ -71,15 +67,9 @@ func unansweredQuestion(d *sql.DB, agent string) (int64, string, bool) {
 	return rid, sender, true
 }
 
-func stopReason(tid int64, why string) string {
-	return fmt.Sprintf("Stop refused: %s, so ending your turn now would leave it with no owner working and nothing it waits on. Finished your "+
-		"part: `hl task handoff T%d <next> ...` (or `hl task done T%d` if you are the last step). Waiting on something: `hl task edit T%d "+
-		"--blocked-by T<m>`, or a child or decision task.", why, tid, tid, tid)
-}
-
-// stopDecide is (block, reason) for a Stop event (stopgate.decide). Not for a repeat within one stop_hook_active chain, the founder, an
-// agent at the usage wall or whose session the daemon closed, or a task already refused once this session.
-func stopDecide(d *sql.DB, home, agent string, raw map[string]any) (bool, string) {
+// stopDecide is (block, reason) for a Stop event (stopgate.decide): the reminder of an unanswered question. Not for a repeat within one
+// stop_hook_active chain, the founder, or an agent at the usage wall or whose session the daemon closed.
+func stopDecide(d *sql.DB, agent string, raw map[string]any) (bool, string) {
 	if agent == "" || agent == db.Human {
 		return false, ""
 	}
@@ -90,26 +80,12 @@ func stopDecide(d *sql.DB, home, agent string, raw map[string]any) (bool, string
 	if err != nil || atWall(d, agent, row) || (row != nil && row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) {
 		return false, ""
 	}
-	why := hooks.StopWaitReason(d, home, agent)
-	if why == "" {
-		rid, sender, owed := unansweredQuestion(d, agent)
-		if !owed {
-			return false, ""
-		}
-		_ = db.SetMeta(d, "answer_reminded:"+agent, strconv.FormatInt(rid, 10))
-		_, _ = db.AddEvent(d, agent, "stop_gate", db.KV{K: "answer_reminder", V: rid}, db.KV{K: "enforced", V: true})
-		return true, fmt.Sprintf("%s may be waiting for an answer: if you have one, reply with `hl say %s --parent %s \"...\"` (what you write "+
-			"in the terminal reaches no one).", db.MsgName(d, rid), sender, db.MsgName(d, rid))
-	}
-	tid, _, _ := db.CurrentTask(d, agent)
-	sid, _ := raw["session_id"].(string)
-	marker, key := fmt.Sprintf("%s:%d", sid, tid), "stop_gate:"+agent
-	if seen, _, _ := db.Meta(d, key); seen == marker {
+	rid, sender, owed := unansweredQuestion(d, agent)
+	if !owed {
 		return false, ""
 	}
-	_ = db.SetMeta(d, key, marker)
-	v, _ := protected.New(home).Get("gates", "stop_wait")
-	on := strings.TrimSpace(v) != "off"
-	_, _ = db.AddEvent(d, agent, "stop_gate", db.KV{K: "task_id", V: tid}, db.KV{K: "why", V: why}, db.KV{K: "enforced", V: on})
-	return on, stopReason(tid, why)
+	_ = db.SetMeta(d, "answer_reminded:"+agent, strconv.FormatInt(rid, 10))
+	_, _ = db.AddEvent(d, agent, "stop_gate", db.KV{K: "answer_reminder", V: rid}, db.KV{K: "enforced", V: true})
+	return true, fmt.Sprintf("%s may be waiting for an answer: if you have one, reply with `hl say %s --parent %s \"...\"` (what you write "+
+		"in the terminal reaches no one).", db.MsgName(d, rid), sender, db.MsgName(d, rid))
 }

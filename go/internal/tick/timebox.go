@@ -15,15 +15,15 @@ import (
 // from zero when the wait ends. A task the founder holds or must accept waits on the founder the same way. Past it, its opener is told, and again every
 // further timeout_s stretch, until the task answers with one of `hl task edit --timeout` (continue) or `hl task release` (back to queued) -
 // or is simply done. Background work about to outlive the agent's prompt cache tells its supervisor it may be stopped after a veto window.
-// An agent IDLE with its current task's own wait never recorded, the Stop-hook gate's own backstop, and an agent nudged to resolve a
-// forgotten head as many times as the schedule allows, still open, each tell the task's opener once (else the agent's supervisor) - nothing
-// more is sent to the agent about it past that.
+// An agent IDLE with its current task's own wait never recorded tells its lead once per stop; an agent nudged to resolve a forgotten head
+// as many times as the schedule allows, still open, tells the task's opener once (else the agent's supervisor) - nothing more is sent to
+// the agent about it past that.
 //
 // A notice to an agent is a line sent to its open session, so one that cannot be sent now is tried again; a notice to the human has no
 // session to type at and is an event.
 const (
 	TitleShown        = 60
-	StopWaitBackstopS = 900
+	StopWaitBackstopS = 600
 	// NoticeRetryS: a notice that could not be sent (mid-turn, awaiting a permission, no session) is not tried again for this long, per agent.
 	NoticeRetryS = 60
 )
@@ -354,16 +354,16 @@ func (b *Timebox) SweepBackgroundCheck(t *Tick, now int64) {
 	}
 }
 
-// SweepStopWaitBackstop is the gate's own backstop: the clock starts the moment the task-level wait goes missing and only clears once it is
-// recorded or the task moves on - even to another with no recorded wait in between; a RUNNING turn in between does not buy a fresh
-// 15 minutes. It only tells while IDLE now, once, past the limit.
+// SweepStopWaitBackstop tells an agent's lead, once per stop, that it has sat idle past the limit holding a task with no wait recorded. The
+// clock starts when the agent is first seen idle with the wait missing and clears the moment it works again, records a wait or moves to
+// another task, so a later stop is told again.
 func (b *Timebox) SweepStopWaitBackstop(t *Tick, now int64) {
 	limit := t.Config.Seconds("stop_wait_backstop_s", StopWaitBackstopS)
 	for _, agent := range t.Host.Agents() {
 		sinceKey, toldKey, taskKey := "stop_wait_since:"+agent, "stop_wait_told:"+agent, "stop_wait_task:"+agent
 		row := must(db.GetAgentState(t.Q, agent))
 		why := ""
-		if row != nil && !closedAt(row) {
+		if row != nil && !closedAt(row) && row.State == states.Idle {
 			why = b.Ports.StopWaitReason(t.Q, agent)
 		}
 		if why == "" {
@@ -373,7 +373,7 @@ func (b *Timebox) SweepStopWaitBackstop(t *Tick, now int64) {
 			continue
 		}
 		tid, _ := must2(db.CurrentTask(t.Q, agent))
-		if must(db.Cursor(t.Q, taskKey)) != tid { // the clock is the task's, not the agent's
+		if must(db.Cursor(t.Q, taskKey)) != tid {
 			check(db.SetCursor(t.Q, taskKey, tid))
 			check(db.ClearCursor(t.Q, sinceKey))
 			check(db.ClearCursor(t.Q, toldKey))
@@ -383,12 +383,15 @@ func (b *Timebox) SweepStopWaitBackstop(t *Tick, now int64) {
 			check(db.SetCursor(t.Q, sinceKey, now))
 			continue
 		}
-		if row.State != states.Idle || now-since < limit || must(db.Cursor(t.Q, toldKey)) != 0 {
+		if now-since < limit || must(db.Cursor(t.Q, toldKey)) != 0 {
 			continue
 		}
-		who := b.answerer(t, agent, tid)
-		text := fmt.Sprintf("%s has been idle %s on T%d: %s. Ask it what it waits on: `hl say %s \"...\" --task T%d`.",
-			agent, timefmt.Ago(now-since), tid, why, agent, tid)
+		who := b.Ports.LeadOf(agent)
+		if who == "" {
+			who = b.answerer(t, agent, tid)
+		}
+		text := fmt.Sprintf("%s holds T%d, stopped with no wait (idle %s: %s). Ask it what it waits on: `hl say %s \"...\" --task T%d`.",
+			agent, tid, timefmt.Ago(now-since), why, agent, tid)
 		b.note(t, who, text)
 		check(db.SetCursor(t.Q, toldKey, 1))
 		must(db.AddEvent(t.Q, agent, "stop_wait_stuck", db.KV{K: "why", V: why}, db.KV{K: "for_s", V: now - since}, db.KV{K: "told", V: who}))

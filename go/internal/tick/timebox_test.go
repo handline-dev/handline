@@ -414,9 +414,9 @@ func TestTheBackgroundCheckAsksAnIdleAgentWhichJobsToStopEveryCheckInterval(t *t
 	}
 }
 
-func TestTheStopWaitBackstopTellsTheTasksOpenerOnceWhenAnIdleAgentHasNoRecordedWait(t *testing.T) {
+func TestTheStopWaitBackstopTellsTheLeadOncePerStopWhenAnIdleAgentHasNoRecordedWait(t *testing.T) {
 	tk, w, b, p := timebox(t)
-	p.boss = "lead"
+	p.boss, p.lead = "boss", "lead"
 	tid := newTask(t, tk, "a", "asker", 0)
 	setState(t, tk, "a", states.Idle, 0)
 	db.SetCurrentTask(tk.Q, "a", tid, true)
@@ -428,14 +428,34 @@ func TestTheStopWaitBackstopTellsTheTasksOpenerOnceWhenAnIdleAgentHasNoRecordedW
 	}
 	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS)
 	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS+100)
-	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "asker: a has been idle") || countEvents(t, tk, "a", "stop_wait_stuck") != 1 || !w.logged("asker told") {
-		t.Fatalf("told once, to the opener: %v %v", p.batched, w.logs)
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "lead: a holds T1, stopped with no wait") || countEvents(t, tk, "a", "stop_wait_stuck") != 1 || !w.logged("lead told") {
+		t.Fatalf("told once, to the lead: %v %v", p.batched, w.logs)
 	}
 	if len(p.sent) != 0 {
 		t.Fatalf("the lead's idle notice is typed at once: %v", p.sent)
 	}
+	// It works again, then stops again: a new stop, told again once its limit passes.
+	setState(t, tk, "a", states.Running, 0)
+	b.SweepStopWaitBackstop(tk, 2000)
+	setState(t, tk, "a", states.Idle, 0)
+	b.SweepStopWaitBackstop(tk, 2100)
+	b.SweepStopWaitBackstop(tk, 2100+StopWaitBackstopS)
+	if len(p.batched) != 2 {
+		t.Fatalf("a later stop is told: %v", p.batched)
+	}
+	// A wait recorded: nothing to tell.
+	tk, _, b, p = timebox(t)
+	p.lead = "lead"
+	setState(t, tk, "a", states.Idle, 0)
+	db.SetCurrentTask(tk.Q, "a", newTask(t, tk, "a", "asker", 0), true)
+	b.SweepStopWaitBackstop(tk, 1000)
+	b.SweepStopWaitBackstop(tk, 1000+StopWaitBackstopS)
+	if len(p.batched) != 0 {
+		t.Fatalf("told with a wait recorded: %v", p.batched)
+	}
 }
 
+// With no lead, the task's opener is told, else the agent's supervisor.
 func TestTheStopWaitBackstopTellsTheSupervisorWhenTheFounderOrTheAgentOpenedTheTask(t *testing.T) {
 	for _, opener := range []string{db.Human, "a"} {
 		tk, _, b, p := timebox(t)
