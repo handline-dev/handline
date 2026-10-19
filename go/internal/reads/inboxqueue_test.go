@@ -36,15 +36,13 @@ func drawn(q map[string]any, all bool) string {
 			mark, behind := ".", ""
 			if l["decision"].(bool) {
 				mark = "!"
-			} else if l["answer"].(bool) {
-				mark = "<"
 			}
 			if n := l["unread"].(int); n > 1 {
 				behind = fmt.Sprintf(" (+%d)", n-1)
 			}
 			fmt.Fprintf(&b, "%s #%-5d %-12s %-9s %s%s\n", mark, l["id"], l["from"], l["kind"], l["line"], behind)
 		}
-		b.WriteString("`hl say <who> --parent <id> \"<text>\"` answers one - a reply settles what it answers, and on a `<` row it goes back in that thread.\n")
+		b.WriteString("`hl say <who> --parent <id> \"<text>\"` replies to one, in its thread.\n")
 		if all {
 			dealt := q["dealt"].([]any)
 			fmt.Fprintf(&b, "\n%d most recent, already dealt with:\n", len(dealt))
@@ -146,6 +144,10 @@ func TestInboxQueueOfTheFounderPrintsAsHlInboxDid(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 	first := got["lines"].([]any)[0].(map[string]any)
+	if name, _ := first["name"].(string); !strings.HasPrefix(name, "msg_") {
+		t.Fatalf("a line is named msg_<hash>: %v", first)
+	}
+	delete(first, "name")
 	if want := map[string]any{"id": int64(5), "from": "bob", "kind": "task", "decision": true, "answer": false, "line": "approve the plan", "unread": 1}; !reflect.DeepEqual(first, want) {
 		t.Fatalf("a decision comes first: %v", first)
 	}

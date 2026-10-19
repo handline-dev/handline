@@ -131,6 +131,12 @@ func closedAt(row *db.AgentState) bool {
 // Supervise is one agent's turn in a tick, its own function so that all of it sits inside the single guard in Run that treats a failure
 // as this agent's failure.
 func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, actions *[]string) {
+	t.supervise(agent, now, samples, actions, false)
+}
+
+// supervise is Supervise; afterHandoff is the second pass, run right after this tick handed the agent off: it wakes the agent and judges
+// no trigger, as its reading is the old session's.
+func (t *Tick) supervise(agent string, now int64, samples map[string][]Sample, actions *[]string, afterHandoff bool) {
 	t.init()
 	q := t.Q
 	row := must(db.GetAgentState(q, agent))
@@ -269,14 +275,12 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 	atWall := t.Usage.AtLimit(q, agent)
 	openIdle := state != states.Running && state != states.Handoff && !wokeNow && atWall == nil && !closedAt(row)
 	if openIdle {
-		// An answer first: an agent that asked something and parked is waiting on that.
 		closed := t.Lifecycle.ColdBeforeSend(q, agent, row, now, st)
 		if closed != nil && *closed {
 			*actions = append(*actions, fmt.Sprintf("%s: cache expired; session closed, the wake delivers", agent))
 			row = must(db.GetAgentState(q, agent))
 		}
 		if closed == nil {
-			t.Delivery.DeliverAnswers(q, agent)
 			// A task told past an idle head starts a turn: the nudge about that head waits.
 			if !t.Delivery.DeliverQueued(q, agent) {
 				t.Delivery.NudgeForgottenResolve(q, agent, row, now)
@@ -381,7 +385,7 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 
 	// What sits at the other end of a closed agent is a shell prompt, and a handoff document is full of backticks. An agent woken in
 	// this tick is judged on the next one: st was read before the wake and a closed agent's snapshot is stale by construction.
-	if wokeNow || !t.Lifecycle.TriggersApply(row) {
+	if wokeNow || afterHandoff || !t.Lifecycle.TriggersApply(row) {
 		return
 	}
 
@@ -423,6 +427,11 @@ func (t *Tick) Supervise(agent string, now int64, samples map[string][]Sample, a
 		case fresh != nil && fresh.FailedAttempts >= states.MaxFailedAttempts:
 			check(db.SetAgentState(q, agent, states.Stalled, 0, fmt.Sprintf("%d failed attempts", fresh.FailedAttempts)))
 			*actions = append(*actions, fmt.Sprintf("%s: STALLED after %d failed attempts", agent, fresh.FailedAttempts))
+		}
+		// A handoff parks the agent with its wake already due: start the new session now, not at the next poll.
+		if fresh = must(db.GetAgentState(q, agent)); fresh != nil && fresh.State == states.Parked && fresh.WakeAt.Valid &&
+			fresh.WakeAt.Int64 != 0 && fresh.WakeAt.Int64 <= t.Now() {
+			t.supervise(agent, t.Now(), samples, actions, true)
 		}
 	}
 }

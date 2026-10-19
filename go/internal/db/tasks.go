@@ -2,7 +2,6 @@ package db
 
 import (
 	"database/sql"
-	"fmt"
 	"strings"
 )
 
@@ -21,17 +20,17 @@ type Task struct {
 	SentAt, ReportedAt                                     sql.NullInt64
 	DoneEvidence, DoneVia, EditedBy, ClosedBy, DiscardedBy sql.NullString
 	DiscardReason, QueuedBy, Expects                       sql.NullString
-	Reporter, Report, ReportVia                            sql.NullString
+	Reporter, Report, ReportVia, AcceptedBy                sql.NullString
 }
 
 const taskCols = "id, title, owner, parent_task, opened_by, done_evidence, done_at, done_via, edited_by, edited_at, created_at, closed_by, closed_at, " +
 	"discarded_by, discard_reason, discarded_at, priority, merged_into, queued_by, queued_at, timeout_s, timeout_at, delivered_at, sent_at, expects, " +
-	"reporter, reported_at, report, report_via"
+	"reporter, reported_at, report, report_via, accepted_by"
 
 func (t *Task) dest() []any {
 	return []any{&t.ID, &t.Title, &t.Owner, &t.ParentTask, &t.OpenedBy, &t.DoneEvidence, &t.DoneAt, &t.DoneVia, &t.EditedBy, &t.EditedAt, &t.CreatedAt,
 		&t.ClosedBy, &t.ClosedAt, &t.DiscardedBy, &t.DiscardReason, &t.DiscardedAt, &t.Priority, &t.MergedInto, &t.QueuedBy, &t.QueuedAt,
-		&t.TimeoutS, &t.TimeoutAt, &t.DeliveredAt, &t.SentAt, &t.Expects, &t.Reporter, &t.ReportedAt, &t.Report, &t.ReportVia}
+		&t.TimeoutS, &t.TimeoutAt, &t.DeliveredAt, &t.SentAt, &t.Expects, &t.Reporter, &t.ReportedAt, &t.Report, &t.ReportVia, &t.AcceptedBy}
 }
 
 // AnswersTo is who the task answers to: its reporter, or its opener when none was set.
@@ -87,7 +86,7 @@ func OpenChildTasks(q Q, tid int64) ([]*Task, error) {
 // TasksForRequest is db.tasks_for_request: the tasks a request is linked to, oldest first.
 func TasksForRequest(q Q, rid int64) ([]*Task, error) {
 	return taskRows(q, "SELECT t.id, t.title, t.owner, t.parent_task, t.opened_by, t.done_evidence, t.done_at, t.done_via, t.edited_by, t.edited_at, t.created_at, t.closed_by, t.closed_at, "+
-		"t.discarded_by, t.discard_reason, t.discarded_at, t.priority, t.merged_into, t.queued_by, t.queued_at, t.timeout_s, t.timeout_at, t.delivered_at, t.sent_at, t.expects, t.reporter, t.reported_at, t.report, t.report_via "+
+		"t.discarded_by, t.discard_reason, t.discarded_at, t.priority, t.merged_into, t.queued_by, t.queued_at, t.timeout_s, t.timeout_at, t.delivered_at, t.sent_at, t.expects, t.reporter, t.reported_at, t.report, t.report_via, t.accepted_by "+
 		"FROM tasks t JOIN task_requests l ON l.task_id = t.id WHERE l.request_id = ? ORDER BY t.id", rid)
 }
 
@@ -116,7 +115,7 @@ func LiveDelivery(q Q, tid int64, owner string) (*Request, error) {
 // TaskBlockers is db.task_blockers: the tasks still blocking tid.
 func TaskBlockers(q Q, tid int64) ([]*Task, error) {
 	return taskRows(q, "SELECT t.id, t.title, t.owner, t.parent_task, t.opened_by, t.done_evidence, t.done_at, t.done_via, t.edited_by, t.edited_at, t.created_at, t.closed_by, t.closed_at, "+
-		"t.discarded_by, t.discard_reason, t.discarded_at, t.priority, t.merged_into, t.queued_by, t.queued_at, t.timeout_s, t.timeout_at, t.delivered_at, t.sent_at, t.expects, t.reporter, t.reported_at, t.report, t.report_via "+
+		"t.discarded_by, t.discard_reason, t.discarded_at, t.priority, t.merged_into, t.queued_by, t.queued_at, t.timeout_s, t.timeout_at, t.delivered_at, t.sent_at, t.expects, t.reporter, t.reported_at, t.report, t.report_via, t.accepted_by "+
 		"FROM tasks t JOIN task_blocks b ON b.blocks_on = t.id WHERE b.task_id = ? AND b.dormant = 0 AND t.discarded_by IS NULL AND t.done_evidence IS NULL ORDER BY t.id", tid)
 }
 
@@ -194,7 +193,7 @@ func unsend(q Q, tid int64) error {
 // MarkTaskDone is db.mark_task_done: true only if this call wrote the first evidence. via is 'sha', 'request' or 'reason'. A report
 // waiting on the task is settled by it.
 func MarkTaskDone(q Q, tid int64, evidence, via string) (bool, error) {
-	res, err := q.Exec("UPDATE tasks SET done_evidence = ?, done_at = ?, done_via = ?, reported_at = NULL, report = NULL, report_via = NULL "+
+	res, err := q.Exec("UPDATE tasks SET done_evidence = ?, done_at = ?, done_via = ?, reported_at = NULL, report = NULL, report_via = NULL, accepted_by = NULL, accepted_at = NULL "+
 		"WHERE id = ? AND done_evidence IS NULL AND discarded_by IS NULL", evidence, Now(), via, tid)
 	if err != nil {
 		return false, err
@@ -276,9 +275,6 @@ func TasksBlockedBy(q Q, tid int64) ([]int64, error) {
 	return ids(q, "SELECT task_id FROM task_blocks WHERE blocks_on = ? ORDER BY task_id", tid)
 }
 
-const decisionCardSQL = "SELECT t.id FROM tasks t WHERE t.owner = ? AND t.discarded_by IS NULL AND t.done_evidence IS NULL AND " +
-	"(SELECT MIN(request_id) FROM task_requests WHERE task_id = t.id) = ?"
-
 const openDecisionCardsSQL = "(SELECT MIN(l.request_id) FROM task_requests l JOIN tasks t ON t.id = l.task_id " +
 	"WHERE t.owner = ? AND t.discarded_by IS NULL AND t.done_evidence IS NULL GROUP BY t.id)"
 
@@ -321,16 +317,6 @@ func FounderClosed(q Q, t *Task) (bool, error) {
 	return kind == "settle_decision_task" || kind == "mark_task_done" && agent == Human, nil
 }
 
-// DecisionTaskOfCard is db.decision_task_of_card: the open task of the founder's whose card is request rid, 0 for none.
-func DecisionTaskOfCard(q Q, rid int64) (int64, error) {
-	var id int64
-	err := q.QueryRow(decisionCardSQL, Human, rid).Scan(&id)
-	if err == sql.ErrNoRows {
-		return 0, nil
-	}
-	return id, err
-}
-
 // OpenDecisionCardIDs is db.open_decision_card_ids: the queued cards of the founder's open decision tasks, oldest first; about
 // agent (its requester) when given, whose body starts with prefix when given, and is exactly body when hasBody.
 func OpenDecisionCardIDs(q Q, agent, prefix string, body *string) ([]int64, error) {
@@ -351,34 +337,6 @@ func OpenDecisionCardIDs(q Q, agent, prefix string, body *string) ([]int64, erro
 	return ids(q, query+" ORDER BY id", args...)
 }
 
-// SettleDecisionTasks is db.settle_decision_tasks: a request that is the card of a decision task has left 'queued', and the task
-// goes with it: done with the answer as evidence, else discarded.
-func SettleDecisionTasks(q Q, rid int64, state, verdict, dismissedBy string) error {
-	tid, err := DecisionTaskOfCard(q, rid)
-	if err != nil || tid == 0 {
-		return err
-	}
-	if state == "done" && verdict != "" && dismissedBy == "" {
-		if _, err := MarkTaskDone(q, tid, verdict, "reason"); err != nil {
-			return err
-		}
-	} else {
-		how := state
-		if dismissedBy != "" {
-			how = "dismissed"
-		}
-		reason := fmt.Sprintf("its request was %s", how)
-		if verdict != "" && dismissedBy == "" {
-			reason += ": " + verdict
-		}
-		if _, err := DiscardTask(q, tid, Human, reason); err != nil {
-			return err
-		}
-	}
-	_, err = AddEvent(q, Human, "settle_decision_task", KV{"task_id", tid}, KV{"request_id", rid}, KV{"state", state})
-	return err
-}
-
 // TaskEdit is what EditTask writes; a nil field is left as it is. TimeoutS, given, always writes, and starts timeout_at from now only when
 // the task is doing (IsDoing, the caller's read of that at the time), else leaves it paused.
 type TaskEdit struct {
@@ -389,13 +347,14 @@ type TaskEdit struct {
 }
 
 // EditTask is db.edit_task: a changed owner, reporter, title, priority or timeout, stamped with who and when. The caller has checked permission and
-// that something changed; this only writes. A new owner has not had the task yet, so delivered_at and sent_at clear.
+// that something changed; this only writes. A new owner has not had the task yet, so delivered_at and sent_at clear, and has not answered it.
 func EditTask(q Q, tid int64, by string, ed TaskEdit) error {
 	now := Now()
 	sets := []string{"edited_by = ?", "edited_at = ?"}
 	args := []any{by, now}
 	if ed.Owner != nil {
-		sets = append(sets, "owner = ?", "delivered_at = NULL", "sent_at = NULL")
+		sets = append(sets, "owner = ?", "delivered_at = NULL", "sent_at = NULL", "reported_at = NULL", "report = NULL", "report_via = NULL",
+			"accepted_by = NULL", "accepted_at = NULL")
 		args = append(args, *ed.Owner)
 	}
 	if ed.Reporter != nil {

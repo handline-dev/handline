@@ -56,7 +56,7 @@ func (e *Env) tellRefusal(q db.Q, agent string, tid int64, msg string) {
 		to = t.ManagerOf(agent)
 	}
 	text := fmt.Sprintf("T%d could not be delivered to %s and is waiting: %s", tid, agent, msg)
-	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Response: "fire_and_forget", Kind: "say"}))
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: to, Body: text, Kind: "say"}))
 	check(db.LinkRequest(q, tid, rid))
 	e.Push(q, to, rid)
 }
@@ -67,11 +67,11 @@ func (e *Env) selfDelivery(q db.Q, agent string, task *db.Task) int64 {
 	body := task.Title
 	for _, linked := range must(db.TaskRequests(q, task.ID)) {
 		r := must(db.GetRequest(q, linked.ID))
-		if r.Answer.Valid && r.Answer.String != "" {
-			body += fmt.Sprintf("\n\nanswer to #%d: %s", r.ID, r.Answer.String)
+		if r.Reason.Valid && r.Reason.String != "" {
+			body += fmt.Sprintf("\n\nanswer to %s: %s", db.MsgName(q, r.ID), r.Reason.String)
 		}
 	}
-	return must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: agent, Body: body, Response: "fire_and_forget", Kind: "task"}))
+	return must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: agent, Body: body, Kind: "task"}))
 }
 
 // AdvanceCurrentTask moves the agent on to its next open task, by priority then age, once the current one stops being worth holding. True if
@@ -200,7 +200,7 @@ func (e *Env) notifyUnblocked(q db.Q, depTID int64, owner, closer string, closed
 	if closed.DoneEvidence.Valid && closed.DoneEvidence.String != "" && !(closed.ParentTask.Valid && closed.ParentTask.Int64 == depTID) {
 		text += ": " + closed.DoneEvidence.String // a child's result is told on its own, by childResultNotice
 	}
-	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: owner, Body: text, Response: "fire_and_forget", Kind: "say"}))
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: owner, Body: text, Kind: "say"}))
 	check(db.LinkRequest(q, depTID, rid))
 	must(db.AddEvent(q, closer, "task_unblocked", db.KV{K: "task_id", V: depTID}, db.KV{K: "request_id", V: rid}, db.KV{K: "closed_task", V: closedTID},
 		db.KV{K: "after_request", V: must(db.NewestRequest(q))}))
@@ -237,7 +237,7 @@ func (e *Env) childResultNotice(q db.Q, dep *db.Task, by string, tid int64) *db.
 		return nil
 	}
 	text = strings.TrimRight(text, ": ")
-	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: dep.Owner, Body: text, Response: "fire_and_forget", Kind: "say",
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: dep.Owner, Body: text, Kind: "say",
 		Notice: delivery.ClassOf(delivery.Result, false, delivery.Failed(child.DoneEvidence.String)) == delivery.ClassBatch}))
 	check(db.LinkRequest(q, dep.ID, rid))
 	must(db.AddEvent(q, by, "child_result_told", db.KV{K: "task_id", V: dep.ID}, db.KV{K: "child", V: tid}, db.KV{K: "request_id", V: rid}))
@@ -333,7 +333,7 @@ func (e *Env) deliverUnblocked(q db.Q, notices []db.Notice, freed []string) {
 	for _, n := range notices {
 		if n.Unblocked != 0 && moved[n.To] {
 			if cur, ok := ok2(db.CurrentTask(q, n.To)); ok && cur == n.Unblocked {
-				must(db.RetireIfUndelivered(q, n.RID, "withdrawn", "the task itself went out to its owner in the same step", false))
+				must(db.RetireIfUndelivered(q, n.RID, "withdrawn", "the task itself went out to its owner in the same step"))
 				continue
 			}
 		}
@@ -341,8 +341,8 @@ func (e *Env) deliverUnblocked(q db.Q, notices []db.Notice, freed []string) {
 		if queued {
 			must(db.MarkSendNow(q, n.RID))
 		}
-		if err := e.deliver(n.RID, db.NoticeRequester, n.To, n.Text, "", team.Decision{Allowed: true, Reason: "task unblocked", Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
-			e.log("  #%d: the inbox file for %s was not written: %v", n.RID, n.To, err)
+		if err := e.deliver(n.RID, db.NoticeRequester, n.To, n.Text, "", "say", 0); err != nil {
+			e.log("  request %d: the inbox file for %s was not written: %v", n.RID, n.To, err)
 		}
 		if queued {
 			e.Push(q, n.To, n.RID)
@@ -414,10 +414,10 @@ func (e *Env) typeSay(q db.Q, owner, body, why string) {
 
 // queueSay writes the say and its inbox file, and does not tell the owner: that is Push's, which a caller in a transaction runs after the commit.
 func (e *Env) queueSay(q db.Q, owner, body, why string) int64 {
-	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: owner, Body: body, Response: "fire_and_forget", Kind: "say"}))
+	rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: owner, Body: body, Kind: "say"}))
 	must(db.MarkSendNow(q, rid))
-	if err := e.deliver(rid, db.NoticeRequester, owner, body, "", team.Decision{Allowed: true, Reason: why, Kind: ptr("say"), Response: "fire_and_forget"}); err != nil {
-		e.log("  #%d: the inbox file for %s was not written: %v", rid, owner, err)
+	if err := e.deliver(rid, db.NoticeRequester, owner, body, "", "say", 0); err != nil {
+		e.log("  request %d: the inbox file for %s was not written: %v", rid, owner, err)
 	}
 	return rid
 }
@@ -437,9 +437,9 @@ func (e *Env) TellMemo(q db.Q, tid int64, by, what, text, to string, now bool) (
 		if delivery.ClassOf(delivery.Memo, now || a == to || slices.Contains(named, a), false) == delivery.ClassNow {
 			e.typeSay(q, a, body, "task memo")
 		} else {
-			rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: a, Body: body, Response: "fire_and_forget", Kind: "say", Memo: true}))
+			rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: a, Body: body, Kind: "say", Memo: true}))
 			check(db.LinkRequest(q, tid, rid))
-			e.log("  %s: T%d memo held for its next digest (#%d)", a, tid, rid)
+			e.log("  %s: T%d memo held for its next digest (request %d)", a, tid, rid)
 		}
 	}
 	return nil
@@ -506,7 +506,7 @@ func (e *Env) SweepHeldMemos(now int64) (err error) {
 		}
 		check(db.SetCursor(q, key, 1))
 		if lead := t.SupervisorOf(r.Target); lead != "" && lead != db.Human && e.registered(lead) {
-			must(e.Notice(q, lead, fmt.Sprintf("%s has not read this memo in an hour, held for its next digest (#%d): %s", r.Target, r.ID, r.Body), "memo unread 1h"))
+			must(e.Notice(q, lead, fmt.Sprintf("%s has not read this memo in an hour, held for its next digest (%s): %s", r.Target, db.MsgName(q, r.ID), r.Body), "memo unread 1h"))
 		}
 	}
 	return nil

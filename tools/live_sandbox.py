@@ -233,6 +233,7 @@ def main() -> int:
         print("live-sandbox: spends real tokens; HANDLINE_LIVE=1 runs it", file=sys.stderr)
         return 2
     names = args.only or list(REPOS)
+    le.end_on_signals()
     account = live_account.pick_live()
     print(f"live-sandbox: account {account['account']}: {account['why']}", flush=True)
     root = Path(tempfile.mkdtemp(prefix="live-sandbox.")).resolve()
@@ -257,12 +258,12 @@ def main() -> int:
     finally:
         if daemon:
             le.stop_daemon(daemon)
+        tmuxsock.stop(tmux)
         if args.keep:
-            print(f"live-sandbox: kept {root} and the tmux server (tmux -L {tmux})", file=sys.stderr)
+            print(f"live-sandbox: kept {root} and its worktrees", file=sys.stderr)
         else:
             for name in names:
                 subprocess.run(["git", "worktree", "remove", "--force", str(root / f"wt-{name}")], cwd=REPOS[name][0], capture_output=True)
-            tmuxsock.stop(tmux)
             shutil.rmtree(root, ignore_errors=True)
     return 1 if any(r == "FAIL" for rows in table.values() for _, r, _ in rows) else 0
 

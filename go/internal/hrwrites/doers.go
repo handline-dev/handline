@@ -125,7 +125,7 @@ func (e *Env) doTeam(p step) (bool, string, error) {
 	}
 	verify := func(tm *team.Team) error {
 		for _, n := range members {
-			if err := need(tm.Route(name, n, 0, false).Allowed, fmt.Sprintf("%s -> %s is not routable", name, n)); err != nil {
+			if err := need(tm.Route(name, n, 0).Allowed, fmt.Sprintf("%s -> %s is not routable", name, n)); err != nil {
 				return err
 			}
 		}
@@ -306,8 +306,6 @@ func edgesMissing(was, now map[string]bool) []string {
 
 // ---------------------------------------------------------------- edges
 
-var validResponse = []string{"async", "fire_and_forget"}
-
 func pyStr(v any) string {
 	if v == nil {
 		return "None"
@@ -317,7 +315,7 @@ func pyStr(v any) string {
 
 // edgeRefusal is why this edge cannot be added or removed, or "" when it can. Read against the team.yaml as it is now; the write checks again,
 // on the text it edits.
-func (e *Env) edgeRefusal(kind, frm, to, response, relation string, registered []string, coming map[string]bool) string {
+func (e *Env) edgeRefusal(kind, frm, to string, registered []string, coming map[string]bool) string {
 	if to == "" || !contains(registered, to) {
 		shown := to
 		if shown == "" {
@@ -327,12 +325,6 @@ func (e *Env) edgeRefusal(kind, frm, to, response, relation string, registered [
 	}
 	if to == frm {
 		return "an agent cannot ask itself"
-	}
-	if response != "" && !contains(validResponse, response) {
-		return "response must be one of " + strings.Join(validResponse, ", ")
-	}
-	if relation != "" && !relationRe.MatchString(relation) {
-		return fmt.Sprintf("bad relation: %s (letters, digits, . _ - only)", pyRepr(relation))
 	}
 	t, err := team.LoadTeam(e.Home)
 	if err != nil {
@@ -374,7 +366,7 @@ func stillAllowedBy(t *team.Team, frm, to string) string {
 			continue
 		}
 		if t.Matches(pyStr(ed.From), frm) && t.Matches(pyStr(ed.To), to) {
-			if t.Route(frm, to, 0, false).Allowed {
+			if t.Route(frm, to, 0).Allowed {
 				return fmt.Sprintf("%s -> %s", pyStr(ed.From), pyStr(ed.To))
 			}
 			return ""
@@ -392,12 +384,12 @@ func unlinkCaveat(t *team.Team, frm, to string) string {
 
 func (e *Env) doLink(p step) (bool, string, error) {
 	frm, to := p.str("agent"), p.str("to")
-	if why := e.edgeRefusal("link", frm, to, p.str("response"), p.str("relation"), paths.ListAgents(e.Home), nil); why != "" {
+	if why := e.edgeRefusal("link", frm, to, paths.ListAgents(e.Home), nil); why != "" {
 		return false, why, nil
 	}
-	ok, said, err := e.editTeamYaml(func(t string) (string, error) { return e.linkText(t, frm, to, p.str("response"), p.str("relation")) }, "", "",
+	ok, said, err := e.editTeamYaml(func(t string) (string, error) { return e.linkText(t, frm, to) }, "", "",
 		func(tm *team.Team) error {
-			return need(tm.Route(frm, to, 0, false).Allowed, fmt.Sprintf("%s -> %s is not routable", frm, to))
+			return need(tm.Route(frm, to, 0).Allowed, fmt.Sprintf("%s -> %s is not routable", frm, to))
 		})
 	if err != nil || !ok {
 		return false, said, err
@@ -407,7 +399,7 @@ func (e *Env) doLink(p step) (bool, string, error) {
 
 func (e *Env) doUnlink(p step) (bool, string, error) {
 	frm, to := p.str("agent"), p.str("to")
-	if why := e.edgeRefusal("unlink", frm, to, "", "", paths.ListAgents(e.Home), nil); why != "" {
+	if why := e.edgeRefusal("unlink", frm, to, paths.ListAgents(e.Home), nil); why != "" {
 		return false, why, nil
 	}
 	ok, said, err := e.editTeamYaml(func(t string) (string, error) { return unlinkText(t, frm, to) }, "", "", func(tm *team.Team) error {

@@ -108,7 +108,7 @@ func TestProposalDiffIsOneChangePerLineInTheSpecsWords(t *testing.T) {
 		{"add", "kind: add\nagent: new\nteam: eng\nmodel: opus\nvendor: codex\n", "register new, team eng, model opus, vendor codex"},
 		{"settings", "kind: settings\nagent: w\nset.model: opus\nset.effort: \"\"\n", "set model of w to opus\nset effort of w to (none)"},
 		{"settings with nothing set", "kind: settings\nagent: w\n", "change the settings of w"},
-		{"link", "kind: link\nagent: a\nto: b\nrelation: peer\n", "allow a to ask b (response async, relation peer)"},
+		{"link", "kind: link\nagent: a\nto: b\nrelation: peer\n", "allow a to ask b"},
 		{"unlink", "kind: unlink\nagent: a\nto: b\n", "remove the edge a -> b"},
 		{"team", "kind: team\nagent: eng\nrepo: r\nmembers: \"a,b\"\n", "create team eng (working in r) with members a, b"},
 		{"context", "kind: context\nagent: w\nset.ROLE.md: \"\\\"x\\\"\"\n", "replace ROLE.md of w"},

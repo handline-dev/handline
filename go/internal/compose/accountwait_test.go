@@ -42,7 +42,7 @@ func TestAWaitOnAClosedAgentIsFiledUnderCapWhenItsAccountIsFullAndWallAtItsLimit
 		t.Fatal(err)
 	}
 	dbpkg.SetTaskQueued(d, tid, "human")
-	rid, _ := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "alice", Body: "fix it", Response: "async", Kind: "task"})
+	rid, _ := dbpkg.AddRequest(d, dbpkg.NewRequest{Requester: "human", Target: "alice", Body: "fix it", Kind: "task"})
 	dbpkg.LinkRequest(d, tid, rid)
 	check := func(wait, on string) {
 		t.Helper()

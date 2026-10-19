@@ -42,7 +42,7 @@ func TestQueueReasonInEachState(t *testing.T) {
 			state(t, e, "IDLE", nil)
 			withTerminal(t, e)
 			queue(t, e, 2, "task")
-		}, nil, 2, "behind #1"},
+		}, nil, 2, "behind an earlier message"},
 		{"a say with a turn running", func(e *Env) {
 			addAgent(t, e, "bob", "")
 			state(t, e, "RUNNING", nil)

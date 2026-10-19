@@ -8,7 +8,8 @@
 // event and told to the agent's manager.
 //
 // A terminal opened with no agent, or never recorded (the founder's own tmux), is never touched; nor is a pane whose process started after
-// its row was written, which is another pane under a reused handle, nor one that another agent names as its current terminal.
+// its row was written, which is another pane under a reused handle. Only a pane the daemon stamped (@hl_agent) for the agent is ever
+// closed: an unstamped pane, or one stamped for another agent, loses its record and is left alone.
 package dangling
 
 import (
@@ -35,6 +36,9 @@ type Ports interface {
 	Live() map[string]bool
 	// PaneStarted is when the pane's own process started, in unix seconds; 0 when it cannot be read.
 	PaneStarted(handle string) int64
+	// PaneAgent is the agent the daemon stamped the pane with, "" for a pane it did not open for an agent; known is false when it could
+	// not be read.
+	PaneAgent(handle string) (agent string, known bool)
 	// PaneSession is the pid of the agent session running inside the pane, 0 for none; known is false when it could not be read.
 	PaneSession(handle string) (pid int, known bool)
 	// Ask delivers text to the session of pid; an error is not delivered.
@@ -106,10 +110,12 @@ func (s *Sweep) one(r db.OpenTerminal, standing bool, now int64) error {
 	if err != nil || current == r.Handle {
 		return err
 	}
-	if other, err := db.AgentOfTerminal(s.Q, r.Handle); err != nil {
-		return err
-	} else if other != "" && other != r.Agent {
-		s.log("  %s: terminal %s is %s's current terminal; its record is closed, the pane left alone", r.Agent, r.Handle, other)
+	stamp, known := s.Ports.PaneAgent(r.Handle)
+	if !known {
+		return nil
+	}
+	if stamp != r.Agent {
+		s.log("  %s: terminal %s is not stamped for %s; its record is closed, the pane left alone", r.Agent, r.Handle, r.Agent)
 		return s.settle(r.Handle)
 	}
 	started := s.Ports.PaneStarted(r.Handle)

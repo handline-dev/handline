@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"net"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/handline/handline/go/internal/supervisor"
 )
 
 type fakeAuth struct {
@@ -110,4 +113,22 @@ func TestSocketIsPrivateAndAStaleOneIsReplaced(t *testing.T) {
 func sha256hex(b []byte) string {
 	s := sha256.Sum256(b)
 	return hex.EncodeToString(s[:])
+}
+
+// Close calls BeforeClose while the database is still open: a heal step still running off the tick writes to it.
+func TestCloseWaitsForBeforeCloseBeforeTheDatabaseCloses(t *testing.T) {
+	home := t.TempDir()
+	var opened *sql.DB
+	var pingErr error
+	called := false
+	d, err := Start(Config{Home: home, DBFile: filepath.Join(home, "db.sqlite"), Auth: fakeAuth{}, Log: t.Logf,
+		OnOpen:      func(db *sql.DB, _ *supervisor.Env) { opened = db },
+		BeforeClose: func() { called, pingErr = true, opened.Ping() }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+	if !called || pingErr != nil {
+		t.Fatalf("BeforeClose called %v, the database open then: %v", called, pingErr)
+	}
 }

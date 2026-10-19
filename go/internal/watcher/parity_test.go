@@ -34,13 +34,14 @@ func same(a, b any) bool {
 	return string(x) == string(y)
 }
 
-// withoutRefs is v without the requests' refs: they are random, and newer than the recorded rows.
+// withoutRefs is v without the requests' refs and the names made from them: they are random, and newer than the recorded rows.
 func withoutRefs(v any) any {
 	switch x := v.(type) {
 	case map[string]any:
 		out := map[string]any{}
+		_, named := x["ref"]
 		for k, e := range x {
-			if k != "ref" && k != "request_ref" {
+			if k != "ref" && k != "request_ref" && !(named && k == "name") {
 				out[k] = withoutRefs(e)
 			}
 		}
@@ -115,7 +116,7 @@ func sameRow(t *testing.T, i int, want map[string]any, e *stream.Event) {
 }
 
 // sinceRecorded are the Task fields Go added after the Python rows were recorded.
-var sinceRecorded = map[string]bool{"waits": true, "waiting": true, "tags": true}
+var sinceRecorded = map[string]bool{"waits": true, "waiting": true, "tags": true, "pr": true, "status": true}
 
 func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 	py, events := parity(t, func(d *sql.DB) Detector { return &Tasks{Reads: &reads.Env{DB: d}} },
@@ -167,8 +168,8 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 				t.Errorf("a queued task nothing is out for says so: %v", goTask["mismatch"])
 			}
 		case "5":
-			if goTask["mismatch"] != "draft with work out (#51) - its opener has not queued it" {
-				t.Errorf("a draft with work out names the request: %v", goTask["mismatch"])
+			if goTask["mismatch"] != "draft with work out - its opener has not queued it" {
+				t.Errorf("a draft with work out says so, with no message id: %v", goTask["mismatch"])
 			}
 			if reqs, _ := goTask["requests"].([]any); len(reqs) != 2 {
 				t.Errorf("both linked requests, oldest first: %v", goTask["requests"])
@@ -210,7 +211,7 @@ func TestGoAndPythonWriteTheSameRowsForTheSameAgentChanges(t *testing.T) {
 }
 
 func TestGoAndPythonWriteTheSameRowsForTheSameChatChanges(t *testing.T) {
-	ins := "INSERT INTO requests(id, ts, requester, target, body, state, kind, settles) VALUES(?, ?, ?, ?, ?, ?, 'say', ?)"
+	ins := "INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(?, ?, ?, ?, ?, ?, 'say')"
 	pb := "INSERT INTO prompt_blocks(agent, kind, fingerprint, title, panel, detail, answerable, first_seen, last_seen) VALUES(?, 'question', 'f', 't', '[]', '{}', 1, ?, ?)"
 	py, events := parity(t, func(d *sql.DB) Detector { return &Chat{Reads: &reads.Env{DB: d}} },
 		func(run func(string, ...any)) {
@@ -219,9 +220,9 @@ func TestGoAndPythonWriteTheSameRowsForTheSameChatChanges(t *testing.T) {
 			run(pb, "amy", 1, 1)
 		},
 		func(run func(string, ...any)) {
-			run(ins, 1, 100, "human", "bob", "question", "landed", nil)
-			run(ins, 2, 150, "bob", "human", "the answer", "landed", 1)
-			run(ins, 3, 200, "amy", "bob", "hello", "landed", nil)
+			run(ins, 1, 100, "human", "bob", "question", "landed")
+			run(ins, 2, 150, "bob", "human", "the answer", "landed")
+			run(ins, 3, 200, "amy", "bob", "hello", "landed")
 			run("INSERT INTO events(ts, agent, kind, payload) VALUES(5, 'bob', 'task_begin', '{\"task_id\":1}')")
 			run(pb, "bob", 6, 6)
 			run("UPDATE prompt_blocks SET gone_at = 9 WHERE id = 1")

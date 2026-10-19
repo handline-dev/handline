@@ -84,8 +84,8 @@ func (e *Env) listingRefusal(caller, whose string) string {
 		"`hl read <id>` shows one request by number."
 }
 
-// newestWaiting is the number of the newest thing that waits in whose inbox, 0 for nothing: for the founder a mailbox row (an answer
-// counts by its own number, not the request's), for an agent a request no state has settled.
+// newestWaiting is the number of the newest thing that waits in whose inbox, 0 for nothing: for the founder a mailbox row, for an agent a
+// request no state has settled.
 func (e *Env) newestWaiting(whose string) (int64, error) {
 	if whose != human {
 		r, err := queryOne(e.DB, "SELECT COALESCE(MAX(id), 0) AS newest FROM requests WHERE target = ? AND edge_ok AND state NOT IN "+
@@ -95,7 +95,7 @@ func (e *Env) newestWaiting(whose string) (int64, error) {
 	rows, err := e.mailboxRows()
 	var newest int64
 	for _, m := range rows {
-		newest = max(newest, m.seq)
+		newest = max(newest, m.id)
 	}
 	return newest, err
 }
@@ -117,17 +117,17 @@ func (e *Env) agentQueue(whose string, newest int64, all bool) (any, error) {
 				return nil, err
 			}
 		}
-		out["head"] = map[string]any{"id": first.ID, "requester": first.Requester, "chain_depth": first.ChainDepth, "body": first.Body,
+		out["head"] = map[string]any{"id": first.ID, "name": first.Name(e.DB), "requester": first.Requester, "chain_depth": first.ChainDepth, "body": first.Body,
 			"more_waiting": depth - 1, "more_waiting_line": supervisor.MoreWaiting(first.Kind.String, depth-1), "how_to_close": closes}
 	}
 	if all {
-		rows, err := query(e.DB, "SELECT id, requester, state, chain_depth, body FROM requests WHERE target = ? AND edge_ok ORDER BY id", whose)
+		rows, err := query(e.DB, "SELECT id, ref, requester, state, chain_depth, body FROM requests WHERE target = ? AND edge_ok ORDER BY id", whose)
 		if err != nil {
 			return nil, err
 		}
 		history := []any{}
 		for _, r := range rows {
-			history = append(history, map[string]any{"id": r.i("id"), "requester": r.str("requester"), "state": r.str("state"),
+			history = append(history, map[string]any{"id": r.i("id"), "name": db.MsgNameOf(e.DB, r.str("ref")), "requester": r.str("requester"), "state": r.str("state"),
 				"chain_depth": r.i("chain_depth"), "line": head(oneline(r.str("body")), lineShown)})
 		}
 		out["history"] = history
@@ -136,7 +136,7 @@ func (e *Env) agentQueue(whose string, newest int64, all bool) (any, error) {
 }
 
 // founderQueue is the founder's mailbox as `hl inbox` lists it: actions.messages, a line per agent that stands for everything it sent
-// and the founder has not seen, a decision or a request parked on a reply keeping its own line.
+// and the founder has not seen, a decision keeping its own line.
 func (e *Env) founderQueue(all bool) (any, error) {
 	rows, err := e.mailboxRows()
 	if err != nil {
@@ -150,17 +150,17 @@ func (e *Env) founderQueue(all bool) (any, error) {
 	folded := map[string]int{} // sender -> its folded line
 	var newest int64
 	for _, m := range rows {
-		newest = max(newest, m.seq)
+		newest = max(newest, m.id)
 		cr, err := queryOne(e.DB, "SELECT row_id FROM cursors WHERE name = ?", "for_you_seen:"+m.from)
 		if err != nil {
 			return nil, err
 		}
-		if m.seq <= cr.i("row_id") {
+		if m.id <= cr.i("row_id") {
 			continue
 		}
 		at, has := folded[m.from]
 		switch {
-		case m.gate || m.waiting:
+		case m.gate:
 			lines = append(lines, line{m, 1})
 		case !has:
 			folded[m.from] = len(lines)
@@ -177,8 +177,6 @@ func (e *Env) founderQueue(all bool) (any, error) {
 		switch {
 		case a.gate != b.gate:
 			return a.gate
-		case a.waiting != b.waiting:
-			return a.waiting
 		case a.ts != b.ts:
 			return a.ts < b.ts
 		}
@@ -192,14 +190,14 @@ func (e *Env) founderQueue(all bool) (any, error) {
 			kind = "ask"
 		}
 		listed[l.id] = true
-		shown = append(shown, map[string]any{"id": l.id, "from": l.from, "kind": kind, "decision": l.gate, "answer": l.ans,
+		shown = append(shown, map[string]any{"id": l.id, "name": db.MsgNameOf(e.DB, l.ref), "from": l.from, "kind": kind, "decision": l.gate, "answer": false,
 			"line": head(oneline(firstLine(l.body)), lineShown), "unread": l.unread})
 	}
 	out := map[string]any{"whose": human, "newest": newest, "head": nil, "waiting": len(rows), "lines": shown}
 	if !all {
 		return out, nil
 	}
-	done, err := query(e.DB, "SELECT id, requester, target, state, body, "+dismissedSQL+", "+answerSQL+" FROM requests "+
+	done, err := query(e.DB, "SELECT id, ref, requester, target, state, body, "+reasonSQL+" FROM requests "+
 		"WHERE (target = ? OR requester = ?) AND state != 'queued' ORDER BY id DESC LIMIT ?", human, human, dealtShown)
 	if err != nil {
 		return nil, err
@@ -217,7 +215,7 @@ func (e *Env) founderQueue(all bool) (any, error) {
 		if verdict, has := shownVerdict(r); has && verdict != "" {
 			text = verdict
 		}
-		dealt = append(dealt, map[string]any{"id": r.i("id"), "outgoing": outgoing, "agent": other, "state": r.str("state"),
+		dealt = append(dealt, map[string]any{"id": r.i("id"), "name": db.MsgNameOf(e.DB, r.str("ref")), "outgoing": outgoing, "agent": other, "state": r.str("state"),
 			"line": head(oneline(firstLine(text)), lineShown)})
 	}
 	out["dealt"] = dealt

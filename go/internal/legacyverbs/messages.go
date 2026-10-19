@@ -61,16 +61,6 @@ func (e *Env) push(p map[string]any) (bool, string, error) {
 	return ok, said, nil
 }
 
-// pushAnswer puts an answer in front of the agent that asked.
-func (e *Env) pushAnswer(p map[string]any) (bool, string, error) {
-	requester, err := text(p, "requester")
-	if err != nil {
-		return false, "", err
-	}
-	ok, said := e.Sup.PushAnswerVerb(requester)
-	return ok, said, nil
-}
-
 // notifyCancelled tells an agent a request it was handed was closed under it; only the verdict on the row is ever typed.
 func (e *Env) notifyCancelled(p map[string]any) (bool, string, error) {
 	rid, err := number(p, "rid")

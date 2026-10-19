@@ -56,7 +56,6 @@ type Delivery interface {
 	EnforceEdges(q db.Q, agent string) error
 	NoteFailure(agent, why string) // why "" clears
 	TrackBackgroundWork(q db.Q, agent string, row *db.AgentState)
-	DeliverAnswers(q db.Q, agent string)
 	DeliverQueued(q db.Q, agent string) bool
 	NudgeForgottenResolve(q db.Q, agent string, row *db.AgentState, now int64)
 	// SessionPresent is delivery.session_present.

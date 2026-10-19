@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/transcript"
 )
@@ -23,7 +24,6 @@ const (
 	searchDefault = 20
 	searchMax     = 100
 	perSource     = 500
-	itemReply     = 0
 	itemPrompt    = 1
 	itemTask      = 2
 )
@@ -31,13 +31,11 @@ const (
 // neverReached are the states of a request that no chat draws: withdrawn, replaced, denied.
 const neverReached = "('denied', 'withdrawn', 'replaced')"
 
-const requestSelect = "SELECT id, ref, ts, state_at, requester, target, state, body, " + answerSQL + ", " + dismissedSQL + ", " +
-	"delivered_at, typed_at, landed_at, parent_id, kind, settles, " +
+const requestSelect = "SELECT id, ref, ts, state_at, requester, target, state, body, " +
+	"delivered_at, typed_at, landed_at, parent_id, kind, " +
 	"(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks, " +
 	"(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, " +
 	"(SELECT MIN(task_id) FROM task_requests WHERE request_id = requests.id) AS task_id, " +
-	"(SELECT a.id FROM requests a WHERE a.settles = requests.id ORDER BY a.id LIMIT 1) AS answer_id, " +
-	"EXISTS (SELECT 1 FROM events WHERE dedup_key = 'task_question:' || requests.id) AS task_question, " +
 	"(SELECT json_extract(payload, '$.proposal') FROM events WHERE dedup_key = 'hr_outcome:' || requests.id) AS proposal FROM requests"
 
 // chat is what one call reads with: the database and the task board, loaded when a task delivery needs it.
@@ -101,7 +99,7 @@ func (c *chat) requestRow(id int64) (row, error) {
 // page is a chat's requests, oldest first, and whether older ones remain; since reads from that id on.
 func (c *chat) page(agent string, everyone bool, before, since *int64, limit int) ([]row, bool, error) {
 	where, args := chatScope(agent, everyone)
-	q := requestSelect + " WHERE state NOT IN " + neverReached + " AND settles IS NULL AND " + where
+	q := requestSelect + " WHERE state NOT IN " + neverReached + " AND " + where
 	if since != nil {
 		rs, err := query(c.e.DB, q+" AND id >= ? ORDER BY id", append(args, *since)...)
 		if err != nil {
@@ -132,7 +130,7 @@ func (c *chat) page(agent string, everyone bool, before, since *int64, limit int
 // after is the limit requests just newer than id, oldest first, and whether newer ones remain.
 func (c *chat) after(agent string, everyone bool, id int64, limit int) ([]row, bool, error) {
 	where, args := chatScope(agent, everyone)
-	rs, err := query(c.e.DB, requestSelect+" WHERE state NOT IN "+neverReached+" AND settles IS NULL AND "+where+
+	rs, err := query(c.e.DB, requestSelect+" WHERE state NOT IN "+neverReached+" AND "+where+
 		" AND id > ? ORDER BY id LIMIT ?", append(args, id, limit+1)...)
 	if err != nil {
 		return nil, false, err
@@ -145,48 +143,16 @@ func (c *chat) after(agent string, everyone bool, id int64, limit int) ([]row, b
 	return rs, more, err
 }
 
-func dismissal(r row) (bool, any, any) {
-	if by := r.str("dismisser"); by != "" {
-		return true, by, r.strOrNil("dismiss_reason")
-	}
-	text := r.str("answer")
-	if text == legacyDismiss {
-		return true, nil, nil
-	}
-	if strings.HasPrefix(text, legacyDismiss+": ") {
-		return true, nil, text[len(legacyDismiss)+2:]
-	}
-	return false, nil, nil
-}
-
-func answeredAt(r row) any {
-	for _, k := range []string{"answered_at", "state_at", "ts"} {
-		if n := r.i(k); n != 0 {
-			return r[k]
-		}
-	}
-	return r["ts"]
-}
-
 func landingOf(r row) string {
 	switch r.str("state") {
 	case "denied", "withdrawn", "replaced":
 		return "withdrawn"
-	}
-	if d, _, _ := dismissal(r); d {
-		return "dismissed"
-	}
-	if r["answer"] != nil {
-		return "answered"
 	}
 	state := "queued"
 	if r.i("landed_at") != 0 {
 		state = "delivered"
 	} else if r.i("typed_at") != 0 {
 		state = "typed"
-	}
-	if kind := r.str("kind"); state == "delivered" && kind != "" && kind != "say" {
-		return "delivered_unanswered"
 	}
 	return state
 }
@@ -202,7 +168,7 @@ func orEmpty(v any) any {
 // the session never took. Landing follows it: queued is queued, sent and unknown are typed, confirmed is delivered.
 func (c *chat) receiptOf(r row, landing string) (map[string]any, string, error) {
 	switch landing {
-	case "queued", "typed", "delivered", "delivered_unanswered":
+	case "queued", "typed", "delivered":
 	default:
 		return nil, landing, nil
 	}
@@ -232,13 +198,49 @@ func (c *chat) receiptOf(r row, landing string) (map[string]any, string, error) 
 	return map[string]any{"state": state, "uuid": kept.UUID}, landing, nil
 }
 
+// decisionActions are the one-tap buttons a message to the founder carries for its task, from the task's state alone: a report waiting on
+// the founder is accepted or sent back, an open task of the founder's is answered OK or No (No hands it back to whoever opened it).
+func decisionActions(id int64, t row) []any {
+	act := func(key, label, verb string, params map[string]any, needs string) any {
+		params["task"] = id
+		a := map[string]any{"key": key, "label": label, "verb": verb, "task": id, "params": params}
+		if needs != "" {
+			a["needs"] = needs
+		}
+		return a
+	}
+	if t.str("done_evidence") != "" || t.str("discarded_by") != "" {
+		return nil
+	}
+	switch answersTo := orDefault(t.str("reporter"), t.str("opened_by")); {
+	case t["reported_at"] != nil:
+		if answersTo != human {
+			return nil
+		}
+		return []any{act("accept", "Accept", "task.accept", map[string]any{}, ""), act("send_back", "Send back", "task.reject", map[string]any{}, "note")}
+	case t.str("owner") == human:
+		out := []any{act("ok", "OK", "task.done", map[string]any{"evidence": "OK"}, "")}
+		if opener := t.str("opened_by"); opener != human {
+			out = append(out, act("no", "No", "task.handoff", map[string]any{"to": opener, "note": "No"}, ""))
+		}
+		return out
+	}
+	return nil
+}
+
+func orDefault(s, d string) string {
+	if s != "" {
+		return s
+	}
+	return d
+}
+
 func (c *chat) messageOf(r row) (map[string]any, error) {
 	state := landingOf(r)
 	receipt, state, err := c.receiptOf(r, state)
 	if err != nil {
 		return nil, err
 	}
-	verdict, hasVerdict := shownVerdict(r)
 	tasks := []any{}
 	var ids []int64
 	for _, s := range strings.Split(r.str("tasks"), ",") {
@@ -247,12 +249,16 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 		}
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	var actions []any
 	for _, id := range ids {
-		t, err := queryOne(c.e.DB, "SELECT title FROM tasks WHERE id = ?", id)
+		t, err := queryOne(c.e.DB, "SELECT title, owner, opened_by, reporter, reported_at, done_evidence, discarded_by FROM tasks WHERE id = ?", id)
 		if err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, map[string]any{"id": id, "title": t.str("title")})
+		if r.str("target") == human {
+			actions = append(actions, decisionActions(id, t)...)
+		}
 	}
 	var why any
 	if (state == "queued" || state == "typed") && r.str("target") != human {
@@ -268,15 +274,13 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 	if r.i("state_at") == 0 {
 		stateAt = r["ts"]
 	}
-	var answer any
-	if r["answer_id"] != nil && hasVerdict && verdict != "" {
-		answer = map[string]any{"id": r.i("answer_id"), "text": verdict, "at": ts(answeredAt(r))}
-	}
-	dismissed, _, _ := dismissal(r)
 	m := map[string]any{"id": r.i("id"), "ref": r.str("ref"), "at": ts(r["ts"]), "state_at": ts(stateAt), "from": r.str("requester"), "to": r.str("target"),
-		"state": r.str("state"), "landing": state, "sending_reason": why, "body": orEmpty(r["body"]), "answer": answer,
-		"dismissed": dismissed, "delivered_at": ts(r["delivered_at"]), "typed_at": ts(r["typed_at"]), "landed_at": ts(r["landed_at"]),
-		"parent": r.intOrNil("parent_id"), "kind": orEmpty(r["kind"]), "tasks": tasks, "is_task_question": r.i("task_question") != 0}
+		"state": r.str("state"), "landing": state, "sending_reason": why, "body": orEmpty(r["body"]),
+		"delivered_at": ts(r["delivered_at"]), "typed_at": ts(r["typed_at"]), "landed_at": ts(r["landed_at"]),
+		"parent": r.intOrNil("parent_id"), "kind": orEmpty(r["kind"]), "tasks": tasks}
+	if len(actions) > 0 {
+		m["actions"] = actions
+	}
 	if receipt != nil {
 		m["receipt"] = receipt
 	}
@@ -425,7 +429,20 @@ func (e *Env) chatMessages(c *rpc.Conn, params map[string]any) (any, error) {
 // What a task event moves a task to; doing is not stored, so the two events that put a task in its owner's hands stand for it.
 var stateAfter = map[string]string{"draft_task": "draft", "queue_task": "queued", "task_begin": "doing", "task_start": "doing",
 	"mark_task_done": "done", "close_task": "closed", "discard_task": "discarded", "reopen_task": "queued",
-	"task_report": "reported", "accept_task": "done", "reject_task": "queued"}
+	"task_report": "review", "accept_task": "done", "reject_task": "queued"}
+
+// stateAfterEvent is stateAfter for one event: a reopened discarded task is a draft until it is queued again, a task accepted with a PR
+// stays in review until the merge.
+func stateAfterEvent(kind string, p map[string]any) (string, bool) {
+	switch {
+	case kind == "reopen_task" && p["was"] == "discarded":
+		return "draft", true
+	case kind == "accept_task" && p["pr"] != nil:
+		return "review", true
+	}
+	s, ok := stateAfter[kind]
+	return s, ok
+}
 
 var chatEventKinds = []string{"draft_task", "queue_task", "task_begin", "task_start", "mark_task_done", "close_task", "discard_task",
 	"reopen_task", "task_handoff", "edit_task"}
@@ -520,12 +537,11 @@ func (c *chat) taskEvents(rs []row) ([]map[string]any, error) {
 	}
 	var steps []step
 	for _, e := range evs {
-		kind := e.str("kind")
-		if after, ok := stateAfter[kind]; ok {
+		kind, p := e.str("kind"), decodeObject(e.str("payload"))
+		if after, ok := stateAfterEvent(kind, p); ok {
 			steps = append(steps, step{at: e.i("ts"), task: e.i("tid"), who: e.str("agent"), after: after})
 			continue
 		}
-		p := decodeObject(e.str("payload"))
 		if kind == "task_handoff" {
 			steps = append(steps, step{at: e.i("ts"), task: e.i("tid"), who: e.str("agent"), change: "handed to " + jsonStr(p["to"]),
 				note: jsonStr(orEmpty(p["note"])), request: p["request_id"], ref: e["request_ref"]})
@@ -620,7 +636,7 @@ func sessionItemOf(s row) (map[string]any, bool) {
 func (c *chat) version(agent string, everyone bool) (string, error) {
 	where, args := chatScope(agent, everyone)
 	r, err := queryOne(c.e.DB, "SELECT COUNT(*) AS a, COALESCE(MAX(id), 0) AS b, "+
-		"COALESCE(MAX(MAX(COALESCE(requests.state_at, 0), COALESCE((SELECT MAX(a.ts) FROM requests a WHERE a.settles = requests.id), 0))), 0) AS c, "+
+		"COALESCE(MAX(state_at), 0) AS c, "+
 		"COALESCE(MAX(delivered_at), 0) AS d, COUNT(delivered_at) AS e, COALESCE(MAX(landed_at), 0) AS f, COUNT(landed_at) AS g, "+
 		"COALESCE(MAX(typed_at), 0) AS h, COALESCE(SUM(state = 'queued'), 0) AS i FROM requests WHERE state NOT IN "+neverReached+" AND "+where, args...)
 	if err != nil {
@@ -668,12 +684,7 @@ func (e *Env) chatRequests(c *rpc.Conn, params map[string]any) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		dismissed, by, reason := dismissal(r)
-		var dis any
-		if dismissed {
-			dis = map[string]any{"by": by, "reason": reason}
-		}
-		items = append(items, item{map[string]any{"type": "request", "at": ts(when(r)), "message": msg, "dismissal": dis,
+		items = append(items, item{map[string]any{"type": "request", "at": ts(when(r)), "message": msg,
 			"task_state": r["task_state"]}, when(r), r.i("id")})
 	}
 	evs, err := ch.taskEvents(rs)
@@ -735,19 +746,13 @@ type located struct {
 	tab     string
 }
 
-// locateMessage is the chat mid (a request's number, or the number of the answer that settles one) is drawn in.
+// locateMessage is the chat the request numbered mid is drawn in.
 func (e *Env) locateMessage(mid int64, agent string, everyone bool) (located, error) {
-	r, err := queryOne(e.DB, "SELECT id, requester, target, state, settles FROM requests WHERE id = ?", mid)
+	r, err := queryOne(e.DB, "SELECT id, requester, target, state FROM requests WHERE id = ?", mid)
 	if err != nil || r == nil {
 		return located{kind: "alone"}, err
 	}
 	req := r.i("id")
-	if r.set("settles") {
-		req = r.i("settles")
-		if r, err = queryOne(e.DB, "SELECT id, requester, target, state FROM requests WHERE id = ?", req); err != nil || r == nil {
-			return located{kind: "alone"}, err
-		}
-	}
 	switch r.str("state") {
 	case "denied", "withdrawn", "replaced":
 		return located{kind: "alone", request: req}, nil
@@ -778,9 +783,9 @@ func (e *Env) locateMessage(mid int64, agent string, everyone bool) (located, er
 }
 
 func (e *Env) chatLocate(c *rpc.Conn, params map[string]any) (any, error) {
-	mid, ok := rpc.AsInt(params["request"])
-	if _, isBool := params["request"].(bool); !ok || isBool {
-		return nil, badParam("request is a message number", "request")
+	mid, err := requestref.Resolve(e.DB, e.Home, params["request"], requestref.Viewer(c), "request")
+	if err != nil {
+		return nil, err
 	}
 	limit, err := limitOr(params, maxLimit, defaultLimit)
 	if err != nil {
@@ -803,13 +808,6 @@ func (e *Env) chatLocate(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, err
 	}
 	if agent == "" {
-		if r.set("settles") {
-			if s, err := queryOne(e.DB, "SELECT * FROM requests WHERE id = ?", r.i("settles")); err != nil {
-				return nil, err
-			} else if s != nil {
-				r = s
-			}
-		}
 		agent = ownerOfChat(r)
 	}
 	nothing := fmt.Sprintf("no chat shows message %d", mid)
@@ -878,9 +876,9 @@ func (e *Env) chatSearch(c *rpc.Conn, params map[string]any) (any, error) {
 	if agent != "" {
 		where, scopeArgs = chatScope(agent, everyone)
 	}
-	hits, err := query(e.DB, "SELECT id FROM requests WHERE state NOT IN "+neverReached+" AND settles IS NULL AND "+where+
-		` AND (body LIKE ? ESCAPE '\' OR EXISTS (SELECT 1 FROM requests a WHERE a.settles = requests.id AND a.body LIKE ? ESCAPE '\')) `+
-		"ORDER BY id DESC LIMIT ?", append(scopeArgs, like, like, limit)...)
+	hits, err := query(e.DB, "SELECT id FROM requests WHERE state NOT IN "+neverReached+" AND "+where+
+		` AND body LIKE ? ESCAPE '\' `+
+		"ORDER BY id DESC LIMIT ?", append(scopeArgs, like, limit)...)
 	if err != nil {
 		return nil, err
 	}
@@ -928,15 +926,8 @@ var transcriptEvents = map[string]string{"task_new": "opened", "task_begin": "ch
 	"task_handoff": "changed", "queue_task": "changed", "draft_task": "changed", "reopen_task": "changed", "release_task": "changed",
 	"merge_task": "changed", "mark_task_done": "done", "discard_task": "withdrawn", "close_task": "withdrawn"}
 
-func repliesOf(r row, agent string) []map[string]any {
-	var out []map[string]any
-	shown, hasShown := shownVerdict(r)
-	if d, _, _ := dismissal(r); r.str("requester") == human && r.str("target") == agent && hasShown && shown != "" && r["answer_id"] != nil && !d {
-		at := answeredAt(r)
-		out = append(out, map[string]any{"id": itemID(num(at), itemReply, r.i("id")*2+1), "at": ts(at), "kind": "reply", "text": shown})
-	}
-	return out
-}
+// batchKind is a batch discard's one event: the task_batch card, apart from transcriptEvents since it names no one task.
+const batchKind = "discard_batch"
 
 // promptItemOf is a prompt block as a transcript item.
 func promptItemOf(agent string, b row) map[string]any {
@@ -944,10 +935,23 @@ func promptItemOf(agent string, b row) map[string]any {
 		"prompt": promptOf(agent, b), "open": !b.set("gone_at")}
 }
 
-// taskItemOf is one task event of the events table as a transcript item and the task it names; false when the chat does not show it.
+// taskItemOf is one task event of the events table as a transcript item and the task it names; false when the chat does not show it. A
+// batch discard is one task_batch item naming no one task, shown in its author's chat.
 func taskItemOf(ev row) (item map[string]any, task int64, ok bool) {
 	event, known := transcriptEvents[ev.str("kind")]
 	p := decodeObject(ev.str("payload"))
+	id := itemID(ev.i("ts"), itemTask, ev.i("id"))
+	if ev.str("kind") == batchKind {
+		var tasks []any
+		list, _ := p["tasks"].([]any)
+		for _, x := range list {
+			t, _ := x.(map[string]any)
+			tid, _ := rpc.AsInt(t["task_id"])
+			tasks = append(tasks, map[string]any{"task": tid, "title": text(t["title"]), "reason": text(t["reason"])})
+		}
+		return map[string]any{"id": id, "at": ts(ev["ts"]), "kind": "task_batch",
+			"task_batch": map[string]any{"batch": text(p["batch"]), "who": ev.str("agent"), "tasks": tasks}}, 0, true
+	}
 	tid, isInt := rpc.AsInt(p["task_id"])
 	if !known || !isInt {
 		return nil, 0, false
@@ -962,7 +966,12 @@ func taskItemOf(ev row) (item map[string]any, task int64, ok bool) {
 	if change := changeOf(ev.str("kind"), p); change != "" {
 		body["change"] = change
 	}
-	return map[string]any{"id": itemID(ev.i("ts"), itemTask, ev.i("id")), "at": ts(ev["ts"]), "kind": "task_event", "task_event": body}, tid, true
+	return map[string]any{"id": id, "at": ts(ev["ts"]), "kind": "task_event", "task_event": body}, tid, true
+}
+
+// inBatchCard is whether a task event is already on the batch card agent's chat shows: a discard of a batch agent made.
+func inBatchCard(ev row, agent string) bool {
+	return ev.str("kind") == "discard_task" && ev.str("agent") == agent && text(decodeObject(ev.str("payload"))["batch"]) != ""
 }
 
 // changeOf is what a "changed" event changed, in the words chat.requests gives it: an edit's fields, "handed to X". "" for an event that says
@@ -997,15 +1006,7 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ch := &chat{e: e, agent: isAgent(c)}
-	rs, _, err := ch.page(agent, false, nil, nil, perSource)
-	if err != nil {
-		return nil, err
-	}
 	var items []map[string]any
-	for _, r := range rs {
-		items = append(items, repliesOf(r, agent)...)
-	}
 	// A structured session's text blocks are its replies: each is a transcript event, and the event holds this item's id.
 	texts, err := transcript.Replies(e.DB, agent, perSource)
 	if err != nil {
@@ -1050,17 +1051,16 @@ func (e *Env) chatTranscript(c *rpc.Conn, params map[string]any) (any, error) {
 			items = append(items, item)
 		}
 	}
-	kinds := make([]string, 0, len(transcriptEvents))
-	for k := range transcriptEvents {
-		kinds = append(kinds, k)
-	}
-	sort.Strings(kinds)
-	evs, err := query(e.DB, "SELECT id, ts, agent, kind, payload FROM events WHERE kind IN ("+placeholders(len(kinds))+") AND "+eventTask+
-		" IN (SELECT id FROM tasks WHERE owner = ?) ORDER BY id DESC LIMIT ?", append(anySlice(kinds), agent, perSource)...)
+	kinds := ChatTaskKinds()
+	evs, err := query(e.DB, "SELECT id, ts, agent, kind, payload FROM events WHERE kind IN ("+placeholders(len(kinds))+") AND ("+eventTask+
+		" IN (SELECT id FROM tasks WHERE owner = ?) OR (kind = '"+batchKind+"' AND agent = ?)) ORDER BY id DESC LIMIT ?", append(anySlice(kinds), agent, agent, perSource)...)
 	if err != nil {
 		return nil, err
 	}
 	for _, ev := range evs {
+		if inBatchCard(ev, agent) {
+			continue
+		}
 		if item, _, ok := taskItemOf(ev); ok {
 			items = append(items, item)
 		}

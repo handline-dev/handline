@@ -16,8 +16,7 @@ const (
 	humanName    = "human"
 	floorEveryS  = 600
 	readTouchSQL = "SELECT id, read_at AS touched FROM requests WHERE id >= :floor AND read_at >= :last"
-	newestTouch  = "SELECT COALESCE(MAX(m), 0) FROM (SELECT MAX(COALESCE(state_at, ts)) AS m FROM requests " +
-		"UNION ALL SELECT MAX(ts) FROM requests WHERE settles IS NOT NULL)"
+	newestTouch  = "SELECT COALESCE(MAX(COALESCE(state_at, ts)), 0) FROM requests"
 )
 
 // Inbox is the inbox topic: an item that arrived (inbox.added) or changed, was read or answered (inbox.changed), in the founder's inbox and
@@ -98,8 +97,8 @@ type requestRow struct {
 	ts                int64
 }
 
-// requestPrint is a request's row and its newest answer, which is all of it an inbox item is made from.
-const requestPrint = "SELECT r.*, (SELECT MAX(a.id) FROM requests a WHERE a.settles = r.id) FROM requests r WHERE r.id = ?"
+// requestPrint is a request's row, which is all of it an inbox item is made from.
+const requestPrint = "SELECT * FROM requests WHERE id = ?"
 
 func requestOf(q *sql.DB, id int64) (*requestRow, error) {
 	var r requestRow
@@ -267,7 +266,7 @@ func (n *Inbox) say(emit Emit, item map[string]any, agent string, changed bool) 
 }
 
 // rebuildFounder says what differs between the founder's inbox as last said and as it is now: an item new or changed, and an item that left
-// it (answered, seen, dismissed or withdrawn), told as changed and read.
+// it (dealt with, seen or withdrawn), told as changed and read.
 func (n *Inbox) rebuildFounder(q *sql.DB, emit Emit) error {
 	fresh, err := n.founderItems()
 	if err != nil {
@@ -305,15 +304,11 @@ func (n *Inbox) rebuildFounder(q *sql.DB, emit Emit) error {
 	}
 	slices.Sort(gone)
 	for _, id := range gone {
-		answered, err := n.Reads.Answered(id)
-		if err != nil {
-			return err
-		}
 		item := map[string]any{}
 		for k, v := range oldItems[id] {
 			item[k] = v
 		}
-		item["read"], item["answered"] = true, answered
+		item["read"] = true
 		agent, _ := item["agent"].(string)
 		if err := n.say(emit, item, agent, true); err != nil {
 			return err

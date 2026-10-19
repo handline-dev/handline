@@ -21,8 +21,8 @@ agents:
   bob: {}
 edges:
   - { from: "*", to: "human", kind: task }
-  - { from: "*", to: "*", relation: peer, response: async }
-  - { from: "human", to: "*", relation: supervisor, response: fire_and_forget }
+  - { from: "*", to: "*" }
+  - { from: "human", to: "*" }
 limits:
   max_chain_depth: 4
   ask_rate_per_hour: 50
@@ -134,14 +134,16 @@ func TestSayWritesTheRowAndAnswersLikeThePythonVerb(t *testing.T) {
 func TestPushesAreCheckedBeforeAnythingIsHandedOn(t *testing.T) {
 	r := newRig(t)
 	for line, said := range map[string]string{
-		`{"verb":"push","target":"human"}`:           "human is not an agent",
-		`{"verb":"push","target":"nobody"}`:          "nobody is not an agent",
-		`{"verb":"push_answer","requester":"human"}`: "human is not an agent",
-		`{"verb":"notify_cancelled","rid":99}`:       "no request #99",
+		`{"verb":"push","target":"human"}`:     "human is not an agent",
+		`{"verb":"push","target":"nobody"}`:    "nobody is not an agent",
+		`{"verb":"notify_cancelled","rid":99}`: "no such message",
 	} {
 		if got := r.ask(line); got["ok"] != false || got["said"] != said {
 			t.Errorf("%s: %v", line, got)
 		}
+	}
+	if got := r.ask(`{"verb":"push_answer","requester":"bob"}`); len(got) != 0 {
+		t.Fatalf("push_answer went with the answers it pushed: it is left to the server: %v", got)
 	}
 }
 

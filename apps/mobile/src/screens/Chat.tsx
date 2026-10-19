@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { clockTime, decidedProposals, sideOf, takeBack as canTakeBack, chatEntries, tickLevel } from '@handline/app-core';
-import { classify, sentence, useAgents, useChat, useChatActions, useHr, useInbox, useWrite } from '@handline/app-data';
+import { classify, sentence, useChat, useChatActions, useHr, useInbox, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
@@ -20,7 +20,7 @@ import { HandoffLine } from './HandoffLine.tsx';
 import { NeedsYouCard } from './NeedsYouCard.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { useChatImages } from './ChatImages.tsx';
-import { Button, Row } from './parts.tsx';
+import { Button, Link, Row } from './parts.tsx';
 
 /** How far the person's message got, as ticks: not sent yet, sent, read. */
 const TICKS = ['…', '✓', '✓✓'] as const;
@@ -64,7 +64,6 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
     drafts.set(agent, v);
     setTextState(v);
   };
-  const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
   const hr = useHr({});
   const entries = chatEntries(chat.messages, chat.items, agent, decidedProposals(hr.data?.proposals, agent));
   const takeable = Math.max(0, ...chat.messages.filter((m) => m.id > 0 && m.state !== 'failed' && canTakeBack(m)).map((m) => m.id)); // only the newest can be taken back
@@ -120,13 +119,14 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
 
   // Words or pictures to send, and none still on its way up.
   const empty = (!text.trim() && !img.ids.length) || img.busy;
-  const send = (delivery?: 'now' | 'queue') => {
+  const send = async (delivery?: 'now' | 'queue') => {
     if (empty) return;
-    const attachments = img.ids;
+    const out = img.finish(text);
+    const { text: words, attachments } = out instanceof Promise ? await out : out; // a marked picture is drawn and uploaded first
     // A picked message is only a reference: the message goes to this chat's agent, whoever said the picked one.
-    if (picked) act.send(text, { parent: picked.id, delivery, attachments });
-    else if (item) act.send(text, { parent_item: item.id, delivery, attachments });
-    else act.send(text, { delivery, attachments });
+    if (picked) act.send(words, { parent: picked.id, delivery, attachments });
+    else if (item) act.send(words, { parent_item: item.id, delivery, attachments });
+    else act.send(words, { delivery, attachments });
     img.clear();
     setPicked(null);
     setItem(null);
@@ -222,7 +222,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
           </Text>
         )}
       </ScrollView>
-      <HandoffLine handoff={props.detail.handoff ?? null} />
+      <HandoffLine handoff={props.detail.handoff ?? null} items={chat.items} />
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
       {picked && (
         <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
@@ -268,24 +268,14 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
         />
         {working && props.detail.structured ? (
           <View style={{ gap: space.xs }}>
-            <Button testID="chat-send-now" label="Send now" disabled={!canSend || empty} onPress={() => send('now')} />
-            <Button testID="chat-send" label="Queue" disabled={!canSend || empty} onPress={() => send('queue')} />
+            <Button testID="chat-send-now" label="Send now" disabled={!canSend || empty} onPress={() => void send('now')} />
+            <Button testID="chat-send" label="Queue" disabled={!canSend || empty} onPress={() => void send('queue')} />
           </View>
         ) : (
-          <Button testID="chat-send" label="Send" disabled={!canSend || empty} onPress={() => send()} />
+          <Button testID="chat-send" label="Send" disabled={!canSend || empty} onPress={() => void send()} />
         )}
       </Row>
     </View>
-  );
-}
-
-/** A small text link inside a bubble. */
-function Link(props: { label: string; onPress: () => void; testID: string }) {
-  const c = usePalette();
-  return (
-    <Pressable testID={props.testID} accessibilityRole="button" hitSlop={10} onPress={props.onPress}>
-      <Text style={{ color: c.accent, fontSize: 12 }}>{props.label}</Text>
-    </Pressable>
   );
 }
 

@@ -20,14 +20,16 @@ type task struct {
 	SentAt, ReportedAt                  sql.NullInt64
 	TimeoutS                            sql.NullInt64
 	Parent                              sql.NullInt64
+	PR                                  sql.NullInt64
+	AcceptedBy                          sql.NullString
 }
 
 func getTask(tx *sql.Tx, tid int64) (*task, error) {
 	t := &task{ID: tid}
 	err := tx.QueryRow("SELECT owner, opened_by, title, done_evidence, discarded_by, queued_by, sent_at, timeout_s, parent_task, reporter, "+
-		"reported_at, report, report_via FROM tasks WHERE id = ?", tid).
+		"reported_at, report, report_via, pr, accepted_by FROM tasks WHERE id = ?", tid).
 		Scan(&t.Owner, &t.OpenedBy, &t.Title, &t.DoneEvidence, &t.DiscardedBy, &t.QueuedBy, &t.SentAt, &t.TimeoutS, &t.Parent, &t.Reporter,
-			&t.ReportedAt, &t.Report, &t.ReportVia)
+			&t.ReportedAt, &t.Report, &t.ReportVia, &t.PR, &t.AcceptedBy)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -36,7 +38,7 @@ func getTask(tx *sql.Tx, tid int64) (*task, error) {
 
 func (t *task) done() bool { return t.DoneEvidence.Valid && t.DoneEvidence.String != "" }
 
-// reported is whether its assignee's done waits on the reporter's accept or reject.
+// reported is whether its assignee's done is in review: it waits on an accept or a reject, or, accepted, on its PR's merge.
 func (t *task) reported() bool {
 	return t.ReportedAt.Valid && !t.done() && !(t.DiscardedBy.Valid && t.DiscardedBy.String != "")
 }
@@ -119,7 +121,7 @@ func isDoing(tx *sql.Tx, t *task) (bool, error) {
 	return holdsCurrent(tx, t)
 }
 
-// state is task_state: discarded, done, reported, doing (asked and held by its owner), else queued (approved, or asked but held back) or
+// state is task_state: discarded, done, review, doing (asked and held by its owner), else queued (approved, or asked but held back) or
 // draft.
 func state(tx *sql.Tx, t *task) (string, error) {
 	switch {
@@ -128,7 +130,7 @@ func state(tx *sql.Tx, t *task) (string, error) {
 	case t.done():
 		return "done", nil
 	case t.reported():
-		return "reported", nil
+		return "review", nil
 	}
 	asked, err := readsDoing(tx, t)
 	if err != nil {
