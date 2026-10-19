@@ -1,7 +1,7 @@
 // The one-tap buttons the daemon puts on a message that waits on a decision about its task (ChatMessage.actions). A tap calls the verb the
 // action names with its params; an action that `needs` a note asks for it first. The daemon takes the buttons away once the task changes.
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Text, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { ChatAction } from '@handline/client';
 import { classify, sentence } from '@handline/app-data';
@@ -51,17 +51,25 @@ export function ChatActions({ id, actions }: { id: number; actions: ChatAction[]
         </Text>
       ) : null}
       {asking ? (
-        <Sheet
-          label={asking.label}
-          submit={asking.label}
-          kind="no"
-          busy={busy}
-          onCancel={() => setAsking(null)}
-          onSubmit={() => note.trim() && send(asking, { [asking.needs!]: note.trim() })}
-          error={failure || undefined}
-        >
-          <Input testID={`action-note-${id}`} label="Note" value={note} onChange={setNote} />
-        </Sheet>
+        // Out of the narrow bubble and above the keyboard, so the submit and cancel buttons stay in reach.
+        <Modal transparent visible animationType="fade" onRequestClose={() => setAsking(null)}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={{ flex: 1, justifyContent: 'flex-end', padding: space.md, backgroundColor: 'rgba(0,0,0,0.35)' }}
+          >
+            <Sheet
+              label={asking.label}
+              submit={asking.label}
+              kind="no"
+              busy={busy}
+              onCancel={() => setAsking(null)}
+              onSubmit={() => note.trim() && send(asking, { [asking.needs!]: note.trim() })}
+              error={failure || undefined}
+            >
+              <Input testID={`action-note-${id}`} label="Note" value={note} onChange={setNote} />
+            </Sheet>
+          </KeyboardAvoidingView>
+        </Modal>
       ) : null}
     </View>
   );
