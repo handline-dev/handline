@@ -18,7 +18,8 @@ describe('# in the compose box', () => {
     await until(() => $(`ref-${first.request}`), 'the list');
     await press($(`ref-${first.request}`));
     await until(() => $('replying'), 'the reference');
-    expect($('replying')!.textContent).toContain(`#${first.request}`);
+    expect($('replying')!.textContent).toContain(first.line);
+    expect($('replying')!.textContent).not.toContain('#');
     expect(($('chat-input') as unknown as HTMLTextAreaElement).value).toBe('About ');
     await fill('chat-input', 'About that');
     await press($('chat-send'));
