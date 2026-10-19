@@ -92,7 +92,7 @@ export function Markdown({ text, testID, breaks, plain }: { text: string; testID
         ) : b.kind === 'item' ? (
           <View key={i} style={{ flexDirection: 'row', gap: space.xs }}>
             <Text style={{ color: c.ink }}>{b.mark}</Text>
-            <Text style={{ color: c.ink, flex: 1 }}>
+            <Text style={{ color: c.ink, flexShrink: 1 }}>
               <Inline text={b.text} plain={plain} />
             </Text>
           </View>
