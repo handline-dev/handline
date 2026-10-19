@@ -11,7 +11,7 @@ import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
-import { Button, ListRow, PageHeader, Pill } from './parts.tsx';
+import { Button, ListRow, MenuItem, MenuSheet, PageHeader, Pill } from './parts.tsx';
 import { MemoBox, MemoRow } from './Memos.tsx';
 import { NewTask, TaskVerbs, useTaskPending } from './TaskActions.tsx';
 import { TaskGraph } from './TaskGraph.tsx';
@@ -67,8 +67,8 @@ function List(props: { onSelect: (id: number) => void }) {
         }
       />
       {menu && (
-        <View style={{ paddingHorizontal: space.lg, paddingBottom: space.sm }}>
-          <Button
+        <MenuSheet onClose={() => setMenu(false)}>
+          <MenuItem
             testID="graph-toggle"
             label={graph ? 'List' : 'Graph'}
             onPress={() => {
@@ -76,7 +76,7 @@ function List(props: { onSelect: (id: number) => void }) {
               setMenu(false);
             }}
           />
-        </View>
+        </MenuSheet>
       )}
       {graph ? (
         <Loadable query={query} served={served} isEmpty={false} skeleton="tasks" label="tasks" empty="No open tasks.">

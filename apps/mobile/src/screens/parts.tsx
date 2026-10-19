@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Keyboard, Platform, Pressable, Text, View, type ViewStyle } from 'react-native';
+import { Keyboard, Modal, Platform, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 
@@ -188,6 +188,41 @@ export function Link(props: { label: string; onPress: () => void; testID: string
   return (
     <Pressable testID={props.testID} accessibilityRole="button" disabled={props.disabled} hitSlop={10} onPress={props.onPress} style={{ opacity: props.disabled ? 0.4 : 1 }}>
       <Text style={{ color: c.accent, fontSize: 12 }}>{props.label}</Text>
+    </Pressable>
+  );
+}
+
+/** A phone menu: rows in a sheet at the bottom of the screen, over a dimmed page that a tap on closes. */
+export function MenuSheet(props: { onClose: () => void; children: React.ReactNode; testID?: string }) {
+  const c = usePalette();
+  return (
+    <Modal transparent visible animationType="fade" onRequestClose={props.onClose}>
+      <Pressable accessibilityLabel="Close the menu" onPress={props.onClose} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' }}>
+        <View
+          testID={props.testID}
+          onStartShouldSetResponder={() => true}
+          style={{ backgroundColor: c.bg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingBottom: space.xl, maxHeight: '80%' }}
+        >
+          <ScrollView>{props.children}</ScrollView>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/** One row of a MenuSheet; a reason it cannot be used sits under the label. */
+export function MenuItem(props: { label: string; onPress: () => void; testID?: string; danger?: boolean; disabled?: boolean; note?: string | null }) {
+  const c = usePalette();
+  return (
+    <Pressable
+      testID={props.testID}
+      accessibilityRole="button"
+      disabled={props.disabled}
+      onPress={props.onPress}
+      style={{ minHeight: 52, justifyContent: 'center', paddingHorizontal: space.lg, borderBottomWidth: 1, borderBottomColor: c.line, opacity: props.disabled ? 0.4 : 1 }}
+    >
+      <Text style={{ color: props.danger ? c.block : c.ink, fontSize: 16 }}>{props.label}</Text>
+      {props.note ? <Text style={{ color: c.muted, fontSize: 12 }}>{props.note}</Text> : null}
     </Pressable>
   );
 }

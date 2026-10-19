@@ -15,7 +15,6 @@ import { AgentStrip } from './AgentStrip.tsx';
 import { AgentTasks } from './AgentTasks.tsx';
 import { Icon } from './Icon.tsx';
 import { Activity } from './Activity.tsx';
-import { AgentTimeline } from './AgentTimeline.tsx';
 import { AgentVerbs } from './AgentVerbs.tsx';
 import { Chat } from './Chat.tsx';
 import { Loadable } from './Loadable.tsx';
@@ -76,15 +75,13 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const { detail, agent: row, tab: current } = props;
   const name = detail.name;
   const ctl = controlsOf(detail, me);
-  const [extra, setExtra] = useHistoryValue<'tasks' | 'timeline' | 'activity' | null>(`agent.extra:${name}`, null); // the Tasks and Timeline tabs sit beside the store's two tabs
+  const [extra, setExtra] = useHistoryValue<'tasks' | 'activity' | null>(`agent.extra:${name}`, null); // the Activity and Tasks tabs sit beside the store's two tabs
   const hasTasks = useServes('tasks.list').served;
-  const hasTimeline = useServes('agent.timeline').served;
   const showTasks = extra === 'tasks' && hasTasks;
-  const showTimeline = extra === 'timeline' && hasTimeline;
   const hasChat = useServes('chat.messages').served;
   const showActivity = extra === 'activity' && hasChat;
   const [searching, setSearching] = useHistoryValue(`chat.search:${name}`, false);
-  const onChat = !showTasks && !showTimeline && !showActivity && current === 'chat';
+  const onChat = !showTasks && !showActivity && current === 'chat';
   const stalled = badgesOf(detail, me).find((b) => b.kind === 'stalled');
   const verbMark = useVerbMark(name, ['close']);
   const mark = useAgentMark(name) ?? verbMark;
@@ -127,7 +124,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
     </Pressable>
   );
   const pageTab = (t: 'chat' | 'terminal', label: string) =>
-    tab(t, label, !showTasks && !showTimeline && !showActivity && current === t, () => {
+    tab(t, label, !showTasks && !showActivity && current === t, () => {
       setExtra(null);
       store.setTab(t);
     });
@@ -170,13 +167,10 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
             </>
           }
         />
-        {stalled && hasTimeline && !showTimeline && (
-          <Button
-            testID="badge-stalled"
-            label={stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`}
-            kind="no"
-            onPress={() => setExtra('timeline')}
-          />
+        {stalled && (
+          <Text testID="badge-stalled" style={{ color: c.block }}>
+            {stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`}
+          </Text>
         )}
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.sm }}>
@@ -184,12 +178,9 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
         {hasChat && tab('activity', 'Activity', showActivity, () => setExtra('activity'))}
         {hasTasks && tab('tasks', 'Tasks', showTasks, () => setExtra('tasks'))}
-        {hasTimeline && tab('timeline', 'Timeline', showTimeline, () => setExtra('timeline'))}
       </ScrollView>
       {showActivity ? (
         <Activity agent={name} />
-      ) : showTimeline ? (
-        <AgentTimeline agent={name} />
       ) : showTasks ? (
         <AgentTasks agent={name} />
       ) : (
