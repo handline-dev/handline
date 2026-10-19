@@ -120,7 +120,7 @@ func TestAReportedTasksClockRunsOnAndRemindsWhoeverItAnswersTo(t *testing.T) {
 		t.Fatalf("a reported task's clock does not pause: %+v %v", task, p.batched)
 	}
 	b.SweepTaskTimeouts(tk, 1200)
-	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "mgr: T") || !strings.Contains(p.batched[0], "reported done by a") ||
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "mgr: T") || !strings.Contains(p.batched[0], "was answered by a") ||
 		!strings.Contains(p.batched[0], "hl task accept T") || !strings.Contains(p.batched[0], "hl task reject T") {
 		t.Fatalf("%v", p.batched)
 	}
@@ -148,7 +148,7 @@ func TestATaskReportedBeforeItsClockStartedIsStillReminded(t *testing.T) {
 		t.Fatalf("the clock starts where it is first seen reported: %+v %v", task, p.batched)
 	}
 	b.SweepTaskTimeouts(tk, 1200)
-	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "mgr: T") || !strings.Contains(p.batched[0], "reported done by a") {
+	if len(p.batched) != 1 || !strings.HasPrefix(p.batched[0], "mgr: T") || !strings.Contains(p.batched[0], "was answered by a") {
 		t.Fatalf("%v", p.batched)
 	}
 }

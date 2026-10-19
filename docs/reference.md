@@ -46,6 +46,7 @@ One line each. `ocp <command> --help` has the options, and `hl guide <topic>` pr
 | `hl task reopen T<n> "<why>"` | The asker says a result is wrong. |
 | `hl task discard T<n> "<why>"` | Throw away a task that is not done. |
 | `hl task memo T<n> add "..."` | Correct a task you gave. |
+| `hl say <target> "..." --attach shot.png` | Send an image the app shows in chat (also `--attach` on `task memo add`); never paste a path. |
 | `hl progress "<note>"` | Record what is done and what is left on your task. |
 | `hl say <agent> "..."` | A message that needs no answer. |
 | `hl inbox` / `hl inbox --all` | What is waiting for you, or the whole queue. |
