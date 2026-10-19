@@ -7,6 +7,7 @@ import {
   closeTab,
   fillTab,
   splitPane,
+  tabId,
   CHAT,
   moveTab,
   moveTabBy,
@@ -14,6 +15,7 @@ import {
   taskRef,
   type Group,
   type Tab,
+  type Workspace,
   type TabKind,
   type TabParams,
 } from '@handline/app-core';
@@ -27,6 +29,7 @@ import { Badges } from './Badges.tsx';
 import { DropZones } from './DropZones.tsx';
 import { ChangesTab } from './ChangesTab.tsx';
 import { FileTab } from './FileTab.tsx';
+import { WebTab } from './WebTab.tsx';
 import { BytesTab } from './BytesTab.tsx';
 import { wantsBytes } from './terminal/choose.ts';
 import { Watch } from './TranscriptTab.tsx';
@@ -52,12 +55,14 @@ const label = (t: Tab, structured = false): string =>
           ? 'Changes'
           : t.kind === 'file'
             ? String(t.params.path ?? 'File').split('/').pop()!
+          : t.kind === 'web'
+            ? String(t.params.url ?? 'Preview').replace(/^https?:\/\//, '')
           : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
           ? 'Transcript'
           : t.kind === 'terminal'
             ? 'Claude Code'
             : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
-const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history', activity: 'team', changes: 'changes', file: 'reference', new: 'plus' };
+const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', timeline: 'history', activity: 'team', changes: 'changes', file: 'reference', web: 'web', new: 'plus' };
 
 const TAB_KEYS: KeyRows = [
   ['Alt+Left Alt+Right', 'move the focused tab along the strip'],
@@ -79,7 +84,13 @@ export function Pane({ group }: { group: Group }) {
     { kind: 'timeline', params: {}, label: 'Timeline', icon: 'history' },
     { kind: 'changes', params: {}, label: 'Changes', icon: 'changes', disabled: !detail.worktree },
     { kind: 'file', params: { id: 'new' }, label: 'File', icon: 'reference', disabled: !detail.worktree },
+    { kind: 'web', params: { id: 'new' }, label: 'Preview', icon: 'web' },
   ];
+  // The preview opens in a pane of its own next to the chat when there is room, else as a tab here.
+  const besideChat = (w: Workspace, c: (typeof choices)[number]) => {
+    const split = canSplit(group.id) ? splitPane(w, group.id) : null;
+    return split ? fillTab(split, tabId(w, 'new', {}), c.kind, c.params) : openTab(w, c.kind, c.params, group.id);
+  };
   const structured = detail.structured === true;
   // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.
   // The first terminal tab of the group: a group holds one terminal tab per agent, so the unread dot follows that one.
@@ -186,7 +197,7 @@ export function Pane({ group }: { group: Group }) {
         })}
         <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="ml-0.5 self-center">
           {choices.map((c) => (
-            <MenuItem key={c.label} icon={c.icon} disabled={c.disabled} onSelect={() => apply((w) => openTab(w, c.kind, c.params, group.id))}>
+            <MenuItem key={c.label} icon={c.icon} disabled={c.disabled} onSelect={() => apply((w) => (c.kind === 'web' && group.tabs.includes(CHAT) ? besideChat(w, c) : openTab(w, c.kind, c.params, group.id)))}>
               {c.label}
             </MenuItem>
           ))}
@@ -230,6 +241,13 @@ export function Pane({ group }: { group: Group }) {
           <ChangesTab agent={agent} detail={detail} />
         ) : tab.kind === 'file' ? (
           <FileTab agent={agent} detail={detail} path={typeof tab.params.path === 'string' ? tab.params.path : ''} onPath={(p) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, path: p } } } }))} />
+        ) : tab.kind === 'web' ? (
+          <WebTab
+            agent={agent}
+            url={typeof tab.params.url === 'string' ? tab.params.url : ''}
+            hidden={!!dragging}
+            onUrl={(u) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, url: u } } } }))}
+          />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (
           <Watch
             agent={agent}

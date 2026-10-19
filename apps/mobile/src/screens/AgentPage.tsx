@@ -12,6 +12,8 @@ import { useHistoryValue } from '../history.tsx';
 import { StateMark } from './StateMark.tsx';
 import { AgentSettings } from './AgentSettings.tsx';
 import { AgentStrip } from './AgentStrip.tsx';
+import { AgentFile } from './AgentFile.tsx';
+import { AgentPreview } from './AgentPreview.tsx';
 import { AgentTasks } from './AgentTasks.tsx';
 import { Icon, type IconName } from './Icon.tsx';
 import { Activity } from './Activity.tsx';
@@ -75,13 +77,16 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const { detail, agent: row, tab: current } = props;
   const name = detail.name;
   const ctl = controlsOf(detail, me);
-  const [extra, setExtra] = useHistoryValue<'tasks' | 'activity' | null>(`agent.extra:${name}`, null); // the Activity and Tasks tabs sit beside the store's two tabs
+  const [extra, setExtra] = useHistoryValue<'tasks' | 'activity' | 'file' | 'preview' | null>(`agent.extra:${name}`, null); // the Activity and Tasks tabs sit beside the store's two tabs
   const hasTasks = useServes('tasks.list').served;
   const showTasks = extra === 'tasks' && hasTasks;
   const hasChat = useServes('chat.messages').served;
   const showActivity = extra === 'activity' && hasChat;
+  const hasFile = useServes('file.read').served && !!detail.worktree;
+  const showFile = extra === 'file' && hasFile;
+  const showPreview = extra === 'preview';
   const [searching, setSearching] = useHistoryValue(`chat.search:${name}`, false);
-  const onChat = !showTasks && !showActivity && current === 'chat';
+  const onChat = !showTasks && !showActivity && !showFile && !showPreview && current === 'chat';
   const stalled = badgesOf(detail, me).find((b) => b.kind === 'stalled');
   const verbMark = useVerbMark(name, ['close']);
   const mark = useAgentMark(name) ?? verbMark;
@@ -125,7 +130,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
     </Pressable>
   );
   const pageTab = (t: 'chat' | 'terminal', label: string) =>
-    tab(t, label, t, !showTasks && !showActivity && current === t, () => {
+    tab(t, label, t, !showTasks && !showActivity && !showFile && !showPreview && current === t, () => {
       setExtra(null);
       store.setTab(t);
     });
@@ -178,9 +183,15 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         {pageTab('chat', 'Chat')}
         {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
         {hasChat && tab('activity', 'Activity', 'history', showActivity, () => setExtra('activity'))}
+        {hasFile && tab('file', 'File', 'reference', showFile, () => setExtra('file'))}
+        {tab('preview', 'Preview', 'open', showPreview, () => setExtra('preview'))}
         {hasTasks && tab('tasks', 'Tasks', 'tasks', showTasks, () => setExtra('tasks'))}
       </ScrollView>
-      {showActivity ? (
+      {showFile ? (
+        <AgentFile agent={name} />
+      ) : showPreview ? (
+        <AgentPreview agent={name} />
+      ) : showActivity ? (
         <Activity agent={name} />
       ) : showTasks ? (
         <AgentTasks agent={name} />

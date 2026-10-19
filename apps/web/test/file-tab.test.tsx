@@ -1,7 +1,7 @@
 // The File tab: the + menu opens it, a path shows the file, Edit then Save writes it back; against the fake daemon.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, it } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';

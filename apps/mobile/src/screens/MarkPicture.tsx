@@ -10,6 +10,7 @@ import {
   PixelRatio,
   Platform,
   SafeAreaView,
+  StatusBar,
   Text,
   TextInput,
   View,
@@ -106,7 +107,8 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
 
   return (
     <Modal visible animationType="slide" onRequestClose={props.onCancel}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: c.bg }}>
+      {/* Android draws the modal under the status bar; SafeAreaView does not pad it there */}
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0 }}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg, padding: space.md }}>
             <Link testID="mark-cancel" label="Cancel" onPress={props.onCancel} />
