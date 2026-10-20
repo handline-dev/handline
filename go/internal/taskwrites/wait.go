@@ -50,17 +50,12 @@ func waitMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 			if err != nil {
 				return nil, err
 			}
-			if why, err := recordBlock(tx, tid, gate, me); err != nil || why != "" {
-				if err == nil {
-					err = refusal(why)
-				}
-				return nil, err
-			}
 			said := fmt.Sprintf("T%d waits on gate T%d (watching %s)", tid, gate, w.Label)
 			t, err := getTask(tx, tid)
 			if err != nil {
 				return nil, err
 			}
+			// Read before the gate blocks it: a blocked task never reads doing.
 			if st, err := state(tx, t); err != nil {
 				return nil, err
 			} else if st == "doing" {
@@ -69,6 +64,12 @@ func waitMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 				}
 				freed = true
 				said += "; " + r.said()
+			}
+			if why, err := recordBlock(tx, tid, gate, me); err != nil || why != "" {
+				if err == nil {
+					err = refusal(why)
+				}
+				return nil, err
 			}
 			return accepted(said, map[string]any{"gate": gate}), nil
 		})

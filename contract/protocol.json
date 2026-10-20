@@ -6978,7 +6978,7 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "description": "A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them."
+      "description": "A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them. A doing task goes back to queued."
      }
     },
     {
@@ -10612,7 +10612,7 @@
      },
      "state": {
       "type": "string",
-      "description": "draft, queued, doing, done or discarded."
+      "description": "draft, queued, doing, done or discarded. doing is its owner's current, unblocked task (one per agent)."
      },
      "time_box": {
       "oneOf": [
