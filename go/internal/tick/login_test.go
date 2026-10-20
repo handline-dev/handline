@@ -160,7 +160,7 @@ func TestAnAgentLeavesAnAccountWhoseEndHasPassedThoughItStillAnswers(t *testing.
 	tk, w, told := endedWorld(t, true)
 	w.movePlan, w.performOK = "other", true
 	actions := supervise(tk, "a")
-	if !w.did("handoff a login") || !has(actions, "a: handoff (login)") || len(*told) != 0 {
+	if !w.did("handoff a ended") || !has(actions, "a: handoff (ended)") || len(*told) != 0 {
 		t.Fatalf("%v %v %v", w.calls, actions, *told)
 	}
 }
@@ -168,7 +168,7 @@ func TestAnAgentLeavesAnAccountWhoseEndHasPassedThoughItStillAnswers(t *testing.
 func TestBeforeItsEndAnAccountKeepsItsAgents(t *testing.T) {
 	tk, w, told := endedWorld(t, false)
 	w.movePlan, w.performOK = "other", true
-	if actions := supervise(tk, "a"); w.did("handoff a login") || has(actions, "login") || len(*told) != 0 {
+	if actions := supervise(tk, "a"); w.did("handoff a ended") || has(actions, "handoff") || len(*told) != 0 {
 		t.Fatalf("%v %v %v", w.calls, actions, *told)
 	}
 }
@@ -178,7 +178,7 @@ func TestWithNoRoomAnEndedAccountKeepsItsAgentsAndTheFounderIsTold(t *testing.T)
 	w.movePlan = ""
 	actions := supervise(tk, "a")
 	row, _ := db.GetAgentState(tk.Q, "a")
-	if w.did("handoff a login") || has(actions, "STALLED") || row.State == states.Stalled {
+	if w.did("handoff a ended") || has(actions, "STALLED") || row.State == states.Stalled {
 		t.Fatalf("an agent on an account that still answers is not stopped for want of another: %v %v %+v", w.calls, actions, row)
 	}
 	if len(*told) != 1 || !strings.HasPrefix((*told)[0], "acct | subscription ended 2026-10-21 (month cycle) | acct's subscription has ended") {

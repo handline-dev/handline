@@ -101,6 +101,27 @@ func TestATerminalAgentOnAnExpiredLoginIsClosedByItsPaneAndRelaunchedFreshOnTheO
 	}
 }
 
+func TestAnAgentOnAnEndedAccountFinishesItsTurnAndNoteBeforeItMoves(t *testing.T) {
+	g := newTermMoveRig(t)
+	ended := HandoffTrigger{EndedTrigger, "subscription ended on alpha"}
+	g.run.status = "busy"
+	if ok, err := g.v.PerformHandoff("a", ended, "beta"); !ok || err != nil || len(g.pane.handles) != 0 {
+		t.Fatalf("an ended account still answers, so a live turn is not cut off: %v %v %v", ok, err, g.pane.handles)
+	}
+	g.run.status = "idle"
+	g.v.E.NoteHold = func(db.Q, string, int64) bool { return true }
+	if ok, err := g.v.PerformHandoff("a", ended, "beta"); !ok || err != nil || len(g.pane.handles) != 0 {
+		t.Fatalf("it writes its note first: %v %v %v", ok, err, g.pane.handles)
+	}
+	g.v.E.NoteHold = func(db.Q, string, int64) bool { return false }
+	if ok, err := g.v.PerformHandoff("a", ended, "beta"); !ok || err != nil {
+		t.Fatalf("%v %v", ok, err)
+	}
+	if row := g.row(t); len(g.pane.handles) != 1 || row.Account.String != "beta" {
+		t.Fatalf("closed %v %+v", g.pane.handles, row)
+	}
+}
+
 func TestATerminalAgentAtAFullContextIsClosedByItsPaneAndParkedForAFreshWake(t *testing.T) {
 	g := newTermMoveRig(t)
 	db.MarkNoteWait(g.m.Q, "a", "context", g.m.now())

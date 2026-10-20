@@ -103,7 +103,7 @@ func (s sessions) CacheLeft(agent string, now int64) (int64, bool) {
 // MovableTrigger is daemon/handoff.MOVABLE_TRIGGERS.
 func (sessions) MovableTrigger(kind string) bool {
 	switch kind {
-	case "usage", "usage_7d", "forced", "login":
+	case "usage", "usage_7d", "forced", "login", "ended":
 		return true
 	}
 	return false

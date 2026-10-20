@@ -10,16 +10,17 @@ import (
 	"github.com/handline/handline/go/internal/timefmt"
 )
 
-// The triggers a move answers (daemon/handoff.py): the two walls, a person's order, and a login that expired.
+// The triggers a move answers (daemon/handoff.py): the two walls, a person's order, a login that expired, and a subscription that ended.
 const (
 	LoginTrigger  = "login"
+	EndedTrigger  = "ended"
 	ClearWaitS    = 300
 	handoffReason = "handoff"
 )
 
 // MovableTrigger is handoff.MOVABLE_TRIGGERS.
 func MovableTrigger(kind string) bool {
-	return kind == "usage" || kind == "usage_7d" || kind == "forced" || kind == LoginTrigger
+	return kind == "usage" || kind == "usage_7d" || kind == "forced" || kind == LoginTrigger || kind == EndedTrigger
 }
 
 func usageTrigger(kind string) bool { return kind == "usage" || kind == "usage_7d" }
@@ -118,7 +119,7 @@ func (v *Mover) MovePlan(agent, kind string, starting bool) (dest, why string, e
 		resetIn = &d
 	}
 	work := starting || len(must(db.QueuedFor(m.Q, agent))) > 0
-	if kind != LoginTrigger {
+	if kind != LoginTrigger && kind != EndedTrigger {
 		within := min(v.E.StayWithin(v.E.ColdStartPct(m.Q), w.ShortS), states.PromptCacheS)
 		if move, why := v.E.StayOrMove(work, resetIn, within); !move {
 			return "", why, nil
@@ -247,7 +248,7 @@ func (v *Mover) PerformHandoff(agent string, t HandoffTrigger, dest string) (ok 
 	now := m.now()
 	var last *int64
 	_ = m.Q.QueryRow("SELECT MAX(updated) FROM handoff WHERE agent = ?", agent).Scan(&last)
-	if last != nil && t.Kind != "forced" && t.Kind != LoginTrigger && now-*last < states.MinHandoffIntervalS {
+	if last != nil && t.Kind != "forced" && t.Kind != LoginTrigger && t.Kind != EndedTrigger && now-*last < states.MinHandoffIntervalS {
 		v.log("  %s: %s fired again %ds after the last handoff - too soon, skipping", agent, t.Kind, now-*last)
 		return true, nil
 	}

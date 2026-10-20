@@ -77,11 +77,12 @@ func (t *Tick) loginExpired(agent string, row *db.AgentState, acct string, actio
 			t.logf("  %s: STALLED (%s), no launch lands on it", acct, why)
 		}
 	}
-	word := team.StallWord(errType)
+	// A stalled account's turn has already failed, so its agents go at once; an ended one still answers, so a turn in flight finishes first.
+	word, kind := team.StallWord(errType), "login"
 	if ended != "" {
-		word, why = "subscription ended", ended
+		word, why, kind = "subscription ended", ended, "ended"
 	}
-	dest, noMove := t.Handoff.MovePlan(t.Q, agent, "login")
+	dest, noMove := t.Handoff.MovePlan(t.Q, agent, kind)
 	if dest == "" && ended != "" {
 		// An ended account that still answers is better than none: the agent stays on it until another has room.
 		t.noRoom(agent, acct, why, fmt.Sprintf("%s's subscription has ended and no other account can take its agents (%s), so they stay on it "+
@@ -100,12 +101,12 @@ func (t *Tick) loginExpired(agent string, row *db.AgentState, acct string, actio
 		t.logf("  %s: %s", agent, detail)
 		return true
 	}
-	ok := t.Handoff.PerformHandoff(t.Q, agent, Trigger{true, "login", fmt.Sprintf("%s on %s: %s", word, acct, why)}, dest)
+	ok := t.Handoff.PerformHandoff(t.Q, agent, Trigger{true, kind, fmt.Sprintf("%s on %s: %s", word, acct, why)}, dest)
 	suffix := ""
 	if !ok {
 		suffix = " -> degraded"
 	}
-	*actions = append(*actions, fmt.Sprintf("%s: handoff (login)%s", agent, suffix))
+	*actions = append(*actions, fmt.Sprintf("%s: handoff (%s)%s", agent, kind, suffix))
 	return true
 }
 
