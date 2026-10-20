@@ -573,6 +573,15 @@ func (t *Term) UsageLimitOpen(handle string) bool {
 // ModalOpen is whether a modal is on the agent's screen, where typed text would answer it.
 func (t *Term) ModalOpen(handle string) bool { return t.ScreenBlocker(handle) != nil }
 
+// DialogUp is the dialog at handle that waits on a person. On a settled turn only the session picker counts: no hook reports it.
+func (t *Term) DialogUp(handle string) *Blocker {
+	b := t.ScreenBlocker(handle)
+	if b != nil && b.Kind != Backgrounded && t.Turns != nil && t.Turns.Settled(handle) {
+		return nil
+	}
+	return b
+}
+
 // LiveTerminals is every handle the host currently has, or nil when it could not say. nil is not an empty set: reading "I could
 // not ask" as "there are none" would tear down a healthy team the first time the host was slow to answer.
 func (t *Term) LiveTerminals() map[string]bool { return t.Backend.ListTerminals() }

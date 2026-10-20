@@ -26,7 +26,7 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 		Plans: vendorPlans{cfg.Home, cfg.CLI}, Now: cfg.Now, Log: cfg.Log}
 	sched := &schedules.Runner{Q: p.db, Agents: func() []string { return paths.ListAgents(cfg.Home) }, Schedules: (&reads.Env{DB: p.db, Home: cfg.Home}).SchedulesOf,
 		Say: lc.Env.SystemSayThen, Log: func(s string) { cfg.Log("%s", s) }}
-	healer := &heal.Healer{Ports: healPorts{lc: lc, home: cfg.Home}, Log: func(s string) { cfg.Log("%s", s) }}
+	healer := &heal.Healer{Ports: healPorts{lc: lc, home: cfg.Home, needs: p.needsYou()}, Log: func(s string) { cfg.Log("%s", s) }}
 	p.healer = healer
 	return []tick.NamedSweep{
 		{Name: "timebox", Run: func(q db.Q, now int64) error { return timebox.Sweep(tk, now) }},
