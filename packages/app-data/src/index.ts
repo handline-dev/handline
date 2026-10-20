@@ -17,3 +17,4 @@ export * from './write-spec.ts';
 export * from './writes.ts';
 export * from './attachments.ts';
 export * from './image-drafts.ts';
+export * from './file-editor.ts';

@@ -1,61 +1,23 @@
 // A .md or .json file in the agent's worktree: shown as text, edited in place and saved against the etag the read gave (file.write).
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { AgentDetail } from '@handline/client';
-import { classify, sentence, useFile, useServes, useWorktrees, useWrite } from '@handline/app-data';
+import { EDITABLE, shown, useFileEditor, useWorktrees } from '@handline/app-data';
 import { Button, Icon, Input, MenuButton, MenuItem, Textarea } from './ui/index.ts';
 import { Markdown } from './Markdown.tsx';
 import { shell } from './shell.ts';
 import { View } from './View.tsx';
 
-const EDITABLE = /\.(md|json)$/i;
-
-/** JSON is shown indented; text that does not parse is shown as it is. */
-function shown(path: string, text: string): string {
-  if (!/\.json$/i.test(path)) return text;
-  try {
-    return JSON.stringify(JSON.parse(text), null, 2);
-  } catch {
-    return text;
-  }
-}
-
 export function FileTab({ agent, detail, path, onPath }: { agent: string; detail: AgentDetail; path: string; onPath: (p: string) => void }) {
   const [typed, setTyped] = useState(path);
   const changed = (useWorktrees().data?.worktrees.find((w) => w.path === detail.worktree?.path)?.changed ?? []).filter((c) => EDITABLE.test(c.path));
-  const q = useFile(agent, path);
-  const { served } = useServes('file.read');
-  const save = useWrite('file.write', `${agent}:${path}`);
+  const { q, served, saving, draft, setDraft, note, submit, edit, discard, editable } = useFileEditor(agent, path);
   const open = shell('openPath');
-  const [draft, setDraft] = useState<string | null>(null);
-  const [etag, setEtag] = useState('');
-  const [note, setNote] = useState('');
   const d = q.data;
-  useEffect(() => {
-    setDraft(null);
-    setNote('');
-  }, [path]);
-  useEffect(() => {
-    if (d) setEtag(d.etag);
-  }, [d]);
   const go = (p: string) => {
     const next = p.trim().replace(/^\.?\//, '');
     setTyped(next);
     if (next) onPath(next);
   };
-  const submit = async () => {
-    if (draft === null) return;
-    try {
-      const r = await save.mutateAsync({ agent, path, text: draft, etag });
-      setEtag(r.etag);
-      setDraft(null);
-      setNote('');
-      void q.refetch();
-    } catch (e) {
-      const f = classify(e);
-      setNote(f.kind === 'refused' && f.gate === 'stale' ? 'The file changed since you opened it. Reload it, then make the edit again.' : sentence(f));
-    }
-  };
-  const editable = !!d && !d.truncated && EDITABLE.test(path);
   return (
     <section className="file-tab flex h-full min-h-0 flex-col" aria-label={`File of ${agent}`}>
       <form
@@ -81,16 +43,16 @@ export function FileTab({ agent, detail, path, onPath }: { agent: string; detail
           </Button>
         ) : null}
         {editable && draft === null ? (
-          <Button size="sm" variant="outline" label="Edit" onClick={() => setDraft(shown(path, d.text))}>
+          <Button size="sm" variant="outline" label="Edit" onClick={edit}>
             Edit
           </Button>
         ) : null}
         {draft !== null ? (
           <>
-            <Button size="sm" label="Save" disabled={save.isPending} onClick={() => void submit()}>
+            <Button size="sm" label="Save" disabled={saving} onClick={() => void submit()}>
               Save
             </Button>
-            <Button size="sm" variant="outline" label="Discard" onClick={() => (setDraft(null), setNote(''))}>
+            <Button size="sm" variant="outline" label="Discard" onClick={discard}>
               Discard
             </Button>
           </>
