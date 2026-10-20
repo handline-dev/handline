@@ -163,7 +163,7 @@ export function AgentRow({
                   {a.founder_unread ? (
                     <span
                       className="unread inline-flex flex-none items-center rounded-pill bg-primary px-1.5 text-label text-canvas"
-                      title={`${a.founder_unread} requests to you not seen yet`}
+                      title={`${a.founder_unread} unseen ${a.founder_unread === 1 ? 'request' : 'requests'} to you`}
                     >
                       {a.founder_unread}
                     </span>
