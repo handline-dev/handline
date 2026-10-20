@@ -21,3 +21,4 @@ export * from './file-editor.ts';
 export * from './chat-read.ts';
 export * from './worktree-moves.ts';
 export * from './team-board.ts';
+export * from './schedule-editor.ts';

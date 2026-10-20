@@ -1,7 +1,6 @@
 // The agent's schedules: founder-only writes (schedule.add, edit, remove), authored: the line shows at once and reverts on a refusal.
-import { useState } from 'react';
 import { cronWords } from '@handline/app-core';
-import { classify, sentence, useSchedules, useServes, useWrite } from '@handline/app-data';
+import { classify, sentence, useScheduleEditor, useSchedules, useServes } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
 import type { Schedule } from '@handline/client';
 import { Button, FNote, Icon, SectionHead, Sheet, SheetActions } from './ui/index.ts';
@@ -12,28 +11,12 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
   const { served } = useServes('schedules.list');
   const q = useSchedules();
   const mayAdd = useSelector((s) => s.can('schedule.add'));
-  const add = useWrite('schedule.add');
-  const edit = useWrite('schedule.edit');
-  const remove = useWrite('schedule.remove');
-  const [form, setForm] = useState<{ id?: number; cron: string; message: string } | null>(null);
-  const [note, setNote] = useState('');
+  const { form, setForm, note, save, drop } = useScheduleEditor(agent);
   if (!served) return null;
   const mine = (q.data?.schedules ?? []).filter((s) => s.target === agent);
   const write = role === 'founder' && mayAdd;
-  const fail = (e: unknown) => setNote(sentence(classify(e)));
-  const save = () => {
-    if (!form || !form.cron.trim() || !form.message.trim()) return setNote('A schedule needs a when and a message.');
-    setNote('');
-    const { id, cron, message } = form;
-    setForm(null);
-    (id === undefined
-      ? add.mutateAsync({ target: agent, cron: cron.trim(), message: message.trim() })
-      : edit.mutateAsync({ schedule: id, cron: cron.trim(), message: message.trim() })
-    ).catch(fail);
-  };
-  const drop = (s: Schedule) => {
-    if (!confirm(`Remove the schedule "${cut(s.message, 30)}"?`)) return;
-    remove.mutateAsync({ schedule: s.id }).catch(fail);
+  const ask = (s: Schedule) => {
+    if (confirm(`Remove the schedule "${cut(s.message, 30)}"?`)) drop(s.id);
   };
   return (
     <div className="schedules">
@@ -69,7 +52,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
                 label="Remove schedule"
                 aria-label="Remove schedule"
                 icon="close"
-                onClick={() => drop(s)}
+                onClick={() => ask(s)}
               />
             </span>
           ) : null}
