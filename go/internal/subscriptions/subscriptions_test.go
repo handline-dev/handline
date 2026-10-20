@@ -10,6 +10,7 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/usage"
 )
 
 type fakeAsker struct {
@@ -320,5 +321,61 @@ func TestNoAccountsMeansNothingToAsk(t *testing.T) {
 	w.WaitForPlanAsk()
 	if len(w.plans.asked) != 0 {
 		t.Errorf("asked %q", w.plans.asked)
+	}
+}
+
+// started gives the account a claude profile whose subscription began at start.
+func (w *world) started(acct string, start time.Time) {
+	w.t.Helper()
+	dir := filepath.Join(w.Home, "accounts", acct, ".claude")
+	os.MkdirAll(dir, 0o755)
+	doc := fmt.Sprintf(`{"oauthAccount": {"subscriptionCreatedAt": %q}}`, start.Format(time.RFC3339))
+	if err := os.WriteFile(filepath.Join(dir, ".claude.json"), []byte(doc), 0o644); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+func TestADefaultEndIsHeldOnceSeenSoTheAccountEndsOnIt(t *testing.T) {
+	w := newWorld(t)
+	w.account("omega")
+	w.started("omega", time.Date(2026, 9, 21, 13, 43, 0, 0, time.Local))
+	w.config("month_cycle_omega: true\n")
+	w.now = time.Date(2026, 10, 20, 12, 0, 0, 0, time.Local)
+	w.sweep()
+
+	cfg := usage.LoadConfig(w.Home)
+	ue := &usage.Env{Home: w.Home, Config: func() usage.Config { return cfg }}
+	for _, c := range []struct {
+		now   time.Time
+		day   string
+		ended bool
+	}{
+		{time.Date(2026, 10, 21, 13, 42, 0, 0, time.Local), "2026-10-21", false},
+		{time.Date(2026, 10, 21, 13, 44, 0, 0, time.Local), "2026-10-21", true}, // without the pin this read 2026-11-21, not ended
+		{time.Date(2026, 11, 30, 9, 0, 0, 0, time.Local), "2026-10-21", true},
+	} {
+		w.now = c.now
+		w.sweep()
+		end, ok := cfg.EndOf(w.Home, "omega", c.now)
+		if day := cfg.EndDate(w.Home, "omega", c.now); !ok || day != c.day || !c.now.Before(end) != c.ended {
+			t.Errorf("%v: end %v %v day %s, want %s ended %v", c.now, end, ok, day, c.day, c.ended)
+		}
+		ue.Now = func() float64 { return float64(c.now.Unix()) }
+		if why := ue.EndedWhy("omega"); (why != "") != c.ended {
+			t.Errorf("%v: ended why %q", c.now, why)
+		}
+	}
+
+	// A new subscription is a new start: the pin worked out from the old one gives way.
+	w.started("omega", time.Date(2026, 11, 30, 8, 0, 0, 0, time.Local))
+	w.sweep()
+	if day := cfg.EndDate(w.Home, "omega", w.now); day != "2026-12-30" {
+		t.Errorf("after resubscribing: %s", day)
+	}
+	// A typed end day or the cycle turned off drops the pin.
+	w.config("month_cycle_omega: true\nsub_end_omega: \"2027-01-05\"\n")
+	w.sweep()
+	if _, err := os.Stat(filepath.Join(w.Home, "accounts", "omega", "cycle_end.json")); !os.IsNotExist(err) {
+		t.Errorf("pin kept beside a typed end: %v", err)
 	}
 }

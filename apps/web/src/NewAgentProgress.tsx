@@ -1,11 +1,10 @@
 // The progress of one agent.create, from the operations topic: the step the daemon sent (none invented), then done or failed. A failed
 // creation offers the form back with its fields; a done one sends the first task, if there was one, as a task.new.
-import { useEffect, useRef, useState } from 'react';
-import { classify, sentence, Skeleton, useOperation, useWrite } from '@handline/app-data';
+import { useState } from 'react';
+import { classify, sentence, Skeleton, useCreateProgress, type NewAgentFields } from '@handline/app-data';
 import { Button, Dialog, Icon, Textarea, NOTE } from './ui/index.ts';
 import { goAgent, goNew } from './route.ts';
 import { browserStorage } from './daemon.ts';
-import type { Fields } from './NewAgent.tsx';
 
 const KEY = 'handline.new-agent.task';
 /** The first task typed for one operation, kept so a relaunch of `#/new/:operation` still sends it. */
@@ -39,39 +38,12 @@ export function NewAgentProgress({
   onAnother,
 }: {
   operation: string;
-  fields: Fields;
+  fields: NewAgentFields;
   onClose: () => void;
   onAnother: () => void;
 }) {
-  const q = useOperation(operation);
-  const op = q.data;
-  const ask = useWrite('task.new');
-  const sent = useRef(false);
   const [first] = useState(() => (fields.task.trim() ? fields : { ...fields, ...kept(operation) }));
-  const [text, setText] = useState(first.task);
-  const agent = op?.agent ?? null;
-  const done = op?.state === 'done';
-  const send = () => {
-    const [title = '', ...rest] = text.trim().split('\n');
-    if (!agent || !title) return;
-    ask.mutate(
-      {
-        owner: agent,
-        title: title.slice(0, 80),
-        body: rest.join('\n').trim(),
-        time_box: first.box.trim() || '2h',
-        request_id: `first-task:${operation}`.slice(0, 128),
-      },
-      { onSuccess: forgetFirstTask },
-    );
-  };
-  useEffect(() => {
-    if (done && !sent.current && text.trim()) {
-      sent.current = true;
-      send();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the operation turns done
-  }, [done]);
+  const { q, op, agent, text, setText, ask, send } = useCreateProgress(operation, first, forgetFirstTask);
   if (!op)
     return (
       <Dialog title="New agent" onClose={onClose}>

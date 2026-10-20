@@ -3,13 +3,12 @@
 import { useState } from 'react';
 import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import type { Worktree } from '@handline/client';
-import { classify, sentence, useServes, useWorktrees, useWrite } from '@handline/app-data';
+import { STATUSES, useMoves, useServes, useWorktrees, type Moves } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
 import { Button, PageHeader } from './parts.tsx';
 
-export const STATUSES = ['todo', 'in progress', 'in review', 'done'];
 const sums = (w: Worktree) => ({
   added: w.changed.reduce((n, f) => n + f.added, 0),
   deleted: w.changed.reduce((n, f) => n + f.deleted, 0),
@@ -18,33 +17,6 @@ const files = (w: Worktree) => {
   const { added, deleted } = sums(w);
   return `${w.changed.length} file${w.changed.length === 1 ? '' : 's'}${w.changed.length ? ` +${added} −${deleted}` : ''}`;
 };
-
-interface Moves {
-  enabled: boolean;
-  moving: Record<string, string>;
-  errors: Record<string, string>;
-  move: (path: string, status: string) => void;
-}
-
-/** Each write is asked once, pending until the refetch shows the new status, and refused with the daemon's reason. */
-function useMoves(refetch: () => Promise<unknown>): Moves {
-  const set = useWrite('worktree.set_status');
-  const { served } = useServes('worktree.set_status');
-  const [moving, setMoving] = useState<Record<string, string>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const without = (r: Record<string, string>, k: string) => Object.fromEntries(Object.entries(r).filter(([p]) => p !== k));
-  const move = (path: string, status: string) => {
-    if (moving[path]) return;
-    setMoving((m) => ({ ...m, [path]: status }));
-    setErrors((e) => without(e, path));
-    set
-      .mutateAsync({ path, status })
-      .then(() => refetch())
-      .catch((e) => setErrors((x) => ({ ...x, [path]: sentence(classify(e)) })))
-      .finally(() => setMoving((m) => without(m, path)));
-  };
-  return { enabled: served, moving, errors, move };
-}
 
 function Chip(props: { word: string }) {
   const c = usePalette();

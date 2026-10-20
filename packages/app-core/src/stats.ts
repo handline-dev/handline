@@ -1,5 +1,6 @@
 // The numbers the Stats and Home settings pages show and the text they accept: bar colours, durations, and the two fields that change units
 // or may be cleared. Pure.
+import type { PageSettings } from './shell.ts';
 
 /** The bridge's gauge bands (`gauge.py`): from 60% a bar warns, from 85% it fails. */
 export type Band = 'ok' | 'warn' | 'bad';
@@ -33,3 +34,23 @@ export function parseSeconds(text: string): number | null | typeof INVALID {
   return /^\d+$/.test(t) ? Number(t) : INVALID;
 }
 export const minutesOf = (seconds: number | undefined): string => (seconds === undefined ? '' : String(Math.round(seconds / 60)));
+
+/** The default cap field of the Settings page, on the PC and the phone: everything but the words around it and the layout. */
+export const capField = (activeCap: number | undefined) => ({
+  label: 'Default cap',
+  unit: 'agents',
+  current: activeCap === undefined ? '' : String(activeCap),
+  parse: parseCap,
+  change: (n: number | null): PageSettings => ({ active_cap: n }),
+  allowed: 'a whole number from 1, or empty for the default',
+});
+
+/** The idle close field, likewise. */
+export const idleField = (parkTimeoutS: number | undefined) => ({
+  label: 'Idle close',
+  unit: 'min',
+  current: minutesOf(parkTimeoutS),
+  parse: parseMinutes,
+  change: (s: number | null): PageSettings => ({ park_timeout_s: s }),
+  allowed: 'whole minutes, 0 for never, or empty for the default',
+});

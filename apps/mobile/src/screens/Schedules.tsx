@@ -5,7 +5,7 @@ import { Text, TextInput, View } from 'react-native';
 import { cronWords } from '@handline/app-core';
 import type { Schedule } from '@handline/client';
 import { useSelector } from '@handline/app-react';
-import { classify, sentence, useSchedules, useServes, useWrite } from '@handline/app-data';
+import { useScheduleEditor, useSchedules, useServes } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
@@ -14,39 +14,20 @@ import { useWhyNot } from './TaskActions.tsx';
 
 const cut = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
-type Form = { id?: number; cron: string; message: string };
-
 export function Schedules({ agent, role }: { agent: string; role: string | undefined }) {
   const c = usePalette();
   const query = useSchedules();
   const { served } = useServes('schedules.list');
   const mayAdd = useSelector((s) => s.can('schedule.add'));
-  const add = useWrite('schedule.add');
-  const edit = useWrite('schedule.edit');
-  const remove = useWrite('schedule.remove');
   const whyNot = useWhyNot('schedule.add');
-  const [form, setForm] = useState<Form | null>(null);
+  const { form, setForm, note, save, drop: removeNow, pending } = useScheduleEditor(agent);
   const [asking, setAsking] = useState<number | null>(null);
-  const [note, setNote] = useState('');
   const mine = (query.data?.schedules ?? []).filter((s) => s.target === agent);
   const write = role === 'founder' && mayAdd;
-  const fail = (e: unknown) => setNote(sentence(classify(e)));
-  const save = () => {
-    if (!form || !form.cron.trim() || !form.message.trim()) return setNote('A schedule needs a when and a message.');
-    setNote('');
-    const { id, cron, message } = form;
-    setForm(null);
-    (id === undefined
-      ? add.mutateAsync({ target: agent, cron: cron.trim(), message: message.trim() })
-      : edit.mutateAsync({ schedule: id, cron: cron.trim(), message: message.trim() })
-    ).catch(fail);
-  };
   const drop = (s: Schedule) => {
     setAsking(null);
-    setNote('');
-    remove.mutateAsync({ schedule: s.id }).catch(fail);
+    removeNow(s.id);
   };
-  const pending = add.isPending || edit.isPending || remove.isPending;
   const input = { color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 44 };
   return (
     <View testID="schedules" style={{ gap: space.sm }}>

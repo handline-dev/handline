@@ -64,13 +64,6 @@ func TestAccountAddRefusesABadNameAndANameInUse(t *testing.T) {
 	}
 }
 
-// backedUp makes a snapshot the gate takes as current.
-func (r *rig) backedUp() {
-	dir := filepath.Join(filepath.Dir(r.home), filepath.Base(r.home)+"-backups")
-	os.MkdirAll(dir, 0o755)
-	os.WriteFile(filepath.Join(dir, "orcapipe-20260101-000000.tar.gz"), nil, 0o644)
-}
-
 func (r *rig) loggedIn(acct string) {
 	cdir := filepath.Join(r.home, "accounts", acct, ".claude")
 	os.MkdirAll(cdir, 0o755)
@@ -82,13 +75,7 @@ func TestAccountRemoveDryRunChangesAndRecordsNothing(t *testing.T) {
 	r.loggedIn("main")
 	res := r.result(r.one("account.remove", `{"account":"main","dry_run":true,"request_id":"dr1"}`))
 	plan, _ := res["plan"].([]any)
-	if res["would_remove"] != false || len(plan) < 5 || !strings.HasPrefix(plan[len(plan)-1].(string), "would refuse: no backup from the last 5 minutes") {
-		t.Fatalf("%v", res)
-	}
-	r.backedUp()
-	res = r.result(r.one("account.remove", `{"account":"main","dry_run":true,"request_id":"dr2"}`))
-	plan, _ = res["plan"].([]any)
-	if res["would_remove"] != true || plan[len(plan)-1] != "backup gate: passed" || !strings.Contains(plan[1].(string), "claude auth logout") {
+	if res["would_remove"] != true || len(plan) < 5 || !strings.Contains(plan[1].(string), "claude auth logout") {
 		t.Fatalf("%v", res)
 	}
 	if _, err := os.Stat(filepath.Join(r.home, "accounts", "main")); err != nil {
@@ -105,7 +92,6 @@ func TestAccountRemoveDryRunChangesAndRecordsNothing(t *testing.T) {
 func TestAccountRemoveLogsOutMovesTheDirectoryAsideAndForgetsItOnTheAgents(t *testing.T) {
 	r := newRig(t)
 	r.loggedIn("main")
-	r.backedUp()
 	for _, q := range []string{
 		"INSERT INTO agent_state(agent, state, updated, account, account_source, resume_session, closed_at) VALUES('alice', 'idle', 1, 'main', 'x', 'sess', 5)",
 		"INSERT INTO cursors(name, row_id, updated) VALUES('usage-poll:main', 3, 0)"} {
@@ -148,7 +134,7 @@ func TestAccountRemoveLogsOutMovesTheDirectoryAsideAndForgetsItOnTheAgents(t *te
 	}
 }
 
-func TestAccountRemoveIsRefusedWhileAnAgentIsOnItWithoutABackupAndWhenTheLogoutFails(t *testing.T) {
+func TestAccountRemoveIsRefusedWhileAnAgentIsOnItAndWhenTheLogoutFails(t *testing.T) {
 	r := newRig(t)
 	r.loggedIn("main")
 	r.e.Run = func([]string, map[string]string) int { return 1 }
@@ -162,10 +148,6 @@ func TestAccountRemoveIsRefusedWhileAnAgentIsOnItWithoutABackupAndWhenTheLogoutF
 		}
 		return m["error"].(map[string]any)["message"].(string)
 	}
-	if got := refusal(rm("g1")); !strings.Contains(got, "not removing 'main': no backup from the last 5 minutes") {
-		t.Fatalf("%q", got)
-	}
-	r.backedUp()
 	if _, err := r.e.DB.Exec("INSERT INTO agent_state(agent, state, updated, account) VALUES('alice', 'idle', 1, 'main')"); err != nil {
 		t.Fatal(err)
 	}

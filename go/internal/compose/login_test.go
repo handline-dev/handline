@@ -42,7 +42,7 @@ func addEvent(t *testing.T, d *sql.DB, ts int64, agent, kind, payload string) {
 
 func TestAStopOnAStalledAccountLiftsTheStall(t *testing.T) {
 	d, accounts, _ := stallWorld(t)
-	p := loginPorts(accounts)
+	p := loginPorts(accounts, nil, nil)
 	now := time.Now().Unix()
 	if !p.Stall(d, "a", "acct", "oauth_org_not_allowed", "refused", now-10) {
 		t.Fatal("not stalled")
@@ -58,7 +58,7 @@ func TestAStopOnAStalledAccountLiftsTheStall(t *testing.T) {
 
 func TestOneCardPerAccountNotPerAgent(t *testing.T) {
 	d, accounts, _ := stallWorld(t)
-	p := loginPorts(accounts)
+	p := loginPorts(accounts, nil, nil)
 	now := time.Now().Unix()
 	if !p.Stall(d, "a", "acct", "oauth_org_not_allowed", "refused", now) || p.Stall(d, "b", "acct", "oauth_org_not_allowed", "refused", now) {
 		t.Fatal("the first sighting stands")
@@ -72,7 +72,7 @@ func TestOneCardPerAccountNotPerAgent(t *testing.T) {
 
 func TestUnliftedFailuresOfOneErrorAreCountedOnTheAccount(t *testing.T) {
 	d, accounts, _ := stallWorld(t)
-	p := loginPorts(accounts)
+	p := loginPorts(accounts, nil, nil)
 	then := time.Now().Add(-10 * time.Minute).Unix()
 	for i, agent := range []string{"a", "b", "a", "b"} {
 		addEvent(t, d, then+int64(i), agent, "StopFailure", `{"error": "brand_new_error"}`)
@@ -85,7 +85,7 @@ func TestUnliftedFailuresOfOneErrorAreCountedOnTheAccount(t *testing.T) {
 
 func TestALoginSinceTheFailuresLiftsThemAndStopsTheirCount(t *testing.T) {
 	d, accounts, cred := stallWorld(t)
-	p := loginPorts(accounts)
+	p := loginPorts(accounts, nil, nil)
 	then := time.Now().Add(-10 * time.Minute).Unix()
 	for i := int64(0); i < 4; i++ {
 		addEvent(t, d, then+i, "a", "StopFailure", `{"error": "brand_new_error"}`)
@@ -98,7 +98,7 @@ func TestALoginSinceTheFailuresLiftsThemAndStopsTheirCount(t *testing.T) {
 
 func TestTheReconcilerReleasesAStalledAgentOnceAStopLiftsTheStall(t *testing.T) {
 	d, accounts, _ := stallWorld(t)
-	p := loginPorts(accounts)
+	p := loginPorts(accounts, nil, nil)
 	now := time.Now().Unix()
 	addEvent(t, d, now-10, "a", "StopFailure", `{"error": "account_on_hold"}`)
 	p.Stall(d, "a", "acct", "account_on_hold", "held", now-10)
@@ -120,5 +120,30 @@ func TestTheReconcilerReleasesAStalledAgentOnceAStopLiftsTheStall(t *testing.T) 
 	}
 	if row, _ = db.GetAgentState(d, "a"); row.State != states.Idle {
 		t.Fatalf("%+v", row)
+	}
+}
+
+type raised []string
+
+func (r *raised) RaiseDecision(_ db.Q, agent, text, _ string) (int64, error) {
+	*r = append(*r, agent+": "+text)
+	return int64(len(*r)), nil
+}
+
+func TestTheFounderIsToldOnceAnAccountsAgentsHaveNowhereToGo(t *testing.T) {
+	d, accounts, _ := stallWorld(t)
+	var r raised
+	p := loginPorts(accounts, nil, &r)
+	ended := "subscription ended 2026-10-21 (month cycle)"
+	// Every tick, for each of its agents, and with the reason no other account has room moving as their windows do.
+	p.NoRoom(d, "a", "acct", ended, "acct's subscription has ended (other: 5h window at the wall)")
+	p.NoRoom(d, "b", "acct", ended, "acct's subscription has ended (other: weekly window at the wall)")
+	if len(r) != 1 || r[0] != "a: No account can take acct's agents\n\nacct's subscription has ended (other: 5h window at the wall)" {
+		t.Fatalf("%q", r)
+	}
+	p.NoRoom(d, "a", "acct", "a's turn ended on billing_error", "acct cannot be used")
+	p.NoRoom(d, "a", "other", ended, "other's subscription has ended")
+	if len(r) != 3 {
+		t.Fatalf("a new stall or another account is news: %q", r)
 	}
 }

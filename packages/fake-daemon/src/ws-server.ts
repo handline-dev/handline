@@ -5,6 +5,7 @@ import http from 'node:http';
 import https from 'node:https';
 import type { Duplex } from 'node:stream';
 import type { Transport } from '@handline/client';
+import { readFrame } from '@handline/client-node';
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
@@ -37,27 +38,10 @@ function wrap(sock: Duplex): Transport {
   sock.on('data', (d: Buffer) => {
     buf = Buffer.concat([buf, d]);
     for (;;) {
-      if (buf.length < 2) return;
-      const op = buf[0] & 15;
-      const first = buf[0]!;
-      let len = buf[1] & 127,
-        off = 2;
-      if (len === 126) {
-        if (buf.length < 4) return;
-        len = buf.readUInt16BE(2);
-        off = 4;
-      } else if (len === 127) {
-        if (buf.length < 10) return;
-        len = Number(buf.readBigUInt64BE(2));
-        off = 10;
-      }
-      const masked = (buf[1] & 128) !== 0;
-      if (buf.length < off + (masked ? 4 : 0) + len) return;
-      const mask = masked ? buf.subarray(off, off + 4) : null;
-      const payload = Buffer.from(buf.subarray(off + (masked ? 4 : 0), off + (masked ? 4 : 0) + len));
-      if (mask) for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i & 3];
-      buf = buf.subarray(off + (masked ? 4 : 0) + len);
-      const fin = (first & 128) !== 0;
+      const f = readFrame(buf);
+      if (!f) return;
+      const { fin, op, payload } = f;
+      buf = f.rest;
       if (op === 1 || op === 0) {
         parts.push(payload);
         if (fin) {

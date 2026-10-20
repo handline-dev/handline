@@ -6,7 +6,7 @@ import { isGate, isPerson, taskRef } from '@handline/app-core';
 import { Text, TextInput, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
-import { classify, sentence, useAgents, usePending, useServes, useWrite } from '@handline/app-data';
+import { classify, sentence, useAgents, usePendingAny, useServes, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { useConnection } from '@handline/app-react';
 import { usePalette } from '../theme.ts';
@@ -136,6 +136,9 @@ function ReasonSheet(props: {
 
 type Ask = null | 'ask' | 'done' | 'reopen' | 'withdraw' | 'cancel' | 'discard' | 'edit' | 'release' | 'merge' | 'assign';
 
+/** The sheets that take the task and a way to close: the verbs that ask for more than a reason. */
+const PANELS = { ask: AskAbout, release: ReleaseTask, merge: MergeTasks, assign: AssignTask, edit: EditTask } as const;
+
 /** The verbs of one task; each is shown only when it applies, and disabled with its reason when the daemon does not serve it. */
 export function TaskVerbs({ t }: { t: TaskDetail }) {
   const c = usePalette();
@@ -172,6 +175,26 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       () => setAsk(null),
       () => {},
     );
+  const reasons: Partial<Record<Exclude<Ask, null>, Omit<Parameters<typeof ReasonSheet>[0], 'onCancel' | 'onSubmit'> & { send: (text: string) => Promise<unknown> }>> = {
+    done: { label: 'done: what came of it?', submit: 'Done', required: true, send: (evidence) => done.mutateAsync({ task: t.id, evidence, reason: true }) },
+    reopen: { label: 'reopen: why?', submit: 'Reopen', required: true, send: (note) => reopen.mutateAsync({ task: t.id, note }) },
+    cancel: {
+      label: running ? `stop ${taskRef(t.id)}? why (optional):` : `cancel ${taskRef(t.id)}? why (optional):`,
+      submit: running ? 'Stop it' : 'Cancel task',
+      kind: 'no',
+      required: false,
+      send: (reason) => cancel.mutateAsync({ task: t.id, reason: reason || undefined }),
+    },
+    discard: {
+      label: running ? `stop ${taskRef(t.id)} and discard it? why:` : `discard ${taskRef(t.id)}? why:`,
+      submit: 'Discard',
+      kind: 'no',
+      required: true,
+      send: (reason) => discard.mutateAsync({ task: t.id, reason }),
+    },
+  };
+  const reason = ask ? reasons[ask] : undefined;
+  const Panel = ask ? PANELS[ask as keyof typeof PANELS] : undefined;
   const verb = (id: string, label: string, why: string | null, to: Ask) => (
     <Button key={id} testID={`verb-${id}`} label={label} disabled={!!why || ask !== null} onPress={() => (setMenu(null), setAsk(to))} />
   );
@@ -216,24 +239,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
         </View>
       )}
       {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: 12 }}>{Object.values(off).find(Boolean)}</Text>}
-      {ask === 'done' && (
-        <ReasonSheet
-          label="done: what came of it?"
-          submit="Done"
-          required
-          onCancel={() => setAsk(null)}
-          onSubmit={(evidence) => settle(done.mutateAsync({ task: t.id, evidence, reason: true }))}
-        />
-      )}
-      {ask === 'reopen' && (
-        <ReasonSheet
-          label="reopen: why?"
-          submit="Reopen"
-          required
-          onCancel={() => setAsk(null)}
-          onSubmit={(note) => settle(reopen.mutateAsync({ task: t.id, note }))}
-        />
-      )}
+      {reason && <ReasonSheet {...reason} onCancel={() => setAsk(null)} onSubmit={(text) => settle(reason.send(text))} />}
       {ask === 'withdraw' && (
         <Sheet
           label={`withdraw ${taskRef(t.id)}?`}
@@ -245,54 +251,52 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
           <Text style={{ color: c.muted }}>Takes the task back before anyone has started it.</Text>
         </Sheet>
       )}
-      {ask === 'cancel' && (
-        <ReasonSheet
-          label={running ? `stop ${taskRef(t.id)}? why (optional):` : `cancel ${taskRef(t.id)}? why (optional):`}
-          submit={running ? 'Stop it' : 'Cancel task'}
-          kind="no"
-          required={false}
-          onCancel={() => setAsk(null)}
-          onSubmit={(reason) => settle(cancel.mutateAsync({ task: t.id, reason: reason || undefined }))}
-        />
-      )}
-      {ask === 'discard' && (
-        <ReasonSheet
-          label={running ? `stop ${taskRef(t.id)} and discard it? why:` : `discard ${taskRef(t.id)}? why:`}
-          submit="Discard"
-          kind="no"
-          required
-          onCancel={() => setAsk(null)}
-          onSubmit={(reason) => settle(discard.mutateAsync({ task: t.id, reason }))}
-        />
-      )}
-      {ask === 'ask' && <AskAbout t={t} onClose={() => setAsk(null)} />}
-      {ask === 'release' && <ReleaseTask t={t} onClose={() => setAsk(null)} />}
-      {ask === 'merge' && <MergeTasks t={t} onClose={() => setAsk(null)} />}
-      {ask === 'assign' && <AssignTask t={t} onClose={() => setAsk(null)} />}
-      {ask === 'edit' && <EditTask t={t} onClose={() => setAsk(null)} />}
+      {Panel && <Panel t={t} onClose={() => setAsk(null)} />}
     </View>
   );
 }
 
+const TASK_WRITES = [
+  'task.done', 'task.reopen', 'task.withdraw', 'task.cancel', 'task.queue', 'task.draft', 'task.discard', 'task.edit', 'task.ask', 'task.release', 'task.merge',
+  'task.comment.add', 'task.comment.edit', 'task.comment.delete',
+] as const;
+
 /** Whether a write for this task is on its way: the detail shows a quiet mark until the daemon settles it. */
 export function useTaskPending(id: number): boolean {
-  const mine = (v: { task?: number; tasks?: number[] }) => v.task === id || !!v.tasks?.includes(id);
-  return [
-    ...usePending('task.done'),
-    ...usePending('task.reopen'),
-    ...usePending('task.withdraw'),
-    ...usePending('task.cancel'),
-    ...usePending('task.queue'),
-    ...usePending('task.draft'),
-    ...usePending('task.discard'),
-    ...usePending('task.edit'),
-    ...usePending('task.ask'),
-    ...usePending('task.release'),
-    ...usePending('task.merge'),
-    ...usePending('task.comment.add'),
-    ...usePending('task.comment.edit'),
-    ...usePending('task.comment.delete'),
-  ].some(mine);
+  const mine = (v: { task?: unknown; tasks?: unknown }) => v.task === id || (Array.isArray(v.tasks) && v.tasks.includes(id));
+  return usePendingAny(TASK_WRITES).some(mine);
+}
+
+interface TaskDraft {
+  owner: string;
+  title: string;
+  body: string;
+  box: string;
+  priority: 1 | 2 | 3;
+}
+
+/** The fields a new task and an edited one share: owner, title, body, time box, priority. `id` prefixes the test ids. */
+function TaskFields(p: { id: 'nt' | 'et'; owners: string[]; draft: TaskDraft; change: (patch: Partial<TaskDraft>) => void }) {
+  const c = usePalette();
+  const { id, draft, change } = p;
+  return (
+    <>
+      <Text style={{ color: c.muted, fontWeight: '600' }}>Owner</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+        {p.owners.map((a) => (
+          <Pill role="radio" key={a} on={draft.owner === a} label={a} onPress={() => change({ owner: a })} testID={`${id}-owner-${a}`} />
+        ))}
+      </View>
+      <Input testID={`${id}-title`} label="Title" value={draft.title} onChange={(title) => change({ title })} />
+      <ImageBodyInput testID={`${id}-body`} label="Body" value={draft.body} onChange={(body) => change({ body })} />
+      <Input testID={`${id}-box`} label="Time box" value={draft.box} onChange={(box) => change({ box })} />
+      <View style={{ flexDirection: 'row', gap: space.sm }}>
+        {PRIORITIES.map(([n, l]) => (
+          <Pill role="radio" key={n} on={draft.priority === n} label={l} onPress={() => change({ priority: n })} testID={`${id}-priority-${n}`} />
+        ))}
+      </View>
+    </>
+  );
 }
 
 /** New task: owner, title, body, time box, priority. The row shows in the list at once; a refusal leaves the text here with the reason. */
@@ -301,35 +305,21 @@ export function NewTask({ onClose }: { onClose: () => void }) {
   const ask = useWrite('task.new');
   const why = useWhyNot('task.new');
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
-  const [owner, setOwner] = useState('');
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
-  const [box, setBox] = useState('2h');
-  const [priority, setPriority] = useState<1 | 2 | 3>(2);
+  const [draft, setDraft] = useState<TaskDraft>({ owner: '', title: '', body: '', box: '2h', priority: 2 });
+  const change = (patch: Partial<TaskDraft>) => setDraft((d) => ({ ...d, ...patch }));
   const [missing, setMissing] = useState('');
   const send = () => {
+    const { owner, title, body, box, priority } = draft;
     if (!owner) return setMissing('Pick who it is for.');
     if (!title.trim()) return setMissing('A task needs a title.');
     setMissing('');
     ask.mutateAsync({ owner, title: title.trim(), body, time_box: box.trim() || '2h', priority }).then(onClose, () => {});
   };
   const said = missing || (ask.isError ? sentence(classify(ask.error)) : '');
-  const chip = (on: boolean, label: string, onPress: () => void, testID: string) => (
-    <Pill role="radio" key={testID} on={on} label={label} onPress={onPress} testID={testID} />
-  );
   return (
     <View testID="new-task" style={{ gap: space.md, padding: space.lg }}>
       <PageHeader bare title="New task" />
-      <Text style={{ color: c.muted, fontWeight: '600' }}>Owner</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-        {agents.map((a) => chip(owner === a, a, () => setOwner(a), `nt-owner-${a}`))}
-      </View>
-      <Input testID="nt-title" label="Title" value={title} onChange={setTitle} />
-      <ImageBodyInput testID="nt-body" label="Body" value={body} onChange={setBody} />
-      <Input testID="nt-box" label="Time box" value={box} onChange={setBox} />
-      <View style={{ flexDirection: 'row', gap: space.sm }}>
-        {PRIORITIES.map(([p, l]) => chip(priority === p, l, () => setPriority(p), `nt-priority-${p}`))}
-      </View>
+      <TaskFields id="nt" owners={agents} draft={draft} change={change} />
       {said ? (
         <Text testID="nt-error" accessibilityRole="alert" style={{ color: c.block }}>
           {said}
@@ -346,16 +336,13 @@ export function NewTask({ onClose }: { onClose: () => void }) {
 
 /** Edit: only what changed is sent. The sheet stays open with the text when the daemon refuses. */
 function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
-  const c = usePalette();
   const edit = useWrite('task.edit');
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
-  const [title, setTitle] = useState(t.title);
-  const [body, setBody] = useState(t.body ?? '');
-  const [owner, setOwner] = useState(t.to);
-  const [box, setBox] = useState(t.time_box ?? '');
-  const [priority, setPriority] = useState<1 | 2 | 3>(t.priority ?? 2);
+  const [draft, setDraft] = useState<TaskDraft>({ owner: t.to, title: t.title, body: t.body ?? '', box: t.time_box ?? '', priority: t.priority ?? 2 });
+  const change = (patch: Partial<TaskDraft>) => setDraft((d) => ({ ...d, ...patch }));
   const [missing, setMissing] = useState('');
   const save = () => {
+    const { owner, title, body, box, priority } = draft;
     if (!title.trim()) return setMissing('A task needs a title.');
     setMissing('');
     const change = {
@@ -377,20 +364,7 @@ function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
       onSubmit={save}
       error={missing || (edit.isError ? sentence(classify(edit.error)) : undefined)}
     >
-      <Text style={{ color: c.muted, fontWeight: '600' }}>Owner</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-        {[...new Set([t.to, ...agents])].map((a) => (
-          <Pill role="radio" key={a} on={owner === a} label={a} onPress={() => setOwner(a)} testID={`et-owner-${a}`} />
-        ))}
-      </View>
-      <Input testID="et-title" label="Title" value={title} onChange={setTitle} />
-      <ImageBodyInput testID="et-body" label="Body" value={body} onChange={setBody} />
-      <Input testID="et-box" label="Time box" value={box} onChange={setBox} />
-      <View style={{ flexDirection: 'row', gap: space.sm }}>
-        {PRIORITIES.map(([p, l]) => (
-          <Pill role="radio" key={p} on={priority === p} label={l} onPress={() => setPriority(p)} testID={`et-priority-${p}`} />
-        ))}
-      </View>
+      <TaskFields id="et" owners={[...new Set([t.to, ...agents])]} draft={draft} change={change} />
     </Sheet>
   );
 }

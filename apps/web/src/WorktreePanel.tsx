@@ -1,7 +1,8 @@
 // One worktree beside the list: where it is, who owns it, how it relates to others, and the files it changed.
 import type { Worktree } from '@handline/client';
+import { STATUSES, type Moves } from '@handline/app-data';
 import { Button, Select } from './ui/index.ts';
-import { STATUSES, type Moves } from './WorktreeBoard.tsx';
+
 import { goAgent, goWorktrees } from './route.ts';
 import { Owner, Status, sums } from './Worktrees.tsx';
 

@@ -2,7 +2,7 @@
 // answers with Add and Remove. All of it is authored: a change shows at once and goes back with the daemon's reason when refused.
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { INVALID, minutesOf, parseCap, parseMinutes } from '@handline/app-core';
+import { INVALID, capField, idleField } from '@handline/app-core';
 import type { CallParams, SettingsChanges } from '@handline/client';
 import { classify, sentence, useAnswers, useServes, useSettings, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
@@ -293,23 +293,13 @@ function Settings(props: { footer: React.ReactNode }) {
           <View style={{ gap: space.lg }}>
             <Field
               id="cap"
-              label="Default cap"
+              {...capField(v.active_cap)}
               hint="Agents working at once on an account. An account with its own cap keeps it."
-              unit="agents"
-              current={v.active_cap === undefined ? '' : String(v.active_cap)}
-              parse={parseCap}
-              change={(n) => ({ active_cap: n })}
-              allowed="a whole number from 1, or empty for the default"
             />
             <Field
               id="idle"
-              label="Idle close"
+              {...idleField(v.park_timeout_s)}
               hint="Idle time before a session closes. 0 is never."
-              unit="min"
-              current={minutesOf(v.park_timeout_s)}
-              parse={parseMinutes}
-              change={(s) => ({ park_timeout_s: s })}
-              allowed="whole minutes, 0 for never, or empty for the default"
             />
             <Toggle
               id="handoff"

@@ -91,6 +91,15 @@ export function usePending<M extends WriteMethod>(method: M): CallParams<M>[] {
   });
 }
 
+/** The variables of the writes now in flight for any of these methods. */
+export function usePendingAny(methods: readonly WriteMethod[]): Record<string, unknown>[] {
+  const { daemon } = useData();
+  return useMutationState({
+    filters: { status: 'pending', predicate: (m) => m.options.mutationKey?.[1] === daemon && methods.includes(m.options.mutationKey?.[2] as WriteMethod) },
+    select: (m) => m.state.variables as Record<string, unknown>,
+  });
+}
+
 /** True while a write is in flight (the desktop shell holds back a restart over it); the notes that messages were seen or read lose nothing if cut off. */
 export const useBusy = (): boolean =>
   useIsMutating({ predicate: (m) => !['chat.seen', 'inbox.mark_read'].includes(String(m.options.mutationKey?.at(-1))) }) > 0;

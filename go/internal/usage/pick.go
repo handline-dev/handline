@@ -43,11 +43,11 @@ func (e *Env) NotFor(acct, vendor string) string {
 	if !e.metered(acct) {
 		return UnmeteredWhy
 	}
-	return e.endedWhy(acct)
+	return e.EndedWhy(acct)
 }
 
-// endedWhy is cycle.ended_why: why the account is out for good now, "" while it is not.
-func (e *Env) endedWhy(acct string) string {
+// EndedWhy is cycle.ended_why: why the account is out for good now, "" while it is not.
+func (e *Env) EndedWhy(acct string) string {
 	cfg, now := e.config(), time.Unix(int64(e.now()), 0)
 	end, ok := cfg.EndOf(e.Home, acct, now)
 	if !ok || now.Before(end) {

@@ -1,30 +1,15 @@
 // The Team list: who is who and who may ask whom, as the web's TeamPage reads team.get. A card opens to the agents it may ask and be asked by.
-import { useState } from 'react';
 import { taskRef } from '@handline/app-core';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { AgentView, TeamAgent } from '@handline/client';
-import { useAgents, useServes, useTeam } from '@handline/app-data';
+import { useTeamBoard } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
 
-/** The agents under one "reports to": the roots first, then each manager's reports, each group sorted by name. */
-export function groups(agents: TeamAgent[]): { parent: string | null; agents: TeamAgent[] }[] {
-  const by = new Map<string | null, TeamAgent[]>();
-  for (const a of [...agents].sort((x, y) => x.name.localeCompare(y.name))) by.set(a.parent, [...(by.get(a.parent) ?? []), a]);
-  return [...by.entries()]
-    .sort(([x], [y]) => (x === null ? -1 : y === null ? 1 : x.localeCompare(y)))
-    .map(([parent, list]) => ({ parent, agents: list }));
-}
-
 export function Team() {
   const c = usePalette();
-  const query = useTeam();
-  const { served } = useServes('team.get');
-  const agents = useAgents().data?.agents ?? [];
-  const [open, setOpen] = useState<string | null>(null);
-  const team = query.data;
-  const doing = (name: string): AgentView | undefined => agents.find((a) => a.name === name);
+  const { query, served, team, groups, edges, doing, isOpen, toggle } = useTeamBoard();
   return (
     <Loadable
       query={query}
@@ -35,7 +20,7 @@ export function Team() {
       empty="No agents in the team."
     >
       <ScrollView testID="team-list" contentContainerStyle={{ padding: space.lg, gap: space.md }}>
-        {groups(team?.agents ?? []).map((g) => (
+        {groups.map((g) => (
           <View key={g.parent ?? ''} style={{ gap: space.sm }}>
             <Text style={{ color: c.muted, fontWeight: '600' }}>{g.parent ? `Reports to ${g.parent}` : 'Top of the team'}</Text>
             {g.agents.map((a) => (
@@ -43,9 +28,9 @@ export function Team() {
                 key={a.name}
                 a={a}
                 d={doing(a.name)}
-                edges={team?.edges ?? []}
-                open={open === a.name}
-                onPress={() => setOpen(open === a.name ? null : a.name)}
+                edges={edges}
+                open={isOpen(a.name)}
+                onPress={() => toggle(a.name)}
               />
             ))}
           </View>

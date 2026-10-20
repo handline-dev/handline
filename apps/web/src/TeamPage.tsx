@@ -1,8 +1,7 @@
 // The Team page: two tabs, Team (who is who, and who may ask whom) and HR (the proposals that wait for the founder).
-import { useState } from 'react';
 import { waitingCount, taskRef } from '@handline/app-core';
 import type { AgentView, TeamAgent } from '@handline/client';
-import { useAgents, useHr, useServes, useTeam } from '@handline/app-data';
+import { useHr, useServes, useTeamBoard } from '@handline/app-data';
 import { HrTab } from './HrTab.tsx';
 import { Empty, Icon, PageHead, PageTitle, ScrollPage, MetaItem, MetaLine, State, TabStrip, stateOfView } from './ui/index.ts';
 import { goAgent, goTeam, useTeamRoute } from './route.ts';
@@ -50,29 +49,15 @@ export function TeamPage() {
   );
 }
 
-/** The agents under one "reports to": the roots first, then each manager's reports, each group sorted by name. */
-export function groups(agents: TeamAgent[]): { parent: string | null; agents: TeamAgent[] }[] {
-  const by = new Map<string | null, TeamAgent[]>();
-  for (const a of [...agents].sort((x, y) => x.name.localeCompare(y.name))) by.set(a.parent, [...(by.get(a.parent) ?? []), a]);
-  return [...by.entries()]
-    .sort(([x], [y]) => (x === null ? -1 : y === null ? 1 : x.localeCompare(y)))
-    .map(([parent, list]) => ({ parent, agents: list }));
-}
-
 function TeamTable() {
-  const q = useTeam();
-  const { served } = useServes('team.get');
-  const agents = useAgents().data?.agents ?? [];
-  const [open, setOpen] = useState<string | null>(null);
-  const team = q.data;
-  const doing = (name: string): AgentView | undefined => agents.find((a) => a.name === name);
+  const { query: q, served, team, groups, edges, doing, isOpen, toggle } = useTeamBoard();
   return (
     <View q={q} served={served} shape="team" what="the team" empty={false}>
       {team && !team.agents.length ? (
         <Empty icon="team" name="No agents in the team" />
       ) : (
         <div className="team-board grid gap-4">
-          {groups(team?.agents ?? []).map((g) => (
+          {groups.map((g) => (
             <section key={g.parent ?? ''} className="team-group" aria-label={g.parent ? `Reports to ${g.parent}` : 'Top of the team'}>
               {g.parent ? (
                 <h3 className="mx-0 mt-0 mb-2 flex items-center gap-1 text-label font-normal text-ink-3" title="Reports to">
@@ -85,9 +70,9 @@ function TeamTable() {
                     key={a.name}
                     a={a}
                     d={doing(a.name)}
-                    edges={team?.edges ?? []}
-                    open={open === a.name}
-                    onOpen={() => setOpen(open === a.name ? null : a.name)}
+                    edges={edges}
+                    open={isOpen(a.name)}
+                    onOpen={() => toggle(a.name)}
                   />
                 ))}
               </div>

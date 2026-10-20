@@ -3,9 +3,9 @@
 // field's own note says why. The two danger switches ask first. Schedules sit below. Mount it with the agent's name and a way back.
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { DANGER, FIELDS, mayChange, problemWith, type Field } from '@handline/app-core';
+import { DANGER, FIELDS, type Field } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
-import { classify, sentence, useAgentDetail, usePending, useServes, useSettings, useWrite } from '@handline/app-data';
+import { useAgentDetail, useFieldRow, useServes } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Loadable } from './Loadable.tsx';
@@ -68,33 +68,8 @@ export function AgentSettings({ agent, onBack }: { agent: string; onBack: () => 
 
 function FieldRow(props: { agent: string; f: Field; stored: string | undefined; editable: boolean; role: string | undefined }) {
   const c = usePalette();
-  const { agent, f, role } = props;
-  const stored = props.stored ?? '';
-  const write = useWrite('agent.set', agent);
-  const pending = usePending('agent.set').some((v) => v.agent === agent && f.key in v.values);
-  const global = useSettings().data?.values?.handoff_note;
-  const [draft, setDraft] = useState<string | null>(null);
-  const [note, setNote] = useState('');
-  const [ask, setAsk] = useState<string | null>(null); // a danger switch waiting for its confirmation
-  const allowed = mayChange(f.key, role);
-  const off = !props.editable || !allowed;
-  const value = draft ?? stored;
-  const send = (v: string) => {
-    setDraft(null);
-    setNote('');
-    if (v === stored) return;
-    write.mutateAsync({ agent, values: { [f.key]: v } }).catch((e) => setNote(sentence(classify(e))));
-  };
-  const commit = () => {
-    const problem = problemWith(f, value);
-    if (problem) return setNote(`${f.label}: ${problem}`);
-    send(f.kind === 'number' ? String(Number(value)) : value.trim());
-  };
-  const choose = (v: string) => {
-    if (f.kind === 'switch' && DANGER[f.key]?.to === v) return setAsk(v);
-    send(v);
-  };
-  const options = f.kind === 'select' ? (f.options!.includes(value) ? f.options! : [value, ...f.options!]) : [];
+  const { f } = props;
+  const { stored, pending, global, draft, setDraft, note, setNote, ask, setAsk, allowed, off, value, send, commit, choose, options } = useFieldRow(props);
   const danger = ask ? DANGER[f.key] : undefined;
   const follows =
     f.key === 'handoff_note' ? `default follows the global switch${global === undefined ? '' : global ? ' (on)' : ' (off)'}` : '';
@@ -157,7 +132,7 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
             setDraft(t);
             setNote('');
           }}
-          onSubmitEditing={commit}
+          onSubmitEditing={() => commit(value)}
           style={{
             flex: 1,
             color: c.ink,
@@ -170,7 +145,7 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
           }}
         />
         {unitOf(f) ? <Text style={{ color: c.muted }}>{unitOf(f)}</Text> : null}
-        <Button testID={`${f.key}-save`} label="Save" disabled={off || draft === null} onPress={commit} />
+        <Button testID={`${f.key}-save`} label="Save" disabled={off || draft === null} onPress={() => commit(value)} />
       </View>
     );
   };

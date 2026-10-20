@@ -35,10 +35,15 @@ type Login struct {
 	// Stall stalls the account and records the event for it, stamped at (the second of the failure, so a login made since ends it);
 	// false when the account is already stalled (the first sighting stands).
 	Stall func(q db.Q, agent, acct, errType, why string, at int64) bool
+	// Ended is why the account's month cycle is over, "" while it is not: its agents leave it as they leave a stalled one.
+	Ended func(acct string) string
+	// NoRoom puts text in front of the founder: no other account can take acct's agents. Once per account and key (the stall or the
+	// end), whatever the text: the reason no account has room changes as their windows move.
+	NoRoom func(q db.Q, agent, acct, key, text string)
 }
 
-// loginExpired is login_expired.check: an agent with a live session on a stalled account leaves it, level-triggered on the
-// account's stall. True when the agent was dealt with and the tick has nothing more to do for it.
+// loginExpired is login_expired.check: an agent with a live session on a stalled or ended account leaves it, level-triggered on the
+// account's stall or end. True when the agent was dealt with and the tick has nothing more to do for it.
 func (t *Tick) loginExpired(agent string, row *db.AgentState, acct string, actions *[]string) bool {
 	l := t.Login
 	if l.Stalled == nil || acct == "" || row == nil || closedAt(row) || !t.Host.SessionAlive(agent) ||
@@ -46,7 +51,11 @@ func (t *Tick) loginExpired(agent string, row *db.AgentState, acct string, actio
 		return false
 	}
 	why, errType, stalled := l.Stalled(t.Q, acct)
-	if !stalled {
+	ended := ""
+	if !stalled && l.Ended != nil {
+		ended = l.Ended(acct)
+	}
+	if !stalled && ended == "" {
 		var details string
 		var at int64
 		var failed bool
@@ -68,24 +77,43 @@ func (t *Tick) loginExpired(agent string, row *db.AgentState, acct string, actio
 			t.logf("  %s: STALLED (%s), no launch lands on it", acct, why)
 		}
 	}
-	word := team.StallWord(errType)
-	dest, noMove := t.Handoff.MovePlan(t.Q, agent, "login")
+	// A stalled account's turn has already failed, so its agents go at once; an ended one still answers, so a turn in flight finishes first.
+	word, kind := team.StallWord(errType), "login"
+	if ended != "" {
+		word, why, kind = "subscription ended", ended, "ended"
+	}
+	dest, noMove := t.Handoff.MovePlan(t.Q, agent, kind)
+	if dest == "" && ended != "" {
+		// An ended account that still answers is better than none: the agent stays on it until another has room.
+		t.noRoom(agent, acct, why, fmt.Sprintf("%s's subscription has ended and no other account can take its agents (%s), so they stay on it "+
+			"while it still answers. Free room on another account, add one, or resubscribe and set %s's new end day in the app's settings.",
+			acct, noMove, acct))
+		return false
+	}
 	if dest == "" {
 		// Nothing is waiting out a window here, so a retry loop would only fail again: the agent is shown as stopped, and the
 		// reconciler's lift releases it once the account's stall ends.
 		detail := fmt.Sprintf("%s on %s and %s (%s) - log %s in, or wake it, in the app's Accounts page", word, acct, LoginStall, noMove, acct)
 		check(db.SetAgentState(t.Q, agent, states.Stalled, 0, cut(detail, 300)))
+		t.noRoom(agent, acct, why, fmt.Sprintf("%s cannot be used (%s) and no other account can take its agents (%s), so they are STALLED. "+
+			"Log %s in, or wake it, in the app's Accounts page, or free room on another account.", acct, word, noMove, acct))
 		*actions = append(*actions, fmt.Sprintf("%s: STALLED, %s on %s", agent, word, acct))
 		t.logf("  %s: %s", agent, detail)
 		return true
 	}
-	ok := t.Handoff.PerformHandoff(t.Q, agent, Trigger{true, "login", fmt.Sprintf("%s on %s: %s", word, acct, why)}, dest)
+	ok := t.Handoff.PerformHandoff(t.Q, agent, Trigger{true, kind, fmt.Sprintf("%s on %s: %s", word, acct, why)}, dest)
 	suffix := ""
 	if !ok {
 		suffix = " -> degraded"
 	}
-	*actions = append(*actions, fmt.Sprintf("%s: handoff (login)%s", agent, suffix))
+	*actions = append(*actions, fmt.Sprintf("%s: handoff (%s)%s", agent, kind, suffix))
 	return true
+}
+
+func (t *Tick) noRoom(agent, acct, key, text string) {
+	if t.Login.NoRoom != nil {
+		t.Login.NoRoom(t.Q, agent, acct, key, text)
+	}
 }
 
 func cut(s string, n int) string {
