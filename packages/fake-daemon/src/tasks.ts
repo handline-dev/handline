@@ -370,6 +370,9 @@ const VERBS = new Set([
   'task.discard',
   'task.release',
   'task.merge',
+  'task.comment.add',
+  'task.comment.edit',
+  'task.comment.delete',
   'task.memo.add',
   'task.memo.edit',
   'task.memo.delete',
@@ -431,10 +434,13 @@ export function taskCall(
         return (tasks.release(p), ok('Task released.'));
       case 'task.merge':
         return (tasks.merge(p), ok('Tasks folded.'));
+      case 'task.comment.add':
       case 'task.memo.add':
         return ok('Memo added.', { memo: tasks.memo(p, 'add', person, agent) });
+      case 'task.comment.edit':
       case 'task.memo.edit':
         return (tasks.memo(p, 'edit', person, agent), ok('Memo changed.'));
+      case 'task.comment.delete':
       case 'task.memo.delete':
         return (tasks.memo(p, 'delete', person), ok('Memo deleted.'));
       default:

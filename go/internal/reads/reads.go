@@ -69,7 +69,8 @@ func Register(s *rpc.Server, env Env) {
 	s.Register("task.view.list", rpc.Method{Role: "member", Handler: e.taskViews})
 	s.Register("task.history", rpc.Method{Role: "agent", Handler: e.taskHistory})
 	s.Register("task.time", rpc.Method{Role: "agent", Handler: e.taskTime})
-	s.Register("task.memo.list", rpc.Method{Role: "agent", Handler: e.taskMemoList})
+	s.Register("task.comment.list", rpc.Method{Role: "agent", Handler: e.taskMemoList})
+	s.Register("task.memo.list", rpc.Method{Role: "agent", Handler: e.taskMemoList}) // the old name
 	s.Register("events.feed", rpc.Method{Role: "agent", Handler: e.eventsFeed})
 	s.Register("prompt.list", rpc.Method{Role: "member", Handler: e.promptList})
 	s.Register("settings.get", rpc.Method{Role: "founder", Handler: e.settingsGet})
