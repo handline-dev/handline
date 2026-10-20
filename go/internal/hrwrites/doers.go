@@ -628,12 +628,12 @@ func (e *Env) doGlobal(p step) (bool, string, error) {
 			return false, switchName + " takes go: the Python daemon is being removed", nil
 		}
 		set = func(_ func(string) any, put func(string, any)) { put("daemon_impl", value) }
-	case "ignore-cache-expiry", "auto-accept", "dev-mode":
+	case "ignore-cache-expiry", "dev-mode":
 		if value != "on" && value != "off" {
 			return false, switchName + " takes on or off", nil
 		}
 		on := value == "on"
-		key := map[string]string{"ignore-cache-expiry": "ignore_cache_expiry", "auto-accept": "auto_accept_dialogs", "dev-mode": "dev_mode"}[switchName]
+		key := map[string]string{"ignore-cache-expiry": "ignore_cache_expiry", "dev-mode": "dev_mode"}[switchName]
 		set = func(_ func(string) any, put func(string, any)) {
 			switch {
 			case switchName == "ignore-cache-expiry" && !on:

@@ -319,13 +319,6 @@ function Settings(props: { footer: React.ReactNode }) {
               change={(on) => ({ handoff_note: on })}
             />
             <Toggle
-              id="auto"
-              label="Auto-accept"
-              hint="Answer the dialogs under Standing answers by itself"
-              on={!!v.auto_accept_dialogs}
-              change={(on) => ({ auto_accept_dialogs: on })}
-            />
-            <Toggle
               id="cache"
               label="Ignore cache expiry"
               hint="Resume the old session even after its cache went cold"

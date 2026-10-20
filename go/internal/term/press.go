@@ -191,9 +191,6 @@ func (t *Term) DeclineDialog(handle string) (string, string, string) {
 	return t.pressDialog(handle, DecliningKey, "Esc", false)
 }
 
-// AcceptsTool is whether a permission prompt for tool on this terminal may be said yes to.
-func (t *Term) AcceptsTool(handle, tool string) bool { return t.driver(handle).AcceptsTool(tool) }
-
 // AnswerDialog presses the number of the option choose(vendor, dialog) names on the dialog on this terminal's screen. The number
 // is read off the screen just read, never remembered. A vendor's folder-trust screen is never answered here: that stays with the
 // trust roots. A number over 9 is not one key and is refused (choose returns 0 for no answer).

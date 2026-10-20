@@ -175,7 +175,6 @@ describe('settings', () => {
     expect(field('Default cap').value).toBe('4');
     expect(field('Idle close').value).toBe('30');
     expect(toggle('Handoff note').getAttribute('aria-checked')).toBe('true');
-    expect(toggle('Auto-accept').getAttribute('aria-checked')).toBe('false');
   });
 
   it('the cap saves on leaving the field, clearing it sends null, and a bad value sends nothing and says what is allowed', async () => {
@@ -215,11 +214,9 @@ describe('settings', () => {
     await until(() => field('Default cap').value === '4', 'the value back');
   });
 
-  it('the switches save on change', async () => {
+  it('a switch saves on change', async () => {
     const s = await mount('#/settings');
-    await until(() => toggle('Auto-accept'), 'the fields');
-    await click(toggle('Auto-accept'));
-    await until(() => s.daemon.admin.settings().values.auto_accept_dialogs === true, 'auto-accept');
+    await until(() => toggle('Handoff note'), 'the fields');
     await click(toggle('Handoff note'));
     await until(() => s.daemon.admin.settings().values.handoff_note === false, 'handoff note');
   });

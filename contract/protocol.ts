@@ -1046,8 +1046,6 @@ export type SettingsValues = {
   park_timeout_s?: number;
   /** Agents write a note for the next session before a close or move. */
   handoff_note?: boolean;
-  /** Answer dialogs by the standing rules by itself. Retired in a daemon that answers no dialog (x-dialogs): ignored. */
-  auto_accept_dialogs?: boolean;
   /** Resume the old session even after its cache went cold. Per agent with `agent`. */
   ignore_cache_expiry?: boolean;
   /** The daemon restarts itself when its own code changed (hl dev-mode). */
@@ -1090,8 +1088,6 @@ export type SettingsChanges = {
   park_timeout_s?: number | null;
   /** Agents write a note for the next session before a close or move. null removes the key (back to the default). */
   handoff_note?: boolean | null;
-  /** Answer dialogs by the standing rules by itself. null removes the key (back to the default). Retired in a daemon that answers no dialog (x-dialogs): ignored. */
-  auto_accept_dialogs?: boolean | null;
   /** Resume the old session even after its cache went cold. Per agent with `agent`. null removes the key (back to the default). */
   ignore_cache_expiry?: boolean | null;
   /** The daemon restarts itself when its own code changed (hl dev-mode). null removes the key (back to the default). */

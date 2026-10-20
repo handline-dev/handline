@@ -20,8 +20,6 @@ type fakeTerm struct {
 	dialogs  map[string]*term.Dialog
 	reads    int
 	usage    map[string]bool
-	vendor   string
-	accepts  map[string]bool
 	press    map[string][3]string // handle -> outcome, title, why of the next press
 	pressed  []string
 	cachedNB []time.Time
@@ -29,7 +27,7 @@ type fakeTerm struct {
 
 func newFakeTerm() *fakeTerm {
 	return &fakeTerm{live: map[string]bool{}, blockers: map[string]*term.Blocker{}, dialogs: map[string]*term.Dialog{},
-		usage: map[string]bool{}, accepts: map[string]bool{}, press: map[string][3]string{}, vendor: "claude"}
+		usage: map[string]bool{}, press: map[string][3]string{}}
 }
 
 func (f *fakeTerm) Available() bool                      { return !f.down }
@@ -43,8 +41,6 @@ func (f *fakeTerm) ScreenBlockerCached(h string, nb time.Time) *term.Blocker {
 func (f *fakeTerm) UsageLimitOpen(h string) bool         { return f.usage[h] }
 func (f *fakeTerm) DialogOnScreen(h string) *term.Dialog { return f.dialogs[h] }
 func (f *fakeTerm) ScreenText(h string) (string, bool)   { return "line1\nline2", true }
-func (f *fakeTerm) AcceptsTool(h, tool string) bool      { return f.accepts[tool] }
-func (f *fakeTerm) VendorOf(string) string               { return f.vendor }
 func (f *fakeTerm) next(kind, h string) (string, string, string) {
 	f.pressed = append(f.pressed, kind+":"+h)
 	p, ok := f.press[h]
@@ -55,15 +51,6 @@ func (f *fakeTerm) next(kind, h string) (string, string, string) {
 }
 func (f *fakeTerm) DeclineDialog(h string) (string, string, string)   { return f.next("decline", h) }
 func (f *fakeTerm) StopWorkAndExit(h string) (string, string, string) { return f.next("stop", h) }
-func (f *fakeTerm) AcceptDialog(h, tool string) (string, string, string) {
-	return f.next("accept "+tool, h)
-}
-func (f *fakeTerm) AnswerDialog(h string, choose func(string, *term.Dialog) int) (string, string, string) {
-	if d := f.dialogs[h]; d != nil {
-		choose(f.vendor, d)
-	}
-	return f.next("answer", h)
-}
 
 type fixture struct {
 	*Env
@@ -218,35 +205,4 @@ func (b *blockedFixture) at(secs int64) { b.now = b.t0 + secs }
 
 func exitDialogBlocker() *term.Blocker {
 	return &term.Blocker{Kind: term.Modal, Title: "Background work is running", Detail: "Background work is running - Exit and stop tasks / Stay"}
-}
-
-type fakeConfig struct{ flags map[string]bool }
-
-func (c *fakeConfig) Flag(k string, def bool) bool {
-	if v, ok := c.flags[k]; ok {
-		return v
-	}
-	return def
-}
-func (c *fakeConfig) SetFlag(k string, v bool) error { c.flags[k] = v; return nil }
-
-// fakeRules maps (vendor, title) to the label it answers with.
-type fakeRules map[[2]string]string
-
-func (r fakeRules) Titles() map[[2]string]bool {
-	out := map[[2]string]bool{}
-	for k := range r {
-		out[k] = true
-	}
-	return out
-}
-
-func (r fakeRules) Match(vendor, title string, numbers []int, labels []string) int {
-	want, ok := r[[2]string{vendor, title}]
-	for i, l := range labels {
-		if ok && l == want {
-			return numbers[i]
-		}
-	}
-	return 0
 }
