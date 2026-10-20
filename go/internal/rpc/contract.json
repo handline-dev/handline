@@ -189,6 +189,9 @@
  "operation.get": {
   "role": "member"
  },
+ "permission.ask": {
+  "role": "agent"
+ },
  "pr.exists": {
   "role": "member"
  },

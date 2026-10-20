@@ -98,7 +98,8 @@ A method marked write takes a required `request_id`.
 | `session.type` | member | yes | `agent`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | role, terminal_lock, input_holder, unsupported |
 | `session.interrupt` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role, terminal_lock, input_holder |
 | `prompt.list` | member |  | `agent` | `{prompts}` | `not_found` |  |
-| `prompt.answer` | member | yes | `agent`, `prompt`, `choice`, `request_id` | `Accepted` | `refused`, `not_found`, `stale_prompt` | role, terminal_lock, input_holder |
+| `prompt.answer` | member | yes | `agent`, `prompt`, `choice`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `stale_prompt` | role, terminal_lock, input_holder |
+| `permission.ask` | agent |  | `tool`, `input` | `{behavior, message}` | `bad_request`, `refused` |  |
 | `input.take` | member | yes | `agent`, `force?`, `request_id` | `Accepted & {holder}` | `refused`, `not_found` | role, input_holder, unsupported |
 | `input.release` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role, unsupported |
 | `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{messages, more}` | `not_found`, `bad_request` |  |
@@ -331,7 +332,11 @@ The open permission prompts and dialogs.
 
 ### `prompt.answer`
 
-Answer the prompt the caller saw; if it changed nothing is sent. For a structured agent's permission prompt the choice is one of its option keys, allow or deny; yes, no or esc is bad_request (field choice). No terminal lock or input hold applies.
+Answer the prompt the caller saw; if it changed nothing is sent. For a structured agent's permission prompt the choice is one of its option keys, allow or deny; yes, no or esc is bad_request (field choice). No terminal lock or input hold applies. A prompt whose source is hook is answered the same way, allow or deny, through the call that is waiting on it (permission.ask).
+
+### `permission.ask`
+
+An agent's session asks the founder whether it may run a tool call, and waits for the answer. Called by `hl hook PermissionRequest`. Raises a Prompt of kind permission, source hook, with options allow and deny, and holds the call until prompt.answer answers it, the caller hangs up, or an hour passes. One such prompt per agent is open at a time; a second call waits for the first to close. Nothing is typed into the agent's terminal. Refused for a caller that is not an agent's session.
 
 ### `input.take`
 

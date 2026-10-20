@@ -96,6 +96,8 @@ export type Prompt = {
   since: Timestamp;
   /** Several options may be picked, then submitted: prompt.answer takes `choice` as an array of PromptOption.key. Absent means false, as for every other prompt, where an array is bad_request. */
   multi?: boolean;
+  /** hook: asked through permission.ask, answered allow or deny with no terminal typed into. Absent for a prompt read from the agent's screen. */
+  source?: "hook";
 };
 
 export type Block = {
@@ -1799,8 +1801,21 @@ export interface Methods {
   choice: string | string[] | {
     text: string;
   };
+  /** With choice deny on a prompt whose source is hook: a short reason, given to the agent with the deny. bad_request (field note) on any other answer. */
+  note?: string;
   request_id: RequestId;
 }; result: Accepted };
+  "permission.ask": { params: {
+  /** The tool's name, as the PermissionRequest hook gives it. */
+  tool: string;
+  /** The tool call's input as the hook gives it (tool_input): for Bash, command and description. */
+  input: { [key: string]: unknown };
+}; result: {
+    /** The founder's answer; null when the call ended with none (an hour passed), and the agent's own dialog shows in its terminal. */
+    behavior: ("allow" | "deny") | null;
+    /** With deny: what the agent is told, with the founder's note when one was given. */
+    message?: string;
+  } };
   "input.take": { params: {
   agent: AgentName;
   /** Take the input from the person or device that holds it instead of being refused; the holder notice tells them. It never types into the agent's own turn: typing still waits for it. */
@@ -2891,6 +2906,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "session.interrupt": { role: "member", callers: null, write: true, since: 1 },
   "prompt.list": { role: "member", callers: null, write: false, since: 1 },
   "prompt.answer": { role: "member", callers: null, write: true, since: 1 },
+  "permission.ask": { role: "agent", callers: null, write: false, since: 1 },
   "input.take": { role: "member", callers: null, write: true, since: 1 },
   "input.release": { role: "member", callers: null, write: true, since: 1 },
   "chat.messages": { role: "member", callers: null, write: false, since: 1 },
