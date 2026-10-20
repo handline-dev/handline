@@ -638,6 +638,29 @@ func TestASlowStartOpensOneTerminalWhoeverElseAsksMeanwhile(t *testing.T) {
 	}
 }
 
+// A recorded worktree that is gone is made again from its branch and started in; one that cannot be is a failed start that says why,
+// never a fresh worktree in its place.
+func TestAGoneWorktreeIsMadeAgainOrTheStartFailsWithWhy(t *testing.T) {
+	m, _, _ := newManager(t)
+	sp := m.Spawn.(*fakeSpawn)
+	m.Agents = fakeAgents{repo: "/repo"}
+	db.AddPending(m.Q, "a", "x", 1)
+	db.SetTerminal(m.Q, "a", "", "/wt-a")
+	sp.gone, sp.recreate, sp.ok = map[string]bool{"/wt-a": true}, "/wt-a", true
+	if said, _ := m.StartForWork("a"); !strings.HasPrefix(said, "a: started for work waiting") || len(sp.startedIn) != 1 || sp.startedIn[0] != "a@/wt-a" {
+		t.Fatalf("made again and started in: %q %v", said, sp.startedIn)
+	}
+	db.SetTerminal(m.Q, "b", "", "/wt-b")
+	db.AddPending(m.Q, "b", "x", 1)
+	sp.gone["/wt-b"], sp.recreate, sp.recreateWhy = true, "", "b: its worktree /wt-b is gone and its branch wt-b is not in /repo"
+	if said, _ := m.StartForWork("b"); !strings.Contains(said, "its branch wt-b is not in /repo") || len(sp.spawned) != 0 {
+		t.Fatalf("a failed start that says why, no fresh worktree: %q %v", said, sp.spawned)
+	}
+	if row, _ := db.GetAgentState(m.Q, "b"); row.WakeFailures != 1 {
+		t.Fatalf("it counts toward the stall that tells the lead: %+v", row)
+	}
+}
+
 func TestTheLoadHoldsTheDaemonsOwnStartsButNotAPersons(t *testing.T) {
 	m, _, _ := newManager(t)
 	m.LoadHeld = func(string) string { return "held: machine load - load 2.00 per core, limit 1.50" }

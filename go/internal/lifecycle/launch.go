@@ -129,9 +129,11 @@ type VendorsPort interface {
 
 // LaunchPorts are the other groups' calls launch makes.
 type LaunchPorts struct {
-	Usage    UsagePort
-	Accounts AccountsPort
-	Vendors  VendorsPort
+	// HoldWorktree locks the worktree dir is in for agent's session, process pid, before the exec (worktreelock.Hold); nil locks nothing.
+	HoldWorktree func(dir, agent string, pid int) error
+	Usage        UsagePort
+	Accounts     AccountsPort
+	Vendors      VendorsPort
 	// AccountReading is agents.account_reading: which account an agent's usage is landing on, and whether that is recorded, reported or assumed.
 	AccountReading func(q db.Q, agent string) (account, source string, ok bool)
 	// CurrentAccount is the account recorded for the agent.

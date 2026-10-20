@@ -746,6 +746,23 @@ func TestBuildHandsTheDriverTheAllowancesOfTheAgentsRepoOnly(t *testing.T) {
 	}
 }
 
+// The worktree is locked for the session just before the exec, in the folder the launch runs in, for this process.
+func TestExecAgentLocksItsWorktreeForThisProcess(t *testing.T) {
+	r := newLaunchRig(t)
+	var held []string
+	r.l.Ports.HoldWorktree = func(dir, agent string, pid int) error {
+		held = append(held, fmt.Sprintf("%s %s %d %v", dir, agent, pid, r.execd == nil))
+		return nil
+	}
+	if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if len(held) != 1 || held[0] != fmt.Sprintf("%s ann %d true", cwd, os.Getpid()) {
+		t.Fatalf("%v", held)
+	}
+}
+
 // A resume Build puts on an account that does not hold the session finds it there all the same: carried over from the old account.
 func TestAResumeBuildCarriesTheSessionToItsAccount(t *testing.T) {
 	r := newLaunchRig(t)
