@@ -19,3 +19,4 @@ export * from './attachments.ts';
 export * from './image-drafts.ts';
 export * from './file-editor.ts';
 export * from './chat-read.ts';
+export * from './worktree-moves.ts';

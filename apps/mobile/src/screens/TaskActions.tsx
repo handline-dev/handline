@@ -6,7 +6,7 @@ import { isGate, isPerson, taskRef } from '@handline/app-core';
 import { Text, TextInput, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
-import { classify, sentence, useAgents, usePending, useServes, useWrite } from '@handline/app-data';
+import { classify, sentence, useAgents, usePendingAny, useServes, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { useConnection } from '@handline/app-react';
 import { usePalette } from '../theme.ts';
@@ -274,25 +274,15 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   );
 }
 
+const TASK_WRITES = [
+  'task.done', 'task.reopen', 'task.withdraw', 'task.cancel', 'task.queue', 'task.draft', 'task.discard', 'task.edit', 'task.ask', 'task.release', 'task.merge',
+  'task.comment.add', 'task.comment.edit', 'task.comment.delete',
+] as const;
+
 /** Whether a write for this task is on its way: the detail shows a quiet mark until the daemon settles it. */
 export function useTaskPending(id: number): boolean {
-  const mine = (v: { task?: number; tasks?: number[] }) => v.task === id || !!v.tasks?.includes(id);
-  return [
-    ...usePending('task.done'),
-    ...usePending('task.reopen'),
-    ...usePending('task.withdraw'),
-    ...usePending('task.cancel'),
-    ...usePending('task.queue'),
-    ...usePending('task.draft'),
-    ...usePending('task.discard'),
-    ...usePending('task.edit'),
-    ...usePending('task.ask'),
-    ...usePending('task.release'),
-    ...usePending('task.merge'),
-    ...usePending('task.comment.add'),
-    ...usePending('task.comment.edit'),
-    ...usePending('task.comment.delete'),
-  ].some(mine);
+  const mine = (v: { task?: unknown; tasks?: unknown }) => v.task === id || (Array.isArray(v.tasks) && v.tasks.includes(id));
+  return usePendingAny(TASK_WRITES).some(mine);
 }
 
 /** The fields a new task and an edited one share: owner, title, body, time box, priority. `id` prefixes the test ids. */
