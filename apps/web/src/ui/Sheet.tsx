@@ -1,14 +1,16 @@
 // A sheet: the bordered strip that asks something under the thing it is about (`verb` for an inline confirm, `form` for a task form).
 import type { ComponentProps, ComponentType } from 'react';
+import { motion } from 'framer-motion';
 import { Icon } from '#src/ui/Icon.tsx';
+import { useOpenMotion } from '#src/ui/Reveal.tsx';
 
 type Kind = 'verb' | 'form';
 const SIZE: Record<Kind, string> = {
-  verb: 'verb-sheet mt-0.5 mb-1 gap-x-2.5 gap-y-1.5 px-2.5 py-2 text-[12px]',
-  form: 'tsheet my-2 gap-2 px-3 py-2',
+  verb: 'verb-sheet mt-[calc(2px*var(--o,1))] mb-[calc(4px*var(--o,1))] gap-x-2.5 gap-y-1.5 px-2.5 py-[calc(8px*var(--o,1))] text-[12px]',
+  form: 'tsheet my-[calc(8px*var(--o,1))] gap-2 px-3 py-[calc(8px*var(--o,1))]',
 };
 
-/** `danger` takes the whole row in a bad-state frame. The class names are hooks the tests and the phone rules read. */
+/** It grows open when it mounts and shrinks shut when its parent's <Presence> lets it leave. `danger` takes the whole row in a bad-state frame. The class names are hooks the tests and the phone rules read. */
 export function Sheet({
   kind = 'verb',
   as: As = 'div',
@@ -16,11 +18,14 @@ export function Sheet({
   className,
   ...rest
 }: ComponentProps<'form'> & { kind?: Kind; as?: 'div' | 'span' | 'form'; danger?: boolean }) {
-  const Tag = As as unknown as ComponentType<ComponentProps<'form'>>; // one of three tags that take the same props
+  const Tag = motion[As] as unknown as ComponentType<ComponentProps<'form'>>; // one of three tags that take the same props
+  const open = useOpenMotion();
   const look = danger ? 'danger basis-full bg-[color-mix(in_srgb,var(--s-bad)_8%,var(--panel))]' : '';
   return (
     <Tag
+      {...open}
       {...rest}
+      style={{ overflowY: 'clip', overflowX: 'visible', ...rest.style }}
       className={`${SIZE[kind]} flex flex-wrap items-center rounded-card bg-panel ${look}${className ? ` ${className}` : ''}`}
     />
   );

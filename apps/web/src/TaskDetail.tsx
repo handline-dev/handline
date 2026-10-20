@@ -8,17 +8,15 @@ import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
 import { Button, MenuButton, MenuItem, MenuSeparator } from '#src/ui/index.ts';
 import { goTasks } from '#src/route.ts';
-import { ReasonSheet, Sheet, StateChip, useCan, useNow } from '#src/taskui.tsx';
-import { AssignSheet } from '#src/TaskPeople.tsx';
-import { CancelSheet, TaskChips, TaskWatch, TaskLinks } from '#src/TaskDetailParts.tsx';
+import { StateChip, useCan, useNow } from '#src/taskui.tsx';
+import { AskSheets, type Ask } from '#src/TaskAsk.tsx';
+import { TaskChips, TaskWatch, TaskLinks } from '#src/TaskDetailParts.tsx';
 import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
 import { TaskHistory } from '#src/TaskHistory.tsx';
 import { Activity } from '#src/TaskActivity.tsx';
 import { Markdown } from '#src/Markdown.tsx';
 import { RichText } from '#src/RichText.tsx';
 import { View } from '#src/View.tsx';
-
-type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'release' | 'assign';
 
 const CLOSED = ['done', 'discarded'];
 const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
@@ -78,14 +76,9 @@ function Body({ t }: { t: Detail }) {
   const commentBox = useRef<HTMLDivElement>(null);
   const edit = useEditTask(t);
   const [showHistory, setShowHistory] = useState(false);
-  const done = useWrite('task.done');
   const queue = useWrite('task.queue');
   const draft = useWrite('task.draft');
-  const reopen = useWrite('task.reopen');
-  const discard = useWrite('task.discard');
-  const withdraw = useWrite('task.withdraw');
   const cancel = useWrite('task.cancel');
-  const release = useWrite('task.release');
   const can = {
     done: useCan('task.done'),
     queue: useCan('task.queue'),
@@ -159,7 +152,6 @@ function Body({ t }: { t: Detail }) {
     'sep' as const,
     item(showHistory ? 'Hide history' : 'Show history', '', () => setShowHistory(!showHistory), yes),
   ];
-  const reasonLabel = (verb: string) => (running ? `stop it and discard - why:` : `${verb} - why:`);
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
   return (
     <div className="tbody flex min-h-full flex-col" ref={root} tabIndex={-1} onKeyDown={key}>
@@ -232,57 +224,7 @@ function Body({ t }: { t: Detail }) {
       {showHistory ? <HistorySection id={t.id} /> : null}
 
       <div className="sticky bottom-0 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-canvas px-4 py-2">
-        {ask === 'done' ? (
-          <ReasonSheet
-            label="done: what came of it?"
-            submit="Done"
-            onCancel={() => setAsk(null)}
-            onSubmit={(evidence) => (setAsk(null), done.mutate({ task: t.id, evidence, reason: true }))}
-          />
-        ) : null}
-        {ask === 'reopen' ? (
-          <ReasonSheet
-            label="reopen: why?"
-            submit="Reopen"
-            onCancel={() => setAsk(null)}
-            onSubmit={(note) => (setAsk(null), reopen.mutate({ task: t.id, note }))}
-          />
-        ) : null}
-        {ask === 'discard' ? (
-          <ReasonSheet
-            label={reasonLabel('discard')}
-            submit="Discard"
-            onCancel={() => setAsk(null)}
-            onSubmit={(reason) => (setAsk(null), discard.mutate({ task: t.id, reason }))}
-          />
-        ) : null}
-        {ask === 'withdraw' ? (
-          <Sheet
-            label={`withdraw ${taskRef(t.id)}?`}
-            submit="Withdraw"
-            onCancel={() => setAsk(null)}
-            onSubmit={() => (setAsk(null), withdraw.mutate({ task: t.id }))}
-          >
-            <span className="muted">Takes the task back before anyone has started it.</span>
-          </Sheet>
-        ) : null}
-        {ask === 'cancel' ? (
-          <CancelSheet
-            running={running}
-            id={t.id}
-            onCancel={() => setAsk(null)}
-            onSubmit={(reason) => (setAsk(null), cancel.mutate({ task: t.id, reason }))}
-          />
-        ) : null}
-        {ask === 'release' ? (
-          <ReasonSheet
-            label={`release ${taskRef(t.id)} - why:`}
-            submit="Release"
-            onCancel={() => setAsk(null)}
-            onSubmit={(reason) => (setAsk(null), release.mutate({ task: t.id, reason }))}
-          />
-        ) : null}
-        {ask === 'assign' ? <AssignSheet t={t} me={me} onClose={() => setAsk(null)} /> : null}
+        <AskSheets t={t} me={me} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
 
         <div className="tverbs flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Task actions">
           {main ? (

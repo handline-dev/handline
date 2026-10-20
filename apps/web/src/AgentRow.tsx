@@ -12,6 +12,7 @@ import { useNow } from '#src/Gauge.tsx';
 import { Icon, Menu, type At, MenuContent, MenuTrigger } from '#src/ui/index.ts';
 import { goAgent } from '#src/route.ts';
 import { AgentMenu, RowControls } from '#src/RowControls.tsx';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 // What a row's one line holds, in px: the state mark, the name's least width, a chip's icon and padding, a letter of it, and the gap between items.
 const MARK_W = 14;
@@ -230,8 +231,8 @@ export function AgentRow({
           <AgentMenu agent={a} onAsk={setAsk} onDelete={() => setDeleting(true)} />
         </MenuContent>
       </Menu>
-      {ask ? <VerbSheet a={a} verb={ask} onClose={() => setAsk(null)} /> : null}
-      {deleting ? <DeleteSheet a={a} onClose={() => setDeleting(false)} /> : null}
+      <AnimatedList>{ask ? <VerbSheet key="VerbSheet" a={a} verb={ask} onClose={() => setAsk(null)} /> : null}</AnimatedList>
+      <AnimatedList>{deleting ? <DeleteSheet key="DeleteSheet" a={a} onClose={() => setDeleting(false)} /> : null}</AnimatedList>
     </>
   );
 }

@@ -11,6 +11,7 @@ import { Markdown } from '#src/Markdown.tsx';
 import { AgentLink } from '#src/TaskInline.tsx';
 import { useCan } from '#src/taskui.tsx';
 import { Button } from '#src/ui/index.ts';
+import { Reveal } from '#src/ui/Reveal.tsx';
 
 function Comment({ t, item }: { t: Detail; item: ActivityItem }) {
   const m = t.memos.find((x) => x.id === item.memo);
@@ -43,11 +44,11 @@ function Event({ item }: { item: ActivityItem }) {
           <button type="button" className="border-0 bg-transparent p-0 text-link" aria-expanded={open} onClick={() => setOpen(!open)}>
             {open ? 'Hide note' : 'Read note'}
           </button>
-          {open ? (
+          <Reveal show={open}>
             <div className="mt-1 min-w-0 rounded-card bg-raised p-2 text-ink">
               <Markdown text={item.note} />
             </div>
-          ) : null}
+          </Reveal>
         </>
       ) : null}
     </li>

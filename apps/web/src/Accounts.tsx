@@ -11,6 +11,7 @@ import { StatsSection } from '#src/Stats.tsx';
 import { goAgent, useHistoryValue } from '#src/route.ts';
 import { Button, Card, Dialog, Field, Icon, NOTE, ScrollPage, PageHead, PageTitle, TabStrip, type IconName } from '#src/ui/index.ts';
 import { View } from '#src/View.tsx';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 const TABS = ['Overview', 'Agents', 'Settings'] as const;
 
@@ -99,8 +100,9 @@ function AddAccount() {
   return (
     <>
       <Button icon="plus" label="Add an account" disabled={!!off} title={off} onClick={() => setAsking(true)} />
+      <AnimatedList>
       {asking ? (
-        <Dialog
+        <Dialog key="add"
           title="Add an account"
           onClose={close}
           action={{
@@ -123,6 +125,7 @@ function AddAccount() {
           ) : null}
         </Dialog>
       ) : null}
+      </AnimatedList>
     </>
   );
 }

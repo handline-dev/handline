@@ -13,6 +13,7 @@ export { Empty } from '#src/ui/Empty.tsx';
 export { sendKey } from '#src/ui/sendKey.ts';
 export { Kbd } from '#src/ui/Kbd.tsx';
 export { Input, Textarea, BarInput, NativeSelect, ComposeRow } from '#src/ui/Input.tsx';
+export { Reveal, useOpenMotion, FADE, GROW, OPEN_TRANSITION } from '#src/ui/Reveal.tsx';
 export { Sheet, SheetActions, FNote } from '#src/ui/Sheet.tsx';
 export { Toolbar } from '#src/ui/Toolbar.tsx';
 export { TabStrip, type TabItem } from '#src/ui/TabStrip.tsx';

@@ -7,6 +7,7 @@ import { PageHead, PageTitle, RowTitle, ScrollPage, SectionHead, SettingsCard, S
 import { VerbSheet } from '#src/AgentVerbs.tsx';
 import { Button } from '#src/ui/index.ts';
 import { View } from '#src/View.tsx';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 const HEALTH: Record<string, string> = { ok: 'working', degraded: 'degraded', down: 'down' };
 
@@ -76,7 +77,7 @@ function Usage() {
           </SettingsRow>
         </SettingsCard>
       )}
-      {target ? <VerbSheet a={target} verb={close} onClose={() => setStopping(null)} /> : null}
+      <AnimatedList>{target ? <VerbSheet key="VerbSheet" a={target} verb={close} onClose={() => setStopping(null)} /> : null}</AnimatedList>
     </>
   );
 }

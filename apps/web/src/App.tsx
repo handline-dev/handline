@@ -35,6 +35,7 @@ import { StatusBar } from '#src/StatusBar.tsx';
 import { CaptureHost } from '#src/Capture.tsx';
 import { TasksPage } from '#src/Tasks.tsx';
 import { AgentWorkspace } from '#src/Workspace.tsx';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 const Box: BoxComponent = (p) => <div {...p} />;
 
@@ -170,7 +171,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             </div>
           )}
         </main>
-        {newAgent.open ? <NewAgent onClose={() => void (location.hash = '')} /> : null}
+        <AnimatedList>{newAgent.open ? <NewAgent key="NewAgent" onClose={() => void (location.hash = '')} /> : null}</AnimatedList>
         {error ? (
           <div
             className="toast fixed right-4 bottom-10 max-w-[420px] rounded-[8px] bg-ink px-3.5 py-2.5 text-canvas shadow-[var(--shadow-pop)]"
@@ -183,8 +184,8 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
         ) : null}
       </div>
       <StatusBar />
-      {palette ? <Palette onClose={() => setPalette(false)} /> : null}
-      {keys ? <KeysSheet onClose={() => setKeys(false)} /> : null}
+      <AnimatedList>{palette ? <Palette key="Palette" onClose={() => setPalette(false)} /> : null}</AnimatedList>
+      <AnimatedList>{keys ? <KeysSheet key="KeysSheet" onClose={() => setKeys(false)} /> : null}</AnimatedList>
     </div>
     </FoldedControls.Provider>
   );

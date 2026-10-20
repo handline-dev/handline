@@ -13,6 +13,7 @@ import {
 } from '@handline/app-core';
 import type { HistoryRow } from '@handline/client';
 import { StateChip } from '#src/taskui.tsx';
+import { Reveal } from '#src/ui/Reveal.tsx';
 
 const FILTERS: [HistoryFilter, string][] = [
   ['all', 'All'],
@@ -116,13 +117,13 @@ function Fold({ fold }: { fold: HistoryFold }) {
         <span aria-hidden="true">{open ? '▾ ' : '▸ '}</span>
         <strong>{n === 1 ? '1 comment change' : `${n} comment changes`}</strong> by {fold.by.join(', ')} · {range}
       </button>
-      {open ? (
+      <Reveal show={open}>
         <div className="mt-1 grid grid-cols-[5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 max-sm:grid-cols-1">
           {fold.rows.map((r, j) => (
             <Change key={j} r={r} shown />
           ))}
         </div>
-      ) : null}
+      </Reveal>
     </div>
   );
 }

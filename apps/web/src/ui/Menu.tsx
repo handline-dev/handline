@@ -13,10 +13,13 @@ import {
   type ReactNode,
 } from 'react';
 import * as D from '@radix-ui/react-menu';
+import { motion } from 'framer-motion';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 import { Button } from '#src/ui/Button.tsx';
 import { Icon, type IconName } from '#src/ui/Icon.tsx';
+import { GROW, useOpenMotion } from '#src/ui/Reveal.tsx';
 
-const PANEL = 'z-30 overflow-y-auto min-w-[200px] rounded-card border border-line bg-panel py-1 shadow-[var(--shadow-pop)] outline-none';
+const PANEL = 'z-30 overflow-y-auto min-w-[200px] rounded-card border border-line bg-panel py-[calc(4px*var(--o,1))] shadow-[var(--shadow-pop)] outline-none';
 const ITEM =
   'flex h-8 w-full cursor-default select-none items-center gap-2 px-2 text-left text-body text-ink outline-none data-[highlighted]:bg-raised data-[disabled]:opacity-55 max-sm:min-h-12';
 
@@ -27,6 +30,8 @@ export type At = { x: number; y: number; w?: number; h?: number };
 const PAD = 8;
 const roomAround = (a: { top: number; bottom: number }) => Math.max(a.top, window.innerHeight - a.bottom) - PAD - 4;
 const AnchorBox = createContext<(() => DOMRect | null) | null>(null);
+/** Whether the menu around is open: its content stays mounted (`forceMount`) until it has closed. */
+const Opened = createContext(false);
 const AtCursor = createContext<((p: At) => void) | null>(null);
 
 /** A menu that opens where a right-click (or `MenuTrigger`'s own `onContextMenu`) lands. */
@@ -53,8 +58,10 @@ export function Menu({
     <AtCursor.Provider value={openAt}>
       <AnchorBox.Provider value={() => anchor.current.getBoundingClientRect()}>
         <D.Root open={open} onOpenChange={change} modal={false}>
-          <D.Anchor virtualRef={anchor} />
-          {children}
+          <Opened.Provider value={open}>
+            <D.Anchor virtualRef={anchor} />
+            {children}
+          </Opened.Provider>
         </D.Root>
       </AnchorBox.Provider>
     </AtCursor.Provider>
@@ -75,20 +82,28 @@ export function MenuTrigger({ children }: { asChild?: boolean; children: ReactEl
 
 export function MenuContent({ children, style, ...rest }: ComponentProps<typeof D.Content>) {
   const box = useContext(AnchorBox)?.();
+  const open = useContext(Opened);
+  const grow = useOpenMotion(GROW);
   const maxHeight = box ? roomAround(box) : undefined;
   return (
-    <D.Portal>
-      <D.Content
-        className={PANEL}
-        style={{ maxHeight, ...style }}
-        align="start"
-        collisionPadding={PAD}
-        onCloseAutoFocus={(e) => e.preventDefault()}
-        {...rest}
-      >
-        {children}
-      </D.Content>
-    </D.Portal>
+    <AnimatedList>
+      {open ? (
+        <D.Portal forceMount>
+          <D.Content
+            asChild
+            forceMount
+            align="start"
+            collisionPadding={PAD}
+            onCloseAutoFocus={(e) => e.preventDefault()}
+            {...rest}
+          >
+            <motion.div {...grow} className={PANEL} style={{ maxHeight, ...style }}>
+              {children}
+            </motion.div>
+          </D.Content>
+        </D.Portal>
+      ) : null}
+    </AnimatedList>
   );
 }
 
@@ -118,6 +133,7 @@ export function MenuButton({
   return (
     <AnchorBox.Provider value={() => anchor.current?.getBoundingClientRect() ?? null}>
       <D.Root open={open} onOpenChange={setOpen} modal={false}>
+       <Opened.Provider value={open}>
         <D.Anchor asChild>
           <span ref={anchor} className="inline-flex">
             <Button
@@ -138,6 +154,7 @@ export function MenuButton({
           {name ? <D.Label className="px-2 py-1 text-hint text-ink-3">{name}</D.Label> : null}
           {children}
         </MenuContent>
+       </Opened.Provider>
       </D.Root>
     </AnchorBox.Provider>
   );

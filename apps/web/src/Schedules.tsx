@@ -4,6 +4,7 @@ import { classify, sentence, useScheduleEditor, useSchedules, useServes } from '
 import { useSelector } from '@handline/app-react';
 import type { Schedule } from '@handline/client';
 import { Button, FNote, Icon, SectionHead, Sheet, SheetActions } from '#src/ui/index.ts';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 export function Schedules({ agent, role }: { agent: string; role: string | undefined }) {
   const { served } = useServes('schedules.list');
@@ -62,8 +63,9 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
         </FNote>
       ) : null}
       {write && !form ? <Button label="Add schedule" onClick={() => setForm({ cron: '', message: '' })} /> : null}
+      <AnimatedList>
       {form ? (
-        <Sheet role="dialog" aria-label="Schedule">
+        <Sheet key="form" role="dialog" aria-label="Schedule">
           <input
             type="text"
             aria-label="When (cron)"
@@ -79,6 +81,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
           </SheetActions>
         </Sheet>
       ) : null}
+      </AnimatedList>
     </div>
   );
 }

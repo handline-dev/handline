@@ -4,6 +4,7 @@ import type { Account } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useOff, useWrite } from '@handline/app-data';
 import { Button, Dialog, Field, Icon, NOTE } from '#src/ui/index.ts';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 function RemoveDialog({ account: a, onClose }: { account: Account; onClose: () => void }) {
   const plan = useWrite('account.remove', a.name);
@@ -70,7 +71,7 @@ export function AccountRemove({ account: a }: { account: Account }) {
         title={off}
         onClick={() => setAsking(true)}
       />
-      {asking ? <RemoveDialog account={a} onClose={() => setAsking(false)} /> : null}
+      <AnimatedList>{asking ? <RemoveDialog key="RemoveDialog" account={a} onClose={() => setAsking(false)} /> : null}</AnimatedList>
     </div>
   );
 }

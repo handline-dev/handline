@@ -4,7 +4,9 @@
 import { Dialog as Base } from '@base-ui/react/dialog';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Backdrop } from '#src/ui/Backdrop.tsx';
+import { motion } from 'framer-motion';
 import { Button } from '#src/ui/Button.tsx';
+import { FADE, GROW, useOpenMotion } from '#src/ui/Reveal.tsx';
 
 export function Dialog({
   title,
@@ -25,6 +27,7 @@ export function Dialog({
 }) {
   const [host, setHost] = useState<HTMLElement | null>(null); // the dialog stays where it is mounted, not in <body>
   const box = useRef<HTMLDivElement>(null);
+  const open = useOpenMotion(full ? FADE : GROW); // a full one has a fixed height of its own, so it only fades
   const live = useRef({ action });
   live.current = { action };
   useEffect(() => {
@@ -49,10 +52,11 @@ export function Dialog({
               <Base.Popup
                 initialFocus={() => box.current?.querySelector<HTMLElement>('input, textarea, select, button') ?? true}
                 ref={box}
+                render={<motion.div {...open} style={{ overflowY: 'clip' }} />}
                 className={`ui-dialog flex flex-col gap-3 rounded-dialog bg-panel shadow-[var(--shadow-pop)] ${
                   full
                     ? 'h-[calc(100vh_-_var(--sp-4))] w-[calc(100vw_-_var(--sp-4))] p-2'
-                    : 'w-[min(var(--w-dialog),calc(100vw_-_2_*_var(--sp-6)))] p-4'
+                    : 'w-[min(var(--w-dialog),calc(100vw_-_2_*_var(--sp-6)))] p-[calc(16px*var(--o,1))]'
                 }`}
                 aria-label={title}
                 aria-modal="true"
