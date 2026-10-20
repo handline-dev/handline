@@ -136,7 +136,7 @@ The screen key is `Resume this session with` (`term/composer.go:81`), or a shell
 
 **Replacement:** `SessionEnd` (reason `clear`, `resume`, `logout`, `prompt_input_exit` or `other`), and the session process's exit, watched rather than polled from `ps`. **Replaceable.**
 
-**Status: not done.** `SessionEnd` and the process's exit could replace these reads, but nothing is built yet. The screen is still read.
+**Status: replaced behind `-turns-from-hooks` where the hooks know.** After `SessionEnd` or the session process's exit, and until the next launch or `SessionStart`, the session is gone without a screen read; while its process is watched it is there. Otherwise, as after a daemon restart before any hook, the screen is read.
 
 ## Python path left on main
 
