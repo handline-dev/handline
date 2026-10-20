@@ -1,8 +1,7 @@
 // The progress of one agent.create, from the operations topic: the step the daemon sent (none invented), then done or failed. A failed
 // creation offers the form back with its fields; a done one sends the first task, if there was one, as a task.new.
-import { useEffect, useRef, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
-import { classify, sentence, useOperation, useWrite } from '@handline/app-data';
+import { classify, sentence, useCreateProgress } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
@@ -20,34 +19,7 @@ export function NewAgentProgress(props: {
   onSent?: () => void;
 }) {
   const c = usePalette();
-  const q = useOperation(props.operation);
-  const op = q.data;
-  const ask = useWrite('task.new');
-  const sent = useRef(false);
-  const [text, setText] = useState(props.fields.task);
-  const agent = op?.agent ?? null;
-  const done = op?.state === 'done';
-  const send = () => {
-    const [title = '', ...rest] = text.trim().split('\n');
-    if (!agent || !title) return;
-    ask.mutate(
-      {
-        owner: agent,
-        title: title.slice(0, 80),
-        body: rest.join('\n').trim(),
-        time_box: props.fields.box.trim() || '2h',
-        request_id: `first-task:${props.operation}`.slice(0, 128),
-      },
-      { onSuccess: () => props.onSent?.() },
-    );
-  };
-  useEffect(() => {
-    if (done && !sent.current && text.trim()) {
-      sent.current = true;
-      send();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the operation turns done
-  }, [done]);
+  const { q, op, agent, text, setText, ask, send } = useCreateProgress(props.operation, props.fields, props.onSent);
   const body = () => {
     if (!op)
       return q.isError ? (
