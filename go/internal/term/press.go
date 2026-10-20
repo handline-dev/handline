@@ -573,8 +573,7 @@ func (t *Term) UsageLimitOpen(handle string) bool {
 // ModalOpen is whether a modal is on the agent's screen, where typed text would answer it.
 func (t *Term) ModalOpen(handle string) bool { return t.ScreenBlocker(handle) != nil }
 
-// DialogUp is the prompt or dialog at handle that waits on a person. A session its hooks say is settled (a Stop closed the turn, no
-// prompt since) has no prompt under it, so only the session picker, which no hook reports, counts there; an unreadable screen does not.
+// DialogUp is the dialog at handle that waits on a person. On a settled turn only the session picker counts: no hook reports it.
 func (t *Term) DialogUp(handle string) *Blocker {
 	b := t.ScreenBlocker(handle)
 	if b != nil && b.Kind != Backgrounded && t.Turns != nil && t.Turns.Settled(handle) {

@@ -28,8 +28,7 @@ func (h healPorts) handle(agent string) string {
 	return handle
 }
 
-// NeedsPerson: with the hooks on, an open needs-you card answers without the screen; otherwise the screen, where a settled turn counts
-// only the session picker (term.DialogUp).
+// NeedsPerson: with the hooks on, an open needs-you card answers first; then the screen (term.DialogUp).
 func (h healPorts) NeedsPerson(agent string) bool {
 	if h.lc.term.Turns != nil && h.needs != nil && h.needs(agent) != nil {
 		return true
