@@ -391,8 +391,8 @@ singleton it takes becomes unconditional (startup row above).
 
 The service runs the daemon the `daemon_impl` setting names (`python`, the default, or `go`). `hl service use go` sets it,
 `hl service install` rewrites the plist from it and reloads the job, and `hl service status` prints which one is chosen.
-The Go job is `go/handlined` (built by `tools/build-go.sh`) with `-structured-cli <claude>`, `-structured-tick`,
-`-terminal-tick`, `-cutover`, and `-allow-real-home` on the live home or `-home <home>` on any other; the job's PATH holds
+The Go job is `go/handlined` (built by `tools/build-go.sh`) with `-claude <claude>`, `-terminal-tick`, `-cutover`,
+`-turns-from-hooks`, and `-allow-real-home` on the live home or `-home <home>` on any other; the job's PATH holds
 python3's directory. The service runs one daemon at a time, so `-terminal-tick` never has the Python tick beside it on the home.
 `hl service install` reads the setting once, so a change takes effect at the next install and not before.
 

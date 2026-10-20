@@ -49,7 +49,7 @@ The screen key is the same `WaitIdle` as in §1: a stable screen and no `esc to 
 | `lifecycle/structured.go:227` | A forced close or restart waits for the turn |
 | `lifecycle/reconciler.go:517` (`IdleNow`) | The silence check: is a silent agent idle right now |
 
-**Replacement:** `UserPromptSubmit` opens a turn; `Stop` or `StopFailure` closes it. Esc fires no hook ([hook-probes.md](hook-probes.md) §3), so while a turn is open the daemon watches its transcript with file events and closes the turn on the `[Request interrupted by user…]` entry. Built in `go/internal/turns`, behind `handlined -turns-from-hooks` (off by default). The screen is still read where no event has said: before a session's first prompt, and after a daemon restart until the next hook. **Replaced behind the switch.**
+**Replacement:** `UserPromptSubmit` opens a turn; `Stop` or `StopFailure` closes it. Esc fires no hook ([hook-probes.md](hook-probes.md) §3), so while a turn is open the daemon watches its transcript with file events and closes the turn on the `[Request interrupted by user…]` entry. Built in `go/internal/turns`, behind `handlined -turns-from-hooks` (off by default; `hl service install` turns it on). The screen is still read where no event has said: before a session's first prompt, and after a daemon restart until the next hook. **Replaced behind the switch.**
 
 **Status: replaced behind `-turns-from-hooks`.** In the live run (`tools/live-e2e.sh --terminal`, Claude Code 2.1.301), `running` reached the client 0.25 s after the message was sent, and `idle` 0.09 to 0.23 s after the `Stop` hook. After an Esc, idle came in 0.47 s, after `session.interrupt` in 0.47 s, and after a hard kill mid-turn the agent left `running` in 0.15 s.
 
