@@ -10,6 +10,10 @@ export type CardAction =
   | { type: 'answer'; id: number }
   | { type: 'allow' | 'deny'; agent: string; prompt: string; choice: string }
   | { type: 'done'; item: InboxItem }
+  /** A review card: done 'Approved'. */
+  | { type: 'approve'; item: InboxItem }
+  /** A review card: the UI asks for text and a drawing, comments them, then closes the task 'Change asked: <text>'. */
+  | { type: 'ask_change'; item: InboxItem }
   | { type: 'open'; to: string }
   | { type: 'terminal'; agent: string }
   | { type: 'read'; id: number };
@@ -23,6 +27,8 @@ export interface Card {
   /** Who is asking, never the person themselves. */
   from: string | null;
   task: number | null;
+  /** The task is tagged `review`: its first comment's pictures are the thing to look at (Memo.parts), and Approve and Ask for change stand in for Done. */
+  review: boolean;
   /** 1 is the most urgent; 4 for a card with no task. */
   priority: number;
   /** The task's deadline (ms), null without one. */
@@ -44,6 +50,7 @@ export interface MyTurnInput {
 
 const KINDS: Record<string, CardKind> = { decision: 'decision', ask: 'decision' };
 const NO_PRIORITY = 4;
+export const REVIEW_TAG = 'review';
 const ms = (iso: string | null | undefined) => (iso ? Date.parse(iso) : NaN);
 const at = (iso: string | null | undefined) => (Number.isFinite(ms(iso)) ? ms(iso) : 0);
 
@@ -69,6 +76,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
       agent: i.agent,
       from: other(t?.from) ?? other(i.agent),
       task: i.task,
+      review: !!t?.tags?.includes(REVIEW_TAG),
       since: at(i.created),
       ...when(i.task),
       detail: i.body && i.body !== title ? i.body : '',
@@ -101,7 +109,12 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
         ],
       });
     } else if (KINDS[i.kind]) {
-      const decide = i.kind === 'decision' && i.task != null ? [{ type: 'done', item: i } as const] : [];
+      const decide: CardAction[] =
+        i.kind !== 'decision' || i.task == null
+          ? []
+          : base.review
+            ? [{ type: 'approve', item: i }, { type: 'ask_change', item: i }]
+            : [{ type: 'done', item: i }];
       // A card the daemon raised after its own recovery failed: its fix is the first button.
       const fix = i.fix === 'open_terminal' && i.agent ? [{ type: 'terminal', agent: i.agent } as const] : [];
       cards.push({
@@ -136,6 +149,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
       agent: a.name,
       from: a.name,
       task: a.task?.id ?? null,
+      review: false,
       ...w,
       since: at(n.since),
       primary: 1,

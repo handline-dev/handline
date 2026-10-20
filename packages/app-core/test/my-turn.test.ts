@@ -113,3 +113,14 @@ test('an item with fix open_terminal has Open terminal as its first button, befo
   const [plain] = myTurn({ items: [item({ id: 9, kind: 'decision' })], agents: [], tasks: [] });
   assert.equal(plain!.actions.some((a) => a.type === 'terminal'), false);
 });
+
+test('a decision on a task tagged review offers Approve and Ask for change in place of Done', () => {
+  const decision = item({ id: 7, kind: 'decision', task: 5 });
+  const [plain] = myTurn({ items: [decision], agents: [], tasks: [task({ id: 5 })] });
+  assert.equal(plain.review, false);
+  assert.deepEqual(plain.actions.map((a) => a.type), ['answer', 'done', 'open', 'read']);
+  const [card] = myTurn({ items: [decision], agents: [], tasks: [task({ id: 5, tags: ['fe', 'review'] })] });
+  assert.equal(card.review, true);
+  assert.deepEqual(card.actions.map((a) => a.type), ['answer', 'approve', 'ask_change', 'open', 'read']);
+  assert.equal(card.primary, 3);
+});
