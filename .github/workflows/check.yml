@@ -139,3 +139,11 @@ jobs:
         run: |
           python3 contract/generate.py --check
           python3 tools/go_contract.py --check
+
+  # The required check on main: green only when every shard and the contract job passed.
+  go:
+    needs: [daemon, contract]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.daemon.result }}" = success && test "${{ needs.contract.result }}" = success
