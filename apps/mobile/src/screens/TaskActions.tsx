@@ -6,9 +6,8 @@ import { isGate, isPerson, taskRef } from '@handline/app-core';
 import { Text, TextInput, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
-import { classify, sentence, useAgents, usePendingAny, useServes, useWrite } from '@handline/app-data';
+import { classify, sentence, useAgents, useOff, usePendingAny, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { useConnection } from '@handline/app-react';
 import { usePalette } from '#src/theme.ts';
 import { ImageBodyInput } from '#src/screens/ImageBodyInput.tsx';
 import { Button, Card, PageHeader, Pill } from '#src/screens/parts.tsx';
@@ -17,13 +16,6 @@ import { AssignTask } from '#src/screens/TaskAssign.tsx';
 import { MergeTasks, ReleaseTask } from '#src/screens/TaskReleaseMerge.tsx';
 
 const CLOSED = ['done', 'discarded'];
-
-/** Why a method cannot be used now, or null when it can. */
-export function useWhyNot(method: string): string | null {
-  const open = useConnection() === 'open';
-  const { served } = useServes(method);
-  return !open ? 'daemon not connected' : served ? null : `this daemon does not serve ${method}`;
-}
 
 export function Input(props: {
   value: string;
@@ -153,17 +145,17 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   const draft = useWrite('task.draft');
   const discard = useWrite('task.discard');
   const off = {
-    done: useWhyNot('task.done'),
-    reopen: useWhyNot('task.reopen'),
-    withdraw: useWhyNot('task.withdraw'),
-    cancel: useWhyNot('task.cancel'),
-    queue: useWhyNot('task.queue'),
-    draft: useWhyNot('task.draft'),
-    discard: useWhyNot('task.discard'),
-    edit: useWhyNot('task.edit'),
-    ask: useWhyNot('task.ask'),
-    release: useWhyNot('task.release'),
-    merge: useWhyNot('task.merge'),
+    done: useOff('task.done'),
+    reopen: useOff('task.reopen'),
+    withdraw: useOff('task.withdraw'),
+    cancel: useOff('task.cancel'),
+    queue: useOff('task.queue'),
+    draft: useOff('task.draft'),
+    discard: useOff('task.discard'),
+    edit: useOff('task.edit'),
+    ask: useOff('task.ask'),
+    release: useOff('task.release'),
+    merge: useOff('task.merge'),
   };
   const open = !CLOSED.includes(t.state);
   const mine = t.from === me;
@@ -195,7 +187,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   };
   const reason = ask ? reasons[ask] : undefined;
   const Panel = ask ? PANELS[ask as keyof typeof PANELS] : undefined;
-  const verb = (id: string, label: string, why: string | null, to: Ask) => (
+  const verb = (id: string, label: string, why: string | undefined, to: Ask) => (
     <Button key={id} testID={`verb-${id}`} label={label} disabled={!!why || ask !== null} onPress={() => (setMenu(null), setAsk(to))} />
   );
   return (
@@ -303,7 +295,7 @@ function TaskFields(p: { id: 'nt' | 'et'; owners: string[]; draft: TaskDraft; ch
 export function NewTask({ onClose }: { onClose: () => void }) {
   const c = usePalette();
   const ask = useWrite('task.new');
-  const why = useWhyNot('task.new');
+  const why = useOff('task.new');
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
   const [draft, setDraft] = useState<TaskDraft>({ owner: '', title: '', body: '', box: '2h', priority: 2 });
   const change = (patch: Partial<TaskDraft>) => setDraft((d) => ({ ...d, ...patch }));

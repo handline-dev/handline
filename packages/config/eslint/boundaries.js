@@ -19,7 +19,8 @@ const NO_FAKE = {
 /** What the folder at `where` (relative to the repo root) may not import, from docs/turborepo-layout.md. */
 function restrictions(where) {
   const [top, name] = where.split(path.sep);
-  if (top === 'apps') return { paths: [], patterns: [RELATIVE, DEEP, QUERY, NO_APPS, NO_FAKE], exempt: ['test/**', 'scripts/**', 'vite.config.ts'] };
+  if (top === 'apps')
+    return { paths: [], patterns: [RELATIVE, DEEP, QUERY, NO_APPS, NO_FAKE], exempt: ['test/**', 'scripts/**', 'vite.config.ts'] };
   if (top !== 'packages') return { paths: [], patterns: [RELATIVE, DEEP, QUERY], exempt: [] };
   const patterns = name === 'app-data' ? [RELATIVE, DEEP, NO_APPS] : [RELATIVE, DEEP, QUERY, NO_APPS];
   if (name === 'client' || name === 'tokens') return { paths: REACT, patterns: [...patterns, NO_APP_PKGS], exempt: [] };

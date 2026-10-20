@@ -70,6 +70,12 @@ export function useServes(method: string): { served: boolean; open: boolean } {
   return { served, open };
 }
 
+/** Why a control is off (daemon not connected, or the method is not served), or undefined when it works. */
+export function useOff(method: string): string | undefined {
+  const { served, open } = useServes(method);
+  return !open ? 'daemon not connected' : served ? undefined : `this daemon does not serve ${method}`;
+}
+
 /** Streams a topic's events while a view that needs it is mounted (the client keeps a topic once asked for). */
 export function useFeed(topic: Topic | undefined, on: boolean): void {
   const store = useStore();

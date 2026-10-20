@@ -2,7 +2,7 @@
 // a table of each agent's cost and share under it and a click on an agent to draw that one alone. A series has a shape (a dash, a pattern and a
 // letter), not only a hue. The numbers are always in a table behind a toggle, so the picture is never the only way to read them.
 import { useState } from 'react';
-import { span } from '@handline/app-core';
+import { costByAgent, runwayWords } from '@handline/app-core';
 import type { Outlook } from '@handline/client';
 import { useOutlook } from '@handline/app-data';
 import {
@@ -29,13 +29,6 @@ const HEADROOM: Range[] = ['12h', '24h', '3d', '7d', '14d'];
 const COST: Range[] = ['7d', '14d', '30d'];
 const W = 560;
 const H = 160;
-
-const runwayWords = (r: Outlook['runway'][number]) =>
-  r.runs_out_in_seconds !== null
-    ? `runs out in ${span(r.runs_out_in_seconds * 1000)}`
-    : r.week_resets_at
-      ? 'lasts until the week resets'
-      : 'no burn, or a stale reading';
 
 function Line({ o }: { o: Outlook }) {
   const all = [...o.past, ...o.future].filter((p) => p.left_pct !== null);
@@ -97,12 +90,10 @@ function Line({ o }: { o: Outlook }) {
 const letter = (i: number) => String.fromCharCode(65 + (i % 26));
 
 function Cost({ o, only, pick }: { o: Outlook; only: string | null; pick: (agent: string | null) => void }) {
-  const agents = [...new Set(o.cost_per_day.flatMap((d) => Object.keys(d.agents)))];
+  const { agents, sums, all } = costByAgent(o);
   const shown = (d: Outlook['cost_per_day'][number], a: string) => (only === null || only === a ? (d.agents[a] ?? 0) : 0);
   const total = (d: Outlook['cost_per_day'][number]) => agents.reduce((sum, a) => sum + shown(d, a), 0);
   const top = Math.max(1, ...o.cost_per_day.map(total));
-  const sums = agents.map((a) => o.cost_per_day.reduce((sum, d) => sum + (d.agents[a] ?? 0), 0));
-  const all = sums.reduce((a, b) => a + b, 0) || 1;
   return (
     <div className="cost-wrap">
       <div className={COST_BARS} role="img" aria-label={only ? `Cost per day, ${only} alone` : 'Cost per day, by agent'}>

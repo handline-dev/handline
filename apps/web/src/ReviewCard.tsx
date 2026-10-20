@@ -1,15 +1,10 @@
 // A review card on the Inbox: the pictures of the task's first comment as thumbnails, and "Ask for change", a box with the first picture to mark
 // up and the words of what should change. Approve needs no box and lives in MyTurn.
 import { useEffect, useState } from 'react';
-import { changeAsked, keptMarks, markText, reviewPictures, withImages, type Mark } from '@handline/app-core';
-import { classify, sentence, useAttachmentUrl, useMemos, useUploadImage, useWrite } from '@handline/app-data';
+import { changeAsked, keptMarks, markText, withImages, type Mark } from '@handline/app-core';
+import { classify, sentence, useAttachmentUrl, useReviewPictures, useUploadImage, useWrite } from '@handline/app-data';
 import { Annotator } from '#src/Annotate.tsx';
 import { Dialog, NOTE, Textarea } from '#src/ui/index.ts';
-
-function useReviewPictures(task: number) {
-  const memos = useMemos(task);
-  return reviewPictures(memos.data?.memos ?? []);
-}
 
 function Thumb({ id, name }: { id: string; name: string }) {
   const { url } = useAttachmentUrl(id, true);

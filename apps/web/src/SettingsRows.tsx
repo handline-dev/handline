@@ -1,9 +1,8 @@
 // The rows of the Home settings page: a title, one grey line and the control, each saving through settings.set on its own.
 import { useEffect, useState, type ReactNode } from 'react';
 import { INVALID, type PageSettings } from '@handline/app-core';
-import { classify, sentence, useWrite } from '@handline/app-data';
+import { classify, sentence, useOff, useWrite } from '@handline/app-data';
 import { Field, Icon, RowControl, RowHint, RowText, RowTitle, SettingsRow, Switch, NOTE } from '#src/ui/index.ts';
-import { useOff } from '#src/useOff.ts';
 
 /** The note under a row: saving (an icon and a word), or why the value is not saved (an icon, never colour alone). */
 export function Note({ error, pending, bad }: { error: unknown; pending: boolean; bad: string | null }) {

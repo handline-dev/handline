@@ -91,3 +91,6 @@ export function capacityOf(accounts: Account[]): { word: Capacity; left: number;
   const left = Math.round(read.reduce((n, a) => n + 100 - Math.min(100, a.five_hour!.used_pct), 0) / read.length);
   return { word: left < 15 ? 'short' : left < 40 ? 'tight' : 'plenty', left, usable };
 }
+
+/** A login the daemon has not ended: the URL (when this app started it) and the code box belong to it. */
+export const loginRunning = (a: Account): boolean => a.login?.state === 'waiting' || a.login?.state === 'code_sent';

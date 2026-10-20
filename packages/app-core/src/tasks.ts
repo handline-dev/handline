@@ -87,3 +87,6 @@ export function watchLine(t: Pick<Task, 'watch'>): { url: string | null; text: s
     result: w.result ? RESULT_WORDS[w.result] : null,
   };
 }
+
+/** A task row's time: "3h" for a task not running reads as the time it has, "3h left". */
+export const timeLeft = (text: string): string => (/^[\dhdm]+$/.test(text) ? `${text} left` : text);

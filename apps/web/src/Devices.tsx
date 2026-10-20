@@ -1,10 +1,9 @@
 // The paired devices: one row each with when it was last seen, and Revoke behind a confirm (the person loses that device's access at once).
 import { useEffect, useState } from 'react';
 import { ago } from '@handline/app-core';
-import { useDevices, useServes, useWrite } from '@handline/app-data';
+import { useDevices, useOff, useServes, useWrite } from '@handline/app-data';
 import { shell } from '#src/shell.ts';
 import { Button, Dialog, Icon, NOTE, RowTitle, SectionHead, SettingsCard, SettingsRow } from '#src/ui/index.ts';
-import { useOff } from '#src/useOff.ts';
 import { View } from '#src/View.tsx';
 
 /** Desktop app only, and only when it has its own gateway: `run` opens the one-time QR window a phone scans; `error` is why it did not. */

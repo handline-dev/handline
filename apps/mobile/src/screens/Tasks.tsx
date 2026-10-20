@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useHistoryValue } from '#src/history.tsx';
 import { Linking, SectionList, ScrollView, Text, TextInput, View } from 'react-native';
-import { activityOf, ago, CLOSED, defaultFilter, foldEvents, groupTasks, HELD, idleText, shown, sortTasks, TASK_STATES, taskMatches, timeoutText, taskRef, watchLine, watchResult } from '@handline/app-core';
+import { activityOf, ago, CLOSED, defaultFilter, foldEvents, groupTasks, HELD, idleText, shown, sortTasks, TASK_STATES, taskMatches, taskRef, timeLeft, timeoutText, watchLine, watchResult } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
@@ -213,9 +213,6 @@ const TASK_ICON: Record<string, IconName> = {
   review: 'taskPending',
 };
 
-/** "3h" for a task not running reads as the time it has: "3h left" (as on the PC row). */
-const left = (text: string) => (/^[\dhdm]+$/.test(text) ? `${text} left` : text);
-
 function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () => void; onLongPress: () => void }) {
   const t = props.t;
   const c = usePalette();
@@ -224,7 +221,7 @@ function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () 
   const failed = t.state === 'done' && watchResult(t) === 'failed';
   const timedOut = t.state === 'done' && watchResult(t) === 'timed_out';
   const icon = failed ? 'failed' : timedOut ? 'waiting' : (TASK_ICON[t.state] ?? 'taskPending');
-  const time = left(timeoutText(t, now));
+  const time = timeLeft(timeoutText(t, now));
   return (
     <ListRow
       testID={`task-${t.id}`}

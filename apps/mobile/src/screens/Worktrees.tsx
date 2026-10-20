@@ -8,13 +8,10 @@ import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
+import { worktreeSums } from '@handline/app-core';
 
-const sums = (w: Worktree) => ({
-  added: w.changed.reduce((n, f) => n + f.added, 0),
-  deleted: w.changed.reduce((n, f) => n + f.deleted, 0),
-});
 const files = (w: Worktree) => {
-  const { added, deleted } = sums(w);
+  const { added, deleted } = worktreeSums(w);
   return `${w.changed.length} file${w.changed.length === 1 ? '' : 's'}${w.changed.length ? ` +${added} −${deleted}` : ''}`;
 };
 

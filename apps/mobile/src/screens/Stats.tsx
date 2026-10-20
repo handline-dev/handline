@@ -3,7 +3,7 @@
 // Every number is text too; a bar is never the only way to read it.
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { agentTime, span } from '@handline/app-core';
+import { agentTime, costByAgent, runwayWords, span } from '@handline/app-core';
 import type { Outlook, Stats as StatsData } from '@handline/client';
 import { useOutlook, useServes, useStats } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
@@ -95,13 +95,6 @@ function Counts({ s }: { s: StatsData }) {
   );
 }
 
-const runwayWords = (r: Outlook['runway'][number]) =>
-  r.runs_out_in_seconds !== null
-    ? `runs out in ${span(r.runs_out_in_seconds * 1000)}`
-    : r.week_resets_at
-      ? 'lasts until the week resets'
-      : 'no burn, or a stale reading';
-
 /** The week left over time: one bar per step, solid for what was recorded and hollow for the guess. */
 function Left({ o }: { o: Outlook }) {
   const c = usePalette();
@@ -142,11 +135,9 @@ function Left({ o }: { o: Outlook }) {
 /** The cost per day as a row of bars with the day's total under each, and each agent's cost and share below. */
 function Cost({ o }: { o: Outlook }) {
   const c = usePalette();
-  const agents = [...new Set(o.cost_per_day.flatMap((d) => Object.keys(d.agents)))];
+  const { agents, sums, all } = costByAgent(o);
   const total = (d: Outlook['cost_per_day'][number]) => Object.values(d.agents).reduce((a, b) => a + b, 0);
   const top = Math.max(1, ...o.cost_per_day.map(total));
-  const sums = agents.map((a) => o.cost_per_day.reduce((sum, d) => sum + (d.agents[a] ?? 0), 0));
-  const all = sums.reduce((a, b) => a + b, 0) || 1;
   return (
     <View style={{ gap: space.sm }}>
       <View testID="outlook-cost" style={{ flexDirection: 'row', alignItems: 'flex-end', height: 120, gap: 2 }}>

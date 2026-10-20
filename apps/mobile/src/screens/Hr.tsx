@@ -22,15 +22,11 @@ import {
 } from '@handline/app-core';
 import type { Proposal } from '@handline/client';
 import { useOnce, useStore } from '@handline/app-react';
-import { classify, sentence, useAgentDetail, useAgents, useHr, usePending, useServes, useWrite } from '@handline/app-data';
+import { classify, sentence, useAgentDetail, useAgents, useHr, useOff, usePending, useServes, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { Button, Card as Panel } from '#src/screens/parts.tsx';
-import { useWhyNot } from '#src/screens/TaskActions.tsx';
-
-/** How many proposals wait on the founder; 0 while the list is not here or not served. */
-export const useHrCount = (): number => waitingCount(useHr().data?.proposals ?? []);
 
 export function Hr() {
   const c = usePalette();
@@ -149,7 +145,7 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
   const busy = deciding || withdrawing;
   // A bundle's agent is "<N> changes" and a hire's does not exist yet: only an agent on the roster has settings to open.
   const onRoster = !!useAgents().data?.agents.some((a) => a.name === p.agent);
-  const off = { decide: useWhyNot('hr.decide'), withdraw: useWhyNot('hr.withdraw'), set: useWhyNot('agent.set') };
+  const off = { decide: useOff('hr.decide'), withdraw: useOff('hr.withdraw'), set: useOff('agent.set') };
   const [note, setNote] = useState('');
   const [mark, setMark] = useState<string | null>(null);
   const [ask, setAsk] = useState<null | 'reject' | 'withdraw' | 'settings'>(null);
@@ -180,7 +176,7 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
     );
   };
   const locked = busy || !!mark;
-  const verb = (id: string, label: string, onPress: () => void, why: string | null, kind?: 'yes' | 'no') => (
+  const verb = (id: string, label: string, onPress: () => void, why: string | undefined, kind?: 'yes' | 'no') => (
     <Button testID={`hr-${id}-${p.id}`} label={mark === id ? '…' : label} kind={kind} disabled={locked || !!why} onPress={onPress} />
   );
   return (

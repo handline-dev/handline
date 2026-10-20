@@ -3,8 +3,8 @@
 import { useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
 import { SaveFormat, manipulateAsync } from 'expo-image-manipulator';
-import { APPROVED, changeAsked, keptMarks, markText, reviewPictures, withImages, type Mark } from '@handline/app-core';
-import { classify, sentence, useUploadImage, useMemos, useWrite } from '@handline/app-data';
+import { APPROVED, changeAsked, keptMarks, markText, withImages, type Mark } from '@handline/app-core';
+import { classify, sentence, useReviewPictures, useUploadImage, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Pictures, useImage } from '#src/screens/ChatPictures.tsx';
@@ -13,12 +13,7 @@ import { Button } from '#src/screens/parts.tsx';
 
 const BIG = { minHeight: 52, flex: 1 } as const;
 
-/** The pictures to look at; empty while the comments load or when the first comment has none. */
-export function useReviewPictures(task: number) {
-  return reviewPictures(useMemos(task).data?.memos ?? []);
-}
-
-export function ReviewCard(props: { task: number; item: number; off: string | null; markRead: () => void }) {
+export function ReviewCard(props: { task: number; item: number; off: string | undefined; markRead: () => void }) {
   const c = usePalette();
   const pictures = useReviewPictures(props.task);
   const first = useImage(pictures[0]?.id ?? '', false);

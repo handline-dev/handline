@@ -4,14 +4,13 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { INVALID, capField, idleField } from '@handline/app-core';
 import type { CallParams, SettingsChanges } from '@handline/client';
-import { classify, sentence, useAnswers, useServes, useSettings, useWrite } from '@handline/app-data';
+import { classify, sentence, useAnswers, useOff, useServes, useSettings, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { useSelector } from '@handline/app-react';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { AppUpdate } from '#src/screens/AppUpdate.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
-import { useWhyNot } from '#src/screens/TaskActions.tsx';
 
 function Note(props: { error: unknown; pending: boolean; bad?: string | null; testID: string }) {
   const c = usePalette();
@@ -36,7 +35,7 @@ function Field(props: {
 }) {
   const c = usePalette();
   const save = useWrite('settings.set');
-  const why = useWhyNot('settings.set');
+  const why = useOff('settings.set');
   const [text, setText] = useState(props.current);
   const [bad, setBad] = useState<string | null>(null);
   const { current } = props;
@@ -87,7 +86,7 @@ function Field(props: {
 function Toggle(props: { id: string; label: string; hint: string; on: boolean; change: (on: boolean) => SettingsChanges }) {
   const c = usePalette();
   const save = useWrite('settings.set');
-  const why = useWhyNot('settings.set');
+  const why = useOff('settings.set');
   return (
     <View testID={`setting-${props.id}`} style={{ gap: space.xs }}>
       <Pressable
@@ -136,7 +135,7 @@ function Input(props: { value: string; onChange: (v: string) => void; label: str
 
 function AddAnswer(props: { onAdd: (p: CallParams<'answer.add'>) => void; onDone: () => void }) {
   const c = usePalette();
-  const why = useWhyNot('answer.add');
+  const why = useOff('answer.add');
   const [kind, setKind] = useState<'trust' | 'dialog'>('trust');
   const [f, setF] = useState({ folder: '', vendor: '', title: '', label: '' });
   const set = (k: keyof typeof f) => (v: string) => setF({ ...f, [k]: v });
@@ -181,8 +180,8 @@ function Answers() {
   const { served } = useServes('answers.list');
   const add = useWrite('answer.add');
   const remove = useWrite('answer.remove');
-  const whyAdd = useWhyNot('answer.add');
-  const whyRemove = useWhyNot('answer.remove');
+  const whyAdd = useOff('answer.add');
+  const whyRemove = useOff('answer.remove');
   const [adding, setAdding] = useState(false);
   const rows = query.data?.answers ?? [];
   const failed = add.error ?? remove.error;

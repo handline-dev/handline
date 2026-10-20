@@ -1,23 +1,15 @@
 // Colour for the text grid: a styled row's runs drawn as spans. Indexes 0-15 are the theme's (`--ansi-N`), 16-255 the xterm cube and
 // greys, `#rrggbb` as given; `inverse` swaps what is drawn, so the default colours swap too.
-import { rowPieces } from '@handline/app-core';
+import { rowPieces, xtermColor } from '@handline/app-core';
 import type { Spans } from '@handline/client';
 
 type Style = Spans[number]['style'];
-
-const CUBE = [0, 95, 135, 175, 215, 255];
-const hex = (n: number) => n.toString(16).padStart(2, '0');
 
 /** A palette index or `#rrggbb` as a CSS colour. */
 export function colorOf(c: number | string): string {
   if (typeof c === 'string') return /^#[0-9a-f]{6}$/i.test(c) ? c : 'inherit';
   if (c < 16) return `var(--ansi-${c})`;
-  if (c < 232) {
-    const i = c - 16;
-    return `#${hex(CUBE[Math.floor(i / 36)]!)}${hex(CUBE[Math.floor(i / 6) % 6]!)}${hex(CUBE[i % 6]!)}`;
-  }
-  const g = 8 + (c - 232) * 10;
-  return `#${hex(g)}${hex(g)}${hex(g)}`;
+  return xtermColor(c);
 }
 
 /** The CSS declarations of one run, or '' for the default style. */

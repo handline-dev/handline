@@ -6,13 +6,12 @@ import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-na
 import { FIVE_HOURS_MS, STATE_WORD, WEEK_MS, gaugeOf, outUntil, span, stateOf } from '@handline/app-core';
 import type { Account, Window } from '@handline/client';
 import { useStore } from '@handline/app-react';
-import { classify, sentence, useAccounts, usePending, useServes, useWrite } from '@handline/app-data';
+import { classify, sentence, useAccounts, useOff, usePending, useServes, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { AccountLogin } from '#src/screens/AccountLogin.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { Button, Card, PageHeader } from '#src/screens/parts.tsx';
-import { useWhyNot } from '#src/screens/TaskActions.tsx';
 
 const SPANS = { '5 hours': FIVE_HOURS_MS, week: WEEK_MS } as const;
 
@@ -111,7 +110,7 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
 function Add() {
   const c = usePalette();
   const founder = useStore().client.hello?.role === 'founder';
-  const off = useWhyNot('account.add');
+  const off = useOff('account.add');
   const [asking, setAsking] = useState(false);
   const [name, setName] = useState('');
   const add = useWrite('account.add', name);
@@ -215,7 +214,7 @@ function Body({ a }: { a: Account }) {
 function Settings({ a }: { a: Account }) {
   const c = usePalette();
   const save = useWrite('account.set', a.name);
-  const off = useWhyNot('account.set');
+  const off = useOff('account.set');
   const was = {
     alias: a.label === a.name ? '' : a.label,
     cap: a.cap === null ? '' : String(a.cap),
@@ -288,7 +287,7 @@ function Toggle(props: { label: string; on: boolean; disabled: boolean; onChange
 function Remove({ a }: { a: Account }) {
   const c = usePalette();
   const founder = useStore().client.hello?.role === 'founder';
-  const off = useWhyNot('account.remove');
+  const off = useOff('account.remove');
   const [asking, setAsking] = useState(false);
   if (!founder) return null;
   return (

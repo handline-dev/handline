@@ -4,7 +4,8 @@ import { STATUSES, type Moves } from '@handline/app-data';
 import { Button, Select } from '#src/ui/index.ts';
 
 import { goAgent, goWorktrees } from '#src/route.ts';
-import { Owner, Status, sums } from '#src/Worktrees.tsx';
+import { Owner, Status } from '#src/Worktrees.tsx';
+import { worktreeSums } from '@handline/app-core';
 
 export function WorktreePanel({
   worktree: w,
@@ -26,7 +27,7 @@ export function WorktreePanel({
         <Button variant="outline" label="Close" onClick={onClose} />
       </aside>
     );
-  const { added, deleted } = sums(w);
+  const { added, deleted } = worktreeSums(w);
   const link = (p: string) => {
     const other = all.find((x) => x.path === p);
     return (

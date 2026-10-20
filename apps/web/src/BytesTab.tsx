@@ -20,11 +20,11 @@ import {
 } from '#src/terminal/core.ts';
 import { traceResize } from '#src/terminal/trace.ts';
 import { Button } from '#src/ui/index.ts';
+import { RESIZE_MS } from '@handline/app-core';
 
 const SKELETON_DELAY_MS = 150;
 const SKELETON_MIN_MS = 300;
 const SKELETON_ROWS = [64, 82, 48, 90, 36, 72, 56, 28]; // percent of the width, in the shape of a screen of text
-const RESIZE_MS = 150;
 const utf8 = new TextEncoder();
 const NOTE: Record<ByteViewState, string> = { attaching: '', live: '', stale: 'Reconnecting…', failed: '' };
 

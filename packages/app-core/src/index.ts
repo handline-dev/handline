@@ -29,3 +29,6 @@ export * from '#src/task-activity.ts';
 export * from '#src/marks.ts';
 export * from '#src/resources.ts';
 export * from '#src/status.ts';
+export * from '#src/text.ts';
+export * from '#src/outlook.ts';
+export * from '#src/worktrees.ts';

@@ -1,8 +1,8 @@
 // Remove one account (founder only): a dry run lists what would happen and which agents sit on it, then the founder types the name to confirm.
 import { useEffect, useState } from 'react';
 import type { Account } from '@handline/client';
-import { useConnection, useStore } from '@handline/app-react';
-import { classify, sentence, useServes, useWrite } from '@handline/app-data';
+import { useStore } from '@handline/app-react';
+import { classify, sentence, useOff, useWrite } from '@handline/app-data';
 import { Button, Dialog, Field, Icon, NOTE } from '#src/ui/index.ts';
 
 function RemoveDialog({ account: a, onClose }: { account: Account; onClose: () => void }) {
@@ -59,11 +59,9 @@ function RemoveDialog({ account: a, onClose }: { account: Account; onClose: () =
 
 export function AccountRemove({ account: a }: { account: Account }) {
   const founder = useStore().client.hello?.role === 'founder';
-  const { served } = useServes('account.remove');
-  const open = useConnection() === 'open';
+  const off = useOff('account.remove');
   const [asking, setAsking] = useState(false);
   if (!founder) return null;
-  const off = !open ? 'daemon not connected' : served ? undefined : 'this daemon does not serve account.remove';
   return (
     <div className="acct-remove">
       <Button
