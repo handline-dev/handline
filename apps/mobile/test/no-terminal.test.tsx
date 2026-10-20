@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, until, press, mount } from './harness.tsx';
+import { ARCH, $, until, press, mount } from '#test/harness.tsx';
 
 describe('an agent with no terminal', () => {
   it('opens its page, offers Start terminal in the terminal tab, and shows the terminal once it runs', async () => {

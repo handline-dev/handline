@@ -15,8 +15,8 @@ import {
   sortTasks,
   taskTree,
   timeoutText,
-} from '../src/task-table.ts';
-import { taskAfter } from '../src/tasks.ts';
+} from '#src/task-table.ts';
+import { taskAfter } from '#src/tasks.ts';
 
 const NOW = Date.parse('2026-01-01T12:00:00Z');
 const ago = (min: number) => new Date(NOW - min * 60_000).toISOString();

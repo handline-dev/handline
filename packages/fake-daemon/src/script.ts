@@ -1,12 +1,12 @@
 // What the scripted sessions do: the screen text, the turn script, the prompt and the session lifecycle. The daemon owns
 // the connections and the event log; this class reaches them through `Host`.
 import type { Actor, Caller, Notifications, Prompt, Schedule, Timestamp, Topic } from '@handline/contract';
-import { FakeHr } from './hr.ts';
-import { Timeline } from './timeline.ts';
-import { BANNER, PROMPT_LINES } from './fixtures.ts';
-import { badRequest, refused } from './errors.ts';
-import { outputFor, snapshotOf, typedParts } from './bytes.ts';
-import { row, tid, view, visible, type Session } from './session.ts';
+import { FakeHr } from '#src/hr.ts';
+import { Timeline } from '#src/timeline.ts';
+import { BANNER, PROMPT_LINES } from '#src/fixtures.ts';
+import { badRequest, refused } from '#src/errors.ts';
+import { outputFor, snapshotOf, typedParts } from '#src/bytes.ts';
+import { row, tid, view, visible, type Session } from '#src/session.ts';
 
 export interface Host {
   iso(): Timestamp;

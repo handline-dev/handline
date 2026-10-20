@@ -30,4 +30,4 @@ export const WAIT_WORDS = {
   founder: 'waiting on you',
 } as const;
 export const blockedBy = (ids: readonly number[]): string => `blocked by ${ids.map((n) => `T${n}`).join(', ')}`;
-export * from './icons.ts';
+export * from '#src/icons.ts';

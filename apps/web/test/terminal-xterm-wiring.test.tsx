@@ -1,6 +1,6 @@
 // createXterm's wiring on the real xterm: the copy key and the guarded paste are registered on the host, in front of xterm's own handlers.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createXterm } from '../src/terminal/xterm.ts';
+import { createXterm } from '#src/terminal/xterm.ts';
 
 const created: { dispose(): void }[] = [];
 afterEach(() => {

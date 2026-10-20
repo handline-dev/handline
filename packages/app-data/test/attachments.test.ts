@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RpcError } from '@handline/client';
-import { CHUNK, forgetAttachment, knownAttachments, rememberAttachment, uploadImage, whyNotImage } from '../src/attachments.ts';
+import { CHUNK, forgetAttachment, knownAttachments, rememberAttachment, uploadImage, whyNotImage } from '#src/attachments.ts';
 
 const file = (n: number) => new Blob([new Uint8Array(n)], { type: 'image/png' });
 const A = { id: 'a1', name: 'x.png', mime: 'image/png' as const, bytes: 0 };

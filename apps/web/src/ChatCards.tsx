@@ -5,13 +5,13 @@ import { useSelector } from '@handline/app-react';
 import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
 import { ago, clockTime, decidedProposals, restartingLine, restartShown } from '@handline/app-core';
 import { classify, sentence, useHr, useWrite } from '@handline/app-data';
-import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOfView } from './ui/index.ts';
-import { goTeam } from './route.ts';
-import { openTaskOnClick } from './ChatMessages.tsx';
-import { useWorkspace } from './Workspace.tsx';
-import { AgentGauges } from './AgentGauges.tsx';
-import { ViewSwitch } from './ViewSwitch.tsx';
-import { useOpenTerminal } from './ChatMenus.tsx';
+import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOfView } from '#src/ui/index.ts';
+import { goTeam } from '#src/route.ts';
+import { openTaskOnClick } from '#src/ChatMessages.tsx';
+import { useWorkspace } from '#src/Workspace.tsx';
+import { AgentGauges } from '#src/AgentGauges.tsx';
+import { ViewSwitch } from '#src/ViewSwitch.tsx';
+import { useOpenTerminal } from '#src/ChatMenus.tsx';
 
 const until = (iso: string | null): number | null => {
   const t = iso ? Date.parse(iso) : NaN;

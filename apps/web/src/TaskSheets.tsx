@@ -1,8 +1,8 @@
 // The small sheets of the Tasks list: owner, priority, merge and the key sheet.
 import { useState } from 'react';
 import { taskRef } from '@handline/app-core';
-import { Sheet } from './taskui.tsx';
-import { Button, Kbd, NativeSelect } from './ui/index.ts';
+import { Sheet } from '#src/taskui.tsx';
+import { Button, Kbd, NativeSelect } from '#src/ui/index.ts';
 
 /** The bridge's twelve keys (`TasksView.KEYS`) plus the web's `n`, for the key sheet. */
 export const LIST_KEYS: [string, string][] = [

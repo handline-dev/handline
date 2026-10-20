@@ -3,10 +3,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { space } from '@handline/tokens';
-import ApkUpdate from '../../modules/apk-update/index.ts';
-import { usePalette } from '../theme.ts';
-import { checkForUpdate, type Channel, type Update } from '../update.ts';
-import { Button } from './parts.tsx';
+import ApkUpdate from '#modules/apk-update/index.ts';
+import { usePalette } from '#src/theme.ts';
+import { checkForUpdate, type Channel, type Update } from '#src/update.ts';
+import { Button } from '#src/screens/parts.tsx';
 
 const KEY = 'handline.channel';
 

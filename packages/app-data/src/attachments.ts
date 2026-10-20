@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { RpcError, type Attachment } from '@handline/client';
 import { useStore } from '@handline/app-react';
-import { newOperationId } from './send-ops.ts';
-import { useWrite } from './write.ts';
+import { newOperationId } from '#src/send-ops.ts';
+import { useWrite } from '#src/write.ts';
 
 // These mirror the daemon's limits (contract x-attachments); the contract carries them as prose, not as constants.
 export const CHUNK = 512 * 1024;

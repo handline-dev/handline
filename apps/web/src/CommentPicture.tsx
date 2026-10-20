@@ -2,8 +2,8 @@
 import { useRef, useState } from 'react';
 import { keptMarks, markText, withImages, type Mark } from '@handline/app-core';
 import { classify, sentence, useUploadImage, whyNotImage } from '@handline/app-data';
-import { Annotator } from './Annotate.tsx';
-import { Button, Dialog } from './ui/index.ts';
+import { Annotator } from '#src/Annotate.tsx';
+import { Button, Dialog } from '#src/ui/index.ts';
 
 export function CommentPicture({ onAttach }: { onAttach: (markdown: string) => void }) {
   const input = useRef<HTMLInputElement>(null);

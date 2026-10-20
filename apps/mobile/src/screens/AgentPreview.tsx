@@ -6,9 +6,9 @@ import { WebView } from 'react-native-webview';
 import { markText } from '@handline/app-core';
 import { classify, sentence, useChatActions, useUploadImage } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { MarkPicture, type Marked } from './MarkPicture.tsx';
-import { Button } from './parts.tsx';
+import { usePalette } from '#src/theme.ts';
+import { MarkPicture, type Marked } from '#src/screens/MarkPicture.tsx';
+import { Button } from '#src/screens/parts.tsx';
 
 /** What was typed as an address: a bare host is https, except on the tailnet (.ts.net), the one place the phone allows plain http. Null when it cannot be one. */
 export function addressOf(typed: string): string | null {

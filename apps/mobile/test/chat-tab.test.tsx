@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { ARCH, sleep, until, box, $, text, press, mount } from './harness.tsx';
+import { ARCH, sleep, until, box, $, text, press, mount } from '#test/harness.tsx';
 
 describe('the chat tab', () => {
   const type = (id: string, value: string) =>

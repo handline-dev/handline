@@ -1,8 +1,8 @@
 // The fake daemon's chat: messages with landing state, the transcript and the working line, on the chat topic.
 // A sent message lands one tick at a time (typed, delivered, then the agent's turn and its reply) so a UI sees every state; `tick` is driven by the daemon's own.
-import { Failure, invalidParams, refused, storeFailure } from './errors.ts';
+import { Failure, invalidParams, refused, storeFailure } from '#src/errors.ts';
 import type { Attachment, ChatMessage, ImagePart, Landing, TextPart, TranscriptItem, Working } from '@handline/contract';
-import { deliveryOf, receiptPatch, uuidFor, type Msg } from './delivery.ts';
+import { deliveryOf, receiptPatch, uuidFor, type Msg } from '#src/delivery.ts';
 
 type Emit = (
   type: 'chat.message' | 'chat.transcript' | 'chat.working',

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, mount, press, until } from './harness.tsx';
+import { ARCH, $, mount, press, until } from '#test/harness.tsx';
 
 const HANDOFF = 'Continue the phone chat: sessions, then the prompts.';
 

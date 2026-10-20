@@ -1,6 +1,6 @@
 // The one way into the debug window: a quiet button at the very bottom of Settings that opens it in a window of its own.
-import { Button } from '../ui/index.ts';
-import { DEBUG_HASH } from './paneFacts.ts';
+import { Button } from '#src/ui/index.ts';
+import { DEBUG_HASH } from '#src/debug/paneFacts.ts';
 
 /** The debug window's address: this page with the debug route. */
 export const debugUrl = (here: Pick<Location, 'origin' | 'pathname' | 'search'>): string => `${here.origin}${here.pathname}${here.search}${DEBUG_HASH}`;

@@ -4,11 +4,11 @@ import { useMemo, useState, type KeyboardEvent } from 'react';
 import { APPROVED, ago, myTurn, type Card, type CardAction } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAgents, useInbox, useTasks, useWrite } from '@handline/app-data';
-import { goTerminal } from './route.ts';
-import { useWide } from './taskui.tsx';
-import { AskChange, ReviewPictures } from './ReviewCard.tsx';
-import { TaskDetail } from './TaskDetail.tsx';
-import { Button, Icon, Input, MenuButton, MenuItem, PageHead, PageTitle, ScrollPage } from './ui/index.ts';
+import { goTerminal } from '#src/route.ts';
+import { useWide } from '#src/taskui.tsx';
+import { AskChange, ReviewPictures } from '#src/ReviewCard.tsx';
+import { TaskDetail } from '#src/TaskDetail.tsx';
+import { Button, Icon, Input, MenuButton, MenuItem, PageHead, PageTitle, ScrollPage } from '#src/ui/index.ts';
 
 /** The cards the person's turn holds: unread items, agents that need them. */
 export function useMyTurn(): { cards: Card[]; loading: boolean } {

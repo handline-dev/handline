@@ -2,10 +2,10 @@
 import { useState } from 'react';
 import type { AgentDetail } from '@handline/client';
 import { EDITABLE, shown, useFileEditor, useWorktrees } from '@handline/app-data';
-import { Button, Icon, Input, MenuButton, MenuItem, Textarea } from './ui/index.ts';
-import { Markdown } from './Markdown.tsx';
-import { shell } from './shell.ts';
-import { View } from './View.tsx';
+import { Button, Icon, Input, MenuButton, MenuItem, Textarea } from '#src/ui/index.ts';
+import { Markdown } from '#src/Markdown.tsx';
+import { shell } from '#src/shell.ts';
+import { View } from '#src/View.tsx';
 
 export function FileTab({ agent, detail, path, onPath }: { agent: string; detail: AgentDetail; path: string; onPath: (p: string) => void }) {
   const [typed, setTyped] = useState(path);

@@ -3,8 +3,8 @@
 // that form (so Enter in a field sends too); one with `onClick` just calls it.
 import { Dialog as Base } from '@base-ui/react/dialog';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Backdrop } from './Backdrop.tsx';
-import { Button } from './Button.tsx';
+import { Backdrop } from '#src/ui/Backdrop.tsx';
+import { Button } from '#src/ui/Button.tsx';
 
 export function Dialog({
   title,

@@ -1,6 +1,6 @@
 // A message's time and ticks sit beside its bubble, not inside it, and no message shows a number.
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, mount, press, until } from './harness.tsx';
+import { ARCH, $, mount, press, until } from '#test/harness.tsx';
 
 describe('the stamp of a chat message', () => {
   it('is beside the bubble, and no row shows a message number', async () => {

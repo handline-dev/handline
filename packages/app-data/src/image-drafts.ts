@@ -2,8 +2,8 @@
 // the text waits while one is still going. The app brings the picture ready (picked, shrunk, a Blob and a preview address).
 import { useRef, useState } from 'react';
 import type { Attachment } from '@handline/client';
-import { classify, sentence } from './errors.ts';
-import { MAX_PER_MESSAGE, forgetAttachment, rememberAttachment, useUploadImage, whyNotImage } from './attachments.ts';
+import { classify, sentence } from '#src/errors.ts';
+import { MAX_PER_MESSAGE, forgetAttachment, rememberAttachment, useUploadImage, whyNotImage } from '#src/attachments.ts';
 
 export interface ImageSource {
   blob: Blob;

@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { capacityOf, headroom, span } from '@handline/app-core';
 import { useAccounts, useOutlook, useServes } from '@handline/app-data';
-import { agentsLine } from './Accounts.tsx';
-import { Meter } from './RailIcons.tsx';
-import { Gauge, useNow } from './Gauge.tsx';
-import { Icon } from './ui/index.ts';
+import { agentsLine } from '#src/Accounts.tsx';
+import { Meter } from '#src/RailIcons.tsx';
+import { Gauge, useNow } from '#src/Gauge.tsx';
+import { Icon } from '#src/ui/index.ts';
 
 const ROW = 'usage-row flex flex-col gap-1.5 rounded-card border bg-panel px-3 py-2.5 text-inherit no-underline';
 // A warning is also a word and a glyph on the row, not the edge alone.

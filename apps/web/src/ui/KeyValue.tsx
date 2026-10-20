@@ -1,6 +1,6 @@
 // Small label-and-value layouts: a key/value line (label stacks over the value on a phone), a meta line of icon items, a meta grid of icon fields.
 import type { ComponentProps, ReactNode } from 'react';
-import { Icon, type IconName } from './Icon.tsx';
+import { Icon, type IconName } from '#src/ui/Icon.tsx';
 
 const join = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 

@@ -4,12 +4,12 @@ import { useState } from 'react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
 import type { ChatMessage, TranscriptItem, Working } from '@handline/client';
-import { mapPages, type Pages } from './cache.ts';
-import { NOT_WORKING, type MsgPage, type TrPage } from './chat-events.ts';
-import { useData, useFeed, useServes } from './provider.ts';
-import { qk } from './reads.ts';
-import { forgetRow, newOperationId, operationOf, type Delivery } from './send-ops.ts';
-import { useWrite } from './write.ts';
+import { mapPages, type Pages } from '#src/cache.ts';
+import { NOT_WORKING, type MsgPage, type TrPage } from '#src/chat-events.ts';
+import { useData, useFeed, useServes } from '#src/provider.ts';
+import { qk } from '#src/reads.ts';
+import { forgetRow, newOperationId, operationOf, type Delivery } from '#src/send-ops.ts';
+import { useWrite } from '#src/write.ts';
 
 export type ChatScope = 'mine' | 'all';
 const PAGE = 30;

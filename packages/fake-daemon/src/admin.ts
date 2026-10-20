@@ -1,8 +1,8 @@
 // The fake daemon's read-mostly admin surface: the stats windows, the usage outlook, the home settings, the standing answers, and the repos
 // and worktrees (worktrees.ts).
 import type { Outlook, Settings, SettingsChanges, StandingAnswer, Stats, Timestamp } from '@handline/contract';
-import { Failure, badRequest } from './errors.ts';
-import { FakeWorktrees } from './worktrees.ts';
+import { Failure, badRequest } from '#src/errors.ts';
+import { FakeWorktrees } from '#src/worktrees.ts';
 
 type Accepted = (said: string) => unknown;
 const HOUR = 3_600_000;

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dotOf, dotOfStatus } from '../src/index.ts';
+import { dotOf, dotOfStatus } from '#src/index.ts';
 
 const st = (state: string, reason: string, text = 'x') => ({ state, reason, text, until: null, since: null, tasks: [] });
 

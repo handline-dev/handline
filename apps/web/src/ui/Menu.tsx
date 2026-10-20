@@ -13,8 +13,8 @@ import {
   type ReactNode,
 } from 'react';
 import * as D from '@radix-ui/react-menu';
-import { Button } from './Button.tsx';
-import { Icon, type IconName } from './Icon.tsx';
+import { Button } from '#src/ui/Button.tsx';
+import { Icon, type IconName } from '#src/ui/Icon.tsx';
 
 const PANEL = 'z-30 overflow-y-auto min-w-[200px] rounded-card border border-line bg-panel py-1 shadow-[var(--shadow-pop)] outline-none';
 const ITEM =

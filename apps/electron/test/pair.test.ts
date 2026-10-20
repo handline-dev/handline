@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { memoryPair, type Transport } from '@handline/client';
-import { ensureToken, founderKeyFile, NoFounderKey, pairSelf, phoneLink, stillPaired, TokenFile } from '../src/pair.ts';
+import { ensureToken, founderKeyFile, NoFounderKey, pairSelf, phoneLink, stillPaired, TokenFile } from '#src/pair.ts';
 
 /** A gateway's local socket: founder hello with the right key, device.pair, device.redeem, devices.list. */
 function gateway(key: string) {

@@ -1,7 +1,7 @@
 // Window capture for the page: the list of windows with a small picture each, and one window as PNG (docs/story1-research.md, 1-1).
 // Electron's desktopCapturer is injected, so this runs under node. The page never names a screen or a path, only a window id from the list.
 import type { Fail } from '@handline/app-core';
-import { CHANNELS, fromWindow, type Sender } from './bridge.ts';
+import { CHANNELS, fromWindow, type Sender } from '#src/bridge.ts';
 
 export interface Source {
   id: string;

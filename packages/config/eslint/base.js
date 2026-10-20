@@ -1,7 +1,7 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
-import { boundaries } from './boundaries.js';
-import { limits } from './limits.js';
+import { boundaries } from '#eslint/boundaries.js';
+import { limits } from '#eslint/limits.js';
 
 const skip = { skipBlankLines: true, skipComments: true };
 export const ignores = {

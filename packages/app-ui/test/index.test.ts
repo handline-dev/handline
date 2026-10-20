@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { STATE_GLYPH, blockedBy, toneOf } from '../src/index.ts';
+import { STATE_GLYPH, blockedBy, toneOf } from '#src/index.ts';
 
 test('a state has a glyph and a tone, and an unknown state is idle', () => {
   assert.equal(STATE_GLYPH.doing, 'taskDoing');

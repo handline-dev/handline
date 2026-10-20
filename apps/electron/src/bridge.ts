@@ -2,7 +2,7 @@
 // Electron's own objects are injected, so this runs under node.
 import { PAGE_SETTINGS, type Fail } from '@handline/app-core';
 import type { Methods } from '@handline/client';
-import { parseMode, type Mode, type OfferInput } from './mode.ts';
+import { parseMode, type Mode, type OfferInput } from '#src/mode.ts';
 
 export const CHANNELS = {
   screen: 'handline:screen',

@@ -4,8 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV, type NavigateTo, type ShellApi } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
-import { App } from '../src/App.tsx';
-import { settingsRelay, shell } from '../src/shell.ts';
+import { App } from '#src/App.tsx';
+import { settingsRelay, shell } from '#src/shell.ts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

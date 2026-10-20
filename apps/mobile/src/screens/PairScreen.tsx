@@ -2,10 +2,10 @@ import { useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
 import { radius, space } from '@handline/tokens';
 import { RpcError } from '@handline/client';
-import { pair, type Pairing } from '../session.ts';
-import { Button, PageHeader } from './parts.tsx';
-import { ScanQr } from './ScanQr.tsx';
-import { usePalette } from '../theme.ts';
+import { pair, type Pairing } from '#src/session.ts';
+import { Button, PageHeader } from '#src/screens/parts.tsx';
+import { ScanQr } from '#src/screens/ScanQr.tsx';
+import { usePalette } from '#src/theme.ts';
 
 /** Pairing from the QR the computer shows (camera), or from a pasted `handline://pair?...` uri. */
 export function PairScreen(props: { onPaired: (p: Pairing) => void }) {

@@ -2,8 +2,8 @@
 // A refusal for a title that repeats an open task names that task and offers to create it anyway.
 import { useRef, useState } from 'react';
 import { classify, sentence, useWrite } from '@handline/app-data';
-import { BodyEditor } from './BodyEditor.tsx';
-import { Button, Dialog, FIELD, FIELD_LABEL, Field, Icon, NOTE, Select } from './ui/index.ts';
+import { BodyEditor } from '#src/BodyEditor.tsx';
+import { Button, Dialog, FIELD, FIELD_LABEL, Field, Icon, NOTE, Select } from '#src/ui/index.ts';
 
 export function NewTask({ agents, onClose }: { agents: string[]; onClose: () => void }) {
   const ask = useWrite('task.new');

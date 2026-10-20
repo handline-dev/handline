@@ -17,9 +17,9 @@ import {
   State,
   Switch,
   stateOf,
-} from '../src/ui/index.ts';
-import { DOT_ORDER, Mark } from '../src/RailIcons.tsx';
-import { AgentGauges } from '../src/AgentGauges.tsx';
+} from '#src/ui/index.ts';
+import { DOT_ORDER, Mark } from '#src/RailIcons.tsx';
+import { AgentGauges } from '#src/AgentGauges.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

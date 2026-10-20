@@ -4,7 +4,7 @@ import { Text, View } from 'react-native';
 import { ago, handoffLine, restartShown } from '@handline/app-core';
 import type { AgentDetail, TranscriptItem } from '@handline/client';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
+import { usePalette } from '#src/theme.ts';
 
 export function HandoffLine({ handoff, items }: { handoff: AgentDetail['handoff']; items: TranscriptItem[] }) {
   const c = usePalette();

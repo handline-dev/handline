@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, mount, press, until } from './harness.tsx';
+import { ARCH, $, mount, press, until } from '#test/harness.tsx';
 
 describe('#N in a message', () => {
   it('links to the pull request of the agent repo when it has that number, and is plain text otherwise', async () => {

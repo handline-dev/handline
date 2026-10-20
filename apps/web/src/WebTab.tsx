@@ -1,9 +1,9 @@
 // A page of the agent's own app (its dev server), shown beside the chat. In the desktop shell it is a native view laid over this tab's
 // body (the shell positions it from the rectangle reported here); in a plain browser it is an iframe.
 import { useEffect, useRef, useState } from 'react';
-import { Button, Input, MenuButton, MenuItem } from './ui/index.ts';
-import { PreviewAsk } from './PreviewAsk.tsx';
-import { shell } from './shell.ts';
+import { Button, Input, MenuButton, MenuItem } from '#src/ui/index.ts';
+import { PreviewAsk } from '#src/PreviewAsk.tsx';
+import { shell } from '#src/shell.ts';
 
 /** What was typed as an address: `localhost:5173` is a page too. Null when it cannot be one. */
 export function addressOf(typed: string): string | null {

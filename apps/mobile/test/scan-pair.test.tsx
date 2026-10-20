@@ -16,11 +16,11 @@ vi.mock('expo-camera', () => ({
   },
 }));
 const pairMock = vi.hoisted(() => vi.fn());
-vi.mock('../src/session.ts', () => ({ pair: pairMock }));
+vi.mock('#src/session.ts', () => ({ pair: pairMock }));
 
-import { ScanQr } from '../src/screens/ScanQr.tsx';
-import { PairScreen } from '../src/screens/PairScreen.tsx';
-import { $, box, mount, press, text } from './harness.tsx';
+import { ScanQr } from '#src/screens/ScanQr.tsx';
+import { PairScreen } from '#src/screens/PairScreen.tsx';
+import { $, box, mount, press, text } from '#test/harness.tsx';
 
 const render = (node: React.ReactNode) => mount(undefined, undefined, undefined, { screen: () => node });
 

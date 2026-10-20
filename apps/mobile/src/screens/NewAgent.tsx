@@ -1,13 +1,13 @@
 // New agent (founder, docs/pc-app-gaps.md X5): one full page with the form of docs/design/new-agent-worktrees.md §1.2, then the progress of
 // the operation it started. One agent.create per tap; the fields stay here, so a failed creation returns to them as they were.
-import type { FirstTask } from '../session.ts';
+import type { FirstTask } from '#src/session.ts';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { EFFORTS, EMPTY_AGENT_FIELDS, classify, sentence, useNewAgentForm, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { NewAgentProgress } from './NewAgentProgress.tsx';
-import { Button, PageHeader } from './parts.tsx';
+import { usePalette } from '#src/theme.ts';
+import { NewAgentProgress } from '#src/screens/NewAgentProgress.tsx';
+import { Button, PageHeader } from '#src/screens/parts.tsx';
 
 /** Where the page is, kept past a reload: the operation it is watching, or null for the form. */
 export interface Pending {

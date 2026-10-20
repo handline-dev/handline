@@ -2,7 +2,7 @@
 // least one other task chosen and folds them, and a refusal keeps the sheet with its reason.
 import { describe, expect, it } from 'vitest';
 import type { setup } from '@handline/fake-daemon/helpers';
-import { $, fill, mount, press, text, until, value , verb } from './harness.tsx';
+import { $, fill, mount, press, text, until, value , verb } from '#test/harness.tsx';
 
 const DOING = 1684;
 const OTHER = 1690; // queued

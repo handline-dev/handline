@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { second, setup } from '../src/helpers.ts';
+import { second, setup } from '#src/helpers.ts';
 
 const AUD = 'handline.auditor';
 // A 1x1 PNG (70 bytes), a PNG header padded out to a chosen size, and bytes that are not an image.

@@ -12,10 +12,10 @@ import type {
   Operation,
   Task,
 } from '@handline/client';
-import { edit, upsert, type Ctx } from './cache.ts';
-import { chatEvent } from './chat-events.ts';
-import { transcriptEvent } from './transcript.ts';
-import { qk } from './reads.ts';
+import { edit, upsert, type Ctx } from '#src/cache.ts';
+import { chatEvent } from '#src/chat-events.ts';
+import { transcriptEvent } from '#src/transcript.ts';
+import { qk } from '#src/reads.ts';
 
 type Rule = (c: Ctx, e: WireEvent) => void;
 type Data<T> = T & Record<string, unknown>;

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useAgentStrip, useServes } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
+import { usePalette } from '#src/theme.ts';
 
 const DASH = '–';
 

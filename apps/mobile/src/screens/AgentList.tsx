@@ -1,17 +1,16 @@
 import { useState } from 'react';
 import { SectionList, Pressable, Text, View } from 'react-native';
 import type { AgentView as Agent } from '@handline/client';
-import { useAgents, useServes } from '@handline/app-data';
+import { useAgents, useHrCount, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { rowHeight, space } from '@handline/tokens';
 import { ago } from '@handline/app-core';
-import { KIND } from './NeedsYouCard.tsx';
-import { usePalette } from '../theme.ts';
-import { StateMark } from './StateMark.tsx';
-import { Button, MenuItem, MenuSheet, PageHeader } from './parts.tsx';
-import { useHrCount } from './Hr.tsx';
-import { TeamButton } from './TeamEntry.tsx';
-import { Loadable } from './Loadable.tsx';
+import { KIND } from '#src/screens/NeedsYouCard.tsx';
+import { usePalette } from '#src/theme.ts';
+import { StateMark } from '#src/screens/StateMark.tsx';
+import { Button, MenuItem, MenuSheet, PageHeader } from '#src/screens/parts.tsx';
+import { TeamButton } from '#src/screens/TeamEntry.tsx';
+import { Loadable } from '#src/screens/Loadable.tsx';
 
 export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'settings' | 'team') => void }) {
   const c = usePalette();

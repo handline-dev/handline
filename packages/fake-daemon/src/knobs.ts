@@ -1,4 +1,4 @@
-import { refused, type Failure } from './errors.ts';
+import { refused, type Failure } from '#src/errors.ts';
 
 // Calls that belong to the connection, not to a view: never delayed or refused, so a test can still connect.
 const HANDSHAKE = new Set(['hello', 'subscribe', 'unsubscribe', 'whoami', 'device.redeem']);

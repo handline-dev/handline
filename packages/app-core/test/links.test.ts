@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { branchCandidates, findNames } from '../src/links.ts';
+import { branchCandidates, findNames } from '#src/links.ts';
 
 test('words that look like a branch name, once each, in order', () => {
   assert.deepEqual(branchCandidates('Proposal on branch pr-review-loop-review @2728429a0, file docs/pr-review-loop.md; also story/4153 and pr-review-loop-review'), [

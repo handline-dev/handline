@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Account } from '@handline/client';
-import { FIVE_HOURS_MS, capacityOf, gaugeOf, headroom, outUntil, stateOf, toneOf } from '../src/index.ts';
+import { FIVE_HOURS_MS, capacityOf, gaugeOf, headroom, outUntil, stateOf, toneOf } from '#src/index.ts';
 
 const NOW = Date.parse('2026-10-07T12:00:00Z');
 const at = (ms: number) => new Date(NOW + ms).toISOString();

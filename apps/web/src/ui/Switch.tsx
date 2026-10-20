@@ -1,6 +1,6 @@
 // An on/off switch (Base UI), 28 by 16. On is the knob at the right and a check in it, so it is not told by colour alone.
 import { Switch as Base } from '@base-ui/react/switch';
-import { Icon } from './Icon.tsx';
+import { Icon } from '#src/ui/Icon.tsx';
 
 export function Switch({
   on,

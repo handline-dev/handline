@@ -2,7 +2,7 @@
 // hue only repeats what the shape already says.
 import { dotOf, type Dot } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
-import { Icon, type IconName } from './Icon.tsx';
+import { Icon, type IconName } from '#src/ui/Icon.tsx';
 
 export type StateKind = 'working' | 'booting' | 'needs' | 'blocked' | 'idle' | 'parked' | 'done' | 'rejected' | 'noTerminal';
 

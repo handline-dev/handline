@@ -1,7 +1,7 @@
 // A client Transport over the pinned-socket native module: React Native's own WebSocket only trusts what the OS trusts,
 // and the daemon's certificate is self-signed, trusted by its fingerprint alone.
 import type { Transport } from '@handline/client';
-import type { PinnedSocketNative } from '../modules/pinned-socket/index.ts';
+import type { PinnedSocketNative } from '#modules/pinned-socket/index.ts';
 
 let next = 0;
 

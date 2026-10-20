@@ -4,10 +4,10 @@ import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import type { Proposal, TranscriptItem } from '@handline/client';
 import { clockTime, sessionLine } from '@handline/app-core';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Icon, iconLabel, type IconName } from './Icon.tsx';
-import { PrBody } from './PrBody.tsx';
-import { Sheet } from './TaskActions.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Icon, iconLabel, type IconName } from '#src/screens/Icon.tsx';
+import { PrBody } from '#src/screens/PrBody.tsx';
+import { Sheet } from '#src/screens/TaskActions.tsx';
 
 /** The time of a message and, for the person's own, how far it got, as a small column beside its bubble. */
 export function Stamp({ m, time, ticks }: { m: { id: number }; time: string | null; ticks: IconName | null }) {

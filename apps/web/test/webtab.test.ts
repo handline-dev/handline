@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addressOf } from '../src/WebTab.tsx';
+import { addressOf } from '#src/WebTab.tsx';
 
 describe('addressOf', () => {
   it('adds http to a bare host and port', () => expect(addressOf(' localhost:5173 ')).toBe('http://localhost:5173'));

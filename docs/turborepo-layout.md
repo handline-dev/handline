@@ -41,6 +41,7 @@ contract/           @handline/contract    protocol.ts / protocol.json stay put; 
 Dependency direction is one way: `contract` → `client` → `app-core` → `app-react` → `app-data` → `apps/*`.
 `client-node` and `fake-daemon` depend on `client` and are never imported by an app (they appear only in `devDependencies`).
 `protocol.ts` stays generated; nothing hand-edits it.
+Imports name a package (`@handline/app-core`) or a path inside the same package (`#src/store.ts`, from the `"imports"` map in its package.json), never a relative path; lint refuses `./` and `../`, in `import()` and `vi.mock()` too.
 
 ## 3. What is shared, what is not
 

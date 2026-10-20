@@ -1,7 +1,7 @@
 import reactHooks from 'eslint-plugin-react-hooks';
 import query from '@tanstack/eslint-plugin-query';
 import globals from 'globals';
-import { base } from './base.js';
+import { base } from '#eslint/base.js';
 
 export const react = (dir) => [
   ...base(dir),

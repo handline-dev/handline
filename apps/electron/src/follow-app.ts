@@ -5,8 +5,8 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, ipcMain, WebContentsView, type BrowserWindow } from 'electron';
-import { Follower, watchMain, type Main } from './follow.ts';
-import { popoverHtml } from './popover-html.ts';
+import { Follower, watchMain, type Main } from '#src/follow.ts';
+import { popoverHtml } from '#src/popover-html.ts';
 
 const sh = (file: string, args: string[], cwd: string): Promise<string> =>
   new Promise((resolve, reject) =>

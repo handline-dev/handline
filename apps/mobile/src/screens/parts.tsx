@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Keyboard, Modal, Platform, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Icon, type IconName } from './Icon.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Icon, type IconName } from '#src/screens/Icon.tsx';
 
 export function Banner(props: { text: string; error?: boolean; onPress?: () => void }) {
   const c = usePalette();

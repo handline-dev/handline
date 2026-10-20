@@ -3,14 +3,14 @@
 // field's own note says why. The two danger switches ask first. Schedules sit below. Mount it with the agent's name and a way back.
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { DANGER, FIELDS, type Field } from '@handline/app-core';
+import { DANGER, type Field, FIELDS, fieldUnit } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { useAgentDetail, useFieldRow, useServes } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Loadable } from './Loadable.tsx';
-import { Button, PageHeader } from './parts.tsx';
-import { Schedules } from './Schedules.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { Button, PageHeader } from '#src/screens/parts.tsx';
+import { Schedules } from '#src/screens/Schedules.tsx';
 
 const SECTIONS: { id: Field['section']; title: string }[] = [
   { id: 'model', title: 'Model' },
@@ -19,8 +19,6 @@ const SECTIONS: { id: Field['section']; title: string }[] = [
   { id: 'browser', title: 'Browser' },
 ];
 
-/** The unit after the field; what follows its comma ("min, 0 = never") goes in the hint. */
-const unitOf = (f: Field) => f.unit?.split(',')[0]?.trim();
 const hintOf = (f: Field) =>
   [f.note, f.unit?.includes(',') ? f.unit.split(',').slice(1).join(',').trim() : undefined].filter(Boolean).join('; ');
 
@@ -144,7 +142,7 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
             opacity: off ? 0.4 : 1,
           }}
         />
-        {unitOf(f) ? <Text style={{ color: c.muted }}>{unitOf(f)}</Text> : null}
+        {fieldUnit(f) ? <Text style={{ color: c.muted }}>{fieldUnit(f)}</Text> : null}
         <Button testID={`${f.key}-save`} label="Save" disabled={off || draft === null} onPress={() => commit(value)} />
       </View>
     );

@@ -2,9 +2,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Store, type KV } from '@handline/app-core';
 import { DaemonClient, webSocketTransport, type Transport } from '@handline/client';
-import { App } from './App.tsx';
-import { settingsRelay, shell } from './shell.ts';
-import { forgetToken, loadToken, needsToken, pairWith, tokenRefused } from './pairing.ts';
+import { App } from '#src/App.tsx';
+import { settingsRelay, shell } from '#src/shell.ts';
+import { forgetToken, loadToken, needsToken, pairWith, tokenRefused } from '#src/pairing.ts';
 
 type Open = (url: string) => Promise<Transport>;
 

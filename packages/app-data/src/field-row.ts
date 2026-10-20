@@ -2,9 +2,9 @@
 // confirmation, and the write that saves a value (agent.set, an authored write).
 import { useState } from 'react';
 import { DANGER, mayChange, problemWith, type Field } from '@handline/app-core';
-import { classify, sentence } from './errors.ts';
-import { useSettings } from './read.ts';
-import { usePending, useWrite } from './write.ts';
+import { classify, sentence } from '#src/errors.ts';
+import { useSettings } from '#src/read.ts';
+import { usePending, useWrite } from '#src/write.ts';
 
 export function useFieldRow(props: { agent: string; f: Field; stored: string | undefined; editable: boolean; role: string | undefined }) {
   const { agent, f, role } = props;

@@ -2,7 +2,7 @@
 // the standing answers, and the skeleton, empty, error, pending and not-served states.
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { $, box, mount as mountHome, press, until } from './harness.tsx';
+import { $, box, mount as mountHome, press, until } from '#test/harness.tsx';
 
 const text = (el: Element | null = box) => el?.textContent ?? '';
 const type = (id: string, value: string) =>

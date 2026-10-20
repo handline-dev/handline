@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store, activate, applyPreset, closeTab, defaultWorkspace, openTab, saveWorkspace, splitTab, storageKey, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
-import { App } from '../src/App.tsx';
+import { App } from '#src/App.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

@@ -5,11 +5,11 @@ import { Text, View } from 'react-native';
 import { applyEach, plan, summary, taskRef, TASK_VERBS, type Outcome, type RowVerb } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task } from '@handline/client';
-import { useAgents, useWrite } from '@handline/app-data';
+import { useAgents, useOff, useWrite } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { MenuItem, MenuSheet, Pill } from './parts.tsx';
-import { Input, Sheet, useWhyNot } from './TaskActions.tsx';
+import { usePalette } from '#src/theme.ts';
+import { MenuItem, MenuSheet, Pill } from '#src/screens/parts.tsx';
+import { Input, Sheet } from '#src/screens/TaskActions.tsx';
 
 type Arg = 'reason' | 'reasonOptional' | 'owner' | 'priority' | 'timebox' | null;
 const ARG: Record<RowVerb, Arg> = {
@@ -57,17 +57,17 @@ function useVerbs() {
 }
 
 /** Why the daemon cannot run a verb now, or null: the connection, then whether it serves the method. */
-function useCans(): Record<RowVerb, string | null> {
-  const edit = useWhyNot('task.edit');
+function useCans(): Record<RowVerb, string | undefined> {
+  const edit = useOff('task.edit');
   return {
-    done: useWhyNot('task.done'),
-    reopen: useWhyNot('task.reopen'),
-    queue: useWhyNot('task.queue'),
-    draft: useWhyNot('task.draft'),
-    release: useWhyNot('task.release'),
-    withdraw: useWhyNot('task.withdraw'),
-    cancel: useWhyNot('task.cancel'),
-    discard: useWhyNot('task.discard'),
+    done: useOff('task.done'),
+    reopen: useOff('task.reopen'),
+    queue: useOff('task.queue'),
+    draft: useOff('task.draft'),
+    release: useOff('task.release'),
+    withdraw: useOff('task.withdraw'),
+    cancel: useOff('task.cancel'),
+    discard: useOff('task.discard'),
     owner: edit,
     priority: edit,
     timebox: edit,

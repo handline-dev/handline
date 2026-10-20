@@ -1,5 +1,5 @@
 import { describe, it } from 'vitest';
-import { $, mount, press, until } from './harness.tsx';
+import { $, mount, press, until } from '#test/harness.tsx';
 
 describe('the task graph', () => {
   it('shows the open tasks as boxes and opens one on a tap', async () => {

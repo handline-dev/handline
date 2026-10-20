@@ -1,9 +1,9 @@
 import { createRoot } from 'react-dom/client';
-import { Start } from './Start.tsx';
-import { applyTheme, themeOf } from './appearance.ts';
-import { browserStorage, daemonUrl } from './daemon.ts';
-import { inShell, trackShellInsets } from './shell.ts';
-import './styles.css';
+import { Start } from '#src/Start.tsx';
+import { applyTheme, themeOf } from '#src/appearance.ts';
+import { browserStorage, daemonUrl } from '#src/daemon.ts';
+import { inShell, trackShellInsets } from '#src/shell.ts';
+import '#src/styles.css';
 
 // The chrome reads this in the shell (styles/base.css).
 if (inShell()) {

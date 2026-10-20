@@ -3,9 +3,9 @@ import { useRef } from 'react';
 import { ago } from '@handline/app-core';
 import { useNearEnd } from '@handline/app-react';
 import { classify, sentence, useServes, useTimeline } from '@handline/app-data';
-import { Button } from './ui/index.ts';
-import { View } from './View.tsx';
-import { useNow } from './taskui.tsx';
+import { Button } from '#src/ui/index.ts';
+import { View } from '#src/View.tsx';
+import { useNow } from '#src/taskui.tsx';
 
 export function TimelineTab({ agent }: { agent: string }) {
   const { query: q, items, more, loadOlder, loadingOlder, olderError } = useTimeline(agent);

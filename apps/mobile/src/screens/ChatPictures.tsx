@@ -5,7 +5,7 @@ import { Image, Modal, Pressable, SafeAreaView, Text, View } from 'react-native'
 import type { Attachment } from '@handline/client';
 import { useAttachmentBytes } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
+import { usePalette } from '#src/theme.ts';
 
 /** What a picture needs of its file: a chat attachment or an image a memo carries. */
 export type Picture = Pick<Attachment, 'id' | 'name'>;

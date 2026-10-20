@@ -4,10 +4,11 @@ import { useWrite } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import type { InputHolder, TerminalView } from '@handline/client';
 import { space } from '@handline/tokens';
-import { drawRows } from './termspans.tsx';
-import { Skeleton } from '../skeleton.tsx';
-import { usePalette } from '../theme.ts';
-import { Button } from './parts.tsx';
+import { RESIZE_MS } from '@handline/app-core';
+import { drawRows } from '#src/screens/termspans.tsx';
+import { Skeleton } from '#src/skeleton.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Button } from '#src/screens/parts.tsx';
 
 /** The daemon never sizes a terminal under this. */
 const MIN_COLS = 80;
@@ -15,7 +16,6 @@ const MIN_ROWS = 24;
 const CELL_W = 0.6; // a monospace cell's width in em
 const LINE_H = 1.25; // line height in em
 const MAX_FONT = 11;
-const RESIZE_MS = 150;
 const MAX_KEPT = 200; // the field is emptied past this many characters
 
 /** What the phone shows of the terminal: a font that fits `cols` across `width`, and the grid that font gives. */

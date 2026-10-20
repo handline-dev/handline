@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { colorOf, cssOf, drawRows } from '../src/terminal/spans.ts';
+import { colorOf, cssOf, drawRows } from '#src/terminal/spans.ts';
 
 describe('styled rows', () => {
   it('draws indexes 0-15 from the theme, the cube and greys as numbers, hex as given', () => {

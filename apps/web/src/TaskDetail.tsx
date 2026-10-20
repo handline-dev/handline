@@ -6,17 +6,17 @@ import { dateTime, HELD, taskRef, watchResult } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
-import { Button, MenuButton, MenuItem, MenuSeparator } from './ui/index.ts';
-import { goTasks } from './route.ts';
-import { ReasonSheet, Sheet, StateChip, useCan, useNow } from './taskui.tsx';
-import { AssignSheet } from './TaskPeople.tsx';
-import { CancelSheet, TaskChips, TaskWatch, TaskLinks } from './TaskDetailParts.tsx';
-import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from './TaskInline.tsx';
-import { TaskHistory } from './TaskHistory.tsx';
-import { Activity } from './TaskActivity.tsx';
-import { Markdown } from './Markdown.tsx';
-import { RichText } from './RichText.tsx';
-import { View } from './View.tsx';
+import { Button, MenuButton, MenuItem, MenuSeparator } from '#src/ui/index.ts';
+import { goTasks } from '#src/route.ts';
+import { ReasonSheet, Sheet, StateChip, useCan, useNow } from '#src/taskui.tsx';
+import { AssignSheet } from '#src/TaskPeople.tsx';
+import { CancelSheet, TaskChips, TaskWatch, TaskLinks } from '#src/TaskDetailParts.tsx';
+import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
+import { TaskHistory } from '#src/TaskHistory.tsx';
+import { Activity } from '#src/TaskActivity.tsx';
+import { Markdown } from '#src/Markdown.tsx';
+import { RichText } from '#src/RichText.tsx';
+import { View } from '#src/View.tsx';
 
 type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'release' | 'assign';
 

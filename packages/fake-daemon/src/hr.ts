@@ -1,9 +1,9 @@
 // HR proposals and the team: hr.list, hr.decide, hr.withdraw, team.get. Tests put proposals in with `script.hr.raise`.
 import type { Proposal } from '@handline/contract';
-import { badRequest, Failure } from './errors.ts';
-import type { Call } from './handlers.ts';
-import type { Host } from './script.ts';
-import type { Session } from './session.ts';
+import { badRequest, Failure } from '#src/errors.ts';
+import type { Call } from '#src/handlers.ts';
+import type { Host } from '#src/script.ts';
+import type { Session } from '#src/session.ts';
 
 const WAITING = new Set(['open', 'apply_failed']);
 const digest = (p: Proposal) => `d:${p.id}:${p.diff.length}:${p.reason ?? ''}`;

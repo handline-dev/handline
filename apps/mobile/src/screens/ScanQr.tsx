@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { space } from '@handline/tokens';
-import { Button } from './parts.tsx';
-import { usePalette } from '../theme.ts';
+import { Button } from '#src/screens/parts.tsx';
+import { usePalette } from '#src/theme.ts';
 
 /** The camera, until it reads a QR; `onScan` gets the text once. */
 export function ScanQr(props: { onScan: (text: string) => void; onCancel: () => void }) {

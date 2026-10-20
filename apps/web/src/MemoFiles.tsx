@@ -5,9 +5,9 @@ import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import type { MemoFile } from '@handline/client';
 import { useAttachmentBytes } from '@handline/app-data';
-import { Pictures } from './ChatAttach.tsx';
-import { BodyImage } from './BodyEditor.tsx';
-import { forEditor, resolveImages } from './bodyMarkdown.ts';
+import { Pictures } from '#src/ChatAttach.tsx';
+import { BodyImage } from '#src/BodyEditor.tsx';
+import { forEditor, resolveImages } from '#src/bodyMarkdown.ts';
 
 export function MemoFiles({ files }: { files: MemoFile[] }) {
   const pictures = files.filter((f) => f.kind === 'image');

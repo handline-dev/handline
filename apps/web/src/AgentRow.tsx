@@ -4,14 +4,14 @@ import { ago, dotOf, rowName, queueOf, handoffLine, type Verb, badgesOf, taskRef
 import type { AgentView } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useVerbMark } from '@handline/app-data';
-import { DeleteSheet, VerbSheet } from './AgentVerbs.tsx';
-import { Badges } from './Badges.tsx';
-import { Mark, MARKS } from './RailIcons.tsx';
-import { AgentGauges } from './AgentGauges.tsx';
-import { useNow } from './Gauge.tsx';
-import { Icon, Menu, type At, MenuContent, MenuTrigger } from './ui/index.ts';
-import { goAgent } from './route.ts';
-import { AgentMenu, RowControls } from './RowControls.tsx';
+import { DeleteSheet, VerbSheet } from '#src/AgentVerbs.tsx';
+import { Badges } from '#src/Badges.tsx';
+import { Mark, MARKS } from '#src/RailIcons.tsx';
+import { AgentGauges } from '#src/AgentGauges.tsx';
+import { useNow } from '#src/Gauge.tsx';
+import { Icon, Menu, type At, MenuContent, MenuTrigger } from '#src/ui/index.ts';
+import { goAgent } from '#src/route.ts';
+import { AgentMenu, RowControls } from '#src/RowControls.tsx';
 
 // What a row's one line holds, in px: the state mark, the name's least width, a chip's icon and padding, a letter of it, and the gap between items.
 const MARK_W = 14;

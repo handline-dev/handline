@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ACTIVITY_KINDS, teamActivityOf, clockTime, type ActivityKind } from '@handline/app-core';
 import { useChat } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { Empty } from './ui/index.ts';
+import { Empty } from '#src/ui/index.ts';
 
 const CHIP = 'cursor-pointer rounded-pill border border-line bg-transparent px-2.5 py-0.5 text-label text-ink-2 aria-pressed:bg-panel aria-pressed:text-ink';
 const LABEL: Record<ActivityKind, string> = { messages: 'Messages', tasks: 'Tasks', sessions: 'Sessions', tools: 'Tools' };

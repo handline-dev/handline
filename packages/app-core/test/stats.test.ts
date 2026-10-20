@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { INVALID, agentTime, bandOf, minutesOf, parseCap, parseMinutes } from '../src/index.ts';
+import { INVALID, agentTime, bandOf, minutesOf, parseCap, parseMinutes } from '#src/index.ts';
 
 test('the bars change colour at 60 and 85 percent, not before', () => {
   assert.deepEqual([59, 60, 84, 85].map(bandOf), ['ok', 'warn', 'warn', 'bad']);

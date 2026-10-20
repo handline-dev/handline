@@ -24,11 +24,11 @@ import {
 import type { AgentDetail } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { classify, useAgentDetail, useAgents, useServes } from '@handline/app-data';
-import { recordHistoryValue, takeTerminalWish, useHistoryValue } from './route.ts';
-import { View } from './View.tsx';
-import { DropZones } from './DropZones.tsx';
-import { Pane } from './Pane.tsx';
-import { isSwitchChord, isTerminalSwitch } from './terminal/core.ts';
+import { recordHistoryValue, takeTerminalWish, useHistoryValue } from '#src/route.ts';
+import { View } from '#src/View.tsx';
+import { DropZones } from '#src/DropZones.tsx';
+import { Pane } from '#src/Pane.tsx';
+import { isSwitchChord, isTerminalSwitch } from '#src/terminal/core.ts';
 
 const CELL = 'cell flex min-h-0 min-w-0 [&>*]:min-h-0 [&>*]:min-w-0 [&>*]:flex-1';
 

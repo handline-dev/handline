@@ -4,13 +4,13 @@
 import { useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
 import { askOf, needsAsk, verbsOf, type Verb, type VerbId } from '@handline/app-core';
-import { useAccounts, useAgents, useVerbRun } from '@handline/app-data';
+import { useAccounts, useAgents, useOff, useVerbRun } from '@handline/app-data';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Sheet, useWhyNot } from './TaskActions.tsx';
-import { Button, MenuItem, MenuSheet, Row } from './parts.tsx';
-import type { IconName } from './Icon.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Sheet } from '#src/screens/TaskActions.tsx';
+import { Button, MenuItem, MenuSheet, Row } from '#src/screens/parts.tsx';
+import type { IconName } from '#src/screens/Icon.tsx';
 
 const VERB_ICON: Record<VerbId, IconName> = {
   interrupt: 'cancel',
@@ -110,7 +110,7 @@ export function AgentVerbs(props: {
 }
 
 function VerbItem(props: { v: Verb; onPress: () => void }) {
-  const why = useWhyNot(props.v.method);
+  const why = useOff(props.v.method);
   return <MenuItem testID={`verb-${props.v.id}`} label={props.v.label} icon={VERB_ICON[props.v.id]} disabled={!!why} note={why} onPress={props.onPress} />;
 }
 

@@ -3,8 +3,8 @@ import { useState } from 'react';
 import { assignGroups, taskRef } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useAgents, useChatActions, useTeam, useWrite } from '@handline/app-data';
-import { Textarea } from './ui/index.ts';
-import { Sheet } from './taskui.tsx';
+import { Textarea } from '#src/ui/index.ts';
+import { Sheet } from '#src/taskui.tsx';
 
 export const CHIP = 'rounded-full border px-2 py-0.5 text-label';
 export const chipLook = (on: boolean) =>

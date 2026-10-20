@@ -6,7 +6,7 @@ import { Store } from '@handline/app-core';
 import { DaemonProvider } from '@handline/app-react';
 import { DataProvider, useAgentDetail, type BoxComponent } from '@handline/app-data';
 import { setup } from '@handline/fake-daemon/helpers';
-import { TerminalTab } from '../src/TerminalTab.tsx';
+import { TerminalTab } from '#src/TerminalTab.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const Box: BoxComponent = (p) => <div {...p} />;

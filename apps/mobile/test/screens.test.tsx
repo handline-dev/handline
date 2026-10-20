@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { ARCH, sleep, until, box, $, text, rowHeightOf, press, mount } from './harness.tsx';
+import { ARCH, sleep, until, box, $, text, rowHeightOf, press, mount } from '#test/harness.tsx';
 
 describe('the agent list', () => {
   it('shows its skeleton after 150 ms while the daemon is slow, then the rows', async () => {

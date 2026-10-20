@@ -12,7 +12,7 @@ import {
   type HistoryFold,
 } from '@handline/app-core';
 import type { HistoryRow } from '@handline/client';
-import { StateChip } from './taskui.tsx';
+import { StateChip } from '#src/taskui.tsx';
 
 const FILTERS: [HistoryFilter, string][] = [
   ['all', 'All'],

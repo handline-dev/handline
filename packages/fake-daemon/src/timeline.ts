@@ -1,6 +1,6 @@
 // An agent's recorded events, newest first, for agent.timeline.
 import type { TimelineEntry } from '@handline/contract';
-import { invalidParams } from './errors.ts';
+import { invalidParams } from '#src/errors.ts';
 
 export class Timeline {
   private id = 0;

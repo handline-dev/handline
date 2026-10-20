@@ -1,7 +1,7 @@
 // The edges of a pane (or of the whole view) that a dragged tab can be dropped on to split.
 import { useState } from 'react';
 import { splitRoot, splitTab, type Edge } from '@handline/app-core';
-import { useWorkspace } from './Workspace.tsx';
+import { useWorkspace } from '#src/Workspace.tsx';
 
 const EDGES: Edge[] = ['left', 'right', 'top', 'bottom'];
 const BOX: Record<Edge, [pane: string, root: string]> = {

@@ -1,11 +1,11 @@
 // The fake daemon's tasks: the rows `tasks.list` and `task.get` answer and the writes that change them, on the tasks topic.
 // A task the founder asks for starts as `queued`; withdrawing or cancelling one that has not been delivered discards it.
 import type { HistoryRow, Memo, MemoFile, Task, TaskClock, TaskDetail } from '@handline/contract';
-import { seedTasks } from './fixtures.ts';
-import { invalidParams, refused, storeFailure } from './errors.ts';
-import { changes, fieldsOf, timeOf } from './history.ts';
-import { refs, type FakeAttachments } from './attachments.ts';
-import { discardAll } from './discardbatch.ts';
+import { seedTasks } from '#src/fixtures.ts';
+import { invalidParams, refused, storeFailure } from '#src/errors.ts';
+import { changes, fieldsOf, timeOf } from '#src/history.ts';
+import { refs, type FakeAttachments } from '#src/attachments.ts';
+import { discardAll } from '#src/discardbatch.ts';
 
 export class TaskFailure extends Error {
   code: 'not_found' | 'refused' | 'bad_request';

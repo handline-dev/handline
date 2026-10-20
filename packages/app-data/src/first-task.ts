@@ -1,8 +1,8 @@
 // The progress of one agent.create and its first task, for the PC and the phone: the operation, and once it turns done the first task
 // the person typed, sent as a task.new to the new agent (once).
 import { useEffect, useRef, useState } from 'react';
-import { useOperation } from './read.ts';
-import { useWrite } from './write.ts';
+import { useOperation } from '#src/read.ts';
+import { useWrite } from '#src/write.ts';
 
 export function useCreateProgress(operation: string, first: { task: string; box: string }, onSent: (() => void) | undefined) {
   const q = useOperation(operation);

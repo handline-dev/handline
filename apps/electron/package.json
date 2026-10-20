@@ -2,6 +2,9 @@
   "name": "@handline/electron",
   "private": true,
   "type": "module",
+  "imports": {
+    "#src/*": "./src/*"
+  },
   "description": "The desktop shell: one window on the built apps/web, one instance, a dock badge from the inbox count, native notifications",
   "main": "dist/main.cjs",
   "scripts": {

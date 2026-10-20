@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { $, mount, press, until } from './harness.tsx';
+import { $, mount, press, until } from '#test/harness.tsx';
 
 const AUD = 'handline.auditor';
 const PNG = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), (c) =>
@@ -7,7 +7,7 @@ const PNG = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAA
 );
 
 // The photo library is native; the test hands the screen what a pick returns.
-vi.mock('../src/ImagePick.ts', () => ({
+vi.mock('#src/ImagePick.ts', () => ({
   pickImages: async () => [
     { blob: new Blob([PNG as BlobPart], { type: 'image/png' }), name: 'shot.png', mime: 'image/png', preview: 'file:///shot.png' },
   ],

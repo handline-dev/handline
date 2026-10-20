@@ -24,7 +24,7 @@ import {
   DEFAULT_LAYOUT,
   DAEMON_KEYS,
   type KV,
-} from '../src/index.ts';
+} from '#src/index.ts';
 
 const agent = (name: string, over: Partial<AgentView> = {}): AgentView =>
   ({

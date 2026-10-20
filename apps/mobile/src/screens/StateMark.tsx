@@ -2,8 +2,8 @@
 import { View } from 'react-native';
 import { dotOf, type Dot } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
-import { dotColor, usePalette } from '../theme.ts';
-import { Icon, type IconName } from './Icon.tsx';
+import { dotColor, usePalette } from '#src/theme.ts';
+import { Icon, type IconName } from '#src/screens/Icon.tsx';
 
 const MARKS: Record<Dot, { icon: IconName; label: string }> = {
   running: { icon: 'working', label: 'Working' },

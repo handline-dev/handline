@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyGesture, initialMarks, keptMarks, markData, markText, marksReducer, marksToShapes, type MarksAction } from '../src/marks.ts';
-import { blankBitmap, exportAnnotated } from '../src/annotation-raster.ts';
+import { classifyGesture, initialMarks, keptMarks, markData, markText, marksReducer, marksToShapes, type MarksAction } from '#src/marks.ts';
+import { blankBitmap, exportAnnotated } from '#src/annotation-raster.ts';
 
 const run = (...actions: MarksAction[]) => actions.reduce(marksReducer, initialMarks());
 const gesture = (...ps: [number, number][]): MarksAction[] => [

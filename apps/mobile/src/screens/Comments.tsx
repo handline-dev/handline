@@ -2,22 +2,22 @@
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 import type { MemoFile } from '@handline/client';
-import { classify, sentence, useWrite } from '@handline/app-data';
+import { classify, sentence, useOff, useWrite } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { ImageBodyInput } from './ImageBodyInput.tsx';
-import { Button } from './parts.tsx';
-import { MemoFiles } from './MemoFiles.tsx';
-import { Input, Sheet, useWhyNot } from './TaskActions.tsx';
-import { PrBody } from './PrBody.tsx';
+import { usePalette } from '#src/theme.ts';
+import { ImageBodyInput } from '#src/screens/ImageBodyInput.tsx';
+import { Button } from '#src/screens/parts.tsx';
+import { MemoFiles } from '#src/screens/MemoFiles.tsx';
+import { Input, Sheet } from '#src/screens/TaskActions.tsx';
+import { PrBody } from '#src/screens/PrBody.tsx';
 
 /** One comment with Edit and Delete (as the web's MemoRow). Both show at once and roll back with the reason on a refusal; Delete asks first. */
 export function CommentRow({ task, agent, memo, when }: { task: number; agent: string; memo: { id: number; author: string; text: string; files?: MemoFile[] }; when: string }) {
   const c = usePalette();
   const edit = useWrite('task.comment.edit', String(task));
   const del = useWrite('task.comment.delete', String(task));
-  const offEdit = useWhyNot('task.comment.edit');
-  const offDelete = useWhyNot('task.comment.delete');
+  const offEdit = useOff('task.comment.edit');
+  const offDelete = useOff('task.comment.delete');
   const [ask, setAsk] = useState<null | 'edit' | 'delete'>(null);
   const [text, setText] = useState('');
   const sending = memo.id < 0; // not yet numbered by the daemon
@@ -69,7 +69,7 @@ export function CommentRow({ task, agent, memo, when }: { task: number; agent: s
 export function CommentBox({ id }: { id: number }) {
   const c = usePalette();
   const add = useWrite('task.comment.add', String(id));
-  const why = useWhyNot('task.comment.add');
+  const why = useOff('task.comment.add');
   const [text, setText] = useState('');
   const send = () => {
     if (!text.trim()) return;

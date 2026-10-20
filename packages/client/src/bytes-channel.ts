@@ -1,6 +1,6 @@
-import { ByteTerminalView, toBase64, type ByteListener } from './byte-terminal-view.ts';
-import type { CallParams } from './client.ts';
-import type { MethodName, Methods, Notifications, TerminalBytesSnapshot } from './protocol.ts';
+import { ByteTerminalView, toBase64, type ByteListener } from '#src/byte-terminal-view.ts';
+import type { CallParams } from '#src/client.ts';
+import type { MethodName, Methods, Notifications, TerminalBytesSnapshot } from '#src/protocol.ts';
 
 /** The key a pane watched by handle is kept under; no agent name holds a NUL. */
 export const paneKey = (handle: string): string => `\0pane:${handle}`;

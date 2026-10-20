@@ -1,3 +1,3 @@
-export * from './node-socket.ts';
-export * from './pinned-websocket.ts';
-export * from './ws-frame.ts';
+export * from '#src/node-socket.ts';
+export * from '#src/pinned-websocket.ts';
+export * from '#src/ws-frame.ts';

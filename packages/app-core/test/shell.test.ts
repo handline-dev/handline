@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { routeOfTarget } from '../src/shell.ts';
+import { routeOfTarget } from '#src/shell.ts';
 
 test('a target lands on the route its screen names, with the id encoded', () => {
   assert.equal(routeOfTarget({ screen: 'agent', id: 'handline.architect' }), '#/agents/handline.architect');

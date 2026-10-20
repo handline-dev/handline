@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, until, press, mount } from './harness.tsx';
-import { fitOf } from '../src/screens/TerminalPane.tsx';
+import { ARCH, $, until, press, mount } from '#test/harness.tsx';
+import { fitOf } from '#src/screens/TerminalPane.tsx';
 
 const open = async (m: Awaited<ReturnType<typeof mount>>) => {
   await until(() => $(`agent-${ARCH}`), 'the rows');

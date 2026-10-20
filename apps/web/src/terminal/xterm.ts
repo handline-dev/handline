@@ -3,8 +3,8 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { colors, font } from '@handline/tokens';
-import { DEFAULT_FONT, isEscapeChord, isTerminalSwitch, type CreateTerm } from './core.ts';
-import { traceResize } from './trace.ts';
+import { DEFAULT_FONT, isEscapeChord, isTerminalSwitch, type CreateTerm } from '#src/terminal/core.ts';
+import { traceResize } from '#src/terminal/trace.ts';
 import '@xterm/xterm/css/xterm.css';
 
 /** Opens a link only after the person has seen where it really goes. Only http(s) is ever offered. */

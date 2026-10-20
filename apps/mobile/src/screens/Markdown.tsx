@@ -3,7 +3,7 @@
 import { Fragment, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
+import { usePalette } from '#src/theme.ts';
 
 type Block =
   | { kind: 'heading'; level: number; text: string }

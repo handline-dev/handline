@@ -1,12 +1,12 @@
 // An agent's settings page (the bridge's agent_settings.py): one column of fields that save one by one through agent.set, an authored write.
 // A text field saves on blur or Enter, a select and a switch on change; a refusal puts the value back and the field's own note says why.
 import { useState } from 'react';
-import { DANGER, FIELDS, type Field } from '@handline/app-core';
+import { DANGER, type Field, FIELDS, fieldUnit } from '@handline/app-core';
 import type { AgentDetail } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useAgentDetail, useFieldRow, useServes } from '@handline/app-data';
-import { goAgent } from './route.ts';
-import { Schedules } from './Schedules.tsx';
+import { goAgent } from '#src/route.ts';
+import { Schedules } from '#src/Schedules.tsx';
 import {
   Button,
   Field as Input,
@@ -27,8 +27,8 @@ import {
   Switch,
   type IconName,
   NOTE,
-} from './ui/index.ts';
-import { View } from './View.tsx';
+} from '#src/ui/index.ts';
+import { View } from '#src/View.tsx';
 
 const SECTIONS: { id: Field['section']; title: string; icon: IconName }[] = [
   { id: 'model', title: 'Model', icon: 'agent' },
@@ -37,8 +37,6 @@ const SECTIONS: { id: Field['section']; title: string; icon: IconName }[] = [
   { id: 'browser', title: 'Browser', icon: 'open' },
 ];
 
-/** The unit as a suffix inside the field; what follows its comma ("min, 0 = never") goes in the tooltip. */
-const unitOf = (f: Field) => f.unit?.split(',')[0]?.trim();
 const moreOf = (f: Field) =>
   [f.note, f.unit?.includes(',') ? f.unit.split(',').slice(1).join(',').trim() : undefined].filter(Boolean).join('; ');
 
@@ -127,7 +125,7 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
           label={f.label}
           list={f.kind === 'model' ? 's-models' : undefined}
           inputMode={f.kind === 'number' ? 'numeric' : undefined}
-          unit={unitOf(f)}
+          unit={fieldUnit(f)}
           value={value}
           disabled={off}
           tone={note ? 'bad' : undefined}

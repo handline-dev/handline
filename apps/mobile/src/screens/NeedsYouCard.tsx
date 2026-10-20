@@ -5,8 +5,8 @@ import { Text, View } from 'react-native';
 import { ago } from '@handline/app-core';
 import type { NeedsYou, Prompt } from '@handline/client';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { PromptSlot } from './PromptCard.tsx';
+import { usePalette } from '#src/theme.ts';
+import { PromptSlot } from '#src/screens/PromptCard.tsx';
 
 export const KIND = { permission: 'Permission', question: 'Question', usage: 'Usage limit', dialog: 'Dialog' } as const;
 

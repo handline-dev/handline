@@ -2,8 +2,8 @@ import { act } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setup } from '@handline/fake-daemon/helpers';
 import { Store, VERBS } from '@handline/app-core';
-import { useVerbMark, useVerbRun } from '../src/index.ts';
-import { mount, probe, unmount, until } from './harness.tsx';
+import { useVerbMark, useVerbRun } from '#src/index.ts';
+import { mount, probe, unmount, until } from '#test/harness.tsx';
 
 afterEach(unmount);
 const ARCH = 'handline.architect';

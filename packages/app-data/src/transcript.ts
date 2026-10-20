@@ -4,11 +4,11 @@ import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
 import type { Event as WireEvent, TranscriptEvent } from '@handline/client';
-import { edit, type Ctx } from './cache.ts';
-import { classify } from './errors.ts';
-import { useData, useFeed, useServes } from './provider.ts';
-import { qk } from './reads.ts';
-import { EMPTY, firstHole, join, lastSeq, merge, toTurns, type Log, type Turn } from './transcript-model.ts';
+import { edit, type Ctx } from '#src/cache.ts';
+import { classify } from '#src/errors.ts';
+import { useData, useFeed, useServes } from '#src/provider.ts';
+import { qk } from '#src/reads.ts';
+import { EMPTY, firstHole, join, lastSeq, merge, toTurns, type Log, type Turn } from '#src/transcript-model.ts';
 
 const PAGE = 200;
 

@@ -6,9 +6,9 @@ import { useStore } from '@handline/app-react';
 import type { ChatAction } from '@handline/client';
 import { classify, sentence } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Button } from './parts.tsx';
-import { Input, Sheet } from './TaskActions.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Button } from '#src/screens/parts.tsx';
+import { Input, Sheet } from '#src/screens/TaskActions.tsx';
 
 export function ChatActions({ id, actions }: { id: number; actions: ChatAction[] }) {
   const c = usePalette();

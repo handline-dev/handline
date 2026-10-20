@@ -11,12 +11,12 @@ import {
   type Row,
   type TerminalSnapshot,
   type Topic,
-} from './protocol.ts';
-import type { Transport } from './transport.ts';
-import { RpcError } from './errors.ts';
-import { BytesChannel } from './bytes-channel.ts';
-import { toBase64 } from './byte-terminal-view.ts';
-import { TerminalView } from './terminal-view.ts';
+} from '#src/protocol.ts';
+import type { Transport } from '#src/transport.ts';
+import { RpcError } from '#src/errors.ts';
+import { BytesChannel } from '#src/bytes-channel.ts';
+import { toBase64 } from '#src/byte-terminal-view.ts';
+import { TerminalView } from '#src/terminal-view.ts';
 
 /** A call's params; the client fills in request_id on writes. */
 export type CallParams<M extends MethodName> = Omit<Methods[M]['params'], 'request_id'> & { request_id?: RequestId };

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FIELDS, cronWords, mayChange, problemWith } from '../src/index.ts';
+import { FIELDS, cronWords, mayChange, problemWith } from '#src/index.ts';
 
 const field = (key: string) => FIELDS.find((f) => f.key === key)!;
 

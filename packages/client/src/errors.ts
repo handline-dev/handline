@@ -1,4 +1,4 @@
-import type { ErrorCode } from './protocol.ts';
+import type { ErrorCode } from '#src/protocol.ts';
 
 export class RpcError extends Error {
   // `transport` and `protocol` are the client's own: no connection, and a daemon it must not talk to.

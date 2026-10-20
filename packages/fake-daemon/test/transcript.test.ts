@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { type Event, type RpcError, type TranscriptEvent } from '@handline/client';
-import { setup, until } from '../src/helpers.ts';
+import { setup, until } from '#src/helpers.ts';
 
 const AUD = 'handline.auditor';
 const kinds = (es: { kind: string }[]) => es.map((e) => e.kind);

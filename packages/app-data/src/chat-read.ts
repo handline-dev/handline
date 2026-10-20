@@ -1,9 +1,9 @@
 // What opening an agent's chat marks as read, for the PC chat and the phone's: the agent's newest message (chat.seen) and what it sent
 // to the Inbox about itself.
 import { useEffect, useRef } from 'react';
-import type { Chat } from './chat.ts';
-import { useInbox } from './read.ts';
-import { useWrite } from './write.ts';
+import type { Chat } from '#src/chat.ts';
+import { useInbox } from '#src/read.ts';
+import { useWrite } from '#src/write.ts';
 
 export function useChatReadMarks(agent: string, chat: Pick<Chat, 'status' | 'messages'>, seen: (upTo: number) => void): void {
   // The agent's messages now in front of the person leave the FOR YOU list (chat.seen); once per newest number.

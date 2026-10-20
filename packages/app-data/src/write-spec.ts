@@ -1,5 +1,5 @@
-import type { Ctx } from './cache.ts';
-import type { Key } from './reads.ts';
+import type { Ctx } from '#src/cache.ts';
+import type { Key } from '#src/reads.ts';
 
 /**
  * One row of the writes table (docs/turborepo-layout.md §8.5).

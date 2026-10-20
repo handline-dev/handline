@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentView, InboxItem, Task } from '@handline/client';
-import { inboxGroup, myTurn, reviewPictures, changeAsked } from '../src/my-turn.ts';
+import { inboxGroup, myTurn, reviewPictures, changeAsked } from '#src/my-turn.ts';
 
 const item = (o: Partial<InboxItem>): InboxItem =>
   ({

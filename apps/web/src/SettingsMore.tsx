@@ -2,11 +2,11 @@
 import { useEffect, useState } from 'react';
 import { parseSeconds, type KV } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
-import { SectionHead, Segmented, SettingsCard } from './ui/index.ts';
-import { applyTheme, themeOf, type Theme } from './appearance.ts';
-import { setting } from './daemon.ts';
-import { NumberRow, Row } from './SettingsRows.tsx';
-import { shell } from './shell.ts';
+import { SectionHead, Segmented, SettingsCard } from '#src/ui/index.ts';
+import { applyTheme, themeOf, type Theme } from '#src/appearance.ts';
+import { setting } from '#src/daemon.ts';
+import { NumberRow, Row } from '#src/SettingsRows.tsx';
+import { shell } from '#src/shell.ts';
 
 const SECONDS = 'whole seconds, or empty for the default';
 const secondsOf = (v: number | undefined) => (v === undefined ? '' : String(v));

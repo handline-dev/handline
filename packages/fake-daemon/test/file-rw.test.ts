@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { setup } from '../src/helpers.ts';
+import { setup } from '#src/helpers.ts';
 
 const ARCH = 'handline.architect';
 const PATH = 'docs/pc-app-gaps.md';

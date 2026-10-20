@@ -1,6 +1,6 @@
 import type { KV } from '@handline/app-core';
 import { breakpoints } from '@handline/tokens';
-import { setting } from '../daemon.ts';
+import { setting } from '#src/daemon.ts';
 
 /**
  * xterm when the daemon serves bytes, unless the viewer chose the text grid (setting `terminal`: auto | text) or is on a phone held

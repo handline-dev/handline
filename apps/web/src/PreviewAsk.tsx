@@ -2,8 +2,8 @@
 import { useState } from 'react';
 import { keptMarks, markText, type Mark } from '@handline/app-core';
 import { classify, sentence, useChatActions, useUploadImage } from '@handline/app-data';
-import { Annotator } from './Annotate.tsx';
-import { Dialog, NOTE, Textarea } from './ui/index.ts';
+import { Annotator } from '#src/Annotate.tsx';
+import { Dialog, NOTE, Textarea } from '#src/ui/index.ts';
 
 export function PreviewAsk({ agent, shot, onClose }: { agent: string; shot: Blob; onClose: () => void }) {
   const chat = useChatActions(agent);

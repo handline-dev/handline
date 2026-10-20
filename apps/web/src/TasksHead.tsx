@@ -1,9 +1,9 @@
 // The header of the Tasks page: Open / Mine / Closed, search, Filter, View (List or Graph) and + New task; and the floating bar that acts on the ticked rows.
 import type { ReactNode } from 'react';
 import { CLOSED, LISTED, TASK_STATES, type TaskColumn, type TaskFilter } from '@handline/app-core';
-import { BarInput, Button, Icon, MenuButton, MenuItem, PageHead, PageTitle, Popup, Segmented, Select } from './ui/index.ts';
-import { STATE_GLYPH } from './taskui.tsx';
-import { canCapture, requestCapture } from './Capture.tsx';
+import { BarInput, Button, Icon, MenuButton, MenuItem, PageHead, PageTitle, Popup, Segmented, Select } from '#src/ui/index.ts';
+import { STATE_GLYPH } from '#src/taskui.tsx';
+import { canCapture, requestCapture } from '#src/Capture.tsx';
 
 /** Which tasks the pills show: the open ones, the ones I own, or the closed ones. */
 export type Scope = 'open' | 'mine' | 'closed';

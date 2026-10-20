@@ -1,8 +1,8 @@
 // The fake daemon's transcript stream: the events of the agents it plays as structured sessions, on the transcript topic.
 import type { Actor, Prompt, Timestamp, TranscriptEvent, TranscriptEvents, Working } from '@handline/contract';
-import { badRequest, Failure, refused } from './errors.ts';
-import { seedTranscript } from './fixtures.ts';
-import type { Session } from './session.ts';
+import { badRequest, Failure, refused } from '#src/errors.ts';
+import { seedTranscript } from '#src/fixtures.ts';
+import type { Session } from '#src/session.ts';
 
 interface Host {
   sessions: Map<string, Session>;

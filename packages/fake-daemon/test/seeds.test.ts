@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { FakeDaemon } from '../src/daemon.ts';
-import { applySeeds, SEEDS } from '../src/seeds.ts';
-import { setup } from '../src/helpers.ts';
+import { FakeDaemon } from '#src/daemon.ts';
+import { applySeeds, SEEDS } from '#src/seeds.ts';
+import { setup } from '#src/helpers.ts';
 
 test('an unknown seed is refused with the known names', () => {
   assert.throws(() => applySeeds(new FakeDaemon(), 'nope'), /known: inbox-terminal/);

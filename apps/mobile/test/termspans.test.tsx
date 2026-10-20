@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { colorOf, drawRows, styleOf } from '../src/screens/termspans.tsx';
+import { colorOf, drawRows, styleOf } from '#src/screens/termspans.tsx';
 
 describe('terminal colours', () => {
   it('maps indexes, the xterm cube, greys and #rrggbb, and refuses what is none of them', () => {
