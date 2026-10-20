@@ -285,7 +285,7 @@ func optionsOf(kind string, answerable bool, detail map[string]any) []any {
 		if !answerable {
 			return []any{}
 		}
-		if detail["structured"] == true { // a structured session's: allow or deny, nothing on a screen to escape from
+		if detail["structured"] == true || detail["source"] == "hook" { // asked through a call: allow or deny, nothing on a screen to escape from
 			return []any{
 				map[string]any{"key": "allow", "label": "Allow", "answer": "yes", "highlighted": false},
 				map[string]any{"key": "deny", "label": "Deny", "answer": "no", "highlighted": false}}
@@ -371,12 +371,16 @@ func promptOf(name string, r row) map[string]any {
 	if kind == "dialog" {
 		kind = promptKind(detail)
 	}
-	return map[string]any{
+	p := map[string]any{
 		"id": r.str("fingerprint"), "agent": name, "kind": kind, "tool": orNil(detail, "tool"),
 		"command": orNil(detail, "command"), "reason": orNil(detail, "reason"), "lines": panel,
 		"options": optionsOf(r.str("kind"), r.i("answerable") != 0, detail), "since": ts(since),
 		"multi": truthy(detail["multi_select"]),
 	}
+	if detail["source"] == "hook" {
+		p["source"] = "hook"
+	}
+	return p
 }
 
 // promptKind is promptparse.dialog_kind: an exit confirmation is told by an option that exits.

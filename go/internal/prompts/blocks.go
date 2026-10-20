@@ -37,6 +37,8 @@ type Env struct {
 	Reads *reads.Env
 	// Holds is who holds each terminal's input; nil leaves an answer ungated.
 	Holds *inputhold.Store
+
+	hooks hookWaits
 }
 
 func (e *Env) now() time.Time {

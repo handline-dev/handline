@@ -129,7 +129,6 @@
   "founder_only_today": [
    "hl cancel",
    "hl unstall",
-   "hl team seal",
    "hl hr approve|reject|apply|relabel|rehome|links",
    "hl trust remove|apply|mcp",
    "hl schedule add|edit|remove",
@@ -2161,6 +2160,14 @@
      }
     },
     {
+     "name": "note",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "With choice deny on a prompt whose source is hook: a short reason, given to the agent with the deny. bad_request (field note) on any other answer."
+     }
+    },
+    {
      "name": "request_id",
      "required": true,
      "schema": {
@@ -2193,7 +2200,72 @@
     "terminal_lock",
     "input_holder"
    ],
-   "description": "For a structured agent's permission prompt the choice is one of its option keys, allow or deny; yes, no or esc is bad_request (field choice). No terminal lock or input hold applies."
+   "description": "For a structured agent's permission prompt the choice is one of its option keys, allow or deny; yes, no or esc is bad_request (field choice). No terminal lock or input hold applies. A prompt whose source is hook is answered the same way, allow or deny, through the call that is waiting on it (permission.ask)."
+  },
+  {
+   "name": "permission.ask",
+   "summary": "An agent's session asks the founder whether it may run a tool call, and waits for the answer.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "tool",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The tool's name, as the PermissionRequest hook gives it."
+     }
+    },
+    {
+     "name": "input",
+     "required": true,
+     "schema": {
+      "type": "object",
+      "description": "The tool call's input as the hook gives it (tool_input): for Bash, command and description."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "behavior": {
+       "oneOf": [
+        {
+         "type": "string",
+         "enum": [
+          "allow",
+          "deny"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The founder's answer; null when the call ended with none (an hour passed), and the agent's own dialog shows in its terminal."
+      },
+      "message": {
+       "type": "string",
+       "description": "With deny: what the agent is told, with the founder's note when one was given."
+      }
+     },
+     "required": [
+      "behavior"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "description": "Called by `hl hook PermissionRequest`. Raises a Prompt of kind permission, source hook, with options allow and deny, and holds the call until prompt.answer answers it, the caller hangs up, or an hour passes. One such prompt per agent is open at a time; a second call waits for the first to close. Nothing is typed into the agent's terminal. Refused for a caller that is not an agent's session."
   },
   {
    "name": "input.take",
@@ -4528,7 +4600,7 @@
   },
   {
    "name": "team.seal",
-   "summary": "The founder seals team.yaml and every agent.yaml as they are now, as hl team seal does; dry_run names what would be sealed.",
+   "summary": "The founder seals team.yaml and every agent.yaml as they are now (the Team page of the app); dry_run names what would be sealed.",
    "description": "Seals are what lets the daemon tell a file the founder approved from one changed behind their back. The call without `dry_run` is the go-ahead and seals every file that is not sealed as it is, and marks the seals as begun; a file already matching its seal is left. A dry run lists each file it would take on, `new` (no seal before) or `changed` (it did not match its seal), with the digest it would be sealed with, and writes nothing and records nothing. Nothing to seal is `ok` true with that said. An agent's session is refused by role.",
    "paramStructure": "by-name",
    "params": [
@@ -9667,6 +9739,13 @@
      "multi": {
       "type": "boolean",
       "description": "Several options may be picked, then submitted: prompt.answer takes `choice` as an array of PromptOption.key. Absent means false, as for every other prompt, where an array is bad_request."
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "hook"
+      ],
+      "description": "hook: asked through permission.ask, answered allow or deny with no terminal typed into. Absent for a prompt read from the agent's screen."
      }
     },
     "required": [

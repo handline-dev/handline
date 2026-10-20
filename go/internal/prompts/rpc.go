@@ -24,6 +24,7 @@ const typingElsewhere = "someone else is typing at this agent"
 // Register adds prompt.answer.
 func Register(s *rpc.Server, e *Env) {
 	s.Register("prompt.answer", rpc.Method{Role: "member", Write: true, Handler: e.answer})
+	s.Register("permission.ask", rpc.Method{Role: "agent", Waits: true, Handler: e.permissionAsk})
 }
 
 func bad(msg, field string) error { return rpc.BadRequestError(msg, field, rpc.InvalidParams) }
@@ -49,6 +50,10 @@ func offered(b *Block) map[string]bool {
 	keys := map[string]bool{}
 	switch b.Kind {
 	case term.PromptPermission:
+		if b.IsHook() {
+			keys["allow"], keys["deny"] = true, true
+			return keys // nothing on a screen to escape from
+		}
 		if !b.Answerable {
 			return keys
 		}
@@ -121,7 +126,7 @@ func answerFor(b *Block, choice any) (Choice, error) {
 		case c == "esc":
 			return Choice{Cancel: true}, nil
 		case b.Kind == term.PromptPermission:
-			return Choice{Yes: c == "yes"}, nil
+			return Choice{Yes: c == "yes" || c == "allow"}, nil
 		case b.Kind == term.PromptQuestion:
 			n, _ := strconv.Atoi(c)
 			return Choice{Choices: []int{n - 1}}, nil
@@ -165,21 +170,23 @@ func (e *Env) answer(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if lock.TerminalBusy(e.Home, name) { // refuse at once, before anything is done
-		return nil, rpc.Refused(name+": "+typingElsewhere, "terminal_lock", "")
-	}
-	if e.Holds != nil {
-		row, err := e.Holds.Holder(name)
-		if err != nil {
-			return nil, err
-		}
-		if me, _ := c.Caller.Info["name"].(string); row != nil && row.Name != me {
-			return nil, rpc.Refused(inputhold.HeldWhy(name, row.Name), "input_holder", "")
-		}
-	}
 	block, err := e.OpenBlockOf(name)
 	if err != nil {
 		return nil, err
+	}
+	if block == nil || !block.IsHook() { // a hook's question is answered through its call: no terminal is typed into
+		if lock.TerminalBusy(e.Home, name) { // refuse at once, before anything is done
+			return nil, rpc.Refused(name+": "+typingElsewhere, "terminal_lock", "")
+		}
+		if e.Holds != nil {
+			row, err := e.Holds.Holder(name)
+			if err != nil {
+				return nil, err
+			}
+			if me, _ := c.Caller.Info["name"].(string); row != nil && row.Name != me {
+				return nil, rpc.Refused(inputhold.HeldWhy(name, row.Name), "input_holder", "")
+			}
+		}
 	}
 	if block == nil || block.Fingerprint != prompt {
 		current, err := e.Reads.OpenPrompt(name)
@@ -191,6 +198,13 @@ func (e *Env) answer(c *rpc.Conn, params map[string]any) (any, error) {
 	pick, err := answerFor(block, choice)
 	if err != nil {
 		return nil, err
+	}
+	if note, has := params["note"]; has {
+		text, ok := note.(string)
+		if !ok || !block.IsHook() || pick.Yes {
+			return nil, bad("note is a deny's reason, for a question from the hook", "note")
+		}
+		pick.Note = strings.TrimSpace(text)
 	}
 	ok, said := e.Answer(block.ID, pick)
 	if !ok {

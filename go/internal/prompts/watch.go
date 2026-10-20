@@ -46,6 +46,12 @@ func (e *Env) WatchAgent(agent, handle string, now int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if open != nil && open.IsHook() { // its call keeps it; the screen shows nothing while the hook waits
+		if now-open.LastSeen > StaleS {
+			return "closed", e.closeRow(open.ID, now) // the call is gone with no one to close it: a restart
+		}
+		return "hook", nil
+	}
 	if kind == term.PromptNone {
 		if open != nil {
 			return "closed", e.closeRow(open.ID, now)
@@ -109,7 +115,8 @@ func (e *Env) WatchOnce(log func(string, ...any)) (time.Duration, error) {
 			return 0, err
 		}
 		if handle == "" {
-			if open, err := e.OpenOf(r.agent); err == nil && open != nil { // its terminal is gone: so is the prompt
+			// its terminal is gone: so is the prompt, unless a hook's call still keeps it
+			if open, err := e.OpenOf(r.agent); err == nil && open != nil && (!open.IsHook() || started.Unix()-open.LastSeen > StaleS) {
 				e.closeRow(open.ID, started.Unix())
 			}
 			continue

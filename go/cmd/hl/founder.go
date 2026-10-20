@@ -46,16 +46,6 @@ func device(c *hlclient.Client, args []string) (int, bool) {
 	return 0, true
 }
 
-// teamSeal is `hl team seal`: the founder accepts team.yaml and the agent files as they are now. Kept until the app has a seal control.
-func teamSeal(c *hlclient.Client) int {
-	ok, text := c.Write("team.seal", nil)
-	fmt.Println(text)
-	if !ok {
-		return 1
-	}
-	return 0
-}
-
 func orEmpty(v any) any {
 	if v == nil {
 		return ""

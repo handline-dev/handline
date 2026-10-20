@@ -18,6 +18,17 @@ import (
 var Wanted = []string{"SessionStart", "SessionEnd", "Stop", "StopFailure", "SubagentStop", "PostCompact", "UserPromptSubmit",
 	"PermissionRequest", "TeammateIdle", "PostToolUse", "PostToolUseFailure", "PreToolUse", "Notification"}
 
+// longHooks are the events whose hook of ours runs longer than the 10 seconds every other one gets, and how long: a permission question
+// waits up to an hour for the founder (permission.ask). An entry of ours with another timeout is put right.
+var longHooks = map[string]int{"PermissionRequest": 3600 + 60}
+
+func hookTimeoutS(event string) int {
+	if t, ok := longHooks[event]; ok {
+		return t
+	}
+	return 10
+}
+
 // matchers limit a hook of ours to the tools it looks at, for the events that fire on every call.
 var matchers = map[string]string{"PreToolUse": "Write|Edit|MultiEdit|NotebookEdit|Bash", "Notification": "permission_prompt"}
 
@@ -130,7 +141,7 @@ func objects(v any) []*Object {
 	return out
 }
 
-// Missing is whether a wanted event has no entry of ours in the shared settings (claude_hooks.missing).
+// Missing is whether a wanted event has no entry of ours in the shared settings, or a long hook's has another timeout (claude_hooks.missing).
 func (h Hooks) Missing() bool {
 	data, err := h.readObject()
 	if err != nil {
@@ -142,7 +153,7 @@ func (h Hooks) Missing() bool {
 		if hooks != nil {
 			for _, g := range objects(hooks.vals[event]) {
 				for _, e := range objects(g.vals["hooks"]) {
-					if isOurs(e.vals["command"], event) {
+					if t, long := longHooks[event]; isOurs(e.vals["command"], event) && (!long || fmt.Sprint(e.vals["timeout"]) == fmt.Sprint(t)) {
 						found = true
 					}
 				}
@@ -287,6 +298,11 @@ func (h Hooks) Install(exe string) error {
 			if m, ok := matchers[event]; ok {
 				o.Set("matcher", m)
 			}
+			if t, long := longHooks[event]; long {
+				for _, e := range mine {
+					e.(*Object).Set("timeout", t)
+				}
+			}
 			keep = append(keep, o)
 		}
 		if !seen && wanted {
@@ -297,7 +313,7 @@ func (h Hooks) Install(exe string) error {
 			entry := NewObject()
 			entry.Set("type", "command")
 			entry.Set("command", exe+" hook "+event)
-			entry.Set("timeout", 10)
+			entry.Set("timeout", hookTimeoutS(event))
 			g.Set("hooks", []any{entry})
 			keep = append(keep, g)
 		}

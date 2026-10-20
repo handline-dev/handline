@@ -7,7 +7,7 @@ var usages = map[string][2]string{
 	"inbox":    {`hl inbox [--all] [--wait] [--timeout <span>]`, `hl inbox --all`},
 	"withdraw": {`hl withdraw <msg> [--reason "<why>"]`, `hl withdraw msg_1a2b3c4 --reason "sent to the wrong agent"`},
 	"progress": {`hl progress "<done: ... left: ...>"`, `hl progress "done: parser; left: tests"`},
-	"team":     {`hl team [--agent <name>]   |   hl team seal`, `hl team`},
+	"team":     {`hl team [--agent <name>]`, `hl team`},
 	"task":     {`hl task <new|show|list|board|done|handoff|edit|comment|begin|start|reopen|release|discard|accept|reject|queue|draft|merge> ...`, `hl task show T12`},
 	"task new": {`hl task new --assign <agent> -t <span> "<title>" "<body>" [--owner <agent>] [--parent T<n>] [--blocked-by T<n>] [--priority 1-5] [--estimate N] [--expects report|decision] [--tag T] [--file PATH]`,
 		`hl task new --assign pc -t 2h "Fix the sidebar" "The badge overlaps the name"`},

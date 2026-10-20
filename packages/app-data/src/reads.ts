@@ -82,6 +82,8 @@ export const NOT_QUERIES = [
   // `hl inbox` and `hl read`: an agent's queue and one request whole. The app draws the founder's inbox from inbox.list.
   'inbox.queue',
   'request.read',
+  // `hl hook PermissionRequest`: an agent's session waiting on the founder's answer, which the app gives through prompt.answer.
+  'permission.ask',
 ] as const;
 
 export type ReadMethod = keyof typeof reads;

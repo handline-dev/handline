@@ -208,3 +208,36 @@ func TestPostToolUseSpoolsWhenTheDaemonDoesNotAnswer(t *testing.T) {
 		t.Fatalf("spooled %q", b)
 	}
 }
+
+// The PermissionRequest hook is recorded, then returns the founder's answer from permission.ask as the hook's decision; with no answer it
+// returns nothing, and the agent's own dialog shows.
+func TestThePermissionHookReturnsTheFoundersAnswer(t *testing.T) {
+	ask := `{"hook_event_name": "PermissionRequest", "session_id": "s", "tool_name": "Bash", "tool_input": {"command": "rm -rf node_modules"}}`
+	for _, c := range []struct{ result, want string }{
+		{`{"behavior": "allow"}`, `{"hookSpecificOutput": {"decision": {"behavior": "allow"}, "hookEventName": "PermissionRequest"}}`},
+		{`{"behavior": "deny", "message": "The founder said no: use the script"}`,
+			`{"hookSpecificOutput": {"decision": {"behavior": "deny", "message": "The founder said no: use the script"}, "hookEventName": "PermissionRequest"}}`},
+		{`{"behavior": null}`, `{}`},
+		{`error:down`, `{}`},
+	} {
+		r := hookRig(t, false)
+		calls := r.daemon(map[string]string{"permission.ask": c.result})
+		out, _, code := r.runIn(ask, asAgent, "hook", "PermissionRequest")
+		if code != 0 || out != c.want+"\n" {
+			t.Errorf("%s: exit %d\n got  %q\n want %q", c.result, code, out, c.want)
+		}
+		var methods []string
+		for _, m := range calls() {
+			methods = append(methods, m["method"].(string))
+			if m["method"] == "permission.ask" {
+				p := m["params"].(map[string]any)
+				if p["tool"] != "Bash" || p["input"].(map[string]any)["command"] != "rm -rf node_modules" {
+					t.Errorf("asked with %v", p)
+				}
+			}
+		}
+		if !strings.Contains(strings.Join(methods, " "), "hook.record") || !strings.Contains(strings.Join(methods, " "), "permission.ask") {
+			t.Errorf("calls %v", methods)
+		}
+	}
+}
