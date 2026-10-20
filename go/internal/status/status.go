@@ -35,6 +35,7 @@ const (
 	Wall       = "wall"
 	Cap        = "cap"
 	Stalled    = "stalled"
+	Watch      = "watch" // a gate task's; no daemon here opens one yet
 	None       = "none"
 	Discarded  = "discarded"
 )
@@ -43,7 +44,7 @@ const (
 var (
 	States  = []string{Preparing, Starting, Running, Waiting, Stopped, Idle, Off, Done}
 	Reasons = []string{Work, Restart, Retry, Launch, Turn, Handoff, Background, You, Opener, Task, Owner, Clock, Move, Load, Wall,
-		Cap, Stalled, None, Done, Discarded}
+		Cap, Stalled, Watch, None, Done, Discarded}
 )
 
 // Status is one agent's or task's. Until and Since are unix seconds, 0 for none.

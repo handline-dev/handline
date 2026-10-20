@@ -185,7 +185,7 @@ export class FakeTasks {
     return memos[i]?.id ?? 0;
   }
 
-  /** A memo that carries files, as `hl task memo add --file` leaves it. */
+  /** A memo that carries files, as `hl task comment add --file` leaves it. */
   memoWithFiles(task: number, author: string, text: string, files: MemoFile[]): number {
     const id = this.memo({ task, text }, 'add', author);
     const m = this.find(task).memos!.find((x) => x.id === id)!;

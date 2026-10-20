@@ -13,7 +13,7 @@ import { usePalette } from '../theme.ts';
 import { Icon, type IconName } from './Icon.tsx';
 import { Loadable } from './Loadable.tsx';
 import { Button, ListRow, MenuItem, MenuSheet, PageHeader, Pill } from './parts.tsx';
-import { MemoBox, MemoRow } from './Memos.tsx';
+import { CommentBox, CommentRow } from './Comments.tsx';
 import { NewTask, TaskVerbs, useTaskPending } from './TaskActions.tsx';
 import { TaskGraph } from './TaskGraph.tsx';
 import { PrBody } from './PrBody.tsx';
@@ -352,12 +352,12 @@ function Activity({ t }: { t: TaskDetail }) {
       {items.map((i, n) => {
         const m = i.kind === 'comment' ? memos.find((x) => x.id === i.memo) : undefined;
         return m ? (
-          <MemoRow key={`${n}-${m.id}`} task={t.id} agent={t.to} memo={m} when={ago(m.at)} />
+          <CommentRow key={`${n}-${m.id}`} task={t.id} agent={t.to} memo={m} when={ago(m.at)} />
         ) : (
           <Text key={`${n}-${i.line}`} style={{ color: c.muted }}>{`${i.line} · ${ago(i.at)}`}</Text>
         );
       })}
-      <MemoBox id={t.id} />
+      <CommentBox id={t.id} />
     </Section>
   );
 }

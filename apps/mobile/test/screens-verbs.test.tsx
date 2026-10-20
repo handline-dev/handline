@@ -206,7 +206,7 @@ describe('the task verbs', () => {
     await until(() => $(`task-${MINE_DOING}`) && $('task-1650') === null, 'the open list');
   }, 20000);
 
-  it('draws Markdown in a memo', async () => {
+  it('draws Markdown in a comment', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DOING);
     await fill('memo-text', '**bold** and `code`\n- one');
@@ -217,7 +217,7 @@ describe('the task verbs', () => {
     expect($(`memo-${id}`)?.textContent).not.toContain('**');
   });
 
-  it('shows a memo\'s image inline (a tap opens it full size) and its Markdown rendered, and says so for a file no longer kept', async () => {
+  it('shows a comment\'s image inline (a tap opens it full size) and its Markdown rendered, and says so for a file no longer kept', async () => {
     const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
     let ids: { img: string; md: string; gone: string } | undefined;
     const m = await mount((s) => {
@@ -244,7 +244,7 @@ describe('the task verbs', () => {
     m.store.stop();
   });
 
-  it('edits and deletes a memo, asks before deleting, and puts it back with the reason on a refusal', async () => {
+  it('edits and deletes a comment, asks before deleting, and puts it back with the reason on a refusal', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DOING);
     await fill('memo-text', 'first note');
@@ -265,7 +265,7 @@ describe('the task verbs', () => {
     expect(m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.text).toBe('second note');
     expect($(`memo-${id}`)?.textContent).toContain('second note');
     await press($(`memo-delete-${id}`));
-    expect(text()).toContain('Delete this memo?');
+    expect(text()).toContain('Delete this comment?');
     await press($('sheet-cancel'));
     expect(m.daemon.tasks.get({ task: MINE_DOING }).memos.length).toBe(1);
     await press($(`memo-delete-${id}`));

@@ -41,6 +41,9 @@ type Config struct {
 	Machine func() *sysres.Machine
 	// NotifiedNeedsYou has an unanswered prompt that Claude Code's Notification hook reports raise the needs-you card.
 	NotifiedNeedsYou bool
+	// FounderTyped has the founder's own messages typed at a terminal agent as its person's prompt, and its text after one is the reply
+	// (supervisor.Env.FounderTyped); needs Turns.
+	FounderTyped bool
 }
 
 // Parts is what New builds. Locks goes to lifecycle.Manager.Locks and Spawns.Locks alike.
@@ -53,6 +56,7 @@ type Parts struct {
 	db       *sql.DB
 	home     string
 	notified bool // Config.NotifiedNeedsYou
+	turns    *turns.Tracker
 	tell     Telling
 	log      func(format string, args ...any)
 	healer   *heal.Healer // the tick's, once Tick has built it
@@ -79,7 +83,7 @@ func New(cfg Config) *Parts {
 	if peer == nil {
 		peer = PeerFromYAML(cfg.Home)
 	}
-	p := &Parts{Locks: &lifecycle.AgentLocks{}, Peer: peer, log: cfg.Log, home: cfg.Home, notified: cfg.NotifiedNeedsYou}
+	p := &Parts{Locks: &lifecycle.AgentLocks{}, Peer: peer, log: cfg.Log, home: cfg.Home, notified: cfg.NotifiedNeedsYou, turns: cfg.Turns}
 	if cfg.DB != nil {
 		p.Bind(cfg.DB, nil)
 	}

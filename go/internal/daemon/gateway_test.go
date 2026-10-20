@@ -304,7 +304,7 @@ func TestACallForAgentsOnlyOrOutsideTheContractNeverReachesTheRelay(t *testing.T
 func TestAPairedDeviceReachesTheFoundersMethodsThroughTheRelay(t *testing.T) {
 	d, _, _ := startGateway(t, "")
 	c := helloAs(t, d, mustPair(t, d))
-	for _, call := range []string{"settings.get", "settings.set", "account.set", "account.remove", "devices.list"} {
+	for _, call := range []string{"settings.get", "settings.set", "account.set", "account.remove", "devices.list", "agent.set", "agent.move"} {
 		if r := c.ask(`{"jsonrpc":"2.0","id":1,"method":"` + call + `","params":{"request_id":"x"}}`); r["result"] == nil {
 			t.Fatalf("%s: %v", call, r)
 		}

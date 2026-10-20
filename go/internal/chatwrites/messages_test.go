@@ -2,6 +2,7 @@ package chatwrites
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	dbpkg "github.com/handline/handline/go/internal/db"
@@ -172,5 +173,19 @@ func TestOnlyTheFoundersChatSendIsFounderAuthored(t *testing.T) {
 	}
 	if r.count("SELECT COUNT(*) FROM requests WHERE founder_auth = 1") != 1 {
 		t.Fatal("only the founder's chat send is marked")
+	}
+}
+
+// The cancel confirm is the founder's to read: a message the founder sent says "you", an agent's names it.
+func TestTheCancelConfirmSaysYouForTheFoundersOwnMessage(t *testing.T) {
+	r := newRig(t)
+	mine, _ := dbpkg.AddRequest(r.db, dbpkg.NewRequest{Requester: "human", Target: "bob", Body: "x", Kind: "say"})
+	theirs, _ := dbpkg.AddRequest(r.db, dbpkg.NewRequest{Requester: "alice", Target: "bob", Body: "y", Kind: "say"})
+	r.db.Exec("UPDATE requests SET delivered_at = 1")
+	if _, said, err := CancelPlan(r.db, mine); err != nil || !strings.Contains(said, "bob is told to stop, you are not told") {
+		t.Fatalf("%q %v", said, err)
+	}
+	if _, said, err := CancelPlan(r.db, theirs); err != nil || !strings.Contains(said, "alice is not told") {
+		t.Fatalf("%q %v", said, err)
 	}
 }

@@ -164,6 +164,7 @@ func (stuck) DeliveryBlock(db.Q, string) (string, bool) { return "", false }
 // session port for the others. The peer's outcomes go to whatever Bind gave as the telling.
 func (p *Parts) agentsPort() supervisor.Agents {
 	peer := NewPeerPort(p.home, p.db, p.Peer, p.panePid, peerTell{p}, p.log)
+	peer.Typed, peer.Typeable, peer.TypeIn = p.typedOp, p.typeable, p.typeIn
 	return mixedAgents{none: noSessionPort{}, peer: peer, isPeer: p.Peer}
 }
 

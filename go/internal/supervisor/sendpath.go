@@ -129,6 +129,17 @@ func (e *Env) sendOnce(q db.Q, agent, op, text string, d delivery.Delivery) (Sen
 	return stateOfLedger(v), ""
 }
 
+// handingOff is why nothing more is typed at agent's session: it was asked for its handoff note and is closed after it, so what arrives
+// meanwhile goes to the session that follows; "" when no such wait is kept.
+func (e *Env) handingOff(q db.Q, agent string) string {
+	_, _, kept, err := db.NoteWaitKept(q, agent, e.now())
+	check(err)
+	if kept {
+		return "held: it is writing its handoff note, and the next session is told"
+	}
+	return ""
+}
+
 // moveLedger sets a ledger row to to if it is still from, in one statement.
 func moveLedger(q db.Q, key string, from, to int64) error {
 	_, err := q.Exec("UPDATE cursors SET row_id = ?, updated = ? WHERE name = ? AND row_id = ?", to, db.Now(), key, from)
@@ -295,11 +306,18 @@ func (e *Env) tellStructured(q db.Q, row *db.Request, d delivery.Delivery) (what
 	if !e.Agents.Live(agent) {
 		return "queued - no live session; told when it is up", NotSent, nil
 	}
+	if why := e.handingOff(q, agent); why != "" {
+		return "queued - " + why, NotSent, nil
+	}
 	if !must(db.MarkDelivered(q, rid)) {
 		return "withdrawn first", NotSent, nil
 	}
 	folded := foldedNotices(q, agent)
-	state, why := e.sendOnce(q, agent, requestOp(rid), tellText(q, row, 1, nil, false, folded, e.imageLines(q, row)), d)
+	text := tellText(q, row, 1, nil, false, folded, e.imageLines(q, row))
+	if e.typedRow(q, row) {
+		folded, text = nil, founderText(row, e.imageLines(q, row))
+	}
+	state, why := e.sendOnce(q, agent, requestOp(rid), text, d)
 	switch state {
 	case NotSent:
 		check(db.ClearDelivered(q, rid))

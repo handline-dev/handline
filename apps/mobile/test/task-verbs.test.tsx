@@ -268,7 +268,7 @@ describe('the task verbs', () => {
     expect(m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.text).toBe('second note');
     expect($(`memo-${id}`)?.textContent).toContain('second note');
     await press($(`memo-delete-${id}`));
-    expect(text()).toContain('Delete this memo?');
+    expect(text()).toContain('Delete this comment?');
     await press($('sheet-cancel'));
     expect(m.daemon.tasks.get({ task: MINE_DOING }).memos.length).toBe(1);
     await press($(`memo-delete-${id}`));

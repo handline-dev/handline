@@ -372,6 +372,34 @@ def terminal_permission(r: Run, sock: str, home: Path) -> None:
     r.s.wait(t, agent_changed(a, "idle"), time.time() + MODEL_S)
 
 
+def terminal_deny(r: Run, sock: str, home: Path) -> None:
+    """A permission prompt the person denies at the terminal with Esc: which hooks the deny fires, and whether the wait the
+    PermissionRequest noted (home/waiting/<agent>.json) is gone without the daemon reading the screen."""
+    d, a = r.d, r.agent
+    nonce = uuid.uuid4().hex[:8]
+    t = time.time()
+    d.write("chat.send", {"agent": a, "body": f"Run this Bash command and nothing else: touch e2e-deny-{nonce}.txt"})
+    if not r.step("deny: permission prompt shown as needs_you", t,
+                  lambda ev: agent_changed(a, "waiting")(ev) and (ev["data"].get("needs_you") or {}).get("kind") == "permission",
+                  model=True):
+        return
+    wait = home / "waiting" / f"{a}.json"
+    t = time.time()
+    subprocess.run(["tmux", "-L", sock, "send-keys", "-t", pane(sock)[0], "Escape"], check=True)
+    until = time.time() + DEADLINE_S + SLOW_S
+    while wait.exists() and time.time() < until:
+        time.sleep(0.2)
+    gone = None if wait.exists() else round(time.time() - t, 2)
+    time.sleep(2)
+    con = sqlite3.connect(home / "db.sqlite", timeout=10)
+    kinds = [k for (k,) in con.execute("SELECT kind FROM events WHERE agent = ? AND ts >= ? ORDER BY id", (a, int(t)))]
+    con.close()
+    r.record({"step": "deny at the terminal: the wait ends from a hook", "paced_by": "daemon",
+              "result": ("pass" if gone <= DEADLINE_S else "slow") if gone is not None else "missing", "seconds": gone,
+              "note": f"events after the Esc: {', '.join(kinds) or 'none'}"})
+    r.s.wait(t, agent_changed(a, "idle"), time.time() + MODEL_S)
+
+
 def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, home: Path, group: int) -> None:
     """Working and idle from hooks, timed: a normal turn, a permission prompt, an Esc mid-turn, and a CLI killed hard mid-turn."""
     d, a = r.d, r.agent
@@ -407,6 +435,7 @@ def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, home: Path, g
                   "seconds": None, "note": f"idle event {'seen' if idle else 'never'}, Stop in the transcript {'found' if replied else 'not found'}"})
 
     terminal_permission(r, sock, home)
+    terminal_deny(r, sock, home)
 
     long_turn = "Write a 1500-word short story about a lighthouse keeper, in plain prose, with no tools."
     t = time.time()

@@ -67,6 +67,11 @@ func must2[A, B any](a A, b B, err error) (A, B) {
 	return a, b
 }
 
+func must3[A, B, C any](a A, b B, c C, err error) (A, B, C) {
+	check(err)
+	return a, b, c
+}
+
 // guard runs f and returns the error it panicked with through check, nil otherwise.
 func guard(f func()) (err error) {
 	defer func() {
@@ -407,6 +412,10 @@ func (t *Tick) supervise(agent string, now int64, samples map[string][]Sample, a
 	// Between tasks an agent that starts fresh after each one is handed off the way a full context is.
 	if !trig.Fired && t.Cost.FreshDue(t, agent, row) {
 		trig = Trigger{true, FreshKind, "its task is done and it starts a fresh session after each"}
+	}
+	// A handoff that asked for the agent's note goes on once the note's turn is over: the reading that fired it may not be trusted yet.
+	if kind, _, kept := must3(db.NoteWaitKept(q, agent, now)); !trig.Fired && kept && !t.Handoff.NoteHold(q, agent, now) {
+		trig = Trigger{true, kind, "its handoff note is written"}
 	}
 	if trig.Fired {
 		ok := t.Handoff.PerformHandoff(q, agent, trig, "")

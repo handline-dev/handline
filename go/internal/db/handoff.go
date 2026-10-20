@@ -148,7 +148,7 @@ const NoteWaitStaleS = 600
 
 // MarkNoteWait keeps that a handoff of this kind waits for the agent's note, since now; a call within a wait keeps its time.
 func MarkNoteWait(q Q, agent, kind string, now int64) error {
-	if _, since, ok, err := NoteWait(q, agent); err != nil || (ok && now-since <= NoteWaitStaleS) {
+	if _, _, kept, err := NoteWaitKept(q, agent, now); err != nil || kept {
 		return err
 	}
 	return SetMeta(q, noteWaitKey(agent), fmt.Sprintf("%d:%s", now, kind))
@@ -156,6 +156,12 @@ func MarkNoteWait(q Q, agent, kind string, now int64) error {
 
 // ClearNoteWait ends the wait MarkNoteWait kept.
 func ClearNoteWait(q Q, agent string) error { return SetMeta(q, noteWaitKey(agent), "") }
+
+// NoteWaitKept is NoteWait while the wait still counts at now (NoteWaitStaleS); ok false for none or a stale one.
+func NoteWaitKept(q Q, agent string, now int64) (kind string, since int64, ok bool, err error) {
+	kind, since, ok, err = NoteWait(q, agent)
+	return kind, since, ok && now-since <= NoteWaitStaleS, err
+}
 
 // NoteWait is the kind and start of the wait MarkNoteWait kept, ok false when none is kept.
 func NoteWait(q Q, agent string) (kind string, since int64, ok bool, err error) {
