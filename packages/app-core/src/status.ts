@@ -24,5 +24,5 @@ export function dotOfStatus(s: Pick<Status, 'state' | 'reason'>): Dot | null {
   }
 }
 
-/** The line to show for a status, as the daemon wrote it; empty without a status. */
-export const statusLine = (s: Pick<Status, 'text'> | undefined | null): string => s?.text ?? '';
+/** The states whose text explains why a task is held: a running or done task needs no warning line. */
+export const HELD = ['waiting', 'stopped'];

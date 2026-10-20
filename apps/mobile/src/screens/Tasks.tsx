@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useHistoryValue } from '../history.tsx';
 import { Linking, SectionList, ScrollView, Text, TextInput, View } from 'react-native';
-import { activityOf, ago, CLOSED, defaultFilter, foldEvents, groupTasks, idleText, shown, sortTasks, TASK_STATES, taskMatches, timeoutText, taskRef, watchLine } from '@handline/app-core';
+import { activityOf, ago, CLOSED, defaultFilter, foldEvents, groupTasks, HELD, idleText, shown, sortTasks, TASK_STATES, taskMatches, timeoutText, taskRef, watchLine } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
@@ -318,7 +318,7 @@ function Body({ t }: { t: TaskDetail }) {
       )}
       <TaskVerbs t={t} />
       {/* The Waits on section already says what holds it; the reason lines are for a task with no listed blocker. */}
-      {t.status?.text ? <Text style={{ color: c.wait }}>{t.status.text}</Text> : null}
+      {!t.blockers.length && t.status && HELD.includes(t.status.state) ? <Text style={{ color: c.wait }}>{t.status.text}</Text> : null}
       {!t.status && !t.blockers.length && t.block_reason ? <Text style={{ color: c.block }}>{t.block_reason}</Text> : null}
       {!t.status && !t.blockers.length && t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
       {t.blockers.length ? (

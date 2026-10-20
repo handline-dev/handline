@@ -68,7 +68,7 @@ const stateWord = (d: AgentDetail) => (d.status ? d.status.text : d.handoff ? 'R
 /** The room's name over the chat, with the agent's state. */
 export const RoomTitle = ({ agent, detail }: { agent: string; detail: AgentDetail }) => (
   <h2 className="m-0 min-w-0 flex-1 truncate text-body font-medium">
-    {agent} <span className="muted text-hint font-normal">{detail.handoff ? 'Restarting…' : detail.state}</span>
+    {agent} <span className="muted text-hint font-normal">{detail.status?.text ?? (detail.handoff ? 'Restarting…' : detail.state)}</span>
   </h2>
 );
 

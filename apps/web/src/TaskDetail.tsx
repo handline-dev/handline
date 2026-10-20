@@ -2,7 +2,7 @@
 // one Activity list, and along the bottom the one main action, Cancel and More. The history opens from More. A verb that does not apply is
 // hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { dateTime, taskRef } from '@handline/app-core';
+import { dateTime, HELD, taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
@@ -139,7 +139,7 @@ function Body({ t }: { t: Detail }) {
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => root.current?.focus({ preventScroll: true }), [t.id]);
 
-  const why = t.status?.text ?? t.waiting?.text ?? t.hold_reason ?? t.block_reason;
+  const why = (t.status ? (HELD.includes(t.status.state) ? t.status.text : undefined) : t.waiting?.text) ?? t.hold_reason ?? t.block_reason;
   const yes = { ok: true, why: undefined };
   const item = (label: string, key: string, run: () => void, can: { ok: boolean; why?: string }) => ({ label, key, run, can });
   // What changes the status, in the dropdown on the state; the one that fits best is also the main button.

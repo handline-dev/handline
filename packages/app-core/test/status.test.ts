@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dotOf, dotOfStatus, statusLine } from '../src/index.ts';
+import { dotOf, dotOfStatus } from '../src/index.ts';
 
 const st = (state: string, reason: string, text = 'x') => ({ state, reason, text, until: null, since: null, tasks: [] });
 
@@ -19,9 +19,4 @@ test('an agent view status decides its dot; an unknown state falls back to the o
   assert.equal(dotOf({ ...a, status: st('running', 'turn') }), 'running');
   assert.equal(dotOf({ ...a, status: st('mystery', 'none') }), 'idle');
   assert.equal(dotOf(a), 'idle');
-});
-
-test('shows the text as it is', () => {
-  assert.equal(statusLine(st('waiting', 'task', 'Waiting on T5028')), 'Waiting on T5028');
-  assert.equal(statusLine(undefined), '');
 });
