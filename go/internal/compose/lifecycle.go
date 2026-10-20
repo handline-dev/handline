@@ -107,7 +107,7 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	}
 	var onLaunch func(string) // the view is told through the turns tracker, which the tick hands it
 	if cfg.Turns != nil {
-		onLaunch = cfg.Turns.Refresh
+		onLaunch = cfg.Turns.Launched
 	}
 	spawns := &lifecycle.Spawns{Q: q, Host: termHost{tm}, Launch: launchPort, Delivery: lc.Env, Roster: roster, Now: cfg.Now,
 		Locks: p.Locks, OnLaunch: onLaunch, TrustFolder: trustFolder(home, vendors{home: home, roster: roster}, cfg.Log)}

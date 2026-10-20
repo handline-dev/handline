@@ -1,4 +1,4 @@
-// A task's memos on the phone (docs/pc-app-gaps.md U11): add, edit and delete, each a `useWrite` that shows at once and rolls back with the daemon's reason.
+// A task's comments on the phone (docs/pc-app-gaps.md U11): add, edit and delete, each a `useWrite` that shows at once and rolls back with the daemon's reason.
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 import type { MemoFile } from '@handline/client';
@@ -11,8 +11,8 @@ import { MemoFiles } from './MemoFiles.tsx';
 import { Input, Sheet, useWhyNot } from './TaskActions.tsx';
 import { Markdown } from './Markdown.tsx';
 
-/** One memo with Edit and Delete (as the web's MemoRow). Both show at once and roll back with the reason on a refusal; Delete asks first. */
-export function MemoRow({ task, memo, when }: { task: number; memo: { id: number; author: string; text: string; files?: MemoFile[] }; when: string }) {
+/** One comment with Edit and Delete (as the web's MemoRow). Both show at once and roll back with the reason on a refusal; Delete asks first. */
+export function CommentRow({ task, memo, when }: { task: number; memo: { id: number; author: string; text: string; files?: MemoFile[] }; when: string }) {
   const c = usePalette();
   const edit = useWrite('task.comment.edit', String(task));
   const del = useWrite('task.comment.delete', String(task));
@@ -66,7 +66,7 @@ export function MemoRow({ task, memo, when }: { task: number; memo: { id: number
   );
 }
 
-export function MemoBox({ id }: { id: number }) {
+export function CommentBox({ id }: { id: number }) {
   const c = usePalette();
   const add = useWrite('task.comment.add', String(id));
   const why = useWhyNot('task.comment.add');
