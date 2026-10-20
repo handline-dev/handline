@@ -23,7 +23,9 @@ export async function until(cond: () => unknown, what: string, ms = 4000) {
 
 let root: Root | null = null;
 export let box: HTMLElement;
-export const $ = (id: string) => box.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+// A Modal draws outside the screen's own container, so the page is read when the container has none.
+export const $ = (id: string) =>
+  box.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? document.body.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 export const text = () => box.textContent ?? '';
 /** The height a row is styled with (the DOM has no layout here, so this reads the style both rows are given from the tokens). */
 export const rowHeightOf = (el: Element | null) => (el ? getComputedStyle(el).height : undefined);

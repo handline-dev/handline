@@ -18,7 +18,7 @@ const FILTERS: [HistoryFilter, string][] = [
   ['all', 'All'],
   ['fields', 'Fields'],
   ['state', 'State'],
-  ['memo', 'Memo'],
+  ['memo', 'Comment'],
 ];
 const CHIP =
   'inline-flex items-center gap-1 rounded-full bg-transparent border border-line px-2.5 py-0.5 text-ink-2 aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:text-canvas';
@@ -44,7 +44,7 @@ function Change({ r, shown }: { r: HistoryRow; shown: boolean }) {
   const was = firstLine(r.was);
   const now = firstLine(r.now);
   const long = was.more || now.more;
-  const label = memo ? `memo #${r.memo}` : (FIELD_WORD[r.field] ?? r.field);
+  const label = memo ? `comment #${r.memo}` : (FIELD_WORD[r.field] ?? r.field);
   const body = memo ? (action === 'deleted' ? r.was : r.now) : null;
   return (
     <div className="contents" data-field={r.field}>
@@ -114,7 +114,7 @@ function Fold({ fold }: { fold: HistoryFold }) {
         data-fold
       >
         <span aria-hidden="true">{open ? '▾ ' : '▸ '}</span>
-        <strong>{n === 1 ? '1 memo change' : `${n} memo changes`}</strong> by {fold.by.join(', ')} · {range}
+        <strong>{n === 1 ? '1 comment change' : `${n} comment changes`}</strong> by {fold.by.join(', ')} · {range}
       </button>
       {open ? (
         <div className="mt-1 grid grid-cols-[5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 max-sm:grid-cols-1">

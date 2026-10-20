@@ -20,6 +20,9 @@ type Q interface {
 // Human is the founder's name on the board (db.HUMAN).
 const Human = "human"
 
+// Gate owns a task that watches outside state (a PR's CI or its close); the daemon closes it when that state changes. Not an agent.
+const Gate = "gate"
+
 // Now is the clock the statements stamp with; tests replace it.
 var Now = defaultNow
 

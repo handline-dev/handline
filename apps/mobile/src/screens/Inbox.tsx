@@ -4,10 +4,11 @@ import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { ago, NOTICE_SENDER } from '@handline/app-core';
 import type { InboxItem } from '@handline/client';
-import { useConnection } from '@handline/app-react';
+import { useConnection, useStore } from '@handline/app-react';
 import { useInbox, usePending, useServes, useUnread, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
+import { Icon, type IconName } from './Icon.tsx';
 import { Button, PageHeader } from './parts.tsx';
 import { Loadable } from './Loadable.tsx';
 import { PromptCard } from './PromptCard.tsx';
@@ -21,6 +22,7 @@ const KIND: Record<string, string> = {
   block: 'Block',
   prompt: 'Prompt',
 };
+const KIND_ICON: Record<string, IconName> = { decision: 'decision', ask: 'ask', say: 'say', report: 'result', result: 'result', block: 'block', prompt: 'prompt' };
 /** A decision is the person's task: the card ends it with task.done. */
 const decidable = (i: InboxItem) => i.kind === 'decision' && i.task != null;
 const waits = (i: InboxItem, readPending: boolean) => !i.read && !readPending;
@@ -43,6 +45,7 @@ const NO_UI: Ui = { open: false, box: null, text: '' };
 function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch: Partial<Ui>) => void; done: () => void }) {
   const c = usePalette();
   const i = props.item;
+  const store = useStore();
   const { open, box, text } = props.ui;
   const setOpen = (v: boolean) => props.setUi({ open: v });
   const setBox = (v: Ui['box']) => props.setUi({ box: v });
@@ -64,7 +67,7 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
         accessibilityLabel={`${i.read ? 'Read' : 'Unread'} ${KIND[i.kind] ?? i.kind}: ${i.title}`}
         style={{ flexDirection: 'row', gap: space.md, padding: space.lg, minHeight: 56, alignItems: 'center' }}
       >
-        <Text style={{ color: c.muted }}>{i.read ? '○' : '●'}</Text>
+        <Icon name={KIND_ICON[i.kind] ?? (i.read ? 'read' : 'unread')} decorative size={18} color={i.read ? c.muted : c.ink} />
         <View style={{ flex: 1 }}>
           <Text numberOfLines={open ? undefined : 1} style={{ color: c.ink, fontWeight: i.read ? '400' : '700' }}>
             {i.title}
@@ -125,6 +128,13 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
                   }}
                 />
               ) : null}
+              {i.fix === 'open_terminal' && i.agent ? (
+                <Button
+                  testID={`inbox-terminal-${i.id}`}
+                  label="Open terminal"
+                  onPress={() => void store.openAgent(i.agent!).then(() => store.setTab('terminal'))}
+                />
+              ) : null}
               {i.kind !== 'decision' && !i.prompt && i.kind !== 'block' ? (
                 <Button testID={`inbox-reply-${i.id}`} label="Reply…" disabled={!!off.reply} onPress={() => setBox('reply')} />
               ) : null}
@@ -170,7 +180,10 @@ function Group(props: { id: 'digest' | 'read'; label: string; open: boolean; onT
         onPress={props.onToggle}
         style={{ padding: space.lg, minHeight: 48, justifyContent: 'center' }}
       >
-        <Text style={{ color: props.id === 'read' ? c.muted : c.ink, fontWeight: '600' }}>{`${props.open ? '▾' : '▸'} ${props.label}`}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+          <Icon name={props.open ? 'chevron' : 'chevronRight'} decorative size={16} color={c.muted} />
+          <Text style={{ color: props.id === 'read' ? c.muted : c.ink, fontWeight: '600' }}>{props.label}</Text>
+        </View>
       </Pressable>
       {props.open ? props.children : null}
     </View>

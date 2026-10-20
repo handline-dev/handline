@@ -9,7 +9,7 @@ export const MARKS: Record<Dot, { label: string }> = {
   blocked: { label: 'blocked or stalled' },
   idle: { label: 'idle' },
   parked: { label: 'parked: waits for a time' },
-  none: { label: 'no terminal' },
+  none: { label: 'idle' },
 };
 export const DOT_ORDER: Dot[] = ['waiting', 'blocked', 'running', 'waking', 'idle', 'parked', 'none'];
 

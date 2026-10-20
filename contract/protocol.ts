@@ -187,6 +187,14 @@ export type AgentView = {
     phase: "writing" | "starting";
     since: Timestamp;
   } | null;
+  /** The agent's newest request to the founder; null when it never wrote to them. Absent from a daemon that does not serve it yet. */
+  last_to_founder?: {
+    /** The whole body of its newest request to the founder (a say, ask or decision), whether or not it was read. */
+    text: string;
+    at: Timestamp;
+  } | null;
+  /** How many of the agent's open requests to the founder they have not seen yet (past the for_you_seen cursor, as `hl inbox` counts them). Absent from a daemon that does not serve it yet. */
+  founder_unread?: number;
   /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
   status?: Status;
 };
@@ -277,7 +285,7 @@ export type Task = {
   from: string;
   to: string;
   title: string;
-  /** draft, queued, doing, review (its assignee's done waits on task.accept, task.reject or a reassign, or, accepted with a PR, on that PR's merge), done or discarded. */
+  /** draft, queued, doing, done or discarded. */
   state: string;
   time_box: Duration | null;
   parent: number | null;
@@ -329,21 +337,10 @@ export type Task = {
   waiting?: TaskWaiting | null;
   /** The task's clock, the same object task.get gives; null once it is done or discarded. Absent from a daemon that does not send it. */
   time?: TaskClock | null;
-  /** The done in review while the task's state is review; null otherwise. Absent from a daemon that does not send it. */
-  report?: {
-    by: string;
-    evidence: string;
-    at: Timestamp;
-    /** Who the review waits on: the assignee's lead, else whoever it answers to; human once it is accepted with a PR (the founder's merge OK). Absent from a daemon that does not send it. */
-    waits_on?: string;
-    /** The accept of a task with a PR, which then waits on that PR's merge; null until then. Absent from a daemon that does not send it. */
-    accepted?: {
-      by: string;
-      at: Timestamp;
-    } | null;
-  } | null;
-  /** The pull request its work merges in (task.edit pr); an accepted task with one closes at that merge. Absent from a daemon that does not send it. */
+  /** The pull request its work merges in (task.edit pr), as a link. Absent from a daemon that does not send it. */
   pr?: number | null;
+  /** What the task watches when its owner is gate; null for any other. Absent from a daemon that does not send it. */
+  watch?: TaskWatch | null;
   /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
   status?: Status;
 };
@@ -432,7 +429,7 @@ export type TaskDetail = Task & {
     at: Timestamp;
     /** The author, or `from → to` for a handoff. */
     who: string;
-    /** memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note). */
+    /** memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note), from before a review was a handoff. */
     kind: "memo" | "handoff" | "request" | "edit" | "state" | "reject";
     /** Already stripped of control characters: a client draws it as it is. */
     text: string;
@@ -903,7 +900,7 @@ export type ChatMessage = {
   } | null;
   /** Only on the message that tells an agent how the founder decided its HR proposal: that proposal's id, as hr.list gives it. A client that draws the decided proposal as a card can leave this line out. */
   proposal?: number;
-  /** One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task's state asks for one: in review, and it answers to the founder (Accept, Send back), or owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb. */
+  /** One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task is owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb. */
   actions?: ChatAction[];
 };
 
@@ -1049,8 +1046,6 @@ export type SettingsValues = {
   park_timeout_s?: number;
   /** Agents write a note for the next session before a close or move. */
   handoff_note?: boolean;
-  /** Answer dialogs by the standing rules by itself. Retired in a daemon that answers no dialog (x-dialogs): ignored. */
-  auto_accept_dialogs?: boolean;
   /** Resume the old session even after its cache went cold. Per agent with `agent`. */
   ignore_cache_expiry?: boolean;
   /** The daemon restarts itself when its own code changed (hl dev-mode). */
@@ -1093,8 +1088,6 @@ export type SettingsChanges = {
   park_timeout_s?: number | null;
   /** Agents write a note for the next session before a close or move. null removes the key (back to the default). */
   handoff_note?: boolean | null;
-  /** Answer dialogs by the standing rules by itself. null removes the key (back to the default). Retired in a daemon that answers no dialog (x-dialogs): ignored. */
-  auto_accept_dialogs?: boolean | null;
   /** Resume the old session even after its cache went cold. Per agent with `agent`. null removes the key (back to the default). */
   ignore_cache_expiry?: boolean | null;
   /** The daemon restarts itself when its own code changed (hl dev-mode). null removes the key (back to the default). */
@@ -1474,7 +1467,7 @@ export type HistoryRow = {
   at: Timestamp;
   /** Who made the change: an agent, or human. */
   by: string;
-  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, review, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
+  /** assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty). */
   field: "title" | "assignee" | "owner" | "body" | "priority" | "estimate" | "timeout" | "state" | "tag" | "blocked_by" | "merged_into" | "memo";
   /** The value before; empty when there was none (a task just opened, a wait just added, a memo just added). */
   was: string;
@@ -1523,7 +1516,7 @@ export type Tag = string;
 export type TaskFilter = {
   /** Tasks that carry every one of these tags. */
   tags?: Tag[];
-  state?: "draft" | "queued" | "doing" | "review" | "done" | "discarded";
+  state?: "draft" | "queued" | "doing" | "done" | "discarded";
   /** Who works the task (its assignee). */
   owner?: string;
   /** Who the task answers to (its asker: hl's --owner). */
@@ -1584,14 +1577,35 @@ export type TimeSegment = {
 };
 
 export type ChatAction = {
-  key: "accept" | "send_back" | "ok" | "no";
+  key: "ok" | "no";
   label: string;
-  verb: "task.accept" | "task.reject" | "task.done" | "task.handoff";
+  verb: "task.done" | "task.handoff";
   task: number;
   /** The verb's params but request_id. */
   params: { [key: string]: unknown };
-  /** A param the person must write before the tap sends (`note` for Send back). */
+  /** A param the person must write before the tap sends. */
   needs?: string;
+};
+
+/** What a gate watches: target of vendor, until what it waits for. The vendor answers waiting, passed or failed with a line of evidence. Vendors: github (target owner/name#N; until ci: a pull request's checks have all finished, or none started 10 minutes after its head commit; closed: the pull request merged (passed) or closed unmerged (failed); done: the issue closed as completed (passed) or for another reason (failed)). The github vendor reads through the gh CLI's own login. docs/watch-vendors.md has each vendor. */
+export type Watch = {
+  /** The outside tool: github. */
+  vendor: string;
+  /** The thing, written the way the vendor writes it: owner/name#N for github. */
+  target: string;
+  /** What is waited for; each vendor takes some. Absent: the vendor's first (github: ci). */
+  until?: "ci" | "closed" | "done";
+};
+
+/** A gate's watch as the task carries it, with its label and what it opened with. */
+export type TaskWatch = {
+  vendor: string;
+  target: string;
+  until: "ci" | "closed" | "done";
+  /** The watch in words ("PR #418 CI"). */
+  label: string;
+  /** What it opened with; null while it watches. A target that reads as gone (deleted, or no longer visible) three times in a row is failed. */
+  result: ("passed" | "failed" | "timed_out") | null;
 };
 
 export interface Methods {
@@ -2205,7 +2219,7 @@ export interface Methods {
   all?: boolean;
   /** Every team's tasks, not only the caller's and its reports'. */
   everyone?: boolean;
-  /** Only the tasks the caller holds that wait on it: queued or doing, never draft, in review or ended; the founder's are the ones assigned to human. One row per task. It takes no owner. */
+  /** Only the tasks the caller holds that wait on it: queued or doing, never draft or ended; the founder's are the ones assigned to human. One row per task. It takes no owner. */
   my_turn?: boolean;
   /** Also count, over the last 30 days, the requests that ended with no reason and how tasks were closed (the `reason_gaps` of the result). It costs seconds on a large database: a screen that polls never asks. */
   reason_gaps?: boolean;
@@ -2270,6 +2284,7 @@ export interface Methods {
     done: boolean;
   } };
   "task.new": { params: {
+  /** An agent, human, or gate: a task the daemon holds that watches outside state (watch) and closes when it changes. */
   owner: string;
   /** Who the task answers to: told when it ends, and may edit or reassign it. Default: the caller. */
   reporter?: string;
@@ -2282,6 +2297,8 @@ export interface Methods {
   duplicate_ok?: boolean;
   /** Cannot be worked until this task closes. */
   blocked_by?: number;
+  /** With owner gate, required, and refused with any other owner; a watch its vendor cannot take, or a vendor not set up, is refused. The gate is doing from the start; its time box (default 24h) is its deadline. The daemon marks it done with the vendor's evidence when the vendor answers passed or failed ("ci passed", "ci failed: <check names>", "merged <sha>", "closed unmerged", "no CI on this PR"), or "timed out" past its deadline. A task blocked by it (blocked_by) then comes back to its holder, who decides what follows. task.wait opens one and blocks a task on it in one write. */
+  watch?: Watch;
   /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
   priority?: 1 | 2 | 3;
   /** Story points: what the task is expected to take, for its expected start and end (task.time). None when absent. */
@@ -2318,18 +2335,6 @@ export interface Methods {
   shots?: string[];
   request_id: RequestId;
 }; result: Accepted };
-  "task.accept": { params: {
-  task: number;
-  request_id: RequestId;
-  /** A chat message id: the founder's OK on this task, kept with the accept as its proof. Refused unless the founder wrote the message, it is tied to the task and it came after the report. */
-  by_founder?: number;
-}; result: Accepted };
-  "task.reject": { params: {
-  task: number;
-  /** One line: what is missing. It is told to the owner. It may then name images (x-attachments, texts), each on a line of its own after the words; nothing else may follow them. */
-  note: string;
-  request_id: RequestId;
-}; result: Accepted };
   "task.reopen": { params: {
   task: number;
   note?: string;
@@ -2361,6 +2366,17 @@ export interface Methods {
   task: number;
   request_id: RequestId;
 }; result: Accepted };
+  "task.comment.list": { params: {
+  task: number;
+  /** With limit: the page just older than this memo id. */
+  before?: number;
+  /** 1 to 200. The newest limit memos, or the limit just older than before; absent: every memo. */
+  limit?: number;
+}; result: {
+    memos: Memo[];
+    /** There are older memos than the page. */
+    more: boolean;
+  } };
   "task.memo.list": { params: {
   task: number;
   /** With limit: the page just older than this memo id. */
@@ -2371,6 +2387,18 @@ export interface Methods {
     memos: Memo[];
     /** There are older memos than the page. */
     more: boolean;
+  } };
+  "task.comment.add": { params: {
+  task: number;
+  /** Markdown. It may name images (x-attachments, texts). */
+  text: string;
+  /** Tell every reader at once, even mid-turn. */
+  now?: boolean;
+  /** Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files). */
+  files?: string[];
+  request_id: RequestId;
+}; result: Accepted & {
+    memo: number;
   } };
   "task.memo.add": { params: {
   task: number;
@@ -2384,11 +2412,23 @@ export interface Methods {
 }; result: Accepted & {
     memo: number;
   } };
+  "task.comment.edit": { params: {
+  task: number;
+  memo: number;
+  /** Markdown. It may name images (x-attachments, texts). */
+  text: string;
+  request_id: RequestId;
+}; result: Accepted };
   "task.memo.edit": { params: {
   task: number;
   memo: number;
   /** Markdown. It may name images (x-attachments, texts). */
   text: string;
+  request_id: RequestId;
+}; result: Accepted };
+  "task.comment.delete": { params: {
+  task: number;
+  memo: number;
   request_id: RequestId;
 }; result: Accepted };
   "task.memo.delete": { params: {
@@ -2428,6 +2468,16 @@ export interface Methods {
   reason?: string;
   request_id: RequestId;
 }; result: Accepted };
+  "task.wait": { params: {
+  task: number;
+  watch: Watch;
+  /** The gate's deadline, a span like 4h; default 24h. */
+  time_box?: string;
+  request_id: RequestId;
+}; result: Accepted & {
+    /** The gate task opened. */
+    gate: number;
+  } };
   "task.discard": { params: {
   task?: number;
   tasks?: number[];
@@ -2473,7 +2523,7 @@ export interface Methods {
   /** Tags to remove; one it has not got is left as it is. */
   remove_tags?: Tag[];
   request_id: RequestId;
-  /** The pull request the task's work merges in (`hl task edit T<n> --pr <n>`), on an open task. Accepted, the task then waits on that PR's merge. */
+  /** The pull request the task's work merges in (`hl task edit T<n> --pr <n>`), on an open task. A link only: nothing waits on it. */
   pr?: number;
 }; result: Accepted };
   "task.ask": { params: {
@@ -2882,16 +2932,18 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.new": { role: "agent", callers: null, write: true, since: 1 },
   "task.handoff": { role: "agent", callers: null, write: true, since: 1 },
   "task.done": { role: "agent", callers: null, write: true, since: 1 },
-  "task.accept": { role: "agent", callers: null, write: true, since: 1 },
-  "task.reject": { role: "agent", callers: null, write: true, since: 1 },
   "task.reopen": { role: "agent", callers: null, write: true, since: 1 },
   "task.progress": { role: "agent", callers: ["agent"], write: true, since: 1 },
   "progress.get": { role: "agent", callers: ["agent"], write: false, since: 1 },
   "task.begin": { role: "agent", callers: null, write: true, since: 1 },
   "task.start": { role: "agent", callers: null, write: true, since: 1 },
+  "task.comment.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.memo.list": { role: "agent", callers: null, write: false, since: 1 },
+  "task.comment.add": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.add": { role: "agent", callers: null, write: true, since: 1 },
+  "task.comment.edit": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.edit": { role: "agent", callers: null, write: true, since: 1 },
+  "task.comment.delete": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.delete": { role: "agent", callers: null, write: true, since: 1 },
   "task.view.list": { role: "member", callers: null, write: false, since: 1 },
   "task.view.save": { role: "member", callers: null, write: true, since: 1 },
@@ -2900,6 +2952,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.draft": { role: "agent", callers: null, write: true, since: 1 },
   "task.merge": { role: "agent", callers: null, write: true, since: 1 },
   "task.release": { role: "agent", callers: null, write: true, since: 1 },
+  "task.wait": { role: "agent", callers: null, write: true, since: 1 },
   "task.discard": { role: "agent", callers: null, write: true, since: 1 },
   "task.board": { role: "agent", callers: null, write: false, since: 1 },
   "task.withdraw": { role: "agent", callers: null, write: true, since: 1 },
@@ -3035,6 +3088,6 @@ export const STATE_WORDS = ["running", "idle", "queued", "starting", "parked", "
 
 /** x-status: the state and reason every agent and task carries; open sets for a client, which shows `text` for a word it does not know. */
 export const STATUS_STATES = ["preparing", "starting", "running", "waiting", "stopped", "idle", "off", "done"] as const;
-export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "handoff", "background", "you", "review", "opener", "task", "owner", "clock", "move", "load", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
+export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "watch", "handoff", "background", "you", "opener", "task", "owner", "clock", "move", "load", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];

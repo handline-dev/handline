@@ -105,14 +105,25 @@ describe('capture', () => {
     await click($$('[aria-label="Windows"] button')[0]);
     await until(() => $('[data-testid="capture-preview"]'), 'the preview');
     const draw = $('svg[aria-label="Mark here"]')!;
-    draw.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}) });
+    draw.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 100,
+      height: 100,
+      right: 100,
+      bottom: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
     (draw as unknown as SVGSVGElement).setPointerCapture = () => undefined;
     await act(async () => {
-      const ev = (type: string) => draw.dispatchEvent(Object.assign(new Event(type, { bubbles: true }), { clientX: 20, clientY: 20, pointerId: 1 }));
+      const ev = (type: string) =>
+        draw.dispatchEvent(Object.assign(new Event(type, { bubbles: true }), { clientX: 20, clientY: 20, pointerId: 1 }));
       ev('pointerdown');
       ev('pointerup');
     });
-    await typeInto($('textarea[aria-label="Memo"]') as HTMLTextAreaElement, 'Tab label is cut off');
+    await typeInto($('textarea[aria-label="Comment"]') as HTMLTextAreaElement, 'Tab label is cut off');
     await typeInto($('#capture-note') as HTMLTextAreaElement, 'Two problems');
     await click(button('New task'));
     await choose($('select[aria-label="Owner"]') as HTMLSelectElement, 'handline.auditor');
@@ -121,7 +132,9 @@ describe('capture', () => {
     const list = (await s.client.call('tasks.list', {} as never)) as { items: { id: number; title: string }[] };
     const made = list.items.find((t) => t.title === 'Two problems')!;
     const t = (await s.client.call('task.get', { task: made.id } as never)) as { body: string };
-    expect(t.body).toMatch(/^Two problems\n1\. Tab label is cut off\n```marks\n\[\{"n":1,"shape":"pin",.*"text":"Tab label is cut off"\}\]\n```\n/);
+    expect(t.body).toMatch(
+      /^Two problems\n1\. Tab label is cut off\n```marks\n\[\{"n":1,"shape":"pin",.*"text":"Tab label is cut off"\}\]\n```\n/,
+    );
     expect(t.body.match(/attachment:/g)).toHaveLength(2); // the plain picture and the marked one
   });
 
@@ -148,8 +161,7 @@ describe('capture', () => {
 
   it('adds the picture as a comment on the open task', async () => {
     const s = await mount('#/tasks/1684');
-    await until(() => button('Capture'), 'the Capture button');
-    await click(button('Capture'));
+    await act(async () => void dispatchEvent(new Event('handline:capture'))); // the task detail has no button; the palette and ⌘⇧C ask
     await until(() => $$('[aria-label="Windows"] button').length, 'the windows');
     await click($$('[aria-label="Windows"] button')[0]);
     await until(() => $('[data-testid="capture-preview"]'), 'the preview');

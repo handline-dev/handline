@@ -705,6 +705,12 @@ edges:
 	if !strings.HasPrefix(reportLine(dev), "You report to `manager`") || !strings.HasPrefix(reportLine(scout), "You report to `human`") {
 		t.Errorf("wrong boss:\n%s\n---\n%s", dev, scout)
 	}
+	// The founder's words typed at an agent: it is told its plain text answers them, and the others are not.
+	r.l.FounderTyped = func(a string) bool { return a == "marina" }
+	if typed, other := r.l.yourTeam("marina"), r.l.yourTeam("manager"); !strings.Contains(typed, "The founder may type straight into your terminal") ||
+		strings.Contains(typed, "reaches no one") || !strings.Contains(other, "what you write in your terminal reaches no one") {
+		t.Errorf("typed:\n%s\n---\nnot typed:\n%s", typed, other)
+	}
 }
 
 // argsDriver keeps what Build hands the driver.
@@ -743,6 +749,23 @@ func TestBuildHandsTheDriverTheAllowancesOfTheAgentsRepoOnly(t *testing.T) {
 		if got.WeakerNetwork != want || (len(got.Excluded) > 0) != want {
 			t.Errorf("%s: weaker %v, excluded %v", repo, got.WeakerNetwork, got.Excluded)
 		}
+	}
+}
+
+// The worktree is locked for the session just before the exec, in the folder the launch runs in, for this process.
+func TestExecAgentLocksItsWorktreeForThisProcess(t *testing.T) {
+	r := newLaunchRig(t)
+	var held []string
+	r.l.Ports.HoldWorktree = func(dir, agent string, pid int) error {
+		held = append(held, fmt.Sprintf("%s %s %d %v", dir, agent, pid, r.execd == nil))
+		return nil
+	}
+	if err := r.l.ExecAgent("ann", nil, false, "", "main", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if len(held) != 1 || held[0] != fmt.Sprintf("%s ann %d true", cwd, os.Getpid()) {
+		t.Fatalf("%v", held)
 	}
 }
 

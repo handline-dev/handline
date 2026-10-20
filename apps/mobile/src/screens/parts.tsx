@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Keyboard, Platform, Pressable, Text, View, type ViewStyle } from 'react-native';
+import { Keyboard, Modal, Platform, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
+import { Icon, type IconName } from './Icon.tsx';
 
 export function Banner(props: { text: string; error?: boolean; onPress?: () => void }) {
   const c = usePalette();
@@ -27,6 +28,8 @@ export function Button(props: {
   style?: ViewStyle;
   testID?: string;
   accessibilityLabel?: string;
+  /** Drawn before the label; with an empty label it is the whole button. */
+  icon?: IconName;
 }) {
   const c = usePalette();
   const bg = props.kind === 'yes' ? c.run : props.kind === 'no' ? c.block : c.panel;
@@ -47,10 +50,14 @@ export function Button(props: {
         paddingHorizontal: space.lg,
         opacity: props.disabled ? 0.4 : 1,
         alignItems: 'center',
+        flexDirection: 'row',
+        justifyContent: 'center',
+        gap: space.sm,
         ...props.style,
       }}
     >
-      <Text style={{ color: ink, fontWeight: '600' }}>{props.label}</Text>
+      {props.icon ? <Icon name={props.icon} decorative size={18} color={ink} /> : null}
+      {props.label ? <Text style={{ color: ink, fontWeight: '600' }}>{props.label}</Text> : null}
     </Pressable>
   );
 }
@@ -130,26 +137,36 @@ export function Pill(props: { on: boolean; label: string; testID: string; onPres
 }
 
 /** A list row of a title over one muted line, set off by a rule above it. `style` adds to the row (a mark on its edge, dimming). */
-export function ListRow(props: { title: string; meta: string; metaColor?: string; onPress: () => void; testID: string; style?: ViewStyle }) {
+export function ListRow(props: { title: string; meta: string; metaColor?: string; onPress: () => void; onLongPress?: () => void; selected?: boolean; testID: string; style?: ViewStyle; lead?: React.ReactNode; trail?: React.ReactNode }) {
   const c = usePalette();
   return (
     <Pressable
       testID={props.testID}
       onPress={props.onPress}
+      onLongPress={props.onLongPress}
+      accessibilityState={props.selected === undefined ? undefined : { selected: props.selected }}
       style={{
         minHeight: 48,
+        backgroundColor: props.selected ? c.panel : undefined,
         justifyContent: 'center',
         paddingHorizontal: space.lg,
         paddingVertical: space.sm,
         borderTopWidth: 1,
         borderTopColor: c.line,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.md,
         ...props.style,
       }}
     >
-      <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '600' }}>
-        {props.title}
-      </Text>
-      <Text style={{ color: props.metaColor ?? c.muted, fontSize: 12 }}>{props.meta}</Text>
+      {props.lead}
+      <View style={{ flex: 1 }}>
+        <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '600' }}>
+          {props.title}
+        </Text>
+        <Text style={{ color: props.metaColor ?? c.muted, fontSize: 12 }}>{props.meta}</Text>
+      </View>
+      {props.trail}
     </Pressable>
   );
 }
@@ -188,6 +205,53 @@ export function Link(props: { label: string; onPress: () => void; testID: string
   return (
     <Pressable testID={props.testID} accessibilityRole="button" disabled={props.disabled} hitSlop={10} onPress={props.onPress} style={{ opacity: props.disabled ? 0.4 : 1 }}>
       <Text style={{ color: c.accent, fontSize: 12 }}>{props.label}</Text>
+    </Pressable>
+  );
+}
+
+/** A phone menu: rows in a sheet at the bottom of the screen, over a dimmed page that a tap on closes. */
+export function MenuSheet(props: { onClose: () => void; children: React.ReactNode; testID?: string }) {
+  const c = usePalette();
+  return (
+    <Modal transparent visible animationType="fade" onRequestClose={props.onClose}>
+      <Pressable accessibilityLabel="Close the menu" onPress={props.onClose} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' }}>
+        <View
+          testID={props.testID}
+          onStartShouldSetResponder={() => true}
+          style={{ backgroundColor: c.bg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingBottom: space.xl, maxHeight: '80%' }}
+        >
+          <ScrollView>{props.children}</ScrollView>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+/** One row of a MenuSheet; a reason it cannot be used sits under the label. */
+export function MenuItem(props: { label: string; onPress: () => void; testID?: string; danger?: boolean; disabled?: boolean; note?: string | null; icon?: IconName }) {
+  const c = usePalette();
+  return (
+    <Pressable
+      testID={props.testID}
+      accessibilityRole="button"
+      disabled={props.disabled}
+      onPress={props.onPress}
+      style={{
+        minHeight: 52,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: space.md,
+        paddingHorizontal: space.lg,
+        borderBottomWidth: 1,
+        borderBottomColor: c.line,
+        opacity: props.disabled ? 0.4 : 1,
+      }}
+    >
+      {props.icon ? <Icon name={props.icon} decorative size={20} color={props.danger ? c.block : c.muted} /> : null}
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: props.danger ? c.block : c.ink, fontSize: 16 }}>{props.label}</Text>
+        {props.note ? <Text style={{ color: c.muted, fontSize: 12 }}>{props.note}</Text> : null}
+      </View>
     </Pressable>
   );
 }

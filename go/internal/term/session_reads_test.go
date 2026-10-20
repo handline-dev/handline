@@ -36,17 +36,6 @@ func TestStopWorkAndExitPressesEnterOnlyOnTheExitDialog(t *testing.T) {
 	}
 }
 
-func TestAcceptDialogPressesOnlyWhatTheVendorAccepts(t *testing.T) {
-	h := &fakeHost{screenAt: func(int) []string { return permissionPrompt }}
-	// claude takes no tool: the key is the driver's to name, and it names none.
-	if outcome, _, _ := newTerm(h).AcceptDialog("h", "Bash"); outcome != NotPressed || len(h.sent) != 0 {
-		t.Fatalf("outcome %q sent %v", outcome, h.sent)
-	}
-	if got := newTerm(h).VendorOf("h"); got != "claude" {
-		t.Errorf("vendor %q", got)
-	}
-}
-
 type countingHost struct {
 	fakeHost
 	reads int

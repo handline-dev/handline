@@ -89,8 +89,6 @@ type Driver interface {
 	AnswerQuestionKeys(q *Question, choices []int, text *string) []string
 	QuestionToggleKeys(q *Question, choices []int) []string
 	QuestionOtherAfterToggleKeys(q *Question, text string) []string
-	AcceptsTool(tool string) bool
-	AcceptingKey(d *Dialog, tool string) (string, string)
 }
 
 // DefaultVendor is the driver of an agent the daemon did not launch.
@@ -272,8 +270,6 @@ func describeBackgrounded(tail []string, top int) string {
 
 func (claude) ScreenBlocker(tail []string) *Blocker {
 	if footer := footerRow(tail); footer >= 0 {
-		// Deliberately not widened: a long command's title stays "", so autoaccept never matches a standing rule against a
-		// dialog it could not read whole.
 		b := &Blocker{Kind: Modal, Detail: DescribeModal(tail, footer)}
 		if d := ParseDialog(tail, footer, false); d != nil {
 			b.Title = d.Title
@@ -297,13 +293,6 @@ func (claude) TrustAnswer() string { return trustPromptDownArrow }
 // Verified against a live prompt: one Down off the default cursor ("No, exit") lands on "Yes, I trust this folder"; a bare Enter
 // then confirms it. A bare Enter with no Down confirms "No, exit" instead.
 const trustPromptDownArrow = "\x1b[B"
-
-// AcceptsTool: launch passes --no-chrome unless the agent opted in, and an opted-in agent's browser prompt is the founder's.
-func (claude) AcceptsTool(string) bool { return false }
-
-func (claude) AcceptingKey(*Dialog, string) (string, string) {
-	return "", "this vendor's prompts are not auto-accepted"
-}
 
 // Confirmation is Claude Code's one-time permission prompt, reconstructed from its wording, not measured on a live screen: the
 // match is as narrow as that wording allows, so a layout that differs is not recognized and stays for the terminal.
@@ -445,12 +434,8 @@ func (o opencode) ScreenBlocker(tail []string) *Blocker {
 }
 
 // No folder-trust dialog, permission prompt or AskUserQuestion of its own to detect.
-func (opencode) TrustScreen([]string) (string, bool) { return "", false }
-func (opencode) TrustAnswer() string                 { return "" }
-func (opencode) AcceptsTool(string) bool             { return false }
-func (opencode) AcceptingKey(*Dialog, string) (string, string) {
-	return "", "this vendor's prompts are not auto-accepted"
-}
+func (opencode) TrustScreen([]string) (string, bool)                     { return "", false }
+func (opencode) TrustAnswer() string                                     { return "" }
 func (opencode) Confirmation(*Dialog) *Confirmation                      { return nil }
 func (opencode) AskQuestion([]string) *Question                          { return nil }
 func (opencode) AnswerQuestionKeys(*Question, []int, *string) []string   { return nil }

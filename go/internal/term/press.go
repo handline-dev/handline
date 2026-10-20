@@ -191,9 +191,6 @@ func (t *Term) DeclineDialog(handle string) (string, string, string) {
 	return t.pressDialog(handle, DecliningKey, "Esc", false)
 }
 
-// AcceptsTool is whether a permission prompt for tool on this terminal may be said yes to.
-func (t *Term) AcceptsTool(handle, tool string) bool { return t.driver(handle).AcceptsTool(tool) }
-
 // AnswerDialog presses the number of the option choose(vendor, dialog) names on the dialog on this terminal's screen. The number
 // is read off the screen just read, never remembered. A vendor's folder-trust screen is never answered here: that stays with the
 // trust roots. A number over 9 is not one key and is refused (choose returns 0 for no answer).
@@ -488,9 +485,13 @@ func (t *Term) ConfirmTrust(handle string) (bool, string) {
 
 // ---- reading a screen the other ways
 
-// SessionOnScreen is whether this terminal's screen shows an agent's session: the vendor's composer box, a dialog's footer, or a
-// turn the vendor's screen says is running. A shell prompt is none of those. known is false when the screen cannot be read.
+// SessionOnScreen is whether an agent's session is at this terminal: as its hooks and process say when they know (SessionByHooks), else
+// as the screen shows it: the vendor's composer box, a dialog's footer, or a turn the vendor's screen says is running. A shell prompt
+// is none of those. known is false when the screen cannot be read.
 func (t *Term) SessionOnScreen(handle string) (session, known bool) {
+	if running, known := t.SessionByHooks(handle); known {
+		return running, true
+	}
 	scr := t.screen(handle, 40)
 	if scr == nil {
 		return false, false
@@ -590,6 +591,30 @@ type Turns interface {
 	WaitIdle(handle string, timeout time.Duration) (idle, known bool)
 	Background(handle string) (running string, known bool)
 	Settled(handle string) bool
+	Session(handle string) (running, known bool)
+}
+
+// SessionByHooks is whether a session runs at handle as its hooks and process say; known false leaves it to the screen.
+func (t *Term) SessionByHooks(handle string) (running, known bool) {
+	if t.Turns == nil {
+		return false, false
+	}
+	return t.Turns.Session(handle)
+}
+
+// ShellLeft is why a line typed at handle would reach a shell, not a session, "" when it would not: as the hooks and process say when they
+// know, else a shell prompt on the screen.
+func (t *Term) ShellLeft(handle string) string {
+	if running, known := t.SessionByHooks(handle); known {
+		if !running {
+			return "the session has ended, a shell is left"
+		}
+		return ""
+	}
+	if s := t.Backend.ReadScreen(handle, 40); s != nil && s.Source == "screen" && ShellPromptIn(s.Tail) {
+		return "a shell prompt is showing, not a session"
+	}
+	return ""
 }
 
 // WaitIdle is whether the agent at handle is idle within timeoutMs.

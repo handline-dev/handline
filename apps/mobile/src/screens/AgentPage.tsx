@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { badgesOf, controlsOf, needsConfirm, shortName, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
@@ -12,10 +12,11 @@ import { useHistoryValue } from '../history.tsx';
 import { StateMark } from './StateMark.tsx';
 import { AgentSettings } from './AgentSettings.tsx';
 import { AgentStrip } from './AgentStrip.tsx';
+import { AgentFile } from './AgentFile.tsx';
+import { AgentPreview } from './AgentPreview.tsx';
 import { AgentTasks } from './AgentTasks.tsx';
-import { Icon } from './Icon.tsx';
+import { Icon, type IconName } from './Icon.tsx';
 import { Activity } from './Activity.tsx';
-import { AgentTimeline } from './AgentTimeline.tsx';
 import { AgentVerbs } from './AgentVerbs.tsx';
 import { Chat } from './Chat.tsx';
 import { Loadable } from './Loadable.tsx';
@@ -76,15 +77,16 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const { detail, agent: row, tab: current } = props;
   const name = detail.name;
   const ctl = controlsOf(detail, me);
-  const [extra, setExtra] = useHistoryValue<'tasks' | 'timeline' | 'activity' | null>(`agent.extra:${name}`, null); // the Tasks and Timeline tabs sit beside the store's two tabs
+  const [extra, setExtra] = useHistoryValue<'tasks' | 'activity' | 'file' | 'preview' | null>(`agent.extra:${name}`, null); // the Activity and Tasks tabs sit beside the store's two tabs
   const hasTasks = useServes('tasks.list').served;
-  const hasTimeline = useServes('agent.timeline').served;
   const showTasks = extra === 'tasks' && hasTasks;
-  const showTimeline = extra === 'timeline' && hasTimeline;
   const hasChat = useServes('chat.messages').served;
   const showActivity = extra === 'activity' && hasChat;
+  const hasFile = useServes('file.read').served && !!detail.worktree;
+  const showFile = extra === 'file' && hasFile;
+  const showPreview = extra === 'preview';
   const [searching, setSearching] = useHistoryValue(`chat.search:${name}`, false);
-  const onChat = !showTasks && !showTimeline && !showActivity && current === 'chat';
+  const onChat = !showTasks && !showActivity && !showFile && !showPreview && current === 'chat';
   const stalled = badgesOf(detail, me).find((b) => b.kind === 'stalled');
   const verbMark = useVerbMark(name, ['close']);
   const mark = useAgentMark(name) ?? verbMark;
@@ -106,27 +108,29 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       { text: 'Cancel', style: 'cancel' },
       { text: 'Start new', style: 'destructive', onPress: () => start.mutate({ agent: name }) },
     ]);
-  const tab = (id: string, label: string, on: boolean, onPress: () => void) => (
+  const tab = (id: string, label: string, icon: IconName, on: boolean, onPress: () => void) => (
     <Pressable
       testID={`tab-${id}`}
       accessibilityRole="tab"
       accessibilityState={{ selected: on }}
       onPress={onPress}
       style={{
-        flex: 1,
+        flexGrow: 1,
         alignItems: 'center',
+        paddingHorizontal: space.sm,
         paddingVertical: space.md,
         borderBottomWidth: 2,
         borderBottomColor: on ? c.accent : 'transparent',
       }}
     >
-      <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: '600', fontSize: 13 }}>
+      <Icon name={icon} decorative size={16} color={on ? c.accent : c.muted} />
+      <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: '600', fontSize: 12 }}>
         {label}
       </Text>
     </Pressable>
   );
   const pageTab = (t: 'chat' | 'terminal', label: string) =>
-    tab(t, label, !showTasks && !showTimeline && !showActivity && current === t, () => {
+    tab(t, label, t, !showTasks && !showActivity && !showFile && !showPreview && current === t, () => {
       setExtra(null);
       store.setTab(t);
     });
@@ -169,26 +173,26 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
             </>
           }
         />
-        {stalled && hasTimeline && !showTimeline && (
-          <Button
-            testID="badge-stalled"
-            label={stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`}
-            kind="no"
-            onPress={() => setExtra('timeline')}
-          />
+        {stalled && (
+          <Text testID="badge-stalled" style={{ color: c.block }}>
+            {stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`}
+          </Text>
         )}
       </View>
-      <Row style={{ borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm, paddingHorizontal: space.sm }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.sm }}>
         {pageTab('chat', 'Chat')}
         {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
-        {hasChat && tab('activity', 'Activity', showActivity, () => setExtra('activity'))}
-        {hasTasks && tab('tasks', 'Tasks', showTasks, () => setExtra('tasks'))}
-        {hasTimeline && tab('timeline', 'Timeline', showTimeline, () => setExtra('timeline'))}
-      </Row>
-      {showActivity ? (
+        {hasChat && tab('activity', 'Activity', 'history', showActivity, () => setExtra('activity'))}
+        {hasFile && tab('file', 'File', 'reference', showFile, () => setExtra('file'))}
+        {tab('preview', 'Preview', 'open', showPreview, () => setExtra('preview'))}
+        {hasTasks && tab('tasks', 'Tasks', 'tasks', showTasks, () => setExtra('tasks'))}
+      </ScrollView>
+      {showFile ? (
+        <AgentFile agent={name} />
+      ) : showPreview ? (
+        <AgentPreview agent={name} />
+      ) : showActivity ? (
         <Activity agent={name} />
-      ) : showTimeline ? (
-        <AgentTimeline agent={name} />
       ) : showTasks ? (
         <AgentTasks agent={name} />
       ) : (
@@ -217,9 +221,29 @@ function TranscriptTab(props: { detail: AgentDetail }) {
 }
 
 function Terminal(props: { detail: AgentDetail }) {
+  const c = usePalette();
+  const store = useStore();
   const view = useSelector((s) => s.page!.view);
-  if (!view) return null; // a structured agent has no terminal
-  return <TerminalOf detail={props.detail} view={view} />;
+  const start = useWrite('session.start', props.detail.name);
+  const opened = !!props.detail.terminal;
+  // The agent was started from this page: its terminal now exists and is attached.
+  useEffect(() => {
+    if (opened && !view) void store.attachView();
+  }, [opened, view, store]);
+  if (view) return <TerminalOf detail={props.detail} view={view} />;
+  const name = props.detail.name;
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.lg }}>
+      <Button
+        testID="terminal-start"
+        label={start.isPending ? 'Starting…' : 'Start terminal'}
+        kind="yes"
+        disabled={start.isPending}
+        onPress={() => start.mutate({ agent: name })}
+      />
+      {start.error ? <Text style={{ color: c.block, marginTop: space.sm }}>{(start.error as Error).message}</Text> : null}
+    </View>
+  );
 }
 
 function TerminalOf(props: { detail: AgentDetail; view: TerminalView }) {
@@ -244,7 +268,7 @@ function TerminalOf(props: { detail: AgentDetail; view: TerminalView }) {
           <Skeleton shape="terminal" loading label="the terminal" />
         ) : (
           <Text testID="terminal-text" style={{ color: c.termInk, fontFamily: 'Menlo', fontSize: 11 }}>
-            {lines.length ? drawRows(lines, c.termInk, c.termBg) : 'No terminal output.'}
+            {drawRows(lines, c.termInk, c.termBg)}
           </Text>
         )}
       </ScrollView>

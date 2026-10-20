@@ -22,7 +22,8 @@ async function until(cond: () => unknown, what: string, ms = 4000) {
 
 let root: Root | null = null;
 let box: HTMLElement;
-const $ = (id: string) => box.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+const $ = (id: string) =>
+  box.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? document.body.querySelector<HTMLElement>(`[data-testid="${id}"]`); // a menu is a Modal, drawn outside the box
 const text = () => box.textContent ?? '';
 const press = (el: HTMLElement | null) => act(async () => void el?.click());
 const fill = (id: string, v: string) =>

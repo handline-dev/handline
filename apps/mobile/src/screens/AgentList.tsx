@@ -8,7 +8,7 @@ import { ago } from '@handline/app-core';
 import { KIND } from './NeedsYouCard.tsx';
 import { usePalette } from '../theme.ts';
 import { StateMark } from './StateMark.tsx';
-import { Button, PageHeader } from './parts.tsx';
+import { Button, MenuItem, MenuSheet, PageHeader } from './parts.tsx';
 import { useHrCount } from './Hr.tsx';
 import { TeamButton } from './TeamEntry.tsx';
 import { Loadable } from './Loadable.tsx';
@@ -39,11 +39,12 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
         actions={
           <>
             {founder && create ? (
-              <Button testID="new-agent-open" label="+" accessibilityLabel="New agent" onPress={() => props.onPage('new')} style={{ paddingVertical: space.sm }} />
+              <Button testID="new-agent-open" label="" icon="plus" accessibilityLabel="New agent" onPress={() => props.onPage('new')} style={{ paddingVertical: space.sm }} />
             ) : null}
             <Button
               testID="agents-menu"
-              label={hr ? '⋯ ●' : '⋯'}
+              label={hr ? '●' : ''}
+              icon="menu"
               accessibilityLabel="More"
               onPress={() => setMenu(!menu)}
               style={{ paddingVertical: space.sm }}
@@ -52,11 +53,11 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
         }
       />
       {menu && (
-        <View testID="agents-menu-list" style={{ gap: space.xs, paddingHorizontal: space.lg, paddingBottom: space.sm }}>
+        <MenuSheet testID="agents-menu-list" onClose={() => setMenu(false)}>
           <TeamButton onPress={() => go('team')} />
-          <Button testID="worktrees-open" label="Worktrees" onPress={() => go('worktrees')} />
-          <Button testID="settings-open" label="Settings" onPress={() => go('settings')} />
-        </View>
+          <MenuItem testID="worktrees-open" label="Worktrees" icon="worktrees" onPress={() => go('worktrees')} />
+          <MenuItem testID="settings-open" label="Settings" icon="settings" onPress={() => go('settings')} />
+        </MenuSheet>
       )}
       <Loadable query={query} served={served} isEmpty={agents.length === 0} skeleton="agents" label="agents" empty="No agents.">
         <SectionList
@@ -69,9 +70,9 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
           )}
           renderItem={({ item: a }) => {
             const need = a.needs_you ? a.needs_you.text ?? KIND[a.needs_you.kind] : '';
-            const doing = need || a.task?.title || a.state_detail || '';
-            const word = asks(a) ? 'asks' : a.block ? a.block.kind : a.state;
-            const age = a.needs_you ? a.needs_you.since : a.state_since;
+            const doing = need || a.task?.title || a.status?.text || a.state_detail || '';
+            const word = asks(a) ? 'asks' : a.status?.state ?? (a.block ? a.block.kind : a.state);
+            const age = a.needs_you ? a.needs_you.since : a.status?.since ?? a.state_since;
             return (
               <Pressable
                 testID={`agent-${a.name}`}
@@ -80,7 +81,8 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
                   flexDirection: 'row',
                   alignItems: 'center',
                   gap: space.md,
-                  height: rowHeight.agent, // the skeleton row is exactly this tall
+                  minHeight: rowHeight.agent, // the skeleton row's height; a larger font grows the row
+                  paddingVertical: space.sm,
                   paddingHorizontal: space.lg,
                   borderTopWidth: 1,
                   borderTopColor: c.line,

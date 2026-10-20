@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/protected"
 	"github.com/handline/handline/go/internal/sealed"
@@ -554,6 +555,9 @@ func (r *Roster) Register(name string, o RegisterOpts) (string, error) {
 	if name == "" || strings.Contains(name, "/") || strings.HasPrefix(name, ".") || textsafe.HasUnsafe(name) {
 		return "", fmt.Errorf("bad agent name: %s", pyQuote(name))
 	}
+	if name == db.Human || name == db.Gate {
+		return "", fmt.Errorf("bad agent name: %s is the board's own name for the founder or a gate", pyQuote(name))
+	}
 	if !yamlcompat.IsPlainText(name) {
 		return "", fmt.Errorf("bad agent name: %s. %s", pyQuote(name), NotText)
 	}
@@ -747,6 +751,22 @@ func (r *Roster) update(name, f string, o RegisterOpts) error {
 		cfg = pairsSet(cfg, "effort", DefaultEffort)
 	}
 	return r.Write(name, cfg)
+}
+
+// CheckoutProblem is why repo (as agent.yaml keeps it, ~ allowed) is no place to make a worktree: "is not an absolute path", "is not a
+// folder" or "is not a git checkout"; "" when it is one.
+func CheckoutProblem(repo string) string {
+	path := expandUser(repo)
+	if !filepath.IsAbs(path) {
+		return "is not an absolute path"
+	}
+	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
+		return "is not a folder"
+	}
+	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+		return "is not a git checkout"
+	}
+	return ""
 }
 
 // RepoOf is where this agent works, when it has been told.

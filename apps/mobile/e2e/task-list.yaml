@@ -1,0 +1,24 @@
+# After pair-and-page.yaml: the Tasks list groups by status and searches; Select marks rows and runs a verb on them with a count.  maestro test e2e/task-list.yaml
+appId: dev.handline.mobile
+---
+- tapOn:
+    id: nav-tasks
+- assertVisible: 'Running.*'
+- assertVisible: 'Queued.*'
+- tapOn:
+    id: tasks-search
+- inputText: terminal
+- assertVisible: 'T1688.*'
+- eraseText: 20
+- tapOn:
+    id: tasks-select
+- tapOn:
+    id: task-1700
+- assertVisible: '1 selected'
+- tapOn:
+    id: tasks-bar-actions
+- assertVisible:
+    id: batch-queue
+- tapOn:
+    id: batch-priority
+- assertVisible: 'Set priority.*'

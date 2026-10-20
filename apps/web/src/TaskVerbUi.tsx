@@ -1,10 +1,10 @@
 // The actions on one task or on many from the Tasks views: the menu of verbs (each gated by what the daemon serves and by what applies),
 // the sheet that confirms with the count and asks for what the verb needs, and the sheet that says what happened to each task.
-import { useState } from 'react';
+import { useRef, useState, type ReactElement, type ReactNode } from 'react';
 import type { useBulk } from './taskActions.ts';
 import { plan, taskRef, TASK_VERBS, type Outcome, type RowVerb } from '@handline/app-core';
 import type { Task } from '@handline/client';
-import { Input, MenuButton, MenuItem, NativeSelect } from './ui/index.ts';
+import { Button, Input, Menu, MenuButton, MenuContent, MenuItem, MenuTrigger, NativeSelect, type At } from './ui/index.ts';
 import { Sheet, useCan } from './taskui.tsx';
 
 export type Cans = Record<RowVerb, { ok: boolean; why: string | undefined }>;
@@ -35,11 +35,28 @@ export function verbChoices(tasks: Task[], me: string, cans: Cans) {
 }
 
 /** A button that opens the verbs for `tasks` (one row's, or the marked rows'). */
-export function VerbMenu(props: { tasks: Task[]; me: string; cans: Cans; onPick: (verb: RowVerb) => void; title?: string; open?: boolean; onOpenChange?: (open: boolean) => void; word?: string }) {
+export function VerbMenu(props: {
+  tasks: Task[];
+  me: string;
+  cans: Cans;
+  onPick: (verb: RowVerb) => void;
+  title?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  word?: string;
+}) {
   const many = props.tasks.length > 1;
   return (
     <span className="inline-block" onClick={(e) => e.stopPropagation()}>
-      <MenuButton label={props.title ?? 'Actions'} icon={props.word ? undefined : 'ellipsis'} trigger={props.word} size="sm" open={props.open} onOpenChange={props.onOpenChange} name={many ? `${props.tasks.length} tasks` : `#${props.tasks[0]?.id}`}>
+      <MenuButton
+        label={props.title ?? 'Actions'}
+        icon={props.word ? undefined : 'ellipsis'}
+        trigger={props.word}
+        size="sm"
+        open={props.open}
+        onOpenChange={props.onOpenChange}
+        name={many ? `${props.tasks.length} tasks` : `#${props.tasks[0]?.id}`}
+      >
         {verbChoices(props.tasks, props.me, props.cans).map((c) => (
           <MenuItem key={c.verb} disabled={!!c.why} title={c.why} onSelect={() => props.onPick(c.verb)}>
             {c.label}
@@ -48,6 +65,48 @@ export function VerbMenu(props: { tasks: Task[]; me: string; cans: Cans; onPick:
         ))}
       </MenuButton>
     </span>
+  );
+}
+
+/** A list row's menu: a right-click on the row opens it at the cursor, the ⋯ button handed to `children` opens it under the button.
+ *  A press outside closes it, so a second row's menu opening closes the first. */
+export function RowMenu(props: {
+  tasks: Task[];
+  me: string;
+  cans: Cans;
+  onPick: (verb: RowVerb) => void;
+  children: (more: ReactNode, open: boolean) => ReactElement<{ onContextMenu?: (e: React.MouseEvent) => void }>;
+}) {
+  const at = useRef<((p: At) => void) | null>(null);
+  const [open, setOpen] = useState(false);
+  const wasOpen = useRef(false);
+  const more = (
+    <Button
+      icon="ellipsis"
+      size="sm"
+      label="Actions"
+      aria-haspopup="menu"
+      aria-expanded={open}
+      onPointerDownCapture={() => (wasOpen.current = open)}
+      onClick={(e) => {
+        e.stopPropagation();
+        const r = e.currentTarget.getBoundingClientRect();
+        if (!wasOpen.current) at.current?.({ x: r.left, y: r.bottom, w: r.width });
+        wasOpen.current = false;
+      }}
+    />
+  );
+  return (
+    <Menu openRef={at} onOpenChange={setOpen}>
+      <MenuTrigger>{props.children(more, open)}</MenuTrigger>
+      <MenuContent aria-label={`#${props.tasks[0]?.id}`} onClick={(e) => e.stopPropagation()}>
+        {verbChoices(props.tasks, props.me, props.cans).map((c) => (
+          <MenuItem key={c.verb} disabled={!!c.why} title={c.why} onSelect={() => props.onPick(c.verb)}>
+            {c.label}
+          </MenuItem>
+        ))}
+      </MenuContent>
+    </Menu>
   );
 }
 

@@ -11,19 +11,22 @@ import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client'
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
-import { Decided, Line } from './ChatLines.tsx';
+import { Decided, Line, Stamp, useBubbleWidth } from './ChatLines.tsx';
 import { Pictures } from './ChatPictures.tsx';
+import { ChatActions } from './ChatActions.tsx';
 import { PrBody } from './PrBody.tsx';
 import { ChatFind } from './ChatFind.tsx';
 import { ChatRefs, type Ref } from './ChatRefs.tsx';
 import { HandoffLine } from './HandoffLine.tsx';
+import { Detail } from './Tasks.tsx';
 import { NeedsYouCard } from './NeedsYouCard.tsx';
 import { ChatSearch } from './ChatSearch.tsx';
 import { useChatImages } from './ChatImages.tsx';
+import { Icon } from './Icon.tsx';
 import { Button, Link, Row } from './parts.tsx';
 
 /** How far the person's message got, as ticks: not sent yet, sent, read. */
-const TICKS = ['…', '✓', '✓✓'] as const;
+const TICKS = ['queued', 'delivered', 'answered'] as const;
 
 /** Unsent text per agent, kept while the person goes to another tab or agent (not across a restart). */
 const drafts = new Map<string, string>();
@@ -54,6 +57,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
   const [text, setTextState] = useState(drafts.get(agent) ?? '');
+  const [openTask, setOpenTask] = useState<number | null>(null); // a task a batch card opened, drawn in place of the chat
   const scroll = useRef<ScrollView>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
   const [going, setGoing] = useState<number | null>(null); // a message number being found
@@ -135,6 +139,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   };
   const failure = chat.status === 'error' ? sentence(classify(chat.error)) : null;
   const working = chat.working.turn_running;
+  if (openTask !== null) return <Detail id={openTask} onBack={() => setOpenTask(null)} />;
   return (
     <View style={{ flex: 1 }}>
       {props.searching && (
@@ -205,6 +210,8 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
             <Line
               key={`i${e.id}`}
               i={e.item}
+              agent={agent}
+              onTask={setOpenTask}
               onReply={
                 canSend && canReplyItem
                   ? (i) => {
@@ -226,21 +233,23 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
       {picked && (
         <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
+          <Icon name="reference" decorative size={14} color={c.muted} />
           <Text testID="replying" numberOfLines={1} style={{ color: c.muted, fontSize: 12, flex: 1 }}>
-            ↩ {snippet(picked.body)}
+            {snippet(picked.body)}
           </Text>
           <Pressable testID="drop-reply" accessibilityLabel="Drop the reply" hitSlop={12} onPress={() => setPicked(null)}>
-            <Text style={{ color: c.muted, fontSize: 16 }}>✕</Text>
+            <Icon name="close" decorative size={18} color={c.muted} />
           </Pressable>
         </Row>
       )}
       {item && (
         <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
+          <Icon name="reference" decorative size={14} color={c.muted} />
           <Text testID="replying-item" numberOfLines={1} style={{ color: c.muted, fontSize: 12, flex: 1 }}>
-            ↩ {snippet((item.text ?? '').replace(/\s+/g, ' '))}
+            {snippet((item.text ?? '').replace(/\s+/g, ' '))}
           </Text>
           <Pressable testID="drop-reply-item" accessibilityLabel="Drop the reply" hitSlop={12} onPress={() => setItem(null)}>
-            <Text style={{ color: c.muted, fontSize: 16 }}>✕</Text>
+            <Icon name="close" decorative size={18} color={c.muted} />
           </Pressable>
         </Row>
       )}
@@ -254,7 +263,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
           onChangeText={setText}
           editable={canSend}
           multiline
-          placeholder={canSend ? 'Send a message…' : 'This daemon does not accept chat messages'}
+          placeholder={canSend ? 'Message…' : 'This daemon does not accept chat messages'}
           placeholderTextColor={c.muted}
           style={{
             flex: 1,
@@ -291,6 +300,7 @@ function Bubble(props: {
   onRestore: (text: string) => void;
 }) {
   const c = usePalette();
+  const bubble = useBubbleWidth();
   const { m, agent } = props;
   const act = useChatActions(agent);
   const side = sideOf(m, agent, useStore().me);
@@ -310,73 +320,91 @@ function Bubble(props: {
       { text: 'Take back', style: 'destructive', onPress: () => void takeBack(true) },
     ]);
   const bg = side === 'person' ? c.panel : 'transparent';
+  const stamp = (
+    <Stamp
+      m={m}
+      time={props.picked ? clockTime(m.at) : null}
+      ticks={
+        side === 'person' && !failed
+          ? m.landing === 'withdrawn'
+            ? 'withdrawn'
+            : m.receipt?.state === 'unknown'
+              ? 'maybeRan'
+              : TICKS[tickLevel(m)]
+          : null
+      }
+    />
+  );
+  // Like the PC chat: the ticks sit beside the bubble at its bottom, and the time shows once the row is picked (PC shows it on hover).
   return (
     <Pressable
       testID={`msg-${m.id}`}
       disabled={unnumbered || failed}
       onLayout={(e) => props.onRow(e.nativeEvent.layout.y)}
       onPress={() => props.onPick(m)}
-      style={{
-        alignSelf: side === 'person' ? 'flex-end' : 'flex-start',
-        maxWidth: '88%',
-        gap: 4,
-        padding: space.md,
-        borderRadius: radius.lg,
-        backgroundColor: bg,
-        borderWidth: 1,
-        borderColor: props.picked || props.flashed ? c.accent : failed ? c.block : c.line,
-        opacity: unnumbered && !failed ? 0.6 : 1,
-      }}
+      style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: side === 'person' ? 'flex-end' : 'flex-start', gap: space.xs }}
     >
-      {props.flashed && (
-        <Text testID={`found-${m.id}`} style={{ color: c.accent, fontSize: 11 }}>
-          Found by search
-        </Text>
-      )}
-      {side === 'other' && (
-        <Text style={{ color: c.muted, fontSize: 11 }}>
-          {m.from} → {m.to}
-        </Text>
-      )}
-      {m.parent != null && <Text style={{ color: c.muted, fontSize: 11 }}>↩ reply</Text>}
-      {m.parent_item && (
-        <Text testID={`quote-${m.id}`} numberOfLines={2} style={{ color: c.muted, fontSize: 11 }}>
-          ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
-        </Text>
-      )}
-      {m.body ? <PrBody id={m.id} agent={agent} body={m.body} /> : null}
-      {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
-      <Text style={{ color: c.muted, fontSize: 11 }}>
-        {clockTime(m.at)}
-        {side === 'person' && !failed && (
-          <Text testID={`landing-${m.id}`}>
-            {'  '}
-            {m.landing === 'withdrawn' ? '✕ Withdrawn' : m.receipt?.state === 'unknown' ? '?' : TICKS[tickLevel(m)]}
+      {side === 'person' && stamp}
+      <View
+        style={{
+          flexShrink: 1,
+          maxWidth: bubble,
+          gap: 4,
+          padding: space.md,
+          borderRadius: radius.lg,
+          backgroundColor: bg,
+          borderWidth: 1,
+          borderColor: props.picked || props.flashed ? c.accent : failed ? c.block : c.line,
+          opacity: unnumbered && !failed ? 0.6 : 1,
+        }}
+      >
+        {props.flashed && (
+          <Text testID={`found-${m.id}`} style={{ color: c.accent, fontSize: 11 }}>
+            Found by search
           </Text>
         )}
-      </Text>
-      {failed && (
-        <View accessibilityRole="alert" style={{ gap: space.xs }}>
-          <Text style={{ color: c.block, fontSize: 12 }}>✕ {m.sending_reason}</Text>
-          <Row>
-            <Button testID={`retry-${m.id}`} label="Retry" onPress={() => act.retry(m.id)} />
-            <Button testID={`discard-${m.id}`} label="Discard" kind="no" onPress={() => act.discard(m.id)} />
+        {side === 'other' && (
+          <Text style={{ color: c.muted, fontSize: 11 }}>
+            {m.from} → {m.to}
+          </Text>
+        )}
+        {m.parent != null && <Text style={{ color: c.muted, fontSize: 11 }}>↩ reply</Text>}
+        {m.parent_item && (
+          <Text testID={`quote-${m.id}`} numberOfLines={2} style={{ color: c.muted, fontSize: 11 }}>
+            ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
+          </Text>
+        )}
+        {m.body ? <PrBody id={m.id} agent={agent} body={m.body} /> : null}
+        {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
+        {m.actions?.length ? <ChatActions id={m.id} actions={m.actions} /> : null}
+        {failed && (
+          <View accessibilityRole="alert" style={{ gap: space.xs }}>
+            <Row>
+              <Icon name="failed" decorative size={14} color={c.block} />
+              <Text style={{ color: c.block, fontSize: 12, flex: 1 }}>{m.sending_reason}</Text>
+            </Row>
+            <Row>
+              <Button testID={`retry-${m.id}`} label="Retry" onPress={() => act.retry(m.id)} />
+              <Button testID={`discard-${m.id}`} label="Discard" kind="no" onPress={() => act.discard(m.id)} />
+            </Row>
+          </View>
+        )}
+        {mine && m.receipt?.state === 'unknown' && (
+          <Text testID={`unknown-${m.id}`} style={{ color: c.block, fontSize: 12 }}>
+            Lost after it was written. It may or may not have run, and it is not sent again. Send it as a new message if you want it
+            repeated.
+          </Text>
+        )}
+        {back && (
+          <Row style={{ gap: space.lg }}>
+            {(m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued' && props.working) && (
+              <Link testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />
+            )}
+            <Link testID={`takeback-${m.id}`} label="Take back" onPress={() => (back.confirm ? ask() : void takeBack())} />
           </Row>
-        </View>
-      )}
-      {mine && m.receipt?.state === 'unknown' && (
-        <Text testID={`unknown-${m.id}`} style={{ color: c.block, fontSize: 12 }}>
-          Lost after it was written. It may or may not have run, and it is not sent again. Send it as a new message if you want it repeated.
-        </Text>
-      )}
-      {back && (
-        <Row style={{ gap: space.lg }}>
-          {(m.receipt ? m.receipt.state === 'queued' : m.landing === 'queued' && props.working) && (
-            <Link testID={`now-${m.id}`} label="Send now" onPress={() => act.sendNow(m.id)} />
-          )}
-          <Link testID={`takeback-${m.id}`} label="Take back" onPress={() => (back.confirm ? ask() : void takeBack())} />
-        </Row>
-      )}
+        )}
+      </View>
+      {side !== 'person' && stamp}
     </Pressable>
   );
 }

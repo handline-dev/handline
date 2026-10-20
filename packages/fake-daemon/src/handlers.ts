@@ -81,6 +81,14 @@ const BASE: Record<string, (h: Call) => unknown> = {
     script.setState(s, 'queued', actor);
     return script.accepted(`${s.fx.name}: stalled -> queued`);
   },
+  'agent.force_start': (h) => {
+    const { actor, script, agent } = h;
+    const s = agent();
+    if (s.fx.view?.status?.reason !== 'load') throw refused('state', `${s.fx.name} is not held for machine load`);
+    s.fx.view = { ...s.fx.view, status: undefined };
+    script.setState(s, 'running', actor);
+    return script.accepted(`${s.fx.name}: started`);
+  },
   'agent.retire': ({ actor, script, agent }) => script.retire(agent(), actor),
   'session.stop': (h) => {
     const { p, actor, script, agent } = h;

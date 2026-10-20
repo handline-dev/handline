@@ -26,6 +26,7 @@ export const liveOf = (a: AgentView): string => {
     const { why, what } = handoffLine(a.handoff);
     return `${why}: ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
   }
+  if (a.status) return [a.status.text, ago(a.status.since ?? a.state_since)].filter(Boolean).join(' · ');
   const d = dotOf(a);
   if (d !== 'running' && d !== 'waking' && !a.state_detail) return '';
   return [a.state_detail || MARKS[d].label, ago(a.state_since)].filter(Boolean).join(' · ');
@@ -159,6 +160,14 @@ export function AgentRow({
                       {wide ? <span>{a.needs_you.kind}</span> : null}
                     </span>
                   ) : null}
+                  {a.founder_unread ? (
+                    <span
+                      className="unread inline-flex flex-none items-center rounded-pill bg-primary px-1.5 text-label text-canvas"
+                      title={`${a.founder_unread} unseen ${a.founder_unread === 1 ? 'request' : 'requests'} to you`}
+                    >
+                      {a.founder_unread}
+                    </span>
+                  ) : null}
                   <Badges badges={badges} />
                   {queue.messages ? (
                     <span
@@ -182,7 +191,7 @@ export function AgentRow({
                 </button>
                 {sub ? (
                   <span
-                    className="row-sub flex cursor-pointer items-center gap-1 pl-[22px] text-hint text-ink-2"
+                    className={`row-sub flex cursor-pointer items-center gap-1 pl-[22px] text-hint ${a.founder_unread ? 'font-medium text-ink' : 'text-ink-2'}`}
                     title={sub}
                     onClick={() => goAgent(a.name)}
                   >

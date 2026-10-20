@@ -82,13 +82,13 @@ func memoList(c *hlclient.Client, tid int) int {
 		if given(m, "edited_at") {
 			edited = ", edited " + stamp(m["edited_at"])
 		}
-		fmt.Printf("memo %s  %s  %s%s\n  %s\n", str(m, "id"), str(m, "author"), stamp(m["at"]), edited, str(m, "text"))
+		fmt.Printf("comment %s  %s  %s%s\n  %s\n", str(m, "id"), str(m, "author"), stamp(m["at"]), edited, str(m, "text"))
 		for _, l := range fileLines(list(m, "files"), "  ") {
 			fmt.Println(l)
 		}
 	}
 	if len(memos) == 0 {
-		fmt.Printf("T%d has no memos\n", tid)
+		fmt.Printf("T%d has no comments\n", tid)
 	}
 	return 0
 }
@@ -118,7 +118,7 @@ func detailLines(t obj, now float64, home string) []string {
 	if owner != str(t, "from") {
 		opened = "   opened by " + str(t, "from")
 	}
-	head := fmt.Sprintf("state %s   assignee %s   owner %s%s   P%d", stateSaid(t), str(t, "to"), owner, opened, num(t, "priority"))
+	head := fmt.Sprintf("state %s   assignee %s   owner %s%s   P%d", str(t, "state"), str(t, "to"), owner, opened, num(t, "priority"))
 	if given(t, "parent") {
 		head += fmt.Sprintf("   parent T%d", num(t, "parent"))
 	}
@@ -159,9 +159,9 @@ func detailLines(t obj, now float64, home string) []string {
 	out = append(out, "", "brief", body)
 	out = append(out, pathLines(list(t, "body_parts"), "")...)
 	if memos := list(t, "memos"); len(memos) > 0 {
-		out = append(out, "", "memos")
+		out = append(out, "", "comments")
 		for _, m := range memos {
-			out = append(out, fmt.Sprintf("  memo %s  %s  %s\n    %s", str(m, "id"), str(m, "author"), stamp(m["at"]), str(m, "text")))
+			out = append(out, fmt.Sprintf("  comment %s  %s  %s\n    %s", str(m, "id"), str(m, "author"), stamp(m["at"]), str(m, "text")))
 			out = append(out, pathLines(list(m, "parts"), "    ")...)
 			out = append(out, fileLines(list(m, "files"), "    ")...)
 		}
@@ -249,14 +249,14 @@ func resultLines(r obj, tid int64, home string) []string {
 	return out
 }
 
-// waitsOn is what holds a task's clock: the founder when they hold it or must accept it, else its open blockers and
+// waitsOn is what holds a task's clock: the founder when they hold it, else its open blockers and
 // open children, each the founder holds marked so; "" for none.
 func waitsOn(t obj) string {
 	asker := str(t, "asker")
 	if asker == "" {
 		asker = str(t, "from")
 	}
-	if str(t, "to") == "human" || str(t, "state") == "review" && reviewWaitsOn(t) == "human" {
+	if str(t, "to") == "human" {
 		return "human"
 	}
 	var on []string
@@ -335,7 +335,7 @@ func taskList(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if state, given := p.opt("--state"); given {
 		switch state {
-		case "draft", "queued", "doing", "review", "done", "discarded":
+		case "draft", "queued", "doing", "done", "discarded":
 			params["state"] = state
 		default:
 			return 0, false
@@ -390,7 +390,7 @@ func printBoard(tasks []obj) {
 	one := textsafe.Oneline
 	for _, t := range tasks {
 		var b strings.Builder
-		fmt.Fprintf(&b, "%-5s %s  [%s] %s", fmt.Sprintf("T%d", num(t, "id")), one(str(t, "title")), str(t, "to"), stateSaid(t))
+		fmt.Fprintf(&b, "%-5s %s  [%s] %s", fmt.Sprintf("T%d", num(t, "id")), one(str(t, "title")), str(t, "to"), str(t, "state"))
 		if given(t, "parent") {
 			fmt.Fprintf(&b, " (under T%d)", num(t, "parent"))
 		}
@@ -460,9 +460,6 @@ func taskBoard(c *hlclient.Client, args []string) (int, bool) {
 		}
 		fmt.Println(fit100(fmt.Sprintf("%-5s %s%s", fmt.Sprintf("T%d", num(t, "id")), textsafe.Oneline(str(t, "title")), parent)))
 		said := nowSaid(now)
-		if str(t, "state") == "review" {
-			said = stateSaid(t)
-		}
 		fmt.Println(fit100(fmt.Sprintf("      assignee %s  owner %s  now: %s", str(t, "to"), str(t, "asker"), said)))
 		if given(t, "hold_reason") {
 			fmt.Println(fit100("      " + str(t, "hold_reason")))
@@ -472,20 +469,6 @@ func taskBoard(c *hlclient.Client, args []string) (int, bool) {
 		}
 	}
 	return 0, true
-}
-
-// stateSaid is a task's state as read: one in review names who it waits on.
-func stateSaid(t obj) string {
-	if str(t, "state") != "review" {
-		return str(t, "state")
-	}
-	return "review, awaiting " + reviewWaitsOn(t)
-}
-
-// reviewWaitsOn is who a task in review waits on, as its report says.
-func reviewWaitsOn(t obj) string {
-	r, _ := t["report"].(obj)
-	return str(r, "waits_on")
 }
 
 // nowSaid is who holds a task now, in words (cli/task.cmd_task_board).

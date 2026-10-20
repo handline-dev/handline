@@ -94,6 +94,9 @@ func registerRepo(repo string) string {
 
 func (e *Env) doAdd(p step) (bool, string, error) {
 	name := p.str("agent")
+	if why := applyRepoProblem(p.str("repo")); why != "" {
+		return false, why, nil
+	}
 	// The table first: it is the write that can be refused, and a refusal after the folder exists leaves an agent nothing routes to.
 	ok, said, err := e.editTeamYaml(func(t string) (string, error) { return addText(t, name, p.str("team")) }, name, "", nil)
 	if err != nil || !ok {
@@ -114,6 +117,14 @@ func (e *Env) doAdd(p step) (bool, string, error) {
 func (e *Env) doTeam(p step) (bool, string, error) {
 	name, members := p.str("agent"), p.members()
 	everyone := append([]string{name}, members...)
+	for _, n := range members {
+		if why := applyRepoProblem(p.str("repo." + n)); why != "" {
+			return false, why, nil
+		}
+	}
+	if why := applyRepoProblem(p.str("repo")); why != "" {
+		return false, why, nil
+	}
 	edit := func(text string) (string, error) {
 		for _, n := range everyone {
 			var err error
@@ -617,12 +628,12 @@ func (e *Env) doGlobal(p step) (bool, string, error) {
 			return false, switchName + " takes go: the Python daemon is being removed", nil
 		}
 		set = func(_ func(string) any, put func(string, any)) { put("daemon_impl", value) }
-	case "ignore-cache-expiry", "auto-accept", "dev-mode":
+	case "ignore-cache-expiry", "dev-mode":
 		if value != "on" && value != "off" {
 			return false, switchName + " takes on or off", nil
 		}
 		on := value == "on"
-		key := map[string]string{"ignore-cache-expiry": "ignore_cache_expiry", "auto-accept": "auto_accept_dialogs", "dev-mode": "dev_mode"}[switchName]
+		key := map[string]string{"ignore-cache-expiry": "ignore_cache_expiry", "dev-mode": "dev_mode"}[switchName]
 		set = func(_ func(string) any, put func(string, any)) {
 			switch {
 			case switchName == "ignore-cache-expiry" && !on:

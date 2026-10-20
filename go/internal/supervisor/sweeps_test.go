@@ -68,9 +68,6 @@ func TestTheMissedDeliveryAlarmSkipsTasksThatWaitOnPurpose(t *testing.T) {
 		alarm bool
 	}{
 		{"waiting for delivery to an able owner", func(*rig, int64) {}, true},
-		{"reported, awaiting the founder's accept", func(r *rig, tid int64) {
-			exec(r, "UPDATE tasks SET reporter = 'human', reported_at = ?, report = 'the doc' WHERE id = ?", r.clock, tid)
-		}, false},
 		{"blocked by a task", func(r *rig, tid int64) { db.AddBlock(r.DB, tid, r.newTask("alice", "alice", "dep")) }, false},
 		{"waiting on its open child", func(r *rig, tid int64) {
 			_, err := db.NewTask(r.DB, "child", "alice", "bob", tid, db.DefaultPriority, "", 0, "")
@@ -321,5 +318,17 @@ func TestAHeldMemoWaitsForTheSameWindowAsAnyNotice(t *testing.T) {
 	r.must(r.SweepDigests(r.clock + 900))
 	if !strings.Contains(r.term.last(), "T4 memo added by alice: see the log") {
 		t.Fatalf("%q", r.term.last())
+	}
+}
+
+// A gate is held by the daemon, not waiting for an agent: the hold sweep keeps no reason for it, so it reads as watching.
+func TestTheHoldSweepLeavesAGateAlone(t *testing.T) {
+	r := newRig(t)
+	_, err := r.DB.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at, watch_vendor, watch_target, watch_until, " +
+		"watch_label) VALUES(1, 'wait for CI', 'gate', 'bob', 1, 'bob', 1, 'github', 'o/r#7', 'ci', 'PR #7 CI')")
+	r.must(err)
+	r.must(r.SweepHolds(r.clock))
+	if raw, _, _ := db.Meta(r.DB, "taskhold:1"); raw != "" {
+		t.Fatalf("a gate is held: %s", raw)
 	}
 }

@@ -207,7 +207,9 @@ describe('loading, empty and not served', () => {
 
   it('says what is empty and offers the way on', async () => {
     const s = setup();
-    (s.daemon.tasks as unknown as { rows: { state: string; done: string | null }[] }).rows.forEach((r) => ((r.state = 'done'), (r.done = '2026-01-01T00:00:00.000Z')));
+    (s.daemon.tasks as unknown as { rows: { state: string; done: string | null }[] }).rows.forEach(
+      (r) => ((r.state = 'done'), (r.done = '2026-01-01T00:00:00.000Z')),
+    );
     await mount('#/tasks', s);
     await until(() => text(page()).includes('No tasks in these states.'), 'the empty line');
     await click(button('Show closed')!);
@@ -327,7 +329,7 @@ describe('writes', () => {
   it('has no icons on a row: a click opens the task, only a ticked box floats the bar, with words', async () => {
     await mount();
     await loaded();
-    expect($$('button', row(1700)!)).toHaveLength(0);
+    expect($$('button', row(1700)!).map((b) => b.getAttribute('aria-label'))).toEqual(['Actions']); // only the ⋯ menu
     expect($('.tbar')).toBeNull();
     await mark(1700);
     expect(text($('.tbar'))).toContain('1 selected');
@@ -557,7 +559,8 @@ describe('the detail', () => {
 describe('actions on one task or many', () => {
   const shiftClick = (el: Element | null) =>
     act(async () => void el!.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })));
-  const popupRow = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => text(b).startsWith(label));
+  const popupRow = (label: string) =>
+    [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => text(b).startsWith(label));
   const menu = async (within: ParentNode, button_: string, rowLabel: string) => {
     await click(button(button_, within));
     await click(popupRow(rowLabel));

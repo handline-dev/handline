@@ -9,10 +9,10 @@ import {
   groupTasks,
   sortTasks,
   taskAgents,
+  taskMatches,
   type RowVerb,
   type TaskColumn,
   type TaskFilter,
-  taskRef,
 } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useStore } from '@handline/app-react';
@@ -33,15 +33,6 @@ import { VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from './TaskVerbUi.tsx
 import { View } from './View.tsx';
 
 type Open = null | 'discard' | 'owner' | 'priority' | 'merge' | 'states' | 'keys' | 'new';
-
-/** A task matches a search that is in its number, title, owner or asker. */
-const matches = (query: string) => {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  return (t: Task) => {
-    const hay = `${taskRef(t.id)} ${t.title} ${t.to} ${t.from}`.toLowerCase();
-    return words.every((w) => hay.includes(w));
-  };
-};
 
 const DAY = 86_400_000;
 
@@ -148,7 +139,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
   const rows = useMemo(
     () =>
       sortTasks(
-        inScope(shown(all, { ...filter, closed: true }), scope, me, now, !!graph).filter(matches(query)),
+        inScope(shown(all, { ...filter, closed: true }), scope, me, now, !!graph).filter(taskMatches(query)),
         sort.by,
         sort.reverse,
         now,
@@ -295,6 +286,12 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
     </>
   );
 
+  /** The row's menu acts on that row, or on the marked rows when it is one of them. */
+  function rowVerb(id: number, verb: RowVerb) {
+    if (!marked.has(id)) setMarked(new Set([id]));
+    verbs.pick(verb);
+  }
+
   function rowProps(t: Task) {
     return {
       marked: marked.has(t.id),
@@ -302,6 +299,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
       open: selected === t.id,
       mark: (t.id < 0 || bulk.authored.has(t.id) ? 'authored' : bulk.decided.has(t.id) ? 'decided' : null) as 'authored' | 'decided' | null,
       failed: bulk.failed.has(t.id),
+      verbs: { cans, onPick: (v: RowVerb) => rowVerb(t.id, v) },
       onCursor: () => setCursor(t.id),
       onMark: (range: boolean) => toggle(t.id, range),
     };
@@ -312,7 +310,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
   return (
     <ScrollPage
       beside={selected !== null}
-      className="tasks flex flex-col pt-4 outline-none"
+      className="tasks flex flex-col outline-none"
       ref={root}
       tabIndex={0}
       aria-label="Tasks"

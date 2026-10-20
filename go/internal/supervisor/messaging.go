@@ -25,6 +25,9 @@ func (e *Env) FinishSay(q db.Q, row *db.Request) {
 // deliverRow tries to type text (pending row rowID) at the agent right now; true only once it is sent, with the row deleted in the same lock
 // hold that sent it, so a message typed here and a concurrent DeliverPending never type the row twice.
 func (e *Env) deliverRow(q db.Q, agent string, rowID int64, text string) (bool, string) {
+	if why := e.handingOff(q, agent); why != "" {
+		return false, why
+	}
 	if e.structuredAgent(agent) {
 		// Joins the running turn; the ledger holds the operation, so two callers never write the row twice.
 		if state, why := e.sendOnce(q, agent, fmt.Sprintf("pending:%d", rowID), text, delivery.Now); state == NotSent {

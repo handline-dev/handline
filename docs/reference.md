@@ -13,11 +13,11 @@ closing and restarting agents, settings, cancelling a queued message, HR decisio
 | `hl task done T<n> "<evidence>"` | Finish your task. A sha must be on `main`. |
 | `hl task handoff T<n> <agent> "<note>"` | Pass your task to someone else. |
 | `hl task edit T<n> --blocked-by T<m>` | Record what the task waits on (also its timeout and other fields). |
-| `hl task accept` / `reject T<n>` | The opener takes a result, or sends it back with a note. |
+| `hl task wait T<n> --pr <n>` | Block the task on a gate that watches a PR's CI (`--until closed`: its merge), or `--on <vendor>:<target>`; see [watch-vendors.md](watch-vendors.md). |
 | `hl task reopen T<n> "<why>"` | The asker says a result is wrong. |
 | `hl task release T<n> "<why>"` | Give a task back to its queue. |
 | `hl task discard T<n> "<why>"` | Throw away a task that is not done; `discard T1 T2 --why "<why>"` throws several away in one call. |
-| `hl task memo T<n> add "..."` / `list` / `edit` / `delete` | Correct or comment on a task. `--attach shot.png` adds an image. |
+| `hl task comment T<n> add "..."` / `list` / `edit` / `delete` | Correct or comment on a task (`hl task memo` is its old name). `--attach shot.png` adds an image. |
 | `hl progress "done: ... left: ..."` | Record what is done and what is left on your task. |
 | `hl say <target> "..."` | A message; `--parent <msg>` answers one, `--attach shot.png` sends an image the app shows. |
 | `hl inbox` / `hl inbox --all` | What is waiting for you, or the whole queue. |

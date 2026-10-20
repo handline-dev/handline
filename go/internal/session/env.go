@@ -20,10 +20,6 @@ type Terminal interface {
 	StopWorkAndExit(handle string) (outcome, title, why string)
 	DialogOnScreen(handle string) *term.Dialog
 	ScreenText(handle string) (string, bool)
-	AcceptsTool(handle, tool string) bool
-	AcceptDialog(handle, tool string) (outcome, title, why string)
-	AnswerDialog(handle string, choose func(vendor string, d *term.Dialog) int) (outcome, title, why string)
-	VendorOf(handle string) string
 }
 
 // Delivery is the part of daemon/delivery.py (and the db reads beside it) that blocked.py asks: what the daemon wants to type at an
@@ -78,20 +74,6 @@ type Lifecycle interface {
 	AutoTrust(agent string) bool
 }
 
-// Config is config.yaml's global settings.
-type Config interface {
-	Flag(key string, def bool) bool
-	SetFlag(key string, value bool) error
-}
-
-// Rules is the founder's standing answers to dialogs (team/dialog_rules).
-type Rules interface {
-	// Titles is every (vendor, title) some rule covers.
-	Titles() map[[2]string]bool
-	// Match is the number of the option a rule picks on this dialog, 0 for none.
-	Match(vendor, title string, numbers []int, labels []string) int
-}
-
 // Env is what the session code works on. Every field but DB, Home and Term may be nil where its code is not reached.
 type Env struct {
 	DB        *sql.DB
@@ -100,8 +82,6 @@ type Env struct {
 	Delivery  Delivery
 	Asker     Asker
 	Lifecycle Lifecycle
-	Config    Config
-	Rules     Rules
 	// Observer says how the process table read each session-looking process.
 	Observer interface{ Diagnose() []string }
 	// Agents is the registered agents (paths.ListAgents).

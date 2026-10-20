@@ -47,8 +47,6 @@ type TimeboxPorts interface {
 	TaskDoing(q db.Q, t *db.Task) bool
 	// SupervisorOf is actions.supervisor_of(routing(), agent), "" when it has none.
 	SupervisorOf(agent string) string
-	// LeadOf is team.LeadOf: who a task in review waits on, "" when its assignee has no lead.
-	LeadOf(agent string) string
 	// SendNotice is delivery.type_notice, sent through the session: true when the line was sent.
 	SendNotice(q db.Q, agent, text string) bool
 	// SendBatch writes text as a notice for the agent's next digest (delivery.ClassBatch).
@@ -144,13 +142,12 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 			continue // a terminal agent's task: the Python daemon's clock
 		}
 		tid := row.ID
-		if row.Owner == db.Human || row.Reported() && row.AnswersTo() == db.Human {
+		if row.Owner == db.Gate {
+			continue // the gate sweep closes it at its deadline
+		}
+		if row.Owner == db.Human {
 			// the wait is on the founder: nothing an agent does moves it, so it is not reminded
 			check(db.RestartTaskTimeout(t.Q, tid, db.DefaultTaskTimeoutS))
-			continue
-		}
-		if row.Reported() {
-			b.remindReported(t, row, now)
 			continue
 		}
 		if must(db.TaskWaits(t.Q, tid)) {
@@ -195,32 +192,6 @@ func shortTitle(title string) string {
 		title = strings.TrimRight(string(r[:TitleShown]), " \t\n") + "…"
 	}
 	return title
-}
-
-// remindReported is the clock of a task in review: it runs on from where the doing left it, and past it who the review waits on (its
-// assignee's lead, else whoever it answers to) is reminded, again every stretch until they accept or reject it. A task reported with its
-// clock not running (before its first tick, or paused on a wait) has it started here, so it is reminded too. One accepted waits on its
-// PR's merge, not on anyone's accept: it is not reminded.
-func (b *Timebox) remindReported(t *Tick, row *db.Task, now int64) {
-	if !row.TimeoutAt.Valid {
-		check(db.AdvanceTaskTimeout(t.Q, row.ID, now, db.DefaultTaskTimeoutS))
-		return
-	}
-	if row.TimeoutAt.Int64 > now || row.AcceptedBy.String != "" {
-		return
-	}
-	to := b.Ports.LeadOf(row.Owner)
-	if to == "" {
-		to = row.AnswersTo()
-	}
-	text := fmt.Sprintf("T%d (%s) was answered by %s and waits on you: accept it (`hl task accept T%d`), send it back (`hl task reject T%d \"<note>\"`) "+
-		"or take it back (`hl task handoff T%d %s \"<note>\"`).", row.ID, shortTitle(row.Title), row.Owner, row.ID, row.ID, row.ID, to)
-	b.note(t, to, text)
-	check(db.AdvanceTaskTimeout(t.Q, row.ID, now, db.DefaultTaskTimeoutS))
-	next := must(db.GetTask(t.Q, row.ID))
-	must(db.AddEvent(t.Q, to, "task_timeout_exceeded", db.KV{K: "task_id", V: row.ID}, db.KV{K: "timeout_s", V: row.TimeoutS.Int64},
-		db.KV{K: "text", V: text}, db.KV{K: "deadline", V: row.TimeoutAt.Int64}, db.KV{K: "next", V: next.TimeoutAt.Int64}))
-	t.logf("  T%d: reported, past its timeout - %s reminded", row.ID, to)
 }
 
 // SweepStaleBackground tells the supervisor once that an agent's background work is stale, and that its session may be closed - which

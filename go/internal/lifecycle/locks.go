@@ -98,6 +98,14 @@ func expandUser(p string) string {
 	return p
 }
 
+// ExpandRepo is an agent.yaml repo as a path git can run in: ~ taken to the home, links resolved; "" stays "".
+func ExpandRepo(p string) string {
+	if p == "" {
+		return ""
+	}
+	return realpath(expandUser(p))
+}
+
 // realpath resolves symlinks as far as the path exists, like os.path.realpath.
 func realpath(p string) string {
 	abs, err := filepath.Abs(p)

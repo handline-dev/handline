@@ -28,20 +28,25 @@ const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const msg = (body: string) => [...box.querySelectorAll<HTMLElement>('.msg')].find((m) => m.textContent?.includes(body));
 const rows = () => box.querySelectorAll('.stream .msg[data-id]').length;
 
-/** The chat with the plan message far below the newest page, and a reference to it in the newest message; the reference is clicked and the window is open. */
+/** The chat with the plan message far below the newest page; it is found by search and the window is open. */
 async function jumped() {
   const s = setup();
   for (let i = 0; i < 120; i++)
     s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: `filler ${i}`, at: new Date(Date.UTC(2031, 0, 1, 0, i)).toISOString() });
-  s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'see #100 for the plan', at: '2032-01-01T00:00:00Z' }); // local-ref-ok
+  s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'newest message', at: '2032-01-01T00:00:00Z' });
   location.hash = `#/agents/${ARCH}`;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
   await act(async () => {
     root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
   });
-  await until(() => $('.ref'), 'the reference on the newest page');
-  await act(async () => $('.ref')!.click());
+  await until(() => $('.chat-search input'), 'the search box');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call($('.chat-search input'), 'chat tab plan');
+    $('.chat-search input')!.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await until(() => $('.chat-search .hit'), 'a hit');
+  await act(async () => $('.chat-search .hit')!.click());
   await until(() => $('.latest') && msg('Draft the web chat tab plan.'), 'the window');
 }
 
@@ -56,7 +61,7 @@ afterEach(async () => {
 describe('a jump to an old message', () => {
   it('opens a window with none of the tail rows in the list', async () => {
     await jumped();
-    expect(msg('see #100')).toBeUndefined(); // local-ref-ok
+    expect(msg('newest message')).toBeUndefined();
     expect(msg('filler 119')).toBeUndefined();
   });
 

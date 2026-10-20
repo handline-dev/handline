@@ -3,14 +3,12 @@
 import type { AgentView, InboxItem, Task } from '@handline/client';
 import { isPerson } from './chat.ts';
 
-export type CardKind = 'decision' | 'approval' | 'accept' | 'dialog' | 'attention';
+export type CardKind = 'decision' | 'approval' | 'dialog' | 'attention';
 
 export type CardAction =
   /** A written reply to the item (inbox.reply). */
   | { type: 'answer'; id: number }
   | { type: 'allow' | 'deny'; agent: string; prompt: string; choice: string }
-  | { type: 'accept'; task: number }
-  | { type: 'reject'; task: number }
   | { type: 'done'; item: InboxItem }
   | { type: 'open'; to: string }
   | { type: 'terminal'; agent: string }
@@ -104,36 +102,17 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
       });
     } else if (KINDS[i.kind]) {
       const decide = i.kind === 'decision' && i.task != null ? [{ type: 'done', item: i } as const] : [];
+      // A card the daemon raised after its own recovery failed: its fix is the first button.
+      const fix = i.fix === 'open_terminal' && i.agent ? [{ type: 'terminal', agent: i.agent } as const] : [];
       cards.push({
         ...base,
         key: `item:${i.id}`,
         kind: 'decision',
         title,
-        primary: 1 + decide.length,
-        actions: [{ type: 'answer', id: i.id }, ...decide, ...open],
+        primary: 1 + decide.length + fix.length,
+        actions: [...fix, { type: 'answer', id: i.id }, ...decide, ...open],
       });
     }
-  }
-
-  for (const t of tasks) {
-    if (t.state !== 'review' || !t.report || !isPerson(t.from, me)) continue; // only the person it answers to can accept
-    cards.push({
-      key: `accept:${t.id}`,
-      kind: 'accept',
-      title: t.title,
-      detail: t.report.evidence,
-      agent: t.to,
-      from: other(t.to),
-      task: t.id,
-      ...when(t.id),
-      since: at(t.report.at),
-      primary: 1,
-      actions: [
-        { type: 'accept', task: t.id },
-        { type: 'reject', task: t.id },
-        { type: 'open', to: `#/tasks/${t.id}` },
-      ],
-    });
   }
 
   for (const a of agents) {

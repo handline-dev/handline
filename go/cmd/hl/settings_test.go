@@ -24,7 +24,7 @@ func founderRig(t *testing.T) *rig {
 }
 
 const settingsGot = `{"values":{"park_timeout_s":600,"bg_notice_s":600,"bg_grace_s":300,"bg_check_s":600,"notice_digest_s":300,
-	"ignore_cache_expiry":false,"auto_accept_dialogs":true},"overrides":{"park_timeout_s":0,"notice_digest_s":120,"ignore_cache_expiry":true}}`
+	"ignore_cache_expiry":false},"overrides":{"park_timeout_s":0,"notice_digest_s":120,"ignore_cache_expiry":true}}`
 
 func TestSettingsWriteThenPrintWhatTheDaemonHolds(t *testing.T) {
 	r := founderRig(t)

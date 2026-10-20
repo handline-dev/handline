@@ -8,7 +8,6 @@ export const PAGE_SETTINGS = [
   'active_cap',
   'park_timeout_s',
   'handoff_note',
-  'auto_accept_dialogs',
   'notice_digest_s',
   'bg_notice_s',
   'bg_grace_s',
@@ -70,6 +69,14 @@ export interface ShellApi {
   }): Promise<
     { ok: true; name: string; png: string } | Fail<'bad_request' | 'unavailable' | 'no_permission' | 'not_found' | 'too_large'>
   >;
+  /** Shows an address in a native view over the given rectangle of the window (CSS pixels), or removes the view with null. Absent in a shell that lacks it. */
+  preview?(a: { url: string; x: number; y: number; width: number; height: number } | null): Promise<{ ok: true } | Fail<'bad_request'>>;
+  /** The preview as it is on screen, a PNG (base64). */
+  capturePreview?(): Promise<{ ok: true; png: string } | Fail<'bad_request' | 'unavailable'>>;
+  /** The picture of a running Android emulator or device (adb) or iOS simulator (simctl) as a PNG (base64); `unavailable` says plainly why there is none. */
+  deviceShot?(kind: 'android' | 'ios'): Promise<{ ok: true; png: string } | Fail<'bad_request' | 'unavailable'>>;
+  /** A tap on the Android device at a place in its last picture, as fractions (0 to 1) of its width and height. */
+  deviceTap?(a: { x: number; y: number }): Promise<{ ok: true } | Fail<'bad_request' | 'unavailable'>>;
   /** Which daemon the app talks to: its mode and, in connect mode, the paired device's address. Absent in a shell with one mode. */
   mode?(): Promise<{ ok: true; mode: 'connect' | 'own'; remote: string | null; phone: boolean } | Fail<'bad_request'>>;
   /** Switches the mode; the app relaunches. */
@@ -101,19 +108,14 @@ export interface ShellApi {
  * The route a notice's target lands on, or null when there is none to go to (no target, an empty id, the string `None` the daemon
  * emits for a task_done without a task, or a screen this does not know).
  */
-export function routeOfTarget(
-  target: { screen: string; id: string } | null,
-  eventType: string,
-  /** The inbox's unread items, when the caller has them: a finished task opens its card, and goes to the task once none is left. */
-  unread?: readonly { id: number; task: number | null }[],
-): string | null {
+export function routeOfTarget(target: { screen: string; id: string } | null): string | null {
   if (!target || !target.id || target.id === 'None') return null;
   const id = encodeURIComponent(target.id);
   switch (target.screen) {
     case 'agent':
       return `#/agents/${id}`;
     case 'task':
-      return eventType === 'task_done' ? doneRoute(target.id, unread) : `#/tasks/${id}`;
+      return `#/tasks/${id}`;
     case 'account':
       return `#/accounts/${id}`;
     case 'hr':
@@ -121,11 +123,4 @@ export function routeOfTarget(
     default:
       return null;
   }
-}
-
-/** A finished task: its unread inbox card when the caller knows the inbox and has one, the task itself when none is left, `#/inbox` when the inbox is unknown. */
-function doneRoute(task: string, unread: readonly { id: number; task: number | null }[] | undefined): string {
-  if (!unread) return '#/inbox';
-  const card = unread.find((i) => String(i.task) === task);
-  return card ? `#/inbox/${card.id}` : `#/tasks/${encodeURIComponent(task)}`;
 }

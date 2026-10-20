@@ -5,11 +5,11 @@ import { ago, myTurn, type Card, type CardAction } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAgents, useInbox, useTasks, useWrite } from '@handline/app-data';
 import { goTerminal } from './route.ts';
-import { ReasonSheet, useWide } from './taskui.tsx';
+import { useWide } from './taskui.tsx';
 import { TaskDetail } from './TaskDetail.tsx';
-import { Button, Icon, Input, MenuButton, MenuItem } from './ui/index.ts';
+import { Button, Icon, Input, MenuButton, MenuItem, PageHead, PageTitle, ScrollPage } from './ui/index.ts';
 
-/** The cards the person's turn holds: unread items, agents that need them, reports to accept. */
+/** The cards the person's turn holds: unread items, agents that need them. */
 export function useMyTurn(): { cards: Card[]; loading: boolean } {
   const inbox = useInbox();
   const agents = useAgents();
@@ -25,7 +25,6 @@ export function useMyTurn(): { cards: Card[]; loading: boolean } {
 const KIND: Record<Card['kind'], string> = {
   decision: 'Decision',
   approval: 'Approve',
-  accept: 'Accept',
   dialog: 'Dialog',
   attention: 'Needs you',
 };
@@ -49,10 +48,6 @@ function label(a: CardAction): string {
       return 'Allow';
     case 'deny':
       return 'Deny';
-    case 'accept':
-      return 'Accept';
-    case 'reject':
-      return 'Send back';
     case 'done':
       return 'Done';
     case 'open':
@@ -67,15 +62,12 @@ function label(a: CardAction): string {
 function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; onOpen: (task: number) => void }) {
   const answer = useWrite('inbox.reply');
   const prompt = useWrite('prompt.answer');
-  const accept = useWrite('task.accept');
-  const reject = useWrite('task.reject');
   const done = useWrite('task.done');
   const read = useWrite('inbox.mark_read');
   const [box, setBox] = useState(false);
   const [text, setText] = useState('');
-  const [back, setBack] = useState(false);
   // The daemon's own words for a refused write; the buttons stay usable.
-  const refused = [answer, prompt, accept, reject, done, read].find((w) => w.isError)?.error;
+  const refused = [answer, prompt, done, read].find((w) => w.isError)?.error;
   const run = (a: CardAction) => {
     switch (a.type) {
       case 'answer':
@@ -83,12 +75,8 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
       case 'allow':
       case 'deny':
         return prompt.mutate({ agent: a.agent, prompt: a.prompt, choice: a.choice });
-      case 'accept':
-        return accept.mutate({ task: a.task });
-      case 'reject':
-        return setBack(true);
       case 'done':
-        return void (done.mutate({ task: a.item.task!, evidence: 'decided in My turn', reason: true }), read.mutate({ ids: [a.item.id] }));
+        return void (done.mutate({ task: a.item.task!, evidence: 'decided in the Inbox', reason: true }), read.mutate({ ids: [a.item.id] }));
       case 'open':
         return card.task != null ? onOpen(card.task) : void (location.hash = a.to);
       case 'terminal':
@@ -184,17 +172,6 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
           </Button>
         </form>
       ) : null}
-      {back && card.task != null ? (
-        <ReasonSheet
-          label="What is missing"
-          submit="Send back"
-          onCancel={() => setBack(false)}
-          onSubmit={(note) => {
-            reject.mutate({ task: card.task!, note });
-            setBack(false);
-          }}
-        />
-      ) : null}
     </article>
   );
 }
@@ -206,15 +183,12 @@ export function MyTurnPage() {
   // Narrow: the task takes the page, with Back. Wide: it opens beside the list, as on the Tasks page.
   if (open !== null && !wide) return <TaskDetail id={open} onBack={() => setOpen(null)} />;
   const list = (
-    <section
-      className={`my-turn h-full min-w-0 flex-1 overflow-auto px-4 pb-6${open === null ? ' mx-auto max-w-[760px]' : ''}`}
-      aria-label="My turn"
-    >
-      <header className="sticky top-0 z-1 bg-canvas py-3">
-        <h2 className="m-0 text-[18px]">
-          My turn <span className="muted">{cards.length}</span>
-        </h2>
-      </header>
+    <ScrollPage beside={open !== null} className="my-turn" aria-label="Inbox">
+      <PageHead>
+        <PageTitle>
+          Inbox <span className="muted">{cards.length}</span>
+        </PageTitle>
+      </PageHead>
       {loading ? (
         <p className="muted">Loading…</p>
       ) : cards.length ? (
@@ -226,10 +200,10 @@ export function MyTurnPage() {
       ) : (
         <div className="empty">
           <strong>Nothing waits on you</strong>
-          <p>Decisions, approvals and reports to accept show here.</p>
+          <p>Decisions and approvals show here.</p>
         </div>
       )}
-    </section>
+    </ScrollPage>
   );
   if (open === null) return list;
   return (

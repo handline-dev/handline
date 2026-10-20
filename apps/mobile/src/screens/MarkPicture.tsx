@@ -10,6 +10,7 @@ import {
   PixelRatio,
   Platform,
   SafeAreaView,
+  StatusBar,
   Text,
   TextInput,
   View,
@@ -106,12 +107,13 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
 
   return (
     <Modal visible animationType="slide" onRequestClose={props.onCancel}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: c.bg }}>
+      {/* Android draws the modal under the status bar; SafeAreaView does not pad it there */}
+      <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0 }}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg, padding: space.md }}>
             <Link testID="mark-cancel" label="Cancel" onPress={props.onCancel} />
             <Text style={{ color: c.muted, flex: 1, textAlign: 'center' }}>
-              {marks.length} {marks.length === 1 ? 'memo' : 'memos'}
+              {marks.length} {marks.length === 1 ? 'comment' : 'comments'}
             </Text>
             <Link testID="mark-undo" label="Undo" disabled={!state.past.length} onPress={() => dispatch({ type: 'undo' })} />
             <Link testID="mark-done" label="Done" onPress={() => void done()} />
@@ -160,7 +162,7 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
                   <View
                     key={m.id}
                     testID={`mark-${m.id}`}
-                    accessibilityLabel={`Memo ${number(m)}`}
+                    accessibilityLabel={`Comment ${number(m)}`}
                     onTouchEnd={() => !capturing && dispatch({ type: 'open', id: m.id })}
                     style={{
                       position: 'absolute',
@@ -207,7 +209,7 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
                       onChangeText={(text) => dispatch({ type: 'memo', id: current.id, text })}
                       placeholder="What is here?"
                       placeholderTextColor={c.muted}
-                      accessibilityLabel="Memo"
+                      accessibilityLabel="Comment"
                       style={{ flex: 1, color: c.ink, maxHeight: 80 }}
                     />
                     <Link testID="mark-remove" label="Remove" onPress={() => dispatch({ type: 'remove', id: current.id })} />

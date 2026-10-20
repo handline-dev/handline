@@ -32,7 +32,6 @@ export class FakeAdmin {
     active_cap: 4,
     park_timeout_s: 1800,
     handoff_note: true,
-    auto_accept_dialogs: false,
     ignore_cache_expiry: false,
   };
   private devices = [

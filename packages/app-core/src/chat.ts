@@ -24,6 +24,9 @@ export function noticeOf(m: ChatMessage): { kind: 'task'; task: number } | { kin
   return /^#\d+\s/.test(m.body) ? { kind: 'delivery' } : null;
 }
 
+/** A permission request is a tool step (what the agent asked to run), so it is Activity's like the tool line; other dialogs stay in Chat. */
+const isToolStep = (i: TranscriptItem) => i.kind === 'tool' || (i.kind === 'prompt' && i.prompt?.kind === 'permission');
+
 /** Everything on screen for one agent, oldest first: the messages and the agent's transcript by time. In the agent's own chat (`mine`) nothing the task board sent and no tool line is shown: they still reach the agent and stay on the Activity tab. */
 export function timeline(
   messages: ChatMessage[],
@@ -45,7 +48,7 @@ export function timeline(
     }),
     // A task card sits in the chat of the agent that made the change, or of the founder acting for it (`human`); the *all* tab shows every one.
     ...items
-      .filter((i) => !(scope === 'mine' && (i.kind === 'tool' || (agent && i.task_event && i.task_event.who !== agent && i.task_event.who !== 'human'))))
+      .filter((i) => !(scope === 'mine' && (isToolStep(i) || (agent && i.task_event && i.task_event.who !== agent && i.task_event.who !== 'human'))))
       .map((i): TimelineEntry => ({ kind: 'item', at: i.at, id: i.id, item: i })),
     ...decided.flatMap((p): TimelineEntry[] => (p.settled ? [{ kind: 'proposal', at: p.settled, id: p.id, proposal: p }] : [])),
   ];
@@ -69,16 +72,16 @@ function mergeSessions(a: Extract<TimelineEntry, { kind: 'item' }>, b: Extract<T
   return { ...b, item: { ...b.item, session } };
 }
 
-/** The agent's Chat: the person's words and the agent's, its replies and prompts, and its session marks. Task and tool lines are Activity's. */
+/** The agent's Chat: the person's words and the agent's, its replies and its other prompts, and its session marks. Task and tool lines, and permission requests, are Activity's. */
 export const chatEntries = (messages: ChatMessage[], items: TranscriptItem[], agent: string, decided: Proposal[] = []): TimelineEntry[] =>
-  timeline(messages, items, 'mine', agent, '', decided).filter((e) => !(e.kind === 'item' && (e.item.kind === 'tool' || e.item.kind === 'task_event')));
+  timeline(messages, items, 'mine', agent, '', decided).filter((e) => !(e.kind === 'item' && e.item.kind === 'task_event'));
 
 /** The agent's Activity, read-only: what the Chat leaves out (other people's messages, task notices) and every task, session and tool line. `all` is the daemon's all-scope messages, `mine` its mine-scope ones: what the Chat draws from the second is left out of the first. */
 export function activity(all: ChatMessage[], mine: ChatMessage[], items: TranscriptItem[], agent: string): Exclude<TimelineEntry, { kind: 'proposal' }>[] {
   const inChat = new Set(timeline(mine, [], 'mine', agent).map((e) => e.id));
   return timeline(all, items, 'all', agent).filter(
     (e): e is Exclude<TimelineEntry, { kind: 'proposal' }> =>
-      e.kind === 'proposal' ? false : e.kind === 'item' ? ['tool', 'session', 'task_event'].includes(e.item.kind) : !inChat.has(e.id),
+      e.kind === 'proposal' ? false : e.kind === 'item' ? isToolStep(e.item) || ['session', 'task_event'].includes(e.item.kind) : !inChat.has(e.id),
   );
 }
 
@@ -107,6 +110,8 @@ export function teamActivityOf(messages: ChatMessage[], items: TranscriptItem[],
   }
   for (const i of items) {
     if (i.kind === 'tool') rows.push({ key: `i${i.id}`, at: i.at, kind: 'tools', route: null, text: [i.tool, i.text].filter(Boolean).join(' '), output: i.output, dropped: i.dropped_lines });
+    else if (i.kind === 'prompt' && i.prompt?.kind === 'permission')
+      rows.push({ key: `i${i.id}`, at: i.at, kind: 'tools', route: null, text: `Asked permission: ${i.prompt.tool ?? ''}${i.prompt.command ? ` ${i.prompt.command}` : ''}${i.open ? ' (waiting)' : ''}` });
     else if (i.kind === 'session') rows.push({ key: `i${i.id}`, at: i.at, kind: 'sessions', route: null, text: sessionLine(i).reason });
     else if (i.kind === 'task_event' && i.task_event) {
       const e = i.task_event;

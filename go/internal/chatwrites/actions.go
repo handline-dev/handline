@@ -98,8 +98,7 @@ func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text s
 		}
 		resolved, effect = r, nil
 	}
-	// The founder's words then go through task.done's rules, which leave a task someone else asked answered, with the founder, and close
-	// the founder's own (or one already answered).
+	// The founder's words then go through task.done's rules, and the task closes.
 	tx, ok := q.(*sql.Tx)
 	if !ok || tell == nil {
 		return nil, fmt.Errorf("deciding T%d needs the call's transaction and the task teller", tid)
@@ -119,11 +118,7 @@ func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text s
 			guarded(e, fmt.Sprintf("telling after the decision on T%d", tid), func() (string, error) { return e.ResolveTell(e.DB, resolved) })
 		}
 		guarded(e, fmt.Sprintf("telling after T%d was decided", tid), func() (string, error) {
-			if done.Reported {
-				tell.Reported(tid, done.Owner, done.Told, done.Forget)
-			} else {
-				tell.Done(tid, db.Human, done.Owner, done.Told, done.Forget, done.Finished)
-			}
+			tell.Done(tid, db.Human, done.Owner, done.Told, done.Forget, done.Finished)
 			return "", nil
 		})
 		return decided
@@ -230,6 +225,9 @@ func CancelPlan(q db.Q, rid int64) (bool, string, error) {
 		}
 	}
 	told := requester + " is not told"
+	if requester == db.Human { // the confirm is the founder's to read
+		told = "you are not told"
+	}
 	if row.DeliveredAt.Valid {
 		told = target + " is told to stop, " + told
 	}

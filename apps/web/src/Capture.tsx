@@ -68,7 +68,7 @@ export function CaptureDialog({
   const [sending, setSending] = useState(false);
   const upload = useUploadImage();
   const ask = useWrite('task.new');
-  const memo = useWrite('task.memo.add');
+  const memo = useWrite('task.comment.add');
   const gone = useRef(false);
   useEffect(() => () => void (gone.current = true), []);
 

@@ -27,3 +27,5 @@ export * from './annotation-raster.ts';
 export * from './task-history.ts';
 export * from './task-activity.ts';
 export * from './marks.ts';
+export * from './resources.ts';
+export * from './status.ts';

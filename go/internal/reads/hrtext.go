@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
 // flat is a proposal file: a map of scalars (the roster's dump writes nothing nested), keys in file order.
@@ -130,7 +132,7 @@ func scalar(tok string) (any, error) {
 	case strings.ContainsAny(t, "[]{}"):
 		return nil, fmt.Errorf("flow value")
 	}
-	if _, err := strconv.ParseFloat(t, 64); err == nil {
+	if yamlcompat.IsFloat(t) {
 		return nil, fmt.Errorf("number that is not an integer")
 	}
 	return t, nil

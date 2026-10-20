@@ -243,3 +243,13 @@ func TestConfigReaders(t *testing.T) {
 		t.Error("a value that is not a config adds nothing")
 	}
 }
+
+// human and gate are the board's own names: no agent takes one.
+func TestNoAgentIsNamedHumanOrGate(t *testing.T) {
+	r := NewRoster(t.TempDir())
+	for _, name := range []string{"human", "gate"} {
+		if _, err := r.Register(name, RegisterOpts{Role: "r"}); err == nil || !strings.Contains(err.Error(), "the board's own name") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

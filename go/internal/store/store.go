@@ -157,6 +157,7 @@ var byHand = map[int]func(*sql.Tx) error{
 	21: addTaskReview,     // task_review
 	22: addTaskEstimate,   // task_estimate
 	23: addFounderAuth,    // requests_founder_auth
+	24: addTaskWatch,      // task_watch
 }
 
 // addExtraWorktrees is _agent_extra_worktrees in schema.py: a database made before the column has none.
@@ -180,6 +181,13 @@ func addTaskReview(tx *sql.Tx) error {
 // addTaskEstimate is a task's estimate, in story points (reads/taskexpect.go).
 func addTaskEstimate(tx *sql.Tx) error {
 	return addTaskColumns(tx, [][2]string{{"estimate", "INTEGER"}})
+}
+
+// addTaskWatch is what a gate task watches (owner gate): a vendor's target and what it waits for, its label, the result it opened with and
+// why its last read failed.
+func addTaskWatch(tx *sql.Tx) error {
+	return addTaskColumns(tx, [][2]string{{"watch_vendor", "TEXT"}, {"watch_target", "TEXT"}, {"watch_until", "TEXT"}, {"watch_label", "TEXT"},
+		{"watch_result", "TEXT"}, {"watch_error", "TEXT"}})
 }
 
 // addTaskColumns adds each (name, type) column the tasks table does not have yet.

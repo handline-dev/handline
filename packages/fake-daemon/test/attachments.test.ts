@@ -121,11 +121,11 @@ test("a task's text names only finished, kept images; an agent only one a task a
   const made = await s.client.call('task.new', { owner: AUD, title: 't', body: 'plain', request_id: 'n1' });
   const task = made.task as number;
   assert.equal((await fail(s.client.call('task.new', { owner: AUD, title: 't', body: ref('0000000000000000'), request_id: 'n2' })))?.code, 'not_found');
-  assert.equal((await fail(s.client.call('task.memo.add', { task, text: ref('nope'), request_id: 'm1' })))?.field, 'text');
-  assert.equal((await fail(s.client.call('task.memo.add', { task, text: ref(img).repeat(7), request_id: 'm2' })))?.field, 'text');
-  assert.equal((await fail(agent.call('task.memo.add', { task, text: ref(img), request_id: 'm3' })))?.gate, 'role');
+  assert.equal((await fail(s.client.call('task.comment.add', { task, text: ref('nope'), request_id: 'm1' })))?.field, 'text');
+  assert.equal((await fail(s.client.call('task.comment.add', { task, text: ref(img).repeat(7), request_id: 'm2' })))?.field, 'text');
+  assert.equal((await fail(agent.call('task.comment.add', { task, text: ref(img), request_id: 'm3' })))?.gate, 'role');
   await s.client.call('task.edit', { task, body: `cut off ${ref(img)}`, request_id: 'e1' });
-  await agent.call('task.memo.add', { task, text: `from the brief ${ref(img)}`, request_id: 'm4' });
+  await agent.call('task.comment.add', { task, text: `from the brief ${ref(img)}`, request_id: 'm4' });
   const image = { id: img, name: 'a.png', mime: 'image/png', bytes: PNG.length };
   const mine = await s.client.call('task.get', { task });
   assert.deepEqual(mine.body_parts, [{ text: 'cut off ' }, { image, caption: 'the button' }]);
@@ -135,26 +135,6 @@ test("a task's text names only finished, kept images; an agent only one a task a
   s.daemon.uploads.expire(img);
   assert.deepEqual((await s.client.call('task.get', { task })).body_parts![1], { image: { id: img }, caption: 'the button', gone: true });
   await s.client.call('task.edit', { task, body: `still cut off ${ref(img)}`, request_id: 'e2' }); // a kept reference is not checked again
-  agent.close();
-  s.client.close();
-});
-
-test('a reject note with an image is a row of the timeline, cut into parts', async () => {
-  const s = setup();
-  s.daemon.tasks.verbs = true;
-  await s.client.start();
-  const agent = second(s.daemon, s.net, { role: 'agent', client: AUD });
-  await agent.start();
-  const img = (await put(s.client, PNG)).attachment!.id;
-  const task = (await s.client.call('task.new', { owner: AUD, title: 't', body: 'plain', request_id: 'n1' })).task as number;
-  await agent.call('task.done', { task, evidence: 'built', request_id: 'd1' });
-  await s.client.call('task.reject', { task, note: `the tests are missing\n![the run](attachment:${img})`, request_id: 'r1' });
-  const row = (await s.client.call('task.get', { task })).timeline.find((r) => r.kind === 'reject')!;
-  assert.equal(row.text, `the tests are missing\n![the run](attachment:${img})`);
-  assert.deepEqual(row.parts, [
-    { text: 'the tests are missing\n' },
-    { image: { id: img, name: 'a.png', mime: 'image/png', bytes: PNG.length }, caption: 'the run' },
-  ]);
   agent.close();
   s.client.close();
 });

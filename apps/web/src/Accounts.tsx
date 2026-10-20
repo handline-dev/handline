@@ -180,7 +180,7 @@ function AccountPageOne({ account, now }: { account: Account; now: number }) {
   const tab = TABS.find((t) => t === saved) ?? 'Overview';
   const agents = useAgents().data?.agents ?? [];
   return (
-    <div className="acct-one mx-auto flex max-w-[var(--w-form)] flex-col gap-3">
+    <div className="acct-one flex flex-col gap-3">
       <p className="acct-head m-0 flex items-center gap-2">
         <StateChip account={account} now={now} />
       </p>

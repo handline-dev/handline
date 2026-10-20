@@ -165,7 +165,7 @@ export const useAgentStrip = (agent: string) => useRead('agent.strip', { agent }
 export const useTask = (task: number) => useRead('task.get', { task });
 export const useTaskHistory = (task: number) => useRead('task.history', { task });
 export const useTaskTime = (task: number) => useRead('task.time', { task });
-export const useMemos = (task: number) => useRead('task.memo.list', { task });
+export const useMemos = (task: number) => useRead('task.comment.list', { task });
 export const useTaskBoard = () => useRead('task.board', {});
 export const useTrust = () => useRead('trust.list', {});
 /** The newest events of the daemon's log, read once when the page opens (the log is not a cache the bridge keeps; a screen that wants it live asks again). */
@@ -187,6 +187,7 @@ export const useHr = (filter: CallParams<'hr.list'> = {}) => useRead('hr.list', 
 export const useRepos = () => useRead('repos.list', {});
 export const useWorktrees = (filter: CallParams<'worktrees.list'> = {}) => useRead('worktrees.list', filter);
 export const useWorktreeDiff = (path: string, file?: string) => useRead('worktree.diff', { path, file });
+export const useFile = (agent: string, path: string) => useRead('file.read', { agent, path }, { enabled: path !== '' });
 export const useSchedules = () => useRead('schedules.list', {});
 export const useStats = (window: CallParams<'stats.get'>['window']) => useRead('stats.get', { window });
 export const useOutlook = (range: CallParams<'stats.outlook'>['range']) => useRead('stats.outlook', { range });

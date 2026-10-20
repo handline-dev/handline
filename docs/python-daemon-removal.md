@@ -5,7 +5,7 @@ Survey of main `643696b7`, by walking the imports. The Go daemon is the one that
 `termchannel`, `timebox`, `usage_poll` and the like): **delete**. The other 19 (6,934 lines) are imported by `cli/`,
 `actions/`, `session/`, `team/`, `view/`, `ui/` or `infra/`, and are listed below.
 
-The Go `hl` runs `account`, `auto-accept`, `close`, `dev`, `dev-mode`, `idle-background`, `idle-timeout`,
+The Go `hl` runs `account`, `close`, `dev`, `dev-mode`, `idle-background`, `idle-timeout`,
 `ignore-cache-expiry`, `launch`, `notice-digest`, `progress`, `restart`, `say` and `task` itself and hands every other
 command to the Python `hl`, `hook` included (see [The Python hook](#the-python-hook)). So the Python `hl` still runs,
 and several of its commands do the daemon's work in their own process beside the Go daemon. Those are the **switch**

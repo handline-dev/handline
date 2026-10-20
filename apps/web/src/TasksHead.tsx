@@ -1,7 +1,7 @@
 // The header of the Tasks page: Open / Mine / Closed, search, Filter, View (List or Graph) and + New task; and the floating bar that acts on the ticked rows.
 import type { ReactNode } from 'react';
 import { CLOSED, LISTED, TASK_STATES, type TaskColumn, type TaskFilter } from '@handline/app-core';
-import { BarInput, Button, Icon, MenuButton, MenuItem, Popup, Segmented, Select } from './ui/index.ts';
+import { BarInput, Button, Icon, MenuButton, MenuItem, PageHead, PageTitle, Popup, Segmented, Select } from './ui/index.ts';
 import { STATE_GLYPH } from './taskui.tsx';
 import { canCapture, requestCapture } from './Capture.tsx';
 
@@ -29,8 +29,8 @@ export function TasksHead(props: {
 }) {
   const { filter } = props;
   return (
-    <header className="tasks-head flex flex-wrap items-center gap-2 pb-2">
-      <h1 className="m-0 mr-auto text-page font-semibold">Tasks</h1>
+    <PageHead className="tasks-head">
+      <PageTitle className="mr-auto">Tasks</PageTitle>
       <label className="tsearch relative inline-flex items-center" title="Search by number, title or agent">
         <Icon name="search" label="Search" size={14} aria-hidden="true" className="pointer-events-none absolute left-1.5 text-ink-3" />
         <BarInput
@@ -112,7 +112,7 @@ export function TasksHead(props: {
         className="max-sm:min-h-[44px]"
         onClick={() => props.onAct('new')}
       />
-    </header>
+    </PageHead>
   );
 }
 

@@ -71,6 +71,15 @@ if (process.argv.includes('--picture')) {
     daemon.uploads.message,
   );
 }
+if (process.argv.includes('--batch')) {
+  // A lead's batch discard: two tasks closed, and the one card in handline.architect's chat, as the daemon posts it.
+  const tasks = [
+    { task: 1688, title: 'Terminal pane on the bytes channel', reason: 'covered by the data story' },
+    { task: 1690, title: 'Audit the terminal pane', reason: 'moot after the tabs landed' },
+  ];
+  for (const t of tasks) daemon.tasks.discard({ task: t.task, reason: t.reason });
+  daemon.chat.seedItem('handline.architect', { kind: 'task_batch', task_batch: { batch: 'b1', who: 'handline', tasks } });
+}
 daemon.raiseProposal({
   id: 1,
   title: 'settings handline.architect',

@@ -47,7 +47,7 @@ const unmount = async () => {
 afterEach(unmount);
 
 describe('#N in a chat', () => {
-  it("is the pull request of the agent's repo when it has that number, else the message link", async () => {
+  it("is the pull request of the agent's repo when it has that number, else plain text", async () => {
     const s = setup();
     s.daemon.pullRequests.add(306);
     s.daemon.chat.seed(ARCH, { from: ARCH, to: 'human', body: 'fixed in #306, the thread is #20', at: '2031-02-01T00:00:00Z' });
@@ -58,12 +58,12 @@ describe('#N in a chat', () => {
     const pr = m.querySelector<HTMLAnchorElement>('[data-pr]')!;
     expect(pr.textContent).toBe('#306');
     expect(pr.href).toBe('https://github.com/handline-dev/handline/pull/306');
-    const other = [...m.querySelectorAll('button')].find((b) => b.textContent === '#20');
-    expect(other?.title).toBe('Go to #20');
+    expect([...m.querySelectorAll('button')].some((b) => b.textContent === '#20')).toBe(false);
+    expect(text(m)).toContain('the thread is #20');
     expect(m.querySelectorAll('[data-pr]').length).toBe(1);
   });
 
-  it('stays a message link when the daemon does not serve pr.exists', async () => {
+  it('stays plain text when the daemon does not serve pr.exists', async () => {
     const s = setup();
     s.daemon.pullRequests.add(306);
     s.daemon.knobs.unserve('pr.exists');
@@ -72,6 +72,6 @@ describe('#N in a chat', () => {
     await until(() => msg('fixed in'), 'the message');
     await wait(50);
     expect(msg('fixed in')!.querySelector('[data-pr]')).toBeNull();
-    expect([...msg('fixed in')!.querySelectorAll('button')].some((b) => b.textContent === '#306')).toBe(true);
+    expect(text(msg('fixed in'))).toContain('fixed in #306');
   });
 });

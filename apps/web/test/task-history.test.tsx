@@ -1,7 +1,7 @@
 // The change history of a task: one row per field, fields of one edit under one time, memo changes folded under All, the chips, a long text opening to its full diff.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '../src/App.tsx';
@@ -23,6 +23,8 @@ const chip = (word: string) =>
   [...box.querySelectorAll<HTMLButtonElement>('.thistory [aria-pressed]')].find((b) => b.textContent!.startsWith(word))!;
 const rows = () => [...box.querySelectorAll<HTMLElement>('.thistory [data-field]')];
 
+// The fixture history reaches back some hours from now; at noon it stays on one local day, so no midnight splits a fold.
+beforeEach(() => void vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 9, 20, 12, 0) }));
 async function mount() {
   const s = setup();
   location.hash = '#/tasks/1684';
@@ -39,6 +41,7 @@ async function mount() {
   return s;
 }
 afterEach(async () => {
+  vi.useRealTimers();
   await act(async () => root?.unmount());
   root = null;
   box?.remove();
@@ -54,7 +57,7 @@ describe('task history', () => {
     expect(priority.querySelector('.line-through')?.textContent).toBe('P2');
     expect(priority.querySelector('.font-semibold')?.textContent).toBe('P1');
     expect(rows().some((r) => r.dataset.field === 'memo')).toBe(false);
-    expect(box.querySelector('[data-fold]')?.textContent).toContain('3 memo changes by');
+    expect(box.querySelector('[data-fold]')?.textContent).toContain('3 comment changes by');
     const state = rows().find((r) => r.dataset.field === 'state' && r.textContent!.includes('done'))!;
     expect(state.querySelector('[data-state="done"]')).not.toBeNull();
     expect(state.textContent).toContain('auditor PASS on 3f2a9c1');
@@ -68,7 +71,7 @@ describe('task history', () => {
     expect(rows()).toHaveLength(3);
     await click(chip('Fields'));
     expect(rows().some((r) => ['state', 'memo'].includes(r.dataset.field!))).toBe(false);
-    await click(chip('Memo'));
+    await click(chip('Comment'));
     const memos = rows();
     expect(memos.map((r) => r.querySelector('strong')?.textContent)).toEqual(['deleted', 'edited', 'added']);
     expect(memos[1]!.querySelector('.line-through')?.textContent).toBe('Chat first, then tasks.');

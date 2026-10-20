@@ -49,7 +49,7 @@ The screen key is the same `WaitIdle` as in §1: a stable screen and no `esc to 
 | `lifecycle/structured.go:227` | A forced close or restart waits for the turn |
 | `lifecycle/reconciler.go:517` (`IdleNow`) | The silence check: is a silent agent idle right now |
 
-**Replacement:** `UserPromptSubmit` opens a turn; `Stop` or `StopFailure` closes it. Esc fires no hook ([hook-probes.md](hook-probes.md) §3), so while a turn is open the daemon watches its transcript with file events and closes the turn on the `[Request interrupted by user…]` entry. Built in `go/internal/turns`, behind `handlined -turns-from-hooks` (off by default). The screen is still read where no event has said: before a session's first prompt, and after a daemon restart until the next hook. **Replaced behind the switch.**
+**Replacement:** `UserPromptSubmit` opens a turn; `Stop` or `StopFailure` closes it. Esc fires no hook ([hook-probes.md](hook-probes.md) §3), so while a turn is open the daemon watches its transcript with file events and closes the turn on the `[Request interrupted by user…]` entry. Built in `go/internal/turns`, behind `handlined -turns-from-hooks` (off by default; `hl service install` turns it on). The screen is still read where no event has said: before a session's first prompt, and after a daemon restart until the next hook. **Replaced behind the switch.**
 
 **Status: replaced behind `-turns-from-hooks`.** In the live run (`tools/live-e2e.sh --terminal`, Claude Code 2.1.301), `running` reached the client 0.25 s after the message was sent, and `idle` 0.09 to 0.23 s after the `Stop` hook. After an Esc, idle came in 0.47 s, after `session.interrupt` in 0.47 s, and after a hard kill mid-turn the agent left `running` in 0.15 s.
 
@@ -76,7 +76,6 @@ The screen key is a footer `Enter to confirm` or `Esc to cancel` in the last 3 r
 | `sessionrpc/typing.go:177` | Refuse typing over a dialog |
 | `session/blocked.go:248`, `:262`, `:275`, `:313` | A stuck agent's dialog; the exit-over-work dialog; note a failed close; get past a dialog |
 | `session/waiting.go:188` | A permission wait is still up |
-| `session/autoaccept.go:126` | Title match for auto-accept rules |
 | `lifecycle/reconciler.go:391` | A dialog stall can be cleared |
 | `lifecycle/close.go:574`, `:624`; `term/host.go:172` | Close: the dialog under `/exit`, an unreadable pane |
 | `lifecycle/trust.go:121` | Any other startup dialog |
@@ -136,7 +135,7 @@ The screen key is `Resume this session with` (`term/composer.go:81`), or a shell
 
 **Replacement:** `SessionEnd` (reason `clear`, `resume`, `logout`, `prompt_input_exit` or `other`), and the session process's exit, watched rather than polled from `ps`. **Replaceable.**
 
-**Status: not done.** `SessionEnd` and the process's exit could replace these reads, but nothing is built yet. The screen is still read.
+**Status: replaced behind `-turns-from-hooks` where the hooks know.** After `SessionEnd` or the session process's exit, and until the next launch or `SessionStart`, the session is gone without a screen read; while its process is watched it is there. Otherwise, as after a daemon restart before any hook, the screen is read.
 
 ## Python path left on main
 

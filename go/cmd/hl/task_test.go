@@ -65,13 +65,14 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "handoff", "T3", "b.two", "the note"}, []string{`task.handoff {"note":"the note","task":3,"to":"b.two"}`}},
 		{"piped note", []string{"task", "handoff", "T3", "b.two"}, []string{`task.handoff {"note":"piped note","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "start", "T3"}, []string{`task.start {"task":3}`}},
-		{"", []string{"task", "note", "T3", "hi"}, []string{`task.memo.add {"task":3,"text":"hi"}`}},
-		{"", []string{"task", "memo", "T3", "add", "hi"}, []string{`task.memo.add {"task":3,"text":"hi"}`}},
-		{"", []string{"task", "memo", "T3", "add", "hi", "--now"}, []string{`task.memo.add {"now":true,"task":3,"text":"hi"}`}},
+		{"", []string{"task", "note", "T3", "hi"}, []string{`task.comment.add {"task":3,"text":"hi"}`}},
+		{"", []string{"task", "memo", "T3", "add", "hi"}, []string{`task.comment.add {"task":3,"text":"hi"}`}},
+		{"", []string{"task", "memo", "T3", "add", "hi", "--now"}, []string{`task.comment.add {"now":true,"task":3,"text":"hi"}`}},
 		{"", []string{"task", "memo", "T3", "add", "hi", "--attach", "/x/a.png", "--attach", "/x/b.md"},
-			[]string{`task.memo.add {"files":["/x/a.png","/x/b.md"],"task":3,"text":"hi"}`}},
-		{"from stdin", []string{"task", "memo", "T3", "edit", "4", "-"}, []string{`task.memo.edit {"memo":4,"task":3,"text":"from stdin"}`}},
-		{"", []string{"task", "memo", "T3", "delete", "4"}, []string{`task.memo.delete {"memo":4,"task":3}`}},
+			[]string{`task.comment.add {"files":["/x/a.png","/x/b.md"],"task":3,"text":"hi"}`}},
+		{"from stdin", []string{"task", "memo", "T3", "edit", "4", "-"}, []string{`task.comment.edit {"memo":4,"task":3,"text":"from stdin"}`}},
+		{"", []string{"task", "memo", "T3", "delete", "4"}, []string{`task.comment.delete {"memo":4,"task":3}`}},
+		{"", []string{"task", "comment", "T3", "add", "hi"}, []string{`task.comment.add {"task":3,"text":"hi"}`}},
 		{"", []string{"task", "queue", "T1", "T2"}, []string{`task.queue {"tasks":[1]}`, `task.queue {"tasks":[2]}`}},
 		{"", []string{"task", "draft", "T1"}, []string{`task.draft {"tasks":[1]}`}},
 		{"", []string{"task", "edit", "T3", "--title", "t", "--priority", "3", "--timeout", "2h", "--unblock", "T4"},
@@ -105,9 +106,10 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "reopen", "T3"}, []string{`task.reopen {"task":3}`}},
 		{"", []string{"task", "handoff", "T3", "b.two"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "handoff", "T3", "b.two", "-"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
-		{"", []string{"task", "accept", "T3"}, []string{`task.accept {"task":3}`}},
-		{"", []string{"task", "accept", "T3", "--by-founder", "#41"}, []string{`task.accept {"by_founder":41,"task":3}`}},
-		{"", []string{"task", "reject", "T3", "no tests"}, []string{`task.reject {"note":"no tests","task":3}`}},
+		{"", []string{"task", "wait", "T3", "--pr", "#412", "--repo", "o/r"}, []string{
+			`task.wait {"task":3,"watch":{"target":"o/r#412","vendor":"github"}}`}},
+		{"", []string{"task", "wait", "T3", "--on", "github:o/r#7", "--until", "closed", "-t", "4h"}, []string{
+			`task.wait {"task":3,"time_box":"14400s","watch":{"target":"o/r#7","until":"closed","vendor":"github"}}`}},
 	}
 	seen := 0
 	for _, c := range cases {
@@ -157,9 +159,9 @@ func TestTaskRefusalsBeforeAnyCall(t *testing.T) {
 		{asAgent, []string{"task", "edit", "T3", "--owner", "b.two"}, "--owner is who answers for a task, not who works it, so it needs --assign too. To move the work:\n" +
 			"  hl task edit T3 --assign b.two\nTo change only who answers for it, name the assignee it keeps:\n  hl task edit T3 --owner b.two --assign <its assignee>\n"},
 		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new assignee, a new owner, a new title, --body, --priority, --estimate, --blocked-by, --unblock, --timeout, --tag, --untag or --pr\n"},
-		{asAgent, []string{"task", "memo", "T3", "add"}, "add takes the memo text\n"},
+		{asAgent, []string{"task", "memo", "T3", "add"}, "add takes the comment text\n"},
 		{asAgent, []string{"task", "memo", "T3", "delete", "4", "--now"}, "--now goes with add\n"},
-		{asAgent, []string{"task", "memo", "T3", "edit", "4"}, "edit takes the memo id, then the new text\n"},
+		{asAgent, []string{"task", "memo", "T3", "edit", "4"}, "edit takes the comment id, then the new text\n"},
 		{nil, []string{"task", "start", "T3"}, "cannot tell who is start a tasking this: OCP_AGENT is unset and this is not an " +
 			"interactive shell. Agents are started with `hl launch <agent>`, which sets it.\n"},
 	}
@@ -195,38 +197,6 @@ func TestWhatTheTaskPortDoesNotParseIsRefused(t *testing.T) {
 	}
 }
 
-func TestATaskInReviewReadsAsAwaitingWhoItWaitsOn(t *testing.T) {
-	r := agentsRig(t)
-	task := `"id":7,"title":"Fix it","state":"review","to":"b.two","from":"a.one","asker":"c","priority":2,"parent":null,"hold_reason":"","mismatch":"","pr":12`
-	report := `"report":{"by":"b.two","evidence":"built","at":"2026-10-02T11:30:00Z","waits_on":"lead","accepted":null}`
-	get := func(report string) string {
-		return `{` + task + `,"created":"2026-10-01T10:00:00Z","time":null,"evidence":null,"done":null,"discarded":null,"body":"",` + report + `,"memos":[]}`
-	}
-	r.daemon(map[string]string{
-		"task.get":   get(report),
-		"tasks.list": `{"items":[{` + task + `,` + report + `,"evidence":null,"block_reason":"","last_activity":"2026-10-01T10:00:00Z","requests":[]}],"more":false}`,
-		"task.board": `{"mine":[{"task":{` + task + `,` + report + `},"now":{"kind":"none","tasks":[],"agents":[]}}],"reports":[]}`,
-	})
-	show := "T7  Fix it\nstate review, awaiting lead   assignee b.two   owner c   opened by a.one   P2   created 2026-10-01 10:00\n" +
-		"answered 2026-10-02 11:30: built\n\nbrief\n(none)\n"
-	if out, _, code := r.run(asAgent, "task", "show", "T7"); code != 0 || out != show {
-		t.Errorf("show: %d\n%q", code, out)
-	}
-	if out, _, _ := r.run(asAgent, "task", "list"); !strings.HasPrefix(out, "T7    Fix it  [b.two] review, awaiting lead  P2") {
-		t.Errorf("list: %q", out)
-	}
-	if out, _, _ := r.run(asAgent, "task", "board"); out != "T7    Fix it\n      assignee b.two  owner c  now: review, awaiting lead\n" {
-		t.Errorf("board: %q", out)
-	}
-	r.daemon(map[string]string{"task.get": get(`"report":{"by":"b.two","evidence":"built","at":"2026-10-02T11:30:00Z","waits_on":"human",` +
-		`"accepted":{"by":"lead","at":"2026-10-02T12:00:00Z"}}`)})
-	show = "T7  Fix it\nstate review, awaiting human   assignee b.two   owner c   opened by a.one   P2   created 2026-10-01 10:00\n" +
-		"answered 2026-10-02 11:30: built\naccepted 2026-10-02 12:00 by lead: closes when PR #12 merges\n\nbrief\n(none)\n"
-	if out, _, code := r.run(asAgent, "task", "show", "T7"); code != 0 || out != show {
-		t.Errorf("show accepted: %d\n%q", code, out)
-	}
-}
-
 func TestTaskShowReadsAPausedClock(t *testing.T) {
 	box := obj{"length_s": float64(7200), "default": false, "left_s": float64(4800)}
 	held := obj{"blockers": []any{obj{"task": float64(9)}}, "subtasks": []any{obj{"id": float64(8), "state": "doing"}, obj{"id": float64(6), "state": "done"}}}
@@ -238,7 +208,6 @@ func TestTaskShowReadsAPausedClock(t *testing.T) {
 		{obj{"subtasks": held["subtasks"]}, "timeout paused: waiting on T8"},
 		{obj{}, "paused, 1h20m left"},
 		{obj{"to": "human"}, "timeout paused: waiting on human"},
-		{obj{"state": "review", "report": obj{"waits_on": "human"}}, "timeout paused: waiting on human"},
 		{obj{"blockers": []any{obj{"task": float64(9), "owner": "human"}}}, "timeout paused: waiting on T9 (human)"},
 	} {
 		if got := timeoutLines(box, 0, waitsOn(c.task)); len(got) != 2 || got[0] != "timeout 2h00m" || got[1] != c.want {
@@ -258,7 +227,7 @@ func TestTaskShowListAndBoardRead(t *testing.T) {
 			"created":"2026-10-01T10:00:00Z","time":{"length_s":3600,"default":false,"start":null,"end":null,"overdue_since":null,"told":0},
 			"evidence":"abc123","done":"2026-10-02T11:30:00Z","discarded":null,"body":"the brief",
 			"result":{"commit":"abc1234def","on_main":false,"shots":[{"n":1,"bytes":2048},{"n":2,"bytes":10}]},
-			"memos":[{"id":5,"author":"a.one","at":"2026-10-01T12:00:00Z","text":"a memo","edited_at":null}],
+			"memos":[{"id":5,"author":"a.one","at":"2026-10-01T12:00:00Z","text":"a comment","edited_at":null}],
 			"blockers":[{"task":9,"owner":"c","title":"first"}],"subtasks":[{"id":8,"owner":"d","state":"doing","title":"child"}],
 			"handoffs":[{"at":"2026-10-01T13:00:00Z","from":"a.one","to":"b.two","note":"over to you"}],
 			"assignments":[{"at":"2026-10-01T14:00:00Z","by":"c","what":"owner","from":"a.one","to":"c"}]}`,
@@ -281,9 +250,9 @@ shot ` + r.home + `/shots/T7/2.png (10 bytes)
 brief
 the brief
 
-memos
-  memo 5  a.one  2026-10-01 12:00
-    a memo
+comments
+  comment 5  a.one  2026-10-01 12:00
+    a comment
 
 waiting on
   T9 (c)  first

@@ -257,6 +257,26 @@ func TestWaitingPromptIsTheTellTheNextTickWouldType(t *testing.T) {
 	}
 }
 
+// The task bob holds stays at the head of his queue once it has landed; the say behind it is what waits for the session that wakes him.
+func TestWaitingPromptPassesOverAHeldTaskToTheSayBehindIt(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	held := r.task("bob", "alice", "the one bob holds")
+	if _, err := db.MarkDelivered(r.DB, held); err != nil {
+		t.Fatal(err)
+	}
+	r.must(db.MarkLanded(r.DB, held))
+	say := r.ask("task-board", "bob", "T9 is unblocked", "say")
+	text, _, ok, err := r.WaitingPrompt(r.DB, "bob")
+	r.must(err)
+	if !ok || !strings.Contains(text, "T9 is unblocked") {
+		t.Fatalf("%v %q", ok, text)
+	}
+	if row, _ := db.GetRequest(r.DB, say); !row.DeliveredAt.Valid {
+		t.Fatal("the say was not marked delivered")
+	}
+}
+
 // task opens a queued task for owner with the delivery request, as task new does.
 func (r *rig) task(owner, opener, title string) int64 {
 	r.t.Helper()

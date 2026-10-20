@@ -14,6 +14,7 @@ import {
   kindOf,
   mayChange,
   ordered,
+  splitStale,
   problemWith,
   stateWord,
   textSafe,
@@ -42,6 +43,7 @@ export function Hr() {
   const [going, once] = useOnce();
   const list = query.data?.proposals ?? [];
   const { waiting, recent } = ordered(list);
+  const { fresh, stale } = splitStale(waiting);
   const decideAll = (decision: 'approve' | 'reject') =>
     once(async () => {
       const note = decision === 'reject' ? why.trim() : undefined;
@@ -121,7 +123,11 @@ export function Hr() {
             {all}
           </Text>
         ) : null}
-        {waiting.map((p) => (
+        {fresh.map((p) => (
+          <Card key={p.id} p={p} decider={canDecide} refresh={() => void query.refetch()} />
+        ))}
+        {stale.length > 0 && <Text style={{ color: c.muted, fontWeight: '600' }}>Stale · no answer for 14 days</Text>}
+        {stale.map((p) => (
           <Card key={p.id} p={p} decider={canDecide} refresh={() => void query.refetch()} />
         ))}
         {recent.length > 0 && <Text style={{ color: c.muted, fontWeight: '600' }}>Recent</Text>}

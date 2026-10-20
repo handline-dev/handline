@@ -5,7 +5,6 @@ import { DaemonProvider, useError, useStore } from '@handline/app-react';
 import { DataProvider, SKELETON_CSS, useUnread, type BoxComponent } from '@handline/app-data';
 import { setting } from './daemon.ts';
 import { AccountsPage } from './Accounts.tsx';
-import { InboxPage } from './Inbox.tsx';
 import { MyTurnPage } from './MyTurn.tsx';
 import { SettingsPage } from './Settings.tsx';
 import { AdminPage } from './Admin.tsx';
@@ -13,7 +12,6 @@ import { DebugTerminals } from './debug/DebugTerminals.tsx';
 import {
   useAccountsRoute,
   useDebugRoute,
-  useInboxRoute,
   useNewAgentRoute,
   usePageRoute,
   useSelectedAgent,
@@ -32,7 +30,6 @@ import { Palette } from './Palette.tsx';
 import { Sidebar } from './Sidebar.tsx';
 import { FoldedControls, RailControls } from './RailControls.tsx';
 import { DaemonDown } from './DaemonDown.tsx';
-import { HrBanner } from './HrBanner.tsx';
 import { terminalOwnsKey } from './terminal/core.ts';
 import { StatusBar } from './StatusBar.tsx';
 import { CaptureHost } from './Capture.tsx';
@@ -66,7 +63,6 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const newAgent = useNewAgentRoute();
   const page = usePageRoute();
   useShell(agent);
-  const inbox = useInboxRoute();
   const unread = useUnread().length;
   const error = useError();
   const store = useStore();
@@ -79,7 +75,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   toggleRef.current = toggle;
   const [palette, setPalette] = useState(false);
   const [keys, setKeys] = useState(false);
-  const own = inbox.open || tasks !== null; // these pages answer `?` with their own keys
+  const own = tasks !== null; // these pages answer `?` with their own keys
   useEffect(() => {
     const typing = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable]');
     const onKey = (e: KeyboardEvent) => {
@@ -120,7 +116,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   }, [unread]);
   // Everything but the workspace lives in the sidebar, so the main view gets the whole window height.
   // The pages with no tab strip keep the rail's handle; on the agent workspace the controls ride the first strip.
-  const hasStrip = !team && !worktrees.open && !inbox.open && !accounts.open && tasks === null && page !== 'stats' && page !== 'settings' && page !== 'admin' && !!agent && !settings;
+  const hasStrip = !team && !worktrees.open && !accounts.open && tasks === null && page !== 'stats' && page !== 'settings' && page !== 'admin' && !!agent && !settings;
   return (
     <FoldedControls.Provider value={railOpen ? null : { show: toggle }}>
     <div className="frame flex h-screen flex-col">
@@ -153,8 +149,6 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             <TeamPage />
           ) : worktrees.open ? (
             <Worktrees path={worktrees.path} storage={storage} />
-          ) : inbox.open ? (
-            <InboxPage item={inbox.item} />
           ) : accounts.open || page === 'stats' ? (
             <AccountsPage name={accounts.name} />
           ) : tasks !== null ? (
@@ -176,7 +170,6 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             </div>
           )}
         </main>
-        <HrBanner />
         {newAgent.open ? <NewAgent onClose={() => void (location.hash = '')} /> : null}
         {error ? (
           <div

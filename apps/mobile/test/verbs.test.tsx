@@ -79,3 +79,18 @@ describe('the agent verbs menu', () => {
     m.store.stop();
   });
 });
+
+describe('an agent held for machine load', () => {
+  it('says so, offers Force start beside the menu, asks first, and starts it', async () => {
+    const m = await mount((s) => void (s.daemon.sessions.get(ARCH)!.fx.view = { status: { state: 'waiting', reason: 'load' } }), undefined, 'founder');
+    await until(() => $(`agent-${ARCH}`), 'the rows');
+    await press($(`agent-${ARCH}`));
+    await until(() => $('force-start'), 'the Force start button');
+    expect(text()).toContain('over its load limit');
+    await press($('force-start'));
+    expect(text()).toContain(`Force start ${ARCH}?`);
+    await press($('sheet-submit'));
+    await until(() => $('force-start') === null, 'the hold to clear');
+    m.store.stop();
+  });
+});

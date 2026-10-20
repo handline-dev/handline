@@ -12,7 +12,7 @@ import (
 )
 
 // taskStates are the states tasks.list filters on.
-var taskStates = []string{"draft", "queued", "doing", "review", "done", "discarded"}
+var taskStates = []string{"draft", "queued", "doing", "done", "discarded"}
 
 // viewName is the name a saved view is kept under: one line, 1 to 60 characters.
 func viewName(p map[string]any) (string, error) {

@@ -28,7 +28,7 @@ const (
 // LineMax is how long a one-line text setting may be, in characters.
 const LineMax = 4000
 
-var settingKinds = map[string]string{"active_cap": int1, "park_timeout_s": int0, "handoff_note": flag_, "auto_accept_dialogs": flag_,
+var settingKinds = map[string]string{"active_cap": int1, "park_timeout_s": int0, "handoff_note": flag_,
 	"ignore_cache_expiry": flag_, "dev_mode": flag_, "bg_notice_s": int1, "bg_grace_s": int1, "bg_check_s": int1, "notice_digest_s": int1,
 	"input_hold_idle_s": int1, handoff.PromptKey: line,
 	"push_prompt_asked": flag_, "push_task_done": flag_, "push_stall": flag_, "push_account_out": flag_,

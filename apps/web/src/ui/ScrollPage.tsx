@@ -1,4 +1,4 @@
-// The one page layout: a scrolling section at one max width, its header line (title, then actions) and its title. Every page is built on these.
+// The one page layout: a scrolling section at one max width, its header line (title, then actions, sticky) and its title. Every page is built on these.
 import type { ComponentProps } from 'react';
 
 const join = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
@@ -10,7 +10,7 @@ export function ScrollPage({ className, beside, ...rest }: ComponentProps<'secti
 }
 
 export function PageHead({ className, ...rest }: ComponentProps<'header'>) {
-  return <header {...rest} className={join('flex flex-wrap items-center gap-x-3 gap-y-2 pt-4 pb-3', className)} />;
+  return <header {...rest} className={join('sticky top-0 z-1 flex flex-wrap items-center gap-x-3 gap-y-2 bg-canvas pt-4 pb-3', className)} />;
 }
 
 export function PageTitle({ className, ...rest }: ComponentProps<'h2'>) {

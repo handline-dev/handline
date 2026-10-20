@@ -17,8 +17,13 @@ test('a closed agent offers only move, with or without a stored session: waking 
 test('a stalled row offers clear stall', () => {
   assert.deepEqual(ids('stalled', false, 's1'), ['clear_stall', 'move']);
 });
+test('a row held for machine load offers force start, and calls agent.force_start', () => {
+  const held = { name: 'a.b', state: 'waiting', status: { state: 'waiting', reason: 'load' } } as AgentView;
+  assert.deepEqual(verbsOf(held, { session_open: false, session_id: null }).map((v) => v.id), ['force_start', 'move']);
+  assert.deepEqual(callOf(VERBS.force_start, 'a.b'), { method: 'agent.force_start', params: { agent: 'a.b' } });
+});
 test("the confirm set is the bridge's CONFIRM (close, restart, park, fold) plus clear stall; move asks nothing", () => {
-  assert.deepEqual([...CONFIRM_VERBS].sort(), ['clear_stall', 'close', 'fold', 'park', 'restart', 'restart_fresh']);
+  assert.deepEqual([...CONFIRM_VERBS].sort(), ['clear_stall', 'close', 'fold', 'force_start', 'park', 'restart', 'restart_fresh']);
 });
 test('builds each call from the verb', () => {
   assert.deepEqual(callOf(VERBS.close, 'a.b'), { method: 'session.stop', params: { agent: 'a.b', mode: 'close' } });

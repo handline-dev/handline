@@ -10,6 +10,7 @@ import {
   kindOf,
   isWaiting,
   ordered,
+  splitStale,
   settled,
   stateWord,
   textSafe,
@@ -60,6 +61,7 @@ export function HrTab({ focus }: { focus: number | null }) {
   const [going, once] = useOnce();
   const list = q.data?.proposals ?? [];
   const { waiting, recent } = ordered(list);
+  const { fresh, stale } = splitStale(waiting);
   const decider = can && !narrow;
   // The ones the bulk verbs act on: those ticked (and still waiting), else every waiting one.
   const chosen = waiting.filter((p) => picked.has(p.id));
@@ -81,6 +83,18 @@ export function HrTab({ focus }: { focus: number | null }) {
       setPicked(new Set());
       setResults({ verb: decision === 'approve' ? 'approved' : 'rejected', rows });
     });
+  const waitingCard = (p: Proposal) => (
+    <Card
+      key={p.id}
+      p={p}
+      decider={decider}
+      narrow={narrow}
+      focus={focus === p.id}
+      on={picked.has(p.id)}
+      pick={() => toggle(p.id)}
+      refresh={() => void q.refetch()}
+    />
+  );
   return (
     <View q={q} served shape="inbox" what="HR proposals" empty={false}>
       <div className="hr mx-auto w-full max-w-[760px]">
@@ -163,18 +177,9 @@ export function HrTab({ focus }: { focus: number | null }) {
           </div>
         ) : null}
         {list.length ? null : <Empty icon="inbox" name="Nothing to decide" hint="Roster and role changes agents propose land here." />}
-        {waiting.map((p) => (
-          <Card
-            key={p.id}
-            p={p}
-            decider={decider}
-            narrow={narrow}
-            focus={focus === p.id}
-            on={picked.has(p.id)}
-            pick={() => toggle(p.id)}
-            refresh={() => void q.refetch()}
-          />
-        ))}
+        {fresh.map(waitingCard)}
+        {stale.length ? <SectionHead variant="small">Stale · no answer for 14 days</SectionHead> : null}
+        {stale.map(waitingCard)}
         {recent.length ? <SectionHead variant="small">Recent</SectionHead> : null}
         {recent.map((p) => (
           <Card key={p.id} p={p} decider={false} narrow={narrow} focus={focus === p.id} refresh={() => void q.refetch()} />

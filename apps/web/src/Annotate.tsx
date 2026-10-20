@@ -82,7 +82,7 @@ export function Annotator({ image, onChange }: { image: Blob; onChange: (marked:
       <div className="flex items-center gap-3 text-ink-2">
         <span className="min-w-0 flex-1">Tap to pin, drag to box, draw around to mark an area</span>
         <span>
-          {marks.length} {marks.length === 1 ? 'memo' : 'memos'}
+          {marks.length} {marks.length === 1 ? 'comment' : 'comments'}
         </span>
         <Button icon="undo" label="Undo (⌘Z)" disabled={!state.past.length} onClick={() => dispatch({ type: 'undo' })} />
       </div>
@@ -128,7 +128,7 @@ export function Annotator({ image, onChange }: { image: Blob; onChange: (marked:
             <button
               key={m.id}
               type="button"
-              aria-label={`Memo ${i + 1}${m.text.trim() ? `: ${m.text.trim()}` : ''}`}
+              aria-label={`Comment ${i + 1}${m.text.trim() ? `: ${m.text.trim()}` : ''}`}
               title={m.text}
               className="absolute grid size-5 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full border-0 bg-bad p-0 text-label text-canvas"
               style={pct(m.rect.x, m.rect.y)}
@@ -149,8 +149,8 @@ export function Annotator({ image, onChange }: { image: Blob; onChange: (marked:
               <Textarea
                 ref={memo}
                 rows={2}
-                aria-label="Memo"
-                placeholder="Type a memo…"
+                aria-label="Comment"
+                placeholder="Type a comment…"
                 value={current.text}
                 onChange={(e) => dispatch({ type: 'memo', id: current.id, text: e.target.value })}
                 onKeyDown={(e) => {
@@ -163,7 +163,7 @@ export function Annotator({ image, onChange }: { image: Blob; onChange: (marked:
                   }
                 }}
               />
-              <Button icon="close" label="Delete memo" onClick={() => dispatch({ type: 'remove', id: current.id })} />
+              <Button icon="close" label="Delete comment" onClick={() => dispatch({ type: 'remove', id: current.id })} />
             </div>
           ) : null}
         </div>

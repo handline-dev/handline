@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/handline/handline/go/internal/dangling"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/fold"
+	"github.com/handline/handline/go/internal/gates"
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/housekeeping"
 	"github.com/handline/handline/go/internal/lifecycle"
@@ -17,10 +19,12 @@ import (
 	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/supervisor"
+	"github.com/handline/handline/go/internal/taskwrites"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/tick"
 	"github.com/handline/handline/go/internal/usage"
+	"github.com/handline/handline/go/internal/worktreelock"
 )
 
 // This file builds the policy tick. With TickConfig.Terminals it supervises the terminal agents, reading their sessions from
@@ -37,6 +41,8 @@ type Tick struct {
 	// Startup is loop.py's start, run once before the first tick: reconcile, bring up the agents with work waiting, settle old messages,
 	// and try every pending one.
 	Startup func()
+	// gates opens the gate tasks on its own clock until its stop closes, which Start does when the loop ends.
+	gates *gates.Sweep
 }
 
 // Restarting says the loop ended because the executable changed and started clean: the caller releases the lock and the database, then
@@ -151,6 +157,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
 		{Name: "attachment sweep", Run: func(q db.Q, _ int64) error { return attachments.New(home).Sweep(q) }},
+		{Name: "worktree locks", Run: func(q db.Q, _ int64) error { return releaseWorktreeLocks(q, home) }},
 		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Raise: raiseFromTaskBoard(env), Free: cfg.DiskFree}).Check},
 	}, Signalled: func() bool {
 		select {
@@ -162,9 +169,15 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	}}
 	startup := func() {
 		runStartup(logLine, startPorts{Reconcile: reconciler.Reconcile, StartWaiting: t.StartWaiting,
-			Migrate: func() error { return env.MigrateOldMessages(q) }, Reload: func() error { return env.ReloadPending(q) }})
+			Migrate: func() error {
+				moved, err := taskwrites.EndReviews(q, home, env)
+				for _, m := range moved {
+					logLine("  " + m)
+				}
+				return errors.Join(err, env.MigrateOldMessages(q))
+			}, Reload: func() error { return env.ReloadPending(q) }})
 	}
-	return &Tick{Tick: t, Loop: loop, dev: dev, Startup: startup}
+	return &Tick{Tick: t, Loop: loop, dev: dev, Startup: startup, gates: &gates.Sweep{DB: q, Home: home, Tell: env, Log: cfg.Log}}
 }
 
 // raiseFromTaskBoard puts a decision from the task board in front of the founder: a My turn card.
@@ -201,7 +214,7 @@ func runStartup(log func(string), s startPorts) {
 		return
 	}
 	if err := s.Migrate(); err != nil {
-		log(fmt.Sprintf("  migrate old messages: %v", err))
+		log(fmt.Sprintf("  migrate: %v", err))
 	}
 	for _, a := range s.StartWaiting() {
 		log("  " + a)
@@ -215,12 +228,21 @@ func runStartup(log func(string), s startPorts) {
 // database only after that: a close or a wake cut off by the process ending leaves a half write.
 func (t *Tick) Start() (done <-chan struct{}) {
 	d := make(chan struct{})
+	gatesStop, gatesDone := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(gatesDone)
+		if t.gates != nil {
+			t.gates.Run(gatesStop)
+		}
+	}()
 	go func() {
 		defer close(d)
 		if t.Startup != nil {
 			t.Startup()
 		}
 		t.restarted = t.Loop.Run(nil)
+		close(gatesStop) // the loop ended (a stop or a restart): the gate pass stops too, and done waits for it
+		<-gatesDone
 	}()
 	return d
 }
@@ -725,3 +747,34 @@ func (c tickConfig) AgentConfig(agent string) map[string]any {
 	return cfg
 }
 func (c tickConfig) Seconds(key string, def int64) int64 { return c.set.ConfigSeconds(key, def) }
+
+// releaseWorktreeLocks lets go of every lock a session that is gone took (worktreelock.Release), over each linked worktree of the
+// repositories the agents work in, read from the repository: a retired agent's is let go too, and so is one whose folder was deleted.
+func releaseWorktreeLocks(q db.Q, home string) error {
+	rows, err := db.AllAgentStates(q)
+	if err != nil {
+		return err
+	}
+	var repos []string
+	roster := team.NewRoster(home)
+	for _, a := range paths.ListAgents(home) {
+		repos = append(repos, lifecycle.ExpandRepo(roster.RepoOf(a)))
+	}
+	for _, r := range rows {
+		repos = append(repos, lifecycle.WorktreePath(r.Worktree.String)) // a repo agent.yaml does not name is reached through a worktree
+	}
+	seen := map[string]bool{}
+	for _, repo := range repos {
+		if repo == "" || seen[repo] {
+			continue
+		}
+		seen[repo] = true
+		for _, linked := range worktreelock.Linked(repo) {
+			if !seen["wt:"+linked] {
+				seen["wt:"+linked] = true
+				_, _ = worktreelock.Release(repo, linked, worktreelock.Running) // a repo that is no checkout has none to let go
+			}
+		}
+	}
+	return nil
+}

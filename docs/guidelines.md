@@ -24,7 +24,7 @@ hl task new --assign backend -t 2h "fix flaky test_sync" \
 The `-t` value is how long before you are told the task is still open. It is not a deadline the
 agent sees.
 
-If you need to correct a task that is not done, add a memo: `hl task memo T12 add "also cover the
+If you need to correct a task that is not done, add a comment: `hl task comment T12 add "also cover the
 retry path"`. Do not send a second message behind it.
 
 ## One task at a time

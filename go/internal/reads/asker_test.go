@@ -104,12 +104,11 @@ func TestATaskGetListsEachAssigneeAndOwnerChange(t *testing.T) {
 
 // my_turn is the founder's open tasks that wait on them, one row a task: an answered one, a draft, another's and an ended one are not in it,
 // and a task with many messages on it is still one row.
-func TestMyTurnListsTheTasksAssignedToTheFounderThatAreNotAnswered(t *testing.T) {
+func TestMyTurnListsTheOpenTasksAssignedToTheFounder(t *testing.T) {
 	e := testEnv(t)
-	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, reported_at, report, done_evidence) VALUES"+
-		"(1, 'waits', 'human', 'amy', 1, 'amy', NULL, NULL, NULL), (2, 'answered', 'human', 'amy', 1, 'amy', 5, 'yes', NULL), "+
-		"(3, 'draft', 'human', 'amy', 1, NULL, NULL, NULL, NULL), (4, 'amys', 'amy', 'human', 1, 'human', NULL, NULL, NULL), "+
-		"(5, 'ended', 'human', 'amy', 1, 'amy', NULL, NULL, 'done')")
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, done_evidence) VALUES"+
+		"(1, 'waits', 'human', 'amy', 1, 'amy', NULL), (3, 'draft', 'human', 'amy', 1, NULL, NULL), (4, 'amys', 'amy', 'human', 1, 'human', NULL), "+
+		"(5, 'ended', 'human', 'amy', 1, 'amy', 'done')")
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES"+
 		"(1, 1, 'amy', 'human', 'waits', 'landed', 'task', 1), (2, 2, 'amy', 'human', 'more', 'landed', 'say', 1), (3, 3, 'amy', 'human', 'and more', 'landed', 'say', 1)")
 	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 1), (1, 2), (1, 3)")

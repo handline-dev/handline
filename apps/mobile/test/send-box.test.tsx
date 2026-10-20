@@ -31,7 +31,7 @@ const type = async (v: string) => {
 };
 const row = (body: string) =>
   [...document.body.querySelectorAll<HTMLElement>('[data-testid^="msg-"]')].find((e) => e.textContent?.includes(body));
-const landing = (body: string) => row(body)?.querySelector('[data-testid^="landing-"]')?.textContent;
+const landing = (body: string) => row(body)?.querySelector('[data-testid^="landing-"]')?.getAttribute('aria-label');
 
 describe('the send box over the one send path', () => {
   it('a message to an idle structured agent shows one tick, then two', async () => {
@@ -39,9 +39,9 @@ describe('the send box over the one send path', () => {
     expect($('chat-send-now')).toBeNull();
     await type('hello');
     await press($('chat-send'));
-    await until(() => landing('hello')?.trim() === '✓', 'sent');
+    await until(() => landing('hello') === 'Delivered', 'sent');
     await act(async () => void m.daemon.chat.tick());
-    await until(() => landing('hello')?.trim() === '✓✓', 'confirmed');
+    await until(() => landing('hello') === 'Answered', 'confirmed');
     m.store.stop();
   });
 
@@ -49,10 +49,10 @@ describe('the send box over the one send path', () => {
     const m = await open(true);
     await type('later');
     await press($('chat-send'));
-    await until(() => landing('later')?.trim() === '…', 'queued');
+    await until(() => landing('later') === 'Sending', 'queued');
     await type('right now');
     await press($('chat-send-now'));
-    await until(() => landing('right now')?.trim() === '✓', 'written at once');
+    await until(() => landing('right now') === 'Delivered', 'written at once');
     m.store.stop();
   });
 
@@ -71,14 +71,14 @@ describe('the send box over the one send path', () => {
     const m = await open(true);
     await type('hurry');
     await press($('chat-send'));
-    await until(() => landing('hurry')?.trim() === '…', 'queued');
+    await until(() => landing('hurry') === 'Sending', 'queued');
     const id = row('hurry')!.dataset.testid!.slice(4);
     expect($(`takeback-${id}`)!.textContent).toBe('Take back');
     await press($(`now-${id}`));
-    await until(() => landing('hurry')?.trim() === '✓', 'sent');
+    await until(() => landing('hurry') === 'Delivered', 'sent');
     await type('oops');
     await press($('chat-send'));
-    await until(() => landing('oops')?.trim() === '…', 'queued');
+    await until(() => landing('oops') === 'Sending', 'queued');
     expect($(`takeback-${id}`)).toBeNull(); // only the newest message can be taken back
     const oops = row('oops')!.dataset.testid!.slice(4);
     await press($(`takeback-${oops}`));
@@ -91,12 +91,12 @@ describe('the send box over the one send path', () => {
     const m = await open();
     await type('in flight');
     await press($('chat-send'));
-    await until(() => landing('in flight')?.trim() === '✓', 'sent');
+    await until(() => landing('in flight') === 'Delivered', 'sent');
     await act(async () => {
       m.daemon.chat.lose(AUD);
       m.daemon.chat.tick();
     });
-    await until(() => landing('in flight')?.trim() === '?', 'unknown');
+    await until(() => landing('in flight') === 'May or may not have run', 'unknown');
     const id = row('in flight')!.dataset.testid!.slice(4);
     expect($(`unknown-${id}`)!.textContent).toContain('not sent again');
     expect($(`retry-${id}`)).toBeNull();

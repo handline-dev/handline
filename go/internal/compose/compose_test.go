@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/handline/handline/go/internal/claudecli"
 	"github.com/handline/handline/go/internal/db"
 	dbpkg "github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/sealed"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
@@ -267,5 +269,57 @@ func TestSettlingPeerSendsAtStartTellsTheSenderThroughTheWiredPorts(t *testing.T
 	p.SettlePeerSends()
 	if v, _ := dbpkg.Cursor(d, key); v != 3 {
 		t.Fatalf("the unconfirmed send is unknown now, got %d", v)
+	}
+}
+
+// A stall from failed starts is told to the agent's lead as a notice; an agent with no lead is told to no one.
+func TestAStartStallIsToldToTheLead(t *testing.T) {
+	p, home := rig(t)
+	yml := "teams:\n  alice: [alice, bob]\nagents:\n  alice: {}\n  bob: {}\nedges: []\n"
+	os.WriteFile(filepath.Join(home, "team.yaml"), []byte(yml), 0o644)
+	if err := sealed.New(home).Seal(sealed.Team, yml); err != nil {
+		t.Fatal(err)
+	}
+	env := &supervisor.Env{DB: p.db, Home: home, Log: func(string, ...any) {}}
+	t.Cleanup(env.Wait)
+	tell := tellLeadOfStall(home, env, func(string, ...any) {})
+	tell(p.db, "bob", "spawn said: no git checkout")
+	tell(p.db, "alice", "spawn said: no git checkout")
+	var to, body string
+	var n int
+	p.db.QueryRow("SELECT COUNT(*), MAX(target), MAX(body) FROM requests").Scan(&n, &to, &body)
+	if n != 1 || to != "alice" || !strings.Contains(body, "bob is STALLED") || !strings.Contains(body, "no git checkout") {
+		t.Fatalf("%d %s %q", n, to, body)
+	}
+}
+
+// A roster repo that is no git checkout is told to the agent's lead once per break: not again at the next start, again after a fix and a
+// second break.
+func TestARosterRepoThatIsNoCheckoutIsToldToTheLeadOnce(t *testing.T) {
+	p, home := rig(t)
+	yml := "teams:\n  alice: [alice, bob]\nagents:\n  alice: {}\n  bob: {}\nedges: []\n"
+	os.WriteFile(filepath.Join(home, "team.yaml"), []byte(yml), 0o644)
+	if err := sealed.New(home).Seal(sealed.Team, yml); err != nil {
+		t.Fatal(err)
+	}
+	env := &supervisor.Env{DB: p.db, Home: home, Log: func(string, ...any) {}}
+	t.Cleanup(env.Wait)
+	told := func() (n int) {
+		p.db.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'alice' AND body LIKE 'bob''s repo % is not a git checkout%'").Scan(&n)
+		return n
+	}
+	check := func() { CheckRepos(p.db, home, env, func(string, ...any) {}) }
+	check()
+	check()
+	if n := told(); n != 1 {
+		t.Fatalf("told %d times", n)
+	}
+	repo := team.NewRoster(home).RepoOf("bob")
+	os.Mkdir(filepath.Join(repo, ".git"), 0o755)
+	check()
+	os.Remove(filepath.Join(repo, ".git"))
+	check()
+	if n := told(); n != 2 {
+		t.Fatalf("a second break is told again: %d", n)
 	}
 }
