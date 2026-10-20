@@ -299,7 +299,11 @@ func (e *Env) tellStructured(q db.Q, row *db.Request, d delivery.Delivery) (what
 		return "withdrawn first", NotSent, nil
 	}
 	folded := foldedNotices(q, agent)
-	state, why := e.sendOnce(q, agent, requestOp(rid), tellText(q, row, 1, nil, false, folded, e.imageLines(q, row)), d)
+	text := tellText(q, row, 1, nil, false, folded, e.imageLines(q, row))
+	if e.typedRow(q, row) {
+		folded, text = nil, founderText(row, e.imageLines(q, row))
+	}
+	state, why := e.sendOnce(q, agent, requestOp(rid), text, d)
 	switch state {
 	case NotSent:
 		check(db.ClearDelivered(q, rid))

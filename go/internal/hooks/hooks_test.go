@@ -210,3 +210,17 @@ func TestAnInterruptIsWhatAStopWouldHaveDone(t *testing.T) {
 		t.Fatalf("an interrupt moved a state the daemon owns: %s", state)
 	}
 }
+
+func TestAStopIsToldWithTheTranscriptItNames(t *testing.T) {
+	h := testRecorder(t)
+	var told []string
+	h.OnStop = func(agent, transcript string) { told = append(told, agent+" "+transcript) }
+	for _, kind := range []string{"UserPromptSubmit", "Stop", "StopFailure"} {
+		if err := h.apply("w", kind, map[string]any{"transcript_path": "/t/s.jsonl"}, kind, time.Now().Unix()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(told) != 1 || told[0] != "w /t/s.jsonl" {
+		t.Fatalf("%v", told)
+	}
+}

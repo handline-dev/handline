@@ -462,3 +462,51 @@ func TestAwaitConfirmsAQueuedMessageTheRunningTurnAbsorbed(t *testing.T) {
 		t.Fatal("a message absorbed into the running turn was not confirmed")
 	}
 }
+
+// typed is a typeIn that writes what Claude Code writes for a prompt typed at it: the person's user record, or mid-turn the enqueue
+// and then the queued_command it is taken in by.
+func (r *rig) typed(midTurn bool) func(string) error {
+	return func(text string) error {
+		if !midTurn {
+			r.append(map[string]any{"type": "user", "origin": map[string]any{"kind": "human"}, "message": map[string]any{"role": "user", "content": text}})
+			return nil
+		}
+		r.append(map[string]any{"type": "queue-operation", "operation": "enqueue", "content": text})
+		return nil
+	}
+}
+
+func TestATypedPromptIsDeliveredOnceTheSessionShowsItAsThePersons(t *testing.T) {
+	r := newRig(t)
+	r.receive("what is 3+4?", true, true) // the same words from a peer are not it
+	if res := r.s.Type(context.Background(), r.sess, "what is 3+4?", r.typed(false)); res.Kind != Delivered || res.Attempts != 1 {
+		t.Fatalf("%+v", res)
+	}
+	if len(r.sent()) != 0 {
+		t.Fatal("a typed prompt goes nowhere near the inbox")
+	}
+}
+
+func TestAPromptTypedMidTurnIsQueuedAndDeliveredWhenTheTurnTakesItIn(t *testing.T) {
+	r := newRig(t)
+	text := "two lines:\nwhat is 3+4?"
+	res := r.s.Type(context.Background(), r.sess, text, r.typed(true))
+	if res.Kind != Queued || res.Await == nil {
+		t.Fatalf("%+v", res)
+	}
+	r.append(map[string]any{"type": "attachment", "attachment": map[string]any{"type": "queued_command", "prompt": text}})
+	if !res.Await(context.Background()) {
+		t.Fatal("the queued_command it was taken in by delivers it")
+	}
+}
+
+func TestAPromptThatCouldNotBeTypedIsNotDelivered(t *testing.T) {
+	r := newRig(t)
+	res := r.s.Type(context.Background(), r.sess, "hi", func(string) error { return errors.New("a dialog is open on its screen") })
+	if res.Kind != NotDelivered || res.Attempts != 0 || res.Why != "a dialog is open on its screen" {
+		t.Fatalf("%+v", res)
+	}
+	if res = r.s.Type(context.Background(), r.sess, "hi", func(string) error { return nil }); res.Kind != NotDelivered || res.Attempts != 1 {
+		t.Fatalf("typed and never shown: %+v", res)
+	}
+}

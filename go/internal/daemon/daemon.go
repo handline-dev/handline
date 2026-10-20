@@ -182,7 +182,7 @@ func Start(cfg Config) (*Daemon, error) {
 		cfg.OnOpen(db, d.env())
 	}
 	if !cfg.Gateway { // the Python daemon alone writes agent state: a gateway has no hook.record and reads no spool
-		d.hooks = &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log, Turns: cfg.Turns}
+		d.hooks = &hooks.Recorder{DB: db, Home: cfg.Home, Log: cfg.Log, Turns: cfg.Turns, OnStop: d.env().FounderStopped}
 		d.logins = &weblogin.Manager{Home: cfg.Home}
 		d.prompts = prompts.New(db, cfg.Home, &reads.Env{DB: db, Home: cfg.Home, Started: d.started, Sha: version.Sha, Schema: store.LatestVersion()})
 		if cfg.Terminal != nil {
