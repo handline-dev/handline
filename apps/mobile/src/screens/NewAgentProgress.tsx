@@ -1,16 +1,15 @@
 // The progress of one agent.create, from the operations topic: the step the daemon sent (none invented), then done or failed. A failed
 // creation offers the form back with its fields; a done one sends the first task, if there was one, as a task.new.
 import { ScrollView, Text, TextInput, View } from 'react-native';
-import { classify, sentence, useCreateProgress } from '@handline/app-data';
+import { classify, sentence, useCreateProgress, type NewAgentFields } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { Skeleton } from '../skeleton.tsx';
 import { usePalette } from '../theme.ts';
-import type { Fields } from './NewAgent.tsx';
 import { Button, PageHeader } from './parts.tsx';
 
 export function NewAgentProgress(props: {
   operation: string;
-  fields: Fields;
+  fields: NewAgentFields;
   onClose: () => void;
   onAgent: (name: string) => void;
   onForm: () => void;

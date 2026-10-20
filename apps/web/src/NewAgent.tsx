@@ -1,28 +1,13 @@
 // New agent (founder): the form of docs/design/new-agent-worktrees.md §1.2 as a sheet at `#/new`, then its progress at `#/new/:operation`.
 // One agent.create per click; the form's fields stay in this component, so a failed creation returns to them as they were.
 import { useState } from 'react';
-import { classify, sentence, useAgents, useRepos, useServes, useWrite } from '@handline/app-data';
+import { EFFORTS, EMPTY_AGENT_FIELDS, classify, createParams, sentence, useAgents, useRepos, useServes, useWrite, type NewAgentFields } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Dialog, Field, Icon, Select, Textarea, NOTE, FIELD, FIELD_LABEL } from './ui/index.ts';
 import { goNew, useNewAgentRoute } from './route.ts';
 import { forgetFirstTask, keepFirstTask, NewAgentProgress } from './NewAgentProgress.tsx';
 
-const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
-type Effort = (typeof EFFORTS)[number];
 const ACCOUNT_NOTE = "A new agent's account is chosen when it starts; none can be named yet.";
-
-export interface Fields {
-  name: string;
-  role: string;
-  repo: string;
-  base: string;
-  model: string;
-  effort: string;
-  parent: string;
-  task: string;
-  box: string;
-}
-const EMPTY: Fields = { name: '', role: '', repo: '', base: '', model: '', effort: '', parent: '', task: '', box: '2h' };
 
 /** The sidebar's button; only for the founder, and only on a daemon that lists agent.create. */
 export function NewAgentButton() {
@@ -44,8 +29,8 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
   const create = useWrite('agent.create');
   const repos = useRepos();
   const agents = useAgents().data?.agents ?? [];
-  const [f, setF] = useState<Fields>(EMPTY);
-  const set = (k: keyof Fields, v: string) => setF((was) => ({ ...was, [k]: v }));
+  const [f, setF] = useState<NewAgentFields>(EMPTY_AGENT_FIELDS);
+  const set = (k: keyof NewAgentFields, v: string) => setF((was) => ({ ...was, [k]: v }));
   if (!founder)
     return (
       <Dialog title="New agent" onClose={onClose}>
@@ -64,7 +49,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
         operation={route.operation}
         fields={f}
         onClose={onClose}
-        onAnother={() => (setF(EMPTY), forgetFirstTask(), goNew())}
+        onAnother={() => (setF(EMPTY_AGENT_FIELDS), forgetFirstTask(), goNew())}
       />
     );
   const list = repos.data?.repos ?? [];
@@ -74,15 +59,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
   const send = () => {
     if (!ready || create.isPending) return;
     create.mutate(
-      {
-        name: prefix + f.name.trim(),
-        role: f.role.trim(),
-        repo: repo.path,
-        base: f.base.trim() || repo.default_branch,
-        ...(f.model.trim() ? { model: f.model.trim() } : {}),
-        ...(f.effort ? { effort: f.effort as Effort } : {}),
-        ...(f.parent ? { parent: f.parent } : {}),
-      },
+      createParams(f, repo),
       {
         onSuccess: (r) => {
           const operation = (r as { operation: string }).operation;

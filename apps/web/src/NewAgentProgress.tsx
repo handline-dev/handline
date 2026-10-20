@@ -1,11 +1,10 @@
 // The progress of one agent.create, from the operations topic: the step the daemon sent (none invented), then done or failed. A failed
 // creation offers the form back with its fields; a done one sends the first task, if there was one, as a task.new.
 import { useState } from 'react';
-import { classify, sentence, Skeleton, useCreateProgress } from '@handline/app-data';
+import { classify, sentence, Skeleton, useCreateProgress, type NewAgentFields } from '@handline/app-data';
 import { Button, Dialog, Icon, Textarea, NOTE } from './ui/index.ts';
 import { goAgent, goNew } from './route.ts';
 import { browserStorage } from './daemon.ts';
-import type { Fields } from './NewAgent.tsx';
 
 const KEY = 'handline.new-agent.task';
 /** The first task typed for one operation, kept so a relaunch of `#/new/:operation` still sends it. */
@@ -39,7 +38,7 @@ export function NewAgentProgress({
   onAnother,
 }: {
   operation: string;
-  fields: Fields;
+  fields: NewAgentFields;
   onClose: () => void;
   onAnother: () => void;
 }) {

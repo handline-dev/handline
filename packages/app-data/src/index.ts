@@ -25,3 +25,4 @@ export * from './schedule-editor.ts';
 export * from './field-row.ts';
 export * from './prompt-answer.ts';
 export * from './first-task.ts';
+export * from './new-agent.ts';

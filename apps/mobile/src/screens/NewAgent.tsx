@@ -3,28 +3,12 @@
 import { useState } from 'react';
 import type { FirstTask } from '../session.ts';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { classify, sentence, useAgents, useRepos, useServes, useWrite } from '@handline/app-data';
+import { EFFORTS, EMPTY_AGENT_FIELDS, classify, createParams, sentence, useAgents, useRepos, useServes, useWrite, type NewAgentFields } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { NewAgentProgress } from './NewAgentProgress.tsx';
 import { Button, PageHeader } from './parts.tsx';
-
-const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
-type Effort = (typeof EFFORTS)[number];
-
-export interface Fields {
-  name: string;
-  role: string;
-  repo: string;
-  base: string;
-  model: string;
-  effort: string;
-  parent: string;
-  task: string;
-  box: string;
-}
-const EMPTY: Fields = { name: '', role: '', repo: '', base: '', model: '', effort: '', parent: '', task: '', box: '2h' };
 
 /** Where the page is, kept past a reload: the operation it is watching, or null for the form. */
 export interface Pending {
@@ -142,8 +126,8 @@ export function NewAgent({ pending, onClose, onAgent }: { pending: Pending; onCl
   const create = useWrite('agent.create');
   const repos = useRepos();
   const agents = useAgents().data?.agents ?? [];
-  const [f, setF] = useState<Fields>(EMPTY);
-  const set = (k: keyof Fields, v: string) => setF((was) => ({ ...was, [k]: v }));
+  const [f, setF] = useState<NewAgentFields>(EMPTY_AGENT_FIELDS);
+  const set = (k: keyof NewAgentFields, v: string) => setF((was) => ({ ...was, [k]: v }));
   if (!founder || !served)
     return (
       <Page onClose={onClose}>
@@ -161,7 +145,7 @@ export function NewAgent({ pending, onClose, onAgent }: { pending: Pending; onCl
         onClose={() => (pending.save(null), onClose())}
         onAgent={(name) => (pending.save(null), onAgent(name))}
         onForm={() => pending.save(null)}
-        onAnother={() => (setF(EMPTY), pending.save(null))}
+        onAnother={() => (setF(EMPTY_AGENT_FIELDS), pending.save(null))}
       />
     );
   const list = repos.data?.repos ?? [];
@@ -171,15 +155,7 @@ export function NewAgent({ pending, onClose, onAgent }: { pending: Pending; onCl
   const send = () => {
     if (!ready || create.isPending) return;
     create.mutate(
-      {
-        name: prefix + f.name.trim(),
-        role: f.role.trim(),
-        repo: repo.path,
-        base: f.base.trim() || repo.default_branch,
-        ...(f.model.trim() ? { model: f.model.trim() } : {}),
-        ...(f.effort ? { effort: f.effort as Effort } : {}),
-        ...(f.parent ? { parent: f.parent } : {}),
-      },
+      createParams(f, repo),
       { onSuccess: (r) => pending.save((r as { operation: string }).operation, f.task.trim() ? { task: f.task, box: f.box } : null) },
     );
   };
