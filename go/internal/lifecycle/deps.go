@@ -178,6 +178,8 @@ type Manager struct {
 
 	// OnLaunch is told each time a wake's launch has begun (NoteLaunch); nil tells no one.
 	OnLaunch func(agent string)
+	// OnStartStall is told once, when starts for waiting work have failed often enough to stall the agent, with the last one's reason.
+	OnStartStall func(q db.Q, agent, why string)
 	// LoadHeld is why the machine's load holds the daemon's own start of an agent, "" when it does not (loadgate); nil holds nothing.
 	LoadHeld func(agent string) string
 

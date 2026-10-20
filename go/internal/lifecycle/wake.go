@@ -198,6 +198,9 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	if fresh := must(db.GetAgentState(m.Q, agent)); fresh != nil && fresh.WakeFailures >= states.MaxFailedAttempts {
 		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d %s: %s", fresh.WakeFailures, StartStall, first)))
 		m.Log("  %s: STALLED after %d failed starts", agent, fresh.WakeFailures)
+		if m.OnStartStall != nil {
+			m.OnStartStall(m.Q, agent, first)
+		}
 	}
 	return fmt.Sprintf("%s: could not be started - %s", agent, first), nil
 }

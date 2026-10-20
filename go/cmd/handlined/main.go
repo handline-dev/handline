@@ -182,6 +182,7 @@ func main() {
 			parts.SettlePeerSends()
 			if *terminalTick {
 				startTick = func(stop <-chan struct{}) <-chan struct{} {
+					compose.CheckRepos(db, homeDir, env, log.Printf) // with the tick that would start the agents
 					tk = parts.Tick(ccfg, compose.TickConfig{Stop: stop, Cutover: *cutover, Terminals: *terminalTick})
 					return tk.Start()
 				}

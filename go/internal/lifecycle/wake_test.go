@@ -31,7 +31,12 @@ func TestStartForWorkNeedsARepoARoomAndCountsFailuresUntilItStalls(t *testing.T)
 	if len(sp.spawned) != 1 || sp.spawned[0] != "a@/repo" || sp.cmds[0] != "why "+StartCause {
 		t.Fatalf("a start for waiting work is recorded as a start, not a launch: %v %v", sp.spawned, sp.cmds)
 	}
+	var told []string
+	m.OnStartStall = func(_ db.Q, agent, why string) { told = append(told, agent+": "+why) }
 	m.StartForWork("a")
+	if len(told) != 0 {
+		t.Fatalf("a failure short of the stall tells no one: %v", told)
+	}
 	m.StartForWork("a")
 	row, _ := db.GetAgentState(m.Q, "a")
 	if row.State != states.Stalled || row.WakeFailures != states.MaxFailedAttempts {
@@ -39,6 +44,9 @@ func TestStartForWorkNeedsARepoARoomAndCountsFailuresUntilItStalls(t *testing.T)
 	}
 	if said, _ := m.StartForWork("a"); !strings.Contains(said, "not started again - 3 attempts have failed") {
 		t.Fatal(said)
+	}
+	if len(told) != 1 || !strings.HasPrefix(told[0], "a: spawn said") {
+		t.Fatalf("the stall is told once, with the reason: %v", told)
 	}
 	// A start that works clears the streak, and an agent with a worktree starts there, not in a second one.
 	db.SetAgentState(m.Q, "b", states.Idle, 0, "")
