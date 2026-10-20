@@ -116,3 +116,18 @@ func TestATaskBegunOnTheFoundersMessageIsReleasedByAnyoneAndTheFounderIsTold(t *
 		t.Fatalf("a start after the release makes it doing again: %v", r)
 	}
 }
+
+// The opener hears its task was released: since the answer rows went, this notice is the only word it gets.
+func TestTheOpenerIsToldWhenItsTaskIsReleased(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at) VALUES(1, 'q', 'worker', 'gp', 1, 'gp', 5)",
+		"INSERT INTO requests(id, requester, target, kind, state, ts, body, delivered_at) VALUES(10, 'gp', 'worker', 'task', 'queued', 1, 'x', 6)",
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10)")
+	if r := call(t, mk("worker", &fakeTeller{}), `{"jsonrpc":"2.0","id":2,"method":"task.release","params":{"task":1,"reason":"stuck","request_id":"r1"}}`)[0]; r["error"] != nil {
+		t.Fatalf("%v", r)
+	}
+	if count(t, db, "SELECT COUNT(*) FROM requests WHERE requester = 'task-board' AND target = 'gp' AND body = 'task T1 released by worker: stuck'") != 1 {
+		t.Fatal("the opener is not told")
+	}
+}

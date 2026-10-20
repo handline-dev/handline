@@ -93,10 +93,10 @@
   "hl task board": "task.board",
   "hl task show": "task.get",
   "hl task list": "tasks.list",
-  "hl task memo list": "task.memo.list",
-  "hl task memo add": "task.memo.add",
-  "hl task memo edit": "task.memo.edit",
-  "hl task memo delete": "task.memo.delete",
+  "hl task comment list": "task.memo.list",
+  "hl task comment add": "task.memo.add",
+  "hl task comment edit": "task.memo.edit",
+  "hl task comment delete": "task.memo.delete",
   "hl progress": "task.progress",
   "hl inbox": "inbox.queue",
   "hl read": "request.read",
@@ -9741,6 +9741,35 @@
        }
       ],
       "description": "Set while a session hands off, so a chat that sits still can say why. Cleared when the new session's start item appears. Every change is an agent.changed. A handoff that waits for a usage window to reset shows `writing` only; it is not `starting` until a launch is due. null when none. Absent from a daemon that does not serve it."
+     },
+     "last_to_founder": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "text": {
+          "type": "string",
+          "description": "The whole body of its newest request to the founder (a say, ask or decision), whether or not it was read."
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "text",
+         "at"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The agent's newest request to the founder; null when it never wrote to them. Absent from a daemon that does not serve it yet."
+     },
+     "founder_unread": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many of the agent's open requests to the founder they have not seen yet (past the for_you_seen cursor, as `hl inbox` counts them). Absent from a daemon that does not serve it yet."
      },
      "status": {
       "$ref": "#/components/schemas/Status",

@@ -31,7 +31,12 @@ func TestStartForWorkNeedsARepoARoomAndCountsFailuresUntilItStalls(t *testing.T)
 	if len(sp.spawned) != 1 || sp.spawned[0] != "a@/repo" || sp.cmds[0] != "why "+StartCause {
 		t.Fatalf("a start for waiting work is recorded as a start, not a launch: %v %v", sp.spawned, sp.cmds)
 	}
+	var told []string
+	m.OnStartStall = func(_ db.Q, agent, why string) { told = append(told, agent+": "+why) }
 	m.StartForWork("a")
+	if len(told) != 0 {
+		t.Fatalf("a failure short of the stall tells no one: %v", told)
+	}
 	m.StartForWork("a")
 	row, _ := db.GetAgentState(m.Q, "a")
 	if row.State != states.Stalled || row.WakeFailures != states.MaxFailedAttempts {
@@ -39,6 +44,9 @@ func TestStartForWorkNeedsARepoARoomAndCountsFailuresUntilItStalls(t *testing.T)
 	}
 	if said, _ := m.StartForWork("a"); !strings.Contains(said, "not started again - 3 attempts have failed") {
 		t.Fatal(said)
+	}
+	if len(told) != 1 || !strings.HasPrefix(told[0], "a: spawn said") {
+		t.Fatalf("the stall is told once, with the reason: %v", told)
 	}
 	// A start that works clears the streak, and an agent with a worktree starts there, not in a second one.
 	db.SetAgentState(m.Q, "b", states.Idle, 0, "")
@@ -627,6 +635,29 @@ func TestASlowStartOpensOneTerminalWhoeverElseAsksMeanwhile(t *testing.T) {
 	row, _ := db.GetAgentState(m.Q, "a")
 	if len(sp.opened) != 1 || row.State == states.Stalled || row.WakeFailures != 1 {
 		t.Fatalf("one terminal and no stall: %v %+v", sp.opened, row)
+	}
+}
+
+// A recorded worktree that is gone is made again from its branch and started in; one that cannot be is a failed start that says why,
+// never a fresh worktree in its place.
+func TestAGoneWorktreeIsMadeAgainOrTheStartFailsWithWhy(t *testing.T) {
+	m, _, _ := newManager(t)
+	sp := m.Spawn.(*fakeSpawn)
+	m.Agents = fakeAgents{repo: "/repo"}
+	db.AddPending(m.Q, "a", "x", 1)
+	db.SetTerminal(m.Q, "a", "", "/wt-a")
+	sp.gone, sp.recreate, sp.ok = map[string]bool{"/wt-a": true}, "/wt-a", true
+	if said, _ := m.StartForWork("a"); !strings.HasPrefix(said, "a: started for work waiting") || len(sp.startedIn) != 1 || sp.startedIn[0] != "a@/wt-a" {
+		t.Fatalf("made again and started in: %q %v", said, sp.startedIn)
+	}
+	db.SetTerminal(m.Q, "b", "", "/wt-b")
+	db.AddPending(m.Q, "b", "x", 1)
+	sp.gone["/wt-b"], sp.recreate, sp.recreateWhy = true, "", "b: its worktree /wt-b is gone and its branch wt-b is not in /repo"
+	if said, _ := m.StartForWork("b"); !strings.Contains(said, "its branch wt-b is not in /repo") || len(sp.spawned) != 0 {
+		t.Fatalf("a failed start that says why, no fresh worktree: %q %v", said, sp.spawned)
+	}
+	if row, _ := db.GetAgentState(m.Q, "b"); row.WakeFailures != 1 {
+		t.Fatalf("it counts toward the stall that tells the lead: %+v", row)
 	}
 }
 

@@ -3,6 +3,7 @@ package sessionrpc
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/inputhold"
 	"github.com/handline/handline/go/internal/lock"
@@ -157,6 +158,24 @@ func TestSessionInputTypesAtAComposerAndIsRefusedAtAShellADialogTheWallAndByAnot
 	}
 	if len(h.sent) != 0 {
 		t.Fatalf("nothing was typed: %q", h.sent)
+	}
+}
+
+// ended is hooks that saw the session end: they know nothing else.
+type ended struct{}
+
+func (ended) WaitIdle(string, time.Duration) (bool, bool) { return false, false }
+func (ended) Background(string) (string, bool)            { return "", false }
+func (ended) Settled(string) bool                         { return false }
+func (ended) Session(string) (bool, bool)                 { return false, true }
+
+func TestSessionInputTypesNothingWhereTheHooksSawTheSessionEnd(t *testing.T) {
+	rg, h, c := typingRig(t)
+	rg.e.Term.Turns = ended{}
+	h.rows = []string{"", "────────────────────────────────", "❯ ", "────────────────────────────────", "  ? for shortcuts"}
+	r := c.call("session.input", map[string]any{"agent": "ann", "text": "hello", "request_id": rid("e1")})
+	if g := refused(r); g != "state" || len(h.sent) != 0 {
+		t.Fatalf("a composer still drawn: gate %q, sent %q", g, h.sent)
 	}
 }
 

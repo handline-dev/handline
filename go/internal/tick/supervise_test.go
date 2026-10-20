@@ -291,3 +291,26 @@ func TestAnAgentMidHandoffAndAnUnrelatedTriggerlessAgentAreLeftAlone(t *testing.
 		t.Fatalf("%v", w.calls)
 	}
 }
+
+// 10-20 00:45: the context reading that fired a handoff is not trusted again once the note's turn is over; the handoff goes on all the same.
+func TestAHandoffWaitingOnItsNoteGoesOnOnceTheNoteIsInWhateverTheReadingSays(t *testing.T) {
+	tk, w := newWorld(t)
+	w.performOK = true
+	db.MarkNoteWait(tk.Q, "a", "context", 9_990)
+	w.hold = true // the note's turn has not ended
+	supervise(tk, "a")
+	if w.did("handoff") {
+		t.Fatalf("handed off before the note: %v", w.calls)
+	}
+	w.hold = false
+	supervise(tk, "a")
+	if !w.did("handoff a context") {
+		t.Fatalf("the note is in and nothing closed the session: %v", w.calls)
+	}
+	tk, w = newWorld(t)
+	db.MarkNoteWait(tk.Q, "a", "context", 10_000-db.NoteWaitStaleS-1) // a wait nobody acted on for too long is over
+	supervise(tk, "a")
+	if w.did("handoff") {
+		t.Fatalf("%v", w.calls)
+	}
+}

@@ -14,10 +14,10 @@ are listed first, then every writer found.
 | command | method | state |
 |---|---|---|
 | `hl task new`, `edit`, `show`, `list` | task.new, task.edit, task.get, tasks.list | served, agent-role test |
-| `hl task memo add\|edit\|delete` | task.memo.add, .edit, .delete | write methods for memos and the inbox, agent-role test there |
+| `hl task comment add\|edit\|delete` | task.memo.add, .edit, .delete | write methods for memos and the inbox, agent-role test there |
 | `hl task done\|reopen\|merge\|release\|discard\|queue\|draft` | task.done, .reopen, .merge, .release, .discard, .queue, .draft | write methods for the task moves, agent-role test there |
 | `hl task begin\|start\|handoff`, `hl progress` | task.begin, .start, .handoff, .progress | gap: the agent-surface task |
-| `hl task board`, `hl task memo list` | task.board, task.memo.list | reads, the Go side |
+| `hl task board`, `hl task comment list` | task.board, task.memo.list | reads, the Go side |
 | `hl inbox` | inbox.list (+ inbox.mark_read for the head of the queue) | served; mark_read in slice b |
 | `hl read` | inbox.get | gap: standing answers and inbox.get task |
 | `hl say`, `hl ask`, `hl withdraw` | say, ask, chat.withdraw | gap: agent-surface task and chat slice 2 |

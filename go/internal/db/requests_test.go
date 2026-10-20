@@ -62,6 +62,23 @@ func TestDeliveryThenLandingMovesARequestOutOfTheQueue(t *testing.T) {
 	}
 }
 
+// The CLI's echo can land a request before the send records its typing: the typing is still recorded, once.
+func TestATypingRecordedAfterTheLandingIsKeptOnce(t *testing.T) {
+	q := open(t)
+	rid := ask(t, q, "a", "b", "hi", "say")
+	MarkDelivered(q, rid)
+	MarkLanded(q, rid)
+	MarkTyped(q, rid, "s1")
+	first, _ := GetRequest(q, rid)
+	if !first.TypedAt.Valid || first.TypedSess.String != "s1" {
+		t.Fatalf("%+v", first)
+	}
+	MarkTyped(q, rid, "s2")
+	if r, _ := GetRequest(q, rid); r.TypedSess.String != "s1" {
+		t.Fatalf("a landed request's typing is not moved: %+v", r)
+	}
+}
+
 func TestClosingARequestKeepsItsVerdictAsTheReasonOnceAndWritesNoAnswerRow(t *testing.T) {
 	q := open(t)
 	rid := ask(t, q, "a", "b", "q?", "ask")

@@ -288,3 +288,20 @@ func TestAgentViewFireIsNullWhenTheAgentConfigIsEmpty(t *testing.T) {
 		t.Fatalf("%v", got)
 	}
 }
+
+func TestAgentViewServesItsLastRequestToTheFounderAndHowManyAreUnseen(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	if v := viewOfAgent(t, e, "bob"); v["last_to_founder"] != nil || v["founder_unread"] != float64(0) {
+		t.Fatalf("an agent that never wrote: %v", v)
+	}
+	for id, ts := range map[int]int{1: 100, 2: 200, 3: 300} {
+		run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(?, ?, 'bob', 'human', ?, 'queued', 'say', 1)", id, ts, "msg"+string(rune('0'+id)))
+	}
+	run(t, e, "INSERT INTO cursors(name, row_id, updated) VALUES('for_you_seen:bob', 1, 0)")
+	v := viewOfAgent(t, e, "bob")
+	last, _ := v["last_to_founder"].(map[string]any)
+	if last["text"] != "msg3" || last["at"] != "1970-01-01T00:05:00Z" || v["founder_unread"] != float64(2) {
+		t.Fatalf("%v", v)
+	}
+}

@@ -336,3 +336,75 @@ func TestAnExitedSessionNotYetReapedIsNotWatched(t *testing.T) {
 		t.Fatalf("the turn moved: idle=%v known=%v", ok, known)
 	}
 }
+
+func TestAnEndedSessionIsKnownGoneUntilALaunchOrANewStart(t *testing.T) {
+	tr, _ := tracker(t)
+	if _, known := tr.Session("%1"); known {
+		t.Fatal("a session no hook spoke of is known")
+	}
+	first, kill := session(t)
+	current := first
+	var mu sync.Mutex
+	ended := make(chan string, 4)
+	tr.OnEnd(func(string) int { mu.Lock(); defer mu.Unlock(); return current }, func(a string) { ended <- a })
+	tr.Hook("amy", "SessionStart", nil, 10)
+	if running, known := tr.Session("%1"); !running || !known {
+		t.Fatalf("a watched session process: running=%v known=%v", running, known)
+	}
+	kill()
+	select {
+	case <-ended:
+	case <-time.After(wait):
+		t.Fatal("the exit was not told")
+	}
+	if running, known := tr.Session("%1"); running || !known {
+		t.Fatalf("after its process exited: running=%v known=%v", running, known)
+	}
+	tr.Launched("amy")
+	if _, known := tr.Session("%1"); known {
+		t.Fatal("a launch left the old session's end standing")
+	}
+	next, _ := session(t)
+	mu.Lock()
+	current = next
+	mu.Unlock()
+	tr.Hook("amy", "SessionStart", nil, 20)
+	tr.Hook("amy", "SessionEnd", nil, 21) // /clear: the process lives on
+	if running, known := tr.Session("%1"); !running || !known {
+		t.Fatalf("after SessionEnd, its process still there: running=%v known=%v", running, known)
+	}
+}
+
+// With no process watched, a hook after SessionEnd says a session runs again, even when its SessionStart comes late and is dropped.
+func TestAHookAfterSessionEndUndoesTheEnd(t *testing.T) {
+	tr, _ := tracker(t)
+	tr.Hook("amy", "SessionEnd", map[string]any{"reason": "clear"}, 11)
+	if running, known := tr.Session("%1"); running || !known {
+		t.Fatalf("after SessionEnd: running=%v known=%v", running, known)
+	}
+	tr.Hook("amy", "UserPromptSubmit", nil, 12)
+	tr.Hook("amy", "Stop", nil, 13)
+	tr.Hook("amy", "SessionStart", nil, 11) // spooled, replayed late
+	if _, known := tr.Session("%1"); known {
+		t.Fatal("a session taking turns still reads as ended")
+	}
+}
+
+// The old process's exit after a launch does not end the new session.
+func TestALateExitOfTheOldProcessDoesNotEndANewLaunch(t *testing.T) {
+	tr, _ := tracker(t)
+	old, kill := session(t)
+	ended := make(chan string, 4)
+	tr.OnEnd(func(string) int { return old }, func(a string) { ended <- a })
+	tr.Hook("amy", "SessionStart", nil, 10)
+	tr.Launched("amy")
+	kill()
+	select {
+	case <-ended:
+		t.Fatal("the old process's exit was told as the new session's end")
+	case <-time.After(300 * time.Millisecond):
+	}
+	if _, known := tr.Session("%1"); known {
+		t.Fatal("the old process's exit ended the new launch")
+	}
+}

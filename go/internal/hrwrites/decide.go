@@ -5,11 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/handline/handline/go/internal/chatwrites"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/protected"
 	"github.com/handline/handline/go/internal/reads"
@@ -80,38 +81,56 @@ func (e *Env) open(pid string) (*Prop, string) {
 	return p, ""
 }
 
-// tell tells the proposer how it went. A message that cannot be delivered never undoes the decision.
+// tell sends the outcome as a board notice, not a founder message, so it asks nothing and a batch arrives as one digest. A failed notice never undoes the decision.
 func (e *Env) tell(p *Prop, text string) {
-	who := p.str("requested_by")
-	if who == "" || who == db.Human || e.Say == nil {
+	if e.Say == nil {
 		return
 	}
-	tx, err := e.DB.Begin()
+	for _, who := range e.concerned(p) {
+		e.notify(p, who, text)
+	}
+}
+
+// concerned is the proposer and the registered agents the proposal or its items name, once each.
+func (e *Env) concerned(p *Prop) []string {
+	var out []string
+	add := func(name string) {
+		if name == "" || name == db.Human || slices.Contains(out, name) {
+			return
+		}
+		if _, err := os.Stat(e.roster().AgentFile(name)); err == nil {
+			out = append(out, name)
+		}
+	}
+	add(p.str("requested_by"))
+	for _, it := range append([]*Prop{p}, p.items()...) {
+		add(it.str("agent"))
+		add(it.str("to"))
+	}
+	return out
+}
+
+func (e *Env) notify(p *Prop, who, text string) {
+	err := func() error {
+		tx, err := e.DB.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		rid, err := e.Say.Notice(tx, who, text, "hr outcome")
+		if err != nil {
+			return err
+		}
+		// The notice names its proposal (chat's `proposal`), so an app that draws the decided proposal can leave this line out.
+		if pid, ok := hexNum(p.id()); ok && isAlnum(p.id()) {
+			if _, err := db.AddEventDeduped(tx, db.Human, "hr_outcome", fmt.Sprintf("hr_outcome:%d", rid), db.KV{K: "proposal", V: pid}, db.KV{K: "request", V: rid}); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
+	}()
 	if err != nil {
 		e.logf("  telling %s about proposal %s failed: %v", who, p.id(), err)
-		return
-	}
-	// The message names its proposal (chat's `proposal`), so an app that draws the decided proposal can leave this line out.
-	link := func(q db.Q, _ string, rid int64) error {
-		pid, ok := hexNum(p.id())
-		if !ok || !isAlnum(p.id()) {
-			return nil
-		}
-		_, err := db.AddEventDeduped(q, db.Human, "hr_outcome", fmt.Sprintf("hr_outcome:%d", rid), db.KV{K: "proposal", V: pid}, db.KV{K: "request", V: rid})
-		return err
-	}
-	res, err := chatwrites.SayWrite(e.Say, tx, db.Human, who, text, 0, link)
-	if err != nil || (!res.OK && !res.Keep) {
-		tx.Rollback()
-		e.logf("  telling %s about proposal %s failed: %v", who, p.id(), err)
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		e.logf("  telling %s about proposal %s failed: %v", who, p.id(), err)
-		return
-	}
-	if res.Tell != nil {
-		res.Tell()
 	}
 }
 

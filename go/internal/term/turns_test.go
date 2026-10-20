@@ -10,11 +10,18 @@ type fakeTurns struct {
 	running     string
 	bgKnown     bool
 	settled     bool
+	session     *bool // nil: the hooks do not know
 }
 
 func (f fakeTurns) WaitIdle(string, time.Duration) (bool, bool) { return f.idle, f.known }
 func (f fakeTurns) Background(string) (string, bool)            { return f.running, f.bgKnown }
 func (f fakeTurns) Settled(string) bool                         { return f.settled }
+func (f fakeTurns) Session(string) (bool, bool) {
+	if f.session == nil {
+		return false, false
+	}
+	return *f.session, true
+}
 
 func TestTurnsAnswerBeforeTheScreenAndTheScreenWhereTheyDoNotKnow(t *testing.T) {
 	// The fake screen is always idle and shows no background hint.
@@ -58,5 +65,23 @@ func TestASettledSessionIsEndedUnlessItsConversationMovedToTheBackground(t *test
 	tm.Turns = fakeTurns{idle: true, known: true, settled: true}
 	if ok, why := tm.CloseSession("%1"); ok || len(h.respawn) != 0 {
 		t.Fatalf("ended under the session picker: %q", why)
+	}
+}
+
+func TestTheHooksSayWhetherASessionIsThereBeforeTheScreenIsRead(t *testing.T) {
+	reads := 0
+	tm := newTerm(&fakeHost{screenAt: func(int) []string { reads++; return singleDefault }})
+	for _, running := range []bool{true, false} {
+		tm.Turns = fakeTurns{session: &running}
+		if got, known := tm.SessionOnScreen("%1"); got != running || !known {
+			t.Fatalf("hooks say %v: got %v known %v", running, got, known)
+		}
+	}
+	if reads != 0 {
+		t.Fatalf("the screen was read %d times though the hooks knew", reads)
+	}
+	tm.Turns = fakeTurns{}
+	if got, known := tm.SessionOnScreen("%1"); !got || !known || reads == 0 {
+		t.Fatalf("with nothing known the screen was not read: %v %v", got, known)
 	}
 }

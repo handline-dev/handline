@@ -210,3 +210,33 @@ func TestResolveQueuesNoStateRowForARequesterThatIsNoAgent(t *testing.T) {
 		t.Fatalf("a requester no agent has was queued: %v", r.eval.calls)
 	}
 }
+
+// 10-20 00:45: asked for its handoff note, an agent is told nothing more; what arrives waits for the session that follows.
+func TestNothingIsTypedAtASessionWritingItsHandoffNote(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.must(db.MarkNoteWait(r.DB, "bob", "context", r.now()))
+	rid := r.ask("alice", "bob", "a new ask", "ask")
+	if got, _ := r.TellNow(r.DB, rid); !strings.Contains(got, "handoff note") {
+		t.Fatalf("told at once: %q", got)
+	}
+	r.task("bob", "alice", "a task")
+	if sent, _ := r.DeliverQueued(r.DB, "bob"); sent {
+		t.Fatal("the queue was told")
+	}
+	if ok, msg, _ := r.SendMessage(r.DB, "bob", "a bare line"); !ok || strings.Contains(msg, "sent") {
+		t.Fatalf("a pending line: %v %q", ok, msg)
+	}
+	if last := r.term.last(); last != "" {
+		t.Fatalf("typed: %q", last)
+	}
+	r.must(db.ClearNoteWait(r.DB, "bob")) // the wait is over: the close went ahead, or it was given up
+	if got, _ := r.TellNow(r.DB, rid); got != "sent" {
+		t.Fatal(got)
+	}
+	// a wait nobody acted on for longer than NoteWaitStaleS holds nothing
+	r.must(db.MarkNoteWait(r.DB, "bob", "context", r.now()-db.NoteWaitStaleS-1))
+	if got, _ := r.TellNow(r.DB, r.ask("alice", "bob", "after a stale wait", "ask")); got != "sent" {
+		t.Fatalf("a stale wait still holds: %q", got)
+	}
+}

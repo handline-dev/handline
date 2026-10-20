@@ -749,6 +749,22 @@ func (r *Roster) update(name, f string, o RegisterOpts) error {
 	return r.Write(name, cfg)
 }
 
+// CheckoutProblem is why repo (as agent.yaml keeps it, ~ allowed) is no place to make a worktree: "is not an absolute path", "is not a
+// folder" or "is not a git checkout"; "" when it is one.
+func CheckoutProblem(repo string) string {
+	path := expandUser(repo)
+	if !filepath.IsAbs(path) {
+		return "is not an absolute path"
+	}
+	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
+		return "is not a folder"
+	}
+	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+		return "is not a git checkout"
+	}
+	return ""
+}
+
 // RepoOf is where this agent works, when it has been told.
 func (r *Roster) RepoOf(name string) string {
 	cfg, err := r.Read(name)

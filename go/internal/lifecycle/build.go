@@ -261,6 +261,12 @@ func (l *Launcher) ExecAgent(agent string, extra []string, force bool, promptFil
 	for _, k := range keys {
 		flat = append(flat, k+"="+env[k])
 	}
+	// The worktree is locked for as long as this process, which becomes the session, runs: nothing prunes or removes it under the agent.
+	if p := l.Ports.HoldWorktree; p != nil {
+		if err := p(l.cwd(), agent, os.Getpid()); err != nil {
+			l.warn("warning: the worktree is not locked for %s: %v", agent, err)
+		}
+	}
 	return l.Ports.Exec(argv[0], argv, flat)
 }
 

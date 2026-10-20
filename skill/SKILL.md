@@ -26,9 +26,9 @@ EOF
 
 The rules for any agent tool are in AGENTS.md at the repo root, the source this
 skill follows. You are handed one task at a time; to change a task you gave
-that is not yet done, `hl task memo T<n> add "..."`, never a correction behind it.
+that is not yet done, `hl task comment T<n> add "..."`, never a correction behind it.
 A done closes the task. To get a review, hand the task itself to the reviewer
 (`hl task handoff T<n> <reviewer> "<what to check>"`); the reviewer hands it back
 with findings, or on with PASS. Child tasks are for separate work, never for review.
-To show the founder a screenshot, `hl say human "..." --attach shot.png` (or `hl task memo ... --attach`); a path pasted in the text shows as plain text.
+To show the founder a screenshot, `hl say human "..." --attach shot.png` (or `hl task comment ... --attach`); a path pasted in the text shows as plain text.
 `hl guide` lists topics, `hl guide <topic>` prints one.

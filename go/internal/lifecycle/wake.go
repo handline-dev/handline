@@ -166,18 +166,28 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	}
 	// Its own worktree if it still has one - a terminal can be closed by a human or lost when the terminal host restarts without anything happening to
 	// the branch or to what is uncommitted in it, and a second worktree would strand the first.
-	wt := ""
-	if row != nil {
-		wt = m.Spawn.WorktreePath(row.Worktree.String)
+	// One recorded and gone is made again from its branch, never replaced by a fresh one without a word: that is the failed start below,
+	// saying why, which a stall then tells the agent's lead.
+	wt, gone := "", ""
+	if row != nil && row.Worktree.String != "" {
+		if wt = m.Spawn.WorktreePath(row.Worktree.String); wt == "" {
+			if wt, gone = m.Spawn.Recreate(agent, realpath(expandUser(repo)), row.Worktree.String); wt != "" {
+				must(db.AddEvent(m.Q, agent, "worktree_recreated", db.KV{K: "worktree", V: wt}))
+				m.Log("  %s: its worktree %s was gone; made again from its branch", agent, wt)
+			}
+		}
 	}
 	// ok is StartIn/Spawn's own answer, not re-derived from the row: they confirm a session actually started now, so a terminal left
 	// standing with nothing in it counts as the failed wake it is.
 	var ok bool
-	if wt != "" {
+	switch {
+	case gone != "":
+		said = gone
+	case wt != "":
 		cmd, cerr := m.Launch.CommandFor(agent, "", StartCause, "")
 		check(cerr)
 		ok, said, err = m.Spawn.StartIn(agent, wt, cmd)
-	} else {
+	default:
 		ok, said, err = m.Spawn.SpawnWith(agent, realpath(expandUser(repo)), SpawnOpts{Why: StartCause})
 	}
 	// A start that could not be tried (git cannot run, no descriptors) is no failed start of the agent's own: it is not counted.
@@ -198,6 +208,9 @@ func (m *Manager) StartForWork(agent string) (said string, err error) {
 	if fresh := must(db.GetAgentState(m.Q, agent)); fresh != nil && fresh.WakeFailures >= states.MaxFailedAttempts {
 		check(db.SetAgentState(m.Q, agent, states.Stalled, 0, fmt.Sprintf("%d %s: %s", fresh.WakeFailures, StartStall, first)))
 		m.Log("  %s: STALLED after %d failed starts", agent, fresh.WakeFailures)
+		if m.OnStartStall != nil {
+			m.OnStartStall(m.Q, agent, first)
+		}
 	}
 	return fmt.Sprintf("%s: could not be started - %s", agent, first), nil
 }

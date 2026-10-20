@@ -138,7 +138,7 @@ agent (ROLE.md, base.md); this file does not repeat them.
   (a literal `'` as `'"'"'`): in double quotes the shell runs backticked words
   and they vanish from the message. Text with backticks or `$(`, or with a literal `'`
   in it, goes in a quoted heredoc on stdin as `-`, or in a file as `--file PATH`
-  (`hl say`, `hl task new`, `hl task handoff`, `hl task memo add`).
+  (`hl say`, `hl task new`, `hl task handoff`, `hl task comment add`).
 - A message of more than a sentence goes in lines, in Markdown, through a
   quoted heredoc: `hl say <target> --file - <<'EOF'`, the body, then `EOF`.
   The receiver and the app see its lines.

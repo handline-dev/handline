@@ -730,7 +730,7 @@ func TestAPairedDeviceDecidesAndAnAgentSessionIsRefused(t *testing.T) {
 
 func (r *rig) told(who string) []string {
 	r.t.Helper()
-	rows, err := r.db.Query("SELECT body FROM requests WHERE target = ? AND requester = 'human' ORDER BY id", who)
+	rows, err := r.db.Query("SELECT body FROM requests WHERE target = ? AND requester = ? AND notice >= 1 ORDER BY id", who, dbpkg.NoticeRequester)
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -764,6 +764,46 @@ func TestTheProposerIsToldHowEachDecisionWentInTheWordsHrPyUsed(t *testing.T) {
 	}
 }
 
+func TestABatchOfDecisionsWaitsForTheProposersDigestAndNothingIsFromTheFounder(t *testing.T) {
+	r := newRig(t)
+	for i := 0; i < 5; i++ {
+		p, id := r.propose(fmt.Sprintf("aaaa002%d", i), "kind", "link", "agent", "alice", "to", "bob")
+		r.decide(id, ifThen(i%2 == 0, "approve", "reject"), p.subject(), fmt.Sprintf("b%d", i))
+	}
+	for _, who := range []string{"alice", "bob"} {
+		if pending, err := dbpkg.PendingNotices(r.db, who); err != nil || len(pending) != 5 {
+			t.Fatalf("%s: five outcomes wait for one digest: %d %v", who, len(pending), err)
+		}
+	}
+	var fromFounder int
+	r.db.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'alice' AND requester = 'human'").Scan(&fromFounder)
+	if fromFounder != 0 {
+		t.Fatalf("%d outcomes were said as the founder", fromFounder)
+	}
+}
+
+func TestAnOutcomeReachesTheAgentsABundleNamesOnceEach(t *testing.T) {
+	r := newRig(t)
+	if _, err := team.NewRoster(r.home).Register("carol", team.RegisterOpts{Role: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	_, id := r.propose("aaaa0031", "kind", "bundle", "agent", "2 changes",
+		"i1.kind", "link", "i1.agent", "carol", "i1.to", "bob", "i2.kind", "link", "i2.agent", "alice", "i2.to", "alice")
+	r.decide(id, "reject", "", "n1")
+	for who, want := range map[string]int{"alice": 1, "bob": 1, "carol": 1} {
+		if got := len(r.told(who)); got != want {
+			t.Errorf("%s was told %d times, want %d", who, got, want)
+		}
+	}
+}
+
+func ifThen(c bool, a, b string) string {
+	if c {
+		return a
+	}
+	return b
+}
+
 func TestEachOutcomeMessageNamesTheProposalItIsAbout(t *testing.T) {
 	r := newRig(t)
 	_, rejected := r.propose("aaaa0015", "kind", "link", "agent", "alice", "to", "bob")
@@ -771,7 +811,7 @@ func TestEachOutcomeMessageNamesTheProposalItIsAbout(t *testing.T) {
 	p, applied := r.propose("aaaa0016", "kind", "link", "agent", "alice", "to", "bob")
 	r.decide(applied, "approve", p.subject(), "o2")
 	rows, err := r.db.Query("SELECT json_extract(e.payload, '$.proposal') FROM requests q LEFT JOIN events e ON e.dedup_key = 'hr_outcome:' || q.id " +
-		"WHERE q.target = 'alice' AND q.requester = 'human' ORDER BY q.id")
+		"WHERE q.target = 'alice' AND q.notice >= 1 ORDER BY q.id")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -953,7 +993,47 @@ func TestProposeRenameTeamAndBundleAreDraftedAsHrPyDraftsThem(t *testing.T) {
 	}
 }
 
+func TestAPairedDeviceSetsAnotherAgentsModelAndEffort(t *testing.T) {
+	r := newRig(t)
+	r.device = "dev-1"
+	res := r.call("agent.set", `{"agent":"alice","values":{"model":"opus","effort":"high"},"request_id":"dev-set"}`)
+	if got, _ := res["result"].(map[string]any); got["accepted"] != true {
+		t.Fatalf("a paired device set model and effort: %v", res)
+	}
+	if all := r.file("agents", "alice", "agent.yaml") + r.file("team.yaml"); !strings.Contains(all, "opus") || !strings.Contains(all, "effort: high") {
+		t.Errorf("not written:\n%s", all)
+	}
+}
+
 // The founder's own hr add is applied at once, its approval on record as any other's, and hr.list shows it.
+// The repo is checked again when a proposal is applied: one raised before the check (a relative path) or whose checkout is gone since is
+// refused then, with nothing registered.
+func TestAnApproveChecksTheRepoAgain(t *testing.T) {
+	r := newRig(t)
+	gone := gitDir(t)
+	os.RemoveAll(gone)
+	for i, c := range []struct{ kind, repo, want string }{
+		{"add", "orcapipe/handline", "repo orcapipe/handline is not an absolute path"},
+		{"add", gone, "is not a folder"},
+		{"team", gone, "is not a folder"},
+	} {
+		id := fmt.Sprintf("aaab000%d", i)
+		fields := []string{"kind", c.kind, "agent", "carol", "repo", c.repo}
+		if c.kind == "team" {
+			fields = append(fields, "members", "carol.a", "repo.carol.a", gitDir(t))
+		}
+		p, n := r.propose(id, fields...)
+		res := r.decide(n, "approve", p.subject(), "d"+id)
+		msg, _ := res["error"].(map[string]any)["message"].(string)
+		if !strings.Contains(msg, c.want) {
+			t.Fatalf("%s %s: %v", c.kind, c.repo, res)
+		}
+		if _, err := os.Stat(filepath.Join(r.home, "agents", "carol")); err == nil {
+			t.Fatalf("%s %s: carol is registered", c.kind, c.repo)
+		}
+	}
+}
+
 func TestTheFoundersOwnAddIsAppliedAtOnce(t *testing.T) {
 	r := newRig(t)
 	repo := t.TempDir()
@@ -1037,7 +1117,7 @@ func TestAProposedRepoIsKeptAbsoluteAndMustBeAGitCheckout(t *testing.T) {
 		t.Fatalf("%q %q", tm.str("repo"), tm.str("repo.zed.sea"))
 	}
 	for _, c := range []struct{ as, params, want string }{
-		{"alice", `"kind":"add","args":{"name":"dan","repo":"plain"},"why":"w"`, "repo plain is not a git checkout (" + filepath.Join(base, "plain") + " has no .git)"},
+		{"alice", `"kind":"add","args":{"name":"dan","repo":"plain"},"why":"w"`, "repo plain is not a git checkout (" + filepath.Join(base, "plain") + ")"},
 		{"alice", `"kind":"add","args":{"name":"dan","repo":"orcapipe/handline"},"why":"w"`, "repo orcapipe/handline is not a folder"},
 		{"alice", `"kind":"team","args":{"name":"zed","repo":"app","members":["sea"],"repos":{"zed.sea":"plain"}},"why":"w"`, "repo plain is not a git checkout"},
 		{"", `"kind":"add","args":{"name":"dan","repo":"app"},"why":"w"`, "repo app is a relative path and human has no repo to take it from"},

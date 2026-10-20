@@ -35,6 +35,19 @@ func (f *fakeInbox) Deliver(_ context.Context, _ peerinbox.Session, text string,
 	return f.outcome
 }
 
+func (f *fakeInbox) Type(_ context.Context, _ peerinbox.Session, text string, typeIn func(string) error) peerinbox.Result {
+	f.mu.Lock()
+	f.entered++
+	f.mu.Unlock()
+	if err := typeIn(text); err != nil {
+		return peerinbox.Result{Kind: peerinbox.NotDelivered, Why: err.Error()}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.texts = append(f.texts, "typed: "+text)
+	return f.outcome
+}
+
 func (f *fakeInbox) enteredCount() int { f.mu.Lock(); defer f.mu.Unlock(); return f.entered }
 
 func (f *fakeInbox) count() int { f.mu.Lock(); defer f.mu.Unlock(); return len(f.texts) }
