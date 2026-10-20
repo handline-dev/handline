@@ -37,7 +37,7 @@ export const reads = {
   'task.get': { resource: 'task', id: by('task'), feed: 'tasks' },
   'task.history': { resource: 'task-history', id: by('task') },
   'task.time': { resource: 'task-time', id: by('task'), feed: 'tasks' },
-  'task.memo.list': { resource: 'memos', id: by('task') },
+  'task.comment.list': { resource: 'memos', id: by('task') },
   'task.view.list': { resource: 'task-views' },
   'task.board': { resource: 'board', feed: 'tasks' },
   'trust.list': { resource: 'trust' },
@@ -68,6 +68,7 @@ export const NOT_QUERIES = [
   'unsubscribe',
   'events.feed',
   'progress.get',
+  'task.memo.list', // the old name of task.comment.list; the screens read the new one
   // An image's bytes are read once per image into an object URL (attachments.ts), not kept as a cache entry.
   'attachment.get',
   'terminal.attach',
@@ -110,7 +111,7 @@ export const qk = {
   task: (d: string, task: number) => keyOf(d, 'task.get', { task }),
   taskHistory: (d: string, task: number) => keyOf(d, 'task.history', { task }),
   taskTime: (d: string, task: number) => keyOf(d, 'task.time', { task }),
-  memos: (d: string, task: number) => keyOf(d, 'task.memo.list', { task }),
+  memos: (d: string, task: number) => keyOf(d, 'task.comment.list', { task }),
   taskViews: (d: string) => keyOf(d, 'task.view.list'),
   prompts: (d: string, agent: string) => keyOf(d, 'prompt.list', { agent }),
   operation: (d: string, operation: string) => keyOf(d, 'operation.get', { operation }),

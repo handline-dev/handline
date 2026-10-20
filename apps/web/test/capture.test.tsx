@@ -112,7 +112,7 @@ describe('capture', () => {
       ev('pointerdown');
       ev('pointerup');
     });
-    await typeInto($('textarea[aria-label="Memo"]') as HTMLTextAreaElement, 'Tab label is cut off');
+    await typeInto($('textarea[aria-label="Comment"]') as HTMLTextAreaElement, 'Tab label is cut off');
     await typeInto($('#capture-note') as HTMLTextAreaElement, 'Two problems');
     await click(button('New task'));
     await choose($('select[aria-label="Owner"]') as HTMLSelectElement, 'handline.auditor');

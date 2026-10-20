@@ -1,0 +1,198 @@
+{
+ "fixtures": [
+  {
+   "name": "task.comment.list.unknown_task_is_not_found",
+   "spec": "task.comment.list",
+   "about": "The comments of a task nobody opened are not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.comment.list",
+      "params": {
+       "task": 999999
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.comment.add.unknown_task_is_not_found",
+   "spec": "task.comment.add",
+   "about": "A comment on a task nobody opened is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.comment.add",
+      "params": {
+       "task": 999999,
+       "text": "a comment",
+       "request_id": "conf-tc-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.comment.add.text_is_not_empty",
+   "spec": "task.comment.add",
+   "about": "A comment needs text: bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.comment.add",
+      "params": {
+       "task": 1,
+       "text": "  ",
+       "request_id": "conf-tc-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "text"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.comment.edit.unknown_task_is_not_found",
+   "spec": "task.comment.edit",
+   "about": "A comment of a task nobody opened is not_found.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.comment.edit",
+      "params": {
+       "task": 999999,
+       "memo": 1,
+       "text": "new",
+       "request_id": "conf-tc-3"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.comment.delete.memo_is_a_number",
+   "spec": "task.comment.delete",
+   "about": "memo is an integer: bad_request naming it.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.comment.delete",
+      "params": {
+       "task": 1,
+       "memo": "one",
+       "request_id": "conf-tc-4"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "memo"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

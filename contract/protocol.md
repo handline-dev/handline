@@ -147,9 +147,13 @@ A method marked write takes a required `request_id`.
 | `progress.get` | agent (only agent) |  | none | `{note}` |  |  |
 | `task.begin` | agent | yes | `title`, `body?`, `message`, `priority?`, `expects?`, `why?`, `request_id` | `Accepted & {task}` | `refused` |  |
 | `task.start` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `task.comment.list` | agent |  | `task`, `before?`, `limit?` | `{memos, more}` | `not_found` |  |
 | `task.memo.list` | agent |  | `task`, `before?`, `limit?` | `{memos, more}` | `not_found` |  |
+| `task.comment.add` | agent | yes | `task`, `text`, `now?`, `files?`, `request_id` | `Accepted & {memo}` | `refused`, `not_found`, `bad_request` |  |
 | `task.memo.add` | agent | yes | `task`, `text`, `now?`, `files?`, `request_id` | `Accepted & {memo}` | `refused`, `not_found`, `bad_request` |  |
+| `task.comment.edit` | agent | yes | `task`, `memo`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.memo.edit` | agent | yes | `task`, `memo`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.comment.delete` | agent | yes | `task`, `memo`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.memo.delete` | agent | yes | `task`, `memo`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.view.list` | member |  | none | `{views}` |  |  |
 | `task.view.save` | member | yes | `name`, `filter`, `request_id` | `Accepted` | `bad_request` |  |
@@ -522,21 +526,37 @@ Start a task the founder told the caller to do, without approval: opened for the
 
 Pick up a task as the caller's current one.
 
+### `task.comment.list`
+
+Comments beside a task. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.list is its old name.
+
 ### `task.memo.list`
 
-Memos beside a task.
+The old name of task.comment.list: the same params, result and errors. Kept for clients that call it.
+
+### `task.comment.add`
+
+Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.
 
 ### `task.memo.add`
 
-Add a memo; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. memo.edit and memo.delete are told the same way.
+The old name of task.comment.add: the same params, result and errors. Kept for clients that call it.
+
+### `task.comment.edit`
+
+Edit a comment: its author or the founder. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.edit is its old name.
 
 ### `task.memo.edit`
 
-Edit a memo: its author or the founder.
+The old name of task.comment.edit: the same params, result and errors. Kept for clients that call it.
+
+### `task.comment.delete`
+
+Delete a comment: its author or the founder. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.delete is its old name.
 
 ### `task.memo.delete`
 
-Delete a memo: its author or the founder.
+The old name of task.comment.delete: the same params, result and errors. Kept for clients that call it.
 
 ### `task.view.list`
 
@@ -792,10 +812,10 @@ Every `hl` command an agent runs today and the method that serves it.
 | `hl task board` | `task.board` |
 | `hl task show` | `task.get` |
 | `hl task list` | `tasks.list` |
-| `hl task comment list` | `task.memo.list` |
-| `hl task comment add` | `task.memo.add` |
-| `hl task comment edit` | `task.memo.edit` |
-| `hl task comment delete` | `task.memo.delete` |
+| `hl task comment list` | `task.comment.list` |
+| `hl task comment add` | `task.comment.add` |
+| `hl task comment edit` | `task.comment.edit` |
+| `hl task comment delete` | `task.comment.delete` |
 | `hl progress` | `task.progress` |
 | `hl inbox` | `inbox.queue` |
 | `hl read` | `request.read` |

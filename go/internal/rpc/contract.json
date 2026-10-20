@@ -291,6 +291,18 @@
  "task.cancel": {
   "role": "member"
  },
+ "task.comment.add": {
+  "role": "agent"
+ },
+ "task.comment.delete": {
+  "role": "agent"
+ },
+ "task.comment.edit": {
+  "role": "agent"
+ },
+ "task.comment.list": {
+  "role": "agent"
+ },
  "task.discard": {
   "role": "agent"
  },

@@ -247,7 +247,7 @@ describe('the task verbs', () => {
     m.store.stop();
   });
 
-  it('edits and deletes a memo, asks before deleting, and puts it back with the reason on a refusal', async () => {
+  it('edits and deletes a comment, asks before deleting, and puts it back with the reason on a refusal', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DOING);
     await fill('memo-text', 'first note');
@@ -257,7 +257,7 @@ describe('the task verbs', () => {
     await until(() => $(`memo-edit-${id}`)?.getAttribute('aria-disabled') !== 'true', 'the numbered memo');
     await press($(`memo-edit-${id}`));
     await fill('memo-edit-text', 'second note');
-    m.daemon.knobs.refuse('task.memo.edit', 'state', 'that task is being merged');
+    m.daemon.knobs.refuse('task.comment.edit', 'state', 'that task is being merged');
     await press($('sheet-submit'));
     await until(() => text().includes('that task is being merged'), 'the reason', 3000);
     expect($('sheet')).not.toBeNull();
@@ -272,9 +272,9 @@ describe('the task verbs', () => {
     await press($('sheet-cancel'));
     expect(m.daemon.tasks.get({ task: MINE_DOING }).memos.length).toBe(1);
     await press($(`memo-delete-${id}`));
-    m.daemon.knobs.refuse('task.memo.delete', 'state', 'that memo is locked');
+    m.daemon.knobs.refuse('task.comment.delete', 'state', 'that comment is locked');
     await press($('sheet-submit'));
-    await until(() => text().includes('that memo is locked'), 'the reason', 3000);
+    await until(() => text().includes('that comment is locked'), 'the reason', 3000);
     expect($(`memo-${id}`)).not.toBeNull();
     m.daemon.knobs.clear();
     await press($('sheet-submit'));
@@ -289,7 +289,7 @@ describe('the task verbs', () => {
     expect((await verb('done'))?.getAttribute('aria-disabled')).toBe('true');
     expect(text()).toContain('this daemon does not serve task.done');
     expect($('memo-send')?.getAttribute('aria-disabled')).toBe('true'); // the fake serves no memos
-    expect(text()).toContain('this daemon does not serve task.memo.add');
+    expect(text()).toContain('this daemon does not serve task.comment.add');
     m.store.stop();
   });
 });

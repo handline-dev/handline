@@ -11,8 +11,8 @@ let root: Root | null = null;
 let box: HTMLElement;
 let marks: Mark[] = [];
 const svg = () => box.querySelector<SVGSVGElement>('svg[aria-label="Mark here"]')!;
-const memo = () => box.querySelector<HTMLTextAreaElement>('textarea[aria-label="Memo"]');
-const badges = () => [...box.querySelectorAll<HTMLButtonElement>('button[aria-label^="Memo "]')];
+const memo = () => box.querySelector<HTMLTextAreaElement>('textarea[aria-label="Comment"]');
+const badges = () => [...box.querySelectorAll<HTMLButtonElement>('button[aria-label^="Comment "]')];
 const undo = () => [...box.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Undo (⌘Z)')!;
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 
@@ -56,7 +56,7 @@ describe('memo marks', () => {
     await mount();
     expect(box.querySelector('[role="toolbar"]')).toBeNull();
     expect(undo().hasAttribute('disabled')).toBe(true);
-    expect(box.textContent).toContain('0 memos');
+    expect(box.textContent).toContain('0 comments');
   });
 
   it('a tap pins a circle, a drag draws a box, a loop marks an area: each opens its memo at the mark', async () => {
@@ -73,7 +73,7 @@ describe('memo marks', () => {
     expect(marks.map((m) => m.kind)).toEqual(['pin', 'box', 'area']);
     expect(marks[1]!.rect).toEqual({ x: 100, y: 100, w: 60, h: 40 }); // picture pixels
     expect(badges().map((b) => b.textContent)).toEqual(['1', '2', '3']);
-    expect(box.textContent).toContain('3 memos');
+    expect(box.textContent).toContain('3 comments');
   });
 
   it('a number on a mark opens its memo again, with its words', async () => {
@@ -106,7 +106,7 @@ describe('memo marks', () => {
   it('the memo box deletes its mark', async () => {
     await mount();
     await gesture([20, 20], [20, 20]);
-    await click([...box.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Delete memo')!);
+    await click([...box.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'Delete comment')!);
     expect(badges()).toHaveLength(0);
     expect(memo()).toBeNull();
   });
