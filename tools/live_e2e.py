@@ -419,6 +419,12 @@ def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, home: Path, g
     req = d.write("chat.send", {"agent": a, "body": "Reply with the single word PONG and nothing else."}).get("request")
     r.step("message landed", t, landed(req))
     r.step("working after the message was sent", t, agent_changed(a, "running"))
+    # The founder's message is typed as the person's prompt (-founder-typed), so its reply is the turn's text, read from the transcript.
+    reply = r.step("typed message's reply reached the founder chat", t,
+                   lambda ev: ev["type"] == "chat.message" and ev["data"].get("from") == a and "PONG" in (ev["data"].get("body") or ""),
+                   model=True)
+    if reply:
+        print(f"live-e2e: founder request {req}, reply {reply['data'].get('id')}: {reply['data'].get('body')!r}", flush=True)
     idle = r.s.wait(t, agent_changed(a, "idle"), time.time() + MODEL_S)
     replied = None
     for _ in range(25):  # Claude Code writes the hook's summary line after the hook ran, so it can land after the idle it caused

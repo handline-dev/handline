@@ -32,6 +32,9 @@ type Env struct {
 	// FounderTyped says the founder's own messages to agent are typed into its terminal as its person's prompt, and the agent's plain text
 	// after one is its reply (founderchat.go); nil is never.
 	FounderTyped func(agent string) bool
+	// Typeable is why the founder's words cannot be typed at agent now, "" when they can; nil is always. One that cannot be typed is
+	// said through the inbox instead (db.MarkFounderSaid).
+	Typeable func(agent string) string
 
 	mu        sync.Mutex
 	sendLocks map[string]*sync.Mutex // per agent: its send ledger is read and written under its lock, so two callers never write one operation twice
@@ -39,6 +42,7 @@ type Env struct {
 	seenAt    time.Time
 	drawn     map[string]drawnAt
 	typedAt   map[int64]int64 // request -> when this daemon last typed it (landing)
+	saying    map[int64]bool  // founder's messages being said through the inbox by the send in hand, not yet committed (TypedOp)
 	held      map[string]string
 	noted     map[string]noted
 	failed    map[string]failure
@@ -104,6 +108,7 @@ func (e *Env) init() {
 		e.seen = map[string]Seen{}
 		e.drawn = map[string]drawnAt{}
 		e.typedAt = map[int64]int64{}
+		e.saying = map[int64]bool{}
 		e.held = map[string]string{}
 		e.noted = map[string]noted{}
 		e.failed = map[string]failure{}

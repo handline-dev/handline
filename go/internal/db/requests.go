@@ -418,7 +418,13 @@ func MarkFounderAuthored(q Q, rid int64) error {
 	return err
 }
 
-// FounderAuthored is whether MarkFounderAuthored marked the request.
+// MarkFounderSaid records that a founder's own message is said through the inbox, not typed: its agent could not be typed at.
+func MarkFounderSaid(q Q, rid int64) error {
+	_, err := q.Exec("UPDATE requests SET founder_auth = 2 WHERE id = ? AND founder_auth = 1", rid)
+	return err
+}
+
+// FounderAuthored is whether MarkFounderAuthored marked the request and it is typed, not said (MarkFounderSaid).
 func FounderAuthored(q Q, rid int64) (bool, error) {
 	var v int
 	err := q.QueryRow("SELECT founder_auth FROM requests WHERE id = ?", rid).Scan(&v)

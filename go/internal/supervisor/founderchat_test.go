@@ -53,6 +53,31 @@ func TestTheFoundersMessageIsTypedAsWrittenAndAnAgentsStillGoesToTheInbox(t *tes
 	eventually(t, func() bool { row, _ := db.GetRequest(r.DB, mine); return row.LandedAt.Valid })
 }
 
+// A founder's message to an agent that cannot be typed at now is said through the inbox, as before, inside the send's own transaction.
+func TestTheFoundersMessageIsSaidThroughTheInboxWhenTheAgentCannotBeTypedAt(t *testing.T) {
+	r, in, typed := typedRig(t)
+	r.Typeable = func(string) string { return "a person or device holds its input" }
+	r.Agents.(*peerport.Port).Typeable = r.Typeable
+	mine := r.founderSays("bob", "what is 3+4?")
+	tx, err := r.DB.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.TellNow(tx, mine); err != nil || got != "sent" {
+		t.Fatalf("%q %v", got, err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool { return in.count() == 1 })
+	if len(*typed) != 0 || strings.HasPrefix(in.texts[0], "typed: ") || !strings.Contains(in.texts[0], "what is 3+4?") {
+		t.Fatalf("said, not typed: %q %q", *typed, in.texts)
+	}
+	if typedNow, _ := db.FounderAuthored(r.DB, mine); typedNow {
+		t.Fatal("the row still says it was typed, so its landing and reply would be looked for as typed")
+	}
+}
+
 // transcriptOf writes a transcript of these records, one a line.
 func transcriptOf(t *testing.T, recs ...map[string]any) string {
 	t.Helper()
