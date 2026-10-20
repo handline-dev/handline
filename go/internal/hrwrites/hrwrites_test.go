@@ -730,7 +730,7 @@ func TestAPairedDeviceDecidesAndAnAgentSessionIsRefused(t *testing.T) {
 
 func (r *rig) told(who string) []string {
 	r.t.Helper()
-	rows, err := r.db.Query("SELECT body FROM requests WHERE target = ? AND requester = 'human' ORDER BY id", who)
+	rows, err := r.db.Query("SELECT body FROM requests WHERE target = ? AND requester = ? AND notice >= 1 ORDER BY id", who, dbpkg.NoticeRequester)
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -764,6 +764,46 @@ func TestTheProposerIsToldHowEachDecisionWentInTheWordsHrPyUsed(t *testing.T) {
 	}
 }
 
+func TestABatchOfDecisionsWaitsForTheProposersDigestAndNothingIsFromTheFounder(t *testing.T) {
+	r := newRig(t)
+	for i := 0; i < 5; i++ {
+		p, id := r.propose(fmt.Sprintf("aaaa002%d", i), "kind", "link", "agent", "alice", "to", "bob")
+		r.decide(id, ifThen(i%2 == 0, "approve", "reject"), p.subject(), fmt.Sprintf("b%d", i))
+	}
+	for _, who := range []string{"alice", "bob"} {
+		if pending, err := dbpkg.PendingNotices(r.db, who); err != nil || len(pending) != 5 {
+			t.Fatalf("%s: five outcomes wait for one digest: %d %v", who, len(pending), err)
+		}
+	}
+	var fromFounder int
+	r.db.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'alice' AND requester = 'human'").Scan(&fromFounder)
+	if fromFounder != 0 {
+		t.Fatalf("%d outcomes were said as the founder", fromFounder)
+	}
+}
+
+func TestAnOutcomeReachesTheAgentsABundleNamesOnceEach(t *testing.T) {
+	r := newRig(t)
+	if _, err := team.NewRoster(r.home).Register("carol", team.RegisterOpts{Role: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	_, id := r.propose("aaaa0031", "kind", "bundle", "agent", "2 changes",
+		"i1.kind", "link", "i1.agent", "carol", "i1.to", "bob", "i2.kind", "link", "i2.agent", "alice", "i2.to", "alice")
+	r.decide(id, "reject", "", "n1")
+	for who, want := range map[string]int{"alice": 1, "bob": 1, "carol": 1} {
+		if got := len(r.told(who)); got != want {
+			t.Errorf("%s was told %d times, want %d", who, got, want)
+		}
+	}
+}
+
+func ifThen(c bool, a, b string) string {
+	if c {
+		return a
+	}
+	return b
+}
+
 func TestEachOutcomeMessageNamesTheProposalItIsAbout(t *testing.T) {
 	r := newRig(t)
 	_, rejected := r.propose("aaaa0015", "kind", "link", "agent", "alice", "to", "bob")
@@ -771,7 +811,7 @@ func TestEachOutcomeMessageNamesTheProposalItIsAbout(t *testing.T) {
 	p, applied := r.propose("aaaa0016", "kind", "link", "agent", "alice", "to", "bob")
 	r.decide(applied, "approve", p.subject(), "o2")
 	rows, err := r.db.Query("SELECT json_extract(e.payload, '$.proposal') FROM requests q LEFT JOIN events e ON e.dedup_key = 'hr_outcome:' || q.id " +
-		"WHERE q.target = 'alice' AND q.requester = 'human' ORDER BY q.id")
+		"WHERE q.target = 'alice' AND q.notice >= 1 ORDER BY q.id")
 	if err != nil {
 		t.Fatal(err)
 	}

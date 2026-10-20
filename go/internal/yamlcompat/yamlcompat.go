@@ -827,6 +827,9 @@ func hasAnyPrefix(s string, prefixes []string) bool {
 	return false
 }
 
+// IsFloat is whether a plain scalar reads as a float: it needs a decimal point, so 149628e2 is a string.
+func IsFloat(s string) bool { return floatRe.MatchString(s) }
+
 // FloatRepr is a float as Python's repr writes it.
 func FloatRepr(f float64) string { return floatRepr(f) }
 
