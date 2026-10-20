@@ -9,7 +9,7 @@ import (
 type Watch struct {
 	Vendor, Target, Until, Label string
 	Result, Error                string
-	Since                        int64 // when the gate started watching
+	Since                        int64 // when the gate started watching: its creation
 }
 
 // GateDeadlineS is a gate's time box when none is given.
@@ -24,7 +24,7 @@ func OpenGate(q Q, tid int64, by string, w Watch) error {
 	return err
 }
 
-const watchCols = "watch_vendor, watch_target, watch_until, watch_label, COALESCE(watch_result, ''), COALESCE(watch_error, ''), COALESCE(sent_at, 0)"
+const watchCols = "watch_vendor, watch_target, watch_until, watch_label, COALESCE(watch_result, ''), COALESCE(watch_error, ''), created_at"
 
 func (w *Watch) dest() []any {
 	return []any{&w.Vendor, &w.Target, &w.Until, &w.Label, &w.Result, &w.Error, &w.Since}
