@@ -34,6 +34,15 @@ const menuItem = (label: string) => [...document.querySelectorAll<HTMLElement>('
 const openMenu = (agent: string) =>
   act(async () => void row(agent)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
 
+/** Opens the agent menu and clicks Delete agent once the item and the sheet have rendered. */
+async function openSheet(agent: string) {
+  await openMenu(agent);
+  await until(() => menuItem('Delete agent'), 'the menu item');
+  await click(menuItem('Delete agent')!);
+  await until(() => $('[role=alertdialog]'), 'the sheet');
+  return $('[role=alertdialog]')!;
+}
+
 async function mount() {
   const s = setup();
   location.hash = `#/agents/${ARCH}`;
@@ -55,9 +64,11 @@ describe('Delete agent', () => {
   it('is the last item of the agent menu; the sheet says what goes and what stays, and Delete removes the row', async () => {
     const s = await mount();
     await openMenu(TB);
+    await until(() => menuItem('Delete agent'), 'the menu item');
     const items = [...document.querySelectorAll('[role=menuitem]')];
     expect(text(items.at(-1)!)).toBe('Delete agent');
     await click(menuItem('Delete agent')!);
+    await until(() => $('[role=alertdialog]'), 'the sheet');
     const sheet = $('[role=alertdialog]')!;
     expect(text(sheet)).toContain(`Delete ${TB}?`);
     expect(text(sheet)).toMatch(/team entry, schedule and keys go/);
@@ -70,9 +81,8 @@ describe('Delete agent', () => {
 
   it("keeps the sheet open and shows the daemon's reason as it is when the agent is refused", async () => {
     const s = await mount();
-    await openMenu(AUD);
-    await click(menuItem('Delete agent')!);
-    await click([...$('[role=alertdialog]')!.querySelectorAll('button')].find((b) => text(b) === 'Delete')!);
+    const sheet = await openSheet(AUD);
+    await click([...sheet.querySelectorAll('button')].find((b) => text(b) === 'Delete')!);
     await until(() => $('[role=alertdialog] [role=alert]'), 'the reason');
     expect(text($('[role=alertdialog] [role=alert]'))).toContain('has a session running');
     expect(row(AUD)).not.toBeNull();
@@ -81,9 +91,8 @@ describe('Delete agent', () => {
 
   it('Cancel closes the sheet and sends nothing', async () => {
     const s = await mount();
-    await openMenu(TB);
-    await click(menuItem('Delete agent')!);
-    await click([...$('[role=alertdialog]')!.querySelectorAll('button')].find((b) => text(b) === 'Cancel')!);
+    const sheet = await openSheet(TB);
+    await click([...sheet.querySelectorAll('button')].find((b) => text(b) === 'Cancel')!);
     expect($('[role=alertdialog]')).toBeNull();
     expect(s.daemon.sessions.has(TB)).toBe(true);
   });
