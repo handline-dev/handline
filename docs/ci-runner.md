@@ -1,42 +1,18 @@
-# The Go CI runner
+# The Go CI jobs
 
-The `go` job of `.github/workflows/check.yml` runs on a self-hosted runner on the founder's server (2 cores, 3 GB of
-memory), named `handline-ci-1`, registered for the handline-dev organization and labelled `handline-ci`; the `apps` job
-stays on GitHub's runners. Its Go build and test caches stay on the server's disk between runs, so `go test ./...` reruns
-only the packages a change touched and those that import them.
+`.github/workflows/check.yml` runs on GitHub's `ubuntu-latest` runners, free for a public repository. No job needs macOS
+or a machine of ours.
 
-## The registration token
+- `apps`: the web, mobile and electron tests, typecheck and lint.
+- `daemon (<shard>)`: the Go suite, one job per shard of packages in parallel: `compose` (the long pole alone), `cli`,
+  `daemon`, `terminal`, and `other`, which is every package no named shard lists. `tools/go-shard.sh` holds the lists.
+- `contract`: what is not a package's test: `go.mod` tidy, no new copy of Go code, the build, the conformance fixtures
+  (`tools/test-go.sh --gates`) and the generated contract files.
 
-GitHub, the handline-dev organization's Settings > Actions > Runners > New runner. Type it on the server in step 3 only.
-It never goes in the repository, a script default, a shell history line that is kept, or a log.
+Tools: Go comes from `actions/setup-go` (the version in `go/go.mod`), which restores a module and build cache keyed by
+`go/go.sum`. The Go jobs install `tmux` with apt, for the terminal tests; `git` and `python3` are on the image.
 
-## Setup (as root, once)
+Leftovers: each Go job runs under `tools/leakcheck.py run --dir <runner temp>/hlc`, which fails it when it leaves a process,
+tmux server or temp file behind.
 
-1. Packages: `apt-get install -y git tmux python3 curl` (Python 3.12 or newer, for the parity tests). The job installs Go
-   itself (`actions/setup-go`).
-2. A user with no sudo, and its directories:
-   `useradd -m -s /bin/bash ci && sudo -u ci mkdir -p ~ci/runner`
-3. The runner, as `ci` in `~ci/runner`: download the Linux x64 package the GitHub page names and unpack it, then
-   `./config.sh --url https://github.com/handline-dev --labels handline-ci --name handline-ci-1`, and paste the token
-   at its prompt (not as `--token`, which would land in the shell history). `self-hosted`, `Linux` and `X64` are added by
-   the runner.
-4. The service, as root in `~ci/runner`: `./svc.sh install ci && ./svc.sh start` (a systemd unit that starts on boot).
-
-## Where things go, and what cleans them
-
-- Checkout: `~ci/runner/_work/handline`, reused; `actions/checkout` removes untracked files each run.
-- Test temp files: the job runs the Go suite under `tools/leakcheck.py run --dir <runner temp>/hlc`, which sets `TMPDIR`
-  to the same path each run and fails the job when the suite leaves a process, tmux server or temp file behind. The
-  runner empties its temp directory after every job and kills the processes a job leaves behind when it ends.
-- Go caches: `~ci/.cache/go-build` and `~ci/go/pkg/mod`. `tools/go-env.sh` already drops build cache files
-  no build used for two days, once a day. The hard cap is 10 GB, a root cron line:
-  `0 4 * * * [ "$(du -sm ~ci/.cache/go-build | cut -f1)" -gt 10240 ] && sudo -u ci rm -rf ~ci/.cache/go-build`
-
-## Memory
-
-With 2 cores and 3 GB the job runs `go test` with `-p=1` (one test binary at a time); GOMAXPROCS stays at the core
-count. One runner runs one job at a time; others wait in its queue.
-
-## Until the runner exists
-
-The `go` job waits for a runner and the pull request does not go green. The `apps` job runs on GitHub's runners regardless.
+A pull request from a fork runs the jobs too: a hosted runner is not the founder's machine.
