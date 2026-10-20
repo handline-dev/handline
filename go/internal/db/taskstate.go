@@ -23,8 +23,7 @@ func SinceRelease(task string) string {
 		"json_extract(r.payload, '$.task_id') = " + task + "), 0)"
 }
 
-// Begun is actions._begun: the task was begun on a founder's message (task_begin), or started bare by its owner (task_self_start, from
-// before that verb went), and not released since.
+// Begun is actions._begun: begun by task_begin or task_self_start, and not released since.
 func Begun(q Q, tid int64) (bool, error) {
 	var one int
 	err := q.QueryRow("SELECT 1 FROM events WHERE kind IN ('task_begin', 'task_self_start') AND "+eventTask+" = ?"+SinceRelease("?")+" LIMIT 1", tid, tid).Scan(&one)
@@ -46,8 +45,7 @@ func ReadsDoing(q Q, tid int64) (bool, error) {
 	return t.SentAt.Valid, nil
 }
 
-// HoldsCurrent is actions.holds_current: nothing else of its owner's is in the task's way, so it may be delivered. Reading doing asks for
-// more (isCurrent).
+// HoldsCurrent is actions.holds_current: the task may be delivered (wayFree).
 func HoldsCurrent(q Q, t *Task) (bool, error) {
 	if t.Owner == Human || t.Owner == Gate {
 		return true, nil
@@ -58,7 +56,7 @@ func HoldsCurrent(q Q, t *Task) (bool, error) {
 	return wayFree(q, t.Owner)
 }
 
-// wayFree is whether agent holds no task that keeps others back: none, one that has ended, or one that is blocked.
+// wayFree: agent holds no open, unblocked task.
 func wayFree(q Q, agent string) (bool, error) {
 	held, ok, err := CurrentTask(q, agent)
 	if err != nil || !ok {
@@ -72,7 +70,6 @@ func wayFree(q Q, agent string) (bool, error) {
 	return len(bs) > 0, err
 }
 
-// isCurrent is whether the task is the one its owner holds: at most one per agent.
 func isCurrent(q Q, t *Task) (bool, error) {
 	if t.Owner == Human || t.Owner == Gate {
 		return true, nil
@@ -98,7 +95,6 @@ func HeldByHolder(q Q, agent string, r *Request) (bool, error) {
 	return false, nil
 }
 
-// IsDoing is actions.is_doing: TaskState reads doing.
 func IsDoing(q Q, tid int64) (bool, error) {
 	t, err := GetTask(q, tid)
 	if err != nil || t == nil {
@@ -122,8 +118,7 @@ func stateOf(t *Task, doing, asked bool) string {
 	return "draft"
 }
 
-// TaskState is actions.task_state: draft, queued, doing, done or discarded. Doing is its owner's current task with no open blocker; any other
-// task that was sent and is open is queued.
+// TaskState is actions.task_state. Doing is its owner's current, unblocked task; any other sent open task is queued.
 func TaskState(q Q, t *Task) (string, error) {
 	if t.Ended() {
 		return stateOf(t, false, false), nil

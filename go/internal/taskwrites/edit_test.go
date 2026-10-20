@@ -171,7 +171,7 @@ func TestAWaitOnACurrentTaskLetsItsOwnerGoInTheSameWrite(t *testing.T) {
 	if e := errText(call(t, mk("manager", f), `{"jsonrpc":"2.0","id":5,"method":"task.release","params":{"task":1,"request_id":"x1"}}`)[0]); e != "task T1 is draft, not doing - nothing to release" {
 		t.Fatalf("the writes read a blocked task as not doing, as the board does: %q", e)
 	}
-	// A child blocks its parent: opening one under the lead's current task frees the lead.
+	// a child under the lead's current task frees the lead
 	f = &fakeTeller{}
 	r = call(t, mk("manager", f), `{"jsonrpc":"2.0","id":4,"method":"task.new","params":{"owner":"other","title":"review it","body":"b","parent":4,"request_id":"n1"}}`)
 	if r[0]["result"] == nil || len(f.edited) != 1 || f.edited[0].Freed != "manager" {

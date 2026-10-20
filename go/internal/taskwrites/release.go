@@ -180,4 +180,3 @@ func releaseTask(tx *sql.Tx, home, by string, tid int64, reason string) (release
 	}
 	return r, nil
 }
-

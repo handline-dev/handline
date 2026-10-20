@@ -345,7 +345,6 @@ func TestAnInputHoldIsLostAfterTheConfiguredIdleTime(t *testing.T) {
 	}
 }
 
-// The board reads every task as db.TaskState does, a blocked current task and an agent holding none included.
 func TestTheBoardAgreesWithTheOneRule(t *testing.T) {
 	e := testEnv(t)
 	for _, q := range []string{

@@ -135,7 +135,7 @@ func TestAdvanceClearsACurrentTaskThatHasNothingLeft(t *testing.T) {
 	if _, ok, _ := db.CurrentTask(r.DB, "bob"); ok {
 		t.Fatal("still current")
 	}
-	// a blocked current task is let go: its owner is free for other work (the first tick after an upgrade finds these)
+	// a blocked current task is let go
 	blocked := r.newTask("bob", "alice", "blocked")
 	db.SetCurrentTask(r.DB, "bob", blocked, true)
 	blocker := r.newTask("alice", "alice", "first")
@@ -550,8 +550,7 @@ func (r *rig) beginCurrent(owner, opener, title string) int64 {
 	return tid
 }
 
-// The stall this guards against: a lead's one current task waits on another agent's task, and its queued tasks never reached it. A blocked
-// task frees its owner at once, running or not; it comes back, still begun, once its blocker is done.
+// The stall this guards against: a lead's one current task waits on another agent's task, and its queued tasks never reached it.
 func TestSweepGivesAnAgentItsNextTaskWhileItsBegunTaskWaits(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
@@ -604,7 +603,6 @@ func TestSweepPingsTheIdleHolderOfAnOverdueTaskOncePerDeadline(t *testing.T) {
 	}
 }
 
-// A wait on the current task frees its owner for its next one; once the wait ends the task waits its turn, and comes back still begun.
 func TestABlockedTaskFreesItsOwnerAndComesBackWithoutPreempting(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")

@@ -226,8 +226,6 @@ func TestAnAgentHasAtMostOneDoing(t *testing.T) {
 	}
 }
 
-// A task delivered while its agent's current task is blocked is let through and becomes the current one; one behind an open, unblocked
-// current task is held back and leaves the current one alone.
 func TestDeliveryAndTheCurrentTaskAgreeOnWhatIsInTheWay(t *testing.T) {
 	q := open(t)
 	cur := seedTask(t, q, "w", "a")

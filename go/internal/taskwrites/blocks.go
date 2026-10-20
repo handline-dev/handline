@@ -102,8 +102,7 @@ func recordBlock(tx *sql.Tx, tid, blocksOn int64, by string) (string, error) {
 	return "", addEvent(tx, by, "block_task", kv{"task_id", tid}, kv{"blocks_on", blocksOn})
 }
 
-// freeHolder lets go of task tid when it is its owner's current task and now has an open blocker, so the owner moves on after the commit. It
-// answers that owner, "" when nothing was let go.
+// freeHolder lets go of tid when it is its owner's current task and now blocked. It answers that owner, "" for none.
 func freeHolder(tx *sql.Tx, tid int64) (string, error) {
 	t, err := getTask(tx, tid)
 	if err != nil || t == nil || t.Owner == human || t.Owner == db.Gate {

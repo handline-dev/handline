@@ -67,8 +67,7 @@ func (e *Env) SweepTaskQueue(now int64) (err error) {
 	return nil
 }
 
-// moveOffWaiting: an idle agent whose current task is past its timeout with no answer is given its next queued task and told why. With none
-// to give, it pings the holder once per deadline, not only its opener. A blocked current task needs none of this: it frees its owner.
+// moveOffWaiting gives an idle agent with an overdue, unanswered current task its next one, or pings the holder once per deadline.
 func (e *Env) moveOffWaiting(q db.Q, agent string) {
 	tid, ok := ok2(db.CurrentTask(q, agent))
 	cur := must(db.GetTask(q, tid))

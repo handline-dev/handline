@@ -458,8 +458,7 @@ func MarkDelivered(q Q, rid int64) (bool, error) {
 	return true, holdDelivered(q, rid, target)
 }
 
-// holdDelivered makes the task request rid delivers the agent's current one when nothing it holds is in the way (wayFree): the work it
-// was just given is what it is doing.
+// holdDelivered makes the task rid delivers its agent's current one when wayFree.
 func holdDelivered(q Q, rid int64, agent string) error {
 	if free, err := wayFree(q, agent); err != nil || !free {
 		return err

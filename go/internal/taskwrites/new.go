@@ -183,7 +183,7 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			if !asked.OK {
 				return nil, &rpc.CommitThen{Err: refusal(asked.Msg)}
 			}
-			// The new task blocks its parent, and its own blocker may block it while it is already its owner's current one.
+			// The new task blocks its parent, and its own blocker may block it.
 			for _, blocked := range []int64{parent, tid} {
 				if o, err := freeHolder(tx, blocked); err != nil {
 					return nil, err

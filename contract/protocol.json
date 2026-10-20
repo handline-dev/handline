@@ -6906,7 +6906,7 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "description": "A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them. A doing task goes queued and its owner moves on to its next task."
+      "description": "A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them. A doing task goes back to queued."
      }
     },
     {
@@ -10533,7 +10533,7 @@
      },
      "state": {
       "type": "string",
-      "description": "draft, queued, doing, done or discarded. doing is its owner's current task with no open blocker, so an agent has at most one; any other open task that was sent is queued."
+      "description": "draft, queued, doing, done or discarded. doing is its owner's current, unblocked task (one per agent)."
      },
      "time_box": {
       "oneOf": [
