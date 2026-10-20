@@ -87,8 +87,6 @@
   "hl task edit": "task.edit",
   "hl task merge": "task.merge",
   "hl task release": "task.release",
-  "hl task accept": "task.accept",
-  "hl task reject": "task.reject",
   "hl task discard": "task.discard",
   "hl task queue": "task.queue",
   "hl task draft": "task.draft",
@@ -274,7 +272,7 @@
    "preparing": "Has work and the daemon starts or sends it at its next tick; nothing stands in the way. Reasons: work, restart, retry.",
    "starting": "A launch is in progress (agents). Reason: launch.",
    "running": "Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, watch, handoff, background.",
-   "waiting": "Held by something the daemon names: a person, another task, the owner, a clock, an account move, the machine's load. Reasons: you, review, opener, task, owner, clock, move, load.",
+   "waiting": "Held by something the daemon names: a person, another task, the owner, a clock, an account move, the machine's load. Reasons: you, opener, task, owner, clock, move, load.",
    "stopped": "Will not go on by itself: no account has room (until the reset when it is known) or a person must unstall it. Reasons: wall, cap, stalled.",
    "idle": "At its prompt with nothing to do (agents). Reason: none.",
    "off": "Registered with no terminal and nothing waiting for it (agents). Reason: none.",
@@ -290,7 +288,6 @@
    "handoff": "A hand-off to a new session is moving.",
    "background": "Background work runs while the agent sits at its prompt.",
    "you": "A person must answer: a dialog or prompt on the agent, an open request to the founder on the task, or a task the founder owns.",
-   "review": "Answered: waits on its asker's accept or reject.",
    "opener": "A draft: waits on its opener to queue it.",
    "task": "Waits on other tasks; tasks lists them.",
    "owner": "Waits on its owner, busy with something text names.",
@@ -4778,7 +4775,7 @@
      "required": false,
      "schema": {
       "type": "boolean",
-      "description": "Only the tasks the caller holds that wait on it: queued or doing, never draft, in review or ended; the founder's are the ones assigned to human. One row per task. It takes no owner."
+      "description": "Only the tasks the caller holds that wait on it: queued or doing, never draft or ended; the founder's are the ones assigned to human. One row per task. It takes no owner."
      }
     },
     {
@@ -5384,7 +5381,7 @@
      "$ref": "#/components/errors/not_found"
     }
    ],
-   "description": "Anyone may hand an open task on, not only its owner (the asker takes a task in review back so); the move clears an answer and an accept, and task.history's row names who made it (by)."
+   "description": "Anyone may hand an open task on, not only its owner (the asker takes a task back so). A review is a handoff: the holder hands the task to its reviewer, who hands it back with findings or on, or marks it done. task.history's row names who made the move (by)."
   },
   {
    "name": "task.done",
@@ -5482,107 +5479,7 @@
      "$ref": "#/components/errors/bad_request"
     }
    ],
-   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner goes to review when the task answers to someone else (its reporter, or its opener) and the owner has a lead (its team's manager, else its supervisor): the task turns review, stays with its owner, and waits for task.accept, task.reject or a reassign by anyone (task.handoff, task.edit), its lead told. A done by an owner the task answers to, by its team's auditor (named like the team plus .auditor) or by an owner with no lead closes it at once; so does the founder's, except on a task they hold that someone else asked, which waits on that asker. A task accepted with a PR closes with a done whose evidence is the merge sha on main, by its owner, the founder or anyone who may accept it. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`."
-  },
-  {
-   "name": "task.accept",
-   "summary": "Accept a task's report: it closes done.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "task",
-     "required": true,
-     "schema": {
-      "type": "integer"
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    },
-    {
-     "name": "by_founder",
-     "required": false,
-     "schema": {
-      "type": "integer",
-      "description": "A chat message id: the founder's OK on this task, kept with the accept as its proof. Refused unless the founder wrote the message, it is tied to the task and it came after the report."
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "agent",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ],
-   "description": "The task must be in review. Its assignee's lead or its team's auditor, its reporter, its opener or the founder may accept. It closes with the report as its evidence and the owner is told; a task with a PR (task.edit pr) is accepted instead and stays in review, waiting on that PR's merge (a second accept is refused). With by_founder the founder's chat OK is checked and kept in the task's accept_task event (`hl task accept T<n> --by-founder <message id>`)."
-  },
-  {
-   "name": "task.reject",
-   "summary": "Reject a task's report: it goes back to its owner.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "task",
-     "required": true,
-     "schema": {
-      "type": "integer"
-     }
-    },
-    {
-     "name": "note",
-     "required": true,
-     "schema": {
-      "type": "string",
-      "description": "One line: what is missing. It is told to the owner. It may then name images (x-attachments, texts), each on a line of its own after the words; nothing else may follow them."
-     }
-    },
-    {
-     "name": "request_id",
-     "required": true,
-     "schema": {
-      "$ref": "#/components/schemas/RequestId"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Accepted"
-    }
-   },
-   "x-role": "agent",
-   "x-write": true,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/refused"
-    },
-    {
-     "$ref": "#/components/errors/not_found"
-    },
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ],
-   "description": "The task must be in review, accepted or not. Its assignee's lead or its team's auditor, its reporter, its opener or the founder may reject. The report (and an accept) and its commit and shots are dropped, the task is queued again for its owner, and the note is told to the owner."
+   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner or the founder closes the task: nothing waits on an accept. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`."
   },
   {
    "name": "task.reopen",
@@ -6806,7 +6703,7 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "description": "The pull request the task's work merges in (`hl task edit T<n> --pr <n>`), on an open task. Accepted, the task then waits on that PR's merge."
+      "description": "The pull request the task's work merges in (`hl task edit T<n> --pr <n>`), on an open task. A link only: nothing waits on it."
      }
     }
    ],
@@ -10388,7 +10285,7 @@
      },
      "state": {
       "type": "string",
-      "description": "draft, queued, doing, review (its assignee's done waits on task.accept, task.reject or a reassign, or, accepted with a PR, on that PR's merge), done or discarded."
+      "description": "draft, queued, doing, done or discarded."
      },
      "time_box": {
       "oneOf": [
@@ -10637,60 +10534,6 @@
       ],
       "description": "The task's clock, the same object task.get gives; null once it is done or discarded. Absent from a daemon that does not send it."
      },
-     "report": {
-      "oneOf": [
-       {
-        "type": "object",
-        "properties": {
-         "by": {
-          "type": "string"
-         },
-         "evidence": {
-          "type": "string"
-         },
-         "at": {
-          "$ref": "#/components/schemas/Timestamp"
-         },
-         "waits_on": {
-          "type": "string",
-          "description": "Who the review waits on: the assignee's lead, else whoever it answers to; human once it is accepted with a PR (the founder's merge OK). Absent from a daemon that does not send it."
-         },
-         "accepted": {
-          "oneOf": [
-           {
-            "type": "object",
-            "properties": {
-             "by": {
-              "type": "string"
-             },
-             "at": {
-              "$ref": "#/components/schemas/Timestamp"
-             }
-            },
-            "required": [
-             "by",
-             "at"
-            ]
-           },
-           {
-            "type": "null"
-           }
-          ],
-          "description": "The accept of a task with a PR, which then waits on that PR's merge; null until then. Absent from a daemon that does not send it."
-         }
-        },
-        "required": [
-         "by",
-         "evidence",
-         "at"
-        ]
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "description": "The done in review while the task's state is review; null otherwise. Absent from a daemon that does not send it."
-     },
      "pr": {
       "oneOf": [
        {
@@ -10700,7 +10543,18 @@
         "type": "null"
        }
       ],
-      "description": "The pull request its work merges in (task.edit pr); an accepted task with one closes at that merge. Absent from a daemon that does not send it."
+      "description": "The pull request its work merges in (task.edit pr), as a link. Absent from a daemon that does not send it."
+     },
+     "watch": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/TaskWatch"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What the task watches when its owner is gate; null for any other. Absent from a daemon that does not send it."
      },
      "watch": {
       "oneOf": [
@@ -11087,7 +10941,7 @@
             "state",
             "reject"
            ],
-           "description": "memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note)."
+           "description": "memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note), from before a review was a handoff."
           },
           "text": {
            "type": "string",
@@ -13132,7 +12986,7 @@
      },
      "actions": {
       "type": "array",
-      "description": "One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task's state asks for one: in review, and it answers to the founder (Accept, Send back), or owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb.",
+      "description": "One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task is owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb.",
       "items": {
        "$ref": "#/components/schemas/ChatAction"
       }
@@ -15332,7 +15186,7 @@
        "merged_into",
        "memo"
       ],
-      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, review, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty)."
+      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty)."
      },
      "was": {
       "type": "string",
@@ -15497,7 +15351,6 @@
        "draft",
        "queued",
        "doing",
-       "review",
        "done",
        "discarded"
       ]
@@ -15652,7 +15505,7 @@
          "agent",
          "account"
         ],
-        "description": "What a waiting segment waits on: the founder's answer or acceptance, another task, another agent's acceptance of a report, an account's plan or usage limit."
+        "description": "What a waiting segment waits on: the founder's answer or acceptance, another task, another agent's acceptance of a report (on a task answered before done always closed), an account's plan or usage limit."
        },
        {
         "type": "null"
@@ -15701,8 +15554,6 @@
      "key": {
       "type": "string",
       "enum": [
-       "accept",
-       "send_back",
        "ok",
        "no"
       ]
@@ -15713,8 +15564,6 @@
      "verb": {
       "type": "string",
       "enum": [
-       "task.accept",
-       "task.reject",
        "task.done",
        "task.handoff"
       ]
@@ -15728,7 +15577,7 @@
      },
      "needs": {
       "type": "string",
-      "description": "A param the person must write before the tap sends (`note` for Send back)."
+      "description": "A param the person must write before the tap sends."
      }
     },
     "required": [
@@ -15883,7 +15732,7 @@
  "x-attachments": {
   "what": "Images a person attaches to a chat message, a task's brief, a memo or a note: one path for all of them, and one mechanism for every agent, structured or terminal: the file is stored on the daemon's machine and the agent is told its path, which it reads with its own file tool.",
   "flow": "attachment.put sends the file in chunks and ends with the Attachment (an id). A text names it as `![caption](attachment:ID)` (texts); chat.send may also list up to 6 ids in `attachments`. A message's images are those its body names, in order, then the listed ids it does not name, each once, at most 6 in all. The message is delivered like any other, with one line per image added after the body, in that order: `[image N: /absolute/path.png (image/png, 184 KB)]`. ChatMessage.attachments and turn_start.attachments list every image of the message for a client to draw, and ChatMessage.parts cuts the body at its images; the body the client stored stays as typed (the path lines are added at delivery only), so a client that shows an agent's echo of a user turn may drop lines of that shape.",
-  "texts": "A text names an image with Markdown image syntax and the attachment: scheme, `![caption](attachment:ID)`, in chat.send and say `body`, inbox.reply `text`, task.new and task.edit `body`, task.memo.add and task.memo.edit `text`, and task.handoff and task.reject `note`. The text is stored as written; only that exact form is a reference, anywhere in the text, anything else is plain text: a client draws the rest as Markdown. At most 6 per text. The write checks each image it names in its own transaction: a malformed id or an upload not yet finished is bad_request (the field, a reason naming the id); an image never put or no longer kept is not_found, what attachment; more than 6 is bad_request. chat.send's `attachments` are checked the same way, with field attachments. An edit that keeps a reference the text already had is never refused for it, even when the image is gone. A write that names an image claims it, as a message does; an image a task names (its brief, a memo, a handoff or a reject note) is not removed while that task is open, and is kept 30 days after the last such task is done or discarded. The id is the daemon's, not a device's: one device may upload it and another write the text that names it. task.get cuts each task text at its references so a client need not parse it: TaskDetail.body_parts, Memo.parts and a timeline row's parts (a reject is a row of its own); chat reads and request.read do the same for a message in `parts`. Each is a list of TextPart and ImagePart; an image no longer kept is a part with gone: true and only its id. Wherever the daemon types a message, a task's brief, a memo or a note to an agent, it adds the path lines after the text, the message's own images first, then those its task's memos name, numbered on; an agent's reads carry the path in each ImagePart, so hl task show and hl read print the same lines.",
+  "texts": "A text names an image with Markdown image syntax and the attachment: scheme, `![caption](attachment:ID)`, in chat.send and say `body`, inbox.reply `text`, task.new and task.edit `body`, task.memo.add and task.memo.edit `text`, and task.handoff `note`. The text is stored as written; only that exact form is a reference, anywhere in the text, anything else is plain text: a client draws the rest as Markdown. At most 6 per text. The write checks each image it names in its own transaction: a malformed id or an upload not yet finished is bad_request (the field, a reason naming the id); an image never put or no longer kept is not_found, what attachment; more than 6 is bad_request. chat.send's `attachments` are checked the same way, with field attachments. An edit that keeps a reference the text already had is never refused for it, even when the image is gone. A write that names an image claims it, as a message does; an image a task names (its brief, a memo or a handoff note) is not removed while that task is open, and is kept 30 days after the last such task is done or discarded. The id is the daemon's, not a device's: one device may upload it and another write the text that names it. task.get cuts each task text at its references so a client need not parse it: TaskDetail.body_parts, Memo.parts and a timeline row's parts; chat reads and request.read do the same for a message in `parts`. Each is a list of TextPart and ImagePart; an image no longer kept is a part with gone: true and only its id. Wherever the daemon types a message, a task's brief, a memo or a note to an agent, it adds the path lines after the text, the message's own images first, then those its task's memos name, numbered on; an agent's reads carry the path in each ImagePart, so hl task show and hl read print the same lines.",
   "limits": "Types: PNG, JPEG, GIF, WebP, checked by the file's first bytes, not by the mime the client says (a mismatch is bad_request, field data). SVG and everything else is refused. At most 10 MiB per image and 6 per message; chunks of at most 512 KiB of file (a 700 KiB base64 string) so a frame stays under the 1 MiB line. More than 20 unsent uploads open at once, or more than 100 MiB unsent, is refused, gate limit.",
   "storage": "The daemon's attachments folder under its home (mode 0700; files 0600, owner the daemon's user), one file per image named by its id and the extension of its type: the name the client gave is never part of the path. An upload not finished within 1 hour is dropped with its partial file; a finished image no message names is dropped after 24 hours; one a message names is kept 30 days after the last message naming it, and one a task names as texts says; then it is removed: attachment.get for it is not_found and the client shows the name without the picture.",
   "reach": "The daemon makes the folder readable by the agent without a prompt (a session setting that allows reads of that folder), so an agent in any worktree can Read the path. A client never sees the path.",

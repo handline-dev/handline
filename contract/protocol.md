@@ -140,8 +140,6 @@ A method marked write takes a required `request_id`.
 | `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box?`, `parent?`, `duplicate_ok?`, `blocked_by?`, `watch?`, `priority?`, `estimate?`, `tags?`, `expects?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` | duplicate_title |
 | `task.handoff` | agent | yes | `task`, `to`, `note?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `commit?`, `shots?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | open_children |
-| `task.accept` | agent | yes | `task`, `request_id`, `by_founder?` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `task.reject` | agent | yes | `task`, `note`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.reopen` | agent | yes | `task`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.progress` | agent (only agent) | yes | `task?`, `note`, `request_id` | `Accepted` | `refused`, `not_found` | not_self |
 | `progress.get` | agent (only agent) |  | none | `{note}` |  |  |
@@ -489,19 +487,11 @@ Create a task. The founder or a member device opens one for an agent only, and i
 
 ### `task.handoff`
 
-Hand a task to another agent. Anyone may hand an open task on, not only its owner (the asker takes a task in review back so); the move clears an answer and an accept, and task.history's row names who made it (by).
+Hand a task to another agent. Anyone may hand an open task on, not only its owner (the asker takes a task back so). A review is a handoff: the holder hands the task to its reviewer, who hands it back with findings or on, or marks it done. task.history's row names who made the move (by).
 
 ### `task.done`
 
-Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner goes to review when the task answers to someone else (its reporter, or its opener) and the owner has a lead (its team's manager, else its supervisor): the task turns review, stays with its owner, and waits for task.accept, task.reject or a reassign by anyone (task.handoff, task.edit), its lead told. A done by an owner the task answers to, by its team's auditor (named like the team plus .auditor) or by an owner with no lead closes it at once; so does the founder's, except on a task they hold that someone else asked, which waits on that asker. A task accepted with a PR closes with a done whose evidence is the merge sha on main, by its owner, the founder or anyone who may accept it. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`.
-
-### `task.accept`
-
-Accept a task's report: it closes done. The task must be in review. Its assignee's lead or its team's auditor, its reporter, its opener or the founder may accept. It closes with the report as its evidence and the owner is told; a task with a PR (task.edit pr) is accepted instead and stays in review, waiting on that PR's merge (a second accept is refused). With by_founder the founder's chat OK is checked and kept in the task's accept_task event (`hl task accept T<n> --by-founder <message id>`).
-
-### `task.reject`
-
-Reject a task's report: it goes back to its owner. The task must be in review, accepted or not. Its assignee's lead or its team's auditor, its reporter, its opener or the founder may reject. The report (and an accept) and its commit and shots are dropped, the task is queued again for its owner, and the note is told to the owner.
+Finish a task with evidence. Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner or the founder closes the task: nothing waits on an accept. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`.
 
 ### `task.reopen`
 
@@ -789,8 +779,6 @@ Every `hl` command an agent runs today and the method that serves it.
 | `hl task edit` | `task.edit` |
 | `hl task merge` | `task.merge` |
 | `hl task release` | `task.release` |
-| `hl task accept` | `task.accept` |
-| `hl task reject` | `task.reject` |
 | `hl task discard` | `task.discard` |
 | `hl task queue` | `task.queue` |
 | `hl task draft` | `task.draft` |
@@ -894,7 +882,7 @@ Every agent (AgentView.status) and every task (Task.status) carries one status: 
 | `preparing` | Has work and the daemon starts or sends it at its next tick; nothing stands in the way. Reasons: work, restart, retry. |
 | `starting` | A launch is in progress (agents). Reason: launch. |
 | `running` | Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, watch, handoff, background. |
-| `waiting` | Held by something the daemon names: a person, another task, the owner, a clock, an account move, the machine's load. Reasons: you, review, opener, task, owner, clock, move, load. |
+| `waiting` | Held by something the daemon names: a person, another task, the owner, a clock, an account move, the machine's load. Reasons: you, opener, task, owner, clock, move, load. |
 | `stopped` | Will not go on by itself: no account has room (until the reset when it is known) or a person must unstall it. Reasons: wall, cap, stalled. |
 | `idle` | At its prompt with nothing to do (agents). Reason: none. |
 | `off` | Registered with no terminal and nothing waiting for it (agents). Reason: none. |
@@ -911,7 +899,6 @@ Every agent (AgentView.status) and every task (Task.status) carries one status: 
 | `handoff` | A hand-off to a new session is moving. |
 | `background` | Background work runs while the agent sits at its prompt. |
 | `you` | A person must answer: a dialog or prompt on the agent, an open request to the founder on the task, or a task the founder owns. |
-| `review` | Answered: waits on its asker's accept or reject. |
 | `opener` | A draft: waits on its opener to queue it. |
 | `task` | Waits on other tasks; tasks lists them. |
 | `owner` | Waits on its owner, busy with something text names. |
