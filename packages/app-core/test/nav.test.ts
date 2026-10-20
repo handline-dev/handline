@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AgentView } from '@handline/client';
+import type { AgentView, Worktree } from '@handline/client';
 import { chipChanges, chipCounts, chipOf, DEFAULT_NAV, movePin, navDock, navList, navOf, togglePin, withOpen } from '#src/index.ts';
 
 const agent = (name: string, state: string, parent: string | null, unread = false) =>
@@ -49,11 +49,21 @@ test('chips read back from the filter, and count what each would show', () => {
   assert.deepEqual(chipCounts(team), { all: 5, unread: 2, needs: 1 });
 });
 
-test('the dock is the pins, then this device’s open agents that are not pinned', () => {
-  const d = navDock(team, ['orca'], ['handline.pc', 'orca', 'gone']);
+test('the dock is the pins, then the open tabs that are not pinned, each with the branch of the worktree it shows', () => {
+  const trees = [
+    { path: '/w/pc', owner: 'handline.pc', branch: 'pc-main' },
+    { path: '/w/spare', owner: null, branch: 'spare' },
+    { path: '/w/orca', owner: 'orca', branch: 'orca-main' },
+  ] as Worktree[];
+  const d = navDock(
+    team,
+    ['orca'],
+    [{ agent: 'handline.pc', path: '/w/spare' }, { agent: 'orca' }, { agent: 'gone' }, { agent: 'handline' }],
+    trees,
+  );
   assert.deepEqual(
-    [d.pinned, d.open].map((l) => l.map((a) => a.name)),
-    [['orca'], ['handline.pc']],
+    [d.pinned, d.open].map((l) => l.map((i) => `${i.agent.name}@${i.branch}`)),
+    [['orca@orca-main'], ['handline.pc@spare', 'handline@null']],
   );
 });
 
@@ -62,6 +72,8 @@ test('pins toggle and move; opening past the limit drops the oldest', () => {
   assert.deepEqual(togglePin(['a', 'b'], 'a'), ['b']);
   assert.deepEqual(movePin(['a', 'b', 'c'], 'c', 0), ['c', 'a', 'b']);
   assert.deepEqual(movePin(['a', 'b'], 'x', 0), ['a', 'b']);
-  assert.deepEqual(withOpen(['a', 'b'], 'a'), ['a', 'b']);
-  assert.deepEqual(withOpen(['a', 'b', 'c'], 'd', 3), ['b', 'c', 'd']);
+  const tabs = (...names: string[]) => names.map((agent) => ({ agent }));
+  assert.deepEqual(withOpen(tabs('a', 'b'), { agent: 'a', path: '/w' }), [{ agent: 'a', path: '/w' }, { agent: 'b' }]);
+  assert.deepEqual(withOpen(tabs('a', 'b', 'c'), { agent: 'd' }, [], 3), tabs('b', 'c', 'd'));
+  assert.deepEqual(withOpen(tabs('p', 'b', 'c'), { agent: 'd' }, ['p'], 2), tabs('p', 'c', 'd'));
 });

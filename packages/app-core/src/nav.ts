@@ -1,13 +1,12 @@
-// Which agents the agent list (every app) and the phone's dock show: the person's pins, filter, layout and folds come from the daemon
-// (prefs.get); the agents opened on this device are the app's own. Pure.
-import type { AgentView, NavPrefs, Prefs } from '@handline/client';
+// Which agents the agent list (every app) and the phone's dock show, from the person's prefs and this device's open tabs. Pure.
+import type { AgentView, NavPrefs, Prefs, Worktree } from '@handline/client';
 import { byUrgency, railMatch, railRows, visibleRows, RAIL_FILTERS, type Dot, type RailFilter, type RailRow } from '#src/model.ts';
 
 export type NavGroup = NavPrefs['hidden'][number];
 export type NavChip = 'all' | 'unread' | 'needs';
 
 export const DEFAULT_NAV: NavPrefs = { pins: [], unread_only: false, hidden: [], layout: 'tree', collapsed: [] };
-/** How many agents opened on this device the dock keeps beside the pinned ones. */
+/** How many open tabs, not counting pinned agents, the dock keeps. */
 export const OPEN_MAX = 5;
 
 export const navOf = (p: Prefs | undefined): NavPrefs => ({ ...DEFAULT_NAV, ...p?.nav });
@@ -50,25 +49,33 @@ export function pinnedOf(agents: readonly AgentView[], pins: readonly string[]):
   return pins.flatMap((n) => byName.get(n) ?? []);
 }
 
-/** The dock: the pinned agents, then the ones opened on this device that are not pinned. */
+/** An agent opened on this device, and the worktree it shows (absent: the one the agent owns). */
+export interface OpenTab {
+  agent: string;
+  path?: string;
+}
+export interface DockItem {
+  agent: AgentView;
+  branch: string | null;
+}
+
+/** The branch of the worktree at `path`, else of the first one the agent owns. */
+export const branchOf = (worktrees: readonly Worktree[], agent: string, path?: string): string | null =>
+  worktrees.find((w) => (path ? w.path === path : w.owner === agent))?.branch ?? null;
+
+/** The dock: the pinned agents, then the open tabs that are not pinned, each with its branch. */
 export function navDock(
   agents: readonly AgentView[],
   pins: readonly string[],
-  open: readonly string[],
-): { pinned: AgentView[]; open: AgentView[] } {
-  return {
-    pinned: pinnedOf(agents, pins),
-    open: pinnedOf(
-      agents,
-      open.filter((n) => !pins.includes(n)),
-    ),
-  };
+  open: readonly OpenTab[],
+  worktrees: readonly Worktree[],
+): { pinned: DockItem[]; open: DockItem[] } {
+  const item = (a: AgentView): DockItem => ({ agent: a, branch: branchOf(worktrees, a.name, open.find((t) => t.agent === a.name)?.path) });
+  const unpinned = open.map((t) => t.agent).filter((n) => !pins.includes(n));
+  return { pinned: pinnedOf(agents, pins).map(item), open: pinnedOf(agents, unpinned).map(item) };
 }
 
-/**
- * The agent list: the pinned agents on top whatever the filter, then every agent the filter and search let through (a pinned one too),
- * as a folded tree (railRows) or flat by urgency.
- */
+/** The agent list: pinned agents on top, then what the filter lets through as a folded tree or flat by urgency. */
 export function navList(agents: AgentView[], nav: NavPrefs, search = ''): { pinned: AgentView[]; rows: RailRow[] } {
   const filter = filterOf(nav, search);
   return {
@@ -95,8 +102,11 @@ export function movePin(pins: readonly string[], name: string, index: number): s
   return rest;
 }
 
-/** This device's open agents after opening `name`: one already open keeps its place; past `max` the oldest goes. */
-export function withOpen(open: readonly string[], name: string, max = OPEN_MAX): string[] {
-  if (open.includes(name)) return [...open];
-  return [...open, name].slice(-max);
+/** The open tabs after opening `tab`: an open agent keeps its place and takes the new path; past `max` unpinned, the oldest unpinned goes. */
+export function withOpen(open: readonly OpenTab[], tab: OpenTab, pins: readonly string[] = [], max = OPEN_MAX): OpenTab[] {
+  if (open.some((t) => t.agent === tab.agent)) return open.map((t) => (t.agent === tab.agent ? tab : t));
+  const next = [...open, tab];
+  const unpinned = next.filter((t) => !pins.includes(t.agent));
+  const drop = new Set(unpinned.slice(0, Math.max(0, unpinned.length - max)));
+  return next.filter((t) => !drop.has(t));
 }
