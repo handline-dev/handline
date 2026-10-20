@@ -723,15 +723,3 @@ func TestAnUnreadablePressHistoryPressesNothing(t *testing.T) {
 		t.Errorf("PastDialog pressed or hid the error: %v %v", err, b.term.pressed)
 	}
 }
-
-func TestAnUnreadableCursorLeavesTheStuckBackoffInForce(t *testing.T) {
-	a := newAcceptFixture(t)
-	a.waitFor("Browser")
-	a.term.accepts["Browser"] = true
-	a.term.press["h1"] = [3]string{term.Cleared, "Run it?", ""}
-	a.exec("DROP TABLE cursors")
-	a.sweep()
-	if len(a.term.pressed) != 0 {
-		t.Fatalf("pressed with the back-off unreadable: %v", a.term.pressed)
-	}
-}

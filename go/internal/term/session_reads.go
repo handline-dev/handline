@@ -38,15 +38,5 @@ func (t *Term) StopWorkAndExit(handle string) (outcome, title, why string) {
 	return t.pressDialog(handle, StoppingKey, "Enter", false)
 }
 
-// AcceptDialog presses the vendor's one-time yes on its prompt to run tool, if and only if the screen just read is exactly that
-// prompt.
-func (t *Term) AcceptDialog(handle, tool string) (outcome, title, why string) {
-	drv := t.driver(handle)
-	return t.pressDialog(handle, func(d *Dialog) (string, string) { return drv.AcceptingKey(d, tool) }, "Enter", true)
-}
-
-// VendorOf is the name of the vendor whose wording reads handle's screen.
-func (t *Term) VendorOf(handle string) string { return t.driver(handle).Name() }
-
 // Available is whether the host's own tool can be run.
 func (t *Term) Available() bool { return t.Backend.Available() }

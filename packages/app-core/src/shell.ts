@@ -8,7 +8,6 @@ export const PAGE_SETTINGS = [
   'active_cap',
   'park_timeout_s',
   'handoff_note',
-  'auto_accept_dialogs',
   'notice_digest_s',
   'bg_notice_s',
   'bg_grace_s',

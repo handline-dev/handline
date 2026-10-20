@@ -76,7 +76,6 @@ The screen key is a footer `Enter to confirm` or `Esc to cancel` in the last 3 r
 | `sessionrpc/typing.go:177` | Refuse typing over a dialog |
 | `session/blocked.go:248`, `:262`, `:275`, `:313` | A stuck agent's dialog; the exit-over-work dialog; note a failed close; get past a dialog |
 | `session/waiting.go:188` | A permission wait is still up |
-| `session/autoaccept.go:126` | Title match for auto-accept rules |
 | `lifecycle/reconciler.go:391` | A dialog stall can be cleared |
 | `lifecycle/close.go:574`, `:624`; `term/host.go:172` | Close: the dialog under `/exit`, an unreadable pane |
 | `lifecycle/trust.go:121` | Any other startup dialog |

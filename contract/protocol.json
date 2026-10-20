@@ -136,7 +136,7 @@
    "hl trust remove|apply|mcp",
    "hl schedule add|edit|remove",
    "hl account add|remove|register|cap|cycle|recover|wake (set; the billing-cycle and cap reads are for the next spec task)",
-   "hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry|auto-accept (set)",
+   "hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry (set)",
    "hl dev-mode",
    "hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)",
    "hl service ..."
@@ -342,7 +342,7 @@
     "kind": "dialog"
    }
   },
-  "retired": "Dialog rules (answer.add with vendor, title and label; the `dialog` entries of answers.list; the auto_accept_dialogs setting) answered a dialog by matching its screen. A daemon that never answers a dialog and reads no screen refuses to save one (gate unsupported), lists none and ignores the setting; the Python daemon, which still runs agents, keeps serving them until the cutover. Trust roots are not rules and stay."
+  "retired": "Dialog rules (answer.add with vendor, title and label; the `dialog` entries of answers.list) answered a dialog by matching its screen. A daemon that never answers a dialog and reads no screen refuses to save one (gate unsupported), and lists none; the Python daemon, which still runs agents, keeps serving them until the cutover. Trust roots are not rules and stay."
  },
  "x-notifications": {
   "event": {
@@ -13825,11 +13825,6 @@
       "default": true,
       "description": "Agents write a note for the next session before a close or move."
      },
-     "auto_accept_dialogs": {
-      "type": "boolean",
-      "default": false,
-      "description": "Answer dialogs by the standing rules by itself. Retired in a daemon that answers no dialog (x-dialogs): ignored."
-     },
      "ignore_cache_expiry": {
       "type": "boolean",
       "default": false,
@@ -13963,17 +13958,6 @@
        }
       ],
       "description": "Agents write a note for the next session before a close or move. null removes the key (back to the default)."
-     },
-     "auto_accept_dialogs": {
-      "oneOf": [
-       {
-        "type": "boolean"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "description": "Answer dialogs by the standing rules by itself. null removes the key (back to the default). Retired in a daemon that answers no dialog (x-dialogs): ignored."
      },
      "ignore_cache_expiry": {
       "oneOf": [

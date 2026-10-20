@@ -135,12 +135,6 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                         on={!!v.handoff_note}
                         change={(on) => ({ handoff_note: on })}
                       />
-                      <SwitchRow
-                        label="Auto-accept"
-                        hint="Answer the dialogs under Standing answers by itself"
-                        on={!!v.auto_accept_dialogs}
-                        change={(on) => ({ auto_accept_dialogs: on })}
-                      />
                     </SettingsCard>
                   </section>
                   <section id="set-answers">

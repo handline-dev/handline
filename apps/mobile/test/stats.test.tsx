@@ -135,12 +135,12 @@ describe('the settings', () => {
   it('flips a switch at once and shows saving while the daemon is slow', async () => {
     const m = await mount();
     await settings();
-    await until(() => $('auto-switch'), 'the switch');
+    await until(() => $('cache-switch'), 'the switch');
     m.daemon.knobs.latency(600);
-    await press($('auto-switch'));
-    await until(() => text($('auto-switch')).includes('On'), 'the switch to show On before the daemon answers', 400);
-    await until(() => text($('auto-note')).includes('saving'), 'the saving note', 1000);
-    await until(() => m.daemon.admin.settings().values.auto_accept_dialogs === true, 'the save', 3000);
+    await press($('cache-switch'));
+    await until(() => text($('cache-switch')).includes('On'), 'the switch to show On before the daemon answers', 400);
+    await until(() => text($('cache-note')).includes('saving'), 'the saving note', 1000);
+    await until(() => m.daemon.admin.settings().values.ignore_cache_expiry === true, 'the save', 3000);
     m.store.stop();
   });
 });
