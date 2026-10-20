@@ -228,12 +228,13 @@ export function MenuSheet(props: { onClose: () => void; children: React.ReactNod
 }
 
 /** One row of a MenuSheet; a reason it cannot be used sits under the label. */
-export function MenuItem(props: { label: string; onPress: () => void; testID?: string; danger?: boolean; disabled?: boolean; note?: string | null; icon?: IconName }) {
+export function MenuItem(props: { label: string; onPress: () => void; testID?: string; danger?: boolean; disabled?: boolean; note?: string | null; icon?: IconName; /** the view showing now */ on?: boolean }) {
   const c = usePalette();
   return (
     <Pressable
       testID={props.testID}
       accessibilityRole="button"
+      accessibilityState={{ selected: props.on }}
       disabled={props.disabled}
       onPress={props.onPress}
       style={{
@@ -247,9 +248,9 @@ export function MenuItem(props: { label: string; onPress: () => void; testID?: s
         opacity: props.disabled ? 0.4 : 1,
       }}
     >
-      {props.icon ? <Icon name={props.icon} decorative size={20} color={props.danger ? c.block : c.muted} /> : null}
+      {props.icon ? <Icon name={props.icon} decorative size={20} color={props.danger ? c.block : props.on ? c.accent : c.muted} /> : null}
       <View style={{ flex: 1 }}>
-        <Text style={{ color: props.danger ? c.block : c.ink, fontSize: 16 }}>{props.label}</Text>
+        <Text style={{ color: props.danger ? c.block : props.on ? c.accent : c.ink, fontSize: 16, fontWeight: props.on ? '700' : '400' }}>{props.label}</Text>
         {props.note ? <Text style={{ color: c.muted, fontSize: 12 }}>{props.note}</Text> : null}
       </View>
     </Pressable>
