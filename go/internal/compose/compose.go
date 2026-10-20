@@ -41,8 +41,8 @@ type Config struct {
 	Machine func() *sysres.Machine
 	// NotifiedNeedsYou has an unanswered prompt that Claude Code's Notification hook reports raise the needs-you card.
 	NotifiedNeedsYou bool
-	// FounderTyped has the founder's own messages typed at a terminal agent as its person's prompt, and its text after one is the reply
-	// (supervisor.Env.FounderTyped); needs Turns.
+	// FounderTyped has the founder's own messages typed at a terminal agent as its person's prompt (supervisor.Env.FounderTyped); needs
+	// Turns.
 	FounderTyped bool
 }
 
