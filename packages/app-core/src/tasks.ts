@@ -66,19 +66,21 @@ export function agentTasks(items: readonly Task[], agent: string, now = Date.now
     .sort((a, b) => rank(a.task) - rank(b.task) || b.task.id - a.task.id);
 }
 
-/** The owner of a task the daemon holds to watch a pull request: not an agent, so it is never linked, opened or assigned. */
+/** The owner of a task the daemon holds to watch outside state: not an agent, so it is never linked, opened or assigned. */
 export const GATE = 'gate';
 export const isGate = (t: Pick<Task, 'to'>): boolean => t.to === GATE;
 
-const RESULT_WORDS = { passed: 'passed', failed: 'failed', merged: 'merged', closed: 'closed unmerged', timed_out: 'timed out' } as const;
+const RESULT_WORDS = { passed: 'passed', failed: 'failed', timed_out: 'timed out' } as const;
 
-/** What a gate watches: its pull request link and what it says, with the result once it has one. Null for a task with no watch. */
-export function watchLine(t: Pick<Task, 'watch'>): { url: string; text: string; result: string | null } | null {
+/** What a gate watches, in the daemon's words (its label), with a link where the vendor has a page for it and the result once it has one. Null for a task with no watch. */
+export function watchLine(t: Pick<Task, 'watch'>): { url: string | null; text: string; result: string | null } | null {
   const w = t.watch;
   if (!w) return null;
+  // A GitHub target is owner/name#N: an issue when it waits for done, else a pull request.
+  const gh = w.vendor === 'github' ? /^([^#]+)#(\d+)$/.exec(w.target) : null;
   return {
-    url: `https://github.com/${w.repo}/pull/${w.pr}`,
-    text: `${w.repo}#${w.pr} ${w.on === 'ci' ? 'CI' : 'close'}`,
+    url: gh ? `https://github.com/${gh[1]}/${w.until === 'done' ? 'issues' : 'pull'}/${gh[2]}` : null,
+    text: w.label,
     result: w.result ? RESULT_WORDS[w.result] : null,
   };
 }
