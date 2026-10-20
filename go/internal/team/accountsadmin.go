@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/handline/handline/go/internal/backup"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/yamlcompat"
@@ -68,9 +67,8 @@ func (a Accounts) Add(acct, vendor string) (string, error) {
 	return cdir, nil
 }
 
-// RemovePreview is what Remove would do to the account, line by line, and whether it would go ahead. It changes nothing: it names the backup
-// gate's verdict as well as the account's own.
-func (a Accounts) RemovePreview(q *sql.DB, acct string, now time.Time) (would bool, lines []string, err error) {
+// RemovePreview is what Remove would do to the account, line by line, and whether it would go ahead. It changes nothing.
+func (a Accounts) RemovePreview(q *sql.DB, acct string) (would bool, lines []string, err error) {
 	ok, why, err := a.RemovePlan(q, acct)
 	if err != nil {
 		return false, nil, err
@@ -104,12 +102,7 @@ func (a Accounts) RemovePreview(q *sql.DB, acct string, now time.Time) (would bo
 	} else {
 		lines = append(lines, "  forget it on no agent (none is recorded on it)")
 	}
-	lines = append(lines, "  clear its usage polls and login check", "  "+backup.Describe(a.Home, now))
-	gate := backup.RequireRecent(a.Home, now)
-	if gate != "" {
-		return false, append(lines, "would refuse: "+gate), nil
-	}
-	return true, append(lines, "backup gate: passed"), nil
+	return true, append(lines, "  clear its usage polls and login check"), nil
 }
 
 // RemoveRefused is a removal that did not go ahead, and why; nothing was changed unless the message says a logout ran.
@@ -118,8 +111,8 @@ type RemoveRefused struct{ Why string }
 func (e *RemoveRefused) Error() string { return e.Why }
 
 // Remove logs the account out and takes it off the roster (accounts.remove_account), the confirmation having been asked already. run runs
-// the vendor's logout and answers its exit code (-1 when it could not run). Refused while an agent is on the account, without a recent
-// backup, and when the logout fails. The directory is moved aside, never deleted: the vendor removes its own credential, and moving the
+// the vendor's logout and answers its exit code (-1 when it could not run). Refused while an agent is on the account and when the logout
+// fails. The directory is moved aside, never deleted: the vendor removes its own credential, and moving the
 // directory of a logged-in account would orphan it. Answers the line to say.
 func (a Accounts) Remove(q *sql.DB, acct string, now time.Time, run func(argv []string, env map[string]string) int) (string, error) {
 	ok, why, err := a.RemovePlan(q, acct)
@@ -128,9 +121,6 @@ func (a Accounts) Remove(q *sql.DB, acct string, now time.Time, run func(argv []
 	}
 	if !ok {
 		return "", &RemoveRefused{why}
-	}
-	if gate := backup.RequireRecent(a.Home, now); gate != "" {
-		return "", &RemoveRefused{fmt.Sprintf("not removing '%s': %s", acct, gate)}
 	}
 	marker := filepath.Join(paths.AccountDir(a.Home, acct), ".removing") // nothing starts on an account about to go
 	if err := os.WriteFile(marker, nil, 0o644); err != nil {

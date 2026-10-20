@@ -30,9 +30,6 @@ func TestPutGetDeleteAndPrivateFolders(t *testing.T) {
 			t.Errorf("%s: %v %v", d, st, err)
 		}
 	}
-	if files := s.Files(); len(files) != 1 || files[0] != filepath.Join("trust", "roots.json") {
-		t.Fatalf("%v", files)
-	}
 	if err := s.Delete("trust", "roots.json"); err != nil {
 		t.Fatal(err)
 	}

@@ -687,7 +687,7 @@ Hand the one-time code from the authorize page to a login waiting for it. The co
 
 ### `account.remove`
 
-Log an account out and take it off the roster; dry_run names what would happen. The sequence of `hl account remove`: refused (gate `state`) while an agent is on the account, when claude's logout fails, or when the backup gate says no. The account's directory is moved aside, never deleted. A dry run writes nothing and records nothing.
+Log an account out and take it off the roster; dry_run names what would happen. The sequence of `hl account remove`: refused (gate `state`) while an agent is on the account or when claude's logout fails. The account's directory is moved aside, never deleted. A dry run writes nothing and records nothing.
 
 ### `repos.list`
 
