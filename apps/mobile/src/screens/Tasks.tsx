@@ -305,9 +305,13 @@ function Body({ t }: { t: TaskDetail }) {
       {watch && (
         <Text testID="task-watch" style={{ color: c.muted }}>
           Watches{' '}
-          <Text style={{ color: c.accent, textDecorationLine: 'underline' }} accessibilityRole="link" onPress={() => void Linking.openURL(watch.url)}>
-            {watch.text}
-          </Text>
+          {watch.url ? (
+            <Text style={{ color: c.accent, textDecorationLine: 'underline' }} accessibilityRole="link" onPress={() => void Linking.openURL(watch.url!)}>
+              {watch.text}
+            </Text>
+          ) : (
+            watch.text
+          )}
           {watch.result ? ` · ${watch.result}` : ''}
         </Text>
       )}

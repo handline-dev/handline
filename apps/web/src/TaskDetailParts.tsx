@@ -95,16 +95,20 @@ export function CancelSheet(props: { running: boolean; id: number; onCancel: () 
   );
 }
 
-/** The pull request a gate task watches, as a link, with the result once it has one. */
+/** What a gate task watches, as a link where the vendor has a page for it, with the result once it has one. */
 export function TaskWatch({ t }: { t: Detail }) {
   const watch = watchLine(t);
   if (!watch) return null;
   return (
     <p className="twatch m-0 mt-1 text-hint text-ink-3">
       Watches{' '}
-      <a href={watch.url} target="_blank" rel="noreferrer">
-        {watch.text}
-      </a>
+      {watch.url ? (
+        <a href={watch.url} target="_blank" rel="noreferrer">
+          {watch.text}
+        </a>
+      ) : (
+        watch.text
+      )}
       {watch.result ? ` · ${watch.result}` : ''}
     </p>
   );
