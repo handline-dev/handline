@@ -45,6 +45,7 @@ export function TerminalPane(props: { agent: string; view: TerminalView; session
   const store = useStore();
   const { agent, view } = props;
   const take = useWrite('input.take', agent);
+  const { mutate: release } = useWrite('input.release', agent);
   const resize = useWrite('terminal.resize', agent);
   const input = useWrite('terminal.input', agent);
   const [box, setBox] = useState<{ w: number; h: number } | null>(null);
@@ -77,7 +78,7 @@ export function TerminalPane(props: { agent: string; view: TerminalView; session
   // The phone lets go of the input when its page closes.
   const holding = useRef(false);
   holding.current = mine;
-  useEffect(() => () => void (holding.current && store.client.releaseInput(agent).catch(() => {})), [store, agent]);
+  useEffect(() => () => void (holding.current && release({ agent })), [release, agent]);
 
   const failure = take.error ?? resize.error ?? input.error;
   const send = (data: string) => input.mutate(store.client.typedBytes(view.terminal, data, false));
