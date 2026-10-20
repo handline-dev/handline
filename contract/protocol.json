@@ -238,6 +238,12 @@
    "data": {
     "transcript.event": "TranscriptEvent"
    }
+  },
+  "prefs": {
+   "snapshot": "prefs.get",
+   "data": {
+    "prefs.changed": "Prefs"
+   }
   }
  },
  "x-state-words": {
@@ -6421,6 +6427,82 @@
    ]
   },
   {
+   "name": "prefs.get",
+   "summary": "The person's view preferences: the agent list's pins, filter, layout and folds.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Prefs"
+    }
+   },
+   "x-role": "member",
+   "x-callers": [
+    "member",
+    "founder"
+   ],
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ]
+  },
+  {
+   "name": "prefs.set",
+   "summary": "Change the person's view preferences: each key given in changes.nav replaces the stored one.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "changes",
+     "required": true,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "nav": {
+        "$ref": "#/components/schemas/NavPrefsChanges"
+       }
+      },
+      "required": [
+       "nav"
+      ],
+      "additionalProperties": false
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-callers": [
+    "member",
+    "founder"
+   ],
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "description": "A pin or a fold naming an agent the daemon does not know, or a name given twice, is bad_request naming the field. Once stored, a prefs.changed event on the prefs topic carries the whole Prefs. agent.retire drops the agent from pins and collapsed (and sends prefs.changed); agent.move renames it there in place."
+  },
+  {
    "name": "task.queue",
    "summary": "Approve draft tasks to run: anyone may; each task's opener and assignee are told.",
    "paramStructure": "by-name",
@@ -9468,9 +9550,10 @@
      "chat",
      "devices",
      "hr",
-     "transcript"
+     "transcript",
+     "prefs"
     ],
-    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others."
    },
    "Caller": {
     "type": "object",
@@ -15961,6 +16044,120 @@
      "label",
      "result"
     ]
+   },
+   "NavPrefs": {
+    "type": "object",
+    "description": "How the person's agent list and dock show agents, the same on every device.",
+    "properties": {
+     "pins": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "Pinned agents in the person's order: the dock shows them first and the list on top. No name twice."
+     },
+     "unread_only": {
+      "type": "boolean",
+      "description": "The list shows only agents with something unread or waiting on the person."
+     },
+     "hidden": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "enum": [
+        "needs",
+        "working",
+        "waking",
+        "idle",
+        "sleeping"
+       ]
+      },
+      "description": "State groups the list hides: needs (waiting, blocked), working, waking, idle, sleeping (parked, none)."
+     },
+     "layout": {
+      "type": "string",
+      "enum": [
+       "tree",
+       "flat"
+      ],
+      "description": "tree: team, lead, members by parent. flat: urgency first, then by name."
+     },
+     "collapsed": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "Agents folded in the tree."
+     }
+    },
+    "required": [
+     "pins",
+     "unread_only",
+     "hidden",
+     "layout",
+     "collapsed"
+    ],
+    "additionalProperties": false
+   },
+   "NavPrefsChanges": {
+    "type": "object",
+    "description": "Any keys of NavPrefs; each given key replaces the stored value whole.",
+    "properties": {
+     "pins": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "Pinned agents in the person's order: the dock shows them first and the list on top. No name twice."
+     },
+     "unread_only": {
+      "type": "boolean",
+      "description": "The list shows only agents with something unread or waiting on the person."
+     },
+     "hidden": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "enum": [
+        "needs",
+        "working",
+        "waking",
+        "idle",
+        "sleeping"
+       ]
+      },
+      "description": "State groups the list hides: needs (waiting, blocked), working, waking, idle, sleeping (parked, none)."
+     },
+     "layout": {
+      "type": "string",
+      "enum": [
+       "tree",
+       "flat"
+      ],
+      "description": "tree: team, lead, members by parent. flat: urgency first, then by name."
+     },
+     "collapsed": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "Agents folded in the tree."
+     }
+    },
+    "additionalProperties": false
+   },
+   "Prefs": {
+    "type": "object",
+    "description": "The person's view preferences, one set for the founder's devices, kept by the daemon. A new daemon serves the defaults: no pins, unread_only false, hidden empty, layout tree, collapsed empty.",
+    "properties": {
+     "nav": {
+      "$ref": "#/components/schemas/NavPrefs"
+     }
+    },
+    "required": [
+     "nav"
+    ],
+    "additionalProperties": false
    }
   },
   "errors": {

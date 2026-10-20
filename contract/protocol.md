@@ -157,6 +157,8 @@ A method marked write takes a required `request_id`.
 | `task.view.list` | member |  | none | `{views}` |  |  |
 | `task.view.save` | member | yes | `name`, `filter`, `request_id` | `Accepted` | `bad_request` |  |
 | `task.view.delete` | member | yes | `name`, `request_id` | `Accepted` | `not_found`, `bad_request` |  |
+| `prefs.get` | member (only member, founder) |  | none | `Prefs` | `refused` |  |
+| `prefs.set` | member (only member, founder) | yes | `changes`, `request_id` | `Accepted` | `bad_request`, `refused` |  |
 | `task.queue` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.draft` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -566,6 +568,14 @@ Keep a filter of the task board under a name, replacing a view already kept unde
 
 Delete a saved view.
 
+### `prefs.get`
+
+The person's view preferences: the agent list's pins, filter, layout and folds.
+
+### `prefs.set`
+
+Change the person's view preferences: each key given in changes.nav replaces the stored one. A pin or a fold naming an agent the daemon does not know, or a name given twice, is bad_request naming the field. Once stored, a prefs.changed event on the prefs topic carries the whole Prefs. agent.retire drops the agent from pins and collapsed (and sends prefs.changed); agent.move renames it there in place.
+
 ### `task.queue`
 
 Approve draft tasks to run: anyone may; each task's opener and assignee are told.
@@ -866,6 +876,7 @@ The plan's earlier `requests` topic is replaced by `chat` (messages and landing 
 | `devices` | `device.paired` (Device), `device.revoked` ({device}) | `devices.list` |
 | `hr` | `hr.raised` ({proposal}), `hr.settled` ({proposal}) | `hr.list` |
 | `transcript` | `transcript.event` (TranscriptEvent) | `transcript.events` |
+| `prefs` | `prefs.changed` (Prefs) | `prefs.get` |
 
 ## State words
 
