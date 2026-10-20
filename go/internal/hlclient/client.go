@@ -203,6 +203,13 @@ func (c *Client) Connect() (net.Conn, error) {
 	return nil, down(fmt.Sprintf("launchd started it but it did not answer within %.0fs", c.Wait.Seconds()))
 }
 
+// The ids of a call's two messages, and of an error the daemon sends about the connection itself (a line too long to read, say).
+const (
+	connID  = 0
+	helloID = 1
+	callID  = 2
+)
+
 type reply struct {
 	ID     int             `json:"id"`
 	Result json.RawMessage `json:"result"`
@@ -247,8 +254,8 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 	}
 	var out []byte
 	for i, m := range []map[string]any{
-		{"jsonrpc": "2.0", "id": 1, "method": "hello", "params": hello},
-		{"jsonrpc": "2.0", "id": 2, "method": method, "params": params},
+		{"jsonrpc": "2.0", "id": helloID, "method": "hello", "params": hello},
+		{"jsonrpc": "2.0", "id": callID, "method": method, "params": params},
 	} {
 		b, err := json.Marshal(m)
 		if err != nil {
@@ -256,9 +263,10 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 		}
 		out = append(append(out, b...), '\n')
 	}
-	if _, err := conn.Write(out); err != nil {
-		return nil, err
-	}
+	// Written beside the reading: the daemon answers the hello before it reads the request, and a request and a hello reply each
+	// bigger than the socket's buffer would otherwise leave both sides writing until the deadline.
+	wrote := make(chan error, 1)
+	go func() { _, err := conn.Write(out); wrote <- err }()
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 64<<10), 64<<20)
 	for sc.Scan() {
@@ -270,10 +278,11 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 		if err := json.Unmarshal([]byte(line), &r); err != nil {
 			return nil, fmt.Errorf("the daemon sent what is not JSON: %w", err)
 		}
-		if err := r.err(); err != nil && (r.ID == 1 || r.ID == 2) {
+		// An error on the connection, the hello or the call ends the call: no answer follows it.
+		if err := r.err(); err != nil && (r.ID == connID || r.ID == helloID || r.ID == callID) {
 			return nil, err
 		}
-		if r.ID == 2 {
+		if r.ID == callID {
 			var res map[string]any
 			if err := json.Unmarshal(r.Result, &res); err != nil {
 				return nil, fmt.Errorf("the daemon's result is not an object: %w", err)
@@ -282,6 +291,9 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 		}
 	}
 	if err := sc.Err(); err != nil {
+		return nil, err
+	}
+	if err := <-wrote; err != nil {
 		return nil, err
 	}
 	return nil, errors.New("the daemon closed the connection before it replied")

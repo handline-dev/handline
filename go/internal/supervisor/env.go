@@ -29,6 +29,9 @@ type Env struct {
 	Sleep func(time.Duration)
 	// LoadHeld is why the machine's load holds new work for an agent, "" when it does not (loadgate); nil holds nothing.
 	LoadHeld func(agent string) string
+	// FounderTyped says the founder's own messages to agent are typed into its terminal as its person's prompt, and the agent's plain text
+	// after one is its reply (founderchat.go); nil is never.
+	FounderTyped func(agent string) bool
 
 	mu        sync.Mutex
 	sendLocks map[string]*sync.Mutex // per agent: its send ledger is read and written under its lock, so two callers never write one operation twice
@@ -40,6 +43,7 @@ type Env struct {
 	noted     map[string]noted
 	failed    map[string]failure
 	bg        sync.WaitGroup // the tellings still running off the caller (background)
+	replyMu   sync.Mutex     // one read of the founder's replies at a time (founderRead)
 }
 
 // Seen is what the sweep saw of one agent's session this tick (observe.Observed).

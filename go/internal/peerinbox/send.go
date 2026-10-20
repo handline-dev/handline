@@ -107,8 +107,8 @@ func randomID() string {
 // equal messages from being dropped as a duplicate.
 func Body(text, id string) string { return text + "\n[ocp-msg " + id + "]" }
 
-// The receiver reads who a cross-session message is from from the tag the content is wrapped in; content without it reads as the person's own
-// typing in a terminal session.
+// The receiver reads who a cross-session message is from from the tag the content is wrapped in. Without the tag it is still another
+// session's (Claude Code 2.1.303 wraps it so itself): the person's own prompt can only be typed (Type).
 const (
 	envelopeTag = "cross-session-message"
 	senderName  = "handline"
@@ -224,11 +224,11 @@ func (s *Sender) Deliver(ctx context.Context, sess Session, text string, from Fr
 			// then reads twice.
 			if now, err := s.Refresh(sess); err == nil && now.Blocked() {
 				res.Kind, res.Why = Queued, "the session waits on a person ("+blockedWord(now)+"); the message stays queued until it is answered"
-				res.Await = s.awaiter(tr, id)
+				res.Await = s.awaiter(tr, peerRecord(id))
 				return res
 			} else if err == nil && now.Busy() {
 				res.Kind, res.Why = Queued, "the session is mid-turn; the message waits in its queue and is not written again"
-				res.Await = s.awaiter(tr, id)
+				res.Await = s.awaiter(tr, peerRecord(id))
 				return res
 			}
 		}
@@ -250,7 +250,7 @@ func (s *Sender) Deliver(ctx context.Context, sess Session, text string, from Fr
 			}
 			continue
 		}
-		seen, queued, err := s.wait(ctx, tr, id)
+		seen, queued, err := s.wait(ctx, tr, peerRecord(id))
 		if err != nil {
 			res.Kind, res.Why = NotDelivered, err.Error()
 			return res
@@ -261,7 +261,7 @@ func (s *Sender) Deliver(ctx context.Context, sess Session, text string, from Fr
 		}
 		if queued {
 			res.Kind, res.Why = Queued, "queued by the receiver, not yet shown as a message"
-			res.Await = s.awaiter(tr, id)
+			res.Await = s.awaiter(tr, peerRecord(id))
 			return res // it has the message: a second write is a second copy
 		}
 		res.Kind, res.Why = NotDelivered, "not in the receiver's transcript"
@@ -269,12 +269,12 @@ func (s *Sender) Deliver(ctx context.Context, sess Session, text string, from Fr
 	return res
 }
 
-// awaiter watches the transcript for id for QueuedWait.
-func (s *Sender) awaiter(tr *tail, id string) func(ctx context.Context) bool {
+// awaiter watches the transcript for match for QueuedWait.
+func (s *Sender) awaiter(tr *tail, match matcher) func(ctx context.Context) bool {
 	return func(ctx context.Context) bool {
 		deadline := s.Now().Add(s.QueuedWait)
 		for {
-			if sn, _ := tr.scan(id); sn {
+			if sn, _ := tr.scan(match); sn {
 				return true
 			}
 			if !s.Now().Before(deadline) || s.Sleep(ctx, s.Poll) != nil {
@@ -293,11 +293,11 @@ func blockedWord(s Session) string {
 	return "blocked"
 }
 
-// wait polls the transcript for id up to ConfirmWait.
-func (s *Sender) wait(ctx context.Context, tr *tail, id string) (seen, queued bool, err error) {
+// wait polls the transcript for match up to ConfirmWait.
+func (s *Sender) wait(ctx context.Context, tr *tail, match matcher) (seen, queued bool, err error) {
 	deadline := s.Now().Add(s.ConfirmWait)
 	for {
-		sn, q := tr.scan(id)
+		sn, q := tr.scan(match)
 		queued = queued || q
 		if sn {
 			return true, queued, nil
@@ -342,9 +342,9 @@ func transcriptPath(sess Session) string {
 	return m[0]
 }
 
-// scan reads what was appended since the last scan. seen: a user record from a peer carries id, or a queued_command attachment from a
-// peer does (a message taken into the running turn). queued: a queue-operation enqueue carries it.
-func (t *tail) scan(id string) (seen, queued bool) {
+// scan reads what was appended since the last scan: seen when match finds a record that shows the message, queued when it finds one
+// that only queued it.
+func (t *tail) scan(match matcher) (seen, queued bool) {
 	if t.path == "" {
 		if t.path = transcriptPath(t.sess); t.path == "" {
 			return false, false
@@ -367,13 +367,11 @@ func (t *tail) scan(id string) (seen, queued bool) {
 			t.offset -= int64(len(line))
 			return seen, queued
 		}
-		if strings.Contains(line, id) {
-			switch classify(line) {
-			case recSeen:
-				seen = true
-			case recQueued:
-				queued = true
-			}
+		switch match(line) {
+		case recSeen:
+			seen = true
+		case recQueued:
+			queued = true
 		}
 		if err != nil {
 			return seen, queued
@@ -389,25 +387,91 @@ const (
 	recSeen
 )
 
-func classify(line string) recKind {
-	var r struct {
-		Type       string                `json:"type"`
-		Operation  string                `json:"operation"`
-		Origin     struct{ Kind string } `json:"origin"`
-		Attachment struct {
-			Type   string                `json:"type"`
-			Origin struct{ Kind string } `json:"origin"`
-		} `json:"attachment"`
-	}
-	if json.Unmarshal([]byte(line), &r) != nil {
+// matcher says what one transcript line is to the message looked for.
+type matcher func(line string) recKind
+
+// entry is the part of a transcript line the matchers read.
+type entry struct {
+	Type       string                `json:"type"`
+	Operation  string                `json:"operation"`
+	Content    any                   `json:"content"`
+	Origin     struct{ Kind string } `json:"origin"`
+	Message    struct{ Content any } `json:"message"`
+	Attachment struct {
+		Type   string                `json:"type"`
+		Prompt string                `json:"prompt"`
+		Origin struct{ Kind string } `json:"origin"`
+	} `json:"attachment"`
+}
+
+// peerRecord finds a message the inbox wrote under id: seen as a peer's user record, or a peer's queued_command attachment (taken into
+// the running turn); queued by a queue-operation enqueue.
+func peerRecord(id string) matcher {
+	return func(line string) recKind {
+		var r entry
+		if !strings.Contains(line, id) || json.Unmarshal([]byte(line), &r) != nil {
+			return recOther
+		}
+		switch {
+		case r.Type == "queue-operation" && r.Operation == "enqueue":
+			return recQueued
+		case r.Type == "user" && r.Origin.Kind == "peer",
+			r.Type == "attachment" && r.Attachment.Type == "queued_command" && r.Attachment.Origin.Kind == "peer":
+			return recSeen
+		}
 		return recOther
 	}
-	switch {
-	case r.Type == "queue-operation" && r.Operation == "enqueue":
-		return recQueued
-	case r.Type == "user" && r.Origin.Kind == "peer",
-		r.Type == "attachment" && r.Attachment.Type == "queued_command" && r.Attachment.Origin.Kind == "peer":
-		return recSeen
+}
+
+// ShowsTyped is whether a transcript line is text, typed at the session, as the session took it in.
+func ShowsTyped(line, text string) bool { return typedRecord(text)(line) == recSeen }
+
+// typedRecord finds text typed at the session: seen as the person's user record, or a queued_command attachment that is not a peer's
+// (typed mid-turn, taken into it); queued by a queue-operation enqueue of it.
+func typedRecord(text string) matcher {
+	text = strings.TrimSpace(text)
+	return func(line string) recKind {
+		var r entry
+		if json.Unmarshal([]byte(line), &r) != nil {
+			return recOther
+		}
+		switch {
+		case r.Type == "queue-operation" && r.Operation == "enqueue" && same(r.Content, text):
+			return recQueued
+		case r.Type == "user" && r.Origin.Kind == "human" && same(r.Message.Content, text),
+			r.Type == "attachment" && r.Attachment.Type == "queued_command" && r.Attachment.Origin.Kind != "peer" && same(r.Attachment.Prompt, text):
+			return recSeen
+		}
+		return recOther
 	}
-	return recOther
+}
+
+func same(v any, text string) bool {
+	s, ok := v.(string)
+	return ok && strings.TrimSpace(s) == text
+}
+
+// Type puts text into the session with typeIn and waits, as Deliver does, until the transcript shows it as the person's own prompt. It is
+// the one delivery made of keystrokes: whatever the inbox carries reaches the receiver as another session's. Typed mid-turn, the receiver
+// queues it and takes it into the running turn, so a queued one comes back Queued with Await, never typed again.
+func (s *Sender) Type(ctx context.Context, sess Session, text string, typeIn func(text string) error) Result {
+	tr := newTail(sess)
+	res := Result{Attempts: 1}
+	if err := typeIn(text); err != nil {
+		res.Kind, res.Why, res.Attempts = NotDelivered, err.Error(), 0
+		return res
+	}
+	match := typedRecord(text)
+	seen, queued, err := s.wait(ctx, tr, match)
+	switch {
+	case err != nil:
+		res.Kind, res.Why = NotDelivered, err.Error()
+	case seen:
+		res.Kind = Delivered
+	case queued:
+		res.Kind, res.Why, res.Await = Queued, "typed mid-turn; the session takes it in when it can", s.awaiter(tr, match)
+	default:
+		res.Kind, res.Why = NotDelivered, "typed, but not in the receiver's transcript"
+	}
+	return res
 }

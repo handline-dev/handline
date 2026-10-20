@@ -21,6 +21,7 @@ import (
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/tick"
 	"github.com/handline/handline/go/internal/usage"
+	"github.com/handline/handline/go/internal/worktreelock"
 )
 
 // This file builds the policy tick. With TickConfig.Terminals it supervises the terminal agents, reading their sessions from
@@ -151,6 +152,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
 		{Name: "attachment sweep", Run: func(q db.Q, _ int64) error { return attachments.New(home).Sweep(q) }},
+		{Name: "worktree locks", Run: func(q db.Q, _ int64) error { return releaseWorktreeLocks(q, home) }},
 		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Raise: raiseFromTaskBoard(env), Free: cfg.DiskFree}).Check},
 	}, Signalled: func() bool {
 		select {
@@ -725,3 +727,34 @@ func (c tickConfig) AgentConfig(agent string) map[string]any {
 	return cfg
 }
 func (c tickConfig) Seconds(key string, def int64) int64 { return c.set.ConfigSeconds(key, def) }
+
+// releaseWorktreeLocks lets go of every lock a session that is gone took (worktreelock.Release), over each linked worktree of the
+// repositories the agents work in, read from the repository: a retired agent's is let go too, and so is one whose folder was deleted.
+func releaseWorktreeLocks(q db.Q, home string) error {
+	rows, err := db.AllAgentStates(q)
+	if err != nil {
+		return err
+	}
+	var repos []string
+	roster := team.NewRoster(home)
+	for _, a := range paths.ListAgents(home) {
+		repos = append(repos, lifecycle.ExpandRepo(roster.RepoOf(a)))
+	}
+	for _, r := range rows {
+		repos = append(repos, lifecycle.WorktreePath(r.Worktree.String)) // a repo agent.yaml does not name is reached through a worktree
+	}
+	seen := map[string]bool{}
+	for _, repo := range repos {
+		if repo == "" || seen[repo] {
+			continue
+		}
+		seen[repo] = true
+		for _, linked := range worktreelock.Linked(repo) {
+			if !seen["wt:"+linked] {
+				seen["wt:"+linked] = true
+				_, _ = worktreelock.Release(repo, linked, worktreelock.Running) // a repo that is no checkout has none to let go
+			}
+		}
+	}
+	return nil
+}

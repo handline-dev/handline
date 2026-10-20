@@ -99,6 +99,12 @@ func (s *Store) View(agent string) ([]map[string]any, error) {
 	return []map[string]any{{"kind": r.Kind, "name": r.Name, "since": stamp(r.Since)}}, nil
 }
 
+// Held is whether a person or device holds agent's input now, read only: an idle hold reads as none and is left for Holder to drop.
+func (s *Store) Held(agent string) (bool, error) {
+	r, err := s.peek(agent)
+	return r != nil, err
+}
+
 // peek is Holder without the idle drop's own notice: View is what the drop tells, so it must not drop again.
 func (s *Store) peek(agent string) (*Row, error) {
 	r := &Row{}
