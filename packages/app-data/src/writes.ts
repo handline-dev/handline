@@ -202,14 +202,13 @@ const settings: Record<string, WriteSpec> = {
       if (!agent) edit<Settings>(c.qc, ['d', c.d, 'settings'], (s) => ({ ...s, values: { ...s.values, ...changes } }));
     },
   },
-  // Shown at once even before the first read lands, so a pin made while prefs.get is in flight is not lost.
   'prefs.set': {
     kind: 'authored',
     label: 'save view preferences',
     touches: (d) => [qk.prefs(d)],
     patch: (c, p) => {
       const { nav } = as<{ changes: { nav: NavPrefsChanges } }>(p).changes;
-      c.qc.setQueryData<Prefs>(qk.prefs(c.d), (s) => ({ ...s, nav: { ...navOf(s), ...nav } }));
+      edit<Prefs>(c.qc, qk.prefs(c.d), (s) => ({ ...s, nav: { ...navOf(s), ...nav } }));
     },
   },
   'trust.remove': {

@@ -21,19 +21,22 @@ describe('the nav prefs', () => {
     const p = probe(() => useNav());
     await mount(store, p.node);
     expect(p.get().nav.pins).toEqual([]);
-    await until(() => p.get().served, 'prefs served');
+    await until(() => p.get().ready, 'prefs served');
     p.get().togglePin(ARCH);
     await until(() => p.get().nav.pins.length === 1, 'the pin on screen');
-    const kept = () => (daemon.prefs.call('prefs.get', {}, () => ({})) as { nav: { pins: string[] } }).nav.pins;
+    const kept = () => (daemon.admin.prefs.call('prefs.get', {}, () => ({})) as { nav: { pins: string[] } }).nav.pins;
     await until(() => kept().length === 1, 'the pin kept by the daemon');
     expect(kept()).toEqual([ARCH]);
+    p.get().togglePin(AUDITOR);
+    p.get().togglePin('handline.term-build');
+    await until(() => kept().length === 3, 'both pins of one tick');
   });
 
   it("follow another device's change through the prefs event", async () => {
     const { store, daemon, net } = await connected();
     const p = probe(() => useNav());
     await mount(store, p.node);
-    await until(() => p.get().served, 'prefs served');
+    await until(() => p.get().ready, 'prefs served');
     const phone = new Store(second(daemon, net));
     await phone.start();
     await phone.client.call('prefs.set', { changes: { nav: { pins: [AUDITOR], layout: 'flat' } } });
@@ -45,7 +48,7 @@ describe('the nav prefs', () => {
     const { store } = await connected();
     const p = probe(() => useNav());
     await mount(store, p.node);
-    await until(() => p.get().served, 'prefs served');
+    await until(() => p.get().ready, 'prefs served');
     p.get().togglePin('nobody');
     await until(() => store.error !== null, 'the refusal');
     await until(() => p.get().nav.pins.length === 0, 'the pin taken back');

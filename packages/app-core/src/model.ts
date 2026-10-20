@@ -22,6 +22,7 @@ const URGENCY: Record<Dot, number> = { waiting: 0, blocked: 1, running: 2, wakin
 
 /** The rail's order: the agents that wait on someone first, then by name. */
 export const byUrgency = (a: AgentView, b: AgentView): number => URGENCY[dotOf(a)] - URGENCY[dotOf(b)] || a.name.localeCompare(b.name);
+
 export interface RailRow {
   agent: AgentView;
   depth: number;
@@ -46,20 +47,28 @@ export const rowName = (name: string, depth: number, team: string): string =>
 /** An agent the founder has not caught up with: unseen requests to them, or one that waits on them now. */
 export const isUnread = (a: AgentView): boolean => !!a.founder_unread || !!a.needs_you;
 
-/** The agent list as one list: waiting ones sort up, an agent that is restarting stays whatever the filter says, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off (a hidden parent still shows while a child does, unless `ancestors` is false). */
-export function railRows(
-  agents: AgentView[],
-  opts: { hidden?: ReadonlySet<Dot>; search?: string; unread?: boolean; ancestors?: boolean } = {},
-): RailRow[] {
+export interface RailFilter {
+  hidden?: ReadonlySet<Dot>;
+  search?: string;
+  unread?: boolean;
+}
+
+/** Whether the filter lets an agent through on its own: an agent that is restarting passes whatever the dot filter says. */
+export function railMatch(opts: RailFilter): (a: AgentView) => boolean {
   const q = (opts.search ?? '').trim().toLowerCase();
   const found = (a: AgentView) => !q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q);
-  const match = agents.filter((a) => (!opts.hidden?.has(dotOf(a)) || !!a.handoff) && found(a) && (!opts.unread || isUnread(a)));
+  return (a) => (!opts.hidden?.has(dotOf(a)) || !!a.handoff) && found(a) && (!opts.unread || isUnread(a));
+}
+
+/** The agent list as one list: waiting ones sort up, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off (a hidden parent still shows while a child does). */
+export function railRows(agents: AgentView[], opts: RailFilter = {}): RailRow[] {
+  const match = agents.filter(railMatch(opts));
+  const found = railMatch({ search: opts.search });
   // Keep the parents a dot filter hides while a child shows, so the children do not float to the top level.
   const byName = new Map(agents.map((a) => [a.name, a]));
   const names = new Set(match.map((a) => a.name));
-  if (opts.ancestors !== false)
-    for (const a of match)
-      for (let p = byName.get(a.parent ?? ''); p && !names.has(p.name) && found(p); p = byName.get(p.parent ?? '')) names.add(p.name);
+  for (const a of match)
+    for (let p = byName.get(a.parent ?? ''); p && !names.has(p.name) && found(p); p = byName.get(p.parent ?? '')) names.add(p.name);
   const shown = agents.filter((a) => names.has(a.name));
   const rows: RailRow[] = [];
   const walk = (a: AgentView, depth: number) => {

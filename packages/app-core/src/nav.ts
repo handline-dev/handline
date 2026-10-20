@@ -1,7 +1,7 @@
 // Which agents the agent list (every app) and the phone's dock show: the person's pins, filter, layout and folds come from the daemon
 // (prefs.get); the agents opened on this device are the app's own. Pure.
 import type { AgentView, NavPrefs, Prefs } from '@handline/client';
-import { byUrgency, dotOf, isUnread, railRows, visibleRows, RAIL_FILTERS, type Dot, type RailRow } from '#src/model.ts';
+import { byUrgency, railMatch, railRows, visibleRows, RAIL_FILTERS, type Dot, type RailFilter, type RailRow } from '#src/model.ts';
 
 export type NavGroup = NavPrefs['hidden'][number];
 export type NavChip = 'all' | 'unread' | 'needs';
@@ -12,7 +12,6 @@ export const OPEN_MAX = 5;
 
 export const navOf = (p: Prefs | undefined): NavPrefs => ({ ...DEFAULT_NAV, ...p?.nav });
 
-const NEEDS: readonly Dot[] = RAIL_FILTERS.find((f) => f.id === 'needs')!.dots;
 const OTHER_GROUPS = RAIL_FILTERS.map((f) => f.id as NavGroup).filter((g) => g !== 'needs');
 
 /** The dots the hidden groups cover. */
@@ -33,12 +32,17 @@ export const chipChanges = (chip: NavChip): Pick<NavPrefs, 'unread_only' | 'hidd
   hidden: chip === 'needs' ? [...OTHER_GROUPS] : [],
 });
 
-/** How many agents each chip would show. */
-export const chipCounts = (agents: readonly AgentView[]): Record<NavChip, number> => ({
-  all: agents.length,
-  unread: agents.filter(isUnread).length,
-  needs: agents.filter((a) => NEEDS.includes(dotOf(a))).length,
+const filterOf = (nav: Pick<NavPrefs, 'unread_only' | 'hidden'>, search = ''): RailFilter => ({
+  hidden: hiddenDots(nav.hidden),
+  unread: nav.unread_only,
+  search,
 });
+
+/** How many agents each chip lets through on their own (a tree also shows their parents). */
+export function chipCounts(agents: readonly AgentView[]): Record<NavChip, number> {
+  const count = (chip: NavChip) => agents.filter(railMatch(filterOf(chipChanges(chip)))).length;
+  return { all: count('all'), unread: count('unread'), needs: count('needs') };
+}
 
 /** The pinned agents in the person's order; a pin naming an agent that is gone is skipped. */
 export function pinnedOf(agents: readonly AgentView[], pins: readonly string[]): AgentView[] {
@@ -62,17 +66,20 @@ export function navDock(
 }
 
 /**
- * The agent list: the pinned agents on top whatever the filter, then every agent the filter and search let through, as a folded tree
- * (railRows) or flat by urgency.
+ * The agent list: the pinned agents on top whatever the filter, then every agent the filter and search let through (a pinned one too),
+ * as a folded tree (railRows) or flat by urgency.
  */
 export function navList(agents: AgentView[], nav: NavPrefs, search = ''): { pinned: AgentView[]; rows: RailRow[] } {
-  const flat = nav.layout === 'flat';
-  const rows = railRows(agents, { hidden: hiddenDots(nav.hidden), unread: nav.unread_only, search, ancestors: !flat });
+  const filter = filterOf(nav, search);
   return {
     pinned: pinnedOf(agents, nav.pins),
-    rows: flat
-      ? rows.map((r) => ({ agent: r.agent, depth: 0, kids: 0 })).sort((a, b) => byUrgency(a.agent, b.agent))
-      : visibleRows(rows, new Set(nav.collapsed)),
+    rows:
+      nav.layout === 'flat'
+        ? agents
+            .filter(railMatch(filter))
+            .sort(byUrgency)
+            .map((agent) => ({ agent, depth: 0, kids: 0 }))
+        : visibleRows(railRows(agents, filter), new Set(nav.collapsed)),
   };
 }
 

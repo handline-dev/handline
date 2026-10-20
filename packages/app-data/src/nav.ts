@@ -1,33 +1,54 @@
 // The agent list's and the dock's state: the person's prefs, kept by the daemon and the same on every device, and the agents opened on
 // this device since the app started, which no other device sees.
-import { useSyncExternalStore } from 'react';
+import { useRef, useSyncExternalStore } from 'react';
 import { movePin, navOf, togglePin, withOpen } from '@handline/app-core';
-import type { NavPrefs, NavPrefsChanges } from '@handline/client';
-import { useData, useServes } from '#src/provider.ts';
+import { useQueryClient } from '@tanstack/react-query';
+import type { NavPrefs, NavPrefsChanges, Prefs } from '@handline/client';
+import { useData } from '#src/provider.ts';
 import { usePrefs } from '#src/read.ts';
+import { qk } from '#src/reads.ts';
 import { useWrite } from '#src/write.ts';
 
-/** The nav prefs (the defaults until they load, or when the daemon does not serve them) and the ways to change them. */
+/**
+ * The nav prefs (the defaults until they load, or when the daemon does not serve them) and the ways to change them. Nothing is sent before
+ * they load: a key is replaced whole, so a pin made from the defaults would drop the stored ones. A pin change starts from the one still
+ * on its way, so two in one tick both count.
+ */
 export function useNav(): {
   nav: NavPrefs;
-  served: boolean;
+  ready: boolean;
   change: (changes: NavPrefsChanges) => void;
   togglePin: (agent: string) => void;
   movePin: (agent: string, index: number) => void;
 } {
   const prefs = usePrefs();
-  const { served } = useServes('prefs.set');
+  const qc = useQueryClient();
+  const { daemon } = useData();
   const set = useWrite('prefs.set');
-  const nav = navOf(prefs.data);
+  const ready = prefs.data !== undefined;
+  const sent = useRef<string[] | null>(null);
   const change = (changes: NavPrefsChanges) => {
-    if (served) set.mutate({ changes: { nav: changes } });
+    if (ready) set.mutate({ changes: { nav: changes } });
+  };
+  const pin = (next: (pins: string[]) => string[]) => {
+    if (!ready) return;
+    const pins = next(sent.current ?? navOf(qc.getQueryData<Prefs>(qk.prefs(daemon))).pins);
+    sent.current = pins;
+    set.mutate(
+      { changes: { nav: { pins } } },
+      {
+        onSettled: () => {
+          if (sent.current === pins) sent.current = null;
+        },
+      },
+    );
   };
   return {
-    nav,
-    served,
+    nav: navOf(prefs.data),
+    ready,
     change,
-    togglePin: (agent) => change({ pins: togglePin(nav.pins, agent) }),
-    movePin: (agent, index) => change({ pins: movePin(nav.pins, agent, index) }),
+    togglePin: (agent) => pin((p) => togglePin(p, agent)),
+    movePin: (agent, index) => pin((p) => movePin(p, agent, index)),
   };
 }
 
