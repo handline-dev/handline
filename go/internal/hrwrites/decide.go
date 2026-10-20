@@ -81,9 +81,7 @@ func (e *Env) open(pid string) (*Prop, string) {
 	return p, ""
 }
 
-// tell tells the proposer, and every agent the proposal names, how it went, as a notice from the task board: an outcome asks nothing, and the
-// outcomes of proposals decided together reach each of them as one digest, one line each. A notice that cannot be written never undoes the
-// decision.
+// tell sends the outcome as a board notice, not a founder message, so it asks nothing and a batch arrives as one digest. A failed notice never undoes the decision.
 func (e *Env) tell(p *Prop, text string) {
 	if e.Say == nil {
 		return
@@ -93,8 +91,7 @@ func (e *Env) tell(p *Prop, text string) {
 	}
 }
 
-// concerned is the proposer and the registered agents a proposal (or any of its items) names as agent or to, each once; never the founder
-// or a pattern.
+// concerned is the proposer and the registered agents the proposal or its items name, once each.
 func (e *Env) concerned(p *Prop) []string {
 	var out []string
 	add := func(name string) {

@@ -211,8 +211,6 @@ func TestHrListServesAScheduleAndAGlobalProposalWithTheirWords(t *testing.T) {
 	}
 }
 
-// 10-20: an id of digits, an e and digits is written plain, as the store's YAML reads it back as a string; hr.list read it as a float and
-// left the proposal out, so the founder was never asked.
 func TestAProposalWhoseIdLooksLikeAnExponentIsListed(t *testing.T) {
 	e := testEnv(t)
 	putProposal(t, e, "149628e2", "id: 149628e2\nkind: unlink\nagent: handline.daemon\nrequested_by: handline.architect\ncreated: 1792426073\nstate: proposed\nto: handline.pr\n")

@@ -764,15 +764,13 @@ func TestTheProposerIsToldHowEachDecisionWentInTheWordsHrPyUsed(t *testing.T) {
 	}
 }
 
-// Proposals decided together reach their proposer, and the agents they name, as one digest each: each outcome is a notice from the board that asks nothing, not the founder
-// speaking, which would ask for an answer once per proposal.
 func TestABatchOfDecisionsWaitsForTheProposersDigestAndNothingIsFromTheFounder(t *testing.T) {
 	r := newRig(t)
 	for i := 0; i < 5; i++ {
 		p, id := r.propose(fmt.Sprintf("aaaa002%d", i), "kind", "link", "agent", "alice", "to", "bob")
 		r.decide(id, ifThen(i%2 == 0, "approve", "reject"), p.subject(), fmt.Sprintf("b%d", i))
 	}
-	for _, who := range []string{"alice", "bob"} { // alice raised and is linked, bob is the other end: each is told once per proposal
+	for _, who := range []string{"alice", "bob"} {
 		if pending, err := dbpkg.PendingNotices(r.db, who); err != nil || len(pending) != 5 {
 			t.Fatalf("%s: five outcomes wait for one digest: %d %v", who, len(pending), err)
 		}
@@ -784,7 +782,6 @@ func TestABatchOfDecisionsWaitsForTheProposersDigestAndNothingIsFromTheFounder(t
 	}
 }
 
-// A bundle's items name agents too, and an agent named twice (proposer and subject) is told once.
 func TestAnOutcomeReachesTheAgentsABundleNamesOnceEach(t *testing.T) {
 	r := newRig(t)
 	if _, err := team.NewRoster(r.home).Register("carol", team.RegisterOpts{Role: "r"}); err != nil {
