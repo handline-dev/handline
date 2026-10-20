@@ -487,9 +487,9 @@ func (e *Env) handoffView(agent string, row *db.AgentState, now int64) (any, err
 		}
 		return view(h.TriggerKind.String, "writing", since), nil
 	}
-	if kind, since, ok, err := db.NoteWait(e.Q, agent); err != nil {
+	if kind, since, ok, err := db.NoteWaitKept(e.Q, agent, now); err != nil {
 		return nil, err
-	} else if ok && now-since <= db.NoteWaitStaleS {
+	} else if ok {
 		return view(kind, "writing", since), nil
 	}
 	if h == nil || row == nil || (row.State != states.Parked && row.ClosedAt.Int64 == 0) || now-h.Updated > db.NoteWaitStaleS {
