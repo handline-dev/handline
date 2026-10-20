@@ -237,7 +237,7 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 		case *timeoutS > db.MaxTaskTimeoutS:
 			return fmt.Sprintf("a task timeout is at most %s - %s is longer", timefmt.Span(db.MaxTaskTimeoutS, false), timefmt.Span(*timeoutS, false)), "", nil
 		}
-		if doing, err = isDoing(tx, t); err != nil {
+		if doing, err = db.IsDoing(tx, t.ID); err != nil {
 			return "", "", err
 		}
 		was := "none"

@@ -152,11 +152,7 @@ func setQueued(tx *sql.Tx, home string, tid int64, by string, queued bool, kept 
 			return queuedSet{}, err
 		} else if st != "draft" {
 			why := fmt.Sprintf("task T%d is still %s", tid, st)
-			if child, err := childAsking(tx, tid); err != nil {
-				return queuedSet{}, err
-			} else if child != 0 {
-				why += fmt.Sprintf(": its child T%d is out - make that draft first", child)
-			} else if bare, err := startedBare(tx, tid); err != nil {
+			if bare, err := startedBare(tx, tid); err != nil {
 				return queuedSet{}, err
 			} else if bare {
 				why += ": it was begun without a delivery - release it instead"

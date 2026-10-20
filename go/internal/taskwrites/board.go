@@ -71,76 +71,13 @@ func startedBare(tx *sql.Tx, tid int64) (bool, error) {
 	return n > 0, err
 }
 
-// readsDoing is reads_doing: the task was started bare, or a request is out on it or on an open child of it.
-func readsDoing(tx *sql.Tx, t *task) (bool, error) {
-	if bare, err := startedBare(tx, t.ID); bare || err != nil {
-		return bare, err
-	}
-	if t.SentAt.Valid {
-		return true, nil
-	}
-	var n int
-	if err := tx.QueryRow("SELECT COUNT(*) FROM tasks WHERE parent_task = ? AND done_evidence IS NULL AND discarded_by IS NULL AND sent_at IS NOT NULL", t.ID).Scan(&n); err != nil {
-		return false, err
-	}
-	return n > 0, nil
-}
-
-// holdsCurrent is holds_current: the task is the one its owner holds, or its owner holds none (or one that has ended).
-func holdsCurrent(tx *sql.Tx, t *task) (bool, error) {
-	if t.Owner == human || t.Owner == db.Gate {
-		return true, nil
-	}
-	var held sql.NullInt64
-	err := tx.QueryRow("SELECT current_task FROM agent_state WHERE agent = ?", t.Owner).Scan(&held)
-	if err != nil && err != sql.ErrNoRows {
-		return false, err
-	}
-	if !held.Valid || held.Int64 == t.ID {
-		return true, nil
-	}
-	cur, err := getTask(tx, held.Int64)
-	if err != nil {
-		return false, err
-	}
-	return cur == nil || cur.done() || cur.DiscardedBy.Valid && cur.DiscardedBy.String != "", nil
-}
-
-// isDoing is reads_doing and holds_current: sent, or an open child sent, or begun on a founder message; and the one its owner holds.
-func isDoing(tx *sql.Tx, t *task) (bool, error) {
-	reads, err := readsDoing(tx, t)
-	if err != nil || !reads {
-		return false, err
-	}
-	return holdsCurrent(tx, t)
-}
-
-// state is task_state: discarded, done, doing (asked and held by its owner), else queued (approved, or asked but held back) or
-// draft.
+// state is db.TaskState in the write's transaction: discarded, done, doing, queued or draft.
 func state(tx *sql.Tx, t *task) (string, error) {
-	switch {
-	case t.DiscardedBy.Valid && t.DiscardedBy.String != "":
-		return "discarded", nil
-	case t.done():
-		return "done", nil
-	}
-	asked, err := readsDoing(tx, t)
-	if err != nil {
+	row, err := db.GetTask(tx, t.ID)
+	if err != nil || row == nil {
 		return "", err
 	}
-	doing := false
-	if asked {
-		if doing, err = holdsCurrent(tx, t); err != nil {
-			return "", err
-		}
-	}
-	switch {
-	case doing:
-		return "doing", nil
-	case t.QueuedBy.Valid && t.QueuedBy.String != "" || asked:
-		return "queued", nil
-	}
-	return "draft", nil
+	return db.TaskState(tx, row)
 }
 
 // refreshSent sets tasks.sent_at (once) while a request that asks something is out on the task, and clears it when none is left.

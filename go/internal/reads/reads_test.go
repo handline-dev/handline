@@ -2,6 +2,7 @@ package reads
 
 import (
 	"encoding/json"
+	"github.com/handline/handline/go/internal/db"
 	"os"
 	"path/filepath"
 	"testing"
@@ -106,8 +107,8 @@ func TestAnAgentThatIsNotRegisteredIsNotFound(t *testing.T) {
 }
 
 func TestTheTaskLadderMatchesTheBoard(t *testing.T) {
-	b := &board{begun: map[int64]bool{3: true}, sent: map[int64]bool{2: true}, children: map[int64][]int64{5: {2}},
-		current: map[string]int64{"w": 9}, held: map[int64]row{9: {"done_evidence": "x"}}}
+	b := &board{begun: map[int64]bool{3: true}, sent: map[int64]bool{2: true, 4: true, 5: true}, blocked: map[int64]bool{4: true},
+		current: map[string]int64{"w": 2, "x": 4}}
 	mk := func(id int64, owner string, extra row) row {
 		r := row{"id": id, "owner": owner}
 		for k, v := range extra {
@@ -121,19 +122,17 @@ func TestTheTaskLadderMatchesTheBoard(t *testing.T) {
 	}{
 		{mk(1, "w", nil), "draft"},
 		{mk(1, "w", row{"queued_by": "m"}), "queued"},
-		{mk(2, "w", nil), "doing"},                       // a request is out and its owner's held task is over
+		{mk(2, "w", nil), "doing"},                       // a request is out and its owner holds it
 		{mk(3, "human", nil), "doing"},                   // begun on a founder's message
-		{mk(5, "w", nil), "doing"},                       // an open child has one out
+		{mk(4, "x", nil), "queued"},                      // held, but an open blocker
+		{mk(5, "w", nil), "queued"},                      // a request is out, but its owner holds another
+		{mk(5, "y", nil), "queued"},                      // a request is out, but its owner holds none
 		{mk(2, "w", row{"done_evidence": "ok"}), "done"}, // written states win
 		{mk(2, "w", row{"discarded_by": "m", "done_evidence": "ok"}), "discarded"},
 	} {
 		if got := b.state(c.t); got != c.want {
 			t.Errorf("%v: %s, want %s", c.t, got, c.want)
 		}
-	}
-	b.held[9] = row{}
-	if got := b.state(mk(2, "w", nil)); got != "queued" {
-		t.Errorf("a task its owner does not hold reads %s, not queued", got)
 	}
 }
 
@@ -143,6 +142,7 @@ func TestABoardReadsATaskStartedAsItsOwnersOwnAsBegun(t *testing.T) {
 		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'self', 'w', 'w', 1), (2, 'founder', 'w', 'w', 1), (3, 'plain', 'w', 'w', 1), (4, 'released', 'w', 'w', 1)",
 		`INSERT INTO events(ts, agent, kind, payload) VALUES(1, 'w', 'task_self_start', '{"task_id": 1}'), (1, 'w', 'task_begin', '{"task_id": 2}'), ` +
 			`(1, 'w', 'task_begin', '{"task_id": 4}'), (2, 'x', 'release_task', '{"task_id": 4, "retired": []}')`,
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('w', 'IDLE', 1, 1)",
 	} {
 		if _, err := e.DB.Exec(q); err != nil {
 			t.Fatal(err)
@@ -342,5 +342,41 @@ func TestAnInputHoldIsLostAfterTheConfiguredIdleTime(t *testing.T) {
 		if holder := got[0].(map[string]any)["kind"] == "person"; holder != c.held {
 			t.Errorf("config %q: holder kept %v, want %v (%v)", c.config, holder, c.held, got)
 		}
+	}
+}
+
+// The board reads every task as db.TaskState does, a blocked current task and an agent holding none included.
+func TestTheBoardAgreesWithTheOneRule(t *testing.T) {
+	e := testEnv(t)
+	for _, q := range []string{
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at) VALUES(1, 'held', 'w', 'm', 1, 'm', 2), (2, 'dep', 'x', 'm', 1, 'm', NULL), " +
+			"(3, 'also sent', 'w', 'm', 1, 'm', 2), (4, 'nobody holds', 'y', 'm', 1, 'm', 2), (5, 'parent', 'y', 'm', 1, 'm', NULL), (6, 'child', 'z', 'y', 1, 'y', 2)",
+		"UPDATE tasks SET parent_task = 5 WHERE id = 6",
+		"INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(1, 2, 1), (5, 6, 1)",
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('w', 'IDLE', 1, 1), ('z', 'IDLE', 1, 6)",
+	} {
+		run(t, e, q)
+	}
+	b, err := e.loadBoard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := query(e.DB, "SELECT * FROM tasks ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doing := 0
+	for _, r := range rows {
+		task, _ := db.GetTask(e.DB, r.i("id"))
+		want, _ := db.TaskState(e.DB, task)
+		if got := b.state(r); got != want {
+			t.Errorf("T%d: board %s, db %s", r.i("id"), got, want)
+		}
+		if want == "doing" {
+			doing++
+		}
+	}
+	if doing != 1 {
+		t.Fatalf("%d doing, want only T6", doing)
 	}
 }

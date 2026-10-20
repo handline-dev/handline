@@ -30,6 +30,7 @@ func TestEachTaskIsServedWithItsStateAndReason(t *testing.T) {
 		run(t, e, tasks+v)
 	}
 	run(t, e, "UPDATE tasks SET sent_at = 2 WHERE id IN (3, 4, 9)")
+	run(t, e, "INSERT INTO agent_state(agent, state, updated, current_task) VALUES('bob', 'IDLE', 1, 3)")
 	run(t, e, "INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(8, 3, 1792000000)")
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(1, 1792000000, 'bob', 'human', 'ok?', 'queued', 'ask', 1)")
 	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(9, 1)")

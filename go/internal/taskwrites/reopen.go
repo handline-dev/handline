@@ -3,6 +3,7 @@ package taskwrites
 import (
 	"database/sql"
 	"fmt"
+	"github.com/handline/handline/go/internal/db"
 	"strings"
 	"time"
 
@@ -68,27 +69,20 @@ func reopenMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any
 			if err := refreshSent(tx, tid); err != nil { // done cleared it; a request still out on it sends it again
 				return nil, err
 			}
-			t, err = getTask(tx, tid)
-			if err != nil {
-				return nil, err
-			}
-			doing, err := isDoing(tx, t)
-			if err != nil {
-				return nil, err
-			}
-			q := "UPDATE tasks SET done_evidence = NULL, done_at = NULL, done_via = NULL, timeout_at = NULL, timeout_left = NULL WHERE id = ? AND done_evidence IS NOT NULL"
-			args := []any{tid}
-			if doing { // a doing task's clock restarts from now
-				q = "UPDATE tasks SET done_evidence = NULL, done_at = NULL, done_via = NULL, " +
-					"timeout_left = NULL, timeout_at = CASE WHEN timeout_s IS NOT NULL THEN ? + timeout_s ELSE NULL END WHERE id = ? AND done_evidence IS NOT NULL"
-				args = []any{time.Now().Unix(), tid}
-			}
-			res, err := tx.Exec(q, args...)
+			res, err := tx.Exec("UPDATE tasks SET done_evidence = NULL, done_at = NULL, done_via = NULL, timeout_at = NULL, timeout_left = NULL "+
+				"WHERE id = ? AND done_evidence IS NOT NULL", tid)
 			if err != nil {
 				return nil, err
 			}
 			if n, _ := res.RowsAffected(); n == 0 {
 				return nil, refusal(fmt.Sprintf("task T%d was reopened by someone else just now", tid))
+			}
+			if doing, err := db.IsDoing(tx, tid); err != nil {
+				return nil, err
+			} else if doing { // a doing task's clock restarts from now
+				if _, err := tx.Exec("UPDATE tasks SET timeout_at = ? + timeout_s WHERE id = ? AND timeout_s IS NOT NULL", time.Now().Unix(), tid); err != nil {
+					return nil, err
+				}
 			}
 			after, err := newestRequest(tx)
 			if err != nil {

@@ -35,16 +35,15 @@ func ended(t row) bool { return t.str("done_evidence") != "" || t.str("discarded
 // openTask is ended in SQL, negated: a task with no done evidence that was not discarded.
 const openTask = "COALESCE(done_evidence, '') = '' AND COALESCE(discarded_by, '') = ''"
 
-// board is what the state of a task needs, read in a handful of queries (_board_facts in actions/tasks.py): the
-// tasks begun on a founder's message, the ones with a request out, each open task's open children, what every owner
+// board is what the state of a task needs, read in a handful of queries (db.TaskState over every task at once): the
+// tasks begun on a founder's message, the ones with a request out, the ones with an open blocker, what every owner
 // holds now.
 type board struct {
 	begun    map[int64]bool
 	sent     map[int64]bool
-	children map[int64][]int64
+	blocked  map[int64]bool
 	current  map[string]int64
-	held     map[int64]row // the tasks owners hold now, for whether each ended
-	team     *team.Team    // read on first use, once per board
+	team     *team.Team // read on first use, once per board
 	teamRead bool
 }
 
@@ -58,8 +57,7 @@ func (b *board) leadOf(home, agent string) string {
 }
 
 func (e *Env) loadBoard() (*board, error) {
-	b := &board{begun: map[int64]bool{}, sent: map[int64]bool{}, children: map[int64][]int64{},
-		current: map[string]int64{}, held: map[int64]row{}}
+	b := &board{begun: map[int64]bool{}, sent: map[int64]bool{}, blocked: map[int64]bool{}, current: map[string]int64{}}
 	begunTask := "CASE WHEN json_valid(e.payload) THEN json_extract(e.payload, '$.task_id') END"
 	rows, err := query(e.DB, "SELECT DISTINCT "+begunTask+" AS t FROM events e WHERE kind IN ('task_begin', 'task_self_start')"+db.SinceRelease(begunTask))
 	if err != nil {
@@ -76,11 +74,12 @@ func (e *Env) loadBoard() (*board, error) {
 	for _, r := range rows {
 		b.sent[r.i("id")] = true
 	}
-	if rows, err = query(e.DB, "SELECT parent_task, id FROM tasks WHERE parent_task IS NOT NULL AND "+openTask+" ORDER BY priority, id"); err != nil {
+	if rows, err = query(e.DB, "SELECT DISTINCT b.task_id FROM task_blocks b JOIN tasks t ON t.id = b.blocks_on WHERE b.dormant = 0 AND "+
+		"t.discarded_by IS NULL AND t.done_evidence IS NULL"); err != nil {
 		return nil, err
 	}
 	for _, r := range rows {
-		b.children[r.i("parent_task")] = append(b.children[r.i("parent_task")], r.i("id"))
+		b.blocked[r.i("task_id")] = true
 	}
 	if rows, err = query(e.DB, "SELECT agent, current_task FROM agent_state WHERE current_task IS NOT NULL"); err != nil {
 		return nil, err
@@ -88,36 +87,13 @@ func (e *Env) loadBoard() (*board, error) {
 	for _, r := range rows {
 		b.current[r.str("agent")] = r.i("current_task")
 	}
-	if rows, err = query(e.DB, "SELECT id, discarded_by, done_evidence FROM tasks WHERE id IN "+
-		"(SELECT current_task FROM agent_state WHERE current_task IS NOT NULL)"); err != nil {
-		return nil, err
-	}
-	for _, r := range rows {
-		b.held[r.i("id")] = r
-	}
 	return b, nil
 }
 
 // holds is whether the task is the one its owner holds: the founder and the gates hold none, and every task of theirs reads as held.
 func (b *board) holds(t row) bool {
 	held, has := b.current[t.str("owner")]
-	if t.str("owner") == human || t.str("owner") == db.Gate || !has || held == t.i("id") {
-		return true
-	}
-	cur, ok := b.held[held]
-	return !ok || ended(cur)
-}
-
-func (b *board) asked(id int64) bool {
-	if b.begun[id] || b.sent[id] {
-		return true
-	}
-	for _, c := range b.children[id] {
-		if b.sent[c] {
-			return true
-		}
-	}
-	return false
+	return t.str("owner") == human || t.str("owner") == db.Gate || has && held == t.i("id")
 }
 
 // state is one of draft, queued, doing, done, discarded.
@@ -128,8 +104,8 @@ func (b *board) state(t row) string {
 	if t.str("done_evidence") != "" {
 		return "done"
 	}
-	asked := b.asked(t.i("id"))
-	if asked && b.holds(t) {
+	asked := b.begun[t.i("id")] || b.sent[t.i("id")]
+	if asked && b.holds(t) && !b.blocked[t.i("id")] {
 		return "doing"
 	}
 	if t.str("queued_by") != "" || asked {

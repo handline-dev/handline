@@ -23,6 +23,7 @@ func TestReleaseTakesADoingTaskBackAndRetiresTheRequestsOutOnIt(t *testing.T) {
 			"(11, 'boss', 'w2', 'task', 'landed', 1, 'x', 6), (12, 'boss', 'w3', 'task', 'queued', 1, 'x', 6)",
 		"UPDATE requests SET queue_order = 1 WHERE id = 11",
 		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10), (2, 11), (4, 12)",
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('w', 'IDLE', 1, 1), ('w2', 'IDLE', 1, 2), ('w3', 'IDLE', 1, 4)",
 	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)
@@ -50,7 +51,7 @@ func TestReleaseTakesADoingTaskBackAndRetiresTheRequestsOutOnIt(t *testing.T) {
 	}
 	refused("unknown", release("boss", "a2", 99, why), fmt.Sprintf("no task T%d", 99))
 	refused("not doing", release("boss", "a3", 5, why), "task T5 is queued, not doing - nothing to release")
-	refused("through a child", release("boss", "a4", 3, why), "task T3 is doing through its child T4 - release it there")
+	refused("waiting on its child", release("boss", "a4", 3, why), "task T3 is queued, not doing - nothing to release")
 	if e := errText(release("boss", "a5", 1, `,"to":"draft"`)); e != "to is not served yet" {
 		t.Fatalf("a destination: %q", e)
 	}
@@ -123,7 +124,8 @@ func TestTheOpenerIsToldWhenItsTaskIsReleased(t *testing.T) {
 	exec(t, db,
 		"INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at) VALUES(1, 'q', 'worker', 'gp', 1, 'gp', 5)",
 		"INSERT INTO requests(id, requester, target, kind, state, ts, body, delivered_at) VALUES(10, 'gp', 'worker', 'task', 'queued', 1, 'x', 6)",
-		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10)")
+		"INSERT INTO task_requests(task_id, request_id) VALUES(1, 10)",
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('worker', 'IDLE', 1, 1)")
 	if r := call(t, mk("worker", &fakeTeller{}), `{"jsonrpc":"2.0","id":2,"method":"task.release","params":{"task":1,"reason":"stuck","request_id":"r1"}}`)[0]; r["error"] != nil {
 		t.Fatalf("%v", r)
 	}

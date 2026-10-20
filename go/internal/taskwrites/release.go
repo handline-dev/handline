@@ -113,13 +113,6 @@ func releaseTask(tx *sql.Tx, home, by string, tid int64, reason string) (release
 	if err != nil {
 		return r, err
 	}
-	if len(direct) == 0 && !bare {
-		if child, err := childAsking(tx, tid); err != nil {
-			return r, err
-		} else if child != 0 {
-			return r, refusal(fmt.Sprintf("task T%d is doing through its child T%d - release it there", tid, child))
-		}
-	}
 	// Best effort: one request losing a race to another close must not throw away what the others did.
 	var ids []any
 	var failed []string
@@ -166,26 +159,14 @@ func releaseTask(tx *sql.Tx, home, by string, tid int64, reason string) (release
 	if err != nil {
 		return r, err
 	}
-	still, err := isDoing(tx, t)
-	if err != nil {
+	if _, err := tx.Exec("UPDATE tasks SET timeout_at = NULL, timeout_left = NULL WHERE id = ?", tid); err != nil {
 		return r, err
 	}
-	if still { // every direct request just closed: what is left is a child's
-		child, err := childAsking(tx, tid)
-		if err != nil {
-			return r, err
-		}
-		r.outcome = fmt.Sprintf("but it is still doing through its child T%d - release it there too; its own timeout keeps running until then", child)
-	} else {
-		if _, err := tx.Exec("UPDATE tasks SET timeout_at = NULL, timeout_left = NULL WHERE id = ?", tid); err != nil {
-			return r, err
-		}
-		back := "draft"
-		if t.QueuedBy.Valid && t.QueuedBy.String != "" {
-			back = "queued"
-		}
-		r.outcome = "back to " + back + ", its timeout paused"
+	back := "draft"
+	if t.QueuedBy.Valid && t.QueuedBy.String != "" {
+		back = "queued"
 	}
+	r.outcome = "back to " + back + ", its timeout paused"
 	stopped := map[string]bool{} // typed a stop by the Teller, which says the same
 	for _, q := range r.retired {
 		if q.Held {
@@ -204,22 +185,3 @@ func releaseTask(tx *sql.Tx, home, by string, tid int64, reason string) (release
 	return r, nil
 }
 
-// childAsking is the first open child of tid with a request out on it, 0 when none.
-func childAsking(tx *sql.Tx, tid int64) (int64, error) {
-	kids, err := openChildren(tx, tid)
-	if err != nil {
-		return 0, err
-	}
-	for _, k := range kids {
-		reqs, err := taskRequests(tx, k)
-		if err != nil {
-			return 0, err
-		}
-		for _, r := range reqs {
-			if r.asks() {
-				return k, nil
-			}
-		}
-	}
-	return 0, nil
-}

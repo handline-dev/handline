@@ -181,8 +181,8 @@ func TestDraftWithdrawsTheDeliveryNotYetLandedAndEndsOneThatHas(t *testing.T) {
 		t.Fatalf("a queued task with no request out: %v, T3 %s", r, stateOf(3))
 	}
 
-	if e := errText(draft("d4", 4)); e != "task T4 is still queued: its child T5 is out - make that draft first" || stateOf(4) != "queued" {
-		t.Fatalf("asked through a child: %q, T4 %s", e, stateOf(4))
+	if e := errText(draft("d4", 4)); e != "task T4 is already draft" {
+		t.Fatalf("a parent with only its child out has nothing of its own out: %q", e)
 	}
 }
 

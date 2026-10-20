@@ -69,7 +69,8 @@ func TestTaskWaitBlocksTheTaskOnANewGateAndReleasesIt(t *testing.T) {
 		"INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at) VALUES(9, 'ship', 'w', 'boss', 1, 'boss', 5)",
 		"INSERT INTO requests(id, requester, target, kind, state, ts, body, delivered_at) VALUES(20, 'boss', 'w', 'task', 'landed', 1, 'x', 6)",
 		"UPDATE requests SET queue_order = 1 WHERE id = 20",
-		"INSERT INTO task_requests(task_id, request_id) VALUES(9, 20)")
+		"INSERT INTO task_requests(task_id, request_id) VALUES(9, 20)",
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('w', 'IDLE', 1, 9)")
 	r := run("w", "task.wait", "w1", `,"task":9,"watch":{"vendor":"github","target":"o/r#7","until":"closed"},"time_box":"2h"`)
 	if r["error"] != nil {
 		t.Fatalf("%v", r["error"])

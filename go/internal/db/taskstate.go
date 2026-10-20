@@ -23,10 +23,11 @@ func SinceRelease(task string) string {
 		"json_extract(r.payload, '$.task_id') = " + task + "), 0)"
 }
 
-// Begun is actions._begun: the task was begun on a founder's message (task_begin) and not released since.
+// Begun is actions._begun: the task was begun on a founder's message (task_begin), or started bare by its owner (task_self_start, from
+// before that verb went), and not released since.
 func Begun(q Q, tid int64) (bool, error) {
 	var one int
-	err := q.QueryRow("SELECT 1 FROM events WHERE kind = 'task_begin' AND "+eventTask+" = ?"+SinceRelease("?")+" LIMIT 1", tid, tid).Scan(&one)
+	err := q.QueryRow("SELECT 1 FROM events WHERE kind IN ('task_begin', 'task_self_start') AND "+eventTask+" = ?"+SinceRelease("?")+" LIMIT 1", tid, tid).Scan(&one)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}

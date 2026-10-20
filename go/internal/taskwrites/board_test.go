@@ -5,14 +5,15 @@ import (
 	"testing"
 )
 
-// A task started as its owner's own (task_self_start, no task_begin) is doing, so reopening it restarts its clock;
+// A task its owner holds that it started as its own (task_self_start, no task_begin) is doing, so reopening it restarts its clock;
 // the same task with no begin event is not, and its clock stays stopped.
 func TestASelfStartedTaskIsDoingWhenReopened(t *testing.T) {
 	db, mk := discardEnv(t)
 	exec(t, db,
 		"INSERT INTO tasks(id, title, owner, opened_by, created_at, done_evidence, done_at, done_via, timeout_s) VALUES"+
 			"(1, 'self', 'manager', 'manager', 1, 'x', 2, 'reason', 600), (2, 'plain', 'manager', 'manager', 1, 'x', 2, 'reason', 600)",
-		`INSERT INTO events(ts, agent, kind, payload) VALUES(1, 'manager', 'task_self_start', '{"task_id": 1}')`)
+		`INSERT INTO events(ts, agent, kind, payload) VALUES(1, 'manager', 'task_self_start', '{"task_id": 1}')`,
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('manager', 'IDLE', 1, 1)")
 	for _, tid := range []int{1, 2} {
 		r := call(t, mk("manager"), fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.reopen","params":{"task":%d,"note":"again","request_id":"r%d"}}`, tid, tid))
 		if r[0]["error"] != nil {
