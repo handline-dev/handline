@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/storetest"
 )
 
 // fakeNet pairs the tokens "t1" and "t2" as devices d1 and d2.
@@ -56,20 +57,10 @@ func connect(t *testing.T, srv *Server, hello string) *client {
 	return c
 }
 
-func newDB(t *testing.T) *sql.DB {
-	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	return db
-}
-
 // writeClient serves one founder connection over a real database.
 func writeClient(t *testing.T) (*client, *sql.DB, *int) {
 	t.Helper()
-	db, ran := newDB(t), new(int)
+	db, ran := storetest.Open(t), new(int)
 	return connect(t, writeServer(t, db, ran, nil), `{"client":"t","protocol":1,"key":"k"}`), db, ran
 }
 
@@ -110,7 +101,7 @@ func TestAnEffectThatFailsLeavesNoRecordAndALaterRetryRunsAgain(t *testing.T) {
 }
 
 func TestWritesAreKeptPerWriterSoTwoDevicesAndTheFounderMayUseOneRequestID(t *testing.T) {
-	db, ran := newDB(t), new(int)
+	db, ran := storetest.Open(t), new(int)
 	call := `{"jsonrpc":"2.0","id":2,"method":"test.effect","params":{"request_id":"r1"}}`
 	clients := map[string]*client{
 		"founder": connect(t, writeServer(t, db, ran, nil), `{"client":"t","protocol":1,"key":"k"}`),
@@ -150,7 +141,7 @@ func TestWritesAreKeptPerWriterSoTwoDevicesAndTheFounderMayUseOneRequestID(t *te
 }
 
 func TestACommitThenErrorKeepsTheWritesAndTheRefusalButNoRecord(t *testing.T) {
-	db := newDB(t)
+	db := storetest.Open(t)
 	srv := writeServer(t, db, new(int), nil)
 	srv.Register("test.keep", Method{Role: "member", Write: true, Handler: func(c *Conn, p map[string]any) (any, error) {
 		return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
@@ -208,7 +199,7 @@ func (g *capNet) Login(token string, closeConn func()) (string, string, func(), 
 
 func TestARehelloAtTheCapDoesNotEvictItsOwnConnection(t *testing.T) {
 	g := &capNet{}
-	srv := writeServer(t, newDB(t), new(int), g)
+	srv := writeServer(t, storetest.Open(t), new(int), g)
 	c := connect(t, srv, `{"client":"t","protocol":1,"token":"t1"}`)
 	if r := c.raw(t, `{"jsonrpc":"2.0","id":2,"method":"hello","params":{"client":"t","protocol":1,"token":"t1"}}`); r["result"] == nil {
 		t.Fatalf("the second hello was refused or the connection closed: %v", r)
@@ -226,7 +217,7 @@ func TestARehelloAtTheCapDoesNotEvictItsOwnConnection(t *testing.T) {
 }
 
 func TestEveryHelloTheFounderKeyIsTakenOnLeavesARecordOfWhoPresentedIt(t *testing.T) {
-	db := newDB(t)
+	db := storetest.Open(t)
 	srv := writeServer(t, db, new(int), nil)
 	hello := func(key string) {
 		cl, sv := net.Pipe()

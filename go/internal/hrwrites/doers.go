@@ -12,6 +12,7 @@ import (
 
 	"github.com/handline/handline/go/internal/adminwrites"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/prefs"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/sealed"
 	"github.com/handline/handline/go/internal/team"
@@ -186,6 +187,9 @@ func (e *Env) doRetire(p step) (bool, string, error) {
 	if _, err := p.tx.Exec("DELETE FROM agent_state WHERE agent = ?", name); err != nil {
 		return false, "", err
 	}
+	if err := prefs.Forget(p.tx, name); err != nil {
+		return false, "", err
+	}
 	src := paths.AgentDir(e.Home, name)
 	dest := filepath.Join(e.Home, "agents", "archive", time.Now().Format("2006-01-02")+"-"+name)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
@@ -305,6 +309,9 @@ func (e *Env) doRename(p step) (bool, string, error) {
 		}
 	}
 	if _, err := p.tx.Exec("UPDATE cursors SET name = REPLACE(name, ?, ?) WHERE name LIKE ?", old, new, "%"+old+"%"); err != nil {
+		return false, "", err
+	}
+	if err := prefs.Rename(p.tx, old, new); err != nil {
 		return false, "", err
 	}
 	// The terminal host's worktree label is the host's to set; tmux keeps none.
