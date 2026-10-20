@@ -64,13 +64,6 @@ func asker(tx *sql.Tx, t *task) (string, error) {
 
 const eventTask = "CASE WHEN json_valid(payload) THEN json_extract(payload, '$.task_id') END"
 
-// startedBare is the task begun on a founder message or started by its owner as its own, with no request, and not released since.
-func startedBare(tx *sql.Tx, tid int64) (bool, error) {
-	var n int
-	err := tx.QueryRow("SELECT COUNT(*) FROM events WHERE kind IN ('task_begin', 'task_self_start') AND "+eventTask+" = ?"+db.SinceRelease("?"), tid, tid).Scan(&n)
-	return n > 0, err
-}
-
 // state is db.TaskState in the write's transaction: discarded, done, doing, queued or draft.
 func state(tx *sql.Tx, t *task) (string, error) {
 	row, err := db.GetTask(tx, t.ID)

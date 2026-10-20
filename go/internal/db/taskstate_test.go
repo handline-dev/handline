@@ -225,3 +225,30 @@ func TestAnAgentHasAtMostOneDoing(t *testing.T) {
 		t.Fatalf("with its current task done, %d read doing", n)
 	}
 }
+
+// A task delivered while its agent's current task is blocked is let through and becomes the current one; one behind an open, unblocked
+// current task is held back and leaves the current one alone.
+func TestDeliveryAndTheCurrentTaskAgreeOnWhatIsInTheWay(t *testing.T) {
+	q := open(t)
+	cur := seedTask(t, q, "w", "a")
+	LinkRequest(q, cur, ask(t, q, "a", "w", "first", "task"))
+	SetCurrentTask(q, "w", cur, true)
+	next := seedTask(t, q, "w", "a")
+	rid := ask(t, q, "a", "w", "next", "task")
+	LinkRequest(q, next, rid)
+	n, _ := GetTask(q, next)
+	if way, _ := HoldsCurrent(q, n); way {
+		t.Fatal("an open current task is in the way")
+	}
+	AddBlock(q, cur, seedTask(t, q, "x", "a"))
+	if way, _ := HoldsCurrent(q, n); !way {
+		t.Fatal("a blocked current task is not in the way")
+	}
+	MarkDelivered(q, rid)
+	if held, _, _ := CurrentTask(q, "w"); held != next {
+		t.Fatalf("current is T%d, want the delivered T%d", held, next)
+	}
+	if s, _ := TaskState(q, n); s != "doing" {
+		t.Fatalf("the delivered task reads %s", s)
+	}
+}

@@ -46,18 +46,23 @@ func ReadsDoing(q Q, tid int64) (bool, error) {
 	return t.SentAt.Valid, nil
 }
 
-// HoldsCurrent is actions.holds_current: nothing else of its owner's is in the task's way, so it may be delivered. An owner with no open
-// current task, or a blocked one, holds the way free; reading doing asks for more (isCurrent).
+// HoldsCurrent is actions.holds_current: nothing else of its owner's is in the task's way, so it may be delivered. Reading doing asks for
+// more (isCurrent).
 func HoldsCurrent(q Q, t *Task) (bool, error) {
 	if t.Owner == Human || t.Owner == Gate {
 		return true, nil
 	}
-	held, ok, err := CurrentTask(q, t.Owner)
-	if err != nil {
-		return false, err
+	if held, ok, err := CurrentTask(q, t.Owner); err != nil || ok && held == t.ID {
+		return err == nil, err
 	}
-	if !ok || held == t.ID {
-		return true, nil
+	return wayFree(q, t.Owner)
+}
+
+// wayFree is whether agent holds no task that keeps others back: none, one that has ended, or one that is blocked.
+func wayFree(q Q, agent string) (bool, error) {
+	held, ok, err := CurrentTask(q, agent)
+	if err != nil || !ok {
+		return err == nil, err
 	}
 	cur, err := GetTask(q, held)
 	if err != nil || cur == nil || cur.Ended() {

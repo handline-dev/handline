@@ -458,15 +458,11 @@ func MarkDelivered(q Q, rid int64) (bool, error) {
 	return true, holdDelivered(q, rid, target)
 }
 
-// holdDelivered makes the task request rid delivers the agent's current one when the agent holds no open task: the work it was just given is
-// what it is doing.
+// holdDelivered makes the task request rid delivers the agent's current one when nothing it holds is in the way (wayFree): the work it
+// was just given is what it is doing.
 func holdDelivered(q Q, rid int64, agent string) error {
-	if cur, ok, err := CurrentTask(q, agent); err != nil {
+	if free, err := wayFree(q, agent); err != nil || !free {
 		return err
-	} else if ok {
-		if t, err := GetTask(q, cur); err != nil || (t != nil && !t.Ended()) {
-			return err
-		}
 	}
 	var tid int64
 	err := q.QueryRow("SELECT t.id FROM tasks t JOIN task_requests l ON l.task_id = t.id JOIN requests r ON r.id = l.request_id "+

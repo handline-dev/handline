@@ -105,10 +105,6 @@ func releaseTask(tx *sql.Tx, home, by string, tid int64, reason string) (release
 			direct = append(direct, q)
 		}
 	}
-	bare, err := startedBare(tx, tid)
-	if err != nil {
-		return r, err
-	}
 	begun, err := db.Begun(tx, tid)
 	if err != nil {
 		return r, err
@@ -142,7 +138,7 @@ func releaseTask(tx *sql.Tx, home, by string, tid int64, reason string) (release
 		ids = append(ids, q.ID)
 		r.retired = append(r.retired, Retired{RID: q.ID, Requester: q.Requester, Target: q.Target, Delivered: q.DeliveredAt.Valid})
 	}
-	if bare { // its owner holds it on the founder's word or its own: the release ends that, and the owner is told to stop
+	if begun { // its owner holds it on the founder's word or its own: the release ends that, and the owner is told to stop
 		r.retired = append(r.retired, Retired{Target: t.Owner, Held: true})
 	} else if len(ids) == 0 {
 		return r, refusal(fmt.Sprintf("task T%d released nothing: %s", tid, strings.Join(failed, "; ")))
