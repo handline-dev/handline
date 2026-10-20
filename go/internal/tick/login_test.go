@@ -138,3 +138,63 @@ func TestAStallNamesTheErrorAndBothWaysOut(t *testing.T) {
 		t.Fatalf("%v %+v", actions, row)
 	}
 }
+
+// endedWorld is a world whose account "acct" still answers but whose subscription has ended (or not), with what the founder is told.
+func endedWorld(t *testing.T, ended bool) (*Tick, *world, *[]string) {
+	tk, w, stalls := loginWorld(t, false, false)
+	tk.Login.Ended = func(string) string {
+		if ended {
+			return "subscription ended 2026-10-21 (month cycle)"
+		}
+		return ""
+	}
+	var told []string
+	tk.Login.NoRoom = func(_ db.Q, agent, acct, key, text string) { told = append(told, acct+" | "+key+" | "+text) }
+	if len(*stalls) != 0 {
+		t.Fatal(*stalls)
+	}
+	return tk, w, &told
+}
+
+func TestAnAgentLeavesAnAccountWhoseEndHasPassedThoughItStillAnswers(t *testing.T) {
+	tk, w, told := endedWorld(t, true)
+	w.movePlan, w.performOK = "other", true
+	actions := supervise(tk, "a")
+	if !w.did("handoff a login") || !has(actions, "a: handoff (login)") || len(*told) != 0 {
+		t.Fatalf("%v %v %v", w.calls, actions, *told)
+	}
+}
+
+func TestBeforeItsEndAnAccountKeepsItsAgents(t *testing.T) {
+	tk, w, told := endedWorld(t, false)
+	w.movePlan, w.performOK = "other", true
+	if actions := supervise(tk, "a"); w.did("handoff a login") || has(actions, "login") || len(*told) != 0 {
+		t.Fatalf("%v %v %v", w.calls, actions, *told)
+	}
+}
+
+func TestWithNoRoomAnEndedAccountKeepsItsAgentsAndTheFounderIsTold(t *testing.T) {
+	tk, w, told := endedWorld(t, true)
+	w.movePlan = ""
+	actions := supervise(tk, "a")
+	row, _ := db.GetAgentState(tk.Q, "a")
+	if w.did("handoff a login") || has(actions, "STALLED") || row.State == states.Stalled {
+		t.Fatalf("an agent on an account that still answers is not stopped for want of another: %v %v %+v", w.calls, actions, row)
+	}
+	if len(*told) != 1 || !strings.HasPrefix((*told)[0], "acct | subscription ended 2026-10-21 (month cycle) | acct's subscription has ended") {
+		t.Fatalf("%q", *told)
+	}
+}
+
+func TestWithNoRoomARefusingAccountStallsItsAgentsAndTheFounderIsTold(t *testing.T) {
+	tk, w, told := endedWorld(t, false)
+	tk.Login.Stalled = func(db.Q, string) (string, string, bool) {
+		return "a's turn ended on billing_error", "billing_error", true
+	}
+	w.movePlan = ""
+	actions := supervise(tk, "a")
+	if !has(actions, "a: STALLED, billing_error on acct") || len(*told) != 1 ||
+		!strings.HasPrefix((*told)[0], "acct | a's turn ended on billing_error | acct cannot be used (billing_error)") {
+		t.Fatalf("%v %q", actions, *told)
+	}
+}
