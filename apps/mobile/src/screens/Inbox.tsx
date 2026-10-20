@@ -2,16 +2,17 @@
 // the list at once. A decision ends its task with Done. Tap a card for its detail and verbs; a verb the daemon does not serve is disabled.
 import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
-import { ago, NOTICE_SENDER } from '@handline/app-core';
+import { ago, NOTICE_SENDER, REVIEW_TAG } from '@handline/app-core';
 import type { InboxItem } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
-import { useInbox, usePending, useServes, useUnread, useWrite } from '@handline/app-data';
+import { useInbox, usePending, useServes, useTask, useUnread, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Icon, type IconName } from './Icon.tsx';
 import { Button, PageHeader } from './parts.tsx';
 import { Loadable } from './Loadable.tsx';
 import { PromptCard } from './PromptCard.tsx';
+import { ReviewCard } from './ReviewCard.tsx';
 
 const KIND: Record<string, string> = {
   decision: 'Decision',
@@ -26,6 +27,33 @@ const KIND_ICON: Record<string, IconName> = { decision: 'decision', ask: 'ask', 
 /** A decision is the person's task: the card ends it with task.done. */
 const decidable = (i: InboxItem) => i.kind === 'decision' && i.task != null;
 const waits = (i: InboxItem, readPending: boolean) => !i.read && !readPending;
+
+/** A decision on a task tagged review gets the review card; any other keeps Done. */
+function Decide(props: { item: InboxItem; off: string | null; markRead: () => void }) {
+  const i = props.item;
+  const done = useWrite('task.done');
+  const review = useTask(i.task!).data?.tags?.includes(REVIEW_TAG);
+  if (review)
+    return (
+      <View style={{ width: '100%' }}>
+        <ReviewCard task={i.task!} item={i.id} off={props.off} markRead={props.markRead} />
+      </View>
+    );
+  return (
+    <Button
+      testID={`inbox-done-${i.id}`}
+      label="Done"
+      disabled={!!props.off}
+      onPress={() => {
+        // The decision ends its task, and only then is the card read: a refusal leaves it listed.
+        done.mutateAsync({ task: i.task!, evidence: 'decided in the Inbox', reason: true }).then(
+          props.markRead,
+          () => {}, // the refusal is reported by the write itself
+        );
+      }}
+    />
+  );
+}
 
 function useOff(method: string): string | null {
   const open = useConnection() === 'open';
@@ -51,7 +79,6 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
   const setBox = (v: Ui['box']) => props.setUi({ box: v });
   const setText = (v: string) => props.setUi({ text: v });
   const read = useWrite('inbox.mark_read');
-  const done = useWrite('task.done');
   const reply = useWrite('inbox.reply');
   const off = { read: useOff('inbox.mark_read'), decide: useOff('task.done'), reply: useOff('inbox.reply') };
   const send = () => {
@@ -114,20 +141,7 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
             </View>
           ) : (
             <View style={{ flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' }}>
-              {decidable(i) ? (
-                <Button
-                  testID={`inbox-done-${i.id}`}
-                  label="Done"
-                  disabled={!!off.decide}
-                  onPress={() => {
-                    // The decision ends its task, and only then is the card read: a refusal leaves it listed.
-                    done.mutateAsync({ task: i.task!, evidence: 'decided in the Inbox', reason: true }).then(
-                      () => read.mutate({ ids: [i.id] }),
-                      () => {}, // the refusal is reported by the write itself
-                    );
-                  }}
-                />
-              ) : null}
+              {decidable(i) ? <Decide item={i} off={off.decide} markRead={() => read.mutate({ ids: [i.id] })} /> : null}
               {i.fix === 'open_terminal' && i.agent ? (
                 <Button
                   testID={`inbox-terminal-${i.id}`}

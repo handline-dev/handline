@@ -93,6 +93,27 @@ describe('the inbox tab', () => {
     m.store.stop();
   });
 
+  it('shows a review card with its pictures, and Approve ends the task with Approved', async () => {
+    const m = await mount((s) => {
+      s.daemon.tasks.verbs = true;
+      const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+      const pic = s.daemon.uploads.add('after.png', png);
+      s.daemon.tasks.seed({ id: 9301, from: ARCH, to: 'me', title: 'Review: margin', state: 'doing', tags: ['review'] });
+      s.daemon.tasks.memo({ task: 9301, text: `Margin widened.\n![after](attachment:${pic.id})` }, 'add', ARCH);
+      void s.daemon.inbox.add({ kind: 'decision', agent: ARCH, title: 'Review: margin', body: 'Is this right?', task: 9301 });
+    });
+    await tab('inbox');
+    await until(() => $('inbox-6'), 'the card');
+    await press($('inbox-open-6'));
+    await until(() => $('review-card'), 'the review card');
+    await until(() => box.querySelector('[data-testid="pictures"]'), 'the pictures');
+    expect(box.querySelector('[data-testid^="inbox-done-"]')).toBeNull();
+    await press(box.querySelector('[data-testid^="inbox-approve-"]') as HTMLElement);
+    await until(() => m.daemon.tasks.get({ task: 9301 }).state === 'done', 'the daemon');
+    expect(m.daemon.tasks.get({ task: 9301 }).evidence).toBe('Approved');
+    m.store.stop();
+  });
+
   it('offers Open terminal on a card the daemon could not heal, and it opens that agent\'s terminal', async () => {
     const m = await mount((s) => {
       const r = s.daemon.inbox['items'].find((i) => i.id === RESULT)!;
