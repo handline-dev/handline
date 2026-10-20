@@ -1,0 +1,80 @@
+{
+ "fixtures": [
+  {
+   "name": "permission.ask.a_person_is_refused",
+   "spec": "permission.ask",
+   "about": "Only an agent's own session asks for a permission: the founder's call is refused at once.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "permission.ask",
+      "params": {
+       "tool": "Bash",
+       "input": {
+        "command": "ls"
+       }
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "permission.ask.input_must_be_an_object",
+   "spec": "permission.ask",
+   "about": "An input that is not the tool call's object is bad_request (field input), before anything waits.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "permission.ask",
+      "params": {
+       "tool": "Bash",
+       "input": "ls"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "input"
+      }
+     }
+    }
+   ],
+   "as": "agent"
+  }
+ ]
+}

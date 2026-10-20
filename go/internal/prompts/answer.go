@@ -14,6 +14,7 @@ import (
 type Choice struct {
 	Cancel  bool
 	Yes     bool
+	Note    string // a deny's reason, for a hook's question
 	Choices []int
 	Text    *string
 	Number  int
@@ -37,6 +38,9 @@ func (e *Env) Answer(blockID int64, c Choice) (bool, string) {
 	}
 	if !row.Answerable {
 		return e.record(row, false, agent+": this prompt has no hook record to pin it to - answer it in its terminal")
+	}
+	if row.IsHook() {
+		return e.answerHook(row, c)
 	}
 	hold := lock.TakeTerminal(e.Home, agent)
 	if hold == nil {

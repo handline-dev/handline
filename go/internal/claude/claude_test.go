@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -155,8 +156,11 @@ func TestKeepingTheSharedSettingsCurrentWritesWhatPythonWrites(t *testing.T) {
 				s := strings.ReplaceAll(strings.ReplaceAll(string(b), real, "{realhome}"), home, "{home}")
 				after = &s
 			}
-			if str(after, "<none>") != str(c.After, "<none>") {
-				t.Errorf("settings\n got  %s\n want %s", str(after, "<none>"), str(c.After, "<none>"))
+			// Where Go departs from Python: the permission hook waits up to an hour for the founder (permission.ask).
+			want := strings.Replace(str(c.After, "<none>"), "hook PermissionRequest\",\n            \"timeout\": 10",
+				fmt.Sprintf("hook PermissionRequest\",\n            \"timeout\": %d", hookTimeoutS("PermissionRequest")), 1)
+			if str(after, "<none>") != want {
+				t.Errorf("settings\n got  %s\n want %s", str(after, "<none>"), want)
 			}
 			_, err = os.Stat(filepath.Join(filepath.Dir(h.Target()), "statusline.sh"))
 			if (err == nil) != c.StatusLineKept {
@@ -175,5 +179,29 @@ func TestKeepingTheSharedSettingsCurrentWritesWhatPythonWrites(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// An install from before the permission hook waited for the founder has its 10 s timeout: it counts as missing, and installing again
+// gives it the hour.
+func TestAnOldPermissionHookTimeoutIsPutRight(t *testing.T) {
+	h := Hooks{Home: t.TempDir()}
+	if err := h.EnsureShared(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Install("/opt/bin/hl"); err != nil || h.Missing() {
+		t.Fatalf("%v %v", err, h.Missing())
+	}
+	b, _ := os.ReadFile(h.Target())
+	old := strings.Replace(string(b), fmt.Sprintf(`"timeout": %d`, hookTimeoutS("PermissionRequest")), `"timeout": 10`, 1)
+	if old == string(b) {
+		t.Fatal("no permission hook timeout to age")
+	}
+	os.WriteFile(h.Target(), []byte(old), 0o644)
+	if !h.Missing() {
+		t.Fatal("an old timeout reads as current")
+	}
+	if err := h.Install("/opt/bin/hl"); err != nil || h.Missing() {
+		t.Fatalf("%v %v", err, h.Missing())
 	}
 }

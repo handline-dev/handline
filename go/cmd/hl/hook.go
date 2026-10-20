@@ -74,6 +74,11 @@ func hook(c *hlclient.Client, args []string) (int, bool) {
 	// No migration from a hook: a database this cannot use as it stands loses a background job's note.
 	d, _ := sql.Open("sqlite", "file:"+paths.DBFile(c.Home)+"?mode=rw&_pragma=busy_timeout(5000)")
 	defer d.Close()
+	if event == "PermissionRequest" {
+		record(c, agent, event, raw)
+		fmt.Println(askPermission(c, tool, input))
+		return 0, true
+	}
 	if event != "PreToolUse" && event != "PostToolUse" && event != "PostToolUseFailure" {
 		return capture(c, d, agent, event, raw), true
 	}
@@ -121,6 +126,31 @@ func newRequestID() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// permissionWaitS bounds the permission.ask call: the daemon holds it up to an hour (prompts.HookWaitS), and a little more covers the
+// reply's way back. The hook's own timeout in settings is longer still.
+const permissionWaitS = 3600 + 30
+
+// askPermission is the PermissionRequest hook's output: the founder's answer through permission.ask, or {} when there is none (the daemon
+// is down, the hour passed, or the input is not an object), and the agent's own dialog shows in its terminal.
+func askPermission(c *hlclient.Client, tool string, input any) string {
+	in, ok := input.(map[string]any)
+	if tool == "" || !ok {
+		return "{}"
+	}
+	waiting := *c
+	waiting.Deadline = permissionWaitS * time.Second
+	res, err := waiting.Call("permission.ask", map[string]any{"tool": tool, "input": in})
+	behavior, _ := res["behavior"].(string)
+	if err != nil || behavior == "" {
+		return "{}"
+	}
+	decision := map[string]any{"behavior": behavior}
+	if msg, _ := res["message"].(string); behavior == "deny" && msg != "" {
+		decision["message"] = msg
+	}
+	return rpc.PyJSON(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "PermissionRequest", "decision": decision}}, true, true)
 }
 
 // capture is the rest of record_from_stdin: the record of an event that is kept and the status snapshot on a turn's edge. Anything else is
