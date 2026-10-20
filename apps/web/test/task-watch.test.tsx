@@ -38,11 +38,12 @@ async function mountGate(watch: Record<string, unknown>, state = 'doing') {
 
 describe('a gate task page', () => {
   it('colours a done gate by its result: passed green, failed red, timed out grey', async () => {
-    const tone = { passed: 'text-ok', failed: 'text-bad', timed_out: 'text-ink-3' };
+    const tone = { passed: 'data-[state=done]:text-ok', failed: 'data-[state=done]:text-bad', timed_out: 'data-[state=done]:text-ink-3' };
     for (const [result, cls] of Object.entries(tone)) {
       await mountGate({ vendor: 'github', target: 'acme/app#426', until: 'ci', label: 'PR #426 CI', result }, 'done');
       const chip = box.querySelector('.tchip[data-state=done]')!;
       expect(chip.classList.contains(cls), result).toBe(true);
+      expect(chip.getAttribute('title'), result).toBe(result === 'passed' ? 'done' : result === 'failed' ? 'failed' : 'timed out');
       await act(async () => root?.unmount());
       root = null;
       box.remove();

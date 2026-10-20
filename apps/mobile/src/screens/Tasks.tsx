@@ -222,7 +222,8 @@ function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () 
   const now = Date.now();
   const meta = [taskRef(t.id), `→ ${t.to}`, t.state, idleText(t, now) || ago(t.created)];
   const failed = t.state === 'done' && watchResult(t) === 'failed';
-  const icon = failed ? 'failed' : (TASK_ICON[t.state] ?? 'taskPending');
+  const timedOut = t.state === 'done' && watchResult(t) === 'timed_out';
+  const icon = failed ? 'failed' : timedOut ? 'waiting' : (TASK_ICON[t.state] ?? 'taskPending');
   const time = left(timeoutText(t, now));
   return (
     <ListRow
