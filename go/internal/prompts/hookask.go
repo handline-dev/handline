@@ -102,8 +102,13 @@ func (e *Env) AskPermission(ctx context.Context, agent, tool string, input map[s
 		case <-ctx.Done():
 			return d, false, nil
 		case <-tick.C:
-			if _, err := e.DB.Exec("UPDATE prompt_blocks SET last_seen = ? WHERE id = ? AND gone_at IS NULL", e.now().Unix(), id); err != nil {
+			res, err := e.DB.Exec("UPDATE prompt_blocks SET last_seen = ? WHERE id = ? AND gone_at IS NULL", e.now().Unix(), id)
+			if err != nil {
 				return d, false, err
+			}
+			// Closed under it, as stale after a sleep or a slow pass: nobody can answer it now, so the agent's own dialog shows instead.
+			if n, _ := res.RowsAffected(); n == 0 {
+				return d, false, nil
 			}
 		}
 	}

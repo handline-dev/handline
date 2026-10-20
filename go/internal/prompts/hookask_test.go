@@ -145,3 +145,22 @@ func TestAStaleHookQuestionIsClosedByTheWatch(t *testing.T) {
 		t.Fatal("a person asked as a session")
 	}
 }
+
+// A question closed under its call (the watch found it stale after the machine slept) ends the call with no answer at its next refresh,
+// so the agent's own dialog shows rather than nothing for an hour.
+func TestAQuestionClosedUnderItsCallEndsTheCallUnanswered(t *testing.T) {
+	e, _ := testEnv(t)
+	register(e)
+	call, b := ask(t, e, "rm -rf build")
+	if err := e.closeRow(b.ID, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case a := <-call:
+		if a.err != nil || a.reply["behavior"] != nil {
+			t.Fatalf("%v %v", a.reply, a.err)
+		}
+	case <-time.After(2 * StaleS * time.Second):
+		t.Fatal("the call still waits on a question nobody sees")
+	}
+}

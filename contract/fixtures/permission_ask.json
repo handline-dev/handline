@@ -4,6 +4,7 @@
    "name": "permission.ask.a_person_is_refused",
    "spec": "permission.ask",
    "about": "Only an agent's own session asks for a permission: the founder's call is refused at once.",
+   "as": "founder",
    "steps": [
     {
      "send": {
