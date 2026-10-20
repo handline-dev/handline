@@ -24,14 +24,3 @@ func TestDevicePairGoesThroughTheDaemonAndNothingElseIsADeviceVerb(t *testing.T)
 		t.Fatalf("calls %v", got)
 	}
 }
-
-func TestTeamSealGoesThroughTheDaemon(t *testing.T) {
-	r := founderRig(t)
-	calls := r.daemon(map[string]string{"team.seal": `{"accepted":true,"said":"sealed team.yaml and 2 agent files"}`})
-	if out, _, code := r.run(nil, "team", "seal"); code != 0 || out != "sealed team.yaml and 2 agent files\n" {
-		t.Fatalf("%q %d", out, code)
-	}
-	if got := sent(calls()); !reflect.DeepEqual(got, []string{`team.seal {}`}) {
-		t.Fatalf("calls %v", got)
-	}
-}

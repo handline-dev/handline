@@ -93,7 +93,7 @@ hl team init
 
 This writes a starter `~/.orcapipe/team.yaml`. It names `backend`, `reviewer` and `archivist`. If
 you have not registered all three, `hl doctor` warns. Register them or edit the file. After you
-edit `team.yaml` or any `agent.yaml` by hand, run `hl team seal` to accept your change (see
+edit `team.yaml` or any `agent.yaml` by hand, seal your change on the Team page of the app (see
 [Configuration](configuration.md#sealed-files)).
 
 ## Run the daemon
@@ -124,7 +124,7 @@ keeps the command, so after a restart the agent comes back on the same account.
 | `hl doctor`: no accounts registered | Add one in the app's Accounts page. |
 | `hl doctor`: agent has no claude account | Add one in the app's Accounts page. |
 | `hl doctor`: team.yaml names agents ocp does not have | Register them, or delete them from `team.yaml`. |
-| `hl doctor`: seals have not begun | Review `team.yaml` and the `agent.yaml` files, then run `hl team seal`. |
+| `hl doctor`: seals have not begun | Review `team.yaml` and the `agent.yaml` files, then seal them on the Team page of the app. |
 | `needs a repo` on `agent register` | Add `--repo <path>`. |
 | An agent never gets its task | `hl ps` shows whether the daemon is running. `hl triggers` shows what the daemon would do right now. |
 | Task refused with "unknown target" | The name is not on `hl team`. Use the full name shown there. |

@@ -70,7 +70,7 @@ export function AccountLogin({ account }: { account: Account }) {
             <Button
               label={login.isPending ? '…' : account.login_state === 'ok' ? 'Log in again' : 'Log in'}
               disabled={!!off || login.isPending}
-              title={off ?? `Or from the host: hl login ${account.name}`}
+              title={off}
               onClick={() => login.mutate({ account: account.name })}
             />
             {account.login?.state === 'failed' ? (

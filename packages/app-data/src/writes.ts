@@ -338,6 +338,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
 
 export const writes: Record<string, WriteSpec> = {
   'account.remove': accountRemove,
+  'team.seal': decided('seal'),
   ...chatWrites,
   ...tasks,
   ...settings,
@@ -403,5 +404,4 @@ export const NOT_FROM_UI = [
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',
-  'team.seal', // `hl team seal`; no screen yet
 ] as const;
