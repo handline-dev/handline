@@ -82,13 +82,13 @@ func memoList(c *hlclient.Client, tid int) int {
 		if given(m, "edited_at") {
 			edited = ", edited " + stamp(m["edited_at"])
 		}
-		fmt.Printf("memo %s  %s  %s%s\n  %s\n", str(m, "id"), str(m, "author"), stamp(m["at"]), edited, str(m, "text"))
+		fmt.Printf("comment %s  %s  %s%s\n  %s\n", str(m, "id"), str(m, "author"), stamp(m["at"]), edited, str(m, "text"))
 		for _, l := range fileLines(list(m, "files"), "  ") {
 			fmt.Println(l)
 		}
 	}
 	if len(memos) == 0 {
-		fmt.Printf("T%d has no memos\n", tid)
+		fmt.Printf("T%d has no comments\n", tid)
 	}
 	return 0
 }
@@ -159,9 +159,9 @@ func detailLines(t obj, now float64, home string) []string {
 	out = append(out, "", "brief", body)
 	out = append(out, pathLines(list(t, "body_parts"), "")...)
 	if memos := list(t, "memos"); len(memos) > 0 {
-		out = append(out, "", "memos")
+		out = append(out, "", "comments")
 		for _, m := range memos {
-			out = append(out, fmt.Sprintf("  memo %s  %s  %s\n    %s", str(m, "id"), str(m, "author"), stamp(m["at"]), str(m, "text")))
+			out = append(out, fmt.Sprintf("  comment %s  %s  %s\n    %s", str(m, "id"), str(m, "author"), stamp(m["at"]), str(m, "text")))
 			out = append(out, pathLines(list(m, "parts"), "    ")...)
 			out = append(out, fileLines(list(m, "files"), "    ")...)
 		}

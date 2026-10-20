@@ -72,6 +72,7 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 			[]string{`task.memo.add {"files":["/x/a.png","/x/b.md"],"task":3,"text":"hi"}`}},
 		{"from stdin", []string{"task", "memo", "T3", "edit", "4", "-"}, []string{`task.memo.edit {"memo":4,"task":3,"text":"from stdin"}`}},
 		{"", []string{"task", "memo", "T3", "delete", "4"}, []string{`task.memo.delete {"memo":4,"task":3}`}},
+		{"", []string{"task", "comment", "T3", "add", "hi"}, []string{`task.memo.add {"task":3,"text":"hi"}`}},
 		{"", []string{"task", "queue", "T1", "T2"}, []string{`task.queue {"tasks":[1]}`, `task.queue {"tasks":[2]}`}},
 		{"", []string{"task", "draft", "T1"}, []string{`task.draft {"tasks":[1]}`}},
 		{"", []string{"task", "edit", "T3", "--title", "t", "--priority", "3", "--timeout", "2h", "--unblock", "T4"},
@@ -157,9 +158,9 @@ func TestTaskRefusalsBeforeAnyCall(t *testing.T) {
 		{asAgent, []string{"task", "edit", "T3", "--owner", "b.two"}, "--owner is who answers for a task, not who works it, so it needs --assign too. To move the work:\n" +
 			"  hl task edit T3 --assign b.two\nTo change only who answers for it, name the assignee it keeps:\n  hl task edit T3 --owner b.two --assign <its assignee>\n"},
 		{asAgent, []string{"task", "edit", "T3"}, "edit needs a new assignee, a new owner, a new title, --body, --priority, --estimate, --blocked-by, --unblock, --timeout, --tag, --untag or --pr\n"},
-		{asAgent, []string{"task", "memo", "T3", "add"}, "add takes the memo text\n"},
+		{asAgent, []string{"task", "memo", "T3", "add"}, "add takes the comment text\n"},
 		{asAgent, []string{"task", "memo", "T3", "delete", "4", "--now"}, "--now goes with add\n"},
-		{asAgent, []string{"task", "memo", "T3", "edit", "4"}, "edit takes the memo id, then the new text\n"},
+		{asAgent, []string{"task", "memo", "T3", "edit", "4"}, "edit takes the comment id, then the new text\n"},
 		{nil, []string{"task", "start", "T3"}, "cannot tell who is start a tasking this: OCP_AGENT is unset and this is not an " +
 			"interactive shell. Agents are started with `hl launch <agent>`, which sets it.\n"},
 	}
@@ -258,7 +259,7 @@ func TestTaskShowListAndBoardRead(t *testing.T) {
 			"created":"2026-10-01T10:00:00Z","time":{"length_s":3600,"default":false,"start":null,"end":null,"overdue_since":null,"told":0},
 			"evidence":"abc123","done":"2026-10-02T11:30:00Z","discarded":null,"body":"the brief",
 			"result":{"commit":"abc1234def","on_main":false,"shots":[{"n":1,"bytes":2048},{"n":2,"bytes":10}]},
-			"memos":[{"id":5,"author":"a.one","at":"2026-10-01T12:00:00Z","text":"a memo","edited_at":null}],
+			"memos":[{"id":5,"author":"a.one","at":"2026-10-01T12:00:00Z","text":"a comment","edited_at":null}],
 			"blockers":[{"task":9,"owner":"c","title":"first"}],"subtasks":[{"id":8,"owner":"d","state":"doing","title":"child"}],
 			"handoffs":[{"at":"2026-10-01T13:00:00Z","from":"a.one","to":"b.two","note":"over to you"}],
 			"assignments":[{"at":"2026-10-01T14:00:00Z","by":"c","what":"owner","from":"a.one","to":"c"}]}`,
@@ -281,9 +282,9 @@ shot ` + r.home + `/shots/T7/2.png (10 bytes)
 brief
 the brief
 
-memos
-  memo 5  a.one  2026-10-01 12:00
-    a memo
+comments
+  comment 5  a.one  2026-10-01 12:00
+    a comment
 
 waiting on
   T9 (c)  first

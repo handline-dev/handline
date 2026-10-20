@@ -20,7 +20,7 @@ var heredocRE = regexp.MustCompile(`^<<(-?)[ \t]*(['"]?)([A-Za-z_][A-Za-z0-9_]*)
 const GuardReason = "Refused: nothing in this command ran, including any heredoc or file write in it. " +
 	"A backtick or $( inside double quotes is shell substitution. Resend the body in " +
 	"single quotes, or written to a file first in a separate step and passed with " +
-	"--file PATH (hl say, hl task new, hl task handoff, hl task memo add), or on " +
+	"--file PATH (hl say, hl task new, hl task handoff, hl task comment add), or on " +
 	"stdin with - through a quoted heredoc (<<'EOF'), which hl task done takes too."
 
 func startsWith(r []rune, i int, s string) bool {
