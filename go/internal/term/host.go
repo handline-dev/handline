@@ -11,8 +11,8 @@ import (
 
 // Host is what a backend adds to start and end the terminals the daemon runs agents in.
 type Host interface {
-	// CreateTerminal opens a window in cwd for agent, stamps its pane with the agent, types command at its shell and answers the new
-	// pane's handle. A handle "" with why "" is a window that started whose handle could not be read.
+	// CreateTerminal opens a window in cwd for agent, stamps its pane with the agent, types command at its shell (none for "") and answers
+	// the new pane's handle. A handle "" with why "" is a window that started whose handle could not be read.
 	CreateTerminal(command, cwd, title, agent string) (handle, why string)
 	// CloseTerminal closes the pane's window (its pane alone when tab is false).
 	CloseTerminal(handle string, tab bool) (bool, string)
@@ -69,6 +69,9 @@ func (t Tmux) CreateTerminal(command, cwd, title, agent string) (string, string)
 			t.CloseTerminal(pane, true)
 			return "", "could not stamp the new window with its agent: " + err
 		}
+	}
+	if command == "" { // a plain shell
+		return pane, ""
 	}
 	if ok, why := t.Send(pane, command, true); !ok {
 		t.CloseTerminal(pane, true)

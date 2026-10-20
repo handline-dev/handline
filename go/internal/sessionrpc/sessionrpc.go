@@ -360,6 +360,9 @@ func (e *Env) interrupt(c *rpc.Conn, params map[string]any) (any, error) {
 }
 
 func (e *Env) terminalClose(c *rpc.Conn, params map[string]any) (any, error) {
+	if _, has := params["terminal"]; has {
+		return e.shellClose(c, params)
+	}
 	return e.run(c, "terminal.close", params, true, func(_ Call, agent string) (map[string]any, error) {
 		if err := e.holderGate(c, agent); err != nil {
 			return nil, err
@@ -393,4 +396,30 @@ func (e *Env) terminalClose(c *rpc.Conn, params map[string]any) (any, error) {
 		}
 		return map[string]any{"accepted": true, "said": agent + ": terminal closed"}, nil
 	})
+}
+
+// shellClose is terminal.close for a plain shell: its window goes, with whatever runs in it, unless someone else holds its input.
+func (e *Env) shellClose(c *rpc.Conn, params map[string]any) (any, error) {
+	if _, has := params["agent"]; has {
+		return nil, bad("give agent or terminal, not both", "agent")
+	}
+	handle, err := e.shell(params)
+	if err != nil {
+		return nil, err
+	}
+	key := term.ShellKey(handle)
+	if e.Holds != nil {
+		if err := e.holderGate(c, key); err != nil {
+			return nil, err
+		}
+	}
+	if ok, why := e.CloseTerminal(handle); !ok {
+		return nil, rpc.Refused("the shell would not close: "+why, "state", "")
+	}
+	if e.Holds != nil {
+		if err := e.Holds.Release(key); err != nil { // a hold on a terminal that is gone is over
+			return nil, err
+		}
+	}
+	return map[string]any{"accepted": true, "said": "shell " + handle + " closed"}, nil
 }

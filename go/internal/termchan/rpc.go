@@ -96,6 +96,8 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("terminal.detach", rpc.Method{Role: "member", Handler: e.detach})
 	s.Register("terminal.history", rpc.Method{Role: "member", Handler: e.history})
 	s.Register("terminal.open", rpc.Method{Role: "member", Handler: e.open})
+	s.Register("terminal.new", rpc.Method{Role: "member", Write: true, Handler: e.newShell})
+	s.Register("terminal.shells", rpc.Method{Role: "member", Handler: e.shells})
 	if e.Holds != nil {
 		s.Register("terminal.input", rpc.Method{Role: "member", Write: true, Handler: e.input})
 		s.Register("terminal.resize", rpc.Method{Role: "member", Write: true, Handler: e.resize})
@@ -149,6 +151,9 @@ func (e *Env) serves(format string) error {
 }
 
 func (e *Env) terminalOf(agent string) (string, error) {
+	if handle, ok := term.ShellHandle(agent); ok {
+		return handle, nil
+	}
 	var t sql.NullString
 	err := e.DB.QueryRow("SELECT terminal FROM agent_state WHERE agent = ?", agent).Scan(&t)
 	if err != nil && err != sql.ErrNoRows {
@@ -157,8 +162,8 @@ func (e *Env) terminalOf(agent string) (string, error) {
 	return t.String, nil
 }
 
-// handleOf is (terminal handle, the agent that has it, "" for a login terminal) for agent or terminal, never both; not_found for one
-// nobody has.
+// handleOf is (terminal handle, the agent that has it, a shell's ShellKey, "" for a login terminal) for agent or terminal, never both;
+// not_found for one nobody has.
 func (e *Env) handleOf(params map[string]any) (handle, agent string, err error) {
 	a, hasAgent := params["agent"]
 	t, hasTerminal := params["terminal"]
@@ -197,6 +202,11 @@ func (e *Env) handleOf(params map[string]any) (handle, agent string, err error) 
 			return "", "", err
 		} else if h == handle {
 			return handle, name, nil
+		}
+	}
+	if h, ok := e.Backend().(term.Shells); ok {
+		if shells, _ := h.Shells(); term.ShellOf(shells, handle) != nil { // a shell's input is held like an agent's
+			return handle, term.ShellKey(handle), nil
 		}
 	}
 	e.mu.Lock()

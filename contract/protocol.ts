@@ -1608,6 +1608,16 @@ export type TaskWatch = {
   result: ("passed" | "failed" | "timed_out") | null;
 };
 
+export type Shell = {
+  /** The shell's handle: terminal.attach, input, resize, history, detach and close take it as terminal. */
+  terminal: string;
+  name: string;
+  /** The folder the shell is in now. */
+  cwd: string;
+  /** What runs in it now, as the host names it (zsh, npm, ...). */
+  command: string;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -1802,7 +1812,9 @@ export interface Methods {
   request_id: RequestId;
 }; result: Accepted };
   "input.take": { params: {
-  agent: AgentName;
+  agent?: AgentName;
+  /** A plain shell's handle (terminal.shells), in place of agent. */
+  terminal?: string;
   /** Take the input from the person or device that holds it instead of being refused; the holder notice tells them. It never types into the agent's own turn: typing still waits for it. */
   force?: boolean;
   request_id: RequestId;
@@ -1810,7 +1822,9 @@ export interface Methods {
     holder: InputHolder;
   } };
   "input.release": { params: {
-  agent: AgentName;
+  agent?: AgentName;
+  /** A plain shell's handle (terminal.shells), in place of agent. */
+  terminal?: string;
   request_id: RequestId;
 }; result: Accepted };
   "chat.messages": { params: {
@@ -2029,12 +2043,28 @@ export interface Methods {
   request_id: RequestId;
 }; result: Accepted };
   "terminal.close": { params: {
-  agent: AgentName;
+  agent?: AgentName;
+  /** A plain shell's handle (terminal.shells), in place of agent. */
+  terminal?: string;
   request_id: RequestId;
 }; result: Accepted };
   "terminal.open": { params: {
   agent: AgentName;
 }; result: TerminalOpening };
+  "terminal.new": { params: {
+  /** An absolute path to a folder on the daemon's machine; the person's home when absent. bad_request (field cwd) for any other. */
+  cwd?: string;
+  /** One line, up to 60 characters; the folder's name when absent. */
+  name?: string;
+  request_id: RequestId;
+}; result: Accepted & {
+    terminal: string;
+    name: string;
+    cwd: string;
+  } };
+  "terminal.shells": { params: { [key: string]: unknown }; result: {
+    shells: Shell[];
+  } };
   "terminal.detach": { params: {
   terminal: string;
   /** With it, ends only that format's attach of the terminal on this connection; without it, every attach of that terminal on the connection. Neither is an error when there is nothing to end; any other word is bad_request naming `format`. */
@@ -2913,6 +2943,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "terminal.input": { role: "member", callers: null, write: true, since: 1 },
   "terminal.close": { role: "member", callers: null, write: true, since: 1 },
   "terminal.open": { role: "member", callers: null, write: false, since: 1 },
+  "terminal.new": { role: "member", callers: null, write: true, since: 1 },
+  "terminal.shells": { role: "member", callers: null, write: false, since: 1 },
   "terminal.detach": { role: "member", callers: null, write: false, since: 1 },
   "debug.terminals": { role: "member", callers: null, write: false, since: 1 },
   "inbox.list": { role: "agent", callers: null, write: false, since: 1 },

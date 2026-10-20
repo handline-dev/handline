@@ -3,6 +3,7 @@ package termchan
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +60,23 @@ func liveTmux(t *testing.T, sock string, file *string) {
 	}
 	if ok, why := tm.Resize(pane, 40, 8); !ok {
 		t.Logf("resize: %s", why)
+	}
+	// A plain shell opens in its folder, is listed by its stamp (the agent-less "cat" pane is not), and goes when closed.
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	shell, why := tm.CreateShell(dir, "logs")
+	if shell == "" {
+		t.Fatal(why)
+	}
+	time.Sleep(300 * time.Millisecond)
+	shells, ok := tm.Shells()
+	if !ok || len(shells) != 1 || shells[0].Handle != shell || shells[0].Name != "logs" || shells[0].Cwd != dir || shells[0].Command == "" {
+		t.Fatalf("shells %+v %v", shells, ok)
+	}
+	if ok, why := tm.CloseTerminal(shell, true); !ok {
+		t.Fatal(why)
+	}
+	if shells, _ := tm.Shells(); len(shells) != 0 {
+		t.Fatalf("a closed shell is listed: %+v", shells)
 	}
 	l := NewControlLink(SpawnCommand(tm.ControlCommand()), true)
 	if !l.Start() {

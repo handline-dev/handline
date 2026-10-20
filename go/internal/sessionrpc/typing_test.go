@@ -215,3 +215,37 @@ func TestInterruptPressesEscOnATerminalAgentsPaneBehindTheTypingGates(t *testing
 		t.Fatalf("no terminal: %q", g)
 	}
 }
+
+// shellHost is the host with one plain shell, %7.
+type shellHost struct{ *host }
+
+func (shellHost) CreateShell(string, string) (string, string) { return "", "not here" }
+func (shellHost) Shells() ([]term.Shell, bool) {
+	return []term.Shell{{Handle: "%7", Name: "logs", Cwd: "/tmp", Command: "zsh"}}, true
+}
+
+// A plain shell's input is taken and given back by its terminal handle, and terminal.close closes it unless someone else holds it.
+func TestAShellIsTakenAndClosedByItsTerminal(t *testing.T) {
+	r, h, _ := typingRig(t)
+	r.e.Term = term.New(shellHost{h}, nil)
+	c := r.dial(false)
+	if m := c.call("input.take", map[string]any{"terminal": "%1", "request_id": rid("n1")}); m["error"] == nil {
+		t.Fatal("a pane that is not a shell was taken by its handle")
+	}
+	result(t, c.call("input.take", map[string]any{"terminal": "%7", "request_id": rid("t1")}))
+	if row, _ := r.e.Holds.Holder(term.ShellKey("%7")); row == nil || row.Name != c.name {
+		t.Fatalf("holder %v", row)
+	}
+	r.e.DB.Exec("UPDATE input_holders SET name = 'sam'")
+	if g := refused(c.call("terminal.close", map[string]any{"terminal": "%7", "request_id": rid("c1")})); g != "input_holder" || len(r.closed) != 0 {
+		t.Fatalf("closed under another's hold: %q %v", g, r.closed)
+	}
+	r.e.DB.Exec("UPDATE input_holders SET name = ?", c.name)
+	result(t, c.call("terminal.close", map[string]any{"terminal": "%7", "request_id": rid("c2")}))
+	if len(r.closed) != 1 || r.closed[0] != "%7" {
+		t.Fatalf("closed %v", r.closed)
+	}
+	if row, _ := r.e.Holds.Holder(term.ShellKey("%7")); row != nil {
+		t.Fatal("the hold outlived its shell")
+	}
+}

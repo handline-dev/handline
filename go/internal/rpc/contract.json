@@ -402,10 +402,16 @@
  "terminal.input": {
   "role": "member"
  },
+ "terminal.new": {
+  "role": "member"
+ },
  "terminal.open": {
   "role": "member"
  },
  "terminal.resize": {
+  "role": "member"
+ },
+ "terminal.shells": {
   "role": "member"
  },
  "transcript.events": {

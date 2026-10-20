@@ -8,6 +8,7 @@ import (
 	"github.com/handline/handline/go/internal/inputhold"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/term"
 )
 
 // terminal.input, the input holder's alone (handline/daemon/rpc_terminal.py); terminal.resize, the holder's while there is one and any
@@ -187,7 +188,7 @@ func (e *Env) resize(c *rpc.Conn, params map[string]any) (any, error) {
 	} else if !e.attached(c, handle) {
 		return nil, rpc.Refused("attach "+agent+"'s terminal to resize it", "input_holder", "")
 	}
-	if cols < minCols || rows < minRows {
+	if _, shell := term.ShellHandle(agent); !shell && (cols < minCols || rows < minRows) { // a shell has no dialogs to read
 		return nil, rpc.Refused(agent+"'s terminal is never resized under "+strconv.Itoa(minCols)+" by "+strconv.Itoa(minRows)+
 			": the daemon cannot read its dialogs narrower", "input_holder", "")
 	}

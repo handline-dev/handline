@@ -45,6 +45,39 @@ func RegisterTyping(s *rpc.Server, e *Env) {
 	}
 }
 
+// holdKey is what an input hold is kept under: the agent named, or for {terminal} a plain shell's term.ShellKey.
+func (e *Env) holdKey(params map[string]any) (string, error) {
+	if _, has := params["terminal"]; !has {
+		return e.agent(params)
+	}
+	if _, has := params["agent"]; has {
+		return "", bad("give agent or terminal, not both", "agent")
+	}
+	handle, err := e.shell(params)
+	if err != nil {
+		return "", err
+	}
+	return term.ShellKey(handle), nil
+}
+
+// shell is the handle of the plain shell params names as terminal; not_found for one that is not a shell.
+func (e *Env) shell(params map[string]any) (string, error) {
+	handle, _ := params["terminal"].(string)
+	if handle == "" {
+		return "", bad("terminal is a handle", "terminal")
+	}
+	if e.Term != nil {
+		if h, ok := e.Term.Backend.(term.Shells); ok {
+			if shells, _ := h.Shells(); term.ShellOf(shells, handle) != nil {
+				return handle, nil
+			}
+		}
+	}
+	err := rpc.NotFoundError("no shell " + handle)
+	err.Data = map[string]any{"what": "terminal", "name": handle}
+	return "", err
+}
+
 func holderKind(c *rpc.Conn) string {
 	if k, _ := c.Caller.Info["kind"].(string); k == "device" {
 		return "device"
@@ -71,7 +104,7 @@ func (e *Env) holderGate(c *rpc.Conn, agent string) error {
 }
 
 func (e *Env) take(c *rpc.Conn, params map[string]any) (any, error) {
-	agent, err := e.agent(params)
+	agent, err := e.holdKey(params)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +145,7 @@ func (e *Env) takeFree(c *rpc.Conn, agent string) error {
 }
 
 func (e *Env) release(c *rpc.Conn, params map[string]any) (any, error) {
-	agent, err := e.agent(params)
+	agent, err := e.holdKey(params)
 	if err != nil {
 		return nil, err
 	}

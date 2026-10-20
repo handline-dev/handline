@@ -1,0 +1,43 @@
+{
+ "fixtures": [
+  {
+   "name": "terminal.new.cwd_must_be_an_absolute_folder",
+   "spec": "terminal.new",
+   "about": "A folder that is not an absolute path is bad_request (field cwd), and nothing is opened.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "terminal.new",
+      "params": {
+       "cwd": "relative/dir",
+       "request_id": "0000000000000000000000000000c0d1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "cwd"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

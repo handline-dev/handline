@@ -37,6 +37,7 @@ export const reads = {
   'task.get': { resource: 'task', id: by('task'), feed: 'tasks' },
   'task.history': { resource: 'task-history', id: by('task') },
   'task.time': { resource: 'task-time', id: by('task'), feed: 'tasks' },
+  'terminal.shells': { resource: 'shells' },
   'task.comment.list': { resource: 'memos', id: by('task') },
   'task.view.list': { resource: 'task-views' },
   'task.board': { resource: 'board', feed: 'tasks' },

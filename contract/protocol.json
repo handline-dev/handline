@@ -2202,9 +2202,17 @@
    "params": [
     {
      "name": "agent",
-     "required": true,
+     "required": false,
      "schema": {
       "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "terminal",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "A plain shell's handle (terminal.shells), in place of agent."
      }
     },
     {
@@ -2260,7 +2268,7 @@
     "input_holder",
     "unsupported"
    ],
-   "description": "A daemon that runs structured agents need not serve this method (the Go daemon does not: it is absent from hello, so a client never calls it for one). One that serves it refuses an agent run as a structured session, gate unsupported: it has no terminal to type at, so a client sends chat.send and watches the transcript."
+   "description": "A daemon that runs structured agents need not serve this method (the Go daemon does not: it is absent from hello, so a client never calls it for one). One that serves it refuses an agent run as a structured session, gate unsupported: it has no terminal to type at, so a client sends chat.send and watches the transcript. Give agent, or terminal for a plain shell (terminal.new), never both; a terminal that is not a shell is not_found."
   },
   {
    "name": "input.release",
@@ -2269,9 +2277,17 @@
    "params": [
     {
      "name": "agent",
-     "required": true,
+     "required": false,
      "schema": {
       "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "terminal",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "A plain shell's handle (terminal.shells), in place of agent."
      }
     },
     {
@@ -2303,7 +2319,7 @@
     "role",
     "unsupported"
    ],
-   "description": "A daemon that runs structured agents need not serve this method (the Go daemon does not: it is absent from hello, so a client never calls it for one). One that serves it refuses an agent run as a structured session, gate unsupported: it has no terminal to type at, so a client sends chat.send and watches the transcript."
+   "description": "A daemon that runs structured agents need not serve this method (the Go daemon does not: it is absent from hello, so a client never calls it for one). One that serves it refuses an agent run as a structured session, gate unsupported: it has no terminal to type at, so a client sends chat.send and watches the transcript. Give agent, or terminal for a plain shell (terminal.new), never both; a terminal that is not a shell is not_found."
   },
   {
    "name": "chat.messages",
@@ -3743,9 +3759,17 @@
    "params": [
     {
      "name": "agent",
-     "required": true,
+     "required": false,
      "schema": {
       "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "terminal",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "A plain shell's handle (terminal.shells), in place of agent."
      }
     },
     {
@@ -3778,7 +3802,8 @@
     "terminal_lock",
     "input_holder",
     "state"
-   ]
+   ],
+   "description": "Give agent, or terminal for a plain shell (terminal.new), never both; a terminal that is not a shell is not_found. A shell is closed with whatever runs in it, refused (gate input_holder) while someone other than the caller holds its input."
   },
   {
    "name": "terminal.open",
@@ -3818,6 +3843,109 @@
     "unsupported"
    ],
    "description": "Answers where the agent's own terminal is: the host (`tmux`), its handle, and `attach`, the command a client on the daemon's machine runs to see and answer it (`argv`, null when the host has no command; the client then uses `host` and `terminal`). It types nothing and answers nothing; the person at the terminal answers the dialog, which is the point (see x-dialogs). `focused` is true when the host was also asked to bring the terminal to the front (tmux select-window; best effort, false when it could not). Callers: the founder and a paired device (member); an agent is refused, gate role. An agent that is not registered is not_found (agent); one with no terminal, a structured agent among them, a closed one (it keeps the handle it had) and one whose terminal the host no longer lists are not_found (terminal). A device on another machine than the daemon's gets the same answer; `attach` names a local socket, so it is useful only where the daemon runs, and `local` says whether the caller is there (true for the unix socket, false over the network)."
+  },
+  {
+   "name": "terminal.new",
+   "summary": "Open a plain shell: a terminal with no agent, kept by the host across restarts of the app and the daemon.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "cwd",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "An absolute path to a folder on the daemon's machine; the person's home when absent. bad_request (field cwd) for any other."
+     }
+    },
+    {
+     "name": "name",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "One line, up to 60 characters; the folder's name when absent."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "terminal": {
+         "type": "string"
+        },
+        "name": {
+         "type": "string"
+        },
+        "cwd": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "terminal",
+        "name",
+        "cwd"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "description": "The shell is watched and typed into like an agent's terminal, by its handle: terminal.attach, history and detach, input.take and release, then terminal.input and terminal.resize by whoever holds its input. A shell has no dialogs for the daemon to read, so it is resized to any size, under the 80 by 24 an agent's terminal keeps. Refused (gate unsupported) when the terminal host cannot open shells."
+  },
+  {
+   "name": "terminal.shells",
+   "summary": "The plain shells open now.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "shells": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/Shell"
+       }
+      }
+     },
+     "required": [
+      "shells"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "description": "Read from the terminal host each time, so a shell opened before a restart of the daemon is listed. No topic tells of a change yet: read it again after terminal.new and terminal.close."
   },
   {
    "name": "terminal.detach",
@@ -15881,6 +16009,32 @@
      "until",
      "label",
      "result"
+    ]
+   },
+   "Shell": {
+    "type": "object",
+    "properties": {
+     "terminal": {
+      "type": "string",
+      "description": "The shell's handle: terminal.attach, input, resize, history, detach and close take it as terminal."
+     },
+     "name": {
+      "type": "string"
+     },
+     "cwd": {
+      "type": "string",
+      "description": "The folder the shell is in now."
+     },
+     "command": {
+      "type": "string",
+      "description": "What runs in it now, as the host names it (zsh, npm, ...)."
+     }
+    },
+    "required": [
+     "terminal",
+     "name",
+     "cwd",
+     "command"
     ]
    }
   },
