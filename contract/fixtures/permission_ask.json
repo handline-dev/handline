@@ -13,7 +13,8 @@
       "method": "hello",
       "params": {
        "client": "conformance/1",
-       "protocol": 1
+       "protocol": 1,
+       "key": "{{founder_key}}"
       }
      },
      "result": {}
