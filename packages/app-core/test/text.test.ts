@@ -36,6 +36,9 @@ test('the xterm cube and greys', () => {
   assert.equal(xtermColor(231), '#ffffff');
   assert.equal(xtermColor(232), '#080808');
   assert.equal(xtermColor(255), '#eeeeee');
+  assert.equal(xtermColor(5), undefined);
+  assert.equal(xtermColor(256), undefined);
+  assert.equal(xtermColor(3.5), undefined);
 });
 
 test('worktree sums, cost by agent, a running login, a time left and a field unit', () => {
@@ -53,7 +56,7 @@ test('worktree sums, cost by agent, a running login, a time left and a field uni
     ],
   } as unknown as Outlook;
   assert.deepEqual(costByAgent(o), { agents: ['a', 'b'], sums: [4, 2], all: 6 });
-  assert.equal(costByAgent({ cost_per_day: [] } as unknown as Outlook).all, 1);
+  assert.equal(costByAgent({ cost_per_day: [] } as unknown as Outlook).all, 0);
   assert.equal(loginRunning({ login: { state: 'code_sent' } } as never), true);
   assert.equal(loginRunning({} as never), false);
   assert.equal(timeLeft('3h'), '3h left');

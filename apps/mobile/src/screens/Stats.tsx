@@ -159,7 +159,7 @@ function Cost({ o }: { o: Outlook }) {
         <View key={a} testID={`cost-agent-${a}`} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
           <Text style={{ color: c.ink }}>{a}</Text>
           <Text style={{ color: c.muted }}>
-            ${sums[i]!.toFixed(2)} · {Math.round((sums[i]! / all) * 100)}%
+            ${sums[i]!.toFixed(2)} · {Math.round((sums[i]! / (all || 1)) * 100)}%
           </Text>
         </View>
       ))}

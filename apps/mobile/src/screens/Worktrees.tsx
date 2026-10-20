@@ -5,10 +5,10 @@ import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-na
 import type { Worktree } from '@handline/client';
 import { STATUSES, useMoves, useServes, useWorktrees, type Moves } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
+import { worktreeSums } from '@handline/app-core';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
-import { worktreeSums } from '@handline/app-core';
 
 const files = (w: Worktree) => {
   const { added, deleted } = worktreeSums(w);

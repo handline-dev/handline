@@ -10,7 +10,7 @@
     "./prettier.json": "./prettier.json"
   },
   "imports": {
-    "#*": "./*"
+    "#eslint/*": "./eslint/*"
   },
   "scripts": {
     "test": "node --test --test-timeout=60000 --test-reporter=spec test/*.test.ts",

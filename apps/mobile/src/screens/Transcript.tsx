@@ -4,12 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { usePrompts, useWrite, type Entry, type Transcript as TranscriptState, type Turn } from '@handline/app-data';
 import { space } from '@handline/tokens';
+import { oneLine, toolInputLine } from '@handline/app-core';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { PromptCard } from '#src/screens/PromptCard.tsx';
 import { Icon } from '#src/screens/Icon.tsx';
 import { Button, Row } from '#src/screens/parts.tsx';
-import { oneLine, toolInputLine } from '@handline/app-core';
 
 function Fold(props: { id: string; head: string; body: string; tint?: string }) {
   const c = usePalette();

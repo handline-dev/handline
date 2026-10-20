@@ -2,8 +2,8 @@
 import { useEffect, useState } from 'react';
 import type { ChatMessage } from '@handline/client';
 import { classify, sentence, useChatSearch, useServes, type ChatScope } from '@handline/app-data';
-import { BarInput, Empty, Icon } from '#src/ui/index.ts';
 import { dateTime, searchSnippet } from '@handline/app-core';
+import { BarInput, Empty, Icon } from '#src/ui/index.ts';
 
 function Hit({ m, query, onGo }: { m: ChatMessage; query: string; onGo: (id: number) => void }) {
   return (

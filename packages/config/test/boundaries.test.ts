@@ -32,6 +32,9 @@ const bad: [string, string, string][] = [
   ['an app from a package', 'packages/app-react/src/zz.ts', "import '@handline/web';\n"],
   ['a relative import in a package', 'packages/app-core/src/zz.ts', "import './store.ts';\n"],
   ['a relative import in an app test', 'apps/web/test/zz.ts', "import '../src/zz.ts';\n"],
+  ['a relative import()', 'apps/web/src/zz.ts', "void import('./zz.ts');\n"],
+  ['a relative vi.mock', 'apps/mobile/test/zz.ts', "vi.mock('../src/zz.ts');\n"],
+  ['the electron app from a package', 'packages/app-data/src/zz.ts', "import '@handline/electron';\n"],
   ['React Query outside app-data', 'packages/app-react/src/zz.ts', "import '@tanstack/react-query';\n"],
   ['React Query in an app', 'apps/web/src/zz.ts', "import '@tanstack/react-query';\n"],
   ['the fake daemon in app source', 'apps/web/src/zz.ts', "import '@handline/fake-daemon/daemon';\n"],
@@ -40,7 +43,7 @@ const bad: [string, string, string][] = [
 for (const [what, file, code] of bad) {
   test(`${what} is refused`, async () => {
     const ids = await lint(file, code);
-    assert.ok(ids.includes(restricted), ids.join('; '));
+    assert.ok(ids.includes(restricted) || ids.includes('no-restricted-syntax'), ids.join('; '));
   });
 }
 
@@ -48,12 +51,12 @@ const allowed: [string, string, string][] = [
   ['the fake daemon in an app test', 'apps/web/test/zz.ts', "import '@handline/fake-daemon';\n"],
   ['the fake daemon in a dev script', 'apps/mobile/scripts/zz.ts', "import '@handline/fake-daemon';\n"],
   ['React in an app', 'apps/web/src/zz.ts', "import 'react';\n"],
-  ['a #path inside the package', 'apps/web/test/zz.ts', "import '#src/zz.ts';\n"],
+  ['a #path inside the package', 'apps/web/test/zz.ts', "import '#src/zz.ts';\nvoid import('#src/zz.ts');\n"],
 ];
 for (const [what, file, code] of allowed) {
   test(`${what} is allowed`, async () => {
     const ids = await lint(file, code);
-    assert.ok(!ids.includes(restricted), ids.join('; '));
+    assert.ok(!ids.includes(restricted) && !ids.includes('no-restricted-syntax'), ids.join('; '));
   });
 }
 

@@ -2,9 +2,9 @@
 // opened), permission cards, what the turn cost, and errors. It follows the stream while the person is at the end and offers a jump back when not.
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Skeleton, useTranscript, classify, sentence, useWrite, type Transcript, type Turn } from '@handline/app-data';
+import { oneLine, toolInputLine } from '@handline/app-core';
 import { PromptCard } from '#src/PromptCard.tsx';
 import { Button, Empty } from '#src/ui/index.ts';
-import { oneLine, toolInputLine } from '@handline/app-core';
 
 type Entry = Turn['entries'][number];
 type Tool = Extract<Entry, { type: 'tool' }>;

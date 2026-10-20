@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import type { Worktree } from '@handline/client';
 import { STATUSES, type Moves } from '@handline/app-data';
+import { worktreeSums } from '@handline/app-core';
 import { MenuButton, MenuItem } from '#src/ui/index.ts';
 import { goWorktrees } from '#src/route.ts';
 import { Owner } from '#src/Worktrees.tsx';
-import { worktreeSums } from '@handline/app-core';
 
 export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: string | null; moves: Moves }) {
   const [dragging, setDragging] = useState<string | null>(null);

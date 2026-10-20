@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { paneKey, type AgentDetail, type ByteListener, type ByteTerminalView, type ByteViewState } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useWrite } from '@handline/app-data';
+import { RESIZE_MS } from '@handline/app-core';
 import { keep, reclaim } from '#src/terminal/keep.ts';
 import {
   DEFAULT_FONT,
@@ -20,7 +21,6 @@ import {
 } from '#src/terminal/core.ts';
 import { traceResize } from '#src/terminal/trace.ts';
 import { Button } from '#src/ui/index.ts';
-import { RESIZE_MS } from '@handline/app-core';
 
 const SKELETON_DELAY_MS = 150;
 const SKELETON_MIN_MS = 300;

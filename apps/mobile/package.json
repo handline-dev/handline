@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "imports": {
-    "#*": "./*"
+    "#modules/*": "./modules/*",
+    "#src/*": "./src/*",
+    "#test/*": "./test/*"
   },
   "description": "The phone app: pair with a daemon, agent list, agent page. Expo dev client (not Expo Go: it carries the pinned-socket native module)",
   "main": "index.ts",

@@ -131,7 +131,7 @@ function Cost({ o, only, pick }: { o: Outlook; only: string | null; pick: (agent
                 </button>
               </td>
               <td>${sums[i]!.toFixed(2)}</td>
-              <td>{Math.round((sums[i]! / all) * 100)}%</td>
+              <td>{Math.round((sums[i]! / (all || 1)) * 100)}%</td>
             </tr>
           ))}
         </tbody>

@@ -6,14 +6,21 @@ const REACT = ['react', 'react-dom', 'react-native'].map((name) => ({ name, mess
 const RELATIVE = { regex: '^\\.', message: 'Import by package name, or by #path inside this package.' };
 const DEEP = { group: ['@handline/*/src/*'], message: 'Import the package entry, not its src.' };
 const QUERY = { group: ['@tanstack/react-query'], message: 'React Query lives in packages/app-data.' };
-const NO_APPS = {
-  group: ['**/apps/**', '**/web/**', '@handline/web', '@handline/mobile'],
-  message: 'An app is never imported.',
-};
+const NO_APPS = { group: ['@handline/web', '@handline/mobile', '@handline/electron'], message: 'An app is never imported.' };
 const NO_APP_PKGS = { group: ['@handline/app-*'], message: 'This package sits below the app packages.' };
 const NO_FAKE = {
   group: ['@handline/fake-daemon', '@handline/fake-daemon/*'],
   message: 'The fake daemon is for tests, dev scripts and vite.config.ts only.',
+};
+
+// no-restricted-imports sees only static imports; this refuses a relative path in import(), require() and vi.mock() too.
+const RELATIVE_CALL = {
+  selector: [
+    'ImportExpression[source.value=/^\\./]',
+    "CallExpression[callee.name='require'][arguments.0.value=/^\\./]",
+    'CallExpression[callee.property.name=/^(mock|doMock|importActual)$/][arguments.0.value=/^\\./]',
+  ].join(', '),
+  message: RELATIVE.message,
 };
 
 /** What the folder at `where` (relative to the repo root) may not import, from docs/turborepo-layout.md. */
@@ -34,7 +41,10 @@ function restrictions(where) {
  */
 export function boundaries(dir) {
   const { paths, patterns, exempt } = restrictions(path.relative(repoRoot, dir));
-  const rule = (list) => ({ 'no-restricted-imports': ['error', { paths, patterns: list }] });
+  const rule = (list) => ({
+    'no-restricted-imports': ['error', { paths, patterns: list }],
+    'no-restricted-syntax': ['error', RELATIVE_CALL],
+  });
   const exemptList = patterns.filter((p) => p !== NO_FAKE);
   return [{ rules: rule(patterns) }, ...(exempt.length ? [{ files: exempt, rules: rule(exemptList) }] : [])];
 }

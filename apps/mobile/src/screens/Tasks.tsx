@@ -2,13 +2,13 @@
 // of TaskActions: new task, done, reopen, queue, draft, discard, edit, memo, withdraw, cancel. The pills Open / Mine / Closed and the state
 // chips narrow the list as on the web.
 import { useState } from 'react';
-import { useHistoryValue } from '#src/history.tsx';
-import { Linking, SectionList, ScrollView, Text, TextInput, View } from 'react-native';
 import { activityOf, ago, CLOSED, defaultFilter, foldEvents, groupTasks, HELD, idleText, shown, sortTasks, TASK_STATES, taskMatches, taskRef, timeLeft, timeoutText, watchLine, watchResult } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
 import { space } from '@handline/tokens';
+import { useHistoryValue } from '#src/history.tsx';
+import { Linking, SectionList, ScrollView, Text, TextInput, View } from 'react-native';
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';

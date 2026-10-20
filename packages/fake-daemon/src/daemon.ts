@@ -31,6 +31,7 @@ import { Knobs } from '#src/knobs.ts';
 import { TERMINAL_CAPS, TEXT_CAPS, UNKEPT, type Body, type Conn, type FakeDaemonOptions } from '#src/conn.ts';
 
 export type { FakeDaemonOptions };
+export type { FakeHr } from '#src/hr.ts';
 import { Replies } from '#src/replies.ts';
 import { FakeTranscript } from '#src/transcript.ts';
 import { watcherNotice } from '#src/watchers.ts';

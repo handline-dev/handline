@@ -1,11 +1,11 @@
 // One worktree beside the list: where it is, who owns it, how it relates to others, and the files it changed.
 import type { Worktree } from '@handline/client';
 import { STATUSES, type Moves } from '@handline/app-data';
+import { worktreeSums } from '@handline/app-core';
 import { Button, Select } from '#src/ui/index.ts';
 
 import { goAgent, goWorktrees } from '#src/route.ts';
 import { Owner, Status } from '#src/Worktrees.tsx';
-import { worktreeSums } from '@handline/app-core';
 
 export function WorktreePanel({
   worktree: w,

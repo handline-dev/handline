@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { classify, sentence, useChatSearch, useServes } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '#src/theme.ts';
 import { dateTime, searchSnippet } from '@handline/app-core';
+import { usePalette } from '#src/theme.ts';
 
 export function ChatSearch(props: { agent: string; onGo: (id: number) => void }) {
   const c = usePalette();

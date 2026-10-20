@@ -7,10 +7,10 @@ import type { Account } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useOff, useServes, useWrite } from '@handline/app-data';
 import { space } from '@handline/tokens';
+import { loginRunning } from '@handline/app-core';
 import { usePalette } from '#src/theme.ts';
 import { Button } from '#src/screens/parts.tsx';
 import { Input } from '#src/screens/TaskActions.tsx';
-import { loginRunning } from '@handline/app-core';
 
 export function AccountLogin({ a }: { a: Account }) {
   const c = usePalette();

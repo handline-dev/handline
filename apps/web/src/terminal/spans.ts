@@ -9,7 +9,7 @@ type Style = Spans[number]['style'];
 export function colorOf(c: number | string): string {
   if (typeof c === 'string') return /^#[0-9a-f]{6}$/i.test(c) ? c : 'inherit';
   if (c < 16) return `var(--ansi-${c})`;
-  return xtermColor(c);
+  return xtermColor(c) ?? 'inherit';
 }
 
 /** The CSS declarations of one run, or '' for the default style. */

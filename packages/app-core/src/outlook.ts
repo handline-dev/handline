@@ -10,9 +10,9 @@ export const runwayWords = (r: Outlook['runway'][number]): string =>
       ? 'lasts until the week resets'
       : 'no burn, or a stale reading';
 
-/** The agents with a cost in the window, each one's total in the same order, and the grand total (1 when nothing was spent, to divide by). */
+/** The agents with a cost in the window, each one's total in the same order, and the grand total. */
 export function costByAgent(o: Outlook): { agents: string[]; sums: number[]; all: number } {
   const agents = [...new Set(o.cost_per_day.flatMap((d) => Object.keys(d.agents)))];
   const sums = agents.map((a) => o.cost_per_day.reduce((sum, d) => sum + (d.agents[a] ?? 0), 0));
-  return { agents, sums, all: sums.reduce((a, b) => a + b, 0) || 1 };
+  return { agents, sums, all: sums.reduce((a, b) => a + b, 0) };
 }

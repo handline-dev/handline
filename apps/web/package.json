@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "imports": {
-    "#*": "./*"
+    "#src/*": "./src/*"
   },
   "description": "The responsive web app: sidebar, agent workspaces with tabs and split panes, on the shared packages",
   "scripts": {
