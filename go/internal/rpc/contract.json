@@ -276,6 +276,9 @@
  "subscribe": {
   "role": "agent"
  },
+ "task.accept": {
+  "role": "agent"
+ },
  "task.ask": {
   "role": "member"
  },
@@ -336,6 +339,9 @@
  "task.queue": {
   "role": "agent"
  },
+ "task.reject": {
+  "role": "agent"
+ },
  "task.release": {
   "role": "agent"
  },
@@ -359,6 +365,9 @@
  },
  "task.view.save": {
   "role": "member"
+ },
+ "task.wait": {
+  "role": "agent"
  },
  "task.withdraw": {
   "role": "agent"

@@ -21,7 +21,7 @@ var taskCmds = map[string]taskCmd{
 	"new": taskNew, "begin": taskBegin, "handoff": taskHandoff, "start": taskStart, "note": taskNote,
 	"comment": taskMemo, "memo": taskMemo, "show": taskShow, "list": taskList, "queue": taskQueue(true), "draft": taskQueue(false),
 	"edit": taskEdit, "merge": taskMerge, "done": taskDone, "reopen": taskReopen, "release": taskRelease,
-	"discard": taskDiscard, "board": taskBoard,
+	"discard": taskDiscard, "board": taskBoard, "accept": taskAccept, "reject": taskReject, "wait": taskWait,
 }
 
 // taskReads are the subcommands that change nothing, so no verb_chain is recorded for them (parser._TASK_READS).
@@ -137,7 +137,7 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	prio, hasPrio, ok3 := optPriority(p, "--priority")
 	timeout, hasTimeout, ok4 := optTimeout(p, "--timeout")
 	points, hasEstimate, ok5 := optEstimate(p)
-	if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 || (hasEstimate && points == nil) { // --expects is accepted and ignored
+	if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 || (hasEstimate && points == nil) { // --expects is accepted and ignored: a done is a report its owner accepts
 		return 0, false
 	}
 	mutating(c, "new")
@@ -693,6 +693,34 @@ func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key st
 		params[key] = p.pos[1]
 	}
 	return said(c.Write(method, params)), true
+}
+
+func taskAccept(c *hlclient.Client, args []string) (int, bool) {
+	p, ok := parse(args, []string{"--by-founder"}, nil, nil)
+	if !ok || len(p.pos) != 1 {
+		return 0, false
+	}
+	tid, ok := taskRef(p.pos[0])
+	if !ok {
+		return 0, false
+	}
+	params := map[string]any{"task": tid}
+	if v, has := p.opt("--by-founder"); has {
+		mid, err := strconv.Atoi(strings.TrimPrefix(v, "#"))
+		if err != nil || mid < 1 {
+			return 0, false
+		}
+		params["by_founder"] = mid
+	}
+	mutating(c, "accept")
+	if !asking(c, "accept a task") {
+		return 1, true
+	}
+	return said(c.Write("task.accept", params)), true
+}
+
+func taskReject(c *hlclient.Client, args []string) (int, bool) {
+	return taskWithReason(c, args, "reject", "reject a task", "task.reject", "note", false)
 }
 
 func taskRelease(c *hlclient.Client, args []string) (int, bool) {

@@ -24,6 +24,7 @@ var usages = map[string][2]string{
 	"task start":      {`hl task start T<n>`, `hl task start T12`},
 	"task reopen":     {`hl task reopen T<n> "<why>"`, `hl task reopen T12 "the badge still overlaps on the phone"`},
 	"task release":    {`hl task release T<n> "<why>"`, `hl task release T12 "blocked on the founder"`},
+	"task wait":       {`hl task wait T<n> (--on <vendor>:<target> | --pr <n> [--repo owner/name]) [--until ci|closed|done] [-t <span>]`, `hl task wait T12 --pr 412`},
 	"task discard":    {`hl task discard T<n> "<why>"   |   hl task discard T<n> T<m> --why "<why>" [--why-each T<m>="<why>"]`, `hl task discard T12 "duplicate of T9"`},
 	"task note":       {`hl task note T<n> "<text>"`, `hl task note T12 "the phone needs it too"`},
 	"task queue":      {`hl task queue T<n> [T<m> ...]`, `hl task queue T12`},

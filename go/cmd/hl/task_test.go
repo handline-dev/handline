@@ -106,6 +106,13 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "reopen", "T3"}, []string{`task.reopen {"task":3}`}},
 		{"", []string{"task", "handoff", "T3", "b.two"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "handoff", "T3", "b.two", "-"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
+		{"", []string{"task", "wait", "T3", "--pr", "#412", "--repo", "o/r"}, []string{
+			`task.wait {"task":3,"watch":{"target":"o/r#412","vendor":"github"}}`}},
+		{"", []string{"task", "wait", "T3", "--on", "github:o/r#7", "--until", "closed", "-t", "4h"}, []string{
+			`task.wait {"task":3,"time_box":"14400s","watch":{"target":"o/r#7","until":"closed","vendor":"github"}}`}},
+		{"", []string{"task", "accept", "T3"}, []string{`task.accept {"task":3}`}},
+		{"", []string{"task", "accept", "T3", "--by-founder", "#41"}, []string{`task.accept {"by_founder":41,"task":3}`}},
+		{"", []string{"task", "reject", "T3", "no tests"}, []string{`task.reject {"note":"no tests","task":3}`}},
 	}
 	seen := 0
 	for _, c := range cases {
@@ -193,6 +200,38 @@ func TestWhatTheTaskPortDoesNotParseIsRefused(t *testing.T) {
 	}
 }
 
+func TestATaskInReviewReadsAsAwaitingWhoItWaitsOn(t *testing.T) {
+	r := agentsRig(t)
+	task := `"id":7,"title":"Fix it","state":"review","to":"b.two","from":"a.one","asker":"c","priority":2,"parent":null,"hold_reason":"","mismatch":"","pr":12`
+	report := `"report":{"by":"b.two","evidence":"built","at":"2026-10-02T11:30:00Z","waits_on":"lead","accepted":null}`
+	get := func(report string) string {
+		return `{` + task + `,"created":"2026-10-01T10:00:00Z","time":null,"evidence":null,"done":null,"discarded":null,"body":"",` + report + `,"memos":[]}`
+	}
+	r.daemon(map[string]string{
+		"task.get":   get(report),
+		"tasks.list": `{"items":[{` + task + `,` + report + `,"evidence":null,"block_reason":"","last_activity":"2026-10-01T10:00:00Z","requests":[]}],"more":false}`,
+		"task.board": `{"mine":[{"task":{` + task + `,` + report + `},"now":{"kind":"none","tasks":[],"agents":[]}}],"reports":[]}`,
+	})
+	show := "T7  Fix it\nstate review, awaiting lead   assignee b.two   owner c   opened by a.one   P2   created 2026-10-01 10:00\n" +
+		"answered 2026-10-02 11:30: built\n\nbrief\n(none)\n"
+	if out, _, code := r.run(asAgent, "task", "show", "T7"); code != 0 || out != show {
+		t.Errorf("show: %d\n%q", code, out)
+	}
+	if out, _, _ := r.run(asAgent, "task", "list"); !strings.HasPrefix(out, "T7    Fix it  [b.two] review, awaiting lead  P2") {
+		t.Errorf("list: %q", out)
+	}
+	if out, _, _ := r.run(asAgent, "task", "board"); out != "T7    Fix it\n      assignee b.two  owner c  now: review, awaiting lead\n" {
+		t.Errorf("board: %q", out)
+	}
+	r.daemon(map[string]string{"task.get": get(`"report":{"by":"b.two","evidence":"built","at":"2026-10-02T11:30:00Z","waits_on":"human",` +
+		`"accepted":{"by":"lead","at":"2026-10-02T12:00:00Z"}}`)})
+	show = "T7  Fix it\nstate review, awaiting human   assignee b.two   owner c   opened by a.one   P2   created 2026-10-01 10:00\n" +
+		"answered 2026-10-02 11:30: built\naccepted 2026-10-02 12:00 by lead: closes when PR #12 merges\n\nbrief\n(none)\n"
+	if out, _, code := r.run(asAgent, "task", "show", "T7"); code != 0 || out != show {
+		t.Errorf("show accepted: %d\n%q", code, out)
+	}
+}
+
 func TestTaskShowReadsAPausedClock(t *testing.T) {
 	box := obj{"length_s": float64(7200), "default": false, "left_s": float64(4800)}
 	held := obj{"blockers": []any{obj{"task": float64(9)}}, "subtasks": []any{obj{"id": float64(8), "state": "doing"}, obj{"id": float64(6), "state": "done"}}}
@@ -204,6 +243,7 @@ func TestTaskShowReadsAPausedClock(t *testing.T) {
 		{obj{"subtasks": held["subtasks"]}, "timeout paused: waiting on T8"},
 		{obj{}, "paused, 1h20m left"},
 		{obj{"to": "human"}, "timeout paused: waiting on human"},
+		{obj{"state": "review", "report": obj{"waits_on": "human"}}, "timeout paused: waiting on human"},
 		{obj{"blockers": []any{obj{"task": float64(9), "owner": "human"}}}, "timeout paused: waiting on T9 (human)"},
 	} {
 		if got := timeoutLines(box, 0, waitsOn(c.task)); len(got) != 2 || got[0] != "timeout 2h00m" || got[1] != c.want {
