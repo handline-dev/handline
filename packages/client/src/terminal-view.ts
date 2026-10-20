@@ -64,7 +64,7 @@ export class TerminalView {
     this.historyFirst = s.history.first;
     this.historyMore = s.history.more;
     this.holder = s.holder;
-    this.holders = s.holders ?? [s.holder];
+    this.holders = s.holders ?? (s.holder ? [s.holder] : []);
     this.emit();
   }
   applyFrame(n: Notifications['frame']): void {

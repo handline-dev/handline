@@ -159,9 +159,9 @@ export function TerminalPane(props: { agent: string; view: TerminalView; session
             typed.current = '';
             field.current?.clear();
           }
-          if (t.startsWith(was)) type(t.slice(was.length));
-          else if (was.startsWith(t)) type('\x7f'.repeat(was.length - t.length));
-          else type('\x7f'.repeat(was.length) + t); // the keyboard rewrote what was there
+          let same = 0; // the keyboard may rewrite the tail: send only what differs
+          while (same < was.length && same < t.length && was[same] === t[same]) same++;
+          type('\x7f'.repeat(was.length - same) + t.slice(same));
         }}
         onKeyPress={(e) => {
           const key = e.nativeEvent.key;
