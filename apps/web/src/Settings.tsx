@@ -2,7 +2,7 @@
 // own (authored: it shows at once and goes back with its own note when refused), and the standing answers. A section nav on the left, then one
 // card per section whose rows are a title, one grey line and the control on the right (docs/design-gaps.md G80).
 import { useEffect, useState } from 'react';
-import { minutesOf, parseCap, parseMinutes, type KV } from '@handline/app-core';
+import { capField, idleField, type KV } from '@handline/app-core';
 import { useServes, useSettings } from '@handline/app-data';
 import { Answers } from './Answers.tsx';
 import { Devices } from './Devices.tsx';
@@ -96,14 +96,9 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                     <SectionHead>Concurrency</SectionHead>
                     <SettingsCard>
                       <NumberRow
-                        label="Default cap"
+                        {...capField(v.active_cap)}
                         hint="Agents working at once on an account"
                         more="An account with its own cap keeps it"
-                        unit="agents"
-                        current={v.active_cap === undefined ? '' : String(v.active_cap)}
-                        parse={parseCap}
-                        change={(n) => ({ active_cap: n })}
-                        allowed="a whole number from 1, or empty for the default"
                       />
                     </SettingsCard>
                   </section>
@@ -111,14 +106,9 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                     <SectionHead>Closing windows</SectionHead>
                     <SettingsCard>
                       <NumberRow
-                        label="Idle close"
+                        {...idleField(v.park_timeout_s)}
                         hint="Idle time before a session closes"
                         more="0 is never"
-                        unit="min"
-                        current={minutesOf(v.park_timeout_s)}
-                        parse={parseMinutes}
-                        change={(s) => ({ park_timeout_s: s })}
-                        allowed="whole minutes, 0 for never, or empty for the default"
                       />
                       <BackgroundRows notice={v.bg_notice_s} grace={v.bg_grace_s} check={v.bg_check_s} />
                     </SettingsCard>

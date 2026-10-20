@@ -1,7 +1,7 @@
 // The Team board's pure parts: who is grouped under whom, and the state glyph an agent's whole view gets.
 import { describe, expect, it } from 'vitest';
 import type { AgentView, TeamAgent } from '@handline/client';
-import { groups } from '../src/TeamPage.tsx';
+import { groups } from '@handline/app-data';
 import { stateOfView } from '../src/ui/index.ts';
 
 const member = (name: string, parent: string | null) => ({ name, parent }) as TeamAgent;

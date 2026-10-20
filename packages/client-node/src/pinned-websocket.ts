@@ -3,6 +3,7 @@
 import crypto from 'node:crypto';
 import tls from 'node:tls';
 import type { Transport } from '@handline/client';
+import { readFrame } from './ws-frame.ts';
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const normalize = (fp: string) => fp.replace(/[^0-9a-f]/gi, '').toLowerCase();
@@ -81,23 +82,10 @@ export function pinnedWebSocketTransport(url: string, fingerprint: string): Prom
           resolve(t);
         }
         for (;;) {
-          if (buf.length < 2) return;
-          const fin = (buf[0]! & 128) !== 0,
-            op = buf[0]! & 15;
-          let len = buf[1]! & 127,
-            off = 2;
-          if (len === 126) {
-            if (buf.length < 4) return;
-            len = buf.readUInt16BE(2);
-            off = 4;
-          } else if (len === 127) {
-            if (buf.length < 10) return;
-            len = Number(buf.readBigUInt64BE(2));
-            off = 10;
-          }
-          if (buf.length < off + len) return;
-          const payload = buf.subarray(off, off + len);
-          buf = buf.subarray(off + len);
+          const f = readFrame(buf);
+          if (!f) return;
+          const { fin, op, payload } = f;
+          buf = f.rest;
           if (op === 1 || op === 0) {
             parts.push(Buffer.from(payload));
             if (fin) {

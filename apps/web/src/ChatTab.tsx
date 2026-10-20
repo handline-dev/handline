@@ -13,12 +13,11 @@ import {
   sentence,
   useChat,
   useChatActions,
+  useChatReadMarks,
   useChatLocate,
   useChatWindow,
-  useInbox,
   useServes,
   useTasks,
-  useWrite,
   type Chat,
   type ChatScope,
 } from '@handline/app-data';
@@ -221,31 +220,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     setNewer(0);
   };
 
-  // The agent's messages the person has now drawn in front of them leave the FOR YOU list (chat.seen); once per newest number.
-  const said = chat.messages.filter((m) => m.from === agent && m.id > 0).reduce((n, m) => Math.max(n, m.id), 0);
-  const told = useRef(0);
-  useEffect(() => {
-    if (chat.status === 'ready' && said > told.current) {
-      told.current = said;
-      act.seen(said);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [said, chat.status]);
-
-  // Opening the chat reads what the agent sent to the Inbox about it (B9): results and messages, never a question that waits or a prompt.
-  const inbox = useInbox();
-  const read = useWrite('inbox.mark_read');
-  const readIds = useRef(new Set<number>());
-  useEffect(() => {
-    if (chat.status !== 'ready') return;
-    const ids = (inbox.data?.items ?? [])
-      .filter((i) => i.agent === agent && !i.read && ['say', 'result', 'report'].includes(i.kind) && !readIds.current.has(i.id))
-      .map((i) => i.id);
-    if (!ids.length) return;
-    ids.forEach((id) => readIds.current.add(id));
-    read.mutate({ ids });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inbox.data, chat.status, agent]);
+  useChatReadMarks(agent, chat, act.seen);
 
   // A message number: scroll to it when it is drawn; else learn its chat from the daemon, switch to it and read back until it is there.
   const jump = (id: number) => {

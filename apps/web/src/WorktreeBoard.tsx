@@ -2,19 +2,10 @@
 // A drop, the Move to… menu and the key `m` all ask the daemon for the same status; a card moves only when the refetch shows it.
 import { useState } from 'react';
 import type { Worktree } from '@handline/client';
+import { STATUSES, type Moves } from '@handline/app-data';
 import { MenuButton, MenuItem } from './ui/index.ts';
 import { goWorktrees } from './route.ts';
 import { Owner, sums } from './Worktrees.tsx';
-
-export const STATUSES = ['todo', 'in progress', 'in review', 'done'];
-
-/** What a status write does on this page: the call, the statuses being asked for, and the reasons a daemon gave. */
-export interface Moves {
-  enabled: boolean;
-  moving: Record<string, string>;
-  errors: Record<string, string>;
-  move: (path: string, status: string) => void;
-}
 
 export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: string | null; moves: Moves }) {
   const [dragging, setDragging] = useState<string | null>(null);

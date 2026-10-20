@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react';
 import { ago } from '@handline/app-core';
 import type { Worktree } from '@handline/client';
-import { classify, sentence, useRepos, useServes, useWorktrees, useWrite } from '@handline/app-data';
+import { useMoves, useRepos, useServes, useWorktrees } from '@handline/app-data';
 import { Button, Empty, PageHead, PageTitle, ScrollPage, Segmented, Select } from './ui/index.ts';
 import { setting } from './daemon.ts';
 import type { KV } from '@handline/app-core';
-import { WorktreeBoard, type Moves } from './WorktreeBoard.tsx';
+import { WorktreeBoard } from './WorktreeBoard.tsx';
 import { goAgent, goWorktrees } from './route.ts';
 import { View } from './View.tsx';
 import { WorktreePanel } from './WorktreePanel.tsx';
@@ -47,26 +47,6 @@ function useNow(ms = 5000): number {
     return () => clearInterval(t);
   }, [ms]);
   return now;
-}
-
-/** The status writes of this page: each is asked once, shown as pending until the refetch has read the new status, and refused with the daemon's reason. */
-function useMoves(refetch: () => Promise<unknown>): Moves {
-  const set = useWrite('worktree.set_status');
-  const { served } = useServes('worktree.set_status');
-  const [moving, setMoving] = useState<Record<string, string>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const without = (r: Record<string, string>, k: string) => Object.fromEntries(Object.entries(r).filter(([p]) => p !== k));
-  const move = (path: string, status: string) => {
-    if (moving[path]) return;
-    setMoving((m) => ({ ...m, [path]: status }));
-    setErrors((e) => without(e, path));
-    set
-      .mutateAsync({ path, status })
-      .then(() => refetch())
-      .catch((e) => setErrors((x) => ({ ...x, [path]: sentence(classify(e)) })))
-      .finally(() => setMoving((m) => without(m, path)));
-  };
-  return { enabled: served, moving, errors, move };
 }
 
 export function Worktrees({ path, storage }: { path: string | null; storage: KV | null }) {
