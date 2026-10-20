@@ -1,5 +1,5 @@
 // The fake daemon as the paired-device listener: wss with a fresh self-signed certificate, paired devices only.
-// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture] [--held-load]`
+// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture] [--held-load] [--held-by <device>]`
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -60,6 +60,10 @@ if (process.argv.includes('--prompt')) {
       { key: '2', label: 'No', answer: 'no' },
     ],
   };
+}
+if (process.argv.includes('--held-by')) {
+  // Another device holds handline.architect's terminal, as the PC app does while someone types there.
+  daemon.sessions.get('handline.architect')!.holder = { kind: 'device', name: arg('held-by', 'pc-app'), since: new Date().toISOString() };
 }
 if (process.argv.includes('--held-load')) {
   // handline.architect waits on the machine load limit, as the daemon reports it: the phone shows the text and Force start.
