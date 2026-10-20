@@ -199,6 +199,11 @@ export class FakeTasks {
     return { task: t.id, rows: [...(t.history ?? [])].sort((a, b) => b.at.localeCompare(a.at)) };
   }
 
+  /** The task's comments, each cut at the images its text names (one page: the fake keeps no more). */
+  comments(p: Record<string, unknown>, agent = false): { memos: Memo[]; more: boolean } {
+    return { memos: this.get(p, agent).memos, more: false };
+  }
+
   get(p: Record<string, unknown>, agent = false): TaskDetail {
     const t = this.find(p.task);
     const parts = (text: string) => this.host.uploads.parts(text, agent);
@@ -328,7 +333,7 @@ export class FakeTasks {
 }
 
 // The task methods the fake serves; the rest (handoff) are refused as `unsupported`.
-const BASIC = new Set(['tasks.list', 'task.get', 'task.history', 'task.time', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel', 'task.ask']);
+const BASIC = new Set(['tasks.list', 'task.get', 'task.comment.list', 'task.history', 'task.time', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel', 'task.ask']);
 const VERBS = new Set([
   'task.done',
   'task.reopen',
@@ -366,6 +371,8 @@ export function taskCall(
         return tasks.list(p);
       case 'task.get':
         return tasks.get(p, agent);
+      case 'task.comment.list':
+        return tasks.comments(p, agent);
       case 'task.new':
         return ok('Task asked.', { task: tasks.create(p, person, agent) });
       case 'task.edit':

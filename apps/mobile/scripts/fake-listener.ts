@@ -1,5 +1,5 @@
 // The fake daemon as the paired-device listener: wss with a fresh self-signed certificate, paired devices only.
-// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture] [--held-load] [--held-by <device>]`
+// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture] [--held-load] [--held-by <device>] [--review]`
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -80,6 +80,28 @@ if (process.argv.includes('--picture')) {
     'founder',
     daemon.uploads.message,
   );
+}
+if (process.argv.includes('--review')) {
+  // A review card: a task tagged review whose first comment names two 640x400 pictures, and the decision asking for a look.
+  const { crc32, deflateSync } = await import('node:zlib');
+  const { Buffer } = await import('node:buffer');
+  const [w, h] = [640, 400];
+  const rows = Array.from({ length: h }, (_, y) =>
+    Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: w }, (_, x) => [40 + (x * 150) / w, 90 + (y * 120) / h, 180]).flat().map(Math.round))]),
+  );
+  const chunk = (t: string, d: Buffer) => {
+    const body = Buffer.concat([Buffer.from(t), d]);
+    return Buffer.concat([Buffer.from(Uint32Array.of(d.length).buffer).reverse(), body, Buffer.from(Uint32Array.of(crc32(body)).buffer).reverse()]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr.set([8, 2, 0, 0, 0], 8);
+  const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(Buffer.concat(rows))), chunk('IEND', Buffer.alloc(0))]);
+  const [before, after] = ['before.png', 'after.png'].map((n) => daemon.uploads.add(n, png));
+  daemon.tasks.seed({ id: 9301, from: 'handline.architect', to: 'founder', title: 'Review: wider margin on the board', state: 'doing', tags: ['review'] });
+  daemon.tasks.memo({ task: 9301, text: `Margin widened.\n![before](attachment:${before!.id})\n![after](attachment:${after!.id})` }, 'add', 'handline.architect');
+  void daemon.inbox.add({ kind: 'decision', agent: 'handline.architect', title: 'Review: wider margin on the board', body: 'Is this right?', task: 9301 });
 }
 if (process.argv.includes('--batch')) {
   // A lead's batch discard: two tasks closed, and the one card in handline.architect's chat, as the daemon posts it.

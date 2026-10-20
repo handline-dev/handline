@@ -19,7 +19,7 @@ const toBase64 = (bytes: Uint8Array) => {
 type Read = { state: 'loading' } | { state: 'ready'; uri: string } | { state: 'gone' } | { state: 'failed' };
 
 // The bytes are not cached: each mount reads again (the web keeps one read per image).
-function useImage(id: string, thumb: boolean): Read {
+export function useImage(id: string, thumb: boolean): Read {
   const read = useAttachmentBytes(id, thumb);
   return useMemo((): Read => {
     if (read.state !== 'ready') return read;

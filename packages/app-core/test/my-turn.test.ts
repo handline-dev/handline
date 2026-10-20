@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentView, InboxItem, Task } from '@handline/client';
-import { inboxGroup, myTurn } from '../src/my-turn.ts';
+import { inboxGroup, myTurn, reviewPictures, changeAsked } from '../src/my-turn.ts';
 
 const item = (o: Partial<InboxItem>): InboxItem =>
   ({
@@ -112,4 +112,24 @@ test('an item with fix open_terminal has Open terminal as its first button, befo
   assert.equal(c!.primary, 2);
   const [plain] = myTurn({ items: [item({ id: 9, kind: 'decision' })], agents: [], tasks: [] });
   assert.equal(plain!.actions.some((a) => a.type === 'terminal'), false);
+});
+
+test('a decision on a task tagged review offers Approve and Ask for change in place of Done', () => {
+  const decision = item({ id: 7, kind: 'decision', task: 5 });
+  const [plain] = myTurn({ items: [decision], agents: [], tasks: [task({ id: 5 })] });
+  assert.equal(plain.review, false);
+  assert.deepEqual(plain.actions.map((a) => a.type), ['answer', 'done', 'open', 'read']);
+  const [card] = myTurn({ items: [decision], agents: [], tasks: [task({ id: 5, tags: ['fe', 'review'] })] });
+  assert.equal(card.review, true);
+  assert.deepEqual(card.actions.map((a) => a.type), ['answer', 'approve', 'ask_change', 'open', 'read']);
+  assert.equal(card.primary, 3);
+});
+
+test('the pictures of a review come from the first comment: named in its text, else its image files', () => {
+  assert.deepEqual(reviewPictures([]), []);
+  const named = { id: 2, parts: [{ text: 'see' }, { image: { id: 'a', name: 'one.png' } }, { image: { id: 'b' }, gone: true }] };
+  assert.deepEqual(reviewPictures([{ id: 9, parts: [{ image: { id: 'z' } }] }, named]), [{ id: 'a', name: 'one.png' }]);
+  const filed = { id: 3, files: [{ id: 'f', kind: 'image', name: 'x.png' }, { id: 'g', kind: 'markdown' }] };
+  assert.deepEqual(reviewPictures([filed]), [{ id: 'f', name: 'x.png' }]);
+  assert.equal(changeAsked(' wider '), 'Change asked: wider');
 });

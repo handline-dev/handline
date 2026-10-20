@@ -20,6 +20,15 @@ export const SEEDS: Record<string, Seed> = {
       fix: 'open_terminal',
     }),
 
+  /** A review: a task tagged review under the agent's own, a first comment naming two pictures, and a decision card asking for a look. */
+  review: (d) => {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const [before, after] = [d.uploads.add('before.png', png), d.uploads.add('after.png', png)];
+    d.tasks.seed({ id: 9301, from: ARCH, to: ME, title: 'Review: wider margin on the board', state: 'doing', tags: ['review'] });
+    d.tasks.memo({ task: 9301, text: `Margin widened.\n![before](attachment:${before.id})\n![after](attachment:${after.id})` }, 'add', ARCH);
+    d.inbox.add({ kind: 'decision', agent: ARCH, title: 'Review: wider margin on the board', body: 'Is this right?', task: 9301 });
+  },
+
   /** Three HR proposals: a new agent (team, model), a setting change old -> new, and one to reject. */
   hr: (d) => {
     const hr = d.script.hr;
