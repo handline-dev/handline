@@ -1,6 +1,13 @@
 package usage
 
-import "time"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/handline/handline/go/internal/paths"
+)
 
 // CycleOn is cycle.enabled.
 func (c Config) CycleOn(acct string) bool { return c["month_cycle_"+acct] == true }
@@ -52,11 +59,57 @@ func (c Config) EndDate(home, acct string, now time.Time) string {
 		}
 		return d.Format("2006-01-02")
 	}
-	start, ok := Started(home, acct)
+	end, ok := defaultEnd(home, acct, now)
 	if !ok {
 		return ""
 	}
-	return anniversary(start, now).Format("2006-01-02")
+	return end.Format("2006-01-02")
+}
+
+// pinFile holds a default end once the daemon has seen it: the subscription start it was worked out from and the moment it falls.
+func pinFile(home, acct string) string {
+	return filepath.Join(paths.AccountDir(home, acct), "cycle_end.json")
+}
+
+type pin struct {
+	Start int64 `json:"start"`
+	At    int64 `json:"at"`
+}
+
+// defaultEnd is the end of a cycle with no typed end day: the subscription's next anniversary, held where it was once pinned. A
+// month-cycle subscription does not renew, so the anniversary ahead stays its end once reached instead of moving on a month. A new
+// subscription start makes the pin stale.
+func defaultEnd(home, acct string, now time.Time) (time.Time, bool) {
+	start, ok := Started(home, acct)
+	if !ok {
+		return time.Time{}, false
+	}
+	var p pin
+	if b, err := os.ReadFile(pinFile(home, acct)); err == nil && json.Unmarshal(b, &p) == nil && p.Start == start.Unix() && p.At != 0 {
+		return time.Unix(p.At, 0).In(time.Local), true
+	}
+	return anniversary(start, now), true
+}
+
+// PinEnd keeps a month-cycle account's default end where it is now, and drops the pin once the cycle is off or an end day is typed.
+func (c Config) PinEnd(home, acct string, now time.Time) error {
+	f := pinFile(home, acct)
+	if !c.CycleOn(acct) || !c.EndIsDefault(acct) {
+		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	start, ok := Started(home, acct)
+	if !ok {
+		return nil
+	}
+	end, _ := defaultEnd(home, acct, now)
+	b, _ := json.Marshal(pin{Start: start.Unix(), At: end.Unix()})
+	if old, err := os.ReadFile(f); err == nil && string(old) == string(b) {
+		return nil
+	}
+	return os.WriteFile(f, b, 0o644)
 }
 
 // DayEnd is the moment a last usable day (YYYY-MM-DD) is over: the start of the day after it, local time. ok is false for text
@@ -81,11 +134,7 @@ func (c Config) EndOf(home, acct string, now time.Time) (time.Time, bool) {
 	if c["sub_end_"+acct] != nil {
 		return DayEnd(day)
 	}
-	start, ok := Started(home, acct)
-	if !ok {
-		return time.Time{}, false
-	}
-	return anniversary(start, now), true
+	return defaultEnd(home, acct, now)
 }
 
 // DefaultWarnDays is how many days ahead the founder is told an account ends.

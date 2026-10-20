@@ -89,6 +89,9 @@ func (e *Env) SweepEndings() error {
 	now := e.now()
 	ahead := time.Duration(cfg.WarnDays()) * 24 * time.Hour
 	for _, acct := range paths.ListAccounts(e.Home) {
+		if err := cfg.PinEnd(e.Home, acct, now); err != nil {
+			return err
+		}
 		toldDay, _, err := db.Meta(e.DB, told(acct))
 		if err != nil {
 			return err

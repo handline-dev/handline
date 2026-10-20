@@ -545,7 +545,7 @@ export type Account = {
     /** One-month subscription; off is renewing. */
     on: boolean;
     end: string | null;
-    /** end is the next monthly anniversary of the subscription start, not typed. */
+    /** end is not typed: the first monthly anniversary of the subscription start after it is first seen, held once reached. */
     end_is_default: boolean;
   };
   /** Only with accounts.list `roster: true`. Agents on this account, running or not (the figure `hl account list` prints). */
