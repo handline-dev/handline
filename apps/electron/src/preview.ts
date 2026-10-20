@@ -1,6 +1,6 @@
 // The web preview tab: a page of an agent's own app (a dev server) shown in a native view laid over the window's content, where the tab's placeholder is.
 // The page says which address and where; the view has no preload, so what it loads gets nothing from the shell.
-import { WebContentsView, type BrowserWindow } from 'electron';
+import { WebContentsView, session, type BrowserWindow } from 'electron';
 import type { Fail } from '@handline/app-core';
 import { fromWindow, type Sender } from './bridge.ts';
 
@@ -49,7 +49,11 @@ export class Preview {
     if (typeof p === 'string') return bad(p);
     if (!w || w.isDestroyed()) return bad('no window');
     if (!this.view) {
-      this.view = new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true } });
+      // Its own session, which grants the page no permission (camera, microphone, location...): Electron grants every one by default.
+      const own = session.fromPartition('preview');
+      own.setPermissionRequestHandler((_wc, _permission, grant) => grant(false));
+      own.setPermissionCheckHandler(() => false);
+      this.view = new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, session: own } });
       w.contentView.addChildView(this.view);
       // A link that wants a new window stays out: the preview is one page.
       this.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

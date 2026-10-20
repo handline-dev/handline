@@ -72,12 +72,13 @@ export class Devices {
   }
 
   private async iosShot(): Promise<Buffer> {
-    const file = path.join(os.tmpdir(), `handline-sim-${process.pid}.png`);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'handline-sim-'));
     try {
+      const file = path.join(dir, 'shot.png');
       await this.exec('xcrun', ['simctl', 'io', 'booted', 'screenshot', '--type=png', file]);
       return fs.readFileSync(file);
     } finally {
-      fs.rmSync(file, { force: true });
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   }
 }
