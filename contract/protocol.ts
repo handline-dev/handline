@@ -1604,22 +1604,25 @@ export type ChatAction = {
   needs?: string;
 };
 
-/** What a gate watches: a GitHub pull request's CI (on ci: every check has concluded, or the PR closed first) or its close (on close: merged or closed unmerged). */
+/** What a gate watches: target of vendor, until what it waits for. The vendor answers waiting, passed or failed with a line of evidence. Vendors: github (target owner/name#N; until ci: a pull request's checks have all finished, or none started 10 minutes after its head commit; closed: the pull request merged (passed) or closed unmerged (failed); done: the issue closed as completed (passed) or for another reason (failed)). The github vendor reads through the gh CLI's own login. docs/watch-vendors.md has each vendor. */
 export type Watch = {
-  /** owner/name on GitHub. */
-  repo: string;
-  pr: number;
-  on: "ci" | "close";
+  /** The outside tool: github. */
+  vendor: string;
+  /** The thing, written the way the vendor writes it: owner/name#N for github. */
+  target: string;
+  /** What is waited for; each vendor takes some. Absent: the vendor's first (github: ci). */
+  until?: "ci" | "closed" | "done";
 };
 
-/** A gate's watch as the task carries it, with what it opened with. */
+/** A gate's watch as the task carries it, with its label and what it opened with. */
 export type TaskWatch = {
-  /** owner/name on GitHub. */
-  repo: string;
-  pr: number;
-  on: "ci" | "close";
-  /** What it opened with; null while it watches. */
-  result: ("passed" | "failed" | "merged" | "closed" | "timed_out") | null;
+  vendor: string;
+  target: string;
+  until: "ci" | "closed" | "done";
+  /** The watch in words ("PR #418 CI"). */
+  label: string;
+  /** What it opened with; null while it watches. A target that reads as gone (deleted, or no longer visible) three times in a row is failed. */
+  result: ("passed" | "failed" | "timed_out") | null;
 };
 
 export interface Methods {
@@ -2298,7 +2301,7 @@ export interface Methods {
     done: boolean;
   } };
   "task.new": { params: {
-  /** An agent, human, or gate: a task the daemon holds that watches a PR (watch) and closes when it changes. */
+  /** An agent, human, or gate: a task the daemon holds that watches outside state (watch) and closes when it changes. */
   owner: string;
   /** Who the task answers to: told when it ends, and may edit or reassign it. Default: the caller. */
   reporter?: string;
@@ -2311,7 +2314,7 @@ export interface Methods {
   duplicate_ok?: boolean;
   /** Cannot be worked until this task closes. */
   blocked_by?: number;
-  /** With owner gate, required, and refused with any other owner. The gate is doing from the start; its time box (default 24h) is its deadline. The daemon marks it done when the PR changes, in fixed words: "ci passed", "ci failed: <check names>", "merged <sha>", "closed unmerged", or "timed out" past its deadline. A task blocked by it (blocked_by) then comes back to its holder, who decides what follows. */
+  /** With owner gate, required, and refused with any other owner; a watch its vendor cannot take, or a vendor not set up, is refused. The gate is doing from the start; its time box (default 24h) is its deadline. The daemon marks it done with the vendor's evidence when the vendor answers passed or failed ("ci passed", "ci failed: <check names>", "merged <sha>", "closed unmerged", "no CI on this PR"), or "timed out" past its deadline. A task blocked by it (blocked_by) then comes back to its holder, who decides what follows. task.wait opens one and blocks a task on it in one write. */
   watch?: Watch;
   /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
   priority?: 1 | 2 | 3;
@@ -2459,6 +2462,16 @@ export interface Methods {
   reason?: string;
   request_id: RequestId;
 }; result: Accepted };
+  "task.wait": { params: {
+  task: number;
+  watch: Watch;
+  /** The gate's deadline, a span like 4h; default 24h. */
+  time_box?: string;
+  request_id: RequestId;
+}; result: Accepted & {
+    /** The gate task opened. */
+    gate: number;
+  } };
   "task.discard": { params: {
   task?: number;
   tasks?: number[];
@@ -2931,6 +2944,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.draft": { role: "agent", callers: null, write: true, since: 1 },
   "task.merge": { role: "agent", callers: null, write: true, since: 1 },
   "task.release": { role: "agent", callers: null, write: true, since: 1 },
+  "task.wait": { role: "agent", callers: null, write: true, since: 1 },
   "task.discard": { role: "agent", callers: null, write: true, since: 1 },
   "task.board": { role: "agent", callers: null, write: false, since: 1 },
   "task.withdraw": { role: "agent", callers: null, write: true, since: 1 },

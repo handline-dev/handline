@@ -327,8 +327,8 @@ func TestAHeldMemoWaitsForTheSameWindowAsAnyNotice(t *testing.T) {
 // A gate is held by the daemon, not waiting for an agent: the hold sweep keeps no reason for it, so it reads as watching.
 func TestTheHoldSweepLeavesAGateAlone(t *testing.T) {
 	r := newRig(t)
-	_, err := r.DB.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at, watch_repo, watch_pr, watch_on) " +
-		"VALUES(1, 'wait for CI', 'gate', 'bob', 1, 'bob', 1, 'o/r', 7, 'ci')")
+	_, err := r.DB.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at, watch_vendor, watch_target, watch_until, " +
+		"watch_label) VALUES(1, 'wait for CI', 'gate', 'bob', 1, 'bob', 1, 'github', 'o/r#7', 'ci', 'PR #7 CI')")
 	r.must(err)
 	r.must(r.SweepHolds(r.clock))
 	if raw, _, _ := db.Meta(r.DB, "taskhold:1"); raw != "" {

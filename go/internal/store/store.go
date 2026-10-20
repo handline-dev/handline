@@ -183,9 +183,11 @@ func addTaskEstimate(tx *sql.Tx) error {
 	return addTaskColumns(tx, [][2]string{{"estimate", "INTEGER"}})
 }
 
-// addTaskWatch is what a gate task watches (owner gate): a GitHub PR's CI or its close, and the result it opened with.
+// addTaskWatch is what a gate task watches (owner gate): a vendor's target and what it waits for, its label, the result it opened with and
+// why its last read failed.
 func addTaskWatch(tx *sql.Tx) error {
-	return addTaskColumns(tx, [][2]string{{"watch_repo", "TEXT"}, {"watch_pr", "INTEGER"}, {"watch_on", "TEXT"}, {"watch_result", "TEXT"}})
+	return addTaskColumns(tx, [][2]string{{"watch_vendor", "TEXT"}, {"watch_target", "TEXT"}, {"watch_until", "TEXT"}, {"watch_label", "TEXT"},
+		{"watch_result", "TEXT"}, {"watch_error", "TEXT"}})
 }
 
 // addTaskColumns adds each (name, type) column the tasks table does not have yet.

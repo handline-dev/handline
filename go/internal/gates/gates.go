@@ -1,49 +1,33 @@
-// Package gates opens the gate tasks: a task owned by db.Gate watches a GitHub PR's CI or its close, and is marked done, in fixed words,
-// when that changes or its deadline passes. The tasks it blocks then come back to their holders by the ordinary unblock; what follows is
-// theirs to decide.
+// Package gates opens the gate tasks: a task owned by db.Gate watches a vendor's target (package watch), and is marked done with the
+// vendor's evidence when the vendor answers passed or failed, or when its deadline passes. The tasks it blocks then come back to their
+// holders by the ordinary unblock; what follows is theirs to decide. No vendor code is here.
 package gates
 
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"fmt"
-	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/taskwrites"
+	"github.com/handline/handline/go/internal/watch"
 )
 
-// EveryS is how often the gates are looked at (Run); FetchWait is how long one PR's read may take.
+// EveryS is how often the gates are looked at (Run); ReadWait is how long one read of a vendor may take.
 const (
-	EveryS    = 60
-	FetchWait = 20 * time.Second
+	EveryS   = 60
+	ReadWait = 20 * time.Second
 )
 
-// PR is what a gate reads of its pull request: State OPEN, MERGED or CLOSED, the merge commit, and each check with how it ended
-// (Pending while it runs).
-type PR struct {
-	State       string
-	MergeCommit string
-	Checks      []Check
-}
-
-// Check is one CI check of a PR's head commit.
-type Check struct {
-	Name             string
-	Pending, Success bool
-}
-
-// Sweep is the gate pass. It runs on its own clock (Run), off the tick, so a slow read of GitHub never holds up a wake or a delivery.
+// Sweep is the gate pass. It runs on its own clock (Run), off the tick, so a slow read of a vendor never holds up a wake or a delivery.
 type Sweep struct {
 	DB   *sql.DB
 	Home string
 	Tell taskwrites.Teller
 	Log  func(format string, args ...any)
-	// Fetch reads a PR; nil is the gh CLI (FetchGH).
-	Fetch func(ctx context.Context, repo string, pr int64) (*PR, error)
+	// Vendors read the targets; nil is watch.Vendors.
+	Vendors map[string]watch.Vendor
+	gone    map[int64]int // gone answers in a row, by gate
 }
 
 // Run passes every EveryS until stop closes; stop also cuts short a read in hand.
@@ -71,71 +55,74 @@ func (s *Sweep) Run(stop <-chan struct{}) {
 	}
 }
 
-// Pass opens every gate whose state changed or whose deadline passed.
+// Pass opens every gate whose vendor answered passed or failed, that read gone watch.GoneReads times in a row, or whose deadline passed. A
+// read that fails keeps the gate watching, with the reason on it.
 func (s *Sweep) Pass(ctx context.Context, now int64) error {
 	ids, watches, deadlines, err := db.OpenGates(s.DB)
 	if err != nil {
 		return err
 	}
-	fetch := s.Fetch
-	if fetch == nil {
-		fetch = FetchGH
+	vendors := s.Vendors
+	if vendors == nil {
+		vendors = watch.Vendors
+	}
+	if s.gone == nil {
+		s.gone = map[int64]int{}
 	}
 	for i, tid := range ids {
 		if ctx.Err() != nil {
 			return nil
 		}
 		w := watches[i]
-		evidence, result := "", ""
+		var evidence, result string
 		if deadlines[i] != 0 && now >= deadlines[i] {
 			evidence, result = "timed out", "timed_out"
 		} else {
-			read, cancel := context.WithTimeout(ctx, FetchWait)
-			pr, err := fetch(read, w.Repo, w.PR)
-			cancel()
-			if err != nil {
-				s.logf("  T%d: %s %s could not be read: %v", tid, w.Repo, w.Said(), err)
-				continue
+			why := ""
+			evidence, result, why = s.read(ctx, vendors[w.Vendor], tid, w)
+			if why != w.Error {
+				if err := db.SetWatchError(s.DB, tid, why); err != nil {
+					s.logf("  T%d: %v", tid, err)
+				}
 			}
-			evidence, result = Opens(w, pr)
 		}
-		if evidence == "" {
+		if result == "" {
 			continue
 		}
+		delete(s.gone, tid)
 		if err := s.open(tid, evidence, result); err != nil {
 			s.logf("  T%d: the gate could not be opened: %v", tid, err)
 			continue
 		}
-		s.logf("  T%d: gate on %s %s opened - %s", tid, w.Repo, w.Said(), evidence)
+		s.logf("  T%d: gate on %s:%s %s opened - %s", tid, w.Vendor, w.Target, w.Until, evidence)
 	}
 	return nil
 }
 
-// Opens is the evidence and result a gate opens with on what its PR shows, "" while it keeps watching. A PR that closes opens a gate on
-// its CI too: that CI will not finish.
-func Opens(w db.Watch, pr *PR) (evidence, result string) {
-	switch pr.State {
-	case "MERGED":
-		return "merged " + pr.MergeCommit, "merged"
-	case "CLOSED":
-		return "closed unmerged", "closed"
+// read asks the gate's vendor once: the evidence and result it opens with ("" while it watches), and why the read did not answer.
+func (s *Sweep) read(ctx context.Context, v watch.Vendor, tid int64, w db.Watch) (evidence, result, why string) {
+	if v == nil {
+		return "", "", "no vendor " + w.Vendor + " in this daemon"
 	}
-	if w.On != "ci" || len(pr.Checks) == 0 {
-		return "", ""
+	rctx, cancel := context.WithTimeout(ctx, ReadWait)
+	verdict, evidence, err := v.Check(rctx, w.Target, w.Until)
+	cancel()
+	if verdict != watch.Gone {
+		delete(s.gone, tid)
 	}
-	var failed []string
-	for _, c := range pr.Checks {
-		if c.Pending {
-			return "", ""
+	switch {
+	case err != nil:
+		s.logf("  T%d: %s:%s could not be read: %v", tid, w.Vendor, w.Target, err)
+		return "", "", err.Error()
+	case verdict == watch.Gone:
+		if s.gone[tid]++; s.gone[tid] < watch.GoneReads {
+			return "", "", "gone: " + evidence
 		}
-		if !c.Success {
-			failed = append(failed, c.Name)
-		}
+		return "gone: " + evidence, string(watch.Failed), ""
+	case verdict == watch.Passed || verdict == watch.Failed:
+		return evidence, string(verdict), ""
 	}
-	if len(failed) > 0 {
-		return "ci failed: " + strings.Join(failed, ", "), "failed"
-	}
-	return "ci passed", "passed"
+	return "", "", ""
 }
 
 // open marks gate tid done with evidence, as its owner, and keeps the result; the tasks it blocks are told after the commit.
@@ -165,46 +152,4 @@ func (s *Sweep) logf(format string, args ...any) {
 	if s.Log != nil {
 		s.Log(format, args...)
 	}
-}
-
-// FetchGH reads a PR with `gh pr view`.
-func FetchGH(ctx context.Context, repo string, pr int64) (*PR, error) {
-	out, err := exec.CommandContext(ctx, "gh", "pr", "view", fmt.Sprint(pr), "-R", repo, "--json", "state,mergeCommit,statusCheckRollup").Output()
-	if err != nil {
-		return nil, err
-	}
-	return ParseGH(out)
-}
-
-// ParseGH is a PR from `gh pr view --json state,mergeCommit,statusCheckRollup`: a check run is pending until it completes and a success
-// when it concludes SUCCESS, NEUTRAL or SKIPPED; a commit status is pending while PENDING or EXPECTED and a success when SUCCESS.
-func ParseGH(out []byte) (*PR, error) {
-	var raw struct {
-		State       string
-		MergeCommit *struct{ Oid string }
-		Rollup      []struct {
-			Typename   string `json:"__typename"`
-			Name       string
-			Context    string
-			Status     string
-			Conclusion string
-			State      string
-		} `json:"statusCheckRollup"`
-	}
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, err
-	}
-	pr := &PR{State: raw.State}
-	if raw.MergeCommit != nil {
-		pr.MergeCommit = raw.MergeCommit.Oid
-	}
-	for _, c := range raw.Rollup {
-		if c.Typename == "StatusContext" {
-			pr.Checks = append(pr.Checks, Check{Name: c.Context, Pending: c.State == "PENDING" || c.State == "EXPECTED", Success: c.State == "SUCCESS"})
-			continue
-		}
-		ok := c.Conclusion == "SUCCESS" || c.Conclusion == "NEUTRAL" || c.Conclusion == "SKIPPED"
-		pr.Checks = append(pr.Checks, Check{Name: c.Name, Pending: c.Status != "COMPLETED", Success: ok})
-	}
-	return pr, nil
 }

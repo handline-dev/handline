@@ -11,53 +11,23 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/taskwrites"
+	"github.com/handline/handline/go/internal/watch"
 )
 
-func TestAGateOpensOnWhatItsPRShows(t *testing.T) {
-	ci, closing := db.Watch{On: "ci"}, db.Watch{On: "close"}
-	ok, fail, running := Check{Name: "go", Success: true}, Check{Name: "apps"}, Check{Name: "e2e", Pending: true}
-	for _, c := range []struct {
-		w                db.Watch
-		pr               PR
-		evidence, result string
-	}{
-		{ci, PR{State: "OPEN", Checks: []Check{ok, ok}}, "ci passed", "passed"},
-		{ci, PR{State: "OPEN", Checks: []Check{ok, fail}}, "ci failed: apps", "failed"},
-		{ci, PR{State: "OPEN", Checks: []Check{fail, running}}, "", ""},
-		{ci, PR{State: "OPEN"}, "", ""}, // no check has started yet
-		{ci, PR{State: "MERGED", MergeCommit: "abc"}, "merged abc", "merged"},
-		{closing, PR{State: "OPEN", Checks: []Check{ok}}, "", ""},
-		{closing, PR{State: "CLOSED"}, "closed unmerged", "closed"},
-		{closing, PR{State: "MERGED", MergeCommit: "def"}, "merged def", "merged"},
-	} {
-		if e, r := Opens(c.w, &c.pr); e != c.evidence || r != c.result {
-			t.Errorf("%+v on %s: %q %q, want %q %q", c.pr, c.w.On, e, r, c.evidence, c.result)
-		}
-	}
+// vendor answers each Check with what read says.
+type vendor struct {
+	read func(ctx context.Context, target, until string) (watch.Verdict, string, error)
 }
 
-func TestGhOutputReadsAsAPR(t *testing.T) {
-	out := `{"mergeCommit":null,"state":"OPEN","statusCheckRollup":[` +
-		`{"__typename":"CheckRun","conclusion":"SUCCESS","name":"apps","status":"COMPLETED"},` +
-		`{"__typename":"CheckRun","conclusion":"","name":"go","status":"IN_PROGRESS"},` +
-		`{"__typename":"CheckRun","conclusion":"FAILURE","name":"lint","status":"COMPLETED"},` +
-		`{"__typename":"StatusContext","context":"deploy","state":"PENDING"}]}`
-	pr, err := ParseGH([]byte(out))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []Check{{"apps", false, true}, {"go", true, false}, {"lint", false, false}, {"deploy", true, false}}
-	if pr.State != "OPEN" || pr.MergeCommit != "" || len(pr.Checks) != 4 {
-		t.Fatalf("%+v", pr)
-	}
-	for i, c := range want {
-		if pr.Checks[i] != c {
-			t.Errorf("check %d: %+v, want %+v", i, pr.Checks[i], c)
-		}
-	}
-	if pr, _ := ParseGH([]byte(`{"mergeCommit":{"oid":"984c657"},"state":"MERGED","statusCheckRollup":[]}`)); pr.MergeCommit != "984c657" {
-		t.Fatalf("%+v", pr)
-	}
+func (vendor) Untils() []string                          { return []string{"ci"} }
+func (vendor) Ready(context.Context) (bool, string)      { return true, "" }
+func (vendor) Parse(t, _ string) (string, string, error) { return t, t, nil }
+func (v vendor) Check(ctx context.Context, target, until string) (watch.Verdict, string, error) {
+	return v.read(ctx, target, until)
+}
+
+func (s *Sweep) reads(read func(ctx context.Context, target, until string) (watch.Verdict, string, error)) {
+	s.Vendors = map[string]watch.Vendor{"test": vendor{read}}
 }
 
 type doneTeller struct {
@@ -71,7 +41,7 @@ func (d *doneTeller) Done(tid int64, _, _ string, _ []db.Notice, _ []db.InboxFil
 	}
 }
 
-// gateRig is a store with gate T1 (on PR 7's CI, deadline at 5000) blocking T2, the task bob waits with.
+// gateRig is a store with gate T1 (on target o/r#7 of vendor test, deadline at 5000) blocking T2, the task bob waits with.
 func gateRig(t *testing.T) (*sql.DB, *doneTeller, *Sweep) {
 	t.Helper()
 	sdb, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
@@ -80,8 +50,8 @@ func gateRig(t *testing.T) (*sql.DB, *doneTeller, *Sweep) {
 	}
 	t.Cleanup(func() { sdb.Close() })
 	for _, q := range []string{
-		"INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at, watch_repo, watch_pr, watch_on, timeout_at) " +
-			"VALUES(1, 'wait for CI', 'gate', 'bob', 1, 'bob', 1, 'o/r', 7, 'ci', 5000)",
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by, sent_at, watch_vendor, watch_target, watch_until, watch_label, " +
+			"timeout_at) VALUES(1, 'wait for CI', 'gate', 'bob', 1, 'bob', 1, 'test', 'o/r#7', 'ci', 'PR #7 CI', 5000)",
 		"INSERT INTO tasks(id, title, owner, opened_by, created_at, queued_by) VALUES(2, 'ship it', 'bob', 'human', 1, 'human')",
 		"INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(2, 1, 1)",
 	} {
@@ -106,22 +76,29 @@ func gateState(t *testing.T, sdb *sql.DB) (evidence, result string, blocked int)
 	return e.String, r.String, len(bs)
 }
 
-// A gate whose PR's CI finished is done in fixed words; the task it blocked is free and its holder is told by the ordinary done path.
-// A PR that cannot be read leaves it watching.
-func TestTheSweepOpensAGateWhenItsCIFinishes(t *testing.T) {
-	sdb, tell, s := gateRig(t)
-	pr := &PR{State: "OPEN", Checks: []Check{{Name: "go", Pending: true}}}
-
-	s.Fetch = func(_ context.Context, repo string, n int64) (*PR, error) {
-
-		if repo != "o/r" || n != 7 {
-			t.Fatalf("read %s #%d", repo, n)
-		}
-		if pr == nil {
-			return nil, errors.New("gh: rate limited")
-		}
-		return pr, nil
+func lastError(t *testing.T, sdb *sql.DB) string {
+	t.Helper()
+	w, err := db.TaskWatch(sdb, 1)
+	if err != nil || w == nil {
+		t.Fatal(w, err)
 	}
+	return w.Error
+}
+
+// A gate opens with its vendor's evidence once the vendor answers passed or failed; the task it blocked is free and its holder is told by
+// the ordinary done path. A read that fails leaves it watching, with the reason on it until a read answers again.
+func TestTheSweepOpensAGateOnItsVendorsVerdict(t *testing.T) {
+	sdb, tell, s := gateRig(t)
+	verdict, readErr := watch.Waiting, error(nil)
+	s.reads(func(_ context.Context, target, until string) (watch.Verdict, string, error) {
+		if target != "o/r#7" || until != "ci" {
+			t.Fatalf("read %s %s", target, until)
+		}
+		if readErr != nil {
+			return "", "", readErr
+		}
+		return verdict, "ci passed", nil
+	})
 	must := func(err error) {
 		t.Helper()
 		if err != nil {
@@ -130,14 +107,19 @@ func TestTheSweepOpensAGateWhenItsCIFinishes(t *testing.T) {
 	}
 	must(s.Pass(context.Background(), 1000))
 	if e, _, b := gateState(t, sdb); e != "" || b != 1 {
-		t.Fatalf("opened while its CI runs: %q %d", e, b)
+		t.Fatalf("opened while waiting: %q %d", e, b)
 	}
-	pr = nil
+	readErr = errors.New("gh: rate limited")
 	must(s.Pass(context.Background(), 1060))
-	if e, _, _ := gateState(t, sdb); e != "" {
-		t.Fatal("a PR that cannot be read opened the gate")
+	if e, _, _ := gateState(t, sdb); e != "" || lastError(t, sdb) != "gh: rate limited" {
+		t.Fatalf("a failed read: %q %q", e, lastError(t, sdb))
 	}
-	pr = &PR{State: "OPEN", Checks: []Check{{Name: "go", Success: true}}}
+	readErr = nil
+	must(s.Pass(context.Background(), 1090))
+	if lastError(t, sdb) != "" {
+		t.Fatal("a read that answered left the old error")
+	}
+	verdict = watch.Passed
 	must(s.Pass(context.Background(), 1120))
 	if e, r, b := gateState(t, sdb); e != "ci passed" || r != "passed" || b != 0 {
 		t.Fatalf("%q %q %d", e, r, b)
@@ -147,10 +129,39 @@ func TestTheSweepOpensAGateWhenItsCIFinishes(t *testing.T) {
 	}
 }
 
-// Past its deadline a gate opens "timed out", without reading its PR.
+// A target that reads gone watch.GoneReads times in a row opens the gate as failed; any other answer between starts the count again.
+func TestAGoneTargetFailsTheGateAfterThreeReadsInARow(t *testing.T) {
+	sdb, _, s := gateRig(t)
+	answers := []watch.Verdict{watch.Gone, watch.Gone, watch.Waiting, watch.Gone, watch.Gone}
+	s.reads(func(context.Context, string, string) (watch.Verdict, string, error) {
+		v := answers[0]
+		answers = answers[1:]
+		return v, "not found", nil
+	})
+	for i := range 5 {
+		if err := s.Pass(context.Background(), int64(1000+i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if e, _, _ := gateState(t, sdb); e != "" || lastError(t, sdb) != "gone: not found" {
+		t.Fatalf("opened before three gone reads in a row: %q %q", e, lastError(t, sdb))
+	}
+	answers = []watch.Verdict{watch.Gone}
+	if err := s.Pass(context.Background(), 1010); err != nil {
+		t.Fatal(err)
+	}
+	if e, r, b := gateState(t, sdb); e != "gone: not found" || r != "failed" || b != 0 {
+		t.Fatalf("%q %q %d", e, r, b)
+	}
+}
+
+// Past its deadline a gate opens "timed out", without reading its target.
 func TestAGatePastItsDeadlineOpensTimedOut(t *testing.T) {
 	sdb, _, s := gateRig(t)
-	s.Fetch = func(context.Context, string, int64) (*PR, error) { t.Fatal("read past the deadline"); return nil, nil }
+	s.reads(func(context.Context, string, string) (watch.Verdict, string, error) {
+		t.Fatal("read past the deadline")
+		return "", "", nil
+	})
 	if err := s.Pass(context.Background(), 5000); err != nil {
 		t.Fatal(err)
 	}
@@ -159,18 +170,18 @@ func TestAGatePastItsDeadlineOpensTimedOut(t *testing.T) {
 	}
 }
 
-// Run passes on its own clock, and closing stop ends it even while a read of GitHub hangs.
+// Run passes on its own clock, and closing stop ends it even while a read of a vendor hangs.
 func TestTheSweepStopsWithTheDaemonMidRead(t *testing.T) {
 	sdb, _, s := gateRig(t)
 	if _, err := sdb.Exec("UPDATE tasks SET timeout_at = ? WHERE id = 1", time.Now().Unix()+3600); err != nil {
 		t.Fatal(err)
 	}
 	reading := make(chan struct{})
-	s.Fetch = func(ctx context.Context, _ string, _ int64) (*PR, error) {
+	s.reads(func(ctx context.Context, _, _ string) (watch.Verdict, string, error) {
 		close(reading)
 		<-ctx.Done()
-		return nil, ctx.Err()
-	}
+		return "", "", ctx.Err()
+	})
 	stop, done := make(chan struct{}), make(chan struct{})
 	go func() { s.Run(stop); close(done) }()
 	<-reading

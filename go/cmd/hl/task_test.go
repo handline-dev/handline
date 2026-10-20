@@ -107,9 +107,9 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "handoff", "T3", "b.two"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "handoff", "T3", "b.two", "-"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "wait", "T3", "--pr", "#412", "--repo", "o/r"}, []string{
-			`task.new {"owner":"gate","title":"T3 waits on PR #412 CI","watch":{"on":"ci","pr":412,"repo":"o/r"}}`, `task.edit {"blocked_by":42,"task":3}`, `task.get {"task":3}`}},
-		{"", []string{"task", "wait", "T3", "--pr", "7", "--close", "--until", "4h", "--repo", "o/r"}, []string{
-			`task.new {"owner":"gate","time_box":"14400s","title":"T3 waits on PR #7 to close","watch":{"on":"close","pr":7,"repo":"o/r"}}`, `task.edit {"blocked_by":42,"task":3}`, `task.get {"task":3}`}},
+			`task.wait {"task":3,"watch":{"target":"o/r#412","vendor":"github"}}`}},
+		{"", []string{"task", "wait", "T3", "--on", "github:o/r#7", "--until", "closed", "-t", "4h"}, []string{
+			`task.wait {"task":3,"time_box":"14400s","watch":{"target":"o/r#7","until":"closed","vendor":"github"}}`}},
 		{"", []string{"task", "accept", "T3"}, []string{`task.accept {"task":3}`}},
 		{"", []string{"task", "accept", "T3", "--by-founder", "#41"}, []string{`task.accept {"by_founder":41,"task":3}`}},
 		{"", []string{"task", "reject", "T3", "no tests"}, []string{`task.reject {"note":"no tests","task":3}`}},
@@ -123,19 +123,6 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		if code != 0 || errs != "" || !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%v: exit %d, out %q, err %q\n got  %v\n want %v", c.args, code, out, errs, got, c.want)
 		}
-	}
-}
-
-// hl task wait on a doing task also releases it, so its holder takes other work while the gate watches.
-func TestTaskWaitReleasesADoingTask(t *testing.T) {
-	r := agentsRig(t)
-	calls := r.daemon(map[string]string{"task.new": `{"said":"opened","task":42}`, "task.get": `{"id":3,"state":"doing"}`})
-	if out, errs, code := r.runIn("", asAgent, "task", "wait", "T3", "--pr", "412", "--repo", "o/r"); code != 0 || errs != "" || !strings.Contains(out, "T3 waits on gate T42") {
-		t.Fatalf("%d %q %q", code, out, errs)
-	}
-	got := sent(calls())
-	if len(got) != 4 || got[3] != `task.release {"reason":"waits on gate T42","task":3}` {
-		t.Fatalf("%v", got)
 	}
 }
 

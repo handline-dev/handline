@@ -5171,7 +5171,7 @@
      "required": true,
      "schema": {
       "type": "string",
-      "description": "An agent, human, or gate: a task the daemon holds that watches a PR (watch) and closes when it changes."
+      "description": "An agent, human, or gate: a task the daemon holds that watches outside state (watch) and closes when it changes."
      }
     },
     {
@@ -5232,7 +5232,7 @@
      "required": false,
      "schema": {
       "$ref": "#/components/schemas/Watch",
-      "description": "With owner gate, required, and refused with any other owner. The gate is doing from the start; its time box (default 24h) is its deadline. The daemon marks it done when the PR changes, in fixed words: \"ci passed\", \"ci failed: <check names>\", \"merged <sha>\", \"closed unmerged\", or \"timed out\" past its deadline. A task blocked by it (blocked_by) then comes back to its holder, who decides what follows."
+      "description": "With owner gate, required, and refused with any other owner; a watch its vendor cannot take, or a vendor not set up, is refused. The gate is doing from the start; its time box (default 24h) is its deadline. The daemon marks it done with the vendor's evidence when the vendor answers passed or failed (\"ci passed\", \"ci failed: <check names>\", \"merged <sha>\", \"closed unmerged\", \"no CI on this PR\"), or \"timed out\" past its deadline. A task blocked by it (blocked_by) then comes back to its holder, who decides what follows. task.wait opens one and blocks a task on it in one write."
      }
     },
     {
@@ -6384,6 +6384,78 @@
     "name": "result",
     "schema": {
      "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.wait",
+   "summary": "Make a task wait on outside state: a gate on watch (as task.new with owner gate), the task blocked by it and, when doing, released, all in one write, so the task never waits on a gate that blocks nothing. The task comes back to its holder's queue when the gate opens.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "watch",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/Watch"
+     }
+    },
+    {
+     "name": "time_box",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The gate's deadline, a span like 4h; default 24h."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "gate": {
+         "type": "integer",
+         "description": "The gate task opened."
+        }
+       },
+       "required": [
+        "gate"
+       ]
+      }
+     ]
     }
    },
    "x-role": "agent",
@@ -15669,46 +15741,52 @@
    },
    "Watch": {
     "type": "object",
-    "description": "What a gate watches: a GitHub pull request's CI (on ci: every check has concluded, or the PR closed first) or its close (on close: merged or closed unmerged).",
+    "description": "What a gate watches: target of vendor, until what it waits for. The vendor answers waiting, passed or failed with a line of evidence. Vendors: github (target owner/name#N; until ci: a pull request's checks have all finished, or none started 10 minutes after its head commit; closed: the pull request merged (passed) or closed unmerged (failed); done: the issue closed as completed (passed) or for another reason (failed)). The github vendor reads through the gh CLI's own login. docs/watch-vendors.md has each vendor.",
     "properties": {
-     "repo": {
+     "vendor": {
       "type": "string",
-      "description": "owner/name on GitHub."
+      "description": "The outside tool: github."
      },
-     "pr": {
-      "type": "integer"
+     "target": {
+      "type": "string",
+      "description": "The thing, written the way the vendor writes it: owner/name#N for github."
      },
-     "on": {
+     "until": {
       "type": "string",
       "enum": [
        "ci",
-       "close"
-      ]
+       "closed",
+       "done"
+      ],
+      "description": "What is waited for; each vendor takes some. Absent: the vendor's first (github: ci)."
      }
     },
     "required": [
-     "repo",
-     "pr",
-     "on"
+     "vendor",
+     "target"
     ]
    },
    "TaskWatch": {
     "type": "object",
-    "description": "A gate's watch as the task carries it, with what it opened with.",
+    "description": "A gate's watch as the task carries it, with its label and what it opened with.",
     "properties": {
-     "repo": {
-      "type": "string",
-      "description": "owner/name on GitHub."
+     "vendor": {
+      "type": "string"
      },
-     "pr": {
-      "type": "integer"
+     "target": {
+      "type": "string"
      },
-     "on": {
+     "until": {
       "type": "string",
       "enum": [
        "ci",
-       "close"
+       "closed",
+       "done"
       ]
+     },
+     "label": {
+      "type": "string",
+      "description": "The watch in words (\"PR #418 CI\")."
      },
      "result": {
       "oneOf": [
@@ -15717,8 +15795,6 @@
         "enum": [
          "passed",
          "failed",
-         "merged",
-         "closed",
          "timed_out"
         ]
        },
@@ -15726,13 +15802,14 @@
         "type": "null"
        }
       ],
-      "description": "What it opened with; null while it watches."
+      "description": "What it opened with; null while it watches. A target that reads as gone (deleted, or no longer visible) three times in a row is failed."
      }
     },
     "required": [
-     "repo",
-     "pr",
-     "on",
+     "vendor",
+     "target",
+     "until",
+     "label",
      "result"
     ]
    }

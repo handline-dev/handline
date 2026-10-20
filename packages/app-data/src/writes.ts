@@ -393,6 +393,7 @@ export const NOT_FROM_UI = [
   'session.wake', // a message to a closed agent starts it; no screen wakes one by hand
   'say',
   'hook.record',
+  'task.wait', // hl task wait; no screen opens a gate yet
   'hr.propose',
   'trust.propose',
   'task.begin',

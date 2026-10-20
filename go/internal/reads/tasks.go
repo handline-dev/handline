@@ -447,8 +447,9 @@ func (e *Env) taskOf(t row, state string, b *board) (map[string]any, error) {
 	task["discarded"], task["report"] = nil, nil
 	task["pr"] = t.intOrNil("pr")
 	task["watch"] = nil
-	if t.set("watch_repo") {
-		task["watch"] = map[string]any{"repo": t.str("watch_repo"), "pr": t.i("watch_pr"), "on": t.str("watch_on"), "result": t.strOrNil("watch_result")}
+	if t.set("watch_vendor") {
+		task["watch"] = map[string]any{"vendor": t.str("watch_vendor"), "target": t.str("watch_target"), "until": t.str("watch_until"),
+			"label": t.str("watch_label"), "result": t.strOrNil("watch_result")}
 	}
 	if report != nil {
 		task["report"] = report
