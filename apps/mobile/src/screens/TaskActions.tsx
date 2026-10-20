@@ -292,9 +292,9 @@ export function useTaskPending(id: number): boolean {
     ...usePending('task.ask'),
     ...usePending('task.release'),
     ...usePending('task.merge'),
-    ...usePending('task.memo.add'),
-    ...usePending('task.memo.edit'),
-    ...usePending('task.memo.delete'),
+    ...usePending('task.comment.add'),
+    ...usePending('task.comment.edit'),
+    ...usePending('task.comment.delete'),
   ].some(mine);
 }
 

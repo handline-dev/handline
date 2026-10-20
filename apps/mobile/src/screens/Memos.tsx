@@ -14,10 +14,10 @@ import { Markdown } from './Markdown.tsx';
 /** One memo with Edit and Delete (as the web's MemoRow). Both show at once and roll back with the reason on a refusal; Delete asks first. */
 export function MemoRow({ task, memo, when }: { task: number; memo: { id: number; author: string; text: string; files?: MemoFile[] }; when: string }) {
   const c = usePalette();
-  const edit = useWrite('task.memo.edit', String(task));
-  const del = useWrite('task.memo.delete', String(task));
-  const offEdit = useWhyNot('task.memo.edit');
-  const offDelete = useWhyNot('task.memo.delete');
+  const edit = useWrite('task.comment.edit', String(task));
+  const del = useWrite('task.comment.delete', String(task));
+  const offEdit = useWhyNot('task.comment.edit');
+  const offDelete = useWhyNot('task.comment.delete');
   const [ask, setAsk] = useState<null | 'edit' | 'delete'>(null);
   const [text, setText] = useState('');
   const sending = memo.id < 0; // not yet numbered by the daemon
@@ -41,19 +41,19 @@ export function MemoRow({ task, memo, when }: { task: number; memo: { id: number
       {ask === null && (offEdit || offDelete) && <Text style={{ color: c.muted, fontSize: 12 }}>{offEdit || offDelete}</Text>}
       {ask === 'edit' && (
         <Sheet
-          label="edit memo"
+          label="edit comment"
           submit="Save"
           busy={edit.isPending}
           onCancel={close}
           onSubmit={() => void (text.trim() && edit.mutateAsync({ task, memo: memo.id, text: text.trim() }).then(close, () => {}))}
-          error={!text.trim() ? 'A memo needs text.' : edit.isError ? sentence(classify(edit.error)) : undefined}
+          error={!text.trim() ? 'A comment needs text.' : edit.isError ? sentence(classify(edit.error)) : undefined}
         >
-          <Input testID="memo-edit-text" label="Memo" value={text} onChange={setText} multiline />
+          <Input testID="memo-edit-text" label="Comment" value={text} onChange={setText} multiline />
         </Sheet>
       )}
       {ask === 'delete' && (
         <Sheet
-          label="Delete this memo?"
+          label="Delete this comment?"
           submit="Delete"
           kind="no"
           busy={del.isPending}
@@ -68,8 +68,8 @@ export function MemoRow({ task, memo, when }: { task: number; memo: { id: number
 
 export function MemoBox({ id }: { id: number }) {
   const c = usePalette();
-  const add = useWrite('task.memo.add', String(id));
-  const why = useWhyNot('task.memo.add');
+  const add = useWrite('task.comment.add', String(id));
+  const why = useWhyNot('task.comment.add');
   const [text, setText] = useState('');
   const send = () => {
     if (!text.trim()) return;
