@@ -69,7 +69,7 @@ export function AccountRemove({ account: a }: { account: Account }) {
       <Button
         label="Remove account…"
         disabled={!!off}
-        title={off ?? `Or from the host: hl account remove ${a.name}`}
+        title={off}
         onClick={() => setAsking(true)}
       />
       {asking ? <RemoveDialog account={a} onClose={() => setAsking(false)} /> : null}

@@ -129,7 +129,6 @@
   "founder_only_today": [
    "hl cancel",
    "hl unstall",
-   "hl team seal",
    "hl hr approve|reject|apply|relabel|rehome|links",
    "hl trust remove|apply|mcp",
    "hl schedule add|edit|remove",
@@ -4601,7 +4600,7 @@
   },
   {
    "name": "team.seal",
-   "summary": "The founder seals team.yaml and every agent.yaml as they are now, as hl team seal does; dry_run names what would be sealed.",
+   "summary": "The founder seals team.yaml and every agent.yaml as they are now (the Team page of the app); dry_run names what would be sealed.",
    "description": "Seals are what lets the daemon tell a file the founder approved from one changed behind their back. The call without `dry_run` is the go-ahead and seals every file that is not sealed as it is, and marks the seals as begun; a file already matching its seal is left. A dry run lists each file it would take on, `new` (no seal before) or `changed` (it did not match its seal), with the digest it would be sealed with, and writes nothing and records nothing. Nothing to seal is `ok` true with that said. An agent's session is refused by role.",
    "paramStructure": "by-name",
    "params": [

@@ -8,7 +8,7 @@ import (
 	"github.com/handline/handline/go/internal/sealed"
 )
 
-// sealWords is how a file took on is described: the words `hl team seal` printed.
+// sealWords is how a file took on is described: the words the Team page shows.
 func sealWords(kind string) string {
 	if kind == "new" {
 		return "no seal before"
