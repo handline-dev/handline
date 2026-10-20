@@ -1,5 +1,5 @@
 // One row of the Tasks list: mark (on hover), state icon, number, title, owner and priority chips, time. A click opens the task; only the box marks.
-import { idleText, isOver, isPerson, timeoutText, taskRef, type RowVerb } from '@handline/app-core';
+import { idleText, isOver, isPerson, timeoutText, taskRef, watchResult, type RowVerb } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { goTasks } from './route.ts';
@@ -65,7 +65,7 @@ export function Row(props: {
             />
           </AnimatedCell>
           <AnimatedCell className={`c-state w-8 ${TD} max-sm:[grid-area:state]`}>
-            <StateChip state={t.state} mark={props.mark} to={t.to} />
+            <StateChip state={t.state} mark={props.mark} to={t.to} result={watchResult(t)} />
             {props.failed ? <span className="not-changed text-bad text-hint"> not changed</span> : null}
           </AnimatedCell>
           <AnimatedCell className={`c-num mono w-16 ${TD} max-sm:[grid-area:num]`}>

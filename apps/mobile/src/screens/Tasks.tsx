@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useHistoryValue } from '../history.tsx';
 import { Linking, SectionList, ScrollView, Text, TextInput, View } from 'react-native';
-import { activityOf, ago, CLOSED, defaultFilter, foldEvents, groupTasks, HELD, idleText, shown, sortTasks, TASK_STATES, taskMatches, timeoutText, taskRef, watchLine } from '@handline/app-core';
+import { activityOf, ago, CLOSED, defaultFilter, foldEvents, groupTasks, HELD, idleText, shown, sortTasks, TASK_STATES, taskMatches, timeoutText, taskRef, watchLine, watchResult } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
@@ -221,7 +221,8 @@ function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () 
   const c = usePalette();
   const now = Date.now();
   const meta = [taskRef(t.id), `→ ${t.to}`, t.state, idleText(t, now) || ago(t.created)];
-  const icon = TASK_ICON[t.state] ?? 'taskPending';
+  const failed = t.state === 'done' && watchResult(t) === 'failed';
+  const icon = failed ? 'failed' : (TASK_ICON[t.state] ?? 'taskPending');
   const time = left(timeoutText(t, now));
   return (
     <ListRow
@@ -230,7 +231,7 @@ function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () 
         props.selecting ? (
           <Icon name={props.marked ? 'taskDone' : 'taskDraft'} label={props.marked ? 'Selected' : 'Not selected'} size={18} color={props.marked ? c.ink : c.muted} />
         ) : (
-          <Icon name={icon} label={t.state} size={18} color={t.state === 'blocked' ? c.block : c.muted} />
+          <Icon name={icon} label={t.state} size={18} color={t.state === 'blocked' || failed ? c.block : c.muted} />
         )
       }
       title={t.title}

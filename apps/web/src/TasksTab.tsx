@@ -1,7 +1,7 @@
 // The Tasks tab of an agent's workspace: the tasks this agent holds or opened, overdue first, then open ones, then the closed; a click opens the task in
 // the same pane (the task detail of the Tasks page) and Back returns to the list.
 import { useMemo } from 'react';
-import { agentTasks, dueOf, openTask, taskRef, type RowVerb } from '@handline/app-core';
+import { agentTasks, dueOf, openTask, taskRef, watchResult, type RowVerb } from '@handline/app-core';
 import { useAgentTasks, useServes } from '@handline/app-data';
 import { Icon } from './Icon.tsx';
 import { StateChip, useNow } from './taskui.tsx';
@@ -61,7 +61,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
                       data-task={t.id}
                       onClick={() => setOpen(t.id)}
                     >
-                      <StateChip state={t.state} />
+                      <StateChip state={t.state} result={watchResult(t)} />
                       <span className="mono">{taskRef(t.id)}</span>
                       <span className="ttitle min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-body font-medium">
                         {t.title}

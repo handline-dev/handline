@@ -72,6 +72,9 @@ export const isGate = (t: Pick<Task, 'to'>): boolean => t.to === GATE;
 
 const RESULT_WORDS = { passed: 'passed', failed: 'failed', timed_out: 'timed out' } as const;
 
+/** How a done gate ended: the watch result, or null while it has none. */
+export const watchResult = (t: Pick<Task, 'watch'>): NonNullable<Task['watch']>['result'] | null => t.watch?.result ?? null;
+
 /** What a gate watches, in the daemon's words (its label), with a link where the vendor has a page for it and the result once it has one. Null for a task with no watch. */
 export function watchLine(t: Pick<Task, 'watch'>): { url: string | null; text: string; result: string | null } | null {
   const w = t.watch;

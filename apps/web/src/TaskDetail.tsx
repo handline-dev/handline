@@ -2,7 +2,7 @@
 // one Activity list, and along the bottom the one main action, Cancel and More. The history opens from More. A verb that does not apply is
 // hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { dateTime, HELD, taskRef } from '@handline/app-core';
+import { dateTime, HELD, taskRef, watchResult } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
@@ -180,7 +180,7 @@ function Body({ t }: { t: Detail }) {
             variant="outline"
             size="sm"
             align="start"
-            trigger={<StateChip state={t.state} mark={mark} word to={t.to} />}
+            trigger={<StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />}
           >
             {status.map((v) => (
               <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
@@ -189,7 +189,7 @@ function Body({ t }: { t: Detail }) {
             ))}
           </MenuButton>
         ) : (
-          <StateChip state={t.state} mark={mark} word to={t.to} />
+          <StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />
         )}
       </header>
       <p className="m-0 mt-1 text-hint text-ink-3">

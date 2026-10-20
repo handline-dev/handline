@@ -25,9 +25,9 @@ afterEach(async () => {
   location.hash = '';
 });
 
-async function mountGate(watch: Record<string, unknown>) {
+async function mountGate(watch: Record<string, unknown>, state = 'doing') {
   const s = setup();
-  s.daemon.tasks.seed({ id: 1750, from: 'handline', to: 'gate', title: 'Wait for PR CI', state: 'doing', watch } as never);
+  s.daemon.tasks.seed({ id: 1750, from: 'handline', to: 'gate', title: 'Wait for PR CI', state, watch } as never);
   location.hash = '#/tasks/1750';
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
@@ -37,6 +37,18 @@ async function mountGate(watch: Record<string, unknown>) {
 }
 
 describe('a gate task page', () => {
+  it('colours a done gate by its result: passed green, failed red, timed out grey', async () => {
+    const tone = { passed: 'text-ok', failed: 'text-bad', timed_out: 'text-ink-3' };
+    for (const [result, cls] of Object.entries(tone)) {
+      await mountGate({ vendor: 'github', target: 'acme/app#426', until: 'ci', label: 'PR #426 CI', result }, 'done');
+      const chip = box.querySelector('.tchip[data-state=done]')!;
+      expect(chip.classList.contains(cls), result).toBe(true);
+      await act(async () => root?.unmount());
+      root = null;
+      box.remove();
+    }
+  });
+
   it('links the label to the pull request and shows the result', async () => {
     const line = await mountGate({ vendor: 'github', target: 'acme/app#426', until: 'ci', label: 'PR #426 CI', result: 'failed' });
     expect(line.textContent).toBe('Watches PR #426 CI · failed');

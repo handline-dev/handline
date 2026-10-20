@@ -13,8 +13,11 @@ export const STATE_GLYPH: Record<string, IconName> = GLYPHS;
 const TONE: Record<Tone, string> = { run: 'run text-working', wait: 'wait text-wait', block: 'block text-bad', idle: 'idle' };
 const CHIP = 'inline-flex items-center gap-0.5 align-middle text-ink-2 [&>svg]:shrink-0';
 
+/** A done gate that failed reads red, one that timed out grey; any other done stays green. */
+const DONE_TONE: Record<string, string> = { failed: 'text-bad', timed_out: 'text-ink-3' };
+
 /** A state is a shape of its own (the glyph), then a tooltip, then colour; the word stays for a screen reader. `mark` says what the write in flight is: hollow dot, or the decided "…". */
-export function StateChip({ state, mark, word, to }: { state: string; mark?: 'authored' | 'decided' | null; word?: boolean; to?: string }) {
+export function StateChip({ state, mark, word, to, result }: { state: string; mark?: 'authored' | 'decided' | null; word?: boolean; to?: string; result?: string | null }) {
   const me = useStore().me;
   const foryou = state === 'doing' && !!to && isPerson(to, me); // the task is the person's to do: the agent is not working on it
   if (mark === 'decided')
@@ -24,10 +27,10 @@ export function StateChip({ state, mark, word, to }: { state: string; mark?: 'au
       </span>
     );
   return (
-    <span className={`tchip ${TONE[foryou ? 'wait' : toneOf(state)]} data-[state=done]:text-ok ${CHIP}`} data-state={state} title={foryou ? 'waiting for you' : state}>
+    <span className={`tchip ${TONE[foryou ? 'wait' : toneOf(state)]} ${state === 'done' ? (DONE_TONE[result ?? ''] ?? 'text-ok') : ''} ${CHIP}`} data-state={state} title={foryou ? 'waiting for you' : state}>
       {mark === 'authored' ? <Icon name="unsaved" size={12} aria-hidden /> : null}
       <Icon
-        name={foryou ? 'taskPending' : (STATE_GLYPH[state] ?? 'taskPending')}
+        name={foryou ? 'taskPending' : state === 'done' && result === 'failed' ? 'failed' : (STATE_GLYPH[state] ?? 'taskPending')}
         label={foryou ? 'waiting for you' : state}
         size={16}
         aria-hidden="true"
