@@ -205,12 +205,8 @@ func (e *Env) sessionInput(c *rpc.Conn, params map[string]any) (any, error) {
 	}
 	return e.act(c, "session.input", params, true, func(handle string) (bool, string) {
 		// a prompt line is for a session, never for a shell
-		if running, known := e.Term.SessionByHooks(handle); known {
-			if !running {
-				return false, "the session has ended, a shell is left; nothing typed"
-			}
-		} else if s := e.Term.Backend.ReadScreen(handle, 40); s != nil && s.Source == "screen" && s.Tail != nil && term.ShellPromptIn(s.Tail) {
-			return false, "a shell prompt is showing, not a session; nothing typed"
+		if why := e.Term.ShellLeft(handle); why != "" {
+			return false, why + "; nothing typed"
 		}
 		return e.Term.Send(handle, t, enter)
 	})

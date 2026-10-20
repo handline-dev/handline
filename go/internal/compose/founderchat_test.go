@@ -47,7 +47,9 @@ func TestTheHooksNotTheScreenSayASessionRuns(t *testing.T) {
 		p, _ := rigWith(t, func(c *Config) { c.Turns = tr })
 		ft := newFakeTerminals()
 		ft.screen = []string{strings.Repeat("─", 40), "│ > │", strings.Repeat("─", 40), "  ? for shortcuts", "Resume this session with claude --resume x"}
-		p.LC = &Lifecycle{term: ft.term()}
+		tm := ft.term()
+		tm.Turns = tr
+		p.LC = &Lifecycle{term: tm}
 		dbpkg.SetTerminal(p.db, "alice", "%1", t.TempDir())
 		tr.Hook("alice", "Stop", map[string]any{}, time.Now().Unix())
 		if why := p.typeable("alice"); (why == "") != watched {

@@ -605,6 +605,21 @@ func (t *Term) SessionByHooks(handle string) (running, known bool) {
 	return t.Turns.Session(handle)
 }
 
+// ShellLeft is why a line typed at handle would reach a shell, not a session, "" when it would not: as the hooks and process say when they
+// know, else a shell prompt on the screen.
+func (t *Term) ShellLeft(handle string) string {
+	if running, known := t.SessionByHooks(handle); known {
+		if !running {
+			return "the session has ended, a shell is left"
+		}
+		return ""
+	}
+	if s := t.Backend.ReadScreen(handle, 40); s != nil && s.Source == "screen" && ShellPromptIn(s.Tail) {
+		return "a shell prompt is showing, not a session"
+	}
+	return ""
+}
+
 // WaitIdle is whether the agent at handle is idle within timeoutMs.
 func (t *Term) WaitIdle(handle string, timeoutMs int) bool {
 	if t.Turns != nil {
