@@ -10804,17 +10804,6 @@
       ],
       "description": "What the task watches when its owner is gate; null for any other. Absent from a daemon that does not send it."
      },
-     "watch": {
-      "oneOf": [
-       {
-        "$ref": "#/components/schemas/TaskWatch"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "description": "What the task watches when its owner is gate; null for any other. Absent from a daemon that does not send it."
-     },
      "status": {
       "$ref": "#/components/schemas/Status",
       "description": "What it is doing and why (x-status). Absent from a daemon that does not send it."

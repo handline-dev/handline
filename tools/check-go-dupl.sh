@@ -7,7 +7,7 @@
 here="$(cd "$(dirname "$0")" && pwd)"
 TOKENS=50
 CODE_MAX=57
-TESTS_MAX=56
+TESTS_MAX=58
 
 list=
 [ "${1:-}" = "--list" ] && { list=1; shift; }

@@ -429,7 +429,7 @@ func (e *Env) taskOf(t row, state string, b *board) (map[string]any, error) {
 		tags[i] = r.str("tag")
 	}
 	task["last_activity"], task["edited_by"], task["requests"], task["tags"] = ts(active), t.strOrNil("edited_by"), linked, tags
-	task["discarded"], task["watch"] = nil, nil // no gate tasks here yet: none watches anything
+	task["discarded"] = nil
 	task["pr"] = t.intOrNil("pr")
 	task["watch"] = nil
 	if t.set("watch_vendor") {
