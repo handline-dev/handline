@@ -1,11 +1,14 @@
 // What the screens decide from daemon facts. Pure: no DOM, so tests run it in Node.
 import type { AgentDetail, AgentView, InputHolder, Prompt, PromptOption } from '@handline/client';
+import { dotOfStatus } from './status.ts';
 import { DAEMON_KEYS, NAMED_KEYS } from './keys.ts';
 
 export type Dot = 'running' | 'waking' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'none';
 
-/** The rail dot: the daemon's state word plus its block kinds and a handoff that is starting a new session. Unknown words read as idle. */
-export function dotOf(a: Pick<AgentView, 'state' | 'has_dialog' | 'block' | 'handoff'>): Dot {
+/** The rail dot: the daemon's status when it sends one, else its state word plus its block kinds and a handoff that is starting a new session. Unknown words read as idle. */
+export function dotOf(a: Pick<AgentView, 'state' | 'has_dialog' | 'block' | 'handoff' | 'status'>): Dot {
+  const s = a.status && dotOfStatus(a.status);
+  if (s) return s;
   if (a.has_dialog || a.state === 'waiting') return 'waiting';
   if (a.block || a.state === 'stalled' || a.state === 'blocked') return 'blocked';
   if (a.state === 'no_terminal') return 'none';

@@ -128,7 +128,7 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
         {d ? (
           <State
             kind={stateOfView(d)}
-            label={[d.block ? `blocked (${d.block.kind})` : d.state, d.state_detail].filter(Boolean).join(' · ')}
+            label={d.status?.text || [d.block ? `blocked (${d.block.kind})` : d.state, d.state_detail].filter(Boolean).join(' · ')}
           />
         ) : null}
         <button

@@ -70,7 +70,7 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
           )}
           renderItem={({ item: a }) => {
             const need = a.needs_you ? a.needs_you.text ?? KIND[a.needs_you.kind] : '';
-            const doing = need || a.task?.title || a.state_detail || '';
+            const doing = need || a.task?.title || a.status?.text || a.state_detail || '';
             const word = asks(a) ? 'asks' : a.block ? a.block.kind : a.state;
             const age = a.needs_you ? a.needs_you.since : a.state_since;
             return (

@@ -63,7 +63,7 @@ export function ChatBanner({ detail }: { detail: AgentDetail }) {
 }
 
 /** The state in words: a restarting agent says so (as its rail row does), else the daemon's word with why it is not running. */
-const stateWord = (d: AgentDetail) => (d.handoff ? 'Restarting…' : d.state_detail ? `${d.state}: ${d.state_detail}` : d.state);
+const stateWord = (d: AgentDetail) => (d.status ? d.status.text : d.handoff ? 'Restarting…' : d.state_detail ? `${d.state}: ${d.state_detail}` : d.state);
 
 /** The room's name over the chat, with the agent's state. */
 export const RoomTitle = ({ agent, detail }: { agent: string; detail: AgentDetail }) => (

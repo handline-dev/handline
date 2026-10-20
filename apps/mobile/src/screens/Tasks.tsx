@@ -318,8 +318,9 @@ function Body({ t }: { t: TaskDetail }) {
       )}
       <TaskVerbs t={t} />
       {/* The Waits on section already says what holds it; the reason lines are for a task with no listed blocker. */}
-      {!t.blockers.length && t.block_reason ? <Text style={{ color: c.block }}>{t.block_reason}</Text> : null}
-      {!t.blockers.length && t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
+      {t.status?.text ? <Text style={{ color: c.wait }}>{t.status.text}</Text> : null}
+      {!t.status && !t.blockers.length && t.block_reason ? <Text style={{ color: c.block }}>{t.block_reason}</Text> : null}
+      {!t.status && !t.blockers.length && t.hold_reason ? <Text style={{ color: c.wait }}>{t.hold_reason}</Text> : null}
       {t.blockers.length ? (
         <Section title="Waits on">{t.blockers.map((b, i) => line(`${taskRef(b.task)} ${b.title} (${b.owner}): ${b.reason}`, i))}</Section>
       ) : null}

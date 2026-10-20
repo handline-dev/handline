@@ -139,7 +139,7 @@ function Body({ t }: { t: Detail }) {
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => root.current?.focus({ preventScroll: true }), [t.id]);
 
-  const why = t.waiting?.text ?? t.hold_reason ?? t.block_reason;
+  const why = t.status?.text ?? t.waiting?.text ?? t.hold_reason ?? t.block_reason;
   const yes = { ok: true, why: undefined };
   const item = (label: string, key: string, run: () => void, can: { ok: boolean; why?: string }) => ({ label, key, run, can });
   // What changes the status, in the dropdown on the state; the one that fits best is also the main button.

@@ -26,6 +26,7 @@ export const liveOf = (a: AgentView): string => {
     const { why, what } = handoffLine(a.handoff);
     return `${why}: ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
   }
+  if (a.status) return [a.status.text, ago(a.status.since ?? a.state_since)].filter(Boolean).join(' · ');
   const d = dotOf(a);
   if (d !== 'running' && d !== 'waking' && !a.state_detail) return '';
   return [a.state_detail || MARKS[d].label, ago(a.state_since)].filter(Boolean).join(' · ');
