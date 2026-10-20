@@ -295,6 +295,42 @@ export function useTaskPending(id: number): boolean {
   ].some(mine);
 }
 
+/** The fields a new task and an edited one share: owner, title, body, time box, priority. `id` prefixes the test ids. */
+function TaskFields(p: {
+  id: 'nt' | 'et';
+  owners: string[];
+  owner: string;
+  setOwner: (v: string) => void;
+  title: string;
+  setTitle: (v: string) => void;
+  body: string;
+  setBody: (v: string) => void;
+  box: string;
+  setBox: (v: string) => void;
+  priority: 1 | 2 | 3;
+  setPriority: (v: 1 | 2 | 3) => void;
+}) {
+  const c = usePalette();
+  return (
+    <>
+      <Text style={{ color: c.muted, fontWeight: '600' }}>Owner</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+        {p.owners.map((a) => (
+          <Pill role="radio" key={a} on={p.owner === a} label={a} onPress={() => p.setOwner(a)} testID={`${p.id}-owner-${a}`} />
+        ))}
+      </View>
+      <Input testID={`${p.id}-title`} label="Title" value={p.title} onChange={p.setTitle} />
+      <ImageBodyInput testID={`${p.id}-body`} label="Body" value={p.body} onChange={p.setBody} />
+      <Input testID={`${p.id}-box`} label="Time box" value={p.box} onChange={p.setBox} />
+      <View style={{ flexDirection: 'row', gap: space.sm }}>
+        {PRIORITIES.map(([n, l]) => (
+          <Pill role="radio" key={n} on={p.priority === n} label={l} onPress={() => p.setPriority(n)} testID={`${p.id}-priority-${n}`} />
+        ))}
+      </View>
+    </>
+  );
+}
+
 /** New task: owner, title, body, time box, priority. The row shows in the list at once; a refusal leaves the text here with the reason. */
 export function NewTask({ onClose }: { onClose: () => void }) {
   const c = usePalette();
@@ -314,22 +350,10 @@ export function NewTask({ onClose }: { onClose: () => void }) {
     ask.mutateAsync({ owner, title: title.trim(), body, time_box: box.trim() || '2h', priority }).then(onClose, () => {});
   };
   const said = missing || (ask.isError ? sentence(classify(ask.error)) : '');
-  const chip = (on: boolean, label: string, onPress: () => void, testID: string) => (
-    <Pill role="radio" key={testID} on={on} label={label} onPress={onPress} testID={testID} />
-  );
   return (
     <View testID="new-task" style={{ gap: space.md, padding: space.lg }}>
       <PageHeader bare title="New task" />
-      <Text style={{ color: c.muted, fontWeight: '600' }}>Owner</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-        {agents.map((a) => chip(owner === a, a, () => setOwner(a), `nt-owner-${a}`))}
-      </View>
-      <Input testID="nt-title" label="Title" value={title} onChange={setTitle} />
-      <ImageBodyInput testID="nt-body" label="Body" value={body} onChange={setBody} />
-      <Input testID="nt-box" label="Time box" value={box} onChange={setBox} />
-      <View style={{ flexDirection: 'row', gap: space.sm }}>
-        {PRIORITIES.map(([p, l]) => chip(priority === p, l, () => setPriority(p), `nt-priority-${p}`))}
-      </View>
+      <TaskFields id="nt" owners={agents} {...{ owner, setOwner, title, setTitle, body, setBody, box, setBox, priority, setPriority }} />
       {said ? (
         <Text testID="nt-error" accessibilityRole="alert" style={{ color: c.block }}>
           {said}
@@ -346,7 +370,6 @@ export function NewTask({ onClose }: { onClose: () => void }) {
 
 /** Edit: only what changed is sent. The sheet stays open with the text when the daemon refuses. */
 function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
-  const c = usePalette();
   const edit = useWrite('task.edit');
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
   const [title, setTitle] = useState(t.title);
@@ -377,20 +400,7 @@ function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
       onSubmit={save}
       error={missing || (edit.isError ? sentence(classify(edit.error)) : undefined)}
     >
-      <Text style={{ color: c.muted, fontWeight: '600' }}>Owner</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-        {[...new Set([t.to, ...agents])].map((a) => (
-          <Pill role="radio" key={a} on={owner === a} label={a} onPress={() => setOwner(a)} testID={`et-owner-${a}`} />
-        ))}
-      </View>
-      <Input testID="et-title" label="Title" value={title} onChange={setTitle} />
-      <ImageBodyInput testID="et-body" label="Body" value={body} onChange={setBody} />
-      <Input testID="et-box" label="Time box" value={box} onChange={setBox} />
-      <View style={{ flexDirection: 'row', gap: space.sm }}>
-        {PRIORITIES.map(([p, l]) => (
-          <Pill role="radio" key={p} on={priority === p} label={l} onPress={() => setPriority(p)} testID={`et-priority-${p}`} />
-        ))}
-      </View>
+      <TaskFields id="et" owners={[...new Set([t.to, ...agents])]} {...{ owner, setOwner, title, setTitle, body, setBody, box, setBox, priority, setPriority }} />
     </Sheet>
   );
 }

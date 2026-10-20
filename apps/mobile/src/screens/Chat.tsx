@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { clockTime, decidedProposals, sideOf, takeBack as canTakeBack, chatEntries, tickLevel } from '@handline/app-core';
-import { classify, sentence, useChat, useChatActions, useHr, useInbox, useWrite } from '@handline/app-data';
+import { classify, sentence, useChat, useChatActions, useChatReadMarks, useHr } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
@@ -32,6 +32,22 @@ const TICKS = ['queued', 'delivered', 'answered'] as const;
 const drafts = new Map<string, string>();
 
 const snippet = (s: string) => (s.length > 80 ? `${s.slice(0, 80)}…` : s);
+
+/** The line over the composer saying what the next message replies to, with a button to drop it. */
+function ReplyRow({ id, dropId, text, onDrop }: { id: string; dropId: string; text: string; onDrop: () => void }) {
+  const c = usePalette();
+  return (
+    <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
+      <Icon name="reference" decorative size={14} color={c.muted} />
+      <Text testID={id} numberOfLines={1} style={{ color: c.muted, fontSize: 12, flex: 1 }}>
+        {text}
+      </Text>
+      <Pressable testID={dropId} accessibilityLabel="Drop the reply" hitSlop={12} onPress={onDrop}>
+        <Icon name="close" decorative size={18} color={c.muted} />
+      </Pressable>
+    </Row>
+  );
+}
 
 export function ChatEmpty() {
   const c = usePalette();
@@ -72,31 +88,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const entries = chatEntries(chat.messages, chat.items, agent, decidedProposals(hr.data?.proposals, agent));
   const takeable = Math.max(0, ...chat.messages.filter((m) => m.id > 0 && m.state !== 'failed' && canTakeBack(m)).map((m) => m.id)); // only the newest can be taken back
 
-  // The agent's messages now in front of the person leave the FOR YOU list (chat.seen); once per newest number.
-  const said = chat.messages.filter((m) => m.from === agent && m.id > 0).reduce((n, m) => Math.max(n, m.id), 0);
-  const told = useRef(0);
-  useEffect(() => {
-    if (chat.status === 'ready' && said > told.current) {
-      told.current = said;
-      act.seen(said);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [said, chat.status]);
-
-  // What the agent sent to the Inbox about itself is read once its chat is open.
-  const inbox = useInbox();
-  const read = useWrite('inbox.mark_read');
-  const readIds = useRef(new Set<number>());
-  useEffect(() => {
-    if (chat.status !== 'ready') return;
-    const ids = (inbox.data?.items ?? [])
-      .filter((i) => i.agent === agent && !i.read && ['say', 'result', 'report'].includes(i.kind) && !readIds.current.has(i.id))
-      .map((i) => i.id);
-    if (!ids.length) return;
-    ids.forEach((id) => readIds.current.add(id));
-    read.mutate({ ids });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inbox.data, chat.status, agent]);
+  useChatReadMarks(agent, chat, act.seen);
 
   const drawn = going !== null && entries.some((e) => e.kind !== 'item' && e.id === going);
   const reveal = (id: number) => {
@@ -231,28 +223,8 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
       </ScrollView>
       <HandoffLine handoff={props.detail.handoff ?? null} items={chat.items} />
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
-      {picked && (
-        <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
-          <Icon name="reference" decorative size={14} color={c.muted} />
-          <Text testID="replying" numberOfLines={1} style={{ color: c.muted, fontSize: 12, flex: 1 }}>
-            {snippet(picked.body)}
-          </Text>
-          <Pressable testID="drop-reply" accessibilityLabel="Drop the reply" hitSlop={12} onPress={() => setPicked(null)}>
-            <Icon name="close" decorative size={18} color={c.muted} />
-          </Pressable>
-        </Row>
-      )}
-      {item && (
-        <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
-          <Icon name="reference" decorative size={14} color={c.muted} />
-          <Text testID="replying-item" numberOfLines={1} style={{ color: c.muted, fontSize: 12, flex: 1 }}>
-            {snippet((item.text ?? '').replace(/\s+/g, ' '))}
-          </Text>
-          <Pressable testID="drop-reply-item" accessibilityLabel="Drop the reply" hitSlop={12} onPress={() => setItem(null)}>
-            <Icon name="close" decorative size={18} color={c.muted} />
-          </Pressable>
-        </Row>
-      )}
+      {picked && <ReplyRow id="replying" dropId="drop-reply" text={snippet(picked.body)} onDrop={() => setPicked(null)} />}
+      {item && <ReplyRow id="replying-item" dropId="drop-reply-item" text={snippet((item.text ?? '').replace(/\s+/g, ' '))} onDrop={() => setItem(null)} />}
       {canSend && <ChatRefs agent={agent} text={text} onPick={(r, rest) => (setItem(null), setPicked(r), setText(rest))} />}
       {img.chips}
       <Row style={{ padding: space.sm }}>
