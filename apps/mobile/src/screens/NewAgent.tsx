@@ -1,9 +1,8 @@
 // New agent (founder, docs/pc-app-gaps.md X5): one full page with the form of docs/design/new-agent-worktrees.md §1.2, then the progress of
 // the operation it started. One agent.create per tap; the fields stay here, so a failed creation returns to them as they were.
-import { useState } from 'react';
 import type { FirstTask } from '../session.ts';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { EFFORTS, EMPTY_AGENT_FIELDS, classify, createParams, sentence, useAgents, useRepos, useServes, useWrite, type NewAgentFields } from '@handline/app-data';
+import { EFFORTS, EMPTY_AGENT_FIELDS, classify, sentence, useNewAgentForm, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
@@ -123,11 +122,9 @@ export function NewAgent({ pending, onClose, onAgent }: { pending: Pending; onCl
   const c = usePalette();
   const founder = useStore().client.hello?.role === 'founder';
   const { served } = useServes('agent.create');
-  const create = useWrite('agent.create');
-  const repos = useRepos();
-  const agents = useAgents().data?.agents ?? [];
-  const [f, setF] = useState<NewAgentFields>(EMPTY_AGENT_FIELDS);
-  const set = (k: keyof NewAgentFields, v: string) => setF((was) => ({ ...was, [k]: v }));
+  const { create, agents, f, setF, set, list, prefix, ready, send } = useNewAgentForm((operation, made) =>
+    pending.save(operation, made.task.trim() ? { task: made.task, box: made.box } : null),
+  );
   if (!founder || !served)
     return (
       <Page onClose={onClose}>
@@ -148,17 +145,6 @@ export function NewAgent({ pending, onClose, onAgent }: { pending: Pending; onCl
         onAnother={() => (setF(EMPTY_AGENT_FIELDS), pending.save(null))}
       />
     );
-  const list = repos.data?.repos ?? [];
-  const repo = list.find((r) => r.path === f.repo);
-  const prefix = f.parent ? `${f.parent}.` : '';
-  const ready = !!f.name.trim() && !!f.role.trim() && !!repo;
-  const send = () => {
-    if (!ready || create.isPending) return;
-    create.mutate(
-      createParams(f, repo),
-      { onSuccess: (r) => pending.save((r as { operation: string }).operation, f.task.trim() ? { task: f.task, box: f.box } : null) },
-    );
-  };
   const refused = create.isError ? classify(create.error) : null;
   return (
     <Page onClose={onClose}>

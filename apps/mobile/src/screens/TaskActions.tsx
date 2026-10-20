@@ -136,6 +136,9 @@ function ReasonSheet(props: {
 
 type Ask = null | 'ask' | 'done' | 'reopen' | 'withdraw' | 'cancel' | 'discard' | 'edit' | 'release' | 'merge' | 'assign';
 
+/** The sheets that take the task and a way to close: the verbs that ask for more than a reason. */
+const PANELS = { ask: AskAbout, release: ReleaseTask, merge: MergeTasks, assign: AssignTask, edit: EditTask } as const;
+
 /** The verbs of one task; each is shown only when it applies, and disabled with its reason when the daemon does not serve it. */
 export function TaskVerbs({ t }: { t: TaskDetail }) {
   const c = usePalette();
@@ -191,6 +194,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
     },
   };
   const reason = ask ? reasons[ask] : undefined;
+  const Panel = ask ? PANELS[ask as keyof typeof PANELS] : undefined;
   const verb = (id: string, label: string, why: string | null, to: Ask) => (
     <Button key={id} testID={`verb-${id}`} label={label} disabled={!!why || ask !== null} onPress={() => (setMenu(null), setAsk(to))} />
   );
@@ -247,11 +251,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
           <Text style={{ color: c.muted }}>Takes the task back before anyone has started it.</Text>
         </Sheet>
       )}
-      {ask === 'ask' && <AskAbout t={t} onClose={() => setAsk(null)} />}
-      {ask === 'release' && <ReleaseTask t={t} onClose={() => setAsk(null)} />}
-      {ask === 'merge' && <MergeTasks t={t} onClose={() => setAsk(null)} />}
-      {ask === 'assign' && <AssignTask t={t} onClose={() => setAsk(null)} />}
-      {ask === 'edit' && <EditTask t={t} onClose={() => setAsk(null)} />}
+      {Panel && <Panel t={t} onClose={() => setAsk(null)} />}
     </View>
   );
 }

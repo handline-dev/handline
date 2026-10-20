@@ -1,7 +1,6 @@
 // New agent (founder): the form of docs/design/new-agent-worktrees.md §1.2 as a sheet at `#/new`, then its progress at `#/new/:operation`.
 // One agent.create per click; the form's fields stay in this component, so a failed creation returns to them as they were.
-import { useState } from 'react';
-import { EFFORTS, EMPTY_AGENT_FIELDS, classify, createParams, sentence, useAgents, useRepos, useServes, useWrite, type NewAgentFields } from '@handline/app-data';
+import { EFFORTS, EMPTY_AGENT_FIELDS, classify, sentence, useNewAgentForm, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Dialog, Field, Icon, Select, Textarea, NOTE, FIELD, FIELD_LABEL } from './ui/index.ts';
 import { goNew, useNewAgentRoute } from './route.ts';
@@ -26,11 +25,10 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
   const store = useStore();
   const founder = store.client.hello?.role === 'founder';
   const { served } = useServes('agent.create');
-  const create = useWrite('agent.create');
-  const repos = useRepos();
-  const agents = useAgents().data?.agents ?? [];
-  const [f, setF] = useState<NewAgentFields>(EMPTY_AGENT_FIELDS);
-  const set = (k: keyof NewAgentFields, v: string) => setF((was) => ({ ...was, [k]: v }));
+  const { create, agents, f, setF, set, list, prefix, ready, send } = useNewAgentForm((operation, made) => {
+    keepFirstTask(operation, made.task, made.box);
+    goNew(operation);
+  });
   if (!founder)
     return (
       <Dialog title="New agent" onClose={onClose}>
@@ -52,23 +50,6 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
         onAnother={() => (setF(EMPTY_AGENT_FIELDS), forgetFirstTask(), goNew())}
       />
     );
-  const list = repos.data?.repos ?? [];
-  const repo = list.find((r) => r.path === f.repo);
-  const prefix = f.parent ? `${f.parent}.` : '';
-  const ready = !!f.name.trim() && !!f.role.trim() && !!repo;
-  const send = () => {
-    if (!ready || create.isPending) return;
-    create.mutate(
-      createParams(f, repo),
-      {
-        onSuccess: (r) => {
-          const operation = (r as { operation: string }).operation;
-          keepFirstTask(operation, f.task, f.box);
-          goNew(operation);
-        },
-      },
-    );
-  };
   const refused = create.isError ? classify(create.error) : null;
   return (
     <Dialog

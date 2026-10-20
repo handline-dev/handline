@@ -1,12 +1,13 @@
 // The agent verbs of the ⋯ menu beyond stopping: wake, restart (resuming or fresh), close, park, fold, move account and clear stall.
 // Each is a decided write: the row shows the verb's gerund until the agents topic changes it. The ones in the bridge's CONFIRM ask first,
 // in a sheet under the row, and the sheet checks the row again on Confirm: a row that changed sends nothing.
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { askOf, VERBS, verbsOf, type Verb } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useAccounts, useAgentDetail, useAgents, classify, sentence, useRetireAgent, useVerbRun } from '@handline/app-data';
 import { Button, Sheet, SheetActions } from './ui/index.ts';
+import { useEscape } from './useEscape.ts';
 
 /** Whether the daemon lists the verb's method; a verb it does not list is left out of the menu. */
 export function useServed(): (v: Verb) => boolean {
@@ -26,11 +27,7 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
   const [changed, setChanged] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', esc);
-    return () => window.removeEventListener('keydown', esc);
-  }, [onClose]);
+  useEscape(onClose);
   const move = verb.id === 'move';
   const structured = d?.structured === true;
   const interruptFirst = structured && verb.id === 'close' && (a.state === 'running' || a.state === 'waiting');
@@ -103,11 +100,7 @@ export function DeleteSheet({ a, onClose }: { a: AgentView; onClose: () => void 
   const retire = useRetireAgent(a.name);
   const [refused, setRefused] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', esc);
-    return () => window.removeEventListener('keydown', esc);
-  }, [onClose]);
+  useEscape(onClose);
   const go = () => {
     setBusy(true);
     setRefused(null);
