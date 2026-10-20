@@ -21,10 +21,11 @@ type expectation struct {
 	worked map[int64]int64
 }
 
-// of is task.time's expected for task t (a taskRowSQL row) whose time so far is segs: null for an ended task or one the founder holds.
+// of is task.time's expected for task t (a taskRowSQL row) whose time so far is segs: null for an ended task, one the founder holds, or a
+// gate.
 func (x *expectation) of(t row, segs []stretch) (map[string]any, error) {
 	owner := t.str("owner")
-	if t.set("ended") || owner == human {
+	if t.set("ended") || owner == human || owner == db.Gate {
 		return nil, nil
 	}
 	dur, basis, err := x.duration(t)

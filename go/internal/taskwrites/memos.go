@@ -83,6 +83,7 @@ func Register(s *rpc.Server, home string, tell Teller, decide CardDecider) {
 	s.Register("task.reject", rpc.Method{Role: "agent", Write: true, Handler: rejectMethod(home, tell)})
 	s.Register("task.cancel", rpc.Method{Role: "member", Write: true, Handler: cancelMethod(home, tell)})
 	s.Register("task.release", rpc.Method{Role: "agent", Write: true, Handler: releaseMethod(home, tell)})
+	s.Register("task.wait", rpc.Method{Role: "agent", Write: true, Handler: waitMethod(home, tell)})
 	s.Register("task.merge", rpc.Method{Role: "agent", Write: true, Handler: mergeMethod(home, tell)})
 	for _, verb := range []string{"task.comment.", "task.memo."} { // task.memo.* is the old name
 		s.Register(verb+"add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd(home, tell)})

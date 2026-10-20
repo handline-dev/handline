@@ -10,6 +10,7 @@ import (
 	"github.com/handline/handline/go/internal/dangling"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/fold"
+	"github.com/handline/handline/go/internal/gates"
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/housekeeping"
 	"github.com/handline/handline/go/internal/lifecycle"
@@ -38,6 +39,8 @@ type Tick struct {
 	// Startup is loop.py's start, run once before the first tick: reconcile, bring up the agents with work waiting, settle old messages,
 	// and try every pending one.
 	Startup func()
+	// gates opens the gate tasks on its own clock until its stop closes, which Start does when the loop ends.
+	gates *gates.Sweep
 }
 
 // Restarting says the loop ended because the executable changed and started clean: the caller releases the lock and the database, then
@@ -166,7 +169,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		runStartup(logLine, startPorts{Reconcile: reconciler.Reconcile, StartWaiting: t.StartWaiting,
 			Migrate: func() error { return env.MigrateOldMessages(q) }, Reload: func() error { return env.ReloadPending(q) }})
 	}
-	return &Tick{Tick: t, Loop: loop, dev: dev, Startup: startup}
+	return &Tick{Tick: t, Loop: loop, dev: dev, Startup: startup, gates: &gates.Sweep{DB: q, Home: home, Tell: env, Log: cfg.Log}}
 }
 
 // raiseFromTaskBoard puts a decision from the task board in front of the founder: a My turn card.
@@ -217,12 +220,21 @@ func runStartup(log func(string), s startPorts) {
 // database only after that: a close or a wake cut off by the process ending leaves a half write.
 func (t *Tick) Start() (done <-chan struct{}) {
 	d := make(chan struct{})
+	gatesStop, gatesDone := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(gatesDone)
+		if t.gates != nil {
+			t.gates.Run(gatesStop)
+		}
+	}()
 	go func() {
 		defer close(d)
 		if t.Startup != nil {
 			t.Startup()
 		}
 		t.restarted = t.Loop.Run(nil)
+		close(gatesStop) // the loop ended (a stop or a restart): the gate pass stops too, and done waits for it
+		<-gatesDone
 	}()
 	return d
 }

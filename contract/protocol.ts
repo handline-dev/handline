@@ -352,6 +352,8 @@ export type Task = {
   } | null;
   /** The pull request its work merges in (task.edit pr); an accepted task with one closes at that merge. Absent from a daemon that does not send it. */
   pr?: number | null;
+  /** What the task watches when its owner is gate; null for any other. Absent from a daemon that does not send it. */
+  watch?: TaskWatch | null;
   /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
   status?: Status;
 };
@@ -1602,6 +1604,27 @@ export type ChatAction = {
   needs?: string;
 };
 
+/** What a gate watches: target of vendor, until what it waits for. The vendor answers waiting, passed or failed with a line of evidence. Vendors: github (target owner/name#N; until ci: a pull request's checks have all finished, or none started 10 minutes after its head commit; closed: the pull request merged (passed) or closed unmerged (failed); done: the issue closed as completed (passed) or for another reason (failed)). The github vendor reads through the gh CLI's own login. docs/watch-vendors.md has each vendor. */
+export type Watch = {
+  /** The outside tool: github. */
+  vendor: string;
+  /** The thing, written the way the vendor writes it: owner/name#N for github. */
+  target: string;
+  /** What is waited for; each vendor takes some. Absent: the vendor's first (github: ci). */
+  until?: "ci" | "closed" | "done";
+};
+
+/** A gate's watch as the task carries it, with its label and what it opened with. */
+export type TaskWatch = {
+  vendor: string;
+  target: string;
+  until: "ci" | "closed" | "done";
+  /** The watch in words ("PR #418 CI"). */
+  label: string;
+  /** What it opened with; null while it watches. A target that reads as gone (deleted, or no longer visible) three times in a row is failed. */
+  result: ("passed" | "failed" | "timed_out") | null;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -2278,6 +2301,7 @@ export interface Methods {
     done: boolean;
   } };
   "task.new": { params: {
+  /** An agent, human, or gate: a task the daemon holds that watches outside state (watch) and closes when it changes. */
   owner: string;
   /** Who the task answers to: told when it ends, and may edit or reassign it. Default: the caller. */
   reporter?: string;
@@ -2290,6 +2314,8 @@ export interface Methods {
   duplicate_ok?: boolean;
   /** Cannot be worked until this task closes. */
   blocked_by?: number;
+  /** With owner gate, required, and refused with any other owner; a watch its vendor cannot take, or a vendor not set up, is refused. The gate is doing from the start; its time box (default 24h) is its deadline. The daemon marks it done with the vendor's evidence when the vendor answers passed or failed ("ci passed", "ci failed: <check names>", "merged <sha>", "closed unmerged", "no CI on this PR"), or "timed out" past its deadline. A task blocked by it (blocked_by) then comes back to its holder, who decides what follows. task.wait opens one and blocks a task on it in one write. */
+  watch?: Watch;
   /** 1 high, 2 default, 3 low (written P1-P3). Absent means 2. */
   priority?: 1 | 2 | 3;
   /** Story points: what the task is expected to take, for its expected start and end (task.time). None when absent. */
@@ -2471,6 +2497,16 @@ export interface Methods {
   reason?: string;
   request_id: RequestId;
 }; result: Accepted };
+  "task.wait": { params: {
+  task: number;
+  watch: Watch;
+  /** The gate's deadline, a span like 4h; default 24h. */
+  time_box?: string;
+  request_id: RequestId;
+}; result: Accepted & {
+    /** The gate task opened. */
+    gate: number;
+  } };
   "task.discard": { params: {
   task?: number;
   tasks?: number[];
@@ -2947,6 +2983,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.draft": { role: "agent", callers: null, write: true, since: 1 },
   "task.merge": { role: "agent", callers: null, write: true, since: 1 },
   "task.release": { role: "agent", callers: null, write: true, since: 1 },
+  "task.wait": { role: "agent", callers: null, write: true, since: 1 },
   "task.discard": { role: "agent", callers: null, write: true, since: 1 },
   "task.board": { role: "agent", callers: null, write: false, since: 1 },
   "task.withdraw": { role: "agent", callers: null, write: true, since: 1 },
@@ -3082,6 +3119,6 @@ export const STATE_WORDS = ["running", "idle", "queued", "starting", "parked", "
 
 /** x-status: the state and reason every agent and task carries; open sets for a client, which shows `text` for a word it does not know. */
 export const STATUS_STATES = ["preparing", "starting", "running", "waiting", "stopped", "idle", "off", "done"] as const;
-export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "handoff", "background", "you", "review", "opener", "task", "owner", "clock", "move", "load", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
+export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "watch", "handoff", "background", "you", "review", "opener", "task", "owner", "clock", "move", "load", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];

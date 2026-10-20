@@ -1,0 +1,250 @@
+{
+ "fixtures": [
+  {
+   "name": "task.wait.unknown_task_is_not_found",
+   "spec": "task.wait",
+   "about": "A wait for a task nobody opened is not_found, and no vendor is asked.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.wait",
+      "params": {
+       "task": 999999,
+       "watch": {
+        "vendor": "github",
+        "target": "handline-dev/handline#1"
+       },
+       "request_id": "conf-tw-1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.wait.needs_a_watch",
+   "spec": "task.wait",
+   "about": "A wait names what it waits on: bad_request naming watch.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.wait",
+      "params": {
+       "task": 1,
+       "request_id": "conf-tw-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "watch"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.wait.an_unknown_vendor_is_bad_request",
+   "spec": "task.wait",
+   "about": "A vendor the daemon does not have is a bad watch.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.wait",
+      "params": {
+       "task": 1,
+       "watch": {
+        "vendor": "nope",
+        "target": "x"
+       },
+       "request_id": "conf-tw-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "watch"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.wait.a_target_the_vendor_cannot_read_is_bad_request",
+   "spec": "task.wait",
+   "about": "A github target is owner/name#N; anything else is a bad watch, refused before any read.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.wait",
+      "params": {
+       "task": 1,
+       "watch": {
+        "vendor": "github",
+        "target": "handline"
+       },
+       "request_id": "conf-tw-4"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "watch"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.wait.an_until_the_vendor_does_not_take_is_bad_request",
+   "spec": "task.wait",
+   "about": "Each vendor takes some untils; another is a bad watch.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.wait",
+      "params": {
+       "task": 1,
+       "watch": {
+        "vendor": "github",
+        "target": "handline-dev/handline#1",
+        "until": "merged"
+       },
+       "request_id": "conf-tw-5"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "watch"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.new.a_gate_needs_a_watch",
+   "spec": "task.new",
+   "about": "A task for owner gate names what it watches.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "gate",
+       "title": "wait",
+       "request_id": "conf-tw-6"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "watch"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

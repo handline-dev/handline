@@ -137,7 +137,7 @@ A method marked write takes a required `request_id`.
 | `task.history` | agent |  | `task` | `{task, rows}` | `not_found`, `bad_request` |  |
 | `task.time` | agent |  | `task` | `{task, start, end, segments, estimate, expected}` | `not_found`, `bad_request` |  |
 | `task.shot` | member |  | `task`, `n`, `offset?` | `{mime, bytes, offset, data, done}` | `not_found`, `bad_request` |  |
-| `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box?`, `parent?`, `duplicate_ok?`, `blocked_by?`, `priority?`, `estimate?`, `tags?`, `expects?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` | duplicate_title |
+| `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box?`, `parent?`, `duplicate_ok?`, `blocked_by?`, `watch?`, `priority?`, `estimate?`, `tags?`, `expects?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` | duplicate_title |
 | `task.handoff` | agent | yes | `task`, `to`, `note?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.done` | agent | yes | `task`, `evidence?`, `request?`, `repo?`, `reason?`, `commit?`, `shots?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | open_children |
 | `task.accept` | agent | yes | `task`, `request_id`, `by_founder?` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -162,6 +162,7 @@ A method marked write takes a required `request_id`.
 | `task.draft` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.merge` | agent | yes | `into`, `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.release` | agent | yes | `task`, `to?`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `task.wait` | agent | yes | `task`, `watch`, `time_box?`, `request_id` | `Accepted & {gate}` | `refused`, `not_found`, `bad_request` |  |
 | `task.discard` | agent | yes | `task?`, `tasks?`, `reason?`, `reasons?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.board` | agent |  | `everyone?` | `{mine, reports}` |  |  |
 | `task.withdraw` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -586,6 +587,10 @@ Fold tasks into one: the kept task takes their titles, requests and sub-tasks; a
 
 Take a doing task back to queued or draft: anyone may, with a reason the opener and assignee are told (and the founder, for a task begun on their message).
 
+### `task.wait`
+
+Make a task wait on outside state: a gate on watch (as task.new with owner gate), the task blocked by it and, when doing, released, all in one write, so the task never waits on a gate that blocks nothing. The task comes back to its holder's queue when the gate opens.
+
 ### `task.discard`
 
 Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told. A request still open on it refuses, unless the caller leads a team whose tree holds the task (its owner or opener is the lead or reports to it): then each open request is withdrawn and its target told. tasks in place of task discards a batch in one call, all or none, with one discard_batch event: the one task_batch card in the caller's chat. A request that already landed in its agent's session does not refuse the task's asker or the founder: the task is discarded, that request closes with it and its holder is told why; anyone else is refused.
@@ -908,7 +913,7 @@ Every agent (AgentView.status) and every task (Task.status) carries one status: 
 |---|---|
 | `preparing` | Has work and the daemon starts or sends it at its next tick; nothing stands in the way. Reasons: work, restart, retry. |
 | `starting` | A launch is in progress (agents). Reason: launch. |
-| `running` | Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, handoff, background. |
+| `running` | Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, watch, handoff, background. |
 | `waiting` | Held by something the daemon names: a person, another task, the owner, a clock, an account move, the machine's load. Reasons: you, review, opener, task, owner, clock, move, load. |
 | `stopped` | Will not go on by itself: no account has room (until the reset when it is known) or a person must unstall it. Reasons: wall, cap, stalled. |
 | `idle` | At its prompt with nothing to do (agents). Reason: none. |
@@ -922,6 +927,7 @@ Every agent (AgentView.status) and every task (Task.status) carries one status: 
 | `retry` | A failed start is retried; text says which attempt. |
 | `launch` | Its terminal is starting. |
 | `turn` | A turn is running (agents); the owner has the task (tasks). |
+| `watch` | A gate watches outside state; text names it ("watching PR #412 CI"). |
 | `handoff` | A hand-off to a new session is moving. |
 | `background` | Background work runs while the agent sits at its prompt. |
 | `you` | A person must answer: a dialog or prompt on the agent, an open request to the founder on the task, or a task the founder owns. |
