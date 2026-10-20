@@ -116,10 +116,6 @@ func (t timeboxPorts) SupervisorOf(agent string) string {
 	}
 	return tm.SupervisorOf(agent)
 }
-func (t timeboxPorts) LeadOf(agent string) string {
-	tm, _ := team.LoadTeam(t.home)
-	return tm.LeadOf(agent)
-}
 
 func (t timeboxPorts) SendNotice(q db.Q, agent, text string) bool {
 	sent, err := t.env.TypeNotice(q, agent, text)

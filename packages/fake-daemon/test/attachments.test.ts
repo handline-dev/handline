@@ -138,23 +138,3 @@ test("a task's text names only finished, kept images; an agent only one a task a
   agent.close();
   s.client.close();
 });
-
-test('a reject note with an image is a row of the timeline, cut into parts', async () => {
-  const s = setup();
-  s.daemon.tasks.verbs = true;
-  await s.client.start();
-  const agent = second(s.daemon, s.net, { role: 'agent', client: AUD });
-  await agent.start();
-  const img = (await put(s.client, PNG)).attachment!.id;
-  const task = (await s.client.call('task.new', { owner: AUD, title: 't', body: 'plain', request_id: 'n1' })).task as number;
-  await agent.call('task.done', { task, evidence: 'built', request_id: 'd1' });
-  await s.client.call('task.reject', { task, note: `the tests are missing\n![the run](attachment:${img})`, request_id: 'r1' });
-  const row = (await s.client.call('task.get', { task })).timeline.find((r) => r.kind === 'reject')!;
-  assert.equal(row.text, `the tests are missing\n![the run](attachment:${img})`);
-  assert.deepEqual(row.parts, [
-    { text: 'the tests are missing\n' },
-    { image: { id: img, name: 'a.png', mime: 'image/png', bytes: PNG.length }, caption: 'the run' },
-  ]);
-  agent.close();
-  s.client.close();
-});

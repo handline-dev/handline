@@ -297,7 +297,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
 
   it('a click on a control inside a message does not pick it', async () => {
     const s = setup();
-    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'a control test, see #5' }); // local-ref-ok
+    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'a control test, see T1' });
     await mount(ARCH, s);
     await until(() => msg('a control test')?.querySelector('.ref'), 'a control inside a message');
     await click(msg('a control test')!.querySelector('.ref')!);
@@ -307,10 +307,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
   it('draws the prompt, session and task lines as cards with icons and the words as tooltips', async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
-    const prompt = $('[data-kind="prompt"]')!;
-    expect(icon(prompt, 'Asked permission: Bash')).not.toBeNull();
-    expect(text(prompt)).toContain('git status');
-    expect(icon(prompt, 'Answered')).not.toBeNull();
+    expect($('[data-kind="prompt"]')).toBeNull(); // a permission request is a tool step: Activity's
     expect(text($('[data-kind="session"]')!)).toContain('New session');
     const events = $$('[data-kind="task_event"]');
     expect(icon(events[0], 'Task added')).not.toBeNull();
@@ -321,6 +318,23 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(text(changed.querySelector('s'))).toBe('2'); // the old priority struck through, the new one after it
     expect(text(changed)).toContain('priority 2 1');
     expect(changed.className).toContain('w-fit');
+  });
+
+  it('a batch discard is one card with a line per task: the line opens the task, Reopen brings it back', async () => {
+    const s = setup();
+    s.daemon.chat.seedItem(ARCH, {
+      at: new Date().toISOString(),
+      kind: 'task_batch',
+      task_batch: { batch: 'b1', who: ARCH, tasks: [{ task: 1684, title: 'Gap list', reason: 'merged into T1700' }, { task: 1685, title: 'Second', reason: 'stale' }] },
+    });
+    await mount(ARCH, s);
+    await until(() => $('[data-kind="task_batch"]'), 'the batch card');
+    const card = $('[data-kind="task_batch"]')!;
+    expect(text(card)).toContain('Discarded 2');
+    expect($$('[data-kind="task_batch"] [data-task]').map((l) => l.getAttribute('data-task'))).toEqual(['1684', '1685']);
+    expect(text(card.querySelector('[data-task="1684"]'))).toContain('merged into T1700');
+    await click(card.querySelector('[data-task="1684"] button')!);
+    await until(() => text($('.tdetail-head')).includes('1684'), 'task 1684 in the detail');
   });
 
   it('a click on a task line opens that task in the Tasks tab', async () => {
@@ -372,6 +386,10 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await until(() => $('.tasks-tab-row'), 'the agent tasks');
     const rows = $$('.tasks-tab-row');
     expect(rows.length).toBeGreaterThan(0);
+    const li = rows[0]!.parentElement!;
+    expect(li.querySelector('button[aria-label="Actions"]')).not.toBeNull();
+    await act(async () => void li.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+    await until(() => document.querySelector('[role=menu]'), 'the row menu on a right-click');
     await click(rows[0]!);
     await until(() => $('.tdetail'), 'the task detail');
     await click($('.tdetail .back')!);
@@ -394,40 +412,6 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     expect(msg('T3492 done by')).toBeUndefined(); // local-ref-ok
     expect(msg('#28387 to handline.pair')).toBeUndefined(); // local-ref-ok
     expect(msg('now waits on')).toBeUndefined();
-  });
-
-  it('a message number in a message is a link that scrolls to that message, also one on an older page', async () => {
-    const s = setup();
-    const first = Number(
-      s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'see #100 for the plan', at: '2030-01-01T00:00:00Z' }), // local-ref-ok
-    );
-    for (let i = 0; i < 60; i++)
-      s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: `filler ${i}`, at: new Date(Date.UTC(2031, 0, 1, 0, i)).toISOString() });
-    expect(first).toBeGreaterThan(100);
-    await mount(ARCH, s);
-    await until(() => msg('filler 59'), 'the newest page');
-    expect(msg('Draft the web chat tab plan.')).toBeUndefined(); // the plan message is on an older page
-    await until(() => msg('see #100') || $('.older'), 'the page'); // local-ref-ok
-    await pageBackTo(() => $('.ref'), 'the page with the reference');
-    await click($('.ref')!);
-    await until(() => msg('Draft the web chat tab plan.')?.hasAttribute('data-flash'), 'the message flashes');
-  });
-
-  it('a link to an old message opens the stretch around it, not every page up to it; Back to latest returns to the tail', async () => {
-    const s = setup();
-    for (let i = 0; i < 120; i++)
-      s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: `filler ${i}`, at: new Date(Date.UTC(2031, 0, 1, 0, i)).toISOString() });
-    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'see #100 for the plan', at: '2032-01-01T00:00:00Z' }); // local-ref-ok
-    await mount(ARCH, s);
-    await until(() => $('.ref'), 'the reference on the newest page');
-    expect(msg('Draft the web chat tab plan.')).toBeUndefined();
-    await click($('.ref')!);
-    await until(() => $('.latest'), 'Back to latest');
-    await until(() => msg('Draft the web chat tab plan.')?.hasAttribute('data-flash'), 'the message flashes');
-    expect(msg('see #100')).toBeUndefined(); // the tail is not drawn while the window is open // local-ref-ok
-    await click($('.latest')!);
-    await until(() => msg('see #100'), 'the tail again'); // local-ref-ok
-    expect($('.latest')).toBeNull();
   });
 
   it('in the desktop app an agent name opens that agent, and a repo path asks the shell with the branches named', async () => {

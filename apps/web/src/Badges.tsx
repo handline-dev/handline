@@ -15,7 +15,7 @@ const LOOK: Record<Badge['kind'], string> = {
 export function Badges({ badges, onClick }: { badges: Badge[]; onClick?: Partial<Record<Badge['kind'], () => void>> }) {
   return (
     <>
-      {badges.map((b) => {
+      {badges.filter((b) => b.kind !== 'no_terminal').map((b) => {
         const clickable = !!onClick?.[b.kind];
         return (
           <span

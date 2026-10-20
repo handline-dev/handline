@@ -1,6 +1,6 @@
 // Every primitive of ui/* and every token on one page (gallery.html in dev): what a screen builder looks at before drawing anything of their own.
 import { useState, type ReactNode } from 'react';
-import { Button, Card, CardWhat, CodeBlock, Dialog, Empty, Field, Icon, Page, Popup, PopupRow, Segmented, Select, State, Switch, type StateKind } from './ui/index.ts';
+import { Button, Card, CardWhat, CodeBlock, Dialog, Empty, Field, Icon, Popup, PopupRow, Segmented, Select, State, Switch, ScrollPage, type StateKind } from './ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
 
 const STATES: StateKind[] = ['working', 'booting', 'needs', 'blocked', 'idle', 'done', 'noTerminal'];
@@ -177,7 +177,7 @@ export function Gallery() {
   const [pop, setPop] = useState(false);
   const [dialog, setDialog] = useState(false);
   return (
-    <Page>
+    <ScrollPage aria-label="ui">
       <h1 className="gallery-title">ui</h1>
       <Tokens />
       <Chat />
@@ -243,6 +243,6 @@ export function Gallery() {
       <Section name="Empty">
         <Empty icon="inbox" name="Nothing waits on you" />
       </Section>
-    </Page>
+    </ScrollPage>
   );
 }

@@ -214,7 +214,8 @@ export function BytesTab({
   }, [store, agent, key, handle, watchOnly, hasTerminal, create, attempt, take, release]);
 
   const skeleton = useSkeleton(hasTerminal && state === 'attaching' && !everLive);
-  const note = !hasTerminal ? 'No terminal. Start the agent to open one.' : state === 'failed' ? failure : NOTE[state];
+  const startTerminal = useWrite('session.start', agent);
+  const note = !hasTerminal ? '' : state === 'failed' ? failure : NOTE[state];
 
   return (
     <div className="terminal-tab flex min-h-0 flex-col">
@@ -240,6 +241,7 @@ export function BytesTab({
         )}
         <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">
           {note}
+          {!hasTerminal && <Button variant="outline" size="sm" label="Start terminal" className="text-term-ink" disabled={startTerminal.isPending} onClick={() => startTerminal.mutate({ agent })}>Start terminal</Button>}
           {state === 'live' &&
             (holds ? (
               <>

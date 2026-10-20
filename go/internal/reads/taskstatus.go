@@ -1,15 +1,13 @@
 package reads
 
 import (
-	"fmt"
-
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/status"
 	"github.com/handline/handline/go/internal/supervisor"
 )
 
 // statusOf is the spec's Task.status: its state on the board, and for an open task the cause waitingOf found.
-func (e *Env) statusOf(t row, state, reviewer string, waiting map[string]any, since int64) (status.Status, error) {
+func (e *Env) statusOf(t row, state string, waiting map[string]any, since int64) (status.Status, error) {
 	owner := t.str("owner")
 	at := func(st, reason, text string, since int64) status.Status {
 		return status.Status{State: st, Reason: reason, Text: text, Since: since}
@@ -21,11 +19,6 @@ func (e *Env) statusOf(t row, state, reviewer string, waiting map[string]any, si
 		return at(status.Done, status.Discarded, "discarded: "+t.str("discard_reason"), t.i("discarded_at")), nil
 	case "draft":
 		return at(status.Waiting, status.Opener, "draft: "+t.str("opened_by")+" has not queued it", t.i("created_at")), nil
-	case "review":
-		if t.str("accepted_by") != "" {
-			return at(status.Waiting, status.Review, fmt.Sprintf("accepted: waits on PR #%d to merge", t.i("pr")), t.i("accepted_at")), nil
-		}
-		return at(status.Waiting, status.Review, "review: waits on "+reviewer+" to accept it", t.i("reported_at")), nil
 	}
 	if waiting == nil {
 		switch {

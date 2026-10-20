@@ -5,6 +5,7 @@ import { activityOf, ago, dateTime, foldEvents, type ActivityItem } from '@handl
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { BodyEditor } from './BodyEditor.tsx';
+import { CommentPicture } from './CommentPicture.tsx';
 import { MemoFiles } from './MemoFiles.tsx';
 import { Markdown } from './Markdown.tsx';
 import { AgentLink } from './TaskInline.tsx';
@@ -84,10 +85,11 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
         {can.ok ? (
           <>
             <BodyEditor key={fresh} value={text} onChange={setText} onBusy={setBusy} label="Comment" />
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button variant="solid" icon="send" label="Comment" disabled={!text.trim() || busy || add.isPending} onClick={send}>
                 {add.isPending ? 'Sending…' : 'Comment'}
               </Button>
+              <CommentPicture onAttach={(md) => (setText((v) => [v.trim(), md].filter(Boolean).join('\n')), setFresh((n) => n + 1))} />
               <span className="text-hint text-ink-3">@agent asks that agent. The assignee is told either way.</span>
             </div>
           </>

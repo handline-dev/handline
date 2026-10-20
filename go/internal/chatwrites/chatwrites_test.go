@@ -268,14 +268,14 @@ func TestDecisionOnACardAnswersItsTask(t *testing.T) {
 	if said := decideOn(t, r, tid, "the first"); said != fmt.Sprintf("T%d decided", tid) {
 		t.Fatal(said)
 	}
-	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND owner = 'human' AND report = 'the first' AND reported_at IS NOT NULL AND done_evidence IS NULL", tid) != 1 {
-		t.Fatal("the answer is kept on the task, which stays open with the founder")
+	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence = 'the first'", tid) != 1 {
+		t.Fatal("the task closes with the answer")
 	}
 	if r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND state != 'queued'", card) != 1 {
 		t.Fatal("the card is answered")
 	}
-	if r.count("SELECT COUNT(*) FROM requests WHERE target = 'alice' AND body LIKE ?", fmt.Sprintf("T%d answered by the founder: the first - accept it%%", tid)) != 1 {
-		t.Fatal("alice is told how to accept or take it back")
+	if r.count("SELECT COUNT(*) FROM requests WHERE target = 'alice' AND body LIKE ?", fmt.Sprintf("T%d done by the founder: the first%%", tid)) != 1 {
+		t.Fatal("alice is told the answer")
 	}
 }
 
@@ -335,11 +335,11 @@ func TestDecideAnswersATaskWhenItsCardWasClosedSomeOtherWay(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if res.Tell() != fmt.Sprintf("T%d decided", tid) || note != fmt.Sprintf("task T%d answered (the second); it stays with human until alice accepts it or takes it back", tid) {
+	if res.Tell() != fmt.Sprintf("T%d decided", tid) || note != fmt.Sprintf("task T%d done (the second)", tid) {
 		t.Fatalf("%q %q", res.Tell(), note)
 	}
-	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND report = 'the second' AND done_evidence IS NULL", tid) != 1 {
-		t.Fatal("the decision is the task's answer, though no open card settled it")
+	if r.count("SELECT COUNT(*) FROM tasks WHERE id = ? AND done_evidence = 'the second'", tid) != 1 {
+		t.Fatal("the decision closes the task, though no open card settled it")
 	}
 }
 

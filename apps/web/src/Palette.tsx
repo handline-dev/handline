@@ -4,7 +4,7 @@ import { dateTime, taskRef } from '@handline/app-core';
 import { useAgents, useChatSearch, useServes, useTasks } from '@handline/app-data';
 import { canCapture, requestCapture } from './Capture.tsx';
 import { snippet } from './ChatSearch.tsx';
-import { goAgent, goInbox, goMessage, goNew, goTasks, goTeam, goWorktrees } from './route.ts';
+import { goAgent, goMessage, goNew, goTasks, goTeam, goWorktrees } from './route.ts';
 import { Backdrop, Icon, PROW, PROW_HINT, PROW_NAME, type IconName } from './ui/index.ts';
 
 interface Hit {
@@ -16,7 +16,7 @@ interface Hit {
 }
 
 const PAGES: [string, IconName, () => void][] = [
-  ['Inbox', 'inbox', goInbox],
+  ['Inbox', 'inbox', () => void (location.hash = '#/my-turn')],
   ['Tasks', 'tasks', () => goTasks()],
   ['Team', 'team', () => goTeam()],
   ['Worktrees', 'worktrees', () => goWorktrees()],

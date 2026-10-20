@@ -187,6 +187,7 @@ export const useHr = (filter: CallParams<'hr.list'> = {}) => useRead('hr.list', 
 export const useRepos = () => useRead('repos.list', {});
 export const useWorktrees = (filter: CallParams<'worktrees.list'> = {}) => useRead('worktrees.list', filter);
 export const useWorktreeDiff = (path: string, file?: string) => useRead('worktree.diff', { path, file });
+export const useFile = (agent: string, path: string) => useRead('file.read', { agent, path }, { enabled: path !== '' });
 export const useSchedules = () => useRead('schedules.list', {});
 export const useStats = (window: CallParams<'stats.get'>['window']) => useRead('stats.get', { window });
 export const useOutlook = (range: CallParams<'stats.outlook'>['range']) => useRead('stats.outlook', { range });

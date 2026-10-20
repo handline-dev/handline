@@ -1,46 +1,103 @@
 // The lines of the chat that are not messages: the agent's reply, its prompt and session lines.
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import type { Proposal, TranscriptItem } from '@handline/client';
 import { clockTime, sessionLine } from '@handline/app-core';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
-import { Markdown } from './Markdown.tsx';
+import { Icon, iconLabel, type IconName } from './Icon.tsx';
+import { PrBody } from './PrBody.tsx';
 import { Sheet } from './TaskActions.tsx';
 
+/** The time of a message and, for the person's own, how far it got, as a small column beside its bubble. */
+export function Stamp({ m, time, ticks }: { m: { id: number }; time: string | null; ticks: IconName | null }) {
+  const c = usePalette();
+  return (
+    <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
+      {time ? <Text style={{ color: c.muted, fontSize: 11 }}>{time}</Text> : null}
+      {ticks ? (
+        <View testID={`landing-${m.id}`} accessible accessibilityLabel={iconLabel(ticks)} style={{ alignItems: 'flex-end' }}>
+          <Icon name={ticks} decorative size={16} color={c.ink} />
+          {ticks === 'withdrawn' ? <Text style={{ color: c.muted, fontSize: 11 }}>{iconLabel(ticks)}</Text> : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** The widest a chat bubble gets, in points. A percentage here lets Android measure the text at one width and draw it at another, so lines overlap. */
+export function useBubbleWidth(): number {
+  return Math.floor(useWindowDimensions().width * 0.88);
+}
+
 /** A transcript line that is not a message. */
-export function Line({ i, onReply }: { i: TranscriptItem; onReply?: (i: TranscriptItem) => void }) {
+export function Line({ i, agent, onReply, onTask }: { i: TranscriptItem; agent: string; onReply?: (i: TranscriptItem) => void; onTask?: (task: number) => void }) {
   const c = usePalette();
   const small = { color: c.muted, fontSize: 12 } as const;
   if (i.kind === 'reply')
     return (
-      <View testID={`reply-${i.id}`} style={{ alignSelf: 'flex-start', maxWidth: '88%', padding: space.md }}>
-        <Markdown text={i.text ?? ''} breaks />
-        <Text style={small}>{clockTime(i.at)}</Text>
-        {onReply && (
-          <Pressable
-            testID={`reply-to-${i.id}`}
-            accessibilityRole="button"
-            accessibilityLabel="Reply to this"
-            hitSlop={8}
-            onPress={() => onReply(i)}
-          >
-            <Text style={{ color: c.accent, fontSize: 12, fontWeight: '600' }}>↩ Reply</Text>
-          </Pressable>
-        )}
+      <View testID={`reply-${i.id}`} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.xs }}>
+        <View style={{ flex: 1, padding: space.md }}>
+          <PrBody id={`reply-${i.id}`} agent={agent} body={i.text ?? ''} />
+          {onReply && (
+            <Pressable
+              testID={`reply-to-${i.id}`}
+              accessibilityRole="button"
+              accessibilityLabel="Reply to this"
+              hitSlop={8}
+              onPress={() => onReply(i)}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+                <Icon name="reference" decorative size={14} color={c.accent} />
+                <Text style={{ color: c.accent, fontSize: 12, fontWeight: '600' }}>Reply</Text>
+              </View>
+            </Pressable>
+          )}
+        </View>
+        <Stamp m={i} time={clockTime(i.at)} ticks={null} />
       </View>
     );
   if (i.kind === 'prompt') {
     const p = i.prompt;
     return (
       <Text style={small} numberOfLines={2}>
-        {i.open ? '⏳' : '✓'} {p?.kind === 'permission' ? `Asked permission: ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`}
+        <Icon name={i.open ? 'waiting' : 'delivered'} label={i.open ? 'Open' : 'Answered'} size={12} color={c.muted} /> {p?.kind === 'permission' ? `Asked permission: ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`}
         {p?.command ? ` ${p.command}` : ''} · {clockTime(i.at)}
       </Text>
     );
   }
   if (i.kind === 'session') return <SessionMark i={i} />;
+  if (i.kind === 'task_batch' && i.task_batch) return <BatchCard i={i} onTask={onTask} />;
   return null;
+}
+
+/** A batch discard as one card: a line per task with its title and reason; a tap opens the task, where it can be reopened. */
+export function BatchCard({ i, onTask }: { i: TranscriptItem; onTask?: (task: number) => void }) {
+  const c = usePalette();
+  const b = i.task_batch;
+  if (!b) return null;
+  return (
+    <View testID={`batch-${i.id}`} style={{ borderWidth: 1, borderColor: c.line, borderRadius: 8, padding: space.md, gap: space.xs }}>
+      <Text style={{ color: c.ink, fontWeight: '700' }}>
+        {b.who} discarded {b.tasks.length} {b.tasks.length === 1 ? 'task' : 'tasks'} · {clockTime(i.at)}
+      </Text>
+      {b.tasks.map((t) => (
+        <Pressable
+          key={t.task}
+          testID={`batch-task-${t.task}`}
+          accessibilityRole="button"
+          accessibilityLabel={`Open T${t.task}`}
+          style={{ minHeight: 44, justifyContent: 'center' }}
+          onPress={() => onTask?.(t.task)}
+        >
+          <Text style={{ color: c.accent, fontWeight: '600' }}>
+            T{t.task} {t.title}
+          </Text>
+          {t.reason ? <Text style={{ color: c.muted, fontSize: 12 }}>{t.reason}</Text> : null}
+        </Pressable>
+      ))}
+    </View>
+  );
 }
 
 /** Where a session started; one that was given a handoff opens it in a sheet on a tap. */

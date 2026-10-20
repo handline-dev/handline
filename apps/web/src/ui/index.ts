@@ -10,7 +10,6 @@ export { Popup, PopupRow, PROW, PROW_NAME, PROW_HINT } from './Popup.tsx';
 export { Menu, type At, MenuButton, MenuCheckItem, MenuTrigger, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuSub, MenuSubTrigger, MenuSubContent } from './Menu.tsx';
 export { Dialog } from './Dialog.tsx';
 export { Empty } from './Empty.tsx';
-export { Page } from './Page.tsx';
 export { sendKey } from './sendKey.ts';
 export { Kbd } from './Kbd.tsx';
 export { Input, Textarea, BarInput, NativeSelect, ComposeRow } from './Input.tsx';

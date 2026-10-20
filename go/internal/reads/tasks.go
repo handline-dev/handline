@@ -88,7 +88,7 @@ func (e *Env) loadBoard() (*board, error) {
 	for _, r := range rows {
 		b.current[r.str("agent")] = r.i("current_task")
 	}
-	if rows, err = query(e.DB, "SELECT id, discarded_by, done_evidence, reported_at FROM tasks WHERE id IN "+
+	if rows, err = query(e.DB, "SELECT id, discarded_by, done_evidence FROM tasks WHERE id IN "+
 		"(SELECT current_task FROM agent_state WHERE current_task IS NOT NULL)"); err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (b *board) holds(t row) bool {
 		return true
 	}
 	cur, ok := b.held[held]
-	return !ok || ended(cur) || cur.set("reported_at")
+	return !ok || ended(cur)
 }
 
 func (b *board) asked(id int64) bool {
@@ -120,16 +120,13 @@ func (b *board) asked(id int64) bool {
 	return false
 }
 
-// state is one of draft, queued, doing, answered, done, discarded.
+// state is one of draft, queued, doing, done, discarded.
 func (b *board) state(t row) string {
 	if t.str("discarded_by") != "" {
 		return "discarded"
 	}
 	if t.str("done_evidence") != "" {
 		return "done"
-	}
-	if t.set("reported_at") {
-		return "review"
 	}
 	asked := b.asked(t.i("id"))
 	if asked && b.holds(t) {
@@ -257,19 +254,12 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	if !(withEnded || under != nil || (state != nil && (*state == "done" || *state == "discarded"))) {
 		cond(openTask)
 	}
-	if turn {
-		cond("reported_at IS NULL")
-	}
 	if state != nil {
 		switch *state {
 		case "discarded":
 			cond("COALESCE(discarded_by, '') != ''")
 		case "done":
 			cond("COALESCE(discarded_by, '') = '' AND COALESCE(done_evidence, '') != ''")
-		case "review":
-			cond("reported_at IS NOT NULL AND " + openTask)
-		default:
-			cond("reported_at IS NULL")
 		}
 	}
 	for _, f := range []struct {
@@ -303,7 +293,7 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	page := ""
 	sqlDecides := state == nil && !turn // my_turn leaves out drafts, which only the board knows
 	if state != nil {
-		sqlDecides = *state == "review" || *state == "done" || *state == "discarded"
+		sqlDecides = *state == "done" || *state == "discarded"
 	}
 	if sqlDecides { // SQL alone decides: it pages too
 		page = fmt.Sprintf(" LIMIT %d", limit+1)
@@ -409,12 +399,7 @@ func (e *Env) taskOf(t row, state string, b *board) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var report map[string]any // the done in review, and who it waits on
-	if state == "review" {
-		report = e.review(t, b)
-	}
-	reviewer, _ := report["waits_on"].(string)
-	st, err := e.statusOf(t, state, reviewer, waiting, waitSince)
+	st, err := e.statusOf(t, state, waiting, waitSince)
 	if err != nil {
 		return nil, err
 	}
@@ -444,15 +429,12 @@ func (e *Env) taskOf(t row, state string, b *board) (map[string]any, error) {
 		tags[i] = r.str("tag")
 	}
 	task["last_activity"], task["edited_by"], task["requests"], task["tags"] = ts(active), t.strOrNil("edited_by"), linked, tags
-	task["discarded"], task["report"] = nil, nil
+	task["discarded"] = nil
 	task["pr"] = t.intOrNil("pr")
 	task["watch"] = nil
 	if t.set("watch_vendor") {
 		task["watch"] = map[string]any{"vendor": t.str("watch_vendor"), "target": t.str("watch_target"), "until": t.str("watch_until"),
 			"label": t.str("watch_label"), "result": t.strOrNil("watch_result")}
-	}
-	if report != nil {
-		task["report"] = report
 	}
 	if t.str("discarded_by") != "" {
 		d := map[string]any{"by": t.str("discarded_by"), "reason": t.str("discard_reason"), "at": ts(t["discarded_at"]), "withdrew": []any{}, "batch": nil}
@@ -868,23 +850,4 @@ func (e *Env) taskMemoList(c *rpc.Conn, params map[string]any) (any, error) {
 		}
 	}
 	return map[string]any{"memos": memos, "more": more}, nil
-}
-
-// review is a task's answer in review, and who it waits on: the founder's merge OK once accepted with a PR, else the assignee's lead,
-// else whoever it answers to.
-func (e *Env) review(t row, b *board) map[string]any {
-	r := map[string]any{"by": t.str("owner"), "evidence": t.str("report"), "at": ts(t["reported_at"]), "accepted": nil}
-	if by := t.str("accepted_by"); by != "" {
-		r["accepted"] = map[string]any{"by": by, "at": ts(t["accepted_at"])}
-		r["waits_on"] = human
-		return r
-	}
-	r["waits_on"] = b.leadOf(e.Home, t.str("owner"))
-	if r["waits_on"] == "" {
-		r["waits_on"] = t.str("reporter")
-		if r["waits_on"] == "" {
-			r["waits_on"] = t.str("opened_by")
-		}
-	}
-	return r
 }

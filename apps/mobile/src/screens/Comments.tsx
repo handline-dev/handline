@@ -9,10 +9,10 @@ import { ImageBodyInput } from './ImageBodyInput.tsx';
 import { Button } from './parts.tsx';
 import { MemoFiles } from './MemoFiles.tsx';
 import { Input, Sheet, useWhyNot } from './TaskActions.tsx';
-import { Markdown } from './Markdown.tsx';
+import { PrBody } from './PrBody.tsx';
 
 /** One comment with Edit and Delete (as the web's MemoRow). Both show at once and roll back with the reason on a refusal; Delete asks first. */
-export function CommentRow({ task, memo, when }: { task: number; memo: { id: number; author: string; text: string; files?: MemoFile[] }; when: string }) {
+export function CommentRow({ task, agent, memo, when }: { task: number; agent: string; memo: { id: number; author: string; text: string; files?: MemoFile[] }; when: string }) {
   const c = usePalette();
   const edit = useWrite('task.comment.edit', String(task));
   const del = useWrite('task.comment.delete', String(task));
@@ -25,7 +25,7 @@ export function CommentRow({ task, memo, when }: { task: number; memo: { id: num
   return (
     <View testID={`memo-${memo.id}`} style={{ gap: space.sm }}>
       <Text style={{ color: c.muted, fontSize: 12 }}>{`${memo.author} ${when}`}</Text>
-      <Markdown text={memo.text} breaks />
+      <PrBody id={`memo-${memo.id}`} agent={agent} body={memo.text} />
       {memo.files?.length ? <MemoFiles files={memo.files} /> : null}
       {ask === null && (
         <View style={{ flexDirection: 'row', gap: space.sm }}>

@@ -1,11 +1,12 @@
 // Runs the fake daemon on a Unix socket (lines) and a WebSocket port (for the browser), LAN/localhost only.
-//   node serve.ts [--socket PATH] [--network-socket PATH] [--ws PORT] [--host 127.0.0.1] [--autoplay MS] [--conformance]
+//   node serve.ts [--seed NAMES|all] [--socket PATH] [--network-socket PATH] [--ws PORT] [--host 127.0.0.1] [--autoplay MS] [--conformance]
 import type https from 'node:https';
 import net from 'node:net';
 import type { Transport } from '@handline/client';
 import { wrapSocket } from '@handline/client-node';
 import { seedConformance } from './conformance.ts';
 import { FakeDaemon } from './daemon.ts';
+import { applySeeds } from './seeds.ts';
 import { wsServer } from './ws-server.ts';
 
 /** `listen` is a Unix socket path, or a TCP port (lines either way). `network` serves it as the paired-device listener does (for contract/conformance.py --as unpaired=PATH). */
@@ -27,6 +28,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   };
   const daemon = new FakeDaemon();
   if (process.argv.includes('--conformance')) await seedConformance(daemon);
+  applySeeds(daemon, arg('seed', process.env.HANDLINE_FAKE_SEEDS ?? ''));
   const ms = Number(arg('autoplay', '1000'));
   if (ms > 0) daemon.autoplay(ms);
   serveSocket(daemon, arg('socket', '/tmp/handline-fake-daemon.sock'));

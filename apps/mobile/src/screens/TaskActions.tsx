@@ -2,7 +2,7 @@
 // `useWrite`: an authored one shows at once and rolls back with the daemon's reason on a refusal; a verb the daemon does not serve is
 // disabled with the reason. The sheets keep what was typed until the daemon accepts.
 import { useState, type ReactNode } from 'react';
-import { isPerson, taskRef } from '@handline/app-core';
+import { isGate, isPerson, taskRef } from '@handline/app-core';
 import { Text, TextInput, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
@@ -13,7 +13,6 @@ import { usePalette } from '../theme.ts';
 import { ImageBodyInput } from './ImageBodyInput.tsx';
 import { Button, Card, PageHeader, Pill } from './parts.tsx';
 import { AskAbout } from './TaskAsk.tsx';
-import { ReportVerbs } from './TaskReport.tsx';
 import { AssignTask } from './TaskAssign.tsx';
 import { MergeTasks, ReleaseTask } from './TaskReleaseMerge.tsx';
 
@@ -165,7 +164,6 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   };
   const open = !CLOSED.includes(t.state);
   const mine = t.from === me;
-  const founder = useStore().client.hello?.role === 'founder';
   const running = t.state === 'doing';
   const startable = t.state === 'draft' || t.state === 'queued' || t.state === 'pending';
   // The sheet closes when the daemon accepts; a refusal leaves it open with the text (the write reports the reason).
@@ -181,13 +179,13 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
     <View style={{ gap: space.md }}>
       <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
         <Pill testID="status-menu" on={menu === 'status'} label={`${t.state} ▾`} onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'status' ? null : 'status'))} />
-        {open && <Pill testID="assignee-menu" on={ask === 'assign'} label={`→ ${t.to} ▾`} onPress={() => (setMenu(null), setAsk(ask === 'assign' ? null : 'assign'))} />}
+        {open && !isGate(t) && <Pill testID="assignee-menu" on={ask === 'assign'} label={`→ ${t.to} ▾`} onPress={() => (setMenu(null), setAsk(ask === 'assign' ? null : 'assign'))} />}
         <Pill testID="more-menu" on={menu === 'more'} label="More ▾" onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'more' ? null : 'more'))} />
       </View>
       {menu === 'status' && (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
           {open && verb('done', isPerson(t.from, me) ? 'Send for review' : 'Done', off.done, 'done')}
-          {t.state === 'done' && mine && verb('reopen', 'Reopen', off.reopen, 'reopen')}
+          {(t.state === 'discarded' || (t.state === 'done' && mine)) && verb('reopen', 'Reopen', off.reopen, 'reopen')}
           {t.state === 'draft' && (
             <Button
               testID="verb-queue"
@@ -217,7 +215,6 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
           {open && verb('discard', 'Discard', off.discard, 'discard')}
         </View>
       )}
-      {t.state === 'review' && (mine || founder) && <ReportVerbs t={t} />}
       {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: 12 }}>{Object.values(off).find(Boolean)}</Text>}
       {ask === 'done' && (
         <ReasonSheet

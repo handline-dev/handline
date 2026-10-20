@@ -75,18 +75,6 @@ test('a dialog needs_you has only Open terminal, and a permission one is not dou
   );
 });
 
-test('a reported task is an Accept card with Accept first', () => {
-  const cards = myTurn({
-    items: [],
-    agents: [],
-    tasks: [task({ id: 9, from: 'human', state: 'review', report: { by: 'a', evidence: 'ok', at: '2026-10-15T00:00:00Z' } })],
-  });
-  assert.deepEqual(
-    cards[0]!.actions.map((a) => a.type),
-    ['accept', 'reject', 'open'],
-  );
-});
-
 test('inboxGroup: decision and ask are decisions, a permission prompt is an approval, the rest is FYI', () => {
   const g = (o: Partial<InboxItem>) => inboxGroup(item(o));
   assert.equal(g({ kind: 'decision' }), 'decisions');
@@ -94,21 +82,6 @@ test('inboxGroup: decision and ask are decisions, a permission prompt is an appr
   assert.equal(g({ kind: 'prompt', prompt: { kind: 'permission' } as InboxItem['prompt'] }), 'approvals');
   assert.equal(g({ kind: 'ask', prompt: { kind: 'permission' } as InboxItem['prompt'] }), 'approvals');
   for (const kind of ['say', 'result', 'report', 'block', 'refused']) assert.equal(g({ kind }), 'fyi');
-});
-
-test('a report that answers to an agent is no Accept card; one that answers to the caller is', () => {
-  const report = { by: 'a', evidence: 'ok', at: '2026-10-15T00:00:00Z' };
-  const tasks = [
-    task({ id: 1, from: 'b', state: 'review', report }),
-    task({ id: 2, from: 'me', state: 'review', report }),
-    task({ id: 3, from: 'human', state: 'review', report }),
-  ];
-  assert.deepEqual(
-    myTurn({ items: [], agents: [], tasks, me: 'me' })
-      .map((c) => c.task)
-      .sort(),
-    [2, 3],
-  );
 });
 
 test('has_dialog without needs_you is a dialog card with only Open terminal', () => {
@@ -130,4 +103,13 @@ test('a card about a task is titled with the task and says who asks; a decision 
   assert.match(cards[0]!.detail, /Pick A or B/);
   assert.equal(cards[0]!.from, 'handline.pc');
   assert.deepEqual(cards[0]!.actions.slice(0, cards[0]!.primary).map((a) => a.type), ['answer', 'done']);
+});
+
+test('an item with fix open_terminal has Open terminal as its first button, before the reply', () => {
+  const [c] = myTurn({ items: [item({ id: 9, kind: 'decision', fix: 'open_terminal' })], agents: [], tasks: [] });
+  assert.deepEqual(c!.actions.slice(0, 2).map((a) => a.type), ['terminal', 'answer']);
+  assert.equal(c!.actions[0]!.type === 'terminal' && c!.actions[0]!.agent, 'a');
+  assert.equal(c!.primary, 2);
+  const [plain] = myTurn({ items: [item({ id: 9, kind: 'decision' })], agents: [], tasks: [] });
+  assert.equal(plain!.actions.some((a) => a.type === 'terminal'), false);
 });

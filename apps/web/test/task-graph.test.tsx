@@ -41,7 +41,7 @@ it('draws Running and Queued bands, keeps the top bar, and goes to a task on cli
   await until(() => box.querySelector('[data-node]'), 'the boxes');
   expect(band('running')).toEqual([1684, 1688]);
   expect(band('queued').sort()).toEqual([1690, 1700]);
-  expect(box.textContent).toContain('↓ unblocks');
+  expect(box.textContent).toContain('handline.architect'); // a column per owner
   expect(box.querySelector('[aria-label="Show"]')).not.toBeNull(); // the Open | Mine | Closed pills stay
   expect([...box.querySelectorAll('button')].some((b) => b.textContent!.startsWith('View: Graph'))).toBe(true);
   expect(band('done')).toEqual([]); // closed long ago

@@ -68,9 +68,6 @@ func TestTheMissedDeliveryAlarmSkipsTasksThatWaitOnPurpose(t *testing.T) {
 		alarm bool
 	}{
 		{"waiting for delivery to an able owner", func(*rig, int64) {}, true},
-		{"reported, awaiting the founder's accept", func(r *rig, tid int64) {
-			exec(r, "UPDATE tasks SET reporter = 'human', reported_at = ?, report = 'the doc' WHERE id = ?", r.clock, tid)
-		}, false},
 		{"blocked by a task", func(r *rig, tid int64) { db.AddBlock(r.DB, tid, r.newTask("alice", "alice", "dep")) }, false},
 		{"waiting on its open child", func(r *rig, tid int64) {
 			_, err := db.NewTask(r.DB, "child", "alice", "bob", tid, db.DefaultPriority, "", 0, "")

@@ -10,6 +10,7 @@ import { useSelector } from '@handline/app-react';
 import type { Prompt } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
+import { Icon } from './Icon.tsx';
 import { Button, Row } from './parts.tsx';
 
 const code = (e: unknown) => (e as { code?: string } | null)?.code;
@@ -67,7 +68,7 @@ export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () 
       }}
     >
       <Text style={{ color: c.ink, fontWeight: '700' }}>
-        ⚠ {promptTitle(p)}
+        <Icon name="warn" decorative size={14} color={c.wait} /> {promptTitle(p)}
         {p.reason ? ` · ${p.reason}` : ''}
         {answering ? ' · answering…' : ''}
       </Text>

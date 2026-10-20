@@ -16,13 +16,17 @@ import * as D from '@radix-ui/react-menu';
 import { Button } from './Button.tsx';
 import { Icon, type IconName } from './Icon.tsx';
 
-const PANEL =
-  'z-30 max-h-[var(--radix-popper-available-height)] overflow-y-auto min-w-[200px] rounded-card border border-line bg-panel py-1 shadow-[var(--shadow-pop)] outline-none';
+const PANEL = 'z-30 overflow-y-auto min-w-[200px] rounded-card border border-line bg-panel py-1 shadow-[var(--shadow-pop)] outline-none';
 const ITEM =
   'flex h-8 w-full cursor-default select-none items-center gap-2 px-2 text-left text-body text-ink outline-none data-[highlighted]:bg-raised data-[disabled]:opacity-55 max-sm:min-h-12';
 
 /** Where a menu opens: a point (a right-click) or a box (a button), which the menu keeps clear of when it flips. */
 export type At = { x: number; y: number; w?: number; h?: number };
+// The room a menu may take: the larger side of its anchor. Radix's own available-height shrinks the panel to the side it first picked,
+// and a panel that has shrunk to fit never flips; this keeps it whole until neither side holds it.
+const PAD = 8;
+const roomAround = (a: { top: number; bottom: number }) => Math.max(a.top, window.innerHeight - a.bottom) - PAD - 4;
+const AnchorBox = createContext<(() => DOMRect | null) | null>(null);
 const AtCursor = createContext<((p: At) => void) | null>(null);
 
 /** A menu that opens where a right-click (or `MenuTrigger`'s own `onContextMenu`) lands. */
@@ -47,10 +51,12 @@ export function Menu({
   if (openRef) openRef.current = openAt;
   return (
     <AtCursor.Provider value={openAt}>
-      <D.Root open={open} onOpenChange={change} modal={false}>
-        <D.Anchor virtualRef={anchor} />
-        {children}
-      </D.Root>
+      <AnchorBox.Provider value={() => anchor.current.getBoundingClientRect()}>
+        <D.Root open={open} onOpenChange={change} modal={false}>
+          <D.Anchor virtualRef={anchor} />
+          {children}
+        </D.Root>
+      </AnchorBox.Provider>
     </AtCursor.Provider>
   );
 }
@@ -67,10 +73,19 @@ export function MenuTrigger({ children }: { asChild?: boolean; children: ReactEl
   });
 }
 
-export function MenuContent({ children, ...rest }: ComponentProps<typeof D.Content>) {
+export function MenuContent({ children, style, ...rest }: ComponentProps<typeof D.Content>) {
+  const box = useContext(AnchorBox)?.();
+  const maxHeight = box ? roomAround(box) : undefined;
   return (
     <D.Portal>
-      <D.Content className={PANEL} align="start" collisionPadding={8} onCloseAutoFocus={(e) => e.preventDefault()} {...rest}>
+      <D.Content
+        className={PANEL}
+        style={{ maxHeight, ...style }}
+        align="start"
+        collisionPadding={PAD}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        {...rest}
+      >
         {children}
       </D.Content>
     </D.Portal>
@@ -86,38 +101,45 @@ export function MenuButton({
   onOpenChange,
   trigger,
   ...button
-}: { children: ReactNode; trigger?: ReactNode; name?: string; align?: 'start' | 'end'; open?: boolean; onOpenChange?: (open: boolean) => void } & Omit<
-  ComponentProps<typeof Button>,
-  'onClick' | 'aria-haspopup' | 'aria-expanded'
->) {
+}: {
+  children: ReactNode;
+  trigger?: ReactNode;
+  name?: string;
+  align?: 'start' | 'end';
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+} & Omit<ComponentProps<typeof Button>, 'onClick' | 'aria-haspopup' | 'aria-expanded'>) {
   const [own, setOwn] = useState(false);
   const open = shown ?? own;
   const setOpen = (o: boolean) => (setOwn(o), onOpenChange?.(o));
   // A press on this button while its menu is open closes the menu first; the click that follows must not open it again.
   const wasOpen = useRef(false);
+  const anchor = useRef<HTMLSpanElement>(null);
   return (
-    <D.Root open={open} onOpenChange={setOpen} modal={false}>
-      <D.Anchor asChild>
-        <span className="inline-flex">
-          <Button
-            {...button}
-            aria-haspopup="menu"
-            aria-expanded={open}
-            onPointerDownCapture={() => (wasOpen.current = open)}
-            onClick={() => {
-              if (!wasOpen.current) setOpen(!open);
-              wasOpen.current = false;
-            }}
-          >
-            {trigger}
-          </Button>
-        </span>
-      </D.Anchor>
-      <MenuContent side="bottom" align={align} sideOffset={4} aria-label={name}>
-        {name ? <D.Label className="px-2 py-1 text-hint text-ink-3">{name}</D.Label> : null}
-        {children}
-      </MenuContent>
-    </D.Root>
+    <AnchorBox.Provider value={() => anchor.current?.getBoundingClientRect() ?? null}>
+      <D.Root open={open} onOpenChange={setOpen} modal={false}>
+        <D.Anchor asChild>
+          <span ref={anchor} className="inline-flex">
+            <Button
+              {...button}
+              aria-haspopup="menu"
+              aria-expanded={open}
+              onPointerDownCapture={() => (wasOpen.current = open)}
+              onClick={() => {
+                if (!wasOpen.current) setOpen(!open);
+                wasOpen.current = false;
+              }}
+            >
+              {trigger}
+            </Button>
+          </span>
+        </D.Anchor>
+        <MenuContent side="bottom" align={align} sideOffset={4} aria-label={name}>
+          {name ? <D.Label className="px-2 py-1 text-hint text-ink-3">{name}</D.Label> : null}
+          {children}
+        </MenuContent>
+      </D.Root>
+    </AnchorBox.Provider>
   );
 }
 
@@ -182,6 +204,8 @@ export function MenuSubContent({ children }: { children: ReactNode }) {
   );
 }
 
-export const MenuLabel = ({ children }: { children: ReactNode }) => <D.Label className="px-2 py-1 text-hint text-ink-3">{children}</D.Label>;
+export const MenuLabel = ({ children }: { children: ReactNode }) => (
+  <D.Label className="px-2 py-1 text-hint text-ink-3">{children}</D.Label>
+);
 
 export const MenuSeparator = () => <D.Separator className="my-1 h-px bg-line" />;

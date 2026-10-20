@@ -171,8 +171,6 @@ func answerOf(q db.Q, prop Proposal) (state string, task *db.Task, verdict strin
 			return "discarded", task, "", err
 		}
 		return "answered", task, task.DoneEvidence.String, nil
-	case task.Reported() && task.Owner == db.Human: // the founder's answer leaves their task open, answered, until the proposer accepts it
-		return "answered", task, task.Report.String, nil
 	}
 	return "open", task, "", nil
 }

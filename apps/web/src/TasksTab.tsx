@@ -9,7 +9,7 @@ import { TaskDetail } from './TaskDetail.tsx';
 import { useAgents } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Toolbar } from './ui/index.ts';
-import { VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from './TaskVerbUi.tsx';
+import { RowMenu, VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from './TaskVerbUi.tsx';
 import { useBulk } from './taskActions.ts';
 import { useMarks } from './useMarks.ts';
 import { View } from './View.tsx';
@@ -46,44 +46,52 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
           {rows.map(({ task: t, role }) => {
             const due = dueOf(t, now);
             return (
-              <li key={t.id} className="flex items-center gap-1.5">
-                <input
-                  type="checkbox"
-                  aria-label={`Mark ${taskRef(t.id)}`}
-                  checked={marked.has(t.id)}
-                  onChange={() => undefined}
-                  onClick={(e) => toggle(t.id, e.shiftKey)}
-                />
-                <button
-                  className={`tasks-tab-row flex w-full cursor-pointer items-center gap-2 rounded-card border bg-panel px-2.5 py-1.5 text-left${due?.over ? ' overdue border-bad border-l-4' : ' border-line'}${CLOSED.includes(t.state) ? ' closed opacity-60' : ''}`}
-                  data-task={t.id}
-                  onClick={() => setOpen(t.id)}
-                >
-                  <StateChip state={t.state} />
-                  <span className="mono">{taskRef(t.id)}</span>
-                  <span className="ttitle min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-body font-medium">
-                    {t.title}
-                  </span>
-                  {role === 'assigned' ? (
-                    <span className="who flex-none text-hint text-ink-2" title={`Opened by ${agent}, held by ${t.to}`}>
-                      <Icon name="agent" size={12} aria-hidden /> {t.to}
-                    </span>
-                  ) : t.from !== agent ? (
-                    <span className="who flex-none text-hint text-ink-2" title={`Opened by ${t.from}`}>
-                      from {t.from}
-                    </span>
-                  ) : null}
-                  {due ? (
-                    <span
-                      className={`due flex-none text-hint${due.over ? ' font-medium text-bad' : ' text-ink-2'}`}
-                      data-over={due.over || undefined}
+              <RowMenu key={t.id} tasks={[t]} me={me} cans={cans} onPick={(v) => rowVerb(t.id, v)}>
+                {(more, menuOpen) => (
+                  <li className="group/trow flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      aria-label={`Mark ${taskRef(t.id)}`}
+                      checked={marked.has(t.id)}
+                      onChange={() => undefined}
+                      onClick={(e) => toggle(t.id, e.shiftKey)}
+                    />
+                    <button
+                      className={`tasks-tab-row flex w-full cursor-pointer items-center gap-2 rounded-card border bg-panel px-2.5 py-1.5 text-left${due?.over ? ' overdue border-bad border-l-4' : ' border-line'}${CLOSED.includes(t.state) ? ' closed opacity-60' : ''}`}
+                      data-task={t.id}
+                      onClick={() => setOpen(t.id)}
                     >
-                      {due.over ? <Icon name="alert" size={12} aria-hidden /> : null} {due.text}
+                      <StateChip state={t.state} />
+                      <span className="mono">{taskRef(t.id)}</span>
+                      <span className="ttitle min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-body font-medium">
+                        {t.title}
+                      </span>
+                      {role === 'assigned' ? (
+                        <span className="who flex-none text-hint text-ink-2" title={`Opened by ${agent}, held by ${t.to}`}>
+                          <Icon name="agent" size={12} aria-hidden /> {t.to}
+                        </span>
+                      ) : t.from !== agent ? (
+                        <span className="who flex-none text-hint text-ink-2" title={`Opened by ${t.from}`}>
+                          from {t.from}
+                        </span>
+                      ) : null}
+                      {due ? (
+                        <span
+                          className={`due flex-none text-hint${due.over ? ' font-medium text-bad' : ' text-ink-2'}`}
+                          data-over={due.over || undefined}
+                        >
+                          {due.over ? <Icon name="alert" size={12} aria-hidden /> : null} {due.text}
+                        </span>
+                      ) : null}
+                    </button>
+                    <span
+                      className={`inline-flex ${menuOpen ? 'opacity-100' : 'opacity-0 group-hover/trow:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100'}`}
+                    >
+                      {more}
                     </span>
-                  ) : null}
-                </button>
-                <VerbMenu tasks={[t]} me={me} cans={cans} onPick={(v) => rowVerb(t.id, v)} />
-              </li>
+                  </li>
+                )}
+              </RowMenu>
             );
           })}
         </ul>

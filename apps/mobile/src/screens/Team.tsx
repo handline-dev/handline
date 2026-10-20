@@ -77,8 +77,8 @@ function Card(props: {
       {d && (
         <Text style={{ color: c.muted, fontSize: 12 }}>
           {[
-            d.block ? `blocked (${d.block.kind})` : d.state,
-            d.state_detail,
+            d.status?.text ?? (d.block ? `blocked (${d.block.kind})` : d.state),
+            d.status ? null : d.state_detail,
             d.account,
             d.model && `${d.model}${d.effort ? ` · ${d.effort}` : ''}`,
           ]

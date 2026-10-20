@@ -26,8 +26,6 @@ var usages = map[string][2]string{
 	"task release":    {`hl task release T<n> "<why>"`, `hl task release T12 "blocked on the founder"`},
 	"task wait":       {`hl task wait T<n> (--on <vendor>:<target> | --pr <n> [--repo owner/name]) [--until ci|closed|done] [-t <span>]`, `hl task wait T12 --pr 412`},
 	"task discard":    {`hl task discard T<n> "<why>"   |   hl task discard T<n> T<m> --why "<why>" [--why-each T<m>="<why>"]`, `hl task discard T12 "duplicate of T9"`},
-	"task accept":     {`hl task accept T<n>`, `hl task accept T12`},
-	"task reject":     {`hl task reject T<n> "<note>"`, `hl task reject T12 "the test does not fail without the fix"`},
 	"task note":       {`hl task note T<n> "<text>"`, `hl task note T12 "the phone needs it too"`},
 	"task queue":      {`hl task queue T<n> [T<m> ...]`, `hl task queue T12`},
 	"task draft":      {`hl task draft T<n> [T<m> ...]`, `hl task draft T12`},

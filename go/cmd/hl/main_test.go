@@ -229,7 +229,6 @@ func TestARefusalSaysWhatIsWrongAndShowsTheForm(t *testing.T) {
 		{[]string{"task", "new", "-x", "1h", "t"}, []string{"(unknown option -x)", "usage: hl task new --assign"}},
 		{[]string{"task", "new", "--assign", "a", "-t", "soon", "t"}, []string{`(--timeout is a span like 30m or 2h, not "soon")`}},
 		{[]string{"task", "show", "12"}, []string{`("12" is not a task: T<n>)`, "usage: hl task show T<n>"}},
-		{[]string{"task", "reject", "T1"}, []string{"(it takes T<n> and the note in quotes, and got 1 word(s))", "usage: hl task reject"}},
 		{[]string{"say", "bob", "two", "words"}, []string{"(too many words", "usage: hl say <target>"}},
 		{[]string{"inbox", "--timeout"}, []string{"(--timeout needs a value after it)"}},
 	} {

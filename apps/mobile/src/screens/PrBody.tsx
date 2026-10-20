@@ -1,4 +1,4 @@
-// A message's words as Markdown, with each #N that is a pull request of the chat agent's repo a link to it on GitHub; any other #N stays plain text.
+// Words as Markdown, with each #N that is a pull request of the chat agent's repo a link to it on GitHub; any other #N stays plain text.
 import type { ReactNode } from 'react';
 import { Linking, Text } from 'react-native';
 import { findRefs } from '@handline/app-core';
@@ -6,7 +6,7 @@ import { usePullRequests } from '@handline/app-data';
 import { usePalette } from '../theme.ts';
 import { Markdown } from './Markdown.tsx';
 
-export function PrBody({ id, agent, body }: { id: number; agent: string; body: string }) {
+export function PrBody({ id, agent, body, testID, breaks = true }: { id: number | string; agent: string; body: string; testID?: string; breaks?: boolean }) {
   const c = usePalette();
   const prs = usePullRequests(agent, body);
   const plain = (s: string): ReactNode => {
@@ -31,5 +31,5 @@ export function PrBody({ id, agent, body }: { id: number; agent: string; body: s
     parts.push(s.slice(at));
     return parts;
   };
-  return <Markdown testID={`body-${id}`} text={body} breaks plain={plain} />;
+  return <Markdown testID={testID ?? `body-${id}`} text={body} breaks={breaks} plain={plain} />;
 }

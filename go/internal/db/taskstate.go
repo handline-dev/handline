@@ -73,7 +73,7 @@ func HoldsCurrent(q Q, t *Task) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return cur == nil || cur.Ended() || cur.Reported(), nil
+	return cur == nil || cur.Ended(), nil
 }
 
 // HeldByHolder is whether the holder rule keeps request r back from agent: it delivers a task of agent's that is not the one agent holds.
@@ -111,8 +111,6 @@ func stateOf(t *Task, doing, asked bool) string {
 		return "discarded"
 	case t.DoneEvidence.String != "":
 		return "done"
-	case t.ReportedAt.Valid:
-		return "review"
 	case doing:
 		return "doing"
 	case t.QueuedBy.Valid && t.QueuedBy.String != "" || asked:
@@ -121,9 +119,9 @@ func stateOf(t *Task, doing, asked bool) string {
 	return "draft"
 }
 
-// TaskState is actions.task_state: draft, queued, doing, review (its done waits on an accept), done or discarded.
+// TaskState is actions.task_state: draft, queued, doing, done or discarded.
 func TaskState(q Q, t *Task) (string, error) {
-	if t.Ended() || t.Reported() {
+	if t.Ended() {
 		return stateOf(t, false, false), nil
 	}
 	asked, err := ReadsDoing(q, t.ID)
@@ -181,7 +179,7 @@ func currentOpen(q Q, agent string) (*Task, error) {
 		return nil, err
 	}
 	t, err := GetTask(q, tid)
-	if err != nil || t == nil || t.Ended() || t.Reported() {
+	if err != nil || t == nil || t.Ended() {
 		return nil, err
 	}
 	return t, nil
@@ -258,7 +256,7 @@ func WaitingTasks(q Q, agent string) ([]WaitingTask, error) {
 	}
 	var out []WaitingTask
 	for _, t := range open {
-		if t.Owner != agent || t.DoneEvidence.String != "" || t.Reported() {
+		if t.Owner != agent || t.DoneEvidence.String != "" {
 			continue
 		}
 		bs, err := TaskBlockers(q, t.ID)

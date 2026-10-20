@@ -13,19 +13,15 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   or you hand it on with `hl task handoff T<n> <agent> "<note>"` - that is how
   the result reaches whoever asked, never a second task repeating it. The next
   task arrives only then.
-- Review and merge (orcapipe's project guideline; `hl team` names your own
-  project's auditor and merger) are child tasks you wait on, not handoffs: you
-  keep your task, in doing. When code is ready, `hl task new --assign <auditor>
-  --parent T<n> -t <time> "review T<n> @<sha>" "<branch, what changed, what to
-  check>"`; the child blocks T<n>, and the auditor closes it with `hl task done
-  T<child> "PASS: <notes>"` or `"FAIL: <what fails>"` - you are told when it
-  is done, with its result. On a PASS open the same for the merger
-  (`"merge T<n> @<sha>"`, body naming the PASS task and the target branch); it
-  closes with the merged commit sha or `"not merged: <reason>"`. Then mark T<n>
-  done with that sha (`hl task done T<n> <sha>`; it is refused while a child is
-  open), else `hl task handoff T<n> <its opener> "merged <sha>"`. A wrong result
-  is reopened by its asker. An auditor or merger never hands a review or merge
-  task back: it finishes it.
+- A done closes the task; nothing waits on an accept. Review and merge
+  (orcapipe's project guideline; `hl team` names your own project's auditor and
+  merger) are handoffs of the task itself, never child tasks: child tasks are for
+  separate work. When code is ready, `hl task handoff T<n> <auditor> "review
+  @<sha>: <branch, what changed, what to check>"`. The auditor hands it back with
+  `"FAIL: <what fails>"`, or on to the merger with `"PASS @<sha>: <notes>"`. The
+  merger marks it done with the merged commit sha (`hl task done T<n> <sha>`), or
+  hands it back with `"not merged: <reason>"`. A wrong result is reopened by its
+  asker (`hl task reopen T<n> "<why>"`).
 - Where work lands: each story has a branch `story/<n>`. Its tasks branch from
   it and, after the PASS, the merger merges them into it, with no founder step.
   A story reaches main as one PR, which the founder checks by eye and merges.

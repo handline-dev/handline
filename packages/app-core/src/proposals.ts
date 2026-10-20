@@ -23,6 +23,13 @@ export function ordered(l: readonly Proposal[]): { waiting: Proposal[]; recent: 
   };
 }
 
+/** A waiting proposal nobody answered in this many days is stale: it moves to its own group, still open to decide. */
+export const STALE_DAYS = 14;
+export const splitStale = (waiting: readonly Proposal[], now = Date.now()): { fresh: Proposal[]; stale: Proposal[] } => {
+  const old = (p: Proposal) => now - Date.parse(p.created) > STALE_DAYS * 86_400_000;
+  return { fresh: waiting.filter((p) => !old(p)), stale: waiting.filter(old) };
+};
+
 /** The kind, from the proposal or else the first word of its title; an unknown kind is drawn as its own word. */
 export const kindOf = (p: Proposal): string => p.kind ?? p.title.split(' ')[0] ?? '';
 
@@ -85,10 +92,4 @@ export function settled(rows: readonly DecideResult[], now: readonly Proposal[])
       ? { ...r, ok: false, error: p.error ? cutError(textSafe(p.error)) : 'the change was not applied' }
       : r;
   });
-}
-
-/** The proposals shown wherever the founder is: the `open` ones (a failed apply is not new), newest first, and how many did not fit. */
-export function raised(l: readonly Proposal[], max: number): { shown: Proposal[]; more: number } {
-  const open = l.filter((p) => p.state === 'open').sort((a, b) => Date.parse(b.created) - Date.parse(a.created));
-  return { shown: open.slice(0, max), more: Math.max(0, open.length - max) };
 }

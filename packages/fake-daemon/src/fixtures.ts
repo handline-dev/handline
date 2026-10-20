@@ -20,7 +20,7 @@ export interface AgentFixture {
   session: string | null;
   wall?: boolean;
   /** AgentView fields the agent_view_fields and agent_view_attention conformance fixtures pin, served as they are. */
-  view?: Partial<Pick<AgentView, 'kind' | 'task_count' | 'ready' | 'wall' | 'fire' | 'attention' | 'cache_ignored' | 'config_error' | 'needs_you' | 'has_dialog' | 'state_detail' | 'handoff'>>;
+  view?: Partial<Pick<AgentView, 'kind' | 'task_count' | 'ready' | 'wall' | 'fire' | 'attention' | 'cache_ignored' | 'config_error' | 'needs_you' | 'has_dialog' | 'last_to_founder' | 'founder_unread' | 'state_detail' | 'handoff' | 'status'>>;
 }
 
 export const AGENTS: AgentFixture[] = [

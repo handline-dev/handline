@@ -4,16 +4,16 @@ import { Pressable, Text, View } from 'react-native';
 import { space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Hr, useHrCount } from './Hr.tsx';
-import { Button } from './parts.tsx';
+import { MenuItem } from './parts.tsx';
 import { Team } from './Team.tsx';
 
 export function TeamButton(props: { onPress: () => void }) {
   const count = useHrCount();
   return (
-    <Button
+    <MenuItem
       testID="team-open"
-      label={count ? `● Team ${count}` : 'Team'}
-      accessibilityLabel={count ? `Team, ${count} HR waiting` : 'Team'}
+      icon="team"
+      label={count ? `Team ${count}` : 'Team'}
       onPress={props.onPress}
     />
   );

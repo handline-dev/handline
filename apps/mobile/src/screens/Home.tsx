@@ -16,10 +16,12 @@ import { TeamPage } from './TeamEntry.tsx';
 import { Stats } from './Stats.tsx';
 import { Tasks } from './Tasks.tsx';
 import { Worktrees } from './Worktrees.tsx';
+import { Icon, type IconName } from './Icon.tsx';
 import { Banner } from './parts.tsx';
 
 const TABS = ['agents', 'inbox', 'tasks', 'usage'] as const;
 type Tab = (typeof TABS)[number];
+const NAV_ICON: Record<Tab, IconName> = { agents: 'agent', inbox: 'inbox', tasks: 'tasks', usage: 'stats' };
 
 type Page = 'worktrees' | 'new' | 'settings' | 'team' | null;
 
@@ -152,7 +154,8 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
                 borderTopColor: tab === t ? c.ink : 'transparent',
               }}
             >
-              <Text numberOfLines={1} adjustsFontSizeToFit style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400' }}>
+              <Icon name={NAV_ICON[t]} decorative size={20} color={tab === t ? c.ink : c.muted} />
+              <Text numberOfLines={1} adjustsFontSizeToFit style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400', fontSize: 12 }}>
                 {t === 'agents'
                   ? 'Agents'
                   : t === 'inbox'
