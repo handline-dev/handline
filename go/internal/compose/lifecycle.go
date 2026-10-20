@@ -60,6 +60,9 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 	}
 	if lc.Env != nil {
 		lc.Env.FounderTyped = founderTyped
+		if founderTyped != nil {
+			lc.Env.Typeable = p.typeable
+		}
 	}
 	launcher := &lifecycle.Launcher{Q: q, Home: home, Roster: roster, Tokens: sessiontoken.New(home), Now: cfg.Now, FounderTyped: founderTyped, Ports: lifecycle.LaunchPorts{
 		Usage:          &lifecycle.UsageAdapter{Env: uenv, Q: q},
