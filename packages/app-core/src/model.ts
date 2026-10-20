@@ -40,11 +40,14 @@ export const shortName = (name: string, team: string): string => (name.startsWit
 export const rowName = (name: string, depth: number, team: string): string =>
   depth > 0 ? name.slice(name.lastIndexOf('.') + 1) : shortName(name, team);
 
+/** An agent the founder has not caught up with: unseen requests to them, or one that waits on them now. */
+export const isUnread = (a: AgentView): boolean => !!a.founder_unread || !!a.needs_you;
+
 /** The agent list as one list: waiting ones sort up, an agent that is restarting stays whatever the filter says, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off (a hidden parent still shows while a child does). */
-export function railRows(agents: AgentView[], opts: { hidden?: ReadonlySet<Dot>; search?: string } = {}): RailRow[] {
+export function railRows(agents: AgentView[], opts: { hidden?: ReadonlySet<Dot>; search?: string; unread?: boolean } = {}): RailRow[] {
   const q = (opts.search ?? '').trim().toLowerCase();
   const found = (a: AgentView) => !q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q);
-  const match = agents.filter((a) => (!opts.hidden?.has(dotOf(a)) || !!a.handoff) && found(a));
+  const match = agents.filter((a) => (!opts.hidden?.has(dotOf(a)) || !!a.handoff) && found(a) && (!opts.unread || isUnread(a)));
   // Keep the parents a dot filter hides while a child shows, so the children do not float to the top level.
   const byName = new Map(agents.map((a) => [a.name, a]));
   const names = new Set(match.map((a) => a.name));

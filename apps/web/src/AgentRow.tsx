@@ -160,6 +160,14 @@ export function AgentRow({
                       {wide ? <span>{a.needs_you.kind}</span> : null}
                     </span>
                   ) : null}
+                  {a.founder_unread ? (
+                    <span
+                      className="unread inline-flex flex-none items-center rounded-pill bg-primary px-1.5 text-label text-canvas"
+                      title={`${a.founder_unread} requests to you not seen yet`}
+                    >
+                      {a.founder_unread}
+                    </span>
+                  ) : null}
                   <Badges badges={badges} />
                   {queue.messages ? (
                     <span
@@ -183,7 +191,7 @@ export function AgentRow({
                 </button>
                 {sub ? (
                   <span
-                    className="row-sub flex cursor-pointer items-center gap-1 pl-[22px] text-hint text-ink-2"
+                    className={`row-sub flex cursor-pointer items-center gap-1 pl-[22px] text-hint ${a.founder_unread ? 'font-medium text-ink' : 'text-ink-2'}`}
                     title={sub}
                     onClick={() => goAgent(a.name)}
                   >

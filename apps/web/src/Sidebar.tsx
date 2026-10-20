@@ -1,7 +1,7 @@
 // The agent list. A row shows an agent's state, its queue and a fold button when it has children; its actions (Start, the ⋯ menu)
 // show while the pointer is on it or it is selected. One filter button opens the menu of what to show.
 import { Fragment, useState, type ReactNode } from 'react';
-import { dotOf, railRows, teamOf, visibleRows, RAIL_FILTERS, type Dot, type KV, taskRef } from '@handline/app-core';
+import { dotOf, isUnread, railRows, teamOf, visibleRows, RAIL_FILTERS, type Dot, type KV, taskRef } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useConnection } from '@handline/app-react';
 import { useAgents, useUnreached, useServes, useWorktrees } from '@handline/app-data';
@@ -64,8 +64,10 @@ export function Sidebar({
   const trees = useWorktrees();
   const where = new Map<string, string>();
   for (const w of trees.data?.worktrees ?? []) if (w.owner && !where.has(w.owner)) where.set(w.owner, `${w.repo}/${w.branch}`);
+  const [unreadOnly, setUnreadOnly] = useState(() => setting(storage, 'unreadOnly', '0').value === '1');
+  const unreadCount = agents.filter(isUnread).length;
   const names = agents.map((x) => x.name);
-  const rows = byTeam(visibleRows(railRows(agents, { hidden, search }), collapsed), grouped, names);
+  const rows = byTeam(visibleRows(railRows(agents, { hidden, search, unread: unreadOnly }), collapsed), grouped, names);
   // A team's heading counts the rows under it, a child with its parent.
   const teamSize = new Map<string, number>();
   let blockTeam = '';
@@ -187,6 +189,27 @@ export function Sidebar({
           </MenuItem>
         </MoreMenu>
       </div>
+      <div className="rail-read flex gap-0.5 px-2.5 py-1.5" role="group" aria-label="Show agents">
+        {(
+          [
+            [false, 'All', 0],
+            [true, 'Unread', unreadCount],
+          ] as const
+        ).map(([only, label, n]) => (
+          <button
+            key={label}
+            className={`rounded-ctl border-0 px-2 py-0.5 text-label ${unreadOnly === only ? 'bg-canvas text-ink' : 'bg-transparent text-ink-2'}`}
+            aria-pressed={unreadOnly === only}
+            onClick={() => {
+              setting(storage, 'unreadOnly', '').save(only ? '1' : '0');
+              setUnreadOnly(only);
+            }}
+          >
+            {label}
+            {n ? <span className="ml-1 text-wait">{n}</span> : null}
+          </button>
+        ))}
+      </div>
       <div className="rail-list min-h-0 flex-1 overflow-auto">
         {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
         <View q={list} served={served} shape="agents" what="the agent list" empty={conn === 'open' && !agents.length && 'No agents.'}>
@@ -206,7 +229,7 @@ export function Sidebar({
                   depth={depth}
                   kids={kids}
                   team={team}
-                  sub={agent.task ? `${taskRef(agent.task.id)} ${agent.task.title}` : (where.get(agent.name) ?? '')}
+                  sub={lastLine(agent) || (agent.task ? `${taskRef(agent.task.id)} ${agent.task.title}` : (where.get(agent.name) ?? ''))}
                   live={activity || agent.handoff ? liveOf(agent) : ''}
                   folded={collapsed.has(agent.name)}
                   onFold={() => setCollapsed(flip(collapsed, agent.name, 'collapsed', '|'))}
@@ -244,6 +267,9 @@ const lastTop = (rows: { agent: AgentView; depth: number }[], i: number, names: 
   for (let j = i - 1; j >= 0; j--) if (rows[j]!.depth === 0) return teamOf(rows[j]!.agent.name, names);
   return '';
 };
+
+/** The first line of the agent's newest request to the founder, for the line under its name. */
+const lastLine = (a: AgentView): string => a.last_to_founder?.text.split('\n').find((l) => l.trim())?.trim() ?? '';
 
 /** The nav row that opens the pages the top two leave out. */
 function MoreMenu({ on, hint, children }: { on: boolean; hint: number; children: ReactNode }) {
