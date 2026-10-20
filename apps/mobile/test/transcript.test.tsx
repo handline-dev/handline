@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { Alert } from 'react-native';
 import { describe, expect, it, vi } from 'vitest';
-import { ARCH, $, mount, press, text, until } from './harness.tsx';
+import { ARCH, $, mount, press, text, until } from '#test/harness.tsx';
 import type { setup } from '@handline/fake-daemon/helpers';
 
 const AUD = 'handline.auditor'; // the fake daemon plays it as a structured session

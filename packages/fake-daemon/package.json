@@ -7,7 +7,11 @@
     "./daemon": "./src/daemon.ts",
     "./serve": "./src/serve.ts",
     "./seeds": "./src/seeds.ts",
-    "./helpers": "./src/helpers.ts"
+    "./helpers": "./src/helpers.ts",
+    "./hr": "./src/hr.ts"
+  },
+  "imports": {
+    "#*": "./*"
   },
   "scripts": {
     "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",

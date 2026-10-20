@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, mount, press, until } from './harness.tsx';
+import { ARCH, $, mount, press, until } from '#test/harness.tsx';
 
 describe('a decided HR proposal in the phone chat', () => {
   it('is one line with its result, and an open one is not', async () => {

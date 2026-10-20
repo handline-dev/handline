@@ -3,9 +3,9 @@
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import { classify, sentence, useCreateProgress, type NewAgentFields } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { Skeleton } from '../skeleton.tsx';
-import { usePalette } from '../theme.ts';
-import { Button, PageHeader } from './parts.tsx';
+import { Skeleton } from '#src/skeleton.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Button, PageHeader } from '#src/screens/parts.tsx';
 
 export function NewAgentProgress(props: {
   operation: string;

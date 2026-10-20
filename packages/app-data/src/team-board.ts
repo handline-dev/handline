@@ -1,8 +1,8 @@
 // The Team page's data for the PC and the phone: the team, who is doing what, the agents grouped under whom they report to, and which card is open.
 import { useState } from 'react';
 import type { AgentView, TeamAgent } from '@handline/client';
-import { useServes } from './provider.ts';
-import { useAgents, useTeam } from './read.ts';
+import { useServes } from '#src/provider.ts';
+import { useAgents, useTeam } from '#src/read.ts';
 
 /** The agents under one "reports to": the roots first, then each manager's reports, each group sorted by name. */
 export function groups(agents: TeamAgent[]): { parent: string | null; agents: TeamAgent[] }[] {

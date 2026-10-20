@@ -3,12 +3,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { KV, Store } from '@handline/app-core';
 import { DaemonProvider, useError, useStore } from '@handline/app-react';
 import { DataProvider, SKELETON_CSS, useUnread, type BoxComponent } from '@handline/app-data';
-import { setting } from './daemon.ts';
-import { AccountsPage } from './Accounts.tsx';
-import { MyTurnPage } from './MyTurn.tsx';
-import { SettingsPage } from './Settings.tsx';
-import { AdminPage } from './Admin.tsx';
-import { DebugTerminals } from './debug/DebugTerminals.tsx';
+import { setting } from '#src/daemon.ts';
+import { AccountsPage } from '#src/Accounts.tsx';
+import { MyTurnPage } from '#src/MyTurn.tsx';
+import { SettingsPage } from '#src/Settings.tsx';
+import { AdminPage } from '#src/Admin.tsx';
+import { DebugTerminals } from '#src/debug/DebugTerminals.tsx';
 import {
   useAccountsRoute,
   useDebugRoute,
@@ -19,22 +19,22 @@ import {
   useTasksRoute,
   useTeamRoute,
   useWorktreesRoute,
-} from './route.ts';
-import { useShell } from './shell.ts';
-import { SettingsView } from './SettingsView.tsx';
-import { TeamPage } from './TeamPage.tsx';
-import { Worktrees } from './Worktrees.tsx';
-import { NewAgent } from './NewAgent.tsx';
-import { KeysSheet } from './KeysSheet.tsx';
-import { Palette } from './Palette.tsx';
-import { Sidebar } from './Sidebar.tsx';
-import { FoldedControls, RailControls } from './RailControls.tsx';
-import { DaemonDown } from './DaemonDown.tsx';
-import { terminalOwnsKey } from './terminal/core.ts';
-import { StatusBar } from './StatusBar.tsx';
-import { CaptureHost } from './Capture.tsx';
-import { TasksPage } from './Tasks.tsx';
-import { AgentWorkspace } from './Workspace.tsx';
+} from '#src/route.ts';
+import { useShell } from '#src/shell.ts';
+import { SettingsView } from '#src/SettingsView.tsx';
+import { TeamPage } from '#src/TeamPage.tsx';
+import { Worktrees } from '#src/Worktrees.tsx';
+import { NewAgent } from '#src/NewAgent.tsx';
+import { KeysSheet } from '#src/KeysSheet.tsx';
+import { Palette } from '#src/Palette.tsx';
+import { Sidebar } from '#src/Sidebar.tsx';
+import { FoldedControls, RailControls } from '#src/RailControls.tsx';
+import { DaemonDown } from '#src/DaemonDown.tsx';
+import { terminalOwnsKey } from '#src/terminal/core.ts';
+import { StatusBar } from '#src/StatusBar.tsx';
+import { CaptureHost } from '#src/Capture.tsx';
+import { TasksPage } from '#src/Tasks.tsx';
+import { AgentWorkspace } from '#src/Workspace.tsx';
 
 const Box: BoxComponent = (p) => <div {...p} />;
 

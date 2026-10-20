@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isGate, watchLine } from '../src/index.ts';
+import { isGate, watchLine } from '#src/index.ts';
 
 test('a gate task is owned by gate and shows its label, a link where there is one, and the result once it has one', () => {
   assert.equal(isGate({ to: 'gate' }), true);

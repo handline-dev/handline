@@ -4,8 +4,8 @@ import { useMemo } from 'react';
 import { openTab, verbsOf, type Verb, taskRef } from '@handline/app-core';
 import type { AgentDetail, ChatMessage } from '@handline/client';
 import { useAgents, useChatRefs, useServes, useTasks } from '@handline/app-data';
-import type { IconName } from './ui/index.ts';
-import { useWorkspace } from './Workspace.tsx';
+import type { IconName } from '#src/ui/index.ts';
+import { useWorkspace } from '#src/Workspace.tsx';
 
 export type MenuKind = 'slash' | 'hash' | 'history';
 export interface Entry {

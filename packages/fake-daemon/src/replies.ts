@@ -1,5 +1,5 @@
-import { keptParams } from './attachments.ts';
-import { badRequest } from './errors.ts';
+import { keptParams } from '#src/attachments.ts';
+import { badRequest } from '#src/errors.ts';
 
 /** A write's successful reply, kept by request_id: the same id with the same params returns it, repeating nothing. */
 export class Replies {

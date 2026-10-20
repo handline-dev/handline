@@ -11,8 +11,8 @@ import {
   useSkeletonGate,
   type BoxComponent,
   type SkeletonNode,
-} from '../src/index.ts';
-import { Probe, mount, openStore, stubClient, unmount } from './harness.tsx';
+} from '#src/index.ts';
+import { Probe, mount, openStore, stubClient, unmount } from '#test/harness.tsx';
 
 afterEach(async () => {
   vi.useRealTimers();

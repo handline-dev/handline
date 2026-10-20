@@ -7,11 +7,11 @@ import type { CallParams, SettingsChanges } from '@handline/client';
 import { classify, sentence, useAnswers, useServes, useSettings, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { useSelector } from '@handline/app-react';
-import { usePalette } from '../theme.ts';
-import { Loadable } from './Loadable.tsx';
-import { AppUpdate } from './AppUpdate.tsx';
-import { Button, PageHeader } from './parts.tsx';
-import { useWhyNot } from './TaskActions.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { AppUpdate } from '#src/screens/AppUpdate.tsx';
+import { Button, PageHeader } from '#src/screens/parts.tsx';
+import { useWhyNot } from '#src/screens/TaskActions.tsx';
 
 function Note(props: { error: unknown; pending: boolean; bad?: string | null; testID: string }) {
   const c = usePalette();

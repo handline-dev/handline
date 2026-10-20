@@ -20,8 +20,8 @@ import Svg, { Path, Polyline } from 'react-native-svg';
 import { captureRef } from 'react-native-view-shot';
 import { MARK_COLOR, initialMarks, keptMarks, marksReducer, marksToShapes, shapesToSvg, type Mark } from '@handline/app-core';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Link } from './parts.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Link } from '#src/screens/parts.tsx';
 
 const MAX_SIDE = 2048;
 const MEMO_W = 220;

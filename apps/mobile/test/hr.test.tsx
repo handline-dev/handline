@@ -5,8 +5,8 @@ import { Store } from '@handline/app-core';
 import { DataProvider } from '@handline/app-data';
 import { DaemonProvider } from '@handline/app-react';
 import { setup } from '@handline/fake-daemon/helpers';
-import type { FakeHr } from '../../../packages/fake-daemon/src/hr.ts';
-import { Home } from '../src/screens/Home.tsx';
+import type { FakeHr } from '@handline/fake-daemon/hr';
+import { Home } from '#src/screens/Home.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

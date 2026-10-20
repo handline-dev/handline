@@ -1,7 +1,7 @@
 // Reply to an agent's own reply on the phone: the Reply control, the quote chip, and the quote kept with the sent message.
 import { describe, expect, it } from 'vitest';
 import { act } from 'react';
-import { ARCH, $, mount, press, text, until } from './harness.tsx';
+import { ARCH, $, mount, press, text, until } from '#test/harness.tsx';
 
 const REPLY = 'I would cut the third gap.';
 type Stored = { body: string; parent: number | null; parent_item?: { id: number; text: string } };

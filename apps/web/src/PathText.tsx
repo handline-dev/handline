@@ -2,8 +2,8 @@
 // The call is made only from the click, never from rendering.
 import { useState } from 'react';
 import { branchCandidates, findNames, findPaths } from '@handline/app-core';
-import { goAgent } from './route.ts';
-import { shell } from './shell.ts';
+import { goAgent } from '#src/route.ts';
+import { shell } from '#src/shell.ts';
 
 /** `names` are the agents there are: a word that is one opens that agent. `whole` is the whole message, whose words may name a branch. */
 export function PathText({ text, agent, names, whole }: { text: string; agent?: string; names?: ReadonlySet<string>; whole?: string }) {

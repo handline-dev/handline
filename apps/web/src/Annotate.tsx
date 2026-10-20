@@ -13,7 +13,7 @@ import {
   type Bitmap,
   type Mark,
 } from '@handline/app-core';
-import { Button, Textarea } from './ui/index.ts';
+import { Button, Textarea } from '#src/ui/index.ts';
 
 /** The picture with the shapes drawn into its pixels, as a PNG. Null where there is no canvas (a test DOM). */
 async function marked(img: HTMLImageElement, shapes: Parameters<typeof exportAnnotated>[1]): Promise<Blob | null> {

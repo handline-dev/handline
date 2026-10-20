@@ -8,9 +8,9 @@ import { isAlways, promptTitle } from '@handline/app-core';
 import { usePromptAnswer } from '@handline/app-data';
 import type { Prompt } from '@handline/client';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Icon } from './Icon.tsx';
-import { Button, Row } from './parts.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Icon } from '#src/screens/Icon.tsx';
+import { Button, Row } from '#src/screens/parts.tsx';
 
 export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () => void }) {
   const c = usePalette();

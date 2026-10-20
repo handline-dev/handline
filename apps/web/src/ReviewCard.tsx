@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { changeAsked, keptMarks, markText, reviewPictures, withImages, type Mark } from '@handline/app-core';
 import { classify, sentence, useAttachmentUrl, useMemos, useUploadImage, useWrite } from '@handline/app-data';
-import { Annotator } from './Annotate.tsx';
-import { Dialog, NOTE, Textarea } from './ui/index.ts';
+import { Annotator } from '#src/Annotate.tsx';
+import { Dialog, NOTE, Textarea } from '#src/ui/index.ts';
 
 function useReviewPictures(task: number) {
   const memos = useMemos(task);

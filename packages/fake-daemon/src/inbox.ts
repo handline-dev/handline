@@ -1,7 +1,7 @@
 // The fake daemon's inbox: results, decisions, blocks and prompts for the founder, newest first, on the inbox topic.
 import type { InboxItem, Timestamp } from '@handline/contract';
-import { Failure, refused } from './errors.ts';
-import { seedInbox } from './fixtures.ts';
+import { Failure, refused } from '#src/errors.ts';
+import { seedInbox } from '#src/fixtures.ts';
 
 /** What the inbox needs of the daemon that hosts it: to emit on its topic. */
 interface Host {

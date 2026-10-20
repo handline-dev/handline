@@ -2,10 +2,10 @@
 import { useEffect, useState } from 'react';
 import { ago } from '@handline/app-core';
 import { useDevices, useServes, useWrite } from '@handline/app-data';
-import { shell } from './shell.ts';
-import { Button, Dialog, Icon, NOTE, RowTitle, SectionHead, SettingsCard, SettingsRow } from './ui/index.ts';
-import { useOff } from './useOff.ts';
-import { View } from './View.tsx';
+import { shell } from '#src/shell.ts';
+import { Button, Dialog, Icon, NOTE, RowTitle, SectionHead, SettingsCard, SettingsRow } from '#src/ui/index.ts';
+import { useOff } from '#src/useOff.ts';
+import { View } from '#src/View.tsx';
 
 /** Desktop app only, and only when it has its own gateway: `run` opens the one-time QR window a phone scans; `error` is why it did not. */
 function usePairPhone() {

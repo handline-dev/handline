@@ -1,7 +1,7 @@
 // What the screens decide from daemon facts. Pure: no DOM, so tests run it in Node.
 import type { AgentDetail, AgentView, InputHolder, Prompt, PromptOption } from '@handline/client';
-import { dotOfStatus } from './status.ts';
-import { DAEMON_KEYS, NAMED_KEYS } from './keys.ts';
+import { dotOfStatus } from '#src/status.ts';
+import { DAEMON_KEYS, NAMED_KEYS } from '#src/keys.ts';
 
 export type Dot = 'running' | 'waking' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'none';
 

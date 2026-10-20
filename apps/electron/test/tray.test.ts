@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { trayMenu } from '../src/tray.ts';
+import { trayMenu } from '#src/tray.ts';
 
 const calls: string[] = [];
 const actions = { open: () => calls.push('open'), startDaemon: () => calls.push('start'), quit: () => calls.push('quit') };

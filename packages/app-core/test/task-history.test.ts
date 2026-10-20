@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { HistoryRow } from '@handline/client';
-import { dayLabel, firstLine, historyCounts, historyView, memoAction } from '../src/index.ts';
+import { dayLabel, firstLine, historyCounts, historyView, memoAction } from '#src/index.ts';
 
 const row = (at: string, by: string, field: HistoryRow['field'], was: string, now: string, memo?: number): HistoryRow => ({
   at,

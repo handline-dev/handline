@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { markText, type Mark } from '@handline/app-core';
 import { MAX_PER_MESSAGE, useImageDrafts, useUploadImage } from '@handline/app-data';
-import { pickImages } from '../ImagePick.ts';
-import { AttachButton, ImageChips } from './ImageDrafts.tsx';
-import { MarkPicture, type Marked } from './MarkPicture.tsx';
+import { pickImages } from '#src/ImagePick.ts';
+import { AttachButton, ImageChips } from '#src/screens/ImageDrafts.tsx';
+import { MarkPicture, type Marked } from '#src/screens/MarkPicture.tsx';
 
 interface Sent {
   text: string;

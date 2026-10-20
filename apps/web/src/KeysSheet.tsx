@@ -1,6 +1,6 @@
 // The app's keys, then the keys each mounted screen registered (screenKeys), opened by `?`. The Inbox and Tasks pages keep their own `?`.
-import { useRegisteredKeys } from './screenKeys.ts';
-import { Dialog, Kbd } from './ui/index.ts';
+import { useRegisteredKeys } from '#src/screenKeys.ts';
+import { Dialog, Kbd } from '#src/ui/index.ts';
 
 const KEYS: [string, string][] = [
   ['⌘K', 'search everything'],

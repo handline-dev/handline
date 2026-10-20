@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { checkForUpdate, pickUpdate, type Release } from '../src/update.ts';
+import { checkForUpdate, pickUpdate, type Release } from '#src/update.ts';
 
 const rel = (tag: string, code: number, prerelease: boolean, name = `handline-${tag}.apk`): Release => ({
   tag_name: tag,

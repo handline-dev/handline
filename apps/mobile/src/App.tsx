@@ -1,4 +1,4 @@
-import { UpdateBanner } from './screens/AppUpdate.tsx';
+import { UpdateBanner } from '#src/screens/AppUpdate.tsx';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, SafeAreaView, StatusBar as RNStatusBar, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -14,10 +14,10 @@ import {
   type FirstTask,
   storeFor,
   type Pairing,
-} from './session.ts';
-import { PairScreen } from './screens/PairScreen.tsx';
-import { Home } from './screens/Home.tsx';
-import { usePalette } from './theme.ts';
+} from '#src/session.ts';
+import { PairScreen } from '#src/screens/PairScreen.tsx';
+import { Home } from '#src/screens/Home.tsx';
+import { usePalette } from '#src/theme.ts';
 
 export default function App() {
   const c = usePalette();

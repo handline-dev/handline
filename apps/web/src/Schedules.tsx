@@ -3,7 +3,7 @@ import { cronWords } from '@handline/app-core';
 import { classify, sentence, useScheduleEditor, useSchedules, useServes } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
 import type { Schedule } from '@handline/client';
-import { Button, FNote, Icon, SectionHead, Sheet, SheetActions } from './ui/index.ts';
+import { Button, FNote, Icon, SectionHead, Sheet, SheetActions } from '#src/ui/index.ts';
 
 const cut = (s: string, n = 60) => (s.length > n ? `${s.slice(0, n)}…` : s);
 

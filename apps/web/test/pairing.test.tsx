@@ -4,8 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { KV } from '@handline/app-core';
 import { FakeDaemon } from '@handline/fake-daemon/daemon';
 import { memoryPair } from '@handline/client';
-import { Start } from '../src/Start.tsx';
-import { codeFrom, needsToken } from '../src/pairing.ts';
+import { Start } from '#src/Start.tsx';
+import { codeFrom, needsToken } from '#src/pairing.ts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

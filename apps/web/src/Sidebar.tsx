@@ -5,11 +5,11 @@ import { dotOf, isUnread, railRows, teamOf, visibleRows, RAIL_FILTERS, type Dot,
 import type { AgentView } from '@handline/client';
 import { useConnection } from '@handline/app-react';
 import { useAgents, useUnreached, useServes, useWorktrees } from '@handline/app-data';
-import { useMyTurn } from './MyTurn.tsx';
-import { useHrCount } from './TeamPage.tsx';
-import { Mark, MARKS } from './RailIcons.tsx';
-import { Button, Icon, MenuButton, MenuCheckItem, MenuItem, MenuLabel, MenuSeparator } from './ui/index.ts';
-import { setting } from './daemon.ts';
+import { useMyTurn } from '#src/MyTurn.tsx';
+import { useHrCount } from '#src/TeamPage.tsx';
+import { Mark, MARKS } from '#src/RailIcons.tsx';
+import { Button, Icon, MenuButton, MenuCheckItem, MenuItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
+import { setting } from '#src/daemon.ts';
 import {
   goTasks,
   goTeam,
@@ -18,11 +18,11 @@ import {
   usePageRoute,
   useTeamRoute,
   useWorktreesRoute,
-} from './route.ts';
-import { AgentRow, liveOf } from './AgentRow.tsx';
-import { NewAgentButton } from './NewAgent.tsx';
-import { View } from './View.tsx';
-import { navOf } from './NavRows.tsx';
+} from '#src/route.ts';
+import { AgentRow, liveOf } from '#src/AgentRow.tsx';
+import { NewAgentButton } from '#src/NewAgent.tsx';
+import { View } from '#src/View.tsx';
+import { navOf } from '#src/NavRows.tsx';
 
 export function Sidebar({
   selected,

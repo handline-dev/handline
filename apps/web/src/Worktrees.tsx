@@ -4,13 +4,13 @@ import { useEffect, useState } from 'react';
 import { ago } from '@handline/app-core';
 import type { Worktree } from '@handline/client';
 import { useMoves, useRepos, useServes, useWorktrees } from '@handline/app-data';
-import { Button, Empty, PageHead, PageTitle, ScrollPage, Segmented, Select } from './ui/index.ts';
-import { setting } from './daemon.ts';
+import { Button, Empty, PageHead, PageTitle, ScrollPage, Segmented, Select } from '#src/ui/index.ts';
+import { setting } from '#src/daemon.ts';
 import type { KV } from '@handline/app-core';
-import { WorktreeBoard } from './WorktreeBoard.tsx';
-import { goAgent, goWorktrees } from './route.ts';
-import { View } from './View.tsx';
-import { WorktreePanel } from './WorktreePanel.tsx';
+import { WorktreeBoard } from '#src/WorktreeBoard.tsx';
+import { goAgent, goWorktrees } from '#src/route.ts';
+import { View } from '#src/View.tsx';
+import { WorktreePanel } from '#src/WorktreePanel.tsx';
 
 /** A snapshot older than this says when it was read, with a Refresh. */
 const OLD_MS = 30_000;

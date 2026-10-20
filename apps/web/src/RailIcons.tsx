@@ -1,6 +1,6 @@
 // The sidebar's state marks: the agent's dot as the shared State glyph.
 import type { Dot } from '@handline/app-core';
-import { State, type StateKind } from './ui/index.ts';
+import { State, type StateKind } from '#src/ui/index.ts';
 
 export const MARKS: Record<Dot, { label: string }> = {
   running: { label: 'working' },

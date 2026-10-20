@@ -7,8 +7,8 @@ import { agentTime, span } from '@handline/app-core';
 import type { Outlook, Stats as StatsData } from '@handline/client';
 import { useOutlook, useServes, useStats } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Loadable } from './Loadable.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Loadable } from '#src/screens/Loadable.tsx';
 
 const WINDOWS = ['24h', '7d'] as const;
 type Window = (typeof WINDOWS)[number];

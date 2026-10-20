@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, until, $, text, press, mount, fill, value, verb } from './harness.tsx';
+import { ARCH, until, $, text, press, mount, fill, value, verb } from '#test/harness.tsx';
 import type { setup } from '@handline/fake-daemon/helpers';
 
 const tab = (name: string) => press($(`nav-${name}`));

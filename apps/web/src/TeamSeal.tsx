@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useConnection, useStore } from '@handline/app-react';
 import { classify, sentence, useServes, useWrite } from '@handline/app-data';
-import { Button, Dialog, Icon, NOTE } from './ui/index.ts';
+import { Button, Dialog, Icon, NOTE } from '#src/ui/index.ts';
 
 function SealDialog({ onClose }: { onClose: () => void }) {
   const plan = useWrite('team.seal');

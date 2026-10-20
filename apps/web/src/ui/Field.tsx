@@ -1,6 +1,6 @@
 // A labelled input (§1.6): the label in `--ink-2` above a 36 px field, a note under it that starts with an icon when it is a warning or an error.
 import { useId, type InputHTMLAttributes, type ReactNode } from 'react';
-import { Icon } from './Icon.tsx';
+import { Icon } from '#src/ui/Icon.tsx';
 
 /** The labelled field and its note, shared by the hand-rolled forms (NewTask, NewAgent, the account pages). */
 export const FIELD = 'ui-field flex flex-col gap-1';

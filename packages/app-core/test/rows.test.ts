@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rowPieces } from '../src/index.ts';
+import { rowPieces } from '#src/index.ts';
 
 test('a row with no runs is its text; one with none past the text is cut at the run edges', () => {
   assert.deepEqual(rowPieces({ text: 'abc' }), [{ text: 'abc' }]);

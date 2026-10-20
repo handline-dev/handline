@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, mount, press, text, until } from './harness.tsx';
-import { cacheText } from '../src/screens/AgentStrip.tsx';
+import { ARCH, $, mount, press, text, until } from '#test/harness.tsx';
+import { cacheText } from '#src/screens/AgentStrip.tsx';
 
 async function open(prepare: Parameters<typeof mount>[0] = () => {}) {
   const m = await mount(prepare, undefined, 'founder');

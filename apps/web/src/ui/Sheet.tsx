@@ -1,6 +1,6 @@
 // A sheet: the bordered strip that asks something under the thing it is about (`verb` for an inline confirm, `form` for a task form).
 import type { ComponentProps, ComponentType } from 'react';
-import { Icon } from './Icon.tsx';
+import { Icon } from '#src/ui/Icon.tsx';
 
 type Kind = 'verb' | 'form';
 const SIZE: Record<Kind, string> = {

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Window } from 'happy-dom';
-import { buildId, unsent, UNSENT_PROBE, Updater } from '../src/update.ts';
+import { buildId, unsent, UNSENT_PROBE, Updater } from '#src/update.ts';
 
 const page = (over: { fields?: string[]; matches?: Record<string, number> } = {}) => ({
   querySelectorAll: (s: string) => {

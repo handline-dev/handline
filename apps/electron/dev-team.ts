@@ -2,7 +2,7 @@
 // said and the run stops; there is no fallback to the live daemon.
 import { spawn, type ChildProcess } from 'node:child_process';
 import os from 'node:os';
-import { answers, freePort, instanceFile, offReason, readInstance, teamEnv } from './src/dev-team.ts';
+import { answers, freePort, instanceFile, offReason, readInstance, teamEnv } from '#src/dev-team.ts';
 
 const team = process.argv[2];
 if (!team) {

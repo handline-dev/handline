@@ -2,7 +2,7 @@
 // The page says which address and where; the view has no preload, so what it loads gets nothing from the shell.
 import { WebContentsView, session, type BrowserWindow } from 'electron';
 import type { Fail } from '@handline/app-core';
-import { fromWindow, type Sender } from './bridge.ts';
+import { fromWindow, type Sender } from '#src/bridge.ts';
 
 export interface PreviewArg {
   url: string;

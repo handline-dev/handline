@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import type { Worktree } from '@handline/client';
 import { STATUSES, type Moves } from '@handline/app-data';
-import { MenuButton, MenuItem } from './ui/index.ts';
-import { goWorktrees } from './route.ts';
-import { Owner, sums } from './Worktrees.tsx';
+import { MenuButton, MenuItem } from '#src/ui/index.ts';
+import { goWorktrees } from '#src/route.ts';
+import { Owner, sums } from '#src/Worktrees.tsx';
 
 export function WorktreeBoard({ rows, path, moves }: { rows: Worktree[]; path: string | null; moves: Moves }) {
   const [dragging, setDragging] = useState<string | null>(null);

@@ -2,9 +2,9 @@
 // icon and an Add row at the end (docs/design-gaps.md G82). Add and remove are authored: the row changes at once and comes back if the daemon refuses.
 import { useState } from 'react';
 import { useAnswers, useServes, useWrite } from '@handline/app-data';
-import { Button, Field, Icon, RowTitle, SectionHead, Select, SettingsCard, SettingsRow } from './ui/index.ts';
-import { useOff } from './useOff.ts';
-import { View } from './View.tsx';
+import { Button, Field, Icon, RowTitle, SectionHead, Select, SettingsCard, SettingsRow } from '#src/ui/index.ts';
+import { useOff } from '#src/useOff.ts';
+import { View } from '#src/View.tsx';
 
 const KINDS = [
   { value: 'trust', label: 'Trust a folder' },

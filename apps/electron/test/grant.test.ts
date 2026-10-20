@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { grant } from '../src/grant.ts';
+import { grant } from '#src/grant.ts';
 
 test('a daemon that failed to start goes to the page as the reason, with the own host still named', () => {
   assert.deepEqual(grant(null, '100.1.2.3', { state: 'failed', reason: 'the gateway exited at start (exit 1)' }), {

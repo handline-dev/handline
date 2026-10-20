@@ -3,7 +3,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { AccessibilityInfo, Animated, View } from 'react-native';
 import { skeletons, useSkeletonGate, type SkeletonName, type SkeletonNode } from '@handline/app-data';
-import { usePalette } from './theme.ts';
+import { usePalette } from '#src/theme.ts';
 
 function usePulse(on: boolean): Animated.Value {
   const opacity = useRef(new Animated.Value(1)).current;

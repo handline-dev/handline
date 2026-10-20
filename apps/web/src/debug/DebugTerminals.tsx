@@ -3,10 +3,10 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useRead, useServes } from '@handline/app-data';
-import { BytesTab } from '../BytesTab.tsx';
-import type { CreateTerm } from '../terminal/core.ts';
-import { Button } from '../ui/index.ts';
-import { facts, flags, type DebugPane } from './paneFacts.ts';
+import { BytesTab } from '#src/BytesTab.tsx';
+import type { CreateTerm } from '#src/terminal/core.ts';
+import { Button } from '#src/ui/index.ts';
+import { facts, flags, type DebugPane } from '#src/debug/paneFacts.ts';
 import { span } from '@handline/app-core';
 
 const REFRESH_MS = 5000;

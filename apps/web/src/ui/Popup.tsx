@@ -1,8 +1,8 @@
 // A popup under its trigger (§1.6): a header with the title and an optional refresh, rows of 28 px, closed by Escape or a click outside.
 // `PopupRow` is a row; `opens` adds the chevron of a row that opens a second popup.
 import { useEffect, useRef, type ReactNode } from 'react';
-import { Button } from './Button.tsx';
-import { Icon, type IconName } from './Icon.tsx';
+import { Button } from '#src/ui/Button.tsx';
+import { Icon, type IconName } from '#src/ui/Icon.tsx';
 
 export function Popup({
   open,

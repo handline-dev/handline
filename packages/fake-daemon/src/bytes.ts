@@ -1,6 +1,6 @@
 // The `bytes` terminal format: the session's text as escape-coded output, the way a tmux pane would send it.
 import type { TerminalBytesSnapshot } from '@handline/contract';
-import { scrolledOff, tid, visible, type Session } from './session.ts';
+import { scrolledOff, tid, visible, type Session } from '#src/session.ts';
 
 const RESET = '\x1b[0m';
 export const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64');

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findPaths } from '../src/index.ts';
+import { findPaths } from '#src/index.ts';
 
 const found = (s: string) => findPaths(s).map((p) => [s.slice(p.start, p.end), p.path]);
 

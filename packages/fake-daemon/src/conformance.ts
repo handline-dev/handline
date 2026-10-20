@@ -7,9 +7,9 @@
 // add_used_account=conf.used add_retry_account=conf.retried; and, for tasks_list_fields.json,
 // tasks_blocked_owner=t.blocked tasks_timed_owner=t.timed tasks_overdue_owner=t.overdue tasks_done_owner=t.done tasks_paused_owner=t.paused; and, for transcript_output.json, output_agent=conf.output (three Bash tool items: one with output, one with output and dropped_lines 8, one with neither); and, for reply_parent.json, reply_agent=conf.reply other_reply_agent=conf.reply2
 import { DaemonClient, memoryPair } from '@handline/client';
-import type { FakeDaemon } from './daemon.ts';
-import { AGENTS } from './fixtures.ts';
-import { newSession } from './session.ts';
+import type { FakeDaemon } from '#src/daemon.ts';
+import { AGENTS } from '#src/fixtures.ts';
+import { newSession } from '#src/session.ts';
 
 export async function seedConformance(daemon: FakeDaemon): Promise<void> {
   const base = AGENTS.find((a) => a.name === 'handline.auditor')!;

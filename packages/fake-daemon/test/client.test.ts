@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { RpcError } from '@handline/client';
 import { type Event } from '@handline/client';
-import { refused } from '../src/errors.ts';
-import { flush, second, setup, until } from '../src/helpers.ts';
+import { refused } from '#src/errors.ts';
+import { flush, second, setup, until } from '#src/helpers.ts';
 
 const A = 'handline.term-build';
 const W = 'handline.auditor'; // its account is at the wall

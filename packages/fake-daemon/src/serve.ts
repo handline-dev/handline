@@ -4,10 +4,10 @@ import type https from 'node:https';
 import net from 'node:net';
 import type { Transport } from '@handline/client';
 import { wrapSocket } from '@handline/client-node';
-import { seedConformance } from './conformance.ts';
-import { FakeDaemon } from './daemon.ts';
-import { applySeeds } from './seeds.ts';
-import { wsServer } from './ws-server.ts';
+import { seedConformance } from '#src/conformance.ts';
+import { FakeDaemon } from '#src/daemon.ts';
+import { applySeeds } from '#src/seeds.ts';
+import { wsServer } from '#src/ws-server.ts';
 
 /** `listen` is a Unix socket path, or a TCP port (lines either way). `network` serves it as the paired-device listener does (for contract/conformance.py --as unpaired=PATH). */
 export function serveSocket(daemon: FakeDaemon, listen: string | number, network = false): net.Server {

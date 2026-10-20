@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import type { Account } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { classify, sentence, useServes, useWrite } from '@handline/app-data';
-import { Button, Dialog, Field, Icon, NOTE } from './ui/index.ts';
+import { Button, Dialog, Field, Icon, NOTE } from '#src/ui/index.ts';
 
 function RemoveDialog({ account: a, onClose }: { account: Account; onClose: () => void }) {
   const plan = useWrite('account.remove', a.name);

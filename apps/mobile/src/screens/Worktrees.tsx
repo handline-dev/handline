@@ -5,9 +5,9 @@ import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-na
 import type { Worktree } from '@handline/client';
 import { STATUSES, useMoves, useServes, useWorktrees, type Moves } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Loadable } from './Loadable.tsx';
-import { Button, PageHeader } from './parts.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { Button, PageHeader } from '#src/screens/parts.tsx';
 
 const sums = (w: Worktree) => ({
   added: w.changed.reduce((n, f) => n + f.added, 0),

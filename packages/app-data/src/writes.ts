@@ -2,12 +2,12 @@
 // A method in none of the four lists fails the guard test, so a new write is decided by a person before it ships.
 import { taskAfter, type TaskEdit, type TaskVerb } from '@handline/app-core';
 import type { Account, InboxItem, Memo, Proposal, Schedule, Settings, StandingAnswer, Task } from '@handline/client';
-import { edit, provisionalId, upsert, type Ctx } from './cache.ts';
-import { accountAfter, type AccountChange } from './account-after.ts';
-import { accountRemove } from './account-remove.ts';
-import { chatWrites } from './chat-writes.ts';
-import { qk } from './reads.ts';
-import type { WriteSpec } from './write-spec.ts';
+import { edit, provisionalId, upsert, type Ctx } from '#src/cache.ts';
+import { accountAfter, type AccountChange } from '#src/account-after.ts';
+import { accountRemove } from '#src/account-remove.ts';
+import { chatWrites } from '#src/chat-writes.ts';
+import { qk } from '#src/reads.ts';
+import type { WriteSpec } from '#src/write-spec.ts';
 
 const as = <T>(p: never) => p as T;
 const decided = (label: string): WriteSpec => ({ kind: 'decided', label });

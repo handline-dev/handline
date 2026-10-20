@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { memoryPair } from '@handline/client';
-import { FakeDaemon } from '../src/daemon.ts';
+import { FakeDaemon } from '#src/daemon.ts';
 
 test('terminal.open without an agent is invalid params, -32602', async () => {
   const daemon = new FakeDaemon();

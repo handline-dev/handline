@@ -2,9 +2,9 @@
 // One agent.create per click; the form's fields stay in this component, so a failed creation returns to them as they were.
 import { EFFORTS, EMPTY_AGENT_FIELDS, classify, sentence, useNewAgentForm, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { Button, Dialog, Field, Icon, Select, Textarea, NOTE, FIELD, FIELD_LABEL } from './ui/index.ts';
-import { goNew, useNewAgentRoute } from './route.ts';
-import { forgetFirstTask, keepFirstTask, NewAgentProgress } from './NewAgentProgress.tsx';
+import { Button, Dialog, Field, Icon, Select, Textarea, NOTE, FIELD, FIELD_LABEL } from '#src/ui/index.ts';
+import { goNew, useNewAgentRoute } from '#src/route.ts';
+import { forgetFirstTask, keepFirstTask, NewAgentProgress } from '#src/NewAgentProgress.tsx';
 
 const ACCOUNT_NOTE = "A new agent's account is chosen when it starts; none can be named yet.";
 

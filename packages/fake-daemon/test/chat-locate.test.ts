@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { type RpcError } from '@handline/client';
-import { setup } from '../src/helpers.ts';
+import { setup } from '#src/helpers.ts';
 
 test('chat.locate takes a msg_ name or a bare hash and returns the transcript of its window', async () => {
   const { daemon, client } = setup();

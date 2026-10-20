@@ -1,5 +1,5 @@
 // The bottom-right popover's page: the new main's short sha and title, and two buttons. The title is a commit subject, so it is escaped.
-import type { Main } from './follow.ts';
+import type { Main } from '#src/follow.ts';
 
 export const escapeHtml = (s: string): string =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);

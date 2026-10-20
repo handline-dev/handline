@@ -1,7 +1,7 @@
 // The button (§1.6): ghost by default, outline in a group, solid for the one main action of a view; icon-only is a 28 px square with its label
 // as the tooltip. `keys` is the shortcut printed on a solid button.
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import { Icon, type IconName } from './Icon.tsx';
+import { Icon, type IconName } from '#src/ui/Icon.tsx';
 
 export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   variant?: 'ghost' | 'outline' | 'solid';

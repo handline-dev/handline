@@ -2,10 +2,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { dateTime, taskRef } from '@handline/app-core';
 import { useAgents, useChatSearch, useServes, useTasks } from '@handline/app-data';
-import { canCapture, requestCapture } from './Capture.tsx';
-import { snippet } from './ChatSearch.tsx';
-import { goAgent, goMessage, goNew, goTasks, goTeam, goWorktrees } from './route.ts';
-import { Backdrop, Icon, PROW, PROW_HINT, PROW_NAME, type IconName } from './ui/index.ts';
+import { canCapture, requestCapture } from '#src/Capture.tsx';
+import { snippet } from '#src/ChatSearch.tsx';
+import { goAgent, goMessage, goNew, goTasks, goTeam, goWorktrees } from '#src/route.ts';
+import { Backdrop, Icon, PROW, PROW_HINT, PROW_NAME, type IconName } from '#src/ui/index.ts';
 
 interface Hit {
   key: string;

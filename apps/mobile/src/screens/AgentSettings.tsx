@@ -7,10 +7,10 @@ import { DANGER, FIELDS, type Field } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { useAgentDetail, useFieldRow, useServes } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Loadable } from './Loadable.tsx';
-import { Button, PageHeader } from './parts.tsx';
-import { Schedules } from './Schedules.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { Button, PageHeader } from '#src/screens/parts.tsx';
+import { Schedules } from '#src/screens/Schedules.tsx';
 
 const SECTIONS: { id: Field['section']; title: string }[] = [
   { id: 'model', title: 'Model' },

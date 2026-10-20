@@ -5,7 +5,7 @@ import { useState } from 'react';
 import type { Account } from '@handline/client';
 import { useConnection } from '@handline/app-react';
 import { classify, sentence, useServes, useWrite } from '@handline/app-data';
-import { Button, Field, Icon } from './ui/index.ts';
+import { Button, Field, Icon } from '#src/ui/index.ts';
 
 /** A login the daemon has not ended: the URL (when this app started it) and the code box belong to it. */
 const running = (account: Account) => account.login?.state === 'waiting' || account.login?.state === 'code_sent';

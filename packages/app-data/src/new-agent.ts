@@ -1,8 +1,8 @@
 // The new-agent form, for the PC and the phone: its fields, the efforts to pick from, and the agent.create params the fields make.
 import { useState } from 'react';
 import type { Repo } from '@handline/client';
-import { useAgents, useRepos } from './read.ts';
-import { useWrite } from './write.ts';
+import { useAgents, useRepos } from '#src/read.ts';
+import { useWrite } from '#src/write.ts';
 
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 type Effort = (typeof EFFORTS)[number];

@@ -7,12 +7,12 @@ import type { InboxItem } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { useInbox, usePending, useServes, useTask, useUnread, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Icon, type IconName } from './Icon.tsx';
-import { Button, PageHeader } from './parts.tsx';
-import { Loadable } from './Loadable.tsx';
-import { PromptCard } from './PromptCard.tsx';
-import { ReviewCard } from './ReviewCard.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Icon, type IconName } from '#src/screens/Icon.tsx';
+import { Button, PageHeader } from '#src/screens/parts.tsx';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { PromptCard } from '#src/screens/PromptCard.tsx';
+import { ReviewCard } from '#src/screens/ReviewCard.tsx';
 
 const KIND: Record<string, string> = {
   decision: 'Decision',

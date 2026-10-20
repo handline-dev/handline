@@ -6,7 +6,7 @@ import { constants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Fail } from '@handline/app-core';
-import { fromWindow, type Sender } from './bridge.ts';
+import { fromWindow, type Sender } from '#src/bridge.ts';
 
 export type ComposeCode =
   | 'bad_request'

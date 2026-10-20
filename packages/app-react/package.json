@@ -6,6 +6,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "imports": {
+    "#*": "./*"
+  },
   "scripts": {
     "typecheck": "tsc -p .",
     "lint": "eslint ."

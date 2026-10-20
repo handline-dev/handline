@@ -1,7 +1,7 @@
 // The tray's menu as plain data, so a test can read it; main.ts hands it to Electron's Menu.
-import type { FollowState } from './follow.ts';
-import type { Link, Mode } from './mode.ts';
-import type { DaemonState } from './owner.ts';
+import type { FollowState } from '#src/follow.ts';
+import type { Link, Mode } from '#src/mode.ts';
+import type { DaemonState } from '#src/owner.ts';
 
 export interface TrayItem {
   label?: string;

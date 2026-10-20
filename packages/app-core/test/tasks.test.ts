@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Task } from '@handline/client';
-import { agentTasks, dueOf, taskAfter } from '../src/tasks.ts';
+import { agentTasks, dueOf, taskAfter } from '#src/tasks.ts';
 
 const task = (state: string): Task => ({
   id: 7,

@@ -6,6 +6,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "imports": {
+    "#*": "./*"
+  },
   "scripts": {
     "test": "../../tools/heavy-slot.sh vitest run",
     "typecheck": "tsc -p .",

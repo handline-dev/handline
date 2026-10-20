@@ -4,9 +4,9 @@ import type { TaskDetail as Detail } from '@handline/client';
 import { isPerson } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useWrite } from '@handline/app-data';
-import { BodyEditor } from './BodyEditor.tsx';
-import { useCan } from './taskui.tsx';
-import { Button, Input } from './ui/index.ts';
+import { BodyEditor } from '#src/BodyEditor.tsx';
+import { useCan } from '#src/taskui.tsx';
+import { Button, Input } from '#src/ui/index.ts';
 
 export type Change = { title?: string; body?: string; owner?: string; time_box?: string; priority?: 1 | 2 | 3 };
 

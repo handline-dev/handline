@@ -3,8 +3,8 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import type { setup } from '@handline/fake-daemon/helpers';
-import { AgentSettings } from '../src/screens/AgentSettings.tsx';
-import { $, ARCH, box, mount as mountHarness, press, until } from './harness.tsx';
+import { AgentSettings } from '#src/screens/AgentSettings.tsx';
+import { $, ARCH, box, mount as mountHarness, press, until } from '#test/harness.tsx';
 
 const text = (el: Element | null = box) => el?.textContent ?? '';
 const type = (id: string, value: string) =>

@@ -4,13 +4,13 @@ import { useState, type RefObject } from 'react';
 import { activityOf, ago, dateTime, foldEvents, type ActivityItem } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
-import { BodyEditor } from './BodyEditor.tsx';
-import { CommentPicture } from './CommentPicture.tsx';
-import { MemoFiles } from './MemoFiles.tsx';
-import { Markdown } from './Markdown.tsx';
-import { AgentLink } from './TaskInline.tsx';
-import { useCan } from './taskui.tsx';
-import { Button } from './ui/index.ts';
+import { BodyEditor } from '#src/BodyEditor.tsx';
+import { CommentPicture } from '#src/CommentPicture.tsx';
+import { MemoFiles } from '#src/MemoFiles.tsx';
+import { Markdown } from '#src/Markdown.tsx';
+import { AgentLink } from '#src/TaskInline.tsx';
+import { useCan } from '#src/taskui.tsx';
+import { Button } from '#src/ui/index.ts';
 
 function Comment({ t, item }: { t: Detail; item: ActivityItem }) {
   const m = t.memos.find((x) => x.id === item.memo);

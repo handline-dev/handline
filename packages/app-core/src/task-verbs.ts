@@ -1,8 +1,8 @@
 // What can be done to a task from the Tasks views, one or many: which tasks a verb applies to, one write per task so each has its own
 // result, and a selection with shift-click ranges. The daemon decides what is allowed; this only skips what could never apply.
 import type { Task } from '@handline/client';
-import { taskRef } from './tasks.ts';
-import { CLOSED } from './task-table.ts';
+import { taskRef } from '#src/tasks.ts';
+import { CLOSED } from '#src/task-table.ts';
 
 export type RowVerb =
   'done' | 'reopen' | 'queue' | 'draft' | 'release' | 'withdraw' | 'cancel' | 'discard' | 'owner' | 'priority' | 'timebox';

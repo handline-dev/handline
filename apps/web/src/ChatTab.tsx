@@ -21,15 +21,15 @@ import {
   type Chat,
   type ChatScope,
 } from '@handline/app-data';
-import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
-import { PromptSlot } from './PromptCard.tsx';
-import { Compose } from './ChatCompose.tsx';
-import { Item, Message, TaskNote, jumpTo } from './ChatMessages.tsx';
-import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, RoomTitle, useDecided } from './ChatCards.tsx';
-import { ChatSearch } from './ChatSearch.tsx';
-import { Button, Empty, Icon, Textarea, ComposeRow } from './ui/index.ts';
-import { useWantedMessage } from './route.ts';
-import { useWorkspace } from './Workspace.tsx';
+import { AnimatedItem, AnimatedList } from '#src/AnimatedList.tsx';
+import { PromptSlot } from '#src/PromptCard.tsx';
+import { Compose } from '#src/ChatCompose.tsx';
+import { Item, Message, TaskNote, jumpTo } from '#src/ChatMessages.tsx';
+import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, RoomTitle, useDecided } from '#src/ChatCards.tsx';
+import { ChatSearch } from '#src/ChatSearch.tsx';
+import { Button, Empty, Icon, Textarea, ComposeRow } from '#src/ui/index.ts';
+import { useWantedMessage } from '#src/route.ts';
+import { useWorkspace } from '#src/Workspace.tsx';
 
 /** The heading where the day turns — 'Oct 11'; null on the same day. */
 function dayHeading(at: string, before: string | null): string | null {

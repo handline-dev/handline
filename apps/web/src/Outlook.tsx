@@ -20,9 +20,9 @@ import {
   NOW_LINE,
   OUTLOOK_END,
   tone,
-} from './outlookStyle.ts';
-import { Button, ChartCard, Select, Segmented } from './ui/index.ts';
-import { View } from './View.tsx';
+} from '#src/outlookStyle.ts';
+import { Button, ChartCard, Select, Segmented } from '#src/ui/index.ts';
+import { View } from '#src/View.tsx';
 
 type Range = Outlook['range'];
 const HEADROOM: Range[] = ['12h', '24h', '3d', '7d', '14d'];

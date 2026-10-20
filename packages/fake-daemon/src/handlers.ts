@@ -1,16 +1,16 @@
 // The methods that act on a session, its input and its terminal, one function each.
 import type { Actor, Caller, Notifications, Timestamp } from '@handline/contract';
-import { badRequest, Failure, invalidParams, refused } from './errors.ts';
-import type { Script } from './script.ts';
-import { coded, snapshotOf } from './bytes.ts';
-import { Timeline } from './timeline.ts';
-import { SETTINGS_HANDLERS } from './settings.ts';
-import { withStructured } from './structured-controls.ts';
-import type { FakeTranscript } from './transcript.ts';
-import { HR_HANDLERS, teamOf } from './hr.ts';
-import { STRIP_HANDLERS } from './strip.ts';
-import { DEBUG_HANDLERS } from './debug.ts';
-import { DAEMON_HOLDER, row, scrolledOff, styledRow, tid, visible, type Attach, type Session } from './session.ts';
+import { badRequest, Failure, invalidParams, refused } from '#src/errors.ts';
+import type { Script } from '#src/script.ts';
+import { coded, snapshotOf } from '#src/bytes.ts';
+import { Timeline } from '#src/timeline.ts';
+import { SETTINGS_HANDLERS } from '#src/settings.ts';
+import { withStructured } from '#src/structured-controls.ts';
+import type { FakeTranscript } from '#src/transcript.ts';
+import { HR_HANDLERS, teamOf } from '#src/hr.ts';
+import { STRIP_HANDLERS } from '#src/strip.ts';
+import { DEBUG_HANDLERS } from '#src/debug.ts';
+import { DAEMON_HOLDER, row, scrolledOff, styledRow, tid, visible, type Attach, type Session } from '#src/session.ts';
 
 export interface Who {
   caller: Caller;

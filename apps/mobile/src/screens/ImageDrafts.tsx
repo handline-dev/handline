@@ -3,8 +3,8 @@
 import { Image, Pressable, Text, View } from 'react-native';
 import { radius, space } from '@handline/tokens';
 import type { ImageDraft } from '@handline/app-data';
-import { usePalette } from '../theme.ts';
-import { Link } from './parts.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Link } from '#src/screens/parts.tsx';
 
 export function ImageChips(props: {
   drafts: ImageDraft[];

@@ -1,10 +1,10 @@
 // The edit state of one file in an agent's worktree, shared by the PC File tab and the phone's: the read, the draft, the etag the
 // read gave and the write against it.
 import { useEffect, useState } from 'react';
-import { classify, sentence } from './errors.ts';
-import { useServes } from './provider.ts';
-import { useFile } from './read.ts';
-import { useWrite } from './write.ts';
+import { classify, sentence } from '#src/errors.ts';
+import { useServes } from '#src/provider.ts';
+import { useFile } from '#src/read.ts';
+import { useWrite } from '#src/write.ts';
 
 export const EDITABLE = /\.(md|json)$/i;
 

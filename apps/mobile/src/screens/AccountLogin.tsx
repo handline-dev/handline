@@ -7,9 +7,9 @@ import type { Account } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useServes, useWrite } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Button } from './parts.tsx';
-import { Input, useWhyNot } from './TaskActions.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Button } from '#src/screens/parts.tsx';
+import { Input, useWhyNot } from '#src/screens/TaskActions.tsx';
 
 const running = (a: Account) => a.login?.state === 'waiting' || a.login?.state === 'code_sent';
 

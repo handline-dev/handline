@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { singleWindow, type Win } from '../src/single-window.ts';
+import { singleWindow, type Win } from '#src/single-window.ts';
 
 type Fake = Win & { focused: number; closedCalls: number; destroyed: boolean; shut(): void };
 function fake(): Fake {

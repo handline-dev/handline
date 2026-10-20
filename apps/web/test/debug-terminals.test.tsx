@@ -7,12 +7,12 @@ import { Store, type KV } from '@handline/app-core';
 import { DaemonProvider } from '@handline/app-react';
 import { DataProvider, type BoxComponent } from '@handline/app-data';
 import { setup } from '@handline/fake-daemon/helpers';
-import { App } from '../src/App.tsx';
-import { DebugEntry, debugUrl } from '../src/debug/DebugEntry.tsx';
-import { DebugTerminals } from '../src/debug/DebugTerminals.tsx';
-import { cacheLeft, dash, facts, flags, type DebugPane } from '../src/debug/paneFacts.ts';
-import type { CreateTerm } from '../src/terminal/core.ts';
-import { dropKept } from '../src/terminal/keep.ts';
+import { App } from '#src/App.tsx';
+import { DebugEntry, debugUrl } from '#src/debug/DebugEntry.tsx';
+import { DebugTerminals } from '#src/debug/DebugTerminals.tsx';
+import { cacheLeft, dash, facts, flags, type DebugPane } from '#src/debug/paneFacts.ts';
+import type { CreateTerm } from '#src/terminal/core.ts';
+import { dropKept } from '#src/terminal/keep.ts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const Box: BoxComponent = (p) => <div {...p} />;

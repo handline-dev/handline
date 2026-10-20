@@ -7,10 +7,10 @@ import type { Schedule } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useScheduleEditor, useSchedules, useServes } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Loadable } from './Loadable.tsx';
-import { Button } from './parts.tsx';
-import { useWhyNot } from './TaskActions.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { Button } from '#src/screens/parts.tsx';
+import { useWhyNot } from '#src/screens/TaskActions.tsx';
 
 const cut = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n)}…` : s);
 

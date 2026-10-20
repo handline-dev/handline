@@ -3,9 +3,9 @@ import { useEffect, useState } from 'react';
 import type { Account } from '@handline/client';
 import { useConnection } from '@handline/app-react';
 import { useServes, useWrite } from '@handline/app-data';
-import { AccountLogin } from './AccountLogin.tsx';
-import { AccountRemove } from './AccountRemove.tsx';
-import { Field, Icon, Switch, NOTE } from './ui/index.ts';
+import { AccountLogin } from '#src/AccountLogin.tsx';
+import { AccountRemove } from '#src/AccountRemove.tsx';
+import { Field, Icon, Switch, NOTE } from '#src/ui/index.ts';
 
 export function AccountSettings({ account }: { account: Account }) {
   const save = useWrite('account.set', account.name);

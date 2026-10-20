@@ -1,8 +1,8 @@
 // What the Tasks page draws, decided without a screen: which rows pass the filters, in what order, as a list or as a tree, and the
 // idle and timeout words of a row. The columns and the default states follow the bridge's tasks_view.py (`HEADS`, `LISTED`).
 import type { Task } from '@handline/client';
-import { isPerson } from './chat.ts';
-import { taskRef } from './tasks.ts';
+import { isPerson } from '#src/chat.ts';
+import { taskRef } from '#src/tasks.ts';
 
 export const TASK_STATES = ['pending', 'draft', 'queued', 'doing', 'blocked', 'done', 'discarded'] as const;
 /** What a list shows when it opens: done and discarded are out of the way until asked for. */

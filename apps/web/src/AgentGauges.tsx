@@ -1,7 +1,7 @@
 // An agent's two gauges, one component for the sidebar row and the chat head: the context window FILLS as the session uses it (database, blue), the
 // prompt cache DRAINS as its minutes run out (timer, green). Each has its icon, so a bar is never read without knowing what it counts.
-import { Icon } from './ui/index.ts';
-import { Meter } from './RailIcons.tsx';
+import { Icon } from '#src/ui/index.ts';
+import { Meter } from '#src/RailIcons.tsx';
 
 /** The prompt cache lives an hour; a bar is full when it was just warmed. */
 export const CACHE_MINUTES = 60;

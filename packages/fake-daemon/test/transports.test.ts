@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import net, { type AddressInfo } from 'node:net';
 import { DaemonClient, webSocketTransport } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
-import { FakeDaemon } from '../src/daemon.ts';
-import { serveSocket, serveWs } from '../src/serve.ts';
-import { until } from '../src/helpers.ts';
+import { FakeDaemon } from '#src/daemon.ts';
+import { serveSocket, serveWs } from '#src/serve.ts';
+import { until } from '#src/helpers.ts';
 
 const A = 'handline.term-build';
 

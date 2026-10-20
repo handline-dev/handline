@@ -3,6 +3,7 @@ import path from 'node:path';
 const repoRoot = path.resolve(import.meta.dirname, '../../..');
 
 const REACT = ['react', 'react-dom', 'react-native'].map((name) => ({ name, message: 'This package must not depend on React.' }));
+const RELATIVE = { regex: '^\\.', message: 'Import by package name, or by #path inside this package.' };
 const DEEP = { group: ['@handline/*/src/*'], message: 'Import the package entry, not its src.' };
 const QUERY = { group: ['@tanstack/react-query'], message: 'React Query lives in packages/app-data.' };
 const NO_APPS = {
@@ -18,9 +19,9 @@ const NO_FAKE = {
 /** What the folder at `where` (relative to the repo root) may not import, from docs/turborepo-layout.md. */
 function restrictions(where) {
   const [top, name] = where.split(path.sep);
-  if (top === 'apps') return { paths: [], patterns: [DEEP, QUERY, NO_APPS, NO_FAKE], exempt: ['test/**', 'scripts/**', 'vite.config.ts'] };
-  if (top !== 'packages') return { paths: [], patterns: [DEEP, QUERY], exempt: [] };
-  const patterns = name === 'app-data' ? [DEEP, NO_APPS] : [DEEP, QUERY, NO_APPS];
+  if (top === 'apps') return { paths: [], patterns: [RELATIVE, DEEP, QUERY, NO_APPS, NO_FAKE], exempt: ['test/**', 'scripts/**', 'vite.config.ts'] };
+  if (top !== 'packages') return { paths: [], patterns: [RELATIVE, DEEP, QUERY], exempt: [] };
+  const patterns = name === 'app-data' ? [RELATIVE, DEEP, NO_APPS] : [RELATIVE, DEEP, QUERY, NO_APPS];
   if (name === 'client' || name === 'tokens') return { paths: REACT, patterns: [...patterns, NO_APP_PKGS], exempt: [] };
   if (name === 'app-core') return { paths: REACT, patterns, exempt: [] };
   return { paths: [], patterns, exempt: [] };

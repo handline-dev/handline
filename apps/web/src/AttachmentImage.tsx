@@ -2,7 +2,7 @@
 // descriptions all draw it (the editor draws it for an image node too).
 import { useState } from 'react';
 import { useAttachmentUrl } from '@handline/app-data';
-import { Dialog } from './ui/index.ts';
+import { Dialog } from '#src/ui/index.ts';
 
 export function AttachmentImage({ id, name }: { id: string; name: string }) {
   const small = useAttachmentUrl(id, true);

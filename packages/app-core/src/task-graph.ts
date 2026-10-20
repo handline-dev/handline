@@ -4,8 +4,8 @@
 import dagre from '@dagrejs/dagre';
 import { WAIT_WORDS, blockedBy } from '@handline/app-ui';
 import type { Task } from '@handline/client';
-import { CLOSED } from './task-table.ts';
-import { isPerson } from './chat.ts';
+import { CLOSED } from '#src/task-table.ts';
+import { isPerson } from '#src/chat.ts';
 
 export const NODE_W = 168;
 export const NODE_H = 44;

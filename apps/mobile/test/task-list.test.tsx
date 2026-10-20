@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { until, $, text, press, mount, fill } from './harness.tsx';
+import { until, $, text, press, mount, fill } from '#test/harness.tsx';
 import type { setup } from '@handline/fake-daemon/helpers';
 
 const tab = (name: string) => press($(`nav-${name}`));

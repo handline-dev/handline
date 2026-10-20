@@ -2,8 +2,8 @@ import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setup } from '@handline/fake-daemon/helpers';
 import { Store } from '@handline/app-core';
-import { useChat, useChatActions } from '../src/index.ts';
-import { mount, probe, unmount, until } from './harness.tsx';
+import { useChat, useChatActions } from '#src/index.ts';
+import { mount, probe, unmount, until } from '#test/harness.tsx';
 
 afterEach(unmount);
 const AUD = 'handline.auditor'; // a structured session in the fake daemon

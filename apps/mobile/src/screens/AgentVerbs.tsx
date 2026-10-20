@@ -7,10 +7,10 @@ import { askOf, needsAsk, verbsOf, type Verb, type VerbId } from '@handline/app-
 import { useAccounts, useAgents, useVerbRun } from '@handline/app-data';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Sheet, useWhyNot } from './TaskActions.tsx';
-import { Button, MenuItem, MenuSheet, Row } from './parts.tsx';
-import type { IconName } from './Icon.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Sheet, useWhyNot } from '#src/screens/TaskActions.tsx';
+import { Button, MenuItem, MenuSheet, Row } from '#src/screens/parts.tsx';
+import type { IconName } from '#src/screens/Icon.tsx';
 
 const VERB_ICON: Record<VerbId, IconName> = {
   interrupt: 'cancel',

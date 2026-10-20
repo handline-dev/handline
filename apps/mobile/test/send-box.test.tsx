@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { $, mount, press, text, until } from './harness.tsx';
+import { $, mount, press, text, until } from '#test/harness.tsx';
 
 const AUD = 'handline.auditor'; // the fake daemon plays it as a structured session
 

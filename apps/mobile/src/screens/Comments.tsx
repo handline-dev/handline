@@ -4,12 +4,12 @@ import { Text, View } from 'react-native';
 import type { MemoFile } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { ImageBodyInput } from './ImageBodyInput.tsx';
-import { Button } from './parts.tsx';
-import { MemoFiles } from './MemoFiles.tsx';
-import { Input, Sheet, useWhyNot } from './TaskActions.tsx';
-import { PrBody } from './PrBody.tsx';
+import { usePalette } from '#src/theme.ts';
+import { ImageBodyInput } from '#src/screens/ImageBodyInput.tsx';
+import { Button } from '#src/screens/parts.tsx';
+import { MemoFiles } from '#src/screens/MemoFiles.tsx';
+import { Input, Sheet, useWhyNot } from '#src/screens/TaskActions.tsx';
+import { PrBody } from '#src/screens/PrBody.tsx';
 
 /** One comment with Edit and Delete (as the web's MemoRow). Both show at once and roll back with the reason on a refusal; Delete asks first. */
 export function CommentRow({ task, agent, memo, when }: { task: number; agent: string; memo: { id: number; author: string; text: string; files?: MemoFile[] }; when: string }) {

@@ -7,7 +7,7 @@ import { DataProvider } from '@handline/app-data';
 import { DaemonProvider } from '@handline/app-react';
 import { setup } from '@handline/fake-daemon/helpers';
 import type { FakeDaemonOptions } from '@handline/fake-daemon/daemon';
-import { Home } from '../src/screens/Home.tsx';
+import { Home } from '#src/screens/Home.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

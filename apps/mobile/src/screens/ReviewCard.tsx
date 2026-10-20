@@ -6,10 +6,10 @@ import { SaveFormat, manipulateAsync } from 'expo-image-manipulator';
 import { APPROVED, changeAsked, keptMarks, markText, reviewPictures, withImages, type Mark } from '@handline/app-core';
 import { classify, sentence, useUploadImage, useMemos, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Pictures, useImage } from './ChatPictures.tsx';
-import { MarkPicture, type Marked } from './MarkPicture.tsx';
-import { Button } from './parts.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Pictures, useImage } from '#src/screens/ChatPictures.tsx';
+import { MarkPicture, type Marked } from '#src/screens/MarkPicture.tsx';
+import { Button } from '#src/screens/parts.tsx';
 
 const BIG = { minHeight: 52, flex: 1 } as const;
 

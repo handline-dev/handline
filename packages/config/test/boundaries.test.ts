@@ -29,7 +29,9 @@ const bad: [string, string, string][] = [
   ['an app package below the apps', 'packages/client/src/zz.ts', "import '@handline/app-core';\n"],
   ['React in app-core', 'packages/app-core/src/zz.ts', "import 'react-dom';\n"],
   ['a deep import', 'packages/app-core/src/zz.ts', "import '@handline/client/src/client.ts';\n"],
-  ['an app from a package', 'packages/app-react/src/zz.ts', "import '../../../apps/web/src/zz.ts';\n"],
+  ['an app from a package', 'packages/app-react/src/zz.ts', "import '@handline/web';\n"],
+  ['a relative import in a package', 'packages/app-core/src/zz.ts', "import './store.ts';\n"],
+  ['a relative import in an app test', 'apps/web/test/zz.ts', "import '../src/zz.ts';\n"],
   ['React Query outside app-data', 'packages/app-react/src/zz.ts', "import '@tanstack/react-query';\n"],
   ['React Query in an app', 'apps/web/src/zz.ts', "import '@tanstack/react-query';\n"],
   ['the fake daemon in app source', 'apps/web/src/zz.ts', "import '@handline/fake-daemon/daemon';\n"],
@@ -46,6 +48,7 @@ const allowed: [string, string, string][] = [
   ['the fake daemon in an app test', 'apps/web/test/zz.ts', "import '@handline/fake-daemon';\n"],
   ['the fake daemon in a dev script', 'apps/mobile/scripts/zz.ts', "import '@handline/fake-daemon';\n"],
   ['React in an app', 'apps/web/src/zz.ts', "import 'react';\n"],
+  ['a #path inside the package', 'apps/web/test/zz.ts', "import '#src/zz.ts';\n"],
 ];
 for (const [what, file, code] of allowed) {
   test(`${what} is allowed`, async () => {

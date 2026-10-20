@@ -1,4 +1,4 @@
-export { base } from './base.js';
-export { react } from './react.js';
-export { test } from './test.js';
-export { limits } from './limits.js';
+export { base } from '#eslint/base.js';
+export { react } from '#eslint/react.js';
+export { test } from '#eslint/test.js';
+export { limits } from '#eslint/limits.js';

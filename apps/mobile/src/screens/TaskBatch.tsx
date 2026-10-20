@@ -7,9 +7,9 @@ import { useStore } from '@handline/app-react';
 import type { Task } from '@handline/client';
 import { useAgents, useWrite } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { MenuItem, MenuSheet, Pill } from './parts.tsx';
-import { Input, Sheet, useWhyNot } from './TaskActions.tsx';
+import { usePalette } from '#src/theme.ts';
+import { MenuItem, MenuSheet, Pill } from '#src/screens/parts.tsx';
+import { Input, Sheet, useWhyNot } from '#src/screens/TaskActions.tsx';
 
 type Arg = 'reason' | 'reasonOptional' | 'owner' | 'priority' | 'timebox' | null;
 const ARG: Record<RowVerb, Arg> = {

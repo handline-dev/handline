@@ -1,8 +1,8 @@
 // The loading placeholder: shown only on first load, not before 150 ms (a fast answer shows no flash), and not for less than 300 ms
 // once shown. No spinner anywhere: a region that waits draws this, a write that waits draws its pending mark.
 import { createElement, useEffect, useRef, useState, type ReactNode } from 'react';
-import { useData } from './provider.ts';
-import { skeletons, type SkeletonName, type SkeletonNode } from './skeletons.ts';
+import { useData } from '#src/provider.ts';
+import { skeletons, type SkeletonName, type SkeletonNode } from '#src/skeletons.ts';
 
 export const SKELETON_DELAY_MS = 150;
 export const SKELETON_MIN_MS = 300;

@@ -1,5 +1,5 @@
 // An empty state (§1.6): a 20 px icon in a circle, one line of name, one line of hint; nothing else.
-import { Icon, type IconName } from './Icon.tsx';
+import { Icon, type IconName } from '#src/ui/Icon.tsx';
 
 export function Empty({ icon, name, hint }: { icon: IconName; name: string; hint?: string }) {
   return (

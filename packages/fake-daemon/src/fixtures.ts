@@ -1,8 +1,8 @@
 import type { AgentView, Prompt } from '@handline/contract';
-import type { FakeTranscript } from './transcript.ts';
-import type { FakeChat } from './chat.ts';
-import type { FakeInbox } from './inbox.ts';
-import type { FakeTasks } from './tasks.ts';
+import type { FakeTranscript } from '#src/transcript.ts';
+import type { FakeChat } from '#src/chat.ts';
+import type { FakeInbox } from '#src/inbox.ts';
+import type { FakeTasks } from '#src/tasks.ts';
 
 export interface AgentFixture {
   name: string;

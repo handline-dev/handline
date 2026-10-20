@@ -4,10 +4,10 @@ import { useWrite } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import type { InputHolder, TerminalView } from '@handline/client';
 import { space } from '@handline/tokens';
-import { drawRows } from './termspans.tsx';
-import { Skeleton } from '../skeleton.tsx';
-import { usePalette } from '../theme.ts';
-import { Button } from './parts.tsx';
+import { drawRows } from '#src/screens/termspans.tsx';
+import { Skeleton } from '#src/skeleton.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Button } from '#src/screens/parts.tsx';
 
 /** The daemon never sizes a terminal under this. */
 const MIN_COLS = 80;

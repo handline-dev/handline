@@ -2,22 +2,22 @@
 // of TaskActions: new task, done, reopen, queue, draft, discard, edit, memo, withdraw, cancel. The pills Open / Mine / Closed and the state
 // chips narrow the list as on the web.
 import { useState } from 'react';
-import { useHistoryValue } from '../history.tsx';
+import { useHistoryValue } from '#src/history.tsx';
 import { Linking, SectionList, ScrollView, Text, TextInput, View } from 'react-native';
 import { activityOf, ago, CLOSED, defaultFilter, foldEvents, groupTasks, HELD, idleText, shown, sortTasks, TASK_STATES, taskMatches, timeoutText, taskRef, watchLine, watchResult } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Icon, type IconName } from './Icon.tsx';
-import { Loadable } from './Loadable.tsx';
-import { Button, ListRow, MenuItem, MenuSheet, PageHeader, Pill } from './parts.tsx';
-import { CommentBox, CommentRow } from './Comments.tsx';
-import { NewTask, TaskVerbs, useTaskPending } from './TaskActions.tsx';
-import { TaskGraph } from './TaskGraph.tsx';
-import { PrBody } from './PrBody.tsx';
-import { TaskBatch } from './TaskBatch.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Icon, type IconName } from '#src/screens/Icon.tsx';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { Button, ListRow, MenuItem, MenuSheet, PageHeader, Pill } from '#src/screens/parts.tsx';
+import { CommentBox, CommentRow } from '#src/screens/Comments.tsx';
+import { NewTask, TaskVerbs, useTaskPending } from '#src/screens/TaskActions.tsx';
+import { TaskGraph } from '#src/screens/TaskGraph.tsx';
+import { PrBody } from '#src/screens/PrBody.tsx';
+import { TaskBatch } from '#src/screens/TaskBatch.tsx';
 
 type Scope = 'open' | 'mine' | 'closed';
 const SCOPES: [Scope, string][] = [

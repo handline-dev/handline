@@ -8,11 +8,11 @@ import type { Account, Window } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAccounts, usePending, useServes, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { AccountLogin } from './AccountLogin.tsx';
-import { Loadable } from './Loadable.tsx';
-import { Button, Card, PageHeader } from './parts.tsx';
-import { useWhyNot } from './TaskActions.tsx';
+import { usePalette } from '#src/theme.ts';
+import { AccountLogin } from '#src/screens/AccountLogin.tsx';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { Button, Card, PageHeader } from '#src/screens/parts.tsx';
+import { useWhyNot } from '#src/screens/TaskActions.tsx';
 
 const SPANS = { '5 hours': FIVE_HOURS_MS, week: WEEK_MS } as const;
 

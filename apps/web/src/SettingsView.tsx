@@ -5,8 +5,8 @@ import { DANGER, FIELDS, type Field } from '@handline/app-core';
 import type { AgentDetail } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useAgentDetail, useFieldRow, useServes } from '@handline/app-data';
-import { goAgent } from './route.ts';
-import { Schedules } from './Schedules.tsx';
+import { goAgent } from '#src/route.ts';
+import { Schedules } from '#src/Schedules.tsx';
 import {
   Button,
   Field as Input,
@@ -27,8 +27,8 @@ import {
   Switch,
   type IconName,
   NOTE,
-} from './ui/index.ts';
-import { View } from './View.tsx';
+} from '#src/ui/index.ts';
+import { View } from '#src/View.tsx';
 
 const SECTIONS: { id: Field['section']; title: string; icon: IconName }[] = [
   { id: 'model', title: 'Model', icon: 'agent' },

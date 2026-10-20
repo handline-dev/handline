@@ -3,10 +3,10 @@ import { useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import { shown, useFileEditor } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Loadable } from './Loadable.tsx';
-import { Markdown } from './Markdown.tsx';
-import { Button } from './parts.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { Markdown } from '#src/screens/Markdown.tsx';
+import { Button } from '#src/screens/parts.tsx';
 
 export function AgentFile({ agent }: { agent: string }) {
   const c = usePalette();

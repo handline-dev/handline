@@ -1,6 +1,6 @@
 // A Markdown memo file's relative pictures resolve to the memo's images by file name; a bad percent escape must never throw.
 import { describe, expect, it } from 'vitest';
-import { resolveImages } from '../src/bodyMarkdown.ts';
+import { resolveImages } from '#src/bodyMarkdown.ts';
 
 const files = [
   { id: 'a1', name: 'my shot.png' },

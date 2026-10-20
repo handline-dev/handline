@@ -9,21 +9,21 @@ import { classify, sentence, useChat, useChatActions, useChatReadMarks, useHr } 
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
-import { Skeleton } from '../skeleton.tsx';
-import { usePalette } from '../theme.ts';
-import { Decided, Line, Stamp, useBubbleWidth } from './ChatLines.tsx';
-import { Pictures } from './ChatPictures.tsx';
-import { ChatActions } from './ChatActions.tsx';
-import { PrBody } from './PrBody.tsx';
-import { ChatFind } from './ChatFind.tsx';
-import { ChatRefs, type Ref } from './ChatRefs.tsx';
-import { HandoffLine } from './HandoffLine.tsx';
-import { Detail } from './Tasks.tsx';
-import { NeedsYouCard } from './NeedsYouCard.tsx';
-import { ChatSearch } from './ChatSearch.tsx';
-import { useChatImages } from './ChatImages.tsx';
-import { Icon } from './Icon.tsx';
-import { Button, Link, Row } from './parts.tsx';
+import { Skeleton } from '#src/skeleton.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Decided, Line, Stamp, useBubbleWidth } from '#src/screens/ChatLines.tsx';
+import { Pictures } from '#src/screens/ChatPictures.tsx';
+import { ChatActions } from '#src/screens/ChatActions.tsx';
+import { PrBody } from '#src/screens/PrBody.tsx';
+import { ChatFind } from '#src/screens/ChatFind.tsx';
+import { ChatRefs, type Ref } from '#src/screens/ChatRefs.tsx';
+import { HandoffLine } from '#src/screens/HandoffLine.tsx';
+import { Detail } from '#src/screens/Tasks.tsx';
+import { NeedsYouCard } from '#src/screens/NeedsYouCard.tsx';
+import { ChatSearch } from '#src/screens/ChatSearch.tsx';
+import { useChatImages } from '#src/screens/ChatImages.tsx';
+import { Icon } from '#src/screens/Icon.tsx';
+import { Button, Link, Row } from '#src/screens/parts.tsx';
 
 /** How far the person's message got, as ticks: not sent yet, sent, read. */
 const TICKS = ['queued', 'delivered', 'answered'] as const;

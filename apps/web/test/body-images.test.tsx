@@ -8,8 +8,8 @@ import { Markdown } from '@tiptap/markdown';
 import Image from '@tiptap/extension-image';
 import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
-import { App } from '../src/App.tsx';
-import { forEditor, keepTyped } from '../src/bodyMarkdown.ts';
+import { App } from '#src/App.tsx';
+import { forEditor, keepTyped } from '#src/bodyMarkdown.ts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

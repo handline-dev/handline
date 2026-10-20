@@ -9,12 +9,12 @@ import type { TaskDetail } from '@handline/client';
 import { classify, sentence, useAgents, usePendingAny, useServes, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { useConnection } from '@handline/app-react';
-import { usePalette } from '../theme.ts';
-import { ImageBodyInput } from './ImageBodyInput.tsx';
-import { Button, Card, PageHeader, Pill } from './parts.tsx';
-import { AskAbout } from './TaskAsk.tsx';
-import { AssignTask } from './TaskAssign.tsx';
-import { MergeTasks, ReleaseTask } from './TaskReleaseMerge.tsx';
+import { usePalette } from '#src/theme.ts';
+import { ImageBodyInput } from '#src/screens/ImageBodyInput.tsx';
+import { Button, Card, PageHeader, Pill } from '#src/screens/parts.tsx';
+import { AskAbout } from '#src/screens/TaskAsk.tsx';
+import { AssignTask } from '#src/screens/TaskAssign.tsx';
+import { MergeTasks, ReleaseTask } from '#src/screens/TaskReleaseMerge.tsx';
 
 const CLOSED = ['done', 'discarded'];
 

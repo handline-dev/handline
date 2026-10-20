@@ -1,6 +1,6 @@
 // What a task looks like right after the person's verb, before the daemon has answered: the pure half of an optimistic task write.
 import type { Task } from '@handline/client';
-import { shortSpan } from './time.ts';
+import { shortSpan } from '#src/time.ts';
 
 export type TaskVerb = 'done' | 'queue' | 'draft' | 'edit' | 'reopen' | 'release' | 'withdraw' | 'cancel';
 export interface TaskEdit {

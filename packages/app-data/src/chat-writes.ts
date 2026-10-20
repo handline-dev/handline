@@ -1,13 +1,13 @@
 // The chat writes as cache edits. A send shows its row at once and, if refused, keeps it as `failed` with its text, so nothing typed is lost;
 // a refused one is put back.
 import type { ChatMessage, Receipt } from '@handline/client';
-import { knownAttachments } from './attachments.ts';
-import { classify, sentence } from './errors.ts';
-import { edit, mapPages, provisionalId, type Ctx, type Pages } from './cache.ts';
-import { qk } from './reads.ts';
-import { forgetOperation, laterReceipt, rememberOperation } from './send-ops.ts';
-import { patchMessage, type MsgPage, type TrPage } from './chat-events.ts';
-import type { WriteSpec } from './write-spec.ts';
+import { knownAttachments } from '#src/attachments.ts';
+import { classify, sentence } from '#src/errors.ts';
+import { edit, mapPages, provisionalId, type Ctx, type Pages } from '#src/cache.ts';
+import { qk } from '#src/reads.ts';
+import { forgetOperation, laterReceipt, rememberOperation } from '#src/send-ops.ts';
+import { patchMessage, type MsgPage, type TrPage } from '#src/chat-events.ts';
+import type { WriteSpec } from '#src/write-spec.ts';
 
 const allChats = (d: string) => [['d', d, 'chat-messages'] as const];
 

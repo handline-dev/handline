@@ -1,4 +1,4 @@
-import type { InputHolder, Notifications, Row, TerminalSnapshot } from './protocol.ts';
+import type { InputHolder, Notifications, Row, TerminalSnapshot } from '#src/protocol.ts';
 
 /** A row's colour runs; empty for a text attach or a plain row. */
 export type Spans = NonNullable<Row['spans']>;

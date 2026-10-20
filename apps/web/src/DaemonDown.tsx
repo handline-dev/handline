@@ -1,6 +1,6 @@
 // Shown above the page while the daemon is not reachable: says so, and what to do about it.
 import { useConnection } from '@handline/app-react';
-import { Icon } from './ui/index.ts';
+import { Icon } from '#src/ui/index.ts';
 
 export function DaemonDown() {
   const conn = useConnection();

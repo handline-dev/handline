@@ -4,10 +4,10 @@ import { FlatList, Text } from 'react-native';
 import { agentTasks, CLOSED, dueOf, taskRef } from '@handline/app-core';
 import { useAgentTasks, useServes } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { ListRow } from './parts.tsx';
-import { Loadable } from './Loadable.tsx';
-import { Detail } from './Tasks.tsx';
+import { usePalette } from '#src/theme.ts';
+import { ListRow } from '#src/screens/parts.tsx';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { Detail } from '#src/screens/Tasks.tsx';
 
 export function AgentTasks({ agent }: { agent: string }) {
   const c = usePalette();

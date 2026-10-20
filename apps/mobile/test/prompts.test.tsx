@@ -1,7 +1,7 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import type { Prompt } from '@handline/client';
-import { ARCH, $, mount, press, text, until } from './harness.tsx';
+import { ARCH, $, mount, press, text, until } from '#test/harness.tsx';
 
 const prompt = (p: Partial<Prompt>): Prompt => ({
   id: 'p1',

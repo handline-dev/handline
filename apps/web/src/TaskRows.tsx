@@ -2,10 +2,10 @@
 import { idleText, isOver, isPerson, timeoutText, taskRef, watchResult, type RowVerb } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useStore } from '@handline/app-react';
-import { goTasks } from './route.ts';
-import { AnimatedCell, AnimatedRow } from './AnimatedList.tsx';
-import { StateChip } from './taskui.tsx';
-import { RowMenu, type Cans } from './TaskVerbUi.tsx';
+import { goTasks } from '#src/route.ts';
+import { AnimatedCell, AnimatedRow } from '#src/AnimatedList.tsx';
+import { StateChip } from '#src/taskui.tsx';
+import { RowMenu, type Cans } from '#src/TaskVerbUi.tsx';
 
 const CHIP = 'inline-block max-w-full truncate rounded-pill border border-line px-2 text-hint leading-5 align-middle';
 

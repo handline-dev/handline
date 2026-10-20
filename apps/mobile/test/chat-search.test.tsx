@@ -1,7 +1,7 @@
 // Search above the phone's Chat against the fake daemon: hits as rows, a tap lands on the message, an empty result says so.
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { $, ARCH, mount, press, sleep, text, until } from './harness.tsx';
+import { $, ARCH, mount, press, sleep, text, until } from '#test/harness.tsx';
 
 async function open(prepare?: Parameters<typeof mount>[0]) {
   const m = await mount(prepare);

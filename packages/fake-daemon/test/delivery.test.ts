@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { type RpcError } from '@handline/client';
-import { setup } from '../src/helpers.ts';
-import type { Script } from '../src/script.ts';
+import { setup } from '#src/helpers.ts';
+import type { Script } from '#src/script.ts';
 
 const AUD = 'handline.auditor'; // a structured session
 const TERM = 'handline.term-build'; // a terminal agent

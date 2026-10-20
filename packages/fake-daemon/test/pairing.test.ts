@@ -9,8 +9,8 @@ import type { AddressInfo } from 'node:net';
 import type { RpcError } from '@handline/client';
 import { DaemonClient, listenerUrl, parsePairingUri, redeemPairing } from '@handline/client';
 import { pinnedWebSocketTransport } from '@handline/client-node';
-import { FakeDaemon } from '../src/daemon.ts';
-import { serveWs } from '../src/serve.ts';
+import { FakeDaemon } from '#src/daemon.ts';
+import { serveWs } from '#src/serve.ts';
 
 /** One self-signed certificate for the whole file: generating a key per test made a loaded run spend its 10 s file budget in openssl. */
 let identity: { cert: Buffer; key: Buffer } | null | undefined;

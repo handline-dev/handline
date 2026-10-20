@@ -5,23 +5,23 @@ import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, 
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { space } from '@handline/tokens';
-import { TerminalPane } from './TerminalPane.tsx';
-import { usePalette } from '../theme.ts';
-import { useHistoryValue } from '../history.tsx';
-import { StateMark } from './StateMark.tsx';
-import { AgentSettings } from './AgentSettings.tsx';
-import { AgentStrip } from './AgentStrip.tsx';
-import { AgentFile } from './AgentFile.tsx';
-import { AgentPreview } from './AgentPreview.tsx';
-import { AgentTasks } from './AgentTasks.tsx';
-import { Icon, type IconName } from './Icon.tsx';
-import { Activity } from './Activity.tsx';
-import { AgentVerbs } from './AgentVerbs.tsx';
-import { Chat } from './Chat.tsx';
-import { Loadable } from './Loadable.tsx';
-import { PromptSlot } from './PromptCard.tsx';
-import { Transcript } from './Transcript.tsx';
-import { AboveKeyboard, Button, Row } from './parts.tsx';
+import { TerminalPane } from '#src/screens/TerminalPane.tsx';
+import { usePalette } from '#src/theme.ts';
+import { useHistoryValue } from '#src/history.tsx';
+import { StateMark } from '#src/screens/StateMark.tsx';
+import { AgentSettings } from '#src/screens/AgentSettings.tsx';
+import { AgentStrip } from '#src/screens/AgentStrip.tsx';
+import { AgentFile } from '#src/screens/AgentFile.tsx';
+import { AgentPreview } from '#src/screens/AgentPreview.tsx';
+import { AgentTasks } from '#src/screens/AgentTasks.tsx';
+import { Icon, type IconName } from '#src/screens/Icon.tsx';
+import { Activity } from '#src/screens/Activity.tsx';
+import { AgentVerbs } from '#src/screens/AgentVerbs.tsx';
+import { Chat } from '#src/screens/Chat.tsx';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { PromptSlot } from '#src/screens/PromptCard.tsx';
+import { Transcript } from '#src/screens/Transcript.tsx';
+import { AboveKeyboard, Button, Row } from '#src/screens/parts.tsx';
 
 /** What a start, stop or interrupt in flight on this agent says while the daemon decides. */
 function useAgentMark(agent: string): string | null {

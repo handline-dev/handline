@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { OpenDeps } from './open.ts';
+import type { OpenDeps } from '#src/open.ts';
 
 const run = (cwd: string, args: string[]): Promise<Buffer | null> =>
   new Promise((resolve) =>

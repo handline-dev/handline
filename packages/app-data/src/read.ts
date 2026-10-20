@@ -4,8 +4,8 @@ import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react
 import { hashNumbers } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { CallParams, InboxItem, Methods } from '@handline/client';
-import { useData, useFeed, useServes } from './provider.ts';
-import { keyOf, reads, type ReadMethod, type ReadSpec } from './reads.ts';
+import { useData, useFeed, useServes } from '#src/provider.ts';
+import { keyOf, reads, type ReadMethod, type ReadSpec } from '#src/reads.ts';
 
 export const SNAPSHOT_STALE_MS = 30_000;
 

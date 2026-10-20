@@ -2,7 +2,7 @@
 // hello reply and the replay of a write read.
 import type { Caller, Role, Topic } from '@handline/contract';
 import type { Transport } from '@handline/client';
-import type { Attach } from './session.ts';
+import type { Attach } from '#src/session.ts';
 
 export const TERMINAL_CAPS = { terminal_format: ['text', 'bytes', 'styled'], terminal_hosts: { fake: ['text', 'bytes', 'styled'] } };
 export const TEXT_CAPS = { terminal_format: ['text'], terminal_hosts: { fake: ['text'] } };

@@ -1,8 +1,8 @@
 // The pane workspace of docs/web-main-view.md §4: tab groups in a split tree. Data and pure functions only (no React, no DOM),
 // so web and mobile share it and Node tests drive it. A refused move returns null; every other function returns the next workspace.
 import { breakpoints } from '@handline/tokens';
-import type { KV } from './model.ts';
-import { detach, group, groupOf, groupsOf, replaceGroup } from './layout-tree.ts';
+import type { KV } from '#src/model.ts';
+import { detach, group, groupOf, groupsOf, replaceGroup } from '#src/layout-tree.ts';
 
 export { groupOf, groupsOf };
 

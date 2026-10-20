@@ -1,6 +1,6 @@
 // The pairing codes and device tokens of the fake daemon: `device.pair` issues a code, `device.redeem` trades it for a token.
 import crypto from 'node:crypto';
-import { badRequest, refused } from './errors.ts';
+import { badRequest, refused } from '#src/errors.ts';
 
 type Accepted = (said: string, extra: Record<string, unknown>) => unknown;
 

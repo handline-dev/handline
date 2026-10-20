@@ -1,10 +1,10 @@
 // The fake daemon's workroom: worktree.set_status, which labels a row of the admin surface's worktrees, and agent.create, a long-running
 // operation that registers an agent, makes its worktree and starts it, reported on the operations topic.
 import type { Operation, Repo, Timestamp } from '@handline/contract';
-import { AGENTS, type AgentFixture } from './fixtures.ts';
-import { Failure, invalidParams, refused } from './errors.ts';
-import { newSession, view, type Session } from './session.ts';
-import type { FakeWorktrees } from './worktrees.ts';
+import { AGENTS, type AgentFixture } from '#src/fixtures.ts';
+import { Failure, invalidParams, refused } from '#src/errors.ts';
+import { newSession, view, type Session } from '#src/session.ts';
+import type { FakeWorktrees } from '#src/worktrees.ts';
 
 /** What the workroom needs of the daemon that hosts it: its topics, its agents and the repos and worktrees of its admin surface. */
 interface Host {

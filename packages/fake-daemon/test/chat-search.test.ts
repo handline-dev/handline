@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { type RpcError } from '@handline/client';
-import { setup } from '../src/helpers.ts';
+import { setup } from '#src/helpers.ts';
 
 test('chat.search finds a message by text, and refuses a limit that is not a positive integer', async () => {
   const { client } = setup();

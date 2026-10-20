@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RpcError } from '@handline/client';
-import { $, mount, press, until } from './harness.tsx';
+import { $, mount, press, until } from '#test/harness.tsx';
 import type { setup } from '@handline/fake-daemon/helpers';
 
 const AUD = 'handline.auditor'; // the fake daemon plays it as a structured session

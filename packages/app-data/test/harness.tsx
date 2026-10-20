@@ -4,7 +4,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import { DaemonProvider } from '@handline/app-react';
 import { Store } from '@handline/app-core';
 import { METHODS, RpcError, type DaemonClient, type Event as WireEvent } from '@handline/client';
-import { DataProvider, makeQueryClient, type BoxComponent } from '../src/index.ts';
+import { DataProvider, makeQueryClient, type BoxComponent } from '#src/index.ts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

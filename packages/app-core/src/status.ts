@@ -1,6 +1,6 @@
 // The one status label: what an agent or task is doing and why, from the daemon's `status` field (x-status). Every screen shows `text` as it is.
 import type { Status } from '@handline/client';
-import type { Dot } from './model.ts';
+import type { Dot } from '#src/model.ts';
 
 /** The rail dot for a status: waiting on a person is "waiting", on a clock is "parked", any other wait or a stop is "blocked". Words it does not know give null. */
 export function dotOfStatus(s: Pick<Status, 'state' | 'reason'>): Dot | null {

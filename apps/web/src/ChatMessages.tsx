@@ -6,12 +6,12 @@ import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { type TaskChange, clockTime, isPerson, landingLabel, openTask, restartCause, sideOf, taskRow, tickLevel } from '@handline/app-core';
 import { useChatActions, useWrite } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
-import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
-import { Pictures } from './ChatAttach.tsx';
-import { Markdown } from './Markdown.tsx';
-import { RichText } from './RichText.tsx';
-import { useWorkspace } from './Workspace.tsx';
+import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from '#src/ui/index.ts';
+import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from '#src/msgClass.ts';
+import { Pictures } from '#src/ChatAttach.tsx';
+import { Markdown } from '#src/Markdown.tsx';
+import { RichText } from '#src/RichText.tsx';
+import { useWorkspace } from '#src/Workspace.tsx';
 
 /** A plain click on a task link opens the task in the workspace; a modified or middle click keeps the browser's own. */
 export const openTaskOnClick = (apply: ReturnType<typeof useWorkspace>['apply'], task: number) => (e: MouseEvent) => {

@@ -4,13 +4,13 @@ import { useRef, useState } from 'react';
 import type { KV, Verb } from '@handline/app-core';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { useAgents, useChatActions } from '@handline/app-data';
-import { setting } from './daemon.ts';
-import { menuOf, useEntries, useOpenTerminal, type Entry, type MenuKind } from './ChatMenus.tsx';
-import { VerbSheet } from './AgentVerbs.tsx';
-import { useScreenKeys, type KeyRows } from './screenKeys.ts';
-import { useCan } from './taskui.tsx';
-import { AttachChips, attachHandlers, PickButton, useAttachDraft } from './ChatAttach.tsx';
-import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow, sendKey } from './ui/index.ts';
+import { setting } from '#src/daemon.ts';
+import { menuOf, useEntries, useOpenTerminal, type Entry, type MenuKind } from '#src/ChatMenus.tsx';
+import { VerbSheet } from '#src/AgentVerbs.tsx';
+import { useScreenKeys, type KeyRows } from '#src/screenKeys.ts';
+import { useCan } from '#src/taskui.tsx';
+import { AttachChips, attachHandlers, PickButton, useAttachDraft } from '#src/ChatAttach.tsx';
+import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow, sendKey } from '#src/ui/index.ts';
 
 const COMPOSE_KEYS: KeyRows = [
   ['Enter', 'send the message'],

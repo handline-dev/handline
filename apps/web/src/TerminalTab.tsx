@@ -3,9 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 import type { AgentDetail, TerminalView } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { Skeleton, useWrite } from '@handline/app-data';
-import { Button } from './ui/index.ts';
-import { fontFor } from './terminal/core.ts';
-import { drawRows } from './terminal/spans.ts';
+import { Button } from '#src/ui/index.ts';
+import { fontFor } from '#src/terminal/core.ts';
+import { drawRows } from '#src/terminal/spans.ts';
 
 export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const store = useStore();

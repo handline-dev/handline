@@ -10,8 +10,8 @@ import Image from '@tiptap/extension-image';
 import type { Attachment } from '@handline/client';
 import { imageRef, insertImageRef } from '@handline/app-core';
 import { classify, sentence, useUploadImage, whyNotImage } from '@handline/app-data';
-import { AttachmentImage } from './AttachmentImage.tsx';
-import { forEditor, keepTyped } from './bodyMarkdown.ts';
+import { AttachmentImage } from '#src/AttachmentImage.tsx';
+import { forEditor, keepTyped } from '#src/bodyMarkdown.ts';
 
 const idOf = (src: unknown) => /^attachment:(.+)$/.exec(String(src ?? ''))?.[1];
 

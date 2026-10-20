@@ -1,6 +1,6 @@
 // The numbers the Stats and Home settings pages show and the text they accept: bar colours, durations, and the two fields that change units
 // or may be cleared. Pure.
-import type { PageSettings } from './shell.ts';
+import type { PageSettings } from '#src/shell.ts';
 
 /** The bridge's gauge bands (`gauge.py`): from 60% a bar warns, from 85% it fails. */
 export type Band = 'ok' | 'warn' | 'bad';

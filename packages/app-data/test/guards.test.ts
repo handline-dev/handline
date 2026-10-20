@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { NOT_FROM_UI, NOT_QUERIES, PAIRING, reads, writes, keyOf } from '../src/index.ts';
+import { NOT_FROM_UI, NOT_QUERIES, PAIRING, reads, writes, keyOf } from '#src/index.ts';
 
 const repo = path.resolve(import.meta.dirname, '../../..');
 const protocol = JSON.parse(fs.readFileSync(path.join(repo, 'contract/protocol.json'), 'utf8')) as {

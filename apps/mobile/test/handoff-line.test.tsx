@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { ARCH, $, mount, press, text, until } from './harness.tsx';
+import { ARCH, $, mount, press, text, until } from '#test/harness.tsx';
 
 const set = new Set<{ view?: unknown }>();
 afterEach(() => {

@@ -6,12 +6,12 @@ import { activity, clockTime, shortName, type TimelineEntry } from '@handline/ap
 import { useChat } from '@handline/app-data';
 import type { TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
-import { Skeleton } from '../skeleton.tsx';
-import { usePalette } from '../theme.ts';
-import { ChatEmpty } from './Chat.tsx';
-import { SessionMark } from './ChatLines.tsx';
-import { Icon } from './Icon.tsx';
-import { Button, Row } from './parts.tsx';
+import { Skeleton } from '#src/skeleton.tsx';
+import { usePalette } from '#src/theme.ts';
+import { ChatEmpty } from '#src/screens/Chat.tsx';
+import { SessionMark } from '#src/screens/ChatLines.tsx';
+import { Icon } from '#src/screens/Icon.tsx';
+import { Button, Row } from '#src/screens/parts.tsx';
 
 const FILTERS = ['All', 'Messages', 'Tasks', 'Sessions', 'Tools'] as const;
 type Filter = (typeof FILTERS)[number];

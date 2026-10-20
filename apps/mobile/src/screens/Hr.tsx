@@ -24,10 +24,10 @@ import type { Proposal } from '@handline/client';
 import { useOnce, useStore } from '@handline/app-react';
 import { classify, sentence, useAgentDetail, useAgents, useHr, usePending, useServes, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Loadable } from './Loadable.tsx';
-import { Button, Card as Panel } from './parts.tsx';
-import { useWhyNot } from './TaskActions.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { Button, Card as Panel } from '#src/screens/parts.tsx';
+import { useWhyNot } from '#src/screens/TaskActions.tsx';
 
 /** How many proposals wait on the founder; 0 while the list is not here or not served. */
 export const useHrCount = (): number => waitingCount(useHr().data?.proposals ?? []);

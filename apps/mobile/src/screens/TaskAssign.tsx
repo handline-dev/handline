@@ -5,9 +5,9 @@ import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
 import { classify, sentence, useAgents, useTeam, useWrite } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Pill } from './parts.tsx';
-import { Sheet, useWhyNot } from './TaskActions.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Pill } from '#src/screens/parts.tsx';
+import { Sheet, useWhyNot } from '#src/screens/TaskActions.tsx';
 
 /** Anyone can hand an open task to someone else: who it can go to, in the web's groups. */
 export function AssignTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {

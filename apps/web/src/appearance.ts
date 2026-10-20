@@ -1,5 +1,5 @@
 import type { KV } from '@handline/app-core';
-import { setting } from './daemon.ts';
+import { setting } from '#src/daemon.ts';
 
 export type Theme = 'system' | 'dark' | 'light';
 

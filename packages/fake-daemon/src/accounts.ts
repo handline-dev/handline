@@ -1,6 +1,6 @@
 // The fake daemon's accounts: gauges, who is on each, and the settings the page edits, on the accounts topic.
 import type { Account, Timestamp } from '@handline/contract';
-import { Failure, invalidParams } from './errors.ts';
+import { Failure, invalidParams } from '#src/errors.ts';
 
 /** The code a test daemon's login takes as right; any other ends the login failed. */
 export const GOOD_LOGIN_CODE = 'good-code';

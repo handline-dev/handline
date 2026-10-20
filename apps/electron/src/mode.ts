@@ -3,7 +3,7 @@
 // remote pairing live in one small file in the app's data folder, readable by this user only (it holds a device token).
 import fs from 'node:fs';
 import path from 'node:path';
-import { once } from './pair.ts';
+import { once } from '#src/pair.ts';
 import {
   isTailscaleHost,
   listenerUrl,

@@ -2,11 +2,11 @@
 import { waitingCount, taskRef } from '@handline/app-core';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useHr, useServes, useTeamBoard } from '@handline/app-data';
-import { HrTab } from './HrTab.tsx';
-import { TeamSeal } from './TeamSeal.tsx';
-import { Empty, Icon, PageHead, PageTitle, ScrollPage, MetaItem, MetaLine, State, TabStrip, stateOfView } from './ui/index.ts';
-import { goAgent, goTeam, useTeamRoute } from './route.ts';
-import { View } from './View.tsx';
+import { HrTab } from '#src/HrTab.tsx';
+import { TeamSeal } from '#src/TeamSeal.tsx';
+import { Empty, Icon, PageHead, PageTitle, ScrollPage, MetaItem, MetaLine, State, TabStrip, stateOfView } from '#src/ui/index.ts';
+import { goAgent, goTeam, useTeamRoute } from '#src/route.ts';
+import { View } from '#src/View.tsx';
 
 /** How many proposals wait on the founder; 0 while the list is not here or not served. */
 export const useHrCount = (): number => waitingCount(useHr().data?.proposals ?? []);

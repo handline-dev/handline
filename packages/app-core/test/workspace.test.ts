@@ -35,7 +35,7 @@ import {
   type Edge,
   type KV,
   type Workspace,
-} from '../src/index.ts';
+} from '#src/index.ts';
 
 /** Chat beside the terminal, each in its own pane: the default split by hand, without the Activity tab. */
 const two = () => closeTab(splitTab(defaultWorkspace({ terminal: 'term:a' }), 'terminal:term:a', 'g1', 'right')!, ACTIVITY);

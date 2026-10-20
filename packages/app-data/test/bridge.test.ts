@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Event as WireEvent } from '@handline/client';
-import { applyEvent, createBridge, qk, resync, writes, type Ctx } from '../src/index.ts';
+import { applyEvent, createBridge, qk, resync, writes, type Ctx } from '#src/index.ts';
 
 const D = 'd1';
 let qc: QueryClient;

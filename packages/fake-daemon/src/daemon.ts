@@ -15,26 +15,26 @@ import {
   type Topic,
 } from '@handline/contract';
 import type { Transport } from '@handline/client';
-import { AGENTS, seedChat } from './fixtures.ts';
-import { FakeAccounts } from './accounts.ts';
-import { FakeAdmin } from './admin.ts';
-import { FakePairing } from './pairing.ts';
-import { FakeInbox } from './inbox.ts';
-import { FakeWork } from './workroom.ts';
-import { FakeTasks, taskCall } from './tasks.ts';
-import { FakeAttachments } from './attachments.ts';
-import { chatMethod, FakeChat } from './chat.ts';
-import { HANDLERS } from './handlers.ts';
-import { Script } from './script.ts';
-import { Failure, badRequest, refused } from './errors.ts';
-import { Knobs } from './knobs.ts';
-import { TERMINAL_CAPS, TEXT_CAPS, UNKEPT, type Body, type Conn, type FakeDaemonOptions } from './conn.ts';
+import { AGENTS, seedChat } from '#src/fixtures.ts';
+import { FakeAccounts } from '#src/accounts.ts';
+import { FakeAdmin } from '#src/admin.ts';
+import { FakePairing } from '#src/pairing.ts';
+import { FakeInbox } from '#src/inbox.ts';
+import { FakeWork } from '#src/workroom.ts';
+import { FakeTasks, taskCall } from '#src/tasks.ts';
+import { FakeAttachments } from '#src/attachments.ts';
+import { chatMethod, FakeChat } from '#src/chat.ts';
+import { HANDLERS } from '#src/handlers.ts';
+import { Script } from '#src/script.ts';
+import { Failure, badRequest, refused } from '#src/errors.ts';
+import { Knobs } from '#src/knobs.ts';
+import { TERMINAL_CAPS, TEXT_CAPS, UNKEPT, type Body, type Conn, type FakeDaemonOptions } from '#src/conn.ts';
 
 export type { FakeDaemonOptions };
-import { Replies } from './replies.ts';
-import { FakeTranscript } from './transcript.ts';
-import { watcherNotice } from './watchers.ts';
-import { accountsReply, byTerminal, detail, statusReply, newSession, tid, view, type Session } from './session.ts';
+import { Replies } from '#src/replies.ts';
+import { FakeTranscript } from '#src/transcript.ts';
+import { watcherNotice } from '#src/watchers.ts';
+import { accountsReply, byTerminal, detail, statusReply, newSession, tid, view, type Session } from '#src/session.ts';
 
 export class FakeDaemon {
   readonly sessions = new Map<string, Session>();

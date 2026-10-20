@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pinnedTransport } from '../src/pinned-transport.ts';
-import type { PinnedSocketNative } from '../modules/pinned-socket/index.ts';
+import { pinnedTransport } from '#src/pinned-transport.ts';
+import type { PinnedSocketNative } from '#modules/pinned-socket/index.ts';
 
 /** The native module's contract, in memory: events by connection id, a pin that must match. */
 function fakeNative(goodPin: string) {

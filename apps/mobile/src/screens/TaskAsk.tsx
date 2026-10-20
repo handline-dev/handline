@@ -4,9 +4,9 @@ import { taskRef } from '@handline/app-core';
 import type { TaskDetail } from '@handline/client';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Input, Sheet } from './TaskActions.tsx';
-import { Pill } from './parts.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Input, Sheet } from '#src/screens/TaskActions.tsx';
+import { Pill } from '#src/screens/parts.tsx';
 
 /** Ask about a task: pick whom (the daemon's people for it) and type the question; the sheet keeps both until the daemon accepts. */
 export function AskAbout({ t, onClose }: { t: TaskDetail; onClose: () => void }) {

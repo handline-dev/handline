@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { RpcError } from '@handline/client';
-import { setup } from '../src/helpers.ts';
+import { setup } from '#src/helpers.ts';
 
 const AUD = 'handline.auditor'; // a structured session, idle
 const rejected = (gate: string) => (e: RpcError) => e.code === 'refused' && e.gate === gate;

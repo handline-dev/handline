@@ -15,8 +15,8 @@ import {
   writes,
   type Key,
   type WriteMethod,
-} from '../src/index.ts';
-import { DAEMON as D, mount, openStore, probe, refuse, sleep, stubClient, unmount, until } from './harness.tsx';
+} from '#src/index.ts';
+import { DAEMON as D, mount, openStore, probe, refuse, sleep, stubClient, unmount, until } from '#test/harness.tsx';
 
 afterEach(unmount);
 const ARCH = 'handline.architect';

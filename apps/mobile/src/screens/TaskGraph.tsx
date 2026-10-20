@@ -8,8 +8,8 @@ import { useStore } from '@handline/app-react';
 import type { Task } from '@handline/client';
 import { toneOf, type Tone } from '@handline/app-ui';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Button } from './parts.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Button } from '#src/screens/parts.tsx';
 
 export function TaskGraph(props: { tasks: readonly Task[]; onSelect: (id: number) => void }) {
   const c = usePalette();

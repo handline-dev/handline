@@ -1,7 +1,7 @@
 import type { Account } from '@handline/client';
-import { edit } from './cache.ts';
-import { qk } from './reads.ts';
-import type { WriteSpec } from './write-spec.ts';
+import { edit } from '#src/cache.ts';
+import { qk } from '#src/reads.ts';
+import type { WriteSpec } from '#src/write-spec.ts';
 
 // The daemon sends no event for a removed account, so the confirmed removal takes the row out itself (a dry run changes nothing).
 export const accountRemove: WriteSpec = {

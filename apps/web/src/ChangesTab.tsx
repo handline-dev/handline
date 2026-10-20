@@ -2,9 +2,9 @@
 import { useState } from 'react';
 import type { AgentDetail } from '@handline/client';
 import { useServes, useWorktreeDiff, useWorktrees } from '@handline/app-data';
-import { Button, Icon, MenuButton, MenuItem } from './ui/index.ts';
-import { shell } from './shell.ts';
-import { View } from './View.tsx';
+import { Button, Icon, MenuButton, MenuItem } from '#src/ui/index.ts';
+import { shell } from '#src/shell.ts';
+import { View } from '#src/View.tsx';
 
 const STATUS: Record<string, string> = { M: 'Modified', A: 'Added', D: 'Deleted', R: 'Renamed', '?': 'Untracked' };
 

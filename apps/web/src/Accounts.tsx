@@ -4,13 +4,13 @@ import { STATE_WORD, outUntil, stateOf, span, dateTime } from '@handline/app-cor
 import type { Account } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { classify, sentence, useAccountUsage, useAccounts, useAgents, useServes, useWrite } from '@handline/app-data';
-import { AccountLogin } from './AccountLogin.tsx';
-import { AccountSettings } from './AccountSettings.tsx';
-import { Gauge, useNow } from './Gauge.tsx';
-import { StatsSection } from './Stats.tsx';
-import { goAgent, useHistoryValue } from './route.ts';
-import { Button, Card, Dialog, Field, Icon, NOTE, ScrollPage, PageHead, PageTitle, TabStrip, type IconName } from './ui/index.ts';
-import { View } from './View.tsx';
+import { AccountLogin } from '#src/AccountLogin.tsx';
+import { AccountSettings } from '#src/AccountSettings.tsx';
+import { Gauge, useNow } from '#src/Gauge.tsx';
+import { StatsSection } from '#src/Stats.tsx';
+import { goAgent, useHistoryValue } from '#src/route.ts';
+import { Button, Card, Dialog, Field, Icon, NOTE, ScrollPage, PageHead, PageTitle, TabStrip, type IconName } from '#src/ui/index.ts';
+import { View } from '#src/View.tsx';
 
 const TABS = ['Overview', 'Agents', 'Settings'] as const;
 
