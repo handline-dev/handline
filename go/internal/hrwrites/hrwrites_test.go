@@ -953,6 +953,18 @@ func TestProposeRenameTeamAndBundleAreDraftedAsHrPyDraftsThem(t *testing.T) {
 	}
 }
 
+func TestAPairedDeviceSetsAnotherAgentsModelAndEffort(t *testing.T) {
+	r := newRig(t)
+	r.device = "dev-1"
+	res := r.call("agent.set", `{"agent":"alice","values":{"model":"opus","effort":"high"},"request_id":"dev-set"}`)
+	if got, _ := res["result"].(map[string]any); got["accepted"] != true {
+		t.Fatalf("a paired device set model and effort: %v", res)
+	}
+	if all := r.file("agents", "alice", "agent.yaml") + r.file("team.yaml"); !strings.Contains(all, "opus") || !strings.Contains(all, "effort: high") {
+		t.Errorf("not written:\n%s", all)
+	}
+}
+
 // The founder's own hr add is applied at once, its approval on record as any other's, and hr.list shows it.
 // The repo is checked again when a proposal is applied: one raised before the check (a relative path) or whose checkout is gone since is
 // refused then, with nothing registered.
