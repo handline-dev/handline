@@ -1,10 +1,10 @@
 // An agent's settings page (the bridge's agent_settings.py): one column of fields that save one by one through agent.set, an authored write.
 // A text field saves on blur or Enter, a select and a switch on change; a refusal puts the value back and the field's own note says why.
 import { useState } from 'react';
-import { DANGER, FIELDS, mayChange, problemWith, type Field } from '@handline/app-core';
+import { DANGER, FIELDS, type Field } from '@handline/app-core';
 import type { AgentDetail } from '@handline/client';
 import { useStore } from '@handline/app-react';
-import { classify, sentence, useAgentDetail, usePending, useServes, useSettings, useWrite } from '@handline/app-data';
+import { useAgentDetail, useFieldRow, useServes } from '@handline/app-data';
 import { goAgent } from './route.ts';
 import { Schedules } from './Schedules.tsx';
 import {
@@ -93,39 +93,14 @@ export function SettingsView({ agent }: { agent: string }) {
 
 function FieldRow(props: { agent: string; f: Field; stored: string | undefined; editable: boolean; role: string | undefined }) {
   const { agent, f, role } = props;
-  const stored = props.stored ?? '';
-  const write = useWrite('agent.set', agent);
-  const pending = usePending('agent.set').some((v) => v.agent === agent && f.key in v.values);
-  const global = useSettings().data?.values?.handoff_note;
-  const [draft, setDraft] = useState<string | null>(null);
+  const { stored, pending, global, draft, setDraft, note, setNote, ask, setAsk, allowed, off, value, send, commit, choose, options } = useFieldRow(props);
   const [base, setBase] = useState('');
-  const [note, setNote] = useState('');
-  const [ask, setAsk] = useState<string | null>(null); // a danger switch waiting for its confirmation
-  const allowed = mayChange(f.key, role);
-  const off = !props.editable || !allowed;
-  const value = draft ?? stored;
-  const send = (v: string) => {
-    setDraft(null);
-    setNote('');
-    if (v === stored) return;
-    write.mutateAsync({ agent, values: { [f.key]: v } }).catch((e) => setNote(sentence(classify(e))));
-  };
-  const commit = (v: string) => {
-    const problem = problemWith(f, v);
-    if (problem) return setNote(`${f.label}: ${problem}`);
-    send(f.kind === 'number' ? String(Number(v)) : v.trim());
-  };
   const edit = (v: string) => {
     if (draft === null) setBase(stored);
     setDraft(v);
     setNote('');
   };
-  const choose = (v: string) => {
-    if (f.kind === 'switch' && DANGER[f.key]?.to === v) return setAsk(v);
-    send(v);
-  };
   // Two or three options sit in one segmented control, more in a select with a chevron.
-  const options = f.kind === 'select' ? (f.options!.includes(value) ? f.options! : [value, ...f.options!]) : [];
   const control = () => {
     if (f.kind === 'select' && options.length <= 3)
       return (

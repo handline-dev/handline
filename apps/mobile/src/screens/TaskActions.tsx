@@ -172,6 +172,25 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       () => setAsk(null),
       () => {},
     );
+  const reasons: Partial<Record<Exclude<Ask, null>, Omit<Parameters<typeof ReasonSheet>[0], 'onCancel' | 'onSubmit'> & { send: (text: string) => Promise<unknown> }>> = {
+    done: { label: 'done: what came of it?', submit: 'Done', required: true, send: (evidence) => done.mutateAsync({ task: t.id, evidence, reason: true }) },
+    reopen: { label: 'reopen: why?', submit: 'Reopen', required: true, send: (note) => reopen.mutateAsync({ task: t.id, note }) },
+    cancel: {
+      label: running ? `stop ${taskRef(t.id)}? why (optional):` : `cancel ${taskRef(t.id)}? why (optional):`,
+      submit: running ? 'Stop it' : 'Cancel task',
+      kind: 'no',
+      required: false,
+      send: (reason) => cancel.mutateAsync({ task: t.id, reason: reason || undefined }),
+    },
+    discard: {
+      label: running ? `stop ${taskRef(t.id)} and discard it? why:` : `discard ${taskRef(t.id)}? why:`,
+      submit: 'Discard',
+      kind: 'no',
+      required: true,
+      send: (reason) => discard.mutateAsync({ task: t.id, reason }),
+    },
+  };
+  const reason = ask ? reasons[ask] : undefined;
   const verb = (id: string, label: string, why: string | null, to: Ask) => (
     <Button key={id} testID={`verb-${id}`} label={label} disabled={!!why || ask !== null} onPress={() => (setMenu(null), setAsk(to))} />
   );
@@ -216,24 +235,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
         </View>
       )}
       {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: 12 }}>{Object.values(off).find(Boolean)}</Text>}
-      {ask === 'done' && (
-        <ReasonSheet
-          label="done: what came of it?"
-          submit="Done"
-          required
-          onCancel={() => setAsk(null)}
-          onSubmit={(evidence) => settle(done.mutateAsync({ task: t.id, evidence, reason: true }))}
-        />
-      )}
-      {ask === 'reopen' && (
-        <ReasonSheet
-          label="reopen: why?"
-          submit="Reopen"
-          required
-          onCancel={() => setAsk(null)}
-          onSubmit={(note) => settle(reopen.mutateAsync({ task: t.id, note }))}
-        />
-      )}
+      {reason && <ReasonSheet {...reason} onCancel={() => setAsk(null)} onSubmit={(text) => settle(reason.send(text))} />}
       {ask === 'withdraw' && (
         <Sheet
           label={`withdraw ${taskRef(t.id)}?`}
@@ -244,26 +246,6 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
         >
           <Text style={{ color: c.muted }}>Takes the task back before anyone has started it.</Text>
         </Sheet>
-      )}
-      {ask === 'cancel' && (
-        <ReasonSheet
-          label={running ? `stop ${taskRef(t.id)}? why (optional):` : `cancel ${taskRef(t.id)}? why (optional):`}
-          submit={running ? 'Stop it' : 'Cancel task'}
-          kind="no"
-          required={false}
-          onCancel={() => setAsk(null)}
-          onSubmit={(reason) => settle(cancel.mutateAsync({ task: t.id, reason: reason || undefined }))}
-        />
-      )}
-      {ask === 'discard' && (
-        <ReasonSheet
-          label={running ? `stop ${taskRef(t.id)} and discard it? why:` : `discard ${taskRef(t.id)}? why:`}
-          submit="Discard"
-          kind="no"
-          required
-          onCancel={() => setAsk(null)}
-          onSubmit={(reason) => settle(discard.mutateAsync({ task: t.id, reason }))}
-        />
       )}
       {ask === 'ask' && <AskAbout t={t} onClose={() => setAsk(null)} />}
       {ask === 'release' && <ReleaseTask t={t} onClose={() => setAsk(null)} />}
