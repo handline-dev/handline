@@ -12,6 +12,8 @@ export class FakeHr {
   readonly proposals: Proposal[] = [];
   /** Approving a proposal in this set fails to apply: it comes back apply_failed with this error. */
   readonly failApply = new Map<number, string>();
+  /** Files edited by hand and not yet sealed: team.seal lists them in a dry run and seals them. */
+  readonly unsealed = ['team.yaml: changed (it did not match its seal)', 'handline.new-builder/agent.yaml: new (no seal before)'];
   private host: Host;
   constructor(host: Host) {
     this.host = host;
@@ -63,6 +65,13 @@ export const HR_HANDLERS: Record<string, (h: Call) => unknown> = {
     else if (hr.failApply.has(prop.id)) hr.settle(prop, 'apply_failed', hr.failApply.get(prop.id), note);
     else hr.settle(prop, 'approved', null, note);
     return script.accepted('Decided.');
+  },
+  'team.seal': ({ p, script }) => {
+    const { unsealed } = script.hr;
+    if (p.dry_run) return { ok: true, plan: unsealed.length ? unsealed.join('\n') : 'nothing needs sealing' };
+    const said = unsealed.length ? `sealed ${unsealed.length} files` : 'nothing needed sealing';
+    unsealed.length = 0;
+    return { ok: true, said };
   },
   'hr.withdraw': (h) => {
     const { p, script } = h;

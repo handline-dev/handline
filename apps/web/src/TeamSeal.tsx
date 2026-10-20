@@ -49,7 +49,12 @@ export function TeamSeal() {
   const off = !open ? 'daemon not connected' : served ? undefined : 'this daemon does not serve team.seal';
   return (
     <>
-      <Button label="Seal…" disabled={!!off} title={off ?? 'Accept your hand edits to team.yaml and the agent files'} onClick={() => setAsking(true)} />
+      <Button
+        label="Seal…"
+        disabled={!!off}
+        title={off ?? 'Accept your hand edits to team.yaml and the agent files'}
+        onClick={() => setAsking(true)}
+      />
       {asking ? <SealDialog onClose={() => setAsking(false)} /> : null}
     </>
   );
