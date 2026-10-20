@@ -142,6 +142,9 @@ func (b *Timebox) SweepTaskTimeouts(t *Tick, now int64) {
 			continue // a terminal agent's task: the Python daemon's clock
 		}
 		tid := row.ID
+		if row.Owner == db.Gate {
+			continue // the gate sweep closes it at its deadline
+		}
 		if row.Owner == db.Human {
 			// the wait is on the founder: nothing an agent does moves it, so it is not reminded
 			check(db.RestartTaskTimeout(t.Q, tid, db.DefaultTaskTimeoutS))

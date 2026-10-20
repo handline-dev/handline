@@ -130,7 +130,7 @@ func (e *Env) taskReason(q db.Q, t *db.Task, now int64) (why, cause string, able
 			break
 		}
 	}
-	if agent == db.Human || t.Ended() || (!(t.QueuedBy.Valid && t.QueuedBy.String != "") && req == nil) {
+	if agent == db.Human || agent == db.Gate || t.Ended() || (!(t.QueuedBy.Valid && t.QueuedBy.String != "") && req == nil) {
 		return "", "", false, false
 	}
 	if blockers := must(db.TaskBlockers(q, tid)); len(blockers) > 0 {

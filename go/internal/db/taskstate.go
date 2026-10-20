@@ -59,7 +59,7 @@ func ReadsDoing(q Q, tid int64) (bool, error) {
 
 // HoldsCurrent is actions.holds_current: the task is the one its owner holds (an agent holds one at a time).
 func HoldsCurrent(q Q, t *Task) (bool, error) {
-	if t.Owner == Human {
+	if t.Owner == Human || t.Owner == Gate {
 		return true, nil
 	}
 	held, ok, err := CurrentTask(q, t.Owner)

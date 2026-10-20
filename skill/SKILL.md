@@ -30,5 +30,8 @@ that is not yet done, `hl task comment T<n> add "..."`, never a correction behin
 A done closes the task. To get a review, hand the task itself to the reviewer
 (`hl task handoff T<n> <reviewer> "<what to check>"`); the reviewer hands it back
 with findings, or on with PASS. Child tasks are for separate work, never for review.
+When you must wait, do not hold a doing task: block it on what you wait for, a
+task (`hl task edit T<n> --blocked-by T<m>`) or a PR (`hl task wait T<n> --pr <n>`:
+its CI by default, `--until closed` for its merge). It comes back to your queue when that ends.
 To show the founder a screenshot, `hl say human "..." --attach shot.png` (or `hl task comment ... --attach`); a path pasted in the text shows as plain text.
 `hl guide` lists topics, `hl guide <topic>` prints one.

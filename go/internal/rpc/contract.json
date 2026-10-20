@@ -372,6 +372,9 @@
  "task.view.save": {
   "role": "member"
  },
+ "task.wait": {
+  "role": "agent"
+ },
  "task.withdraw": {
   "role": "agent"
  },

@@ -106,6 +106,10 @@ func TestEachTaskWriteSendsItsMethodAndParams(t *testing.T) {
 		{"", []string{"task", "reopen", "T3"}, []string{`task.reopen {"task":3}`}},
 		{"", []string{"task", "handoff", "T3", "b.two"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
 		{"", []string{"task", "handoff", "T3", "b.two", "-"}, []string{`task.handoff {"note":"","task":3,"to":"b.two"}`}},
+		{"", []string{"task", "wait", "T3", "--pr", "#412", "--repo", "o/r"}, []string{
+			`task.wait {"task":3,"watch":{"target":"o/r#412","vendor":"github"}}`}},
+		{"", []string{"task", "wait", "T3", "--on", "github:o/r#7", "--until", "closed", "-t", "4h"}, []string{
+			`task.wait {"task":3,"time_box":"14400s","watch":{"target":"o/r#7","until":"closed","vendor":"github"}}`}},
 	}
 	seen := 0
 	for _, c := range cases {

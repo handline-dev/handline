@@ -23,6 +23,7 @@ const (
 	Retry      = "retry"
 	Launch     = "launch"
 	Turn       = "turn"
+	Watch      = "watch"
 	Handoff    = "handoff"
 	Background = "background"
 	You        = "you"
@@ -35,7 +36,6 @@ const (
 	Wall       = "wall"
 	Cap        = "cap"
 	Stalled    = "stalled"
-	Watch      = "watch" // a gate task's; no daemon here opens one yet
 	None       = "none"
 	Discarded  = "discarded"
 )
@@ -43,8 +43,8 @@ const (
 // States and Reasons are every word, for the test that holds them to the contract.
 var (
 	States  = []string{Preparing, Starting, Running, Waiting, Stopped, Idle, Off, Done}
-	Reasons = []string{Work, Restart, Retry, Launch, Turn, Handoff, Background, You, Opener, Task, Owner, Clock, Move, Load, Wall,
-		Cap, Stalled, Watch, None, Done, Discarded}
+	Reasons = []string{Work, Restart, Retry, Launch, Turn, Watch, Handoff, Background, You, Opener, Task, Owner, Clock, Move, Load, Wall,
+		Cap, Stalled, None, Done, Discarded}
 )
 
 // Status is one agent's or task's. Until and Since are unix seconds, 0 for none.
