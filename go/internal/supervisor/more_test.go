@@ -1,8 +1,6 @@
 package supervisor
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -111,26 +109,6 @@ func mustReq(r *rig, id int64) *db.Request {
 	row, err := db.GetRequest(r.DB, id)
 	r.must(err)
 	return row
-}
-
-func TestWriteAtomicLeavesNoTempFileAndReplaces(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "x.json")
-	for _, text := range []string{"one", "two"} {
-		if err := writeAtomic(p, text); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if b, _ := os.ReadFile(p); string(b) != "two" {
-		t.Fatalf("%q", b)
-	}
-	entries, _ := os.ReadDir(dir)
-	if len(entries) != 1 {
-		t.Fatalf("%v", entries)
-	}
-	if err := writeAtomic(filepath.Join(dir, "nowhere", "x"), "t"); err == nil {
-		t.Fatal("wrote into a missing directory")
-	}
 }
 
 func TestTheImagesFollowTheBodyAfterTheCut(t *testing.T) {

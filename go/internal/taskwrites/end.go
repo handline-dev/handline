@@ -52,28 +52,10 @@ func taskRequests(tx *sql.Tx, tid int64) ([]linked, error) {
 	return out, rows.Err()
 }
 
-// ids reads the first column of a query as numbers.
-func ids(tx *sql.Tx, q string, args ...any) ([]int64, error) {
-	rows, err := tx.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
-}
-
 const openSQL = "done_evidence IS NULL AND discarded_by IS NULL"
 
 func openChildren(tx *sql.Tx, tid int64) ([]int64, error) {
-	return ids(tx, "SELECT id FROM tasks WHERE parent_task = ? AND "+openSQL+" ORDER BY priority, id", tid)
+	return db.IDs(tx, "SELECT id FROM tasks WHERE parent_task = ? AND "+openSQL+" ORDER BY priority, id", tid)
 }
 
 // blockers are the open tasks still blocking tid (task_blockers): a done or discarded blocker no longer blocks.
@@ -184,7 +166,7 @@ func closeQueuedQuietly(tx *sql.Tx, r linked) (closed bool, err error) {
 		return false, nil
 	}
 	var tids []int64
-	if tids, err = ids(tx, "SELECT task_id FROM task_requests WHERE request_id = ?", r.ID); err != nil {
+	if tids, err = db.IDs(tx, "SELECT task_id FROM task_requests WHERE request_id = ?", r.ID); err != nil {
 		return false, err
 	}
 	for _, t := range tids {
@@ -275,7 +257,7 @@ func closeDeliveries(tx *sql.Tx, tid int64) ([]linked, []db.InboxFile, error) {
 // clearBlocksOn drops every block row naming tid after it was discarded, and for each task left with no open blocker writes the
 // notice for its owner (none for the closer's own task) (_clear_blocks_on).
 func clearBlocksOn(tx *sql.Tx, tid int64, closer, how string) ([]told, []string, error) {
-	deps, err := ids(tx, "SELECT task_id FROM task_blocks WHERE blocks_on = ? ORDER BY task_id", tid)
+	deps, err := db.IDs(tx, "SELECT task_id FROM task_blocks WHERE blocks_on = ? ORDER BY task_id", tid)
 	if err != nil {
 		return nil, nil, err
 	}

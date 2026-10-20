@@ -149,7 +149,7 @@ func (e *Env) DeliverPending(q db.Q, agent string) (sent bool, err error) {
 // messages sent minutes before a restart.
 func (e *Env) MigrateOldMessages(q db.Q) (err error) {
 	defer Catch(&err)
-	ids := must(idsOf(q, "SELECT r.id FROM requests r WHERE r.state = 'queued' AND r.kind = 'say' AND r.target != ? AND r.delivered_at IS NOT NULL "+
+	ids := must(db.IDs(q, "SELECT r.id FROM requests r WHERE r.state = 'queued' AND r.kind = 'say' AND r.target != ? AND r.delivered_at IS NOT NULL "+
 		"AND NOT EXISTS (SELECT 1 FROM operations o WHERE o.kind = 'send' AND o.agent = r.target AND o.id LIKE 'send:' || r.target || ':request:%' "+
 		"AND ',' || substr(o.id, length('send:' || r.target || ':request:') + 1) || ',' LIKE '%,' || r.id || ',%')", db.Human))
 	for _, id := range ids {

@@ -159,7 +159,7 @@ func RefreshSent(q Q, tid int64) error {
 
 // RefreshSentOfRequest is db.refresh_sent_of_request.
 func RefreshSentOfRequest(q Q, rid int64) error {
-	tids, err := ids(q, "SELECT task_id FROM task_requests WHERE request_id = ?", rid)
+	tids, err := IDs(q, "SELECT task_id FROM task_requests WHERE request_id = ?", rid)
 	if err != nil {
 		return err
 	}
@@ -263,12 +263,12 @@ func RemoveBlock(q Q, tid, blocksOn int64) (bool, error) {
 
 // BlocksOnIDs is db.blocks_on_ids: the raw edges the task itself names.
 func BlocksOnIDs(q Q, tid int64) ([]int64, error) {
-	return ids(q, "SELECT blocks_on FROM task_blocks WHERE task_id = ?", tid)
+	return IDs(q, "SELECT blocks_on FROM task_blocks WHERE task_id = ?", tid)
 }
 
 // TasksBlockedBy is db.tasks_blocked_by: every task with a block row naming tid, closed or not.
 func TasksBlockedBy(q Q, tid int64) ([]int64, error) {
-	return ids(q, "SELECT task_id FROM task_blocks WHERE blocks_on = ? ORDER BY task_id", tid)
+	return IDs(q, "SELECT task_id FROM task_blocks WHERE blocks_on = ? ORDER BY task_id", tid)
 }
 
 const openDecisionCardsSQL = "(SELECT MIN(l.request_id) FROM task_requests l JOIN tasks t ON t.id = l.task_id " +
@@ -330,7 +330,7 @@ func OpenDecisionCardIDs(q Q, agent, prefix string, body *string) ([]int64, erro
 		query += " AND body = ?"
 		args = append(args, *body)
 	}
-	return ids(q, query+" ORDER BY id", args...)
+	return IDs(q, query+" ORDER BY id", args...)
 }
 
 // TaskEdit is what EditTask writes; a nil field is left as it is. TimeoutS, given, always writes, and starts timeout_at from now only when
@@ -388,21 +388,8 @@ func EditTask(q Q, tid int64, by string, ed TaskEdit) error {
 
 // DormantBlockers are the open tasks tid waits on through a dormant block (one agent holds both ends).
 func DormantBlockers(q Q, tid int64) ([]int64, error) {
-	rows, err := q.Query("SELECT b.blocks_on FROM task_blocks b JOIN tasks t ON t.id = b.blocks_on WHERE b.task_id = ? AND b.dormant = 1 "+
+	return IDs(q, "SELECT b.blocks_on FROM task_blocks b JOIN tasks t ON t.id = b.blocks_on WHERE b.task_id = ? AND b.dormant = 1 "+
 		"AND t.discarded_by IS NULL AND t.done_evidence IS NULL ORDER BY b.blocks_on", tid)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		out = append(out, id)
-	}
-	return out, rows.Err()
 }
 
 // SyncSelfBlocks is db.sync_self_blocks, after tid changed owner from oldOwner: a wait that one agent now holds both ends of goes dormant

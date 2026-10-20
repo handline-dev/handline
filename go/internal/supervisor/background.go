@@ -109,7 +109,7 @@ func (e *Env) bgSince(q db.Q, agent string) (int64, bool) {
 // and an agent that gives one every N minutes would otherwise never be silent long enough to be told to stop, or to be stale.
 func (e *Env) bgLastShown(q db.Q, agent string) (int64, bool) {
 	since, _ := e.bgSince(q, agent)
-	checks := must(idsOf(q, "SELECT id FROM events WHERE agent = ? AND kind = 'background_checked' AND ts >= ? ORDER BY id", agent, since))
+	checks := must(db.IDs(q, "SELECT id FROM events WHERE agent = ? AND kind = 'background_checked' AND ts >= ? ORDER BY id", agent, since))
 	if len(checks) == 0 {
 		return ok2(db.LastActivity(q, agent))
 	}

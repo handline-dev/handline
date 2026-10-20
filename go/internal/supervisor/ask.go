@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/handline/handline/go/internal/atomicfile"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
@@ -94,28 +95,7 @@ func (e *Env) deliver(rid int64, requester, target, body, files, kind string, de
 	}
 	text := fmt.Sprintf("{\n  \"id\": %d,\n  \"ts\": %d,\n  \"from\": %s,\n  \"to\": %s,\n  \"kind\": %s,\n  \"chain_depth\": %d,\n  \"files\": %s,\n  \"body\": %s\n}\n",
 		rid, e.now(), rpc.PyJSON(requester, false, false), rpc.PyJSON(target, false, false), k, depth, fl, rpc.PyJSON(body, false, false))
-	return writeAtomic(filepath.Join(dir, inboxName(rid)), text)
-}
-
-func writeAtomic(path, text string) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.WriteString(text); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return nil
+	return atomicfile.Write(filepath.Join(dir, inboxName(rid)), text)
 }
 
 func (e *Env) deliverAfter(after *After, rid int64, requester, target, body, files, kind string, depth int) {
