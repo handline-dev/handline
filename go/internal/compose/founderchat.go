@@ -22,8 +22,8 @@ func (p *Parts) typedOp(agent, op string) bool {
 }
 
 // typeable is "" when the founder's words may be typed at agent now, else why not: its hooks must have said where its turn is (idle, or
-// mid-turn, where the line is queued into the turn), no person or device may hold its input, and nothing on its screen may be what a typed
-// line would answer, a shell's prompt included.
+// mid-turn, where the line is queued into the turn), no person or device may hold its input, nothing on its screen may be what a typed
+// line would answer, and its session must not have ended (as its hooks say, else no shell prompt on its screen).
 func (p *Parts) typeable(agent string) string {
 	if p.turns == nil || p.turns.State(agent) == turns.Unknown {
 		return "its turn is not known from its hooks yet"
@@ -41,7 +41,11 @@ func (p *Parts) typeable(agent string) string {
 	if b := p.LC.term.ScreenBlocker(handle); b != nil {
 		return b.Reason()
 	}
-	if s := p.LC.term.Backend.ReadScreen(handle, 40); s != nil && s.Source == "screen" && term.ShellPromptIn(s.Tail) {
+	if running, known := p.turns.Session(handle); known {
+		if !running {
+			return "its session has ended"
+		}
+	} else if s := p.LC.term.Backend.ReadScreen(handle, 40); s != nil && s.Source == "screen" && term.ShellPromptIn(s.Tail) {
 		return "a shell prompt shows, not a session"
 	}
 	return ""
