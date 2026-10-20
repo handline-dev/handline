@@ -20,3 +20,4 @@ export * from './image-drafts.ts';
 export * from './file-editor.ts';
 export * from './chat-read.ts';
 export * from './worktree-moves.ts';
+export * from './team-board.ts';

@@ -285,36 +285,32 @@ export function useTaskPending(id: number): boolean {
   return usePendingAny(TASK_WRITES).some(mine);
 }
 
-/** The fields a new task and an edited one share: owner, title, body, time box, priority. `id` prefixes the test ids. */
-function TaskFields(p: {
-  id: 'nt' | 'et';
-  owners: string[];
+interface TaskDraft {
   owner: string;
-  setOwner: (v: string) => void;
   title: string;
-  setTitle: (v: string) => void;
   body: string;
-  setBody: (v: string) => void;
   box: string;
-  setBox: (v: string) => void;
   priority: 1 | 2 | 3;
-  setPriority: (v: 1 | 2 | 3) => void;
-}) {
+}
+
+/** The fields a new task and an edited one share: owner, title, body, time box, priority. `id` prefixes the test ids. */
+function TaskFields(p: { id: 'nt' | 'et'; owners: string[]; draft: TaskDraft; change: (patch: Partial<TaskDraft>) => void }) {
   const c = usePalette();
+  const { id, draft, change } = p;
   return (
     <>
       <Text style={{ color: c.muted, fontWeight: '600' }}>Owner</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
         {p.owners.map((a) => (
-          <Pill role="radio" key={a} on={p.owner === a} label={a} onPress={() => p.setOwner(a)} testID={`${p.id}-owner-${a}`} />
+          <Pill role="radio" key={a} on={draft.owner === a} label={a} onPress={() => change({ owner: a })} testID={`${id}-owner-${a}`} />
         ))}
       </View>
-      <Input testID={`${p.id}-title`} label="Title" value={p.title} onChange={p.setTitle} />
-      <ImageBodyInput testID={`${p.id}-body`} label="Body" value={p.body} onChange={p.setBody} />
-      <Input testID={`${p.id}-box`} label="Time box" value={p.box} onChange={p.setBox} />
+      <Input testID={`${id}-title`} label="Title" value={draft.title} onChange={(title) => change({ title })} />
+      <ImageBodyInput testID={`${id}-body`} label="Body" value={draft.body} onChange={(body) => change({ body })} />
+      <Input testID={`${id}-box`} label="Time box" value={draft.box} onChange={(box) => change({ box })} />
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         {PRIORITIES.map(([n, l]) => (
-          <Pill role="radio" key={n} on={p.priority === n} label={l} onPress={() => p.setPriority(n)} testID={`${p.id}-priority-${n}`} />
+          <Pill role="radio" key={n} on={draft.priority === n} label={l} onPress={() => change({ priority: n })} testID={`${id}-priority-${n}`} />
         ))}
       </View>
     </>
@@ -327,13 +323,11 @@ export function NewTask({ onClose }: { onClose: () => void }) {
   const ask = useWrite('task.new');
   const why = useWhyNot('task.new');
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
-  const [owner, setOwner] = useState('');
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
-  const [box, setBox] = useState('2h');
-  const [priority, setPriority] = useState<1 | 2 | 3>(2);
+  const [draft, setDraft] = useState<TaskDraft>({ owner: '', title: '', body: '', box: '2h', priority: 2 });
+  const change = (patch: Partial<TaskDraft>) => setDraft((d) => ({ ...d, ...patch }));
   const [missing, setMissing] = useState('');
   const send = () => {
+    const { owner, title, body, box, priority } = draft;
     if (!owner) return setMissing('Pick who it is for.');
     if (!title.trim()) return setMissing('A task needs a title.');
     setMissing('');
@@ -343,7 +337,7 @@ export function NewTask({ onClose }: { onClose: () => void }) {
   return (
     <View testID="new-task" style={{ gap: space.md, padding: space.lg }}>
       <PageHeader bare title="New task" />
-      <TaskFields id="nt" owners={agents} {...{ owner, setOwner, title, setTitle, body, setBody, box, setBox, priority, setPriority }} />
+      <TaskFields id="nt" owners={agents} draft={draft} change={change} />
       {said ? (
         <Text testID="nt-error" accessibilityRole="alert" style={{ color: c.block }}>
           {said}
@@ -362,13 +356,11 @@ export function NewTask({ onClose }: { onClose: () => void }) {
 function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
   const edit = useWrite('task.edit');
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
-  const [title, setTitle] = useState(t.title);
-  const [body, setBody] = useState(t.body ?? '');
-  const [owner, setOwner] = useState(t.to);
-  const [box, setBox] = useState(t.time_box ?? '');
-  const [priority, setPriority] = useState<1 | 2 | 3>(t.priority ?? 2);
+  const [draft, setDraft] = useState<TaskDraft>({ owner: t.to, title: t.title, body: t.body ?? '', box: t.time_box ?? '', priority: t.priority ?? 2 });
+  const change = (patch: Partial<TaskDraft>) => setDraft((d) => ({ ...d, ...patch }));
   const [missing, setMissing] = useState('');
   const save = () => {
+    const { owner, title, body, box, priority } = draft;
     if (!title.trim()) return setMissing('A task needs a title.');
     setMissing('');
     const change = {
@@ -390,7 +382,7 @@ function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
       onSubmit={save}
       error={missing || (edit.isError ? sentence(classify(edit.error)) : undefined)}
     >
-      <TaskFields id="et" owners={[...new Set([t.to, ...agents])]} {...{ owner, setOwner, title, setTitle, body, setBody, box, setBox, priority, setPriority }} />
+      <TaskFields id="et" owners={[...new Set([t.to, ...agents])]} draft={draft} change={change} />
     </Sheet>
   );
 }
