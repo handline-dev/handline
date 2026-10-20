@@ -1,12 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { badgesOf, controlsOf, needsConfirm, shortName, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
-import type { AgentDetail, AgentView, TerminalView } from '@handline/client';
+import type { AgentDetail, AgentView } from '@handline/client';
 import { space } from '@handline/tokens';
-import { drawRows } from './termspans.tsx';
-import { Skeleton } from '../skeleton.tsx';
+import { TerminalPane } from './TerminalPane.tsx';
 import { usePalette } from '../theme.ts';
 import { useHistoryValue } from '../history.tsx';
 import { StateMark } from './StateMark.tsx';
@@ -230,7 +229,7 @@ function Terminal(props: { detail: AgentDetail }) {
   useEffect(() => {
     if (opened && !view) void store.attachView();
   }, [opened, view, store]);
-  if (view) return <TerminalOf detail={props.detail} view={view} />;
+  if (view) return <TerminalPane agent={props.detail.name} view={view} sessionOpen={props.detail.session_open} />;
   const name = props.detail.name;
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.lg }}>
@@ -238,40 +237,10 @@ function Terminal(props: { detail: AgentDetail }) {
         testID="terminal-start"
         label={start.isPending ? 'Starting…' : 'Start terminal'}
         kind="yes"
-        disabled={start.isPending}
+        disabled={start.isPending || start.isSuccess}
         onPress={() => start.mutate({ agent: name })}
       />
       {start.error ? <Text style={{ color: c.block, marginTop: space.sm }}>{(start.error as Error).message}</Text> : null}
-    </View>
-  );
-}
-
-function TerminalOf(props: { detail: AgentDetail; view: TerminalView }) {
-  const c = usePalette();
-  const store = useStore();
-  const view = props.view;
-  const lines = view.lines();
-  // An open session whose snapshot has not come yet.
-  const waiting = props.detail.session_open && view.frame.length === 0 && view.history.length === 0;
-  const scroll = useRef<ScrollView>(null);
-  return (
-    <View style={{ flex: 1 }}>
-      <ScrollView
-        ref={scroll}
-        testID="terminal"
-        style={{ flex: 1, backgroundColor: c.termBg }}
-        contentContainerStyle={{ padding: space.sm }}
-        onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })}
-      >
-        {view.historyMore && <Button label="Load older" onPress={() => void store.loadOlder()} />}
-        {waiting ? (
-          <Skeleton shape="terminal" loading label="the terminal" />
-        ) : (
-          <Text testID="terminal-text" style={{ color: c.termInk, fontFamily: 'Menlo', fontSize: 11 }}>
-            {drawRows(lines, c.termInk, c.termBg)}
-          </Text>
-        )}
-      </ScrollView>
     </View>
   );
 }

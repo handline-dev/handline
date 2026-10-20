@@ -18,6 +18,8 @@ export class TerminalView {
   historyFirst = 0;
   historyMore = false; // historyFirst: absolute index of history[0]
   holder: InputHolder | null = null;
+  /** Everyone who holds the input, oldest first; empty before the snapshot. */
+  holders: InputHolder[] = [];
   markers: Notifications['marker'][] = [];
   agent: string;
   private listeners = new Set<() => void>();
@@ -62,6 +64,7 @@ export class TerminalView {
     this.historyFirst = s.history.first;
     this.historyMore = s.history.more;
     this.holder = s.holder;
+    this.holders = s.holders ?? [s.holder];
     this.emit();
   }
   applyFrame(n: Notifications['frame']): void {
@@ -82,6 +85,12 @@ export class TerminalView {
     this.seq = n.seq;
     this.frame = Array.from({ length: n.rows }, (_, i) => this.frame[i] ?? '');
     this.frameSpans = this.frameSpans.slice(0, n.rows);
+    this.emit();
+  }
+  applyHolders(n: Notifications['holder']): void {
+    this.holders = n.holders;
+    this.holder = n.holders[0] ?? null;
+    this.seq = n.seq;
     this.emit();
   }
   applyMarker(n: Notifications['marker']): void {

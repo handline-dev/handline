@@ -315,13 +315,13 @@ export class DaemonClient {
       }
       case 'output':
       case 'snapshot':
-      case 'holder':
         this.bytes.notice(method, params);
         break;
       case 'frame':
       case 'resize':
+      case 'holder':
       case 'marker': {
-        if (method === 'marker' && this.bytes.notice(method, params)) return; // the bytes attach owns this terminal, not the text one
+        if ((method === 'marker' || method === 'holder') && this.bytes.notice(method, params)) return; // the bytes attach owns this terminal, not the text one
         const n = params as { terminal: string; seq: number };
         const v = [...this.views.values()].find((x) => x.terminal === n.terminal);
         if (!v) return;
@@ -331,6 +331,7 @@ export class DaemonClient {
         } // missed one: take a fresh frame
         if (method === 'frame') v.applyFrame(params as Notifications['frame']);
         else if (method === 'resize') v.applyResize(params as Notifications['resize']);
+        else if (method === 'holder') v.applyHolders(params as Notifications['holder']);
         else v.applyMarker(params as Notifications['marker']);
         break;
       }
@@ -442,8 +443,9 @@ export class DaemonClient {
   answerPrompt(agent: string, prompt: string, choice: string | { text: string }) {
     return this.call('prompt.answer', { agent, prompt, choice });
   }
-  takeInput(agent: string) {
-    return this.call('input.take', { agent });
+  /** `force` replaces a person or device that holds the input; the holder is told. */
+  takeInput(agent: string, force = false) {
+    return this.call('input.take', force ? { agent, force } : { agent });
   }
   releaseInput(agent: string) {
     return this.call('input.release', { agent });
