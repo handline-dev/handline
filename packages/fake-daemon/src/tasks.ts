@@ -337,9 +337,9 @@ const VERBS = new Set([
   'task.discard',
   'task.release',
   'task.merge',
-  'task.memo.add',
-  'task.memo.edit',
-  'task.memo.delete',
+  'task.comment.add',
+  'task.comment.edit',
+  'task.comment.delete',
 ]);
 
 /** Answers one task method, turning the store's refusals into the daemon's errors. */
@@ -394,12 +394,12 @@ export function taskCall(
         return (tasks.release(p), ok('Task released.'));
       case 'task.merge':
         return (tasks.merge(p), ok('Tasks folded.'));
-      case 'task.memo.add':
-        return ok('Memo added.', { memo: tasks.memo(p, 'add', person, agent) });
-      case 'task.memo.edit':
-        return (tasks.memo(p, 'edit', person, agent), ok('Memo changed.'));
-      case 'task.memo.delete':
-        return (tasks.memo(p, 'delete', person), ok('Memo deleted.'));
+      case 'task.comment.add':
+        return ok('Comment added.', { memo: tasks.memo(p, 'add', person, agent) });
+      case 'task.comment.edit':
+        return (tasks.memo(p, 'edit', person, agent), ok('Comment changed.'));
+      case 'task.comment.delete':
+        return (tasks.memo(p, 'delete', person), ok('Comment deleted.'));
       default:
         throw refused('unsupported', `the fake daemon does not serve ${method}`);
     }

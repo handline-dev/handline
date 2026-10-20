@@ -121,11 +121,11 @@ test("a task's text names only finished, kept images; an agent only one a task a
   const made = await s.client.call('task.new', { owner: AUD, title: 't', body: 'plain', request_id: 'n1' });
   const task = made.task as number;
   assert.equal((await fail(s.client.call('task.new', { owner: AUD, title: 't', body: ref('0000000000000000'), request_id: 'n2' })))?.code, 'not_found');
-  assert.equal((await fail(s.client.call('task.memo.add', { task, text: ref('nope'), request_id: 'm1' })))?.field, 'text');
-  assert.equal((await fail(s.client.call('task.memo.add', { task, text: ref(img).repeat(7), request_id: 'm2' })))?.field, 'text');
-  assert.equal((await fail(agent.call('task.memo.add', { task, text: ref(img), request_id: 'm3' })))?.gate, 'role');
+  assert.equal((await fail(s.client.call('task.comment.add', { task, text: ref('nope'), request_id: 'm1' })))?.field, 'text');
+  assert.equal((await fail(s.client.call('task.comment.add', { task, text: ref(img).repeat(7), request_id: 'm2' })))?.field, 'text');
+  assert.equal((await fail(agent.call('task.comment.add', { task, text: ref(img), request_id: 'm3' })))?.gate, 'role');
   await s.client.call('task.edit', { task, body: `cut off ${ref(img)}`, request_id: 'e1' });
-  await agent.call('task.memo.add', { task, text: `from the brief ${ref(img)}`, request_id: 'm4' });
+  await agent.call('task.comment.add', { task, text: `from the brief ${ref(img)}`, request_id: 'm4' });
   const image = { id: img, name: 'a.png', mime: 'image/png', bytes: PNG.length };
   const mine = await s.client.call('task.get', { task });
   assert.deepEqual(mine.body_parts, [{ text: 'cut off ' }, { image, caption: 'the button' }]);

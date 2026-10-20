@@ -119,9 +119,9 @@ const tasks: Record<string, WriteSpec> = {
       );
     },
   },
-  'task.memo.add': {
+  'task.comment.add': {
     kind: 'authored',
-    label: 'add memo',
+    label: 'add comment',
     touches: memoKeys,
     patch: (c, p) => {
       const { task, text } = as<{ task: number; text: string }>(p);
@@ -130,9 +130,9 @@ const tasks: Record<string, WriteSpec> = {
     },
     reconcile: (c, p, r) => changeMemos(c, as<{ task: number }>(p).task, (l) => renumber(l, (m) => m.id < 0, (r as { memo: number }).memo)),
   },
-  'task.memo.edit': {
+  'task.comment.edit': {
     kind: 'authored',
-    label: 'edit memo',
+    label: 'edit comment',
     touches: memoKeys,
     patch: (c, p) => {
       const { task, memo, text } = as<{ task: number; memo: number; text: string }>(p);
@@ -145,9 +145,9 @@ const tasks: Record<string, WriteSpec> = {
     label: 'ask',
     touches: (d, p) => [qk.task(d, as<{ task: number }>(p).task)],
   },
-  'task.memo.delete': {
+  'task.comment.delete': {
     kind: 'authored',
-    label: 'delete memo',
+    label: 'delete comment',
     touches: memoKeys,
     patch: (c, p) => {
       const { task, memo } = as<{ task: number; memo: number }>(p);
@@ -395,6 +395,9 @@ export const NOT_FROM_UI = [
   'trust.propose',
   'task.begin',
   'task.start',
+  'task.memo.add', // the old names of task.comment.*; the screens call the new ones
+  'task.memo.edit',
+  'task.memo.delete',
   'task.progress',
   'task.handoff',
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.

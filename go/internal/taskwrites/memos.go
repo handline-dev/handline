@@ -77,9 +77,11 @@ func Register(s *rpc.Server, home string, tell Teller, decide CardDecider) {
 	s.Register("task.release", rpc.Method{Role: "agent", Write: true, Handler: releaseMethod(home, tell)})
 	s.Register("task.wait", rpc.Method{Role: "agent", Write: true, Handler: waitMethod(home, tell)})
 	s.Register("task.merge", rpc.Method{Role: "agent", Write: true, Handler: mergeMethod(home, tell)})
-	s.Register("task.memo.add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd(home, tell)})
-	s.Register("task.memo.edit", rpc.Method{Role: "agent", Write: true, Handler: memoEdit(home, tell)})
-	s.Register("task.memo.delete", rpc.Method{Role: "agent", Write: true, Handler: memoDelete(tell)})
+	for _, verb := range []string{"task.comment.", "task.memo."} { // task.memo.* is the old name
+		s.Register(verb+"add", rpc.Method{Role: "agent", Write: true, Handler: memoAdd(home, tell)})
+		s.Register(verb+"edit", rpc.Method{Role: "agent", Write: true, Handler: memoEdit(home, tell)})
+		s.Register(verb+"delete", rpc.Method{Role: "agent", Write: true, Handler: memoDelete(tell)})
+	}
 	s.Register("task.view.save", rpc.Method{Role: "member", Write: true, Handler: viewSave})
 	s.Register("task.view.delete", rpc.Method{Role: "member", Write: true, Handler: viewDelete})
 }

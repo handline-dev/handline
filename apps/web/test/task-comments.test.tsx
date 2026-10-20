@@ -95,7 +95,7 @@ describe('Comments on a task', () => {
 
   it('keeps the text and says why when the daemon refuses', async () => {
     const s = await mount();
-    s.daemon.knobs.refuse('task.memo.add', 'state', 'the task is closed', undefined, 1);
+    s.daemon.knobs.refuse('task.comment.add', 'state', 'the task is closed', undefined, 1);
     await typeInto('still there?');
     await act(async () => void send().click());
     await until(() => section()!.textContent!.includes('the task is closed'), 'the refusal');

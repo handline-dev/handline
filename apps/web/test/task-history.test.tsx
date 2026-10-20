@@ -57,7 +57,7 @@ describe('task history', () => {
     expect(priority.querySelector('.line-through')?.textContent).toBe('P2');
     expect(priority.querySelector('.font-semibold')?.textContent).toBe('P1');
     expect(rows().some((r) => r.dataset.field === 'memo')).toBe(false);
-    expect(box.querySelector('[data-fold]')?.textContent).toContain('3 memo changes by');
+    expect(box.querySelector('[data-fold]')?.textContent).toContain('3 comment changes by');
     const state = rows().find((r) => r.dataset.field === 'state' && r.textContent!.includes('done'))!;
     expect(state.querySelector('[data-state="done"]')).not.toBeNull();
     expect(state.textContent).toContain('auditor PASS on 3f2a9c1');
@@ -71,7 +71,7 @@ describe('task history', () => {
     expect(rows()).toHaveLength(3);
     await click(chip('Fields'));
     expect(rows().some((r) => ['state', 'memo'].includes(r.dataset.field!))).toBe(false);
-    await click(chip('Memo'));
+    await click(chip('Comment'));
     const memos = rows();
     expect(memos.map((r) => r.querySelector('strong')?.textContent)).toEqual(['deleted', 'edited', 'added']);
     expect(memos[1]!.querySelector('.line-through')?.textContent).toBe('Chat first, then tasks.');

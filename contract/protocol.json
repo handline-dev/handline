@@ -93,10 +93,10 @@
   "hl task board": "task.board",
   "hl task show": "task.get",
   "hl task list": "tasks.list",
-  "hl task comment list": "task.memo.list",
-  "hl task comment add": "task.memo.add",
-  "hl task comment edit": "task.memo.edit",
-  "hl task comment delete": "task.memo.delete",
+  "hl task comment list": "task.comment.list",
+  "hl task comment add": "task.comment.add",
+  "hl task comment edit": "task.comment.edit",
+  "hl task comment delete": "task.comment.delete",
   "hl progress": "task.progress",
   "hl inbox": "inbox.queue",
   "hl read": "request.read",
@@ -5745,8 +5745,8 @@
    ]
   },
   {
-   "name": "task.memo.list",
-   "summary": "Memos beside a task.",
+   "name": "task.comment.list",
+   "summary": "Comments beside a task. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.list is its old name.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5805,8 +5805,68 @@
    ]
   },
   {
-   "name": "task.memo.add",
-   "summary": "Add a memo; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. memo.edit and memo.delete are told the same way.",
+   "name": "task.memo.list",
+   "summary": "The old name of task.comment.list: the same params, result and errors. Kept for clients that call it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "With limit: the page just older than this memo id."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "1 to 200. The newest limit memos, or the limit just older than before; absent: every memo."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "memos": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/Memo"
+       }
+      },
+      "more": {
+       "type": "boolean",
+       "description": "There are older memos than the page."
+      }
+     },
+     "required": [
+      "memos",
+      "more"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.comment.add",
+   "summary": "Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5889,8 +5949,92 @@
    ]
   },
   {
-   "name": "task.memo.edit",
-   "summary": "Edit a memo: its author or the founder.",
+   "name": "task.memo.add",
+   "summary": "The old name of task.comment.add: the same params, result and errors. Kept for clients that call it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "now",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Tell every reader at once, even mid-turn."
+     }
+    },
+    {
+     "name": "files",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+       "type": "string"
+      },
+      "description": "Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files)."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "memo": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "memo"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.comment.edit",
+   "summary": "Edit a comment: its author or the founder. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.edit is its old name.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -5945,8 +6089,112 @@
    ]
   },
   {
+   "name": "task.memo.edit",
+   "summary": "The old name of task.comment.edit: the same params, result and errors. Kept for clients that call it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "memo",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.comment.delete",
+   "summary": "Delete a comment: its author or the founder. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.delete is its old name.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "memo",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "task.memo.delete",
-   "summary": "Delete a memo: its author or the founder.",
+   "summary": "The old name of task.comment.delete: the same params, result and errors. Kept for clients that call it.",
    "paramStructure": "by-name",
    "params": [
     {

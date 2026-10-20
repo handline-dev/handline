@@ -108,7 +108,7 @@ func plist(home string, allowLive bool) (string, error) {
 	} else {
 		argv = append(argv, "-home", home)
 	}
-	argv = append(argv, "-claude", claude, "-terminal-tick", "-cutover")
+	argv = append(argv, "-claude", claude, "-terminal-tick", "-cutover", "-turns-from-hooks")
 	var b strings.Builder
 	str := func(s string) { fmt.Fprintf(&b, "<string>%s</string>", html.EscapeString(s)) }
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>

@@ -354,7 +354,7 @@ func taskNote(c *hlclient.Client, args []string) (int, bool) {
 	if !asking(c, "write a comment") {
 		return 1, true
 	}
-	return said(c.Write("task.memo.add", map[string]any{"task": tid, "text": p.pos[1]})), true
+	return said(c.Write("task.comment.add", map[string]any{"task": tid, "text": p.pos[1]})), true
 }
 
 func taskMemo(c *hlclient.Client, args []string) (int, bool) {
@@ -425,12 +425,12 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 			}
 			params["files"] = files
 		}
-		return said(c.Write("task.memo.add", params)), true
+		return said(c.Write("task.comment.add", params)), true
 	}
 	if verb == "edit" {
-		return said(c.Write("task.memo.edit", map[string]any{"task": tid, "memo": mid, "text": rest[1]})), true
+		return said(c.Write("task.comment.edit", map[string]any{"task": tid, "memo": mid, "text": rest[1]})), true
 	}
-	return said(c.Write("task.memo.delete", map[string]any{"task": tid, "memo": mid})), true
+	return said(c.Write("task.comment.delete", map[string]any{"task": tid, "memo": mid})), true
 }
 
 func taskQueue(queued bool) taskCmd {

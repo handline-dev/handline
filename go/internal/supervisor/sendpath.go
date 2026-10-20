@@ -315,7 +315,12 @@ func (e *Env) tellStructured(q db.Q, row *db.Request, d delivery.Delivery) (what
 	folded := foldedNotices(q, agent)
 	text := tellText(q, row, 1, nil, false, folded, e.imageLines(q, row))
 	if e.typedRow(q, row) {
-		folded, text = nil, founderText(row, e.imageLines(q, row))
+		if why := e.typeable(agent); why != "" {
+			defer e.sayInstead(q, rid)()
+			e.log("  %s: request %d is said through the inbox, not typed: %s", agent, rid, why)
+		} else {
+			folded, text = nil, founderText(row, e.imageLines(q, row))
+		}
 	}
 	state, why := e.sendOnce(q, agent, requestOp(rid), text, d)
 	switch state {
