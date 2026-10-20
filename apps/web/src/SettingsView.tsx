@@ -92,7 +92,7 @@ export function SettingsView({ agent }: { agent: string }) {
 }
 
 function FieldRow(props: { agent: string; f: Field; stored: string | undefined; editable: boolean; role: string | undefined }) {
-  const { agent, f, role } = props;
+  const { f } = props;
   const { stored, pending, global, draft, setDraft, note, setNote, ask, setAsk, allowed, off, value, send, commit, choose, options } = useFieldRow(props);
   const [base, setBase] = useState('');
   const edit = (v: string) => {

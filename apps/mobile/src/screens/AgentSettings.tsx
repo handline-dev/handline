@@ -68,7 +68,7 @@ export function AgentSettings({ agent, onBack }: { agent: string; onBack: () => 
 
 function FieldRow(props: { agent: string; f: Field; stored: string | undefined; editable: boolean; role: string | undefined }) {
   const c = usePalette();
-  const { agent, f, role } = props;
+  const { f } = props;
   const { stored, pending, global, draft, setDraft, note, setNote, ask, setAsk, allowed, off, value, send, commit, choose, options } = useFieldRow(props);
   const danger = ask ? DANGER[f.key] : undefined;
   const follows =

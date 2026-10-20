@@ -3,57 +3,23 @@
 // The answer is a decided write: the clicked option shows "…", the rest are disabled, and a prompt that changed sends nothing.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { Prompt } from '@handline/client';
-import { clockTime, isAlways, promptChoices, promptTitle } from '@handline/app-core';
-import { useSelector } from '@handline/app-react';
-import { usePending, useWrite } from '@handline/app-data';
+import { clockTime, isAlways, promptTitle } from '@handline/app-core';
+import { usePromptAnswer } from '@handline/app-data';
 import { AnimatedItem, AnimatedList } from './AnimatedList.tsx';
 import { Icon } from './ui/Icon.tsx';
 import { Button, Card, CardActions, CodeBlock, Input, Kbd } from './ui/index.ts';
 
-const code = (e: unknown) => (e as { code?: string } | null)?.code;
-
 export function PromptCard({ agent, prompt: p, onStale }: { agent: string; prompt: Prompt; onStale?: () => void }) {
-  const answer = useWrite('prompt.answer', agent);
-  const answering = usePending('prompt.answer').some((v) => v.agent === agent);
-  const rules = useSelector((s) => s.can('answer.add'));
-  const [clicked, setClicked] = useState<string | null>(null);
-  const [picked, setPicked] = useState<string[]>([]);
-  const [typing, setTyping] = useState(false);
-  const [text, setText] = useState('');
-  const [changed, setChanged] = useState(false);
+  const { answering, picked, typing, setTyping, text, setText, changed, all, cancel, opts, multi, question, send, toggle, mark } = usePromptAnswer(agent, p, onStale);
   const [slow, setSlow] = useState(false);
   const card = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    // a new prompt starts clean; focus stays where it was
-    setPicked([]);
-    setTyping(false);
-    setText('');
-    setClicked(null);
-  }, [p.id]);
   useEffect(() => {
     if (!answering) return setSlow(false);
     const t = setTimeout(() => setSlow(true), 10_000);
     return () => clearTimeout(t);
   }, [answering]);
 
-  const all = promptChoices(p, rules);
-  const cancel = p.kind === 'question' ? all.find((o) => o.key === 'esc') : undefined; // its own button, never a checkbox or a numbered row
-  const opts = cancel ? all.filter((o) => o !== cancel) : all;
-  const multi = p.multi === true;
-  const question = p.kind === 'question';
-  const send = (choice: string | string[] | { text: string }, mark: string) => {
-    setClicked(mark);
-    setChanged(false);
-    // mutateAsync: the card unmounts when a refused answer finds no prompt left, and the slot must still hear of it
-    answer.mutateAsync({ agent, prompt: p.id, choice }).catch((e) => {
-      setClicked(null);
-      if (code(e) !== 'stale_prompt') return;
-      setChanged(true);
-      onStale?.();
-    });
-  };
-  const toggle = (key: string) => setPicked((l) => (l.includes(key) ? l.filter((k) => k !== key) : [...l, key]));
   const submit = () =>
     picked.length &&
     send(
@@ -75,7 +41,6 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
     }
   };
 
-  const mark = (key: string, label: string) => (answering && clicked === key ? '…' : label);
   return (
     <Card variant="chat" className="prompt bg-surface" role="alert" ref={card} tabIndex={-1} onKeyDown={onKey} aria-busy={answering}>
       <div className="card-title mb-1.5 font-semibold">

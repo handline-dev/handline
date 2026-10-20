@@ -4,54 +4,18 @@
 // gone sends nothing and says so.
 import { useEffect, useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
-import { isAlways, promptChoices, promptTitle } from '@handline/app-core';
-import { usePending, useWrite } from '@handline/app-data';
-import { useSelector } from '@handline/app-react';
+import { isAlways, promptTitle } from '@handline/app-core';
+import { usePromptAnswer } from '@handline/app-data';
 import type { Prompt } from '@handline/client';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '../theme.ts';
 import { Icon } from './Icon.tsx';
 import { Button, Row } from './parts.tsx';
 
-const code = (e: unknown) => (e as { code?: string } | null)?.code;
-
 export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () => void }) {
   const c = usePalette();
   const { agent, prompt: p } = props;
-  const answer = useWrite('prompt.answer', agent);
-  const answering = usePending('prompt.answer').some((v) => v.agent === agent);
-  const rules = useSelector((s) => s.can('answer.add'));
-  const [clicked, setClicked] = useState<string | null>(null);
-  const [picked, setPicked] = useState<string[]>([]);
-  const [typing, setTyping] = useState(false);
-  const [text, setText] = useState('');
-  const [changed, setChanged] = useState(false);
-  useEffect(() => {
-    // a new prompt starts clean
-    setPicked([]);
-    setTyping(false);
-    setText('');
-    setClicked(null);
-  }, [p.id]);
-
-  const all = promptChoices(p, rules);
-  const cancel = p.kind === 'question' ? all.find((o) => o.key === 'esc') : undefined; // its own button, never a checkbox or a numbered row
-  const opts = cancel ? all.filter((o) => o !== cancel) : all;
-  const multi = p.multi === true;
-  const question = p.kind === 'question';
-  const send = (choice: string | string[] | { text: string }, mark: string) => {
-    setClicked(mark);
-    setChanged(false);
-    // mutateAsync: the card unmounts when a refused answer finds no prompt left, and the slot must still hear of it
-    answer.mutateAsync({ agent, prompt: p.id, choice }).catch((e) => {
-      setClicked(null);
-      if (code(e) !== 'stale_prompt') return;
-      setChanged(true);
-      props.onStale?.();
-    });
-  };
-  const toggle = (key: string) => setPicked((l) => (l.includes(key) ? l.filter((k) => k !== key) : [...l, key]));
-  const mark = (key: string, label: string) => (answering && clicked === key ? '…' : label);
+  const { answering, picked, typing, setTyping, text, setText, changed, cancel, opts, multi, question, send, toggle, mark } = usePromptAnswer(agent, p, props.onStale);
   const what = p.command ? `${p.tool ?? ''} ${p.command}` : p.lines.join('\n');
   return (
     <View
