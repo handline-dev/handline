@@ -2367,6 +2367,17 @@ export interface Methods {
   task: number;
   request_id: RequestId;
 }; result: Accepted };
+  "task.comment.list": { params: {
+  task: number;
+  /** With limit: the page just older than this memo id. */
+  before?: number;
+  /** 1 to 200. The newest limit memos, or the limit just older than before; absent: every memo. */
+  limit?: number;
+}; result: {
+    memos: Memo[];
+    /** There are older memos than the page. */
+    more: boolean;
+  } };
   "task.memo.list": { params: {
   task: number;
   /** With limit: the page just older than this memo id. */
@@ -2377,6 +2388,18 @@ export interface Methods {
     memos: Memo[];
     /** There are older memos than the page. */
     more: boolean;
+  } };
+  "task.comment.add": { params: {
+  task: number;
+  /** Markdown. It may name images (x-attachments, texts). */
+  text: string;
+  /** Tell every reader at once, even mid-turn. */
+  now?: boolean;
+  /** Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files). */
+  files?: string[];
+  request_id: RequestId;
+}; result: Accepted & {
+    memo: number;
   } };
   "task.memo.add": { params: {
   task: number;
@@ -2390,11 +2413,23 @@ export interface Methods {
 }; result: Accepted & {
     memo: number;
   } };
+  "task.comment.edit": { params: {
+  task: number;
+  memo: number;
+  /** Markdown. It may name images (x-attachments, texts). */
+  text: string;
+  request_id: RequestId;
+}; result: Accepted };
   "task.memo.edit": { params: {
   task: number;
   memo: number;
   /** Markdown. It may name images (x-attachments, texts). */
   text: string;
+  request_id: RequestId;
+}; result: Accepted };
+  "task.comment.delete": { params: {
+  task: number;
+  memo: number;
   request_id: RequestId;
 }; result: Accepted };
   "task.memo.delete": { params: {
@@ -2893,9 +2928,13 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "progress.get": { role: "agent", callers: ["agent"], write: false, since: 1 },
   "task.begin": { role: "agent", callers: null, write: true, since: 1 },
   "task.start": { role: "agent", callers: null, write: true, since: 1 },
+  "task.comment.list": { role: "agent", callers: null, write: false, since: 1 },
   "task.memo.list": { role: "agent", callers: null, write: false, since: 1 },
+  "task.comment.add": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.add": { role: "agent", callers: null, write: true, since: 1 },
+  "task.comment.edit": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.edit": { role: "agent", callers: null, write: true, since: 1 },
+  "task.comment.delete": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.delete": { role: "agent", callers: null, write: true, since: 1 },
   "task.view.list": { role: "member", callers: null, write: false, since: 1 },
   "task.view.save": { role: "member", callers: null, write: true, since: 1 },

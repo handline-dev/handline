@@ -55,8 +55,8 @@ function Event({ item }: { item: ActivityItem }) {
 }
 
 export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement | null> }) {
-  const can = useCan('task.memo.add');
-  const add = useWrite('task.memo.add', String(t.id));
+  const can = useCan('task.comment.add');
+  const add = useWrite('task.comment.add', String(t.id));
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [fresh, setFresh] = useState(0); // a new editor after a send: its content is the box's own

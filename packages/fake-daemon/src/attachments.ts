@@ -44,7 +44,7 @@ export class FakeAttachments {
     this.files.delete(id);
   }
 
-  /** A file a memo carries (an image or Markdown), kept as the daemon keeps one; a test passes the returned id as task.memo.add `files`. */
+  /** A file a memo carries (an image or Markdown), kept as the daemon keeps one; a test passes the returned id as task.comment.add `files`. */
   addMemoFile(name: string, mime: MemoFile['mime'], data: Buffer): MemoFile {
     const file: MemoFile = { id: newId(), kind: mime === 'text/markdown' ? 'markdown' : 'image', name, mime, bytes: data.length };
     this.files.set(file.id, { ...file, mime: mime as Mime, data, sent: true });

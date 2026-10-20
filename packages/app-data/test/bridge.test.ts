@@ -89,9 +89,9 @@ describe('tasks and inbox', () => {
       ['task.edit', { task: 7, title: 'x' }],
       ['task.done', { task: 7 }],
       ['task.queue', { tasks: [7] }],
-      ['task.memo.add', { task: 7, text: 'x' }],
-      ['task.memo.edit', { task: 7, memo: 1, text: 'x' }],
-      ['task.memo.delete', { task: 7, memo: 1 }],
+      ['task.comment.add', { task: 7, text: 'x' }],
+      ['task.comment.edit', { task: 7, memo: 1, text: 'x' }],
+      ['task.comment.delete', { task: 7, memo: 1 }],
     ] as const)
       expect(touched(method, p), method).toContain(history);
   });
