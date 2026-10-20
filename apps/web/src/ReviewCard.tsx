@@ -1,6 +1,6 @@
 // A review card on the Inbox: the pictures of the task's first comment as thumbnails, and "Ask for change", a box with the first picture to mark
 // up and the words of what should change. Approve needs no box and lives in MyTurn.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { changeAsked, keptMarks, markText, reviewPictures, withImages, type Mark } from '@handline/app-core';
 import { classify, sentence, useAttachmentUrl, useMemos, useUploadImage, useWrite } from '@handline/app-data';
 import { Annotator } from './Annotate.tsx';
@@ -28,12 +28,22 @@ export function ReviewPictures({ task }: { task: number }) {
   );
 }
 
-/** The first picture as a Blob to draw on; null while it loads or when there is none. */
+/** The picture as a Blob to draw on; null while it loads or when there is none. */
 function usePicture(id: string | undefined) {
   const { url } = useAttachmentUrl(id ?? '', false);
-  const [blob, setBlob] = useState<{ url: string; blob: Blob } | null>(null);
-  if (id && url && blob?.url !== url) void fetch(url).then((r) => r.blob()).then((b) => setBlob({ url, blob: b }));
-  return id && blob?.url === url ? blob.blob : null;
+  const [blob, setBlob] = useState<Blob | null>(null);
+  useEffect(() => {
+    setBlob(null);
+    if (!id || !url) return;
+    let live = true;
+    void fetch(url)
+      .then((r) => r.blob())
+      .then((b) => live && setBlob(b));
+    return () => {
+      live = false;
+    };
+  }, [id, url]);
+  return blob;
 }
 
 export function AskChange({ task, item, onClose }: { task: number; item: number; onClose: () => void }) {

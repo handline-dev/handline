@@ -92,6 +92,15 @@ export class FakeAttachments {
     return { upload: id, received: up.received, attachment };
   }
 
+  /** An image the daemon already holds, as a seed needs one without an upload. */
+  add(name: string, data: Buffer): Attachment {
+    const mime = typeOf(data);
+    if (!mime) throw new Error(`${name} is not an image`);
+    const attachment: Attachment = { id: newId(), name, mime, bytes: data.length };
+    this.files.set(attachment.id, { ...attachment, data, sent: false });
+    return attachment;
+  }
+
   /** The thumbnail is the original here (no image library): tests use images small enough for one reply. */
   get(p: Record<string, unknown>) {
     const f = this.files.get(String(p.id));

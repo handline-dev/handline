@@ -44,3 +44,12 @@ test('tasks-200 seeds 200 tasks, and all switches on every seed', () => {
   assert.equal(d.tasks.find(6000).id, 6000);
   assert.equal(d.tasks.find(6199).id, 6199);
 });
+
+test('review: a task tagged review whose first comment names two pictures the daemon serves', () => {
+  const daemon = new FakeDaemon();
+  applySeeds(daemon, 'review');
+  const { memos } = daemon.tasks.comments({ task: 9301 });
+  const images = memos[0]!.parts!.flatMap((p) => ('image' in p ? [p.image.id] : []));
+  assert.equal(images.length, 2);
+  assert.equal(daemon.uploads.get({ id: images[0] }).mime, 'image/png');
+});
