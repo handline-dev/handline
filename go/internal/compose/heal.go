@@ -28,14 +28,14 @@ func (h healPorts) handle(agent string) string {
 	return handle
 }
 
-// NeedsPerson: with the hooks on, an open needs-you card answers without the screen, and a settled turn has no dialog; the screen is
-// read only for the CLI's own dialogs, which no hook reports.
+// NeedsPerson: with the hooks on, an open needs-you card answers without the screen; otherwise the screen, where a settled turn counts
+// only the session picker (term.DialogUp).
 func (h healPorts) NeedsPerson(agent string) bool {
 	if h.lc.term.Turns != nil && h.needs != nil && h.needs(agent) != nil {
 		return true
 	}
 	handle := h.handle(agent)
-	return handle != "" && h.lc.term.Available() && h.lc.term.DialogUp(handle)
+	return handle != "" && h.lc.term.Available() && h.lc.term.DialogUp(handle) != nil
 }
 
 func (h healPorts) Interrupt(agent string) (bool, string) {
