@@ -162,7 +162,9 @@ func main() {
 	var tk *compose.Tick                                     // the policy tick, once built
 	var startTick func(stop <-chan struct{}) <-chan struct{} // set when the policy tick is on: runs it until stop closes, answers when it has returned
 	if *claude != "" && !*gateway {
-		// the founder's words are typed only where the hooks say where the turn is
+		if *founderTyped && !*turnsFromHooks {
+			log.Printf("handlined: founder chat goes through the inbox: -founder-typed takes effect only with -turns-from-hooks")
+		}
 		ccfg := compose.Config{Home: homeDir, Log: log.Printf, CLI: *claude, NotifiedNeedsYou: *notifiedNeedsYou, FounderTyped: *founderTyped && *turnsFromHooks}
 		if root, _ := paths.Getenv("TEST_ROOT"); root != "" {
 			// a scratch daemon (a live run): its agents' hl and hooks reach it, not the real home's daemon
