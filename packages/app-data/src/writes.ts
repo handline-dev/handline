@@ -1,7 +1,7 @@
 // Every write method of the contract, once, with its kind and what it does to the cache (docs/turborepo-layout.md §8.5).
 // A method in none of the four lists fails the guard test, so a new write is decided by a person before it ships.
-import { taskAfter, type TaskEdit, type TaskVerb } from '@handline/app-core';
-import type { Account, InboxItem, Memo, Proposal, Schedule, Settings, StandingAnswer, Task } from '@handline/client';
+import { navOf, taskAfter, type TaskEdit, type TaskVerb } from '@handline/app-core';
+import type { Account, InboxItem, Memo, NavPrefsChanges, Prefs, Proposal, Schedule, Settings, StandingAnswer, Task } from '@handline/client';
 import { edit, provisionalId, upsert, type Ctx } from '#src/cache.ts';
 import { accountAfter, type AccountChange } from '#src/account-after.ts';
 import { accountRemove } from '#src/account-remove.ts';
@@ -200,6 +200,16 @@ const settings: Record<string, WriteSpec> = {
     patch: (c, p) => {
       const { agent, changes } = as<{ agent?: string; changes: object }>(p);
       if (!agent) edit<Settings>(c.qc, ['d', c.d, 'settings'], (s) => ({ ...s, values: { ...s.values, ...changes } }));
+    },
+  },
+  // Shown at once even before the first read lands, so a pin made while prefs.get is in flight is not lost.
+  'prefs.set': {
+    kind: 'authored',
+    label: 'save view preferences',
+    touches: (d) => [qk.prefs(d)],
+    patch: (c, p) => {
+      const { nav } = as<{ changes: { nav: NavPrefsChanges } }>(p).changes;
+      c.qc.setQueryData<Prefs>(qk.prefs(c.d), (s) => ({ ...s, nav: { ...navOf(s), ...nav } }));
     },
   },
   'trust.remove': {

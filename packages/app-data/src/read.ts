@@ -188,6 +188,7 @@ export const useTeam = () => useRead('team.get', {});
 export const useHr = (filter: CallParams<'hr.list'> = {}) => useRead('hr.list', filter);
 /** How many proposals wait on the founder; 0 while the list is not here or not served. */
 export const useHrCount = (): number => waitingCount(useHr().data?.proposals ?? []);
+export const usePrefs = () => useRead('prefs.get', {});
 export const useRepos = () => useRead('repos.list', {});
 export const useWorktrees = (filter: CallParams<'worktrees.list'> = {}) => useRead('worktrees.list', filter);
 export const useWorktreeDiff = (path: string, file?: string) => useRead('worktree.diff', { path, file });

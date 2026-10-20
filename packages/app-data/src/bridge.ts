@@ -10,6 +10,7 @@ import type {
   Event as WireEvent,
   InboxItem,
   Operation,
+  Prefs,
   Task,
 } from '@handline/client';
 import { edit, upsert, type Ctx } from '#src/cache.ts';
@@ -76,6 +77,7 @@ const rules: Record<string, Rule> = {
   'hr.settled': hr,
   'device.paired': ({ qc, d }) => void qc.invalidateQueries({ queryKey: ['d', d, 'devices'] }),
   'device.revoked': ({ qc, d }) => void qc.invalidateQueries({ queryKey: ['d', d, 'devices'] }),
+  'prefs.changed': ({ qc, d }, e) => void qc.setQueryData<Prefs>(qk.prefs(d), data<Prefs>(e)),
 };
 
 type TaskFilter = { owner?: string; from?: string; state?: string; parent?: number; under?: number; before?: number; all?: boolean; limit?: number };

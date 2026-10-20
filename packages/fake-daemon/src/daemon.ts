@@ -35,10 +35,12 @@ export type { FakeHr } from '#src/hr.ts';
 import { Replies } from '#src/replies.ts';
 import { FakeTranscript } from '#src/transcript.ts';
 import { watcherNotice } from '#src/watchers.ts';
+import { FakePrefs } from '#src/prefs.ts';
 import { accountsReply, byTerminal, detail, statusReply, newSession, tid, view, type Session } from '#src/session.ts';
 
 export class FakeDaemon {
   readonly sessions = new Map<string, Session>();
+  readonly prefs = new FakePrefs(this);
   /** Test controls: `knobs.latency(ms)` and `knobs.refuse(method, gate, reason, hint)`. */
   readonly knobs = new Knobs();
   readonly chat: FakeChat;
@@ -429,6 +431,7 @@ export class FakeDaemon {
       return { value };
     }
     if (this.work.owns(method)) return { value: this.work.call(method, p, ok) };
+    if (this.prefs.owns(method)) return { value: this.prefs.call(method, p, ok) };
     if (method.startsWith('attachment.')) return { value: this.uploads.call(method, p, ok) };
     if (method.startsWith('inbox.')) return { value: this.inbox.call(method, p, c.caller.name, ok) };
     if (this.tasks.serves(method))

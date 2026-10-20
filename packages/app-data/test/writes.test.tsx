@@ -113,6 +113,7 @@ const AUTHORED: [string, object, [Key, unknown][], boolean][] = [
   ['inbox.reply', { id: 1, text: 'ok' }, inboxSeed, true],
   ['agent.set', { agent: 'a', values: { model: 'opus' } }, [[qk.agent(D, 'a'), { name: 'a', settings: { model: 'sonnet' } }]], true],
   ['settings.set', { changes: { idle_close: '9' } }, settingsSeed, true],
+  ['prefs.set', { changes: { nav: { pins: ['a'] } } }, [[qk.prefs(D), { nav: { pins: [], unread_only: false, hidden: [], layout: 'tree', collapsed: [] } }]], true],
   ['trust.remove', { root: '/w' }, [[['d', D, 'trust'], { roots: ['/w'], proposals: [] }]], true],
   ['account.set', { account: 'x', label: 'Main', cap: 2 }, [[qk.accounts(D), { accounts: [account] }]], true],
   [
