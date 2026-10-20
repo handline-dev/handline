@@ -33,6 +33,9 @@
      },
      "error": {
       "code": -32002,
+      "message": {
+       "$regex": "only an agent's own session"
+      },
       "data": {
        "code": "refused"
       }
