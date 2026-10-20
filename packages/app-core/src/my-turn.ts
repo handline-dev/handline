@@ -51,6 +51,20 @@ export interface MyTurnInput {
 const KINDS: Record<string, CardKind> = { decision: 'decision', ask: 'decision' };
 const NO_PRIORITY = 4;
 export const REVIEW_TAG = 'review';
+/** What a review card closes its task with. */
+export const APPROVED = 'Approved';
+export const changeAsked = (text: string) => `Change asked: ${text.trim()}`;
+
+/** The pictures of a review: the images the first comment names, as attachment ids with the name to show. */
+export function reviewPictures(memos: readonly { id: number; parts?: readonly object[]; files?: readonly { id: string; kind: string; name?: string }[] }[]) {
+  const first = memos.reduce<(typeof memos)[number] | undefined>((a, m) => (!a || m.id < a.id ? m : a), undefined);
+  const named = (first?.parts ?? []).flatMap((p) => {
+    const { image, gone } = p as { image?: { id: string; name?: string }; gone?: boolean };
+    return image && !gone ? [{ id: image.id, name: image.name ?? 'picture' }] : [];
+  });
+  if (named.length) return named;
+  return (first?.files ?? []).filter((f) => f.kind === 'image').map((f) => ({ id: f.id, name: f.name ?? 'picture' }));
+}
 const ms = (iso: string | null | undefined) => (iso ? Date.parse(iso) : NaN);
 const at = (iso: string | null | undefined) => (Number.isFinite(ms(iso)) ? ms(iso) : 0);
 

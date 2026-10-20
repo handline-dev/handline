@@ -77,6 +77,43 @@ describe('my turn', () => {
     s.daemon.inbox.add({ kind: 'decision', agent: ARCH, title: `Decide ${id}`, body: 'Pick A or B.', task: id, created: new Date().toISOString(), read: false });
   };
 
+  /** A decision about a task tagged review, so its card offers Approve and Ask for change. */
+  const review = (s: ReturnType<typeof setup>, id: number) => {
+    s.daemon.tasks.seed({ id, from: ME, to: ARCH, title: `Review ${id}`, state: 'doing', tags: ['review'] });
+    s.daemon.inbox.add({ kind: 'decision', agent: ARCH, title: `Look ${id}`, body: 'Is this right?', task: id, created: new Date().toISOString(), read: false });
+  };
+  const reviewCard = (id: number) => cards().find((c) => c.textContent?.includes(`Review ${id}`));
+
+  it('a review card has Approve and Ask for change in place of Done; Approve closes the task', async () => {
+    const s = setup();
+    review(s, 9101);
+    await open(s);
+    await until(() => reviewCard(9101), 'the review card');
+    const c = reviewCard(9101)!;
+    expect(button(c, 'Done')).toBeUndefined();
+    await click(button(c, 'Approve'));
+    await until(() => s.daemon.tasks.find(9101).state === 'done', 'the task done');
+    expect(s.daemon.tasks.find(9101).evidence).toBe('Approved');
+  });
+
+  it('Ask for change comments the words and closes the task with them', async () => {
+    const s = setup();
+    review(s, 9102);
+    await open(s);
+    await until(() => reviewCard(9102), 'the review card');
+    await click(button(reviewCard(9102)!, 'Ask for change'));
+    await until(() => document.querySelector('textarea[aria-label="What should change"]'), 'the box');
+    await act(async () => {
+      const t = document.querySelector('textarea[aria-label="What should change"]') as HTMLTextAreaElement;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(t, 'Wider margin');
+      t.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click([...document.querySelectorAll('button')].find((b) => label(b).startsWith('Send')));
+    await until(() => s.daemon.tasks.find(9102).state === 'done', 'the task done');
+    expect(s.daemon.tasks.find(9102).evidence).toBe('Change asked: Wider margin');
+    expect(s.daemon.tasks.find(9102).memos?.map((m) => m.text)).toEqual(['Wider margin']);
+  });
+
   it('a row opens its task in a detail beside the list on a wide window; Back closes it', async () => {
     const media = (matches: boolean) => vi.stubGlobal('matchMedia', () => ({ matches, addEventListener() {}, removeEventListener() {} }));
     media(true);

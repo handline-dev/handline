@@ -35,6 +35,10 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
 - Before you ask for a review, merge the current target (`story/<n>`, or main)
   into the branch and run `tools/check.sh <target>`; the review request carries
   its result line. The auditor sends a request without it back, unreviewed.
+- To ask the founder to look at a change, open a review task under your own, with the before and after pictures in its first comment, and wait on it:
+  `hl task new --assign human --parent T<own> --tag review "Review: <what changed>"`, then
+  `hl task comment T<new> add --attach before.png --attach after.png "<one line>"`, then `hl task edit T<own> --blocked-by T<new>`.
+  Approved closes it with "Approved"; "Change asked: <words>" is what to fix, then open a new review.
 - A task or a say can be refused; the refusal says why, and the policy behind
   it is deliberate, not a fault to route around. A name that is not on
   `hl team` (a bare `auditor` for `<team>.auditor`) is refused with "unknown

@@ -1,11 +1,12 @@
 // My turn (#/my-turn, docs/story9-my-turn.md 9-1): everything that waits on the person as cards, most urgent first. A card has its primary
 // button(s) and a menu for the rest; a dialog the daemon does not know has only Open terminal.
 import { useMemo, useState, type KeyboardEvent } from 'react';
-import { ago, myTurn, type Card, type CardAction } from '@handline/app-core';
+import { APPROVED, ago, myTurn, type Card, type CardAction } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAgents, useInbox, useTasks, useWrite } from '@handline/app-data';
 import { goTerminal } from './route.ts';
 import { useWide } from './taskui.tsx';
+import { AskChange, ReviewPictures } from './ReviewCard.tsx';
 import { TaskDetail } from './TaskDetail.tsx';
 import { Button, Icon, Input, MenuButton, MenuItem, PageHead, PageTitle, ScrollPage } from './ui/index.ts';
 
@@ -50,6 +51,10 @@ function label(a: CardAction): string {
       return 'Deny';
     case 'done':
       return 'Done';
+    case 'approve':
+      return 'Approve';
+    case 'ask_change':
+      return 'Ask for change';
     case 'open':
       return 'Open';
     case 'terminal':
@@ -65,6 +70,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
   const done = useWrite('task.done');
   const read = useWrite('inbox.mark_read');
   const [box, setBox] = useState(false);
+  const [asking, setAsking] = useState(false);
   const [text, setText] = useState('');
   // The daemon's own words for a refused write; the buttons stay usable.
   const refused = [answer, prompt, done, read].find((w) => w.isError)?.error;
@@ -77,6 +83,10 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
         return prompt.mutate({ agent: a.agent, prompt: a.prompt, choice: a.choice });
       case 'done':
         return void (done.mutate({ task: a.item.task!, evidence: 'decided in the Inbox', reason: true }), read.mutate({ ids: [a.item.id] }));
+      case 'approve':
+        return void (done.mutate({ task: a.item.task!, evidence: APPROVED, reason: true }), read.mutate({ ids: [a.item.id] }));
+      case 'ask_change':
+        return setAsking(true);
       case 'open':
         return card.task != null ? onOpen(card.task) : void (location.hash = a.to);
       case 'terminal':
@@ -88,6 +98,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
   const main = card.actions.slice(0, card.primary);
   const rest = card.actions.slice(card.primary);
   const answerId = card.actions.find((a) => a.type === 'answer');
+  const askId = card.actions.find((a) => a.type === 'ask_change')?.item.id;
   return (
     <article
       className={`my-turn-card rounded-card border bg-panel px-3 py-2.5 ${selected ? 'border-primary' : 'border-line'}`}
@@ -119,7 +130,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
               P{card.priority}
             </span>
           ) : null}
-          <span className="text-hint text-ink-2">{KIND[card.kind]}</span>
+          <span className={`text-hint ${card.review ? 'text-ok' : 'text-ink-2'}`}>{card.review ? 'Review' : KIND[card.kind]}</span>
           <h3 className="m-0 min-w-0 flex-1 truncate text-[15px] font-medium">{card.title}</h3>
         </header>
         <p className="muted m-0 mt-0.5 flex flex-wrap gap-x-3 text-hint">
@@ -133,6 +144,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
             {card.detail}
           </p>
         ) : null}
+        {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {main.map((a, i) => (
@@ -171,6 +183,9 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
             <Icon name="reply" aria-hidden /> Send
           </Button>
         </form>
+      ) : null}
+      {asking && card.task != null && askId ? (
+        <AskChange task={card.task} item={askId} onClose={() => setAsking(false)} />
       ) : null}
     </article>
   );
