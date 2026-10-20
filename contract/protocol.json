@@ -8283,7 +8283,7 @@
    "x-role": "founder",
    "x-write": true,
    "x-since": 1,
-   "description": "The sequence of `hl account remove`: refused (gate `state`) while an agent is on the account, when claude's logout fails, or when the backup gate says no. The account's directory is moved aside, never deleted. A dry run writes nothing and records nothing.",
+   "description": "The sequence of `hl account remove`: refused (gate `state`) while an agent is on the account or when claude's logout fails. The account's directory is moved aside, never deleted. A dry run writes nothing and records nothing.",
    "errors": [
     {
      "$ref": "#/components/errors/refused"

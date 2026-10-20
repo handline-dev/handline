@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/handline/handline/go/internal/paths"
@@ -106,21 +105,6 @@ func founderOnly() error {
 		return ErrNotTheFounder
 	}
 	return nil
-}
-
-// Files is every entry kept for the store, relative to it, for a backup.
-func (s *Store) Files() []string {
-	var out []string
-	filepath.WalkDir(s.Root, func(p string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && !strings.HasPrefix(d.Name(), ".put-") {
-			if rel, err := filepath.Rel(s.Root, p); err == nil {
-				out = append(out, rel)
-			}
-		}
-		return nil
-	})
-	sort.Strings(out)
-	return out
 }
 
 // Ensure makes the namespace's folder, private (0700, with the store's root) when this creates it.

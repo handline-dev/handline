@@ -66,7 +66,7 @@ func (e *Env) accountRemove(c *rpc.Conn, p map[string]any) (any, error) {
 	}
 	accts := team.Accounts{Home: e.Home}
 	if dry {
-		would, lines, err := accts.RemovePreview(e.DB, acct, time.Now())
+		would, lines, err := accts.RemovePreview(e.DB, acct)
 		if err != nil {
 			return nil, err
 		}
