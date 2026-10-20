@@ -33,7 +33,7 @@ func Begun(q Q, tid int64) (bool, error) {
 	return err == nil, err
 }
 
-// ReadsDoing is actions.reads_doing: the task has been sent to its owner, or an open child of it has, or it was begun on a founder message.
+// ReadsDoing is actions.reads_doing: the task has been sent to its owner, or it was begun on a founder message.
 func ReadsDoing(q Q, tid int64) (bool, error) {
 	t, err := GetTask(q, tid)
 	if err != nil || t == nil {
@@ -42,22 +42,11 @@ func ReadsDoing(q Q, tid int64) (bool, error) {
 	if b, err := Begun(q, tid); b || err != nil {
 		return b, err
 	}
-	if t.SentAt.Valid {
-		return true, nil
-	}
-	kids, err := OpenChildTasks(q, tid)
-	if err != nil {
-		return false, err
-	}
-	for _, k := range kids {
-		if k.SentAt.Valid {
-			return true, nil
-		}
-	}
-	return false, nil
+	return t.SentAt.Valid, nil
 }
 
-// HoldsCurrent is actions.holds_current: the task is the one its owner holds (an agent holds one at a time).
+// HoldsCurrent is actions.holds_current: nothing else of its owner's is in the task's way, so it may be delivered. An owner with no open
+// current task holds the way free; reading doing asks for more (isCurrent).
 func HoldsCurrent(q Q, t *Task) (bool, error) {
 	if t.Owner == Human || t.Owner == Gate {
 		return true, nil
@@ -74,6 +63,15 @@ func HoldsCurrent(q Q, t *Task) (bool, error) {
 		return false, err
 	}
 	return cur == nil || cur.Ended(), nil
+}
+
+// isCurrent is whether the task is the one its owner holds: at most one per agent.
+func isCurrent(q Q, t *Task) (bool, error) {
+	if t.Owner == Human || t.Owner == Gate {
+		return true, nil
+	}
+	held, ok, err := CurrentTask(q, t.Owner)
+	return ok && held == t.ID, err
 }
 
 // HeldByHolder is whether the holder rule keeps request r back from agent: it delivers a task of agent's that is not the one agent holds.
@@ -93,16 +91,14 @@ func HeldByHolder(q Q, agent string, r *Request) (bool, error) {
 	return false, nil
 }
 
-// IsDoing is actions.is_doing: reads_doing and the one its owner holds.
+// IsDoing is actions.is_doing: TaskState reads doing.
 func IsDoing(q Q, tid int64) (bool, error) {
 	t, err := GetTask(q, tid)
 	if err != nil || t == nil {
 		return false, err
 	}
-	if d, err := ReadsDoing(q, tid); !d || err != nil {
-		return false, err
-	}
-	return HoldsCurrent(q, t)
+	st, err := TaskState(q, t)
+	return st == "doing", err
 }
 
 func stateOf(t *Task, doing, asked bool) string {
@@ -119,7 +115,8 @@ func stateOf(t *Task, doing, asked bool) string {
 	return "draft"
 }
 
-// TaskState is actions.task_state: draft, queued, doing, done or discarded.
+// TaskState is actions.task_state: draft, queued, doing, done or discarded. Doing is its owner's current task with no open blocker; any other
+// task that was sent and is open is queued.
 func TaskState(q Q, t *Task) (string, error) {
 	if t.Ended() {
 		return stateOf(t, false, false), nil
@@ -128,13 +125,20 @@ func TaskState(q Q, t *Task) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	holds := false
+	doing := false
 	if asked {
-		if holds, err = HoldsCurrent(q, t); err != nil {
+		if doing, err = isCurrent(q, t); err != nil {
 			return "", err
 		}
 	}
-	return stateOf(t, asked && holds, asked), nil
+	if doing {
+		bs, err := TaskBlockers(q, t.ID)
+		if err != nil {
+			return "", err
+		}
+		doing = len(bs) == 0
+	}
+	return stateOf(t, doing, asked), nil
 }
 
 // ChildBlockerOf is actions.child_blocker_of: the open child task of someone else that blocks tid, nil for none.
@@ -216,17 +220,17 @@ func BlockWait(q Q, agent string) (string, error) {
 }
 
 // CurrentTaskStillAsking is actions._current_task_still_asking: the agent's current task still has its own request out, the one thing left
-// to deliver. A begun task always does, until it is done; an owner waiting on a child is held on it.
+// to deliver. A begun task always does, until it is done; a blocked one never does, so its owner moves on.
 func CurrentTaskStillAsking(q Q, agent string) (bool, error) {
 	t, err := currentOpen(q, agent)
 	if err != nil || t == nil {
 		return false, err
 	}
+	if bs, err := TaskBlockers(q, t.ID); len(bs) > 0 || err != nil {
+		return false, err
+	}
 	if b, err := Begun(q, t.ID); b || err != nil {
 		return b, err
-	}
-	if child, err := ChildBlockerOf(q, t.ID); child != nil || err != nil {
-		return child != nil, err
 	}
 	return t.SentAt.Valid, nil
 }

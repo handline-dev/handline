@@ -85,17 +85,10 @@ func (e *Env) AdvanceCurrentTask(q db.Q, agent string) (changed bool, refused ma
 	if agent == db.Human || must(db.CurrentTaskStillAsking(q, agent)) {
 		return false, refused, nil
 	}
-	before, hadBefore := ok2(db.CurrentTask(q, agent))
+	_, hadBefore := ok2(db.CurrentTask(q, agent))
 	for _, w := range must(db.WaitingTasks(q, agent)) {
 		if e.makeCurrent(q, agent, w, refused) {
 			return true, refused, nil
-		}
-	}
-	// Nothing to advance to. A current task that is merely blocked, and not yet done, stays current; a done task can carry a stale blocker too,
-	// and that one really is finished.
-	if hadBefore {
-		if row := must(db.GetTask(q, before)); row != nil && !row.DoneEvidence.Valid && len(must(db.TaskBlockers(q, before))) > 0 {
-			return false, refused, nil
 		}
 	}
 	check(db.SetCurrentTask(q, agent, 0, false))

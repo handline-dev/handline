@@ -145,3 +145,36 @@ func TestAnEstimateIsStoryPointsSetWhenATaskOpensChangedAndCleared(t *testing.T)
 		t.Fatalf("task.new takes an estimate: %v", r[4])
 	}
 }
+
+func TestAWaitOnACurrentTaskLetsItsOwnerGoInTheSameWrite(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'held', 'worker', 'manager', 1), (2, 'dep', 'other', 'manager', 1), "+
+			"(3, 'queued', 'worker', 'manager', 1), (4, 'lead', 'manager', 'gp', 1)",
+		"INSERT INTO agent_state(agent, state, updated, current_task) VALUES('worker', 'IDLE', 1, 1), ('manager', 'IDLE', 1, 4)")
+	f := &fakeTeller{}
+	edit := func(id int, params string) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.edit","params":{%s,"request_id":"e%d"}}`, id, params, id)
+	}
+	r := call(t, mk("manager", f), edit(2, `"task":3,"blocked_by":2`), edit(3, `"task":1,"blocked_by":2`))
+	for i, x := range r {
+		if x["result"] == nil {
+			t.Fatalf("%d: %v", i, x)
+		}
+	}
+	if len(f.edited) != 2 || f.edited[0].Freed != "" || f.edited[1].Freed != "worker" {
+		t.Fatalf("a wait on a task nobody holds frees no one; one on the current task frees its owner: %+v", f.edited)
+	}
+	if n := count(t, db, "SELECT COUNT(*) FROM agent_state WHERE agent = 'worker' AND current_task IS NULL"); n != 1 {
+		t.Fatal("the blocked task is still current")
+	}
+	// A child blocks its parent: opening one under the lead's current task frees the lead.
+	f = &fakeTeller{}
+	r = call(t, mk("manager", f), `{"jsonrpc":"2.0","id":4,"method":"task.new","params":{"owner":"other","title":"review it","body":"b","parent":4,"request_id":"n1"}}`)
+	if r[0]["result"] == nil || len(f.edited) != 1 || f.edited[0].Freed != "manager" {
+		t.Fatalf("%v %+v", r[0], f.edited)
+	}
+	if n := count(t, db, "SELECT COUNT(*) FROM agent_state WHERE agent = 'manager' AND current_task IS NULL"); n != 1 {
+		t.Fatal("the parent is still its owner's current task")
+	}
+}

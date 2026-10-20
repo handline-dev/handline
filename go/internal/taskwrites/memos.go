@@ -52,7 +52,7 @@ type Teller interface {
 	// answers the lines the reply adds.
 	HandedOver(h Handover) string
 	// Edited is what a committed task.edit leaves: a changed body told to the holder of a doing task, a task that changed hands sent on to its new
-	// owner, an owner whose last blocker cleared moved on.
+	// owner, an owner whose last blocker cleared or whose current task got one moved on.
 	Edited(ed Edited)
 	// Notified delivers the notices a write left for the people a task's change concerns (tellTask).
 	Notified(told []db.Notice)

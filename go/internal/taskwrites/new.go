@@ -166,8 +166,10 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		var (
 			tid   int64
 			asked *Asked
+			freed []string
 		)
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+			freed = nil
 			if err := claimImages(tx, home, me, body, "", "body"); err != nil {
 				return nil, err
 			}
@@ -181,8 +183,21 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 			if !asked.OK {
 				return nil, &rpc.CommitThen{Err: refusal(asked.Msg)}
 			}
+			// The new task blocks its parent, and its own blocker may block it while it is already its owner's current one.
+			for _, blocked := range []int64{parent, tid} {
+				if o, err := freeHolder(tx, blocked); err != nil {
+					return nil, err
+				} else if o != "" {
+					freed = append(freed, o)
+				}
+			}
 			return accepted(fmt.Sprintf("task T%d opened for %s", tid, owner), map[string]any{"task": tid}), nil
 		})
+		for _, o := range freed {
+			if err == nil && tell != nil {
+				tell.Edited(Edited{Task: tid, By: me, Freed: o})
+			}
+		}
 		if asked != nil && !asked.OK && asked.After != nil {
 			asked.After() // the refusal's writes stood: what follows them still runs
 		}

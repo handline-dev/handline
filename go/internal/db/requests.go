@@ -455,7 +455,29 @@ func MarkDelivered(q Q, rid int64) (bool, error) {
 	if target == Human { // the founder has no transcript to land in: drawn is delivered
 		return true, StampTaskDelivered(q, rid)
 	}
-	return true, nil
+	return true, holdDelivered(q, rid, target)
+}
+
+// holdDelivered makes the task request rid delivers the agent's current one when the agent holds no open task: the work it was just given is
+// what it is doing.
+func holdDelivered(q Q, rid int64, agent string) error {
+	if cur, ok, err := CurrentTask(q, agent); err != nil {
+		return err
+	} else if ok {
+		if t, err := GetTask(q, cur); err != nil || (t != nil && !t.Ended()) {
+			return err
+		}
+	}
+	var tid int64
+	err := q.QueryRow("SELECT t.id FROM tasks t JOIN task_requests l ON l.task_id = t.id JOIN requests r ON r.id = l.request_id "+
+		"WHERE r.id = ? AND r.kind = 'task' AND t.owner = ? AND t.done_evidence IS NULL AND t.discarded_by IS NULL LIMIT 1", rid, agent).Scan(&tid)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return SetCurrentTask(q, agent, tid, true)
 }
 
 // ClearDelivered is db.clear_delivered: undo MarkDelivered for a request whose typing failed.

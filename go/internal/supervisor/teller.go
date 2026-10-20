@@ -226,7 +226,7 @@ func (e *Env) HandedOver(h taskwrites.Handover) (out string) {
 }
 
 // Edited is what an edit does after it commits (rpc_tasks._edit): a changed body told to the holder, a task that changed hands sent on, and an
-// owner whose last blocker the edit cleared moved on.
+// owner whose last blocker the edit cleared, or whose current task it blocked, moved on.
 func (e *Env) Edited(ed taskwrites.Edited) {
 	var out string
 	defer e.guard("telling after an edit", &out)
@@ -238,7 +238,7 @@ func (e *Env) Edited(ed taskwrites.Edited) {
 	}
 	if ed.Freed != "" {
 		if changed, _, err := e.AdvanceCurrentTask(e.DB, ed.Freed); err != nil {
-			e.log("  moving %s on after an unblock failed: %v", ed.Freed, err)
+			e.log("  moving %s on after a block or unblock failed: %v", ed.Freed, err)
 		} else if changed {
 			e.Push(e.DB, ed.Freed, 0)
 		}

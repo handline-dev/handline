@@ -285,7 +285,7 @@ export type Task = {
   from: string;
   to: string;
   title: string;
-  /** draft, queued, doing, done or discarded. */
+  /** draft, queued, doing, done or discarded. doing is its owner's current task with no open blocker, so an agent has at most one; any other open task that was sent is queued. */
   state: string;
   time_box: Duration | null;
   parent: number | null;
@@ -2514,7 +2514,7 @@ export interface Methods {
   priority?: 1 | 2 | 3;
   /** Story points (as task.new); null clears it. */
   estimate?: (1 | 2 | 3 | 5 | 8 | 13) | null;
-  /** A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them. */
+  /** A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them. A doing task goes queued and its owner moves on to its next task. */
   blocked_by?: number;
   /** A task number this one no longer waits on; clearing the last one lets its owner's current task advance. */
   unblock?: number;

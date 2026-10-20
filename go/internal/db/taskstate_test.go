@@ -22,12 +22,21 @@ func TestTaskStateLadder(t *testing.T) {
 	}
 	rid := ask(t, q, "a", "b", "work", "task")
 	LinkRequest(q, tid, rid)
-	if got := state(); got != "doing" {
-		t.Fatalf("a task with work out is doing: %s", got)
+	if got := state(); got != "queued" {
+		t.Fatalf("work out is not doing until its owner holds it: %s", got)
 	}
+	SetCurrentTask(q, "b", tid, true)
+	if got := state(); got != "doing" {
+		t.Fatalf("the task its owner holds, with work out, is doing: %s", got)
+	}
+	blocker := seedTask(t, q, "c", "a")
+	AddBlock(q, tid, blocker)
+	if got := state(); got != "queued" {
+		t.Fatalf("a blocked task is queued, held or not: %s", got)
+	}
+	RemoveBlock(q, tid, blocker)
 	// an owner holds one task: a second with work out is queued behind it
 	other := seedTask(t, q, "b", "a")
-	SetCurrentTask(q, "b", tid, true)
 	r2 := ask(t, q, "a", "b", "more", "task")
 	LinkRequest(q, other, r2)
 	o, _ := GetTask(q, other)
@@ -68,16 +77,18 @@ func TestWaitsAndTheCurrentTask(t *testing.T) {
 	if w, _ := ChildWait(q, "b"); w != "waiting for T"+itoa(child)+" (c)" {
 		t.Fatal(w)
 	}
-	if yes, _ := CurrentTaskStillAsking(q, "b"); !yes {
-		t.Fatal("held on a child")
+	rid := ask(t, q, "a", "b", "w", "task")
+	LinkRequest(q, cur, rid)
+	if yes, _ := CurrentTaskStillAsking(q, "b"); yes {
+		t.Fatal("a blocked current task does not hold its owner, child or not")
 	}
 	RemoveBlock(q, cur, child)
 	DiscardTask(q, child, "b", "x")
-	rid := ask(t, q, "a", "b", "w", "task")
-	LinkRequest(q, cur, rid)
+	RemoveBlock(q, cur, blocker)
 	if yes, _ := CurrentTaskStillAsking(q, "b"); !yes {
 		t.Fatal("its own request is out")
 	}
+	AddBlock(q, cur, blocker)
 	// waiting tasks: blocked ones are skipped, a queued one is listed with no request when never delivered
 	SetTaskQueued(q, blocker, "a")
 	q.Exec("UPDATE tasks SET owner = 'b' WHERE id = ?", blocker)
@@ -180,5 +191,37 @@ func TestWaitingTasksOffersARequestedTaskSkipsOneAnsweredAndOffersItAgainAfterAR
 	}
 	if !neverReached("withdrawn") || neverReached("landed") {
 		t.Fatal("never-reached states")
+	}
+}
+
+func TestAnAgentHasAtMostOneDoing(t *testing.T) {
+	q := open(t)
+	parent := seedTask(t, q, "b", "a")
+	var tids []int64
+	for i := 0; i < 3; i++ {
+		tid := seedTask(t, q, "b", "a")
+		LinkRequest(q, tid, ask(t, q, "a", "b", "work", "task"))
+		tids = append(tids, tid)
+	}
+	child, _ := NewTask(q, "child", "c", "b", parent, DefaultPriority, "", 0, "")
+	LinkRequest(q, child, ask(t, q, "b", "c", "look", "task"))
+	doing := func() (n int) {
+		for _, tid := range append([]int64{parent}, tids...) {
+			if yes, _ := IsDoing(q, tid); yes {
+				n++
+			}
+		}
+		return n
+	}
+	if n := doing(); n != 0 {
+		t.Fatalf("with nothing held, %d read doing", n)
+	}
+	SetCurrentTask(q, "b", tids[1], true)
+	if n := doing(); n != 1 {
+		t.Fatalf("%d doing", n)
+	}
+	MarkTaskDone(q, tids[1], "ok", "reason")
+	if n := doing(); n != 0 {
+		t.Fatalf("with its current task done, %d read doing", n)
 	}
 }

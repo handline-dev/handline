@@ -9,6 +9,7 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
+	"github.com/handline/handline/go/internal/taskwrites"
 )
 
 // newTask opens an approved task with no request out: queued, never delivered.
@@ -134,13 +135,16 @@ func TestAdvanceClearsACurrentTaskThatHasNothingLeft(t *testing.T) {
 	if _, ok, _ := db.CurrentTask(r.DB, "bob"); ok {
 		t.Fatal("still current")
 	}
-	// a current task that is only blocked stays current
+	// a blocked current task is let go: its owner is free for other work (the first tick after an upgrade finds these)
 	blocked := r.newTask("bob", "alice", "blocked")
 	db.SetCurrentTask(r.DB, "bob", blocked, true)
 	blocker := r.newTask("alice", "alice", "first")
 	db.AddBlock(r.DB, blocked, blocker)
-	if changed, _, _ := r.AdvanceCurrentTask(r.DB, "bob"); changed {
-		t.Fatal("dropped a blocked current task")
+	if changed, _, _ := r.AdvanceCurrentTask(r.DB, "bob"); !changed {
+		t.Fatal("kept a blocked current task")
+	}
+	if _, ok, _ := db.CurrentTask(r.DB, "bob"); ok {
+		t.Fatal("still current")
 	}
 }
 
@@ -546,8 +550,9 @@ func (r *rig) beginCurrent(owner, opener, title string) int64 {
 	return tid
 }
 
-// The stall this guards against: a lead's one current task waits on another agent's task, the lead is idle, and its queued tasks never reached it.
-func TestSweepGivesAnIdleAgentItsNextTaskWhileItsBegunTaskWaits(t *testing.T) {
+// The stall this guards against: a lead's one current task waits on another agent's task, and its queued tasks never reached it. A blocked
+// task frees its owner at once, running or not; it comes back, still begun, once its blocker is done.
+func TestSweepGivesAnAgentItsNextTaskWhileItsBegunTaskWaits(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	held := r.beginCurrent("bob", "alice", "the review")
@@ -559,18 +564,14 @@ func TestSweepGivesAnIdleAgentItsNextTaskWhileItsBegunTaskWaits(t *testing.T) {
 
 	r.must(db.SetAgentState(r.DB, "bob", states.Running, 0, ""))
 	r.must(r.SweepTaskQueue(r.clock))
-	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != held {
-		t.Fatalf("a running agent was moved off T%d to T%d", held, cur)
-	}
-
-	r.must(db.SetAgentState(r.DB, "bob", states.Idle, 0, ""))
-	r.must(r.SweepTaskQueue(r.clock))
 	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != next {
 		t.Fatalf("current is T%d, want the next queued T%d", cur, next)
 	}
-	want := fmt.Sprintf("T%d is blocked by T%d (carol), so T%d (the next one) is yours now: start it.", held, blocker, next)
-	if says := r.saysTo("bob"); len(says) != 1 || says[0] != want {
-		t.Fatalf("says to bob = %q, want %q", says, want)
+	if st, _ := db.TaskState(r.DB, must(db.GetTask(r.DB, held))); st != "queued" {
+		t.Fatalf("the blocked task reads %s", st)
+	}
+	if begun, _ := db.Begun(r.DB, held); !begun {
+		t.Fatal("the blocked task lost its begin")
 	}
 }
 
@@ -600,5 +601,42 @@ func TestSweepPingsTheIdleHolderOfAnOverdueTaskOncePerDeadline(t *testing.T) {
 	r.must(r.SweepTaskQueue(r.clock + 2))
 	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != next {
 		t.Fatalf("current is T%d, want T%d once something is queued behind the overdue one", cur, next)
+	}
+}
+
+// A wait on the current task frees its owner for its next one; once the wait ends the task waits its turn, and comes back still begun.
+func TestABlockedTaskFreesItsOwnerAndComesBackWithoutPreempting(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	held := r.beginCurrent("bob", "alice", "the review")
+	blocker := r.newTask("carol", "bob", "the list to review")
+	next := r.newTask("bob", "alice", "the next one")
+	r.must(db.AddBlock(r.DB, held, blocker))
+	r.must(db.SetCurrentTask(r.DB, "bob", 0, false)) // as task.edit leaves it
+	r.Edited(taskwrites.Edited{Task: held, By: "bob", Freed: "bob"})
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != next {
+		t.Fatalf("current is T%d, want T%d at once", cur, next)
+	}
+	doing := 0
+	for _, tid := range []int64{held, blocker, next} {
+		if st, _ := db.TaskState(r.DB, must(db.GetTask(r.DB, tid))); st == "doing" && must(db.GetTask(r.DB, tid)).Owner == "bob" {
+			doing++
+		}
+	}
+	if doing != 1 {
+		t.Fatalf("bob has %d doing", doing)
+	}
+	must(db.RemoveBlock(r.DB, held, blocker))
+	if changed, _, _ := r.AdvanceCurrentTask(r.DB, "bob"); changed {
+		t.Fatal("an unblocked task took bob off the one it is on")
+	}
+	must(db.MarkTaskDone(r.DB, next, "ok", "reason"))
+	_, _, err := r.AdvanceCurrentTask(r.DB, "bob")
+	r.must(err)
+	if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != held {
+		t.Fatalf("current is T%d, want T%d back", cur, held)
+	}
+	if begun, _ := db.Begun(r.DB, held); !begun {
+		t.Fatal("it came back no longer begun")
 	}
 }
