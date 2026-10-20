@@ -22,7 +22,7 @@ type vendor struct {
 func (vendor) Untils() []string                          { return []string{"ci"} }
 func (vendor) Ready(context.Context) (bool, string)      { return true, "" }
 func (vendor) Parse(t, _ string) (string, string, error) { return t, t, nil }
-func (v vendor) Check(ctx context.Context, target, until string) (watch.Verdict, string, error) {
+func (v vendor) Check(ctx context.Context, target, until string, _ time.Time) (watch.Verdict, string, error) {
 	return v.read(ctx, target, until)
 }
 

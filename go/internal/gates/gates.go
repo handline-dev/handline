@@ -105,7 +105,7 @@ func (s *Sweep) read(ctx context.Context, v watch.Vendor, tid int64, w db.Watch)
 		return "", "", "no vendor " + w.Vendor + " in this daemon"
 	}
 	rctx, cancel := context.WithTimeout(ctx, ReadWait)
-	verdict, evidence, err := v.Check(rctx, w.Target, w.Until)
+	verdict, evidence, err := v.Check(rctx, w.Target, w.Until, time.Unix(w.Since, 0))
 	cancel()
 	if verdict != watch.Gone {
 		delete(s.gone, tid)

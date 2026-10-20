@@ -52,24 +52,27 @@ func TestPRChecksReadAsACIVerdict(t *testing.T) {
 	pr := func(state, commit string, checks ...string) string {
 		return `{"state":"` + state + `","commits":[{"committedDate":"` + commit + `"}],"statusCheckRollup":[` + strings.Join(checks, ",") + `]}`
 	}
-	old, fresh := "2026-10-20T11:40:00Z", "2026-10-20T11:55:00Z"
+	old, fresh := "2026-10-20T11:00:00Z", "2026-10-20T11:55:00Z"
+	early, now := time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC), time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	for _, c := range []struct {
 		out      string
+		since    time.Time
 		verdict  Verdict
 		evidence string
 	}{
-		{pr("OPEN", fresh, ok, skipped, status), Passed, "ci passed"},
-		{pr("OPEN", fresh, ok, failed), Failed, "ci failed: apps"},
-		{pr("OPEN", fresh, failed, running), Waiting, ""},
-		{pr("OPEN", fresh, ok, pending), Waiting, ""},
-		{pr("MERGED", fresh, ok), Passed, "ci passed"}, // CI finished before the merge
-		{pr("CLOSED", fresh, running), Failed, "closed before CI"},
-		{pr("OPEN", fresh), Waiting, ""},              // no check has started yet
-		{pr("OPEN", old), Passed, "no CI on this PR"}, // and none 10 minutes after the head commit
-		{pr("MERGED", fresh), Failed, "closed before CI"},
+		{pr("OPEN", fresh, ok, skipped, status), early, Passed, "ci passed"},
+		{pr("OPEN", fresh, ok, failed), early, Failed, "ci failed: apps"},
+		{pr("OPEN", fresh, failed, running), early, Waiting, ""},
+		{pr("OPEN", fresh, ok, pending), early, Waiting, ""},
+		{pr("MERGED", fresh, ok), early, Passed, "ci passed"}, // CI finished before the merge
+		{pr("CLOSED", fresh, running), early, Failed, "closed before CI"},
+		{pr("OPEN", fresh), early, Waiting, ""},              // no check has started yet
+		{pr("OPEN", old), early, Passed, "no CI on this PR"}, // and none 10 minutes after the head commit
+		{pr("OPEN", old), now, Waiting, ""},                  // nor from the watch's start, when that is later
+		{pr("MERGED", fresh), early, Failed, "closed before CI"},
 	} {
 		var args []string
-		v, e, err := gh(c.out, nil, &args).Check(context.Background(), "o/r#7", "ci")
+		v, e, err := gh(c.out, nil, &args).Check(context.Background(), "o/r#7", "ci", c.since)
 		if err != nil || v != c.verdict || e != c.evidence {
 			t.Errorf("%s: %s %q %v, want %s %q", c.out, v, e, err, c.verdict, c.evidence)
 		}
@@ -93,7 +96,7 @@ func TestAPRCloseAndAnIssueDoneReadAsVerdicts(t *testing.T) {
 		{"done", `{"state":"OPEN","stateReason":""}`, Waiting, ""},
 	} {
 		var args []string
-		v, e, err := gh(c.out, nil, &args).Check(context.Background(), "o/r#7", c.until)
+		v, e, err := gh(c.out, nil, &args).Check(context.Background(), "o/r#7", c.until, time.Time{})
 		if err != nil || v != c.verdict || e != c.evidence {
 			t.Errorf("%s %s: %s %q %v", c.until, c.out, v, e, err)
 		}
@@ -103,11 +106,11 @@ func TestAPRCloseAndAnIssueDoneReadAsVerdicts(t *testing.T) {
 // A repo or number GitHub cannot resolve is gone; any other failure is a read that did not answer.
 func TestAMissingTargetIsGoneAndAnyOtherFailureAnError(t *testing.T) {
 	var args []string
-	v, e, err := gh("", errors.New("gh pr: GraphQL: Could not resolve to a PullRequest with the number of 7."), &args).Check(context.Background(), "o/r#7", "ci")
+	v, e, err := gh("", errors.New("gh pr: GraphQL: Could not resolve to a PullRequest with the number of 7."), &args).Check(context.Background(), "o/r#7", "ci", time.Time{})
 	if err != nil || v != Gone || !strings.Contains(e, "Could not resolve") {
 		t.Fatalf("%s %q %v", v, e, err)
 	}
-	if _, _, err := gh("", errors.New("gh pr: HTTP 502"), &args).Check(context.Background(), "o/r#7", "ci"); err == nil {
+	if _, _, err := gh("", errors.New("gh pr: HTTP 502"), &args).Check(context.Background(), "o/r#7", "ci", time.Time{}); err == nil {
 		t.Fatal("a 502 was a verdict")
 	}
 }

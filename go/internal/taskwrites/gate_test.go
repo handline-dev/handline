@@ -33,8 +33,12 @@ func TestTaskNewOpensAGateThatWatchesAVendorsTarget(t *testing.T) {
 	if st := taskState(t, sdb, tid); st != "doing" {
 		t.Fatalf("state %s", st)
 	}
-	if w, err := db.TaskWatch(sdb, tid); err != nil || w == nil || *w != (db.Watch{Vendor: "github", Target: "o/r#7", Until: "ci", Label: "PR #7 CI"}) {
+	w, err := db.TaskWatch(sdb, tid)
+	if err != nil || w == nil || w.Since < time.Now().Unix()-60 {
 		t.Fatalf("%+v %v", w, err)
+	}
+	if w.Since = 0; *w != (db.Watch{Vendor: "github", Target: "o/r#7", Until: "ci", Label: "PR #7 CI"}) {
+		t.Fatalf("%+v", w)
 	}
 	if left := int64(count(t, sdb, "SELECT timeout_at FROM tasks WHERE id = 1")) - time.Now().Unix(); left < db.GateDeadlineS-60 || left > db.GateDeadlineS {
 		t.Fatalf("deadline in %ds", left)

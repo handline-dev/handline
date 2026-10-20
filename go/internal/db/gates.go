@@ -9,6 +9,7 @@ import (
 type Watch struct {
 	Vendor, Target, Until, Label string
 	Result, Error                string
+	Since                        int64 // when the gate started watching
 }
 
 // GateDeadlineS is a gate's time box when none is given.
@@ -23,10 +24,10 @@ func OpenGate(q Q, tid int64, by string, w Watch) error {
 	return err
 }
 
-const watchCols = "watch_vendor, watch_target, watch_until, watch_label, COALESCE(watch_result, ''), COALESCE(watch_error, '')"
+const watchCols = "watch_vendor, watch_target, watch_until, watch_label, COALESCE(watch_result, ''), COALESCE(watch_error, ''), COALESCE(sent_at, 0)"
 
 func (w *Watch) dest() []any {
-	return []any{&w.Vendor, &w.Target, &w.Until, &w.Label, &w.Result, &w.Error}
+	return []any{&w.Vendor, &w.Target, &w.Until, &w.Label, &w.Result, &w.Error, &w.Since}
 }
 
 // TaskWatch is what task tid watches, nil for a task that is no gate.

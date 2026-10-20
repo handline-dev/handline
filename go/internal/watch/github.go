@@ -11,7 +11,8 @@ import (
 	"time"
 )
 
-// NoCIWait is how long after its head commit a PR with no checks at all is taken to have no CI.
+// NoCIWait is how long a PR with no checks at all is waited on, from its head commit or the watch's start, whichever is later, before it
+// is taken to have no CI.
 const NoCIWait = 10 * time.Minute
 
 // GitHub watches a pull request's CI (ci) or its close (closed), or an issue being finished (done), through the gh CLI's own login: handline
@@ -52,7 +53,7 @@ func (*GitHub) Parse(target, until string) (string, string, error) {
 	return target, "issue #" + m[2] + " done", nil
 }
 
-func (g *GitHub) Check(ctx context.Context, target, until string) (Verdict, string, error) {
+func (g *GitHub) Check(ctx context.Context, target, until string, since time.Time) (Verdict, string, error) {
 	m := githubTarget.FindStringSubmatch(target)
 	if m == nil {
 		return "", "", fmt.Errorf("a github target is owner/name#N, not %q", target)
@@ -71,7 +72,7 @@ func (g *GitHub) Check(ctx context.Context, target, until string) (Verdict, stri
 	}
 	switch until {
 	case "ci":
-		return ciVerdict(out, g.now())
+		return ciVerdict(out, since, g.now())
 	case "closed":
 		return closedVerdict(out)
 	}
@@ -90,8 +91,8 @@ type ghCheck struct {
 // ciVerdict reads `gh pr view --json state,mergeCommit,statusCheckRollup,commits`. A check run is waiting until it completes and ok when
 // it concludes SUCCESS, NEUTRAL or SKIPPED; a commit status is waiting while PENDING or EXPECTED and ok when SUCCESS. Every check ok is
 // passed and any other end is failed, once none waits. A PR that closes while its CI still waits is failed: that CI will not finish. A PR
-// with no checks NoCIWait after its head commit has no CI, and is passed.
-func ciVerdict(out []byte, now time.Time) (Verdict, string, error) {
+// with no checks NoCIWait after its head commit and the watch's start has no CI, and is passed.
+func ciVerdict(out []byte, since, now time.Time) (Verdict, string, error) {
 	var pr struct {
 		State   string
 		Rollup  []ghCheck `json:"statusCheckRollup"`
@@ -105,8 +106,13 @@ func ciVerdict(out []byte, now time.Time) (Verdict, string, error) {
 		switch {
 		case closed:
 			return Failed, "closed before CI", nil
-		case len(pr.Commits) > 0 && now.Sub(pr.Commits[len(pr.Commits)-1].CommittedDate) >= NoCIWait:
-			return Passed, "no CI on this PR", nil
+		case len(pr.Commits) > 0:
+			if head := pr.Commits[len(pr.Commits)-1].CommittedDate; head.After(since) {
+				since = head
+			}
+			if now.Sub(since) >= NoCIWait {
+				return Passed, "no CI on this PR", nil
+			}
 		}
 		return Waiting, "", nil
 	}
