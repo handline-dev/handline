@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"github.com/handline/handline/go/internal/agentview"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/heal"
 	"github.com/handline/handline/go/internal/lifecycle"
@@ -13,8 +14,9 @@ import (
 
 // healPorts is heal.Ports over the lifecycle: the same Esc, delivery, restart and decision the founder's own buttons reach.
 type healPorts struct {
-	lc   *Lifecycle
-	home string
+	lc    *Lifecycle
+	home  string
+	needs func(agent string) *agentview.NeedsYou
 }
 
 var _ heal.Ports = healPorts{}
@@ -26,9 +28,14 @@ func (h healPorts) handle(agent string) string {
 	return handle
 }
 
+// NeedsPerson: with the hooks on, an open needs-you card answers without the screen, and a settled turn has no dialog; the screen is
+// read only for the CLI's own dialogs, which no hook reports.
 func (h healPorts) NeedsPerson(agent string) bool {
+	if h.lc.term.Turns != nil && h.needs != nil && h.needs(agent) != nil {
+		return true
+	}
 	handle := h.handle(agent)
-	return handle != "" && h.lc.term.Available() && h.lc.term.ScreenBlocker(handle) != nil
+	return handle != "" && h.lc.term.Available() && h.lc.term.DialogUp(handle)
 }
 
 func (h healPorts) Interrupt(agent string) (bool, string) {

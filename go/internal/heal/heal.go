@@ -40,7 +40,7 @@ const FixOpenTerminal = "open_terminal"
 // Ports is what the healer does to an agent, all of it the daemon's existing paths.
 type Ports interface {
 	Agents() []string
-	// NeedsPerson is a prompt or dialog on the agent's screen: it already has its own card, and a restart would throw the answer away.
+	// NeedsPerson is a prompt or dialog waiting on a person: it already has its own card, and a restart would throw the answer away.
 	NeedsPerson(agent string) bool
 	// Interrupt presses Esc on the agent's terminal.
 	Interrupt(agent string) (ok bool, why string)
