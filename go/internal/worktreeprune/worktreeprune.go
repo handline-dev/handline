@@ -63,41 +63,56 @@ func Real(path string) string {
 }
 
 // AgentWorktrees are the real paths of every worktree an agent records (agent_state.worktree and extra_worktrees), but those of skip.
-// `hl launch` records <repo id>::<path>.
 func AgentWorktrees(q db.Q, skip string) (map[string]bool, error) {
-	rows, err := q.Query("SELECT agent, COALESCE(worktree, ''), COALESCE(extra_worktrees, '') FROM agent_state")
+	out := map[string]bool{}
+	err := recorded(q, "SELECT agent, COALESCE(worktree, ''), COALESCE(extra_worktrees, '') FROM agent_state", func(agent, path string) {
+		if agent != skip {
+			out[path] = true
+		}
+	})
+	return out, err
+}
+
+// Of are the real paths of the worktrees agent records.
+func Of(q db.Q, agent string) ([]string, error) {
+	var out []string
+	err := recorded(q, "SELECT agent, COALESCE(worktree, ''), COALESCE(extra_worktrees, '') FROM agent_state WHERE agent = ?", func(_, path string) {
+		out = append(out, path)
+	}, agent)
+	return out, err
+}
+
+// recorded hands each worktree path the rows of query record to each, as a real path. `hl launch` records <repo id>::<path>.
+func recorded(q db.Q, query string, each func(agent, path string), args ...any) error {
+	rows, err := q.Query(query, args...)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
-	out := map[string]bool{}
 	for rows.Next() {
 		var agent, first, extra string
 		if err := rows.Scan(&agent, &first, &extra); err != nil {
-			return nil, err
+			return err
 		}
-		if agent == skip {
-			continue
-		}
-		recorded := []string{first}
+		paths := []string{first}
 		if extra != "" {
 			var more []string
 			if err := json.Unmarshal([]byte(extra), &more); err != nil {
-				return nil, err
+				return err
 			}
-			recorded = append(recorded, more...)
+			paths = append(paths, more...)
 		}
-		for _, r := range recorded {
-			if r == "" {
+		for _, p := range paths {
+			if p == "" {
 				continue
 			}
-			if _, path, ok := strings.Cut(r, "::"); ok {
-				r = path
+			if _, path, ok := strings.Cut(p, "::"); ok {
+				p = path
 			}
-			out[Real(r)] = true
+			each(agent, Real(p))
 		}
 	}
-	return out, rows.Err()
+	return rows.Err()
 }
 
 // WhyKept is why the worktree stays, "" when it may be removed. agents are the paths agents work in (AgentWorktrees), here the

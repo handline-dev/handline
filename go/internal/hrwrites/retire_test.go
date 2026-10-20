@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/gitrun"
 	"github.com/handline/handline/go/internal/sealed"
 	"github.com/handline/handline/go/internal/team"
 )
@@ -66,5 +67,49 @@ func TestAgentRetireRefusesARunningOrDependedOnAgentAndRetiresOneThatIsNot(t *te
 	}
 	if msg := refusal(r.call("agent.retire", `{"agent":"bob.kid","request_id":"r4"}`)); !strings.Contains(msg, "no such agent") {
 		t.Fatal(msg)
+	}
+}
+
+// A retired member's worktree that is merged, clean and nobody else's goes with it; any other stays and the reply says why.
+func TestARetiredMembersDoneWorktreeIsRemovedAndTheRestStay(t *testing.T) {
+	r := newRig(t)
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	main := filepath.Join(root, "main")
+	git := func(dir string, args ...string) {
+		t.Helper()
+		if out := gitrun.Run(dir, append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...); out.RC != 0 {
+			t.Fatalf("git %v: %s", args, out.Stderr)
+		}
+	}
+	os.MkdirAll(main, 0o755)
+	git(main, "init", "-q", "-b", "main")
+	git(main, "commit", "-q", "--allow-empty", "-m", "start")
+	wt := map[string]string{}
+	for _, name := range []string{"done", "ahead", "shared"} {
+		wt[name] = filepath.Join(root, name)
+		git(main, "worktree", "add", "-q", "-b", name, wt[name])
+	}
+	git(wt["ahead"], "commit", "-q", "--allow-empty", "-m", "unmerged work")
+	r.db.Exec("INSERT INTO agent_state(agent, state, updated, worktree, extra_worktrees) VALUES('bob', 'idle', 1, ?, ?)",
+		"repo::"+wt["done"], `["`+wt["ahead"]+`", "`+wt["shared"]+`"]`)
+	r.db.Exec("INSERT INTO agent_state(agent, state, updated, worktree) VALUES('alice', 'idle', 1, ?)", wt["shared"])
+	m := r.call("agent.retire", `{"agent":"bob","request_id":"w1"}`)
+	res, _ := m["result"].(map[string]any)
+	if res == nil {
+		t.Fatalf("%v", m)
+	}
+	said := res["said"].(string)
+	for _, want := range []string{wt["done"] + " is removed", wt["ahead"] + " stays: ahead is not merged into main", wt["shared"] + " stays: an agent works in it"} {
+		if !strings.Contains(said, want) {
+			t.Errorf("%q lacks %q", said, want)
+		}
+	}
+	if _, err := os.Stat(wt["done"]); !os.IsNotExist(err) {
+		t.Fatal("the done worktree is still there")
+	}
+	for _, name := range []string{"ahead", "shared"} {
+		if _, err := os.Stat(wt[name]); err != nil {
+			t.Fatalf("%s was removed", name)
+		}
 	}
 }

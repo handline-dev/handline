@@ -17,6 +17,7 @@ import (
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
 	"github.com/handline/handline/go/internal/timefmt"
+	"github.com/handline/handline/go/internal/worktreeprune"
 	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
@@ -176,6 +177,11 @@ func (e *Env) doRetire(p step) (bool, string, error) {
 	if err != nil || !ok {
 		return false, said, err
 	}
+	mine, err := worktreeprune.Of(p.tx, name) // read before its row goes
+	if err != nil {
+		return false, "", err
+	}
+	p.later(func() string { return e.pruneMemberWorktrees(name, mine) })
 	// The scheduling row goes with it. Its requests and events stay - they are the record of work that was done.
 	if _, err := p.tx.Exec("DELETE FROM agent_state WHERE agent = ?", name); err != nil {
 		return false, "", err
