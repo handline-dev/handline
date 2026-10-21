@@ -168,6 +168,7 @@ class Answerer:
         self.on = threading.Event()
         self.on.set()
         self.answered: set[str] = set()
+        self.yeses = 0
         threading.Thread(target=self.loop, daemon=True).start()
 
     def loop(self) -> None:
@@ -183,6 +184,7 @@ class Answerer:
                 if prompt and prompt["id"] not in self.answered:
                     self.answered.add(prompt["id"])
                     self.d.write("prompt.answer", {"agent": self.agent, "prompt": prompt["id"], "choice": yes(prompt)})
+                    self.yeses += 1
             except (Refused, OSError):
                 pass
 
@@ -341,7 +343,7 @@ def pane(sock: str) -> tuple[str, int | None]:
     return pane_id, int(kids[0]) if kids else None
 
 
-def hook_permission(r: Run, allow: bool) -> None:
+def hook_permission(r: Run, work: Path, allow: bool) -> None:
     """A permission question through the PermissionRequest hook: the card shows with the command, and its answer goes back as the
     hook's decision, with no key typed. A deny carries a note the agent reads."""
     d, a = r.d, r.agent
@@ -360,12 +362,17 @@ def hook_permission(r: Run, allow: bool) -> None:
         if allow:
             d.write("prompt.answer", {"agent": a, "prompt": prompt["id"], "choice": yes(prompt)})
         else:
-            d.write("prompt.answer", {"agent": a, "prompt": prompt["id"], "choice": "deny", "note": f"e2e {nonce}: reply NOTED and stop"})
+            d.write("prompt.answer", {"agent": a, "prompt": prompt["id"], "choice": "deny", "note": f"e2e {nonce}: reply NOTED"})
+        if not allow:
+            r.step("deny: the agent read the note", t, lambda ev: ev["type"] == "chat.message" and ev["data"].get("from") == a
+                   and "NOTED" in (ev["data"].get("body") or ""), model=True)
         r.step(f"{word}: the agent went on to idle", t, agent_changed(a, "idle"), model=True)
+        if (work / f"e2e-{word}-{nonce}.txt").exists() != allow:
+            r.fail(f"{word}: the answer took effect", f"e2e-{word}-{nonce}.txt {'missing' if allow else 'made'} in {work}")
     r.answerer.on.set()
 
 
-def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, home: Path, group: int) -> None:
+def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, group: int) -> None:
     """Working and idle from hooks, timed: a normal turn, a permission prompt, an Esc mid-turn, and a CLI killed hard mid-turn."""
     d, a = r.d, r.agent
     t = time.time()
@@ -405,8 +412,8 @@ def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, home: Path, g
         r.record({"step": "idle after the Stop hook (transcript time to agent.changed)", "paced_by": "daemon", "result": "missing",
                   "seconds": None, "note": f"idle event {'seen' if idle else 'never'}, Stop in the transcript {'found' if replied else 'not found'}"})
 
-    hook_permission(r, allow=True)
-    hook_permission(r, allow=False)
+    hook_permission(r, root / "work", allow=True)
+    hook_permission(r, root / "work", allow=False)
 
     long_turn = "Write a 1500-word short story about a lighthouse keeper, in plain prose, with no tools."
     t = time.time()
@@ -582,13 +589,13 @@ def main() -> int:
         r = Run(d, s, Answerer(home / "daemon.sock", key, s, AGENT), AGENT)
         print(f"live-e2e: {AGENT} on a test daemon {d.hello.get('daemon')}, home {home}", flush=True)
         if args.terminal:
-            terminal_turns(r, tmux, account["config_dir"], root, home, daemon)
+            terminal_turns(r, tmux, account["config_dir"], root, daemon)
         else:
             lifecycle(r)
             chat_and_attachment(r)
             task_and_permission(r)
             kill_and_exit(r)
-        print(f"live-e2e: {len(r.answerer.answered)} permission prompt(s) answered yes, the permission step's own among them", flush=True)
+        print(f"live-e2e: {r.answerer.yeses} permission prompt(s) outside the steps answered yes", flush=True)
     except (Refused, OSError, subprocess.CalledProcessError, KeyboardInterrupt) as e:
         print(f"live-e2e: {str(e) or 'interrupted'}", file=sys.stderr)
         return 2
