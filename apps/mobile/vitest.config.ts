@@ -9,7 +9,6 @@ export default defineConfig({
       { find: 'react-native-view-shot', replacement: new URL('./test/view-shot-stub.ts', import.meta.url).pathname },
       { find: 'react-native-webview', replacement: new URL('./test/webview-stub.tsx', import.meta.url).pathname },
       { find: /^react-native-keyboard-controller$/, replacement: new URL('./test/keyboard-stub.tsx', import.meta.url).pathname },
-      { find: /^react-native-reanimated$/, replacement: new URL('./test/reanimated-stub.ts', import.meta.url).pathname },
       { find: 'react-native', replacement: 'react-native-web' },
       { find: 'expo-image-picker', replacement: new URL('./test/expo-image-stub.tsx', import.meta.url).pathname },
       { find: 'expo-image-manipulator', replacement: new URL('./test/expo-image-stub.tsx', import.meta.url).pathname },

@@ -1,28 +1,30 @@
 // The chat list's scroll: it follows its end until a hand drags it away; a sent message stands at the top with blank space under it
 // for the reply to grow into; while away, new entries show a "New" button.
 import { useRef, useState } from 'react';
-import { Pressable, Text, type NativeScrollEvent } from 'react-native';
-import type Animated from 'react-native-reanimated';
-import { useSharedValue } from 'react-native-reanimated';
+import { Pressable, Text, type NativeScrollEvent, type ScrollView } from 'react-native';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 
 export function useChatScroll() {
-  const ref = useRef<Animated.ScrollView>(null);
+  const ref = useRef<ScrollView>(null);
   const follow = useRef(true);
   const [behind, setBehind] = useState(false);
-  const blank = useSharedValue(0); // room under the list's end
+  const [blank, setBlank] = useState(0); // room under the list's end
+  const blankNow = useRef(0);
   const viewH = useRef(0);
   const innerH = useRef(0);
-  const sentAt = useRef<number | null>(null); // the list's height at a send: the first own row below it is that message
+  const lowest = useRef(0); // the lowest message row laid out so far
+  const sentBelow = useRef<number | null>(null); // `lowest` at a send: the first own row below it is that message
   const anchor = useRef<{ y: number; scrolled: boolean } | null>(null);
   const toEndNow = () => ref.current?.scrollToEnd({ animated: false });
   // What the viewport has left under the reply so far; at nothing, the list follows its end as usual.
   const fit = () => {
     const a = anchor.current;
     if (!a) return;
-    blank.value = Math.max(0, viewH.current - (innerH.current - a.y));
-    if (blank.value === 0) {
+    const room = Math.max(0, viewH.current - (innerH.current - blankNow.current - a.y));
+    blankNow.current = room;
+    setBlank(room);
+    if (room === 0) {
       anchor.current = null;
       follow.current = true;
       toEndNow();
@@ -40,11 +42,13 @@ export function useChatScroll() {
     blank,
     behind,
     /** A message was sent: its row will stand at the top. */
-    sent: () => (sentAt.current = innerH.current),
+    sent: () => (sentBelow.current = lowest.current),
     /** A row was laid out; the person's own new row becomes the anchor. */
     row: (y: number, person: boolean) => {
-      if (!person || sentAt.current === null || y < sentAt.current - space.lg) return;
-      sentAt.current = null;
+      const below = sentBelow.current;
+      if (below === null || !person || y <= below) return void (lowest.current = Math.max(lowest.current, y));
+      lowest.current = y;
+      sentBelow.current = null;
       follow.current = false;
       anchor.current = { y, scrolled: false };
       fit();
@@ -54,7 +58,8 @@ export function useChatScroll() {
     toEnd: () => {
       follow.current = true;
       anchor.current = null;
-      blank.value = 0;
+      blankNow.current = 0;
+      setBlank(0);
       setBehind(false);
       ref.current?.scrollToEnd({ animated: true });
     },

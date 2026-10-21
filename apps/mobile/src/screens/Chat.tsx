@@ -3,12 +3,11 @@
 // and a refused send stays as a failed row with Retry. A message to a structured agent shows its receipt (queued, sent, confirmed, or unknown:
 // lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { chatEntries, clockTime, decidedProposals, ellipsis, sideOf, tickLevel } from '@handline/app-core';
 import { classify, sentence, useChat, useChatActions, useChatReadMarks, useHr, useServes, useTasks } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { KeyboardChatScrollView } from 'react-native-keyboard-controller';
 import { radius, space } from '@handline/tokens';
 import { NewBelow, useChatScroll } from '#src/screens/ChatScroll.tsx';
 import { Skeleton } from '#src/skeleton.tsx';
@@ -153,12 +152,10 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
         </Text>
       )}
       <View style={{ flex: 1 }}>
-        <KeyboardChatScrollView
+        <ScrollView
           ref={sc.ref}
           testID="chat"
           style={{ flex: 1 }}
-          keyboardLiftBehavior="never"
-          blankSpace={sc.blank}
           keyboardShouldPersistTaps="handled"
           scrollEventThrottle={64}
           {...sc.scrollProps}
@@ -167,7 +164,10 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
             if (e.nativeEvent.contentOffset.y < 60 && chat.hasOlder && !chat.loadingOlder) chat.loadOlder();
           }}
         >
-          <View style={{ padding: space.sm, gap: space.sm }} onLayout={(e) => sc.inner(e.nativeEvent.layout.height)}>
+          <View
+            style={{ padding: space.sm, paddingBottom: space.sm + sc.blank, gap: space.sm }}
+            onLayout={(e) => sc.inner(e.nativeEvent.layout.height)}
+          >
             <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
             {failure && (
               <View testID="error" accessibilityRole="alert" style={{ gap: space.sm }}>
@@ -223,7 +223,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
             )}
             <WorkingBubble working={working} line={chat.working.line ?? null} />
           </View>
-        </KeyboardChatScrollView>
+        </ScrollView>
         {sc.behind && <NewBelow onPress={sc.toEnd} />}
       </View>
       <HandoffLine handoff={props.detail.handoff ?? null} items={chat.items} />
