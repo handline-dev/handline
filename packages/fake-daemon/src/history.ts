@@ -35,7 +35,7 @@ export function fieldsOf(p: Record<string, unknown>): Partial<Pick<Fields, 'titl
 // task.time: queued until the task was delivered, then working, to its done or now. Its expectation is what the fake knows without
 // history or accounts: an open task starts when it was delivered (now when not yet), with no duration to end it by.
 interface Tasks {
-  find(id: unknown): Pick<Task, 'id' | 'created' | 'delivered' | 'done'> & { estimate?: number | null };
+  find(id: unknown): Pick<Task, 'id' | 'created' | 'delivered' | 'done'> & { estimate?: number | null; segments?: TimeSegment[] };
   now(): string;
 }
 
@@ -54,7 +54,7 @@ export function timeOf(id: unknown, tasks: Tasks): TaskTime {
     to,
     seconds: Math.round((Date.parse(to) - Date.parse(from)) / 1000),
   });
-  const made = t.delivered ? [seg('queued', t.created, t.delivered), seg('working', t.delivered, end)] : [seg('queued', t.created, end)];
+  const made = t.segments ?? (t.delivered ? [seg('queued', t.created, t.delivered), seg('working', t.delivered, end)] : [seg('queued', t.created, end)]);
   const expected = t.done
     ? null
     : { start: t.delivered ?? tasks.now(), end: null, duration_s: null, basis: null, ahead: [], wall_until: null };

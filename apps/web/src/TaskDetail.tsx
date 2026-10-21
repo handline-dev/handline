@@ -1,11 +1,11 @@
 // One task: title and status, why it waits, owner, priority and time box as chips, the brief (folded), what it waits on and what hangs under it,
-// one Activity list, and along the bottom the one main action, Cancel and More. The history opens from More. A verb that does not apply is
+// one Activity list, and along the bottom the one main action, Cancel and More. The history and the time open from More. A verb that does not apply is
 // hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { dateTime, HELD, taskRef, watchResult } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
-import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
+import { classify, useOff, usePending, useTask, useTaskHistory, useTaskTime, useWrite } from '@handline/app-data';
 import { Button, MenuButton, MenuItem, MenuSeparator } from '#src/ui/index.ts';
 import { goTasks } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
@@ -13,6 +13,7 @@ import { AskSheets, type Ask } from '#src/TaskAsk.tsx';
 import { TaskChips, TaskWatch, TaskLinks } from '#src/TaskDetailParts.tsx';
 import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
 import { TaskHistory } from '#src/TaskHistory.tsx';
+import { TaskTime } from '#src/TaskTime.tsx';
 import { Activity } from '#src/TaskActivity.tsx';
 import { Markdown } from '#src/Markdown.tsx';
 import { RichText } from '#src/RichText.tsx';
@@ -76,6 +77,8 @@ function Body({ t }: { t: Detail }) {
   const commentBox = useRef<HTMLDivElement>(null);
   const edit = useEditTask(t);
   const [showHistory, setShowHistory] = useState(false);
+  const [showTime, setShowTime] = useState(false);
+  const noTime = useOff('task.time');
   const queue = useWrite('task.queue');
   const draft = useWrite('task.draft');
   const cancel = useWrite('task.cancel');
@@ -151,6 +154,7 @@ function Body({ t }: { t: Detail }) {
     ...(open ? [item('Discard', 'd', verbs.d, can.discard), item('Assign', 'o', verbs.o, edit.can)] : []),
     'sep' as const,
     item(showHistory ? 'Hide history' : 'Show history', '', () => setShowHistory(!showHistory), yes),
+    ...(noTime ? [] : [item(showTime ? 'Hide time' : 'Show time', '', () => setShowTime(!showTime), yes)]),
   ];
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
   return (
@@ -221,6 +225,7 @@ function Body({ t }: { t: Detail }) {
       ) : null}
 
       <Activity t={t} box={commentBox} />
+      {showTime ? <TimeSection id={t.id} /> : null}
       {showHistory ? <HistorySection id={t.id} /> : null}
 
       <div className="sticky bottom-0 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-canvas px-4 py-2">
@@ -302,6 +307,18 @@ function HistorySection({ id }: { id: number }) {
     <section aria-label="History" className="mt-4">
       <h3 className="m-0 mb-1 text-ink-3">History · {rows.length} changes</h3>
       <TaskHistory rows={rows} />
+    </section>
+  ) : null;
+}
+
+/** Where its time went, from task.time; it is read only once opened from More. */
+function TimeSection({ id }: { id: number }) {
+  const time = useTaskTime(id);
+  const segments = time.data?.segments ?? [];
+  return segments.length ? (
+    <section aria-label="Time" className="mt-4">
+      <h3 className="m-0 mb-1 text-ink-3">Time</h3>
+      <TaskTime segments={segments} />
     </section>
   ) : null;
 }

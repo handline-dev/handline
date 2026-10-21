@@ -1,6 +1,6 @@
 // The fake daemon's tasks: the rows `tasks.list` and `task.get` answer and the writes that change them, on the tasks topic.
 // A task the founder asks for starts as `queued`; withdrawing or cancelling one that has not been delivered discards it.
-import type { HistoryRow, Memo, MemoFile, Task, TaskClock, TaskDetail } from '@handline/contract';
+import type { HistoryRow, Memo, MemoFile, Task, TaskClock, TaskDetail, TimeSegment } from '@handline/contract';
 import { seedTasks } from '#src/fixtures.ts';
 import { invalidParams, refused, storeFailure } from '#src/errors.ts';
 import { changes, fieldsOf, timeOf } from '#src/history.ts';
@@ -27,6 +27,8 @@ type Row = Task & {
   notes?: { at: string; who: string; text: string }[]; // the notes it was sent back with
   blockers: { task: number; reason: string; at?: string }[];
   clock?: TaskClock | null;
+  /** What task.time answers for it when it is not the plain queued-then-working of its delivery. */
+  segments?: TimeSegment[];
   /** Story points; task.time serves it. */
   estimate?: number | null;
   /** What changed, oldest first; task.history answers it newest first. */
