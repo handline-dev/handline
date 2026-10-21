@@ -195,6 +195,8 @@ export const useWorktreeDiff = (path: string, file?: string) => useRead('worktre
 export const useFile = (agent: string, path: string) => useRead('file.read', { agent, path }, { enabled: path !== '' });
 export const useSchedules = () => useRead('schedules.list', {});
 export const useStats = (window: CallParams<'stats.get'>['window']) => useRead('stats.get', { window });
+/** A graph span; the caller picks `step_s` so it gets a few hundred points. */
+export const useHeadroom = (from: string, to: string, step_s: number) => useRead('stats.headroom', { from, to, step_s });
 export const useOutlook = (range: CallParams<'stats.outlook'>['range']) => useRead('stats.outlook', { range });
 export const useSettings = (agent?: string) => useRead('settings.get', { agent });
 export const useAnswers = () => useRead('answers.list', {});

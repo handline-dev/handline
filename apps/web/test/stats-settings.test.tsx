@@ -49,6 +49,10 @@ async function mount(hash: string, s = setup()) {
   });
   return s;
 }
+const activity = async () => {
+  await until(() => button('Activity'), 'the Activity tab');
+  await click(button('Activity'));
+};
 const scrollIntoView = Element.prototype.scrollIntoView;
 afterEach(async () => {
   await act(async () => root?.unmount());
@@ -63,13 +67,14 @@ describe('stats', () => {
     const s = setup();
     const release = s.daemon.knobs.hold('stats.get'); // held until the skeleton is seen: no wall-clock race between the read and the skeleton's delay
     await mount('#/stats', s);
+    await activity();
     await until(() => $('.stats .skeleton'), 'the skeleton');
     release();
     await until(() => $('[data-tile]'), 'the tiles');
     expect(['tasks done', 'moves', 'handoffs', 'blocks'].map(tile)).toEqual(['3', '1', '2', '0']);
     expect(text($('[data-span]'))).toContain(' to ');
     expect($('[data-tile="blocks"]')!.hasAttribute('data-warn')).toBe(false);
-    const rows = $$('[data-agent]');
+    const rows = $$('.bar-row[data-agent]');
     expect(rows.map((r) => r.dataset.agent)).toEqual(['handline.architect', 'handline.auditor']);
     expect(text(rows[0])).toContain('3 h 12 m');
     expect(text($('.chart[aria-label="Agent time"]'))).toContain('1 idle agent');
@@ -77,6 +82,7 @@ describe('stats', () => {
 
   it('Stats is a section of the Usage page, under the accounts: #/accounts and #/stats are the same page', async () => {
     await mount('#/accounts');
+    await activity();
     await until(() => $('[data-tile]'), 'the tiles');
     expect(text($('.accounts-head'))).toContain('Usage');
     expect($('.acct-list')).not.toBeNull();
@@ -88,12 +94,14 @@ describe('stats', () => {
 
   it('every tile has an icon', async () => {
     await mount('#/stats');
+    await activity();
     await until(() => $('[data-tile]'), 'the tiles');
     expect($$('[data-tile] svg').map((i) => i.getAttribute('data-icon'))).toEqual(['done', 'session', 'reply', 'blocked']);
   });
 
   it('the 7 d window shows its own figures, and the old ones stay until they arrive', async () => {
     const s = await mount('#/stats');
+    await activity();
     await until(() => tile('tasks done') === '3', 'the 24 h tiles');
     const release = s.daemon.knobs.hold('stats.get');
     await click(button('7 d'));
@@ -105,25 +113,52 @@ describe('stats', () => {
   });
 });
 
-describe('outlook', () => {
-  it('shows the week left with the guess apart, the runway in words, and the numbers behind Table', async () => {
+describe('headroom', () => {
+  const key = (el: Element, k: string) => act(async () => void el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })));
+
+  it('is the first tab: a summary line, the recorded line solid and the guess dashed, resets as ticks', async () => {
     await mount('#/stats');
-    await until(() => $('.outlook-svg'), 'the graph');
-    expect($('.outlook-svg .line.future')!.getAttribute('stroke-dasharray')).toBeTruthy();
-    expect(text($('.outlook-legend'))).toContain('guess');
-    expect($$('.outlook-legend li svg .line.future')[0]!.getAttribute('stroke-dasharray')).toBeTruthy();
-    expect(text($('[data-runway="beta"]'))).toContain('runs out in 2 h');
-    expect(text($('[data-runway="alpha"]'))).toContain('lasts until the week resets');
-    expect($('.data-table')).toBeNull();
-    await click(button('Table'));
-    expect($$('.data-table tbody tr').length).toBeGreaterThan(10);
-    expect(text($('.data-table'))).toContain('guess');
+    await until(() => $('.headroom-svg'), 'the graph');
+    expect(text($('[data-summary]'))).toMatch(/% left · .* · next reset in /);
+    expect($('.headroom-svg .future')!.getAttribute('stroke-dasharray')).toBeTruthy();
+    expect($('.headroom-svg .past')!.getAttribute('stroke-dasharray')).toBeNull();
+    expect($$('.headroom-svg [data-reset="5h"]').length).toBeGreaterThan(3);
   });
 
-  it('the cost view offers 7, 14 and 30 days and draws a bar per day with the values in the table', async () => {
+  it('draws one line for all accounts, and one per account behind Per account', async () => {
     await mount('#/stats');
-    await until(() => $('.outlook-svg'), 'the graph');
-    await click(button('Cost per day'));
+    await until(() => $('.headroom-svg'), 'the graph');
+    expect($$('.headroom-svg [data-line]').map((g) => g.getAttribute('data-line'))).toEqual(['all accounts']);
+    await click(button('Per account'));
+    expect($$('.headroom-svg [data-line]').map((g) => g.getAttribute('data-line'))).toEqual(['alpha', 'beta']);
+  });
+
+  it('a marker with a balloon follows the arrow keys, and the span choice asks for another range', async () => {
+    await mount('#/stats');
+    await until(() => $('.headroom-svg'), 'the graph');
+    expect($('.headroom-balloon')).toBeNull();
+    await key($('.headroom-svg')!, 'ArrowRight');
+    expect(text($('.headroom-balloon'))).toMatch(/\d+%/);
+    expect($('.headroom-svg .cursor')).not.toBeNull();
+    await click(button('7 days'));
+    await until(() => $$('.headroom-svg [data-reset="5h"]').length > 20, 'the 7 day resets');
+  });
+
+  it('Activity keeps the counts and the cost per day', async () => {
+    await mount('#/stats');
+    await until(() => $('.headroom-svg'), 'the graph');
+    await activity();
+    await until(() => $('[data-tile]'), 'the tiles');
+    expect($('.headroom-svg')).toBeNull();
+    expect($('.outlook')).not.toBeNull();
+  });
+});
+
+describe('outlook', () => {
+  it('the cost card offers 7, 14 and 30 days and draws a bar per day with the values in the table', async () => {
+    await mount('#/stats');
+    await activity();
+    await until(() => $('.outlook'), 'the cost card');
     await until(() => $$('.cost-day').length === 7, 'seven days');
     expect($$('[role="radiogroup"][aria-label="Range"] [role="radio"]').map((r) => r.getAttribute('aria-label'))).toEqual([
       '7d',
@@ -144,8 +179,8 @@ describe('outlook', () => {
 
   it('a series has a pattern and a letter as well as a tone, and a click on an agent draws that one alone', async () => {
     await mount('#/stats');
-    await until(() => $('.outlook-svg'), 'the graph');
-    await click(button('Cost per day'));
+    await activity();
+    await until(() => $('.outlook'), 'the cost card');
     await until(() => $$('.cost-day').length === 7, 'seven days');
     expect($$('.agent-cost .cost-pick b').map(text)).toEqual(['A', 'B', 'C']);
     expect($$('.agent-cost .cost-swatch').map((w) => [...w.classList].filter((c) => /^c\d$/.test(c)).join())).toEqual(['c0', 'c1', 'c2']);
