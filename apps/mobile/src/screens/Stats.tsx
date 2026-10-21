@@ -1,18 +1,20 @@
 // The Stats section of the Usage tab (docs/pc-app-gaps.md G10): the window's four counts and how long each agent worked from stats.get, then the usage
-// outlook (stats.outlook): the week left as recorded and guessed bars with each account's runway, or the cost per day, with ranges 12 h to 30 d.
+// headroom graph (stats.headroom) of three days back and ahead, or the cost per day (stats.outlook), with ranges 12 h to 30 d.
 // Every number is text too; a bar is never the only way to read it.
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { agentTime, costByAgent, runwayWords, span } from '@handline/app-core';
+import { agentTime, costByAgent, span } from '@handline/app-core';
 import type { Outlook, Stats as StatsData } from '@handline/client';
 import { useOutlook, useServes, useStats } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
+import { HeadroomView } from '#src/screens/Headroom.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
 
 const WINDOWS = ['24h', '7d'] as const;
 type Window = (typeof WINDOWS)[number];
 type Range = Outlook['range'];
+const SPANS = ['1d', '3d', '7d'] as const;
 
 const TILES = [
   ['tasks done', 'tasks_done'],
@@ -63,7 +65,9 @@ function Counts({ s }: { s: StatsData }) {
             testID={`tile-${key}`}
             style={{ flexBasis: '47%', flexGrow: 1, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md }}
           >
-            <Text style={{ color: key === 'blocks' && s[key] > 0 ? c.block : c.ink, fontSize: font.size.display, fontWeight: '700' }}>{s[key]}</Text>
+            <Text style={{ color: key === 'blocks' && s[key] > 0 ? c.block : c.ink, fontSize: font.size.display, fontWeight: '700' }}>
+              {s[key]}
+            </Text>
             <Text style={{ color: c.muted }}>{label}</Text>
           </View>
         ))}
@@ -91,43 +95,6 @@ function Counts({ s }: { s: StatsData }) {
           </Text>
         ) : null}
       </View>
-    </View>
-  );
-}
-
-/** The week left over time: one bar per step, solid for what was recorded and hollow for the guess. */
-function Left({ o }: { o: Outlook }) {
-  const c = usePalette();
-  const pts = [...o.past.map((p) => ({ ...p, guess: false })), ...o.future.map((p) => ({ ...p, guess: true }))].filter(
-    (p) => p.left_pct !== null,
-  );
-  return (
-    <View style={{ gap: space.sm }}>
-      <View
-        testID="outlook-left"
-        accessibilityLabel={`Week left across ${o.accounts} accounts, recorded and guessed`}
-        style={{ flexDirection: 'row', alignItems: 'flex-end', height: 120, gap: 2 }}
-      >
-        {pts.map((p) => (
-          <View
-            key={p.at}
-            style={{
-              flex: 1,
-              height: `${Math.max(2, p.left_pct!)}%`,
-              backgroundColor: p.guess ? 'transparent' : c.run,
-              borderWidth: 1,
-              borderColor: c.run,
-              borderStyle: p.guess ? 'dashed' : 'solid',
-            }}
-          />
-        ))}
-      </View>
-      <Text style={{ color: c.muted, fontSize: font.size.label }}>solid: recorded, dashed: guess. Now is where they change.</Text>
-      {o.runway.map((r) => (
-        <Text key={r.account} testID={`runway-${r.account}`} style={{ color: c.ink }}>
-          {r.account} <Text style={{ color: c.muted }}>{runwayWords(r)}</Text>
-        </Text>
-      ))}
     </View>
   );
 }
@@ -167,26 +134,33 @@ function Cost({ o }: { o: Outlook }) {
   );
 }
 
-function OutlookSection({ range }: { range: Range }) {
-  const c = usePalette();
-  const [view, setView] = useState<'left' | 'cost'>('left');
+function CostSection({ range }: { range: Range }) {
   const query = useOutlook(range);
   const { served } = useServes('stats.outlook');
   const o = query.data;
   return (
+    <Loadable query={query} served={served} isEmpty={!!o && !o.cost_per_day.length} skeleton="stats" label="the outlook" empty={NOTHING}>
+      {o ? <Cost o={o} /> : null}
+    </Loadable>
+  );
+}
+
+function OutlookSection({ range }: { range: Range }) {
+  const c = usePalette();
+  const [view, setView] = useState<'headroom' | 'cost'>('headroom');
+  const [days, setDays] = useState<(typeof SPANS)[number]>('3d');
+  return (
     <View testID="outlook" style={{ gap: space.md }}>
       <Text style={{ color: c.ink, fontWeight: '600' }}>Outlook</Text>
-      <Choice label="view" value={view} options={['left', 'cost'] as const} onChange={setView} />
-      <Loadable
-        query={query}
-        served={served}
-        isEmpty={!!o && !o.past.length && !o.cost_per_day.length}
-        skeleton="stats"
-        label="the outlook"
-        empty={NOTHING}
-      >
-        {o ? view === 'left' ? <Left o={o} /> : <Cost o={o} /> : null}
-      </Loadable>
+      <Choice label="view" value={view} options={['headroom', 'cost'] as const} onChange={setView} />
+      {view === 'headroom' ? (
+        <>
+          <Choice label="span" value={days} options={SPANS} onChange={setDays} />
+          <HeadroomView days={+days.slice(0, -1) as 1 | 3 | 7} />
+        </>
+      ) : (
+        <CostSection range={range} />
+      )}
     </View>
   );
 }
