@@ -20,7 +20,9 @@ export function useChatScroll() {
   // The keyboard shrinks the viewport; once that has laid out, a list at its end stays there.
   const keyboard = useKeyboardState((k) => k.height);
   useEffect(() => {
-    const frame = requestAnimationFrame(() => follow.current && toEndNow());
+    const frame = requestAnimationFrame(() => {
+      if (follow.current) toEndNow();
+    });
     return () => cancelAnimationFrame(frame);
   }, [keyboard]);
   // What the viewport has left under the reply so far; at nothing, the list follows its end as usual.
