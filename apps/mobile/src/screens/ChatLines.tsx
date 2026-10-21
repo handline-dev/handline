@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import type { Proposal, TranscriptItem } from '@handline/client';
-import { clockTime, sessionLine } from '@handline/app-core';
+import { clockTime, isPerson, sessionLine, taskRow } from '@handline/app-core';
 import { space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, iconLabel, type IconName } from '#src/screens/Icon.tsx';
@@ -31,7 +31,15 @@ export function useBubbleWidth(): number {
 }
 
 /** A transcript line that is not a message. */
-export function Line({ i, agent, onReply, onTask }: { i: TranscriptItem; agent: string; onReply?: (i: TranscriptItem) => void; onTask?: (task: number) => void }) {
+export function Line(props: {
+  i: TranscriptItem;
+  agent: string;
+  me?: string;
+  titles?: Map<number, string>;
+  onReply?: (i: TranscriptItem) => void;
+  onTask?: (task: number) => void;
+}) {
+  const { i, agent, onReply, onTask } = props;
   const c = usePalette();
   const small = { color: c.muted, fontSize: 12 } as const;
   if (i.kind === 'reply')
@@ -68,7 +76,46 @@ export function Line({ i, agent, onReply, onTask }: { i: TranscriptItem; agent: 
   }
   if (i.kind === 'session') return <SessionMark i={i} />;
   if (i.kind === 'task_batch' && i.task_batch) return <BatchCard i={i} onTask={onTask} />;
+  if (i.kind === 'task_event' && i.task_event) return <TaskCard i={i} agent={agent} me={props.me ?? ''} titles={props.titles} onTask={onTask} />;
   return null;
+}
+
+const TASK_ICON: Record<string, IconName> = { opened: 'opened', changed: 'changed', done: 'done', withdrawn: 'withdrawn' };
+
+/** A task opened, changed, done or withdrawn as one card: who, what happened, the task and its title; a tap opens the task. */
+export function TaskCard({ i, agent, me, titles, onTask }: { i: TranscriptItem; agent: string; me: string; titles?: Map<number, string>; onTask?: (task: number) => void }) {
+  const c = usePalette();
+  const ev = i.task_event?.event ?? 'changed';
+  const row = taskRow(i, titles);
+  const accent = ev === 'withdrawn' ? c.block : ev === 'changed' ? c.wait : c.run;
+  return (
+    <Pressable
+      testID={`task-event-${i.id}`}
+      accessibilityRole="button"
+      accessibilityLabel={`Open T${row.task}`}
+      style={{ minHeight: 44, borderWidth: 1, borderLeftWidth: 4, borderColor: c.line, borderLeftColor: accent, borderRadius: 8, padding: space.md, gap: 2 }}
+      onPress={() => onTask?.(row.task)}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
+        <Icon name={TASK_ICON[ev] ?? 'changed'} label={row.label} size={14} color={c.ink} />
+        <Text style={{ color: c.ink, fontWeight: '700' }}>
+          {row.label} · T{row.task}
+          {row.who && row.who !== agent ? ` · by ${isPerson(row.who, me) ? 'you' : row.who}` : ''}
+        </Text>
+      </View>
+      {row.title ? (
+        <Text style={{ color: c.ink }} numberOfLines={2}>
+          {row.title}
+        </Text>
+      ) : null}
+      {row.detail ? (
+        <Text style={{ color: c.muted, fontSize: 12 }} numberOfLines={3}>
+          {row.detail}
+        </Text>
+      ) : null}
+      <Text style={{ color: c.muted, fontSize: 11 }}>{clockTime(i.at)}</Text>
+    </Pressable>
+  );
 }
 
 /** A batch discard as one card: a line per task with its title and reason; a tap opens the task, where it can be reopened. */
