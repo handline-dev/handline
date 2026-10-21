@@ -1,5 +1,4 @@
-// The agent page's bottom dock: the agents list, the menu, then the pinned agents and the agents opened on this device (at most five unpinned).
-// It hides while the keyboard is up so the chat gets the height.
+// The agent page's bottom dock: back, menu, pinned agents, then the agents opened on this device; hidden while the keyboard is up.
 import { useEffect, useState } from 'react';
 import { Keyboard, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { branchOf, shortName } from '@handline/app-core';
