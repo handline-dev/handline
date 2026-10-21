@@ -1,5 +1,4 @@
-// The usage lines on the phone's Accounts tab, on the fake daemon: plan, runway, assignable and its reason, and the agents counts, a missing
-// figure as a dash, on the list and on one account; the live rows still win over the usage read.
+// The usage lines on the phone's Accounts tab, on the fake daemon: the fields, a dash for a missing one, and the live rows winning.
 import { describe, expect, it } from 'vitest';
 import { $, mount, press, text, until } from '#test/harness.tsx';
 
