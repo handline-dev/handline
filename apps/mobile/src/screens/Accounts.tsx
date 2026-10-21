@@ -30,6 +30,38 @@ export function Accounts(props: { selected: string | null; onSelect: (name: stri
   );
 }
 
+/** A stalled account: STALLED and its reason, and for the founder Wake (the row loses the stall at once; a refusal puts it back and says why). */
+function Stall({ a }: { a: Account }) {
+  const c = usePalette();
+  const founder = useStore().client.hello?.role === 'founder';
+  const { served } = useServes('account.wake');
+  const wake = useWrite('account.wake', a.name);
+  if (!a.stalled && !wake.error) return null;
+  return (
+    <View testID={`stall-${a.name}`} style={{ gap: space.xs }}>
+      {a.stalled ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, flexWrap: 'wrap' }}>
+          <Text style={{ color: c.block, fontWeight: '700' }}>STALLED</Text>
+          <Text style={{ color: c.muted, flexShrink: 1 }}>{a.stalled.reason}</Text>
+          {founder && served ? (
+            <Button
+              testID={`wake-${a.name}`}
+              label={wake.isPending ? 'Waking…' : 'Wake'}
+              disabled={wake.isPending}
+              onPress={() => wake.mutate({ account: a.name })}
+            />
+          ) : null}
+        </View>
+      ) : null}
+      {wake.error ? (
+        <Text testID={`wake-error-${a.name}`} accessibilityRole="alert" style={{ color: c.block }}>
+          {sentence(classify(wake.error))}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 const dash = (v: string | number | null | undefined) => (v === null || v === undefined || v === '' ? '—' : String(v));
 
 /** What `hl account list` adds to the gauges: plan and runway, whether another agent may start and why not, and the agents on it. Nothing until the usage read arrives. */
@@ -127,6 +159,7 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
                   <Gauge label="week" w={a.weekly} />
                 </>
               )}
+              <Stall a={a} />
               <UsageLines a={a} />
             </Pressable>
           )}
@@ -233,6 +266,7 @@ function Body({ a }: { a: Account }) {
       {stateText(a) ? <Text style={{ color: c.muted }}>{stateText(a)}</Text> : null}
       <Gauge label="5 hours" w={a.five_hour} detail />
       <Gauge label="week" w={a.weekly} detail />
+      <Stall a={a} />
       <UsageLines a={a} />
       <Text style={{ color: c.ink }}>{a.agents.length ? `On it: ${a.agents.join(', ')}` : 'No agents are on it.'}</Text>
       <Settings a={a} />
