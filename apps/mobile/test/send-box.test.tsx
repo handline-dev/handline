@@ -65,23 +65,15 @@ describe('the send box over the one send path', () => {
     m.store.stop();
   });
 
-  it('a queued message is written by Send now and a queued one is taken back without asking', async () => {
+  it('a queued message is written by Send now', async () => {
     const m = await open(true);
     await type('hurry');
     await press($('chat-send'));
     await until(() => landing('hurry') === 'Sending', 'queued');
     const id = row('hurry')!.dataset.testid!.slice(4);
-    expect($(`takeback-${id}`)!.textContent).toBe('Take back');
+    expect($(`takeback-${id}`)).toBeNull();
     await press($(`now-${id}`));
     await until(() => landing('hurry') === 'Delivered', 'sent');
-    await type('oops');
-    await press($('chat-send'));
-    await until(() => landing('oops') === 'Sending', 'queued');
-    expect($(`takeback-${id}`)).toBeNull(); // only the newest message can be taken back
-    const oops = row('oops')!.dataset.testid!.slice(4);
-    await press($(`takeback-${oops}`));
-    await until(() => !row('oops'), 'withdrawn');
-    expect(($('chat-input') as unknown as HTMLInputElement).value).toBe('oops');
     m.store.stop();
   });
 
@@ -98,7 +90,6 @@ describe('the send box over the one send path', () => {
     const id = row('in flight')!.dataset.testid!.slice(4);
     expect($(`unknown-${id}`)!.textContent).toContain('not sent again');
     expect($(`retry-${id}`)).toBeNull();
-    expect($(`takeback-${id}`)).not.toBeNull(); // asks first, as for a delivered message
     expect(text().match(/in flight/g)).toHaveLength(1);
     m.store.stop();
   });
