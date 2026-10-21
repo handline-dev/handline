@@ -36,6 +36,7 @@ export const ICON_SPEC = {
   answer: ['Pencil', 'Answer'],
   reply: ['MessageSquareReply', 'Reply'],
   filter: ['Filter', 'Filter'],
+  pin: ['Pin', 'Pin'],
   keys: ['Keyboard', 'Keys'],
   more: ['ChevronDown', 'Show more'],
   ellipsis: ['Ellipsis', 'Actions'],
@@ -112,7 +113,6 @@ export const ICON_SPEC = {
   // tasks: views and verbs
   viewList: ['List', 'List'],
   viewTree: ['ListTree', 'Tree'],
-  pin: ['Pin', 'Pinned'],
   closed: ['Archive', 'Closed'],
   select: ['SquareCheck', 'Select'],
   owner: ['UserRound', 'Owner'],
