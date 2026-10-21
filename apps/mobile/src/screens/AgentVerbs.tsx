@@ -180,8 +180,14 @@ function DeleteSheet(props: { name: string; onClose: () => void; onDeleted?: () 
     setBusy(true);
     setWhy('');
     retire({
-      onSuccess: () => (props.onClose(), props.onDeleted?.()),
-      onError: (e) => (setBusy(false), setWhy(sentence(classify(e)))),
+      onSuccess: () => {
+        props.onClose();
+        props.onDeleted?.();
+      },
+      onError: (e) => {
+        setBusy(false);
+        setWhy(sentence(classify(e)));
+      },
     });
   };
   return (

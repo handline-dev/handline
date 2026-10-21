@@ -1,5 +1,4 @@
-// Delete agent on the phone's agent page, on the fake daemon: a leaf agent is deleted and the page is left, a refusal keeps the sheet with the
-// daemon's reason, and a member phone or a daemon without agent.retire shows no row.
+// Delete agent on the phone's agent page, on the fake daemon: delete and leave, a refusal, a member phone, an unserved method.
 import { describe, expect, it } from 'vitest';
 import type { setup } from '@handline/fake-daemon/helpers';
 import { $, ARCH, mount, press, text, until } from '#test/harness.tsx';
