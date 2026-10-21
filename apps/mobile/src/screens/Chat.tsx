@@ -3,12 +3,14 @@
 // and a refused send stays as a failed row with Retry. A message to a structured agent shows its receipt (queued, sent, confirmed, or unknown:
 // lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { chatEntries, clockTime, decidedProposals, ellipsis, sideOf, tickLevel } from '@handline/app-core';
 import { classify, sentence, useChat, useChatActions, useChatReadMarks, useHr, useServes, useTasks } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
+import { KeyboardChatScrollView } from 'react-native-keyboard-controller';
 import { radius, space } from '@handline/tokens';
+import { NewBelow, useChatScroll } from '#src/screens/ChatScroll.tsx';
 import { Skeleton } from '#src/skeleton.tsx';
 import { usePalette } from '#src/theme.ts';
 import { Decided, Line, Stamp, useBubbleWidth } from '#src/screens/ChatLines.tsx';
@@ -73,8 +75,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
   const [text, setTextState] = useState(drafts.get(agent) ?? '');
   const [openTask, setOpenTask] = useState<number | null>(null); // a task a batch card opened, drawn in place of the chat
-  const scroll = useRef<ScrollView>(null);
-  const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
+  const sc = useChatScroll();
   const [going, setGoing] = useState<number | null>(null); // a message number being found
   const [flash, setFlash] = useState<number | null>(null); // the message a search hit just landed on
   const rowY = useRef(new Map<number, number>());
@@ -95,10 +96,10 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const drawn = going !== null && entries.some((e) => e.kind !== 'item' && e.id === going);
   const reveal = (id: number) => {
     const y = rowY.current.get(id);
-    if (y !== undefined) scroll.current?.scrollTo({ y: Math.max(0, y - space.lg), animated: true });
+    if (y !== undefined) sc.ref.current?.scrollTo({ y: Math.max(0, y - space.lg), animated: true });
   };
   const found = () => {
-    pinned.current = false;
+    sc.leave();
     setFlash(going);
     if (going !== null) reveal(going);
     setGoing(null);
@@ -129,7 +130,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
     setPicked(null);
     setItem(null);
     setText('');
-    pinned.current = true;
+    sc.sent();
   };
   const failure = chat.status === 'error' ? sentence(classify(chat.error)) : null;
   const working = chat.working.turn_running;
@@ -151,78 +152,91 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
           That message is no longer in this chat.
         </Text>
       )}
-      <ScrollView
-        ref={scroll}
-        testID="chat"
-        style={{ flex: 1 }}
-        contentContainerStyle={{ padding: space.sm, gap: space.sm }}
-        keyboardShouldPersistTaps="handled"
-        scrollEventThrottle={64}
-        onScroll={(e) => {
-          const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-          pinned.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 40;
-          if (contentOffset.y < 60 && chat.hasOlder && !chat.loadingOlder) chat.loadOlder();
-        }}
-        onContentSizeChange={() => pinned.current && scroll.current?.scrollToEnd({ animated: false })}
-      >
-        <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
-        {failure && (
-          <View testID="error" accessibilityRole="alert" style={{ gap: space.sm }}>
-            <Text style={{ color: c.block }}>{failure}</Text>
-            <Button label="Retry" onPress={chat.refetch} />
+      <View style={{ flex: 1 }}>
+        <KeyboardChatScrollView
+          ref={sc.ref}
+          testID="chat"
+          style={{ flex: 1 }}
+          keyboardLiftBehavior="never"
+          blankSpace={sc.blank}
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={64}
+          {...sc.scrollProps}
+          onScroll={(e) => {
+            sc.scrollProps.onScroll(e);
+            if (e.nativeEvent.contentOffset.y < 60 && chat.hasOlder && !chat.loadingOlder) chat.loadOlder();
+          }}
+        >
+          <View style={{ padding: space.sm, gap: space.sm }} onLayout={(e) => sc.inner(e.nativeEvent.layout.height)}>
+            <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
+            {failure && (
+              <View testID="error" accessibilityRole="alert" style={{ gap: space.sm }}>
+                <Text style={{ color: c.block }}>{failure}</Text>
+                <Button label="Retry" onPress={chat.refetch} />
+              </View>
+            )}
+            {chat.hasOlder && <Button testID="older" label="Older messages" disabled={chat.loadingOlder} onPress={chat.loadOlder} />}
+            {chat.status === 'ready' && !entries.length && (
+              <Text testID="empty" style={{ color: c.muted, padding: space.lg }}>
+                No messages yet
+              </Text>
+            )}
+            {entries.map((e) =>
+              e.kind === 'proposal' ? (
+                <Decided key={`p${e.id}`} p={e.proposal} />
+              ) : e.kind !== 'item' ? (
+                <Bubble
+                  key={`m${e.id}`}
+                  m={e.message}
+                  agent={agent}
+                  picked={picked?.id === e.id}
+                  flashed={flash === e.id}
+                  onRow={(y, person) => {
+                    rowY.current.set(e.id, y);
+                    sc.row(y, person);
+                    if (flash === e.id) reveal(e.id);
+                  }}
+                  working={working}
+                  onPick={(m) => {
+                    setItem(null);
+                    setPicked((p) => (p?.id === m.id ? null : m));
+                  }}
+                />
+              ) : (
+                <Line
+                  key={`i${e.id}`}
+                  i={e.item}
+                  agent={agent}
+                  me={me}
+                  titles={titles}
+                  onTask={setOpenTask}
+                  onReply={
+                    canSend && canReplyItem
+                      ? (i) => {
+                          setPicked(null);
+                          setItem((p) => (p?.id === i.id ? null : i));
+                        }
+                      : undefined
+                  }
+                />
+              ),
+            )}
+            <WorkingBubble working={working} line={chat.working.line ?? null} />
           </View>
-        )}
-        {chat.hasOlder && <Button testID="older" label="Older messages" disabled={chat.loadingOlder} onPress={chat.loadOlder} />}
-        {chat.status === 'ready' && !entries.length && (
-          <Text testID="empty" style={{ color: c.muted, padding: space.lg }}>
-            No messages yet
-          </Text>
-        )}
-        {entries.map((e) =>
-          e.kind === 'proposal' ? (
-            <Decided key={`p${e.id}`} p={e.proposal} />
-          ) : e.kind !== 'item' ? (
-            <Bubble
-              key={`m${e.id}`}
-              m={e.message}
-              agent={agent}
-              picked={picked?.id === e.id}
-              flashed={flash === e.id}
-              onRow={(y) => {
-                rowY.current.set(e.id, y);
-                if (flash === e.id) reveal(e.id);
-              }}
-              working={working}
-              onPick={(m) => {
-                setItem(null);
-                setPicked((p) => (p?.id === m.id ? null : m));
-              }}
-            />
-          ) : (
-            <Line
-              key={`i${e.id}`}
-              i={e.item}
-              agent={agent}
-              me={me}
-              titles={titles}
-              onTask={setOpenTask}
-              onReply={
-                canSend && canReplyItem
-                  ? (i) => {
-                      setPicked(null);
-                      setItem((p) => (p?.id === i.id ? null : i));
-                    }
-                  : undefined
-              }
-            />
-          ),
-        )}
-        <WorkingBubble working={working} line={chat.working.line ?? null} />
-      </ScrollView>
+        </KeyboardChatScrollView>
+        {sc.behind && <NewBelow onPress={sc.toEnd} />}
+      </View>
       <HandoffLine handoff={props.detail.handoff ?? null} items={chat.items} />
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
       {picked && <ReplyRow id="replying" dropId="drop-reply" text={ellipsis(picked.body, 80)} onDrop={() => setPicked(null)} />}
-      {item && <ReplyRow id="replying-item" dropId="drop-reply-item" text={ellipsis((item.text ?? '').replace(/\s+/g, ' '), 80)} onDrop={() => setItem(null)} />}
+      {item && (
+        <ReplyRow
+          id="replying-item"
+          dropId="drop-reply-item"
+          text={ellipsis((item.text ?? '').replace(/\s+/g, ' '), 80)}
+          onDrop={() => setItem(null)}
+        />
+      )}
       {canSend && <ChatRefs agent={agent} text={text} onPick={(r, rest) => (setItem(null), setPicked(r), setText(rest))} />}
       {img.chips}
       <Row style={{ padding: space.sm }}>
@@ -256,7 +270,7 @@ function Bubble(props: {
   agent: string;
   picked: boolean;
   flashed: boolean;
-  onRow: (y: number) => void;
+  onRow: (y: number, person: boolean) => void;
   working: boolean;
   onPick: (m: ChatMessage) => void;
 }) {
@@ -289,7 +303,7 @@ function Bubble(props: {
     <Pressable
       testID={`msg-${m.id}`}
       disabled={unnumbered || failed}
-      onLayout={(e) => props.onRow(e.nativeEvent.layout.y)}
+      onLayout={(e) => props.onRow(e.nativeEvent.layout.y, side === 'person')}
       onPress={() => props.onPick(m)}
       style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: side === 'person' ? 'flex-end' : 'flex-start', gap: space.xs }}
     >
