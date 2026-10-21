@@ -36,7 +36,7 @@ const TYPE: [string, string][] = [
 ];
 
 export function Tokens() {
-  const spaces = ['--sp-1', '--sp-2', '--sp-3', '--sp-4', '--sp-5', '--sp-6', '--sp-7', '--sp-8'];
+  const spaces = ['--sp-1', '--sp-2', '--sp-3', '--sp-4', '--sp-5', '--sp-6'];
   const radii = ['--r-chip', '--r-ctl', '--r-card', '--r-dialog', '--r-pill'];
   return (
     <>
