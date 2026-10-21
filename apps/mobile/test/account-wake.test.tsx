@@ -52,7 +52,10 @@ describe('a stalled account', () => {
   }, 20000);
 
   it('shows no Wake to a daemon without account.wake', async () => {
-    const m = await open((s) => (stall(s), s.daemon.knobs.unserve('account.wake')));
+    const m = await open((s) => {
+      stall(s);
+      s.daemon.knobs.unserve('account.wake');
+    });
     expect(text($('stall-beta'))).toContain('STALLED');
     expect($('wake-beta')).toBeNull();
     m.store.stop();
