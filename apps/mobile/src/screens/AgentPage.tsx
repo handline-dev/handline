@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
-import { badgesOf, controlsOf, needsConfirm, shortName, type StopMode } from '@handline/app-core';
+import { Alert, Text, View } from 'react-native';
+import { badgesOf, controlsOf, needsConfirm, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView } from '@handline/client';
@@ -8,14 +8,13 @@ import { space } from '@handline/tokens';
 import { TerminalPane } from '#src/screens/TerminalPane.tsx';
 import { usePalette } from '#src/theme.ts';
 import { useHistoryValue } from '#src/history.tsx';
-import { StateMark } from '#src/screens/StateMark.tsx';
 import { AgentSettings } from '#src/screens/AgentSettings.tsx';
 import { AgentDock, AgentLabel, useKeyboardUp, useRememberAgent } from '#src/screens/AgentDock.tsx';
 import { AgentStrip } from '#src/screens/AgentStrip.tsx';
 import { AgentFile } from '#src/screens/AgentFile.tsx';
 import { AgentPreview } from '#src/screens/AgentPreview.tsx';
 import { AgentTasks } from '#src/screens/AgentTasks.tsx';
-import { Icon, type IconName } from '#src/screens/Icon.tsx';
+import type { IconName } from '#src/screens/Icon.tsx';
 import { Activity } from '#src/screens/Activity.tsx';
 import { AgentVerbs } from '#src/screens/AgentVerbs.tsx';
 import { Chat } from '#src/screens/Chat.tsx';
@@ -34,7 +33,6 @@ function useAgentMark(agent: string): string | null {
 }
 
 export function AgentPage() {
-  const c = usePalette();
   const store = useStore();
   const page = useSelector((s) => s.page);
   const name = page?.agent ?? '';
@@ -42,13 +40,11 @@ export function AgentPage() {
   const { served } = useServes('agent.get');
   const row = useAgents().data?.agents.find((a) => a.name === name);
   const [settings, setSettings] = useHistoryValue(`agent.settings:${name}`, false);
-  if (!page) return null;
-  const detail = detailQuery.data;
-  const state = detail?.state ?? row?.state ?? 'unknown';
-  const back = () => void store.closeAgent();
   const [menu, setMenu] = useState(false);
   const keyboardUp = useKeyboardUp();
   useRememberAgent(name);
+  if (!page) return null;
+  const detail = detailQuery.data;
   return (
     <AboveKeyboard>
       <Loadable query={detailQuery} served={served} skeleton="agentDetail" label="the agent" empty={`${name} is gone`}>
