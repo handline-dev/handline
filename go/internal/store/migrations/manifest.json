@@ -118,5 +118,10 @@
   "version": 24,
   "name": "task_watch",
   "additive": true
+ },
+ {
+  "version": 25,
+  "name": "prefs",
+  "additive": true
  }
 ]

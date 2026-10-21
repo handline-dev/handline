@@ -2,6 +2,7 @@ package claudecli
 
 import (
 	"github.com/handline/handline/go/internal/delivery"
+	"github.com/handline/handline/go/internal/storetest"
 	"sync"
 	"testing"
 	"time"
@@ -116,7 +117,7 @@ func TestPromoteOfAnythingNotHeldWritesNothing(t *testing.T) {
 }
 
 func TestAWithdrawnMessageStaysWithdrawnAfterARestart(t *testing.T) {
-	led := &delivery.DBLedger{DB: testDB(t), Agent: "backend"}
+	led := &delivery.DBLedger{DB: storetest.Open(t), Agent: "backend"}
 	l := launch(t)
 	l.Ledger = led
 	s, _, _ := heldBehindATurn(t, l)

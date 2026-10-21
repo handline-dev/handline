@@ -2,25 +2,13 @@ package claudecli
 
 import (
 	"context"
-	"database/sql"
 	"github.com/handline/handline/go/internal/delivery"
-	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
 
-	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/storetest"
 )
-
-func testDB(t *testing.T) *sql.DB {
-	t.Helper()
-	d, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { d.Close() })
-	return d
-}
 
 func openWith(t *testing.T, l Launch, h Handlers) (*Session, *events) {
 	t.Helper()
@@ -35,7 +23,7 @@ func openWith(t *testing.T, l Launch, h Handlers) (*Session, *events) {
 }
 
 func TestARetryAfterARestartIsNotSentAgain(t *testing.T) {
-	db := testDB(t)
+	db := storetest.Open(t)
 	led := &delivery.DBLedger{DB: db, Agent: "backend"}
 	l := launch(t)
 	l.Ledger = led
@@ -58,7 +46,7 @@ func TestARetryAfterARestartIsNotSentAgain(t *testing.T) {
 }
 
 func TestASentButUnconfirmedMessageIsUnknownAfterARestartAndAQueuedOneGoesOut(t *testing.T) {
-	led := &delivery.DBLedger{DB: testDB(t), Agent: "backend"}
+	led := &delivery.DBLedger{DB: storetest.Open(t), Agent: "backend"}
 	led.Put(delivery.Op{ID: "sent", UUID: delivery.UUIDFor("sent"), Text: "one", Delivery: delivery.Now, State: delivery.Sent})
 	led.Put(delivery.Op{ID: "queued", UUID: delivery.UUIDFor("queued"), Text: "two", Delivery: delivery.Queue, State: delivery.Queued})
 	l := launch(t)
