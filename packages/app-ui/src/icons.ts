@@ -113,7 +113,6 @@ export const ICON_SPEC = {
   // tasks: views and verbs
   viewList: ['List', 'List'],
   viewTree: ['ListTree', 'Tree'],
-  pin: ['Pin', 'Pinned'],
   closed: ['Archive', 'Closed'],
   select: ['SquareCheck', 'Select'],
   owner: ['UserRound', 'Owner'],
