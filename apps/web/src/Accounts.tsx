@@ -20,7 +20,8 @@ const STATE_TONE =
   'data-[state=out]:border-bad data-[state=out]:text-bad data-[state=needs_login]:border-bad data-[state=needs_login]:text-bad data-[state=in_use]:border-ok data-[state=in_use]:text-ok';
 const FACT = 'acct-fact m-0 flex items-center gap-2 [&_svg]:text-ink-3';
 const ROW =
-  'acct-row grid min-h-11 grid-cols-[minmax(8em,1.2fr)_auto_minmax(10em,1fr)_minmax(10em,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-2 text-inherit no-underline hover:bg-raised max-[960px]:grid-cols-[minmax(8em,1fr)_auto_auto] max-[960px]:[&_.gauge]:col-span-full [&:not(:first-child)]:border-t [&:not(:first-child)]:border-line';
+  'acct-row grid min-h-11 grid-cols-[minmax(8em,1.2fr)_auto_minmax(10em,1fr)_minmax(10em,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-2 text-inherit no-underline hover:bg-raised max-[960px]:grid-cols-[minmax(8em,1fr)_auto_auto] max-[960px]:[&_.gauge]:col-span-full';
+const WRAP = '[&:not(:first-child)]:border-t [&:not(:first-child)]:border-line';
 
 const STATE_ICON: Record<ReturnType<typeof stateOf>, IconName> = {
   needs_login: 'warn',
@@ -66,25 +67,65 @@ export function UsageLine({ account }: { account: Account }) {
   );
 }
 
+/** A stalled account: STALLED and its reason, and for the founder Wake (the row loses the stall at once; a refusal puts it back and says why). */
+export function Stall({ account }: { account: Account }) {
+  const founder = useStore().client.hello?.role === 'founder';
+  const { served } = useServes('account.wake');
+  const wake = useWrite('account.wake', account.name);
+  if (!account.stalled && !wake.error) return null;
+  return (
+    <span className="acct-stall flex flex-wrap items-center gap-2 text-hint" data-stall={account.name}>
+      {account.stalled ? (
+        <>
+          <span className="badge stalled inline-block rounded-card border border-bad px-1.5 text-bad">STALLED</span>
+          <span className="acct-stall-reason" title={account.stalled.detail || account.stalled.error}>
+            {account.stalled.reason}
+          </span>
+          {founder && served ? (
+            <Button
+              variant="outline"
+              size="sm"
+              label={wake.isPending ? 'Waking…' : 'Wake'}
+              title="End the stall so agents may be placed on this account again"
+              disabled={wake.isPending}
+              onClick={() => wake.mutate({ account: account.name })}
+            />
+          ) : null}
+        </>
+      ) : null}
+      {wake.error ? (
+        <span className="text-bad" role="alert">
+          {sentence(classify(wake.error))}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function Row({ account, now }: { account: Account; now: number }) {
   return (
-    <a className={ROW} href={`#/accounts/${encodeURIComponent(account.name)}`} data-account={account.name}>
-      <span className="acct-name flex min-w-0 items-baseline gap-2">
-        <strong>{account.label}</strong>
-        {account.label !== account.name ? <span className="muted mono">{account.name}</span> : null}
-      </span>
-      <StateChip account={account} now={now} />
-      <Gauge label="5 h" window={account.five_hour} now={now} />
-      <Gauge label="week" window={account.weekly} now={now} />
-      <span
-        className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2"
-        title={`Agents on it, and its cap: ${agentsLine(account)}`}
-      >
-        <Icon name="agent" size={14} label="Agents" />
-        {account.agents.length}/{account.cap_effective}
-      </span>
-      <UsageLine account={account} />
-    </a>
+    <div className={WRAP}>
+      <a className={ROW} href={`#/accounts/${encodeURIComponent(account.name)}`} data-account={account.name}>
+        <span className="acct-name flex min-w-0 items-baseline gap-2">
+          <strong>{account.label}</strong>
+          {account.label !== account.name ? <span className="muted mono">{account.name}</span> : null}
+        </span>
+        <StateChip account={account} now={now} />
+        <Gauge label="5 h" window={account.five_hour} now={now} />
+        <Gauge label="week" window={account.weekly} now={now} />
+        <span
+          className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2"
+          title={`Agents on it, and its cap: ${agentsLine(account)}`}
+        >
+          <Icon name="agent" size={14} label="Agents" />
+          {account.agents.length}/{account.cap_effective}
+        </span>
+        <UsageLine account={account} />
+      </a>
+      <div className="px-4 pb-2 empty:hidden">
+        <Stall account={account} />
+      </div>
+    </div>
   );
 }
 
@@ -186,6 +227,7 @@ function AccountPageOne({ account, now }: { account: Account; now: number }) {
         <StateChip account={account} now={now} />
       </p>
       <UsageLine account={account} />
+      <Stall account={account} />
       <TabStrip label="Account" value={tab} onChange={(t) => setTab(t)} tabs={TABS.map((t) => ({ value: t, label: t }))} />
       {tab === 'Overview' ? (
         <div className="acct-overview flex flex-col gap-3">
