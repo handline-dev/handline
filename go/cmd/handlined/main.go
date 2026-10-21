@@ -102,6 +102,7 @@ var defaultNative = strings.Join([]string{
 	"schedules.list",
 	"settings.get",
 	"stats.get",
+	"stats.headroom",
 	"stats.outlook",
 	"status.pick",
 	"task.get",

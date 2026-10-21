@@ -1645,6 +1645,50 @@ export type Prefs = {
   nav: NavPrefs;
 };
 
+export type Headroom = {
+  now: Timestamp;
+  step_s: number;
+  combined: {
+    /** Points up to now, oldest first. */
+    past: {
+      at: Timestamp;
+      left_pct: number | null;
+    }[];
+    /** Points after now: a guess, kept apart from `past`. An account with no recent reading is left out. */
+    future: {
+      at: Timestamp;
+      left_pct: number | null;
+    }[];
+  };
+  /** Accounts that have a reading in the samples, by name. */
+  accounts: {
+    account: string;
+    /** What usage samples recorded, at the same points as `combined.past`. */
+    past: {
+      at: Timestamp;
+      five_left: number | null;
+      week_left: number | null;
+    }[];
+    /** A guess: each window keeps its pace (the 5h one over the last day, the weekly one over this week) and starts again from nothing at its reset, so the 5h line is a saw. Null when the account's last reading is stale; 0 after an account ends. */
+    future: {
+      at: Timestamp;
+      five_left: number | null;
+      week_left: number | null;
+    }[];
+    /** Resets in the span, oldest first: those samples recorded, then those guessed (a 5h window opens again at its reset only while it is used). */
+    resets: {
+      at: Timestamp;
+      window: "5h" | "7d";
+    }[];
+  }[];
+  runs_out_at: Timestamp | null;
+  next_reset: {
+    at: Timestamp;
+    account: string;
+    window: "5h" | "7d";
+  } | null;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -2850,6 +2894,14 @@ export interface Methods {
   "stats.get": { params: {
   window: "24h" | "7d";
 }; result: Stats };
+  "stats.headroom": { params: {
+  /** The first point. Default: 3 days before now. */
+  from?: Timestamp;
+  /** No point after this. Default: 3 days after now. After `from`. */
+  to?: Timestamp;
+  /** Seconds between points, from `from` on. Default 900. At most 2000 points. */
+  step_s?: number;
+}; result: Headroom };
   "stats.outlook": { params: {
   /** Headroom: that long back and as long ahead. Cost per day: the last that many days (under 1 day counts as 1). */
   range: "12h" | "24h" | "3d" | "7d" | "14d" | "30d";
@@ -3051,6 +3103,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "schedule.edit": { role: "founder", callers: null, write: true, since: 1 },
   "schedule.remove": { role: "founder", callers: null, write: true, since: 1 },
   "stats.get": { role: "member", callers: null, write: false, since: 1 },
+  "stats.headroom": { role: "member", callers: null, write: false, since: 1 },
   "stats.outlook": { role: "member", callers: null, write: false, since: 1 },
   "connection.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.get": { role: "founder", callers: null, write: false, since: 1 },

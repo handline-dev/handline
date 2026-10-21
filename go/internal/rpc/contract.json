@@ -284,6 +284,9 @@
  "stats.get": {
   "role": "member"
  },
+ "stats.headroom": {
+  "role": "member"
+ },
  "stats.outlook": {
   "role": "member"
  },
