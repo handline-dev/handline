@@ -377,6 +377,13 @@ func Register(srv *rpc.Server, h *Hub) {
 		if err != nil {
 			return nil, err
 		}
+		switch p["resume"] {
+		case nil, "replay":
+		case "latest": // the client reads what it shows again, so what it missed is not sent
+			since = nil
+		default:
+			return nil, rpc.BadRequestError("resume is replay or latest", "resume", rpc.InvalidParams)
+		}
 		for n := range names {
 			if err := Allowed(c, n); err != nil {
 				return nil, err
@@ -454,6 +461,32 @@ func Register(srv *rpc.Server, h *Hub) {
 		byConn[c] = keep
 		return map[string]any{}, nil
 	}})
+}
+
+// Stamped are the reads that the events of a stream_log topic keep current (app-data's reads with a feed, but transcript.events, whose
+// topic has no cursor, and chat.requests, which gives its own).
+var Stamped = []string{"accounts.list", "agent.get", "agent.strip", "agent.timeline", "agents.list", "chat.messages", "chat.transcript",
+	"daemon.status", "hr.list", "inbox.get", "inbox.list", "operation.get", "prefs.get", "prompt.list", "task.get",
+	"task.time", "tasks.list"}
+
+// StampCursor gives each Stamped read of s a cursor: the newest when the read began, so an event after it may be in the answer already
+// (it is applied again, which changes nothing) and none at or before it is missing from the answer.
+func StampCursor(s *rpc.Server, l *Log) {
+	for _, name := range Stamped {
+		s.Wrap(name, func(next func(*rpc.Conn, map[string]any) (any, error)) func(*rpc.Conn, map[string]any) (any, error) {
+			return func(c *rpc.Conn, p map[string]any) (any, error) {
+				top, err := l.Newest()
+				if err != nil {
+					return nil, err
+				}
+				res, err := next(c, p)
+				if m, ok := res.(map[string]any); ok && err == nil {
+					m["cursor"] = top
+				}
+				return res, err
+			}
+		})
+	}
 }
 
 // sinceOf is the since param: nil when absent, else a non-negative cursor.
