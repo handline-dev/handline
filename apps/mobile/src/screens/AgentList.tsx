@@ -3,7 +3,7 @@ import { FlatList, Pressable, Text, View } from 'react-native';
 import type { AgentView as Agent } from '@handline/client';
 import { useAgents, useHrCount, useNav, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { radius, rowHeight, space } from '@handline/tokens';
+import { font, radius, rowHeight, space } from '@handline/tokens';
 import { ago, chipCounts, chipChanges, chipOf, navList, rowName, teamOf, type NavChip } from '@handline/app-core';
 import { KIND } from '#src/screens/NeedsYouCard.tsx';
 import { usePalette } from '#src/theme.ts';
@@ -106,7 +106,7 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
                     onPress={() => change(chipChanges(x.id))}
                     style={{ paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: radius.pill, backgroundColor: on ? c.panel : 'transparent', borderWidth: 1, borderColor: on ? c.accent : c.line }}
                   >
-                    <Text style={{ color: on ? c.accent : c.muted, fontSize: 13, fontWeight: on ? '700' : '500' }}>
+                    <Text style={{ color: on ? c.accent : c.muted, fontSize: font.size.body, fontWeight: on ? '700' : '500' }}>
                       {x.label} {counts[x.id]}
                     </Text>
                   </Pressable>
@@ -128,7 +128,7 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
           ListEmptyComponent={<Text style={{ color: c.muted, padding: space.lg }}>No agents match.</Text>}
           renderItem={({ item }) => {
             if (item.head !== undefined)
-              return <Text style={{ color: c.muted, fontSize: 12, paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.xs }}>{item.head}</Text>;
+              return <Text style={{ color: c.muted, fontSize: font.size.label, paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.xs }}>{item.head}</Text>;
             const a = item.agent;
             const need = a.needs_you ? a.needs_you.text ?? KIND[a.needs_you.kind] : '';
             const doing = need || a.task?.title || a.status?.text || a.state_detail || '';
@@ -154,13 +154,13 @@ export function AgentList(props: { onPage: (page: 'worktrees' | 'new' | 'setting
                 <StateMark agent={a} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: c.ink, fontWeight: '600' }}>{item.label}</Text>
-                  <Text numberOfLines={1} testID={need ? `needs-${a.name}` : undefined} style={{ color: need ? c.wait : c.muted, fontSize: 12 }}>
+                  <Text numberOfLines={1} testID={need ? `needs-${a.name}` : undefined} style={{ color: need ? c.wait : c.muted, fontSize: font.size.label }}>
                     {doing || ' '}
                   </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={{ color: need ? c.wait : a.block ? c.block : c.muted, fontSize: 12 }}>{word}</Text>
-                  {age ? <Text style={{ color: c.muted, fontSize: 11 }}>{ago(age)}</Text> : null}
+                  <Text style={{ color: need ? c.wait : a.block ? c.block : c.muted, fontSize: font.size.label }}>{word}</Text>
+                  {age ? <Text style={{ color: c.muted, fontSize: font.size.hint }}>{ago(age)}</Text> : null}
                 </View>
               </Pressable>
             );

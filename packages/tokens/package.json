@@ -2,7 +2,7 @@
   "name": "@handline/tokens",
   "private": true,
   "type": "module",
-  "description": "Colors, spacing, type scale and breakpoints as TypeScript constants, for the web (as CSS variables) and the mobile app (used directly)",
+  "description": "Colors, surfaces, type scale, space, radius, shadow and motion as TypeScript constants; PC tokens.css is generated from them and the mobile app reads them directly",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -12,7 +12,8 @@
   "scripts": {
     "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
     "typecheck": "tsc -p .",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "build:css": "node scripts/build-css.ts"
   },
   "devDependencies": {
     "@handline/config": "workspace:*"

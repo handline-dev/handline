@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import type { Worktree } from '@handline/client';
 import { STATUSES, useMoves, useServes, useWorktrees, type Moves } from '@handline/app-data';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { worktreeSums } from '@handline/app-core';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
@@ -26,7 +26,7 @@ function Chip(props: { word: string }) {
         borderColor: c.line,
         borderRadius: radius.pill,
         paddingHorizontal: space.sm,
-        fontSize: 12,
+        fontSize: font.size.label,
         overflow: 'hidden',
       }}
     >
@@ -41,12 +41,12 @@ function Notes({ w, moves }: { w: Worktree; moves: Moves }) {
   return (
     <>
       {moves.moving[w.path] ? (
-        <Text testID="wt-moving" style={{ color: c.muted, fontSize: 12 }}>
+        <Text testID="wt-moving" style={{ color: c.muted, fontSize: font.size.label }}>
           moving to {moves.moving[w.path]}…
         </Text>
       ) : null}
       {moves.errors[w.path] ? (
-        <Text testID="wt-error" accessibilityRole="alert" style={{ color: c.block, fontSize: 12 }}>
+        <Text testID="wt-error" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
           {moves.errors[w.path]}
         </Text>
       ) : null}
@@ -81,7 +81,7 @@ function Card(props: { w: Worktree; moves: Moves; onOpen: () => void }) {
           <Text style={{ color: c.ink, fontWeight: '600', flexShrink: 1 }}>{w.branch}</Text>
           <Chip word={w.status} />
         </View>
-        <Text style={{ color: c.muted, fontSize: 12 }}>{[w.repo, w.owner, w.changed.length ? files(w) : null].filter(Boolean).join(' · ')}</Text>
+        <Text style={{ color: c.muted, fontSize: font.size.label }}>{[w.repo, w.owner, w.changed.length ? files(w) : null].filter(Boolean).join(' · ')}</Text>
       </Pressable>
       <Notes w={w} moves={moves} />
     </View>
@@ -92,7 +92,7 @@ function Fact(props: { label: string; children: React.ReactNode }) {
   const c = usePalette();
   return (
     <View style={{ gap: 2 }}>
-      <Text style={{ color: c.muted, fontSize: 12 }}>{props.label}</Text>
+      <Text style={{ color: c.muted, fontSize: font.size.label }}>{props.label}</Text>
       {props.children}
     </View>
   );
@@ -118,7 +118,7 @@ function One(props: {
   );
   return (
     <ScrollView testID="wt-detail" contentContainerStyle={{ padding: space.lg, gap: space.md }}>
-      <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>{w.branch}</Text>
+      <Text style={{ color: c.ink, fontSize: font.size.page, fontWeight: '700' }}>{w.branch}</Text>
       <Fact label="Repo">{text(w.repo)}</Fact>
       <Fact label="Path">{text(w.path, true)}</Fact>
       <Fact label="Owner">{text(w.owner ?? 'no owner')}</Fact>
@@ -138,7 +138,7 @@ function One(props: {
       <Fact label={w.changed.length ? `Changed files (${files(w)})` : 'Changed files'}>
         {w.changed.length === 0 ? <Text style={{ color: c.muted }}>No changed files.</Text> : null}
         {w.changed.map((f) => (
-          <Text key={f.path} style={{ color: c.ink, fontFamily: 'monospace', fontSize: 12 }}>
+          <Text key={f.path} style={{ color: c.ink, fontFamily: 'monospace', fontSize: font.size.label }}>
             {f.status} {f.path} +{f.added} −{f.deleted}
           </Text>
         ))}
@@ -189,7 +189,7 @@ export function Worktrees(props: { onClose: () => void; onAgent: (name: string) 
                 color: c.ink,
                 borderWidth: 1,
                 borderColor: c.line,
-                borderRadius: radius.md,
+                borderRadius: radius.card,
                 padding: space.md,
                 margin: space.lg,
                 minHeight: 44,

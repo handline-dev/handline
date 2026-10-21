@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useAgentStrip, useServes } from '@handline/app-data';
-import { space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 
 const DASH = '–';
@@ -32,7 +32,7 @@ export function AgentStrip({ agent }: { agent: string }) {
   if (!served || !strip) return null;
   const left = lapsesAt === null ? null : Math.round((lapsesAt - Date.now()) / 1000);
   const cell = (label: string, value: string, testID: string, warn = false) => (
-    <Text testID={testID} style={{ color: warn ? c.wait : c.muted, fontSize: 12 }}>
+    <Text testID={testID} style={{ color: warn ? c.wait : c.muted, fontSize: font.size.label }}>
       {label} <Text style={{ color: warn ? c.wait : c.ink, fontWeight: '600' }}>{value}</Text>
     </Text>
   );

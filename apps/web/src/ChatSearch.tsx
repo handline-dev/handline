@@ -54,7 +54,7 @@ export function ChatSearch({ agent, scope, onGo }: { agent: string; scope: ChatS
       />
       {showing ? (
         <div
-          className="results absolute top-full right-0 z-10 mt-1 max-h-80 w-96 max-w-[80vw] overflow-auto rounded-dialog border border-line bg-panel shadow-[var(--shadow-pop)]"
+          className="results absolute top-full right-0 z-10 mt-1 max-h-80 w-96 max-w-[80vw] overflow-auto rounded-dialog border border-line bg-panel shadow-[var(--shadow-2)]"
           aria-live="polite"
         >
           {found.isError ? (

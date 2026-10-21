@@ -43,7 +43,7 @@ export function Popup({
       {open ? (
         <motion.div
           {...grow}
-          className={`ui-popup ${align}${up ? ' up' : ''} absolute z-20 mt-1 min-w-[220px] rounded-card bg-panel pb-[calc(4px*var(--o,1))] shadow-[var(--shadow-pop)]${align === 'right' ? ' right-0' : ''}${up ? ' bottom-full mb-1' : ''}`}
+          className={`ui-popup ${align}${up ? ' up' : ''} absolute z-20 mt-1 min-w-[220px] rounded-card bg-panel pb-[calc(4px*var(--o,1))] shadow-[var(--shadow-2)]${align === 'right' ? ' right-0' : ''}${up ? ' bottom-full mb-1' : ''}`}
           role="dialog"
           aria-label={title}
           ref={box}

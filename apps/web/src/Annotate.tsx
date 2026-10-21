@@ -140,7 +140,7 @@ export function Annotator({ image, onChange }: { image: Blob; onChange: (marked:
           {current ? (
             // At the mark: below and to the right of it, flipped when that would leave the picture.
             <div
-              className="absolute z-10 flex w-56 gap-1 rounded-card border border-bad bg-panel p-1.5 shadow-[var(--shadow-pop)]"
+              className="absolute z-10 flex w-56 gap-1 rounded-card border border-bad bg-panel p-1.5 shadow-[var(--shadow-2)]"
               style={{
                 ...pct(current.rect.x + current.rect.w, current.rect.y + current.rect.h),
                 transform: `translate(${(current.rect.x + current.rect.w) / size.w > 0.6 ? 'calc(-100% - 8px)' : '8px'}, ${(current.rect.y + current.rect.h) / size.h > 0.7 ? 'calc(-100% - 8px)' : '8px'})`,

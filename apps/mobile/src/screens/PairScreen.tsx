@@ -46,7 +46,7 @@ export function PairScreen(props: { onPaired: (p: Pairing) => void }) {
         multiline
         placeholder="handline://pair?host=…&code=…"
         placeholderTextColor={c.muted}
-        style={{ color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.md, padding: space.md, minHeight: 90 }}
+        style={{ color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.card, padding: space.md, minHeight: 90 }}
       />
       {error && (
         <Text style={{ color: c.block }} accessibilityRole="alert">

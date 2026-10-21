@@ -6,7 +6,7 @@ import { activityOf, ago, CLOSED, defaultFilter, foldEvents, groupTasks, HELD, i
 import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
-import { space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import { useHistoryValue } from '#src/history.tsx';
 import { Linking, SectionList, ScrollView, Text, TextInput, View } from 'react-native';
 import { usePalette } from '#src/theme.ts';
@@ -197,7 +197,7 @@ function TaskSearch(props: { value: string; onChange: (v: string) => void }) {
 function GroupHead(props: { title: string; count: number }) {
   const c = usePalette();
   return (
-    <Text accessibilityRole="header" style={{ color: c.muted, fontSize: 12, fontWeight: '700', paddingHorizontal: space.lg, paddingTop: space.lg, paddingBottom: space.xs, backgroundColor: c.bg }}>
+    <Text accessibilityRole="header" style={{ color: c.muted, fontSize: font.size.label, fontWeight: '700', paddingHorizontal: space.lg, paddingTop: space.lg, paddingBottom: space.xs, backgroundColor: c.bg }}>
       {`${props.title} ${props.count}`}
     </Text>
   );
@@ -238,8 +238,8 @@ function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () 
       selected={props.selecting ? props.marked : undefined}
       trail={
         <View style={{ alignItems: 'flex-end' }}>
-          {t.priority ? <Text style={{ color: t.priority === 1 ? c.block : c.muted, fontWeight: '700', fontSize: 12 }}>{PRIORITY[t.priority]}</Text> : null}
-          {time ? <Text style={{ color: time.startsWith('over') ? c.block : c.muted, fontSize: 12 }}>{time}</Text> : null}
+          {t.priority ? <Text style={{ color: t.priority === 1 ? c.block : c.muted, fontWeight: '700', fontSize: font.size.label }}>{PRIORITY[t.priority]}</Text> : null}
+          {time ? <Text style={{ color: time.startsWith('over') ? c.block : c.muted, fontSize: font.size.label }}>{time}</Text> : null}
         </View>
       }
       onPress={props.onPress}
@@ -273,7 +273,7 @@ function Section(props: { title: string; children: React.ReactNode }) {
   const c = usePalette();
   return (
     <View style={{ gap: space.xs }}>
-      <Text style={{ color: c.muted, fontSize: 12, fontWeight: '700' }}>{props.title}</Text>
+      <Text style={{ color: c.muted, fontSize: font.size.label, fontWeight: '700' }}>{props.title}</Text>
       {props.children}
     </View>
   );
@@ -297,7 +297,7 @@ function Body({ t }: { t: TaskDetail }) {
   );
   return (
     <ScrollView testID="task-detail" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
-      <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>{t.title}</Text>
+      <Text style={{ color: c.ink, fontSize: font.size.page, fontWeight: '700' }}>{t.title}</Text>
       {t.body ? <PrBody id={`task-${t.id}`} agent={t.to} body={t.body} /> : null}
       <Text style={{ color: c.muted }}>
         {[`${taskRef(t.id)}`, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, timeoutText(t, now)].filter(Boolean).join(' · ')}

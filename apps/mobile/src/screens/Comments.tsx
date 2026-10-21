@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Text, View } from 'react-native';
 import type { MemoFile } from '@handline/client';
 import { classify, sentence, useOff, useWrite } from '@handline/app-data';
-import { space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { ImageBodyInput } from '#src/screens/ImageBodyInput.tsx';
 import { Button } from '#src/screens/parts.tsx';
@@ -24,7 +24,7 @@ export function CommentRow({ task, agent, memo, when }: { task: number; agent: s
   const close = () => (setAsk(null), edit.reset(), del.reset());
   return (
     <View testID={`memo-${memo.id}`} style={{ gap: space.sm }}>
-      <Text style={{ color: c.muted, fontSize: 12 }}>{`${memo.author} ${when}`}</Text>
+      <Text style={{ color: c.muted, fontSize: font.size.label }}>{`${memo.author} ${when}`}</Text>
       <PrBody id={`memo-${memo.id}`} agent={agent} body={memo.text} />
       {memo.files?.length ? <MemoFiles files={memo.files} /> : null}
       {ask === null && (
@@ -38,7 +38,7 @@ export function CommentRow({ task, agent, memo, when }: { task: number; agent: s
           <Button testID={`memo-delete-${memo.id}`} label="Delete" disabled={sending || !!offDelete} onPress={() => setAsk('delete')} />
         </View>
       )}
-      {ask === null && (offEdit || offDelete) && <Text style={{ color: c.muted, fontSize: 12 }}>{offEdit || offDelete}</Text>}
+      {ask === null && (offEdit || offDelete) && <Text style={{ color: c.muted, fontSize: font.size.label }}>{offEdit || offDelete}</Text>}
       {ask === 'edit' && (
         <Sheet
           label="edit comment"
@@ -91,7 +91,7 @@ export function CommentBox({ id }: { id: number }) {
         onChange={setText}
       />
       <Button testID="memo-send" label="Comment" disabled={!!why || !text.trim()} onPress={send} />
-      {why && <Text style={{ color: c.muted, fontSize: 12 }}>{why}</Text>}
+      {why && <Text style={{ color: c.muted, fontSize: font.size.label }}>{why}</Text>}
     </View>
   );
 }

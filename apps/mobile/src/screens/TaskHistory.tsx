@@ -4,7 +4,7 @@ import { Pressable, Text, View } from 'react-native';
 import { clockTime, dayLabel, firstLine, historyCounts, historyView, memoAction, type HistoryFilter, type HistoryFold } from '@handline/app-core';
 import type { HistoryRow } from '@handline/client';
 import { useServes, useTaskHistory } from '@handline/app-data';
-import { space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Button } from '#src/screens/parts.tsx';
 
@@ -94,7 +94,7 @@ export function TaskHistory({ rows }: { rows: HistoryRow[] }) {
       </View>
       {days.map((d) => (
         <View key={d.day} style={{ gap: space.sm }}>
-          <Text style={{ color: c.muted, fontSize: 12, fontWeight: '700' }}>{dayLabel(d.day)}</Text>
+          <Text style={{ color: c.muted, fontSize: font.size.label, fontWeight: '700' }}>{dayLabel(d.day)}</Text>
           {d.items.map((item, i) =>
             item.kind === 'memos' ? (
               <Fold key={`${d.day}-${i}`} fold={item} />

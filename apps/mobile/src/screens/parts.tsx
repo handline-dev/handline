@@ -12,7 +12,7 @@ export function Banner(props: { text: string; error?: boolean; onPress?: () => v
       accessibilityRole={props.error ? 'alert' : undefined}
       style={{ backgroundColor: props.error ? c.block : c.wait, padding: space.md }}
     >
-      <Text style={{ color: '#fff' }}>
+      <Text style={{ color: c.onFill }}>
         {props.text}
         {props.error ? '  ✕' : ''}
       </Text>
@@ -33,7 +33,7 @@ export function Button(props: {
 }) {
   const c = usePalette();
   const bg = props.kind === 'yes' ? c.run : props.kind === 'no' ? c.block : c.panel;
-  const ink = props.kind === 'yes' || props.kind === 'no' ? '#fff' : c.ink;
+  const ink = props.kind === 'yes' || props.kind === 'no' ? c.onFill : c.ink;
   return (
     <Pressable
       testID={props.testID}
@@ -45,7 +45,7 @@ export function Button(props: {
         backgroundColor: bg,
         borderColor: c.line,
         borderWidth: 1,
-        borderRadius: radius.md,
+        borderRadius: radius.card,
         paddingVertical: space.md,
         paddingHorizontal: space.lg,
         opacity: props.disabled ? 0.4 : 1,
@@ -84,12 +84,12 @@ export function PageHeader(props: {
           hitSlop={12}
           style={{ alignSelf: 'flex-start' }}
         >
-          <Text style={{ color: c.accent, fontSize: 16 }}>‹ {back.label}</Text>
+          <Text style={{ color: c.accent, fontSize: font.size.title }}>‹ {back.label}</Text>
         </Pressable>
       ) : null}
       {props.title || props.actions ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-          <Text accessibilityRole="header" style={{ color: c.ink, fontSize: 22, fontWeight: '700', flex: 1 }}>
+          <Text accessibilityRole="header" style={{ color: c.ink, fontSize: font.size.page, fontWeight: '700', flex: 1 }}>
             {props.title}
           </Text>
           {props.actions}
@@ -106,7 +106,7 @@ export function Card(props: { children: React.ReactNode; testID?: string }) {
   return (
     <View
       testID={props.testID}
-      style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, backgroundColor: c.panel }}
+      style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, backgroundColor: c.panel }}
     >
       {props.children}
     </View>
@@ -164,7 +164,7 @@ export function ListRow(props: { title: string; meta: string; metaColor?: string
         <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '600' }}>
           {props.title}
         </Text>
-        <Text style={{ color: props.metaColor ?? c.muted, fontSize: 12 }}>{props.meta}</Text>
+        <Text style={{ color: props.metaColor ?? c.muted, fontSize: font.size.label }}>{props.meta}</Text>
       </View>
       {props.trail}
     </Pressable>
@@ -204,7 +204,7 @@ export function Link(props: { label: string; onPress: () => void; testID: string
   const c = usePalette();
   return (
     <Pressable testID={props.testID} accessibilityRole="button" disabled={props.disabled} hitSlop={10} onPress={props.onPress} style={{ opacity: props.disabled ? 0.4 : 1 }}>
-      <Text style={{ color: c.accent, fontSize: 12 }}>{props.label}</Text>
+      <Text style={{ color: c.accent, fontSize: font.size.label }}>{props.label}</Text>
     </Pressable>
   );
 }
@@ -219,7 +219,7 @@ export function BottomSheet(props: { onClose: () => void; children: React.ReactN
           <View
             testID={props.testID}
             onStartShouldSetResponder={() => true}
-            style={{ backgroundColor: c.bg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingBottom: space.xl, maxHeight: '85%' }}
+            style={{ backgroundColor: c.bg, borderTopLeftRadius: radius.dialog, borderTopRightRadius: radius.dialog, paddingBottom: space.xl, maxHeight: '85%' }}
           >
             <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={props.padded ? { padding: space.lg, gap: space.sm } : undefined}>
               {props.children}
@@ -259,8 +259,8 @@ export function MenuItem(props: { label: string; onPress: () => void; testID?: s
     >
       {props.icon ? <Icon name={props.icon} decorative size={20} color={props.danger ? c.block : props.on ? c.accent : c.muted} /> : null}
       <View style={{ flex: 1 }}>
-        <Text style={{ color: props.danger ? c.block : props.on ? c.accent : c.ink, fontSize: 16, fontWeight: props.on ? '700' : '400' }}>{props.label}</Text>
-        {props.note ? <Text style={{ color: c.muted, fontSize: 12 }}>{props.note}</Text> : null}
+        <Text style={{ color: props.danger ? c.block : props.on ? c.accent : c.ink, fontSize: font.size.title, fontWeight: props.on ? '700' : '400' }}>{props.label}</Text>
+        {props.note ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{props.note}</Text> : null}
       </View>
     </Pressable>
   );

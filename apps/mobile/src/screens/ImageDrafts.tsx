@@ -1,7 +1,7 @@
 // The images on their way with a text: a chip for each (its picture, the progress, Retry when the upload failed, a remove mark) and the button
 // that opens the photo library.
 import { Image, Pressable, Text, View } from 'react-native';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import type { ImageDraft } from '@handline/app-data';
 import { usePalette } from '#src/theme.ts';
 import { MARK_COLOR } from '@handline/app-core';
@@ -30,7 +30,7 @@ export function ImageChips(props: {
             gap: space.xs,
             borderWidth: 1,
             borderColor: d.error ? c.block : c.line,
-            borderRadius: radius.md,
+            borderRadius: radius.card,
             padding: 2,
           }}
         >
@@ -41,7 +41,7 @@ export function ImageChips(props: {
             disabled={!props.onMark || !d.attachment}
             onPress={() => props.onMark?.(d.key)}
           >
-            <Image source={{ uri: d.preview }} accessibilityLabel={d.name} style={{ width: 48, height: 48, borderRadius: radius.sm }} />
+            <Image source={{ uri: d.preview }} accessibilityLabel={d.name} style={{ width: 48, height: 48, borderRadius: radius.chip }} />
             {props.marked === d.key ? (
               <View
                 testID={`image-marked-${d.key}`}
@@ -58,10 +58,10 @@ export function ImageChips(props: {
               hitSlop={8}
               onPress={() => props.onRetry(d.key)}
             >
-              <Text style={{ color: c.block, fontSize: 12 }}>Retry</Text>
+              <Text style={{ color: c.block, fontSize: font.size.label }}>Retry</Text>
             </Pressable>
           ) : !d.attachment ? (
-            <Text testID={`image-progress-${d.key}`} style={{ color: c.muted, fontSize: 12 }}>
+            <Text testID={`image-progress-${d.key}`} style={{ color: c.muted, fontSize: font.size.label }}>
               {Math.round(d.progress * 100)}%
             </Text>
           ) : null}
@@ -72,12 +72,12 @@ export function ImageChips(props: {
             hitSlop={10}
             onPress={() => props.onRemove(d.key)}
           >
-            <Text style={{ color: c.muted, fontSize: 14 }}>✕</Text>
+            <Text style={{ color: c.muted, fontSize: font.size.body }}>✕</Text>
           </Pressable>
         </View>
       ))}
       {props.problem ? (
-        <Text testID="image-problem" accessibilityRole="alert" style={{ color: c.block, fontSize: 12 }}>
+        <Text testID="image-problem" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
           {props.problem}
         </Text>
       ) : null}
@@ -97,7 +97,7 @@ export function AttachButton(props: { onPress: () => void; disabled?: boolean })
       onPress={props.onPress}
       style={{ padding: space.sm, opacity: props.disabled ? 0.4 : 1 }}
     >
-      <Text style={{ color: c.accent, fontSize: 20 }}>＋</Text>
+      <Text style={{ color: c.accent, fontSize: font.size.page }}>＋</Text>
     </Pressable>
   );
 }

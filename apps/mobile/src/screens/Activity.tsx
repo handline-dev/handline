@@ -5,7 +5,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { activity, clockTime, shortName, type TimelineEntry } from '@handline/app-core';
 import { useChat } from '@handline/app-data';
 import type { TranscriptItem } from '@handline/client';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { Skeleton } from '#src/skeleton.tsx';
 import { usePalette } from '#src/theme.ts';
 import { ChatEmpty } from '#src/screens/Chat.tsx';
@@ -19,7 +19,7 @@ type Filter = (typeof FILTERS)[number];
 const kindOf = (e: Exclude<TimelineEntry, { kind: 'proposal' }>): Filter =>
   e.kind === 'message' ? 'Messages' : e.kind === 'note' ? 'Tasks' : e.item.kind === 'tool' || e.item.kind === 'prompt' ? 'Tools' : e.item.kind === 'session' ? 'Sessions' : 'Tasks';
 
-const TEXT = { fontSize: 13 } as const; // one size for every row
+const TEXT = { fontSize: font.size.body } as const; // one size for every row
 
 export function Activity(props: { agent: string }) {
   const c = usePalette();
@@ -44,7 +44,7 @@ export function Activity(props: { agent: string }) {
             style={{
               paddingVertical: space.xs,
               paddingHorizontal: space.md,
-              borderRadius: radius.md,
+              borderRadius: radius.card,
               borderWidth: 1,
               borderColor: filter === f ? c.accent : c.line,
             }}

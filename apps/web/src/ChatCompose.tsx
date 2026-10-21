@@ -191,7 +191,7 @@ export function Compose(props: {
       <ComposeRow>
         {menu ? (
           <ul
-            className="compose-menu absolute inset-x-0 bottom-full z-10 m-0 mb-1 max-h-60 list-none overflow-auto rounded-card border border-line-strong bg-panel px-0 py-1 shadow-[var(--shadow-pop)]"
+            className="compose-menu absolute inset-x-0 bottom-full z-10 m-0 mb-1 max-h-60 list-none overflow-auto rounded-card border border-line-strong bg-panel px-0 py-1 shadow-[var(--shadow-2)]"
             role="listbox"
             aria-label={open!.kind === 'slash' ? 'Verbs' : open!.kind === 'hash' ? 'References' : 'History'}
           >

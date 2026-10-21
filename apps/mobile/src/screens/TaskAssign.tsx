@@ -4,7 +4,7 @@ import { assignGroups, taskRef } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
 import { classify, sentence, useAgents, useOff, useTeam, useWrite } from '@handline/app-data';
-import { space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Pill } from '#src/screens/parts.tsx';
 import { Sheet } from '#src/screens/TaskActions.tsx';
@@ -23,7 +23,7 @@ export function AssignTask({ t, onClose }: { t: TaskDetail; onClose: () => void 
       {groups.length ? (
         groups.map((g) => (
           <View key={g.key} style={{ gap: space.xs }}>
-            <Text style={{ color: c.muted, fontSize: 12 }}>{g.label}</Text>
+            <Text style={{ color: c.muted, fontSize: font.size.label }}>{g.label}</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
               {g.names.map((n) => (
                 <Pill

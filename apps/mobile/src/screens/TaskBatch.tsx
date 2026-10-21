@@ -6,7 +6,7 @@ import { applyEach, plan, summary, taskRef, TASK_VERBS, type Outcome, type RowVe
 import { useStore } from '@handline/app-react';
 import type { Task } from '@handline/client';
 import { useAgents, useOff, useWrite } from '@handline/app-data';
-import { space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { MenuItem, MenuSheet, Pill } from '#src/screens/parts.tsx';
 import { Input, Sheet } from '#src/screens/TaskActions.tsx';
@@ -159,7 +159,7 @@ export function TaskBatch(props: { tasks: Task[]; onClose: () => void; onDone: (
           ))}
         </View>
       ) : null}
-      {p.skip.length ? <Text style={{ color: c.muted, fontSize: 12 }}>{`Skipped: ${p.skip.map((s) => `${taskRef(s.task.id)} (${s.why})`).join('; ')}`}</Text> : null}
+      {p.skip.length ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{`Skipped: ${p.skip.map((s) => `${taskRef(s.task.id)} (${s.why})`).join('; ')}`}</Text> : null}
     </Sheet>
   );
 }

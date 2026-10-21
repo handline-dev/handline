@@ -93,7 +93,7 @@ function Typing({ line }: { line: string }) {
 function LatestPill({ onClick }: { onClick: () => void }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-[96px] flex justify-center">
-      <button className="latest pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-pop)]" onClick={onClick}>
+      <button className="latest pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-2)]" onClick={onClick}>
         Back to latest
         <Icon name="newer" size={14} aria-hidden />
       </button>
@@ -351,7 +351,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         // CHAT stretches every direct child to full width, so the row spans it and only the pill takes clicks.
         <div className="pointer-events-none absolute inset-x-0 bottom-[96px] flex justify-center">
           <button
-            className="newer pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-pop)]"
+            className="newer pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-2)]"
             onClick={bottom}
           >
             {newer} new {newer === 1 ? 'message' : 'messages'}

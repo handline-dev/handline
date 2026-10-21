@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import { Text, View } from 'react-native';
 import { classify, sentence, viewState, type SkeletonName } from '@handline/app-data';
-import { space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import { Skeleton } from '#src/skeleton.tsx';
 import { usePalette } from '#src/theme.ts';
 import { Button } from '#src/screens/parts.tsx';
@@ -59,7 +59,7 @@ export function Loadable(props: {
   return (
     <View style={{ flex: 1 }}>
       {state === 'refreshing' && (
-        <Text testID="refreshing" style={{ color: c.muted, fontSize: 11, paddingHorizontal: space.lg }}>
+        <Text testID="refreshing" style={{ color: c.muted, fontSize: font.size.hint, paddingHorizontal: space.lg }}>
           Updating…
         </Text>
       )}
