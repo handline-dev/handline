@@ -1,3 +1,4 @@
+import { AboveKeyboard } from '#src/screens/parts.tsx';
 import { UpdateBanner } from '#src/screens/AppUpdate.tsx';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, SafeAreaView, StatusBar as RNStatusBar, View } from 'react-native';
@@ -57,7 +58,7 @@ export default function App() {
       <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, paddingTop: Platform.OS === 'android' ? (RNStatusBar.currentHeight ?? 0) : 0 }}>
         <StatusBar style="auto" />
         <UpdateBanner />
-        <View style={{ flex: 1 }}>{body}</View>
+        <AboveKeyboard>{body}</AboveKeyboard>
       </SafeAreaView>
     </KeyboardProvider>
   );

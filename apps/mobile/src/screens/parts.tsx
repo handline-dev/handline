@@ -175,7 +175,7 @@ export const Row = (props: { children: React.ReactNode; style?: ViewStyle }) => 
   <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, ...props.style }}>{props.children}</View>
 );
 
-/** A column that stays above the keyboard: its bottom padding is the keyboard's height, which the library reports (0 once it is gone). */
+/** A column that stays above the keyboard. */
 export function AboveKeyboard(props: { children: React.ReactNode }) {
   const height = useKeyboardState((k) => k.height);
   return <View style={{ flex: 1, paddingBottom: height }}>{props.children}</View>;

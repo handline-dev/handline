@@ -21,7 +21,7 @@ import { Chat } from '#src/screens/Chat.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { PromptSlot } from '#src/screens/PromptCard.tsx';
 import { Transcript } from '#src/screens/Transcript.tsx';
-import { AboveKeyboard, Button, MenuItem } from '#src/screens/parts.tsx';
+import { Button, MenuItem } from '#src/screens/parts.tsx';
 
 /** What a start, stop or interrupt in flight on this agent says while the daemon decides. */
 function useAgentMark(agent: string): string | null {
@@ -46,7 +46,7 @@ export function AgentPage() {
   if (!page) return null;
   const detail = detailQuery.data;
   return (
-    <AboveKeyboard>
+    <>
       <Loadable query={detailQuery} served={served} skeleton="agentDetail" label="the agent" empty={`${name} is gone`}>
         {detail &&
           (settings ? (
@@ -56,7 +56,7 @@ export function AgentPage() {
           ))}
       </Loadable>
       {!keyboardUp && <AgentDock agent={name} onMenu={() => setMenu(true)} onBack={() => void store.closeAgent()} />}
-    </AboveKeyboard>
+    </>
   );
 }
 

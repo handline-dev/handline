@@ -2,4 +2,4 @@
 import type { ReactNode } from 'react';
 
 export const KeyboardProvider = (props: { children: ReactNode }) => props.children;
-export const useKeyboardState = <T,>(select: (s: { isVisible: boolean }) => T): T => select({ isVisible: false });
+export const useKeyboardState = <T,>(select: (s: { isVisible: boolean; height: number }) => T): T => select({ isVisible: false, height: 0 });

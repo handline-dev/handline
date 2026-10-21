@@ -1,5 +1,4 @@
-// The chat list's scroll: it follows its end until a hand drags it away; a sent message stands at the top with blank space under it
-// for the reply to grow into; while away, new entries show a "New" button.
+// The chat list's scroll: it follows its end until a hand drags it away or a message is sent, which stands at the top over room for the reply.
 import { useRef, useState } from 'react';
 import { Pressable, Text, type NativeScrollEvent, type ScrollView } from 'react-native';
 import { radius, space } from '@handline/tokens';
@@ -26,11 +25,12 @@ export function useChatScroll() {
     setBlank(room);
     if (room === 0) {
       anchor.current = null;
-      follow.current = true;
-      toEndNow();
-    } else if (!a.scrolled) {
+      return;
+    }
+    const top = Math.max(0, a.y - space.sm);
+    if (!a.scrolled && innerH.current - top >= viewH.current) {
       a.scrolled = true;
-      setTimeout(() => ref.current?.scrollTo({ y: Math.max(0, a.y - space.sm), animated: true }), 50);
+      ref.current?.scrollTo({ y: top, animated: true });
     }
   };
   const leave = () => {
@@ -42,11 +42,16 @@ export function useChatScroll() {
     blank,
     behind,
     /** A message was sent: its row will stand at the top. */
-    sent: () => (sentBelow.current = lowest.current),
+    sent: () => {
+      sentBelow.current = lowest.current;
+    },
     /** A row was laid out; the person's own new row becomes the anchor. */
     row: (y: number, person: boolean) => {
       const below = sentBelow.current;
-      if (below === null || !person || y <= below) return void (lowest.current = Math.max(lowest.current, y));
+      if (below === null || !person || y <= below) {
+        lowest.current = Math.max(lowest.current, y);
+        return;
+      }
       lowest.current = y;
       sentBelow.current = null;
       follow.current = false;
@@ -64,12 +69,16 @@ export function useChatScroll() {
       ref.current?.scrollToEnd({ animated: true });
     },
     scrollProps: {
-      onLayout: (e: { nativeEvent: { layout: { height: number } } }) => (viewH.current = e.nativeEvent.layout.height),
+      onLayout: (e: { nativeEvent: { layout: { height: number } } }) => {
+        viewH.current = e.nativeEvent.layout.height;
+        if (follow.current) toEndNow();
+        fit();
+      },
       onScrollBeginDrag: leave,
       onContentSizeChange: () => follow.current && toEndNow(),
       onScroll: (e: { nativeEvent: NativeScrollEvent }) => {
         const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-        if (!follow.current && !anchor.current && contentSize.height - contentOffset.y - layoutMeasurement.height < 40) {
+        if (!follow.current && !anchor.current && blankNow.current === 0 && contentSize.height - contentOffset.y - layoutMeasurement.height < 40) {
           follow.current = true;
           setBehind(false);
         }
