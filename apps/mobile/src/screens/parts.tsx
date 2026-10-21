@@ -1,5 +1,5 @@
 import { KeyboardAvoidingView, Modal, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
-import * as KeyboardController from 'react-native-keyboard-controller';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
@@ -175,13 +175,10 @@ export const Row = (props: { children: React.ReactNode; style?: ViewStyle }) => 
   <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, ...props.style }}>{props.children}</View>
 );
 
-/** A column that stays above the keyboard: the library pads its bottom by the keyboard's height as it moves. */
+/** A column that stays above the keyboard: its bottom padding is the keyboard's height, which the library reports (0 once it is gone). */
 export function AboveKeyboard(props: { children: React.ReactNode }) {
-  return (
-    <KeyboardController.KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
-      {props.children}
-    </KeyboardController.KeyboardAvoidingView>
-  );
+  const height = useKeyboardState((k) => k.height);
+  return <View style={{ flex: 1, paddingBottom: height }}>{props.children}</View>;
 }
 
 /** A small text link. */

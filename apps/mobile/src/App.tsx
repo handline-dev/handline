@@ -53,7 +53,7 @@ export default function App() {
       </DaemonProvider>
     );
   return (
-    <KeyboardProvider>
+    <KeyboardProvider statusBarTranslucent navigationBarTranslucent>
       <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, paddingTop: Platform.OS === 'android' ? (RNStatusBar.currentHeight ?? 0) : 0 }}>
         <StatusBar style="auto" />
         <UpdateBanner />
