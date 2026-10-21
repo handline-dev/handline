@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, mount, press, text, until } from '#test/harness.tsx';
+import { ARCH, $, mount, press, text, until, pickTab } from '#test/harness.tsx';
 
 const past = '2026-01-01T00:00:00Z';
 const clock = { length_s: 60, default: false, start: past, end: past, overdue_since: past, told: 1, left_s: null };
@@ -8,8 +8,7 @@ async function openTasks(prepare: Parameters<typeof mount>[0] = () => {}) {
   const m = await mount(prepare, undefined, 'founder');
   await until(() => $(`agent-${ARCH}`), 'the rows');
   await press($(`agent-${ARCH}`));
-  await until(() => $('tab-tasks'), 'the tab');
-  await press($('tab-tasks'));
+  await pickTab('tasks');
   return m;
 }
 
@@ -54,7 +53,7 @@ describe('the Tasks tab of the agent page', () => {
     const m = await mount((s) => s.daemon.knobs.unserve('tasks.list'), undefined, 'founder');
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
-    await until(() => $('tab-chat'), 'the page');
+    await until(() => $('verbs-open'), 'the page');
     expect($('tab-tasks')).toBeNull();
     m.store.stop();
   });

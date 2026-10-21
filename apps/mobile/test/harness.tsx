@@ -26,7 +26,7 @@ export let box: HTMLElement;
 // A Modal draws outside the screen's own container, so the page is read when the container has none.
 export const $ = (id: string) =>
   box.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? document.body.querySelector<HTMLElement>(`[data-testid="${id}"]`);
-export const text = () => box.textContent ?? '';
+export const text = (el?: Element | null) => (el ?? box).textContent ?? '';
 /** The height a row is styled with (the DOM has no layout here, so this reads the style both rows are given from the tokens). */
 export const rowHeightOf = (el: Element | null) => (el ? getComputedStyle(el).height : undefined);
 /** Types into a field the way a keyboard does (react-native-web draws TextInput as an input or a textarea). */
@@ -39,6 +39,22 @@ export const fill = (id: string, v: string) =>
   });
 export const value = (id: string) => ($(id) as unknown as HTMLInputElement | null)?.value;
 export const press = (el: HTMLElement | null) => act(async () => void el?.click());
+
+/** Opens the agent page's menu and picks an item in it. */
+export async function pickItem(id: string) {
+  await until(() => $('verbs-open'), 'the page');
+  await press($('verbs-open'));
+  await until(() => $(id), `the ${id} item`);
+  await press($(id));
+}
+export const pickTab = (id: string) => pickItem(`tab-${id}`);
+/** What the menu's view item says (the menu stays open). */
+export async function tabLabel(id: string) {
+  await until(() => $('verbs-open'), 'the page');
+  if (!$(`tab-${id}`)) await press($('verbs-open'));
+  await until(() => $(`tab-${id}`), `the ${id} item`);
+  return $(`tab-${id}`)!.textContent;
+}
 
 /** A task verb's button: the verbs sit under the status and More menus, so this opens whichever holds it. */
 export async function verb(id: string): Promise<HTMLElement | null> {

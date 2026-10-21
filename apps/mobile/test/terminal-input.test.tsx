@@ -1,13 +1,12 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, until, press, mount } from '#test/harness.tsx';
+import { ARCH, $, until, press, mount, pickTab } from '#test/harness.tsx';
 import { fitOf } from '#src/screens/TerminalPane.tsx';
 
 const open = async (m: Awaited<ReturnType<typeof mount>>) => {
   await until(() => $(`agent-${ARCH}`), 'the rows');
   await press($(`agent-${ARCH}`));
-  await until(() => $('tab-terminal'), 'the page');
-  await press($('tab-terminal'));
+  await pickTab('terminal');
   await until(() => $('terminal-text'), 'the terminal');
   return m.daemon.sessions.get(ARCH)!;
 };
@@ -68,8 +67,7 @@ describe('typing in the phone terminal', () => {
     });
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
-    await until(() => $('tab-terminal'), 'the page');
-    await press($('tab-terminal'));
+    await pickTab('terminal');
     await until(() => $('terminal-start'), 'the button');
     await act(async () => {
       $('terminal-start')!.click();

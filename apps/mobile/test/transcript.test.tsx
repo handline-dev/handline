@@ -1,15 +1,14 @@
 import { act } from 'react';
 import { Alert } from 'react-native';
 import { describe, expect, it, vi } from 'vitest';
-import { ARCH, $, mount, press, text, until } from '#test/harness.tsx';
+import { ARCH, $, mount, press, text, until, pickTab, tabLabel } from '#test/harness.tsx';
 import type { setup } from '@handline/fake-daemon/helpers';
 
 const AUD = 'handline.auditor'; // the fake daemon plays it as a structured session
 const open = async (m: Awaited<ReturnType<typeof mount>>, agent = AUD) => {
   await until(() => $(`agent-${agent}`), 'the rows');
   await press($(`agent-${agent}`));
-  await until(() => $('tab-terminal'), 'the page');
-  await press($('tab-terminal'));
+  await pickTab('terminal');
 };
 
 describe('the transcript of a structured agent', () => {
@@ -18,7 +17,7 @@ describe('the transcript of a structured agent', () => {
     await open(m);
     await until(() => $('transcript'), 'the transcript');
     expect($('terminal')).toBeNull();
-    expect($('tab-terminal')?.textContent).toBe('Transcript');
+    expect(await tabLabel('terminal')).toBe('Transcript');
     const t = text();
     expect(t).toContain('founder: Run the contract tests.'); // turn_start
     expect(t).toContain('Running them now.'); // text
@@ -54,7 +53,7 @@ describe('the transcript of a structured agent', () => {
     await open(m, 'handline.architect');
     await until(() => $('terminal'), 'the terminal');
     expect($('transcript')).toBeNull();
-    expect($('tab-terminal')?.textContent).toBe('Terminal');
+    expect(await tabLabel('terminal')).toBe('Terminal');
     m.store.stop();
   });
 });
@@ -65,14 +64,13 @@ describe('the transcript tab states', () => {
     await until(() => $(`agent-${AUD}`), 'the rows');
     m.daemon.knobs.latency(600);
     await press($(`agent-${AUD}`));
-    await until(() => $('tab-terminal'), 'the page', 3000);
-    await press($('tab-terminal'));
+    await pickTab('terminal');
     await until(() => $('skeleton-terminal'), 'the skeleton', 1500);
     expect($('terminal')).toBeNull();
-    expect($('tab-terminal')?.textContent).toBe('Transcript'); // the daemon said so before any read
+    expect(await tabLabel('terminal')).toBe('Transcript'); // the daemon said so before any read
     await until(() => $('transcript'), 'the turns', 5000);
     expect($('skeleton-terminal')).toBeNull();
-    expect($('tab-terminal')?.textContent).toBe('Transcript');
+    expect(await tabLabel('terminal')).toBe('Transcript');
     m.store.stop();
   });
 
@@ -200,6 +198,8 @@ describe('the header row of a structured agent', () => {
     });
     await until(() => $(`agent-${AUD}`), 'the rows');
     await press($(`agent-${AUD}`));
+    await until(() => $('verbs-open'), 'the page');
+    await press($('verbs-open'));
     await until(() => button('Interrupt'), 'Interrupt');
     expect(buttons()).not.toContain('Exit');
     m.store.stop();
@@ -210,6 +210,8 @@ describe('the header row of a structured agent', () => {
     await until(() => $(`agent-${AUD}`), 'the rows');
     await act(async () => void (await m.store.client.stopSession(AUD, 'close')));
     await press($(`agent-${AUD}`));
+    await until(() => $('verbs-open'), 'the page');
+    await press($('verbs-open'));
     await until(() => button('Start new'), 'Start new');
     expect(button('Resume')).toBeFalsy();
     const alert = vi.spyOn(Alert, 'alert');
@@ -244,7 +246,7 @@ describe('tool output in the activity', () => {
     await press($(`agent-${ARCH}`));
     await until(() => $('chat-input'), 'the chat');
     expect(document.body.querySelector('[data-testid^="tool-"]')).toBeNull(); // tools are not in the chat
-    await press($('tab-activity'));
+    await pickTab('activity');
     return m;
   };
   const opener = () => document.body.querySelector<HTMLElement>('[data-testid^="tool-open-"]');

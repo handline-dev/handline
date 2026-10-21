@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { $, mount, press, until } from '#test/harness.tsx';
+import { $, mount, press, until, pickTab } from '#test/harness.tsx';
 
 const AUD = 'handline.auditor';
 const PNG = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), (c) =>
@@ -16,8 +16,7 @@ vi.mock('#src/ImagePick.ts', () => ({
 const openChat = async () => {
   await until(() => $(`agent-${AUD}`), 'the rows');
   await press($(`agent-${AUD}`));
-  await until(() => $('tab-chat'), 'the page');
-  await press($('tab-chat'));
+  await pickTab('chat');
   await until(() => $('attach-image'), 'the attach button');
 };
 const chipKey = () =>

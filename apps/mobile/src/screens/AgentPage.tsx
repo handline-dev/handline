@@ -1,6 +1,6 @@
-import { useEffect } from 'react';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
-import { badgesOf, controlsOf, needsConfirm, shortName, type StopMode } from '@handline/app-core';
+import { useEffect, useState } from 'react';
+import { Alert, Text, View } from 'react-native';
+import { badgesOf, controlsOf, needsConfirm, type StopMode } from '@handline/app-core';
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView } from '@handline/client';
@@ -8,20 +8,20 @@ import { space } from '@handline/tokens';
 import { TerminalPane } from '#src/screens/TerminalPane.tsx';
 import { usePalette } from '#src/theme.ts';
 import { useHistoryValue } from '#src/history.tsx';
-import { StateMark } from '#src/screens/StateMark.tsx';
 import { AgentSettings } from '#src/screens/AgentSettings.tsx';
+import { AgentDock, AgentLabel, useKeyboardUp, useRememberAgent } from '#src/screens/AgentDock.tsx';
 import { AgentStrip } from '#src/screens/AgentStrip.tsx';
 import { AgentFile } from '#src/screens/AgentFile.tsx';
 import { AgentPreview } from '#src/screens/AgentPreview.tsx';
 import { AgentTasks } from '#src/screens/AgentTasks.tsx';
-import { Icon, type IconName } from '#src/screens/Icon.tsx';
+import type { IconName } from '#src/screens/Icon.tsx';
 import { Activity } from '#src/screens/Activity.tsx';
 import { AgentVerbs } from '#src/screens/AgentVerbs.tsx';
 import { Chat } from '#src/screens/Chat.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { PromptSlot } from '#src/screens/PromptCard.tsx';
 import { Transcript } from '#src/screens/Transcript.tsx';
-import { AboveKeyboard, Button, Row } from '#src/screens/parts.tsx';
+import { AboveKeyboard, Button, MenuItem } from '#src/screens/parts.tsx';
 
 /** What a start, stop or interrupt in flight on this agent says while the daemon decides. */
 function useAgentMark(agent: string): string | null {
@@ -33,7 +33,6 @@ function useAgentMark(agent: string): string | null {
 }
 
 export function AgentPage() {
-  const c = usePalette();
   const store = useStore();
   const page = useSelector((s) => s.page);
   const name = page?.agent ?? '';
@@ -41,35 +40,27 @@ export function AgentPage() {
   const { served } = useServes('agent.get');
   const row = useAgents().data?.agents.find((a) => a.name === name);
   const [settings, setSettings] = useHistoryValue(`agent.settings:${name}`, false);
+  const [menu, setMenu] = useState(false);
+  const keyboardUp = useKeyboardUp();
+  useRememberAgent(name);
   if (!page) return null;
   const detail = detailQuery.data;
-  const state = detail?.state ?? row?.state ?? 'unknown';
-  const back = () => void store.closeAgent();
   return (
     <AboveKeyboard>
-      <Row style={{ padding: space.md }}>
-        <Pressable testID="back" onPress={back} accessibilityLabel="Back to Agents" hitSlop={12}>
-          <Text style={{ color: c.accent, fontSize: 16 }}>‹ Agents</Text>
-        </Pressable>
-        <StateMark agent={{ state, has_dialog: row?.has_dialog ?? false, block: row?.block }} />
-        <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '700', fontSize: 16, flex: 1 }}>
-          {shortName(name, name.split('.')[0]!)}
-        </Text>
-      </Row>
-      <AgentStrip agent={name} />
       <Loadable query={detailQuery} served={served} skeleton="agentDetail" label="the agent" empty={`${name} is gone`}>
         {detail &&
           (settings ? (
             <AgentSettings agent={name} onBack={() => setSettings(false)} />
           ) : (
-            <Body detail={detail} agent={row} tab={page.tab} onSettings={() => setSettings(true)} />
+            <Body detail={detail} agent={row} tab={page.tab} menu={menu} setMenu={setMenu} onSettings={() => setSettings(true)} />
           ))}
       </Loadable>
+      {!keyboardUp && <AgentDock agent={name} onMenu={() => setMenu(true)} onBack={() => void store.closeAgent()} />}
     </AboveKeyboard>
   );
 }
 
-function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: 'chat' | 'terminal'; onSettings: () => void }) {
+function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: 'chat' | 'terminal'; menu: boolean; setMenu: (open: boolean) => void; onSettings: () => void }) {
   const c = usePalette();
   const store = useStore();
   const me = useSelector((s) => s.me);
@@ -108,25 +99,16 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       { text: 'Start new', style: 'destructive', onPress: () => start.mutate({ agent: name }) },
     ]);
   const tab = (id: string, label: string, icon: IconName, on: boolean, onPress: () => void) => (
-    <Pressable
+    <MenuItem
       testID={`tab-${id}`}
-      accessibilityRole="tab"
-      accessibilityState={{ selected: on }}
-      onPress={onPress}
-      style={{
-        flexGrow: 1,
-        alignItems: 'center',
-        paddingHorizontal: space.sm,
-        paddingVertical: space.md,
-        borderBottomWidth: 2,
-        borderBottomColor: on ? c.accent : 'transparent',
+      label={label}
+      icon={icon}
+      on={on}
+      onPress={() => {
+        props.setMenu(false);
+        onPress();
       }}
-    >
-      <Icon name={icon} decorative size={16} color={on ? c.accent : c.muted} />
-      <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: '600', fontSize: 12 }}>
-        {label}
-      </Text>
-    </Pressable>
+    />
   );
   const pageTab = (t: 'chat' | 'terminal', label: string) =>
     tab(t, label, t, !showTasks && !showActivity && !showFile && !showPreview && current === t, () => {
@@ -137,57 +119,54 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   // A structured session is watched as a transcript in place of its terminal; its permission cards are in the transcript.
   // The daemon says which agents it runs as a structured session: those are watched as a transcript, the rest keep the terminal.
   const structured = detail.structured === true;
+  const views = (
+    <>
+      <AgentLabel agent={name} />
+      <AgentStrip agent={name} />
+      {pageTab('chat', 'Chat')}
+      {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
+      {hasChat && tab('activity', 'Activity', 'history', showActivity, () => setExtra('activity'))}
+      {hasFile && tab('file', 'File', 'note', showFile, () => setExtra('file'))}
+      {tab('preview', 'Preview', 'open', showPreview, () => setExtra('preview'))}
+      {hasTasks && tab('tasks', 'Tasks', 'tasks', showTasks, () => setExtra('tasks'))}
+      {onChat && (
+        <MenuItem
+          testID="search-open"
+          label={searching ? 'Close search' : 'Search this chat'}
+          icon="search"
+          onPress={() => {
+            props.setMenu(false);
+            setSearching(!searching);
+          }}
+        />
+      )}
+      {ctl.start && <MenuItem label="Start" icon="play" disabled={busy} onPress={() => (props.setMenu(false), start.mutate({ agent: name }))} />}
+      {ctl.resume && <MenuItem label="Start new" icon="session" disabled={busy} onPress={() => (props.setMenu(false), startNew())} />}
+      {(structured ? ctl.interrupt : ctl.stop) && <MenuItem label="Interrupt" icon="cancel" disabled={busy} onPress={() => (props.setMenu(false), stop('interrupt'))} />}
+    </>
+  );
+  const note = [stalled && (stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`)].filter(Boolean);
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ paddingHorizontal: space.md }}>
-        <AgentVerbs
-          detail={detail}
-          row={row}
-          onSettings={props.onSettings}
-          lead={
-            <>
-              {ctl.start && <Button label="Start" disabled={busy} onPress={() => start.mutate({ agent: name })} />}
-              {ctl.resume && <Button label="Start new" disabled={busy} onPress={startNew} />}
-              {(structured ? ctl.interrupt : ctl.stop) && <Button label="Interrupt" disabled={busy} onPress={() => stop('interrupt')} />}
-            </>
-          }
-          stops={[
-            ...(ctl.stop && !structured ? [{ id: 'exit', label: 'Exit', danger: false }] : []),
-            ...(ctl.stop ? [{ id: 'close', label: 'Close', danger: false }, { id: 'kill', label: 'Kill', danger: true }] : []),
-          ]}
-          onStop={(mode) => stop(mode as StopMode)}
-          disabled={busy}
-          trail={
-            <>
-              {mark && (
-                <Text testID="pending-mark" style={{ color: c.muted }}>
-                  {mark}
-                </Text>
-              )}
-              {onChat && (
-                <Pressable testID="search-open" accessibilityRole="button" accessibilityLabel="Search this chat" accessibilityState={{ selected: searching }} hitSlop={12} onPress={() => setSearching(!searching)}>
-                  <Icon name="search" size={20} color={searching ? c.accent : c.muted} />
-                </Pressable>
-              )}
-            </>
-          }
-        />
-        {stalled && (
-          <Text testID="badge-stalled" style={{ color: c.block }}>
-            {stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`}
-          </Text>
-        )}
-      </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, borderBottomWidth: 1, borderBottomColor: c.line, marginTop: space.sm }} contentContainerStyle={{ flexGrow: 1, paddingHorizontal: space.sm }}>
-        {pageTab('chat', 'Chat')}
-        {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
-        {hasChat && tab('activity', 'Activity', 'history', showActivity, () => setExtra('activity'))}
-        {hasFile && tab('file', 'File', 'reference', showFile, () => setExtra('file'))}
-        {tab('preview', 'Preview', 'open', showPreview, () => setExtra('preview'))}
-        {hasTasks && tab('tasks', 'Tasks', 'tasks', showTasks, () => setExtra('tasks'))}
-      </ScrollView>
+      <AgentVerbs
+        detail={detail}
+        row={row}
+        open={props.menu}
+        setOpen={props.setMenu}
+        onSettings={props.onSettings}
+        before={views}
+        stops={[
+          ...(ctl.stop && !structured ? [{ id: 'exit', label: 'Exit', danger: false }] : []),
+          ...(ctl.stop ? [{ id: 'close', label: 'Close', danger: false }, { id: 'kill', label: 'Kill', danger: true }] : []),
+        ]}
+        onStop={(mode) => stop(mode as StopMode)}
+        disabled={busy}
+      />
       {showFile ? (
-        <AgentFile agent={name} />
+        <>
+          <AgentLabel agent={name} />
+          <AgentFile agent={name} />
+        </>
       ) : showPreview ? (
         <AgentPreview agent={name} />
       ) : showActivity ? (
@@ -199,6 +178,16 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
           {!(structured && current === 'terminal') && current !== 'chat' && <PromptSlot agent={name} prompt={detail.prompt ?? null} />}
           {current === 'chat' ? <Chat detail={detail} searching={searching} /> : structured ? <TranscriptTab detail={detail} /> : <Terminal detail={detail} />}
         </>
+      )}
+      {mark && (
+        <Text testID="pending-mark" style={{ color: c.muted, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: 12 }}>
+          {mark}
+        </Text>
+      )}
+      {note.length > 0 && (
+        <Text testID="badge-stalled" style={{ color: c.block, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: 12 }}>
+          {note.join(' · ')}
+        </Text>
       )}
     </View>
   );
@@ -229,7 +218,13 @@ function Terminal(props: { detail: AgentDetail }) {
   useEffect(() => {
     if (opened && !view) void store.attachView();
   }, [opened, view, store]);
-  if (view) return <TerminalPane agent={props.detail.name} view={view} sessionOpen={props.detail.session_open} />;
+  if (view)
+    return (
+      <>
+        <AgentLabel agent={props.detail.name} />
+        <TerminalPane agent={props.detail.name} view={view} sessionOpen={props.detail.session_open} />
+      </>
+    );
   const name = props.detail.name;
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.lg }}>

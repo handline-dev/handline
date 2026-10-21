@@ -43,7 +43,7 @@ describe('the strip in the agent page menu', () => {
 
   it('is absent when the daemon does not serve agent.strip', async () => {
     const m = await open((s) => s.daemon.knobs.unserve('agent.strip'));
-    await until(() => $('tab-chat'), 'the page');
+    await until(() => $('verbs-open'), 'the page');
     expect($('agent-strip')).toBeNull();
     m.store.stop();
   });

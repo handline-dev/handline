@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { ARCH, sleep, until, box, $, text, rowHeightOf, press, mount } from '#test/harness.tsx';
+import { ARCH, sleep, until, box, $, text, rowHeightOf, press, mount, pickTab } from '#test/harness.tsx';
 
 describe('the agent list', () => {
   it('shows its skeleton after 150 ms while the daemon is slow, then the rows', async () => {
@@ -12,7 +12,7 @@ describe('the agent list', () => {
     await sleep(400); // the skeleton stays at least 300 ms once shown
     expect($('skeleton-agents')).toBeNull();
     expect(getComputedStyle($(`agent-${ARCH}`)!).minHeight).toBe(skeletonRowHeight); // the row may grow with a larger font, never shrink below the skeleton's
-    expect(text()).toContain(ARCH);
+    expect(text()).toContain('architect');
     m.store.stop();
   });
 
@@ -37,7 +37,7 @@ describe('the agent page', () => {
     await press($(`agent-${ARCH}`));
     await until(() => $('skeleton-agentDetail'), 'the detail skeleton');
     expect($('back')).not.toBeNull(); // the way out stays while it loads
-    await until(() => $('tab-terminal') && $('skeleton-agentDetail') === null, 'the page', 5000);
+    await until(() => $('verbs-open') && $('skeleton-agentDetail') === null, 'the page', 5000);
     m.store.stop();
   });
 });
@@ -47,8 +47,7 @@ describe('the permission card', () => {
     const m = await mount();
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
-    await until(() => $('tab-terminal'), 'the page');
-    await press($('tab-terminal'));
+    await pickTab('terminal');
     await act(async () => void (await m.store.client.sendInput(ARCH, 'push the branch')));
     await act(async () => void [1, 2, 3].forEach(() => m.daemon.tick())); // the scripted turn: thinking, a line, then the prompt
     await until(() => $('prompt-card'), 'the card');
@@ -252,8 +251,7 @@ describe('the styled terminal', () => {
     const m = await mount(() => {}, { bytes: true });
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
-    await until(() => $('tab-terminal'), 'the page');
-    await press($('tab-terminal'));
+    await pickTab('terminal');
     await act(async () => void (await m.store.client.sendInput(ARCH, 'push the branch')));
     await act(async () => void [1, 2, 3].forEach(() => m.daemon.tick()));
     await until(() => $('terminal-text')?.textContent?.includes('> push the branch'), 'the typed line');
@@ -266,8 +264,7 @@ describe('the styled terminal', () => {
     const m = await mount();
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
-    await until(() => $('tab-terminal'), 'the page');
-    await press($('tab-terminal'));
+    await pickTab('terminal');
     await until(() => $('terminal-text')?.textContent?.includes('Claude Code'), 'the screen');
     expect($('terminal-text')!.querySelector('*')).toBeNull();
     m.store.stop();
@@ -329,7 +326,7 @@ describe('the chat tab', () => {
     expect(text()).toContain('Here is the plan: three units, chat first.'); // the agent's reply
     expect(msgOf('Review is done, see the notes.')).toBeUndefined();
     expect($('scope-all')).toBeNull(); // no Mine/All menu
-    await press($('tab-activity'));
+    await pickTab('activity');
     await until(() => text().includes('Review is done, see the notes.'), 'the agents’ messages');
     expect(text()).toContain('auditor → architect'); // the team prefix is left off
     expect(text()).not.toContain('handline.');
@@ -411,8 +408,8 @@ describe('the chat tab', () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await type('chat-input', 'half a thought');
-    await press($('tab-terminal'));
-    await press($('tab-chat'));
+    await pickTab('terminal');
+    await pickTab('chat');
     await until(() => $('chat-input'), 'the chat again');
     expect(($('chat-input') as HTMLTextAreaElement).value).toBe('half a thought');
     m.store.stop();

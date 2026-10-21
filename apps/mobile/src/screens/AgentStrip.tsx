@@ -39,7 +39,7 @@ export function AgentStrip({ agent }: { agent: string }) {
   return (
     <View
       testID="agent-strip"
-      style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md, paddingHorizontal: space.md, paddingBottom: space.sm }}
+      style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md }}
     >
       {cell('model', strip.model ?? DASH, 'strip-model')}
       {cell('acct', strip.account ?? DASH, 'strip-account')}

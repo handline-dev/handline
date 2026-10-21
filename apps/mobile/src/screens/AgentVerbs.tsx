@@ -31,27 +31,21 @@ export function AgentVerbs(props: {
   detail: AgentDetail;
   row: AgentView | undefined;
   onSettings: () => void;
-  /** The buttons beside the ⋯, and what sits at the far end of the row. */
-  lead?: ReactNode;
-  trail?: ReactNode;
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  /** Rows the page puts at the top of the menu. */
+  before?: ReactNode;
   /** Stops the page offers (Exit, Close, Kill): in the menu, where a mis-tap costs less. */
   stops?: { id: string; label: string; danger: boolean }[];
   onStop?: (mode: string) => void;
   disabled?: boolean;
 }) {
   const { detail, row } = props;
-  const [open, setOpen] = useState(false);
+  const { open, setOpen } = props;
   const [verb, setVerb] = useState<Verb | null>(null);
   const run = useVerbRun(detail.name);
   const c = usePalette();
   const verbs = row ? verbsOf(row, detail).filter((v) => !HIDDEN.includes(v.id)) : [];
-  if (!row)
-    return (
-      <Row style={{ flexWrap: 'wrap' }}>
-        {props.lead}
-        {props.trail}
-      </Row>
-    );
   const pick = (v: Verb) => {
     if (needsAsk(v.id) || v.id === 'move') setVerb(v);
     else run(v);
@@ -59,23 +53,18 @@ export function AgentVerbs(props: {
   };
   const held = verbs.find((v) => v.id === 'force_start');
   return (
-    <View style={{ gap: space.sm }}>
+    <View>
       {held && (
-        <Row style={{ flexWrap: 'wrap' }}>
+        <Row style={{ flexWrap: 'wrap', paddingHorizontal: space.lg, paddingVertical: space.sm }}>
           <Text testID="held-load" style={{ color: c.wait, flex: 1 }}>
-            {row.status?.text || 'Held: the machine is over its load limit.'}
+            {row?.status?.text || 'Held: the machine is over its load limit.'}
           </Text>
           <Button testID="force-start" label={held.label} icon={VERB_ICON.force_start} onPress={() => pick(held)} />
         </Row>
       )}
-      <Row style={{ flexWrap: 'wrap' }}>
-        {props.lead}
-        <Button testID="verbs-open" label="" icon="menu" onPress={() => setOpen(!open)} accessibilityLabel="More" />
-        <View style={{ flex: 1 }} />
-        {props.trail}
-      </Row>
       {open && (
         <MenuSheet testID="verbs" onClose={() => setOpen(false)}>
+          {props.before}
           {verbs.map((v) => (
             <VerbItem key={v.id} v={v} onPress={() => pick(v)} />
           ))}
@@ -104,7 +93,7 @@ export function AgentVerbs(props: {
           />
         </MenuSheet>
       )}
-      {verb && <VerbSheet row={row} detail={detail} verb={verb} run={run} onClose={() => setVerb(null)} />}
+      {verb && row && <VerbSheet row={row} detail={detail} verb={verb} run={run} onClose={() => setVerb(null)} />}
     </View>
   );
 }
