@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/handline/handline/go/internal/claude"
+	"github.com/handline/handline/go/internal/compose"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/hlclient"
 	"github.com/handline/handline/go/internal/lifecycle"
@@ -63,6 +64,8 @@ func launch(c *hlclient.Client, args []string) (int, bool) {
 	}
 	defer d.Close()
 	l := launcher(c.Home, d, roster)
+	hello, err := c.Call("hello", nil)
+	l.FounderTyped = founderTyped(c.Home, hello, err)
 	opt := func(k string) string { v, _ := p.opt(k); return v }
 	err = l.ExecAgent(agent, extra, p.flags["--force"], opt("--prompt-file"), opt("--account"), opt("--why"), opt("--by"))
 	var refused *lifecycle.Refusal
@@ -124,6 +127,15 @@ func launcher(home string, d *sql.DB, roster *team.Roster) *lifecycle.Launcher {
 			return syscall.Exec(argv0, argv, env)
 		},
 	}}
+}
+
+// founderTyped is the daemon's Launcher.FounderTyped, read from its hello, so the team text this launch records is the one the daemon
+// compares it with; nil when the daemon does not say it is on.
+func founderTyped(home string, hello map[string]any, err error) func(agent string) bool {
+	if caps, _ := hello["capabilities"].(map[string]any); err != nil || caps["founder_typed"] != true {
+		return nil
+	}
+	return compose.PeerFromYAML(home)
 }
 
 // launchVendors is lifecycle.VendorsPort with the Claude driver; another vendor is refused, as launch refuses it.
