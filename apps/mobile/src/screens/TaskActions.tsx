@@ -58,7 +58,7 @@ const PRIORITIES = [
 
 const GROW = { flex: 1 };
 
-/** A bottom sheet over the page: names the thing, takes a reason (required or optional), Submit and Cancel. Without onSubmit it is a read-only view with one Close. */
+/** A bottom sheet with a reason field, Submit and Cancel; without onSubmit it is read-only with one Close. */
 export function Sheet(props: {
   label: string;
   submit?: string;
@@ -68,7 +68,7 @@ export function Sheet(props: {
   onSubmit?: () => void;
   error?: string;
   busy?: boolean;
-  /** Names the sheet's parts `<id>-sheet`, `<id>-error`, `<id>-go`, `<id>-cancel`; without it they are sheet, sheet-error, sheet-submit, sheet-cancel. */
+  /** Prefix of the test ids: `<id>-sheet`, `-error`, `-go`, `-cancel`. */
   id?: string;
 }) {
   const c = usePalette();
@@ -190,13 +190,19 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   const reason = ask ? reasons[ask] : undefined;
   const Panel = ask ? PANELS[ask as keyof typeof PANELS] : undefined;
   const verb = (id: string, label: string, why: string | undefined, to: Ask) => (
-    <MenuItem key={id} testID={`verb-${id}`} label={label} disabled={!!why || ask !== null} onPress={() => (setMenu(null), setAsk(to))} />
+    <MenuItem key={id} testID={`verb-${id}`} label={label} disabled={!!why || ask !== null} onPress={() => {
+      setMenu(null);
+      setAsk(to);
+    }} />
   );
   return (
     <View style={{ gap: space.md }}>
       <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
         <Pill testID="status-menu" on={menu === 'status'} label={`${t.state} ▾`} onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'status' ? null : 'status'))} />
-        {open && !isGate(t) && <Pill testID="assignee-menu" on={ask === 'assign'} label={`→ ${t.to} ▾`} onPress={() => (setMenu(null), setAsk(ask === 'assign' ? null : 'assign'))} />}
+        {open && !isGate(t) && <Pill testID="assignee-menu" on={ask === 'assign'} label={`→ ${t.to} ▾`} onPress={() => {
+            setMenu(null);
+            setAsk(ask === 'assign' ? null : 'assign');
+          }} />}
         <Pill testID="more-menu" on={menu === 'more'} label="More ▾" onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'more' ? null : 'more'))} />
       </View>
       {menu !== null && (
@@ -210,7 +216,10 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
                   testID="verb-queue"
                   label="Queue"
                   disabled={!!off.queue || ask !== null || queue.isPending}
-                  onPress={() => (setMenu(null), void queue.mutateAsync({ tasks: [t.id] }).catch(() => {}))}
+                  onPress={() => {
+                    setMenu(null);
+                    void queue.mutateAsync({ tasks: [t.id] }).catch(() => {}); // the write's own rollback shows the reason
+                  }}
                 />
               )}
               {t.state === 'queued' && (
@@ -218,7 +227,10 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
                   testID="verb-draft"
                   label="Back to draft"
                   disabled={!!off.draft || ask !== null || draft.isPending}
-                  onPress={() => (setMenu(null), void draft.mutateAsync({ tasks: [t.id] }).catch(() => {}))}
+                  onPress={() => {
+                    setMenu(null);
+                    void draft.mutateAsync({ tasks: [t.id] }).catch(() => {}); // the write's own rollback shows the reason
+                  }}
                 />
               )}
               {running && verb('release', 'Release', off.release, 'release')}

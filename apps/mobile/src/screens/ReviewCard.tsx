@@ -79,7 +79,10 @@ export function ReviewCard(props: { task: number; item: number; off: string | un
             disabled={first.state !== 'ready' || sending}
             onPress={() => void mark()}
           />
-          {shot && <MarkPicture uri={shot} start={marked?.marks} onCancel={() => setShot(null)} onDone={(r) => (setMarked(r ?? marked), setShot(null))} />}
+          {shot && <MarkPicture uri={shot} start={marked?.marks} onCancel={() => setShot(null)} onDone={(r) => {
+            setMarked(r ?? marked);
+            setShot(null);
+          }} />}
         </Sheet>
       )}
       <View style={{ flexDirection: 'row', gap: space.sm }}>

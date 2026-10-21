@@ -53,7 +53,9 @@ function useDraggableBar(roomH: number) {
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx),
-        onPanResponderGrant: () => void (start.current = yRef.current),
+        onPanResponderGrant: () => {
+          start.current = yRef.current;
+        },
         onPanResponderMove: (_e, g) => setY(Math.min(limit.current, Math.max(0, start.current + g.dy))),
       }),
     [],
@@ -257,7 +259,7 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
               left: space.lg,
               right: space.lg,
               top: bar.y,
-              height: 48,
+              height: BAR_H,
               flexDirection: 'row',
               alignItems: 'center',
               gap: space.lg,

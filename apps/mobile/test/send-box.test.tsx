@@ -1,6 +1,7 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import { $, mount, press, sleep, text, until, pickTab } from '#test/harness.tsx';
+import { LONG_PRESS_MS } from '#src/screens/ChatSend.tsx';
 
 const AUD = 'handline.auditor'; // the fake daemon plays it as a structured session
 
@@ -31,7 +32,7 @@ const type = async (v: string) => {
 /** A long press: the button held down past its delay. */
 const hold = async (el: HTMLElement | null) => {
   await act(async () => void el?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
-  await sleep(700);
+  await sleep(LONG_PRESS_MS + 100);
   await act(async () => void el?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })));
 };
 const row = (body: string) =>

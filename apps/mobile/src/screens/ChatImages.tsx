@@ -28,7 +28,11 @@ export function useChatImages(canSend: boolean) {
   };
   const draft = d.drafts.find((x) => x.key === marking);
   const keep = (marks: Mark[]) => marks.some((m) => m.text.trim());
-  const clear = () => (d.clear(), setMarked(null), setMarking(null));
+  const clear = () => {
+    d.clear();
+    setMarked(null);
+    setMarking(null);
+  };
   return {
     ids: d.ids,
     /** One is still uploading or failed: the message waits. */
@@ -49,7 +53,10 @@ export function useChatImages(canSend: boolean) {
             drafts={d.drafts}
             problem={error ?? d.problem}
             onRetry={d.retry}
-            onRemove={(k) => (marked?.key === k && setMarked(null), d.remove(k))}
+            onRemove={(k) => {
+              if (marked?.key === k) setMarked(null);
+              d.remove(k);
+            }}
             onMark={setMarking}
             marked={marked && keep(marked.marks) ? marked.key : null}
           />

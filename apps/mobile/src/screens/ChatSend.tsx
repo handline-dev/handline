@@ -1,4 +1,4 @@
-// The send button (a round arrow) and the working bubble under the last message: both keep their size while the turn comes and goes.
+// The send button and the working bubble, both fixed in size.
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Pressable, Text, View } from 'react-native';
 import { radius, space } from '@handline/tokens';
@@ -8,11 +8,16 @@ import { MenuItem, MenuSheet } from '#src/screens/parts.tsx';
 
 type Delivery = 'now' | 'queue';
 
+export const LONG_PRESS_MS = 500;
+
 /** A tap sends; while a turn runs it queues, and a long press offers Send now or Queue. */
 export function SendButton(props: { disabled: boolean; choose: boolean; onSend: (delivery?: Delivery) => void }) {
   const c = usePalette();
   const [asking, setAsking] = useState(false);
-  const pick = (d: Delivery) => (setAsking(false), props.onSend(d));
+  const pick = (d: Delivery) => {
+    setAsking(false);
+    props.onSend(d);
+  };
   return (
     <>
       <Pressable
@@ -22,6 +27,7 @@ export function SendButton(props: { disabled: boolean; choose: boolean; onSend: 
         accessibilityHint={props.choose ? 'Hold to send now or queue' : undefined}
         disabled={props.disabled}
         onPress={() => props.onSend(props.choose ? 'queue' : undefined)}
+        delayLongPress={LONG_PRESS_MS}
         onLongPress={props.choose ? () => setAsking(true) : undefined}
         style={{
           width: 40,
@@ -78,7 +84,7 @@ function useDots(on: boolean): Animated.Value[] {
   return dots;
 }
 
-/** A slot of one fixed height after the last message: the bubble shows in it while a turn runs, so the list never changes height. */
+/** A fixed-height slot after the last message, so the list never changes height. */
 export function WorkingBubble(props: { working: boolean; line: string | null }) {
   const c = usePalette();
   const dots = useDots(props.working);
