@@ -47,6 +47,7 @@ describe('the rail filter button', () => {
 
   it('is marked and counts the hidden dots, and Sleeping is not checked while one of its dots is hidden', async () => {
     await mount('parked');
+    await until(() => filter().getAttribute('aria-label') === 'View: 1 hidden', 'the stored setting to move into prefs');
     expect(filter().getAttribute('aria-label')).toBe('View: 1 hidden');
     expect(box.querySelector('[data-testid="filter-active"]')).not.toBeNull();
     await act(async () => filter().click());

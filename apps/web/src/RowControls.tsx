@@ -37,7 +37,19 @@ export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (a
 }
 
 /** The items of the agent's menu: Open in (the folder, on the desktop), the copies, and the session verbs its state allows and the daemon serves. */
-export function AgentMenu({ agent: a, onAsk, onDelete }: { agent: AgentView; onAsk: (v: Verb) => void; onDelete: () => void }) {
+export function AgentMenu({
+  agent: a,
+  pinned,
+  onPin,
+  onAsk,
+  onDelete,
+}: {
+  agent: AgentView;
+  pinned: boolean;
+  onPin: () => void;
+  onAsk: (v: Verb) => void;
+  onDelete: () => void;
+}) {
   const agent = a.name;
   const d = useAgentDetail(agent).data;
   const run = useVerbRun(agent);
@@ -50,6 +62,10 @@ export function AgentMenu({ agent: a, onAsk, onDelete }: { agent: AgentView; onA
   const verbs = verbsOf(a, d).filter((v) => MENU_VERBS.includes(v.id) && served(v));
   return (
     <>
+      <MenuItem icon="pin" onSelect={onPin}>
+        {pinned ? 'Unpin' : 'Pin'}
+      </MenuItem>
+      <MenuSeparator />
       {open ? (
         <>
           <MenuSub>
