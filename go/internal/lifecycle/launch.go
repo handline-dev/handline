@@ -173,7 +173,7 @@ type Launcher struct {
 	Now    func() time.Time
 	// Tokens is the session proof and key store; Build refuses without it.
 	Tokens *sessiontoken.Tokens
-	// FounderTyped says the founder's words are typed at agent and its plain text answers them (supervisor.Env.FounderTyped); nil is never.
+	// FounderTyped says the founder's words are typed at agent (supervisor.Env.FounderTyped); nil is never.
 	FounderTyped func(agent string) bool
 }
 
@@ -769,20 +769,15 @@ func (l *Launcher) yourTeam(agent string) string {
 		}
 	}
 	typed := l.FounderTyped != nil && l.FounderTyped(agent)
-	report := "You report to `" + boss + "`. A task you were handed ends with `hl task done T<n> \"<evidence>\"` or `hl task handoff T<n> <agent> \"<note>\"` - that is your report, even a deferral: the next task arrives only then"
-	if typed {
-		report += "."
-	} else {
-		report += ", and an answer typed in chat reaches no one."
-	}
+	report := "You report to `" + boss + "`. A task you were handed ends with `hl task done T<n> \"<evidence>\"` or `hl task handoff T<n> <agent> \"<note>\"` - that is your report, even a deferral: the next task arrives only then, and an answer typed in chat reaches no one."
 	if boss != db.Human {
 		// A decision for the human is a task of theirs, so it is named once, below, for the decisions that are theirs.
 		report += " Being blocked, a decision only `" + boss + "` can make, or work nobody handed you is a task for it: `hl task new --assign " + boss + " -t <time> \"<title>\" \"<body>\"`."
 	}
 	talk := "Talk to people only through ocp; what you write in your terminal reaches no one."
 	if typed {
-		talk = "The founder may type straight into your terminal: answer them in plain text there - the first and last text of that turn is what " +
-			"they read. Anything else for the founder, and everything for anyone else, goes through ocp; nothing else you write in your terminal reaches anyone."
+		talk = "The founder may type straight into your terminal. When the person types to you directly, answer with `hl say` too; your terminal " +
+			"text is not shown to them. " + talk
 	}
 	lines := []string{"# Your team", report, talk}
 	if len(reports) > 0 {
