@@ -19,7 +19,7 @@ import {
 import Svg, { Path, Polyline } from 'react-native-svg';
 import { captureRef } from 'react-native-view-shot';
 import { MARK_COLOR, initialMarks, keptMarks, marksReducer, marksToShapes, shapesToSvg, type Mark } from '@handline/app-core';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Link } from '#src/screens/parts.tsx';
 
@@ -177,7 +177,7 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
                       justifyContent: 'center',
                     }}
                   >
-                    <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>{number(m)}</Text>
+                    <Text style={{ color: c.onFill, fontSize: font.size.label, fontWeight: '700' }}>{number(m)}</Text>
                   </View>
                 ))}
                 {current && !capturing && (
@@ -195,7 +195,7 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
                       flexDirection: 'row',
                       gap: space.xs,
                       padding: space.xs,
-                      borderRadius: radius.md,
+                      borderRadius: radius.card,
                       borderWidth: 1,
                       borderColor: MARK_COLOR,
                       backgroundColor: c.panel,

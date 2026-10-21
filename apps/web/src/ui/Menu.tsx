@@ -19,7 +19,7 @@ import { Button } from '#src/ui/Button.tsx';
 import { Icon, type IconName } from '#src/ui/Icon.tsx';
 import { GROW, useOpenMotion } from '#src/ui/Reveal.tsx';
 
-const PANEL = 'z-30 overflow-y-auto min-w-[200px] rounded-card border border-line bg-panel py-[calc(4px*var(--o,1))] shadow-[var(--shadow-pop)] outline-none';
+const PANEL = 'z-30 overflow-y-auto min-w-[200px] rounded-card border border-line bg-panel py-[calc(4px*var(--o,1))] shadow-[var(--shadow-2)] outline-none';
 const ITEM =
   'flex h-8 w-full cursor-default select-none items-center gap-2 px-2 text-left text-body text-ink outline-none data-[highlighted]:bg-raised data-[disabled]:opacity-55 max-sm:min-h-12';
 

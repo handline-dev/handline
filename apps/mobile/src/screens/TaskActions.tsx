@@ -7,7 +7,7 @@ import { Text, TextInput, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
 import { classify, sentence, useAgents, useOff, usePendingAny, useWrite } from '@handline/app-data';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { ImageBodyInput } from '#src/screens/ImageBodyInput.tsx';
 import { Button, Card, PageHeader, Pill } from '#src/screens/parts.tsx';
@@ -41,7 +41,7 @@ export function Input(props: {
           color: c.ink,
           borderWidth: 1,
           borderColor: props.invalid ? c.block : c.line,
-          borderRadius: radius.md,
+          borderRadius: radius.card,
           padding: space.md,
           minHeight: props.multiline ? 72 : 44,
         }}
@@ -230,7 +230,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
           {open && verb('discard', 'Discard', off.discard, 'discard')}
         </View>
       )}
-      {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: 12 }}>{Object.values(off).find(Boolean)}</Text>}
+      {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: font.size.label }}>{Object.values(off).find(Boolean)}</Text>}
       {reason && <ReasonSheet {...reason} onCancel={() => setAsk(null)} onSubmit={(text) => settle(reason.send(text))} />}
       {ask === 'withdraw' && (
         <Sheet

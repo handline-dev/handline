@@ -3,7 +3,7 @@ import { queueOf, taskRef } from '@handline/app-core';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useTeamBoard } from '@handline/app-data';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 
@@ -57,11 +57,11 @@ function Card(props: {
       accessibilityRole="button"
       accessibilityState={{ expanded: props.open }}
       onPress={props.onPress}
-      style={{ gap: space.xs, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.md }}
+      style={{ gap: space.xs, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.card }}
     >
       <Text style={{ color: c.ink, fontWeight: '700' }}>{a.name}</Text>
       {d && (
-        <Text style={{ color: c.muted, fontSize: 12 }}>
+        <Text style={{ color: c.muted, fontSize: font.size.label }}>
           {[
             d.status?.text ?? (d.block ? `blocked (${d.block.kind})` : d.state),
             d.status ? null : d.state_detail,
@@ -74,12 +74,12 @@ function Card(props: {
       )}
       <Text style={{ color: c.ink }}>{a.role}</Text>
       {d?.task && (
-        <Text style={{ color: c.muted, fontSize: 12 }}>
+        <Text style={{ color: c.muted, fontSize: font.size.label }}>
           doing {taskRef(d.task.id)} {d.task.title}
         </Text>
       )}
       {queued ? (
-        <Text testID={`team-queue-${a.name}`} style={{ color: c.wait, fontSize: 12 }}>
+        <Text testID={`team-queue-${a.name}`} style={{ color: c.wait, fontSize: font.size.label }}>
           {queued} {queued === 1 ? 'task' : 'tasks'} waiting
         </Text>
       ) : null}

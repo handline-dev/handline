@@ -62,7 +62,7 @@ export function ReviewCard(props: { task: number; item: number; off: string | un
             placeholder="What should change?"
             placeholderTextColor={c.muted}
             accessibilityLabel="What should change"
-            style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 64 }}
+            style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 64 }}
           />
           {problem ? (
             <Text accessibilityRole="alert" style={{ color: c.block }}>

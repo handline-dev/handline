@@ -46,7 +46,7 @@ export function TaskDetail({
         embedded ? ' pane relative bg-panel -outline-offset-1' : ' mx-auto w-full max-w-[var(--w-page)]'
       }${
         drawer
-          ? ' absolute top-[calc(var(--sp-5)+var(--h-btn)+var(--sp-4))] right-0 bottom-0 left-auto z-[5] w-[min(480px,100%)] border-l border-line bg-surface shadow-[var(--shadow-pop)]'
+          ? ' absolute top-[calc(var(--sp-3)+var(--h-btn)+var(--sp-2))] right-0 bottom-0 left-auto z-[5] w-[min(480px,100%)] border-l border-line bg-surface shadow-[var(--shadow-2)]'
           : ''
       }`}
       aria-label={`Task ${taskRef(id)}`}

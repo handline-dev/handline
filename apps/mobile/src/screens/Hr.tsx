@@ -23,7 +23,7 @@ import {
 import type { Proposal } from '@handline/client';
 import { useOnce, useStore } from '@handline/app-react';
 import { classify, sentence, useAgentDetail, useAgents, useHr, useOff, usePending, useServes, useWrite } from '@handline/app-data';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { Button, Card as Panel } from '#src/screens/parts.tsx';
@@ -71,7 +71,7 @@ export function Hr() {
         {all === 'ask' ? (
           <View
             testID="hr-all-sheet"
-            style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.md }}
+            style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.card }}
           >
             <Text style={{ color: c.ink, fontWeight: '600' }}>Approve all {waiting.length}?</Text>
             <Text style={{ color: c.muted }}>Each is applied as its card shows it; one that fails stays waiting.</Text>
@@ -90,7 +90,7 @@ export function Hr() {
         ) : all === 'reject' ? (
           <View
             testID="hr-reject-all-sheet"
-            style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.md }}
+            style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.card }}
           >
             <Text style={{ color: c.ink, fontWeight: '600' }}>Reject all {waiting.length}?</Text>
             <TextInput
@@ -100,7 +100,7 @@ export function Hr() {
               placeholderTextColor={c.muted}
               value={why}
               onChangeText={setWhy}
-              style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 44 }}
+              style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 44 }}
             />
             <View style={{ flexDirection: 'row', gap: space.sm }}>
               <Button
@@ -182,7 +182,7 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
   return (
     <View
       testID={`hr-${p.id}`}
-      style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, opacity: busy ? 0.6 : 1 }}
+      style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, opacity: busy ? 0.6 : 1 }}
     >
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         <Text style={{ color: c.ink, fontWeight: '700', flex: 1 }}>{textSafe(p.title)}</Text>
@@ -190,7 +190,7 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
           {state.word}
         </Text>
       </View>
-      <Text style={{ color: c.muted, fontSize: 12 }}>
+      <Text style={{ color: c.muted, fontSize: font.size.label }}>
         {[p.requested_by && textSafe(p.requested_by), ago(p.created), kindOf(p)].filter(Boolean).join(' · ')}
       </Text>
       {askedLines(p).map(([k, v]) => (
@@ -220,10 +220,10 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
         <View
           testID={`hr-diff-${p.id}`}
           accessibilityLabel="What approving does"
-          style={{ padding: space.sm, backgroundColor: c.panel, borderRadius: radius.md }}
+          style={{ padding: space.sm, backgroundColor: c.panel, borderRadius: radius.card }}
         >
           {diff.map((l, i) => (
-            <Text key={i} style={{ fontFamily: 'Courier', fontSize: 12, color: l.mark === '-' ? c.block : l.mark === '+' ? c.run : c.ink }}>
+            <Text key={i} style={{ fontFamily: 'Courier', fontSize: font.size.label, color: l.mark === '-' ? c.block : l.mark === '+' ? c.run : c.ink }}>
               {l.text}
             </Text>
           ))}
@@ -248,7 +248,7 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
           {verb('withdraw', 'Withdraw', () => setAsk('withdraw'), off.withdraw)}
         </View>
       )}
-      {waiting && props.decider && (off.decide ?? null) && <Text style={{ color: c.muted, fontSize: 12 }}>{off.decide}</Text>}
+      {waiting && props.decider && (off.decide ?? null) && <Text style={{ color: c.muted, fontSize: font.size.label }}>{off.decide}</Text>}
       {ask === 'reject' && (
         <View testID="hr-reject-sheet" style={{ gap: space.sm }}>
           <TextInput
@@ -262,7 +262,7 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
               color: c.ink,
               borderWidth: 1,
               borderColor: needWhy ? c.block : c.line,
-              borderRadius: radius.md,
+              borderRadius: radius.card,
               padding: space.md,
               minHeight: 44,
             }}
@@ -389,7 +389,7 @@ function AgentSettings(props: { agent: string; onClose: () => void }) {
                 editable={open}
                 value={value(f.key)}
                 onChangeText={(v) => (setDraft({ ...draft, [f.key]: v }), setProblem(''))}
-                style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 44 }}
+                style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 44 }}
               />
             )}
           </View>

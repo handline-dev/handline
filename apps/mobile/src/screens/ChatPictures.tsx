@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { Image, Modal, Pressable, SafeAreaView, Text, View } from 'react-native';
 import type { Attachment } from '@handline/client';
 import { useAttachmentBytes } from '@handline/app-data';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 
 /** What a picture needs of its file: a chat attachment or an image a memo carries. */
@@ -77,7 +77,7 @@ function Thumb({ a }: { a: Picture }) {
   const line = read.state === 'gone' ? GONE : read.state === 'failed' || bad ? FAILED : null;
   if (line)
     return (
-      <Text testID={`picture-${a.id}`} accessibilityRole="alert" style={{ color: c.muted, fontSize: 12 }}>
+      <Text testID={`picture-${a.id}`} accessibilityRole="alert" style={{ color: c.muted, fontSize: font.size.label }}>
         {a.name}: {line}
       </Text>
     );
@@ -90,10 +90,10 @@ function Thumb({ a }: { a: Picture }) {
             source={{ uri: read.uri }}
             resizeMode="cover"
             onError={() => setBad(true)}
-            style={{ width: 120, height: 120, borderRadius: radius.md }}
+            style={{ width: 120, height: 120, borderRadius: radius.card }}
           />
         ) : (
-          <Text style={{ color: c.muted, fontSize: 12 }}>{a.name}</Text>
+          <Text style={{ color: c.muted, fontSize: font.size.label }}>{a.name}</Text>
         )}
       </Pressable>
       {open && <Full a={a} onClose={() => setOpen(false)} />}

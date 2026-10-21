@@ -7,7 +7,7 @@ import { FIVE_HOURS_MS, STATE_WORD, WEEK_MS, gaugeOf, outUntil, span, stateOf } 
 import type { Account, Window } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAccounts, useAccountUsage, useOff, usePending, useServes, useWrite } from '@handline/app-data';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { AccountLogin } from '#src/screens/AccountLogin.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
@@ -35,7 +35,7 @@ const dash = (v: string | number | null | undefined) => (v === null || v === und
 /** What `hl account list` adds to the gauges: plan and runway, whether another agent may start and why not, and the agents on it. Nothing until the usage read arrives. */
 function UsageLines({ a }: { a: Account }) {
   const c = usePalette();
-  const style = { color: c.muted, fontSize: 12 };
+  const style = { color: c.muted, fontSize: font.size.label };
   const usage = a.plan !== undefined || a.runway !== undefined || a.assignable !== undefined;
   const roster = a.agents_assigned !== undefined || a.agents_running !== undefined || a.agents_unplaced !== undefined;
   if (!usage && !roster) return null;
@@ -74,7 +74,7 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
           {g.pct}%{g.pct >= 100 ? ' full' : g.pct >= 80 ? ' !' : ''}
         </Text>
       </View>
-      {props.detail && g.resetIn !== null ? <Text style={{ color: c.muted, fontSize: 12 }}>resets in {span(g.resetIn)}</Text> : null}
+      {props.detail && g.resetIn !== null ? <Text style={{ color: c.muted, fontSize: font.size.label }}>resets in {span(g.resetIn)}</Text> : null}
     </View>
   );
 }
@@ -118,7 +118,7 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
                   {a.agents.length}/{a.cap_effective} agents
                 </Text>
               </View>
-              {stateText(a) ? <Text style={{ color: c.muted, fontSize: 12 }}>{stateText(a)}</Text> : null}
+              {stateText(a) ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{stateText(a)}</Text> : null}
               {stateOf(a) === 'needs_login' ? (
                 <Button testID={`login-${a.name}`} label="Log in" onPress={() => props.onSelect(a.name)} style={{ alignSelf: 'flex-start' }} />
               ) : (
@@ -159,7 +159,7 @@ function Add() {
             padding: space.md,
             borderWidth: 1,
             borderColor: c.line,
-            borderRadius: radius.md,
+            borderRadius: radius.card,
             backgroundColor: c.panel,
             alignSelf: 'stretch',
           }}
@@ -199,7 +199,7 @@ function Input(props: { value: string; onChange: (v: string) => void; label: str
       onChangeText={props.onChange}
       keyboardType={props.keyboardType}
       autoCapitalize="none"
-      style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 44 }}
+      style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 44 }}
     />
   );
 }
@@ -229,7 +229,7 @@ function Body({ a }: { a: Account }) {
   const c = usePalette();
   return (
     <ScrollView testID="account-detail" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
-      <Text style={{ color: c.ink, fontSize: 18, fontWeight: '700' }}>{a.label}</Text>
+      <Text style={{ color: c.ink, fontSize: font.size.page, fontWeight: '700' }}>{a.label}</Text>
       {stateText(a) ? <Text style={{ color: c.muted }}>{stateText(a)}</Text> : null}
       <Gauge label="5 hours" w={a.five_hour} detail />
       <Gauge label="week" w={a.weekly} detail />
@@ -358,7 +358,7 @@ function RemoveSheet({ a, onClose }: { a: Account; onClose: () => void }) {
       {would ? (
         <>
           <Input testID="sheet-confirm" label={`Type ${a.name} to confirm`} value={typed} onChange={setTyped} />
-          <Text style={{ color: c.muted, fontSize: 12 }}>Its directory is moved aside, not deleted.</Text>
+          <Text style={{ color: c.muted, fontSize: font.size.label }}>Its directory is moved aside, not deleted.</Text>
         </>
       ) : null}
       <View style={{ flexDirection: 'row', gap: space.sm }}>

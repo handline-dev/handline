@@ -6,7 +6,7 @@ import { cronWords, ellipsis } from '@handline/app-core';
 import type { Schedule } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useOff, useScheduleEditor, useSchedules, useServes } from '@handline/app-data';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { Button } from '#src/screens/parts.tsx';
@@ -25,10 +25,10 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
     setAsking(null);
     removeNow(s.id);
   };
-  const input = { color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 44 };
+  const input = { color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 44 };
   return (
     <View testID="schedules" style={{ gap: space.sm }}>
-      <Text style={{ color: c.ink, fontSize: 16, fontWeight: '700' }}>Schedules</Text>
+      <Text style={{ color: c.ink, fontSize: font.size.title, fontWeight: '700' }}>Schedules</Text>
       <Loadable
         query={query}
         served={served}
@@ -48,8 +48,8 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
                 {s.id < 0 ? 'sending: ' : ''}
                 {cronWords(s.cron) ?? s.cron}
               </Text>
-              {cronWords(s.cron) ? <Text style={{ color: c.muted, fontSize: 12 }}>{s.cron}</Text> : null}
-              {s.next_run ? <Text style={{ color: c.muted, fontSize: 12 }}>next {new Date(s.next_run).toLocaleString()}</Text> : null}
+              {cronWords(s.cron) ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{s.cron}</Text> : null}
+              {s.next_run ? <Text style={{ color: c.muted, fontSize: font.size.label }}>next {new Date(s.next_run).toLocaleString()}</Text> : null}
               <Text style={{ color: c.ink }}>{ellipsis(s.message, 80)}</Text>
               {write && asking === s.id ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
@@ -68,16 +68,16 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
         </View>
       </Loadable>
       {pending ? (
-        <Text testID="schedules-pending" style={{ color: c.muted, fontSize: 12 }}>
+        <Text testID="schedules-pending" style={{ color: c.muted, fontSize: font.size.label }}>
           saving…
         </Text>
       ) : null}
       {note ? (
-        <Text testID="schedules-note" accessibilityRole="alert" style={{ color: c.block, fontSize: 12 }}>
+        <Text testID="schedules-note" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
           not saved: {note}
         </Text>
       ) : null}
-      {served && !write ? <Text style={{ color: c.muted, fontSize: 12 }}>Only the founder changes schedules.</Text> : null}
+      {served && !write ? <Text style={{ color: c.muted, fontSize: font.size.label }}>Only the founder changes schedules.</Text> : null}
       {served && write && !form ? (
         <Button testID="schedule-new" label="Add schedule" disabled={!!whyNot} onPress={() => setForm({ cron: '', message: '' })} />
       ) : null}
@@ -94,7 +94,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
             onChangeText={(cron) => setForm({ ...form, cron })}
             style={input}
           />
-          <Text style={{ color: c.muted, fontSize: 12 }}>{cronWords(form.cron) ?? ''}</Text>
+          <Text style={{ color: c.muted, fontSize: font.size.label }}>{cronWords(form.cron) ?? ''}</Text>
           <TextInput
             testID="schedule-message"
             accessibilityLabel="Message"

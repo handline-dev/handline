@@ -8,7 +8,7 @@ import { chatEntries, clockTime, decidedProposals, ellipsis, sideOf, tickLevel }
 import { classify, sentence, useChat, useChatActions, useChatReadMarks, useHr, useServes, useTasks } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { Skeleton } from '#src/skeleton.tsx';
 import { usePalette } from '#src/theme.ts';
 import { Decided, Line, Stamp, useBubbleWidth } from '#src/screens/ChatLines.tsx';
@@ -37,7 +37,7 @@ function ReplyRow({ id, dropId, text, onDrop }: { id: string; dropId: string; te
   return (
     <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
       <Icon name="reference" decorative size={14} color={c.muted} />
-      <Text testID={id} numberOfLines={1} style={{ color: c.muted, fontSize: 12, flex: 1 }}>
+      <Text testID={id} numberOfLines={1} style={{ color: c.muted, fontSize: font.size.label, flex: 1 }}>
         {text}
       </Text>
       <Pressable testID={dropId} accessibilityLabel="Drop the reply" hitSlop={12} onPress={onDrop}>
@@ -217,7 +217,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
           ),
         )}
         {working && (
-          <Text testID="working" accessibilityRole="text" style={{ color: c.muted, fontSize: 12 }}>
+          <Text testID="working" accessibilityRole="text" style={{ color: c.muted, fontSize: font.size.label }}>
             ◐ {chat.working.line ?? 'Working'}…
           </Text>
         )}
@@ -244,7 +244,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
             color: c.ink,
             borderColor: c.line,
             borderWidth: 1,
-            borderRadius: radius.md,
+            borderRadius: radius.card,
             padding: space.md,
           }}
         />
@@ -310,7 +310,7 @@ function Bubble(props: {
           maxWidth: bubble,
           gap: 4,
           padding: space.md,
-          borderRadius: radius.lg,
+          borderRadius: radius.dialog,
           backgroundColor: bg,
           borderWidth: 1,
           borderColor: props.picked || props.flashed ? c.accent : failed ? c.block : c.line,
@@ -318,18 +318,18 @@ function Bubble(props: {
         }}
       >
         {props.flashed && (
-          <Text testID={`found-${m.id}`} style={{ color: c.accent, fontSize: 11 }}>
+          <Text testID={`found-${m.id}`} style={{ color: c.accent, fontSize: font.size.hint }}>
             Found by search
           </Text>
         )}
         {side === 'other' && (
-          <Text style={{ color: c.muted, fontSize: 11 }}>
+          <Text style={{ color: c.muted, fontSize: font.size.hint }}>
             {m.from} → {m.to}
           </Text>
         )}
-        {m.parent != null && <Text style={{ color: c.muted, fontSize: 11 }}>↩ reply</Text>}
+        {m.parent != null && <Text style={{ color: c.muted, fontSize: font.size.hint }}>↩ reply</Text>}
         {m.parent_item && (
-          <Text testID={`quote-${m.id}`} numberOfLines={2} style={{ color: c.muted, fontSize: 11 }}>
+          <Text testID={`quote-${m.id}`} numberOfLines={2} style={{ color: c.muted, fontSize: font.size.hint }}>
             ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
           </Text>
         )}
@@ -340,7 +340,7 @@ function Bubble(props: {
           <View accessibilityRole="alert" style={{ gap: space.xs }}>
             <Row>
               <Icon name="failed" decorative size={14} color={c.block} />
-              <Text style={{ color: c.block, fontSize: 12, flex: 1 }}>{m.sending_reason}</Text>
+              <Text style={{ color: c.block, fontSize: font.size.label, flex: 1 }}>{m.sending_reason}</Text>
             </Row>
             <Row>
               <Button testID={`retry-${m.id}`} label="Retry" onPress={() => act.retry(m.id)} />
@@ -349,7 +349,7 @@ function Bubble(props: {
           </View>
         )}
         {mine && m.receipt?.state === 'unknown' && (
-          <Text testID={`unknown-${m.id}`} style={{ color: c.block, fontSize: 12 }}>
+          <Text testID={`unknown-${m.id}`} style={{ color: c.block, fontSize: font.size.label }}>
             Lost after it was written. It may or may not have run, and it is not sent again. Send it as a new message if you want it
             repeated.
           </Text>

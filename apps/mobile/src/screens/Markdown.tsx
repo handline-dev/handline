@@ -2,7 +2,7 @@
 // is interpreted (no HTML, no images, no links followed), so a file from an agent can only show text.
 import { Fragment, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 
 type Block =
@@ -86,8 +86,8 @@ export function Markdown({ text, testID, breaks, plain }: { text: string; testID
     <View testID={testID} style={{ gap: space.sm }}>
       {blocks(text, breaks).map((b, i) =>
         b.kind === 'code' ? (
-          <View key={i} style={{ backgroundColor: c.line, borderRadius: radius.md, padding: space.sm }}>
-            <Text style={{ color: c.ink, fontFamily: 'monospace', fontSize: 12 }}>{b.text}</Text>
+          <View key={i} style={{ backgroundColor: c.line, borderRadius: radius.card, padding: space.sm }}>
+            <Text style={{ color: c.ink, fontFamily: 'monospace', fontSize: font.size.label }}>{b.text}</Text>
           </View>
         ) : b.kind === 'item' ? (
           <View key={i} style={{ flexDirection: 'row', gap: space.xs }}>
@@ -102,7 +102,7 @@ export function Markdown({ text, testID, breaks, plain }: { text: string; testID
             accessibilityRole={b.kind === 'heading' ? 'header' : undefined}
             style={{
               color: b.kind === 'quote' ? c.muted : c.ink,
-              ...(b.kind === 'heading' ? { fontWeight: '700', fontSize: b.level === 1 ? 18 : b.level === 2 ? 16 : 14 } : {}),
+              ...(b.kind === 'heading' ? { fontWeight: '700', fontSize: b.level === 1 ? font.size.page : b.level === 2 ? font.size.title : font.size.body } : {}),
               ...(b.kind === 'quote' ? { borderLeftWidth: 2, borderLeftColor: c.line, paddingLeft: space.sm } : {}),
             }}
           >

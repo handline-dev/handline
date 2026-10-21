@@ -40,7 +40,7 @@ export function CaptureDestination({
         {words}
       </Button>
       {open ? (
-        <div className="absolute bottom-full left-0 z-10 mb-1 grid w-64 gap-2 rounded-card border border-line bg-panel p-2 shadow-[var(--shadow-pop)]">
+        <div className="absolute bottom-full left-0 z-10 mb-1 grid w-64 gap-2 rounded-card border border-line bg-panel p-2 shadow-[var(--shadow-2)]">
           <Select
             label="Send as"
             value={value.as}

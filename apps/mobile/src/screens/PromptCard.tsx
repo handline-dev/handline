@@ -7,7 +7,7 @@ import { Text, TextInput, View } from 'react-native';
 import { isAlways, promptTitle } from '@handline/app-core';
 import { usePromptAnswer } from '@handline/app-data';
 import type { Prompt } from '@handline/client';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon } from '#src/screens/Icon.tsx';
 import { Button, Row } from '#src/screens/parts.tsx';
@@ -28,7 +28,7 @@ export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () 
         backgroundColor: c.panel,
         borderColor: c.wait,
         borderWidth: 1,
-        borderRadius: radius.lg,
+        borderRadius: radius.dialog,
       }}
     >
       <Text style={{ color: c.ink, fontWeight: '700' }}>
@@ -41,7 +41,7 @@ export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () 
           This prompt changed
         </Text>
       )}
-      <Text style={{ color: c.ink, fontFamily: 'Menlo', fontSize: 12 }}>{what}</Text>
+      <Text style={{ color: c.ink, fontFamily: 'Menlo', fontSize: font.size.label }}>{what}</Text>
       {question || multi ? (
         <View style={{ gap: space.sm }}>
           {opts.map((o, i) => (
@@ -70,7 +70,7 @@ export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () 
           ))}
         </Row>
       )}
-      {p.kind === 'dialog' && opts.some(isAlways) && <Text style={{ color: c.muted, fontSize: 12 }}>↻ saves a rule for next time</Text>}
+      {p.kind === 'dialog' && opts.some(isAlways) && <Text style={{ color: c.muted, fontSize: font.size.label }}>↻ saves a rule for next time</Text>}
       {multi && (
         <Button
           testID="answer-submit"
@@ -96,7 +96,7 @@ export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () 
               editable={!answering}
               autoFocus
               accessibilityLabel="Your own answer"
-              style={{ flex: 1, color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.md, padding: space.md }}
+              style={{ flex: 1, color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.card, padding: space.md }}
             />
             <Button
               testID="answer-text-send"

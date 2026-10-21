@@ -58,7 +58,7 @@ export function ImageBodyInput(props: {
         onSelectionChange={(e) => void (cursor.current = e.nativeEvent.selection.end)}
         editable={props.editable}
         multiline
-        style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 96, textAlignVertical: 'top' }}
+        style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 96, textAlignVertical: 'top' }}
       />
       <ImageChips drafts={drafts.drafts} problem={error ?? drafts.problem} onRetry={drafts.retry} onRemove={drafts.remove} />
       <AttachButton onPress={() => void pick()} disabled={props.editable === false} />

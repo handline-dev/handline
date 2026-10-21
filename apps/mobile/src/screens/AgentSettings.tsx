@@ -6,7 +6,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { DANGER, type Field, FIELDS, fieldUnit } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { useAgentDetail, useFieldRow, useServes } from '@handline/app-data';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
@@ -49,7 +49,7 @@ export function AgentSettings({ agent, onBack }: { agent: string; onBack: () => 
               </Text>
               {SECTIONS.map((s) => (
                 <View key={s.id} testID={`section-${s.id}`} style={{ gap: space.lg }}>
-                  <Text style={{ color: c.ink, fontSize: 16, fontWeight: '700' }}>{s.title}</Text>
+                  <Text style={{ color: c.ink, fontSize: font.size.title, fontWeight: '700' }}>{s.title}</Text>
                   {FIELDS.filter((f) => f.section === s.id).map((f) => (
                     <FieldRow key={f.key} agent={agent} f={f} stored={d.settings?.[f.key]} editable={editable} role={role} />
                   ))}
@@ -92,7 +92,7 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
                 borderWidth: 1,
                 borderColor: value === o ? c.ink : c.line,
                 backgroundColor: value === o ? c.panel : 'transparent',
-                borderRadius: radius.md,
+                borderRadius: radius.card,
                 opacity: off ? 0.4 : 1,
               }}
             >
@@ -136,7 +136,7 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
             color: c.ink,
             borderWidth: 1,
             borderColor: note ? c.block : c.line,
-            borderRadius: radius.md,
+            borderRadius: radius.card,
             padding: space.md,
             minHeight: 44,
             opacity: off ? 0.4 : 1,
@@ -153,10 +153,10 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
         {f.label}
         {pending ? '  saving…' : ''}
       </Text>
-      {hint ? <Text style={{ color: c.muted, fontSize: 12 }}>{hint}</Text> : null}
+      {hint ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{hint}</Text> : null}
       {control()}
       {note ? (
-        <Text testID={`${f.key}-note`} accessibilityRole="alert" style={{ color: c.block, fontSize: 12 }}>
+        <Text testID={`${f.key}-note`} accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
           not saved: {note}
         </Text>
       ) : null}
@@ -164,7 +164,7 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
         <View
           testID={`${f.key}-ask`}
           accessibilityRole="alert"
-          style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.block, borderRadius: radius.md }}
+          style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.block, borderRadius: radius.card }}
         >
           <Text style={{ color: c.ink, fontWeight: '700' }}>{danger.title}</Text>
           <Text style={{ color: c.muted }}>{danger.text}</Text>
@@ -222,7 +222,7 @@ function Sites({ value, off, save }: { value: string; off: boolean; save: (v: st
               color: c.ink,
               borderWidth: 1,
               borderColor: c.line,
-              borderRadius: radius.md,
+              borderRadius: radius.card,
               padding: space.md,
               minHeight: 44,
             }}

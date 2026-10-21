@@ -1,4 +1,4 @@
-/* The design tokens (docs/design-gaps.md §1): the only place a colour, a size, a space or a radius is given a value. Screens and ui/* read these.
+/* GENERATED from packages/tokens (`pnpm --filter @handline/tokens build:css`); edit the values there. The only place a colour, a size, a space or a radius is given a value.
    Dark is the default; light follows the OS and `data-theme` on <html> overrides both. */
 :root {
   /* surfaces: canvas, sidebar and bars, cards and inputs, hover and selected */
@@ -8,22 +8,22 @@
   --bg-3: #262626;
   --line: #ffffff12;
   --line-strong: #ffffff26;
-  /* text: names and values, second line and labels, hints (never for a state) */
   --ink: #fafafa;
   --ink-2: #a1a1a1;
   --ink-3: #6b6b6b;
   --primary: #fafafa;
   --on-primary: #0a0a0a;
-  --focus: #7aa2ff;
-  --link: #8fb0ff;
-  /* state hues (Okabe-Ito): each sits beside a glyph and is never the only signal */
+  --focus: #86a0dd;
+  --link: #9fb5e6;
   --s-working: #56b4e9;
   --s-wait: #f0b429;
   --s-bad: #e8743b;
   --s-ok: #3fbf9b;
   --term-bg: #0a0a0b;
   --term-ink: #e8e6df;
-  --shadow-pop: 0 8px 24px #0006;
+  --shadow-1: 0 2px 8px #0006;
+  --shadow-2: 0 8px 24px #0006;
+  --shadow-3: 0 16px 48px #0006;
   --scrim: #0008;
   color-scheme: dark;
 }
@@ -40,14 +40,18 @@
     --ink-3: #8a8a94;
     --primary: #18181b;
     --on-primary: #ffffff;
-    --focus: #2f5fd0;
-    --link: #1f4fc0;
+    --focus: #3d62b5;
+    --link: #2f4f98;
     --s-working: #0072b2;
     --s-wait: #b87900;
     --s-bad: #c2410c;
     --s-ok: #00875f;
     --term-bg: #16150f;
-    --shadow-pop: 0 8px 24px #0002;
+    --term-ink: #e8e6df;
+    --shadow-1: 0 2px 8px #0002;
+    --shadow-2: 0 8px 24px #0002;
+    --shadow-3: 0 16px 48px #0002;
+    --scrim: #00000059;
     color-scheme: light;
   }
 }
@@ -63,19 +67,23 @@
   --ink-3: #8a8a94;
   --primary: #18181b;
   --on-primary: #ffffff;
-  --focus: #2f5fd0;
-  --link: #1f4fc0;
+  --focus: #3d62b5;
+  --link: #2f4f98;
   --s-working: #0072b2;
   --s-wait: #b87900;
   --s-bad: #c2410c;
   --s-ok: #00875f;
   --term-bg: #16150f;
-  --shadow-pop: 0 8px 24px #0002;
+  --term-ink: #e8e6df;
+  --shadow-1: 0 2px 8px #0002;
+  --shadow-2: 0 8px 24px #0002;
+  --shadow-3: 0 16px 48px #0002;
+  --scrim: #00000059;
   color-scheme: light;
 }
 
 :root {
-  /* type: one sans and one mono; only these sizes */
+  /* type: one sans and one mono; six sizes */
   --sans: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --fs-hint: 11px;
@@ -83,28 +91,33 @@
   --fs-body: 13px;
   --fs-title: 15px;
   --fs-page: 20px;
+  --fs-display: 28px;
   --t-hint: 400 var(--fs-hint)/14px var(--sans);
   --t-label: 400 var(--fs-label)/16px var(--sans);
   --t-body: 400 var(--fs-body)/18px var(--sans);
-  --t-name: 500 var(--fs-body)/18px var(--sans);
   --t-title: 600 var(--fs-title)/20px var(--sans);
   --t-page: 600 var(--fs-page)/26px var(--sans);
+  --t-display: 600 var(--fs-display)/34px var(--sans);
+  --t-name: 500 var(--fs-body)/18px var(--sans);
   --t-mono: 400 12px/16px var(--mono);
   /* space on a 4 px grid */
-  --sp-1: 2px;
-  --sp-2: 4px;
-  --sp-3: 6px;
-  --sp-4: 8px;
-  --sp-5: 12px;
-  --sp-6: 16px;
-  --sp-7: 24px;
-  --sp-8: 32px;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
   /* radius: chips, buttons and rows, cards and popups, dialogs, toggles and dots */
   --r-chip: 4px;
   --r-ctl: 6px;
   --r-card: 8px;
   --r-dialog: 12px;
   --r-pill: 999px;
+  /* motion */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
   /* sizes of chrome */
   --h-row: 28px;
   --h-row-2: 44px;
@@ -115,10 +128,10 @@
   --h-btn-lg: 32px;
   --h-input: 32px;
   --h-field: 36px;
-  --trow-h: 34px; /* a table row, compact as the Orca list; the list motion reads this, the skeleton row is rowHeight.task in @handline/tokens */
+  --trow-h: 34px;
   --w-side: 240px;
   --w-form: 640px;
-  --w-page: 960px; /* the one content width of every page (ScrollPage) */
+  --w-page: 960px;
   --w-dialog: 460px;
   --icon: 16px;
 }

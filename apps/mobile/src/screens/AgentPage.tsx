@@ -4,7 +4,7 @@ import { badgesOf, controlsOf, needsConfirm, type StopMode } from '@handline/app
 import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView } from '@handline/client';
-import { space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import { TerminalPane } from '#src/screens/TerminalPane.tsx';
 import { usePalette } from '#src/theme.ts';
 import { useHistoryValue } from '#src/history.tsx';
@@ -181,12 +181,12 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         </>
       )}
       {mark && (
-        <Text testID="pending-mark" style={{ color: c.muted, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: 12 }}>
+        <Text testID="pending-mark" style={{ color: c.muted, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: font.size.label }}>
           {mark}
         </Text>
       )}
       {note.length > 0 && (
-        <Text testID="badge-stalled" style={{ color: c.block, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: 12 }}>
+        <Text testID="badge-stalled" style={{ color: c.block, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: font.size.label }}>
           {note.join(' · ')}
         </Text>
       )}

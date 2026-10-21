@@ -5,7 +5,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { INVALID, capField, idleField } from '@handline/app-core';
 import type { CallParams, SettingsChanges } from '@handline/client';
 import { classify, sentence, useAnswers, useOff, useServes, useSettings, useWrite } from '@handline/app-data';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { useSelector } from '@handline/app-react';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
@@ -17,7 +17,7 @@ function Note(props: { error: unknown; pending: boolean; bad?: string | null; te
   const text = props.bad ?? (props.error ? `not saved: ${sentence(classify(props.error))}` : null);
   if (!props.pending && !text) return null;
   return (
-    <Text testID={props.testID} accessibilityRole={text ? 'alert' : undefined} style={{ color: text ? c.block : c.muted, fontSize: 12 }}>
+    <Text testID={props.testID} accessibilityRole={text ? 'alert' : undefined} style={{ color: text ? c.block : c.muted, fontSize: font.size.label }}>
       {text ?? 'saving…'}
     </Text>
   );
@@ -53,7 +53,7 @@ function Field(props: {
   return (
     <View testID={`setting-${props.id}`} style={{ gap: space.xs }}>
       <Text style={{ color: c.ink, fontWeight: '600' }}>{props.label}</Text>
-      <Text style={{ color: c.muted, fontSize: 12 }}>{props.hint}</Text>
+      <Text style={{ color: c.muted, fontSize: font.size.label }}>{props.hint}</Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
         <TextInput
           testID={`${props.id}-input`}
@@ -69,7 +69,7 @@ function Field(props: {
             color: c.ink,
             borderWidth: 1,
             borderColor: bad ? c.block : c.line,
-            borderRadius: radius.md,
+            borderRadius: radius.card,
             padding: space.md,
             minHeight: 44,
           }}
@@ -77,7 +77,7 @@ function Field(props: {
         <Text style={{ color: c.muted }}>{props.unit}</Text>
         <Button testID={`${props.id}-save`} label="Save" onPress={commit} disabled={!!why} />
       </View>
-      {why ? <Text style={{ color: c.muted, fontSize: 12 }}>{why}</Text> : null}
+      {why ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{why}</Text> : null}
       <Note testID={`${props.id}-note`} error={save.error} pending={save.isPending} bad={bad} />
     </View>
   );
@@ -107,7 +107,7 @@ function Toggle(props: { id: string; label: string; hint: string; on: boolean; c
       >
         <View style={{ flex: 1 }}>
           <Text style={{ color: c.ink, fontWeight: '600' }}>{props.label}</Text>
-          <Text style={{ color: c.muted, fontSize: 12 }}>{props.hint}</Text>
+          <Text style={{ color: c.muted, fontSize: font.size.label }}>{props.hint}</Text>
         </View>
         <Text style={{ color: props.on ? c.run : c.muted, fontWeight: '700' }}>{props.on ? 'On' : 'Off'}</Text>
       </Pressable>
@@ -128,7 +128,7 @@ function Input(props: { value: string; onChange: (v: string) => void; label: str
       onChangeText={props.onChange}
       autoCapitalize="none"
       autoCorrect={false}
-      style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 44 }}
+      style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 44 }}
     />
   );
 }
@@ -156,7 +156,7 @@ function AddAnswer(props: { onAdd: (p: CallParams<'answer.add'>) => void; onDone
           <Input testID="answer-option" label="Option" value={f.label} onChange={set('label')} />
         </>
       )}
-      {why ? <Text style={{ color: c.muted, fontSize: 12 }}>{why}</Text> : null}
+      {why ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{why}</Text> : null}
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         <Button
           testID="answer-add"
@@ -187,7 +187,7 @@ function Answers() {
   const failed = add.error ?? remove.error;
   return (
     <View testID="answers" style={{ gap: space.sm }}>
-      <Text style={{ color: c.ink, fontSize: 16, fontWeight: '700' }}>Standing answers</Text>
+      <Text style={{ color: c.ink, fontSize: font.size.title, fontWeight: '700' }}>Standing answers</Text>
       <Loadable
         query={query}
         served={served}
@@ -225,7 +225,7 @@ function Answers() {
         </View>
       </Loadable>
       {failed ? (
-        <Text testID="answers-note" accessibilityRole="alert" style={{ color: c.block, fontSize: 12 }}>
+        <Text testID="answers-note" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
           not saved: {sentence(classify(failed))}
         </Text>
       ) : null}
