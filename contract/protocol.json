@@ -13651,6 +13651,10 @@
      "transcript": {
       "type": "boolean",
       "description": "The daemon serves the transcript topic and transcript.events. Absent means false: a client then watches the terminal."
+     },
+     "founder_typed": {
+      "type": "boolean",
+      "description": "The founder's own messages to a terminal agent are typed into its terminal (unless its agent.yaml turns peer_inbox off), so hl launch tells the agent so. Absent means false."
      }
     },
     "required": [

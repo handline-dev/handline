@@ -230,7 +230,8 @@ func (r *reply) err() error {
 	return &RPCError{Code: code, Message: r.Error.Message, Data: r.Error.Data}
 }
 
-// Call is the result of method. A *DaemonDown when the daemon is not there, an *RPCError when it refuses.
+// Call is the result of method; Call("hello", nil) is the hello's own. A *DaemonDown when the daemon is not there, an *RPCError when it
+// refuses.
 func (c *Client) Call(method string, params map[string]any) (map[string]any, error) {
 	conn, err := c.Connect()
 	if err != nil {
@@ -252,11 +253,12 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 	if params == nil {
 		params = map[string]any{}
 	}
+	msgs, want := []map[string]any{{"jsonrpc": "2.0", "id": helloID, "method": "hello", "params": hello}}, helloID
+	if method != "hello" {
+		msgs, want = append(msgs, map[string]any{"jsonrpc": "2.0", "id": callID, "method": method, "params": params}), callID
+	}
 	var out []byte
-	for i, m := range []map[string]any{
-		{"jsonrpc": "2.0", "id": helloID, "method": "hello", "params": hello},
-		{"jsonrpc": "2.0", "id": callID, "method": method, "params": params},
-	} {
+	for i, m := range msgs {
 		b, err := json.Marshal(m)
 		if err != nil {
 			return nil, fmt.Errorf("message %d: %w", i+1, err)
@@ -282,7 +284,7 @@ func (c *Client) Call(method string, params map[string]any) (map[string]any, err
 		if err := r.err(); err != nil && (r.ID == connID || r.ID == helloID || r.ID == callID) {
 			return nil, err
 		}
-		if r.ID == callID {
+		if r.ID == want {
 			var res map[string]any
 			if err := json.Unmarshal(r.Result, &res); err != nil {
 				return nil, fmt.Errorf("the daemon's result is not an object: %w", err)

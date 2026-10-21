@@ -966,6 +966,8 @@ export type Capabilities = {
   terminal_hosts?: { [key: string]: string[] };
   /** The daemon serves the transcript topic and transcript.events. Absent means false: a client then watches the terminal. */
   transcript?: boolean;
+  /** The founder's own messages to a terminal agent are typed into its terminal (unless its agent.yaml turns peer_inbox off), so hl launch tells the agent so. Absent means false. */
+  founder_typed?: boolean;
 };
 
 export type Listener = {

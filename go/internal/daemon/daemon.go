@@ -495,6 +495,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	if d.cfg.Transcripts {
 		s.DeclareCapabilities(func() map[string]any { return map[string]any{"transcript": true} })
 	}
+	s.DeclareCapabilities(func() map[string]any { return map[string]any{"founder_typed": d.env().FounderTyped != nil} })
 	renv.Context = d.cfg.Context
 	if d.res != nil {
 		renv.Resources = d.res.Latest

@@ -36,6 +36,19 @@ func TestHelloSaysTranscriptOnlyWhenTheDaemonServesIt(t *testing.T) {
 	}
 }
 
+func TestHelloSaysFounderTypedWhenTheDaemonTypesTheFoundersWords(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		d := startTranscript(t, false)
+		if on {
+			d.env().FounderTyped = func(string) bool { return true }
+		}
+		r := pipeTo(t, d, "k").ask(`{"jsonrpc":"2.0","id":2,"method":"hello","params":{"client":"t","protocol":1,"key":"k"}}`)
+		if got := r["result"].(map[string]any)["capabilities"].(map[string]any)["founder_typed"]; got != on {
+			t.Fatalf("typing %v: hello says %v", on, got)
+		}
+	}
+}
+
 func TestTranscriptEventsIsUnsupportedForEveryAgent(t *testing.T) {
 	f := pipeTo(t, startTranscript(t, true), "k")
 	if r := f.ask(`{"jsonrpc":"2.0","id":4,"method":"transcript.events","params":{"agent":"bob"}}`); r["error"].(map[string]any)["data"].(map[string]any)["gate"] != "unsupported" {

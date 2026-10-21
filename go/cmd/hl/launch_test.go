@@ -1,12 +1,16 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/handline/handline/go/internal/compose"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/store"
+	"github.com/handline/handline/go/internal/team"
 )
 
 // launchRig is a founder's rig whose home runs tmux, with a.one a Claude agent on account alpha.
@@ -97,6 +101,45 @@ func TestOwnTerminalIsAPaneOnOurServerOnly(t *testing.T) {
 		handle, wt := tmuxOwnTerminal()
 		if handle != c.handle || (handle != "" && wt != real) || (handle == "" && wt != "") {
 			t.Errorf("%+v: %q %q", c, handle, wt)
+		}
+	}
+}
+
+func TestLaunchRecordsTheTeamTextTheDaemonComparesWith(t *testing.T) {
+	r := launchRig(t)
+	if err := os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte("agents:\n  a.one: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d, err := store.Open(paths.DBFile(r.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	teamText := func(typed func(string) bool) string {
+		l := launcher(r.home, d, team.NewRoster(r.home))
+		l.FounderTyped = typed
+		parts, err := l.FingerprintParts("a.one")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return parts["team"]
+	}
+	daemonOn, daemonOff := teamText(compose.PeerFromYAML(r.home)), teamText(nil)
+	if daemonOn == daemonOff {
+		t.Fatal("founder-typed does not change the team text; the test shows nothing")
+	}
+	for name, c := range map[string]struct {
+		hello map[string]any
+		err   error
+		want  string
+	}{
+		"on":          {map[string]any{"capabilities": map[string]any{"founder_typed": true}}, nil, daemonOn},
+		"off":         {map[string]any{"capabilities": map[string]any{"founder_typed": false}}, nil, daemonOff},
+		"not said":    {map[string]any{"capabilities": map[string]any{}}, nil, daemonOff},
+		"daemon down": {nil, errors.New("down"), daemonOff},
+	} {
+		if got := teamText(founderTyped(r.home, c.hello, c.err)); got != c.want {
+			t.Errorf("%s: the team text differs from the daemon's", name)
 		}
 	}
 }
