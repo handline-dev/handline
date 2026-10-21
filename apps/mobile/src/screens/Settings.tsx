@@ -11,6 +11,7 @@ import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { AppUpdate } from '#src/screens/AppUpdate.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
+import { Sheet } from '#src/screens/TaskActions.tsx';
 
 function Note(props: { error: unknown; pending: boolean; bad?: string | null; testID: string }) {
   const c = usePalette();
@@ -142,7 +143,17 @@ function AddAnswer(props: { onAdd: (p: CallParams<'answer.add'>) => void; onDone
   const p = kind === 'trust' ? { folder: f.folder.trim() } : { vendor: f.vendor.trim(), title: f.title.trim(), label: f.label.trim() };
   const ready = Object.values(p).every(Boolean);
   return (
-    <View testID="answer-form" style={{ gap: space.sm }}>
+    <Sheet
+      id="answer"
+      label="Add a standing answer"
+      submit="Add"
+      busy={!ready || !!why}
+      onCancel={props.onDone}
+      onSubmit={() => {
+        props.onAdd(p);
+        props.onDone();
+      }}
+    >
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         <Button testID="kind-trust" label="Trust a folder" kind={kind === 'trust' ? 'yes' : 'plain'} onPress={() => setKind('trust')} />
         <Button testID="kind-dialog" label="Answer a dialog" kind={kind === 'dialog' ? 'yes' : 'plain'} onPress={() => setKind('dialog')} />
@@ -157,20 +168,7 @@ function AddAnswer(props: { onAdd: (p: CallParams<'answer.add'>) => void; onDone
         </>
       )}
       {why ? <Text style={{ color: c.muted, fontSize: 12 }}>{why}</Text> : null}
-      <View style={{ flexDirection: 'row', gap: space.sm }}>
-        <Button
-          testID="answer-add"
-          label="Add"
-          kind="yes"
-          disabled={!ready || !!why}
-          onPress={() => {
-            props.onAdd(p);
-            props.onDone();
-          }}
-        />
-        <Button testID="answer-cancel" label="Cancel" onPress={props.onDone} />
-      </View>
-    </View>
+    </Sheet>
   );
 }
 

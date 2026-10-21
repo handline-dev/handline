@@ -10,7 +10,7 @@ import { classify, sentence, useAgents, useOff, usePendingAny, useWrite } from '
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { ImageBodyInput } from '#src/screens/ImageBodyInput.tsx';
-import { BottomSheet, Button, PageHeader, Pill } from '#src/screens/parts.tsx';
+import { BottomSheet, Button, MenuItem, MenuSheet, PageHeader, Pill } from '#src/screens/parts.tsx';
 import { AskAbout } from '#src/screens/TaskAsk.tsx';
 import { AssignTask } from '#src/screens/TaskAssign.tsx';
 import { MergeTasks, ReleaseTask } from '#src/screens/TaskReleaseMerge.tsx';
@@ -68,23 +68,25 @@ export function Sheet(props: {
   onSubmit?: () => void;
   error?: string;
   busy?: boolean;
+  /** Names the sheet's parts `<id>-sheet`, `<id>-error`, `<id>-go`, `<id>-cancel`; without it they are sheet, sheet-error, sheet-submit, sheet-cancel. */
+  id?: string;
 }) {
   const c = usePalette();
-  const { submit, kind, onSubmit, onCancel, busy } = props;
+  const { submit, kind, onSubmit, onCancel, busy, id } = props;
   return (
-    <BottomSheet testID="sheet" padded onClose={onCancel}>
+    <BottomSheet testID={id ? `${id}-sheet` : 'sheet'} padded onClose={onCancel}>
       <Text style={{ color: c.ink, fontWeight: '600', fontSize: 16 }}>{props.label}</Text>
       {props.children}
       {props.error ? (
-        <Text testID="sheet-error" accessibilityRole="alert" style={{ color: c.block }}>
+        <Text testID={id ? `${id}-error` : 'sheet-error'} accessibilityRole="alert" style={{ color: c.block }}>
           {props.error}
         </Text>
       ) : null}
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         {onSubmit && (
-          <Button testID="sheet-submit" kind={kind ?? 'yes'} label={submit ?? 'Submit'} disabled={busy} onPress={onSubmit} style={GROW} />
+          <Button testID={id ? `${id}-go` : 'sheet-submit'} kind={kind ?? 'yes'} label={submit ?? 'Submit'} disabled={busy} onPress={onSubmit} style={GROW} />
         )}
-        <Button testID="sheet-cancel" label={onSubmit ? 'Cancel' : 'Close'} onPress={onCancel} style={onSubmit ? undefined : GROW} />
+        <Button testID={id ? `${id}-cancel` : 'sheet-cancel'} label={onSubmit ? 'Cancel' : 'Close'} onPress={onCancel} style={onSubmit ? undefined : GROW} />
       </View>
     </BottomSheet>
   );
@@ -188,7 +190,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   const reason = ask ? reasons[ask] : undefined;
   const Panel = ask ? PANELS[ask as keyof typeof PANELS] : undefined;
   const verb = (id: string, label: string, why: string | undefined, to: Ask) => (
-    <Button key={id} testID={`verb-${id}`} label={label} disabled={!!why || ask !== null} onPress={() => (setMenu(null), setAsk(to))} />
+    <MenuItem key={id} testID={`verb-${id}`} label={label} disabled={!!why || ask !== null} onPress={() => (setMenu(null), setAsk(to))} />
   );
   return (
     <View style={{ gap: space.md }}>
@@ -197,38 +199,41 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
         {open && !isGate(t) && <Pill testID="assignee-menu" on={ask === 'assign'} label={`→ ${t.to} ▾`} onPress={() => (setMenu(null), setAsk(ask === 'assign' ? null : 'assign'))} />}
         <Pill testID="more-menu" on={menu === 'more'} label="More ▾" onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'more' ? null : 'more'))} />
       </View>
-      {menu === 'status' && (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-          {open && verb('done', isPerson(t.from, me) ? 'Send for review' : 'Done', off.done, 'done')}
-          {(t.state === 'discarded' || (t.state === 'done' && mine)) && verb('reopen', 'Reopen', off.reopen, 'reopen')}
-          {t.state === 'draft' && (
-            <Button
-              testID="verb-queue"
-              label="Queue"
-              disabled={!!off.queue || ask !== null || queue.isPending}
-              onPress={() => (setMenu(null), void queue.mutateAsync({ tasks: [t.id] }).catch(() => {}))}
-            />
+      {menu !== null && (
+        <MenuSheet testID={`${menu}-sheet`} onClose={() => setMenu(null)}>
+          {menu === 'status' ? (
+            <>
+              {open && verb('done', isPerson(t.from, me) ? 'Send for review' : 'Done', off.done, 'done')}
+              {(t.state === 'discarded' || (t.state === 'done' && mine)) && verb('reopen', 'Reopen', off.reopen, 'reopen')}
+              {t.state === 'draft' && (
+                <MenuItem
+                  testID="verb-queue"
+                  label="Queue"
+                  disabled={!!off.queue || ask !== null || queue.isPending}
+                  onPress={() => (setMenu(null), void queue.mutateAsync({ tasks: [t.id] }).catch(() => {}))}
+                />
+              )}
+              {t.state === 'queued' && (
+                <MenuItem
+                  testID="verb-draft"
+                  label="Back to draft"
+                  disabled={!!off.draft || ask !== null || draft.isPending}
+                  onPress={() => (setMenu(null), void draft.mutateAsync({ tasks: [t.id] }).catch(() => {}))}
+                />
+              )}
+              {running && verb('release', 'Release', off.release, 'release')}
+            </>
+          ) : (
+            <>
+              {startable && mine && verb('withdraw', 'Withdraw', off.withdraw, 'withdraw')}
+              {open && verb('cancel', running ? 'Stop' : 'Cancel', off.cancel, 'cancel')}
+              {verb('ask', 'Ask', off.ask, 'ask')}
+              {open && verb('merge', 'Merge…', off.merge, 'merge')}
+              {open && verb('edit', 'Edit', off.edit, 'edit')}
+              {open && verb('discard', 'Discard', off.discard, 'discard')}
+            </>
           )}
-          {t.state === 'queued' && (
-            <Button
-              testID="verb-draft"
-              label="Back to draft"
-              disabled={!!off.draft || ask !== null || draft.isPending}
-              onPress={() => (setMenu(null), void draft.mutateAsync({ tasks: [t.id] }).catch(() => {}))}
-            />
-          )}
-          {running && verb('release', 'Release', off.release, 'release')}
-        </View>
-      )}
-      {menu === 'more' && (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-          {startable && mine && verb('withdraw', 'Withdraw', off.withdraw, 'withdraw')}
-          {open && verb('cancel', running ? 'Stop' : 'Cancel', off.cancel, 'cancel')}
-          {verb('ask', 'Ask', off.ask, 'ask')}
-          {open && verb('merge', 'Merge…', off.merge, 'merge')}
-          {open && verb('edit', 'Edit', off.edit, 'edit')}
-          {open && verb('discard', 'Discard', off.discard, 'discard')}
-        </View>
+        </MenuSheet>
       )}
       {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: 12 }}>{Object.values(off).find(Boolean)}</Text>}
       {reason && <ReasonSheet {...reason} onCancel={() => setAsk(null)} onSubmit={(text) => settle(reason.send(text))} />}

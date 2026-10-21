@@ -10,6 +10,7 @@ import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { Button } from '#src/screens/parts.tsx';
+import { Sheet } from '#src/screens/TaskActions.tsx';
 
 export function Schedules({ agent, role }: { agent: string; role: string | undefined }) {
   const c = usePalette();
@@ -51,13 +52,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
               {cronWords(s.cron) ? <Text style={{ color: c.muted, fontSize: 12 }}>{s.cron}</Text> : null}
               {s.next_run ? <Text style={{ color: c.muted, fontSize: 12 }}>next {new Date(s.next_run).toLocaleString()}</Text> : null}
               <Text style={{ color: c.ink }}>{ellipsis(s.message, 80)}</Text>
-              {write && asking === s.id ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-                  <Text style={{ color: c.ink, flex: 1 }}>Remove this schedule?</Text>
-                  <Button testID="schedule-remove-yes" label="Remove" kind="no" onPress={() => drop(s)} />
-                  <Button testID="schedule-remove-no" label="Keep" onPress={() => setAsking(null)} />
-                </View>
-              ) : write ? (
+              {write ? (
                 <View style={{ flexDirection: 'row', gap: space.sm }}>
                   <Button testID="schedule-edit" label="Edit" onPress={() => setForm({ id: s.id, cron: s.cron, message: s.message })} />
                   <Button testID="schedule-remove" label="Remove" onPress={() => setAsking(s.id)} />
@@ -67,6 +62,20 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
           ))}
         </View>
       </Loadable>
+      {asking !== null && (
+        <Sheet
+          id="schedule-remove"
+          label="Remove this schedule?"
+          submit="Remove"
+          kind="no"
+          onCancel={() => setAsking(null)}
+          onSubmit={() => {
+            const s = mine.find((x) => x.id === asking);
+            if (s) drop(s);
+            setAsking(null);
+          }}
+        />
+      )}
       {pending ? (
         <Text testID="schedules-pending" style={{ color: c.muted, fontSize: 12 }}>
           saving…
@@ -82,7 +91,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
         <Button testID="schedule-new" label="Add schedule" disabled={!!whyNot} onPress={() => setForm({ cron: '', message: '' })} />
       ) : null}
       {form ? (
-        <View testID="schedule-form" style={{ gap: space.sm }}>
+        <Sheet id="schedule" label={form.id === undefined ? 'Add a schedule' : 'Edit the schedule'} submit="Save" onCancel={() => setForm(null)} onSubmit={save}>
           <TextInput
             testID="schedule-cron"
             accessibilityLabel="When (cron)"
@@ -105,11 +114,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
             onChangeText={(message) => setForm({ ...form, message })}
             style={{ ...input, minHeight: 72 }}
           />
-          <View style={{ flexDirection: 'row', gap: space.sm }}>
-            <Button testID="schedule-save" label="Save" kind="yes" onPress={save} />
-            <Button testID="schedule-cancel" label="Cancel" onPress={() => setForm(null)} />
-          </View>
-        </View>
+        </Sheet>
       ) : null}
     </View>
   );

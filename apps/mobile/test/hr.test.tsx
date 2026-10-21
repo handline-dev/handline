@@ -24,7 +24,7 @@ let root: Root | null = null;
 let box: HTMLElement;
 const $ = (id: string) =>
   box.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? document.body.querySelector<HTMLElement>(`[data-testid="${id}"]`); // a menu is a Modal, drawn outside the box
-const text = () => box.textContent ?? '';
+const text = () => document.body.textContent ?? ''; // the page and any sheet over it
 const press = (el: HTMLElement | null) => act(async () => void el?.click());
 const fill = (id: string, v: string) =>
   act(async () => {
