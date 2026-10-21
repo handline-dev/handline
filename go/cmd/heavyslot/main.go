@@ -54,7 +54,7 @@ func acquire() (*os.File, int, error) {
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		return nil, 0, err
 	}
-	me, last := holder(), ""
+	me, last, spoke := holder(), "", false
 	for {
 		var held, said []string
 		for n := 1; n <= heavyslots.Slots(); n++ {
@@ -76,9 +76,10 @@ func acquire() (*os.File, int, error) {
 			held = append(held, string(who))
 			said = append(said, describe(strings.TrimSpace(string(who))))
 		}
-		if now := strings.Join(held, "\x00"); now != last {
+		if now := strings.Join(held, "\x00"); !spoke || now != last {
 			fmt.Fprintf(os.Stderr, "heavyslot: waiting for a heavy-run slot (HANDLINE_HEAVY_SLOTS=%d): %s\n", heavyslots.Slots(), strings.Join(said, "; "))
 			last = now
+			spoke = true
 		}
 		time.Sleep(poll)
 	}

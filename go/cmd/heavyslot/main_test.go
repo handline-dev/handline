@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"os"
 	"os/exec"
@@ -48,7 +49,7 @@ func waitHeld(t *testing.T, slots string) {
 }
 
 // Two runs started together take the one slot in turn: each fails if it finds the other inside (the mkdir), and the one that
-// waited says who holds the slot.
+// waited says so.
 func TestTwoRunsStartedTogetherRunOneAfterTheOther(t *testing.T) {
 	bin, slots := build(t)
 	inside := filepath.Join(t.TempDir(), "inside")
@@ -64,9 +65,51 @@ func TestTwoRunsStartedTogetherRunOneAfterTheOther(t *testing.T) {
 	if took := time.Since(began); took < 2*time.Second {
 		t.Errorf("both ran in %v: not one after the other", took)
 	}
-	said := aerr.String() + berr.String()
-	if !strings.Contains(said, "waiting for a heavy-run slot") || !strings.Contains(said, "held by tester in ") || !strings.Contains(said, ", pid ") {
-		t.Errorf("the waiter did not say who holds the slot: %q", said)
+	if said := aerr.String() + berr.String(); !strings.Contains(said, "waiting for a heavy-run slot") {
+		t.Errorf("the waiter did not say it waits: %q", said)
+	}
+}
+
+// A waiter that finds a slot held before its holder has written who it is still says it waits, at once.
+func TestAWaiterSaysItWaitsBeforeTheHolderWritesWhoItIs(t *testing.T) {
+	bin, slots := build(t)
+	if err := os.MkdirAll(slots, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(filepath.Join(slots, "slot-1.lock"), os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "--", "true")
+	cmd.Env = append(os.Environ(), "HANDLINE_HEAVY_DIR="+slots, "HANDLINE_HEAVY_SLOT=", "HANDLINE_HEAVY_SLOTS=", "OCP_AGENT=tester")
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill() })
+	line := make(chan string, 1)
+	go func() {
+		l, _ := bufio.NewReader(stderr).ReadString('\n')
+		line <- l
+	}()
+	select {
+	case l := <-line:
+		if !strings.Contains(l, "waiting for a heavy-run slot") || !strings.Contains(l, "still writing") {
+			t.Errorf("the waiter did not say it waits: %q", l)
+		}
+	case <-time.After(2 * poll):
+		t.Fatal("the waiter said nothing while the slot was held")
+	}
+	syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	if err := cmd.Wait(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -85,7 +128,7 @@ func TestTwoSlotsLetTwoRunsAtOnce(t *testing.T) {
 	}
 }
 
-// A holder killed outright frees its slot: the kernel drops its lock, no one has to clean up after it.
+// A holder killed outright frees its slot: the kernel drops its lock, no one has to clean up after it. The waiter says who held it.
 func TestAKilledHolderFreesItsSlot(t *testing.T) {
 	bin, slots := build(t)
 	pidFile := filepath.Join(t.TempDir(), "pid")
@@ -103,6 +146,9 @@ func TestAKilledHolderFreesItsSlot(t *testing.T) {
 	case err := <-done:
 		if err != nil {
 			t.Fatalf("%v %s", err, berr)
+		}
+		if said := berr.String(); !strings.Contains(said, "held by tester in ") || !strings.Contains(said, ", pid ") {
+			t.Errorf("the waiter did not say who holds the slot: %q", said)
 		}
 	case <-time.After(3 * poll):
 		t.Fatalf("the slot stayed held after its holder was killed: %s", berr)
