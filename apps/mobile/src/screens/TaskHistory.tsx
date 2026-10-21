@@ -1,6 +1,4 @@
-// The change history of one task on the phone (docs/pc-app-gaps.md U3), read from task.history through the same app-core view the web draws:
-// a row per field changed (before struck through, after bold), the fields of one edit under one time, memo changes folded to a line under All,
-// filter chips and day dividers. A long text opens to its full before and after.
+// A task's change history on the phone (docs/pc-app-gaps.md U3), read from task.history through the app-core view the web draws.
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { clockTime, dayLabel, firstLine, historyCounts, historyView, memoAction, type HistoryFilter, type HistoryFold } from '@handline/app-core';

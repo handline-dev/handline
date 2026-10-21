@@ -1,5 +1,4 @@
-// A task's history on the phone's task page, on the fake daemon: a row per field with its before and after, memo changes folded under All,
-// the chips, a long text opening to its full before and after, and no control on a daemon without task.history.
+// A task's history on the phone's task page, on the fake daemon: rows, folds, chips, long text, and no control without task.history.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { $, box, mount, press, text, until } from '#test/harness.tsx';
 
