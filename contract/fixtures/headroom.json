@@ -1,0 +1,409 @@
+{
+ "fixtures": [
+  {
+   "name": "stats.headroom.the_shape",
+   "spec": "stats.headroom",
+   "about": "With no span it is 3 days either side of now every 900 s, each account's windows apart, what was recorded apart from what is guessed.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.headroom",
+      "params": {}
+     },
+     "result": {
+      "now": {
+       "$type": "timestamp"
+      },
+      "step_s": 900,
+      "combined": {
+       "past": {
+        "$each": {
+         "at": {
+          "$type": "timestamp"
+         },
+         "left_pct": {
+          "$oneOf": [
+           {
+            "$type": "number"
+           },
+           {
+            "$type": "null"
+           }
+          ]
+         }
+        }
+       },
+       "future": {
+        "$type": "array"
+       }
+      },
+      "accounts": {
+       "$each": {
+        "account": {
+         "$type": "string"
+        },
+        "past": {
+         "$each": {
+          "at": {
+           "$type": "timestamp"
+          },
+          "five_left": {
+           "$oneOf": [
+            {
+             "$type": "number"
+            },
+            {
+             "$type": "null"
+            }
+           ]
+          },
+          "week_left": {
+           "$oneOf": [
+            {
+             "$type": "number"
+            },
+            {
+             "$type": "null"
+            }
+           ]
+          }
+         }
+        },
+        "future": {
+         "$each": {
+          "at": {
+           "$type": "timestamp"
+          },
+          "five_left": {
+           "$oneOf": [
+            {
+             "$type": "number"
+            },
+            {
+             "$type": "null"
+            }
+           ]
+          },
+          "week_left": {
+           "$oneOf": [
+            {
+             "$type": "number"
+            },
+            {
+             "$type": "null"
+            }
+           ]
+          }
+         }
+        },
+        "resets": {
+         "$each": {
+          "at": {
+           "$type": "timestamp"
+          },
+          "window": {
+           "$oneOf": [
+            "5h",
+            "7d"
+           ]
+          }
+         }
+        }
+       }
+      },
+      "runs_out_at": {
+       "$oneOf": [
+        {
+         "$type": "timestamp"
+        },
+        {
+         "$type": "null"
+        }
+       ]
+      },
+      "next_reset": {
+       "$oneOf": [
+        {
+         "at": {
+          "$type": "timestamp"
+         },
+         "account": {
+          "$type": "string"
+         },
+         "window": {
+          "$oneOf": [
+           "5h",
+           "7d"
+          ]
+         }
+        },
+        {
+         "$type": "null"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stats.headroom.a_span_has_a_point_every_step",
+   "spec": "stats.headroom",
+   "about": "A span and a step give the points from `from` on, every step, none after `to`.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.headroom",
+      "params": {
+       "from": "2020-01-01T00:00:00Z",
+       "to": "2020-01-01T00:30:00Z",
+       "step_s": 600
+      }
+     },
+     "result": {
+      "step_s": 600,
+      "combined": {
+       "past": [
+        {
+         "at": "2020-01-01T00:00:00Z"
+        },
+        {
+         "at": "2020-01-01T00:10:00Z"
+        },
+        {
+         "at": "2020-01-01T00:20:00Z"
+        },
+        {
+         "at": "2020-01-01T00:30:00Z"
+        }
+       ],
+       "future": []
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stats.headroom.to_is_after_from",
+   "spec": "stats.headroom",
+   "about": "A span that ends before it starts is bad_request naming to.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.headroom",
+      "params": {
+       "from": "2026-01-02T00:00:00Z",
+       "to": "2026-01-01T00:00:00Z"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "to"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stats.headroom.step_is_at_least_a_minute",
+   "spec": "stats.headroom",
+   "about": "A step under 60 s is bad_request naming step_s.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.headroom",
+      "params": {
+       "step_s": 10
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "step_s"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stats.headroom.too_many_points_is_refused",
+   "spec": "stats.headroom",
+   "about": "A span and step past 2000 points is bad_request naming step_s.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.headroom",
+      "params": {
+       "from": "2026-01-01T00:00:00Z",
+       "to": "2026-01-15T00:00:00Z",
+       "step_s": 60
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "step_s"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stats.headroom.from_is_a_timestamp",
+   "spec": "stats.headroom",
+   "about": "A from that is not RFC 3339 is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.headroom",
+      "params": {
+       "from": "yesterday"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "from"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stats.headroom.an_agent_session_is_refused_by_role",
+   "spec": "stats.headroom",
+   "about": "A call from an agent session is refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.headroom",
+      "params": {}
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

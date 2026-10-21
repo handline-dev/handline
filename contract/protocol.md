@@ -202,6 +202,7 @@ A method marked write takes a required `request_id`.
 | `schedule.edit` | founder | yes | `schedule`, `target?`, `cron?`, `message?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `schedule.remove` | founder | yes | `schedule`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `stats.get` | member |  | `window` | `Stats` | `bad_request` |  |
+| `stats.headroom` | member |  | `from?`, `to?`, `step_s?` | `Headroom` | `bad_request` |  |
 | `stats.outlook` | member |  | `range`, `agent?` | `Outlook` | `bad_request` |  |
 | `connection.get` | founder |  | none | `ConnectionInfo` |  |  |
 | `settings.get` | founder |  | `agent?` | `Settings` | `bad_request`, `not_found` |  |
@@ -747,6 +748,10 @@ Remove a schedule.
 ### `stats.get`
 
 Counts and sums over a window.
+
+### `stats.headroom`
+
+Each account's 5h and weekly headroom over a span, recorded up to now and guessed after, its resets, and the average of what binds.
 
 ### `stats.outlook`
 

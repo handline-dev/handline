@@ -9023,6 +9023,52 @@
    ]
   },
   {
+   "name": "stats.headroom",
+   "summary": "Each account's 5h and weekly headroom over a span, recorded up to now and guessed after, its resets, and the average of what binds.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "from",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "The first point. Default: 3 days before now."
+     }
+    },
+    {
+     "name": "to",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "No point after this. Default: 3 days after now. After `from`."
+     }
+    },
+    {
+     "name": "step_s",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 60,
+      "description": "Seconds between points, from `from` on. Default 900. At most 2000 points."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Headroom"
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
    "name": "stats.outlook",
    "summary": "The week left of the accounts together, recorded and guessed, each account's runway, and what the agents cost per day.",
    "paramStructure": "by-name",
@@ -16162,6 +16208,249 @@
      "nav"
     ],
     "additionalProperties": false
+   },
+   "Headroom": {
+    "type": "object",
+    "properties": {
+     "now": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "step_s": {
+      "type": "integer"
+     },
+     "combined": {
+      "type": "object",
+      "properties": {
+       "past": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "at": {
+           "$ref": "#/components/schemas/Timestamp"
+          },
+          "left_pct": {
+           "oneOf": [
+            {
+             "type": "number",
+             "description": "The accounts' average of the smaller of five_left and week_left; null where none had a reading."
+            },
+            {
+             "type": "null"
+            }
+           ]
+          }
+         },
+         "required": [
+          "at",
+          "left_pct"
+         ]
+        },
+        "description": "Points up to now, oldest first."
+       },
+       "future": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "at": {
+           "$ref": "#/components/schemas/Timestamp"
+          },
+          "left_pct": {
+           "oneOf": [
+            {
+             "type": "number",
+             "description": "The accounts' average of the smaller of five_left and week_left; null where none had a reading."
+            },
+            {
+             "type": "null"
+            }
+           ]
+          }
+         },
+         "required": [
+          "at",
+          "left_pct"
+         ]
+        },
+        "description": "Points after now: a guess, kept apart from `past`. An account with no recent reading is left out."
+       }
+      },
+      "required": [
+       "past",
+       "future"
+      ]
+     },
+     "accounts": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "account": {
+         "type": "string"
+        },
+        "past": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "at": {
+            "$ref": "#/components/schemas/Timestamp"
+           },
+           "five_left": {
+            "oneOf": [
+             {
+              "type": "number",
+              "description": "What the 5h window had left, in percent; null where it had no reading."
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "week_left": {
+            "oneOf": [
+             {
+              "type": "number",
+              "description": "What the weekly window had left, in percent; null where it had no reading."
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "at",
+           "five_left",
+           "week_left"
+          ]
+         },
+         "description": "What usage samples recorded, at the same points as `combined.past`."
+        },
+        "future": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "at": {
+            "$ref": "#/components/schemas/Timestamp"
+           },
+           "five_left": {
+            "oneOf": [
+             {
+              "type": "number",
+              "description": "What the 5h window had left, in percent; null where it had no reading."
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "week_left": {
+            "oneOf": [
+             {
+              "type": "number",
+              "description": "What the weekly window had left, in percent; null where it had no reading."
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "at",
+           "five_left",
+           "week_left"
+          ]
+         },
+         "description": "A guess: each window keeps its pace (the 5h one over the last day, the weekly one over this week) and starts again from nothing at its reset, so the 5h line is a saw. Null when the account's last reading is stale; 0 after an account ends."
+        },
+        "resets": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "at": {
+            "$ref": "#/components/schemas/Timestamp"
+           },
+           "window": {
+            "type": "string",
+            "enum": [
+             "5h",
+             "7d"
+            ]
+           }
+          },
+          "required": [
+           "at",
+           "window"
+          ]
+         },
+         "description": "Resets in the span, oldest first: those samples recorded, then those guessed (a 5h window opens again at its reset only while it is used)."
+        }
+       },
+       "required": [
+        "account",
+        "past",
+        "future",
+        "resets"
+       ]
+      },
+      "description": "Accounts that have a reading in the samples, by name."
+     },
+     "runs_out_at": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp",
+        "description": "The first point ahead where `combined` reaches 0."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "next_reset": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "at": {
+          "$ref": "#/components/schemas/Timestamp"
+         },
+         "account": {
+          "type": "string"
+         },
+         "window": {
+          "type": "string",
+          "enum": [
+           "5h",
+           "7d"
+          ]
+         }
+        },
+        "required": [
+         "at",
+         "account",
+         "window"
+        ],
+        "description": "The first reset after now of any account."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "now",
+     "step_s",
+     "combined",
+     "accounts",
+     "runs_out_at",
+     "next_reset"
+    ]
    }
   },
   "errors": {
