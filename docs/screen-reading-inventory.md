@@ -100,7 +100,7 @@ The screen keys are numbered options under a `─`/`▔` rule (`term/screen.go:2
 
 **Replacement:** for a permission, `PermissionRequest` has the tool and its input, and its hook output `decision.behavior` `allow` or `deny` answers it with no keys. For AskUserQuestion, `PreToolUse` carries the questions in `tool_input` (the matcher would need `AskUserQuestion` added). Answering one through hook output is not verified. **Permissions: yes. Questions: read yes, answer unverified.**
 
-**Status: kept.** A daemon without the prompt watch (`-own-prompts`), as the live one runs, has no prompt rows for a terminal agent, and the card says to handle it in the terminal. Answering through hook output is not done.
+**Status: permissions replaced; questions kept.** The `PermissionRequest` hook asks the daemon (`permission.ask`) and returns the person's allow or deny as its output, with no screen read and no key. With no answer in an hour, or no daemon, the terminal dialog shows as before. AskUserQuestion is still handled in the terminal.
 
 ## 7. Usage-limit dialog
 
