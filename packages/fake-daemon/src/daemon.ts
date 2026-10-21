@@ -99,7 +99,7 @@ export class FakeDaemon {
     this.serveBytes = opts.bytes ?? true;
     this.inbox = new FakeInbox(this, () => this.iso(), opts.inbox ?? true);
     this.accounts = new FakeAccounts(this, () => this.iso(), opts.accounts ?? true);
-    this.admin = new FakeAdmin(() => this.iso(), opts.admin ?? true);
+    this.admin = new FakeAdmin(() => this.iso(), opts.admin ?? true, this);
     this.chat = new FakeChat(
       (type, agent, data) => this.emit('chat', type, { agent, data: data as unknown as Record<string, unknown> }),
       () => this.iso(),
@@ -222,6 +222,7 @@ export class FakeDaemon {
     this.events.push(e);
     while (this.events.length > this.retention) this.floor = this.events.shift()!.cursor;
     for (const c of this.conns) if (c.topics?.has(topic)) this.notify(c, 'event', e);
+    if (type === 'agent.removed' && f.agent) this.admin.prefs.forget(f.agent);
   }
 
   // ---- wire ----

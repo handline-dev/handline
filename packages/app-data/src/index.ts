@@ -26,3 +26,4 @@ export * from '#src/field-row.ts';
 export * from '#src/prompt-answer.ts';
 export * from '#src/first-task.ts';
 export * from '#src/new-agent.ts';
+export * from '#src/nav.ts';

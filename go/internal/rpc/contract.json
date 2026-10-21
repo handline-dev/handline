@@ -195,6 +195,20 @@
  "pr.exists": {
   "role": "member"
  },
+ "prefs.get": {
+  "callers": [
+   "member",
+   "founder"
+  ],
+  "role": "member"
+ },
+ "prefs.set": {
+  "callers": [
+   "member",
+   "founder"
+  ],
+  "role": "member"
+ },
  "progress.get": {
   "callers": [
    "agent"
