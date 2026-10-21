@@ -26,6 +26,7 @@ import (
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/peer"
+	"github.com/handline/handline/go/internal/prefs"
 	"github.com/handline/handline/go/internal/prompts"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/rpc"
@@ -275,6 +276,7 @@ func Start(cfg Config) (*Daemon, error) {
 		w := &watcher.Watcher{DB: db, Emit: d.hub.Append, Log: cfg.Log, Signature: watcher.HRSignature(cfg.Home),
 			Detectors: []watcher.Detector{&watcher.Tasks{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Agents{}, &watcher.Notifications{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Inbox{Reads: &reads.Env{DB: db, Home: cfg.Home}},
 				&watcher.HR{Reads: &reads.Env{DB: db, Home: cfg.Home}},
+				&watcher.Prefs{},
 				&watcher.Chat{Reads: &reads.Env{DB: db, Home: cfg.Home, Delivery: cfg.Delivery}}}}
 		d.wg.Add(1)
 		go func() {
@@ -431,6 +433,7 @@ func (d *Daemon) writeRegistrars() []func(*rpc.Server) {
 		func(s *rpc.Server) { d.hooks.Register(s) },
 		func(s *rpc.Server) { hrwrites.Register(s, d.hrEnv()) },
 		func(s *rpc.Server) { prompts.Register(s, d.prompts) },
+		func(s *rpc.Server) { prefs.Register(s, d.cfg.Home) },
 		func(s *rpc.Server) {
 			if d.cfg.Session != nil {
 				env := d.cfg.Session()

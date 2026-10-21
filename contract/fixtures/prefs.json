@@ -1,0 +1,365 @@
+{
+ "fixtures": [
+  {
+   "name": "prefs.get.serves_the_whole_nav",
+   "spec": "prefs.get",
+   "as": "founder",
+   "about": "prefs.get answers every NavPrefs key, the defaults for a person who set none.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "prefs.get",
+      "params": {}
+     },
+     "result": {
+      "nav": {
+       "pins": {
+        "$type": "array"
+       },
+       "unread_only": {
+        "$type": "boolean"
+       },
+       "hidden": {
+        "$type": "array"
+       },
+       "layout": {
+        "$oneOf": [
+         "tree",
+         "flat"
+        ]
+       },
+       "collapsed": {
+        "$type": "array"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "prefs.set.stores_and_tells_the_prefs_topic",
+   "spec": "prefs.set",
+   "as": "founder",
+   "about": "Each key given replaces its own; prefs.get then shows it, and the prefs topic sends prefs.changed with the whole Prefs.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "prefs"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "layout": "flat",
+         "unread_only": true,
+         "hidden": [
+          "idle"
+         ]
+        }
+       },
+       "request_id": "conf-prefs-1"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "prefs",
+        "type": "prefs.changed",
+        "data": {
+         "nav": {
+          "pins": {
+           "$type": "array"
+          },
+          "unread_only": true,
+          "hidden": [
+           "idle"
+          ],
+          "layout": "flat",
+          "collapsed": {
+           "$type": "array"
+          }
+         }
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "prefs.get",
+      "params": {}
+     },
+     "result": {
+      "nav": {
+       "layout": "flat",
+       "unread_only": true,
+       "hidden": [
+        "idle"
+       ]
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "layout": "tree",
+         "unread_only": false,
+         "hidden": []
+        }
+       },
+       "request_id": "conf-prefs-2"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "prefs.get",
+      "params": {}
+     },
+     "result": {
+      "nav": {
+       "layout": "tree",
+       "unread_only": false,
+       "hidden": []
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "prefs.set.refuses_a_bad_change_naming_its_field",
+   "spec": "prefs.set",
+   "as": "founder",
+   "about": "A pin naming no agent, a name given twice, an unknown state group or layout, or a key NavPrefs lacks is bad_request naming the field.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "pins": [
+          "conf-no-such-agent"
+         ]
+        }
+       },
+       "request_id": "conf-prefs-3"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "changes.nav.pins"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "hidden": [
+          "asleep"
+         ]
+        }
+       },
+       "request_id": "conf-prefs-4"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "changes.nav.hidden"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "layout": "grid"
+        }
+       },
+       "request_id": "conf-prefs-5"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "changes.nav.layout"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "colour": "red"
+        }
+       },
+       "request_id": "conf-prefs-6"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "changes.nav.colour"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "prefs.set",
+      "params": {
+       "changes": {},
+       "request_id": "conf-prefs-7"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "changes.nav"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "prefs.get.an_agent_session_is_refused",
+   "spec": "prefs.get",
+   "as": "agent",
+   "about": "Prefs are a person's: an agent session is refused.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "prefs.get",
+      "params": {}
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

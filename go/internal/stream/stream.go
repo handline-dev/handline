@@ -27,7 +27,7 @@ const (
 )
 
 var topics = map[string]bool{"status": true, "accounts": true, "agents": true, "inbox": true, "tasks": true,
-	"notifications": true, "operations": true, "chat": true, devicesTopic: true, "hr": true, transcriptTopic: true}
+	"notifications": true, "operations": true, "chat": true, devicesTopic: true, "hr": true, transcriptTopic: true, "prefs": true}
 
 // Hub fans events out to the connections subscribed to them.
 type Hub struct {
@@ -549,8 +549,8 @@ func check(p map[string]any) (map[string]bool, error) {
 	return names, nil
 }
 
-// memberTopics are the topics an agent may not follow: the reads behind them (chat.*, operation.get) are a member's.
-var memberTopics = map[string]bool{"chat": true, "operations": true}
+// memberTopics are the topics an agent may not follow: the reads behind them (chat.*, operation.get, prefs.get) are a member's.
+var memberTopics = map[string]bool{"chat": true, "operations": true, "prefs": true}
 
 // Allowed refuses a caller below a member any of the named topics that are a member's.
 func Allowed(c *rpc.Conn, names ...string) error {
