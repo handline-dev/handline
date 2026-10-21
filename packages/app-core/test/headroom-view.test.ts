@@ -20,12 +20,12 @@ const h = (over: Partial<Headroom> = {}): Headroom => ({
 });
 
 test('the summary reads the last point with data, and says when nothing runs out or resets', () => {
-  assert.equal(headroomSummary(h()), '61% left · lasts through the span · no reset ahead');
+  assert.equal(headroomSummary(h()), "61% left · won't run out in this span · no reset ahead");
 });
 
 test('the summary names the next reset and how far off it is', () => {
   const s = headroomSummary(h({ next_reset: { at: '2026-10-07T14:10:00Z', account: 'alpha', window: '5h' } }));
-  assert.match(s, /next reset in 2 h 10 m \(alpha 5h\)$/);
+  assert.match(s, /next reset in 2 h 10 m \(alpha, 5 h\)$/);
 });
 
 test('the nearest point skips the ones with no data', () => {

@@ -24,9 +24,9 @@ export function headroomSummary(h: Headroom): string {
   const now = Date.parse(h.now);
   const last = [...h.combined.past].reverse().find((p) => p.left_pct !== null);
   const left = last ? `${Math.round(last.left_pct!)}% left` : 'no reading yet';
-  const floor = h.runs_out_at ? `runs out ${dateTime(h.runs_out_at)}` : 'lasts through the span';
+  const floor = h.runs_out_at ? `runs out ${dateTime(h.runs_out_at)}` : "won't run out in this span";
   const reset = h.next_reset
-    ? `next reset in ${span(Date.parse(h.next_reset.at) - now)} (${h.next_reset.account} ${h.next_reset.window})`
+    ? `next reset in ${span(Date.parse(h.next_reset.at) - now)} (${h.next_reset.account}, ${h.next_reset.window === '7d' ? 'week' : '5 h'})`
     : 'no reset ahead';
   return [left, floor, reset].join(' · ');
 }
