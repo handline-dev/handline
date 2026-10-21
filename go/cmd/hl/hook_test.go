@@ -241,3 +241,18 @@ func TestThePermissionHookReturnsTheFoundersAnswer(t *testing.T) {
 		}
 	}
 }
+
+func TestAQuestionIsLeftToTheTerminal(t *testing.T) {
+	ask := `{"hook_event_name": "PermissionRequest", "session_id": "s", "tool_name": "AskUserQuestion", "tool_input": {"questions": []}}`
+	r := hookRig(t, false)
+	calls := r.daemon(map[string]string{"permission.ask": `{"behavior": "allow"}`})
+	out, _, code := r.runIn(ask, asAgent, "hook", "PermissionRequest")
+	if code != 0 || out != "{}\n" {
+		t.Errorf("exit %d, got %q", code, out)
+	}
+	for _, m := range calls() {
+		if m["method"] == "permission.ask" {
+			t.Errorf("asked the founder: %v", m["params"])
+		}
+	}
+}

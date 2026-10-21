@@ -133,10 +133,11 @@ func newRequestID() string {
 const permissionWaitS = 3600 + 30
 
 // askPermission is the PermissionRequest hook's output: the founder's answer through permission.ask, or {} when there is none (the daemon
-// is down, the hour passed, or the input is not an object), and the agent's own dialog shows in its terminal.
+// is down, the hour passed, or the input is not an object), and the agent's own dialog shows in its terminal. An AskUserQuestion is
+// never asked: an allow would carry no answers.
 func askPermission(c *hlclient.Client, tool string, input any) string {
 	in, ok := input.(map[string]any)
-	if tool == "" || !ok {
+	if tool == "" || tool == "AskUserQuestion" || !ok {
 		return "{}"
 	}
 	waiting := *c
