@@ -185,6 +185,12 @@ export function seedTasks(tasks: FakeTasks, at: string): void {
     created: ago(300),
     delivered: ago(240),
     time_box: '8h',
+    segments: [
+      { kind: 'queued', on: null, text: 'queued', task: null, from: ago(300), to: ago(240), seconds: 3600 },
+      { kind: 'working', on: null, text: '', task: null, from: ago(240), to: ago(180), seconds: 3600 },
+      { kind: 'waiting', on: 'founder', text: 'waiting on you', task: null, from: ago(180), to: ago(150), seconds: 1800 },
+      { kind: 'working', on: null, text: '', task: null, from: ago(150), to: at, seconds: 9000 },
+    ],
     body: 'Plan the web UI.\n\nThree units, chat first.',
     history: [
       { at: ago(300), by: me, field: 'state', was: '', now: 'queued' },
