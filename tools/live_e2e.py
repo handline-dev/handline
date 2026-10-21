@@ -21,7 +21,7 @@ step is followed by one agent.get so the table says whether the thing happened w
 finding for the table, not a failure: exit 1 only when a step FAILs.
 
 --terminal runs a terminal agent instead, on a daemon with -turns-from-hooks, -notification-needs-you and the terminal tick, in a
-tmux server of the run's own: a normal turn, a permission prompt left unanswered until Claude Code's Notification hook reports it,
+tmux server of the run's own: a normal turn, a permission question allowed and one denied from its card (the hook's flow),
 an Esc pressed mid-turn, session.interrupt mid-turn, and the CLI killed hard mid-turn. Its checkout is a temporary worktree of
 this repository, which every account already trusts, so no folder-trust dialog shows and no account's .claude.json is written.
 """
@@ -341,63 +341,28 @@ def pane(sock: str) -> tuple[str, int | None]:
     return pane_id, int(kids[0]) if kids else None
 
 
-def terminal_permission(r: Run, sock: str, home: Path) -> None:
-    """A permission prompt nobody answers: Claude Code's Notification hook reports it about 6 s after it is drawn, and the needs-you
-    card then says so (source notification), timed from the hook writing home/needs-you/<agent>.json to the agent.changed event. The
-    card says to handle it in the terminal, so the run answers there, with Enter on the default Yes, as a person at the pane would."""
+def hook_permission(r: Run, allow: bool) -> None:
+    """A permission question through the PermissionRequest hook: the card shows with the command, and its answer goes back as the
+    hook's decision, with no key typed. A deny carries a note the agent reads."""
     d, a = r.d, r.agent
+    word = "allow" if allow else "deny"
     nonce = uuid.uuid4().hex[:8]
+    r.answerer.on.clear()
     t = time.time()
-    d.write("chat.send", {"agent": a, "body": f"Run this Bash command and nothing else: touch e2e-{nonce}.txt"})
-    asked = r.step("permission prompt shown as needs_you", t,
-                   lambda ev: agent_changed(a, "waiting")(ev) and (ev["data"].get("needs_you") or {}).get("kind") == "permission",
+    d.write("chat.send", {"agent": a, "body": f"Run this Bash command and nothing else: touch e2e-{word}-{nonce}.txt"})
+    asked = r.step(f"{word}: permission card from the hook", t,
+                   lambda ev: ev["type"] == "prompt_asked" and ev["data"].get("agent") == a and nonce in " ".join(ev["data"].get("lines") or []),
                    model=True)
     if asked:
-        r.rows[-1]["note"] = f"needs_you {asked['data']['needs_you']!r}"
-    from_note = lambda ev: agent_changed(a, "waiting")(ev) and (ev["data"].get("needs_you") or {}).get("source") == "notification"
-    notified = r.s.wait(t, from_note, time.time() + 30)
-    noted = home / "needs-you" / f"{a}.json"
-    if notified and noted.exists():
-        took = round(notified[0] - noted.stat().st_mtime, 2)
-        r.record({"step": "needs_you from the Notification hook", "paced_by": "daemon", "result": "pass" if took <= DEADLINE_S else "slow",
-                  "seconds": took, "note": f"needs_you {notified[1]['data']['needs_you']!r}"})
-    else:
-        r.record({"step": "needs_you from the Notification hook", "paced_by": "daemon", "result": "missing", "seconds": None,
-                  "note": f"event {'seen' if notified else 'never'}, {noted.name} {'written' if noted.exists() else 'not written'}; {r.explain(t)}"})
-    t = time.time()
-    subprocess.run(["tmux", "-L", sock, "send-keys", "-t", pane(sock)[0], "Enter"], check=True)
-    r.step("answered at the terminal: needs_you cleared", t,
-           lambda ev: ev["type"] == "agent.changed" and ev.get("agent") == a and not ev["data"].get("needs_you")
-           and ev["data"].get("state") in ("running", "idle"))
-    r.s.wait(t, agent_changed(a, "idle"), time.time() + MODEL_S)
-
-
-def terminal_deny(r: Run, sock: str, home: Path) -> None:
-    """A permission prompt the person denies at the terminal with Esc: which hooks the deny fires, and whether the wait the
-    PermissionRequest noted (home/waiting/<agent>.json) is gone without the daemon reading the screen."""
-    d, a = r.d, r.agent
-    nonce = uuid.uuid4().hex[:8]
-    t = time.time()
-    d.write("chat.send", {"agent": a, "body": f"Run this Bash command and nothing else: touch e2e-deny-{nonce}.txt"})
-    if not r.step("deny: permission prompt shown as needs_you", t,
-                  lambda ev: agent_changed(a, "waiting")(ev) and (ev["data"].get("needs_you") or {}).get("kind") == "permission",
-                  model=True):
-        return
-    wait = home / "waiting" / f"{a}.json"
-    t = time.time()
-    subprocess.run(["tmux", "-L", sock, "send-keys", "-t", pane(sock)[0], "Escape"], check=True)
-    until = time.time() + DEADLINE_S + SLOW_S
-    while wait.exists() and time.time() < until:
-        time.sleep(0.2)
-    gone = None if wait.exists() else round(time.time() - t, 2)
-    time.sleep(2)
-    con = sqlite3.connect(home / "db.sqlite", timeout=10)
-    kinds = [k for (k,) in con.execute("SELECT kind FROM events WHERE agent = ? AND ts >= ? ORDER BY id", (a, int(t)))]
-    con.close()
-    r.record({"step": "deny at the terminal: the wait ends from a hook", "paced_by": "daemon",
-              "result": ("pass" if gone <= DEADLINE_S else "slow") if gone is not None else "missing", "seconds": gone,
-              "note": f"events after the Esc: {', '.join(kinds) or 'none'}"})
-    r.s.wait(t, agent_changed(a, "idle"), time.time() + MODEL_S)
+        prompt = asked["data"]
+        r.answerer.answered.add(prompt["id"])
+        t = time.time()
+        if allow:
+            d.write("prompt.answer", {"agent": a, "prompt": prompt["id"], "choice": yes(prompt)})
+        else:
+            d.write("prompt.answer", {"agent": a, "prompt": prompt["id"], "choice": "deny", "note": f"e2e {nonce}: reply NOTED and stop"})
+        r.step(f"{word}: the agent went on to idle", t, agent_changed(a, "idle"), model=True)
+    r.answerer.on.set()
 
 
 def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, home: Path, group: int) -> None:
@@ -440,8 +405,8 @@ def terminal_turns(r: Run, sock: str, config_dir: str, root: Path, home: Path, g
         r.record({"step": "idle after the Stop hook (transcript time to agent.changed)", "paced_by": "daemon", "result": "missing",
                   "seconds": None, "note": f"idle event {'seen' if idle else 'never'}, Stop in the transcript {'found' if replied else 'not found'}"})
 
-    terminal_permission(r, sock, home)
-    terminal_deny(r, sock, home)
+    hook_permission(r, allow=True)
+    hook_permission(r, allow=False)
 
     long_turn = "Write a 1500-word short story about a lighthouse keeper, in plain prose, with no tools."
     t = time.time()
