@@ -10,7 +10,7 @@ import { classify, sentence, useAgents, useOff, usePendingAny, useWrite } from '
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { ImageBodyInput } from '#src/screens/ImageBodyInput.tsx';
-import { Button, Card, PageHeader, Pill } from '#src/screens/parts.tsx';
+import { BottomSheet, Button, PageHeader, Pill } from '#src/screens/parts.tsx';
 import { AskAbout } from '#src/screens/TaskAsk.tsx';
 import { AssignTask } from '#src/screens/TaskAssign.tsx';
 import { MergeTasks, ReleaseTask } from '#src/screens/TaskReleaseMerge.tsx';
@@ -58,7 +58,7 @@ const PRIORITIES = [
 
 const GROW = { flex: 1 };
 
-/** A small panel under the verbs: names the thing, takes a reason (required or optional), Submit and Cancel. Without onSubmit it is a read-only view with one Close. */
+/** A bottom sheet over the page: names the thing, takes a reason (required or optional), Submit and Cancel. Without onSubmit it is a read-only view with one Close. */
 export function Sheet(props: {
   label: string;
   submit?: string;
@@ -72,8 +72,8 @@ export function Sheet(props: {
   const c = usePalette();
   const { submit, kind, onSubmit, onCancel, busy } = props;
   return (
-    <Card testID="sheet">
-      <Text style={{ color: c.ink, fontWeight: '600' }}>{props.label}</Text>
+    <BottomSheet testID="sheet" padded onClose={onCancel}>
+      <Text style={{ color: c.ink, fontWeight: '600', fontSize: 16 }}>{props.label}</Text>
       {props.children}
       {props.error ? (
         <Text testID="sheet-error" accessibilityRole="alert" style={{ color: c.block }}>
@@ -86,7 +86,7 @@ export function Sheet(props: {
         )}
         <Button testID="sheet-cancel" label={onSubmit ? 'Cancel' : 'Close'} onPress={onCancel} style={onSubmit ? undefined : GROW} />
       </View>
-    </Card>
+    </BottomSheet>
   );
 }
 

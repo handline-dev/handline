@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { $, mount, press, text, until, pickTab } from '#test/harness.tsx';
+import { $, mount, press, sleep, text, until, pickTab } from '#test/harness.tsx';
 
 const AUD = 'handline.auditor'; // the fake daemon plays it as a structured session
 
@@ -14,7 +14,7 @@ async function open(running = false) {
     // A turn runs: the working line shows it and the daemon queues what follows.
     m.daemon.sessions.get(AUD)!.state = 'running';
     await act(async () => m.daemon.chat.setTurn(AUD, true));
-    await until(() => $('working') && $('chat-send-now'), 'the turn running');
+    await until(() => $('working'), 'the turn running');
   }
   return m;
 }
@@ -27,6 +27,12 @@ const type = async (v: string) => {
     set?.call(input, v);
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
+};
+/** A long press: the button held down past its delay. */
+const hold = async (el: HTMLElement | null) => {
+  await act(async () => void el?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
+  await sleep(700);
+  await act(async () => void el?.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })));
 };
 const row = (body: string) =>
   [...document.body.querySelectorAll<HTMLElement>('[data-testid^="msg-"]')].find((e) => e.textContent?.includes(body));
@@ -44,12 +50,14 @@ describe('the send box over the one send path', () => {
     m.store.stop();
   });
 
-  it('while a turn runs the person picks Queue or Send now', async () => {
+  it('while a turn runs a tap queues and a long press offers Send now', async () => {
     const m = await open(true);
     await type('later');
     await press($('chat-send'));
     await until(() => landing('later') === 'Sending', 'queued');
     await type('right now');
+    await hold($('chat-send'));
+    await until(() => $('chat-send-now'), 'the choice');
     await press($('chat-send-now'));
     await until(() => landing('right now') === 'Delivered', 'written at once');
     m.store.stop();

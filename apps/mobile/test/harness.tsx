@@ -26,7 +26,8 @@ export let box: HTMLElement;
 // A Modal draws outside the screen's own container, so the page is read when the container has none.
 export const $ = (id: string) =>
   box.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? document.body.querySelector<HTMLElement>(`[data-testid="${id}"]`);
-export const text = (el?: Element | null) => (el ?? box).textContent ?? '';
+/** The text of the page and any sheet over it, or of one element. */
+export const text = (el?: Element | null) => (el ?? document.body).textContent ?? '';
 /** The height a row is styled with (the DOM has no layout here, so this reads the style both rows are given from the tokens). */
 export const rowHeightOf = (el: Element | null) => (el ? getComputedStyle(el).height : undefined);
 /** Types into a field the way a keyboard does (react-native-web draws TextInput as an input or a textarea). */

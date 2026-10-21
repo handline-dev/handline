@@ -1,6 +1,8 @@
 // The images of the message being written: picked from the photo library, uploaded at once, named in the send once all have arrived. A picture
 // that arrived can be marked up (MarkPicture): the marked copy is drawn once, uploaded with the send and goes beside the plain one.
 import { useState } from 'react';
+import { View } from 'react-native';
+import { space } from '@handline/tokens';
 import { markText, type Mark } from '@handline/app-core';
 import { MAX_PER_MESSAGE, useImageDrafts, useUploadImage } from '@handline/app-data';
 import { pickImages } from '#src/ImagePick.ts';
@@ -42,14 +44,16 @@ export function useChatImages(canSend: boolean) {
     },
     chips: (
       <>
-        <ImageChips
-          drafts={d.drafts}
-          problem={error ?? d.problem}
-          onRetry={d.retry}
-          onRemove={(k) => (marked?.key === k && setMarked(null), d.remove(k))}
-          onMark={setMarking}
-          marked={marked && keep(marked.marks) ? marked.key : null}
-        />
+        <View style={{ paddingHorizontal: space.sm }}>
+          <ImageChips
+            drafts={d.drafts}
+            problem={error ?? d.problem}
+            onRetry={d.retry}
+            onRemove={(k) => (marked?.key === k && setMarked(null), d.remove(k))}
+            onMark={setMarking}
+            marked={marked && keep(marked.marks) ? marked.key : null}
+          />
+        </View>
         {draft && (
           <MarkPicture
             uri={draft.preview}

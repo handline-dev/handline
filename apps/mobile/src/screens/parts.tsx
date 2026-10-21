@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Keyboard, Modal, Platform, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
@@ -209,22 +209,31 @@ export function Link(props: { label: string; onPress: () => void; testID: string
   );
 }
 
-/** A phone menu: rows in a sheet at the bottom of the screen, over a dimmed page that a tap on closes. */
-export function MenuSheet(props: { onClose: () => void; children: React.ReactNode; testID?: string }) {
+/** A sheet at the bottom of the screen over a dimmed page that a tap on closes; it rides above the keyboard. */
+export function BottomSheet(props: { onClose: () => void; children: React.ReactNode; testID?: string; padded?: boolean }) {
   const c = usePalette();
   return (
     <Modal transparent visible animationType="fade" onRequestClose={props.onClose}>
-      <Pressable accessibilityLabel="Close the menu" onPress={props.onClose} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' }}>
-        <View
-          testID={props.testID}
-          onStartShouldSetResponder={() => true}
-          style={{ backgroundColor: c.bg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingBottom: space.xl, maxHeight: '80%' }}
-        >
-          <ScrollView>{props.children}</ScrollView>
-        </View>
-      </Pressable>
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+        <Pressable accessibilityLabel="Close the sheet" onPress={props.onClose} style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' }}>
+          <View
+            testID={props.testID}
+            onStartShouldSetResponder={() => true}
+            style={{ backgroundColor: c.bg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingBottom: space.xl, maxHeight: '85%' }}
+          >
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={props.padded ? { padding: space.lg, gap: space.sm } : undefined}>
+              {props.children}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
+}
+
+/** A phone menu: rows in a bottom sheet. */
+export function MenuSheet(props: { onClose: () => void; children: React.ReactNode; testID?: string }) {
+  return <BottomSheet {...props} />;
 }
 
 /** One row of a MenuSheet; a reason it cannot be used sits under the label. */

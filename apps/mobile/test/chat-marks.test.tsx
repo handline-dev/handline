@@ -26,17 +26,17 @@ const chipKey = () =>
 const $m = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 
 describe('marking a picked picture in Chat', () => {
-  it('offers Mark on an arrived picture, opens the marker with Undo disabled, and Done with no marks sends the plain picture', async () => {
+  it('opens the marker from the thumbnail of an arrived picture with Undo disabled, and Done with no marks sends the plain picture', async () => {
     const m = await mount();
     await openChat();
     await press($('attach-image'));
-    await until(() => $(`image-mark-${chipKey()}`), 'the Mark link');
+    await until(() => $(`image-mark-${chipKey()}`)?.getAttribute('aria-disabled') !== 'true' && $(`image-mark-${chipKey()}`), 'the thumbnail');
     await press($(`image-mark-${chipKey()}`));
     await until(() => $m('mark-done'), 'the marker');
     expect($m('mark-undo')?.getAttribute('aria-disabled')).toBe('true');
     await press($m('mark-done'));
     await until(() => !$m('mark-done'), 'the marker closing');
-    expect($(`image-mark-${chipKey()}`)!.textContent).toBe('Mark'); // nothing kept: not marked
+    expect($(`image-marked-${chipKey()}`)).toBeNull(); // nothing kept: not marked
     await press($('chat-send'));
     await until(() => $('pictures'), 'the picture in the sent message');
     m.store.stop();
@@ -46,7 +46,7 @@ describe('marking a picked picture in Chat', () => {
     const m = await mount();
     await openChat();
     await press($('attach-image'));
-    await until(() => $(`image-mark-${chipKey()}`), 'the Mark link');
+    await until(() => $(`image-mark-${chipKey()}`)?.getAttribute('aria-disabled') !== 'true' && $(`image-mark-${chipKey()}`), 'the thumbnail');
     await press($(`image-mark-${chipKey()}`));
     await press($m('mark-cancel'));
     await until(() => !$m('mark-cancel'), 'the marker closing');

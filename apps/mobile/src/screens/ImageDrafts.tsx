@@ -4,14 +4,14 @@ import { Image, Pressable, Text, View } from 'react-native';
 import { radius, space } from '@handline/tokens';
 import type { ImageDraft } from '@handline/app-data';
 import { usePalette } from '#src/theme.ts';
-import { Link } from '#src/screens/parts.tsx';
+import { MARK_COLOR } from '@handline/app-core';
 
 export function ImageChips(props: {
   drafts: ImageDraft[];
   problem: string | null;
   onRetry: (key: number) => void;
   onRemove: (key: number) => void;
-  /** A chip whose picture arrived can be marked up; the one marked says so. */
+  /** Tapping a chip whose picture arrived opens it to mark up; the one marked wears a dot. */
   onMark?: (key: number) => void;
   marked?: number | null;
 }) {
@@ -34,7 +34,22 @@ export function ImageChips(props: {
             padding: 2,
           }}
         >
-          <Image source={{ uri: d.preview }} accessibilityLabel={d.name} style={{ width: 36, height: 36, borderRadius: radius.sm }} />
+          <Pressable
+            testID={`image-mark-${d.key}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${d.name} to mark it`}
+            disabled={!props.onMark || !d.attachment}
+            onPress={() => props.onMark?.(d.key)}
+          >
+            <Image source={{ uri: d.preview }} accessibilityLabel={d.name} style={{ width: 48, height: 48, borderRadius: radius.sm }} />
+            {props.marked === d.key ? (
+              <View
+                testID={`image-marked-${d.key}`}
+                accessibilityLabel="Marked"
+                style={{ position: 'absolute', right: -3, top: -3, width: 12, height: 12, borderRadius: 6, backgroundColor: MARK_COLOR, borderWidth: 1, borderColor: c.bg }}
+              />
+            ) : null}
+          </Pressable>
           {d.error ? (
             <Pressable
               testID={`image-retry-${d.key}`}
@@ -49,8 +64,6 @@ export function ImageChips(props: {
             <Text testID={`image-progress-${d.key}`} style={{ color: c.muted, fontSize: 12 }}>
               {Math.round(d.progress * 100)}%
             </Text>
-          ) : props.onMark && d.attachment ? (
-            <Link testID={`image-mark-${d.key}`} label={props.marked === d.key ? 'Marked' : 'Mark'} onPress={() => props.onMark!(d.key)} />
           ) : null}
           <Pressable
             testID={`image-remove-${d.key}`}
