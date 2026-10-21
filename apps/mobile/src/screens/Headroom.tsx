@@ -14,6 +14,7 @@ import { Loadable } from '#src/screens/Loadable.tsx';
 const DAY_MS = 86_400_000;
 const H = 180;
 const AXIS = 48;
+const TICK_GAP = 64;
 
 /** Seconds between points so a span gets about 240: a minute at least, a whole number of minutes. */
 const stepFor = (days: number) => Math.max(60, Math.ceil((days * 2 * 86_400) / 240 / 60) * 60);
@@ -32,7 +33,7 @@ function weekFloor(h: Headroom, side: 'past' | 'future'): Pt[] {
   });
 }
 
-function Chart({ h, days }: { h: Headroom; days: number }) {
+function Chart({ h }: { h: Headroom }) {
   const c = usePalette();
   const [width, setWidth] = useState(0);
   const [cursor, setCursor] = useState<number | null>(null);
@@ -74,18 +75,16 @@ function Chart({ h, days }: { h: Headroom; days: number }) {
   }, []);
   const read = cursor === null ? null : nearestPoint([...line.past, ...line.future], cursor, (p) => p.pct !== null);
   const floorRead = cursor === null ? null : nearestPoint([...floor.past, ...floor.future], cursor, (p) => p.pct !== null);
+  // The densest tick spacing whose labels still fit side by side: hours of the day up to 12 h, then days.
   const ticks = useMemo(() => {
     const out: { t: number; label: string }[] = [];
-    const every = days === 1 ? 6 : 24;
+    const every = [6, 12, 24, 48, 96].find((h) => (width * h * 3_600_000) / Math.max(1, t1 - t0) >= TICK_GAP) ?? 96;
     const d = new Date(t0);
-    d.setHours(Math.ceil(d.getHours() / every) * every, 0, 0, 0);
+    d.setHours(every < 24 ? Math.ceil(d.getHours() / every) * every : d.getHours() > 0 ? 24 : 0, 0, 0, 0);
     for (; d.getTime() <= t1; d.setHours(d.getHours() + every))
-      out.push({
-        t: d.getTime(),
-        label: d.toLocaleString([], days === 1 ? { hour: '2-digit', minute: '2-digit' } : { weekday: 'short' }),
-      });
+      out.push({ t: d.getTime(), label: d.toLocaleString([], every < 24 ? { hour: 'numeric' } : { weekday: 'short' }) });
     return out;
-  }, [t0, t1, days]);
+  }, [t0, t1, width]);
   const balloonX = cursor === null ? 0 : Math.min(Math.max(x(cursor), 115), Math.max(115, width - 115));
   return (
     <View testID="headroom-plot" style={{ gap: space.xs }}>
@@ -261,7 +260,7 @@ export function HeadroomView({ days }: { days: 1 | 3 | 7 }) {
           <Text testID="headroom-summary" style={{ color: c.ink, fontWeight: '600' }}>
             {headroomSummary(h)}
           </Text>
-          <Chart h={h} days={days} />
+          <Chart h={h} />
           <Accounts h={h} />
         </View>
       ) : null}
