@@ -1,5 +1,5 @@
 // The Team list: who is who and who may ask whom, as the web's TeamPage reads team.get. A card opens to the agents it may ask and be asked by.
-import { taskRef } from '@handline/app-core';
+import { queueOf, taskRef } from '@handline/app-core';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useTeamBoard } from '@handline/app-data';
@@ -49,6 +49,7 @@ function Card(props: {
 }) {
   const c = usePalette();
   const { a, d } = props;
+  const queued = d ? queueOf(d).tasks : null;
   const names = (list: string[]) => (list.length ? list.join(', ') : 'nobody');
   return (
     <Pressable
@@ -77,6 +78,11 @@ function Card(props: {
           doing {taskRef(d.task.id)} {d.task.title}
         </Text>
       )}
+      {queued ? (
+        <Text testID={`team-queue-${a.name}`} style={{ color: c.wait, fontSize: 12 }}>
+          {queued} {queued === 1 ? 'task' : 'tasks'} waiting
+        </Text>
+      ) : null}
       {props.open && (
         <View testID={`team-edges-${a.name}`} style={{ gap: space.xs, paddingTop: space.xs }}>
           <Text style={{ color: c.ink }}>

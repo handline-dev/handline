@@ -1,5 +1,5 @@
 // The fake daemon as the paired-device listener: wss with a fresh self-signed certificate, paired devices only.
-// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture] [--held-load] [--held-by <device>] [--review]`
+// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture] [--held-load] [--queue] [--held-by <device>] [--review]`
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -70,6 +70,11 @@ if (process.argv.includes('--held-load')) {
   const s = daemon.sessions.get('handline.architect')!;
   s.state = 'waiting';
   s.fx.view = { ...s.fx.view, status: { state: 'waiting', reason: 'load', text: 'held: machine load - load 2.1 per core, limit 1.5' } };
+}
+if (process.argv.includes('--queue')) {
+  // Tasks waiting for two agents, as the Team screen shows them.
+  daemon.sessions.get('handline.architect')!.fx.view = { task_count: 3 };
+  daemon.sessions.get('handline.auditor')!.fx.view = { task_count: 1 };
 }
 if (process.argv.includes('--picture')) {
   // The phone cannot attach, so a message with one image is put in handline.architect's chat, as the tests do.
