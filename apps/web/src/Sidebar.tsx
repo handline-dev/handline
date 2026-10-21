@@ -1,10 +1,24 @@
 // The agent list. A row shows an agent's state, its queue and a fold button when it has children; its actions (Start, the ⋯ menu)
 // show while the pointer is on it or it is selected. One filter button opens the menu of what to show.
-import { Fragment, useState, type ReactNode } from 'react';
-import { dotOf, isUnread, railRows, teamOf, visibleRows, RAIL_FILTERS, type Dot, type KV, taskRef } from '@handline/app-core';
-import type { AgentView } from '@handline/client';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import {
+  chipChanges,
+  chipCounts,
+  chipOf,
+  dotOf,
+  hiddenDots,
+  navList,
+  teamOf,
+  togglePin as toggleIn,
+  RAIL_FILTERS,
+  taskRef,
+  type Dot,
+  type KV,
+  type NavGroup,
+} from '@handline/app-core';
+import type { AgentView, NavPrefsChanges } from '@handline/client';
 import { useConnection } from '@handline/app-react';
-import { useAgents, useHrCount, useServes, useUnreached, useWorktrees } from '@handline/app-data';
+import { useAgents, useHrCount, useNav, useServes, useUnreached, useWorktrees } from '@handline/app-data';
 import { useMyTurn } from '#src/MyTurn.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
 import { Button, Icon, MenuButton, MenuCheckItem, MenuItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
@@ -39,18 +53,10 @@ export function Sidebar({
   const agents = list.data?.agents ?? [];
   const conn = useConnection();
   const [search, setSearch] = useState('');
-  const [hidden, setHidden] = useState<Set<Dot>>(
-    () => new Set(setting(storage, 'hiddenDots', '').value.split(',').filter(Boolean) as Dot[]),
-  );
-  const [collapsed, setCollapsed] = useState<Set<string>>(
-    () => new Set(setting(storage, 'collapsed', '').value.split('|').filter(Boolean)),
-  );
-  const flip = <T extends string>(set: Set<T>, k: T, key: string, sep: string): Set<T> => {
-    const next = new Set(set);
-    if (!next.delete(k)) next.add(k);
-    setting(storage, key, '').save([...next].join(sep));
-    return next;
-  };
+  const { nav, ready, change, togglePin: togglePinAgent } = useNav();
+  const hidden = hiddenDots(nav.hidden);
+  const collapsed = new Set(nav.collapsed);
+  useMoveSettings(storage, ready && !!list.data, agents.map((x) => x.name), change);
   // The view menu: the list under its teams, and the line under a name that says what the agent is doing.
   const [grouped, setGrouped] = useState(() => setting(storage, 'groupTeams', '1').value !== '0');
   const [activity, setActivity] = useState(() => setting(storage, 'activityLines', '1').value !== '0');
@@ -63,10 +69,13 @@ export function Sidebar({
   const trees = useWorktrees();
   const where = new Map<string, string>();
   for (const w of trees.data?.worktrees ?? []) if (w.owner && !where.has(w.owner)) where.set(w.owner, `${w.repo}/${w.branch}`);
-  const [unreadOnly, setUnreadOnly] = useState(() => setting(storage, 'unreadOnly', '0').value === '1');
-  const unreadCount = agents.filter(isUnread).length;
+  const chip = chipOf(nav);
+  const chipN = chipCounts(agents);
   const names = agents.map((x) => x.name);
-  const rows = byTeam(visibleRows(railRows(agents, { hidden, search, unread: unreadOnly }), collapsed), grouped, names);
+  const tree = nav.layout === 'tree';
+  const nl = navList(agents, nav, search);
+  const rows = tree ? byTeam(nl.rows, grouped, names) : nl.rows;
+  const heads = tree && grouped;
   // A team's heading counts the rows under it, a child with its parent.
   const teamSize = new Map<string, number>();
   let blockTeam = '';
@@ -74,6 +83,23 @@ export function Sidebar({
     if (depth === 0) blockTeam = teamOf(agent.name, names);
     teamSize.set(blockTeam, (teamSize.get(blockTeam) ?? 0) + 1);
   }
+  const row = (agent: AgentView, depth: number, kids: number, team: string, key?: string) => (
+    <AgentRow
+      key={key}
+      agent={agent}
+      depth={depth}
+      kids={kids}
+      team={team}
+      sub={lastLine(agent) || (agent.task ? `${taskRef(agent.task.id)} ${agent.task.title}` : (where.get(agent.name) ?? ''))}
+      live={activity || agent.handoff ? liveOf(agent) : ''}
+      folded={collapsed.has(agent.name)}
+      onFold={() => change({ collapsed: toggleIn(nav.collapsed, agent.name) })}
+      unreached={unreached.get(agent.name) ?? null}
+      selected={agent.name === selected}
+      pinned={nav.pins.includes(agent.name)}
+      onPin={() => togglePinAgent(agent.name)}
+    />
+  );
   const counts = new Map<Dot, number>();
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const myTurn = useMyTurn().cards.length;
@@ -120,7 +146,7 @@ export function Sidebar({
           onChange={(e) => setSearch(e.target.value)}
         />
         <span className="relative inline-flex">
-          <MenuButton icon="filter" label={hidden.size ? `View: ${hidden.size} hidden` : 'View'} name="View">
+          <MenuButton icon="filter" label={nav.hidden.length ? `View: ${nav.hidden.length} hidden` : 'View'} name="View">
             <MenuLabel>Show agents that are</MenuLabel>
             {RAIL_FILTERS.map((f) => {
               const on = f.dots.every((d) => !hidden.has(d));
@@ -131,13 +157,8 @@ export function Sidebar({
                   checked={on}
                   icon={<Mark dot={f.dots[0]!} title={MARKS[f.dots[0]!].label} />}
                   onCheckedChange={() => {
-                    const next = new Set(hidden);
-                    for (const d of f.dots) {
-                      if (on) next.add(d);
-                      else next.delete(d);
-                    }
-                    setting(storage, 'hiddenDots', '').save([...next].join(','));
-                    setHidden(next);
+                    const g = f.id as NavGroup;
+                    change({ hidden: on ? [...nav.hidden, g] : nav.hidden.filter((x) => x !== g) });
                   }}
                 >
                   <span className="flex-1">{f.label}</span>
@@ -147,6 +168,9 @@ export function Sidebar({
             })}
             <MenuSeparator />
             <MenuLabel>List</MenuLabel>
+            <MenuCheckItem checked={tree} onCheckedChange={(on) => change({ layout: on ? 'tree' : 'flat' })}>
+              Tree
+            </MenuCheckItem>
             <MenuCheckItem checked={grouped} onCheckedChange={(on) => toggle('groupTeams', on, setGrouped)}>
               Group by team
             </MenuCheckItem>
@@ -154,7 +178,7 @@ export function Sidebar({
               Show what each agent is doing
             </MenuCheckItem>
           </MenuButton>
-          {hidden.size ? (
+          {nav.hidden.length ? (
             <span
               aria-hidden
               data-testid="filter-active"
@@ -191,31 +215,35 @@ export function Sidebar({
       <div className="rail-read flex gap-0.5 px-2.5 py-1.5" role="group" aria-label="Show agents">
         {(
           [
-            [false, 'All', 0],
-            [true, 'Unread', unreadCount],
+            ['all', 'All'],
+            ['unread', 'Unread'],
+            ['needs', 'Needs me'],
           ] as const
-        ).map(([only, label, n]) => (
+        ).map(([id, label]) => (
           <button
-            key={label}
-            className={`rounded-ctl border-0 px-2 py-0.5 text-label ${unreadOnly === only ? 'bg-canvas text-ink' : 'bg-transparent text-ink-2'}`}
-            aria-pressed={unreadOnly === only}
-            onClick={() => {
-              setting(storage, 'unreadOnly', '').save(only ? '1' : '0');
-              setUnreadOnly(only);
-            }}
+            key={id}
+            className={`rounded-ctl border-0 px-2 py-0.5 text-label ${chip === id ? 'bg-canvas text-ink' : 'bg-transparent text-ink-2'}`}
+            aria-pressed={chip === id}
+            onClick={() => change(chipChanges(id))}
           >
             {label}
-            {n ? <span className="ml-1 text-wait">{n}</span> : null}
+            {id !== 'all' && chipN[id] ? <span className="ml-1 text-wait">{chipN[id]}</span> : null}
           </button>
         ))}
       </div>
       <div className="rail-list min-h-0 flex-1 overflow-auto">
         {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
         <View q={list} served={served} shape="agents" what="the agent list" empty={conn === 'open' && !agents.length && 'No agents.'}>
+          {nl.pinned.length ? (
+            <>
+              <h3 className="pinned-head m-0 px-2.5 pb-0.5 pt-2 text-hint font-normal uppercase tracking-wide text-ink-3">Pinned</h3>
+              {nl.pinned.map((agent) => row(agent, 0, 0, teamOf(agent.name, names), `pin-${agent.name}`))}
+            </>
+          ) : null}
           {rows.map(({ agent, depth, kids }, i) => {
             const team = teamOf(agent.name, names);
             // A team's heading stands over its first top-level row; a child stays under the parent that spawned it.
-            const head = grouped && depth === 0 && team !== lastTop(rows, i, names);
+            const head = heads && depth === 0 && team !== lastTop(rows, i, names);
             return (
               <Fragment key={agent.name}>
                 {head ? (
@@ -223,18 +251,7 @@ export function Sidebar({
                     {team} <span className="count">{teamSize.get(team)}</span>
                   </h3>
                 ) : null}
-                <AgentRow
-                  agent={agent}
-                  depth={depth}
-                  kids={kids}
-                  team={team}
-                  sub={lastLine(agent) || (agent.task ? `${taskRef(agent.task.id)} ${agent.task.title}` : (where.get(agent.name) ?? ''))}
-                  live={activity || agent.handoff ? liveOf(agent) : ''}
-                  folded={collapsed.has(agent.name)}
-                  onFold={() => setCollapsed(flip(collapsed, agent.name, 'collapsed', '|'))}
-                  unreached={unreached.get(agent.name) ?? null}
-                  selected={agent.name === selected}
-                />
+                {row(agent, depth, kids, team)}
               </Fragment>
             );
           })}
@@ -247,6 +264,20 @@ export function Sidebar({
       </footer>
     </nav>
   );
+}
+
+/** This device's old list settings move into the person's prefs once, then are cleared. */
+function useMoveSettings(storage: KV | null, ready: boolean, names: string[], change: (c: NavPrefsChanges) => void) {
+  useEffect(() => {
+    if (!ready) return;
+    const old = ['unreadOnly', 'hiddenDots', 'collapsed'].map((k) => setting(storage, k, '').value);
+    if (!old.some(Boolean)) return;
+    const [unread, dots, fold] = old as [string, string, string];
+    const off = new Set(dots.split(',').filter(Boolean));
+    const hidden = RAIL_FILTERS.filter((f) => f.dots.some((d) => off.has(d))).map((f) => f.id as NavGroup);
+    change({ unread_only: unread === '1', hidden, collapsed: fold.split('|').filter((n) => names.includes(n)) });
+    for (const k of ['unreadOnly', 'hiddenDots', 'collapsed']) setting(storage, k, '').save('');
+  }, [storage, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /** Grouped: each top-level row with the rows under it moves up beside the first of its team, so a heading stands once; the order within a team is kept. */

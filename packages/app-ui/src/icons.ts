@@ -36,6 +36,7 @@ export const ICON_SPEC = {
   answer: ['Pencil', 'Answer'],
   reply: ['MessageSquareReply', 'Reply'],
   filter: ['Filter', 'Filter'],
+  pin: ['Pin', 'Pin'],
   keys: ['Keyboard', 'Keys'],
   more: ['ChevronDown', 'Show more'],
   ellipsis: ['Ellipsis', 'Actions'],

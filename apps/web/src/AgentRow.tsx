@@ -53,6 +53,8 @@ export function AgentRow({
   onFold,
   unreached,
   selected,
+  pinned,
+  onPin,
 }: {
   agent: AgentView;
   depth: number;
@@ -64,6 +66,8 @@ export function AgentRow({
   onFold: () => void;
   unreached: number | null;
   selected: boolean;
+  pinned: boolean;
+  onPin: () => void;
 }) {
   const store = useStore();
   const dot = dotOf(a);
@@ -228,7 +232,7 @@ export function AgentRow({
           </div>
         </MenuTrigger>
         <MenuContent>
-          <AgentMenu agent={a} onAsk={setAsk} onDelete={() => setDeleting(true)} />
+          <AgentMenu agent={a} pinned={pinned} onPin={onPin} onAsk={setAsk} onDelete={() => setDeleting(true)} />
         </MenuContent>
       </Menu>
       <AnimatedList>{ask ? <VerbSheet key="VerbSheet" a={a} verb={ask} onClose={() => setAsk(null)} /> : null}</AnimatedList>
