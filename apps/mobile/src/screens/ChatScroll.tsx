@@ -1,6 +1,7 @@
 // The chat list's scroll: it follows its end until a hand drags it away or a message is sent, which stands at the top over room for the reply.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, type NativeScrollEvent, type ScrollView } from 'react-native';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 
@@ -16,6 +17,12 @@ export function useChatScroll() {
   const sentBelow = useRef<number | null>(null); // `lowest` at a send: the first own row below it is that message
   const anchor = useRef<{ y: number; scrolled: boolean } | null>(null);
   const toEndNow = () => ref.current?.scrollToEnd({ animated: false });
+  // The keyboard shrinks the viewport; once that has laid out, a list at its end stays there.
+  const keyboard = useKeyboardState((k) => k.height);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => follow.current && toEndNow());
+    return () => cancelAnimationFrame(frame);
+  }, [keyboard]);
   // What the viewport has left under the reply so far; at nothing, the list follows its end as usual.
   const fit = () => {
     const a = anchor.current;
@@ -71,7 +78,7 @@ export function useChatScroll() {
     scrollProps: {
       onLayout: (e: { nativeEvent: { layout: { height: number } } }) => {
         viewH.current = e.nativeEvent.layout.height;
-        if (follow.current) toEndNow();
+        if (follow.current) requestAnimationFrame(toEndNow);
         fit();
       },
       onScrollBeginDrag: leave,
