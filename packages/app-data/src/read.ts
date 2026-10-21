@@ -203,3 +203,8 @@ export const useOperation = (operation: string) => useRead('operation.get', { op
 export const useChatLocate = (params: CallParams<'chat.locate'>, enabled = true) => useRead('chat.locate', params, { enabled });
 export const useChatRefs = (agent: string, enabled = true) => useRead('chat.refs', { agent }, { enabled });
 export const useChatSearch = (params: CallParams<'chat.search'>, enabled = true) => useRead('chat.search', params, { enabled });
+
+/** A one-off load that is not a daemon read (the desktop shell's answer, a picture's bytes) as a query: kept per `key`, undefined until it lands or when `enabled` is off. */
+export function useLoaded<T>(key: readonly unknown[], load: () => Promise<T>, enabled = true): T | undefined {
+  return useQuery({ queryKey: ['loaded', ...key], queryFn: load, enabled, staleTime: Infinity }).data;
+}

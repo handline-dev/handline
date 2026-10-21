@@ -29,6 +29,7 @@ import {
   NOTE,
 } from '#src/ui/index.ts';
 import { View } from '#src/View.tsx';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 const SECTIONS: { id: Field['section']; title: string; icon: IconName }[] = [
   { id: 'model', title: 'Model', icon: 'agent' },
@@ -177,8 +178,9 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
           {note}
         </p>
       ) : null}
+      <AnimatedList>
       {danger ? (
-        <Sheet danger role="alertdialog" aria-label={danger.title}>
+        <Sheet key="danger" danger role="alertdialog" aria-label={danger.title}>
           <strong>{danger.title}</strong>
           <span className="muted">{danger.text}</span>
           <SheetActions>
@@ -198,6 +200,7 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
           </SheetActions>
         </Sheet>
       ) : null}
+      </AnimatedList>
     </SettingsRow>
   );
 }

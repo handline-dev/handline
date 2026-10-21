@@ -39,6 +39,8 @@ import {
 import { goSettings } from '#src/route.ts';
 import { View } from '#src/View.tsx';
 import { useNarrow } from '#src/useNarrow.ts';
+import { AnimatedList } from '#src/AnimatedList.tsx';
+import { Reveal } from '#src/ui/Reveal.tsx';
 
 /** A proposal's state as the shared state glyph: a shape per state, so the word's colour is never the only sign. */
 const STATE_KIND: Record<string, StateKind> = {
@@ -120,8 +122,9 @@ export function HrTab({ focus }: { focus: number | null }) {
             </SheetActions>
           ) : null}
         </div>
+        <AnimatedList>
         {all === 'ask' ? (
-          <Sheet role="alertdialog" aria-label="Approve all">
+          <Sheet key="approve" role="alertdialog" aria-label="Approve all">
             <strong>{chosen.length ? `Approve ${scope}?` : `Approve all ${waiting.length}?`}</strong>
             <span className="muted">Each is applied as the card shows it; one that fails stays waiting.</span>
             <SheetActions>
@@ -142,7 +145,7 @@ export function HrTab({ focus }: { focus: number | null }) {
             </SheetActions>
           </Sheet>
         ) : all === 'reject' ? (
-          <Sheet role="alertdialog" aria-label="Reject all">
+          <Sheet key="reject" role="alertdialog" aria-label="Reject all">
             <strong>{chosen.length ? `Reject ${scope}?` : `Reject all ${waiting.length}?`}</strong>
             <input aria-label="Reason" placeholder="Reason" value={why} onChange={(e) => setWhy(e.target.value)} />
             <SheetActions>
@@ -163,7 +166,7 @@ export function HrTab({ focus }: { focus: number | null }) {
             </SheetActions>
           </Sheet>
         ) : results ? (
-          <div className="flex flex-col gap-1 py-2 text-label" role="status" aria-label="Result">
+          <div key="results" className="flex flex-col gap-1 py-2 text-label" role="status" aria-label="Result">
             <strong>
               {results.rows.filter((r) => r.ok).length} of {results.rows.length} {results.verb}
             </strong>
@@ -176,6 +179,7 @@ export function HrTab({ focus }: { focus: number | null }) {
             <Button variant="outline" label="Dismiss" onClick={() => setResults(null)} />
           </div>
         ) : null}
+        </AnimatedList>
         {list.length ? null : <Empty icon="inbox" name="Nothing to decide" hint="Roster and role changes agents propose land here." />}
         {fresh.map(waitingCard)}
         {stale.length ? <SectionHead variant="small">Stale · no answer for 14 days</SectionHead> : null}
@@ -295,7 +299,7 @@ function Card({
           {showDiff ? 'Hide diff' : `Show diff (${diff.length} change${diff.length === 1 ? '' : 's'})`}
         </Button>
       ) : null}
-      {showDiff ? (
+      <Reveal show={showDiff}>
         <CodeBlock scroll className="hr-diff" aria-label="What approving does">
           {diff.map((l, i) => (
             <div key={i} className={l.mark === '-' ? 'del text-bad' : l.mark === '+' ? 'add text-ok' : ''}>
@@ -303,7 +307,7 @@ function Card({
             </div>
           ))}
         </CodeBlock>
-      ) : null}
+      </Reveal>
       {p.state === 'apply_failed' ? <FNote tone="bad">{p.error ? cutError(textSafe(p.error)) : 'the change was not applied'}</FNote> : null}
       {note === 'settled' ? (
         <p className="muted">already {p.state}</p>
@@ -359,8 +363,9 @@ function Card({
           />
         </CardActions>
       ) : null}
+      <AnimatedList>
       {ask ? (
-        <Sheet danger role="alertdialog" aria-label="Withdraw">
+        <Sheet key="withdraw" danger role="alertdialog" aria-label="Withdraw">
           <strong>Withdraw {textSafe(p.title)}</strong>
           <span className="muted">Takes the proposal back; whoever raised it can raise it again.</span>
           <SheetActions>
@@ -379,6 +384,7 @@ function Card({
           </SheetActions>
         </Sheet>
       ) : null}
+      </AnimatedList>
     </article>
   );
 }

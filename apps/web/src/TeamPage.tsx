@@ -7,6 +7,7 @@ import { TeamSeal } from '#src/TeamSeal.tsx';
 import { Empty, Icon, PageHead, PageTitle, ScrollPage, MetaItem, MetaLine, State, TabStrip, stateOfView } from '#src/ui/index.ts';
 import { goAgent, goTeam, useTeamRoute } from '#src/route.ts';
 import { View } from '#src/View.tsx';
+import { Reveal } from '#src/ui/Reveal.tsx';
 
 export function TeamPage() {
   const route = useTeamRoute()!;
@@ -154,7 +155,7 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
           <Icon name="tasks" label="Doing" size={14} aria-hidden="true" /> {taskRef(d.task.id)} {d.task.title}
         </p>
       ) : null}
-      {props.open ? (
+      <Reveal show={props.open}>
         <div className="edges mt-1.5 grid gap-1.5 border-t border-line pt-2 [&_svg]:text-ink-3">
           <div className="flex flex-wrap items-center gap-1.5">
             <Icon name="send" label="May ask" size={14} />
@@ -165,7 +166,7 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
             {chips(props.edges.filter((e) => e.to === a.name).map((e) => e.from))}
           </div>
         </div>
-      ) : null}
+      </Reveal>
     </article>
   );
 }

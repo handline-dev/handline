@@ -263,20 +263,24 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
           rowProps={rowProps}
         />
       )}
+      <AnimatedList>
       {open === 'discard' ? (
-        <ReasonSheet
+        <ReasonSheet key="discard"
           label={targets().some((id) => all.find((t) => t.id === id)?.state === 'doing') ? 'stop it and discard - why:' : 'discard - why:'}
           submit="Discard"
           onCancel={shut}
           onSubmit={(reason) => own('discard', reason)}
         />
       ) : null}
-      {open === 'owner' ? <OwnerSheet agents={agents} onCancel={shut} onPick={(o) => own('owner', o)} /> : null}
-      {open === 'priority' ? <PrioritySheet onCancel={shut} onPick={(p) => own('priority', String(p))} /> : null}
+      </AnimatedList>
+      <AnimatedList>{open === 'owner' ? <OwnerSheet key="OwnerSheet" agents={agents} onCancel={shut} onPick={(o) => own('owner', o)} /> : null}</AnimatedList>
+      <AnimatedList>{open === 'priority' ? <PrioritySheet key="PrioritySheet" onCancel={shut} onPick={(p) => own('priority', String(p))} /> : null}</AnimatedList>
+      <AnimatedList>
       {open === 'merge' ? (
-        <MergeSheet count={[...marked].filter((t) => t !== cursor).length} into={cursor} onCancel={shut} onSubmit={doMerge} />
+        <MergeSheet key="merge" count={[...marked].filter((t) => t !== cursor).length} into={cursor} onCancel={shut} onSubmit={doMerge} />
       ) : null}
-      {open === 'keys' ? <KeysSheet onClose={shut} /> : null}
+      </AnimatedList>
+      <AnimatedList>{open === 'keys' ? <KeysSheet key="KeysSheet" onClose={shut} /> : null}</AnimatedList>
       <VerbSheets flow={verbs} ids={targets()} />
       {marked.size ? (
         <TasksBar marked={marked.size} can={{ edit: canEdit, merge: canMerge }} onAct={act} onClear={() => setMarked(new Set())}>
@@ -329,7 +333,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
         onView={(v) => goTasks(v === 'graph' ? 'graph' : undefined)}
         onAct={(what) => (what === 'states' && open === 'states' ? shut() : act(what))}
       />
-      {open === 'new' ? <NewTask agents={agents} onClose={shut} /> : null}
+      <AnimatedList>{open === 'new' ? <NewTask key="NewTask" agents={agents} onClose={shut} /> : null}</AnimatedList>
       <View q={q} served={listServed} shape="tasks" what="tasks">
         {rows.length === 0 ? (
           <div className="empty">

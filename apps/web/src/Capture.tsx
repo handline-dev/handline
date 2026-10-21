@@ -8,6 +8,7 @@ import { useTasksRoute } from '#src/route.ts';
 import { shell } from '#src/shell.ts';
 import { CaptureDestination, type Destination } from '#src/CaptureDestination.tsx';
 import { Button, Dialog, NOTE, Textarea } from '#src/ui/index.ts';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 /** True when this shell can capture a window. */
 export const canCapture = (): boolean => shell('captureWindow') !== null;
@@ -37,9 +38,8 @@ export function CaptureHost(): ReactNode {
       removeEventListener(EVENT, ask);
     };
   }, []);
-  if (!open) return null;
   const task = route && /^\d+$/.test(route) ? Number(route) : null;
-  return <CaptureDialog agents={agents} task={task} onClose={() => setOpen(false)} />;
+  return <AnimatedList>{open ? <CaptureDialog key="capture" agents={agents} task={task} onClose={() => setOpen(false)} /> : null}</AnimatedList>;
 }
 
 type Win = { id: string; name: string; thumb: string };

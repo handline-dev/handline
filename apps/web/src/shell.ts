@@ -2,7 +2,7 @@
 // is none, every function here does nothing, and the page works as it did.
 import { useEffect, useRef } from 'react';
 import { routeOfTarget, type ShellApi } from '@handline/app-core';
-import { useBusy } from '@handline/app-data';
+import { useBusy, useLoaded } from '@handline/app-data';
 import { RpcError, type ClientOptions } from '@handline/client';
 
 type Call =
@@ -63,6 +63,18 @@ export function trackShellInsets(): void {
 export function shell(call: Call): ShellApi | null {
   const s = (window as { handline?: Partial<ShellApi> }).handline;
   return s?.api === 1 && typeof s[call] === 'function' ? (s as ShellApi) : null;
+}
+
+/** The desktop shell's mode answer (which daemon, and whether it can pair a phone); nothing in a plain browser, and nothing if the shell cannot say. */
+export function useShellMode() {
+  return useLoaded(
+    ['shell', 'mode'],
+    async () => {
+      const r = await shell('mode')!.mode!();
+      return r.ok ? r : null;
+    },
+    !!shell('mode'),
+  );
 }
 
 /** Something in the page a restart would lose: a box is open, a field holds text, or a send is in flight (a row the daemon has not numbered). */

@@ -4,6 +4,7 @@ import { ACTIVITY_KINDS, teamActivityOf, clockTime, type ActivityKind } from '@h
 import { useChat } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Empty } from '#src/ui/index.ts';
+import { Reveal } from '#src/ui/Reveal.tsx';
 
 const CHIP = 'cursor-pointer rounded-pill border border-line bg-transparent px-2.5 py-0.5 text-label text-ink-2 aria-pressed:bg-panel aria-pressed:text-ink';
 const LABEL: Record<ActivityKind, string> = { messages: 'Messages', tasks: 'Tasks', sessions: 'Sessions', tools: 'Tools' };
@@ -58,8 +59,12 @@ export function ActivityTab({ agent, row = null }: { agent: string; row?: string
               ) : null}
               <span className={`min-w-0 flex-1 text-ink-2 ${open === r.key ? 'whitespace-pre-wrap' : 'truncate'}`}>{r.text}</span>
             </button>
-            {open === r.key && r.output ? <pre className="tool-output mono m-0 mt-1 overflow-auto whitespace-pre-wrap text-hint text-ink-2">{r.output}</pre> : null}
-            {open === r.key && r.dropped ? <p className="m-0 text-hint text-wait">{r.dropped} more lines not shown</p> : null}
+            <Reveal show={open === r.key && !!r.output}>
+              <pre className="tool-output mono m-0 mt-1 overflow-auto whitespace-pre-wrap text-hint text-ink-2">{r.output}</pre>
+            </Reveal>
+            <Reveal show={open === r.key && !!r.dropped}>
+              <p className="m-0 text-hint text-wait">{r.dropped} more lines not shown</p>
+            </Reveal>
           </li>
         ))}
       </ul>

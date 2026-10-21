@@ -12,6 +12,7 @@ import { useWorkspace } from '#src/Workspace.tsx';
 import { AgentGauges } from '#src/AgentGauges.tsx';
 import { ViewSwitch } from '#src/ViewSwitch.tsx';
 import { useOpenTerminal } from '#src/ChatMenus.tsx';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 const until = (iso: string | null): number | null => {
   const t = iso ? Date.parse(iso) : NaN;
@@ -175,11 +176,13 @@ export function HrCards({ agent }: { agent: string }) {
           </Card>
         );
       })}
+      <AnimatedList>
       {rejecting ? (
-        <Dialog title="Reject" onClose={() => setRejecting(null)} action={{ label: 'Reject', onClick: reject, disabled: !note.trim() }}>
+        <Dialog key="reject" title="Reject" onClose={() => setRejecting(null)} action={{ label: 'Reject', onClick: reject, disabled: !note.trim() }}>
           <Field label="Why" value={note} onChange={(e) => setNote(e.target.value)} />
         </Dialog>
       ) : null}
+      </AnimatedList>
     </>
   );
 }

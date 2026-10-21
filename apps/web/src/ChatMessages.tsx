@@ -12,6 +12,8 @@ import { Pictures } from '#src/ChatAttach.tsx';
 import { Markdown } from '#src/Markdown.tsx';
 import { RichText } from '#src/RichText.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
+import { AnimatedList } from '#src/AnimatedList.tsx';
+import { Reveal } from '#src/ui/Reveal.tsx';
 
 /** A plain click on a task link opens the task in the workspace; a modified or middle click keeps the browser's own. */
 export const openTaskOnClick = (apply: ReturnType<typeof useWorkspace>['apply'], task: number) => (e: MouseEvent) => {
@@ -220,9 +222,9 @@ function ToolLine({ i }: { i: TranscriptItem }) {
           {open ? 'Hide output' : 'Show all'}
         </Button>
       ) : null}
-      {open ? (
-        <CodeBlock className="tool-output basis-full max-h-[20lh] overflow-auto max-sm:whitespace-pre-wrap">{i.output}</CodeBlock>
-      ) : null}
+      <Reveal show={open} className="basis-full">
+        <CodeBlock className="tool-output max-h-[20lh] overflow-auto max-sm:whitespace-pre-wrap">{i.output}</CodeBlock>
+      </Reveal>
       {cut && (open || !i.output) ? (
         <span className="muted">
           {cut} more line{cut === 1 ? '' : 's'} let go
@@ -250,11 +252,13 @@ function SessionCard({ i }: { i: TranscriptItem }) {
         </Button>
       ) : null}
       <hr className="m-0 h-px flex-1 border-0 bg-line" />
+      <AnimatedList>
       {open ? (
-        <Dialog title="Handoff note" onClose={() => setOpen(false)}>
+        <Dialog key="handoff" title="Handoff note" onClose={() => setOpen(false)}>
           <CodeBlock className="handoff-full max-h-[60vh] overflow-auto whitespace-pre-wrap">{handoff}</CodeBlock>
         </Dialog>
       ) : null}
+      </AnimatedList>
     </div>
   );
 }
