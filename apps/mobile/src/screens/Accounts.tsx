@@ -6,12 +6,19 @@ import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-na
 import { FIVE_HOURS_MS, STATE_WORD, WEEK_MS, gaugeOf, outUntil, span, stateOf } from '@handline/app-core';
 import type { Account, Window } from '@handline/client';
 import { useStore } from '@handline/app-react';
-import { classify, sentence, useAccounts, useOff, usePending, useServes, useWrite } from '@handline/app-data';
+import { classify, sentence, useAccounts, useAccountUsage, useOff, usePending, useServes, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { AccountLogin } from '#src/screens/AccountLogin.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { Button, Card, PageHeader } from '#src/screens/parts.tsx';
+
+/** The topic's rows are live; the usage read adds the fields only it carries. */
+function useUsageRows(): Account[] | undefined {
+  const live = useAccounts().data?.accounts;
+  const usage = useAccountUsage().data?.accounts;
+  return live?.map((a) => ({ ...usage?.find((u) => u.name === a.name), ...a }));
+}
 
 const SPANS = { '5 hours': FIVE_HOURS_MS, week: WEEK_MS } as const;
 
@@ -20,6 +27,28 @@ export function Accounts(props: { selected: string | null; onSelect: (name: stri
     <One name={props.selected} onBack={() => props.onSelect(null)} />
   ) : (
     <List onSelect={props.onSelect} footer={props.footer} />
+  );
+}
+
+const dash = (v: string | number | null | undefined) => (v === null || v === undefined || v === '' ? '—' : String(v));
+
+/** What `hl account list` adds to the gauges: plan and runway, whether another agent may start and why not, and the agents on it. Nothing until the usage read arrives. */
+function UsageLines({ a }: { a: Account }) {
+  const c = usePalette();
+  const style = { color: c.muted, fontSize: 12 };
+  const usage = a.plan !== undefined || a.runway !== undefined || a.assignable !== undefined;
+  const roster = a.agents_assigned !== undefined || a.agents_running !== undefined || a.agents_unplaced !== undefined;
+  if (!usage && !roster) return null;
+  return (
+    <View testID={`usage-${a.name}`} style={{ gap: 2 }}>
+      {usage ? <Text style={style}>{`plan ${dash(a.plan)} · runway ${dash(a.runway)}`}</Text> : null}
+      {a.assignable === undefined ? null : (
+        <Text style={style}>{a.assignable ? 'can take another agent' : `cannot take another agent: ${dash(a.assign_reason)}`}</Text>
+      )}
+      {roster ? (
+        <Text style={style}>{`agents ${dash(a.agents_assigned)} assigned · ${dash(a.agents_running)} running · ${dash(a.agents_unplaced)} unplaced`}</Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -61,7 +90,7 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
   const c = usePalette();
   const query = useAccounts();
   const { served } = useServes('accounts.list');
-  const rows = query.data?.accounts ?? [];
+  const rows = useUsageRows() ?? [];
   return (
     <View style={{ flex: 1 }}>
       <PageHeader title="Usage" actions={<Add />} />
@@ -98,6 +127,7 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
                   <Gauge label="week" w={a.weekly} />
                 </>
               )}
+              <UsageLines a={a} />
             </Pressable>
           )}
         />
@@ -178,7 +208,7 @@ function One({ name, onBack }: { name: string; onBack: () => void }) {
   const c = usePalette();
   const query = useAccounts();
   const { served } = useServes('accounts.list');
-  const a = query.data?.accounts.find((x) => x.name === name);
+  const a = useUsageRows()?.find((x) => x.name === name);
   return (
     <View style={{ flex: 1 }}>
       <PageHeader back={{ label: 'Accounts', onPress: onBack, testID: 'account-back' }} />
@@ -203,6 +233,7 @@ function Body({ a }: { a: Account }) {
       {stateText(a) ? <Text style={{ color: c.muted }}>{stateText(a)}</Text> : null}
       <Gauge label="5 hours" w={a.five_hour} detail />
       <Gauge label="week" w={a.weekly} detail />
+      <UsageLines a={a} />
       <Text style={{ color: c.ink }}>{a.agents.length ? `On it: ${a.agents.join(', ')}` : 'No agents are on it.'}</Text>
       <Settings a={a} />
       <AccountLogin a={a} />
