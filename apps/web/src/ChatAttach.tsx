@@ -11,9 +11,9 @@ import {
   useUploadImage,
   whyNotImage,
 } from '@handline/app-data';
-import { AttachmentImage } from './AttachmentImage.tsx';
-import { shell } from './shell.ts';
-import { Icon } from './ui/index.ts';
+import { AttachmentImage } from '#src/AttachmentImage.tsx';
+import { shell } from '#src/shell.ts';
+import { Icon } from '#src/ui/index.ts';
 
 export interface Draft {
   key: number;

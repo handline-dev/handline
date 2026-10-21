@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, mount, press, text, until } from './harness.tsx';
-import { cacheText } from '../src/screens/AgentStrip.tsx';
+import { ARCH, $, mount, press, text, until } from '#test/harness.tsx';
+import { cacheText } from '#src/screens/AgentStrip.tsx';
 
 async function open(prepare: Parameters<typeof mount>[0] = () => {}) {
   const m = await mount(prepare, undefined, 'founder');
@@ -43,7 +43,7 @@ describe('the strip in the agent page menu', () => {
 
   it('is absent when the daemon does not serve agent.strip', async () => {
     const m = await open((s) => s.daemon.knobs.unserve('agent.strip'));
-    await until(() => $('tab-chat'), 'the page');
+    await until(() => $('verbs-open'), 'the page');
     expect($('agent-strip')).toBeNull();
     m.store.stop();
   });

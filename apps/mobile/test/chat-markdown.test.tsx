@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, mount, press, until } from './harness.tsx';
+import { ARCH, $, mount, press, until } from '#test/harness.tsx';
 
 describe('Markdown in a chat message', () => {
   it('draws a heading, a list, bold and code, keeps a line break, and still links a #N', async () => {

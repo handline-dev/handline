@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Task } from '@handline/client';
-import { applyEach, plan, rangeBetween, summary, whyNot } from '../src/index.ts';
+import { applyEach, plan, rangeBetween, summary, whyNot } from '#src/index.ts';
 
 const task = (id: number, state: string, from = 'founder'): Task => ({ id, state, from, to: 'a', title: `t${id}` }) as Task;
 

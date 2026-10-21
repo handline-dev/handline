@@ -4,10 +4,10 @@
 import type { MouseEvent, ReactNode } from 'react';
 import { findImageRefs, findRefs, openTask, openTaskTab, taskRef } from '@handline/app-core';
 import { useAgents, usePullRequests, useTasks } from '@handline/app-data';
-import { AttachmentImage } from './AttachmentImage.tsx';
-import { PathText } from './PathText.tsx';
-import { goTasks } from './route.ts';
-import { useWorkspaceIfAny } from './Workspace.tsx';
+import { AttachmentImage } from '#src/AttachmentImage.tsx';
+import { PathText } from '#src/PathText.tsx';
+import { goTasks } from '#src/route.ts';
+import { useWorkspaceIfAny } from '#src/Workspace.tsx';
 
 const LINK = 'ref border-0 bg-transparent p-0 font-mono text-[12px] leading-4 text-link underline cursor-pointer';
 

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { promptChoices } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import type { Prompt } from '@handline/client';
-import { usePending, useWrite } from './write.ts';
+import { usePending, useWrite } from '#src/write.ts';
 
 const code = (e: unknown) => (e as { code?: string } | null)?.code;
 

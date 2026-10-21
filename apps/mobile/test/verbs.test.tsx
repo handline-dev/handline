@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { act } from 'react';
-import { ARCH, $, mount, press, sleep, text, until } from './harness.tsx';
+import { ARCH, $, mount, press, sleep, text, until } from '#test/harness.tsx';
 
 describe('the agent verbs menu', () => {
   async function openMenu() {

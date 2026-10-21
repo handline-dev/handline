@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { inflateSync } from 'node:zlib';
-import { ringPng, TRAY_PNG } from '../src/tray-icon.ts';
+import { ringPng, TRAY_PNG } from '#src/tray-icon.ts';
 
 test('the tray icon is a real PNG at the menu bar size, a ring of black alpha with a clear middle', () => {
   const png = TRAY_PNG.bytes();

@@ -1,7 +1,7 @@
 // Draws annotation shapes onto an RGBA bitmap in plain arithmetic, so the web and the phone produce the same pixels from the same shapes.
 // Lines are round-capped discs, boxes are outlines, an arrow is a line with two barbs, text is a built-in 5x7 capital font.
 
-import { arrowBarbs, ellipsePoints, noteMark, scaleShape, type Point, type Shape } from './annotation.ts';
+import { arrowBarbs, ellipsePoints, noteMark, scaleShape, type Point, type Shape } from '#src/annotation.ts';
 
 export interface Bitmap {
   width: number;

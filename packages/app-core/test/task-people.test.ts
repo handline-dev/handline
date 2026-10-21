@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assignGroups, involved, replyTargets, treeDistance } from '../src/index.ts';
+import { assignGroups, involved, replyTargets, treeDistance } from '#src/index.ts';
 
 const team = {
   agents: [

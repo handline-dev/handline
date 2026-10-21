@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { annotate, initialAnnotation, notesOf, shapesToSvg, type AnnotationAction } from '../src/annotation.ts';
-import { blankBitmap, exportAnnotated } from '../src/annotation-raster.ts';
+import { annotate, initialAnnotation, notesOf, shapesToSvg, type AnnotationAction } from '#src/annotation.ts';
+import { blankBitmap, exportAnnotated } from '#src/annotation-raster.ts';
 
 const run = (...actions: AnnotationAction[]) => actions.reduce(annotate, initialAnnotation());
 const px = (b: { width: number; data: Uint8ClampedArray }, x: number, y: number) =>

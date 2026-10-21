@@ -1,7 +1,7 @@
 // Memo marks on a capture, with no platform in it: one gesture on the picture is one mark (a tap pins a circle, a drag draws a box, a loop
 // marks an area), its memo opens at the mark, and what goes to the agent is the numbered lines plus each mark's shape and pixel rect.
 // A view feeds points in image pixels; `annotation.ts` and `annotation-raster.ts` draw the shapes `marksToShapes` makes of the marks.
-import { textSize, type Point, type Shape } from './annotation.ts';
+import { textSize, type Point, type Shape } from '#src/annotation.ts';
 
 export type MarkKind = 'pin' | 'box' | 'area';
 export interface MarkRect {

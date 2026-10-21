@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { helloOf, Link, offerFrom, parseMode, pairRemote, plainRemoteHost, SettingsFile, type Open } from '../src/mode.ts';
-import { trayMenu } from '../src/tray.ts';
+import { helloOf, Link, offerFrom, parseMode, pairRemote, plainRemoteHost, SettingsFile, type Open } from '#src/mode.ts';
+import { trayMenu } from '#src/tray.ts';
 
 const dirs: string[] = [];
 const tmp = () => path.join(dirs[dirs.push(fs.mkdtempSync(path.join(os.tmpdir(), 'mode-'))) - 1]!, 'settings.json');

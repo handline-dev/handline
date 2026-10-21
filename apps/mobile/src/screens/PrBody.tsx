@@ -3,8 +3,8 @@ import type { ReactNode } from 'react';
 import { Linking, Text } from 'react-native';
 import { findRefs } from '@handline/app-core';
 import { usePullRequests } from '@handline/app-data';
-import { usePalette } from '../theme.ts';
-import { Markdown } from './Markdown.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Markdown } from '#src/screens/Markdown.tsx';
 
 export function PrBody({ id, agent, body, testID, breaks = true }: { id: number | string; agent: string; body: string; testID?: string; breaks?: boolean }) {
   const c = usePalette();

@@ -4,17 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { usePrompts, useWrite, type Entry, type Transcript as TranscriptState, type Turn } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Loadable } from './Loadable.tsx';
-import { PromptCard } from './PromptCard.tsx';
-import { Icon } from './Icon.tsx';
-import { Button, Row } from './parts.tsx';
-
-const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, 80);
-const inputLine = (input: Record<string, unknown>) => {
-  const first = Object.values(input).find((v) => typeof v === 'string');
-  return oneLine(typeof first === 'string' ? first : JSON.stringify(input));
-};
+import { oneLine, toolInputLine } from '@handline/app-core';
+import { usePalette } from '#src/theme.ts';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { PromptCard } from '#src/screens/PromptCard.tsx';
+import { Icon } from '#src/screens/Icon.tsx';
+import { Button, Row } from '#src/screens/parts.tsx';
 
 function Fold(props: { id: string; head: string; body: string; tint?: string }) {
   const c = usePalette();
@@ -39,7 +34,7 @@ function Tool(props: { e: Extract<Entry, { type: 'tool' }>; agent: string; held:
   const asking = card?.open && props.held.has(e.id);
   return (
     <View testID={`tool-${e.id}`}>
-      <Fold id={`tr-${e.seq}`} head={`${e.tool ?? 'tool'} ${inputLine(e.input)}`} body={JSON.stringify(e.input, null, 2)} />
+      <Fold id={`tr-${e.seq}`} head={`${e.tool ?? 'tool'} ${toolInputLine(e.input, 80)}`} body={JSON.stringify(e.input, null, 2)} />
       {asking && card && <PromptCard agent={props.agent} prompt={card.prompt} />}
       {e.answer && (
         <Text testID={`answer-${e.id}`} style={{ color: c.muted, fontSize: 12 }}>
@@ -50,7 +45,7 @@ function Tool(props: { e: Extract<Entry, { type: 'tool' }>; agent: string; held:
       {result && (
         <Fold
           id={`result-${e.id}`}
-          head={`${e.tool ?? 'tool'} ${result.ok ? 'returned' : 'failed'}: ${oneLine(result.text)}`}
+          head={`${e.tool ?? 'tool'} ${result.ok ? 'returned' : 'failed'}: ${oneLine(result.text, 80)}`}
           body={result.text + (result.truncated ? '\n… cut' : '')}
           tint={result.ok ? c.muted : c.block}
         />

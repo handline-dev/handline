@@ -1,8 +1,9 @@
 // The fake daemon's read-mostly admin surface: the stats windows, the usage outlook, the home settings, the standing answers, and the repos
 // and worktrees (worktrees.ts).
 import type { Outlook, Settings, SettingsChanges, StandingAnswer, Stats, Timestamp } from '@handline/contract';
-import { Failure, badRequest } from './errors.ts';
-import { FakeWorktrees } from './worktrees.ts';
+import { Failure, badRequest } from '#src/errors.ts';
+import { FakeWorktrees } from '#src/worktrees.ts';
+import { FakePrefs, type PrefsHost } from '#src/prefs.ts';
 
 type Accepted = (said: string) => unknown;
 const HOUR = 3_600_000;
@@ -26,6 +27,7 @@ const OVERLAYS: Record<string, number[]> = {
 
 export class FakeAdmin {
   readonly worktrees: FakeWorktrees;
+  readonly prefs: FakePrefs;
   private now: () => Timestamp;
   private on: boolean;
   private values: Settings['values'] = {
@@ -44,20 +46,22 @@ export class FakeAdmin {
   ];
 
   /** `on` false is a daemon that does not serve stats, settings or standing answers: it lists none of their methods. */
-  constructor(now: () => Timestamp, on: boolean) {
+  constructor(now: () => Timestamp, on: boolean, host: PrefsHost) {
     this.now = now;
     this.on = on;
     this.worktrees = new FakeWorktrees(on);
+    this.prefs = new FakePrefs(host);
   }
 
   /** Whether the daemon lists this method. */
   lists = (name: string): boolean => (this.on || !ADMIN.test(name)) && this.worktrees.lists(name);
 
   /** Whether this class answers the method. */
-  owns = (name: string): boolean => ADMIN.test(name) || this.worktrees.owns(name);
+  owns = (name: string): boolean => ADMIN.test(name) || this.worktrees.owns(name) || this.prefs.owns(name);
 
   call(method: string, p: Record<string, unknown>, accepted: Accepted): unknown {
     if (this.worktrees.owns(method)) return this.worktrees.call(method, p);
+    if (this.prefs.owns(method)) return this.prefs.call(method, p, accepted);
     switch (method) {
       case 'stats.get':
         return this.stats(p.window === '7d' ? '7d' : '24h');

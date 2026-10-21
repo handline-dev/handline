@@ -1,16 +1,13 @@
 // One row of the Tasks list: mark (on hover), state icon, number, title, owner and priority chips, time. A click opens the task; only the box marks.
-import { idleText, isOver, isPerson, timeoutText, taskRef, watchResult, type RowVerb } from '@handline/app-core';
+import { idleText, isOver, isPerson, type RowVerb, taskRef, timeLeft, timeoutText, watchResult } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useStore } from '@handline/app-react';
-import { goTasks } from './route.ts';
-import { AnimatedCell, AnimatedRow } from './AnimatedList.tsx';
-import { StateChip } from './taskui.tsx';
-import { RowMenu, type Cans } from './TaskVerbUi.tsx';
+import { goTasks } from '#src/route.ts';
+import { AnimatedCell, AnimatedRow } from '#src/AnimatedList.tsx';
+import { StateChip } from '#src/taskui.tsx';
+import { RowMenu, type Cans } from '#src/TaskVerbUi.tsx';
 
 const CHIP = 'inline-block max-w-full truncate rounded-pill border border-line px-2 text-hint leading-5 align-middle';
-
-/** "3h" for a task not running reads as the time it has: "3h left". */
-const left = (text: string) => (/^[\dhdm]+$/.test(text) ? `${text} left` : text);
 
 export function Row(props: {
   t: Task;
@@ -32,7 +29,7 @@ export function Row(props: {
   const me = useStore().me;
   const over = isOver(t, now);
   const authored = props.mark === 'authored';
-  const time = left(timeoutText(t, now) || idleText(t, now));
+  const time = timeLeft(timeoutText(t, now) || idleText(t, now));
   // An open row keeps its raised ground when hovered; a cursor row carries the inset bar. On a phone the row is a card.
   const row = `trow group/trow cursor-default max-sm:mt-0 max-sm:mb-2 max-sm:grid max-sm:grid-cols-[auto_1fr_auto] max-sm:gap-x-2 max-sm:py-2 max-sm:px-3 max-sm:bg-panel max-sm:border max-sm:border-line max-sm:rounded-card max-sm:[grid-template-areas:'state_num_time'_'title_title_title'_'owner_pri_pri'] ${
     props.open ? 'open bg-raised hover:bg-raised' : 'hover:bg-panel'

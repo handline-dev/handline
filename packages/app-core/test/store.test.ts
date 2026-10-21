@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { RpcError } from '@handline/client';
-import { Store } from '../src/index.ts';
+import { Store } from '#src/index.ts';
 import { setup, until } from '@handline/fake-daemon/helpers';
 
 const ARCH = 'handline.architect'; // idle with a session

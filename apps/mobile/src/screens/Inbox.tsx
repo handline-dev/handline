@@ -4,15 +4,15 @@ import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { ago, NOTICE_SENDER, REVIEW_TAG } from '@handline/app-core';
 import type { InboxItem } from '@handline/client';
-import { useConnection, useStore } from '@handline/app-react';
-import { useInbox, usePending, useServes, useTask, useUnread, useWrite } from '@handline/app-data';
+import { useStore } from '@handline/app-react';
+import { useInbox, useOff, usePending, useServes, useTask, useUnread, useWrite } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Icon, type IconName } from './Icon.tsx';
-import { Button, PageHeader } from './parts.tsx';
-import { Loadable } from './Loadable.tsx';
-import { PromptCard } from './PromptCard.tsx';
-import { ReviewCard } from './ReviewCard.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Icon, type IconName } from '#src/screens/Icon.tsx';
+import { Button, PageHeader } from '#src/screens/parts.tsx';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { PromptCard } from '#src/screens/PromptCard.tsx';
+import { ReviewCard } from '#src/screens/ReviewCard.tsx';
 
 const KIND: Record<string, string> = {
   decision: 'Decision',
@@ -29,7 +29,7 @@ const decidable = (i: InboxItem) => i.kind === 'decision' && i.task != null;
 const waits = (i: InboxItem, readPending: boolean) => !i.read && !readPending;
 
 /** A decision on a task tagged review gets the review card; any other keeps Done. */
-function Decide(props: { item: InboxItem; off: string | null; markRead: () => void }) {
+function Decide(props: { item: InboxItem; off: string | undefined; markRead: () => void }) {
   const i = props.item;
   const done = useWrite('task.done');
   const review = useTask(i.task!).data?.tags?.includes(REVIEW_TAG);
@@ -53,12 +53,6 @@ function Decide(props: { item: InboxItem; off: string | null; markRead: () => vo
       }}
     />
   );
-}
-
-function useOff(method: string): string | null {
-  const open = useConnection() === 'open';
-  const { served } = useServes(method);
-  return !open ? 'daemon not connected' : served ? null : `this daemon does not serve ${method}`;
 }
 
 /** What a card shows beyond the item: opened, which box, and the text typed. It lives in the list, not the card, so a refused write that

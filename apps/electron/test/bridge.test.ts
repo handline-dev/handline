@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { NavigateTo } from '@handline/app-core';
-import { makeApi, type Ipc } from '../src/api.ts';
-import { CHANNELS, Connection, fromWindow, Page, Settings, type Sender } from '../src/bridge.ts';
-import { noticeFor } from '../src/notices.ts';
+import { makeApi, type Ipc } from '#src/api.ts';
+import { CHANNELS, Connection, fromWindow, Page, Settings, type Sender } from '#src/bridge.ts';
+import { noticeFor } from '#src/notices.ts';
 import type { Event } from '@handline/client';
 
 const ORIGIN = 'http://127.0.0.1:5000';

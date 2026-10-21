@@ -1,11 +1,10 @@
 // The agent's schedules: founder-only writes (schedule.add, edit, remove), authored: the line shows at once and reverts on a refusal.
-import { cronWords } from '@handline/app-core';
+import { cronWords, ellipsis } from '@handline/app-core';
 import { classify, sentence, useScheduleEditor, useSchedules, useServes } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
 import type { Schedule } from '@handline/client';
-import { Button, FNote, Icon, SectionHead, Sheet, SheetActions } from './ui/index.ts';
-
-const cut = (s: string, n = 60) => (s.length > n ? `${s.slice(0, n)}…` : s);
+import { Button, FNote, Icon, SectionHead, Sheet, SheetActions } from '#src/ui/index.ts';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 export function Schedules({ agent, role }: { agent: string; role: string | undefined }) {
   const { served } = useServes('schedules.list');
@@ -16,7 +15,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
   const mine = (q.data?.schedules ?? []).filter((s) => s.target === agent);
   const write = role === 'founder' && mayAdd;
   const ask = (s: Schedule) => {
-    if (confirm(`Remove the schedule "${cut(s.message, 30)}"?`)) drop(s.id);
+    if (confirm(`Remove the schedule "${ellipsis(s.message, 30)}"?`)) drop(s.id);
   };
   return (
     <div className="schedules">
@@ -35,7 +34,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
             {cronWords(s.cron) ? <code className="muted"> {s.cron}</code> : null}
           </span>
           <span className="muted">{s.next_run ? `next ${new Date(s.next_run).toLocaleString()}` : ''}</span>
-          <span className="smsg min-w-[12ch] flex-1">{cut(s.message)}</span>
+          <span className="smsg min-w-[12ch] flex-1">{ellipsis(s.message, 60)}</span>
           {write ? (
             <span className="sact">
               <Button
@@ -64,8 +63,9 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
         </FNote>
       ) : null}
       {write && !form ? <Button label="Add schedule" onClick={() => setForm({ cron: '', message: '' })} /> : null}
+      <AnimatedList>
       {form ? (
-        <Sheet role="dialog" aria-label="Schedule">
+        <Sheet key="form" role="dialog" aria-label="Schedule">
           <input
             type="text"
             aria-label="When (cron)"
@@ -81,6 +81,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
           </SheetActions>
         </Sheet>
       ) : null}
+      </AnimatedList>
     </div>
   );
 }

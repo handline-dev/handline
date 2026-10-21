@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Sender } from '../src/bridge.ts';
-import { Capture, type Source } from '../src/capture.ts';
+import type { Sender } from '#src/bridge.ts';
+import { Capture, type Source } from '#src/capture.ts';
 
 const ORIGIN = 'http://127.0.0.1:5000';
 const top: Sender = { senderFrame: { url: `${ORIGIN}/`, parent: null } };

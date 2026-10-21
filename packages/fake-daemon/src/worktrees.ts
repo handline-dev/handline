@@ -1,8 +1,8 @@
 // The fake daemon's repos and worktrees: read-only, as the Python and Go daemons serve them today.
 import { createHash } from 'node:crypto';
 import type { Repo, Worktree } from '@handline/contract';
-import { Failure, invalidParams, refused } from './errors.ts';
-import { AGENTS } from './fixtures.ts';
+import { Failure, invalidParams, refused } from '#src/errors.ts';
+import { AGENTS } from '#src/fixtures.ts';
 
 /** The methods this answers. */
 const WORKTREES = /^(repos\.list|worktrees\.list|worktree\.diff|file\.read|file\.write)$/;

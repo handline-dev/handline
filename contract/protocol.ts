@@ -10,8 +10,8 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. */
-export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr" | "transcript";
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. */
+export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr" | "transcript" | "prefs";
 
 export type Caller = {
   kind: "person" | "device" | "agent" | "anonymous";
@@ -287,7 +287,7 @@ export type Task = {
   from: string;
   to: string;
   title: string;
-  /** draft, queued, doing, done or discarded. */
+  /** draft, queued, doing, done or discarded. doing is its owner's current, unblocked task (one per agent). */
   state: string;
   time_box: Duration | null;
   parent: number | null;
@@ -1610,6 +1610,39 @@ export type TaskWatch = {
   result: ("passed" | "failed" | "timed_out") | null;
 };
 
+/** How the person's agent list and dock show agents, the same on every device. */
+export type NavPrefs = {
+  /** Pinned agents in the person's order: the dock shows them first and the list on top. No name twice. */
+  pins: AgentName[];
+  /** The list shows only agents with something unread or waiting on the person. */
+  unread_only: boolean;
+  /** State groups the list hides: needs (waiting, blocked), working, waking, idle, sleeping (parked, none). */
+  hidden: ("needs" | "working" | "waking" | "idle" | "sleeping")[];
+  /** tree: team, lead, members by parent. flat: urgency first, then by name. */
+  layout: "tree" | "flat";
+  /** Agents folded in the tree. */
+  collapsed: AgentName[];
+};
+
+/** Any keys of NavPrefs; each given key replaces the stored value whole. */
+export type NavPrefsChanges = {
+  /** Pinned agents in the person's order: the dock shows them first and the list on top. No name twice. */
+  pins?: AgentName[];
+  /** The list shows only agents with something unread or waiting on the person. */
+  unread_only?: boolean;
+  /** State groups the list hides: needs (waiting, blocked), working, waking, idle, sleeping (parked, none). */
+  hidden?: ("needs" | "working" | "waking" | "idle" | "sleeping")[];
+  /** tree: team, lead, members by parent. flat: urgency first, then by name. */
+  layout?: "tree" | "flat";
+  /** Agents folded in the tree. */
+  collapsed?: AgentName[];
+};
+
+/** The person's view preferences, one set for the founder's devices, kept by the daemon. A new daemon serves the defaults: no pins, unread_only false, hidden empty, layout tree, collapsed empty. */
+export type Prefs = {
+  nav: NavPrefs;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -2464,6 +2497,13 @@ export interface Methods {
   name: string;
   request_id: RequestId;
 }; result: Accepted };
+  "prefs.get": { params: { [key: string]: unknown }; result: Prefs };
+  "prefs.set": { params: {
+  changes: {
+    nav: NavPrefsChanges;
+  };
+  request_id: RequestId;
+}; result: Accepted };
   "task.queue": { params: {
   tasks: number[];
   request_id: RequestId;
@@ -2529,7 +2569,7 @@ export interface Methods {
   priority?: 1 | 2 | 3;
   /** Story points (as task.new); null clears it. */
   estimate?: (1 | 2 | 3 | 5 | 8 | 13) | null;
-  /** A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them. */
+  /** A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them. A doing task goes back to queued. */
   blocked_by?: number;
   /** A task number this one no longer waits on; clearing the last one lets its owner's current task advance. */
   unblock?: number;
@@ -2964,6 +3004,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.view.list": { role: "member", callers: null, write: false, since: 1 },
   "task.view.save": { role: "member", callers: null, write: true, since: 1 },
   "task.view.delete": { role: "member", callers: null, write: true, since: 1 },
+  "prefs.get": { role: "member", callers: ["member", "founder"], write: false, since: 1 },
+  "prefs.set": { role: "member", callers: ["member", "founder"], write: true, since: 1 },
   "task.queue": { role: "agent", callers: null, write: true, since: 1 },
   "task.draft": { role: "agent", callers: null, write: true, since: 1 },
   "task.merge": { role: "agent", callers: null, write: true, since: 1 },

@@ -67,8 +67,7 @@ func (e *Env) SweepTaskQueue(now int64) (err error) {
 	return nil
 }
 
-// moveOffWaiting: an idle agent whose current task is begun but waits (on a blocker, an open child, or past its timeout with no answer) is
-// given its next queued task and told why. With none to give, an overdue one pings the holder once per deadline, not only its opener.
+// moveOffWaiting gives an idle agent with an overdue, unanswered current task its next one, or pings the holder once per deadline.
 func (e *Env) moveOffWaiting(q db.Q, agent string) {
 	tid, ok := ok2(db.CurrentTask(q, agent))
 	cur := must(db.GetTask(q, tid))
@@ -78,16 +77,10 @@ func (e *Env) moveOffWaiting(q db.Q, agent string) {
 	if row := stateOf(q, agent); row == nil || (row.State != states.Idle && row.State != states.Queued) {
 		return
 	}
-	why := must(db.BlockWait(q, agent))
-	if why == "" {
-		why = must(db.ChildWait(q, agent))
-	}
-	overdue := why == "" && must(db.Overdue(q, cur))
-	if overdue {
-		why = "past its timeout, unanswered"
-	} else if why == "" {
+	if !must(db.Overdue(q, cur)) {
 		return
 	}
+	why := "past its timeout, unanswered"
 	for _, w := range must(db.WaitingTasks(q, agent)) {
 		if w.Task.ID != cur.ID && e.makeCurrent(q, agent, w, nil) {
 			e.typeSay(q, agent, fmt.Sprintf("T%d is %s, so T%d (%s) is yours now: start it.", cur.ID, why, w.Task.ID, textsafe.Oneline(w.Task.Title)), "next task while current waits")
@@ -96,7 +89,7 @@ func (e *Env) moveOffWaiting(q db.Q, agent string) {
 			return
 		}
 	}
-	if key := fmt.Sprintf("overdue_ping:%d", cur.ID); overdue && must(db.Cursor(q, key)) != cur.TimeoutAt.Int64 {
+	if key := fmt.Sprintf("overdue_ping:%d", cur.ID); must(db.Cursor(q, key)) != cur.TimeoutAt.Int64 {
 		check(db.SetCursor(q, key, cur.TimeoutAt.Int64))
 		e.typeSay(q, agent, fmt.Sprintf("T%d (%s) is %s. Keep it going: `hl task edit T%d --timeout <duration>`, or hand it back: `hl task release T%d \"<reason>\"`.",
 			cur.ID, textsafe.Oneline(cur.Title), why, cur.ID, cur.ID), "overdue task, idle holder")

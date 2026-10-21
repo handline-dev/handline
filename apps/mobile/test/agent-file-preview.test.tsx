@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { addressOf } from '../src/screens/AgentPreview.tsx';
-import { ARCH, $, fill, mount, press, text, until } from './harness.tsx';
+import { addressOf } from '#src/screens/AgentPreview.tsx';
+import { ARCH, $, fill, mount, pickTab, press, text, until } from '#test/harness.tsx';
 
 async function openTab(tab: string) {
   const m = await mount(() => {}, undefined, 'founder');
   await until(() => $(`agent-${ARCH}`), 'the rows');
   await press($(`agent-${ARCH}`));
-  await until(() => $(`tab-${tab}`), 'the tab');
-  await press($(`tab-${tab}`));
+  await pickTab(tab);
   return m;
 }
 

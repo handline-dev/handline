@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentView } from '@handline/client';
-import { railRows } from '../src/model.ts';
+import { railRows } from '#src/model.ts';
 
 const agent = (name: string, state: string, parent: string | null) => ({ name, state, parent, role: '' }) as unknown as AgentView;
 const team = [

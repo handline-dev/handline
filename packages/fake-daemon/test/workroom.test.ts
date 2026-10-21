@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { type Event, type RpcError } from '@handline/client';
-import { setup, until } from '../src/helpers.ts';
+import { setup, until } from '#src/helpers.ts';
 
 const make = (name: string, more: Record<string, unknown> = {}) => ({
   name,

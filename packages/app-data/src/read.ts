@@ -1,11 +1,11 @@
 // The read hooks: `useRead` is the one place a read becomes a query, and every named hook is a line over it.
 import { useCallback, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { hashNumbers } from '@handline/app-core';
+import { hashNumbers, reviewPictures, waitingCount } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { CallParams, InboxItem, Methods } from '@handline/client';
-import { useData, useFeed, useServes } from './provider.ts';
-import { keyOf, reads, type ReadMethod, type ReadSpec } from './reads.ts';
+import { useData, useFeed, useServes } from '#src/provider.ts';
+import { keyOf, reads, type ReadMethod, type ReadSpec } from '#src/reads.ts';
 
 export const SNAPSHOT_STALE_MS = 30_000;
 
@@ -166,6 +166,8 @@ export const useTask = (task: number) => useRead('task.get', { task });
 export const useTaskHistory = (task: number) => useRead('task.history', { task });
 export const useTaskTime = (task: number) => useRead('task.time', { task });
 export const useMemos = (task: number) => useRead('task.comment.list', { task });
+/** A review's pictures; empty while the comments load or when the first comment has none. */
+export const useReviewPictures = (task: number) => reviewPictures(useMemos(task).data?.memos ?? []);
 export const useTaskBoard = () => useRead('task.board', {});
 export const useTrust = () => useRead('trust.list', {});
 /** The newest events of the daemon's log, read once when the page opens (the log is not a cache the bridge keeps; a screen that wants it live asks again). */
@@ -184,6 +186,9 @@ export function useRecentEvents(limit: number) {
 export const useMemory = (agent?: string) => useRead('memory.status', { agent });
 export const useTeam = () => useRead('team.get', {});
 export const useHr = (filter: CallParams<'hr.list'> = {}) => useRead('hr.list', filter);
+/** How many proposals wait on the founder; 0 while the list is not here or not served. */
+export const useHrCount = (): number => waitingCount(useHr().data?.proposals ?? []);
+export const usePrefs = () => useRead('prefs.get', {});
 export const useRepos = () => useRead('repos.list', {});
 export const useWorktrees = (filter: CallParams<'worktrees.list'> = {}) => useRead('worktrees.list', filter);
 export const useWorktreeDiff = (path: string, file?: string) => useRead('worktree.diff', { path, file });
@@ -199,3 +204,8 @@ export const useOperation = (operation: string) => useRead('operation.get', { op
 export const useChatLocate = (params: CallParams<'chat.locate'>, enabled = true) => useRead('chat.locate', params, { enabled });
 export const useChatRefs = (agent: string, enabled = true) => useRead('chat.refs', { agent }, { enabled });
 export const useChatSearch = (params: CallParams<'chat.search'>, enabled = true) => useRead('chat.search', params, { enabled });
+
+/** A one-off load that is not a daemon read (the desktop shell's answer, a picture's bytes) as a query: kept per `key`, undefined until it lands or when `enabled` is off. */
+export function useLoaded<T>(key: readonly unknown[], load: () => Promise<T>, enabled = true): T | undefined {
+  return useQuery({ queryKey: ['loaded', ...key], queryFn: load, enabled, staleTime: Infinity }).data;
+}

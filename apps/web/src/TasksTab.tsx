@@ -3,17 +3,17 @@
 import { useMemo } from 'react';
 import { agentTasks, dueOf, openTask, taskRef, watchResult, type RowVerb } from '@handline/app-core';
 import { useAgentTasks, useServes } from '@handline/app-data';
-import { Icon } from './Icon.tsx';
-import { StateChip, useNow } from './taskui.tsx';
-import { TaskDetail } from './TaskDetail.tsx';
+import { Icon } from '#src/Icon.tsx';
+import { StateChip, useNow } from '#src/taskui.tsx';
+import { TaskDetail } from '#src/TaskDetail.tsx';
 import { useAgents } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { Button, Toolbar } from './ui/index.ts';
-import { RowMenu, VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from './TaskVerbUi.tsx';
-import { useBulk } from './taskActions.ts';
-import { useMarks } from './useMarks.ts';
-import { View } from './View.tsx';
-import { useWorkspace } from './Workspace.tsx';
+import { Button, Toolbar } from '#src/ui/index.ts';
+import { RowMenu, VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from '#src/TaskVerbUi.tsx';
+import { useBulk } from '#src/taskActions.ts';
+import { useMarks } from '#src/useMarks.ts';
+import { View } from '#src/View.tsx';
+import { useWorkspace } from '#src/Workspace.tsx';
 
 const CLOSED = ['done', 'discarded'];
 

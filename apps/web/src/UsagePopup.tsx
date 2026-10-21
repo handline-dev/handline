@@ -1,19 +1,21 @@
 // The status bar's usage item and its popup: one line per account with the 5 h and week gauges, the agents on it and the runway. A line opens
 // that account's page; the popup follows the accounts topic. Narrow widths drop the reset countdowns first, then the percentages (CSS).
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { motion } from 'framer-motion';
 import { capacityOf, headroom, span } from '@handline/app-core';
 import { useAccounts, useOutlook, useServes } from '@handline/app-data';
-import { agentsLine } from './Accounts.tsx';
-import { Meter } from './RailIcons.tsx';
-import { Gauge, useNow } from './Gauge.tsx';
-import { Icon } from './ui/index.ts';
+import { agentsLine } from '#src/Accounts.tsx';
+import { Meter } from '#src/RailIcons.tsx';
+import { Gauge, useNow } from '#src/Gauge.tsx';
+import { AnimatedList } from '#src/AnimatedList.tsx';
+import { Icon, useOpenMotion } from '#src/ui/index.ts';
 
 const ROW = 'usage-row flex flex-col gap-1.5 rounded-card border bg-panel px-3 py-2.5 text-inherit no-underline';
 // A warning is also a word and a glyph on the row, not the edge alone.
 const EDGE = { ok: 'border-line', warn: 'border-wait', bad: 'border-bad' } as const;
 // Fixed, not absolute: the rail clips what overflows it; --pop-b/--pop-l put it above the button. On a phone it is a sheet along the bottom.
 const POP =
-  'usage-pop fixed bottom-[var(--pop-b)] left-[var(--pop-l)] z-20 flex overflow-y-auto max-h-[calc(100dvh_-_var(--pop-b)_-_8px)] w-[min(360px,calc(100vw_-_16px))] flex-col gap-2 rounded-card border border-line bg-panel p-2.5 shadow-[var(--shadow-pop)] max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:max-h-[calc(100dvh_-_8px)] max-sm:w-auto max-sm:rounded-b-none max-sm:rounded-t-dialog';
+  'usage-pop fixed bottom-[var(--pop-b)] left-[var(--pop-l)] z-20 flex overflow-y-auto max-h-[calc(100dvh_-_var(--pop-b)_-_8px)] w-[min(360px,calc(100vw_-_16px))] flex-col gap-2 rounded-card border border-line bg-panel p-[calc(10px*var(--o,1))] shadow-[var(--shadow-pop)] max-sm:inset-x-0 max-sm:top-auto max-sm:bottom-0 max-sm:max-h-[calc(100dvh_-_8px)] max-sm:w-auto max-sm:rounded-b-none max-sm:rounded-t-dialog';
 
 const POP_W = 360;
 /** Above the button, its left edge kept inside the window (the button sits at the right of the bar). */
@@ -60,6 +62,7 @@ export function UsagePopup() {
     setOpen(!open);
   };
   const now = useNow();
+  const grow = useOpenMotion();
   if (!served) return null;
   const list = data?.accounts ?? [];
   const summary = list.map((a) => `${a.label} ${a.five_hour ? `${Math.round(a.five_hour.used_pct)}%` : '–'}`).join(' · ');
@@ -83,8 +86,9 @@ export function UsagePopup() {
           {cap ? `usage: ${cap.word}, ${cap.left}% left${runway ? `, out in ${runway}` : ''}` : 'usage: –'}
         </span>
       </button>
+      <AnimatedList>
       {open ? (
-        <div className={POP} style={at} role="dialog" aria-label="Account usage">
+        <motion.div {...grow} className={POP} style={at} role="dialog" aria-label="Account usage">
           {list.length ? (
             list.map((a) => {
               const h = headroom(a.five_hour, outlook.find((r) => r.account === a.name)?.runs_out_in_seconds ?? null, now);
@@ -118,8 +122,9 @@ export function UsagePopup() {
               Usage
             </a>
           </div>
-        </div>
+        </motion.div>
       ) : null}
+      </AnimatedList>
     </div>
   );
 }

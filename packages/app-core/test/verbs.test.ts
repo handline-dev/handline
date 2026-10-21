@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentView } from '@handline/client';
-import { CONFIRM_VERBS, askOf, VERBS, callOf, verbsOf } from '../src/index.ts';
+import { CONFIRM_VERBS, askOf, VERBS, callOf, verbsOf } from '#src/index.ts';
 
 const row = (state: string) => ({ name: 'a.b', state }) as AgentView;
 const ids = (state: string, session_open: boolean, session_id: string | null) =>

@@ -19,7 +19,7 @@ type Edited struct {
 	By       string
 	Body     bool   // a body was given: the holder of a doing task is told it changed
 	WasOwner string // the owner before the edit, when an owner was given: a task that changed hands is sent on
-	Freed    string // the owner whose last blocker the edit cleared: its turn is reconsidered
+	Freed    string // the owner whose last blocker the edit cleared, or whose current task it blocked: its turn is reconsidered
 }
 
 // pyRepr is Python's repr of a string: single quotes unless it holds one and no double quote.
@@ -237,7 +237,7 @@ func editTask(tx *sql.Tx, tid int64, by string, home string, owner, reporter, ti
 		case *timeoutS > db.MaxTaskTimeoutS:
 			return fmt.Sprintf("a task timeout is at most %s - %s is longer", timefmt.Span(db.MaxTaskTimeoutS, false), timefmt.Span(*timeoutS, false)), "", nil
 		}
-		if doing, err = isDoing(tx, t); err != nil {
+		if doing, err = db.IsDoing(tx, t.ID); err != nil {
 			return "", "", err
 		}
 		was := "none"
@@ -463,6 +463,9 @@ func editMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, 
 				}
 				if why != "" {
 					return nil, refusal(why)
+				}
+				if done.Freed, err = freeHolder(tx, tid); err != nil {
+					return nil, err
 				}
 				msg := fmt.Sprintf("task T%d now waits on T%d", tid, blocker)
 				msgs = append(msgs, msg)

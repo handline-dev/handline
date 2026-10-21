@@ -1,5 +1,5 @@
 import { DaemonClient, memoryPair, type ClientOptions } from '@handline/client';
-import { FakeDaemon, type FakeDaemonOptions } from './daemon.ts';
+import { FakeDaemon, type FakeDaemonOptions } from '#src/daemon.ts';
 import type { Role } from '@handline/contract';
 
 export function setup(opts: { daemon?: FakeDaemonOptions; role?: Role; client?: string; reconnect?: ClientOptions['reconnect'] } = {}) {

@@ -2,8 +2,8 @@
 // or the optimistic row this person's send made, or is added when it is new.
 import type { ChatMessage, Event as WireEvent, TranscriptItem, Working } from '@handline/client';
 import type { AgentView } from '@handline/client';
-import { edit, mapPages, type Ctx, type Pages } from './cache.ts';
-import { qk } from './reads.ts';
+import { edit, mapPages, type Ctx, type Pages } from '#src/cache.ts';
+import { qk } from '#src/reads.ts';
 
 export interface MsgPage {
   messages: ChatMessage[];

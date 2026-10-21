@@ -2,7 +2,7 @@
 import { act, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it } from 'vitest';
-import { AnimatedItem, AnimatedList } from '../src/AnimatedList.tsx';
+import { AnimatedItem, AnimatedList } from '#src/AnimatedList.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

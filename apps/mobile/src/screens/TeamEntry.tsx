@@ -2,10 +2,11 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Hr, useHrCount } from './Hr.tsx';
-import { MenuItem } from './parts.tsx';
-import { Team } from './Team.tsx';
+import { useHrCount } from '@handline/app-data';
+import { usePalette } from '#src/theme.ts';
+import { Hr } from '#src/screens/Hr.tsx';
+import { MenuItem } from '#src/screens/parts.tsx';
+import { Team } from '#src/screens/Team.tsx';
 
 export function TeamButton(props: { onPress: () => void }) {
   const count = useHrCount();

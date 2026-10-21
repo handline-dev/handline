@@ -3,10 +3,10 @@
 import { useIsMutating, useMutation, useMutationState, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView, CallParams, MethodName, Methods } from '@handline/client';
-import { useData } from './provider.ts';
-import { qk, reads, type Key, type NOT_QUERIES, type ReadMethod } from './reads.ts';
-import { NOT_FOR_STRUCTURED, writes, type NOT_FROM_UI, type PAIRING } from './writes.ts';
-import type { WriteSpec } from './write-spec.ts';
+import { useData } from '#src/provider.ts';
+import { qk, reads, type Key, type NOT_QUERIES, type ReadMethod } from '#src/reads.ts';
+import { NOT_FOR_STRUCTURED, writes, type NOT_FROM_UI, type PAIRING } from '#src/writes.ts';
+import type { WriteSpec } from '#src/write-spec.ts';
 
 /** Every method the UI may write: the contract's methods that are in none of the other lists. */
 export type WriteMethod = Exclude<

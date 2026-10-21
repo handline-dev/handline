@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { type ChatMessage, type Event, type RpcError } from '@handline/client';
-import { setup, until } from '../src/helpers.ts';
+import { setup, until } from '#src/helpers.ts';
 
 const ARCH = 'handline.architect';
 

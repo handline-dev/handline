@@ -6,8 +6,8 @@ import { askOf, VERBS, verbsOf, type Verb } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useAccounts, useAgentDetail, useAgents, classify, sentence, useRetireAgent, useVerbRun } from '@handline/app-data';
-import { Button, Sheet, SheetActions } from './ui/index.ts';
-import { useEscape } from './useEscape.ts';
+import { Button, Sheet, SheetActions } from '#src/ui/index.ts';
+import { useEscape } from '#src/useEscape.ts';
 
 /** Whether the daemon lists the verb's method; a verb it does not list is left out of the menu. */
 export function useServed(): (v: Verb) => boolean {

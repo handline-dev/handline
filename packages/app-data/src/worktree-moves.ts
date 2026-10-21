@@ -1,9 +1,9 @@
 // The status writes of the Worktrees page, for the PC and the phone: each is asked once, shown as pending until the refetch has read
 // the new status, and refused with the daemon's reason.
 import { useState } from 'react';
-import { classify, sentence } from './errors.ts';
-import { useServes } from './provider.ts';
-import { useWrite } from './write.ts';
+import { classify, sentence } from '#src/errors.ts';
+import { useServes } from '#src/provider.ts';
+import { useWrite } from '#src/write.ts';
 
 export const STATUSES = ['todo', 'in progress', 'in review', 'done'];
 

@@ -10,12 +10,13 @@ import type {
   Event as WireEvent,
   InboxItem,
   Operation,
+  Prefs,
   Task,
 } from '@handline/client';
-import { edit, upsert, type Ctx } from './cache.ts';
-import { chatEvent } from './chat-events.ts';
-import { transcriptEvent } from './transcript.ts';
-import { qk } from './reads.ts';
+import { edit, upsert, type Ctx } from '#src/cache.ts';
+import { chatEvent } from '#src/chat-events.ts';
+import { transcriptEvent } from '#src/transcript.ts';
+import { qk } from '#src/reads.ts';
 
 type Rule = (c: Ctx, e: WireEvent) => void;
 type Data<T> = T & Record<string, unknown>;
@@ -76,6 +77,7 @@ const rules: Record<string, Rule> = {
   'hr.settled': hr,
   'device.paired': ({ qc, d }) => void qc.invalidateQueries({ queryKey: ['d', d, 'devices'] }),
   'device.revoked': ({ qc, d }) => void qc.invalidateQueries({ queryKey: ['d', d, 'devices'] }),
+  'prefs.changed': ({ qc, d }, e) => void qc.setQueryData<Prefs>(qk.prefs(d), data<Prefs>(e)),
 };
 
 type TaskFilter = { owner?: string; from?: string; state?: string; parent?: number; under?: number; before?: number; all?: boolean; limit?: number };

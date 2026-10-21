@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, until, press, mount } from './harness.tsx';
+import { ARCH, $, until, press, mount, pickTab } from '#test/harness.tsx';
 
 describe('an agent with no terminal', () => {
   it('opens its page, offers Start terminal in the terminal tab, and shows the terminal once it runs', async () => {
@@ -8,9 +8,9 @@ describe('an agent with no terminal', () => {
     });
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
-    await until(() => $('tab-terminal'), 'the page opens');
+    await until(() => $('verbs-open'), 'the page opens');
     expect(document.body.textContent).not.toMatch(/no terminal/i);
-    await press($('tab-terminal'));
+    await pickTab('terminal');
     await until(() => $('terminal-start'), 'the Start terminal button');
     await press($('terminal-start'));
     await until(() => $('terminal-text'), 'the terminal after starting', 8000);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ago, clockTime, dateTime, shortSpan, span } from '../src/index.ts';
+import { ago, clockTime, dateTime, shortSpan, span } from '#src/index.ts';
 
 test('a span uses its two biggest units, and says so under half a minute', () => {
   assert.deepEqual([20_000, 45 * 60_000, 130 * 60_000, 3 * 86_400_000 + 4 * 3_600_000].map(span), ['under a minute', '45 m', '2 h 10 m', '3 d 4 h']);

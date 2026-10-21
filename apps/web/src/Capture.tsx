@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { keptMarks, markText, titleFromNote, withImages, type Mark } from '@handline/app-core';
 import { classify, sentence, useAgents, useTasks, useUploadImage, useWrite } from '@handline/app-data';
-import { Annotator } from './Annotate.tsx';
-import { useTasksRoute } from './route.ts';
-import { shell } from './shell.ts';
-import { CaptureDestination, type Destination } from './CaptureDestination.tsx';
-import { Button, Dialog, NOTE, Textarea } from './ui/index.ts';
+import { Annotator } from '#src/Annotate.tsx';
+import { useTasksRoute } from '#src/route.ts';
+import { shell } from '#src/shell.ts';
+import { CaptureDestination, type Destination } from '#src/CaptureDestination.tsx';
+import { Button, Dialog, NOTE, Textarea } from '#src/ui/index.ts';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 /** True when this shell can capture a window. */
 export const canCapture = (): boolean => shell('captureWindow') !== null;
@@ -37,9 +38,8 @@ export function CaptureHost(): ReactNode {
       removeEventListener(EVENT, ask);
     };
   }, []);
-  if (!open) return null;
   const task = route && /^\d+$/.test(route) ? Number(route) : null;
-  return <CaptureDialog agents={agents} task={task} onClose={() => setOpen(false)} />;
+  return <AnimatedList>{open ? <CaptureDialog key="capture" agents={agents} task={task} onClose={() => setOpen(false)} /> : null}</AnimatedList>;
 }
 
 type Win = { id: string; name: string; thumb: string };

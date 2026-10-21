@@ -2,7 +2,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
 import { callOf, VERBS, type Verb, type VerbId } from '@handline/app-core';
-import { usePending, useWrite } from './write.ts';
+import { usePending, useWrite } from '#src/write.ts';
 
 /** What a caller may ask to hear of a verb's write: it settled, or the daemon refused it. */
 export interface VerbDone {

@@ -1,4 +1,4 @@
-import type { Group, Node, Workspace } from './workspace.ts';
+import type { Group, Node, Workspace } from '#src/workspace.ts';
 
 export const groupsOf = (n: Node): Group[] => (n.type === 'group' ? [n] : [...groupsOf(n.a), ...groupsOf(n.b)]);
 export const groupOf = (ws: Workspace, tab: string): Group | undefined => groupsOf(ws.root).find((g) => g.tabs.includes(tab));

@@ -46,8 +46,9 @@ func TestNewOpensATaskAndAsksItsOwnerInOneTransaction(t *testing.T) {
 	for q, want := range map[string]int{
 		"SELECT COUNT(*) FROM tasks": 4,
 		"SELECT COUNT(*) FROM tasks WHERE id = 4 AND title = 'build  it' AND owner = 'worker' AND opened_by = 'manager' AND parent_task = 1 AND priority = 1 AND expects = 'report' AND timeout_s = 7200 AND timeout_at IS NULL": 1,
-		"SELECT COUNT(*) FROM task_requests WHERE task_id = 4":                                                      1,
-		"SELECT COUNT(*) FROM agent_state WHERE agent = 'worker' AND current_task = 4":                              1,
+		"SELECT COUNT(*) FROM task_requests WHERE task_id = 4":                                 1,
+		"SELECT COUNT(*) FROM agent_state WHERE agent = 'worker' AND current_task IS NOT NULL": 0, // it opens blocked
+
 		"SELECT COUNT(*) FROM task_blocks WHERE (task_id = 1 AND blocks_on = 4) OR (task_id = 4 AND blocks_on = 2)": 2,
 		"SELECT COUNT(*) FROM events WHERE kind = 'task_new' AND json_extract(payload, '$.owner') = 'worker'":       1,
 	} {

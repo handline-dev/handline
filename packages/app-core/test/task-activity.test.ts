@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activityOf, foldEvents } from '../src/task-activity.ts';
+import { activityOf, foldEvents } from '#src/task-activity.ts';
 
 const e = (kind: string, who: string, text: string, at: string, memo: number | null = null) =>
   ({ at, who, kind, text, memo, edited_at: null }) as Parameters<typeof activityOf>[1][number];

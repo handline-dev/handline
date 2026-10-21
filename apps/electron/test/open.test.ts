@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { Sender } from '../src/bridge.ts';
-import { Opener } from '../src/open.ts';
+import type { Sender } from '#src/bridge.ts';
+import { Opener } from '#src/open.ts';
 
 const ORIGIN = 'http://127.0.0.1:5000';
 const top: Sender = { senderFrame: { url: `${ORIGIN}/`, parent: null } };

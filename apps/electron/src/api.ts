@@ -1,6 +1,6 @@
 // window.handline as the page sees it, made from the preload's ipcRenderer (docs/electron-bridge.md §2). Calls return a result and never throw.
 import type { NavigateTo, ShellApi } from '@handline/app-core';
-import { CHANNELS } from './bridge.ts';
+import { CHANNELS } from '#src/bridge.ts';
 
 export interface Ipc {
   invoke(channel: string, arg: unknown): Promise<unknown>;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, fill, mount, press, until } from './harness.tsx';
+import { ARCH, $, fill, mount, press, until } from '#test/harness.tsx';
 
 async function openChat() {
   const m = await mount(() => {}, undefined, 'founder');

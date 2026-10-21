@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DaemonClient, memoryPair, type Transport } from '@handline/client';
-import { FakeDaemon } from '../src/daemon.ts';
-import { until } from '../src/helpers.ts';
+import { FakeDaemon } from '#src/daemon.ts';
+import { until } from '#src/helpers.ts';
 
 // A daemon that hangs up on every hello while `down`, as one out of descriptors does, then serves again.
 function flaky(daemon: FakeDaemon) {

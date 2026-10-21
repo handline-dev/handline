@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { Fail } from '@handline/app-core';
-import { fromWindow, type Sender } from './bridge.ts';
+import { fromWindow, type Sender } from '#src/bridge.ts';
 
 export type OpenReply = { ok: true; how: 'opened' | 'revealed' | 'branch' | 'main' | 'github' } | Fail<'bad_request' | 'not_found' | 'unavailable'>;
 const fail = (code: 'bad_request' | 'not_found' | 'unavailable', message: string): OpenReply => ({ ok: false, code, message });

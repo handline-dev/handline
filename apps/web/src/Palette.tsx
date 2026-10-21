@@ -1,11 +1,11 @@
 // The ⌘K palette (G14): one box for agents, tasks by number or title, the pages and a few actions. Arrows move, Enter goes, Escape closes.
 import { useEffect, useMemo, useState } from 'react';
-import { dateTime, taskRef } from '@handline/app-core';
+import { motion } from 'framer-motion';
+import { dateTime, searchSnippet, taskRef } from '@handline/app-core';
 import { useAgents, useChatSearch, useServes, useTasks } from '@handline/app-data';
-import { canCapture, requestCapture } from './Capture.tsx';
-import { snippet } from './ChatSearch.tsx';
-import { goAgent, goMessage, goNew, goTasks, goTeam, goWorktrees } from './route.ts';
-import { Backdrop, Icon, PROW, PROW_HINT, PROW_NAME, type IconName } from './ui/index.ts';
+import { canCapture, requestCapture } from '#src/Capture.tsx';
+import { goAgent, goMessage, goNew, goTasks, goTeam, goWorktrees } from '#src/route.ts';
+import { Backdrop, Icon, PROW, PROW_HINT, PROW_NAME, useOpenMotion, type IconName } from '#src/ui/index.ts';
 
 interface Hit {
   key: string;
@@ -55,7 +55,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
       return {
         key: `m:${m.id}`,
         icon: 'chat',
-        label: snippet(m.body, messageQuery),
+        label: searchSnippet(m.body, messageQuery),
         hint: `${agent} · ${dateTime(m.at)}`,
         run: () => goMessage(agent, m.id),
       };
@@ -69,9 +69,11 @@ export function Palette({ onClose }: { onClose: () => void }) {
     h.run();
   };
   const cur = Math.min(at, hits.length - 1);
+  const open = useOpenMotion();
   return (
     <Backdrop onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div
+      <motion.div
+        {...open}
         className="palette w-[min(560px,calc(100vw-2*var(--sp-6)))] overflow-hidden rounded-dialog border border-line-strong bg-panel shadow-[var(--shadow-pop)]"
         role="dialog"
         aria-modal="true"
@@ -115,7 +117,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
           ))}
           {!hits.length ? <li className="palette-none muted">–</li> : null}
         </ul>
-      </div>
+      </motion.div>
     </Backdrop>
   );
 }

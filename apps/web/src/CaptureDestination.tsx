@@ -1,7 +1,7 @@
 // Where a capture goes, as one chip in the bottom bar: "T123" (a comment on that task) or "New task → agent". Its popover changes either.
 import type { ReactNode } from 'react';
 import { taskRef } from '@handline/app-core';
-import { Button, Select } from './ui/index.ts';
+import { Button, Select } from '#src/ui/index.ts';
 
 export interface Destination {
   as: 'task' | 'comment';

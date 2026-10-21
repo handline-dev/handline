@@ -1,6 +1,6 @@
 // What a task looks like right after the person's verb, before the daemon has answered: the pure half of an optimistic task write.
 import type { Task } from '@handline/client';
-import { shortSpan } from './time.ts';
+import { shortSpan } from '#src/time.ts';
 
 export type TaskVerb = 'done' | 'queue' | 'draft' | 'edit' | 'reopen' | 'release' | 'withdraw' | 'cancel';
 export interface TaskEdit {
@@ -87,3 +87,6 @@ export function watchLine(t: Pick<Task, 'watch'>): { url: string | null; text: s
     result: w.result ? RESULT_WORDS[w.result] : null,
   };
 }
+
+/** A task row's time: "3h" for a task not running reads as the time it has, "3h left". */
+export const timeLeft = (text: string): string => (/^[\dhdm]+$/.test(text) ? `${text} left` : text);

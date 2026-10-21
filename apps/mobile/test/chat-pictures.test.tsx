@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { RpcError } from '@handline/client';
-import { $, mount, press, until } from './harness.tsx';
+import { $, mount, press, until, pickTab } from '#test/harness.tsx';
 import type { setup } from '@handline/fake-daemon/helpers';
 
 const AUD = 'handline.auditor'; // the fake daemon plays it as a structured session
@@ -19,8 +19,7 @@ function seedPictures(s: ReturnType<typeof setup>, body: string, names: string[]
 const openChat = async () => {
   await until(() => $(`agent-${AUD}`), 'the rows');
   await press($(`agent-${AUD}`));
-  await until(() => $('tab-chat'), 'the page');
-  await press($('tab-chat'));
+  await pickTab('chat');
 };
 /** The Image inside a thumbnail: react-native-web draws it as a div carrying the accessibilityLabel (the name); the button holds "Open <name>". */
 const image = (id: string) => $(`picture-${id}`)?.querySelector('div[aria-label]') ?? null;

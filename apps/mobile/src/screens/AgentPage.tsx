@@ -5,24 +5,24 @@ import { useAgents, usePending, useRead, useServes, useTranscript, useVerbMark, 
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { space } from '@handline/tokens';
-import { TerminalPane } from './TerminalPane.tsx';
-import { usePalette } from '../theme.ts';
-import { useHistoryValue } from '../history.tsx';
-import { StateMark } from './StateMark.tsx';
-import { AgentSettings } from './AgentSettings.tsx';
-import { AgentDock, rememberAgent, useKeyboardUp } from './AgentDock.tsx';
-import { AgentStrip } from './AgentStrip.tsx';
-import { AgentFile } from './AgentFile.tsx';
-import { AgentPreview } from './AgentPreview.tsx';
-import { AgentTasks } from './AgentTasks.tsx';
-import { Icon, type IconName } from './Icon.tsx';
-import { Activity } from './Activity.tsx';
-import { AgentVerbs } from './AgentVerbs.tsx';
-import { Chat } from './Chat.tsx';
-import { Loadable } from './Loadable.tsx';
-import { PromptSlot } from './PromptCard.tsx';
-import { Transcript } from './Transcript.tsx';
-import { AboveKeyboard, Button, MenuItem } from './parts.tsx';
+import { TerminalPane } from '#src/screens/TerminalPane.tsx';
+import { usePalette } from '#src/theme.ts';
+import { useHistoryValue } from '#src/history.tsx';
+import { StateMark } from '#src/screens/StateMark.tsx';
+import { AgentSettings } from '#src/screens/AgentSettings.tsx';
+import { AgentDock, AgentLabel, useKeyboardUp, useRememberAgent } from '#src/screens/AgentDock.tsx';
+import { AgentStrip } from '#src/screens/AgentStrip.tsx';
+import { AgentFile } from '#src/screens/AgentFile.tsx';
+import { AgentPreview } from '#src/screens/AgentPreview.tsx';
+import { AgentTasks } from '#src/screens/AgentTasks.tsx';
+import { Icon, type IconName } from '#src/screens/Icon.tsx';
+import { Activity } from '#src/screens/Activity.tsx';
+import { AgentVerbs } from '#src/screens/AgentVerbs.tsx';
+import { Chat } from '#src/screens/Chat.tsx';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { PromptSlot } from '#src/screens/PromptCard.tsx';
+import { Transcript } from '#src/screens/Transcript.tsx';
+import { AboveKeyboard, Button, MenuItem } from '#src/screens/parts.tsx';
 
 /** What a start, stop or interrupt in flight on this agent says while the daemon decides. */
 function useAgentMark(agent: string): string | null {
@@ -48,7 +48,7 @@ export function AgentPage() {
   const back = () => void store.closeAgent();
   const [menu, setMenu] = useState(false);
   const keyboardUp = useKeyboardUp();
-  useEffect(() => rememberAgent(name), [name]);
+  useRememberAgent(name);
   return (
     <AboveKeyboard>
       <Loadable query={detailQuery} served={served} skeleton="agentDetail" label="the agent" empty={`${name} is gone`}>
@@ -125,6 +125,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const structured = detail.structured === true;
   const views = (
     <>
+      <AgentLabel agent={name} />
       <AgentStrip agent={name} />
       {pageTab('chat', 'Chat')}
       {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
@@ -148,7 +149,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       {(structured ? ctl.interrupt : ctl.stop) && <MenuItem label="Interrupt" icon="cancel" disabled={busy} onPress={() => (props.setMenu(false), stop('interrupt'))} />}
     </>
   );
-  const note = [mark, stalled && (stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`)].filter(Boolean);
+  const note = [stalled && (stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`)].filter(Boolean);
   return (
     <View style={{ flex: 1 }}>
       <AgentVerbs
@@ -166,7 +167,10 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         disabled={busy}
       />
       {showFile ? (
-        <AgentFile agent={name} />
+        <>
+          <AgentLabel agent={name} />
+          <AgentFile agent={name} />
+        </>
       ) : showPreview ? (
         <AgentPreview agent={name} />
       ) : showActivity ? (
@@ -178,6 +182,11 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
           {!(structured && current === 'terminal') && current !== 'chat' && <PromptSlot agent={name} prompt={detail.prompt ?? null} />}
           {current === 'chat' ? <Chat detail={detail} searching={searching} /> : structured ? <TranscriptTab detail={detail} /> : <Terminal detail={detail} />}
         </>
+      )}
+      {mark && (
+        <Text testID="pending-mark" style={{ color: c.muted, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: 12 }}>
+          {mark}
+        </Text>
       )}
       {note.length > 0 && (
         <Text testID="badge-stalled" style={{ color: c.block, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: 12 }}>
@@ -213,7 +222,13 @@ function Terminal(props: { detail: AgentDetail }) {
   useEffect(() => {
     if (opened && !view) void store.attachView();
   }, [opened, view, store]);
-  if (view) return <TerminalPane agent={props.detail.name} view={view} sessionOpen={props.detail.session_open} />;
+  if (view)
+    return (
+      <>
+        <AgentLabel agent={props.detail.name} />
+        <TerminalPane agent={props.detail.name} view={view} sessionOpen={props.detail.session_open} />
+      </>
+    );
   const name = props.detail.name;
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.lg }}>

@@ -1,10 +1,9 @@
 // The standing answers: what the daemon answers by itself (a trusted folder, a vendor's dialog and the option to choose). One row each with a trash
 // icon and an Add row at the end (docs/design-gaps.md G82). Add and remove are authored: the row changes at once and comes back if the daemon refuses.
 import { useState } from 'react';
-import { useAnswers, useServes, useWrite } from '@handline/app-data';
-import { Button, Field, Icon, RowTitle, SectionHead, Select, SettingsCard, SettingsRow } from './ui/index.ts';
-import { useOff } from './useOff.ts';
-import { View } from './View.tsx';
+import { useAnswers, useOff, useServes, useWrite } from '@handline/app-data';
+import { Button, Field, Icon, RowTitle, SectionHead, Select, SettingsCard, SettingsRow } from '#src/ui/index.ts';
+import { View } from '#src/View.tsx';
 
 const KINDS = [
   { value: 'trust', label: 'Trust a folder' },

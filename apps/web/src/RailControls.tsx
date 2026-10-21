@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import { Button } from './ui/index.ts';
+import { Button } from '#src/ui/index.ts';
 
 /** Set while the sidebar is folded: the buttons the first tab strip carries, so the content keeps the room the rail's handle took. */
 export const FoldedControls = createContext<{ show: () => void } | null>(null);

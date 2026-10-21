@@ -17,20 +17,20 @@ import {
 import type { Task } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useAgents, useServes, useTasks } from '@handline/app-data';
-import { goTasks } from './route.ts';
-import { TaskDetail } from './TaskDetail.tsx';
-import { TaskBands } from './TaskGraph.tsx';
-import { NewTask } from './NewTask.tsx';
-import { Row } from './TaskRows.tsx';
-import { SORTS, TasksBar, TasksHead, type Scope } from './TasksHead.tsx';
-import { KeysSheet, MergeSheet, OwnerSheet, PrioritySheet } from './TaskSheets.tsx';
-import { Button, ScrollPage } from './ui/index.ts';
-import { AnimatedList } from './AnimatedList.tsx';
-import { useBulk } from './taskActions.ts';
-import { ReasonSheet, useCan, useNow, useWide } from './taskui.tsx';
-import { useMarks } from './useMarks.ts';
-import { VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from './TaskVerbUi.tsx';
-import { View } from './View.tsx';
+import { goTasks } from '#src/route.ts';
+import { TaskDetail } from '#src/TaskDetail.tsx';
+import { TaskBands } from '#src/TaskGraph.tsx';
+import { NewTask } from '#src/NewTask.tsx';
+import { Row } from '#src/TaskRows.tsx';
+import { SORTS, TasksBar, TasksHead, type Scope } from '#src/TasksHead.tsx';
+import { KeysSheet, MergeSheet, OwnerSheet, PrioritySheet } from '#src/TaskSheets.tsx';
+import { Button, ScrollPage } from '#src/ui/index.ts';
+import { AnimatedList } from '#src/AnimatedList.tsx';
+import { useBulk } from '#src/taskActions.ts';
+import { ReasonSheet, useCan, useNow, useWide } from '#src/taskui.tsx';
+import { useMarks } from '#src/useMarks.ts';
+import { VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from '#src/TaskVerbUi.tsx';
+import { View } from '#src/View.tsx';
 
 type Open = null | 'discard' | 'owner' | 'priority' | 'merge' | 'states' | 'keys' | 'new';
 
@@ -263,20 +263,24 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
           rowProps={rowProps}
         />
       )}
+      <AnimatedList>
       {open === 'discard' ? (
-        <ReasonSheet
+        <ReasonSheet key="discard"
           label={targets().some((id) => all.find((t) => t.id === id)?.state === 'doing') ? 'stop it and discard - why:' : 'discard - why:'}
           submit="Discard"
           onCancel={shut}
           onSubmit={(reason) => own('discard', reason)}
         />
       ) : null}
-      {open === 'owner' ? <OwnerSheet agents={agents} onCancel={shut} onPick={(o) => own('owner', o)} /> : null}
-      {open === 'priority' ? <PrioritySheet onCancel={shut} onPick={(p) => own('priority', String(p))} /> : null}
+      </AnimatedList>
+      <AnimatedList>{open === 'owner' ? <OwnerSheet key="OwnerSheet" agents={agents} onCancel={shut} onPick={(o) => own('owner', o)} /> : null}</AnimatedList>
+      <AnimatedList>{open === 'priority' ? <PrioritySheet key="PrioritySheet" onCancel={shut} onPick={(p) => own('priority', String(p))} /> : null}</AnimatedList>
+      <AnimatedList>
       {open === 'merge' ? (
-        <MergeSheet count={[...marked].filter((t) => t !== cursor).length} into={cursor} onCancel={shut} onSubmit={doMerge} />
+        <MergeSheet key="merge" count={[...marked].filter((t) => t !== cursor).length} into={cursor} onCancel={shut} onSubmit={doMerge} />
       ) : null}
-      {open === 'keys' ? <KeysSheet onClose={shut} /> : null}
+      </AnimatedList>
+      <AnimatedList>{open === 'keys' ? <KeysSheet key="KeysSheet" onClose={shut} /> : null}</AnimatedList>
       <VerbSheets flow={verbs} ids={targets()} />
       {marked.size ? (
         <TasksBar marked={marked.size} can={{ edit: canEdit, merge: canMerge }} onAct={act} onClear={() => setMarked(new Set())}>
@@ -329,7 +333,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
         onView={(v) => goTasks(v === 'graph' ? 'graph' : undefined)}
         onAct={(what) => (what === 'states' && open === 'states' ? shut() : act(what))}
       />
-      {open === 'new' ? <NewTask agents={agents} onClose={shut} /> : null}
+      <AnimatedList>{open === 'new' ? <NewTask key="NewTask" agents={agents} onClose={shut} /> : null}</AnimatedList>
       <View q={q} served={listServed} shape="tasks" what="tasks">
         {rows.length === 0 ? (
           <div className="empty">

@@ -3,15 +3,17 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { type TaskChange, clockTime, isPerson, landingLabel, openTask, restartCause, sideOf, taskRow, tickLevel } from '@handline/app-core';
+import { clockTime, ellipsis, isPerson, landingLabel, openTask, restartCause, sideOf, type TaskChange, taskRow, tickLevel } from '@handline/app-core';
 import { useChatActions, useWrite } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from './ui/index.ts';
-import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
-import { Pictures } from './ChatAttach.tsx';
-import { Markdown } from './Markdown.tsx';
-import { RichText } from './RichText.tsx';
-import { useWorkspace } from './Workspace.tsx';
+import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from '#src/ui/index.ts';
+import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from '#src/msgClass.ts';
+import { Pictures } from '#src/ChatAttach.tsx';
+import { Markdown } from '#src/Markdown.tsx';
+import { RichText } from '#src/RichText.tsx';
+import { useWorkspace } from '#src/Workspace.tsx';
+import { AnimatedList } from '#src/AnimatedList.tsx';
+import { Reveal } from '#src/ui/Reveal.tsx';
 
 /** A plain click on a task link opens the task in the workspace; a modified or middle click keeps the browser's own. */
 export const openTaskOnClick = (apply: ReturnType<typeof useWorkspace>['apply'], task: number) => (e: MouseEvent) => {
@@ -59,8 +61,6 @@ function Stamp({ left, time, always }: { left?: boolean; time: ReactNode; always
     </div>
   );
 }
-
-const snippet = (body: string) => (body.length > 80 ? `${body.slice(0, 80)}…` : body);
 
 const tickLabel = (m: ChatMessage) =>
   m.receipt
@@ -139,7 +139,7 @@ export function Message(props: {
         {m.parent != null ? (
           <button
             className="msg-ref mb-1 flex w-fit max-w-[16rem] min-w-0 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-left text-[12px] text-ink-2"
-            title={parent ? snippet(parent.body) : `#${m.parent}`}
+            title={parent ? ellipsis(parent.body, 80) : `#${m.parent}`}
             onClick={() => jumpTo(m.parent!)}
           >
             <Icon name="reference" size={12} label={`Reply to #${m.parent}`} className="shrink-0" />
@@ -222,9 +222,9 @@ function ToolLine({ i }: { i: TranscriptItem }) {
           {open ? 'Hide output' : 'Show all'}
         </Button>
       ) : null}
-      {open ? (
-        <CodeBlock className="tool-output basis-full max-h-[20lh] overflow-auto max-sm:whitespace-pre-wrap">{i.output}</CodeBlock>
-      ) : null}
+      <Reveal show={open} className="basis-full">
+        <CodeBlock className="tool-output max-h-[20lh] overflow-auto max-sm:whitespace-pre-wrap">{i.output}</CodeBlock>
+      </Reveal>
       {cut && (open || !i.output) ? (
         <span className="muted">
           {cut} more line{cut === 1 ? '' : 's'} let go
@@ -252,11 +252,13 @@ function SessionCard({ i }: { i: TranscriptItem }) {
         </Button>
       ) : null}
       <hr className="m-0 h-px flex-1 border-0 bg-line" />
+      <AnimatedList>
       {open ? (
-        <Dialog title="Handoff note" onClose={() => setOpen(false)}>
+        <Dialog key="handoff" title="Handoff note" onClose={() => setOpen(false)}>
           <CodeBlock className="handoff-full max-h-[60vh] overflow-auto whitespace-pre-wrap">{handoff}</CodeBlock>
         </Dialog>
       ) : null}
+      </AnimatedList>
     </div>
   );
 }

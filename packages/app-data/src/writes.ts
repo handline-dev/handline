@@ -1,13 +1,13 @@
 // Every write method of the contract, once, with its kind and what it does to the cache (docs/turborepo-layout.md §8.5).
 // A method in none of the four lists fails the guard test, so a new write is decided by a person before it ships.
-import { taskAfter, type TaskEdit, type TaskVerb } from '@handline/app-core';
-import type { Account, InboxItem, Memo, Proposal, Schedule, Settings, StandingAnswer, Task } from '@handline/client';
-import { edit, provisionalId, upsert, type Ctx } from './cache.ts';
-import { accountAfter, type AccountChange } from './account-after.ts';
-import { accountRemove } from './account-remove.ts';
-import { chatWrites } from './chat-writes.ts';
-import { qk } from './reads.ts';
-import type { WriteSpec } from './write-spec.ts';
+import { navOf, taskAfter, type TaskEdit, type TaskVerb } from '@handline/app-core';
+import type { Account, InboxItem, Memo, NavPrefsChanges, Prefs, Proposal, Schedule, Settings, StandingAnswer, Task } from '@handline/client';
+import { edit, provisionalId, upsert, type Ctx } from '#src/cache.ts';
+import { accountAfter, type AccountChange } from '#src/account-after.ts';
+import { accountRemove } from '#src/account-remove.ts';
+import { chatWrites } from '#src/chat-writes.ts';
+import { qk } from '#src/reads.ts';
+import type { WriteSpec } from '#src/write-spec.ts';
 
 const as = <T>(p: never) => p as T;
 const decided = (label: string): WriteSpec => ({ kind: 'decided', label });
@@ -200,6 +200,15 @@ const settings: Record<string, WriteSpec> = {
     patch: (c, p) => {
       const { agent, changes } = as<{ agent?: string; changes: object }>(p);
       if (!agent) edit<Settings>(c.qc, ['d', c.d, 'settings'], (s) => ({ ...s, values: { ...s.values, ...changes } }));
+    },
+  },
+  'prefs.set': {
+    kind: 'authored',
+    label: 'save view preferences',
+    touches: (d) => [qk.prefs(d)],
+    patch: (c, p) => {
+      const { nav } = as<{ changes: { nav: NavPrefsChanges } }>(p).changes;
+      edit<Prefs>(c.qc, qk.prefs(c.d), (s) => ({ ...s, nav: { ...navOf(s), ...nav } }));
     },
   },
   'trust.remove': {

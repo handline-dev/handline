@@ -1,8 +1,8 @@
 // Seal the hand-edited team.yaml and agent.yaml files (founder only): a dry run lists what would be sealed, then the founder confirms.
 import { useEffect, useState } from 'react';
-import { useConnection, useStore } from '@handline/app-react';
-import { classify, sentence, useServes, useWrite } from '@handline/app-data';
-import { Button, Dialog, Icon, NOTE } from './ui/index.ts';
+import { useStore } from '@handline/app-react';
+import { classify, sentence, useOff, useWrite } from '@handline/app-data';
+import { Button, Dialog, Icon, NOTE } from '#src/ui/index.ts';
 
 function SealDialog({ onClose }: { onClose: () => void }) {
   const plan = useWrite('team.seal');
@@ -42,11 +42,9 @@ function SealDialog({ onClose }: { onClose: () => void }) {
 
 export function TeamSeal() {
   const founder = useStore().client.hello?.role === 'founder';
-  const { served } = useServes('team.seal');
-  const open = useConnection() === 'open';
+  const off = useOff('team.seal');
   const [asking, setAsking] = useState(false);
   if (!founder) return null;
-  const off = !open ? 'daemon not connected' : served ? undefined : 'this daemon does not serve team.seal';
   return (
     <>
       <Button

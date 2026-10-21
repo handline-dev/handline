@@ -12,7 +12,7 @@ vi.hoisted(() => {
   })) as unknown as typeof window.matchMedia;
 });
 
-import { AnimatedItem, AnimatedList } from '../src/AnimatedList.tsx';
+import { AnimatedItem, AnimatedList } from '#src/AnimatedList.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

@@ -1,6 +1,6 @@
 // A task's past: the history rows a patch to it makes (one per field it changes, as the daemon keeps them), and task.time's segments.
 import type { HistoryRow, Methods, Task, TimeSegment } from '@handline/contract';
-import { invalidParams } from './errors.ts';
+import { invalidParams } from '#src/errors.ts';
 
 type Fields = Task & { body: string; blockers: { task: number }[]; estimate?: number | null };
 

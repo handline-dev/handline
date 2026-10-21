@@ -3,9 +3,9 @@
 // later hellos carry. The uri's fingerprint is the SHA-256 of the listener's certificate, which the
 // transport must check: the certificate is self-signed. A plain gateway on a Tailscale name has no certificate and no
 // fingerprint: Tailscale's own tunnel encrypts it, and it is served as ws://.
-import { RpcError } from './errors.ts';
-import type { ErrorCode } from './protocol.ts';
-import type { Transport } from './transport.ts';
+import { RpcError } from '#src/errors.ts';
+import type { ErrorCode } from '#src/protocol.ts';
+import type { Transport } from '#src/transport.ts';
 
 export interface PairingOffer {
   host: string; // address of the listener, host:port

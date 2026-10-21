@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { DEBUG_HASH } from './debug/paneFacts.ts';
+import { DEBUG_HASH } from '#src/debug/paneFacts.ts';
 
 const read = () => location.hash.match(/^#\/agents\/(.+?)(\/settings)?(?:\?m=(\d+))?$/);
 const readTasks = () => location.hash.match(/^#\/tasks(?:\/(\d+|graph))?$/)?.[1] ?? (/^#\/tasks\/?$/.test(location.hash) ? '' : null);

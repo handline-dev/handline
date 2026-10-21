@@ -7,11 +7,11 @@ import { DaemonProvider } from '@handline/app-react';
 import { DataProvider, useAgentDetail, type BoxComponent } from '@handline/app-data';
 import { BytesChannel, fromBase64, toBase64, type ByteEvent } from '@handline/client';
 import { second, setup } from '@handline/fake-daemon/helpers';
-import { BytesTab } from '../src/BytesTab.tsx';
-import { clampGrid, gridToSend, guard, isEscapeChord, isSwitchChord, isTerminalSwitch, keySender, paint, terminalOwnsKey, type CreateTerm } from '../src/terminal/core.ts';
-import { KEEP_MS, dropKept, keep } from '../src/terminal/keep.ts';
-import { linkHandler, openLink } from '../src/terminal/xterm.ts';
-import { wantsBytes } from '../src/terminal/choose.ts';
+import { BytesTab } from '#src/BytesTab.tsx';
+import { clampGrid, gridToSend, guard, isEscapeChord, isSwitchChord, isTerminalSwitch, keySender, paint, terminalOwnsKey, type CreateTerm } from '#src/terminal/core.ts';
+import { KEEP_MS, dropKept, keep } from '#src/terminal/keep.ts';
+import { linkHandler, openLink } from '#src/terminal/xterm.ts';
+import { wantsBytes } from '#src/terminal/choose.ts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const Box: BoxComponent = (p) => <div {...p} />;

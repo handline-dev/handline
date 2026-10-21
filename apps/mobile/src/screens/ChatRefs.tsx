@@ -4,7 +4,7 @@ import { Pressable, Text, View } from 'react-native';
 import { useChatRefs, useServes } from '@handline/app-data';
 import type { ChatMessage } from '@handline/client';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
+import { usePalette } from '#src/theme.ts';
 
 /** What a reply needs of the message it answers. */
 export type Ref = Pick<ChatMessage, 'id' | 'from' | 'to' | 'body'>;

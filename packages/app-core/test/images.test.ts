@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findImageRefs, fitLongEdge, imageRef, insertImageRef, titleFromNote, withImages } from '../src/images.ts';
+import { findImageRefs, fitLongEdge, imageRef, insertImageRef, titleFromNote, withImages } from '#src/images.ts';
 
 test('the long edge shrinks to 2048 and keeps the shape', () => {
   assert.deepEqual(fitLongEdge(4096, 2048), { width: 2048, height: 1024 });

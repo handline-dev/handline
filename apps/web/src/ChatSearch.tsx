@@ -2,19 +2,8 @@
 import { useEffect, useState } from 'react';
 import type { ChatMessage } from '@handline/client';
 import { classify, sentence, useChatSearch, useServes, type ChatScope } from '@handline/app-data';
-import { BarInput, Empty, Icon } from './ui/index.ts';
-import { dateTime } from '@handline/app-core';
-
-const SNIPPET = 90;
-
-/** The words around the first match: ‘…’ marks a cut end. */
-export function snippet(body: string, query: string): string {
-  const flat = body.replace(/\s+/g, ' ').trim();
-  const at = flat.toLowerCase().indexOf(query.toLowerCase());
-  const from = Math.max(0, at - 30);
-  const cut = flat.slice(from, from + SNIPPET);
-  return `${from > 0 ? '…' : ''}${cut}${from + SNIPPET < flat.length ? '…' : ''}`;
-}
+import { dateTime, searchSnippet } from '@handline/app-core';
+import { BarInput, Empty, Icon } from '#src/ui/index.ts';
 
 function Hit({ m, query, onGo }: { m: ChatMessage; query: string; onGo: (id: number) => void }) {
   return (
@@ -27,7 +16,7 @@ function Hit({ m, query, onGo }: { m: ChatMessage; query: string; onGo: (id: num
         <strong className="font-medium text-ink">{m.from}</strong>
         <span>{dateTime(m.at)}</span>
       </span>
-      <span className="text-body text-ink">{snippet(m.body, query)}</span>
+      <span className="text-body text-ink">{searchSnippet(m.body, query)}</span>
     </button>
   );
 }

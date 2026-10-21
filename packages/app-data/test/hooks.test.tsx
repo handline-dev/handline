@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setup } from '@handline/fake-daemon/helpers';
 import { Store } from '@handline/app-core';
 import { RpcError } from '@handline/client';
-import { SKELETON_DELAY_MS, Skeleton, useAgentDetail, useAgents, useChat, useServes, viewState } from '../src/index.ts';
-import { openStore, mount, probe, sleep, stubClient, unmount, until } from './harness.tsx';
+import { SKELETON_DELAY_MS, Skeleton, useAgentDetail, useAgents, useChat, useServes, viewState } from '#src/index.ts';
+import { openStore, mount, probe, sleep, stubClient, unmount, until } from '#test/harness.tsx';
 
 afterEach(unmount);
 const ARCH = 'handline.architect';

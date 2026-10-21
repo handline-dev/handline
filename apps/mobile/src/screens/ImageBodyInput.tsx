@@ -5,9 +5,9 @@ import { Keyboard, Text, TextInput, View } from 'react-native';
 import { imageRef, insertImageRef } from '@handline/app-core';
 import { MAX_PER_MESSAGE, useImageDrafts } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { pickImages } from '../ImagePick.ts';
-import { usePalette } from '../theme.ts';
-import { AttachButton, ImageChips } from './ImageDrafts.tsx';
+import { pickImages } from '#src/ImagePick.ts';
+import { usePalette } from '#src/theme.ts';
+import { AttachButton, ImageChips } from '#src/screens/ImageDrafts.tsx';
 
 export function ImageBodyInput(props: {
   value: string;

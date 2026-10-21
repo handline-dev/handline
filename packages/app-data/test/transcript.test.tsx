@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { setup } from '@handline/fake-daemon/helpers';
 import { Store } from '@handline/app-core';
 import { RpcError, type TranscriptEvent, type TranscriptEvents } from '@handline/client';
-import { makeQueryClient, qk, merge, EMPTY, toTurns, usePrompts, useTranscript, type Entry } from '../src/index.ts';
-import { DAEMON, mount, openStore, probe, sleep, stubClient, unmount, until, type Stub } from './harness.tsx';
+import { makeQueryClient, qk, merge, EMPTY, toTurns, usePrompts, useTranscript, type Entry } from '#src/index.ts';
+import { DAEMON, mount, openStore, probe, sleep, stubClient, unmount, until, type Stub } from '#test/harness.tsx';
 
 afterEach(unmount);
 const AUDITOR = 'handline.auditor';

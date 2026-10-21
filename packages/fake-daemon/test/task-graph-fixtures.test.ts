@@ -6,8 +6,8 @@ import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FakeDaemon } from '../src/daemon.ts';
-import { serveSocket } from '../src/serve.ts';
+import { FakeDaemon } from '#src/daemon.ts';
+import { serveSocket } from '#src/serve.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 

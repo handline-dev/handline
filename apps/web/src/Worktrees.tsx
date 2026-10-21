@@ -1,25 +1,20 @@
 // The Worktrees page: every worktree the daemon knows, with repo and owner filters (client-side) and a search, and a side panel for one.
 // A worktree is made by starting an agent; its status label is changed by a decided write (the row moves when the refetch shows it).
 import { useEffect, useState } from 'react';
-import { ago } from '@handline/app-core';
+import { ago, worktreeSums } from '@handline/app-core';
 import type { Worktree } from '@handline/client';
 import { useMoves, useRepos, useServes, useWorktrees } from '@handline/app-data';
-import { Button, Empty, PageHead, PageTitle, ScrollPage, Segmented, Select } from './ui/index.ts';
-import { setting } from './daemon.ts';
 import type { KV } from '@handline/app-core';
-import { WorktreeBoard } from './WorktreeBoard.tsx';
-import { goAgent, goWorktrees } from './route.ts';
-import { View } from './View.tsx';
-import { WorktreePanel } from './WorktreePanel.tsx';
+import { Button, Empty, PageHead, PageTitle, ScrollPage, Segmented, Select } from '#src/ui/index.ts';
+import { setting } from '#src/daemon.ts';
+import { WorktreeBoard } from '#src/WorktreeBoard.tsx';
+import { goAgent, goWorktrees } from '#src/route.ts';
+import { View } from '#src/View.tsx';
+import { WorktreePanel } from '#src/WorktreePanel.tsx';
 
 /** A snapshot older than this says when it was read, with a Refresh. */
 const OLD_MS = 30_000;
 const NO_OWNER = '\u0000none';
-
-export const sums = (w: Worktree) => ({
-  added: w.changed.reduce((n, f) => n + f.added, 0),
-  deleted: w.changed.reduce((n, f) => n + f.deleted, 0),
-});
 
 export function Owner({ w }: { w: Worktree }) {
   return w.owner ? (
@@ -147,7 +142,7 @@ export function Worktrees({ path, storage }: { path: string | null; storage: KV 
               </thead>
               <tbody>
                 {shown.map((w) => {
-                  const { added, deleted } = sums(w);
+                  const { added, deleted } = worktreeSums(w);
                   return (
                     <tr key={w.path} data-worktree={w.path} className={`${w.path === path ? 'on bg-panel' : ''}`}>
                       <td className={TD}>{w.repo}</td>

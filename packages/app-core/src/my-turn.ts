@@ -1,7 +1,7 @@
 // What waits on the person, as one list of cards (docs/story9-my-turn.md 9-1): unread inbox items that need an answer, and agents that
 // say `needs_you`. Built only from fields the web client already reads; priority and deadline come from the item's task.
 import type { AgentView, InboxItem, Task } from '@handline/client';
-import { isPerson } from './chat.ts';
+import { isPerson } from '#src/chat.ts';
 
 export type CardKind = 'decision' | 'approval' | 'dialog' | 'attention';
 

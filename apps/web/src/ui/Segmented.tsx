@@ -2,7 +2,7 @@
 // the tooltip.
 import { Radio } from '@base-ui/react/radio';
 import { RadioGroup } from '@base-ui/react/radio-group';
-import { Icon, type IconName } from './Icon.tsx';
+import { Icon, type IconName } from '#src/ui/Icon.tsx';
 
 export interface Choice<V extends string> {
   value: V;

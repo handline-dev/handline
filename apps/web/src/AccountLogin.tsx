@@ -3,23 +3,18 @@
 // on submit. The login's end comes from the accounts topic, not from these writes.
 import { useState } from 'react';
 import type { Account } from '@handline/client';
-import { useConnection } from '@handline/app-react';
-import { classify, sentence, useServes, useWrite } from '@handline/app-data';
-import { Button, Field, Icon } from './ui/index.ts';
-
-/** A login the daemon has not ended: the URL (when this app started it) and the code box belong to it. */
-const running = (account: Account) => account.login?.state === 'waiting' || account.login?.state === 'code_sent';
+import { classify, sentence, useOff, useWrite } from '@handline/app-data';
+import { loginRunning } from '@handline/app-core';
+import { Button, Field, Icon } from '#src/ui/index.ts';
 
 export function AccountLogin({ account }: { account: Account }) {
   const login = useWrite('account.login', account.name);
   const sendCode = useWrite('account.login_code', account.name);
   const cancelLogin = useWrite('account.login_cancel', account.name);
-  const { served } = useServes('account.login');
-  const open = useConnection() === 'open';
+  const off = useOff('account.login');
   const [code, setCode] = useState('');
 
-  const off = !open ? 'daemon not connected' : served ? undefined : 'this daemon does not serve account.login';
-  const run = running(account);
+  const run = loginRunning(account);
   // The URL only the starter of the login holds; a reload loses it and the topic's login_id is what a Cancel still needs.
   const url = login.data?.url;
   const loginId = login.data?.login_id ?? account.login?.login_id ?? '';

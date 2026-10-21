@@ -47,7 +47,6 @@ type Env struct {
 	noted     map[string]noted
 	failed    map[string]failure
 	bg        sync.WaitGroup // the tellings still running off the caller (background)
-	replyMu   sync.Mutex     // one read of the founder's replies at a time (founderRead)
 }
 
 // Seen is what the sweep saw of one agent's session this tick (observe.Observed).

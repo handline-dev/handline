@@ -2,7 +2,7 @@
 // action names, No asks for a note first, and a refusal is shown on the message.
 import { describe, expect, it } from 'vitest';
 import type { setup } from '@handline/fake-daemon/helpers';
-import { ARCH, $, mount, press, text, until } from './harness.tsx';
+import { ARCH, $, mount, press, text, until } from '#test/harness.tsx';
 
 const TASK = 1800;
 const seeded = (s: ReturnType<typeof setup>) => {

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Resources } from '@handline/client';
-import { bytesText, machineCells, useRows } from '../src/index.ts';
+import { bytesText, machineCells, useRows } from '#src/index.ts';
 
 const GB = 2 ** 30;
 const res = (m: Partial<Resources['machine']> = {}, agents: Resources['agents'] = {}): Resources => ({

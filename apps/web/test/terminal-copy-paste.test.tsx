@@ -1,6 +1,6 @@
 // Copy and paste in the web terminal: Ctrl/Cmd+C copies a selection and sends nothing, else it is the interrupt; a paste over 4 KB asks first.
 import { describe, expect, it, vi } from 'vitest';
-import { PASTE_ASK_BYTES, copyKey, pasteGuard } from '../src/terminal/xterm.ts';
+import { PASTE_ASK_BYTES, copyKey, pasteGuard } from '#src/terminal/xterm.ts';
 
 const key = (k: string, mods: Partial<KeyboardEvent> = {}) => ({
   type: 'keydown',

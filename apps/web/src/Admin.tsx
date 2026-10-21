@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import { ago, useRows, VERBS } from '@handline/app-core';
 import { useAgents, useMemory, useRecentEvents, useServes, useStatus, useTriggers } from '@handline/app-data';
-import { PageHead, PageTitle, RowTitle, ScrollPage, SectionHead, SettingsCard, SettingsRow } from './ui/index.ts';
-import { VerbSheet } from './AgentVerbs.tsx';
-import { Button } from './ui/index.ts';
-import { View } from './View.tsx';
+import { PageHead, PageTitle, RowTitle, ScrollPage, SectionHead, SettingsCard, SettingsRow } from '#src/ui/index.ts';
+import { VerbSheet } from '#src/AgentVerbs.tsx';
+import { Button } from '#src/ui/index.ts';
+import { View } from '#src/View.tsx';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 const HEALTH: Record<string, string> = { ok: 'working', degraded: 'degraded', down: 'down' };
 
@@ -76,7 +77,7 @@ function Usage() {
           </SettingsRow>
         </SettingsCard>
       )}
-      {target ? <VerbSheet a={target} verb={close} onClose={() => setStopping(null)} /> : null}
+      <AnimatedList>{target ? <VerbSheet key="VerbSheet" a={target} verb={close} onClose={() => setStopping(null)} /> : null}</AnimatedList>
     </>
   );
 }

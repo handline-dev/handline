@@ -4,7 +4,7 @@
 import { FIVE_HOURS_MS, WEEK_MS, gaugeOf, span } from '@handline/app-core';
 import type { Window } from '@handline/client';
 import { useEffect, useState } from 'react';
-import { Icon } from './ui/index.ts';
+import { Icon } from '#src/ui/index.ts';
 
 /** The time, moved on every minute so a reset countdown stays true on a page left open. */
 export function useNow(everyMs = 60_000): number {

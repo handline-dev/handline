@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Task } from '@handline/client';
-import { clip, edgePath, taskGraph, waitReason } from '../src/task-graph.ts';
+import { clip, edgePath, taskGraph, waitReason } from '#src/task-graph.ts';
 
 const task = (id: number, over: Partial<Task> = {}): Task => ({
   id,

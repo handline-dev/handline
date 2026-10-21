@@ -1,7 +1,7 @@
 // Delivery to a structured agent (x-delivery): the receipt of a message, and how landing follows it.
 import { createHash } from 'node:crypto';
 import type { ChatMessage, Landing, Receipt } from '@handline/contract';
-import { badRequest } from './errors.ts';
+import { badRequest } from '#src/errors.ts';
 
 export type Msg = ChatMessage & { agent: string };
 type State = Receipt['state'];

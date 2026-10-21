@@ -2,10 +2,10 @@
 import { useState } from 'react';
 import { isGate, taskRef, timeBoxText, watchLine } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
-import { Icon, type IconName } from './ui/Icon.tsx';
-import { Sheet } from './taskui.tsx';
-import { Inline, TextInput, useEditTask } from './TaskInline.tsx';
-import { Button, Input, MenuButton, MenuItem } from './ui/index.ts';
+import { Icon, type IconName } from '#src/ui/Icon.tsx';
+import { Sheet } from '#src/taskui.tsx';
+import { Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
+import { Button, Input, MenuButton, MenuItem } from '#src/ui/index.ts';
 
 const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
 const CHIP = 'inline-flex items-center gap-1 rounded-pill border border-line px-2 text-hint leading-5';

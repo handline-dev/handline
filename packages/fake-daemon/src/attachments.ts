@@ -2,7 +2,7 @@
 // Image bytes live here only; the replay store (replies, events) holds a digest or the Attachment, never the data.
 import { createHash, randomBytes } from 'node:crypto';
 import type { Attachment, ImagePart, MemoFile, TextPart } from '@handline/contract';
-import { badRequest, Failure, invalidParams, refused } from './errors.ts';
+import { badRequest, Failure, invalidParams, refused } from '#src/errors.ts';
 
 // These mirror the contract's x-attachments limits (kept in prose there; app-data holds the client's copy).
 export const CHUNK = 512 * 1024;

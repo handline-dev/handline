@@ -68,3 +68,6 @@ export function cronWords(cron: string): string | null {
   if (!m) return null;
   return `every ${m[3] === '*' ? 'day' : 'weekday'} ${pad(m[2]!)}:${pad(m[1]!)}`;
 }
+
+/** The unit shown with the field; what follows its comma ("min, 0 = never") is the hint. */
+export const fieldUnit = (f: Field): string | undefined => f.unit?.split(',')[0]?.trim();

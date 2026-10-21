@@ -4,13 +4,13 @@
 import { useEffect, useState } from 'react';
 import { capField, idleField, type KV } from '@handline/app-core';
 import { useServes, useSettings } from '@handline/app-data';
-import { Answers } from './Answers.tsx';
-import { Devices } from './Devices.tsx';
-import { DebugEntry } from './debug/DebugEntry.tsx';
-import { PageHead, PageTitle, ScrollPage, Icon, RowHint, SectionHead, SettingsCard, type IconName } from './ui/index.ts';
-import { NumberRow, SwitchRow } from './SettingsRows.tsx';
-import { Appearance, BackgroundRows, Connection, Notifications } from './SettingsMore.tsx';
-import { View } from './View.tsx';
+import { Answers } from '#src/Answers.tsx';
+import { Devices } from '#src/Devices.tsx';
+import { DebugEntry } from '#src/debug/DebugEntry.tsx';
+import { PageHead, PageTitle, ScrollPage, Icon, RowHint, SectionHead, SettingsCard, type IconName } from '#src/ui/index.ts';
+import { NumberRow, SwitchRow } from '#src/SettingsRows.tsx';
+import { Appearance, BackgroundRows, Connection, Notifications } from '#src/SettingsMore.tsx';
+import { View } from '#src/View.tsx';
 
 const SECTIONS: { id: string; title: string; icon: IconName; group: string }[] = [
   { id: 'concurrency', title: 'Concurrency', icon: 'agent', group: 'Agents' },

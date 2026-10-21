@@ -2,7 +2,8 @@
 // descriptions all draw it (the editor draws it for an image node too).
 import { useState } from 'react';
 import { useAttachmentUrl } from '@handline/app-data';
-import { Dialog } from './ui/index.ts';
+import { Dialog } from '#src/ui/index.ts';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 export function AttachmentImage({ id, name }: { id: string; name: string }) {
   const small = useAttachmentUrl(id, true);
@@ -35,7 +36,7 @@ export function AttachmentImage({ id, name }: { id: string; name: string }) {
           <span className="muted text-[12px]">{label}</span>
         )}
       </button>
-      {open ? <Original id={id} name={label} onClose={() => setOpen(false)} /> : null}
+      <AnimatedList>{open ? <Original key="original" id={id} name={label} onClose={() => setOpen(false)} /> : null}</AnimatedList>
     </>
   );
 }

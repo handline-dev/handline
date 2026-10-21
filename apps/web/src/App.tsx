@@ -3,12 +3,12 @@ import { useEffect, useRef, useState } from 'react';
 import type { KV, Store } from '@handline/app-core';
 import { DaemonProvider, useError, useStore } from '@handline/app-react';
 import { DataProvider, SKELETON_CSS, useUnread, type BoxComponent } from '@handline/app-data';
-import { setting } from './daemon.ts';
-import { AccountsPage } from './Accounts.tsx';
-import { MyTurnPage } from './MyTurn.tsx';
-import { SettingsPage } from './Settings.tsx';
-import { AdminPage } from './Admin.tsx';
-import { DebugTerminals } from './debug/DebugTerminals.tsx';
+import { setting } from '#src/daemon.ts';
+import { AccountsPage } from '#src/Accounts.tsx';
+import { MyTurnPage } from '#src/MyTurn.tsx';
+import { SettingsPage } from '#src/Settings.tsx';
+import { AdminPage } from '#src/Admin.tsx';
+import { DebugTerminals } from '#src/debug/DebugTerminals.tsx';
 import {
   useAccountsRoute,
   useDebugRoute,
@@ -19,22 +19,23 @@ import {
   useTasksRoute,
   useTeamRoute,
   useWorktreesRoute,
-} from './route.ts';
-import { useShell } from './shell.ts';
-import { SettingsView } from './SettingsView.tsx';
-import { TeamPage } from './TeamPage.tsx';
-import { Worktrees } from './Worktrees.tsx';
-import { NewAgent } from './NewAgent.tsx';
-import { KeysSheet } from './KeysSheet.tsx';
-import { Palette } from './Palette.tsx';
-import { Sidebar } from './Sidebar.tsx';
-import { FoldedControls, RailControls } from './RailControls.tsx';
-import { DaemonDown } from './DaemonDown.tsx';
-import { terminalOwnsKey } from './terminal/core.ts';
-import { StatusBar } from './StatusBar.tsx';
-import { CaptureHost } from './Capture.tsx';
-import { TasksPage } from './Tasks.tsx';
-import { AgentWorkspace } from './Workspace.tsx';
+} from '#src/route.ts';
+import { useShell } from '#src/shell.ts';
+import { SettingsView } from '#src/SettingsView.tsx';
+import { TeamPage } from '#src/TeamPage.tsx';
+import { Worktrees } from '#src/Worktrees.tsx';
+import { NewAgent } from '#src/NewAgent.tsx';
+import { KeysSheet } from '#src/KeysSheet.tsx';
+import { Palette } from '#src/Palette.tsx';
+import { Sidebar } from '#src/Sidebar.tsx';
+import { FoldedControls, RailControls } from '#src/RailControls.tsx';
+import { DaemonDown } from '#src/DaemonDown.tsx';
+import { terminalOwnsKey } from '#src/terminal/core.ts';
+import { StatusBar } from '#src/StatusBar.tsx';
+import { CaptureHost } from '#src/Capture.tsx';
+import { TasksPage } from '#src/Tasks.tsx';
+import { AgentWorkspace } from '#src/Workspace.tsx';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 const Box: BoxComponent = (p) => <div {...p} />;
 
@@ -170,7 +171,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             </div>
           )}
         </main>
-        {newAgent.open ? <NewAgent onClose={() => void (location.hash = '')} /> : null}
+        <AnimatedList>{newAgent.open ? <NewAgent key="NewAgent" onClose={() => void (location.hash = '')} /> : null}</AnimatedList>
         {error ? (
           <div
             className="toast fixed right-4 bottom-10 max-w-[420px] rounded-[8px] bg-ink px-3.5 py-2.5 text-canvas shadow-[var(--shadow-pop)]"
@@ -183,8 +184,8 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
         ) : null}
       </div>
       <StatusBar />
-      {palette ? <Palette onClose={() => setPalette(false)} /> : null}
-      {keys ? <KeysSheet onClose={() => setKeys(false)} /> : null}
+      <AnimatedList>{palette ? <Palette key="Palette" onClose={() => setPalette(false)} /> : null}</AnimatedList>
+      <AnimatedList>{keys ? <KeysSheet key="KeysSheet" onClose={() => setKeys(false)} /> : null}</AnimatedList>
     </div>
     </FoldedControls.Provider>
   );

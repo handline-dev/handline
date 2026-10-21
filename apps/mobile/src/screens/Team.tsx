@@ -4,8 +4,8 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useTeamBoard } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Loadable } from './Loadable.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Loadable } from '#src/screens/Loadable.tsx';
 
 export function Team() {
   const c = usePalette();

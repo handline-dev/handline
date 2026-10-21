@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { breakpointOf, breakpoints, colors, cssVariables } from '../src/index.ts';
+import { breakpointOf, breakpoints, colors, cssVariables } from '#src/index.ts';
 
 test('widths fall in phone, tablet or PC at the documented edges', () => {
   assert.deepEqual([375, 639, 640, 768, 1023, 1024, 1280].map(breakpointOf), ['phone', 'phone', 'tablet', 'tablet', 'tablet', 'pc', 'pc']);

@@ -5,25 +5,24 @@ import { useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import type { Account } from '@handline/client';
 import { useStore } from '@handline/app-react';
-import { classify, sentence, useServes, useWrite } from '@handline/app-data';
+import { classify, sentence, useOff, useServes, useWrite } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Button } from './parts.tsx';
-import { Input, useWhyNot } from './TaskActions.tsx';
-
-const running = (a: Account) => a.login?.state === 'waiting' || a.login?.state === 'code_sent';
+import { loginRunning } from '@handline/app-core';
+import { usePalette } from '#src/theme.ts';
+import { Button } from '#src/screens/parts.tsx';
+import { Input } from '#src/screens/TaskActions.tsx';
 
 export function AccountLogin({ a }: { a: Account }) {
   const c = usePalette();
   const founder = useStore().client.hello?.role === 'founder';
-  const off = useWhyNot('account.login');
+  const off = useOff('account.login');
   const { served } = useServes('account.login');
   const login = useWrite('account.login', a.name);
   const sendCode = useWrite('account.login_code', a.name);
   const cancel = useWrite('account.login_cancel', a.name);
   const [code, setCode] = useState('');
   if (!founder || !served) return null;
-  const run = running(a);
+  const run = loginRunning(a);
   // Only the client that started the login holds the URL; the topic's login_id is what a Cancel needs after a reload.
   const url = login.data?.url;
   const loginId = login.data?.login_id ?? a.login?.login_id ?? '';

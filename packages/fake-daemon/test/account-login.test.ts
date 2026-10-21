@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { type Event, type RpcError } from '@handline/client';
-import { setup } from '../src/helpers.ts';
-import { GOOD_LOGIN_CODE } from '../src/accounts.ts';
+import { setup } from '#src/helpers.ts';
+import { GOOD_LOGIN_CODE } from '#src/accounts.ts';
 
 type Login = { login_id: string; state: string; url: string };
 

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fromBase64, type ByteEvent, type RpcError } from '@handline/client';
-import { second, setup, until } from '../src/helpers.ts';
+import { second, setup, until } from '#src/helpers.ts';
 
 const A = 'handline.term-build';
 const text = (b: Uint8Array) => new TextDecoder().decode(b);

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addTab, defaultWorkspace, findRefs, openTaskTab, taskRef } from '../src/index.ts';
+import { addTab, defaultWorkspace, findRefs, openTaskTab, taskRef } from '#src/index.ts';
 
 const found = (s: string, o?: Parameters<typeof findRefs>[1]) => findRefs(s, o).map((r) => [s.slice(r.start, r.end), r.kind, r.id]);
 

@@ -4,34 +4,32 @@
 // lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { clockTime, decidedProposals, sideOf, takeBack as canTakeBack, chatEntries, tickLevel } from '@handline/app-core';
+import { chatEntries, clockTime, decidedProposals, ellipsis, sideOf, takeBack as canTakeBack, tickLevel } from '@handline/app-core';
 import { classify, sentence, useChat, useChatActions, useChatReadMarks, useHr } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
-import { Skeleton } from '../skeleton.tsx';
-import { usePalette } from '../theme.ts';
-import { Decided, Line, Stamp, useBubbleWidth } from './ChatLines.tsx';
-import { Pictures } from './ChatPictures.tsx';
-import { ChatActions } from './ChatActions.tsx';
-import { PrBody } from './PrBody.tsx';
-import { ChatFind } from './ChatFind.tsx';
-import { ChatRefs, type Ref } from './ChatRefs.tsx';
-import { HandoffLine } from './HandoffLine.tsx';
-import { Detail } from './Tasks.tsx';
-import { NeedsYouCard } from './NeedsYouCard.tsx';
-import { ChatSearch } from './ChatSearch.tsx';
-import { useChatImages } from './ChatImages.tsx';
-import { Icon } from './Icon.tsx';
-import { Button, Link, Row } from './parts.tsx';
+import { Skeleton } from '#src/skeleton.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Decided, Line, Stamp, useBubbleWidth } from '#src/screens/ChatLines.tsx';
+import { Pictures } from '#src/screens/ChatPictures.tsx';
+import { ChatActions } from '#src/screens/ChatActions.tsx';
+import { PrBody } from '#src/screens/PrBody.tsx';
+import { ChatFind } from '#src/screens/ChatFind.tsx';
+import { ChatRefs, type Ref } from '#src/screens/ChatRefs.tsx';
+import { HandoffLine } from '#src/screens/HandoffLine.tsx';
+import { Detail } from '#src/screens/Tasks.tsx';
+import { NeedsYouCard } from '#src/screens/NeedsYouCard.tsx';
+import { ChatSearch } from '#src/screens/ChatSearch.tsx';
+import { useChatImages } from '#src/screens/ChatImages.tsx';
+import { Icon } from '#src/screens/Icon.tsx';
+import { Button, Link, Row } from '#src/screens/parts.tsx';
 
 /** How far the person's message got, as ticks: not sent yet, sent, read. */
 const TICKS = ['queued', 'delivered', 'answered'] as const;
 
 /** Unsent text per agent, kept while the person goes to another tab or agent (not across a restart). */
 const drafts = new Map<string, string>();
-
-const snippet = (s: string) => (s.length > 80 ? `${s.slice(0, 80)}…` : s);
 
 /** The line over the composer saying what the next message replies to, with a button to drop it. */
 function ReplyRow({ id, dropId, text, onDrop }: { id: string; dropId: string; text: string; onDrop: () => void }) {
@@ -223,8 +221,8 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
       </ScrollView>
       <HandoffLine handoff={props.detail.handoff ?? null} items={chat.items} />
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
-      {picked && <ReplyRow id="replying" dropId="drop-reply" text={snippet(picked.body)} onDrop={() => setPicked(null)} />}
-      {item && <ReplyRow id="replying-item" dropId="drop-reply-item" text={snippet((item.text ?? '').replace(/\s+/g, ' '))} onDrop={() => setItem(null)} />}
+      {picked && <ReplyRow id="replying" dropId="drop-reply" text={ellipsis(picked.body, 80)} onDrop={() => setPicked(null)} />}
+      {item && <ReplyRow id="replying-item" dropId="drop-reply-item" text={ellipsis((item.text ?? '').replace(/\s+/g, ' '), 80)} onDrop={() => setItem(null)} />}
       {canSend && <ChatRefs agent={agent} text={text} onPick={(r, rest) => (setItem(null), setPicked(r), setText(rest))} />}
       {img.chips}
       <Row style={{ padding: space.sm }}>

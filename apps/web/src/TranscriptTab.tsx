@@ -2,17 +2,12 @@
 // opened), permission cards, what the turn cost, and errors. It follows the stream while the person is at the end and offers a jump back when not.
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Skeleton, useTranscript, classify, sentence, useWrite, type Transcript, type Turn } from '@handline/app-data';
-import { PromptCard } from './PromptCard.tsx';
-import { Button, Empty } from './ui/index.ts';
+import { oneLine, toolInputLine } from '@handline/app-core';
+import { PromptCard } from '#src/PromptCard.tsx';
+import { Button, Empty } from '#src/ui/index.ts';
 
 type Entry = Turn['entries'][number];
 type Tool = Extract<Entry, { type: 'tool' }>;
-
-const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, 100);
-const inputLine = (input: Record<string, unknown>) => {
-  const first = Object.values(input).find((v) => typeof v === 'string');
-  return oneLine(typeof first === 'string' ? first : JSON.stringify(input));
-};
 
 function Fold({ head, tone, children }: { head: ReactNode; tone?: 'bad'; children: ReactNode }) {
   return (
@@ -30,7 +25,7 @@ function ToolCall({ agent, t }: { agent: string; t: Tool }) {
       <Fold
         head={
           <>
-            <b>{t.tool ?? 'tool'}</b> {inputLine(t.input)}
+            <b>{t.tool ?? 'tool'}</b> {toolInputLine(t.input, 100)}
           </>
         }
       >
@@ -47,7 +42,7 @@ function ToolCall({ agent, t }: { agent: string; t: Tool }) {
         <Fold
           head={
             <>
-              {result.ok ? 'returned' : 'failed'}: {oneLine(result.text)}
+              {result.ok ? 'returned' : 'failed'}: {oneLine(result.text, 100)}
             </>
           }
           tone={result.ok ? undefined : 'bad'}

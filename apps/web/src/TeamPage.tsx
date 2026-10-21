@@ -1,15 +1,13 @@
 // The Team page: two tabs, Team (who is who, and who may ask whom) and HR (the proposals that wait for the founder).
-import { waitingCount, taskRef } from '@handline/app-core';
+import { taskRef } from '@handline/app-core';
 import type { AgentView, TeamAgent } from '@handline/client';
-import { useHr, useServes, useTeamBoard } from '@handline/app-data';
-import { HrTab } from './HrTab.tsx';
-import { TeamSeal } from './TeamSeal.tsx';
-import { Empty, Icon, PageHead, PageTitle, ScrollPage, MetaItem, MetaLine, State, TabStrip, stateOfView } from './ui/index.ts';
-import { goAgent, goTeam, useTeamRoute } from './route.ts';
-import { View } from './View.tsx';
-
-/** How many proposals wait on the founder; 0 while the list is not here or not served. */
-export const useHrCount = (): number => waitingCount(useHr().data?.proposals ?? []);
+import { useHrCount, useServes, useTeamBoard } from '@handline/app-data';
+import { HrTab } from '#src/HrTab.tsx';
+import { TeamSeal } from '#src/TeamSeal.tsx';
+import { Empty, Icon, PageHead, PageTitle, ScrollPage, MetaItem, MetaLine, State, TabStrip, stateOfView } from '#src/ui/index.ts';
+import { goAgent, goTeam, useTeamRoute } from '#src/route.ts';
+import { View } from '#src/View.tsx';
+import { Reveal } from '#src/ui/Reveal.tsx';
 
 export function TeamPage() {
   const route = useTeamRoute()!;
@@ -157,7 +155,7 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
           <Icon name="tasks" label="Doing" size={14} aria-hidden="true" /> {taskRef(d.task.id)} {d.task.title}
         </p>
       ) : null}
-      {props.open ? (
+      <Reveal show={props.open}>
         <div className="edges mt-1.5 grid gap-1.5 border-t border-line pt-2 [&_svg]:text-ink-3">
           <div className="flex flex-wrap items-center gap-1.5">
             <Icon name="send" label="May ask" size={14} />
@@ -168,7 +166,7 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
             {chips(props.edges.filter((e) => e.to === a.name).map((e) => e.from))}
           </div>
         </div>
-      ) : null}
+      </Reveal>
     </article>
   );
 }

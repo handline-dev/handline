@@ -1,4 +1,4 @@
-import type { Disposable, PaneTerm } from './core.ts';
+import type { Disposable, PaneTerm } from '#src/terminal/core.ts';
 
 /** A terminal pane that was hidden: its xterm instance, still holding the last screen, waiting for a quick switch back. */
 export interface Kept {

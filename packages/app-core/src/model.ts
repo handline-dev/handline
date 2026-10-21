@@ -1,7 +1,7 @@
 // What the screens decide from daemon facts. Pure: no DOM, so tests run it in Node.
 import type { AgentDetail, AgentView, InputHolder, Prompt, PromptOption } from '@handline/client';
-import { dotOfStatus } from './status.ts';
-import { DAEMON_KEYS, NAMED_KEYS } from './keys.ts';
+import { dotOfStatus } from '#src/status.ts';
+import { DAEMON_KEYS, NAMED_KEYS } from '#src/keys.ts';
 
 export type Dot = 'running' | 'waking' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'none';
 
@@ -19,6 +19,10 @@ export function dotOf(a: Pick<AgentView, 'state' | 'has_dialog' | 'block' | 'han
 }
 
 const URGENCY: Record<Dot, number> = { waiting: 0, blocked: 1, running: 2, waking: 3, idle: 4, parked: 5, none: 6 };
+
+/** The rail's order: the agents that wait on someone first, then by name. */
+export const byUrgency = (a: AgentView, b: AgentView): number => URGENCY[dotOf(a)] - URGENCY[dotOf(b)] || a.name.localeCompare(b.name);
+
 export interface RailRow {
   agent: AgentView;
   depth: number;
@@ -43,25 +47,36 @@ export const rowName = (name: string, depth: number, team: string): string =>
 /** An agent the founder has not caught up with: unseen requests to them, or one that waits on them now. */
 export const isUnread = (a: AgentView): boolean => !!a.founder_unread || !!a.needs_you;
 
-/** The agent list as one list: waiting ones sort up, an agent that is restarting stays whatever the filter says, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off (a hidden parent still shows while a child does). */
-export function railRows(agents: AgentView[], opts: { hidden?: ReadonlySet<Dot>; search?: string; unread?: boolean } = {}): RailRow[] {
+export interface RailFilter {
+  hidden?: ReadonlySet<Dot>;
+  search?: string;
+  unread?: boolean;
+}
+
+/** Whether the filter lets an agent through on its own: an agent that is restarting passes whatever the dot filter says. */
+export function railMatch(opts: RailFilter): (a: AgentView) => boolean {
   const q = (opts.search ?? '').trim().toLowerCase();
   const found = (a: AgentView) => !q || `${a.name} ${a.role} ${a.account ?? ''} ${a.task?.title ?? ''}`.toLowerCase().includes(q);
-  const match = agents.filter((a) => (!opts.hidden?.has(dotOf(a)) || !!a.handoff) && found(a) && (!opts.unread || isUnread(a)));
+  return (a) => (!opts.hidden?.has(dotOf(a)) || !!a.handoff) && found(a) && (!opts.unread || isUnread(a));
+}
+
+/** The agent list as one list: waiting ones sort up, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off (a hidden parent still shows while a child does). */
+export function railRows(agents: AgentView[], opts: RailFilter = {}): RailRow[] {
+  const match = agents.filter(railMatch(opts));
+  const found = railMatch({ search: opts.search });
   // Keep the parents a dot filter hides while a child shows, so the children do not float to the top level.
   const byName = new Map(agents.map((a) => [a.name, a]));
   const names = new Set(match.map((a) => a.name));
   for (const a of match)
     for (let p = byName.get(a.parent ?? ''); p && !names.has(p.name) && found(p); p = byName.get(p.parent ?? '')) names.add(p.name);
   const shown = agents.filter((a) => names.has(a.name));
-  const order = (a: AgentView, b: AgentView) => URGENCY[dotOf(a)] - URGENCY[dotOf(b)] || a.name.localeCompare(b.name);
   const rows: RailRow[] = [];
   const walk = (a: AgentView, depth: number) => {
-    const kids = shown.filter((x) => x.parent === a.name).sort(order);
+    const kids = shown.filter((x) => x.parent === a.name).sort(byUrgency);
     rows.push({ agent: a, depth, kids: kids.length });
     for (const c of kids) walk(c, depth + 1);
   };
-  for (const a of shown.filter((x) => !x.parent || !names.has(x.parent)).sort(order)) walk(a, 0);
+  for (const a of shown.filter((x) => !x.parent || !names.has(x.parent)).sort(byUrgency)) walk(a, 0);
   return rows;
 }
 

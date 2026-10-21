@@ -1,4 +1,4 @@
-import { limits } from './limits.js';
+import { limits } from '#eslint/limits.js';
 
 const skip = { skipBlankLines: true, skipComments: true };
 

@@ -1,7 +1,7 @@
 // What differs for an agent played as a structured session (x-structured-controls): it has no terminal and no input holder, the typing
 // and terminal methods are refused for it (unless a test asked for the old shape with a terminal), and interrupt and close look at whether a turn runs.
-import { Failure, refused } from './errors.ts';
-import type { Call } from './handlers.ts';
+import { Failure, refused } from '#src/errors.ts';
+import type { Call } from '#src/handlers.ts';
 
 type Handler = (h: Call) => unknown;
 

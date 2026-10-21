@@ -1,7 +1,7 @@
 // Every primitive of ui/* and every token on one page (gallery.html in dev): what a screen builder looks at before drawing anything of their own.
 import { useState, type ReactNode } from 'react';
-import { Button, Card, CardWhat, CodeBlock, Dialog, Empty, Field, Icon, Popup, PopupRow, Segmented, Select, State, Switch, ScrollPage, type StateKind } from './ui/index.ts';
-import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from './msgClass.ts';
+import { Button, Card, CardWhat, CodeBlock, Dialog, Empty, Field, Icon, Popup, PopupRow, Segmented, Select, State, Switch, ScrollPage, type StateKind } from '#src/ui/index.ts';
+import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from '#src/msgClass.ts';
 
 const STATES: StateKind[] = ['working', 'booting', 'needs', 'blocked', 'idle', 'done', 'noTerminal'];
 

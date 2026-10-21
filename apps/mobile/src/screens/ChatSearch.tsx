@@ -4,17 +4,8 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { classify, sentence, useChatSearch, useServes } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { dateTime } from '@handline/app-core';
-
-const SNIPPET = 90;
-
-/** The words around the first match: ‘…’ marks a cut end. */
-function snippet(body: string, query: string): string {
-  const flat = body.replace(/\s+/g, ' ').trim();
-  const from = Math.max(0, flat.toLowerCase().indexOf(query.toLowerCase()) - 30);
-  return `${from > 0 ? '…' : ''}${flat.slice(from, from + SNIPPET)}${from + SNIPPET < flat.length ? '…' : ''}`;
-}
+import { dateTime, searchSnippet } from '@handline/app-core';
+import { usePalette } from '#src/theme.ts';
 
 export function ChatSearch(props: { agent: string; onGo: (id: number) => void }) {
   const c = usePalette();
@@ -69,7 +60,7 @@ export function ChatSearch(props: { agent: string; onGo: (id: number) => void })
                 <Text style={{ color: c.muted, fontSize: 11 }}>
                   {m.agent ?? props.agent} · {m.from} → {m.to} · {dateTime(m.at)}
                 </Text>
-                <Text style={{ color: c.ink }}>{snippet(m.body, query)}</Text>
+                <Text style={{ color: c.ink }}>{searchSnippet(m.body, query)}</Text>
               </Pressable>
             ))
           )}

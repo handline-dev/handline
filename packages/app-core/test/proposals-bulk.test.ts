@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Proposal } from '@handline/client';
-import { decideMany, settled, splitStale } from '../src/proposals.ts';
+import { decideMany, settled, splitStale } from '#src/proposals.ts';
 
 const p = (id: number, over: object = {}): Proposal =>
   ({ id, title: `settings a${id}`, subject: `s${id}`, state: 'open', ...over }) as Proposal;

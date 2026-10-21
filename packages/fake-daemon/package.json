@@ -9,6 +9,9 @@
     "./seeds": "./src/seeds.ts",
     "./helpers": "./src/helpers.ts"
   },
+  "imports": {
+    "#src/*": "./src/*"
+  },
   "scripts": {
     "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
     "typecheck": "tsc -p .",

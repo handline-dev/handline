@@ -705,10 +705,10 @@ edges:
 	if !strings.HasPrefix(reportLine(dev), "You report to `manager`") || !strings.HasPrefix(reportLine(scout), "You report to `human`") {
 		t.Errorf("wrong boss:\n%s\n---\n%s", dev, scout)
 	}
-	// The founder's words typed at an agent: it is told its plain text answers them, and the others are not.
+	// The founder's words typed at an agent: it is told to answer them with hl say, and the others are not told of typing.
 	r.l.FounderTyped = func(a string) bool { return a == "marina" }
-	if typed, other := r.l.yourTeam("marina"), r.l.yourTeam("manager"); !strings.Contains(typed, "The founder may type straight into your terminal") ||
-		strings.Contains(typed, "reaches no one") || !strings.Contains(other, "what you write in your terminal reaches no one") {
+	if typed, other := r.l.yourTeam("marina"), r.l.yourTeam("manager"); !strings.Contains(typed, "answer with `hl say` too; your terminal text is not shown") ||
+		!strings.Contains(typed, "what you write in your terminal reaches no one") || strings.Contains(other, "type straight into your terminal") {
 		t.Errorf("typed:\n%s\n---\nnot typed:\n%s", typed, other)
 	}
 }

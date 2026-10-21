@@ -1,8 +1,11 @@
 // A popup under its trigger (§1.6): a header with the title and an optional refresh, rows of 28 px, closed by Escape or a click outside.
 // `PopupRow` is a row; `opens` adds the chevron of a row that opens a second popup.
 import { useEffect, useRef, type ReactNode } from 'react';
-import { Button } from './Button.tsx';
-import { Icon, type IconName } from './Icon.tsx';
+import { motion } from 'framer-motion';
+import { AnimatedList } from '#src/AnimatedList.tsx';
+import { Button } from '#src/ui/Button.tsx';
+import { Icon, type IconName } from '#src/ui/Icon.tsx';
+import { useOpenMotion } from '#src/ui/Reveal.tsx';
 
 export function Popup({
   open,
@@ -34,20 +37,26 @@ export function Popup({
       removeEventListener('pointerdown', away);
     };
   }, [open, onClose]);
-  if (!open) return null;
+  const grow = useOpenMotion();
   return (
-    <div
-      className={`ui-popup ${align}${up ? ' up' : ''} absolute z-20 mt-1 min-w-[220px] rounded-card bg-panel pb-1 shadow-[var(--shadow-pop)]${align === 'right' ? ' right-0' : ''}${up ? ' bottom-full mb-1' : ''}`}
-      role="dialog"
-      aria-label={title}
-      ref={box}
-    >
-      <header className="flex items-center justify-between border-b border-line px-2 py-1.5 font-sans text-body font-medium">
-        <strong>{title}</strong>
-        {onRefresh ? <Button icon="refresh" label="Refresh" size="sm" onClick={onRefresh} /> : null}
-      </header>
-      {children}
-    </div>
+    <AnimatedList>
+      {open ? (
+        <motion.div
+          {...grow}
+          className={`ui-popup ${align}${up ? ' up' : ''} absolute z-20 mt-1 min-w-[220px] rounded-card bg-panel pb-[calc(4px*var(--o,1))] shadow-[var(--shadow-pop)]${align === 'right' ? ' right-0' : ''}${up ? ' bottom-full mb-1' : ''}`}
+          role="dialog"
+          aria-label={title}
+          ref={box}
+          style={{ overflowY: 'clip' }}
+        >
+          <header className="flex items-center justify-between border-b border-line px-2 py-1.5 font-sans text-body font-medium">
+            <strong>{title}</strong>
+            {onRefresh ? <Button icon="refresh" label="Refresh" size="sm" onClick={onRefresh} /> : null}
+          </header>
+          {children}
+        </motion.div>
+      ) : null}
+    </AnimatedList>
   );
 }
 

@@ -5,9 +5,9 @@ import { agentTime, dateTime, span } from '@handline/app-core';
 import type { Stats } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useServes, useStats } from '@handline/app-data';
-import { OutlookSection } from './Outlook.tsx';
-import { ChartCard, ChartTitle, Icon, SectionHead, Segmented, type IconName } from './ui/index.ts';
-import { View } from './View.tsx';
+import { OutlookSection } from '#src/Outlook.tsx';
+import { ChartCard, ChartTitle, Icon, SectionHead, Segmented, type IconName } from '#src/ui/index.ts';
+import { View } from '#src/View.tsx';
 
 const WINDOWS = ['24h', '7d'] as const;
 type Window = (typeof WINDOWS)[number];

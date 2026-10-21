@@ -1,7 +1,7 @@
 // Markdown for chat messages: headings, bullet and numbered lists, **bold**, `code` and fenced code. No HTML is read: every piece is a
 // React text node or element. The text between the marks goes through RichText, so paths and T<N> and #N stay links.
 import type { ReactNode } from 'react';
-import { RichText } from './RichText.tsx';
+import { RichText } from '#src/RichText.tsx';
 
 type Block =
   | { kind: 'code'; text: string }

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { grant } from '../src/grant.ts';
-import { commands, Owner, resolveClaude, type Child, type Cmd } from '../src/owner.ts';
+import { grant } from '#src/grant.ts';
+import { commands, Owner, resolveClaude, type Child, type Cmd } from '#src/owner.ts';
 
 const DAEMON: Cmd = { file: 'daemon', args: ['-terminal-tick'] };
 const GO: Cmd = { file: 'go', args: ['-gateway'] };

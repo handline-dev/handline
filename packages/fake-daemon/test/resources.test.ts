@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { setup } from '../src/helpers.ts';
+import { setup } from '#src/helpers.ts';
 
 test('daemon.status carries what each agent and the machine use', async () => {
   const { client } = setup();

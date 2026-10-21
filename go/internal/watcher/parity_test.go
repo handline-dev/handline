@@ -137,6 +137,8 @@ func TestGoAndPythonWriteTheSameRowsForTheSameTaskChange(t *testing.T) {
 			run("INSERT INTO requests(id, ts, requester, target, body, state, kind, edge_ok) VALUES(50, 6, 'mgr', 'erin', 'b', 'landed', 'say', 1)")
 			run("INSERT INTO task_requests(task_id, request_id) VALUES(5, 51)")
 			run("INSERT INTO task_requests(task_id, request_id) VALUES(5, 50)")
+			// Go reads doing only when the owner holds the task
+			run("INSERT INTO agent_state(agent, state, updated, current_task) VALUES('dave', 'IDLE', 1, 4), ('erin', 'IDLE', 1, 5)")
 		})
 	if len(py) != len(events) || len(py) != 5 {
 		t.Fatalf("python wrote %d rows, go %d", len(py), len(events))

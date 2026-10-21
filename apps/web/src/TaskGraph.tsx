@@ -4,8 +4,8 @@ import { Fragment, useState } from 'react';
 import { LayoutGroup, motion, useReducedMotion } from 'framer-motion';
 import { graphBands, taskRef } from '@handline/app-core';
 import type { Task } from '@handline/client';
-import { goTasks } from './route.ts';
-import { Button } from './ui/index.ts';
+import { goTasks } from '#src/route.ts';
+import { Button } from '#src/ui/index.ts';
 
 /** How many boxes a band shows before "+N more". */
 const SHOWN = 7;

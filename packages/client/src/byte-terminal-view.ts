@@ -1,4 +1,4 @@
-import type { InputHolder, Notifications, TerminalBytesSnapshot } from './protocol.ts';
+import type { InputHolder, Notifications, TerminalBytesSnapshot } from '#src/protocol.ts';
 
 export type ByteViewState = 'attaching' | 'live' | 'stale' | 'failed';
 /** What a pane does with the stream: `reset` repaints (reset, resize to cols by rows, write data in one step), `write` appends. */

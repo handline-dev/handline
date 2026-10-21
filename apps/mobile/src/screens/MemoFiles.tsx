@@ -4,9 +4,9 @@ import { Text, View } from 'react-native';
 import type { MemoFile } from '@handline/client';
 import { useAttachmentBytes } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Pictures } from './ChatPictures.tsx';
-import { Markdown } from './Markdown.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Pictures } from '#src/screens/ChatPictures.tsx';
+import { Markdown } from '#src/screens/Markdown.tsx';
 
 function MarkdownFile({ file }: { file: MemoFile }) {
   const c = usePalette();

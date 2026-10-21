@@ -15,8 +15,6 @@ type Recorder struct {
 	Log  func(format string, args ...any)
 	// Turns, when set, is told each recorded event (the -turns-from-hooks switch).
 	Turns *turns.Tracker
-	// OnStop, when set, is told each Stop with the transcript the hook names, once it is recorded.
-	OnStop func(agent, transcript string)
 }
 
 // SpoolEvery is how often the spool is looked at while the daemon runs, as the Python daemon does each tick.
@@ -60,10 +58,6 @@ func (h *Recorder) apply(agent, kind string, data map[string]any, requestID stri
 	_, noted := Notified(h.Home, agent)
 	if err := Apply(h.DB, h.Home, agent, kind, data, requestID, at); err != nil {
 		return err
-	}
-	if h.OnStop != nil && kind == "Stop" {
-		path, _ := data["transcript_path"].(string)
-		h.OnStop(agent, path)
 	}
 	if h.Turns != nil {
 		h.Turns.Hook(agent, kind, data, at)

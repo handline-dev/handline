@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { AgentView } from '@handline/client';
-import { byTeam } from '../src/Sidebar.tsx';
+import { byTeam } from '#src/Sidebar.tsx';
 
 const row = (name: string, depth = 0) => ({ agent: { name } as AgentView, depth });
 const names = (rows: { agent: { name: string } }[]) => rows.map((r) => r.agent.name);

@@ -1,12 +1,12 @@
 // The Home settings sections that are not just a number or a switch: notices, background work, this window's appearance, and the connection.
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { parseSeconds, type KV } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
-import { SectionHead, Segmented, SettingsCard } from './ui/index.ts';
-import { applyTheme, themeOf, type Theme } from './appearance.ts';
-import { setting } from './daemon.ts';
-import { NumberRow, Row } from './SettingsRows.tsx';
-import { shell } from './shell.ts';
+import { SectionHead, Segmented, SettingsCard } from '#src/ui/index.ts';
+import { applyTheme, themeOf, type Theme } from '#src/appearance.ts';
+import { setting } from '#src/daemon.ts';
+import { NumberRow, Row } from '#src/SettingsRows.tsx';
+import { useShellMode } from '#src/shell.ts';
 
 const SECONDS = 'whole seconds, or empty for the default';
 const secondsOf = (v: number | undefined) => (v === undefined ? '' : String(v));
@@ -117,12 +117,8 @@ export function Appearance({ storage }: { storage: KV | null }) {
 /** What this window is connected to, to read only: changing it is the desktop app's connection screen, not a setting. */
 export function Connection() {
   const hello = useSelector((s) => s.client.hello);
-  const [mode, setMode] = useState<string | null>(null);
-  useEffect(() => {
-    void shell('mode')
-      ?.mode?.()
-      .then((r) => r.ok && setMode(r.mode === 'own' ? 'This computer runs its own daemon' : (r.remote ?? 'Another computer')));
-  }, []);
+  const shellMode = useShellMode();
+  const mode = shellMode ? (shellMode.mode === 'own' ? 'This computer runs its own daemon' : (shellMode.remote ?? 'Another computer')) : null;
   const rows: [string, string | undefined][] = [
     ['Daemon', mode ?? undefined],
     ['Version', hello?.daemon.slice(0, 9)],

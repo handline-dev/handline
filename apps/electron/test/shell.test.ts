@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Event } from '@handline/client';
 import { setup, until } from '@handline/fake-daemon/helpers';
-import { Desk, type Feed, type Ports } from '../src/desk.ts';
-import { badgeText, noticeFor, suppressed, type Notice } from '../src/notices.ts';
-import { serveDir } from '../src/serve.ts';
+import { Desk, type Feed, type Ports } from '#src/desk.ts';
+import { badgeText, noticeFor, suppressed, type Notice } from '#src/notices.ts';
+import { serveDir } from '#src/serve.ts';
 
 const ev = (over: Partial<Event>): Event => ({
   cursor: 1,

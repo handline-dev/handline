@@ -1,7 +1,7 @@
 // An agent's settings and the schedules: agent.set, schedules.list, schedule.add, schedule.edit, schedule.remove.
 import type { Schedule } from '@handline/contract';
-import { badRequest, Failure, refused } from './errors.ts';
-import type { Call } from './handlers.ts';
+import { badRequest, Failure, refused } from '#src/errors.ts';
+import type { Call } from '#src/handlers.ts';
 
 /** What a new session starts with: every value a string, as `hl agent set` takes it. */
 export const defaultSettings = (model: string, effort: string): Record<string, string> => ({

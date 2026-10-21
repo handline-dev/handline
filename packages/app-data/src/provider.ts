@@ -3,8 +3,8 @@ import { createContext, createElement, useContext, useEffect, useState, type Com
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useSelector, useStore } from '@handline/app-react';
 import type { Topic } from '@handline/client';
-import { createBridge, resync } from './bridge.ts';
-import { retryDelay, retryRead } from './errors.ts';
+import { createBridge, resync } from '#src/bridge.ts';
+import { retryDelay, retryRead } from '#src/errors.ts';
 
 /** What draws a skeleton box: each app gives its own (a `div` on the web, a `View` on the phone). */
 export type BoxComponent = ComponentType<{ style: Record<string, unknown>; children?: ReactNode } & Record<string, unknown>>;
@@ -68,6 +68,12 @@ export function useServes(method: string): { served: boolean; open: boolean } {
   const served = useSelector((s) => s.served.size === 0 || s.can(method));
   const open = useSelector((s) => s.conn === 'open');
   return { served, open };
+}
+
+/** Why a control is off (daemon not connected, or the method is not served), or undefined when it works. */
+export function useOff(method: string): string | undefined {
+  const { served, open } = useServes(method);
+  return !open ? 'daemon not connected' : served ? undefined : `this daemon does not serve ${method}`;
 }
 
 /** Streams a topic's events while a view that needs it is mounted (the client keeps a topic once asked for). */

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { type RpcError } from '@handline/client';
-import { setup } from '../src/helpers.ts';
+import { setup } from '#src/helpers.ts';
 
 test('agent.retire refuses an open session, then retires the agent and it is gone', async () => {
   const { client, daemon } = setup();

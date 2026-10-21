@@ -4,9 +4,9 @@ import type { ReactNode } from 'react';
 import { Text, View } from 'react-native';
 import { classify, sentence, viewState, type SkeletonName } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { Skeleton } from '../skeleton.tsx';
-import { usePalette } from '../theme.ts';
-import { Button } from './parts.tsx';
+import { Skeleton } from '#src/skeleton.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Button } from '#src/screens/parts.tsx';
 
 interface Query {
   isPending: boolean;

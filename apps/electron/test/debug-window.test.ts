@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isDebugWindow } from '../src/debug-window.ts';
+import { isDebugWindow } from '#src/debug-window.ts';
 
 test('only the debug route on the page origin may open a window', () => {
   const origin = 'http://127.0.0.1:17443';

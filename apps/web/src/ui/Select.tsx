@@ -1,6 +1,6 @@
 // A select with a chevron: the browser's own list, drawn in the tokens.
 import type { SelectHTMLAttributes } from 'react';
-import { Icon } from './Icon.tsx';
+import { Icon } from '#src/ui/Icon.tsx';
 
 export function Select({
   options,

@@ -5,8 +5,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
-import type { FakeHr } from '../../../packages/fake-daemon/src/hr.ts';
-import { App } from '../src/App.tsx';
+import type { FakeHr } from '@handline/fake-daemon/daemon';
+import { App } from '#src/App.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

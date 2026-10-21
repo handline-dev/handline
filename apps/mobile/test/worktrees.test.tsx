@@ -2,7 +2,7 @@
 // the refetch and is put back with the daemon's reason), one worktree as a page, and who may move one.
 import { describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
-import { $, box, mount, press, until } from './harness.tsx';
+import { $, box, mount, press, until } from '#test/harness.tsx';
 
 const text = (el: Element | null) => el?.textContent ?? '';
 

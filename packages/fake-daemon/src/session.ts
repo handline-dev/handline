@@ -1,8 +1,8 @@
 import { PROTOCOL } from '@handline/contract';
 import type { AgentDetail, AgentView, InputHolder, Methods, Notifications, Prompt, Row, Timestamp } from '@handline/contract';
-import { BANNER, type AgentFixture } from './fixtures.ts';
-import { Failure, refused } from './errors.ts';
-import { defaultSettings } from './settings.ts';
+import { BANNER, type AgentFixture } from '#src/fixtures.ts';
+import { Failure, refused } from '#src/errors.ts';
+import { defaultSettings } from '#src/settings.ts';
 
 export const ROWS = 24,
   COLS = 80;

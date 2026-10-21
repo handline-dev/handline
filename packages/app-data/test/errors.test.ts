@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RpcError } from '@handline/client';
-import { classify, retryDelay, retryRead, sentence } from '../src/errors.ts';
+import { classify, retryDelay, retryRead, sentence } from '#src/errors.ts';
 
 const rpc = (code: ConstructorParameters<typeof RpcError>[0], message: string, data?: Record<string, unknown>) =>
   new RpcError(code, message, data);

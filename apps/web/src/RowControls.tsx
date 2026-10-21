@@ -3,9 +3,9 @@ import { asks, verbsOf, type Verb, type VerbId } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useAgentDetail, useVerbMark, useVerbRun } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
-import { useServed } from './AgentVerbs.tsx';
-import { Button, Icon, MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger, type At, type IconName } from './ui/index.ts';
-import { shell } from './shell.ts';
+import { useServed } from '#src/AgentVerbs.tsx';
+import { Button, Icon, MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger, type At, type IconName } from '#src/ui/index.ts';
+import { shell } from '#src/shell.ts';
 
 const VERB_ICON: Partial<Record<VerbId, IconName>> = {
   interrupt: 'cancel',

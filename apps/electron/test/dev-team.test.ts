@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { instanceFile, offReason, readInstance, teamEnv, type Instance } from '../src/dev-team.ts';
+import { instanceFile, offReason, readInstance, teamEnv, type Instance } from '#src/dev-team.ts';
 
 const script = path.resolve(import.meta.dirname, '../dev-team.ts');
 const inst: Instance = {

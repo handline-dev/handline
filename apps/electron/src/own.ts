@@ -8,7 +8,7 @@ import path from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Tray } from 'electron';
 import { webSocketTransport } from '@handline/client';
 import { pinnedWebSocketTransport, unixSocketTransport } from '@handline/client-node';
-import { CHANNELS, fromWindow } from './bridge.ts';
+import { CHANNELS, fromWindow } from '#src/bridge.ts';
 import {
   Link,
   pairRemote,
@@ -19,15 +19,15 @@ import {
   type Remote,
   type Settings,
   type SettingsFile,
-} from './mode.ts';
-import { commands, Owner, resolveClaude, type Child, type Cmd } from './owner.ts';
-import { ensureToken, founderKeyFile, phoneLink, TokenFile, type PairDeps } from './pair.ts';
-import { COPY_URL, phoneHtml } from './phone-html.ts';
-import { grant } from './grant.ts';
-import { onTailnet } from './tailnet.ts';
-import { singleWindow } from './single-window.ts';
-import { TRAY_PNG } from './tray-icon.ts';
-import { trayMenu, type TrayFollow } from './tray.ts';
+} from '#src/mode.ts';
+import { commands, Owner, resolveClaude, type Child, type Cmd } from '#src/owner.ts';
+import { ensureToken, founderKeyFile, phoneLink, TokenFile, type PairDeps } from '#src/pair.ts';
+import { COPY_URL, phoneHtml } from '#src/phone-html.ts';
+import { grant } from '#src/grant.ts';
+import { onTailnet } from '#src/tailnet.ts';
+import { singleWindow } from '#src/single-window.ts';
+import { TRAY_PNG } from '#src/tray-icon.ts';
+import { trayMenu, type TrayFollow } from '#src/tray.ts';
 
 /** The menu-bar icon: a template image, so macOS tints it for a light or a dark bar. */
 function trayIcon(): Electron.NativeImage {

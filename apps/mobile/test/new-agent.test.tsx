@@ -4,9 +4,9 @@ import { act, useState, type ReactNode } from 'react';
 import { ScrollView } from 'react-native';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import type { Store } from '@handline/app-core';
-import { Home } from '../src/screens/Home.tsx';
-import type { Pending } from '../src/screens/NewAgent.tsx';
-import { $, box, mount, press, until } from './harness.tsx';
+import { Home } from '#src/screens/Home.tsx';
+import type { Pending } from '#src/screens/NewAgent.tsx';
+import { $, box, mount, press, until } from '#test/harness.tsx';
 
 const text = (el: Element | null) => el?.textContent ?? '';
 const type = (id: string, value: string) =>

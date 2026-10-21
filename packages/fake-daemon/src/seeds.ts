@@ -1,5 +1,5 @@
 // Seeds a UI check needs that the first-load fixtures leave out: switch them on by name, in a test or at serve time.
-import type { FakeDaemon } from './daemon.ts';
+import type { FakeDaemon } from '#src/daemon.ts';
 
 const ARCH = 'handline.architect';
 const AUD = 'handline.auditor';

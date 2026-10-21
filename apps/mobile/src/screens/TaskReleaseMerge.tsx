@@ -7,9 +7,9 @@ import { taskRef } from '@handline/app-core';
 import type { TaskDetail } from '@handline/client';
 import { classify, sentence, useTasks, useWrite } from '@handline/app-data';
 import { space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Input, Sheet } from './TaskActions.tsx';
-import { Pill } from './parts.tsx';
+import { usePalette } from '#src/theme.ts';
+import { Input, Sheet } from '#src/screens/TaskActions.tsx';
+import { Pill } from '#src/screens/parts.tsx';
 
 export function ReleaseTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
   const release = useWrite('task.release');

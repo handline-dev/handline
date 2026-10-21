@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { COPY_URL, phoneHtml } from '../src/phone-html.ts';
-import { trayMenu } from '../src/tray.ts';
+import { COPY_URL, phoneHtml } from '#src/phone-html.ts';
+import { trayMenu } from '#src/tray.ts';
 
 test('the phone page holds a QR, a copy button, the lifetime and no script, and the link itself is not printed', () => {
   const html = phoneHtml('handline://pair?host=h.ts.net%3A7443&code=AAAA-BBBB-CCCC', 5, '10:42');

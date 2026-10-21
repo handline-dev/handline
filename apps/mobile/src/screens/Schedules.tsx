@@ -2,24 +2,21 @@
 // Authored: a line shows at once and goes back with the daemon's reason when refused. Remove asks on the line before it sends.
 import { useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
-import { cronWords } from '@handline/app-core';
+import { cronWords, ellipsis } from '@handline/app-core';
 import type { Schedule } from '@handline/client';
 import { useSelector } from '@handline/app-react';
-import { useScheduleEditor, useSchedules, useServes } from '@handline/app-data';
+import { useOff, useScheduleEditor, useSchedules, useServes } from '@handline/app-data';
 import { radius, space } from '@handline/tokens';
-import { usePalette } from '../theme.ts';
-import { Loadable } from './Loadable.tsx';
-import { Button } from './parts.tsx';
-import { useWhyNot } from './TaskActions.tsx';
-
-const cut = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n)}…` : s);
+import { usePalette } from '#src/theme.ts';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { Button } from '#src/screens/parts.tsx';
 
 export function Schedules({ agent, role }: { agent: string; role: string | undefined }) {
   const c = usePalette();
   const query = useSchedules();
   const { served } = useServes('schedules.list');
   const mayAdd = useSelector((s) => s.can('schedule.add'));
-  const whyNot = useWhyNot('schedule.add');
+  const whyNot = useOff('schedule.add');
   const { form, setForm, note, save, drop: removeNow, pending } = useScheduleEditor(agent);
   const [asking, setAsking] = useState<number | null>(null);
   const mine = (query.data?.schedules ?? []).filter((s) => s.target === agent);
@@ -53,7 +50,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
               </Text>
               {cronWords(s.cron) ? <Text style={{ color: c.muted, fontSize: 12 }}>{s.cron}</Text> : null}
               {s.next_run ? <Text style={{ color: c.muted, fontSize: 12 }}>next {new Date(s.next_run).toLocaleString()}</Text> : null}
-              <Text style={{ color: c.ink }}>{cut(s.message)}</Text>
+              <Text style={{ color: c.ink }}>{ellipsis(s.message, 80)}</Text>
               {write && asking === s.id ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
                   <Text style={{ color: c.ink, flex: 1 }}>Remove this schedule?</Text>

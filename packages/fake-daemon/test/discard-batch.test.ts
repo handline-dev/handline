@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { type RpcError } from '@handline/client';
-import { setup } from '../src/helpers.ts';
+import { setup } from '#src/helpers.ts';
 
 const code = (e: unknown) => (e as RpcError).data?.code;
 

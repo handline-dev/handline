@@ -1,6 +1,6 @@
 // Small helpers for editing cached query data. Both the event bridge and the optimistic writes use them.
 import type { InfiniteData, QueryClient } from '@tanstack/react-query';
-import type { Key } from './reads.ts';
+import type { Key } from '#src/reads.ts';
 
 export type Pages<P> = InfiniteData<P, number | undefined>;
 

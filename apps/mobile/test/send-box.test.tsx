@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { $, mount, press, text, until } from './harness.tsx';
+import { $, mount, press, text, until, pickTab } from '#test/harness.tsx';
 
 const AUD = 'handline.auditor'; // the fake daemon plays it as a structured session
 
@@ -8,8 +8,7 @@ async function open(running = false) {
   const m = await mount();
   await until(() => $(`agent-${AUD}`), 'the rows');
   await press($(`agent-${AUD}`));
-  await until(() => $('tab-chat'), 'the page');
-  await press($('tab-chat'));
+  await pickTab('chat');
   await until(() => $('chat-input'), 'the chat');
   if (running) {
     // A turn runs: the working line shows it and the daemon queues what follows.
@@ -60,8 +59,7 @@ describe('the send box over the one send path', () => {
     const m = await mount();
     await until(() => $('agent-handline.architect'), 'the rows');
     await press($('agent-handline.architect'));
-    await until(() => $('tab-chat'), 'the page');
-    await press($('tab-chat'));
+    await pickTab('chat');
     await until(() => $('chat-input'), 'the chat');
     expect($('chat-send-now')).toBeNull();
     m.store.stop();

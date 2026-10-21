@@ -210,10 +210,7 @@ func (t *Term) CloseSession(handle string) (bool, string) {
 	if !t.WaitIdle(handle, IdleTimeoutMs) {
 		return false, "agent is mid-turn; not closing"
 	}
-	// A session its hooks say is settled has no prompt under it and the respawn types nothing, so only the session picker, which no
-	// hook reports, refuses its close; an unreadable screen does not.
-	settled := t.Turns != nil && t.Turns.Settled(handle)
-	if blocked := t.ScreenBlocker(handle); blocked != nil && (!settled || blocked.Kind == Backgrounded) {
+	if blocked := t.DialogUp(handle); blocked != nil {
 		return false, blocked.Reason() + "; not ending the session under it"
 	}
 	h := t.host()

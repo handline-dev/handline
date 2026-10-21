@@ -1,7 +1,7 @@
 // The fake daemon's debug.terminals: one pane per agent that has a terminal, and one shell pane no agent has.
 import type { Methods } from '@handline/contract';
-import type { Call } from './handlers.ts';
-import { tid } from './session.ts';
+import type { Call } from '#src/handlers.ts';
+import { tid } from '#src/session.ts';
 
 type Pane = Methods['debug.terminals']['result']['panes'][number];
 

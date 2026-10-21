@@ -1,8 +1,8 @@
 // The fake daemon's agent.strip: the numbers under an agent's header. An agent with an open session has a context and a prompt cache that
 // has 240 seconds left; one with none has nulls. A test sets `session.strip` to change an agent's.
 import type { Methods } from '@handline/contract';
-import { Failure, invalidParams } from './errors.ts';
-import type { Call } from './handlers.ts';
+import { Failure, invalidParams } from '#src/errors.ts';
+import type { Call } from '#src/handlers.ts';
 
 export type Strip = Methods['agent.strip']['result'];
 

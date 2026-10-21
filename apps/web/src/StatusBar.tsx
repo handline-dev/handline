@@ -3,9 +3,9 @@
 import { useConnection } from '@handline/app-react';
 import { machineCells } from '@handline/app-core';
 import { useStatus, useTasks } from '@handline/app-data';
-import { useMyTurn } from './MyTurn.tsx';
-import { UsagePopup } from './UsagePopup.tsx';
-import { Chip, Icon } from './ui/index.ts';
+import { useMyTurn } from '#src/MyTurn.tsx';
+import { UsagePopup } from '#src/UsagePopup.tsx';
+import { Chip, Icon } from '#src/ui/index.ts';
 
 const DAEMON = { open: 'daemon ok', connecting: 'connecting', reconnecting: 'reconnecting', closed: 'daemon down' } as const;
 

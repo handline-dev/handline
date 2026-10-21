@@ -1,17 +1,14 @@
 // One account's settings: each field saves on its own through account.set (authored: the value shows at once, a refusal puts it back).
 import { useEffect, useState } from 'react';
 import type { Account } from '@handline/client';
-import { useConnection } from '@handline/app-react';
-import { useServes, useWrite } from '@handline/app-data';
-import { AccountLogin } from './AccountLogin.tsx';
-import { AccountRemove } from './AccountRemove.tsx';
-import { Field, Icon, Switch, NOTE } from './ui/index.ts';
+import { useOff, useWrite } from '@handline/app-data';
+import { AccountLogin } from '#src/AccountLogin.tsx';
+import { AccountRemove } from '#src/AccountRemove.tsx';
+import { Field, Icon, Switch, NOTE } from '#src/ui/index.ts';
 
 export function AccountSettings({ account }: { account: Account }) {
   const save = useWrite('account.set', account.name);
-  const { served } = useServes('account.set');
-  const open = useConnection() === 'open';
-  const off = !open ? 'daemon not connected' : served ? undefined : 'this daemon does not serve account.set';
+  const off = useOff('account.set');
   const [alias, setAlias] = useState(account.label === account.name ? '' : account.label);
   const [cap, setCap] = useState(account.cap === null ? '' : String(account.cap));
   const [end, setEnd] = useState(account.cycle.end_is_default ? '' : (account.cycle.end ?? ''));

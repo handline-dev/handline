@@ -1,5 +1,5 @@
 import { RpcError, type DaemonClient, type Event } from '@handline/client';
-import { badgeText, noticeFor, suppressed, type Notice } from './notices.ts';
+import { badgeText, noticeFor, suppressed, type Notice } from '#src/notices.ts';
 
 /** The part of the client the desk uses. */
 export type Feed = Pick<DaemonClient, 'onEvent' | 'onGap' | 'onState' | 'subscribe' | 'call'>;

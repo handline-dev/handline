@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { groups } from '@handline/app-data';
-import { stateOfView } from '../src/ui/index.ts';
+import { stateOfView } from '#src/ui/index.ts';
 
 const member = (name: string, parent: string | null) => ({ name, parent }) as TeamAgent;
 const view = (over: Partial<AgentView>) => ({ state: 'idle', block: null, has_dialog: false, ...over }) as AgentView;

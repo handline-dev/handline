@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, until, $, press, mount } from './harness.tsx';
-import { History } from '../src/history.tsx';
+import { ARCH, until, $, press, mount } from '#test/harness.tsx';
+import { History } from '#src/history.tsx';
 
 describe('the history', () => {
   it('walks back and forward, and a new move drops what lay ahead', () => {

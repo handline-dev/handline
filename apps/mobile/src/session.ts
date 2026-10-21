@@ -3,8 +3,8 @@
 import * as SecureStore from 'expo-secure-store';
 import { DaemonClient, listenerUrl, parsePairingUri, redeemPairing, webSocketTransport } from '@handline/client';
 import { Store } from '@handline/app-core';
-import Native from '../modules/pinned-socket/index.ts';
-import { pinnedTransport } from './pinned-transport.ts';
+import Native from '#modules/pinned-socket/index.ts';
+import { pinnedTransport } from '#src/pinned-transport.ts';
 
 export interface Pairing {
   host: string;

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { type RpcError } from '@handline/client';
-import { setup } from '../src/helpers.ts';
+import { setup } from '#src/helpers.ts';
 
 test('task.ask sends the question to the agent, linked to the task, and the reply joins it', async () => {
   const { client } = setup();

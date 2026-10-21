@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { ARCH, sleep, until, box, $, text, press, mount } from './harness.tsx';
+import { ARCH, sleep, until, box, $, text, press, mount, pickTab } from '#test/harness.tsx';
 
 describe('the chat tab', () => {
   const type = (id: string, value: string) =>
@@ -57,7 +57,7 @@ describe('the chat tab', () => {
     expect(text()).toContain('Here is the plan: three units, chat first.'); // the agent's reply
     expect(msgOf('Review is done, see the notes.')).toBeUndefined();
     expect($('scope-all')).toBeNull(); // no Mine/All menu
-    await press($('tab-activity'));
+    await pickTab('activity');
     await until(() => text().includes('Review is done, see the notes.'), 'the agents’ messages');
     expect(text()).toContain('auditor → architect'); // the team prefix is left off
     expect(text()).not.toContain('handline.');
@@ -135,8 +135,8 @@ describe('the chat tab', () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await type('chat-input', 'half a thought');
-    await press($('tab-terminal'));
-    await press($('tab-chat'));
+    await pickTab('terminal');
+    await pickTab('chat');
     await until(() => $('chat-input'), 'the chat again');
     expect(($('chat-input') as HTMLTextAreaElement).value).toBe('half a thought');
     m.store.stop();

@@ -1,9 +1,9 @@
 // The Android or iOS tab: the picture of a running emulator, device or simulator, taken again and again, beside the chat. A click on the
 // Android picture is a tap on the device; the iOS one can only be looked at and refreshed. Needs the desktop shell, which runs adb and simctl.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, MenuButton, MenuItem } from './ui/index.ts';
-import { PreviewAsk } from './PreviewAsk.tsx';
-import { shell } from './shell.ts';
+import { Button, MenuButton, MenuItem } from '#src/ui/index.ts';
+import { PreviewAsk } from '#src/PreviewAsk.tsx';
+import { shell } from '#src/shell.ts';
 
 const EVERY = { android: 150, ios: 700 } as const; // ms between pictures: adb is quick, simctl about 1.4 a second
 const RETRY = 3000;

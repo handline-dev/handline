@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { decide, Follower, watchMain, type Main } from '../src/follow.ts';
-import { popoverHtml } from '../src/popover-html.ts';
-import { followItems } from '../src/tray.ts';
+import { decide, Follower, watchMain, type Main } from '#src/follow.ts';
+import { popoverHtml } from '#src/popover-html.ts';
+import { followItems } from '#src/tray.ts';
 
 test('a web-only change rebuilds the page and nothing of the app; an app change rebuilds it too', () => {
   assert.deepEqual(decide(['apps/web/src/App.tsx', 'docs/x.md', 'tests/a.py']), {

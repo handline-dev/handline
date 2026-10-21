@@ -1,6 +1,6 @@
 // One pane: its own tab strip, the active tab, and while a tab is dragged, the edges it can be dropped on.
 import { useEffect, useRef, useState } from 'react';
-import { useScreenKeys, type KeyRows } from './screenKeys.ts';
+import { useScreenKeys, type KeyRows } from '#src/screenKeys.ts';
 import {
   badgesOf,
   needsAttention,
@@ -20,24 +20,24 @@ import {
   type TabParams,
 } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
-import { ChatTab } from './ChatTab.tsx';
-import { Button, Icon, MenuButton, MenuItem, type IconName } from './ui/index.ts';
-import { TasksTab } from './TasksTab.tsx';
-import { TimelineTab } from './TimelineTab.tsx';
-import { ActivityTab } from './ActivityTab.tsx';
-import { Badges } from './Badges.tsx';
-import { DropZones } from './DropZones.tsx';
-import { ChangesTab } from './ChangesTab.tsx';
-import { FileTab } from './FileTab.tsx';
-import { DeviceTab } from './DeviceTab.tsx';
-import { WebTab } from './WebTab.tsx';
-import { BytesTab } from './BytesTab.tsx';
-import { wantsBytes } from './terminal/choose.ts';
-import { Watch } from './TranscriptTab.tsx';
-import { TerminalTab } from './TerminalTab.tsx';
-import { ViewSwitch } from './ViewSwitch.tsx';
-import { useWorkspace } from './Workspace.tsx';
-import { RailControls, useFoldedControls } from './RailControls.tsx';
+import { ChatTab } from '#src/ChatTab.tsx';
+import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
+import { TasksTab } from '#src/TasksTab.tsx';
+import { TimelineTab } from '#src/TimelineTab.tsx';
+import { ActivityTab } from '#src/ActivityTab.tsx';
+import { Badges } from '#src/Badges.tsx';
+import { DropZones } from '#src/DropZones.tsx';
+import { ChangesTab } from '#src/ChangesTab.tsx';
+import { FileTab } from '#src/FileTab.tsx';
+import { DeviceTab } from '#src/DeviceTab.tsx';
+import { WebTab } from '#src/WebTab.tsx';
+import { BytesTab } from '#src/BytesTab.tsx';
+import { wantsBytes } from '#src/terminal/choose.ts';
+import { Watch } from '#src/TranscriptTab.tsx';
+import { TerminalTab } from '#src/TerminalTab.tsx';
+import { ViewSwitch } from '#src/ViewSwitch.tsx';
+import { useWorkspace } from '#src/Workspace.tsx';
+import { RailControls, useFoldedControls } from '#src/RailControls.tsx';
 
 const label = (t: Tab, structured = false): string =>
   t.kind === 'chat'

@@ -3,7 +3,7 @@
 import crypto from 'node:crypto';
 import tls from 'node:tls';
 import type { Transport } from '@handline/client';
-import { readFrame } from './ws-frame.ts';
+import { readFrame } from '#src/ws-frame.ts';
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const normalize = (fp: string) => fp.replace(/[^0-9a-f]/gi, '').toLowerCase();

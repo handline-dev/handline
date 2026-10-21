@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { paneKey, type AgentDetail, type ByteListener, type ByteTerminalView, type ByteViewState } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useWrite } from '@handline/app-data';
-import { keep, reclaim } from './terminal/keep.ts';
+import { RESIZE_MS } from '@handline/app-core';
+import { keep, reclaim } from '#src/terminal/keep.ts';
 import {
   DEFAULT_FONT,
   MAX_UNWRITTEN,
@@ -17,14 +18,13 @@ import {
   paint,
   type CreateTerm,
   type PaneTerm,
-} from './terminal/core.ts';
-import { traceResize } from './terminal/trace.ts';
-import { Button } from './ui/index.ts';
+} from '#src/terminal/core.ts';
+import { traceResize } from '#src/terminal/trace.ts';
+import { Button } from '#src/ui/index.ts';
 
 const SKELETON_DELAY_MS = 150;
 const SKELETON_MIN_MS = 300;
 const SKELETON_ROWS = [64, 82, 48, 90, 36, 72, 56, 28]; // percent of the width, in the shape of a screen of text
-const RESIZE_MS = 150;
 const utf8 = new TextEncoder();
 const NOTE: Record<ByteViewState, string> = { attaching: '', live: '', stale: 'Reconnecting…', failed: '' };
 
@@ -83,7 +83,7 @@ export function BytesTab({
     let cancelled = false,
       cleanup = () => {};
     void (async () => {
-      const make = create ?? (await import('./terminal/xterm.ts')).createXterm;
+      const make = create ?? (await import('#src/terminal/xterm.ts')).createXterm;
       if (cancelled) return;
       const el = host.current!;
       const back = reclaim(key); // a quick switch back shows the last screen at once; the new snapshot repaints it

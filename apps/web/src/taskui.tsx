@@ -4,8 +4,8 @@ import { isPerson } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { useServes } from '@handline/app-data';
 import { STATE_GLYPH as GLYPHS, toneOf, type Tone } from '@handline/app-ui';
-import { Icon, type IconName } from './Icon.tsx';
-import { Button, Input, Sheet as SheetBox, SheetActions, VisuallyHidden } from './ui/index.ts';
+import { Icon, type IconName } from '#src/Icon.tsx';
+import { Button, Input, Sheet as SheetBox, SheetActions, VisuallyHidden } from '#src/ui/index.ts';
 
 export const STATE_GLYPH: Record<string, IconName> = GLYPHS;
 

@@ -1,11 +1,12 @@
 // The actions on one task or on many from the Tasks views: the menu of verbs (each gated by what the daemon serves and by what applies),
 // the sheet that confirms with the count and asks for what the verb needs, and the sheet that says what happened to each task.
 import { useRef, useState, type ReactElement, type ReactNode } from 'react';
-import type { useBulk } from './taskActions.ts';
+import type { useBulk } from '#src/taskActions.ts';
 import { plan, taskRef, TASK_VERBS, type Outcome, type RowVerb } from '@handline/app-core';
 import type { Task } from '@handline/client';
-import { Button, Input, Menu, MenuButton, MenuContent, MenuItem, MenuTrigger, NativeSelect, type At } from './ui/index.ts';
-import { Sheet, useCan } from './taskui.tsx';
+import { Button, Input, Menu, MenuButton, MenuContent, MenuItem, MenuTrigger, NativeSelect, type At } from '#src/ui/index.ts';
+import { Sheet, useCan } from '#src/taskui.tsx';
+import { AnimatedList } from '#src/AnimatedList.tsx';
 
 export type Cans = Record<RowVerb, { ok: boolean; why: string | undefined }>;
 
@@ -247,15 +248,17 @@ export function VerbSheets({ flow, ids }: { flow: ReturnType<typeof useVerbFlow>
   const { ask, setAsk, run, me, agents, all, bulk } = flow;
   return (
     <>
-      {ask ? <VerbSheet verb={ask} tasks={flow.byId(ids)} me={me} agents={agents} onCancel={() => setAsk(null)} onRun={run} /> : null}
+      <AnimatedList>{ask ? <VerbSheet key="VerbSheet" verb={ask} tasks={flow.byId(ids)} me={me} agents={agents} onCancel={() => setAsk(null)} onRun={run} /> : null}</AnimatedList>
+      <AnimatedList>
       {bulk.result ? (
-        <ResultSheet
+        <ResultSheet key="result"
           what={bulk.result.what}
           outcomes={bulk.result.outcomes}
           titles={new Map(all.map((t) => [t.id, t.title]))}
           onClose={bulk.clearResult}
         />
       ) : null}
+      </AnimatedList>
     </>
   );
 }

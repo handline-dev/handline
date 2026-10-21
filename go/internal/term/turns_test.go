@@ -85,3 +85,23 @@ func TestTheHooksSayWhetherASessionIsThereBeforeTheScreenIsRead(t *testing.T) {
 		t.Fatalf("with nothing known the screen was not read: %v %v", got, known)
 	}
 }
+
+func TestASettledTurnHasOnlyTheSessionPickerUp(t *testing.T) {
+	screen := permissionPrompt
+	tm := newTerm(&fakeHost{screenAt: func(int) []string { return screen }})
+	tm.Turns = fakeTurns{idle: true, known: true, settled: true}
+	if b := tm.DialogUp("%1"); b != nil {
+		t.Fatalf("a settled turn has a prompt up: %+v", b)
+	}
+	for _, turns := range []Turns{nil, fakeTurns{idle: true, known: true}} {
+		tm.Turns = turns
+		if tm.DialogUp("%1") == nil {
+			t.Fatalf("%+v: the prompt on the screen was not seen", turns)
+		}
+	}
+	screen = []string{"Conversation moved to the background", rule, "│ > │", rule, "  enter to open"}
+	tm.Turns = fakeTurns{idle: true, known: true, settled: true}
+	if b := tm.DialogUp("%1"); b == nil || b.Kind != Backgrounded {
+		t.Fatalf("a settled turn at the session picker: %+v", b)
+	}
+}

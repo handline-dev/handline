@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { KeyboardEvent } from 'react';
-import { sendKey } from '../src/ui/sendKey.ts';
+import { sendKey } from '#src/ui/sendKey.ts';
 
 const key = (k: string, extra: { shiftKey?: boolean; composing?: boolean } = {}) =>
   ({ key: k, shiftKey: !!extra.shiftKey, nativeEvent: { isComposing: !!extra.composing }, preventDefault: vi.fn() }) as unknown as KeyboardEvent;
