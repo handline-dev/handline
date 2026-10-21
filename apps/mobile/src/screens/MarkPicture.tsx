@@ -269,7 +269,7 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
             }}
           >
             <BarButton testID="mark-cancel" label="Cancel" onPress={props.onCancel} />
-            <Text style={{ color: '#fff', flex: 1, textAlign: 'center' }}>
+            <Text numberOfLines={1} style={{ color: '#fff', flex: 1, textAlign: 'center' }}>
               {marks.length} {marks.length === 1 ? 'comment' : 'comments'}
             </Text>
             <BarButton testID="mark-undo" label="Undo" disabled={!state.past.length} onPress={() => dispatch({ type: 'undo' })} />
