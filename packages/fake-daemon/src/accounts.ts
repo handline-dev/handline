@@ -102,6 +102,8 @@ export class FakeAccounts {
         return (this.cancelLogin(p), accepted('Cancelled.'));
       case 'account.remove':
         return this.remove(p, accepted);
+      case 'account.wake':
+        return (this.wake(p), accepted('Woke.'));
       default:
         throw new Failure('refused', `the fake daemon does not serve ${method}`, { reason: 'unsupported', gate: 'unsupported' });
     }
@@ -194,6 +196,21 @@ export class FakeAccounts {
     if (p.confirm !== r.name) throw new Failure('bad_request', `confirm must be the account's name, ${r.name}`);
     this.rows = this.rows.filter((x) => x !== r);
     return accepted('Removed.');
+  }
+
+  /** Seeds a stall on an account, as a turn there ending on an error the account itself caused would. */
+  stall(name: string, why: { reason: string; error?: string; detail?: string }): void {
+    const r = this.find(name);
+    r.stalled = { reason: why.reason, error: why.error ?? why.reason, detail: why.detail ?? '', since: this.now() };
+    this.emit(this.view(r));
+  }
+
+  /** Ends a stall; an account that is not stalled is refused, gate state. */
+  private wake(p: Record<string, unknown>): void {
+    const r = this.find(p.account);
+    if (!r.stalled) throw new Failure('refused', `${r.name} is not stalled`, { reason: 'not_stalled', gate: 'state' });
+    r.stalled = null;
+    this.emit(this.view(r));
   }
 
   loggedIn(name: string): void {

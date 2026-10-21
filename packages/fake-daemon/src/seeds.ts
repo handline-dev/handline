@@ -89,6 +89,10 @@ export const SEEDS: Record<string, Seed> = {
       ],
     });
   },
+
+  /** The account beta stalled on a billing error: its row shows STALLED and a founder can Wake it. */
+  'account-stalled': (d) =>
+    void d.accounts.stall('beta', { reason: 'billing_error', detail: 'The turn ended: the organization has a billing problem.' }),
 };
 
 /** Switches the named seeds on: a comma-separated list, or `all`. An unknown name is an error, not a silent no-op. */
