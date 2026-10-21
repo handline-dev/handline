@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { chatEntries, clockTime, decidedProposals, ellipsis, sideOf, tickLevel } from '@handline/app-core';
-import { classify, sentence, useChat, useChatActions, useChatReadMarks, useHr } from '@handline/app-data';
+import { classify, sentence, useChat, useChatActions, useChatReadMarks, useHr, useServes, useTasks } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { radius, space } from '@handline/tokens';
@@ -83,6 +83,10 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
     setTextState(v);
   };
   const hr = useHr({});
+  const me = useStore().me;
+  const { served } = useServes('tasks.list');
+  const tasks = useTasks({ all: true, limit: 200 }); // done tasks too: a card of a closed task keeps its title
+  const titles = new Map((served ? (tasks.data?.items ?? []) : []).map((t) => [t.id, t.title]));
   const entries = chatEntries(chat.messages, chat.items, agent, decidedProposals(hr.data?.proposals, agent));
 
   useChatReadMarks(agent, chat, act.seen);
@@ -198,6 +202,8 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
               key={`i${e.id}`}
               i={e.item}
               agent={agent}
+              me={me}
+              titles={titles}
               onTask={setOpenTask}
               onReply={
                 canSend && canReplyItem
