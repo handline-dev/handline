@@ -1,10 +1,11 @@
 // The ⋯ menu of the agent page: the verbs beyond start and stop (wake, restart, park, fold, move account) and the way to the agent's settings and schedules. Each is a decided
 // write that shows its gerund until the daemon answers; the ones the bridge asks about ask first in a sheet that checks the row again on
-// Confirm. Close is the page's own button; clear stall waits for the founder's decision (N4).
+// Confirm. Close is the page's own button; clear stall waits for the founder's decision (N4). Delete agent ends the menu, for the founder only.
 import { useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
+import { useStore } from '@handline/app-react';
 import { askOf, needsAsk, verbsOf, type Verb, type VerbId } from '@handline/app-core';
-import { useAccounts, useAgents, useOff, useVerbRun } from '@handline/app-data';
+import { classify, sentence, useAccounts, useAgents, useOff, useRetireAgent, useServes, useVerbRun } from '@handline/app-data';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
@@ -33,6 +34,8 @@ export function AgentVerbs(props: {
   onSettings: () => void;
   open: boolean;
   setOpen: (open: boolean) => void;
+  /** Called once Delete agent is accepted: the agent is gone, so the page leaves. */
+  onDeleted?: () => void;
   /** Rows the page puts at the top of the menu. */
   before?: ReactNode;
   /** Stops the page offers (Exit, Close, Kill): in the menu, where a mis-tap costs less. */
@@ -43,6 +46,9 @@ export function AgentVerbs(props: {
   const { detail, row } = props;
   const { open, setOpen } = props;
   const [verb, setVerb] = useState<Verb | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const founder = useStore().client.hello?.role === 'founder';
+  const canDelete = useServes('agent.retire').served && founder;
   const run = useVerbRun(detail.name);
   const c = usePalette();
   const verbs = row ? verbsOf(row, detail).filter((v) => !HIDDEN.includes(v.id)) : [];
@@ -91,8 +97,21 @@ export function AgentVerbs(props: {
               props.onSettings();
             }}
           />
+          {canDelete && (
+            <MenuItem
+              testID="verb-delete"
+              label="Delete agent"
+              icon="dismiss"
+              danger
+              onPress={() => {
+                setOpen(false);
+                setDeleting(true);
+              }}
+            />
+          )}
         </MenuSheet>
       )}
+      {deleting && <DeleteSheet name={detail.name} onClose={() => setDeleting(false)} onDeleted={props.onDeleted} />}
       {verb && row && <VerbSheet row={row} detail={detail} verb={verb} run={run} onClose={() => setVerb(null)} />}
     </View>
   );
@@ -147,6 +166,35 @@ function VerbSheet(props: {
           ))}
         </Row>
       )}
+    </Sheet>
+  );
+}
+
+/** Delete agent: says what goes and what stays; a refusal (a running session, agents under it) keeps the sheet with the daemon's reason. */
+function DeleteSheet(props: { name: string; onClose: () => void; onDeleted?: () => void }) {
+  const retire = useRetireAgent(props.name);
+  const [why, setWhy] = useState('');
+  const [busy, setBusy] = useState(false);
+  const c = usePalette();
+  const go = () => {
+    setBusy(true);
+    setWhy('');
+    retire({
+      onSuccess: () => {
+        props.onClose();
+        props.onDeleted?.();
+      },
+      onError: (e) => {
+        setBusy(false);
+        setWhy(sentence(classify(e)));
+      },
+    });
+  };
+  return (
+    <Sheet label={`Delete ${props.name}?`} submit="Delete" kind="no" busy={busy} onCancel={props.onClose} onSubmit={go} error={why || undefined}>
+      <Text style={{ color: c.muted }}>
+        Its team entry, schedule and keys go, and its folder is moved to the archive. Past messages, tasks, events and the git worktree stay.
+      </Text>
     </Sheet>
   );
 }

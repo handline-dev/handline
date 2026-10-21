@@ -153,6 +153,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         row={row}
         open={props.menu}
         setOpen={props.setMenu}
+        onDeleted={() => void store.closeAgent()}
         onSettings={props.onSettings}
         before={views}
         stops={[
