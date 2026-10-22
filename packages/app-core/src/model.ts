@@ -5,6 +5,10 @@ import { DAEMON_KEYS, NAMED_KEYS } from '#src/keys.ts';
 
 export type Dot = 'running' | 'waking' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'none';
 
+/** Why an agent's mark is a warning, in the daemon's words: a blocker, the wall it hit, or the state's own detail; null when it says none. */
+export const whyOf = (a: Pick<AgentView, 'blocker' | 'wall_reason' | 'state_detail'>): string | null =>
+  [a.blocker, a.wall_reason, a.state_detail].map((t) => t?.trim()).find(Boolean) ?? null;
+
 /** The rail dot: the daemon's status when it sends one, else its state word plus its block kinds and a handoff that is starting a new session. Unknown words read as idle. */
 export function dotOf(a: Pick<AgentView, 'state' | 'has_dialog' | 'block' | 'handoff' | 'status'>): Dot {
   const s = a.status && dotOfStatus(a.status);
