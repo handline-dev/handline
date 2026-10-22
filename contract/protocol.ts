@@ -120,6 +120,7 @@ export type AgentView = {
   background_since?: Timestamp | null;
   would_wake?: boolean;
   blocker?: string | null;
+  /** The account the agent is on: the one its session runs on, or, at rest, the one whose prompt cache still holds its conversation, until cache_until. null at rest once cache_until has passed or is null: the agent is on no account and counts on none. Its next wake goes to the account with the most weekly headroom (furthest behind its pace line, Account.pace; with pacing off, the most left of its weekly window), carrying the conversation there; it starts fresh from its handoff only when the conversation cannot be carried. While the cache lives a wake stays on its account. */
   account: string | null;
   task: {
     id: number;
@@ -527,6 +528,7 @@ export type Account = {
   login_state: "ok" | "needs_login" | "unknown";
   five_hour: Window | null;
   weekly: Window | null;
+  /** The agents on this account (AgentView.account): running on it, or at rest with their prompt cache alive. One past its cache life is on none. */
   agents: AgentName[];
   moves: {
     at: Timestamp;
@@ -550,7 +552,7 @@ export type Account = {
     /** end is not typed: the first monthly anniversary of the subscription start after it is first seen, held once reached. */
     end_is_default: boolean;
   };
-  /** Only with accounts.list `roster: true`. Agents on this account, running or not (the figure `hl account list` prints). */
+  /** Only with accounts.list `roster: true`. Agents on this account (Account.agents), running or at rest with their prompt cache alive (the figure `hl account list` prints). */
   agents_assigned?: number;
   /** Only with accounts.list `roster: true`. Those of them that are mid-turn or otherwise running. */
   agents_running?: number;

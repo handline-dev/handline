@@ -1,0 +1,114 @@
+{
+ "fixtures": [
+  {
+   "name": "agent.get.cold_agent_is_on_no_account",
+   "spec": "agent.get",
+   "about": "An agent at rest past its prompt cache's life is on no account: its account is null, and no account lists it among its agents. Needs --var cold_agent: an agent at rest whose cache_until has passed.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{cold_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{cold_agent}}",
+      "account": null
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "accounts.list",
+      "params": {}
+     },
+     "result": {
+      "accounts": {
+       "$each": {
+        "agents": {
+         "$each": {
+          "$regex": "^(?!{{cold_agent}}$)"
+         }
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.get.running_agent_is_on_its_account",
+   "spec": "agent.get",
+   "about": "A running agent is on the account its session runs on, and that account lists it. Needs --var view_busy_agent: a running agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_busy_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_busy_agent}}",
+      "account": {
+       "$type": "string",
+       "$save": "acct"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "accounts.list",
+      "params": {}
+     },
+     "result": {
+      "accounts": {
+       "$contains": {
+        "name": "{{acct}}",
+        "agents": {
+         "$contains": "{{view_busy_agent}}"
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
