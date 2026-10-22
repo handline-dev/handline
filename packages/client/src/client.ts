@@ -282,7 +282,7 @@ export class DaemonClient {
 
   // ---- event stream ----
 
-  /** Streams events for these topics, replacing none already asked for. A reconnect resumes at the last cursor. */
+  /** Streams events for these topics, replacing none already asked for. A reconnect resumes at the newest event. */
   async subscribe(topics: Topic[]): Promise<void> {
     const added = topics.filter((t) => !this.topics.has(t));
     for (const t of added) this.topics.add(t);

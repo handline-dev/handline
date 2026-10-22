@@ -68,7 +68,8 @@ describe('a read', () => {
     for (let i = 0; i < 5000; i++) daemon.emit('agents', 'agent.changed', { agent: ARCH, data: { name: ARCH, state: 'idle' } });
     net.down = false;
     await until(() => store.conn === 'open', 'the connection back');
-    await sleep(100);
+    await until(() => reads() - before === 2, 'both screens read again');
+    await client.call('events.feed', {});
     expect(reads() - before).toBe(2);
     expect(applied).not.toHaveBeenCalled();
   });
