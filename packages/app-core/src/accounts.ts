@@ -97,4 +97,6 @@ export const loginRunning = (a: Account): boolean => a.login?.state === 'waiting
 
 /** Agents working on the account now over the most it takes at once; before the usage read arrives only the cap is known. */
 export const agentsLine = (account: Pick<Account, 'agents_running' | 'cap_effective'>): string =>
-  account.agents_running === undefined ? `cap ${account.cap_effective}` : `${account.agents_running} working / cap ${account.cap_effective}`;
+  account.agents_running === undefined
+    ? `cap ${account.cap_effective}`
+    : `${account.agents_running} working / cap ${account.cap_effective}`;

@@ -4,7 +4,14 @@ import { $, mount, press, text, until } from '#test/harness.tsx';
 
 async function open() {
   const m = await mount((s) => {
-    s.daemon.accounts.add({ name: 'delta', label: 'delta', plan: null, runway: '~10m to wall', assignable: false, assign_reason: '5h 97% at last reading' });
+    s.daemon.accounts.add({
+      name: 'delta',
+      label: 'delta',
+      plan: null,
+      runway: '~10m to wall',
+      assignable: false,
+      assign_reason: '5h 97% at last reading',
+    });
   });
   await press($('nav-usage'));
   await until(() => $('usage-delta'), 'the usage lines');

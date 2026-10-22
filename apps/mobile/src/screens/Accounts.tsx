@@ -153,9 +153,7 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
             >
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: c.ink, fontWeight: '600' }}>{a.label}</Text>
-                <Text style={{ color: c.muted }}>
-                  {agentsLine(a)}
-                </Text>
+                <Text style={{ color: c.muted }}>{agentsLine(a)}</Text>
               </View>
               {stateText(a) ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{stateText(a)}</Text> : null}
               {stateOf(a) === 'needs_login' ? (
