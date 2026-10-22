@@ -72,8 +72,6 @@ function byAccount(past: Outlook['past'], future: Outlook['future'], now: number
 export class FakeAdmin {
   readonly worktrees: FakeWorktrees;
   readonly prefs: FakePrefs;
-  /** A daemon behind a gateway has no listener of its own: connection.get then answers null. */
-  noListener = false;
   private now: () => Timestamp;
   private on: boolean;
   private values: Settings['values'] = structuredClone(DEFAULTS);
@@ -301,10 +299,13 @@ export class FakeAdmin {
     };
   }
 
+  /** Answer connection.get as a process with no network listener (a daemon behind a gateway). */
+  noListener = false;
+
   /** A TLS listener on a Tailscale-less address, one heavy slot, dev mode as the settings say. */
   connection(): ConnectionInfo {
     return {
-      served_by: 'daemon',
+      served_by: this.noListener ? 'gateway' : 'daemon',
       listener: this.noListener
         ? null
         : { address: '192.168.1.20:7777', encryption: 'tls', fingerprint: FINGERPRINT, tailscale_host: null },

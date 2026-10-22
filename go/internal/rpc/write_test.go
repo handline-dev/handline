@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -257,5 +258,23 @@ func TestEveryHelloTheFounderKeyIsTakenOnLeavesARecordOfWhoPresentedIt(t *testin
 	}
 	if _, ok := got[0]["terminal"].(string); !ok {
 		t.Fatalf("no terminal field: %v", got[0])
+	}
+}
+
+// One notice's bytes go to every subscriber: writing them must leave the slice as it was, spare capacity and all.
+func TestALineIsWrittenWithoutTouchingTheCallersBytes(t *testing.T) {
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	go io.Copy(io.Discard, b)
+	shared := make([]byte, 2, 8)
+	copy(shared, "{}")
+	spare := shared[:3]
+	spare[2] = 'x'
+	if err := NewLineTransport(a).WriteMessage(shared); err != nil {
+		t.Fatal(err)
+	}
+	if spare[2] != 'x' {
+		t.Fatalf("the newline was written into the caller's slice: %q", spare)
 	}
 }
