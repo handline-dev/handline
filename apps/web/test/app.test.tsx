@@ -237,10 +237,41 @@ describe('the workspace', () => {
       history.replaceState(state, '');
       await act(async () => void dispatchEvent(new PopStateEvent('popstate')));
     };
-    await walk({ tab: term });
-    expect(shown()).toBe(term);
-    await walk({ tab: 'chat' });
+    const atChat = history.state as object;
+    await click($(termTab)!);
+    const atTerm = history.state as object;
+    await walk(atChat);
     expect(shown()).toBe('chat');
+    await walk(atTerm);
+    expect(shown()).toBe(term);
+  });
+
+  it('a pane split is a history entry, and Back puts the single pane back', async () => {
+    await mount(ARCH, textGrid(), setup(), true);
+    await until(() => $(termTab), 'the terminal tab');
+    const before = history.state as object;
+    const length = history.length;
+    const rects = stubRects();
+    await fire($(termTab)!, 'dragstart');
+    await dragAt($('.pane')!, 'drop', 790, 300);
+    rects.mockRestore();
+    expect($$('.pane')).toHaveLength(2);
+    expect(history.length).toBe(length + 1);
+    history.replaceState(before, '');
+    await act(async () => void dispatchEvent(new PopStateEvent('popstate')));
+    expect($$('.pane')).toHaveLength(1);
+  });
+
+  it('Back onto a closed tab opens it again', async () => {
+    await mount(ARCH, textGrid(), setup(), true);
+    await until(() => $(termTab), 'the terminal tab');
+    const withTerm = history.state as object;
+    vi.stubGlobal('confirm', () => true);
+    await click($(`${termTab} .x`)!);
+    expect($(termTab)).toBeNull();
+    history.replaceState(withTerm, '');
+    await act(async () => void dispatchEvent(new PopStateEvent('popstate')));
+    expect($(termTab)).not.toBeNull();
   });
 
   it('the sidebar is resized by dragging its edge, clamped, kept, and reset by a double click', async () => {
