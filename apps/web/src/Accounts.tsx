@@ -1,4 +1,4 @@
-// The Usage page (#/accounts, #/stats): one line per account, then the Stats section; #/accounts/:name is one account in three tabs.
+// The Accounts tab of Settings (#/accounts, #/stats), also the page the status bar's usage item opens: one line per account, then the Stats section; #/accounts/:name is one account in three tabs.
 import { useState } from 'react';
 import { STATE_WORD, outUntil, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';
@@ -7,6 +7,7 @@ import { classify, sentence, useAccounts, useAccountUsage, useAgents, useOff, us
 import { AccountLogin } from '#src/AccountLogin.tsx';
 import { AccountSettings } from '#src/AccountSettings.tsx';
 import { Gauge, useNow } from '#src/Gauge.tsx';
+import { SettingsTabs } from '#src/SettingsTabs.tsx';
 import { StatsSection } from '#src/Stats.tsx';
 import { goAgent, useHistoryValue } from '#src/route.ts';
 import { Button, Card, Dialog, Field, Icon, NOTE, ScrollPage, PageHead, PageTitle, TabStrip, type IconName } from '#src/ui/index.ts';
@@ -183,7 +184,7 @@ export function AccountsPage({ name }: { name: string | null }) {
     <ScrollPage className="accounts" aria-label={name === null ? 'Usage' : 'Accounts'}>
       <PageHead className="accounts-head">
         {name === null ? (
-          <PageTitle>Usage</PageTitle>
+          <PageTitle>Settings</PageTitle>
         ) : (
           <>
             <Button className="back" icon="back" label="Back to usage" onClick={() => (location.hash = '#/accounts')}>
@@ -194,6 +195,7 @@ export function AccountsPage({ name }: { name: string | null }) {
         )}
         {name === null ? <AddAccount /> : null}
       </PageHead>
+      {name === null ? <SettingsTabs value="accounts" /> : null}
       <View q={q} served={served} shape="accounts" what="accounts" empty={!list.length && 'No accounts configured.'}>
         {name === null ? (
           <Card className="acct-list flex flex-col">

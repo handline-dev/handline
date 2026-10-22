@@ -1,9 +1,9 @@
-// The tabs of the Settings area: the settings themselves, then Team (who is who) and HR (the proposals that wait for the founder).
+// The tabs of the Settings area: the settings themselves, then Accounts (usage and logins), Team (who is who) and HR (the proposals that wait for the founder).
 import { useHrCount, useServes } from '@handline/app-data';
 import { Icon, TabStrip } from '#src/ui/index.ts';
 import { goTeam } from '#src/route.ts';
 
-type Tab = 'settings' | 'team' | 'hr';
+type Tab = 'settings' | 'accounts' | 'team' | 'hr';
 
 export function SettingsTabs({ value }: { value: Tab }) {
   const { served: hrServed } = useServes('hr.list');
@@ -12,9 +12,10 @@ export function SettingsTabs({ value }: { value: Tab }) {
     <TabStrip
       label="Settings pages"
       value={value}
-      onChange={(t: Tab) => (t === 'settings' ? void (location.hash = '#/settings') : goTeam(t))}
+      onChange={(t: Tab) => (t === 'settings' ? void (location.hash = '#/settings') : t === 'accounts' ? void (location.hash = '#/accounts') : goTeam(t))}
       tabs={[
         { value: 'settings', label: 'Settings' },
+        { value: 'accounts', label: 'Accounts' },
         { value: 'team', label: 'Team' },
         ...(hrServed
           ? [

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
 import { ago, clockTime, decidedProposals, restartingLine, restartShown } from '@handline/app-core';
-import { classify, sentence, useAgentStrip, useHr, useWrite } from '@handline/app-data';
+import { classify, sentence, useAgentStrip, useHr, useWorktrees, useWrite } from '@handline/app-data';
 import { Button, Card, CardWhat, Chip, Dialog, Field, Icon } from '#src/ui/index.ts';
 import { goTeam } from '#src/route.ts';
 import { openTaskOnClick } from '#src/ChatMessages.tsx';
@@ -34,6 +34,8 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
   const { apply } = useWorkspace();
   const strip = useAgentStrip(detail.name).data;
   const ctxPct = detail.ctx_pct ?? strip?.ctx_pct;
+  const changed = useWorktrees({ owner: detail.name }).data?.worktrees.find((w) => w.path === detail.worktree?.path)?.changed.length;
+  const files = `${changed} changed ${changed === 1 ? 'file' : 'files'} in the worktree`;
   const used = strip?.ctx_used;
   const limit = strip?.ctx_limit;
   return (
@@ -52,6 +54,12 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
             <span className="truncate">{detail.worktree.branch}</span>
           </Chip>
         </span>
+      ) : null}
+      {changed ? (
+        <Chip title={files} aria-label={files}>
+          <Icon name="changes" size={13} aria-hidden />
+          {changed}
+        </Chip>
       ) : null}
       <AgentGauges
         ctx={ctxPct == null ? null : Math.round(ctxPct)}

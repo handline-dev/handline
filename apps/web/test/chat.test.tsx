@@ -487,6 +487,13 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     expect($('.chat-banner')).toBeNull();
     void t;
   });
+
+  it('the strip counts the files changed in the agent\'s worktree', async () => {
+    await mount(ARCH);
+    await until(() => $('.chat-strip [aria-label$="in the worktree"]'), 'the count');
+    expect(text($('.chat-strip [aria-label$="in the worktree"]'))).toBe('1');
+    expect($('.chat-strip [aria-label$="in the worktree"]')!.getAttribute('title')).toBe('1 changed file in the worktree');
+  });
 });
 
 describe('loading and writes with latency and refusals', () => {
