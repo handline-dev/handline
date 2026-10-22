@@ -2,7 +2,27 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
-import { Store, noticeOf, takeBack, landingLabel, tickLevel, sessionLine, handoffLine, sideOf, taskRow, changeParts, timeline, chatEntries, activity, restartCause, restartingLine, restartShown, teamActivityOf } from '#src/index.ts';
+import {
+  Store,
+  noticeOf,
+  takeBack,
+  landingLabel,
+  tickLevel,
+  sessionLine,
+  handoffLine,
+  sideOf,
+  taskRow,
+  changeParts,
+  timeline,
+  chatEntries,
+  activity,
+  restartCause,
+  restartingLine,
+  restartShown,
+  teamActivityOf,
+  turnSummary,
+  turnMinutes,
+} from '#src/index.ts';
 
 const A = 'handline.architect';
 const msg = (over: Partial<ChatMessage>): ChatMessage => ({
@@ -211,14 +231,23 @@ test('the Chat holds the person and the agent; Activity holds the rest, and only
 
 test('activityOf lists what the agent does with the team: tools, other agents messages, not the founder chat', () => {
   const rows = teamActivityOf(
-    [msg({ id: 1, from: 'human', to: A }), msg({ id: 2, from: 'handline.auditor', to: A, body: 'Review is done', at: '2026-01-01T00:00:02Z' })],
+    [
+      msg({ id: 1, from: 'human', to: A }),
+      msg({ id: 2, from: 'handline.auditor', to: A, body: 'Review is done', at: '2026-01-01T00:00:02Z' }),
+    ],
     [
       item({ id: 5, kind: 'reply', text: 'ok' }),
       item({ id: 6, kind: 'tool', tool: 'Bash', text: 'ls', output: 'a', dropped_lines: 2, at: '2026-01-01T00:00:01Z' }),
     ],
     'human',
   );
-  assert.deepEqual(rows.map((r) => [r.kind, r.text]), [['tools', 'Bash ls'], ['messages', 'Review is done']]);
+  assert.deepEqual(
+    rows.map((r) => [r.kind, r.text]),
+    [
+      ['tools', 'Bash ls'],
+      ['messages', 'Review is done'],
+    ],
+  );
   assert.deepEqual([rows[0]!.output, rows[0]!.dropped], ['a', 2]);
   assert.deepEqual(rows[1]!.route, { from: 'handline.auditor', to: A });
 });
@@ -266,7 +295,12 @@ test('a restart is one line: back-to-back session starts collapse and keep the c
 test('restartCause is the daemon word in short words, null when it sent none', () => {
   const at = '2026-01-01T00:00:00Z';
   const item = (cause?: string) =>
-    ({ id: 1, at, kind: 'session', session: { id: 's', started: at, handoff: null, ...(cause ? { cause } : {}) } }) as unknown as TranscriptItem;
+    ({
+      id: 1,
+      at,
+      kind: 'session',
+      session: { id: 's', started: at, handoff: null, ...(cause ? { cause } : {}) },
+    }) as unknown as TranscriptItem;
   assert.equal(restartCause(item('context_full')), 'context was full');
   assert.equal(restartCause(item('odd')), 'odd');
   assert.equal(restartCause(item()), null);
@@ -274,7 +308,8 @@ test('restartCause is the daemon word in short words, null when it sent none', (
 
 test('the restart line ends where the New session line begins, never both', () => {
   const since = '2026-10-18T20:55:00.000Z';
-  const session = (at: string) => ({ id: 1, at, kind: 'session', session: { id: 's', started: at, handoff: null, cause: 'context_full' } }) as unknown as TranscriptItem;
+  const session = (at: string) =>
+    ({ id: 1, at, kind: 'session', session: { id: 's', started: at, handoff: null, cause: 'context_full' } }) as unknown as TranscriptItem;
   assert.equal(restartShown({ since }, []), true);
   assert.equal(restartShown({ since }, [session('2026-10-18T20:40:00.000Z')]), true); // an earlier session's line
   assert.equal(restartShown({ since }, [session('2026-10-18T20:55:45.000Z')]), false);
@@ -286,10 +321,42 @@ test('the live restart line reads as one sentence', () => {
 });
 
 test('a permission request is a tool step: Activity lists it under tools, Chat keeps only other dialogs', () => {
-  const perm = item({ id: 20, kind: 'prompt', open: false, prompt: { kind: 'permission', tool: 'Bash', command: 'git status' } as TranscriptItem['prompt'] });
+  const perm = item({
+    id: 20,
+    kind: 'prompt',
+    open: false,
+    prompt: { kind: 'permission', tool: 'Bash', command: 'git status' } as TranscriptItem['prompt'],
+  });
   const dialog = item({ id: 21, kind: 'prompt', open: true, prompt: { kind: 'choice' } as TranscriptItem['prompt'] });
   const key = (es: { kind: string; id: number }[]) => es.map((e) => `${e.kind}${e.id}`);
   assert.deepEqual(key(chatEntries([], [perm, dialog], A)), ['item21']);
   assert.deepEqual(key(activity([], [], [perm, dialog], A)), ['item20']);
-  assert.deepEqual(teamActivityOf([], [perm], 'human').map((r) => [r.kind, r.text]), [['tools', 'Asked permission: Bash git status']]);
+  assert.deepEqual(
+    teamActivityOf([], [perm], 'human').map((r) => [r.kind, r.text]),
+    [['tools', 'Asked permission: Bash git status']],
+  );
+});
+
+test('a turn is the tool steps after the last reply or message', () => {
+  const at = (s: number) => `2026-01-01T00:00:${String(s).padStart(2, '0')}Z`;
+  const items = [
+    item({ id: 1, at: at(1), kind: 'tool', tool: 'Bash', text: 'old' }),
+    item({ id: 2, at: at(5), kind: 'reply' }),
+    item({ id: 3, at: at(6), kind: 'tool', tool: 'Bash', text: 'git status' }),
+    item({ id: 4, at: at(7), kind: 'prompt', prompt: { kind: 'permission', tool: 'Edit' } as never }),
+    item({ id: 5, at: at(8), kind: 'tool', tool: 'Read', text: 'a.ts' }),
+  ];
+  const s = turnSummary([msg({ at: at(3) })], items);
+  assert.equal(s.count, 2);
+  assert.equal(s.steps.length, 3);
+  assert.equal(s.last, 'Read a.ts');
+  assert.equal(turnSummary([msg({ at: at(9) })], items).count, 0);
+  assert.equal(turnSummary([], []).last, null);
+});
+
+test('turn minutes round down and say under a minute', () => {
+  const now = Date.parse('2026-01-01T00:12:30Z');
+  assert.equal(turnMinutes('2026-01-01T00:00:00Z', now), '12m');
+  assert.equal(turnMinutes('2026-01-01T00:12:00Z', now), '<1m');
+  assert.equal(turnMinutes(null, now), '<1m');
 });

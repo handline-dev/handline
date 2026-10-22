@@ -8,12 +8,14 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/usage"
 	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
@@ -44,12 +46,21 @@ type fakeUsage struct {
 	by      map[string]AccountStatus
 	pick    string
 	cap     int
+	unpaced int // 0: cap
+	pace    *usage.Pace
 	others  int
 	exclude *string // the agent ActiveOn was asked to leave out
 	head    map[string]float64
 }
 
 func (u fakeUsage) CapOf(string) int { return u.cap }
+func (u fakeUsage) CapUnpaced(string) int {
+	if u.unpaced != 0 {
+		return u.unpaced
+	}
+	return u.cap
+}
+func (u fakeUsage) Pace(string) *usage.Pace { return u.pace }
 func (u fakeUsage) Headroom(acct string) (float64, bool) {
 	h, ok := u.head[acct]
 	return h, ok
@@ -504,6 +515,27 @@ func TestAResumeWaitsForASlotOnItsOwnAccountWhenTheOthersAndOlderWaitersFillIt(t
 	if wait(3, 1) != nil {
 		t.Fatal("room for the agent and the older waiter")
 	}
+	pace := &usage.Pace{State: usage.PaceOver, Line: 40, Used: 60}
+	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true}, cap: 0, unpaced: 3, others: 1, pace: pace}
+	if w := r.l.WakeWait(q, "ann", row); w == nil || w.Pace != pace {
+		t.Fatalf("a slot only the pace holds says so: %+v", w)
+	} else if got := DescribeWakeWait(w); got != "waiting for a's weekly pace: 60% used, 20 points ahead of its line (40%)" {
+		t.Fatal(got)
+	}
+	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true}, cap: 0, unpaced: 3, others: 2, pace: pace}
+	if w := r.l.WakeWait(q, "ann", row); w == nil || w.Pace != nil {
+		t.Fatalf("a slot the others fill is not the pace's: %+v", w)
+	}
+	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true}, cap: 0, unpaced: 3, others: 1, pace: pace}
+	r.l.PassPace("ann")
+	if w := r.l.WakeWait(q, "ann", row); w != nil {
+		t.Fatalf("a person's force start lets it past the pace: %+v", w)
+	}
+	r.l.Now = func() time.Time { return time.Now().Add(PacePassFor + time.Second) }
+	if w := r.l.WakeWait(q, "ann", row); w == nil || w.Pace == nil {
+		t.Fatalf("the pass is for one start, not for good: %+v", w)
+	}
+	r.l.Now = nil
 	// An account that would run out before it resets has a cap of none: nothing is free however quiet it is, and the wait says why.
 	w = wait(0, 0)
 	if w == nil || !w.Slot || w.Full != 0 {
@@ -584,6 +616,14 @@ func TestAPersonsStartGoesToTheAccountItWasLastOnElseTheMostHeadroomAndQueuesBeh
 	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true, ShortTrusted: &pct}, cap: 0}
 	if got, why := r.l.RoomNow(q, "ann", row, "a"); got != "" || !strings.HasPrefix(why, "no account can take one more agent") {
 		t.Fatalf("nowhere has room: %q %s", got, why)
+	}
+	// Only the pace holds every slot: the daemon's move waits, a person's start goes where the most headroom is.
+	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true, ShortTrusted: &pct}, cap: 0, unpaced: 2, head: map[string]float64{"a": 0.1, "b": 0.5}}
+	if got, _ := r.l.RoomElsewhere(q, "ann", row, map[string]string{"a": ""}); got != "" {
+		t.Fatalf("the pace holds the daemon's move: %q", got)
+	}
+	if got, why := r.l.RoomNow(q, "ann", row, "a"); got != "b" {
+		t.Fatalf("a person's start is not held by the pace: %q %s", got, why)
 	}
 }
 
@@ -782,5 +822,24 @@ func TestAResumeBuildCarriesTheSessionToItsAccount(t *testing.T) {
 	main, _ := team.AccountConfigDir(r.l.Home, "main")
 	if sessionIn(main, "s1") == "" {
 		t.Fatal("the session was not carried to the account the resume runs on")
+	}
+}
+
+// A fresh start is given the daemon's own record of where it was, with a handoff or without one.
+func TestAFreshStartIsToldWhereItWas(t *testing.T) {
+	r := newLaunchRig(t)
+	tid, _ := db.NewTask(r.l.Q, "the held task", "ann", "boss", 0, 2, "", 0, "")
+	if _, err := db.SetTaskQueued(r.l.Q, tid, "boss"); err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range []string{"", "left off here"} {
+		_ = db.SetHandoff(r.l.Q, "ann", record)
+		text, err := r.l.ContextFor("ann")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(text, "# Where you were (the daemon's record)") || !strings.Contains(text, "- the held task") {
+			t.Errorf("record %q:\n%s", record, text)
+		}
 	}
 }

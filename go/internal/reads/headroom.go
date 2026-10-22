@@ -67,19 +67,6 @@ func (e *Env) headroomAt(clock time.Time, from, to, step int64) (any, error) {
 	}
 	ue := &usage.Env{Home: e.Home, Now: func() float64 { return float64(now) }}
 	h := usage.HeadroomOver(rows, now, from, to, step, e.accountEnds(ue.CurrentConfig(), rows, clock))
-	left := func(v *float64) any {
-		if v == nil {
-			return nil
-		}
-		return round(*v, 2)
-	}
-	windows := func(ps []usage.HeadroomPoint) []any {
-		out := make([]any, 0, len(ps))
-		for _, p := range ps {
-			out = append(out, map[string]any{"at": ts(p.At), "five_left": left(p.Five), "week_left": left(p.Week)})
-		}
-		return out
-	}
 	accounts := []any{}
 	var next any
 	var nextAt int64
@@ -91,7 +78,7 @@ func (e *Env) headroomAt(clock time.Time, from, to, step int64) (any, error) {
 				nextAt, next = r.At, map[string]any{"at": ts(r.At), "account": a.Account, "window": r.Window}
 			}
 		}
-		accounts = append(accounts, map[string]any{"account": a.Account, "past": windows(a.Past), "future": windows(a.Future),
+		accounts = append(accounts, map[string]any{"account": a.Account, "past": headroomWindows(a.Past, false), "future": headroomWindows(a.Future, false),
 			"resets": resets})
 	}
 	var runsOut any
@@ -103,4 +90,23 @@ func (e *Env) headroomAt(clock time.Time, from, to, step int64) (any, error) {
 	}
 	return map[string]any{"now": ts(now), "step_s": step, "combined": map[string]any{"past": points(h.Past), "future": points(h.Future)},
 		"accounts": accounts, "runs_out_at": runsOut, "next_reset": next}, nil
+}
+
+// headroomWindows is each point's windows left, at two places, and with line its pace line's.
+func headroomWindows(ps []usage.HeadroomPoint, line bool) []any {
+	left := func(v *float64) any {
+		if v == nil {
+			return nil
+		}
+		return round(*v, 2)
+	}
+	out := make([]any, 0, len(ps))
+	for _, p := range ps {
+		m := map[string]any{"at": ts(p.At), "five_left": left(p.Five), "week_left": left(p.Week)}
+		if line {
+			m["line_left"] = left(p.Line)
+		}
+		out = append(out, m)
+	}
+	return out
 }

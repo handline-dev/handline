@@ -80,18 +80,48 @@ describe('X5 phone New agent', () => {
     m.store.stop();
   });
 
-  it('offers five efforts after default, and sends model and effort when chosen', async () => {
+  it("offers the daemon's models, efforts, accounts (a logged-out one named, not offered), roles and free names", async () => {
     const m = await open(await mount());
+    const spy = calls(m);
+    await fill();
+    const o = await m.store.client.call('agent.options', {});
+    await until(() => $('na-model-opus'), 'the model picks');
+    const ids = (prefix: string) => [...box.querySelectorAll(`[data-testid^="${prefix}"]`)].map((e) => e.getAttribute('data-testid'));
+    expect(ids('na-model-')).toEqual(['default', ...o.models].map((x) => `na-model-${x}`));
+    expect(ids('na-effort-')).toEqual(['default', ...o.efforts].map((x) => `na-effort-${x}`));
+    expect(ids('na-account-')).toEqual(
+      ['default', ...o.accounts.filter((a) => a.login_state === 'ok').map((a) => a.name)].map((x) => `na-account-${x}`),
+    );
+    expect(text(box)).toContain('gamma (not logged in)');
+    expect(ids('na-free-')).toEqual(o.free_names.map((x) => `na-free-${x}`));
+    expect(text(box)).not.toContain('none can be named yet');
+    await press($(`na-role-${o.roles[0]!.name}`));
+    expect(text(box)).toContain(o.roles[0]!.description);
+    await press($(`na-free-${o.free_names[0]}`));
+    await press($('na-effort-high'));
+    await press($('na-model-opus'));
+    await press($('na-account-beta'));
+    await press(create());
+    await until(() => made(spy).length === 1, 'the call');
+    expect(made(spy)[0]).toMatchObject({ name: o.free_names[0], role: o.roles[0]!.name, model: 'opus', effort: 'high', account: 'beta' });
+    m.store.stop();
+  });
+
+  it("shows today's form on a daemon without agent.options: free-text model, five efforts, no account to pick", async () => {
+    const m = await open(await mount((s) => s.daemon.knobs.unserve('agent.options')));
     const spy = calls(m);
     await fill();
     expect([...box.querySelectorAll('[data-testid^="na-effort-"]')].map((e) => e.getAttribute('data-testid'))).toEqual(
       ['default', 'low', 'medium', 'high', 'xhigh', 'max'].map((e) => `na-effort-${e}`),
     );
+    expect($('na-account-default')).toBeFalsy();
+    expect(text(box)).toContain('none can be named yet');
     await press($('na-effort-high'));
     await type('na-model', 'opus');
     await press(create());
     await until(() => made(spy).length === 1, 'the call');
     expect(made(spy)[0]).toMatchObject({ model: 'opus', effort: 'high' });
+    expect(made(spy)[0]).not.toHaveProperty('account');
     m.store.stop();
   });
 

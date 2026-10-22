@@ -11,6 +11,7 @@ import (
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
+	"github.com/handline/handline/go/internal/usage"
 	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
@@ -21,6 +22,8 @@ const (
 	int1  = "int>=1"
 	int0  = "int>=0"
 	pct   = "int 0-100"
+	tgt   = "int 50-100"
+	burst = "int 0-50"
 	flag_ = "bool"
 	line  = "line"
 )
@@ -32,7 +35,8 @@ var settingKinds = map[string]string{"active_cap": int1, "park_timeout_s": int0,
 	"ignore_cache_expiry": flag_, "dev_mode": flag_, "bg_notice_s": int1, "bg_grace_s": int1, "bg_check_s": int1, "notice_digest_s": int1,
 	"input_hold_idle_s": int1, handoff.PromptKey: line,
 	"push_prompt_asked": flag_, "push_task_done": flag_, "push_stall": flag_, "push_account_out": flag_,
-	loadgate.AgentCapKey: int0, loadgate.LoadPctKey: int0, loadgate.RAMFreePctKey: pct}
+	loadgate.AgentCapKey: int0, loadgate.LoadPctKey: int0, loadgate.RAMFreePctKey: pct,
+	usage.PacingKey: flag_, usage.PaceTargetKey: tgt, usage.PaceBurstKey: burst}
 
 var perAgent = map[string]bool{"park_timeout_s": true, "ignore_cache_expiry": true, "bg_notice_s": true, "bg_grace_s": true, "bg_check_s": true,
 	"notice_digest_s": true, handoff.PromptKey: true}
@@ -51,11 +55,13 @@ func settingValue(key string, v any) (any, error) {
 			return s, nil
 		}
 	default:
-		if n, ok := rpc.AsInt(v); ok && n >= map[string]int64{int1: 1}[kind] && (kind != pct || n <= 100) {
+		lo, hi := map[string]int64{int1: 1, tgt: 50}[kind], map[string]int64{pct: 100, tgt: 100, burst: 50}[kind]
+		if n, ok := rpc.AsInt(v); ok && n >= lo && (hi == 0 || n <= hi) {
 			return n, nil
 		}
 	}
 	what := map[string]string{int1: "a whole number, at least 1", int0: "a whole number, at least 0", pct: "a whole number from 0 to 100",
+		tgt: "a whole number from 50 to 100", burst: "a whole number from 0 to 50",
 		flag_: "true or false",
 		line:  fmt.Sprintf("one line of text, at most %d characters", LineMax)}[kind]
 	return nil, badParam(fmt.Sprintf("%s is %s, or null", key, what), key)
