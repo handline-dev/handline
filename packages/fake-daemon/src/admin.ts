@@ -1,6 +1,6 @@
 // The fake daemon's read-mostly admin surface: the stats windows, the usage outlook, the home settings, the standing answers, and the repos
 // and worktrees (worktrees.ts).
-import type { Headroom, Outlook, Settings, SettingsChanges, StandingAnswer, Stats, Timestamp } from '@handline/contract';
+import type { ConnectionInfo, Headroom, Outlook, Settings, SettingsChanges, StandingAnswer, Stats, Timestamp } from '@handline/contract';
 import { Failure, badRequest } from '#src/errors.ts';
 import { FakeWorktrees } from '#src/worktrees.ts';
 import { FakePrefs, type PrefsHost } from '#src/prefs.ts';
@@ -8,11 +8,33 @@ import { FakePrefs, type PrefsHost } from '#src/prefs.ts';
 type Accepted = (said: string) => unknown;
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
+const FINGERPRINT = 'sha256:3f9c1e7a52b84d06a1e3c7f90b2d4856e1a7c3095bd8f2e46a0c5d71b93e8f24';
 const AGENTS = ['handline.architect', 'handline.auditor', 'handline.term-build'];
 
 /** The methods this answers. */
-const ADMIN = /^(stats\.|settings\.|answers?\.|devices?\.(list|revoke)|agent\.triggers|memory\.status|events\.feed)/;
-const DEFAULTS = { active_cap: 4, park_timeout_s: 1800 };
+const ADMIN = /^(stats\.|connection\.get|settings\.|answers?\.|devices?\.(list|revoke)|agent\.triggers|memory\.status|events\.feed)/;
+/** Every settings value at the Go daemon's default (go/internal/reads/settings.go), except active_cap: the fake keeps 4. */
+const DEFAULTS: Settings['values'] = {
+  active_cap: 4,
+  park_timeout_s: 1800,
+  handoff_note: true,
+  ignore_cache_expiry: false,
+  dev_mode: false,
+  bg_notice_s: 1800,
+  bg_grace_s: 300,
+  bg_check_s: 600,
+  notice_digest_s: 300,
+  token_prices: {},
+  input_hold_idle_s: 600,
+  handoff_prompt: 'Write your handoff to {path} now, while your prompt cache is warm, at most {max} characters.',
+  push_prompt_asked: true,
+  push_task_done: true,
+  push_stall: true,
+  push_account_out: true,
+  host_active_cap: 0,
+  load_per_core_pct: 150,
+  ram_free_min_pct: 10,
+};
 
 /** What the outlook_agent_use fixtures name (--var outlook_agent=grp.one outlook_group=grp): two agents of the group grp. */
 const AGENT_USE = [
@@ -30,12 +52,7 @@ export class FakeAdmin {
   readonly prefs: FakePrefs;
   private now: () => Timestamp;
   private on: boolean;
-  private values: Settings['values'] = {
-    active_cap: 4,
-    park_timeout_s: 1800,
-    handoff_note: true,
-    ignore_cache_expiry: false,
-  };
+  private values: Settings['values'] = structuredClone(DEFAULTS);
   private devices = [
     { id: 'd1', name: 'Handline desktop', role: 'founder' as const, created: '2026-10-01T09:00:00Z', last_seen: '2026-10-16T01:00:00Z', connected: true },
     { id: 'd2', name: 'phone-3b54', role: 'founder' as const, created: '2026-10-05T09:00:00Z', last_seen: '2026-10-12T08:00:00Z', connected: false },
@@ -69,6 +86,8 @@ export class FakeAdmin {
         return this.outlook(String(p.range) as Outlook['range'], p.agent);
       case 'stats.headroom':
         return this.headroom(p);
+      case 'connection.get':
+        return this.connection();
       case 'settings.get':
         return this.settings();
       case 'settings.set':
@@ -209,13 +228,24 @@ export class FakeAdmin {
     };
   }
 
-  settings(): Settings {
+  /** A TLS listener on a Tailscale-less address, one heavy slot, dev mode as the settings say. */
+  connection(): ConnectionInfo {
     return {
-      timings: {},
+      served_by: 'daemon',
+      listener: { address: '192.168.1.20:7777', encryption: 'tls', fingerprint: FINGERPRINT, tailscale_host: null },
+      heavy_slots: { slots: 1, dir: '/home/fake/.handline/heavy-slots' },
+      dev_mode: this.values.dev_mode === true,
+    };
+  }
+
+  settings(): Settings {
+    const values = structuredClone(this.values) as Record<string, unknown>;
+    return {
+      timings: Object.fromEntries(Object.entries(values).filter(([k]) => k.endsWith('_s'))),
       terminal_host: { choice: 'fake', available: ['fake'], health: 'ok' },
       trust_folders: [],
       hooks: { installed: true, accounts: [] },
-      values: { ...this.values },
+      values,
     } as unknown as Settings;
   }
 
@@ -227,8 +257,7 @@ export class FakeAdmin {
         throw badRequest('park_timeout_s is a whole number of seconds, 0 for never', 'park_timeout_s');
       const values = this.values as Record<string, unknown>;
       if (value === null) {
-        if (key in DEFAULTS) values[key] = DEFAULTS[key as keyof typeof DEFAULTS];
-        else delete values[key];
+        values[key] = structuredClone(DEFAULTS[key as keyof typeof DEFAULTS]);
       } else values[key] = value;
     }
   }
