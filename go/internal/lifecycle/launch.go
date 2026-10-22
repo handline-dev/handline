@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
@@ -21,6 +22,7 @@ import (
 	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/usage"
 )
 
 // DisallowedTools is the tools a session may not use. Work for another agent goes through `hl task new`, where the bridge can see it;
@@ -52,9 +54,13 @@ type UsagePort interface {
 	// Fit is whether nothing says the account is a bad place to start: a stale or missing reading is the account nobody has run on
 	// lately, and the session about to start is the only thing that writes a fresh one.
 	Fit(acct, agent string) bool
-	// CapOf is how many agents the account may have mid-turn at once: the configured cap, shrunk only where its current burn would hit a
-	// window's block before that window resets.
+	// CapOf is how many agents the account may have mid-turn at once: the configured cap, shrunk where its current burn would hit a
+	// window's block before that window resets and, with pacing on, where it runs ahead of its weekly pace line.
 	CapOf(acct string) int
+	// CapUnpaced is CapOf without the pace: what a person's own start is held to.
+	CapUnpaced(acct string) int
+	// Pace is the account's weekly pace, nil when its week is not known.
+	Pace(acct string) *usage.Pace
 	// Headroom is what the account's weekly bucket still holds as a share of the week's quota, ok false when the pace cannot be read. The
 	// larger, the slower-paced.
 	Headroom(acct string) (float64, bool)
@@ -175,6 +181,20 @@ type Launcher struct {
 	Tokens *sessiontoken.Tokens
 	// FounderTyped says the founder's words are typed at agent (supervisor.Env.FounderTyped); nil is never.
 	FounderTyped func(agent string) bool
+
+	// pacePassed is each agent a person let past the pace (PassPace), until when.
+	pacePassed sync.Map
+}
+
+// PacePassFor is how long a force start lets an agent past the pace: long enough for the start it asked for.
+const PacePassFor = 2 * time.Minute
+
+// PassPace lets agent's next start past its account's pace (a person's force start).
+func (l *Launcher) PassPace(agent string) { l.pacePassed.Store(agent, l.now().Add(PacePassFor)) }
+
+func (l *Launcher) pacePassedFor(agent string) bool {
+	until, ok := l.pacePassed.Load(agent)
+	return ok && l.now().Before(until.(time.Time))
 }
 
 func (l *Launcher) warn(format string, a ...any) {
@@ -241,9 +261,10 @@ type WakeWait struct {
 	Window  string // the walled window's length as a person says it
 	IsLong  bool   // the longest window, not the shortest
 	// Slot: no wall, no slot - the account is full. Full is its cap now (0 when it would run out before it resets), Busy the others mid-turn on it,
-	// Older the closed agents the daemon wakes first.
-	Slot              bool
-	Full, Busy, Older int
+	// Older the closed agents the daemon wakes first. Unpaced is the cap without the pace; Pace is set when only the pace keeps the slot.
+	Slot                       bool
+	Full, Busy, Older, Unpaced int
+	Pace                       *usage.Pace
 }
 
 // wall is the window this account is walled behind, the shortest first: an account walled on both reports the shortest one's rollover,
@@ -261,9 +282,12 @@ func (l *Launcher) wall(acct string, assumed bool) *WakeWait {
 
 // full is a resume's wait for a slot on its own account, where it is not moved: none is left once the others on it (agent itself left out)
 // fill the cap, or older closed agents waiting for the same account would take what is free. Oldest waiter first; queue false (a person's
-// start) counts no waiter.
+// start) counts no waiter and is not held by the pace.
 func (l *Launcher) full(q db.Q, agent string, row *db.AgentState, acct string, assumed, queue bool) (*WakeWait, error) {
-	cap, others := l.Ports.Usage.CapOf(acct), l.Ports.Usage.ActiveOn(q, acct, agent)
+	cap, unpaced, others := l.Ports.Usage.CapOf(acct), l.Ports.Usage.CapUnpaced(acct), l.Ports.Usage.ActiveOn(q, acct, agent)
+	if !queue || l.pacePassedFor(agent) {
+		cap = unpaced
+	}
 	var rows []*db.AgentState
 	if queue {
 		var err error
@@ -286,7 +310,11 @@ func (l *Launcher) full(q db.Q, agent string, row *db.AgentState, acct string, a
 	if others+older < cap {
 		return nil, nil
 	}
-	return &WakeWait{Account: acct, Assumed: assumed, Window: "slot", Slot: true, Full: cap, Busy: others, Older: older}, nil
+	w := &WakeWait{Account: acct, Assumed: assumed, Window: "slot", Slot: true, Full: cap, Busy: others, Older: older, Unpaced: unpaced}
+	if others+older < unpaced {
+		w.Pace = l.Ports.Usage.Pace(acct)
+	}
+	return w, nil
 }
 
 // SlowestPaced is the account a closed agent moves to when its own (skip) is full: of the other accounts that may
@@ -455,6 +483,10 @@ func WaitClock(w *WakeWait, unknown string) string {
 
 // DescribeWakeWait is the wording for a wait already computed, so a caller that holds one does not recompute it.
 func DescribeWakeWait(w *WakeWait) string {
+	if w.Pace != nil {
+		return fmt.Sprintf("waiting for %s's weekly pace: %d%% used, %.0f points ahead of its line (%.0f%%)", w.Account, w.Pace.Used,
+			float64(w.Pace.Used)-w.Pace.Line, w.Pace.Line)
+	}
 	if w.Slot && w.Full == 0 {
 		return fmt.Sprintf("waiting for %s: it would run out before it resets and takes no new agent", w.Account)
 	}

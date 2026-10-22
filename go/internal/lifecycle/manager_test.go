@@ -20,13 +20,14 @@ type fakeDelivery struct {
 	waitingMsg string
 	tookPrompt bool
 	told       []string // the session each waiting message was recorded as told to
+	head       *db.Request
 }
 
 func (f *fakeDelivery) BgHolds(db.Q, string, int64) (bool, error)       { return false, nil }
 func (f *fakeDelivery) BgOwesNothing(db.Q, string) (bool, error)        { return false, nil }
 func (f *fakeDelivery) BgMayStop(db.Q, string, int64) (bool, error)     { return false, nil }
 func (f *fakeDelivery) IdleSince(db.Q, string) (int64, bool, error)     { return f.idle, f.idle != 0, nil }
-func (f *fakeDelivery) EffectiveHead(db.Q, string) (*db.Request, error) { return nil, nil }
+func (f *fakeDelivery) EffectiveHead(db.Q, string) (*db.Request, error) { return f.head, nil }
 func (f *fakeDelivery) HeadTaskBlocked(q db.Q, agent string, head *db.Request) (bool, error) {
 	return db.HeadTaskBlocked(q, agent, head)
 }
