@@ -6,7 +6,10 @@ import {
   cutError,
   decideMany,
   type DecideResult,
+  changesToggle,
   diffLines,
+  isBundle,
+  plainText,
   kindOf,
   isWaiting,
   ordered,
@@ -124,62 +127,62 @@ export function HrTab({ focus }: { focus: number | null }) {
           ) : null}
         </div>
         <AnimatedList>
-        {all === 'ask' ? (
-          <Sheet key="approve" role="alertdialog" aria-label="Approve all">
-            <strong>{chosen.length ? `Approve ${scope}?` : `Approve all ${waiting.length}?`}</strong>
-            <span className="muted">Each is applied as the card shows it; one that fails stays waiting.</span>
-            <SheetActions>
-              <Button
-                variant="solid"
-                label={chosen.length ? `Approve ${chosen.length}` : 'Approve all'}
-                className="max-sm:min-h-12 max-sm:flex-1"
-                disabled={going}
-                onClick={() => void run('approve')}
-              />
-              <Button
-                variant="outline"
-                label="Cancel"
-                className="max-sm:min-h-12 max-sm:flex-1"
-                disabled={going}
-                onClick={() => setAll(null)}
-              />
-            </SheetActions>
-          </Sheet>
-        ) : all === 'reject' ? (
-          <Sheet key="reject" role="alertdialog" aria-label="Reject all">
-            <strong>{chosen.length ? `Reject ${scope}?` : `Reject all ${waiting.length}?`}</strong>
-            <input aria-label="Reason" placeholder="Reason" value={why} onChange={(e) => setWhy(e.target.value)} />
-            <SheetActions>
-              <Button
-                variant="solid"
-                label={chosen.length ? `Reject ${chosen.length}` : 'Reject all'}
-                className="max-sm:min-h-12 max-sm:flex-1"
-                disabled={going || !why.trim()}
-                onClick={() => void run('reject')}
-              />
-              <Button
-                variant="outline"
-                label="Cancel"
-                className="max-sm:min-h-12 max-sm:flex-1"
-                disabled={going}
-                onClick={() => setAll(null)}
-              />
-            </SheetActions>
-          </Sheet>
-        ) : results ? (
-          <div key="results" className="flex flex-col gap-1 py-2 text-label" role="status" aria-label="Result">
-            <strong>
-              {results.rows.filter((r) => r.ok).length} of {results.rows.length} {results.verb}
-            </strong>
-            {results.rows.map((r) => (
-              <div key={r.id} className={r.ok ? '' : 'text-bad'}>
-                <Icon name={r.ok ? 'done' : 'failed'} size={14} aria-hidden /> {textSafe(r.title)}
-                {r.error ? ` - ${r.error}` : ''}
-              </div>
-            ))}
-            <Button variant="outline" label="Dismiss" onClick={() => setResults(null)} />
-          </div>
-        ) : null}
+          {all === 'ask' ? (
+            <Sheet key="approve" role="alertdialog" aria-label="Approve all">
+              <strong>{chosen.length ? `Approve ${scope}?` : `Approve all ${waiting.length}?`}</strong>
+              <span className="muted">Each is applied as the card shows it; one that fails stays waiting.</span>
+              <SheetActions>
+                <Button
+                  variant="solid"
+                  label={chosen.length ? `Approve ${chosen.length}` : 'Approve all'}
+                  className="max-sm:min-h-12 max-sm:flex-1"
+                  disabled={going}
+                  onClick={() => void run('approve')}
+                />
+                <Button
+                  variant="outline"
+                  label="Cancel"
+                  className="max-sm:min-h-12 max-sm:flex-1"
+                  disabled={going}
+                  onClick={() => setAll(null)}
+                />
+              </SheetActions>
+            </Sheet>
+          ) : all === 'reject' ? (
+            <Sheet key="reject" role="alertdialog" aria-label="Reject all">
+              <strong>{chosen.length ? `Reject ${scope}?` : `Reject all ${waiting.length}?`}</strong>
+              <input aria-label="Reason" placeholder="Reason" value={why} onChange={(e) => setWhy(e.target.value)} />
+              <SheetActions>
+                <Button
+                  variant="solid"
+                  label={chosen.length ? `Reject ${chosen.length}` : 'Reject all'}
+                  className="max-sm:min-h-12 max-sm:flex-1"
+                  disabled={going || !why.trim()}
+                  onClick={() => void run('reject')}
+                />
+                <Button
+                  variant="outline"
+                  label="Cancel"
+                  className="max-sm:min-h-12 max-sm:flex-1"
+                  disabled={going}
+                  onClick={() => setAll(null)}
+                />
+              </SheetActions>
+            </Sheet>
+          ) : results ? (
+            <div key="results" className="flex flex-col gap-1 py-2 text-label" role="status" aria-label="Result">
+              <strong>
+                {results.rows.filter((r) => r.ok).length} of {results.rows.length} {results.verb}
+              </strong>
+              {results.rows.map((r) => (
+                <div key={r.id} className={r.ok ? '' : 'text-bad'}>
+                  <Icon name={r.ok ? 'done' : 'failed'} size={14} aria-hidden /> {textSafe(r.title)}
+                  {r.error ? ` - ${r.error}` : ''}
+                </div>
+              ))}
+              <Button variant="outline" label="Dismiss" onClick={() => setResults(null)} />
+            </div>
+          ) : null}
         </AnimatedList>
         {list.length ? null : <Empty icon="inbox" name="Nothing to decide" hint="Roster and role changes agents propose land here." />}
         {fresh.map(waitingCard)}
@@ -222,7 +225,7 @@ function Card({
   const [reason, setReason] = useState<string | null>(null);
   const [ask, setAsk] = useState(false);
   const [mark, setMark] = useState<string | null>(null);
-  const [showDiff, setShowDiff] = useState(!narrow);
+  const [showDiff, setShowDiff] = useState(!narrow && !isBundle(p));
   const el = useRef<HTMLElement>(null);
   const first = useRef(p.subject);
   useEffect(() => {
@@ -262,9 +265,7 @@ function Card({
     >
       <header className="hr-top flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
         <span className="hr-title inline-flex min-w-0 items-center gap-1.5 text-title font-semibold [overflow-wrap:anywhere]">
-          {decider && waiting && pick ? (
-            <Check aria-label={`Select ${textSafe(p.title)}`} checked={!!on} onChange={pick} />
-          ) : null}
+          {decider && waiting && pick ? <Check aria-label={`Select ${textSafe(p.title)}`} checked={!!on} onChange={pick} /> : null}
           <Icon name="team" size={16} aria-hidden="true" /> {textSafe(p.title)}
         </span>
         <span className={`hr-state ${state.tone} inline-flex items-center gap-1.5 text-label text-ink-2`}>
@@ -292,12 +293,12 @@ function Card({
       {p.reason ? (
         <KeyValueRow>
           <span className="muted">why</span>
-          <span>{textSafe(p.reason)}</span>
+          <span>{plainText(p.reason)}</span>
         </KeyValueRow>
       ) : null}
-      {narrow ? (
+      {narrow || isBundle(p) ? (
         <Button variant="outline" size="sm" label="Diff" icon={showDiff ? 'less' : 'more'} onClick={() => setShowDiff(!showDiff)}>
-          {showDiff ? 'Hide diff' : `Show diff (${diff.length} change${diff.length === 1 ? '' : 's'})`}
+          {changesToggle(p, showDiff)}
         </Button>
       ) : null}
       <Reveal show={showDiff}>
@@ -365,26 +366,26 @@ function Card({
         </CardActions>
       ) : null}
       <AnimatedList>
-      {ask ? (
-        <Sheet key="withdraw" danger role="alertdialog" aria-label="Withdraw">
-          <strong>Withdraw {textSafe(p.title)}</strong>
-          <span className="muted">Takes the proposal back; whoever raised it can raise it again.</span>
-          <SheetActions>
-            <Button
-              variant="solid"
-              label="Withdraw"
-              className="max-sm:min-h-12 max-sm:flex-1"
-              onClick={() => {
-                setAsk(false);
-                sent(withdraw.mutateAsync({ proposal: p.id }), 'withdraw');
-              }}
-            >
-              Withdraw
-            </Button>
-            <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" onClick={() => setAsk(false)} />
-          </SheetActions>
-        </Sheet>
-      ) : null}
+        {ask ? (
+          <Sheet key="withdraw" danger role="alertdialog" aria-label="Withdraw">
+            <strong>Withdraw {textSafe(p.title)}</strong>
+            <span className="muted">Takes the proposal back; whoever raised it can raise it again.</span>
+            <SheetActions>
+              <Button
+                variant="solid"
+                label="Withdraw"
+                className="max-sm:min-h-12 max-sm:flex-1"
+                onClick={() => {
+                  setAsk(false);
+                  sent(withdraw.mutateAsync({ proposal: p.id }), 'withdraw');
+                }}
+              >
+                Withdraw
+              </Button>
+              <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" onClick={() => setAsk(false)} />
+            </SheetActions>
+          </Sheet>
+        ) : null}
       </AnimatedList>
     </article>
   );

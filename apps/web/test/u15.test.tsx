@@ -266,6 +266,20 @@ describe('U15 HR', () => {
     expect(location.hash).toBe('#/agents/handline.architect/settings');
   });
 
+  it('a bundle is one card: its changes are folded under a count, and message numbers in the reason are not shown', async () => {
+    const s = setup();
+    raise(s, 1, { kind: 'bundle', agent: '3 changes', diff: '- retire a\n- retire b\n+ rename c', reason: 'tidy the team (msg_8aebff7)' });
+    await open(s);
+    await until(() => $('.hr-card'), 'the card');
+    expect(text(card(1))).not.toContain('msg_');
+    expect(text(card(1))).toContain('tidy the team');
+    expect($$('.hr-card').length).toBe(1);
+    expect(text(card(1))).not.toContain('retire b');
+    await click(btn(card(1), 'Show 3 changes'));
+    expect(text(card(1))).toContain('retire b');
+    expect(btn(card(1), 'Hide changes')).toBeDefined();
+  });
+
   it('a bundle or a hire, whose agent is not on the roster, has no Edit settings', async () => {
     const s = setup();
     raise(s, 1, { agent: '3 changes' });
