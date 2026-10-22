@@ -32,11 +32,11 @@ func TestTheBucketHoldsTheWeeksElapsedShareAndABurstLessWhatIsSpent(t *testing.T
 	}
 }
 
-func TestAFastPaceWithLowCutoffRiskKeepsTheFullCap(t *testing.T) {
+func TestWithPacingOffAFastPaceWithLowCutoffRiskKeepsTheFullCap(t *testing.T) {
 	q := openDB(t)
 	home := t.TempDir()
 	e := testEnv(home, clock)
-	writeConfig(t, home, map[string]any{"active_cap": 4})
+	writeConfig(t, home, map[string]any{"active_cap": 4, "pacing": false})
 	for _, acct := range []string{"ahead", "burning"} {
 		os.MkdirAll(filepath.Join(home, "accounts", acct), 0o755)
 		weekAt(t, home, acct, 80) // far ahead of its week: 80% spent half way through
@@ -51,7 +51,7 @@ func TestAFastPaceWithLowCutoffRiskKeepsTheFullCap(t *testing.T) {
 	}
 	for _, acct := range []string{"ahead", "burning"} {
 		if got := loads[acct].Cap; got != 4 {
-			t.Errorf("%s: cap %d, want the configured 4 - a fast pace alone is no risk", acct, got)
+			t.Errorf("%s: cap %d, want the configured 4 - with pacing off a fast pace alone is no risk", acct, got)
 		}
 		if got := e.CapNow(q, acct); got != 4 {
 			t.Errorf("%s: CapNow %d, want 4", acct, got)
@@ -123,5 +123,116 @@ func TestHeadroomIsTheTighterOfThe5hAndTheWeeklyBucket(t *testing.T) {
 		map[string]any{"minutes": 10080, "used_percent": 20, "resets_at": clock + WeekS/2, "observed_at": clock - 5}}})
 	if h, ok := e.Headroom("a"); !ok || h < -0.0001 || h > 0.0001 {
 		t.Fatalf("the 5h bucket is the tighter one: %v %v", h, ok)
+	}
+}
+
+func TestThePaceLineShrinksTheCapInStepWithTheBurstAndStopsItPastIt(t *testing.T) {
+	q := openDB(t)
+	home := t.TempDir()
+	e := testEnv(home, clock)
+	writeConfig(t, home, map[string]any{"active_cap": 4})
+	os.MkdirAll(filepath.Join(home, "accounts", "a"), 0o755)
+	// Half the week gone: the line is at 49 (98 x 1/2).
+	for _, c := range []struct {
+		used  int
+		state string
+		cap   int
+	}{{40, PaceBehind, 4}, {49, PaceBehind, 4}, {54, PaceAhead, 2}, {58, PaceAhead, 1}, {59, PaceAhead, 1}, {60, PaceOver, 0}} {
+		weekAt(t, home, "a", c.used)
+		p := e.PaceNow("a")
+		if p == nil || p.State != c.state || p.Line != 49 || p.Used != c.used {
+			t.Fatalf("used %d: pace %+v, want %s on a line of 49", c.used, p, c.state)
+		}
+		if got := e.CapNow(q, "a"); got != c.cap {
+			t.Errorf("used %d (%s): cap %d, want %d", c.used, c.state, got, c.cap)
+		}
+		if got := e.CapUnpaced(q, "a"); got != 4 {
+			t.Errorf("used %d: unpaced cap %d, want the configured 4", c.used, got)
+		}
+	}
+}
+
+func TestAnAccountOverItsLineIsBackWhenTheLineCatchesUpAndItsRateEndsAtTheTarget(t *testing.T) {
+	home := t.TempDir()
+	e := testEnv(home, clock)
+	os.MkdirAll(filepath.Join(home, "accounts", "a"), 0o755)
+	weekAt(t, home, "a", 79)
+	p := e.PaceNow("a")
+	if p == nil || p.State != PaceOver {
+		t.Fatalf("79%% half way through: %+v, want over", p)
+	}
+	// The line reaches 79-10=69 at 69/98 of the week; half a week is gone.
+	start := float64(clock + WeekS/2 - WeekS)
+	if want := int64(start + 69.0/98*WeekS + 1); p.BackAt < want-1 || p.BackAt > want {
+		t.Errorf("back at %d, want about %d", p.BackAt, want)
+	}
+	if want := (98.0 - 79) / (WeekS / 2 / 3600); p.RateH < want-1e-9 || p.RateH > want+1e-9 {
+		t.Errorf("rate %v, want %v points an hour", p.RateH, want)
+	}
+	weekAt(t, home, "a", 99)
+	if p := e.PaceNow("a"); p.RateH != 0 || p.BackAt == 0 {
+		t.Errorf("past the target: rate %v back %d, want 0 and a time", p.RateH, p.BackAt)
+	}
+	writeConfig(t, home, map[string]any{"pace_burst_pct": 0})
+	weekAt(t, home, "a", 100)
+	if p := e.PaceNow("a"); p.BackAt != int64(clock+WeekS/2) {
+		t.Errorf("a line that never gets there: back %d, want the week's end %d", p.BackAt, int64(clock+WeekS/2))
+	}
+	// A reading days old still holds until its reset.
+	writeStatus(t, home, "a", map[string]any{"collected_at": clock - 2*86400, "windows": []any{
+		map[string]any{"minutes": 300, "used_percent": 10, "resets_at": clock - 86400, "observed_at": clock - 2*86400},
+		map[string]any{"minutes": 10080, "used_percent": 79, "resets_at": clock + WeekS/2, "observed_at": clock - 2*86400}}})
+	if p := e.PaceNow("a"); p == nil || p.Used != 79 {
+		t.Errorf("a stale weekly reading: %+v, want it judged", p)
+	}
+	writeConfig(t, home, map[string]any{"pacing": false})
+	if p := e.PaceNow("a"); p == nil || p.State != PaceOff || p.BackAt != 0 {
+		t.Errorf("pacing off: %+v, want off with the figures", p)
+	}
+	writeStatus(t, home, "a", map[string]any{"collected_at": clock - 5, "windows": []any{}})
+	if p := e.PaceNow("a"); p != nil {
+		t.Errorf("no weekly figure: %+v, want none", p)
+	}
+}
+
+func TestPaceSettingsOutOfRangeFallBackToTheirDefaults(t *testing.T) {
+	if ps := PaceSettingsOf(Config{}); ps != (PaceSettings{On: true, Target: 98, Burst: 10}) {
+		t.Errorf("defaults: %+v", ps)
+	}
+	if ps := PaceSettingsOf(Config{"pacing": false, "pace_target_pct": 120, "pace_burst_pct": 5}); ps != (PaceSettings{Target: 98, Burst: 5}) {
+		t.Errorf("set: %+v", ps)
+	}
+}
+
+// The pace cap is figured on the founder's cap, not on what the cut-off risk left of it, and the smaller of the two is in force.
+func TestThePaceCapIsFiguredOnTheFoundersCapAndTheSmallestCapIsInForce(t *testing.T) {
+	q := openDB(t)
+	home := t.TempDir()
+	e := testEnv(home, clock)
+	writeConfig(t, home, map[string]any{"active_cap": 4})
+	os.MkdirAll(filepath.Join(home, "accounts", "a"), 0o755)
+	weekAt(t, home, "a", 56) // 7 points ahead of a line at 49: ceil(4 x 3/10) = 2
+	// 5h at 10%, an hour to its reset: a burn that keeps up 70% of itself, so the cut-off leaves ceil(4 x 0.7) = 3.
+	if err := WriteBurn(home, "a", float64(ShortBlock-10)/(0.7*3600), clock); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.CapUnpaced(q, "a"); got != 3 {
+		t.Fatalf("the cut-off cap: %d, want 3", got)
+	}
+	if got := e.CapNow(q, "a"); got != 2 {
+		t.Errorf("cap %d, want 2: the pace on the founder's 4, not ceil(3 x 3/10) = 1", got)
+	}
+}
+
+func TestAWeekPastItsResetOrItsSubscriptionsEndIsPacedAsSuch(t *testing.T) {
+	now, used := float64(clock), 60
+	ps := PaceSettings{On: true, Target: 98, Burst: 10}
+	st := &AccountStatus{AsOf: &now, Long: AcctWindow{Minutes: 10080, Pct: &used, Reset: int64(now) - 10}}
+	if p := PaceOf(st, now, ps); p != nil {
+		t.Errorf("a reading whose reset has passed: %+v, want none", p)
+	}
+	st.Long.Reset, st.SubEnd = int64(now)+86400, now-3600
+	if p := PaceOf(st, now, ps); p == nil || p.Line != 98 || p.RateH != 0 {
+		t.Errorf("past its subscription's end the line is at the target: %+v", p)
 	}
 }

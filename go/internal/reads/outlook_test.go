@@ -85,7 +85,7 @@ func TestOutlookRefusesARangeItDoesNotList(t *testing.T) {
 	}
 }
 
-func TestAccountsListShowsTheCapShrunkByTheCutoffRiskNotThePace(t *testing.T) {
+func TestAccountsListShowsTheCapShrunkByTheCutoffRiskAndThePace(t *testing.T) {
 	e := testEnv(t)
 	now := time.Now().Unix()
 	for acct, used := range map[string]int{"fast": 95, "hot": 5} {
@@ -112,8 +112,8 @@ func TestAccountsListShowsTheCapShrunkByTheCutoffRiskNotThePace(t *testing.T) {
 		}
 	}
 	json.Unmarshal(b, &out)
-	if len(out.Accounts) != 2 || out.Accounts[0].Name != "fast" || out.Accounts[0].Cap_effective != 2 || out.Accounts[1].Cap_effective != 1 {
-		t.Fatalf("an account ahead of its week keeps the configured cap; one that would be cut off before its reset does not: %s", b)
+	if len(out.Accounts) != 2 || out.Accounts[0].Name != "fast" || out.Accounts[0].Cap_effective != 0 || out.Accounts[1].Cap_effective != 1 {
+		t.Fatalf("an account far past its pace line takes none; one that would be cut off before its reset takes fewer: %s", b)
 	}
 }
 
