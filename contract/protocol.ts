@@ -2073,6 +2073,10 @@ export interface Methods {
   query: string;
   /** mine: person and this agent; all: everything it sent or received. */
   scope?: "mine" | "all";
+  /** Only messages whose other party is this name: an agent, or `human` for the person. Without `agent`, messages from or to it. A name no message has finds nothing. */
+  with?: string;
+  /** Only messages sent at or after this time; one that is not a timestamp is bad_request (field since). */
+  since?: Timestamp;
   limit?: number;
 }; result: {
     messages: ChatMessage[];
@@ -3068,7 +3072,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "chat.locate": { role: "member", callers: null, write: false, since: 1 },
   "agent.strip": { role: "member", callers: null, write: false, since: 1 },
   "chat.refs": { role: "member", callers: null, write: false, since: 1 },
-  "chat.search": { role: "member", callers: null, write: false, since: 1 },
+  "chat.search": { role: "agent", callers: null, write: false, since: 1 },
   "chat.send": { role: "member", callers: null, write: true, since: 1 },
   "chat.send_now": { role: "member", callers: null, write: true, since: 1 },
   "chat.cancel": { role: "member", callers: null, write: true, since: 1 },

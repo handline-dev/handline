@@ -362,6 +362,337 @@
    ]
   },
   {
+   "name": "chat.search.an_agent_finds_what_it_sent",
+   "spec": "chat.search",
+   "about": "An agent's search with no agent is its own messages: what it sent is found, every hit is from or to it and shown in its chat. Needs --var task_owner=NAME: an agent other than the caller.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "whoami",
+      "params": {}
+     },
+     "result": {
+      "caller": {
+       "name": {
+        "$save": "me"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "say",
+      "params": {
+       "target": "{{task_owner}}",
+       "body": "chat-search-probe sent",
+       "no_task": true,
+       "request_id": "conf-cs-1"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.search",
+      "params": {
+       "query": "chat-search-probe"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "from": "{{me}}",
+        "to": "{{task_owner}}",
+        "body": "chat-search-probe sent",
+        "agent": "{{me}}"
+       },
+       "$each": {
+        "$oneOf": [
+         {
+          "from": "{{me}}"
+         },
+         {
+          "to": "{{me}}"
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.search.an_agent_never_sees_others",
+   "spec": "chat.search",
+   "about": "A message between the person and another agent is not in an agent's search. Needs --var task_owner=NAME.",
+   "as": "agent",
+   "with": {
+    "person": "founder"
+   },
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "person"
+    },
+    {
+     "on": "person",
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{task_owner}}",
+       "body": "chat-search-probe for another",
+       "request_id": "conf-cs-2"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.search",
+      "params": {
+       "query": "chat-search-probe for another"
+      }
+     },
+     "result": {
+      "messages": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.search.an_agent_may_not_name_another",
+   "spec": "chat.search",
+   "about": "An agent that names another agent's chat is refused, gate role. Needs --var task_owner=NAME.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.search",
+      "params": {
+       "agent": "{{task_owner}}",
+       "query": "a"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$regex": "."
+      },
+      "data": {
+       "code": "refused",
+       "gate": "role",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.search.with_names_the_other_party",
+   "spec": "chat.search",
+   "about": "with keeps the messages whose other party is that name: the probe to task_owner is found by with task_owner and not by with human. Needs --var task_owner=NAME.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "whoami",
+      "params": {}
+     },
+     "result": {
+      "caller": {
+       "name": {
+        "$save": "me"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "say",
+      "params": {
+       "target": "{{task_owner}}",
+       "body": "chat-search-probe with",
+       "no_task": true,
+       "request_id": "conf-cs-3"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.search",
+      "params": {
+       "query": "chat-search-probe with",
+       "with": "{{task_owner}}"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "body": "chat-search-probe with"
+       },
+       "$each": {
+        "$oneOf": [
+         {
+          "from": "{{task_owner}}"
+         },
+         {
+          "to": "{{task_owner}}"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "chat.search",
+      "params": {
+       "query": "chat-search-probe with",
+       "with": "human"
+      }
+     },
+     "result": {
+      "messages": []
+     }
+    }
+   ]
+  },
+  {
+   "name": "chat.search.since_leaves_out_older",
+   "spec": "chat.search",
+   "about": "since keeps only messages at or after it: one in the future finds nothing, and a since that is not a timestamp is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.search",
+      "params": {
+       "query": "e",
+       "since": "2999-01-01T00:00:00Z"
+      }
+     },
+     "result": {
+      "messages": []
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "chat.search",
+      "params": {
+       "query": "e",
+       "since": "yesterday"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "since"
+      }
+     }
+    }
+   ]
+  },
+  {
    "name": "chat.transcript.limit_is_bounded",
    "spec": "chat.transcript",
    "about": "A limit past the maximum is bad_request naming it.",

@@ -3074,7 +3074,7 @@
   },
   {
    "name": "chat.search",
-   "summary": "Find messages by text; each hit carries the scope that shows it (the jump is chat.locate).",
+   "summary": "Find messages by text; each hit carries the scope that shows it (the jump is chat.locate). An agent searches only its own messages: `agent` absent is the caller, any other name is refused (gate role).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3104,6 +3104,22 @@
      }
     },
     {
+     "name": "with",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Only messages whose other party is this name: an agent, or `human` for the person. Without `agent`, messages from or to it. A name no message has finds nothing."
+     }
+    },
+    {
+     "name": "since",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "Only messages sent at or after this time; one that is not a timestamp is bad_request (field since)."
+     }
+    },
+    {
      "name": "limit",
      "required": false,
      "schema": {
@@ -3128,7 +3144,7 @@
      ]
     }
    },
-   "x-role": "member",
+   "x-role": "agent",
    "x-write": false,
    "x-since": 1,
    "errors": [
@@ -3137,7 +3153,13 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/refused"
     }
+   ],
+   "x-gates": [
+    "role"
    ]
   },
   {

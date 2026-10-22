@@ -424,10 +424,15 @@ export class FakeChat {
     if (p.limit !== undefined && !(Number.isInteger(p.limit) && (p.limit as number) > 0))
       throw invalidParams('limit is a positive integer', 'limit');
     const limit = typeof p.limit === 'number' ? p.limit : 50;
+    const since = typeof p.since === 'string' ? Date.parse(p.since) : 0;
+    if (Number.isNaN(since) || (p.since !== undefined && typeof p.since !== 'string'))
+      throw invalidParams('since is an RFC 3339 timestamp', 'since');
     const hits = this.messages
       .filter(
         (m) =>
           (typeof p.agent !== 'string' || m.agent === p.agent) &&
+          (typeof p.with !== 'string' || (m.from === p.with) !== (m.to === p.with)) &&
+          Date.parse(m.at) >= since &&
           !(m.receipt && m.landing === 'withdrawn') &&
           m.body.toLowerCase().includes(query) &&
           (p.scope !== 'mine' || this.shownInMine(m)),
