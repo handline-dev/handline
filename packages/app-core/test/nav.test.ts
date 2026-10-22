@@ -1,7 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentView, Worktree } from '@handline/client';
-import { chipChanges, chipCounts, chipOf, DEFAULT_NAV, movePin, moveInOrder, navDock, navList, navOf, togglePin, withOpen } from '#src/index.ts';
+import {
+  chipChanges,
+  chipCounts,
+  chipOf,
+  DEFAULT_NAV,
+  movePin,
+  moveInOrder,
+  navDock,
+  navList,
+  navOf,
+  togglePin,
+  withOpen,
+} from '#src/index.ts';
 
 const agent = (name: string, state: string, parent: string | null, unread = false) =>
   ({ name, state, parent, role: '', founder_unread: unread ? 1 : 0 }) as unknown as AgentView;
