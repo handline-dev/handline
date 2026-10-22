@@ -31,6 +31,23 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
+  it('opens a file path and a task number in a message as tabs beside the chat', async () => {
+    const m = await mount(() => {}, undefined, 'founder');
+    await openChat();
+    await type('chat-input', 'see notes/plan.md and T1684');
+    await press($('chat-send'));
+    const find = (kind: string) => box.querySelector<HTMLElement>(`[data-testid^="${kind}-"][data-testid$="${kind === 'file' ? 'notes/plan.md' : '-1684'}"]`);
+    const link = async (kind: string) => (await until(() => find(kind), `the ${kind} link`), find(kind));
+    await press(await link('file'));
+    await until(() => $('dock-file:notes/plan.md'), 'the file dock tab');
+    await until(() => $('file-tab'), 'the file tab');
+    await press($('dock-base'));
+    await press(await link('task'));
+    await until(() => $('dock-task:1684') && $('task-detail'), 'the task tab');
+    expect($('dock-file:notes/plan.md')).not.toBeNull();
+    m.store.stop();
+  });
+
   it('shows the daemon’s sentence when the chat read is refused, and Retry reads again', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await until(() => $(`agent-${ARCH}`), 'the rows');

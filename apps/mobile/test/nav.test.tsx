@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, mount, press, text, until } from '#test/harness.tsx';
+import { ARCH, $, mount, pickTab, press, text, until } from '#test/harness.tsx';
 
 describe('the agent list on the shared nav model', () => {
   it('groups the tree under team names and drops to a flat list with the toggle', async () => {
@@ -24,13 +24,15 @@ describe('the agent list on the shared nav model', () => {
     m.store.stop();
   });
 
-  it('opening an agent puts it in the dock, and closing its tab leaves the page', async () => {
+  it('a tab opened in the agent shows in its dock, and closing it returns to the chat', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
-    await until(() => $(`dock-${ARCH}`), 'the dock tab');
-    await press($(`dock-close-${ARCH}`));
-    await until(() => $(`agent-${ARCH}`), 'the list');
+    await until(() => $('dock-base'), 'the dock');
+    await pickTab('preview');
+    await until(() => $('dock-preview'), 'the preview tab');
+    await press($('dock-close-preview'));
+    await until(() => !$('dock-preview') && $('chat-input'), 'the chat');
     m.store.stop();
   });
 });
