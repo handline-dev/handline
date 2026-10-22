@@ -1,0 +1,26 @@
+# The rules a pull request's text and base follow (tools/pr_checks.py body): sections Why, What changed, Evidence and Risk, an image
+# when apps/web or apps/mobile source changes, no Korean or message ids, base main or story/*. It reruns when the body is edited.
+name: pr-rules
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: pr-rules-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  pr-rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - run: python3 -m unittest tools/test_pr_checks.py
+      - run: python3 tools/pr_checks.py body
+
