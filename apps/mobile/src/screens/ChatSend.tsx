@@ -1,6 +1,8 @@
-// The send button and the working bubble, both fixed in size.
+// The send button and the live work line.
 import { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Pressable, Text, View } from 'react-native';
+import type { ChatMessage, TranscriptItem, Working } from '@handline/client';
+import { clockTime, turnMinutes, turnSummary } from '@handline/app-core';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon } from '#src/screens/Icon.tsx';
@@ -84,24 +86,70 @@ function useDots(on: boolean): Animated.Value[] {
   return dots;
 }
 
-/** A fixed-height slot after the last message, so the list never changes height. */
-export function WorkingBubble(props: { working: boolean; line: string | null }) {
+const commands = (n: number) => `${n} command${n === 1 ? '' : 's'}`;
+
+/** The slot after the last message, at least one line high so the list never jumps. While the agent works: how long, how many commands and the one now running; after the turn it stays as "Ran N commands". A tap opens the turn's tool lines. */
+export function WorkingBubble(props: { working: Working; messages: ChatMessage[]; items: TranscriptItem[] }) {
   const c = usePalette();
-  const dots = useDots(props.working);
+  const running = props.working.turn_running;
+  const dots = useDots(running);
+  const [open, setOpen] = useState(false);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, [running]);
+  const turn = turnSummary(props.messages, props.items);
+  const now = turn.last ?? props.working.line;
+  const text = running
+    ? ['Working', turnMinutes(props.working.since), turn.count ? commands(turn.count) : null, now ? `now: ${now}` : null]
+        .filter(Boolean)
+        .join(' · ')
+    : turn.count
+      ? `Ran ${commands(turn.count)}`
+      : null;
   return (
-    <View testID="working-slot" style={{ height: 36, justifyContent: 'center' }}>
-      {props.working && (
-        <View testID="working" accessibilityRole="text" style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-          <View
-            style={{ flexDirection: 'row', gap: space.xs, alignItems: 'center', paddingHorizontal: space.md, height: 28, borderRadius: radius.dialog, backgroundColor: c.panel }}
-          >
-            {dots.map((v, i) => (
-              <Dot key={i} value={v} color={c.muted} />
-            ))}
-          </View>
-          <Text numberOfLines={1} style={{ flex: 1, color: c.muted, fontSize: 12 }}>
-            {props.line ?? 'Working'}…
+    <View testID="working-slot" style={{ minHeight: 36, justifyContent: 'center' }}>
+      {text && (
+        <Pressable
+          testID={running ? 'working' : 'ran'}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
+          disabled={!turn.count}
+          onPress={() => setOpen(!open)}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}
+        >
+          {running && (
+            <View
+              style={{
+                flexDirection: 'row',
+                gap: space.xs,
+                alignItems: 'center',
+                paddingHorizontal: space.md,
+                height: 28,
+                borderRadius: radius.dialog,
+                backgroundColor: c.panel,
+              }}
+            >
+              {dots.map((v, i) => (
+                <Dot key={i} value={v} color={c.muted} />
+              ))}
+            </View>
+          )}
+          <Text numberOfLines={1} style={{ flexShrink: 1, color: c.muted, fontSize: 12 }}>
+            {text}
           </Text>
+          {turn.count > 0 && <Icon name={open ? 'less' : 'more'} decorative size={14} color={c.muted} />}
+        </Pressable>
+      )}
+      {open && (
+        <View testID="turn-steps" style={{ gap: space.xs, paddingVertical: space.xs }}>
+          {turn.steps.map((i) => (
+            <Text key={i.id} numberOfLines={2} style={{ color: c.muted, fontSize: 12 }}>
+              {[i.tool, i.text].filter(Boolean).join(' ') || i.kind} · {clockTime(i.at)}
+            </Text>
+          ))}
         </View>
       )}
     </View>

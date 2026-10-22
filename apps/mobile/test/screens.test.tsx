@@ -338,7 +338,7 @@ describe('the chat tab', () => {
     expect(($('chat-input') as HTMLTextAreaElement).value).toBe('');
     await act(async () => void [1, 2, 3].forEach(() => m.daemon.tick())); // typed, delivered, thinking
     await until(() => $('working'), 'the working line');
-    expect($('working')!.textContent).toContain('Reading the code');
+    expect($('working')!.textContent).toContain('now: Read src/main.ts');
     expect(tick(msgOf('run the tests')!)).toBe('Answered');
     m.store.stop();
   });

@@ -186,7 +186,8 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
               );
             const a = item.agent;
             const need = a.needs_you ? (a.needs_you.text ?? KIND[a.needs_you.kind]) : '';
-            const doing = need || a.task?.title || a.status?.text || a.state_detail || '';
+            const doing =
+              need || a.task?.title || (a.state === 'running' && !a.handoff ? a.doing?.text : '') || a.status?.text || a.state_detail || '';
             const word = asks(a) ? 'asks' : (a.status?.state ?? (a.block ? a.block.kind : a.state));
             const age = a.needs_you ? a.needs_you.since : (a.status?.since ?? a.state_since);
             return (
