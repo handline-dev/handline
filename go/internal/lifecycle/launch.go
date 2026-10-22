@@ -18,6 +18,7 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/gitrun"
+	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/states"
@@ -756,7 +757,8 @@ func (l *Launcher) staticPreamble(agent string) (string, error) {
 	return strings.Join(parts, "\n\n"), nil
 }
 
-// ContextFor is ROLE.md + base.md + the handoff waiting for it, as one system-prompt appendix.
+// ContextFor is ROLE.md + base.md + the handoff waiting for it + the daemon's own record of where the agent was, as one system-prompt
+// appendix.
 func (l *Launcher) ContextFor(agent string) (string, error) {
 	static, err := l.staticPreamble(agent)
 	if err != nil {
@@ -770,6 +772,17 @@ func (l *Launcher) ContextFor(agent string) (string, error) {
 	if text != "" {
 		parts = append(parts, "# Where you left off (your handoff)\nYou were interrupted and resumed. This is your own record.\n"+strings.TrimSpace(text))
 	}
+	lead := ""
+	if l.Ports.Routing != nil {
+		if t := l.Ports.Routing(); t != nil {
+			lead = t.SupervisorOf(agent)
+		}
+	}
+	where, err := handoff.WhereText(l.Q, agent, lead, text, l.now())
+	if err != nil {
+		return "", err
+	}
+	parts = append(parts, where)
 	var out []string
 	for _, p := range parts {
 		if p != "" {
