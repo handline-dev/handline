@@ -3108,7 +3108,7 @@
      "required": false,
      "schema": {
       "type": "string",
-      "description": "Only messages whose other party is this name: an agent, or `human` for the person. Without `agent`, messages from or to it. A name no message has finds nothing."
+      "description": "Only messages whose other party is this name: an agent, or `human` for the person. When one agent's messages are searched (`agent`, or the caller for an agent), the party other than that agent; when the person searches every agent (no `agent`), messages from or to the name. A name no message has finds nothing."
      }
     },
     {

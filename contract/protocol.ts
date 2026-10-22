@@ -2073,7 +2073,7 @@ export interface Methods {
   query: string;
   /** mine: person and this agent; all: everything it sent or received. */
   scope?: "mine" | "all";
-  /** Only messages whose other party is this name: an agent, or `human` for the person. Without `agent`, messages from or to it. A name no message has finds nothing. */
+  /** Only messages whose other party is this name: an agent, or `human` for the person. When one agent's messages are searched (`agent`, or the caller for an agent), the party other than that agent; when the person searches every agent (no `agent`), messages from or to the name. A name no message has finds nothing. */
   with?: string;
   /** Only messages sent at or after this time; one that is not a timestamp is bad_request (field since). */
   since?: Timestamp;

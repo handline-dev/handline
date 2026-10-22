@@ -642,7 +642,7 @@
   {
    "name": "chat.search.since_leaves_out_older",
    "spec": "chat.search",
-   "about": "since keeps only messages at or after it: one in the future finds nothing, and a since that is not a timestamp is bad_request naming it.",
+   "about": "since keeps only messages at or after it: a message just sent is found with a since in the past and not with one in the future, and a since that is not a timestamp is bad_request naming it. Needs --var ask_agent=NAME (any agent).",
    "as": "founder",
    "steps": [
     {
@@ -661,10 +661,41 @@
     {
      "send": {
       "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "body": "chat-search-probe since",
+       "request_id": "conf-cs-4"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "chat.search",
+      "params": {
+       "query": "chat-search-probe since",
+       "since": "2000-01-01T00:00:00Z"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "body": "chat-search-probe since"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
       "id": 2,
       "method": "chat.search",
       "params": {
-       "query": "e",
+       "query": "chat-search-probe since",
        "since": "2999-01-01T00:00:00Z"
       }
      },
