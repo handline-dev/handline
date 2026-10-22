@@ -83,7 +83,7 @@ function Chart({ h }: { h: Headroom }) {
     d.setHours(every < 24 ? Math.ceil(d.getHours() / every) * every : d.getHours() > 0 ? 24 : 0, 0, 0, 0);
     // A label that would run past either edge is left out rather than shifted against its neighbour.
     for (; d.getTime() <= t1; d.setHours(d.getHours() + every))
-      if (x(d.getTime()) >= 36 && x(d.getTime()) <= width - 36)
+      if (d.getTime() >= t0 + (36 / width) * (t1 - t0) && d.getTime() <= t1 - (36 / width) * (t1 - t0))
         out.push({ t: d.getTime(), label: d.toLocaleString([], every < 24 ? { hour: 'numeric' } : { weekday: 'short', day: 'numeric' }) });
     return out;
   }, [t0, t1, width]);
