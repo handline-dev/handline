@@ -10,6 +10,7 @@ import { DebugEntry } from '#src/debug/DebugEntry.tsx';
 import { PageHead, PageTitle, ScrollPage, Icon, RowHint, SectionHead, SettingsCard, type IconName } from '#src/ui/index.ts';
 import { NumberRow, SwitchRow } from '#src/SettingsRows.tsx';
 import { Appearance, BackgroundRows, Connection, Notifications } from '#src/SettingsMore.tsx';
+import { SettingsTabs } from '#src/SettingsTabs.tsx';
 import { View } from '#src/View.tsx';
 
 const SECTIONS: { id: string; title: string; icon: IconName; group: string }[] = [
@@ -82,6 +83,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
         <PageTitle>Settings</PageTitle>
         <p className="settings-lede m-0 basis-full text-body text-ink-2">Defaults for every agent. Each change saves as you make it.</p>
       </PageHead>
+      <SettingsTabs value="settings" />
       <p className="settings-phone muted hidden max-sm:block">Open this on a computer.</p>
       <div className="settings-layout grid grid-cols-[160px_minmax(0,1fr)] gap-6 max-[960px]:grid-cols-[minmax(0,1fr)]">
         {served ? <SectionNav ready={!!v} /> : null}

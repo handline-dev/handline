@@ -1,4 +1,4 @@
-// U14: the Accounts page and the usage popup on the fake daemon's accounts: skeleton, cards with gauges and state chips, the popup, one account's
+// U14: the Accounts page and the usage link on the fake daemon's accounts: skeleton, cards with gauges and state chips, the link, one account's
 // tabs, settings that save and revert, login that opens no credential field, and a daemon that does not serve accounts.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { second, setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
-import { popPlace } from '#src/UsagePopup.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -112,64 +111,21 @@ describe('the list', () => {
     expect(text(card('full').querySelector('.acct-state'))).toContain('out until');
   });
 
-  it('a daemon that does not serve accounts says so and has no popup', async () => {
+  it('a daemon that does not serve accounts says so and has no usage link', async () => {
     await mount('#/accounts', setup({ daemon: { accounts: false } }), '1');
     await until(() => text($('.accounts')).includes('does not serve accounts'), 'the notice');
     expect($('.usage')).toBeNull();
   });
 });
 
-describe('the usage popup', () => {
-  it('the status bar item opens a line per account with gauges, agents and runway, linking to its page', async () => {
+describe('the usage link', () => {
+  it('the status bar item shows the busiest account and opens the Usage page', async () => {
     await mount('#/agents/handline.architect', setup(), '1');
     await until(() => $('.usage-btn') && ($('.usage-btn')?.getAttribute('title') ?? '').includes('alpha 41%'), 'the item');
     expect($('.usage-btn')?.getAttribute('title') ?? '').toBe('Account usage (5 h): alpha 41% · review 88% · gamma –');
-    await click($('.usage-btn'));
-    const rows = $$('.usage-row');
-    expect(rows).toHaveLength(3);
-    expect(text(rows[0])).toContain('alpha');
-    expect(text(rows[0])).toContain('agents 1 / cap 4');
-    expect(text($$('.usage-row')[1])).not.toContain('agents stop at'); // the window resets in 1 h, before the stop at 2 h
-    expect($$('.usage-row')[1]!.getAttribute('data-tone')).toBe('ok');
-    expect(text($$('.usage-row')[0])).not.toContain('agents stop at');
-    expect(rows[1]!.getAttribute('href')).toBe('#/accounts/beta');
-    await click($('.usage-all'));
-    expect(location.hash).toBe('#/accounts');
     expect($('.usage-pop')).toBeNull();
-  });
-
-  it('Escape and a click outside close the popup, a click inside does not', async () => {
-    await mount('#/agents/handline.architect', setup(), '1');
-    await until(() => $('.usage-btn'), 'the item');
     await click($('.usage-btn'));
-    expect($('.usage-pop')).not.toBeNull();
-    await click($('.usage-pop'));
-    expect($('.usage-pop')).not.toBeNull();
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await until(() => !$('.usage-pop'), 'closed by Escape');
-    await click($('.usage-btn'));
-    document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    await until(() => !$('.usage-pop'), 'closed by an outside click');
-  });
-
-  it('the popup is placed above the button and kept inside the window', () => {
-    expect(popPlace({ left: 1214, top: 760 }, 1280, 800)).toEqual({ bottom: 48, left: 912 });
-    expect(popPlace({ left: 20, top: 760 }, 1280, 800)).toEqual({ bottom: 48, left: 20 });
-    expect(popPlace({ left: 330, top: 600 }, 360, 640)).toEqual({ bottom: 48, left: 8 });
-  });
-
-  it('a window at 95% is a red row and one at 90% an amber row', async () => {
-    const s = setup();
-    const at = new Date(Date.now() + 3_600_000).toISOString();
-    s.daemon.accounts.add({ name: 'hot', five_hour: { used_pct: 96, resets_at: at, source: 'measured' } });
-    s.daemon.accounts.add({ name: 'warm', five_hour: { used_pct: 90, resets_at: at, source: 'measured' } });
-    await mount('#/agents/handline.architect', s, '1');
-    await until(() => $('.usage-btn'), 'the item');
-    await click($('.usage-btn'));
-    const row = (n: string) => $$('.usage-row').find((r) => r.getAttribute('href') === `#/accounts/${n}`)!;
-    await until(() => row('hot'), 'the rows');
-    expect(row('hot').getAttribute('data-tone')).toBe('bad');
-    expect(row('warm').getAttribute('data-tone')).toBe('warn');
+    expect(location.hash).toBe('#/accounts');
   });
 
   it('follows the accounts topic', async () => {

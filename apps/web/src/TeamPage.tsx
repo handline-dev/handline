@@ -1,51 +1,27 @@
-// The Team page: two tabs, Team (who is who, and who may ask whom) and HR (the proposals that wait for the founder).
+// The Team and HR tabs of the Settings area: Team (who is who, and who may ask whom) and HR (the proposals that wait for the founder).
 import { taskRef } from '@handline/app-core';
 import type { AgentView, TeamAgent } from '@handline/client';
-import { useHrCount, useServes, useTeamBoard } from '@handline/app-data';
+import { useServes, useTeamBoard } from '@handline/app-data';
 import { HrTab } from '#src/HrTab.tsx';
 import { TeamSeal } from '#src/TeamSeal.tsx';
-import { Empty, Icon, PageHead, PageTitle, ScrollPage, MetaItem, MetaLine, State, TabStrip, stateOfView } from '#src/ui/index.ts';
-import { goAgent, goTeam, useTeamRoute } from '#src/route.ts';
+import { Empty, Icon, PageHead, PageTitle, ScrollPage, MetaItem, MetaLine, State, stateOfView } from '#src/ui/index.ts';
+import { SettingsTabs } from '#src/SettingsTabs.tsx';
+import { goAgent, useTeamRoute } from '#src/route.ts';
 import { View } from '#src/View.tsx';
 import { Reveal } from '#src/ui/Reveal.tsx';
 
 export function TeamPage() {
   const route = useTeamRoute()!;
   const { served: hrServed } = useServes('hr.list');
-  const count = useHrCount();
   return (
     <ScrollPage className="team" aria-label="Team">
       <PageHead>
-        <PageTitle>Team</PageTitle>
+        <PageTitle>Settings</PageTitle>
         <span className="ml-auto">
           <TeamSeal />
         </span>
       </PageHead>
-      <TabStrip
-        label="Team pages"
-        value={route.tab}
-        onChange={goTeam}
-        tabs={[
-          { value: 'team', label: 'Team' },
-          ...(hrServed
-            ? [
-                {
-                  value: 'hr' as const,
-                  label: (
-                    <>
-                      {count ? (
-                        <span className="hr-dot text-bad" aria-hidden="true">
-                          <Icon name="decision" size={12} className="mr-0.5 inline-block align-[-2px]" />{' '}
-                        </span>
-                      ) : null}
-                      HR{count ? ` ${count}` : ''}
-                    </>
-                  ),
-                },
-              ]
-            : []),
-        ]}
-      />
+      <SettingsTabs value={route.tab} />
       {route.tab === 'hr' && hrServed ? <HrTab focus={route.proposal} /> : <TeamTable />}
     </ScrollPage>
   );

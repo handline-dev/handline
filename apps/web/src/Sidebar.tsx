@@ -1,6 +1,6 @@
 // The agent list. A row shows an agent's state, its queue and a fold button when it has children; its actions (Start, the ⋯ menu)
 // show while the pointer is on it or it is selected. One filter button opens the menu of what to show.
-import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   chipChanges,
   chipCounts,
@@ -21,15 +21,9 @@ import { useConnection } from '@handline/app-react';
 import { useAgents, useHrCount, useNav, useServes, useUnreached, useWorktrees } from '@handline/app-data';
 import { useMyTurn } from '#src/MyTurn.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
-import { Button, Icon, MenuButton, MenuCheckItem, MenuItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
+import { Button, Icon, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
 import { setting } from '#src/daemon.ts';
-import {
-  goTasks,
-  goTeam,
-  useAccountsRoute,
-  usePageRoute,
-  useTeamRoute,
-} from '#src/route.ts';
+import { goTasks, usePageRoute } from '#src/route.ts';
 import { AgentRow, liveOf } from '#src/AgentRow.tsx';
 import { NewAgentButton } from '#src/NewAgent.tsx';
 import { View } from '#src/View.tsx';
@@ -101,10 +95,7 @@ export function Sidebar({
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const myTurn = useMyTurn().cards.length;
   const hr = useHrCount();
-  const onTeam = !!useTeamRoute();
-  const onAccounts = useAccountsRoute().open;
   const pageRoute = usePageRoute();
-  const onUsage = onAccounts || pageRoute === 'stats';
   return (
     <nav
       className="rail flex w-[var(--rail-w,280px)] flex-none flex-col overflow-hidden border-r border-line bg-panel min-h-0 max-[900px]:fixed max-[900px]:z-10 max-[900px]:[inset:0_auto_0_0] max-[900px]:w-[min(320px,90vw)] max-[900px]:shadow-[var(--shadow-2)]"
@@ -185,14 +176,6 @@ export function Sidebar({
         <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           <Icon name="tasks" size={14} aria-hidden /> Tasks
         </button>
-        <MoreMenu on={onTeam || onUsage} hint={hr}>
-          <MenuItem icon="team" onSelect={() => goTeam(hr ? 'hr' : 'team')}>
-            Team{hr ? ` · HR ${hr}` : ''}
-          </MenuItem>
-          <MenuItem icon="accounts" onSelect={() => void (location.hash = '#/accounts')}>
-            Usage
-          </MenuItem>
-        </MoreMenu>
       </div>
       <div className="rail-read flex gap-0.5 px-2.5 py-1.5" role="group" aria-label="Show agents">
         {(
@@ -241,7 +224,14 @@ export function Sidebar({
       </div>
       <NewAgentButton />
       <footer className="rail-foot flex gap-0.5 border-t border-line px-2 py-1">
-        <Button icon="settings" label="Settings" onClick={() => void (location.hash = '#/settings')} />
+        <span className="relative inline-flex">
+          <Button icon="settings" label="Settings" onClick={() => void (location.hash = '#/settings')} />
+          {hr ? (
+            <span className="rail-hr pointer-events-none absolute -right-1 -top-0.5 rounded-full bg-bad px-1 text-hint text-canvas" title={`${hr} HR proposals wait for you`}>
+              {hr}
+            </span>
+          ) : null}
+        </span>
         <Button icon="help" label="Keys (?)" onClick={() => dispatchEvent(new KeyboardEvent('keydown', { key: '?' }))} />
       </footer>
     </nav>
@@ -282,21 +272,3 @@ const lastTop = (rows: { agent: AgentView; depth: number }[], i: number, names: 
 
 /** The first line of the agent's newest request to the founder, for the line under its name. */
 const lastLine = (a: AgentView): string => a.last_to_founder?.text.split('\n').find((l) => l.trim())?.trim() ?? '';
-
-/** The nav row that opens the pages the top two leave out. */
-function MoreMenu({ on, hint, children }: { on: boolean; hint: number; children: ReactNode }) {
-  return (
-    <MenuButton
-      icon="more"
-      label={hint ? `More (${hint} waiting)` : 'More'}
-      aria-label={hint ? `More (${hint} waiting)` : 'More'}
-      aria-current={on ? 'page' : undefined}
-      trigger={hint ? `More ${hint}` : 'More'}
-      name="More"
-      align="start"
-      className={`${navOf(on)} nav-more !justify-start`}
-    >
-      {children}
-    </MenuButton>
-  );
-}
