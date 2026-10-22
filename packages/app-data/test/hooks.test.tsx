@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setup } from '@handline/fake-daemon/helpers';
 import { Store } from '@handline/app-core';
 import { RpcError } from '@handline/client';
-import { SKELETON_DELAY_MS, Skeleton, useAgentDetail, useAgents, useChat, useServes, viewState } from '#src/index.ts';
+import { SKELETON_DELAY_MS, Skeleton, useAgentDetail, useAgents, useChat, useServes, useTasks, viewState } from '#src/index.ts';
 import { openStore, mount, probe, sleep, stubClient, unmount, until } from '#test/harness.tsx';
 
 afterEach(unmount);
@@ -50,6 +50,28 @@ describe('a read', () => {
     await until(() => stub.count('agents.list') === 2, 'the read after reconnect');
     stub.gap();
     await until(() => stub.count('agents.list') === 3, 'the read after a gap');
+  });
+
+  it('after 5000 missed events reads each open screen once and applies none of them', async () => {
+    const { store, client, daemon, net } = await connected();
+    const spy = vi.spyOn(client, 'call');
+    const applied = vi.fn();
+    client.onEvent(applied);
+    const p = probe(() => ({ agents: useAgents(), tasks: useTasks() }));
+    await mount(store, p.node);
+    await until(() => p.get().agents.data && p.get().tasks.data, 'both reads');
+    const reads = () => spy.mock.calls.filter((c) => !['hello', 'subscribe', 'events.feed'].includes(c[0])).length;
+    const before = reads();
+    net.down = true;
+    daemon.dropConnections();
+    await until(() => store.conn !== 'open', 'the connection lost');
+    for (let i = 0; i < 5000; i++) daemon.emit('agents', 'agent.changed', { agent: ARCH, data: { name: ARCH, state: 'idle' } });
+    net.down = false;
+    await until(() => store.conn === 'open', 'the connection back');
+    await until(() => reads() - before === 2, 'both screens read again');
+    await client.call('events.feed', {});
+    expect(reads() - before).toBe(2);
+    expect(applied).not.toHaveBeenCalled();
   });
 
   it('keeps the last data under an error, and is not retried when refused', async () => {

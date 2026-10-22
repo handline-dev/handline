@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, Dimensions, PanResponder, Platform, Pressable, Text, View } from 'react-native';
 import type { Store } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
-import { useUnread } from '@handline/app-data';
+import { awayLine, useAway, useUnread } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { History, HistoryProvider, useHistoryValue } from '#src/history.tsx';
@@ -95,6 +95,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   useAgentEntry(props.store);
   const open = useSelector((s) => s.page?.agent ?? null);
   const conn = useSelector((s) => s.conn);
+  const { away, dismiss: dismissAway } = useAway();
   const error = useSelector((s) => s.error);
   const unread = useUnread().length;
   const [tab, setTab] = useHistoryValue<Tab>('home.tab', 'agents');
@@ -112,6 +113,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   return (
     <View style={{ flex: 1 }} {...swipe}>
       {conn !== 'open' && <Banner text={conn === 'closed' ? 'Disconnected' : conn === 'connecting' ? 'Connecting…' : 'Reconnecting…'} />}
+      {away && <Banner text={`${awayLine(away)}  ✕`} onPress={dismissAway} />}
       {error && <Banner text={error} error onPress={() => props.store.dismissError()} />}
       <View style={{ flex: 1 }}>
         {open ? (

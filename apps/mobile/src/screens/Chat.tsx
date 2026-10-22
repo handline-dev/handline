@@ -161,6 +161,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
         onScroll={(e) => {
           const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
           pinned.current = contentSize.height - contentOffset.y - layoutMeasurement.height < 40;
+          chat.holdPlace(!pinned.current);
           if (contentOffset.y < 60 && chat.hasOlder && !chat.loadingOlder) chat.loadOlder();
         }}
         onContentSizeChange={() => pinned.current && scroll.current?.scrollToEnd({ animated: false })}

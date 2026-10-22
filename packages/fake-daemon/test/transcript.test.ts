@@ -75,7 +75,7 @@ test('the permission card is answered by prompt.answer, and the stream says so a
   client.close();
 });
 
-test('a client that reconnects is replayed what it missed, and the seq has no hole', async () => {
+test('a client that reconnects is not replayed what it missed, and reads the hole by seq', async () => {
   const { client, daemon, net } = setup();
   await client.start();
   await client.subscribe(['transcript']);
@@ -89,8 +89,15 @@ test('a client that reconnects is replayed what it missed, and the seq has no ho
   await until(() => client.state === 'reconnecting', 'drop');
   daemon.transcript.push(AUD, { kind: 'text', text: 'during the outage' });
   net.down = false;
-  await until(() => seen.length === 2, 'the replay');
-  assert.deepEqual(seen, [last + 1, last + 2]);
+  await until(() => client.state === 'open', 'reconnect');
+  daemon.transcript.push(AUD, { kind: 'text', text: 'after the outage' });
+  await until(() => seen.length === 2, 'the live event after the outage');
+  assert.deepEqual(seen, [last + 1, last + 3], 'the outage event is skipped, and the seq shows the hole');
+  const hole = await client.call('transcript.events', { agent: AUD, since_seq: last + 1 });
+  assert.deepEqual(
+    hole.events.map((e) => e.seq),
+    [last + 2, last + 3],
+  );
   client.close();
 });
 

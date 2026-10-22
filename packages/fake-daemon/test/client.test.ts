@@ -305,7 +305,7 @@ test('a restart appends to the screen an attached client already shows', async (
   client.close();
 });
 
-test('reconnect resumes the event stream without loss and takes a fresh terminal frame', async () => {
+test('reconnect resumes at the newest event, replays nothing, and takes a fresh terminal frame', async () => {
   const { client, daemon, net } = setup();
   await client.start();
   await client.subscribe(['agents', 'notifications']);
@@ -335,13 +335,11 @@ test('reconnect resumes the event stream without loss and takes a fresh terminal
   await until(() => client.state === 'open' && states.includes('reconnecting'), 'reconnect');
   await until(() => view.text().includes('● Understood, I will not push.'), 'terminal resync');
   await flush();
-  assert.ok(seen.length > first, 'events from the outage arrived');
+  assert.equal(seen.length, first, 'nothing from the outage is replayed');
+  daemon.emit('agents', 'agent.changed', { agent: A });
+  await until(() => seen.length === first + 1, 'the stream continues');
   const all = (daemon as unknown as { events: Event[] }).events.map((e: Event) => e.cursor) as number[];
-  assert.deepEqual(
-    seen,
-    all.filter((c) => c >= seen[0]!),
-    'every event from the first seen on, once, in order',
-  );
+  assert.equal(seen.at(-1), all.at(-1), 'the first event after the outage is the newest one');
   assert.deepEqual(view.text(), daemon.sessions.get(A)!.lines.slice(-view.text().length));
   client.close();
   other.close();
@@ -358,7 +356,7 @@ test('a write in flight when the connection drops is resent and done once', asyn
   client.close();
 });
 
-test('a cursor older than retention gets a gap, then the stream continues', async () => {
+test('a reconnect after more events than retention keeps gives no gap and replays nothing', async () => {
   const { client, daemon, net } = setup({ daemon: { retention: 3 } });
   await client.start();
   await client.subscribe(['agents']);
@@ -372,11 +370,10 @@ test('a cursor older than retention gets a gap, then the stream continues', asyn
   for (let i = 0; i < 6; i++) daemon.emit('agents', 'agent.changed', { agent: A });
   net.down = false;
   await until(() => client.state === 'open', 'reconnect');
-  await until(() => gaps.length === 1, 'gap');
-  assert.equal(gaps[0]!.reason, 'retention');
-  assert.deepEqual(got, [], 'nothing replayed past the gap');
+  assert.deepEqual(got, [], 'nothing replayed');
   daemon.emit('agents', 'agent.changed', { agent: A });
-  await until(() => got.length === 1 && got[0] === gaps[0]!.cursor + 1, 'stream continues after the gap');
+  await until(() => got.length === 1, 'the stream continues');
+  assert.deepEqual(gaps, []);
   client.close();
 });
 

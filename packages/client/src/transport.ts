@@ -67,3 +67,8 @@ export function webSocketTransport(url: string): Promise<Transport> {
     ws.onerror = () => reject(new Error(`cannot connect to ${url}`));
   });
 }
+
+/** A reconnect: `from` is the last event seen before the connection was lost, if any. */
+export interface Resumed {
+  from: number | undefined;
+}

@@ -1,7 +1,7 @@
 // Chat of one agent on the data layer: the person's messages and the agent's transcript as paged queries, and send as a write whose
 // row shows at once and, if refused, stays with its text and a Retry.
-import { useState } from 'react';
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useInfiniteQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
 import type { ChatMessage, TranscriptItem, Working } from '@handline/client';
 import { mapPages, type Pages } from '#src/cache.ts';
@@ -26,14 +26,27 @@ export interface Chat {
   loadOlder: () => void;
   /** Reads both again (the error block's Retry). */
   refetch: () => void;
+  /** Tells the data layer the person is reading up in the older messages (true) or is back at the newest (false), so a reconnect knows what to keep. */
+  holdPlace: (held: boolean) => void;
 }
+
+/** Per cache, the agents whose chat a person is reading above the newest messages: a reconnect keeps those older pages. */
+const heldPlace = new WeakMap<QueryClient, Set<string>>();
+export const placesHeld = (qc: QueryClient): ReadonlySet<string> => heldPlace.get(qc) ?? new Set();
 
 const byId = <T extends { id: number }>(lists: T[][]): T[] => [...new Map(lists.flat().map((x) => [x.id, x])).values()];
 
 /** One agent's conversation, in the tab (`mine` or `all`) shown. */
 export function useChat(agent: string, scope: ChatScope): Chat {
   const store = useStore();
+  const qc = useQueryClient();
   const { daemon } = useData();
+  const holdPlace = (held: boolean) => {
+    const set = heldPlace.get(qc) ?? heldPlace.set(qc, new Set()).get(qc)!;
+    if (held) set.add(agent);
+    else set.delete(agent);
+  };
+  useEffect(() => () => void heldPlace.get(qc)?.delete(agent), [qc, agent]);
   const m = useServes('chat.messages');
   const t = useServes('chat.transcript');
   const served = m.served && t.served;
@@ -70,6 +83,7 @@ export function useChat(agent: string, scope: ChatScope): Chat {
       void msgs.refetch();
       void tr.refetch();
     },
+    holdPlace,
     loadOlder: () => {
       if (msgs.hasNextPage) void msgs.fetchNextPage();
       if (tr.hasNextPage) void tr.fetchNextPage();

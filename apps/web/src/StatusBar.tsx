@@ -2,7 +2,7 @@
 // usage with its popup. The agents by state are the sidebar's, not repeated here.
 import { useConnection } from '@handline/app-react';
 import { machineCells } from '@handline/app-core';
-import { useStatus, useTasks } from '@handline/app-data';
+import { awayLine, useAway, useStatus, useTasks } from '@handline/app-data';
 import { useMyTurn } from '#src/MyTurn.tsx';
 import { UsagePopup } from '#src/UsagePopup.tsx';
 import { Chip, Icon } from '#src/ui/index.ts';
@@ -14,6 +14,7 @@ export function StatusBar() {
   const up = conn === 'open';
   const waiting = useMyTurn().cards.length;
   const blocked = (useTasks({}).data?.items ?? []).filter((t) => t.state === 'blocked').length;
+  const { away, dismiss } = useAway();
   const cells = machineCells(useStatus().data?.resources);
   return (
     <footer className="statusbar flex h-6 items-center gap-3 border-t border-line bg-surface px-2 text-hint text-ink-2" aria-label="Status">
@@ -27,6 +28,11 @@ export function StatusBar() {
       <Chip variant="cell" as="a" href="#/tasks" title="Tasks that are blocked">
         <span className={blocked ? 'text-wait' : undefined}>{blocked} blocked</span>
       </Chip>
+      {away ? (
+        <Chip variant="cell" as="button" title="Hide" className="cursor-pointer border-0 bg-transparent p-0 text-wait" onClick={dismiss}>
+          {awayLine(away)} ✕
+        </Chip>
+      ) : null}
       {cells ? (
         <Chip variant="cell" as="a" href="#/admin" title="What the machine and the agents use">
           {cells.map((c, i) => (

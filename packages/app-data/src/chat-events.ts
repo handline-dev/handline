@@ -42,14 +42,18 @@ export function chatEvent({ qc, d, me }: Ctx, e: WireEvent): void {
   if (!agent) return;
   if (e.type === 'chat.transcript') {
     const item = e.data as unknown as TranscriptItem;
-    edit<Pages<TrPage>>(qc, qk.transcript(d, agent), (data) =>
-      mapPages(data, (p, i) =>
-        i === 0 && !data.pages.some((x) => x.items.some((y) => y.id === item.id)) ? { ...p, items: [...p.items, item] } : p,
-      ),
+    edit<Pages<TrPage>>(
+      qc,
+      qk.transcript(d, agent),
+      (data) =>
+        mapPages(data, (p, i) =>
+          i === 0 && !data.pages.some((x) => x.items.some((y) => y.id === item.id)) ? { ...p, items: [...p.items, item] } : p,
+        ),
+      e.cursor,
     );
   } else if (e.type === 'chat.working') {
     const working = e.data as unknown as Working;
-    edit<Pages<TrPage>>(qc, qk.transcript(d, agent), (data) => mapPages(data, (p, i) => (i === 0 ? { ...p, working } : p)));
+    edit<Pages<TrPage>>(qc, qk.transcript(d, agent), (data) => mapPages(data, (p, i) => (i === 0 ? { ...p, working } : p)), e.cursor);
   } else if (e.type === 'chat.message') {
     const m = e.data as unknown as ChatMessage;
     const names = new Set(qc.getQueryData<{ agents: AgentView[] }>(qk.agents(d))?.agents.map((a) => a.name));
@@ -58,7 +62,8 @@ export function chatEvent({ qc, d, me }: Ctx, e: WireEvent): void {
       const scope = key[4];
       const known = cached?.pages.some((p) => p.messages.some((x) => x.id === m.id));
       // The *mine* tab holds no talk between two agents; a message already in it is still updated.
-      if (cached && (known || scope !== 'mine' || !talkBetweenAgents)) edit<Pages<MsgPage>>(qc, key, (data) => takeMessage(data, m, me));
+      if (cached && (known || scope !== 'mine' || !talkBetweenAgents))
+        edit<Pages<MsgPage>>(qc, key, (data) => takeMessage(data, m, me), e.cursor);
     }
   }
 }
