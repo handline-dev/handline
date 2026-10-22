@@ -4,6 +4,19 @@ import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
 
+/** An empty region: an icon over one line, so it never reads as a blank screen. The PC's ui/Empty is the same shape. */
+export function EmptyState(props: { text: string; icon?: IconName; testID?: string }) {
+  const c = usePalette();
+  return (
+    <View style={{ alignItems: 'center', gap: space.sm, padding: space.lg, paddingTop: space.lg * 2 }}>
+      <Icon name={props.icon ?? 'inbox'} color={c.muted} size={24} decorative />
+      <Text testID={props.testID ?? 'empty'} style={{ color: c.muted, textAlign: 'center' }}>
+        {props.text}
+      </Text>
+    </View>
+  );
+}
+
 export function Banner(props: { text: string; error?: boolean; onPress?: () => void }) {
   const c = usePalette();
   return (

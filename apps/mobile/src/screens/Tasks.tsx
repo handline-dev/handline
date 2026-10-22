@@ -12,7 +12,7 @@ import { Linking, SectionList, ScrollView, Text, TextInput, View } from 'react-n
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
-import { Button, ListRow, MenuItem, MenuSheet, PageHeader, Pill } from '#src/screens/parts.tsx';
+import { Button, EmptyState, ListRow, MenuItem, MenuSheet, PageHeader, Pill } from '#src/screens/parts.tsx';
 import { CommentBox, CommentRow } from '#src/screens/Comments.tsx';
 import { NewTask, TaskVerbs, useTaskPending } from '#src/screens/TaskActions.tsx';
 import { TaskHistorySection } from '#src/screens/TaskHistory.tsx';
@@ -250,7 +250,6 @@ function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () 
 }
 
 export function Detail(props: { id: number; onBack: () => void; backLabel?: string }) {
-  const c = usePalette();
   const query = useTask(props.id);
   const { served } = useServes('task.get');
   const gone = query.isError && classify(query.error).kind === 'not_found';
@@ -258,9 +257,7 @@ export function Detail(props: { id: number; onBack: () => void; backLabel?: stri
     <View style={{ flex: 1 }}>
       <PageHeader back={{ label: props.backLabel ?? 'Tasks', onPress: props.onBack, testID: 'task-back' }} />
       {gone ? (
-        <Text testID="empty" style={{ color: c.muted, padding: space.lg }}>
-          This task no longer exists.
-        </Text>
+        <EmptyState text="This task no longer exists." />
       ) : (
         <Loadable query={query} served={served} skeleton="taskDetail" label={`task ${taskRef(props.id)}`} empty="This task no longer exists.">
           {query.data ? <Body t={query.data} /> : null}

@@ -136,7 +136,7 @@ export const chatWrites: Record<string, WriteSpec> = {
   // Taking back a message that was only queued: it was never written, so it leaves the conversation (a written one is closed, and stays).
   'chat.cancel': {
     kind: 'decided',
-    label: 'take back',
+    label: 'withdraw',
     reconcile: (c, p) => {
       const { request } = p as { request: number };
       editAll(c, (d) =>

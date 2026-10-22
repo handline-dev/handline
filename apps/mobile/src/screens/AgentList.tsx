@@ -9,7 +9,7 @@ import { KIND } from '#src/screens/NeedsYouCard.tsx';
 import { usePalette } from '#src/theme.ts';
 import { StateMark } from '#src/screens/StateMark.tsx';
 import { Icon } from '#src/screens/Icon.tsx';
-import { Button, MenuItem, MenuSheet, PageHeader } from '#src/screens/parts.tsx';
+import { Button, EmptyState, MenuItem, MenuSheet, PageHeader } from '#src/screens/parts.tsx';
 import { TeamButton } from '#src/screens/TeamEntry.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
 
@@ -124,7 +124,7 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
               </Pressable>
             </View>
           }
-          ListEmptyComponent={<Text style={{ color: c.muted, padding: space.lg }}>No agents match.</Text>}
+          ListEmptyComponent={<EmptyState icon="search" text="No agents match." testID="no-match" />}
           renderItem={({ item }) => {
             if (item.head !== undefined)
               return <Text style={{ color: c.muted, fontSize: font.size.label, paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.xs }}>{item.head}</Text>;

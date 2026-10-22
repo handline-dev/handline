@@ -139,7 +139,7 @@ test('a time box just edited shows at once, before the clock has caught up', () 
   assert.equal(timeBoxText(t, 0), '3h');
 });
 
-test('tasks group as Needs you, Running, Queued and Done, each keeping its order', () => {
+test('tasks group as Needs you, Running, Up next and Done, each keeping its order', () => {
   const all = [
     task(1),
     task(2, { state: 'doing' }),
@@ -153,7 +153,7 @@ test('tasks group as Needs you, Running, Queued and Done, each keeping its order
     [
       ['Needs you', [3]],
       ['Running', [2, 6]],
-      ['Queued', [1]],
+      ['Up next', [1]],
       ['Done', [4]],
     ],
   );

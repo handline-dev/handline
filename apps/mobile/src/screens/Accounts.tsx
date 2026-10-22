@@ -11,7 +11,7 @@ import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { AccountLogin } from '#src/screens/AccountLogin.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
-import { Button, PageHeader } from '#src/screens/parts.tsx';
+import { Button, EmptyState, PageHeader } from '#src/screens/parts.tsx';
 import { Sheet } from '#src/screens/TaskActions.tsx';
 
 /** The topic's rows are live; the usage read adds the fields only it carries. */
@@ -219,7 +219,6 @@ function Input(props: { value: string; onChange: (v: string) => void; label: str
 }
 
 function One({ name, onBack }: { name: string; onBack: () => void }) {
-  const c = usePalette();
   const query = useAccounts();
   const { served } = useServes('accounts.list');
   const a = useUsageRows()?.find((x) => x.name === name);
@@ -230,9 +229,7 @@ function One({ name, onBack }: { name: string; onBack: () => void }) {
         {a ? (
           <Body a={a} />
         ) : query.data ? (
-          <Text testID="empty" style={{ color: c.muted, padding: space.lg }}>
-            This account no longer exists.
-          </Text>
+          <EmptyState text="This account no longer exists." />
         ) : null}
       </Loadable>
     </View>
