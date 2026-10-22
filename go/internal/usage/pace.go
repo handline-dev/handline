@@ -7,8 +7,8 @@ import (
 )
 
 // An account's weekly pace: a token bucket on the week, refilled linearly (the week's quota is spent as the week passes) with a 10% burst
-// on top. The tokens an account has order the accounts a move picks from; they do not shrink its cap, which only the risk of a cut-off
-// does (CutoffShare).
+// on top. The tokens an account has order the accounts a move picks from. Its cap shrinks for the risk of a cut-off (CutoffShare) and,
+// with pacing on, for running ahead of its pace line (PaceOf).
 const (
 	WeekS     = 7 * 86400
 	PaceBurst = 0.10 // the share of the week's quota that may be spent ahead of the clock
@@ -72,8 +72,24 @@ func (e *Env) CapNow(q db.Q, acct string) int {
 	return e.capWith(acct, costs)
 }
 
+// CapUnpaced is CapNow without the pace: what a person's own start and a restart are held to.
+func (e *Env) CapUnpaced(q db.Q, acct string) int {
+	costs, _ := e.LoadCosts(q)
+	return e.cutoffCap(e.config(), acct, e.Read(acct), costs)
+}
+
 func (e *Env) capWith(acct string, costs *Costs) int {
-	base := e.config().CapOf(acct)
+	cfg, st := e.config(), e.Read(acct)
+	c := e.cutoffCap(cfg, acct, st, costs)
+	ps := PaceSettingsOf(cfg)
+	if p := PaceOf(st, e.now(), ps); p != nil {
+		c = min(c, p.Cap(cfg.CapOf(acct), ps))
+	}
+	return c
+}
+
+func (e *Env) cutoffCap(cfg Config, acct string, st *AccountStatus, costs *Costs) int {
+	base := cfg.CapOf(acct)
 	burn, ok := e.ReadBurn(acct)
 	if !ok {
 		return base
@@ -82,7 +98,118 @@ func (e *Env) capWith(acct string, costs *Costs) int {
 	if costs != nil {
 		ratio, haveRatio = costs.LongPerShort(acct)
 	}
-	return CutoffCap(base, CutoffShare(e.Read(acct), burn, ratio, haveRatio, e.now()))
+	return CutoffCap(base, CutoffShare(st, burn, ratio, haveRatio, e.now()))
+}
+
+// The pacing settings' config.yaml keys and defaults (settings.set).
+const (
+	PacingKey         = "pacing"
+	PaceTargetKey     = "pace_target_pct"
+	PaceBurstKey      = "pace_burst_pct"
+	DefaultPaceTarget = 98
+	DefaultPaceBurst  = 10
+)
+
+// PaceSettings is how accounts are paced: On holds them to their line, which ends at Target percent of the week; Burst is how many
+// points ahead of it an account may run.
+type PaceSettings struct {
+	On            bool
+	Target, Burst int
+}
+
+// PaceSettingsOf reads them from config, each at its default when unset or out of range.
+func PaceSettingsOf(cfg Config) PaceSettings {
+	ps := PaceSettings{On: cfg[PacingKey] != false, Target: DefaultPaceTarget, Burst: DefaultPaceBurst}
+	if n, ok := wholeIn(cfg[PaceTargetKey], 50, 100); ok {
+		ps.Target = n
+	}
+	if n, ok := wholeIn(cfg[PaceBurstKey], 0, 50); ok {
+		ps.Burst = n
+	}
+	return ps
+}
+
+func wholeIn(v any, lo, hi int) (int, bool) {
+	var n int
+	switch x := v.(type) {
+	case int:
+		n = x
+	case int64:
+		n = int(x)
+	default:
+		return 0, false
+	}
+	return n, n >= lo && n <= hi
+}
+
+// The pace states (Account.pace.state).
+const (
+	PaceBehind = "behind"
+	PaceAhead  = "ahead"
+	PaceOver   = "over"
+	PaceOff    = "off"
+)
+
+// Pace is an account's weekly use against its pace line (Account.pace). BackAt is unix seconds, 0 for none.
+type Pace struct {
+	State  string
+	Line   float64
+	Used   int
+	RateH  float64
+	BackAt int64
+}
+
+// PaceOf is the account's pace now, judged on its last weekly reading, which holds until its reset even when stale; nil with no reading
+// or no reset. The week runs from its reset less 7 days to its end: the reset, or the subscription end when that comes first. The line
+// is Target times the share of that week passed.
+func PaceOf(st *AccountStatus, now float64, ps PaceSettings) *Pace {
+	used := st.Long.Pct
+	if used == nil || st.Long.Reset == 0 || float64(st.Long.Reset) <= now {
+		return nil
+	}
+	start := float64(st.Long.Reset - WeekS)
+	left, _ := WeekEndsIn(st, now)
+	end := now + left
+	if end <= start {
+		return nil
+	}
+	target := float64(ps.Target)
+	p := &Pace{Used: *used, Line: target * math.Min(1, math.Max(0, (now-start)/(end-start)))}
+	if hours := left / 3600; hours > 0 && float64(*used) < target {
+		p.RateH = (target - float64(*used)) / hours
+	}
+	ahead := float64(*used) - p.Line
+	switch {
+	case !ps.On:
+		p.State = PaceOff
+	case ahead <= 0:
+		p.State = PaceBehind
+	case ahead <= float64(ps.Burst):
+		p.State = PaceAhead
+	default:
+		p.State = PaceOver
+		// With no further use the line reaches used less the burst at this point of the week, or never: then the week's end.
+		back := math.Min(end, start+(float64(*used)-float64(ps.Burst))/target*(end-start))
+		p.BackAt = int64(math.Ceil(back))
+	}
+	return p
+}
+
+// Cap is base shrunk for the pace: all of it behind the line (or with pacing off), none past the burst, and in between in step with
+// the burst left, at least 1.
+func (p *Pace) Cap(base int, ps PaceSettings) int {
+	switch p.State {
+	case PaceAhead:
+		return max(1, int(math.Ceil(float64(base)*(p.Line+float64(ps.Burst)-float64(p.Used))/float64(ps.Burst))))
+	case PaceOver:
+		return 0
+	}
+	return base
+}
+
+// PaceNow is the account's pace now under config's settings.
+func (e *Env) PaceNow(acct string) *Pace {
+	return PaceOf(e.Read(acct), e.now(), PaceSettingsOf(e.config()))
 }
 
 // Headroom is the account's headroom now, for ordering accounts by pace: the larger, the slower-paced.

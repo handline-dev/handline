@@ -24,7 +24,7 @@ import { ChatSearch } from '#src/screens/ChatSearch.tsx';
 import { useChatImages } from '#src/screens/ChatImages.tsx';
 import { SendButton, WorkingBubble } from '#src/screens/ChatSend.tsx';
 import { Icon } from '#src/screens/Icon.tsx';
-import { Button, Link, Row } from '#src/screens/parts.tsx';
+import { Button, EmptyState, Link, Row } from '#src/screens/parts.tsx';
 
 /** How far the person's message got, as ticks: not sent yet, sent, read. */
 const TICKS = ['queued', 'delivered', 'answered'] as const;
@@ -174,11 +174,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
           </View>
         )}
         {chat.hasOlder && <Button testID="older" label="Older messages" disabled={chat.loadingOlder} onPress={chat.loadOlder} />}
-        {chat.status === 'ready' && !entries.length && (
-          <Text testID="empty" style={{ color: c.muted, padding: space.lg }}>
-            No messages yet
-          </Text>
-        )}
+        {chat.status === 'ready' && !entries.length && <EmptyState icon="chat" text="No messages yet" />}
         {entries.map((e) =>
           e.kind === 'proposal' ? (
             <Decided key={`p${e.id}`} p={e.proposal} />
@@ -223,7 +219,14 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
       <HandoffLine handoff={props.detail.handoff ?? null} items={chat.items} />
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
       {picked && <ReplyRow id="replying" dropId="drop-reply" text={ellipsis(picked.body, 80)} onDrop={() => setPicked(null)} />}
-      {item && <ReplyRow id="replying-item" dropId="drop-reply-item" text={ellipsis((item.text ?? '').replace(/\s+/g, ' '), 80)} onDrop={() => setItem(null)} />}
+      {item && (
+        <ReplyRow
+          id="replying-item"
+          dropId="drop-reply-item"
+          text={ellipsis((item.text ?? '').replace(/\s+/g, ' '), 80)}
+          onDrop={() => setItem(null)}
+        />
+      )}
       {canSend && <ChatRefs agent={agent} text={text} onPick={(r, rest) => (setItem(null), setPicked(r), setText(rest))} />}
       {img.chips}
       <Row style={{ padding: space.sm }}>

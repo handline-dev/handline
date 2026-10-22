@@ -3,6 +3,7 @@ package reads
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,6 +76,48 @@ func TestOutlookStatesTheRunwayTheCostAndKeepsTheFutureApart(t *testing.T) {
 	}
 }
 
+// The future is the accounts' weekly guesses averaged: a at 20 used and b at 60, both flat, average 60 left.
+func TestOutlookFutureIsTheAccountsWeekAveraged(t *testing.T) {
+	e := testEnv(t)
+	clock := time.Date(2026, 10, 8, 15, 0, 0, 0, time.Local)
+	now := clock.Unix()
+	e.LoginState = func(string) (bool, bool) { return true, true } // a logged-out account is gone, and has no guess
+	for acct, used := range map[string]int{"a": 20, "b": 60} {
+		for i := 0; i < 3; i++ {
+			ts := now - int64(3-i)*1800
+			w := fmt.Sprintf(`[{"minutes":300,"used_percent":5,"resets_at":%d},{"minutes":10080,"used_percent":%d,"resets_at":%d}]`, now+3600, used, now+3*86400)
+			if _, err := e.DB.Exec("INSERT INTO usage_samples(account, ts, exists_, windows) VALUES(?,?,1,?)", acct, ts, w); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	got, err := e.outlookAt("24h", 24, clock, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	var out struct {
+		Future []struct {
+			Left_pct *float64
+		}
+		By_account []struct {
+			Future []struct {
+				Week_left *float64
+			}
+		}
+	}
+	json.Unmarshal(b, &out)
+	if len(out.Future) == 0 || len(out.By_account) != 2 {
+		t.Fatalf("%s", b)
+	}
+	for i, p := range out.Future {
+		wa, wb := out.By_account[0].Future[i].Week_left, out.By_account[1].Future[i].Week_left
+		if p.Left_pct == nil || wa == nil || wb == nil || math.Abs(*p.Left_pct-(*wa+*wb)/2) > 0.01 || math.Abs(*p.Left_pct-60) > 0.01 {
+			t.Fatalf("point %d is not the accounts' week averaged: %s", i, b)
+		}
+	}
+}
+
 func TestOutlookRefusesARangeItDoesNotList(t *testing.T) {
 	e := testEnv(t)
 	if _, err := e.statsOutlook(nil, map[string]any{"range": "1y"}); err == nil {
@@ -85,7 +128,7 @@ func TestOutlookRefusesARangeItDoesNotList(t *testing.T) {
 	}
 }
 
-func TestAccountsListShowsTheCapShrunkByTheCutoffRiskNotThePace(t *testing.T) {
+func TestAccountsListShowsTheCapShrunkByTheCutoffRiskAndThePace(t *testing.T) {
 	e := testEnv(t)
 	now := time.Now().Unix()
 	for acct, used := range map[string]int{"fast": 95, "hot": 5} {
@@ -112,8 +155,8 @@ func TestAccountsListShowsTheCapShrunkByTheCutoffRiskNotThePace(t *testing.T) {
 		}
 	}
 	json.Unmarshal(b, &out)
-	if len(out.Accounts) != 2 || out.Accounts[0].Name != "fast" || out.Accounts[0].Cap_effective != 2 || out.Accounts[1].Cap_effective != 1 {
-		t.Fatalf("an account ahead of its week keeps the configured cap; one that would be cut off before its reset does not: %s", b)
+	if len(out.Accounts) != 2 || out.Accounts[0].Name != "fast" || out.Accounts[0].Cap_effective != 0 || out.Accounts[1].Cap_effective != 1 {
+		t.Fatalf("an account far past its pace line takes none; one that would be cut off before its reset takes fewer: %s", b)
 	}
 }
 
