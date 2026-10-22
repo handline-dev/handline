@@ -4,6 +4,7 @@ export const OUTLOOK_END = 'outlook-end absolute right-0 -translate-y-1/2 text-l
 export const GRID_LINE = 'grid stroke-line';
 export const LINE = 'line stroke-ink stroke-2 [vector-effect:non-scaling-stroke]';
 export const NOW_LINE = 'now stroke-ink-3 [stroke-dasharray:2_3] [vector-effect:non-scaling-stroke]';
+export const RESET_LINE = 'reset stroke-wait [vector-effect:non-scaling-stroke]';
 export const LEGEND = 'outlook-legend muted m-0 mt-1.5 flex list-none gap-4 p-0 text-hint';
 export const LEGEND_ITEM = 'inline-flex items-center gap-1.5';
 

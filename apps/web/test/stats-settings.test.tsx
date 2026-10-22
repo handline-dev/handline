@@ -120,6 +120,24 @@ describe('outlook', () => {
     expect(text($('.data-table'))).toContain('guess');
   });
 
+  it('pointing at the graph reads the time and the percent, leaving clears it, and the week reset has a mark named in the legend', async () => {
+    await mount('#/stats');
+    await until(() => $('.outlook-svg'), 'the graph');
+    expect(text($('.outlook-readout'))).toContain('Point at the line');
+    const plot = $('.outlook-plot')!;
+    vi.spyOn($('.outlook-svg')!, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 560, height: 160, right: 560, bottom: 160, x: 0, y: 0, toJSON: () => ({}) });
+    await act(async () => void plot.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 100 })));
+    expect(text($('.outlook-readout'))).toMatch(/\d+% left/);
+    expect($('.outlook-svg .cursor')).not.toBeNull();
+    expect($('.outlook-svg [data-reset]')).toBeNull(); // alpha's week resets after the 24 h shown
+    await setValue($('select[aria-label="Range"]') as HTMLSelectElement, '7d');
+    await until(() => $('.outlook-svg [data-reset]'), 'the reset mark');
+    expect(text($('.outlook-legend'))).toContain('week resets');
+    await act(async () => void plot.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })));
+    await act(async () => void plot.dispatchEvent(new MouseEvent('pointerleave')));
+    expect(text($('.outlook-readout'))).toContain('Point at the line');
+  });
+
   it('the cost view offers 7, 14 and 30 days and draws a bar per day with the values in the table', async () => {
     await mount('#/stats');
     await until(() => $('.outlook-svg'), 'the graph');
