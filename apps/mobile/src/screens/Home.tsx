@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, Dimensions, PanResponder, Platform, Pressable, Text, View } from 'react-native';
 import type { Store } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
-import { awayLine, useAway, useUnread } from '@handline/app-data';
+import { useUnread } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { History, HistoryProvider, useHistoryValue } from '#src/history.tsx';
@@ -16,13 +16,14 @@ import { TeamPage } from '#src/screens/TeamEntry.tsx';
 import { Stats } from '#src/screens/Stats.tsx';
 import { Tasks } from '#src/screens/Tasks.tsx';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
+import { Bell, NoticesPage, Toasts } from '#src/screens/Notices.tsx';
 import { Banner } from '#src/screens/parts.tsx';
 
 const TABS = ['agents', 'inbox', 'tasks', 'usage'] as const;
 type Tab = (typeof TABS)[number];
 const NAV_ICON: Record<Tab, IconName> = { agents: 'agent', inbox: 'inbox', tasks: 'tasks', usage: 'stats' };
 
-type Page = 'new' | 'settings' | 'team' | null;
+type Page = 'new' | 'settings' | 'team' | 'notices' | null;
 
 /** `pending` is where New agent was left: with an operation in it, the app starts on that page. */
 export function Home(props: { store: Store; onUnpair: () => void; pending?: Pending }) {
@@ -94,8 +95,6 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   useAgentEntry(props.store);
   const open = useSelector((s) => s.page?.agent ?? null);
   const conn = useSelector((s) => s.conn);
-  const { away, dismiss: dismissAway } = useAway();
-  const error = useSelector((s) => s.error);
   const unread = useUnread().length;
   const [tab, setTab] = useHistoryValue<Tab>('home.tab', 'agents');
   const [task, setTask] = useHistoryValue<number | null>('home.task', null);
@@ -112,13 +111,15 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   return (
     <View style={{ flex: 1 }} {...swipe}>
       {conn !== 'open' && <Banner text={conn === 'closed' ? 'Disconnected' : conn === 'connecting' ? 'Connecting…' : 'Reconnecting…'} />}
-      {away && <Banner text={`${awayLine(away)}  ✕`} onPress={dismissAway} />}
-      {error && <Banner text={error} error onPress={() => props.store.dismissError()} />}
+      {!open && !page && <Bell store={props.store} onOpen={() => setPage('notices')} />}
+      <Toasts store={props.store} />
       <View style={{ flex: 1 }}>
         {open ? (
           <AgentPage />
         ) : page === 'team' ? (
           <TeamPage onClose={() => setPage(null)} />
+        ) : page === 'notices' ? (
+          <NoticesPage store={props.store} onClose={() => setPage(null)} />
         ) : page === 'settings' ? (
           <SettingsPage onClose={() => setPage(null)} onUnpair={props.onUnpair} />
         ) : page === 'new' ? (
