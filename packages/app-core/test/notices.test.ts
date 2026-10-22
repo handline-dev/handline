@@ -19,7 +19,10 @@ test('a success stays 3 s and a failure 8 s, then both live on in the list', () 
   n.push('fail', 'Not applied: busy');
   assert.equal(n.toasts().length, 2);
   c.tick(3001);
-  assert.deepEqual(n.toasts().map((x) => x.text), ['Not applied: busy']);
+  assert.deepEqual(
+    n.toasts().map((x) => x.text),
+    ['Not applied: busy'],
+  );
   c.tick(5000);
   assert.equal(n.toasts().length, 0);
   assert.equal(n.list().length, 2);
@@ -41,7 +44,10 @@ test('the same notice within a minute is one line counted x2, and after a minute
 test('at most three toasts stack, the oldest dropped from the screen but not the list', () => {
   const n = new Notices(clock().now);
   for (const t of ['a', 'b', 'c', 'd']) n.push('ok', t);
-  assert.deepEqual(n.toasts().map((x) => x.text), ['d', 'c', 'b']);
+  assert.deepEqual(
+    n.toasts().map((x) => x.text),
+    ['d', 'c', 'b'],
+  );
   assert.equal(n.list().length, 4);
 });
 
@@ -87,7 +93,10 @@ test('an event is a line unless it asks for a decision, and one cursor is taken 
   n.takeEvent(ev(2, 'notifications', 'stall', { agent: 'a.b' }));
   n.takeEvent(ev(2, 'notifications', 'stall', { agent: 'a.b' }));
   n.takeEvent(ev(3, 'notifications', 'unknown_kind'));
-  assert.deepEqual(n.list().map((x) => [x.text, x.count]), [['a.b stalled', 1]]);
+  assert.deepEqual(
+    n.list().map((x) => [x.text, x.count]),
+    [['a.b stalled', 1]],
+  );
   assert.equal(eventText(ev(4, 'notifications', 'account_out', { data: { account: 'alpha' } })), 'Account alpha is out');
 });
 
