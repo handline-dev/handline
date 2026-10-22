@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
 )
 
@@ -342,5 +343,29 @@ func TestAPruneByAnotherWriterInBetweenNeverMovesTheMarkBack(t *testing.T) {
 	}
 	if got, _ := l.PrunedThrough(); got < last.Cursor+10 {
 		t.Fatalf("the mark went back to %d", got)
+	}
+}
+
+func TestAStampedReadCarriesTheNewestFromBeforeItRan(t *testing.T) {
+	h, _ := rig(t)
+	before := add(t, h, "agents", "agent.changed", "bob").Cursor
+	s := rpc.NewServer(nil, "x", 0, "local", func(string, ...any) {})
+	// The read sees a change whose event lands while it runs: the cursor must stay below that event, so it is not skipped.
+	s.Register(Stamped[0], rpc.Method{Handler: func(*rpc.Conn, map[string]any) (any, error) {
+		add(t, h, "agents", "agent.changed", "bob")
+		return map[string]any{}, nil
+	}})
+	StampCursor(s, h.Log)
+	var read func(*rpc.Conn, map[string]any) (any, error)
+	s.Wrap(Stamped[0], func(next func(*rpc.Conn, map[string]any) (any, error)) func(*rpc.Conn, map[string]any) (any, error) {
+		read = next
+		return next
+	})
+	res, err := read(nil, map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := res.(map[string]any)["cursor"]; got != before {
+		t.Fatalf("cursor %v, want %d (the newest before the read)", got, before)
 	}
 }

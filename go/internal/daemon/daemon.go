@@ -511,6 +511,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	if d.cfg.Gateway {
 		d.gatewayMethods(s, transport)
 	}
+	stream.StampCursor(s, d.hub.Log)
 	return s
 }
 

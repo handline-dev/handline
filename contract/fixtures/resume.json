@@ -1,0 +1,289 @@
+{
+ "fixtures": [
+  {
+   "name": "subscribe.resume_is_replay_or_latest",
+   "spec": "subscribe",
+   "about": "A resume the spec does not list is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "tasks"
+       ],
+       "resume": "all"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "resume"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "subscribe.resume_latest_answers_the_newest_cursor",
+   "spec": "subscribe",
+   "about": "resume latest with a since answers the newest cursor, as a live subscribe does.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "tasks"
+       ],
+       "since": 0,
+       "resume": "latest"
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "daemon.status.says_the_cursor_it_was_read_at",
+   "spec": "daemon.status",
+   "about": "The read carries cursor, the newest stream cursor when it began.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "daemon.status",
+      "params": {}
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agents.list.says_the_cursor_it_was_read_at",
+   "spec": "agents.list",
+   "about": "The read carries cursor, the newest stream cursor when it began.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "tasks.list.says_the_cursor_it_was_read_at",
+   "spec": "tasks.list",
+   "about": "The read carries cursor, the newest stream cursor when it began.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "tasks.list",
+      "params": {}
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "inbox.list.says_the_cursor_it_was_read_at",
+   "spec": "inbox.list",
+   "about": "The read carries cursor, the newest stream cursor when it began.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "inbox.list",
+      "params": {}
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "accounts.list.says_the_cursor_it_was_read_at",
+   "spec": "accounts.list",
+   "about": "The read carries cursor, the newest stream cursor when it began.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "accounts.list",
+      "params": {}
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "prefs.get.says_the_cursor_it_was_read_at",
+   "spec": "prefs.get",
+   "about": "The read carries cursor, the newest stream cursor when it began.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "prefs.get",
+      "params": {}
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

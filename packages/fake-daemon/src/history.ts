@@ -39,7 +39,8 @@ interface Tasks {
   now(): string;
 }
 
-type TaskTime = Methods['task.time']['result'];
+// The daemon adds the cursor.
+type TaskTime = Omit<Methods['task.time']['result'], 'cursor'>;
 
 export function timeOf(id: unknown, tasks: Tasks): TaskTime {
   if (!Number.isInteger(id)) throw invalidParams('task is a task number', 'task');

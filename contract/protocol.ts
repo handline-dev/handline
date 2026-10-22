@@ -1689,6 +1689,11 @@ export type Headroom = {
   } | null;
 };
 
+export type ReadCursor = {
+  /** The newest stream cursor when this read began. An event above it may be in the answer already (applying it again changes nothing); none at or below it is missing. A client drops the events at or below it for this answer. */
+  cursor: number;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -1724,6 +1729,8 @@ export interface Methods {
   topics: Topic[];
   /** Last cursor seen. Absent: live only. A cursor older than the daemon keeps, or with more than 5000 subscribed events after it, is answered by a `gap` notice (reason retention) instead of a replay; the connection stays open. Up to 5000 events behind, every missed event is replayed in full, in cursor order, before any live one. */
   since?: number;
+  /** replay (the default): what was missed after `since` is sent first, as `since` says. latest: nothing missed is sent, neither a replay nor a gap; the reply's cursor is the newest and only later events follow. A client that resumes at the latest reads again what it shows: each read a stream event keeps current says its `cursor`, and an event at or below it is in that answer already. */
+  resume?: "replay" | "latest";
   /** Only events of this agent, plus events that carry no agent. Meant for the chat topic. */
   agent?: AgentName;
 }; result: {
@@ -1733,7 +1740,7 @@ export interface Methods {
   "unsubscribe": { params: {
   topics: Topic[];
 }; result: { [key: string]: unknown } };
-  "daemon.status": { params: { [key: string]: unknown }; result: DaemonStatus };
+  "daemon.status": { params: { [key: string]: unknown }; result: DaemonStatus & ReadCursor };
   "events.feed": { params: {
   since?: number;
   topics?: Topic[];
@@ -1746,16 +1753,16 @@ export interface Methods {
   } };
   "operation.get": { params: {
   operation: string;
-}; result: Operation };
+}; result: Operation & ReadCursor };
   "agents.list": { params: {
   /** Add the status-line fields of each agent (started, has_repo, has_terminal, screen_word, screen_detail, unreached, task_waits, wake_wait_reason), read at the call; screen_word and screen_detail may be as old as the stored view. Default false. */
   status?: boolean;
 }; result: {
     agents: AgentView[];
-  } };
+  } & ReadCursor };
   "agent.get": { params: {
   agent: AgentName;
-}; result: AgentDetail };
+}; result: AgentDetail & ReadCursor };
   "pr.exists": { params: {
   agent: AgentName;
   numbers: number[];
@@ -1772,7 +1779,7 @@ export interface Methods {
 }; result: {
     items: TimelineEntry[];
     more: boolean;
-  } };
+  } & ReadCursor };
   "agent.options": { params: { [key: string]: unknown }; result: AgentOptions };
   "agent.set": { params: {
   agent: AgentName;
@@ -1872,7 +1879,7 @@ export interface Methods {
   agent: AgentName;
 }; result: {
     prompts: Prompt[];
-  } };
+  } & ReadCursor };
   "prompt.answer": { params: {
   agent: AgentName;
   prompt: string;
@@ -1917,7 +1924,7 @@ export interface Methods {
 }; result: {
     messages: ChatMessage[];
     more: boolean;
-  } };
+  } & ReadCursor };
   "chat.requests": { params: {
   agent: AgentName;
   /** mine: person and this agent; all: everything it sent or received. */
@@ -1946,7 +1953,7 @@ export interface Methods {
     items: TranscriptItem[];
     more: boolean;
     working: Working;
-  } };
+  } & ReadCursor };
   "transcript.events": { params: {
   agent: AgentName;
   /** The events after this seq, oldest first. 0 or absent with no before_seq: the newest `limit` events, oldest first. */
@@ -1997,7 +2004,7 @@ export interface Methods {
     screen_word: ("RUNNING" | "IDLE" | "PENDING" | "MOVING" | "DIALOG" | "FATAL") | null;
     /** The text drawn beside screen_word. */
     screen_detail: string;
-  } };
+  } & ReadCursor };
   "chat.refs": { params: {
   agent: AgentName;
 }; result: {
@@ -2152,7 +2159,7 @@ export interface Methods {
 }; result: {
     items: InboxItem[];
     more: boolean;
-  } };
+  } & ReadCursor };
   "inbox.queue": { params: {
   /** An agent's name, or `human` for the founder's mailbox. Default: the caller's own. */
   whose?: string;
@@ -2220,7 +2227,7 @@ export interface Methods {
   id: RequestName;
   /** Hold the call up to this many seconds until the request settles. Default 0, at most 600. */
   wait_s?: number;
-}; result: InboxItem };
+}; result: InboxItem & ReadCursor };
   "request.read": { params: {
   id: RequestName;
   /** Hold the call up to this many seconds while the request is queued. Default 0, at most 600. */
@@ -2328,10 +2335,10 @@ export interface Methods {
       closures_request: number;
       closures_reason: number;
     };
-  } };
+  } & ReadCursor };
   "task.get": { params: {
   task: number;
-}; result: TaskDetail };
+}; result: TaskDetail & ReadCursor };
   "task.history": { params: {
   task: number;
 }; result: {
@@ -2362,7 +2369,7 @@ export interface Methods {
       /** The reset of the account limit that holds it back; null when none does. */
       wall_until: Timestamp | null;
     } | null;
-  } };
+  } & ReadCursor };
   "task.shot": { params: {
   task: number;
   /** The screenshot's number in the task's result, from 1. */
@@ -2543,7 +2550,7 @@ export interface Methods {
   name: string;
   request_id: RequestId;
 }; result: Accepted };
-  "prefs.get": { params: { [key: string]: unknown }; result: Prefs };
+  "prefs.get": { params: { [key: string]: unknown }; result: Prefs & ReadCursor };
   "prefs.set": { params: {
   changes: {
     nav: NavPrefsChanges;
@@ -2729,7 +2736,7 @@ export interface Methods {
   state?: string;
 }; result: {
     proposals: Proposal[];
-  } };
+  } & ReadCursor };
   "hr.decide": { params: {
   proposal: number;
   decision: "approve" | "reject";
@@ -2744,7 +2751,7 @@ export interface Methods {
   usage?: boolean;
 }; result: {
     accounts: Account[];
-  } };
+  } & ReadCursor };
   "status.pick": { params: { [key: string]: unknown }; result: {
     /** The account to place the next agent on; null when none may take work (fail-closed). */
     picked: string | null;

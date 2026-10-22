@@ -803,7 +803,7 @@
   },
   {
    "name": "subscribe",
-   "summary": "Turn the connection into a stream of `event` notices; replays after `since` first.",
+   "summary": "Turn the connection into a stream of `event` notices; replays after `since` first, unless `resume` is latest.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -822,6 +822,18 @@
      "schema": {
       "type": "integer",
       "description": "Last cursor seen. Absent: live only. A cursor older than the daemon keeps, or with more than 5000 subscribed events after it, is answered by a `gap` notice (reason retention) instead of a replay; the connection stays open. Up to 5000 events behind, every missed event is replayed in full, in cursor order, before any live one."
+     }
+    },
+    {
+     "name": "resume",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "replay",
+       "latest"
+      ],
+      "description": "replay (the default): what was missed after `since` is sent first, as `since` says. latest: nothing missed is sent, neither a replay nor a gap; the reply's cursor is the newest and only later events follow. A client that resumes at the latest reads again what it shows: each read a stream event keeps current says its `cursor`, and an event at or below it is in that answer already."
      }
     },
     {
@@ -905,7 +917,14 @@
    "result": {
     "name": "result",
     "schema": {
-     "$ref": "#/components/schemas/DaemonStatus"
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/DaemonStatus"
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
     }
    },
    "x-role": "agent",
@@ -994,7 +1013,14 @@
    "result": {
     "name": "result",
     "schema": {
-     "$ref": "#/components/schemas/Operation"
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Operation"
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
     }
    },
    "x-role": "member",
@@ -1023,17 +1049,24 @@
    "result": {
     "name": "result",
     "schema": {
-     "type": "object",
-     "properties": {
-      "agents": {
-       "type": "array",
-       "items": {
-        "$ref": "#/components/schemas/AgentView"
-       }
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "agents": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/AgentView"
+         }
+        }
+       },
+       "required": [
+        "agents"
+       ]
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
       }
-     },
-     "required": [
-      "agents"
      ]
     }
    },
@@ -1062,7 +1095,14 @@
    "result": {
     "name": "result",
     "schema": {
-     "$ref": "#/components/schemas/AgentDetail"
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/AgentDetail"
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
     }
    },
    "x-role": "agent",
@@ -1171,21 +1211,28 @@
    "result": {
     "name": "result",
     "schema": {
-     "type": "object",
-     "properties": {
-      "items": {
-       "type": "array",
-       "items": {
-        "$ref": "#/components/schemas/TimelineEntry"
-       }
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "items": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/TimelineEntry"
+         }
+        },
+        "more": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "items",
+        "more"
+       ]
       },
-      "more": {
-       "type": "boolean"
+      {
+       "$ref": "#/components/schemas/ReadCursor"
       }
-     },
-     "required": [
-      "items",
-      "more"
      ]
     }
    },
@@ -2093,17 +2140,24 @@
    "result": {
     "name": "result",
     "schema": {
-     "type": "object",
-     "properties": {
-      "prompts": {
-       "type": "array",
-       "items": {
-        "$ref": "#/components/schemas/Prompt"
-       }
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "prompts": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Prompt"
+         }
+        }
+       },
+       "required": [
+        "prompts"
+       ]
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
       }
-     },
-     "required": [
-      "prompts"
      ]
     }
    },
@@ -2432,21 +2486,28 @@
    "result": {
     "name": "result",
     "schema": {
-     "type": "object",
-     "properties": {
-      "messages": {
-       "type": "array",
-       "items": {
-        "$ref": "#/components/schemas/ChatMessage"
-       }
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "messages": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/ChatMessage"
+         }
+        },
+        "more": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "messages",
+        "more"
+       ]
       },
-      "more": {
-       "type": "boolean"
+      {
+       "$ref": "#/components/schemas/ReadCursor"
       }
-     },
-     "required": [
-      "messages",
-      "more"
      ]
     }
    },
@@ -2595,25 +2656,32 @@
    "result": {
     "name": "result",
     "schema": {
-     "type": "object",
-     "properties": {
-      "items": {
-       "type": "array",
-       "items": {
-        "$ref": "#/components/schemas/TranscriptItem"
-       }
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "items": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/TranscriptItem"
+         }
+        },
+        "more": {
+         "type": "boolean"
+        },
+        "working": {
+         "$ref": "#/components/schemas/Working"
+        }
+       },
+       "required": [
+        "items",
+        "more",
+        "working"
+       ]
       },
-      "more": {
-       "type": "boolean"
-      },
-      "working": {
-       "$ref": "#/components/schemas/Working"
+      {
+       "$ref": "#/components/schemas/ReadCursor"
       }
-     },
-     "required": [
-      "items",
-      "more",
-      "working"
      ]
     }
    },
@@ -2812,110 +2880,117 @@
    "result": {
     "name": "result",
     "schema": {
-     "type": "object",
-     "required": [
-      "agent",
-      "model",
-      "account",
-      "ctx_pct",
-      "ctx_used",
-      "ctx_limit",
-      "cache_left_s",
-      "screen_word",
-      "screen_detail"
-     ],
-     "properties": {
-      "agent": {
-       "$ref": "#/components/schemas/AgentName"
-      },
-      "model": {
-       "oneOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ]
-      },
-      "account": {
-       "oneOf": [
-        {
-         "type": "string"
-        },
-        {
-         "type": "null"
-        }
-       ]
-      },
-      "ctx_pct": {
-       "oneOf": [
-        {
-         "type": "integer"
-        },
-        {
-         "type": "null"
-        }
+     "allOf": [
+      {
+       "type": "object",
+       "required": [
+        "agent",
+        "model",
+        "account",
+        "ctx_pct",
+        "ctx_used",
+        "ctx_limit",
+        "cache_left_s",
+        "screen_word",
+        "screen_detail"
        ],
-       "description": "Percent of the context window used, as far as the session's own report is trusted."
-      },
-      "ctx_used": {
-       "oneOf": [
-        {
-         "type": "integer"
+       "properties": {
+        "agent": {
+         "$ref": "#/components/schemas/AgentName"
         },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Tokens in use."
-      },
-      "ctx_limit": {
-       "oneOf": [
-        {
-         "type": "integer"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "The window the model has, with the agent's own setting applied."
-      },
-      "cache_left_s": {
-       "oneOf": [
-        {
-         "type": "integer"
-        },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Seconds until the prompt cache lapses; negative once it has; null with nothing to measure from."
-      },
-      "screen_word": {
-       "oneOf": [
-        {
-         "type": "string",
-         "enum": [
-          "RUNNING",
-          "IDLE",
-          "PENDING",
-          "MOVING",
-          "DIALOG",
-          "FATAL"
+        "model": {
+         "oneOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "null"
+          }
          ]
         },
-        {
-         "type": "null"
+        "account": {
+         "oneOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        "ctx_pct": {
+         "oneOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "Percent of the context window used, as far as the session's own report is trusted."
+        },
+        "ctx_used": {
+         "oneOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "Tokens in use."
+        },
+        "ctx_limit": {
+         "oneOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "The window the model has, with the agent's own setting applied."
+        },
+        "cache_left_s": {
+         "oneOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "Seconds until the prompt cache lapses; negative once it has; null with nothing to measure from."
+        },
+        "screen_word": {
+         "oneOf": [
+          {
+           "type": "string",
+           "enum": [
+            "RUNNING",
+            "IDLE",
+            "PENDING",
+            "MOVING",
+            "DIALOG",
+            "FATAL"
+           ]
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "The agent's state as the screens draw it (`tui.screen_state`), not the wire `state`; null when it never started."
+        },
+        "screen_detail": {
+         "type": "string",
+         "description": "The text drawn beside screen_word."
         }
-       ],
-       "description": "The agent's state as the screens draw it (`tui.screen_state`), not the wire `state`; null when it never started."
+       }
       },
-      "screen_detail": {
-       "type": "string",
-       "description": "The text drawn beside screen_word."
+      {
+       "$ref": "#/components/schemas/ReadCursor"
       }
-     }
+     ]
     }
    },
    "x-role": "member",
@@ -4044,21 +4119,28 @@
    "result": {
     "name": "result",
     "schema": {
-     "type": "object",
-     "properties": {
-      "items": {
-       "type": "array",
-       "items": {
-        "$ref": "#/components/schemas/InboxItem"
-       }
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "items": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/InboxItem"
+         }
+        },
+        "more": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "items",
+        "more"
+       ]
       },
-      "more": {
-       "type": "boolean"
+      {
+       "$ref": "#/components/schemas/ReadCursor"
       }
-     },
-     "required": [
-      "items",
-      "more"
      ]
     }
    },
@@ -4331,7 +4413,14 @@
    "result": {
     "name": "result",
     "schema": {
-     "$ref": "#/components/schemas/InboxItem"
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/InboxItem"
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
     }
    },
    "x-role": "agent",
@@ -4868,49 +4957,56 @@
    "result": {
     "name": "result",
     "schema": {
-     "type": "object",
-     "properties": {
-      "items": {
-       "type": "array",
-       "items": {
-        "$ref": "#/components/schemas/Task"
-       }
-      },
-      "more": {
-       "type": "boolean"
-      },
-      "reason_gaps": {
+     "allOf": [
+      {
        "type": "object",
-       "description": "Present only when asked for (`reason_gaps`: true). How many requests ended in the last 30 days with no reason, and how tasks were closed in that time (by sha, by request, by reason): what hl task list prints under the list.",
        "properties": {
-        "retirements": {
-         "type": "integer"
+        "items": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Task"
+         }
         },
-        "retirements_blank": {
-         "type": "integer"
+        "more": {
+         "type": "boolean"
         },
-        "closures_sha": {
-         "type": "integer"
-        },
-        "closures_request": {
-         "type": "integer"
-        },
-        "closures_reason": {
-         "type": "integer"
+        "reason_gaps": {
+         "type": "object",
+         "description": "Present only when asked for (`reason_gaps`: true). How many requests ended in the last 30 days with no reason, and how tasks were closed in that time (by sha, by request, by reason): what hl task list prints under the list.",
+         "properties": {
+          "retirements": {
+           "type": "integer"
+          },
+          "retirements_blank": {
+           "type": "integer"
+          },
+          "closures_sha": {
+           "type": "integer"
+          },
+          "closures_request": {
+           "type": "integer"
+          },
+          "closures_reason": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "retirements",
+          "retirements_blank",
+          "closures_sha",
+          "closures_request",
+          "closures_reason"
+         ]
         }
        },
        "required": [
-        "retirements",
-        "retirements_blank",
-        "closures_sha",
-        "closures_request",
-        "closures_reason"
+        "items",
+        "more"
        ]
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
       }
-     },
-     "required": [
-      "items",
-      "more"
      ]
     }
    },
@@ -4935,7 +5031,14 @@
    "result": {
     "name": "result",
     "schema": {
-     "$ref": "#/components/schemas/TaskDetail"
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/TaskDetail"
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
     }
    },
    "x-role": "agent",
@@ -5009,140 +5112,147 @@
    "result": {
     "name": "result",
     "schema": {
-     "type": "object",
-     "properties": {
-      "task": {
-       "type": "integer"
-      },
-      "start": {
-       "$ref": "#/components/schemas/Timestamp"
-      },
-      "end": {
-       "oneOf": [
-        {
-         "$ref": "#/components/schemas/Timestamp",
-         "description": "When it was done, discarded or closed."
-        },
-        {
-         "type": "null",
-         "description": "Still open: the last segment runs to now."
-        }
-       ]
-      },
-      "segments": {
-       "type": "array",
-       "items": {
-        "$ref": "#/components/schemas/TimeSegment"
-       }
-      },
-      "estimate": {
-       "oneOf": [
-        {
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "task": {
          "type": "integer"
         },
-        {
-         "type": "null"
-        }
-       ],
-       "description": "Its story points; null when it has none."
-      },
-      "expected": {
-       "oneOf": [
-        {
-         "type": "object",
-         "properties": {
-          "start": {
-           "oneOf": [
-            {
-             "$ref": "#/components/schemas/Timestamp"
-            },
-            {
-             "type": "null"
-            }
-           ],
-           "description": "When it is expected to start: when it started for one being worked on; after the owner's current task and every task ahead of it in the order they are handed out, and no earlier than the reset of a limit the owner's account is at. Null when a task ahead has no expected duration."
+        "start": {
+         "$ref": "#/components/schemas/Timestamp"
+        },
+        "end": {
+         "oneOf": [
+          {
+           "$ref": "#/components/schemas/Timestamp",
+           "description": "When it was done, discarded or closed."
           },
-          "end": {
-           "oneOf": [
-            {
-             "$ref": "#/components/schemas/Timestamp"
-            },
-            {
-             "type": "null"
-            }
-           ],
-           "description": "start plus duration_s, and the wait for a reset when the account runs out at its current burn before then. Null when the duration is unknown."
-          },
-          "duration_s": {
-           "oneOf": [
-            {
-             "type": "integer"
-            },
-            {
-             "type": "null"
-            }
-           ],
-           "description": "How long it is expected to take (for one being worked on, what is left); null when unknown."
-          },
-          "basis": {
-           "oneOf": [
-            {
-             "type": "string",
-             "enum": [
-              "history",
-              "points",
-              "time_box"
-             ]
-            },
-            {
-             "type": "null"
-            }
-           ],
-           "description": "What the duration rests on: the median working time of the last 20 done tasks of its estimate (history), else their median time per point times its points (points), else its time box (time_box); null for none."
-          },
-          "ahead": {
-           "type": "array",
-           "items": {
-            "type": "integer"
-           },
-           "description": "The tasks its owner does first, by number."
-          },
-          "wall_until": {
-           "oneOf": [
-            {
-             "$ref": "#/components/schemas/Timestamp"
-            },
-            {
-             "type": "null"
-            }
-           ],
-           "description": "The reset of the account limit that holds it back; null when none does."
+          {
+           "type": "null",
+           "description": "Still open: the last segment runs to now."
           }
-         },
-         "required": [
-          "start",
-          "end",
-          "duration_s",
-          "basis",
-          "ahead",
-          "wall_until"
          ]
         },
-        {
-         "type": "null",
-         "description": "An ended task, or one the founder holds."
+        "segments": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/TimeSegment"
+         }
+        },
+        "estimate": {
+         "oneOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "Its story points; null when it has none."
+        },
+        "expected": {
+         "oneOf": [
+          {
+           "type": "object",
+           "properties": {
+            "start": {
+             "oneOf": [
+              {
+               "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "description": "When it is expected to start: when it started for one being worked on; after the owner's current task and every task ahead of it in the order they are handed out, and no earlier than the reset of a limit the owner's account is at. Null when a task ahead has no expected duration."
+            },
+            "end": {
+             "oneOf": [
+              {
+               "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "description": "start plus duration_s, and the wait for a reset when the account runs out at its current burn before then. Null when the duration is unknown."
+            },
+            "duration_s": {
+             "oneOf": [
+              {
+               "type": "integer"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "description": "How long it is expected to take (for one being worked on, what is left); null when unknown."
+            },
+            "basis": {
+             "oneOf": [
+              {
+               "type": "string",
+               "enum": [
+                "history",
+                "points",
+                "time_box"
+               ]
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "description": "What the duration rests on: the median working time of the last 20 done tasks of its estimate (history), else their median time per point times its points (points), else its time box (time_box); null for none."
+            },
+            "ahead": {
+             "type": "array",
+             "items": {
+              "type": "integer"
+             },
+             "description": "The tasks its owner does first, by number."
+            },
+            "wall_until": {
+             "oneOf": [
+              {
+               "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "description": "The reset of the account limit that holds it back; null when none does."
+            }
+           },
+           "required": [
+            "start",
+            "end",
+            "duration_s",
+            "basis",
+            "ahead",
+            "wall_until"
+           ]
+          },
+          {
+           "type": "null",
+           "description": "An ended task, or one the founder holds."
+          }
+         ],
+         "description": "When it is expected to start and end, deterministic from its queue, its owner's account and the history of done tasks by estimate; computed on each read, so it moves as they do."
         }
-       ],
-       "description": "When it is expected to start and end, deterministic from its queue, its owner's account and the history of done tasks by estimate; computed on each read, so it moves as they do."
+       },
+       "required": [
+        "task",
+        "start",
+        "end",
+        "segments",
+        "estimate",
+        "expected"
+       ]
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
       }
-     },
-     "required": [
-      "task",
-      "start",
-      "end",
-      "segments",
-      "estimate",
-      "expected"
      ]
     }
    },
@@ -6434,7 +6544,14 @@
    "result": {
     "name": "result",
     "schema": {
-     "$ref": "#/components/schemas/Prefs"
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Prefs"
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
     }
    },
    "x-role": "member",
@@ -7801,17 +7918,24 @@
    "result": {
     "name": "result",
     "schema": {
-     "type": "object",
-     "properties": {
-      "proposals": {
-       "type": "array",
-       "items": {
-        "$ref": "#/components/schemas/Proposal"
-       }
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "proposals": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Proposal"
+         }
+        }
+       },
+       "required": [
+        "proposals"
+       ]
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
       }
-     },
-     "required": [
-      "proposals"
      ]
     }
    },
@@ -7921,17 +8045,24 @@
    "result": {
     "name": "result",
     "schema": {
-     "type": "object",
-     "properties": {
-      "accounts": {
-       "type": "array",
-       "items": {
-        "$ref": "#/components/schemas/Account"
-       }
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "accounts": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Account"
+         }
+        }
+       },
+       "required": [
+        "accounts"
+       ]
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
       }
-     },
-     "required": [
-      "accounts"
      ]
     }
    },
@@ -16450,6 +16581,18 @@
      "accounts",
      "runs_out_at",
      "next_reset"
+    ]
+   },
+   "ReadCursor": {
+    "type": "object",
+    "properties": {
+     "cursor": {
+      "type": "integer",
+      "description": "The newest stream cursor when this read began. An event above it may be in the answer already (applying it again changes nothing); none at or below it is missing. A client drops the events at or below it for this answer."
+     }
+    },
+    "required": [
+     "cursor"
     ]
    }
   },

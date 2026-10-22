@@ -35,6 +35,7 @@ export type { FakeHr } from '#src/hr.ts';
 import { Replies } from '#src/replies.ts';
 import { FakeTranscript } from '#src/transcript.ts';
 import { watcherNotice } from '#src/watchers.ts';
+import { stamped, subscribeTopics } from '#src/resume.ts';
 import { accountsReply, byTerminal, detail, statusReply, newSession, tid, view, type Session } from '#src/session.ts';
 
 export class FakeDaemon {
@@ -261,13 +262,13 @@ export class FakeDaemon {
     try {
       const no = c.helloed ? this.knobs.check(method) : undefined;
       if (no) throw no;
-      body = { result: this.withReplay(c, method, params) };
+      body = { result: stamped(method, this.head, () => this.withReplay(c, method, params)) };
     } catch (e) {
       if (!(e instanceof Failure)) throw e;
       body = this.fail(e);
     }
     this.reply(c, id, body);
-    if (method === 'subscribe' && !body.error) this.replay(c, params.since as number | undefined);
+    if (method === 'subscribe' && !body.error && params.resume !== 'latest') this.replay(c, params.since as number | undefined);
   }
 
   /** A write's successful reply is kept by request_id; the same id with the same params returns it, repeating nothing. */
@@ -384,9 +385,7 @@ export class FakeDaemon {
         return { repo, found: repo ? (nums as number[]).filter((n) => this.pullRequests.has(n)) : [] };
       }
       case 'subscribe': {
-        if (!Array.isArray(p.topics) || !p.topics.length) throw badRequest('topics must be a non-empty list', 'topics');
-        for (const t of p.topics as Topic[]) if (this.unservedTopics.has(t)) throw badRequest(`no such topic: ${t}`, 'topics');
-        c.topics = new Set(this.transcript.gate(p.topics as Topic[], c.role));
+        c.topics = new Set(this.transcript.gate(subscribeTopics(p, this.unservedTopics), c.role));
         return { cursor: this.head };
       }
       case 'unsubscribe':

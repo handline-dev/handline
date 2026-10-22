@@ -4,7 +4,7 @@ import type { Methods } from '@handline/contract';
 import { Failure, invalidParams } from '#src/errors.ts';
 import type { Call } from '#src/handlers.ts';
 
-export type Strip = Methods['agent.strip']['result'];
+export type Strip = Omit<Methods['agent.strip']['result'], 'cursor'>; // the daemon adds the cursor
 
 const WORDS: Record<string, Strip['screen_word']> = { running: 'RUNNING', idle: 'IDLE', waiting: 'DIALOG', blocked: 'DIALOG' };
 

@@ -125,6 +125,17 @@ func (s *Server) Register(name string, m Method) {
 	s.methods[name] = m
 }
 
+// Has is whether the method is registered.
+func (s *Server) Has(name string) bool { _, ok := s.methods[name]; return ok }
+
+// Wrap replaces a registered method's handler with wrap's; a name not registered is left alone.
+func (s *Server) Wrap(name string, wrap func(next func(*Conn, map[string]any) (any, error)) func(*Conn, map[string]any) (any, error)) {
+	if m, ok := s.methods[name]; ok {
+		m.Handler = wrap(m.Handler)
+		s.methods[name] = m
+	}
+}
+
 // Conn is one connection's state.
 type Conn struct {
 	srv       *Server

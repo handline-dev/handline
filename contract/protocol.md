@@ -71,15 +71,15 @@ A method marked write takes a required `request_id`.
 |---|---|---|---|---|---|---|
 | `hello` | anonymous |  | `client`, `protocol`, `token?`, `key?` | `{protocol, min_client, daemon, schema, role, caller, capabilities, transport, methods}` | `refused`, `bad_request` |  |
 | `whoami` | agent |  | none | `{caller, role, methods}` |  |  |
-| `subscribe` | agent |  | `topics`, `since?`, `agent?` | `{cursor}` | `bad_request`, `refused` | role |
+| `subscribe` | agent |  | `topics`, `since?`, `resume?`, `agent?` | `{cursor}` | `bad_request`, `refused` | role |
 | `unsubscribe` | agent |  | `topics` | `object` | `bad_request` |  |
-| `daemon.status` | agent |  | none | `DaemonStatus` |  |  |
+| `daemon.status` | agent |  | none | `DaemonStatus & ReadCursor` |  |  |
 | `events.feed` | agent |  | `since?`, `topics?`, `limit?` | `{events, cursor, gap}` | `bad_request` |  |
-| `operation.get` | member |  | `operation` | `Operation` | `not_found` |  |
-| `agents.list` | agent |  | `status?` | `{agents}` | `bad_request` |  |
-| `agent.get` | agent |  | `agent` | `AgentDetail` | `not_found` |  |
+| `operation.get` | member |  | `operation` | `Operation & ReadCursor` | `not_found` |  |
+| `agents.list` | agent |  | `status?` | `{agents} & ReadCursor` | `bad_request` |  |
+| `agent.get` | agent |  | `agent` | `AgentDetail & ReadCursor` | `not_found` |  |
 | `pr.exists` | member |  | `agent`, `numbers` | `{repo, found}` | `not_found`, `bad_request` |  |
-| `agent.timeline` | member |  | `agent`, `before?`, `limit?` | `{items, more}` | `not_found` |  |
+| `agent.timeline` | member |  | `agent`, `before?`, `limit?` | `{items, more} & ReadCursor` | `not_found` |  |
 | `agent.options` | member |  | none | `AgentOptions` |  |  |
 | `agent.set` | agent (only agent, founder) | yes | `agent`, `values`, `speaker?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | not_self |
 | `agent.fold` | agent | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -97,17 +97,17 @@ A method marked write takes a required `request_id`.
 | `session.keys` | member | yes | `agent`, `keys`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | role, terminal_lock, input_holder, unsupported |
 | `session.type` | member | yes | `agent`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | role, terminal_lock, input_holder, unsupported |
 | `session.interrupt` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role, terminal_lock, input_holder |
-| `prompt.list` | member |  | `agent` | `{prompts}` | `not_found` |  |
+| `prompt.list` | member |  | `agent` | `{prompts} & ReadCursor` | `not_found` |  |
 | `prompt.answer` | member | yes | `agent`, `prompt`, `choice`, `note?`, `request_id` | `Accepted` | `refused`, `not_found`, `stale_prompt` | role, terminal_lock, input_holder |
 | `permission.ask` | agent |  | `tool`, `input` | `{behavior, message}` | `bad_request`, `refused` |  |
 | `input.take` | member | yes | `agent`, `force?`, `request_id` | `Accepted & {holder}` | `refused`, `not_found` | role, input_holder, unsupported |
 | `input.release` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role, unsupported |
-| `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{messages, more}` | `not_found`, `bad_request` |  |
+| `chat.messages` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{messages, more} & ReadCursor` | `not_found`, `bad_request` |  |
 | `chat.requests` | member |  | `agent`, `scope`, `before?`, `since?`, `limit?` | `{items, more, version, cursor}` | `not_found`, `bad_request` |  |
-| `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{items, more, working}` | `not_found`, `bad_request` |  |
+| `chat.transcript` | member |  | `agent`, `before?`, `since?`, `limit?` | `{items, more, working} & ReadCursor` | `not_found`, `bad_request` |  |
 | `transcript.events` | member |  | `agent`, `since_seq?`, `before_seq?`, `limit?` | `TranscriptEvents` | `not_found`, `bad_request`, `refused` | unsupported |
 | `chat.locate` | member |  | `request`, `agent?`, `limit?` | `{agent, scope, message, messages, more_older, more_newer, transcript, transcript_more_older, transcript_more_newer}` | `not_found`, `bad_request` |  |
-| `agent.strip` | member |  | `agent` | `{agent, model, account, ctx_pct, ctx_used, ctx_limit, cache_left_s, screen_word, screen_detail}` | `not_found`, `bad_request` |  |
+| `agent.strip` | member |  | `agent` | `{agent, model, account, ctx_pct, ctx_used, ctx_limit, cache_left_s, screen_word, screen_detail} & ReadCursor` | `not_found`, `bad_request` |  |
 | `chat.refs` | member |  | `agent` | `{requests}` | `not_found`, `bad_request` |  |
 | `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` | `bad_request`, `not_found` |  |
 | `chat.send` | member | yes | `agent`, `body`, `task?`, `parent?`, `attachments?`, `parent_item?`, `delivery?`, `request_id` | `Accepted & {request, receipt}` | `refused`, `not_found`, `bad_request` |  |
@@ -124,19 +124,19 @@ A method marked write takes a required `request_id`.
 | `terminal.open` | member |  | `agent` | `TerminalOpening` | `not_found`, `bad_request`, `refused` | role, unsupported |
 | `terminal.detach` | member |  | `terminal`, `format?` | `object` | `not_found`, `bad_request` |  |
 | `debug.terminals` | member |  | none | `{host, now, panes}` | `refused` | role, unsupported, state |
-| `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?` | `{items, more}` |  |  |
+| `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?` | `{items, more} & ReadCursor` |  |  |
 | `inbox.queue` | agent |  | `whose?`, `all?`, `since?`, `wait_s?` | `{whose, newest, head, history, waiting, lines, dealt}` | `refused`, `bad_request` | listing |
-| `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem` | `not_found`, `bad_request` |  |
+| `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem & ReadCursor` | `not_found`, `bad_request` |  |
 | `request.read` | agent |  | `id`, `wait_s?` | `{id, ref, requester, target, kind, state, created, chain_depth, parent, body, answer, parts}` | `not_found`, `bad_request` |  |
 | `request.withdraw` | agent | yes | `id`, `reason?`, `request_id` | `{ok, said}` | `bad_request` |  |
 | `request.cancel` | founder | yes | `id`, `dry_run?`, `request_id` | `{ok, plan, said}` | `refused`, `bad_request` |  |
 | `team.seal` | founder | yes | `dry_run?`, `request_id` | `{ok, plan, said}` | `refused`, `bad_request` |  |
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found`, `refused`, `bad_request` |  |
 | `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
-| `tasks.list` | agent |  | `owner?`, `reporter?`, `from?`, `state?`, `tags?`, `parent?`, `under?`, `before?`, `limit?`, `all?`, `everyone?`, `my_turn?`, `reason_gaps?` | `{items, more, reason_gaps}` |  |  |
-| `task.get` | agent |  | `task` | `TaskDetail` | `not_found` |  |
+| `tasks.list` | agent |  | `owner?`, `reporter?`, `from?`, `state?`, `tags?`, `parent?`, `under?`, `before?`, `limit?`, `all?`, `everyone?`, `my_turn?`, `reason_gaps?` | `{items, more, reason_gaps} & ReadCursor` |  |  |
+| `task.get` | agent |  | `task` | `TaskDetail & ReadCursor` | `not_found` |  |
 | `task.history` | agent |  | `task` | `{task, rows}` | `not_found`, `bad_request` |  |
-| `task.time` | agent |  | `task` | `{task, start, end, segments, estimate, expected}` | `not_found`, `bad_request` |  |
+| `task.time` | agent |  | `task` | `{task, start, end, segments, estimate, expected} & ReadCursor` | `not_found`, `bad_request` |  |
 | `task.shot` | member |  | `task`, `n`, `offset?` | `{mime, bytes, offset, data, done}` | `not_found`, `bad_request` |  |
 | `task.new` | agent | yes | `owner`, `reporter?`, `title`, `body?`, `time_box?`, `parent?`, `duplicate_ok?`, `blocked_by?`, `watch?`, `priority?`, `estimate?`, `tags?`, `expects?`, `ui?`, `request_id` | `Accepted & {task}` | `refused` | duplicate_title |
 | `task.handoff` | agent | yes | `task`, `to`, `note?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
@@ -157,7 +157,7 @@ A method marked write takes a required `request_id`.
 | `task.view.list` | member |  | none | `{views}` |  |  |
 | `task.view.save` | member | yes | `name`, `filter`, `request_id` | `Accepted` | `bad_request` |  |
 | `task.view.delete` | member | yes | `name`, `request_id` | `Accepted` | `not_found`, `bad_request` |  |
-| `prefs.get` | member (only member, founder) |  | none | `Prefs` | `refused` |  |
+| `prefs.get` | member (only member, founder) |  | none | `Prefs & ReadCursor` | `refused` |  |
 | `prefs.set` | member (only member, founder) | yes | `changes`, `request_id` | `Accepted` | `bad_request`, `refused` |  |
 | `task.queue` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.draft` | agent | yes | `tasks`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -180,9 +180,9 @@ A method marked write takes a required `request_id`.
 | `agent.triggers` | agent |  | `agent?` | `{agents}` |  |  |
 | `memory.status` | agent |  | `agent?` | `{agents}` |  |  |
 | `team.get` | agent |  | none | `{agents, edges}` |  |  |
-| `hr.list` | agent |  | `state?` | `{proposals}` | `bad_request` |  |
+| `hr.list` | agent |  | `state?` | `{proposals} & ReadCursor` | `bad_request` |  |
 | `hr.decide` | member | yes | `proposal`, `decision`, `note?`, `subject?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | proposal_changed, proposal_settled |
-| `accounts.list` | agent |  | `roster?`, `usage?` | `{accounts}` | `bad_request` |  |
+| `accounts.list` | agent |  | `roster?`, `usage?` | `{accounts} & ReadCursor` | `bad_request` |  |
 | `status.pick` | agent |  | none | `{picked, candidates, agent_costs}` |  |  |
 | `account.set` | founder | yes | `account`, `label?`, `cap?`, `recover?`, `cycle?`, `cycle_end?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `account.wake` | founder | yes | `account`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | state |
@@ -227,7 +227,7 @@ The viewer, the device, the role and the methods allowed.
 
 ### `subscribe`
 
-Turn the connection into a stream of `event` notices; replays after `since` first. topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent. devices is subscribed on its own, by the founder: a topics list naming devices and any other topic is -32602 bad_request naming `topics`, because devices is served by the gateway itself and every other topic by the daemon behind it. A devices subscription is live only: `since` and `agent` are ignored, the reply cursor is 0, its events carry cursor 0, and a client that reconnects reads devices.list again. The transcript topic needs member, as transcript.events does: an agent session that names it is refused, gate role, and nothing is subscribed (the stream holds every agent's tool inputs and results).
+Turn the connection into a stream of `event` notices; replays after `since` first, unless `resume` is latest. topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent. devices is subscribed on its own, by the founder: a topics list naming devices and any other topic is -32602 bad_request naming `topics`, because devices is served by the gateway itself and every other topic by the daemon behind it. A devices subscription is live only: `since` and `agent` are ignored, the reply cursor is 0, its events carry cursor 0, and a client that reconnects reads devices.list again. The transcript topic needs member, as transcript.events does: an agent session that names it is refused, gate role, and nothing is subscribed (the stream holds every agent's tool inputs and results).
 
 ### `unsubscribe`
 
