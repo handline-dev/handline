@@ -100,3 +100,4 @@ transcript.events.before_reads_the_older_page
 transcript.events.newest_page_has_every_kind
 transcript.events.seq_goes_up_by_one
 transcript.events.since_the_newest_is_empty
+x-status.load_never_holds_the_persons_message
