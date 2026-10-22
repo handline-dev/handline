@@ -123,7 +123,7 @@ describe('the usage link', () => {
     await mount('#/agents/handline.architect', setup(), '1');
     await until(() => $('.usage-btn') && ($('.usage-btn')?.getAttribute('title') ?? '').includes('alpha 41%'), 'the item');
     expect($('.usage-btn')?.getAttribute('title') ?? '').toBe('Account usage (5 h): alpha 41% · review 88% · gamma –');
-    expect(text($('.usage-btn'))).toMatch(/^5h 88%/); // the busiest account, in short words
+    expect(text($('.usage-btn'))).toBe('5h 88%'); // the busiest account, in short words
     expect($('.usage-btn .count')!.className).toContain('text-wait'); // 80% and over
     expect($('.usage-pop')).toBeNull();
     await click($('.usage-btn'));

@@ -78,7 +78,7 @@ describe('stats', () => {
   it('Stats is a section of the Usage page, under the accounts: #/accounts and #/stats are the same page', async () => {
     await mount('#/accounts');
     await until(() => $('[data-tile]'), 'the tiles');
-    expect(text($('.accounts-head'))).toContain('Usage');
+    expect(text($('.accounts-head'))).toContain('Settings');
     expect($('.acct-list')).not.toBeNull();
     expect($('.acct-list')!.compareDocumentPosition($('[data-tile]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect($('[data-use]')).toBeNull();
