@@ -1,6 +1,7 @@
 // What the apps keep of the daemon outside the query cache (`@handline/app-data`): the connection, who the caller is and what it may call, the
 // error line, what happened to each agent while this page watched, and the one open agent page (phone). Screens subscribe to it.
 import type { DaemonClient } from '@handline/client';
+import { Notices } from '#src/notices.ts';
 import { RpcError, type ConnectionState, type Event as WireEvent, type TerminalView } from '@handline/client';
 
 export interface Note {
@@ -24,11 +25,16 @@ export class Store {
   me = '';
   /** The methods this caller may use, from hello; a screen shows only what the daemon serves. */
   served = new Set<string>();
-  error: string | null = null;
+  /** What the person is told: results of what they did, and events worth knowing about. */
+  notices = new Notices();
   page: Page | null = null;
   /** Counts changes; a UI binding reads it as the snapshot that tells it to draw again. */
   version = 0;
   private wired = false;
+  /** The newest failure still on screen, for a screen that shows one line. */
+  get error(): string | null {
+    return this.notices.latestFailure();
+  }
   private listeners = new Set<() => void>();
   private openSeq = 0; // the latest openAgent call: an earlier one that finishes late undoes itself
   private offs: (() => void)[] = [];
@@ -36,6 +42,7 @@ export class Store {
 
   constructor(client: DaemonClient) {
     this.client = client;
+    this.notices.subscribe(() => this.emit());
   }
 
   subscribe(fn: () => void): () => void {
@@ -84,8 +91,9 @@ export class Store {
   }
 
   private onEvent(e: WireEvent): void {
+    this.notices.takeEvent(e);
     if (e.type === 'agent.removed' && e.agent && this.page?.agent === e.agent) {
-      this.error = `${e.agent} was removed`;
+      this.notices.push('fail', `${e.agent} was removed`);
       void this.closeAgent();
     }
     if (e.agent && e.type === 'agent.control') {
@@ -101,18 +109,18 @@ export class Store {
   reportError(what: string, e: unknown): void {
     if (e instanceof RpcError) {
       if (e.code === 'transport') return;
-      this.error = `${what}: ${e.reason ?? e.message}${e.hint ? ` (${e.hint})` : ''}`;
-    } else this.error = `${what}: ${(e as Error).message}`;
+      this.notices.push('fail', `${what}: ${e.reason ?? e.message}${e.hint ? ` (${e.hint})` : ''}`);
+    } else this.notices.push('fail', `${what}: ${(e as Error).message}`);
     this.emit();
   }
 
   dismissError(): void {
-    this.error = null;
+    this.notices.dismissToasts();
     this.emit();
   }
   /** Shows a sentence the store itself did not produce, such as an unreachable daemon. */
   fail(message: string): void {
-    this.error = message;
+    this.notices.push('fail', message);
     this.emit();
   }
 
@@ -133,7 +141,7 @@ export class Store {
       );
       if (seq !== this.openSeq) throw new Superseded();
       if (structured || bare) {
-        this.error = null;
+        this.notices.dismissToasts();
         this.page = { agent, tab: 'chat', view: null };
         this.emit();
         return;
@@ -141,7 +149,7 @@ export class Store {
       const view = await this.client.attachTerminal(agent);
       attached = true;
       if (seq !== this.openSeq) throw new Superseded();
-      this.error = null;
+      this.notices.dismissToasts();
       this.unwatchView = view.subscribe(() => this.emit());
       this.page = { agent, tab: 'chat', view };
       this.emit();
