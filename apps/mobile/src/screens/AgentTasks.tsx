@@ -8,11 +8,13 @@ import { usePalette } from '#src/theme.ts';
 import { ListRow } from '#src/screens/parts.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { Detail } from '#src/screens/Tasks.tsx';
+import { taskTab, useOpenInTab } from '#src/screens/AgentTabs.tsx';
 
 export function AgentTasks({ agent }: { agent: string }) {
   const c = usePalette();
   const { served } = useServes('tasks.list');
   const [open, setOpen] = useState<number | null>(null);
+  const tabs = useOpenInTab();
   const { query, items, capped } = useAgentTasks(agent);
   const now = Date.now();
   const rows = agentTasks(items, agent, now);
@@ -49,7 +51,7 @@ export function AgentTasks({ agent }: { agent: string }) {
               title={t.title}
               meta={meta.join(' · ')}
               metaColor={due?.over ? c.block : undefined}
-              onPress={() => setOpen(t.id)}
+              onPress={() => (tabs ? tabs.open(taskTab(t.id)) : setOpen(t.id))}
               style={{ borderLeftWidth: due?.over ? 4 : 0, borderLeftColor: c.block, opacity: closed ? 0.6 : 1 }}
             />
           );

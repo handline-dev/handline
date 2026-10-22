@@ -1,14 +1,12 @@
-// The agent page's bottom dock: back, menu, pinned agents, then the agents opened on this device; hidden while the keyboard is up.
-import { useEffect, useState } from 'react';
+// The agent page's bottom dock: back, menu, then this agent's tabs (Chat or Terminal, and what was opened beside it); hidden while the keyboard is up.
+import { useEffect, useRef, useState } from 'react';
 import { Keyboard, Platform, Pressable, ScrollView, Text, View } from 'react-native';
-import { branchOf, shortName } from '@handline/app-core';
-import { useNavDock, useOpenTabs, useWorktrees } from '@handline/app-data';
-import { useStore } from '@handline/app-react';
-import type { AgentView } from '@handline/client';
+import { branchOf } from '@handline/app-core';
+import { useWorktrees } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon } from '#src/screens/Icon.tsx';
-import { StateMark } from '#src/screens/StateMark.tsx';
+import { tabLabel, type AgentTabs } from '#src/screens/AgentTabs.tsx';
 
 export function useKeyboardUp(): boolean {
   const [up, setUp] = useState(false);
@@ -21,38 +19,36 @@ export function useKeyboardUp(): boolean {
   return up;
 }
 
-/** Opens the agent as a tab on this device while its page is showing. */
-export function useRememberAgent(name: string): void {
-  const { open } = useOpenTabs();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => void (name && open(name)), [name]);
-}
-
-export function AgentDock(props: { agent: string; onMenu: () => void; onBack: () => void }) {
+export function AgentDock(props: { base: string; tabs: AgentTabs; onMenu: () => void; onBack: () => void }) {
   const c = usePalette();
-  const store = useStore();
-  const { pinned, open } = useNavDock();
-  const tabs = useOpenTabs();
+  const { tabs } = props;
+  const strip = useRef<ScrollView>(null);
+  const at = useRef<Record<string, number>>({});
+  const activeKey = tabs.active ?? 'base';
+  const reveal = (key: string) => strip.current?.scrollTo({ x: Math.max(0, (at.current[key] ?? 0) - space.lg) });
+  useEffect(() => reveal(activeKey), [activeKey]);
   const inset = Platform.OS === 'android' ? 16 : 0; // the gesture bar is drawn over the page
   const btn = { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' } as const;
-  const tab = (a: AgentView, closable: boolean) => {
-    const on = a.name === props.agent;
+  const tab = (id: string | null, label: string, closable: boolean) => {
+    const on = tabs.active === id;
     return (
-      <View key={a.name} style={{ flexDirection: 'row', alignItems: 'center', borderRadius: radius.pill, backgroundColor: on ? c.panel : 'transparent' }}>
+      <View key={id ?? 'base'} onLayout={(e) => {
+          at.current[id ?? 'base'] = e.nativeEvent.layout.x;
+          if (on) reveal(id ?? 'base');
+        }} style={{ flexDirection: 'row', alignItems: 'center', borderRadius: radius.pill, backgroundColor: on ? c.panel : 'transparent' }}>
         <Pressable
-          testID={`dock-${a.name}`}
+          testID={`dock-${id ?? 'base'}`}
           accessibilityRole="tab"
           accessibilityState={{ selected: on }}
-          onPress={() => (on ? undefined : void store.openAgent(a.name))}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, height: 32, paddingLeft: space.md, paddingRight: closable && on ? space.xs : space.md }}
+          onPress={() => tabs.select(id)}
+          style={{ height: 32, justifyContent: 'center', paddingLeft: space.md, paddingRight: closable ? space.xs : space.md }}
         >
-          <StateMark agent={a} />
           <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: on ? '700' : '500', fontSize: font.size.body }}>
-            {shortName(a.name, a.name.split('.')[0]!)}
+            {label}
           </Text>
         </Pressable>
-        {closable && on ? (
-          <Pressable testID={`dock-close-${a.name}`} accessibilityRole="button" accessibilityLabel={`Close ${a.name} tab`} hitSlop={8} onPress={() => (tabs.close(a.name), props.onBack())} style={{ paddingRight: space.sm }}>
+        {closable ? (
+          <Pressable testID={`dock-close-${id}`} accessibilityRole="button" accessibilityLabel={`Close ${label} tab`} hitSlop={8} onPress={() => tabs.close(id!)} style={{ paddingRight: space.sm }}>
             <Icon name="close" decorative size={14} color={c.muted} />
           </Pressable>
         ) : null}
@@ -67,9 +63,9 @@ export function AgentDock(props: { agent: string; onMenu: () => void; onBack: ()
       <Pressable testID="verbs-open" accessibilityRole="button" accessibilityLabel="Menu" onPress={props.onMenu} style={btn}>
         <Icon name="menu" decorative size={22} color={c.ink} />
       </Pressable>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center', gap: space.xs, paddingRight: space.sm }}>
-        {pinned.map((i) => tab(i.agent, false))}
-        {open.map((i) => tab(i.agent, true))}
+      <ScrollView ref={strip} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center', gap: space.xs, paddingRight: space.sm }}>
+        {tab(null, props.base, false)}
+        {tabs.tabs.map((t) => tab(t.id, tabLabel(t), true))}
       </ScrollView>
     </View>
   );

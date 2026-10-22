@@ -39,12 +39,14 @@ describe('the Tasks tab of the agent page', () => {
     m.store.stop();
   });
 
-  it('opens the task page and comes back', async () => {
+  it('opens a task as a tab and closes it', async () => {
     const m = await openTasks();
     await until(() => $('agent-task-1684'), 'the rows');
     await press($('agent-task-1684'));
-    await until(() => $('task-detail'), 'the task page');
+    await until(() => $('task-detail') && $('dock-task:1684'), 'the task tab');
     await press($('task-back'));
+    await until(() => !$('dock-task:1684'), 'the tab closed');
+    await press($('dock-tasks'));
     await until(() => $('agent-task-1684'), 'the list');
     m.store.stop();
   });

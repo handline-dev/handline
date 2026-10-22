@@ -31,6 +31,23 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
+  it('opens a file path and a task number in a message as tabs beside the chat', async () => {
+    const m = await mount(() => {}, undefined, 'founder');
+    await openChat();
+    await type('chat-input', 'see notes/plan.md and T1684');
+    await press($('chat-send'));
+    const find = (kind: string) => box.querySelector<HTMLElement>(`[data-testid^="${kind}-"][data-testid$="${kind === 'file' ? 'notes/plan.md' : '-1684'}"]`);
+    const link = async (kind: string) => (await until(() => find(kind), `the ${kind} link`), find(kind));
+    await press(await link('file'));
+    await until(() => $('dock-file:notes/plan.md'), 'the file dock tab');
+    await until(() => $('file-tab'), 'the file tab');
+    await press($('dock-base'));
+    await press(await link('task'));
+    await until(() => $('dock-task:1684') && $('task-detail'), 'the task tab');
+    expect($('dock-file:notes/plan.md')).not.toBeNull();
+    m.store.stop();
+  });
+
   it('shows the daemon’s sentence when the chat read is refused, and Retry reads again', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await until(() => $(`agent-${ARCH}`), 'the rows');
@@ -46,7 +63,7 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
-  it('shows the conversation with how far each message got, and what agents tell each other is in Activity', async () => {
+  it('shows the conversation with how far each message got', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await until(() => msgOf('Use the contract fixtures.'), 'the messages');
@@ -57,11 +74,6 @@ describe('the chat tab', () => {
     expect(text()).toContain('Here is the plan: three units, chat first.'); // the agent's reply
     expect(msgOf('Review is done, see the notes.')).toBeUndefined();
     expect($('scope-all')).toBeNull(); // no Mine/All menu
-    await pickTab('activity');
-    await until(() => text().includes('Review is done, see the notes.'), 'the agents’ messages');
-    expect(text()).toContain('auditor → architect'); // the team prefix is left off
-    expect(text()).not.toContain('handline.');
-    expect(text()).not.toContain('Not a reply');
     m.store.stop();
   });
 

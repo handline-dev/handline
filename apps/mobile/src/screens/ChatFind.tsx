@@ -17,7 +17,7 @@ export function ChatFind(props: {
     if (drawn) return onFound();
     if (locate.isError) return onLost();
     if (!where || chat.status !== 'ready') return;
-    if (where === 'all') return onLost(); // the message is in Activity, not in this chat
+    if (where === 'all') return onLost(); // the message belongs to another chat
     if (chat.loadingOlder) return;
     if (chat.hasOlder) chat.loadOlder();
     else onLost();

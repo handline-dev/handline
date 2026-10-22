@@ -1,8 +1,7 @@
 import { act } from 'react';
 import { Alert } from 'react-native';
 import { describe, expect, it, vi } from 'vitest';
-import { ARCH, $, mount, press, text, until, pickTab, tabLabel } from '#test/harness.tsx';
-import type { setup } from '@handline/fake-daemon/helpers';
+import { $, mount, press, text, until, pickTab, tabLabel } from '#test/harness.tsx';
 
 const AUD = 'handline.auditor'; // the fake daemon plays it as a structured session
 const open = async (m: Awaited<ReturnType<typeof mount>>, agent = AUD) => {
@@ -234,59 +233,6 @@ describe('a refused transcript read of a structured agent', () => {
     m.daemon.knobs.clear();
     await press(button('Retry'));
     await until(() => $('transcript'), 'the turns after Retry');
-    m.store.stop();
-  });
-});
-
-describe('tool output in the activity', () => {
-  const tool = (extra: object) => (s: ReturnType<typeof setup>) =>
-    s.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'seq 1 10', ...extra });
-  const chat = async (extra: object) => {
-    const m = await mount(tool(extra), undefined, 'founder');
-    await until(() => $(`agent-${ARCH}`), 'the rows');
-    await press($(`agent-${ARCH}`));
-    await until(() => $('chat-input'), 'the chat');
-    expect(document.body.querySelector('[data-testid^="tool-"]')).toBeNull(); // tools are not in the chat
-    await pickTab('activity');
-    return m;
-  };
-  const opener = () => document.body.querySelector<HTMLElement>('[data-testid^="tool-open-"]');
-
-  it('opens the output in full and says how many lines the store cut', async () => {
-    const m = await chat({ output: '1\n2\n', dropped_lines: 8 });
-    await until(opener, 'the tool line');
-    expect($('tool-output')).toBeNull();
-    await press(opener());
-    expect($('tool-output')!.textContent).toBe('1\n2\n');
-    expect($('tool-cut')!.textContent).toBe('8 more lines let go');
-    expect($('sheet')).toBeNull(); // in place, no sheet and no Close button
-    await press(opener());
-    expect($('tool-output')).toBeNull(); // a second tap folds it
-    m.store.stop();
-  });
-
-  it('says nothing about cut lines when none were', async () => {
-    const m = await chat({ output: 'a\n' });
-    await until(opener, 'the tool line');
-    await press(opener());
-    expect($('tool-output')!.textContent).toBe('a\n');
-    expect($('tool-cut')).toBeNull();
-    m.store.stop();
-  });
-
-  it('offers nothing to open for a tool without output', async () => {
-    const m = await chat({});
-    await until(() => document.body.querySelector('[data-testid^="tool-"]'), 'the tool line');
-    expect(opener()).toBeNull();
-    m.store.stop();
-  });
-
-  it('says how many lines were let go when all the output was', async () => {
-    const m = await chat({ output: '', dropped_lines: 5 });
-    const mine = () => [...document.body.querySelectorAll('[data-testid^="tool-"]')].find((e) => e.textContent?.includes('seq 1 10'));
-    await until(mine, 'the tool line');
-    expect(mine()!.textContent).toContain('5 more lines let go');
-    expect(opener()).toBeNull();
     m.store.stop();
   });
 });

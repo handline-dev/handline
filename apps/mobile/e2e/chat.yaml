@@ -26,8 +26,6 @@ appId: dev.handline.mobile
     id: chat-send
 - assertVisible: 'Phone chat works.*'
 - tapOn:
-    id: tab-activity
-- tapOn:
     id: tab-terminal
 - tapOn:
     id: tab-chat

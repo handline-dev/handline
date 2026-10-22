@@ -18,7 +18,7 @@ import { PrBody } from '#src/screens/PrBody.tsx';
 import { ChatFind } from '#src/screens/ChatFind.tsx';
 import { ChatRefs, type Ref } from '#src/screens/ChatRefs.tsx';
 import { HandoffLine } from '#src/screens/HandoffLine.tsx';
-import { Detail } from '#src/screens/Tasks.tsx';
+import { taskTab, useOpenInTab } from '#src/screens/AgentTabs.tsx';
 import { NeedsYouCard } from '#src/screens/NeedsYouCard.tsx';
 import { ChatSearch } from '#src/screens/ChatSearch.tsx';
 import { useChatImages } from '#src/screens/ChatImages.tsx';
@@ -72,7 +72,8 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
   const [text, setTextState] = useState(drafts.get(agent) ?? '');
-  const [openTask, setOpenTask] = useState<number | null>(null); // a task a batch card opened, drawn in place of the chat
+  const tabs = useOpenInTab();
+  const setOpenTask = (id: number) => tabs?.open(taskTab(id)); // a task a batch card opened is a tab beside the chat
   const scroll = useRef<ScrollView>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
   const [going, setGoing] = useState<number | null>(null); // a message number being found
@@ -133,7 +134,6 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   };
   const failure = chat.status === 'error' ? sentence(classify(chat.error)) : null;
   const working = chat.working.turn_running;
-  if (openTask !== null) return <Detail id={openTask} onBack={() => setOpenTask(null)} />;
   return (
     <View style={{ flex: 1 }}>
       {props.searching && (
@@ -148,7 +148,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
       {going !== null && <ChatFind id={going} chat={chat} drawn={drawn} onFound={found} onLost={lost} />}
       {missing && (
         <Text testID="search-lost" style={{ color: c.muted, paddingHorizontal: space.md }}>
-          That message is no longer in this chat.
+          That message is not in this chat.
         </Text>
       )}
       <ScrollView

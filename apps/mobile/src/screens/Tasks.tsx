@@ -248,14 +248,14 @@ function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () 
   );
 }
 
-export function Detail(props: { id: number; onBack: () => void }) {
+export function Detail(props: { id: number; onBack: () => void; backLabel?: string }) {
   const c = usePalette();
   const query = useTask(props.id);
   const { served } = useServes('task.get');
   const gone = query.isError && classify(query.error).kind === 'not_found';
   return (
     <View style={{ flex: 1 }}>
-      <PageHeader back={{ label: 'Tasks', onPress: props.onBack, testID: 'task-back' }} />
+      <PageHeader back={{ label: props.backLabel ?? 'Tasks', onPress: props.onBack, testID: 'task-back' }} />
       {gone ? (
         <Text testID="empty" style={{ color: c.muted, padding: space.lg }}>
           This task no longer exists.

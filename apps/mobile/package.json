@@ -36,8 +36,7 @@
     "react": "19.2.3",
     "react-native": "0.86.3",
     "react-native-svg": "15.15.4",
-    "react-native-view-shot": "5.1.0",
-    "react-native-webview": "^14.0.1"
+    "react-native-view-shot": "5.1.0"
   },
   "devDependencies": {
     "@handline/config": "workspace:*",

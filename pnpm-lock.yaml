@@ -129,9 +129,6 @@ importers:
       react-native-view-shot:
         specifier: 5.1.0
         version: 5.1.0(react-native@0.86.3(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
-      react-native-webview:
-        specifier: ^14.0.1
-        version: 14.0.1(react-native@0.86.3(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
     devDependencies:
       '@handline/config':
         specifier: workspace:*
@@ -8947,6 +8944,7 @@ snapshots:
       invariant: 2.2.4
       react: 19.2.3
       react-native: 0.86.3(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3)
+    optional: true
 
   react-native@0.86.3(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.3):
     dependencies:

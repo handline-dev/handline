@@ -315,7 +315,7 @@ describe('the chat tab', () => {
     m.store.stop();
   });
 
-  it('shows the conversation with how far each message got, and what agents tell each other is in Activity', async () => {
+  it('shows the conversation with how far each message got', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await openChat();
     await until(() => msgOf('Use the contract fixtures.'), 'the messages');
@@ -326,11 +326,6 @@ describe('the chat tab', () => {
     expect(text()).toContain('Here is the plan: three units, chat first.'); // the agent's reply
     expect(msgOf('Review is done, see the notes.')).toBeUndefined();
     expect($('scope-all')).toBeNull(); // no Mine/All menu
-    await pickTab('activity');
-    await until(() => text().includes('Review is done, see the notes.'), 'the agents’ messages');
-    expect(text()).toContain('auditor → architect'); // the team prefix is left off
-    expect(text()).not.toContain('handline.');
-    expect(text()).not.toContain('Not a reply');
     m.store.stop();
   });
 

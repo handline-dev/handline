@@ -8,10 +8,10 @@ import { Loadable } from '#src/screens/Loadable.tsx';
 import { Markdown } from '#src/screens/Markdown.tsx';
 import { Button } from '#src/screens/parts.tsx';
 
-export function AgentFile({ agent }: { agent: string }) {
+export function AgentFile({ agent, initial = '' }: { agent: string; initial?: string }) {
   const c = usePalette();
-  const [typed, setTyped] = useState('');
-  const [path, setPath] = useState('');
+  const [typed, setTyped] = useState(initial);
+  const [path, setPath] = useState(initial);
   const { q, served, saving, draft, setDraft, note, submit, edit, discard, editable } = useFileEditor(agent, path);
   const d = q.data;
   const open = () => setPath(typed.trim().replace(/^\.?\//, ''));
