@@ -49,7 +49,10 @@ test('a failure is a notice that stays in the list after the line goes, and the 
   const { store, client } = await open();
   store.reportError('start', new RpcError('refused', 'busy'));
   store.reportError('start', new RpcError('refused', 'busy'));
-  assert.deepEqual(store.notices.list().map((n) => [n.text, n.count]), [['start: busy', 2]]);
+  assert.deepEqual(
+    store.notices.list().map((n) => [n.text, n.count]),
+    [['start: busy', 2]],
+  );
   store.dismissError();
   assert.equal(store.error, null);
   assert.equal(store.notices.unread(), 1);
