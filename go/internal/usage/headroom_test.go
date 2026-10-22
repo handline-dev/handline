@@ -114,3 +114,83 @@ func TestHeadroomWithNoReadingHasNoAccountsAndEmptyPoints(t *testing.T) {
 		t.Fatalf("%+v", h)
 	}
 }
+
+// fast spent 60 of its week in the last day, half way through it: at that rate it hits the wall in under a day. Paced, it goes at the
+// rate that reaches 98 at its reset, and its 5h window at that over its weekly-to-5h ratio. Unpaced, at its last day's use.
+func TestThePacedGuessHoldsTheWeekToItsLineAndTheFiveHourWindowToItsShare(t *testing.T) {
+	now := int64(1_800_000_000)
+	reset := now + WeekS/2
+	var rows []sampleRow
+	for i := int64(0); i <= 24; i++ {
+		ts := now - 86400 + i*3600
+		rows = append(rows, headroomRow("fast", ts, float64(i)*2, now+2*3600, 20+float64(i)*2.5, reset))
+	}
+	paced := Paced{On: true, Target: 98, Ratio: func(string) (float64, bool) { return 0.13, true }}
+	h := HeadroomPaced(rows, now, now-3600, reset+3600, 3600, nil, paced)
+	a := h.Accounts[0]
+	if p := pointAt(t, a.Future, reset-3600+(now%3600)); p.Week == nil || *p.Week < 2-0.5 || *p.Week > 2+0.5 {
+		t.Errorf("paced: the week ends near 100-98 left: %v", p.Week)
+	}
+	if p := pointAt(t, a.Past, now); !near(p.Line, 100-49) {
+		t.Errorf("the line half way through the week: %v, want 51 left", p.Line)
+	}
+	weekRate := (98.0 - 80) / float64(reset-now)
+	if p := pointAt(t, a.Future, now+3600); !near(p.Five, 100-48-weekRate/0.13*3600) {
+		t.Errorf("the 5h window goes at the paced week rate over the ratio: %v, want %v", *p.Five, 100-48-weekRate/0.13*3600)
+	}
+	paced.On = false
+	h = HeadroomPaced(rows, now, now-3600, reset+3600, 3600, nil, paced)
+	if p := pointAt(t, h.Accounts[0].Future, now+8*3600); !near(p.Week, 0) {
+		t.Errorf("unpaced: at 2.5 an hour the week is gone in 8 hours: %v", p.Week)
+	}
+	if p := pointAt(t, h.Accounts[0].Future, now+3600); !near(p.Line, 100-98*(float64(WeekS/2+3600)/WeekS)) {
+		t.Errorf("the line is given with pacing off too: %v", p.Line)
+	}
+}
+
+// A reading hours old, or one at the wall, keeps its figure until its reset instead of leaving the guess.
+func TestAStaleAccountKeepsItsLastReadingUntilItsReset(t *testing.T) {
+	now := int64(1_800_000_000)
+	reset := now + 86400
+	rows := []sampleRow{headroomRow("walled", now-10*3600, 100, now-5*3600, 99, reset)}
+	h := HeadroomPaced(rows, now, now-3600, now+2*86400, 3600, nil, Paced{On: true, Target: 98, Ratio: func(string) (float64, bool) { return 0, false }})
+	f := h.Accounts[0].Future
+	if p := pointAt(t, f, now+3600); !near(p.Week, 1) {
+		t.Errorf("before its reset it keeps 99 used: %v", p.Week)
+	}
+	if p := pointAt(t, f, reset+3600); !near(p.Week, 100) {
+		t.Errorf("after its reset it starts from nothing: %v", p.Week)
+	}
+}
+
+// The backtest: an account the daemon holds to its line (its use wanders a few points around it within a day) is guessed two, three and
+// four days into its week, and each guess is held to what the rest of the week recorded.
+func TestBacktestAPacedAccountsGuessFollowsWhatItThenUsed(t *testing.T) {
+	start := int64(1_800_000_000)
+	reset := start + WeekS
+	usedAt := func(ts int64) float64 {
+		share := float64(ts-start) / WeekS
+		return max(0, 98*share+3*math.Sin(float64(ts-start)/3000))
+	}
+	var rows []sampleRow
+	for ts := start; ts < reset; ts += 1800 {
+		rows = append(rows, headroomRow("a", ts, 20, ts+3600, usedAt(ts), reset))
+	}
+	paced := Paced{On: true, Target: 98, Ratio: func(string) (float64, bool) { return 0.13, true }}
+	for _, at := range []int64{start + 2*86400, start + 3*86400, start + 4*86400} {
+		var seen []sampleRow
+		for _, r := range rows {
+			if ts, _ := num(r["ts"]); int64(ts) <= at {
+				seen = append(seen, r)
+			}
+		}
+		h := HeadroomPaced(seen, at, at, reset-1800, 1800, nil, paced)
+		worst := 0.0
+		for _, p := range h.Accounts[0].Future {
+			worst = max(worst, math.Abs(*p.Week-(100-usedAt(p.At))))
+		}
+		if worst > 8 {
+			t.Errorf("guessed %d days in: off by up to %.1f points of the week, want at most 8", (at-start)/86400, worst)
+		}
+	}
+}

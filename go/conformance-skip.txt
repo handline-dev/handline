@@ -1,6 +1,4 @@
 # Fixtures the Go run plays as an agent that fail on a gap too big for the change that gave the run its agent connection,
 # and ones waiting on a notice from the watcher, which this run does not start (no -terminal-tick -cutover).
-# stats.outlook.by_account_shape fails until the daemon serves stats.outlook by_account (T5553's outlook step).
 # contract/conformance.py --skip-file reads one per line. The fixtures still run: one that passes, or a name no fixture has, fails the run.
 prefs.set.stores_and_tells_the_prefs_topic
-stats.outlook.by_account_shape
