@@ -172,7 +172,7 @@ func HeadroomOver(rows []sampleRow, now, from, to, step int64, ends map[string]f
 
 // Paced is how stats.outlook's by_account guesses: each window at its use over the last day, and an account whose last reading is stale
 // keeps it until its reset. With On, an account's week goes at no more than its pace line's rate (to Target at the end of its week)
-// and its 5h window at no more than that over Ratio, its measured weekly-to-5h ratio. Line is given either way.
+// and its 5h window at no more than that over Ratio, its measured weekly-to-5h ratio, and each point has its Line.
 type Paced struct {
 	On     bool
 	Target float64
@@ -184,9 +184,10 @@ func HeadroomPaced(rows []sampleRow, now, from, to, step int64, ends map[string]
 	return headroomOver(rows, now, from, to, step, ends, &p)
 }
 
-// lineLeft is what the pace line leaves of the week at t, for the week that resets at reset and ends at end (0: the reset).
+// lineLeft is what the pace line leaves of the week at t, for the week that resets at reset and ends at end (0: the reset); nil with
+// pacing off.
 func (p *Paced) lineLeft(t, reset int64, end float64) *float64 {
-	if reset == 0 {
+	if !p.On || reset == 0 {
 		return nil
 	}
 	start, stop := float64(reset-WeekS), float64(reset)

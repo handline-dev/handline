@@ -143,8 +143,43 @@ func TestThePacedGuessHoldsTheWeekToItsLineAndTheFiveHourWindowToItsShare(t *tes
 	if p := pointAt(t, h.Accounts[0].Future, now+8*3600); !near(p.Week, 0) {
 		t.Errorf("unpaced: at 2.5 an hour the week is gone in 8 hours: %v", p.Week)
 	}
-	if p := pointAt(t, h.Accounts[0].Future, now+3600); !near(p.Line, 100-98*(float64(WeekS/2+3600)/WeekS)) {
-		t.Errorf("the line is given with pacing off too: %v", p.Line)
+	if p := pointAt(t, h.Accounts[0].Future, now+3600); p.Line != nil {
+		t.Errorf("no line with pacing off: %v", *p.Line)
+	}
+	if p := pointAt(t, h.Accounts[0].Past, now); p.Line != nil {
+		t.Errorf("no line looking back with pacing off: %v", *p.Line)
+	}
+}
+
+// slow's week resets in a day; it used 40 points in the last day, faster than the line. Two days past the reset its new week goes at
+// the line's rate, not its last day's, and the line starts again from that reset.
+func TestPastTheWeeklyResetThePacedGuessAndTheLineStartAgain(t *testing.T) {
+	now := int64(1_800_000_000)
+	reset := now + 86400
+	var rows []sampleRow
+	for i := int64(0); i <= 24; i++ {
+		rows = append(rows, headroomRow("slow", now-86400+i*3600, 5, now+3600, 40+float64(i)*40/24, reset))
+	}
+	paced := Paced{On: true, Target: 98, Ratio: func(string) (float64, bool) { return 0, false }}
+	h := HeadroomPaced(rows, now, now, reset+3*86400, 3600, nil, paced)
+	p := pointAt(t, h.Accounts[0].Future, reset+2*86400)
+	if want := 100 - 98*2.0/7; !near(p.Week, want) {
+		t.Errorf("the week after the reset goes at 98 over the week: %v, want %v", *p.Week, want)
+	}
+	if want := 100 - 98*2.0/7; !near(p.Line, want) {
+		t.Errorf("the line restarts at the reset: %v, want %v", *p.Line, want)
+	}
+}
+
+// Before its week starts the line leaves all of it, after its end what Target leaves.
+func TestTheLineHoldsBeforeItsWeekAndAfterItsEnd(t *testing.T) {
+	p := Paced{On: true, Target: 98}
+	reset := int64(1_800_000_000)
+	if got := p.lineLeft(reset-WeekS-3600, reset, 0); !near(got, 100) {
+		t.Errorf("before the week: %v", *got)
+	}
+	if got := p.lineLeft(reset-3600, reset, float64(reset-86400)); !near(got, 2) {
+		t.Errorf("after an end before the reset: %v", *got)
 	}
 }
 
