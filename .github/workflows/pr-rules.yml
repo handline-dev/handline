@@ -1,5 +1,5 @@
-# The rules a pull request's text and base follow (tools/pr_checks.py body): sections Why, What changed, Evidence and Risk, an image
-# when apps/web or apps/mobile source changes, no Korean or message ids, base main or story/*. It reruns when the body is edited.
+# The rules a pull request's text and base follow (tools/pr_checks.py body): sections Why, What changed, Evidence and Risk,
+# no Korean or message ids, base main or story/*. Before/after shots go to the founder, not the body. It reruns when the body is edited.
 name: pr-rules
 
 on:

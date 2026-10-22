@@ -100,7 +100,7 @@ test('an event is a line unless it asks for a decision, and one cursor is taken 
   assert.equal(eventText(ev(4, 'notifications', 'account_out', { data: { account: 'alpha' } })), 'Account alpha is out');
 });
 
-test('agent events are filed under team, results under system, and the soonest toast end is known', () => {
+test('agent events are filed under team, results under system', () => {
   let t = 0;
   const n = new Notices(() => t);
   n.takeEvent({ cursor: 1, topic: 'notifications', type: 'task_done', agent: 'a', title: 'a done', data: {} } as unknown as WireEvent);
@@ -112,7 +112,15 @@ test('agent events are filed under team, results under system, and the soonest t
       ['a done', 'team'],
     ],
   );
-  assert.equal(n.nextExpiry(), 3000);
-  t = 3001;
-  assert.equal(n.nextExpiry(), null);
+});
+
+test('the listeners hear when a toast runs out, so a screen that draws on change takes it down', async () => {
+  const n = new Notices();
+  let heard = 0;
+  n.subscribe(() => heard++);
+  n.push('ok', 'x');
+  const after = heard;
+  await new Promise((r) => setTimeout(r, 3100));
+  assert.ok(heard > after);
+  assert.equal(n.toasts().length, 0);
 });
