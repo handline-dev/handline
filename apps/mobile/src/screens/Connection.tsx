@@ -34,7 +34,11 @@ export function Connection() {
             {l ? (
               <>
                 <Row id="address" label="Address" value={l.address} />
-                <Row id="encryption" label="Encryption" value={l.encryption === 'tls' ? 'Encrypted' : 'Tailscale (not encrypted by the daemon)'} />
+                <Row
+                  id="encryption"
+                  label="Encryption"
+                  value={l.encryption === 'tls' ? 'Encrypted' : 'Tailscale (not encrypted by the daemon)'}
+                />
                 {l.fingerprint ? <Row id="fingerprint" label="Fingerprint" value={l.fingerprint} small /> : null}
                 {l.tailscale_host ? <Row id="tailscale" label="Tailscale host" value={l.tailscale_host} /> : null}
               </>

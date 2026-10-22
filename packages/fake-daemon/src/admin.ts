@@ -27,7 +27,7 @@ const DEFAULTS: Settings['values'] = {
   token_prices: {},
   input_hold_idle_s: 600,
   handoff_prompt:
-    'Write your handoff to {path} now, while your prompt cache is warm, with one Write (replace what is there), then stop and run nothing else. The next session of you, if it starts fresh, reads it first: copy yourself into it. At most {max} characters, about 30 lines, only what `hl` and your memory cannot tell it: (1) what you were deciding and why; (2) what you meant to do next; (3) promises or doubts not yet on any task; (4) the founder\'s preferences and the pitfalls you learned this session; (5) who you wait on, as T<n>/#<n> numbers only. Do not restate what a task or message holds; cite its T or # number. A lasting lesson or preference goes to your memory first, not here. If there is nothing, write the single word: nothing.',
+    "Write your handoff to {path} now, while your prompt cache is warm, with one Write (replace what is there), then stop and run nothing else. The next session of you, if it starts fresh, reads it first: copy yourself into it. At most {max} characters, about 30 lines, only what `hl` and your memory cannot tell it: (1) what you were deciding and why; (2) what you meant to do next; (3) promises or doubts not yet on any task; (4) the founder's preferences and the pitfalls you learned this session; (5) who you wait on, as T<n>/#<n> numbers only. Do not restate what a task or message holds; cite its T or # number. A lasting lesson or preference goes to your memory first, not here. If there is nothing, write the single word: nothing.",
   push_prompt_asked: true,
   push_task_done: true,
   push_stall: true,
@@ -306,7 +306,9 @@ export class FakeAdmin {
   connection(): ConnectionInfo {
     return {
       served_by: this.noListener ? 'gateway' : 'daemon',
-      listener: this.noListener ? null : { address: '192.168.1.20:7777', encryption: 'tls', fingerprint: FINGERPRINT, tailscale_host: null },
+      listener: this.noListener
+        ? null
+        : { address: '192.168.1.20:7777', encryption: 'tls', fingerprint: FINGERPRINT, tailscale_host: null },
       heavy_slots: { slots: 1, dir: '/home/fake/.handline/heavy-slots' },
       dev_mode: this.values.dev_mode === true,
     };

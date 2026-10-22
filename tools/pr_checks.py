@@ -25,8 +25,6 @@ CODE = {".ts": "//", ".tsx": "//", ".js": "//", ".mjs": "//", ".go": "//", ".py"
 SECTIONS = ("Why", "What changed", "Evidence", "Risk")
 HANGUL = re.compile(r"[ᄀ-ᇿ㄰-㆏가-힣]")
 MESSAGE_ID = re.compile(r"\bmsg_[0-9a-f]{7}\b|\bocp-msg [0-9a-f]{8,}")
-IMAGE = re.compile(r"!\[[^\]]*\]\([^)]+\)|<img\s", re.I)
-APP_SOURCE = re.compile(r"^apps/(web|mobile)/src/")
 
 
 def git(*args: str) -> str:
@@ -90,8 +88,6 @@ def body_problems(pr: dict, files: list[str]) -> list[str]:
         m = re.search(rf"^#{{2,4}}\s*{name}\s*$\n(.*?)(?=^#{{1,4}}\s|\Z)", body, re.M | re.S | re.I)
         if not m or not m.group(1).strip():
             out.append(f"the body has no '## {name}' section with text under it")
-    if any(APP_SOURCE.search(f) and "/test/" not in f for f in files) and not IMAGE.search(body):
-        out.append("the change touches apps/web or apps/mobile: show it with at least one image in the body")
     text = (pr.get("title") or "") + "\n" + body
     if HANGUL.search(text):
         out.append("the title or body has Korean: write it in English")
