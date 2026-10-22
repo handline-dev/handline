@@ -12,6 +12,7 @@ import { Loadable } from '#src/screens/Loadable.tsx';
 import { AppUpdate } from '#src/screens/AppUpdate.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
 import { Sheet } from '#src/screens/TaskActions.tsx';
+import { PairedDevices } from '#src/screens/PairedDevices.tsx';
 
 function Note(props: { error: unknown; pending: boolean; bad?: string | null; testID: string }) {
   const c = usePalette();
@@ -251,6 +252,7 @@ function Devices(props: { onUnpair: () => void }) {
       <Text style={{ color: c.ink, fontWeight: '700' }}>Devices</Text>
       <Text style={{ color: c.muted }}>This phone</Text>
       <Button testID="unpair" label="Unpair this phone" onPress={props.onUnpair} style={{ alignSelf: 'flex-start' }} />
+      <PairedDevices />
     </View>
   );
 }
