@@ -1,12 +1,11 @@
 # Fixtures the Go run plays as an agent that fail on a gap too big for the change that gave the run its agent connection,
 # and ones waiting on a notice from the watcher, which this run does not start (no -terminal-tick -cutover).
-# The pacing fixtures (contract/fixtures/pacing.json) fail until the daemon paces accounts (T5552's daemon step).
 # contract/conformance.py --skip-file reads one per line. The fixtures still run: one that passes, or a name no fixture has, fails the run.
 # prefs.get.serves_the_whole_nav fails until the daemon keeps the nav order.
-accounts.list.usage_carries_the_pace
+# The chat.search agent, with and since fixtures fail until the daemon serves agents their own search.
+chat.search.an_agent_finds_what_it_sent
+chat.search.an_agent_never_sees_others
+chat.search.since_leaves_out_older
+chat.search.with_names_the_other_party
 prefs.get.serves_the_whole_nav
 prefs.set.stores_and_tells_the_prefs_topic
-settings.get.pacing_defaults
-settings.set.pace_keys_set_and_null_resets_them
-settings.set.pace_target_over_100_is_bad_request
-stats.outlook.by_account_shape

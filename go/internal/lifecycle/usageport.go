@@ -53,6 +53,12 @@ func (u *UsageAdapter) Fit(acct, agent string) bool {
 // CapOf is how many agents the account may have mid-turn at once, shrunk where it would be cut off before a reset.
 func (u *UsageAdapter) CapOf(acct string) int { return u.Env.CapNow(u.Q, acct) }
 
+// CapUnpaced is CapOf without the pace.
+func (u *UsageAdapter) CapUnpaced(acct string) int { return u.Env.CapUnpaced(u.Q, acct) }
+
+// Pace is the account's weekly pace now.
+func (u *UsageAdapter) Pace(acct string) *usage.Pace { return u.Env.PaceNow(acct) }
+
 // Headroom is what the account's weekly bucket still holds.
 func (u *UsageAdapter) Headroom(acct string) (float64, bool) { return u.Env.Headroom(acct) }
 

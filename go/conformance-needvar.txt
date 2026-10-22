@@ -12,6 +12,8 @@ agent.create.runs_to_done
 agent.create.runs_to_failed
 agent.force_start.state_gate_refuses_an_agent_the_load_does_not_hold
 agent.get.cwd_and_can
+agent.get.doing_is_null_at_rest
+agent.get.doing_names_the_tool_call
 agent.get.needs_you_is_null_when_nothing_waits
 agent.get.needs_you_is_set_while_a_decision_waits
 agent.get.view_attention_alert

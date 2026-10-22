@@ -62,6 +62,12 @@ func (e *Env) now() time.Time {
 	return time.Now()
 }
 
+// capturedPrefix and capturedLayout are the record's time line, which Where reads back for the record's age.
+const (
+	capturedPrefix = "captured: "
+	capturedLayout = "2006-01-02 15:04:05"
+)
+
 // statusLines is enough to see what is in flight; the rest is `git status` away.
 const statusLines = 20
 
@@ -355,7 +361,7 @@ func (e *Env) Capture(agent, closedSession string) (string, []string, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	lines := []string{"# handoff · " + agent, "captured: " + e.now().Format("2006-01-02 15:04:05"), request}
+	lines := []string{"# handoff · " + agent, capturedPrefix + e.now().Format(capturedLayout), request}
 	progress, err := e.progressLines(agent)
 	if err != nil {
 		return "", nil, err

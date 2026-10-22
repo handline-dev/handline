@@ -20,7 +20,27 @@ export interface AgentFixture {
   session: string | null;
   wall?: boolean;
   /** AgentView fields the agent_view_fields and agent_view_attention conformance fixtures pin, served as they are. */
-  view?: Partial<Pick<AgentView, 'kind' | 'task_count' | 'ready' | 'wall' | 'fire' | 'attention' | 'cache_ignored' | 'config_error' | 'needs_you' | 'has_dialog' | 'last_to_founder' | 'founder_unread' | 'state_detail' | 'handoff' | 'status'>>;
+  view?: Partial<
+    Pick<
+      AgentView,
+      | 'kind'
+      | 'task_count'
+      | 'ready'
+      | 'wall'
+      | 'fire'
+      | 'attention'
+      | 'cache_ignored'
+      | 'config_error'
+      | 'needs_you'
+      | 'has_dialog'
+      | 'last_to_founder'
+      | 'founder_unread'
+      | 'state_detail'
+      | 'handoff'
+      | 'status'
+      | 'doing'
+    >
+  >;
 }
 
 export const AGENTS: AgentFixture[] = [
@@ -100,8 +120,16 @@ export function seedChat(chat: FakeChat, at: string): void {
     prompt: { id: 'p1', agent: A, kind: 'permission', tool: 'Bash', command: 'git status', lines: [], options: [], since: ago(46) },
   });
   chat.seedItem(A, { at: ago(48), kind: 'tool', tool: 'Read', text: 'docs/pc-app-gaps.md' });
-  chat.seedItem(A, { at: ago(47), kind: 'task_event', task_event: { event: 'opened', task: 1684, request: null, evidence: null, who: 'human' } });
-  chat.seedItem(A, { at: ago(25), kind: 'task_event', task_event: { event: 'done', task: 1684, request: null, evidence: 'auditor PASS', who: A } });
+  chat.seedItem(A, {
+    at: ago(47),
+    kind: 'task_event',
+    task_event: { event: 'opened', task: 1684, request: null, evidence: null, who: 'human' },
+  });
+  chat.seedItem(A, {
+    at: ago(25),
+    kind: 'task_event',
+    task_event: { event: 'done', task: 1684, request: null, evidence: 'auditor PASS', who: A },
+  });
   chat.seedItem(A, {
     at: ago(20),
     kind: 'task_event',
@@ -197,10 +225,30 @@ export function seedTasks(tasks: FakeTasks, at: string): void {
       { at: ago(300), by: me, field: 'assignee', was: '', now: 'handline.architect' },
       { at: ago(290), by: 'handline.architect', field: 'state', was: 'queued', now: 'doing' },
       { at: ago(280), by: me, field: 'title', was: 'Web UI plan', now: 'Web UI design' },
-      { at: ago(270), by: 'handline.architect', field: 'body', was: 'Plan the web UI.', now: 'Plan the web UI.\n\nThree units, chat first.' },
+      {
+        at: ago(270),
+        by: 'handline.architect',
+        field: 'body',
+        was: 'Plan the web UI.',
+        now: 'Plan the web UI.\n\nThree units, chat first.',
+      },
       { at: ago(262), by: 'handline.pc', field: 'memo', was: '', now: 'Chat first, then tasks.', memo: 1 },
-      { at: ago(250), by: 'handline.auditor', field: 'state', was: 'doing', now: 'done', note: 'auditor PASS on 3f2a9c1; screenshot attached' },
-      { at: ago(246), by: 'handline.pc', field: 'memo', was: 'Chat first, then tasks.', now: 'Chat first, then tasks, then the timeline.', memo: 1 },
+      {
+        at: ago(250),
+        by: 'handline.auditor',
+        field: 'state',
+        was: 'doing',
+        now: 'done',
+        note: 'auditor PASS on 3f2a9c1; screenshot attached',
+      },
+      {
+        at: ago(246),
+        by: 'handline.pc',
+        field: 'memo',
+        was: 'Chat first, then tasks.',
+        now: 'Chat first, then tasks, then the timeline.',
+        memo: 1,
+      },
       { at: ago(244), by: me, field: 'memo', was: 'Skip the gap list for now.', now: '', memo: 2 },
       { at: ago(240), by: me, field: 'assignee', was: 'handline.term-build', now: 'handline.architect' },
       { at: ago(236), by: me, field: 'priority', was: 'P2', now: 'P1' },

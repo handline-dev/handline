@@ -342,6 +342,108 @@
      }
     }
    ]
+  },
+  {
+   "name": "agent.get.doing_names_the_tool_call",
+   "spec": "agent.get",
+   "about": "A running agent whose turn has called a tool: doing is that call's line and when it began, in agent.get and in agents.list. Needs --var doing_agent: a running agent whose turn's newest tool call is Bash with text `sleep 30`.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{doing_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{doing_agent}}",
+      "doing": {
+       "text": "Bash sleep 30",
+       "at": {
+        "$type": "timestamp"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "agents.list",
+      "params": {}
+     },
+     "result": {
+      "agents": {
+       "$contains": {
+        "name": "{{doing_agent}}",
+        "doing": {
+         "text": "Bash sleep 30"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "agent.get.doing_is_null_at_rest",
+   "spec": "agent.get",
+   "about": "An agent with no turn running has doing null (or a daemon that does not send it leaves it out). Needs --var view_plain_agent.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{view_plain_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{view_plain_agent}}",
+      "doing": {
+       "$oneOf": [
+        {
+         "$type": "null"
+        },
+        {
+         "$absent": true
+        }
+       ]
+      }
+     }
+    }
+   ]
   }
  ]
 }

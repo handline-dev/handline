@@ -1,0 +1,37 @@
+{
+  "note": "Internal words that must not reach a screen. Each entry is a regex over one user-visible string; grow it from each founder correction.",
+  "ban": [
+    {
+      "re": "\\bQueued\\b",
+      "say": "Waiting"
+    },
+    {
+      "re": "\\bNot a reply\\b",
+      "say": "say what the message is"
+    },
+    {
+      "re": "\\b[Tt]ake back\\b",
+      "say": "Withdraw"
+    },
+    {
+      "re": "\\b[Uu]nmark\\b",
+      "say": "Clear the mark"
+    },
+    {
+      "re": "^\\s*Resume\\s*$",
+      "say": "Continue"
+    },
+    {
+      "re": "\\b[Nn]o terminal\\b",
+      "say": "say what the person can do instead"
+    },
+    {
+      "re": "\\bYOU\\b",
+      "say": "You"
+    },
+    {
+      "re": "has not looked at it yet",
+      "say": "Waiting to start"
+    }
+  ]
+}

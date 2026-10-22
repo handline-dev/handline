@@ -109,7 +109,7 @@ A method marked write takes a required `request_id`.
 | `chat.locate` | member |  | `request`, `agent?`, `limit?` | `{agent, scope, message, messages, more_older, more_newer, transcript, transcript_more_older, transcript_more_newer}` | `not_found`, `bad_request` |  |
 | `agent.strip` | member |  | `agent` | `{agent, model, account, ctx_pct, ctx_used, ctx_limit, cache_left_s, screen_word, screen_detail} & ReadCursor` | `not_found`, `bad_request` |  |
 | `chat.refs` | member |  | `agent` | `{requests}` | `not_found`, `bad_request` |  |
-| `chat.search` | member |  | `agent?`, `query`, `scope?`, `limit?` | `{messages}` | `bad_request`, `not_found` |  |
+| `chat.search` | agent |  | `agent?`, `query`, `scope?`, `with?`, `since?`, `limit?` | `{messages}` | `bad_request`, `not_found`, `refused` | role |
 | `chat.send` | member | yes | `agent`, `body`, `task?`, `parent?`, `attachments?`, `parent_item?`, `delivery?`, `request_id` | `Accepted & {request, receipt}` | `refused`, `not_found`, `bad_request` |  |
 | `chat.send_now` | member | yes | `request`, `request_id` | `Accepted & {receipt}` | `refused`, `not_found`, `bad_request` |  |
 | `chat.cancel` | member | yes | `request`, `confirm?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -379,7 +379,7 @@ What a # in the composer can point at: the agent's newest requests. The agent's 
 
 ### `chat.search`
 
-Find messages by text; each hit carries the scope that shows it (the jump is chat.locate).
+Find messages by text; each hit carries the scope that shows it (the jump is chat.locate). An agent searches only its own messages: `agent` absent is the caller, any other name is refused (gate role).
 
 ### `chat.send`
 
