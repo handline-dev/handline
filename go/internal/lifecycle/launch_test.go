@@ -784,3 +784,22 @@ func TestAResumeBuildCarriesTheSessionToItsAccount(t *testing.T) {
 		t.Fatal("the session was not carried to the account the resume runs on")
 	}
 }
+
+// A fresh start is given the daemon's own record of where it was, with a handoff or without one.
+func TestAFreshStartIsToldWhereItWas(t *testing.T) {
+	r := newLaunchRig(t)
+	tid, _ := db.NewTask(r.l.Q, "the held task", "ann", "boss", 0, 2, "", 0, "")
+	if _, err := db.SetTaskQueued(r.l.Q, tid, "boss"); err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range []string{"", "left off here"} {
+		_ = db.SetHandoff(r.l.Q, "ann", record)
+		text, err := r.l.ContextFor("ann")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(text, "# Where you were (the daemon's record)") || !strings.Contains(text, "- the held task") {
+			t.Errorf("record %q:\n%s", record, text)
+		}
+	}
+}
