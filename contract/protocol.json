@@ -277,7 +277,7 @@
    "preparing": "Has work and the daemon starts or sends it at its next tick; nothing stands in the way. Reasons: work, restart, retry.",
    "starting": "A launch is in progress (agents). Reason: launch.",
    "running": "Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, watch, handoff, background.",
-   "waiting": "Held by something the daemon names: a person, another task, the owner, a clock, an account move, the machine's load. Reasons: you, opener, task, owner, clock, move, load.",
+   "waiting": "Held by something the daemon names: a person, another task, the owner, a clock, an account move, the machine's load, an account's pace. Reasons: you, opener, task, owner, clock, move, load, pace.",
    "stopped": "Will not go on by itself: no account has room (until the reset when it is known) or a person must unstall it. Reasons: wall, cap, stalled.",
    "idle": "At its prompt with nothing to do (agents). Reason: none.",
    "off": "Registered with no terminal and nothing waiting for it (agents). Reason: none.",
@@ -299,6 +299,7 @@
    "clock": "Waits for a time: until says when.",
    "move": "An account move is settling.",
    "load": "The machine is over a load limit (host_active_cap, load_per_core_pct, ram_free_min_pct): the daemon starts none of its work until it is under, by itself; text names the limit that tripped. agent.force_start lets it go once.",
+   "pace": "Every account it may run on has no free slot only because of its weekly pace (Account.pace; without pacing one would have room): the daemon starts it when a slot frees or a line catches up, by itself, and a start goes to the account furthest behind its line. text names the account and how far ahead it is; until is the earliest back_at, null when not known. A turn a person starts (a message a person sends, a person's own start or wake) and a restart are never held. agent.force_start lets it go once.",
    "wall": "The account it would run on is at a usage limit; until is when the window rolls over, null when not known.",
    "cap": "No account has a free slot; it starts when a running turn ends.",
    "stalled": "Stopped until a person unstalls it; text says why it stopped.",
@@ -1450,7 +1451,7 @@
   },
   {
    "name": "agent.force_start",
-   "summary": "Let work the machine's load holds for an agent (status reason load) go past the load limits once: it starts at the next tick, and agent.timeline records it (load_limit_passed). Refused (gate state) when the load holds nothing of the agent's.",
+   "summary": "Let work that the machine's load or an account's pace holds for an agent (status reason load or pace) go past them once: it starts at the next tick, and agent.timeline records it (load_limit_passed, or pace_passed). Refused (gate state) when neither holds anything of the agent's.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -8038,7 +8039,7 @@
      "required": false,
      "schema": {
       "type": "boolean",
-      "description": "Add each account's plan, windows, ctx_pct, age_s, runway, assignable and assign_reason: what `hl account list` prints beside the windows. Default false."
+      "description": "Add each account's plan, windows, ctx_pct, age_s, runway, assignable, assign_reason and pace: what `hl account list` prints beside the windows. Default false."
      }
     }
    ],
@@ -9155,7 +9156,7 @@
   },
   {
    "name": "stats.headroom",
-   "summary": "Each account's 5h and weekly headroom over a span, recorded up to now and guessed after, its resets, and the average of what binds.",
+   "summary": "Retired: stats.outlook's by_account carries the same lines and the pace line, and no app reads this. It leaves the contract when the daemon stops serving it. Each account's 5h and weekly headroom over a span, recorded up to now and guessed after, its resets, and the average of what binds.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -12041,7 +12042,7 @@
      },
      "cap_effective": {
       "type": "integer",
-      "description": "The cap in force: cap, else the active_cap setting."
+      "description": "The cap in force: cap, else the active_cap setting; shrunk where an account's burn would reach a window's wall before it resets, and, with pacing on, by the account's pace (Account.pace)."
      },
      "recover": {
       "type": "boolean",
@@ -12264,6 +12265,60 @@
        }
       ],
       "description": "Set while the account is STALLED: a turn on it ended on an error that says the account itself cannot be used (a refused login, an org that disallows it, a hold or billing problem), or on one error the daemon does not name four times with no good turn between. No agent is placed on it; account.wake, a login or a good turn there ends it. null while it is usable. Absent from a daemon that does not send it."
+     },
+     "pace": {
+      "oneOf": [
+       {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+         "state": {
+          "type": "string",
+          "enum": [
+           "behind",
+           "ahead",
+           "over",
+           "off"
+          ],
+          "description": "behind: used_pct is at or under line_pct, and the cap is not shrunk for pace. ahead: over the line by at most pace_burst_pct points; the pace cap is ceil(cap x (line_pct + pace_burst_pct - used_pct) / pace_burst_pct), at least 1. over: further ahead; the pace cap is 0 and the account starts no new turn. off: the pacing setting is off; the figures are still given."
+         },
+         "line_pct": {
+          "type": "number",
+          "description": "Where the line is now: pace_target_pct times the share of the week that has passed. The week runs from its weekly reset less 7 days to its end (the reset, or the subscription end when that comes first)."
+         },
+         "used_pct": {
+          "type": "integer",
+          "description": "The weekly window's used percent the pace is judged on (the trusted reading, as `weekly`)."
+         },
+         "rate_pct_h": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Points of the week per hour the account may use from now to reach pace_target_pct at the end of its week: (pace_target_pct - used_pct) / hours left; 0 at or past the target."
+         },
+         "back_at": {
+          "oneOf": [
+           {
+            "$ref": "#/components/schemas/Timestamp"
+           },
+           {
+            "type": "null"
+           }
+          ]
+         }
+        },
+        "required": [
+         "state",
+         "line_pct",
+         "used_pct",
+         "rate_pct_h",
+         "back_at"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Only with accounts.list `usage: true`. The account's weekly pace (settings pacing, pace_target_pct, pace_burst_pct); null when its weekly reading is unknown, stale or its reset is not known. back_at: for state over, when the line will have caught up to within pace_burst_pct of used_pct at no further use; else null."
      }
     },
     "required": [
@@ -14195,6 +14250,25 @@
       "maximum": 100,
       "default": 10,
       "description": "Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work."
+     },
+     "pacing": {
+      "type": "boolean",
+      "default": true,
+      "description": "Hold each account to its weekly pace line (Account.pace): an account ahead of the line starts fewer turns, and one ahead by more than pace_burst_pct starts none (status reason pace) until the line catches up or another account has room. A turn a person starts is never held, and a running turn is never stopped. Off: only the windows' walls hold work."
+     },
+     "pace_target_pct": {
+      "type": "integer",
+      "minimum": 50,
+      "maximum": 100,
+      "default": 98,
+      "description": "Where each account's pace line ends: its weekly usage, in percent, at the end of its week (its weekly reset, or its subscription end when that comes first). Under 100 because a reading lags by minutes."
+     },
+     "pace_burst_pct": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 50,
+      "default": 10,
+      "description": "How far, in points of the week, an account may run ahead of its pace line. Inside it the account's cap shrinks in step; past it the account starts no new turn."
      }
     },
     "description": "Every global setting by its config.yaml name, with its default; every one is the founder's to set. Per-account keys (label, cap, usage recovery, cycle) are account.set; per-agent keys are agent.set and schedule.*; a key marked Per agent also takes `agent` in settings.set."
@@ -14427,6 +14501,43 @@
        }
       ],
       "description": "Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. null removes the key (back to the default)."
+     },
+     "pacing": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Hold each account to its weekly pace line (Account.pace): an account ahead of the line starts fewer turns, and one ahead by more than pace_burst_pct starts none (status reason pace) until the line catches up or another account has room. A turn a person starts is never held, and a running turn is never stopped. Off: only the windows' walls hold work. null removes the key (back to the default)."
+     },
+     "pace_target_pct": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 50,
+        "maximum": 100
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Where each account's pace line ends: its weekly usage, in percent, at the end of its week (its weekly reset, or its subscription end when that comes first). Under 100 because a reading lags by minutes. null removes the key (back to the default)."
+     },
+     "pace_burst_pct": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 50
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "How far, in points of the week, an account may run ahead of its pace line. Inside it the account's cap shrinks in step; past it the account starts no new turn. null removes the key (back to the default)."
      }
     },
     "description": "settings.set's changes: any of SettingsValues' keys; null removes one."
@@ -14528,7 +14639,7 @@
         "left_pct"
        ]
       },
-      "description": "A guess: each account keeps its pace of the last day, and a week that resets starts again from nothing used. Kept apart from `past`, never joined to it."
+      "description": "A guess. With pacing on, each account's week goes at the smaller of its pace (Account.pace rate_pct_h, which ends at pace_target_pct) and its use over the last day; with pacing off, at its use over the last day. A week that resets starts again from nothing used. An account whose last reading is stale or at a wall keeps that reading until its reset and is not left out. Kept apart from `past`, never joined to it."
      },
      "runway": {
       "type": "array",
@@ -14647,6 +14758,153 @@
        "type": "number"
       },
       "description": "Only with `agent`: the points of the combined week the pick had used by each time of `past`, one number per `past` entry in the same order: its cost share of each account times what that account had used so far, averaged over the accounts. Empty when the pick used nothing in the span or is not an agent or group. Absent from a daemon that does not send it."
+     },
+     "by_account": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "additionalProperties": false,
+       "properties": {
+        "account": {
+         "type": "string"
+        },
+        "past": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+           "at": {
+            "$ref": "#/components/schemas/Timestamp"
+           },
+           "five_left": {
+            "oneOf": [
+             {
+              "type": "number",
+              "description": "What the 5h window had left, in percent; null where it had no reading."
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "week_left": {
+            "oneOf": [
+             {
+              "type": "number",
+              "description": "What the weekly window had left, in percent; null where it had no reading."
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "line_left": {
+            "oneOf": [
+             {
+              "type": "number",
+              "description": "What the week would have left on the pace line at that time (100 - line_pct); null where its reset is not known or pacing is off."
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "at",
+           "five_left",
+           "week_left",
+           "line_left"
+          ]
+         },
+         "description": "What usage samples recorded, at the same points as `past`."
+        },
+        "future": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+           "at": {
+            "$ref": "#/components/schemas/Timestamp"
+           },
+           "five_left": {
+            "oneOf": [
+             {
+              "type": "number",
+              "description": "What the 5h window had left, in percent; null where it had no reading."
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "week_left": {
+            "oneOf": [
+             {
+              "type": "number",
+              "description": "What the weekly window had left, in percent; null where it had no reading."
+             },
+             {
+              "type": "null"
+             }
+            ]
+           },
+           "line_left": {
+            "oneOf": [
+             {
+              "type": "number",
+              "description": "What the week would have left on the pace line at that time (100 - line_pct); null where its reset is not known or pacing is off."
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "at",
+           "five_left",
+           "week_left",
+           "line_left"
+          ]
+         },
+         "description": "The guess of `future` for this account, at the same points; the 5h window keeps its use of the last day and starts again from nothing at its reset, so its line is a saw."
+        },
+        "resets": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+           "at": {
+            "$ref": "#/components/schemas/Timestamp"
+           },
+           "window": {
+            "type": "string",
+            "enum": [
+             "5h",
+             "7d"
+            ]
+           }
+          },
+          "required": [
+           "at",
+           "window"
+          ]
+         },
+         "description": "Resets in the span, oldest first: those samples recorded, then those guessed."
+        }
+       },
+       "required": [
+        "account",
+        "past",
+        "future",
+        "resets"
+       ]
+      },
+      "description": "Each account that has a reading in the span, by name: its windows and its pace line, for a chart per account. It replaces stats.headroom."
      }
     },
     "required": [
@@ -14656,7 +14914,8 @@
      "past",
      "future",
      "runway",
-     "cost_per_day"
+     "cost_per_day",
+     "by_account"
     ]
    },
    "TerminalBytesSnapshot": {

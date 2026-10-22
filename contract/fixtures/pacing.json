@@ -1,0 +1,373 @@
+{
+ "fixtures": [
+  {
+   "name": "settings.get.pacing_defaults",
+   "spec": "settings.get",
+   "about": "Pacing is on by default, aiming at 98% of the week with 10 points of burst.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.get",
+      "params": {}
+     },
+     "result": {
+      "values": {
+       "pacing": true,
+       "pace_target_pct": 98,
+       "pace_burst_pct": 10
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "settings.set.pace_target_over_100_is_bad_request",
+   "spec": "settings.set",
+   "about": "pace_target_pct is 50 to 100; nothing is written when it is refused.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.set",
+      "params": {
+       "changes": {
+        "pace_target_pct": 120
+       },
+       "request_id": "conf-pace-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "pace_target_pct"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "settings.set.pace_keys_set_and_null_resets_them",
+   "spec": "settings.set",
+   "about": "pacing and pace_burst_pct are set, read back, then null puts them back to their defaults.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.set",
+      "params": {
+       "changes": {
+        "pacing": false,
+        "pace_burst_pct": 5
+       },
+       "request_id": "conf-pace-2"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "settings.get",
+      "params": {}
+     },
+     "result": {
+      "values": {
+       "pacing": false,
+       "pace_burst_pct": 5
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "settings.set",
+      "params": {
+       "changes": {
+        "pacing": null,
+        "pace_burst_pct": null
+       },
+       "request_id": "conf-pace-3"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "settings.get",
+      "params": {}
+     },
+     "result": {
+      "values": {
+       "pacing": true,
+       "pace_burst_pct": 10
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "accounts.list.usage_carries_the_pace",
+   "spec": "accounts.list",
+   "about": "With usage, every account has pace: null when its week is unknown, else its state, line, use, rate and back_at.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "accounts.list",
+      "params": {
+       "usage": true
+      }
+     },
+     "result": {
+      "accounts": {
+       "$each": {
+        "name": {
+         "$type": "string"
+        },
+        "pace": {
+         "$oneOf": [
+          {
+           "$type": "null"
+          },
+          {
+           "state": {
+            "$oneOf": [
+             "behind",
+             "ahead",
+             "over",
+             "off"
+            ]
+           },
+           "line_pct": {
+            "$type": "number"
+           },
+           "used_pct": {
+            "$type": "integer"
+           },
+           "rate_pct_h": {
+            "$type": "number"
+           },
+           "back_at": {
+            "$oneOf": [
+             {
+              "$type": "timestamp"
+             },
+             {
+              "$type": "null"
+             }
+            ]
+           }
+          }
+         ]
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stats.outlook.by_account_shape",
+   "spec": "stats.outlook",
+   "about": "by_account gives each account's windows and pace line at the points of past and future, and its resets.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.outlook",
+      "params": {
+       "range": "24h"
+      }
+     },
+     "result": {
+      "by_account": {
+       "$each": {
+        "account": {
+         "$type": "string"
+        },
+        "past": {
+         "$each": {
+          "at": {
+           "$type": "timestamp"
+          },
+          "five_left": {
+           "$oneOf": [
+            {
+             "$type": "number"
+            },
+            {
+             "$type": "null"
+            }
+           ]
+          },
+          "week_left": {
+           "$oneOf": [
+            {
+             "$type": "number"
+            },
+            {
+             "$type": "null"
+            }
+           ]
+          },
+          "line_left": {
+           "$oneOf": [
+            {
+             "$type": "number"
+            },
+            {
+             "$type": "null"
+            }
+           ]
+          }
+         }
+        },
+        "future": {
+         "$each": {
+          "at": {
+           "$type": "timestamp"
+          },
+          "five_left": {
+           "$oneOf": [
+            {
+             "$type": "number"
+            },
+            {
+             "$type": "null"
+            }
+           ]
+          },
+          "week_left": {
+           "$oneOf": [
+            {
+             "$type": "number"
+            },
+            {
+             "$type": "null"
+            }
+           ]
+          },
+          "line_left": {
+           "$oneOf": [
+            {
+             "$type": "number"
+            },
+            {
+             "$type": "null"
+            }
+           ]
+          }
+         }
+        },
+        "resets": {
+         "$each": {
+          "at": {
+           "$type": "timestamp"
+          },
+          "window": {
+           "$oneOf": [
+            "5h",
+            "7d"
+           ]
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

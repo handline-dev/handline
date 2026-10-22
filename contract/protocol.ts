@@ -539,7 +539,7 @@ export type Account = {
   label: string;
   /** The account's own cap: most agents mid-turn at once; null follows active_cap. */
   cap: number | null;
-  /** The cap in force: cap, else the active_cap setting. */
+  /** The cap in force: cap, else the active_cap setting; shrunk where an account's burn would reach a window's wall before it resets, and, with pacing on, by the account's pace (Account.pace). */
   cap_effective: number;
   /** Whether a dead usage read may spend one real turn to fix itself (hl account recover). */
   recover: boolean;
@@ -597,6 +597,18 @@ export type Account = {
     /** The turn that showed it, in words. */
     detail: string;
     since: Timestamp;
+  } | null;
+  /** Only with accounts.list `usage: true`. The account's weekly pace (settings pacing, pace_target_pct, pace_burst_pct); null when its weekly reading is unknown, stale or its reset is not known. back_at: for state over, when the line will have caught up to within pace_burst_pct of used_pct at no further use; else null. */
+  pace?: {
+    /** behind: used_pct is at or under line_pct, and the cap is not shrunk for pace. ahead: over the line by at most pace_burst_pct points; the pace cap is ceil(cap x (line_pct + pace_burst_pct - used_pct) / pace_burst_pct), at least 1. over: further ahead; the pace cap is 0 and the account starts no new turn. off: the pacing setting is off; the figures are still given. */
+    state: "behind" | "ahead" | "over" | "off";
+    /** Where the line is now: pace_target_pct times the share of the week that has passed. The week runs from its weekly reset less 7 days to its end (the reset, or the subscription end when that comes first). */
+    line_pct: number;
+    /** The weekly window's used percent the pace is judged on (the trusted reading, as `weekly`). */
+    used_pct: number;
+    /** Points of the week per hour the account may use from now to reach pace_target_pct at the end of its week: (pace_target_pct - used_pct) / hours left; 0 at or past the target. */
+    rate_pct_h: number;
+    back_at: Timestamp | null;
   } | null;
 };
 
@@ -1082,6 +1094,12 @@ export type SettingsValues = {
   load_per_core_pct?: number;
   /** Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. */
   ram_free_min_pct?: number;
+  /** Hold each account to its weekly pace line (Account.pace): an account ahead of the line starts fewer turns, and one ahead by more than pace_burst_pct starts none (status reason pace) until the line catches up or another account has room. A turn a person starts is never held, and a running turn is never stopped. Off: only the windows' walls hold work. */
+  pacing?: boolean;
+  /** Where each account's pace line ends: its weekly usage, in percent, at the end of its week (its weekly reset, or its subscription end when that comes first). Under 100 because a reading lags by minutes. */
+  pace_target_pct?: number;
+  /** How far, in points of the week, an account may run ahead of its pace line. Inside it the account's cap shrinks in step; past it the account starts no new turn. */
+  pace_burst_pct?: number;
 };
 
 /** settings.set's changes: any of SettingsValues' keys; null removes one. */
@@ -1124,6 +1142,12 @@ export type SettingsChanges = {
   load_per_core_pct?: number | null;
   /** Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. null removes the key (back to the default). */
   ram_free_min_pct?: number | null;
+  /** Hold each account to its weekly pace line (Account.pace): an account ahead of the line starts fewer turns, and one ahead by more than pace_burst_pct starts none (status reason pace) until the line catches up or another account has room. A turn a person starts is never held, and a running turn is never stopped. Off: only the windows' walls hold work. null removes the key (back to the default). */
+  pacing?: boolean | null;
+  /** Where each account's pace line ends: its weekly usage, in percent, at the end of its week (its weekly reset, or its subscription end when that comes first). Under 100 because a reading lags by minutes. null removes the key (back to the default). */
+  pace_target_pct?: number | null;
+  /** How far, in points of the week, an account may run ahead of its pace line. Inside it the account's cap shrinks in step; past it the account starts no new turn. null removes the key (back to the default). */
+  pace_burst_pct?: number | null;
 };
 
 /** One method as a daemon lists it: its role and whether this caller may call it. */
@@ -1144,7 +1168,7 @@ export type Outlook = {
     at: Timestamp;
     left_pct: number | null;
   }[];
-  /** A guess: each account keeps its pace of the last day, and a week that resets starts again from nothing used. Kept apart from `past`, never joined to it. */
+  /** A guess. With pacing on, each account's week goes at the smaller of its pace (Account.pace rate_pct_h, which ends at pace_target_pct) and its use over the last day; with pacing off, at its use over the last day. A week that resets starts again from nothing used. An account whose last reading is stale or at a wall keeps that reading until its reset and is not left out. Kept apart from `past`, never joined to it. */
   future: {
     at: Timestamp;
     left_pct: number | null;
@@ -1177,6 +1201,29 @@ export type Outlook = {
   }[];
   /** Only with `agent`: the points of the combined week the pick had used by each time of `past`, one number per `past` entry in the same order: its cost share of each account times what that account had used so far, averaged over the accounts. Empty when the pick used nothing in the span or is not an agent or group. Absent from a daemon that does not send it. */
   overlay?: number[];
+  /** Each account that has a reading in the span, by name: its windows and its pace line, for a chart per account. It replaces stats.headroom. */
+  by_account: {
+    account: string;
+    /** What usage samples recorded, at the same points as `past`. */
+    past: {
+      at: Timestamp;
+      five_left: number | null;
+      week_left: number | null;
+      line_left: number | null;
+    }[];
+    /** The guess of `future` for this account, at the same points; the 5h window keeps its use of the last day and starts again from nothing at its reset, so its line is a saw. */
+    future: {
+      at: Timestamp;
+      five_left: number | null;
+      week_left: number | null;
+      line_left: number | null;
+    }[];
+    /** Resets in the span, oldest first: those samples recorded, then those guessed. */
+    resets: {
+      at: Timestamp;
+      window: "5h" | "7d";
+    }[];
+  }[];
 };
 
 export type TerminalBytesSnapshot = {
@@ -2747,7 +2794,7 @@ export interface Methods {
   "accounts.list": { params: {
   /** Add each account's agents_assigned, agents_running and agents_unplaced. Default false. */
   roster?: boolean;
-  /** Add each account's plan, windows, ctx_pct, age_s, runway, assignable and assign_reason: what `hl account list` prints beside the windows. Default false. */
+  /** Add each account's plan, windows, ctx_pct, age_s, runway, assignable, assign_reason and pace: what `hl account list` prints beside the windows. Default false. */
   usage?: boolean;
 }; result: {
     accounts: Account[];
@@ -3208,6 +3255,6 @@ export const STATE_WORDS = ["running", "idle", "queued", "starting", "parked", "
 
 /** x-status: the state and reason every agent and task carries; open sets for a client, which shows `text` for a word it does not know. */
 export const STATUS_STATES = ["preparing", "starting", "running", "waiting", "stopped", "idle", "off", "done"] as const;
-export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "watch", "handoff", "background", "you", "opener", "task", "owner", "clock", "move", "load", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
+export const STATUS_REASONS = ["work", "restart", "retry", "launch", "turn", "watch", "handoff", "background", "you", "opener", "task", "owner", "clock", "move", "load", "pace", "wall", "cap", "stalled", "none", "done", "discarded"] as const;
 
 export const ROLE_ORDER: Role[] = ["anonymous", "agent", "member", "founder"];
