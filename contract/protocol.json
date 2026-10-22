@@ -10193,6 +10193,31 @@
       "type": "string",
       "description": "The text drawn beside the state word (a clock, what a wait is for), at most 40 characters; empty when there is none. The state column is drawn from state and state_detail alone."
      },
+     "doing": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "text": {
+          "type": "string",
+          "description": "The running turn's newest tool call as the Activity tab draws its line: the tool and its text joined by a space, cut to 60 characters (Unicode code points, no ellipsis)."
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp",
+          "description": "When that call began."
+         }
+        },
+        "required": [
+         "text",
+         "at"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What a running agent is doing now, for the line under its name. null when no turn runs or the turn has called no tool yet. Absent from a daemon that does not send it. A change of doing alone is pushed (agent.changed) at most once every 5 s, with the newest value."
+     },
      "started": {
       "type": "boolean",
       "description": "Only with agents.list `status: true` (what `hl team` draws): whether the agent has ever run (a state row exists)."
