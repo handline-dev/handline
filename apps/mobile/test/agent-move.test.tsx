@@ -6,7 +6,8 @@ import { $, mount, press, sleep, until } from '#test/harness.tsx';
 /** Holds the pointer on the row past the long-press delay, then lets go. */
 const longPress = async (id: string) => {
   const el = $(id)!;
-  const fire = (type: string) => act(async () => void el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 })));
+  const fire = (type: string) =>
+    act(async () => void el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 })));
   await fire('mousedown');
   await sleep(700);
   await fire('mouseup');
