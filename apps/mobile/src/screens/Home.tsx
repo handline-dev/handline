@@ -53,7 +53,7 @@ function useBack(history: History) {
     () =>
       Platform.OS === 'ios'
         ? PanResponder.create({
-            onMoveShouldSetPanResponder: (e, g) => Math.abs(g.dx) > 20 && Math.abs(g.dy) < 30 && (edge(e.nativeEvent.pageX - g.dx)),
+            onMoveShouldSetPanResponder: (e, g) => Math.abs(g.dx) > 20 && Math.abs(g.dy) < 30 && edge(e.nativeEvent.pageX - g.dx),
             onPanResponderRelease: (_e, g) => void (Math.abs(g.dx) > 60 && (g.dx > 0 ? history.back() : history.forward())),
           }).panHandlers
         : {},
@@ -155,14 +155,12 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
               }}
             >
               <Icon name={NAV_ICON[t]} decorative size={20} color={tab === t ? c.ink : c.muted} />
-              <Text numberOfLines={1} adjustsFontSizeToFit style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400', fontSize: font.size.label }}>
-                {t === 'agents'
-                  ? 'Agents'
-                  : t === 'inbox'
-                    ? `Inbox${unread ? ` (${unread})` : ''}`
-                    : t === 'tasks'
-                      ? 'Tasks'
-                      : 'Usage'}
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400', fontSize: font.size.label }}
+              >
+                {t === 'agents' ? 'Agents' : t === 'inbox' ? `Inbox${unread ? ` (${unread})` : ''}` : t === 'tasks' ? 'Tasks' : 'Usage'}
               </Text>
             </Pressable>
           ))}

@@ -111,7 +111,9 @@ export class Notices {
   }
   /** When the soonest toast on screen runs out (ms since epoch), or null when none will: a screen draws again then. */
   nextExpiry(): number | null {
-    const times = this.toasts().filter((n) => !this.paused.has(n.id)).map((n) => this.shownUntil.get(n.id) ?? 0);
+    const times = this.toasts()
+      .filter((n) => !this.paused.has(n.id))
+      .map((n) => this.shownUntil.get(n.id) ?? 0);
     return times.length ? Math.min(...times) : null;
   }
   /** The pointer is over a toast: it stays until the pointer leaves, then runs its time out again. */

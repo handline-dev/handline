@@ -59,7 +59,15 @@ export function Toasts(props: { store: Store }) {
 export function NoticesPage(props: { store: Store; onClose: () => void }) {
   const c = usePalette();
   const list = useSelector((s) => s.notices.list());
-  const [fresh] = useState(() => new Set(props.store.notices.list().filter((n) => !n.read).map((n) => n.id)));
+  const [fresh] = useState(
+    () =>
+      new Set(
+        props.store.notices
+          .list()
+          .filter((n) => !n.read)
+          .map((n) => n.id),
+      ),
+  );
   useEffect(() => props.store.notices.markAllRead(), [props.store]);
   return (
     <ScrollView testID="notices-page" contentContainerStyle={{ padding: space.lg, gap: space.md }}>
