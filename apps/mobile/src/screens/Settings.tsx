@@ -12,6 +12,7 @@ import { Loadable } from '#src/screens/Loadable.tsx';
 import { Answers } from '#src/screens/StandingAnswers.tsx';
 import { AppUpdate } from '#src/screens/AppUpdate.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
+import { Connection } from '#src/screens/Connection.tsx';
 import { PairedDevices } from '#src/screens/PairedDevices.tsx';
 
 function Note(props: { error: unknown; pending: boolean; bad?: string | null; testID: string }) {
@@ -19,7 +20,11 @@ function Note(props: { error: unknown; pending: boolean; bad?: string | null; te
   const text = props.bad ?? (props.error ? `not saved: ${sentence(classify(props.error))}` : null);
   if (!props.pending && !text) return null;
   return (
-    <Text testID={props.testID} accessibilityRole={text ? 'alert' : undefined} style={{ color: text ? c.block : c.muted, fontSize: font.size.label }}>
+    <Text
+      testID={props.testID}
+      accessibilityRole={text ? 'alert' : undefined}
+      style={{ color: text ? c.block : c.muted, fontSize: font.size.label }}
+    >
       {text ?? 'saving…'}
     </Text>
   );
@@ -91,7 +96,13 @@ const secondsOf = (v: number | undefined) => (v === undefined ? '' : String(v));
 const LIMIT = 'a whole number, 0 for off, or empty for the default';
 
 /** A seconds row (as the web's NumberRow of Background and Notifications). */
-function Seconds(props: { id: string; label: string; hint: string; current: number | undefined; name: 'bg_notice_s' | 'bg_grace_s' | 'bg_check_s' | 'notice_digest_s' }) {
+function Seconds(props: {
+  id: string;
+  label: string;
+  hint: string;
+  current: number | undefined;
+  name: 'bg_notice_s' | 'bg_grace_s' | 'bg_check_s' | 'notice_digest_s';
+}) {
   return (
     <Field
       id={props.id}
@@ -107,7 +118,14 @@ function Seconds(props: { id: string; label: string; hint: string; current: numb
 }
 
 /** A machine load limit: a whole number, 0 for off. */
-function Limit(props: { id: string; label: string; hint: string; unit: string; current: number | undefined; name: 'host_active_cap' | 'load_per_core_pct' | 'ram_free_min_pct' }) {
+function Limit(props: {
+  id: string;
+  label: string;
+  hint: string;
+  unit: string;
+  current: number | undefined;
+  name: 'host_active_cap' | 'load_per_core_pct' | 'ram_free_min_pct';
+}) {
   return (
     <Field
       id={props.id}
@@ -163,6 +181,7 @@ function Devices(props: { onUnpair: () => void }) {
   const c = usePalette();
   return (
     <View testID="devices" style={{ gap: space.sm }}>
+      <Connection />
       <Text style={{ color: c.ink, fontWeight: '700' }}>Devices</Text>
       <Text style={{ color: c.muted }}>This phone</Text>
       <Button testID="unpair" label="Unpair this phone" onPress={props.onUnpair} style={{ alignSelf: 'flex-start' }} />
@@ -209,11 +228,7 @@ function Settings(props: { footer: React.ReactNode }) {
               {...capField(v.active_cap)}
               hint="Agents working at once on an account. An account with its own cap keeps it."
             />
-            <Field
-              id="idle"
-              {...idleField(v.park_timeout_s)}
-              hint="Idle time before a session closes. 0 is never."
-            />
+            <Field id="idle" {...idleField(v.park_timeout_s)} hint="Idle time before a session closes. 0 is never." />
             <Limit
               id="host-cap"
               label="Agents on this machine"
