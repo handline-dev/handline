@@ -49,3 +49,8 @@ export const mapPages = <P>(data: Pages<P>, f: (page: P, index: number) => P): P
 /** A negative id for a row the daemon has not numbered yet; each call gives a new one. */
 let provisional = 0;
 export const provisionalId = () => -(Date.now() * 1000 + (provisional++ % 1000));
+
+/** The provisional id each numbered row took over: a list keys the row by it, so the swap is one row that stays, not one leaving and one arriving. */
+const taken = new Map<number, number>();
+export const takeOver = (id: number, provisional: number) => void taken.set(id, taken.get(provisional) ?? provisional);
+export const rowKey = (id: number) => taken.get(id) ?? id;

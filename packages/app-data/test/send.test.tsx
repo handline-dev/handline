@@ -2,7 +2,7 @@ import { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setup } from '@handline/fake-daemon/helpers';
 import { Store } from '@handline/app-core';
-import { useChat, useChatActions } from '#src/index.ts';
+import { rowKey, useChat, useChatActions } from '#src/index.ts';
 import { mount, probe, unmount, until } from '#test/harness.tsx';
 
 afterEach(unmount);
@@ -37,6 +37,19 @@ describe('send as one operation with a receipt', () => {
     const [first, retry, other] = sends(spy);
     expect(retry).toBe(first);
     expect(other).not.toBe(first);
+  });
+
+  it('the numbered message takes the waiting row\'s key, so a list keeps one row instead of one leaving and one arriving', async () => {
+    const { daemon, v, rows } = await connected();
+    daemon.knobs.latency(200);
+    act(() => v.get().act.send('one row'));
+    await until(() => rows('one row').length === 1, 'the waiting row');
+    const waiting = rows('one row')[0]!.id;
+    expect(waiting).toBeLessThan(0);
+    daemon.knobs.latency(0);
+    await until(() => (rows('one row')[0]?.id ?? 0) > 0, 'the numbered row');
+    expect(rows('one row')).toHaveLength(1);
+    expect(rowKey(rows('one row')[0]!.id)).toBe(waiting);
   });
 
   it("a send's waiting row goes only in the chat of the agent it is said to", async () => {
