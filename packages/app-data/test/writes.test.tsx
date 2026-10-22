@@ -184,7 +184,7 @@ describe('every authored write: the change is on screen before the daemon answer
 describe('writes', () => {
   it('an automatic mark that is accepted leaves the error line alone', async () => {
     const store = openStore(stubClient(() => ({ accepted: true })));
-    store.error = 'old';
+    store.fail('old');
     const w = probe(() => useWrite('chat.seen', 'a'));
     await mount(store, w.node);
     act(() => w.get().mutate({ agent: 'a', through: 1 } as never));
@@ -195,7 +195,7 @@ describe('writes', () => {
   it('a write that is accepted keeps its edit and clears the error line', async () => {
     const stub = stubClient(() => ({ accepted: true }));
     const store = openStore(stub);
-    store.error = 'old';
+    store.fail('old');
     const w = probe(() => useWrite('inbox.reply'));
     const { qc } = await mount(store, w.node);
     qc.setQueryData(qk.inbox(D), { items: [inboxItem(1)], more: false });

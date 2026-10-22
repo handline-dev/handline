@@ -212,6 +212,19 @@ func (v *accountView) addUsage(acct map[string]any, a string, ld *usage.Load) {
 	acct["plan"], acct["windows"], acct["ctx_pct"], acct["age_s"] = plan, st.WindowReport(), ctx, age
 	acct["runway"] = usage.RunwayOf(st, burn, st.NowS(), ld).Describe()
 	acct["assignable"], acct["assign_reason"] = allowed, why
+	acct["pace"] = paceOf(v.ue.PaceNow(a))
+}
+
+// paceOf is Account.pace, nil when the account's week is not known.
+func paceOf(p *usage.Pace) any {
+	if p == nil {
+		return nil
+	}
+	var back any
+	if p.BackAt != 0 {
+		back = ts(p.BackAt)
+	}
+	return map[string]any{"state": p.State, "line_pct": p.Line, "used_pct": p.Used, "rate_pct_h": p.RateH, "back_at": back}
 }
 
 // loginOf is the account's latest web login as the accounts topic shows it, nil when none was started. It never has the authorize URL: only the founder's account.login reply does.

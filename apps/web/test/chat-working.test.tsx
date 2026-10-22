@@ -45,8 +45,28 @@ describe('the working indicator', () => {
     expect(box.querySelector('.working')).toBeNull();
     s.daemon.chat.seed(ARCH, { from: 'handline.auditor', to: ARCH, body: 'rebase the pane branch' });
     s.daemon.chat.setWorking(ARCH, true, 'Finding large disk users');
-    await until(() => box.querySelector('.working')?.getAttribute('title') === 'Finding large disk users', 'the indicator');
+    await until(() => box.querySelector('.working')?.getAttribute('title')?.includes('now: Finding large disk users'), 'the indicator');
     s.daemon.chat.setWorking(ARCH, false);
     await until(() => box.querySelector('.working') === null, 'the indicator gone');
+  });
+
+  it("counts this turn's commands, shows the newest, opens them on a click and folds to a count after the turn", async () => {
+    const s = setup();
+    s.daemon.chat.setWorking(ARCH, true);
+    s.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'git status' });
+    s.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Read', text: 'a.ts' });
+    location.hash = `#/agents/${ARCH}`;
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
+    });
+    await until(() => box.querySelector('textarea.compose'), 'the chat');
+    await until(() => box.querySelector('.working')?.textContent?.includes('2 commands · now: Read a.ts'), 'the live line');
+    expect(box.querySelector('[data-testid="turn-steps"]')).toBeNull();
+    await act(async () => box.querySelector<HTMLButtonElement>('.working')!.click());
+    expect(box.querySelectorAll('[data-testid="turn-steps"] [data-kind="tool"]').length).toBe(2);
+    s.daemon.chat.setWorking(ARCH, false);
+    await until(() => box.querySelector('.ran')?.textContent === 'Ran 2 commands', 'the folded line');
   });
 });

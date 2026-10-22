@@ -98,6 +98,7 @@ func (e *Env) settingsValues() map[string]any {
 	s := &lifecycle.Settings{Home: e.Home}
 	park := s.DefaultCloseTimeoutS()
 	limits := loadgate.LimitsOf(cfg)
+	pace := usage.PaceSettingsOf(cfg)
 	bgNotice := park
 	if bgNotice == 0 {
 		bgNotice = 1
@@ -120,6 +121,7 @@ func (e *Env) settingsValues() map[string]any {
 		"push_prompt_asked": s.Flag("push_prompt_asked", true), "push_task_done": s.Flag("push_task_done", true),
 		"push_stall": s.Flag("push_stall", true), "push_account_out": s.Flag("push_account_out", true),
 		loadgate.AgentCapKey: limits.Agents, loadgate.LoadPctKey: limits.LoadPct, loadgate.RAMFreePctKey: limits.RAMFreePct,
+		usage.PacingKey: pace.On, usage.PaceTargetKey: pace.Target, usage.PaceBurstKey: pace.Burst,
 	}
 }
 

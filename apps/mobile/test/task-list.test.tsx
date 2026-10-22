@@ -12,7 +12,7 @@ describe('the task list', () => {
     await tab('tasks');
     await until(() => $(`task-${MINE_DRAFT}`), 'the rows');
     expect(text()).toMatch(/Running \d/);
-    expect(text()).toMatch(/Queued \d/);
+    expect(text()).toMatch(/Up next \d/);
     await fill('tasks-search', String(MINE_DRAFT));
     await until(() => !text().includes('Running'), 'the narrowed list');
     expect($(`task-${MINE_DRAFT}`)).not.toBeNull();

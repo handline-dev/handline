@@ -2,7 +2,7 @@
 // own (authored: it shows at once and goes back with its own note when refused), and the standing answers. A section nav on the left, then one
 // card per section whose rows are a title, one grey line and the control on the right (docs/design-gaps.md G80).
 import { useEffect, useState } from 'react';
-import { capField, idleField, type KV } from '@handline/app-core';
+import { capField, idleField, limitFields, type KV } from '@handline/app-core';
 import { useServes, useSettings } from '@handline/app-data';
 import { Answers } from '#src/Answers.tsx';
 import { Devices } from '#src/Devices.tsx';
@@ -102,16 +102,15 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                         hint="Agents working at once on an account"
                         more="An account with its own cap keeps it"
                       />
+                      {limitFields(v).map((f) => (
+                        <NumberRow key={f.label} {...f} />
+                      ))}
                     </SettingsCard>
                   </section>
                   <section id="set-closing">
                     <SectionHead>Closing windows</SectionHead>
                     <SettingsCard>
-                      <NumberRow
-                        {...idleField(v.park_timeout_s)}
-                        hint="Idle time before a session closes"
-                        more="0 is never"
-                      />
+                      <NumberRow {...idleField(v.park_timeout_s)} hint="Idle time before a session closes" more="0 is never" />
                       <BackgroundRows notice={v.bg_notice_s} grace={v.bg_grace_s} check={v.bg_check_s} />
                     </SettingsCard>
                   </section>

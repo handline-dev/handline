@@ -222,7 +222,13 @@ export class FakeAccounts {
   private view(r: Account): Account {
     const agents = this.agentsOn(r.name);
     const running = [...this.host.sessions.values()].filter((s) => s.fx.account === r.name && ['running', 'waiting'].includes(s.fx.state));
-    return { ...r, agents, agents_assigned: agents.length, agents_running: running.length, cycle: { ...r.cycle } };
+    return {
+      ...r,
+      agents,
+      agents_assigned: r.agents_assigned ?? agents.length,
+      agents_running: r.agents_running ?? running.length,
+      cycle: { ...r.cycle },
+    };
   }
   private find(name: unknown): Account {
     const r = this.rows.find((x) => x.name === name);

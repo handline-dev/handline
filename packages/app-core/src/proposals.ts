@@ -38,6 +38,26 @@ export const kindOf = (p: Proposal): string => p.kind ?? p.title.split(' ')[0] ?
 export const textSafe = (s: string): string => s.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '');
 export const cutError = (s: string, n = 400): string => (s.length > n ? `${s.slice(0, n)}…` : s);
 
+/** A message number an agent put in its words ("msg_8aebff7", "ocp-msg 1a2b3c4d"): it means nothing to the person reading, so it is not shown. */
+const MESSAGE_REF = /[ \t]*\(?\b(?:msg_[0-9a-f]{7}|ocp-msg [0-9a-f]{8,})\b\)?/g;
+/** An agent's words made safe to show, without its message numbers. */
+export const plainText = (s: string): string =>
+  textSafe(s)
+    .replace(MESSAGE_REF, '')
+    .replace(/[ \t]+([,.;:])/g, '$1')
+    .trim();
+
+/** A bundle is one card for several changes, decided as a whole. */
+export const isBundle = (p: Proposal): boolean => kindOf(p) === 'bundle';
+
+/** The words of the button that opens the list of changes: a bundle counts its changes, any other says diff. */
+export function changesToggle(p: Proposal, open: boolean): string {
+  const n = diffLines(p).length;
+  const many = `${n} change${n === 1 ? '' : 's'}`;
+  if (isBundle(p)) return open ? 'Hide changes' : `Show ${many}`;
+  return open ? 'Hide diff' : `Show diff (${many})`;
+}
+
 /** The asked fields in the bridge's order: vendor, model, effort, team, repo, to, then each `set <key>`. */
 export function askedLines(p: Proposal): [string, string][] {
   const a = p.asked;

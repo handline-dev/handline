@@ -139,7 +139,12 @@ func (e *Env) outlookAt(name string, hours int, clock time.Time, pick *string) (
 	if err != nil {
 		return nil, err
 	}
-	out := usage.WeeklyOutlook(rows, now, hours, e.accountEnds(cfg, rows, clock))
+	ends := e.accountEnds(cfg, rows, clock)
+	out := usage.WeeklyOutlook(rows, now, hours, ends)
+	byAccount, future, err := e.outlookByAccount(ue, cfg, now, hours, ends)
+	if err != nil {
+		return nil, err
+	}
 	first := time.Date(clock.Year(), clock.Month(), clock.Day()-(days-1), 0, 0, 0, 0, time.Local)
 	cost, err := usage.DailyCost(e.DB, first.Unix()-1, now, usage.PricesFromConfig(cfg))
 	if err != nil {
@@ -183,10 +188,57 @@ func (e *Env) outlookAt(name string, hours int, clock time.Time, pick *string) (
 	for _, u := range uses {
 		agentUse = append(agentUse, agentUseOf(u))
 	}
-	res := map[string]any{"range": name, "now": ts(now), "accounts": out.Accounts, "past": points(out.Past), "future": points(out.Future),
-		"runway": runway, "cost_per_day": perDay, "agent_use": agentUse}
+	res := map[string]any{"range": name, "now": ts(now), "accounts": out.Accounts, "past": points(out.Past), "future": points(future),
+		"runway": runway, "by_account": byAccount, "cost_per_day": perDay, "agent_use": agentUse}
 	if pick != nil {
 		res["overlay"] = overlayOf(rows, uses, *pick, out.Past)
 	}
 	return res, nil
+}
+
+// outlookByAccount is stats.outlook's by_account, and its future: the accounts' weekly guess averaged, each going as usage.Paced does.
+func (e *Env) outlookByAccount(ue *usage.Env, cfg usage.Config, now int64, hours int, ends map[string]float64) ([]any, []usage.OutlookPoint, error) {
+	span := int64(hours) * 3600
+	rows, err := usage.SamplesSince(e.DB, now-max(span, 86400)-usage.OutlookMaxAgeS)
+	if err != nil {
+		return nil, nil, err
+	}
+	costs, _ := ue.LoadCosts(e.DB) // unread costs leave the 5h guess unpaced
+	ps := usage.PaceSettingsOf(cfg)
+	paced := usage.Paced{On: ps.On, Target: float64(ps.Target), Ratio: func(a string) (float64, bool) {
+		if costs == nil {
+			return 0, false
+		}
+		return costs.LongPerShort(a)
+	}}
+	h := usage.HeadroomPaced(rows, now, now-span, now+span, max(900, span*2/usage.OutlookPoints), ends, paced)
+	byAccount := []any{}
+	var future []usage.OutlookPoint
+	for _, a := range h.Accounts {
+		resets := []any{}
+		for _, r := range a.Resets {
+			resets = append(resets, map[string]any{"at": ts(r.At), "window": r.Window})
+		}
+		byAccount = append(byAccount, map[string]any{"account": a.Account, "past": headroomWindows(a.Past, true), "future": headroomWindows(a.Future, true),
+			"resets": resets})
+		for i, p := range a.Future {
+			if len(future) <= i {
+				future = append(future, usage.OutlookPoint{At: p.At})
+			}
+		}
+	}
+	for i := range future {
+		var sum float64
+		n := 0
+		for _, a := range h.Accounts {
+			if w := a.Future[i].Week; w != nil {
+				sum, n = sum+*w, n+1
+			}
+		}
+		if n > 0 {
+			avg := sum / float64(n)
+			future[i].Left = &avg
+		}
+	}
+	return byAccount, future, nil
 }
