@@ -17,6 +17,7 @@ async function openMenu(m: Awaited<ReturnType<typeof mount>>, agent: string) {
 describe('Delete agent', () => {
   it('asks first, deletes a leaf agent and leaves the page', async () => {
     const m = await openMenu(await mount(none, undefined, 'founder', { role: 'founder' }), LEAF);
+    await press($('verb-advanced'));
     await press($('verb-delete'));
     expect(text($('sheet'))).toContain(`Delete ${LEAF}?`);
     expect(text($('sheet'))).toContain('folder is moved to the archive');
@@ -30,6 +31,7 @@ describe('Delete agent', () => {
 
   it('keeps the sheet and says why when the daemon refuses', async () => {
     const m = await openMenu(await mount(none, undefined, 'founder', { role: 'founder' }), ARCH);
+    await press($('verb-advanced'));
     await press($('verb-delete'));
     await press($('sheet-submit'));
     await until(() => text($('sheet-error')).includes('has a session running'), 'the reason', 3000);

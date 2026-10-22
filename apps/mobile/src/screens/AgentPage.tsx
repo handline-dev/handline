@@ -138,7 +138,6 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       <AgentStrip agent={name} />
       {pageTab('chat', 'Chat')}
       {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
-      {hasChat && tab('activity', 'Activity', 'history', showActivity, () => tabs.open({ id: 'activity', kind: 'activity' }))}
       {hasFile && tab('file', 'File', 'note', showFile, () => tabs.open({ id: 'file:', kind: 'file', path: '' }))}
       {tab('preview', 'Preview', 'open', showPreview, () => tabs.open({ id: 'preview', kind: 'preview' }))}
       {hasTasks && tab('tasks', 'Tasks', 'tasks', showTasks, () => tabs.open({ id: 'tasks', kind: 'tasks' }))}
@@ -169,6 +168,7 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         onDeleted={() => void store.closeAgent()}
         onSettings={props.onSettings}
         before={views}
+        more={hasChat && tab('activity', 'Activity', 'history', showActivity, () => tabs.open({ id: 'activity', kind: 'activity' }))}
         stops={[
           ...(ctl.stop && !structured ? [{ id: 'exit', label: 'Exit', danger: false }] : []),
           ...(ctl.stop ? [{ id: 'close', label: 'Close', danger: false }, { id: 'kill', label: 'Kill', danger: true }] : []),

@@ -38,6 +38,8 @@ export function AgentVerbs(props: {
   onDeleted?: () => void;
   /** Rows the page puts at the top of the menu. */
   before?: ReactNode;
+  /** Rarely used rows the page adds under Advanced. */
+  more?: ReactNode;
   /** Stops the page offers (Exit, Close, Kill): in the menu, where a mis-tap costs less. */
   stops?: { id: string; label: string; danger: boolean }[];
   onStop?: (mode: string) => void;
@@ -74,20 +76,6 @@ export function AgentVerbs(props: {
           {verbs.map((v) => (
             <VerbItem key={v.id} v={v} onPress={() => pick(v)} />
           ))}
-          {props.stops?.map((s) => (
-            <MenuItem
-              key={s.id}
-              testID={`stop-${s.id}`}
-              label={s.label}
-              icon={STOP_ICON[s.id]}
-              danger={s.danger}
-              disabled={props.disabled}
-              onPress={() => {
-                setOpen(false);
-                props.onStop?.(s.id);
-              }}
-            />
-          ))}
           <MenuItem
             testID="verb-settings"
             label="Settings and schedules"
@@ -97,23 +85,51 @@ export function AgentVerbs(props: {
               props.onSettings();
             }}
           />
-          {canDelete && (
-            <MenuItem
-              testID="verb-delete"
-              label="Delete agent"
-              icon="dismiss"
-              danger
-              onPress={() => {
-                setOpen(false);
-                setDeleting(true);
-              }}
-            />
-          )}
+          <Advanced>
+            {props.more}
+            {props.stops?.map((s) => (
+              <MenuItem
+                key={s.id}
+                testID={`stop-${s.id}`}
+                label={s.label}
+                icon={STOP_ICON[s.id]}
+                danger={s.danger}
+                disabled={props.disabled}
+                onPress={() => {
+                  setOpen(false);
+                  props.onStop?.(s.id);
+                }}
+              />
+            ))}
+            {canDelete && (
+              <MenuItem
+                testID="verb-delete"
+                label="Delete agent"
+                icon="dismiss"
+                danger
+                onPress={() => {
+                  setOpen(false);
+                  setDeleting(true);
+                }}
+              />
+            )}
+          </Advanced>
         </MenuSheet>
       )}
       {deleting && <DeleteSheet name={detail.name} onClose={() => setDeleting(false)} onDeleted={props.onDeleted} />}
       {verb && row && <VerbSheet row={row} detail={detail} verb={verb} run={run} onClose={() => setVerb(null)} />}
     </View>
+  );
+}
+
+/** The rarely used rows, folded away until asked for. */
+function Advanced(props: { children: ReactNode }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <>
+      <MenuItem testID="verb-advanced" label="Advanced" icon={shown ? 'more' : 'chevronRight'} onPress={() => setShown(!shown)} />
+      {shown && props.children}
+    </>
   );
 }
 
