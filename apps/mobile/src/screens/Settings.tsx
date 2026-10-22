@@ -2,16 +2,16 @@
 // answers with Add and Remove. All of it is authored: a change shows at once and goes back with the daemon's reason when refused.
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { INVALID, capField, idleField } from '@handline/app-core';
-import type { CallParams, SettingsChanges } from '@handline/client';
-import { classify, sentence, useAnswers, useOff, useServes, useSettings, useWrite } from '@handline/app-data';
+import { INVALID, capField, idleField, parseSeconds } from '@handline/app-core';
+import type { SettingsChanges } from '@handline/client';
+import { classify, sentence, useOff, useServes, useSettings, useWrite } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { useSelector } from '@handline/app-react';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
+import { Answers } from '#src/screens/StandingAnswers.tsx';
 import { AppUpdate } from '#src/screens/AppUpdate.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
-import { Sheet } from '#src/screens/TaskActions.tsx';
 import { PairedDevices } from '#src/screens/PairedDevices.tsx';
 
 function Note(props: { error: unknown; pending: boolean; bad?: string | null; testID: string }) {
@@ -25,15 +25,16 @@ function Note(props: { error: unknown; pending: boolean; bad?: string | null; te
   );
 }
 
-function Field(props: {
+function Field<T extends number | string>(props: {
   id: string;
   label: string;
   hint: string;
-  unit: string;
+  unit?: string;
   current: string;
-  parse: (t: string) => number | null | typeof INVALID;
-  change: (v: number | null) => SettingsChanges;
+  parse: (t: string) => T | null | typeof INVALID;
+  change: (v: T | null) => SettingsChanges;
   allowed: string;
+  text?: boolean;
 }) {
   const c = usePalette();
   const save = useWrite('settings.set');
@@ -64,7 +65,7 @@ function Field(props: {
           onChangeText={setText}
           onSubmitEditing={commit}
           onBlur={commit}
-          keyboardType="number-pad"
+          keyboardType={props.text ? 'default' : 'number-pad'}
           editable={!why}
           style={{
             flex: 1,
@@ -76,7 +77,7 @@ function Field(props: {
             minHeight: 44,
           }}
         />
-        <Text style={{ color: c.muted }}>{props.unit}</Text>
+        {props.unit ? <Text style={{ color: c.muted }}>{props.unit}</Text> : null}
         <Button testID={`${props.id}-save`} label="Save" onPress={commit} disabled={!!why} />
       </View>
       {why ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{why}</Text> : null}
@@ -84,6 +85,45 @@ function Field(props: {
     </View>
   );
 }
+
+const SECONDS = 'whole seconds, or empty for the default';
+const secondsOf = (v: number | undefined) => (v === undefined ? '' : String(v));
+const LIMIT = 'a whole number, 0 for off, or empty for the default';
+
+/** A seconds row (as the web's NumberRow of Background and Notifications). */
+function Seconds(props: { id: string; label: string; hint: string; current: number | undefined; name: 'bg_notice_s' | 'bg_grace_s' | 'bg_check_s' | 'notice_digest_s' }) {
+  return (
+    <Field
+      id={props.id}
+      label={props.label}
+      hint={props.hint}
+      unit="s"
+      current={secondsOf(props.current)}
+      parse={parseSeconds}
+      change={(n) => ({ [props.name]: n })}
+      allowed={SECONDS}
+    />
+  );
+}
+
+/** A machine load limit: a whole number, 0 for off. */
+function Limit(props: { id: string; label: string; hint: string; unit: string; current: number | undefined; name: 'host_active_cap' | 'load_per_core_pct' | 'ram_free_min_pct' }) {
+  return (
+    <Field
+      id={props.id}
+      label={props.label}
+      hint={props.hint}
+      unit={props.unit}
+      current={secondsOf(props.current)}
+      parse={parseSeconds}
+      change={(n) => ({ [props.name]: n })}
+      allowed={LIMIT}
+    />
+  );
+}
+
+/** The handoff prompt is one line; a break is not sent, and an empty line is the built-in prompt. */
+export const parsePrompt = (t: string) => (/[\r\n]/.test(t) ? INVALID : t.trim());
 
 function Toggle(props: { id: string; label: string; hint: string; on: boolean; change: (on: boolean) => SettingsChanges }) {
   const c = usePalette();
@@ -114,132 +154,6 @@ function Toggle(props: { id: string; label: string; hint: string; on: boolean; c
         <Text style={{ color: props.on ? c.run : c.muted, fontWeight: '700' }}>{props.on ? 'On' : 'Off'}</Text>
       </Pressable>
       <Note testID={`${props.id}-note`} error={save.error} pending={save.isPending} />
-    </View>
-  );
-}
-
-function Input(props: { value: string; onChange: (v: string) => void; label: string; testID: string }) {
-  const c = usePalette();
-  return (
-    <TextInput
-      testID={props.testID}
-      accessibilityLabel={props.label}
-      placeholder={props.label}
-      placeholderTextColor={c.muted}
-      value={props.value}
-      onChangeText={props.onChange}
-      autoCapitalize="none"
-      autoCorrect={false}
-      style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 44 }}
-    />
-  );
-}
-
-function AddAnswer(props: { onAdd: (p: CallParams<'answer.add'>) => void; onDone: () => void }) {
-  const c = usePalette();
-  const why = useOff('answer.add');
-  const [kind, setKind] = useState<'trust' | 'dialog'>('trust');
-  const [f, setF] = useState({ folder: '', vendor: '', title: '', label: '' });
-  const set = (k: keyof typeof f) => (v: string) => setF({ ...f, [k]: v });
-  const p = kind === 'trust' ? { folder: f.folder.trim() } : { vendor: f.vendor.trim(), title: f.title.trim(), label: f.label.trim() };
-  const ready = Object.values(p).every(Boolean);
-  return (
-    <Sheet
-      id="answer"
-      label="Add a standing answer"
-      submit="Add"
-      busy={!ready || !!why}
-      onCancel={props.onDone}
-      onSubmit={() => {
-        props.onAdd(p);
-        props.onDone();
-      }}
-    >
-      <View style={{ flexDirection: 'row', gap: space.sm }}>
-        <Button testID="kind-trust" label="Trust a folder" kind={kind === 'trust' ? 'yes' : 'plain'} onPress={() => setKind('trust')} />
-        <Button testID="kind-dialog" label="Answer a dialog" kind={kind === 'dialog' ? 'yes' : 'plain'} onPress={() => setKind('dialog')} />
-      </View>
-      {kind === 'trust' ? (
-        <Input testID="answer-folder" label="Folder" value={f.folder} onChange={set('folder')} />
-      ) : (
-        <>
-          <Input testID="answer-vendor" label="Vendor" value={f.vendor} onChange={set('vendor')} />
-          <Input testID="answer-title" label="Prompt title" value={f.title} onChange={set('title')} />
-          <Input testID="answer-option" label="Option" value={f.label} onChange={set('label')} />
-        </>
-      )}
-      {why ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{why}</Text> : null}
-    </Sheet>
-  );
-}
-
-function Answers() {
-  const c = usePalette();
-  const query = useAnswers();
-  const { served } = useServes('answers.list');
-  const add = useWrite('answer.add');
-  const remove = useWrite('answer.remove');
-  const whyAdd = useOff('answer.add');
-  const whyRemove = useOff('answer.remove');
-  const [adding, setAdding] = useState(false);
-  const rows = query.data?.answers ?? [];
-  const failed = add.error ?? remove.error;
-  return (
-    <View testID="answers" style={{ gap: space.sm }}>
-      <Text style={{ color: c.ink, fontSize: font.size.title, fontWeight: '700' }}>Standing answers</Text>
-      <Loadable
-        query={query}
-        served={served}
-        isEmpty={rows.length === 0}
-        skeleton="settings"
-        label="standing answers"
-        empty="None. You are asked when a dialog shows."
-      >
-        <View>
-          {rows.map((a) => (
-            <View
-              key={`${a.kind}\0${a.key.join('\0')}`}
-              testID={`answer-${a.kind}`}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: space.md,
-                paddingVertical: space.sm,
-                borderTopWidth: 1,
-                borderTopColor: c.line,
-              }}
-            >
-              <Text style={{ flex: 1, color: c.ink }}>{a.text}</Text>
-              <Button
-                testID="answer-remove"
-                label="Remove"
-                disabled={!!whyRemove}
-                onPress={() => {
-                  add.reset();
-                  remove.mutate({ kind: a.kind, key: a.key });
-                }}
-              />
-            </View>
-          ))}
-        </View>
-      </Loadable>
-      {failed ? (
-        <Text testID="answers-note" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
-          not saved: {sentence(classify(failed))}
-        </Text>
-      ) : null}
-      {served &&
-        (adding ? (
-          <AddAnswer
-            onAdd={(p) => {
-              remove.reset();
-              add.mutate(p);
-            }}
-            onDone={() => setAdding(false)}
-          />
-        ) : (
-          <Button testID="answer-new" label="Add" disabled={!!whyAdd} onPress={() => setAdding(true)} />
-        ))}
     </View>
   );
 }
@@ -300,12 +214,76 @@ function Settings(props: { footer: React.ReactNode }) {
               {...idleField(v.park_timeout_s)}
               hint="Idle time before a session closes. 0 is never."
             />
+            <Limit
+              id="host-cap"
+              label="Agents on this machine"
+              hint="Most agents working at once over every account. 0 is no limit."
+              unit="agents"
+              current={v.host_active_cap}
+              name="host_active_cap"
+            />
+            <Limit
+              id="load"
+              label="Load per core"
+              hint="Most 1-minute load per core; 150 is 1.5. 0 is off."
+              unit="%"
+              current={v.load_per_core_pct}
+              name="load_per_core_pct"
+            />
+            <Limit
+              id="ram"
+              label="Least free memory"
+              hint="No new work is started under this share of memory. 0 is off."
+              unit="%"
+              current={v.ram_free_min_pct}
+              name="ram_free_min_pct"
+            />
+            <Seconds
+              id="bg-notice"
+              label="Background notice"
+              hint="Idle time before an agent with background work is told to finish or stop it. Empty follows Idle close."
+              current={v.bg_notice_s}
+              name="bg_notice_s"
+            />
+            <Seconds
+              id="bg-grace"
+              label="Background grace"
+              hint="Time after that notice before the work is stopped"
+              current={v.bg_grace_s}
+              name="bg_grace_s"
+            />
+            <Seconds
+              id="bg-check"
+              label="Background check"
+              hint="How often an agent with background work is asked which to stop"
+              current={v.bg_check_s}
+              name="bg_check_s"
+            />
+            <Seconds
+              id="digest"
+              label="Notice batch"
+              hint="Wait this long after the first notice, then tell the agent all of them at once. Never in the middle of a turn; a message from a person comes sooner."
+              current={v.notice_digest_s}
+              name="notice_digest_s"
+            />
             <Toggle
               id="handoff"
               label="Handoff note"
               hint="A note for the next session before a close or move"
               on={!!v.handoff_note}
               change={(on) => ({ handoff_note: on })}
+            />
+            <Field
+              text
+              id="prompt"
+              label="Handoff prompt"
+              hint={`One line; {path} is the note's file and {max} its size limit.${
+                v.handoff_prompt?.includes('{path}') ? '' : ' Without {path} the path is added on a line of its own.'
+              }`}
+              current={v.handoff_prompt ?? ''}
+              parse={parsePrompt}
+              change={(t) => ({ handoff_prompt: t })}
+              allowed="one line: no line break"
             />
             <Toggle
               id="cache"
