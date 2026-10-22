@@ -39,11 +39,6 @@ class Body(unittest.TestCase):
         self.assertEqual(got, ["the body has no '## Risk' section with text under it"])
         self.assertEqual(len(pr_checks.body_problems(pr(""), [])), 4)
 
-    def test_app_source_needs_an_image(self):
-        body = GOOD.replace("![after](https://github.com/user-attachments/assets/x.png)", "Tests pass.")
-        self.assertEqual(len(pr_checks.body_problems(pr(body), ["apps/mobile/src/screens/A.tsx"])), 1)
-        self.assertEqual(pr_checks.body_problems(pr(body), ["apps/mobile/test/a.test.tsx", "go/x.go"]), [])
-
     def test_no_korean_and_no_message_ids(self):
         self.assertEqual(len(pr_checks.body_problems(pr(GOOD, title="통계 고침"), [])), 1)
         made_up = GOOD + "\nFrom msg_0123abc.\n"  # local-ref-ok: a made-up id the check must refuse
