@@ -28,13 +28,15 @@ type Tracker struct {
 	Interrupted func(agent string)
 	Log         func(format string, args ...any)
 
-	mu         sync.Mutex
-	agents     map[string]*turn
-	changed    func(agent string)
-	pid        func(agent string) int
-	ended      func(agent string)
-	reapWait   time.Duration // reapWait when 0
-	doingEvery time.Duration // doingEvery when 0
+	mu       sync.Mutex
+	agents   map[string]*turn
+	changed  func(agent string)
+	pid      func(agent string) int
+	ended    func(agent string)
+	reapWait time.Duration // reapWait when 0
+	// now and after are the clock doing's hold reads and the timer it releases with: time.Now and time.AfterFunc when nil.
+	now   func() time.Time
+	after func(d time.Duration, f func()) (stop func() bool)
 }
 
 // OnChange sets what is told, after the fact, each time an agent's turn opens or closes or a session starts: the agent's view is
@@ -89,7 +91,7 @@ type turn struct {
 	// whose calls were forgotten, so a release of an earlier turn shows nothing.
 	doing, nextDoing *Doing
 	shownAt          time.Time
-	release          *time.Timer
+	release          func() bool // stops the pending release
 	gen              int
 }
 

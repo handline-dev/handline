@@ -416,7 +416,16 @@ func call(tool, input string) string {
 
 func TestTheRunningTurnsNewestToolCallIsShownAtMostSoOftenAndGoneWhenItEnds(t *testing.T) {
 	tr, _ := tracker(t)
-	tr.doingEvery = 300 * time.Millisecond
+	now := time.Unix(1792731600, 0)
+	tr.now = func() time.Time { return now }
+	var held []func()
+	tr.after = func(d time.Duration, f func()) func() bool {
+		if d != doingEvery {
+			t.Errorf("held for %v", d)
+		}
+		held = append(held, f)
+		return func() bool { return true }
+	}
 	told := make(chan struct{}, 8)
 	tr.OnChange(func(string) { told <- struct{}{} })
 	path := transcript(t, call("Read", `{"file_path":"/before/this/turn"}`))
@@ -425,31 +434,52 @@ func TestTheRunningTurnsNewestToolCallIsShownAtMostSoOftenAndGoneWhenItEnds(t *t
 	if d := tr.Doing("amy"); d != nil {
 		t.Fatalf("a turn that called nothing yet: %v", d)
 	}
-	write(t, path, call("Bash", `{"command":"sleep 30\necho done"}`))
+	long := strings.Repeat("é", 70)
+	write(t, path, call("Bash", `{"command":"`+long+`\necho done"}`))
 	select {
 	case <-told:
 	case <-time.After(wait):
 		t.Fatal("the first call was not told")
 	}
-	if d := tr.Doing("amy"); d == nil || d.Text != "Bash sleep 30" || d.At != 1792731600 {
-		t.Fatalf("got %+v", d)
+	if d := tr.Doing("amy"); d == nil || d.Text != "Bash "+strings.Repeat("é", 55) || d.At != 1792731600 {
+		t.Fatalf("the first line, cut to 60 code points: %+v", d)
 	}
-	long := strings.Repeat("é", 70)
-	write(t, path, call("Grep", `{"pattern":"x"}`), call("Bash", `{"command":"`+long+`"}`))
-	time.Sleep(50 * time.Millisecond)
-	if d := tr.Doing("amy"); d.Text != "Bash sleep 30" {
-		t.Fatalf("shown again before doingEvery passed: %+v", d)
+
+	tr.called("amy", &Doing{Text: "Grep x"})
+	tr.called("amy", &Doing{Text: "Read y"})
+	if d := tr.Doing("amy"); len(held) != 1 || !strings.HasPrefix(d.Text, "Bash ") {
+		t.Fatalf("shown again before doingEvery passed: %+v, %d held", d, len(held))
+	}
+	held[0]()
+	<-told
+	if d := tr.Doing("amy"); d.Text != "Read y" {
+		t.Fatalf("not the newest: %+v", d)
+	}
+
+	tr.called("amy", &Doing{Text: "Edit z"})
+	tr.Hook("amy", "Stop", map[string]any{}, 20)
+	<-told
+	if d := tr.Doing("amy"); d != nil {
+		t.Fatalf("still doing after the turn ended: %+v", d)
+	}
+	tr.Hook("amy", "UserPromptSubmit", map[string]any{"transcript_path": path}, 30)
+	<-told
+	if d := tr.Doing("amy"); d != nil {
+		t.Fatalf("the next turn shows the last one's call: %+v", d)
+	}
+	tr.called("amy", &Doing{Text: "Write w"})
+	held[1]()
+	if d := tr.Doing("amy"); d != nil {
+		t.Fatalf("the last turn's release showed: %+v", d)
 	}
 	select {
 	case <-told:
-	case <-time.After(wait):
-		t.Fatal("the held call was never told")
+		t.Fatal("the last turn's release was told")
+	default:
 	}
-	if d := tr.Doing("amy"); d.Text != "Bash "+strings.Repeat("é", 55) {
-		t.Fatalf("the newest, cut to 60 code points: %q", d.Text)
-	}
-	tr.Hook("amy", "Stop", map[string]any{}, 20)
-	if d := tr.Doing("amy"); d != nil {
-		t.Fatalf("still doing after the turn ended: %+v", d)
+	held[2]()
+	<-told
+	if d := tr.Doing("amy"); d.Text != "Write w" {
+		t.Fatalf("got %+v", d)
 	}
 }

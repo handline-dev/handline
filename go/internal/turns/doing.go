@@ -75,19 +75,18 @@ func (t *Tracker) called(agent string, d *Doing) {
 		t.mu.Unlock()
 		return
 	}
-	every := doingEvery
-	if t.doingEvery != 0 {
-		every = t.doingEvery
-	}
 	tr.nextDoing = d
 	if tr.release != nil {
 		t.mu.Unlock()
 		return
 	}
-	wait := every - time.Since(tr.shownAt)
-	if wait > 0 {
+	if wait := doingEvery - t.clock().Sub(tr.shownAt); wait > 0 {
 		gen := tr.gen
-		tr.release = time.AfterFunc(wait, func() { t.show(agent, tr, gen) })
+		after := t.after
+		if after == nil {
+			after = func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
+		}
+		tr.release = after(wait, func() { t.show(agent, tr, gen) })
 		t.mu.Unlock()
 		return
 	}
@@ -104,7 +103,7 @@ func (t *Tracker) show(agent string, tr *turn, gen int) {
 		return
 	}
 	tr.release = nil
-	tr.doing, tr.nextDoing, tr.shownAt = tr.nextDoing, nil, time.Now()
+	tr.doing, tr.nextDoing, tr.shownAt = tr.nextDoing, nil, t.clock()
 	changed := t.changed
 	t.mu.Unlock()
 	if changed != nil {
@@ -112,12 +111,19 @@ func (t *Tracker) show(agent string, tr *turn, gen int) {
 	}
 }
 
+func (t *Tracker) clock() time.Time {
+	if t.now != nil {
+		return t.now()
+	}
+	return time.Now()
+}
+
 // clearDoing forgets the calls of a turn that ended or was replaced.
 func (tr *turn) clearDoing() {
 	tr.doing, tr.nextDoing = nil, nil
 	tr.gen++
 	if tr.release != nil {
-		tr.release.Stop()
+		tr.release()
 		tr.release = nil
 	}
 }
