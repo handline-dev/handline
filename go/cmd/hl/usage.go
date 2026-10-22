@@ -32,7 +32,7 @@ var usages = map[string][2]string{
 	"task draft":      {`hl task draft T<n> [T<m> ...]`, `hl task draft T12`},
 	"task merge":      {`hl task merge T<n> T<m> [...]`, `hl task merge T12 T13`},
 	"hook":            {`hl hook <event>`, `hl hook Stop`},
-	"hr":              {`hl hr <add|retire|rename|link|unlink|team|context|list|withdraw> ...`, `hl hr list`},
+	"hr":              {`hl hr <add|retire|rename|link|unlink|team|context|bundle|list|withdraw> ...`, `hl hr list`},
 	"hr add":          {`hl hr add <agent> --repo PATH --why "<why>" [--team T] [--model M] [--effort E] [--vendor V]`, `hl hr add shop.sea --repo /code/sea --why "split the storefront work"`},
 	"hr retire":       {`hl hr retire <agent> --why "<why>"`, `hl hr retire old.agent --why "its work moved to new.agent"`},
 	"hr rename":       {`hl hr rename <agent> --to <new name> --why "<why>" [--team T]`, `hl hr rename shop.sea --to shop.ocean --why "clearer name"`},
