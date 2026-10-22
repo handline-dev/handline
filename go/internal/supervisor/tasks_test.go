@@ -302,6 +302,11 @@ func TestTheUnblockIsStillTypedWhenTheAdvanceSendsSomethingElseOrNothing(t *test
 			if cur, _, _ := db.CurrentTask(r.DB, "bob"); cur != other {
 				t.Fatalf("current %d, want %d", cur, other)
 			}
+			var refusals int
+			r.must(r.DB.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'task_deliver_refused'").Scan(&refusals))
+			if refusals != 0 {
+				t.Fatal("the unblock notice made the draft look sent, and its delivery on nobody's behalf was refused")
+			}
 		})
 	}
 }
