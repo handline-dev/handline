@@ -45,6 +45,9 @@ func (e *Env) status(agent string, row *db.AgentState, state, detail string, han
 	}
 	if row != nil && e.Walled != nil {
 		if w := e.Walled(agent, row); w != nil {
+			if why := loadHeld(); why != "" { // the wake asks the load before an account
+				return at(status.Waiting, status.Load, why)
+			}
 			if w.Slot {
 				return at(status.Stopped, status.Cap, w.Text)
 			}

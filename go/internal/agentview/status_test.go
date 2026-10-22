@@ -87,3 +87,40 @@ func TestEachAgentIsServedWithItsStateAndReason(t *testing.T) {
 		}
 	}
 }
+
+// harbor closed its session at 23:07 and a message came at 23:11; every minute the wake was held by the machine's load, while beta's
+// slots were full too. It is not off with no terminal: its start is queued, held by the load, which the wake asks first. Without the
+// load it waits for the slot; with nothing waiting it is off.
+func TestAClosedAgentWithWorkWaitingIsQueuedAndSaysTheLoadHoldsIt(t *testing.T) {
+	r := newRig(t, "harbor", "quiet")
+	for _, a := range []string{"harbor", "quiet"} {
+		r.state(t, a, states.Idle, "")
+		if _, err := r.env.Q.Exec("UPDATE agent_state SET closed_at = 4000 WHERE agent = ?", a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.wake.would["harbor"] = true
+	load := "held: machine load - load 5.40 per core, limit 1.50"
+	r.env.LoadHeld = func(string) string { return load }
+	r.env.Walled = func(agent string, _ *db.AgentState) *Wall {
+		if agent == "harbor" {
+			return &Wall{Text: "waiting for a slot on beta (3 of 3 mid-turn)", Slot: true}
+		}
+		return nil
+	}
+	check := func(agent, state, st, reason, text string) {
+		t.Helper()
+		r.env.RefreshOne(agent)
+		v := r.stored(t, agent)
+		s, _ := v["status"].(map[string]any)
+		if v["state"] != state || s["state"] != st || s["reason"] != reason || s["text"] != text {
+			t.Errorf("%s: %v %v; want %s, %s/%s %q", agent, v["state"], s, state, st, reason, text)
+		}
+	}
+	check("harbor", "queued", "waiting", "load", load)
+	check("quiet", "no_terminal", "off", "none", "no terminal")
+	load = ""
+	check("harbor", "queued", "stopped", "cap", "waiting for a slot on beta (3 of 3 mid-turn)")
+	r.env.Walled = func(string, *db.AgentState) *Wall { return nil }
+	check("harbor", "queued", "preparing", "work", "has work: starts at the next tick")
+}
