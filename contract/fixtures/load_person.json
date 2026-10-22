@@ -3,7 +3,7 @@
   {
    "name": "x-status.load_never_holds_the_persons_message",
    "spec": "x-status",
-   "about": "With the load limit tripped by any load (load_per_core_pct 1), a message the person sends still wakes its agent: within a tick the agent's timeline records load_limit_passed after the send. The limit is put back before the check. Needs --var load_wake_agent: a closed agent that nothing but the load would hold, on an account with room.",
+   "about": "With the free-memory limit set so it always trips (ram_free_min_pct 100: free memory is never all of it), a message the person sends still wakes its agent: load_limit_passed is in its timeline after the send, within the rule's 10 s. The setting is read first and put back before the check. Needs --var load_wake_agent: a closed agent that nothing but the load would hold, on an account with room.",
    "as": "founder",
    "steps": [
     {
@@ -45,11 +45,27 @@
     {
      "send": {
       "jsonrpc": "2.0",
+      "id": 7,
+      "method": "settings.get",
+      "params": {}
+     },
+     "result": {
+      "values": {
+       "ram_free_min_pct": {
+        "$type": "integer",
+        "$save": "ram_was"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
       "id": 3,
       "method": "settings.set",
       "params": {
        "changes": {
-        "load_per_core_pct": 1
+        "ram_free_min_pct": 100
        },
        "request_id": "conf-ld-1"
       }
@@ -70,14 +86,14 @@
      "result": {}
     },
     {
-     "sleep_s": 15,
+     "sleep_s": 10,
      "send": {
       "jsonrpc": "2.0",
       "id": 5,
       "method": "settings.set",
       "params": {
        "changes": {
-        "load_per_core_pct": null
+        "ram_free_min_pct": "{{ram_was}}"
        },
        "request_id": "conf-ld-3"
       }
