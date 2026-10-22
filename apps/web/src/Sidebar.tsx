@@ -50,7 +50,6 @@ export function Sidebar({
   const { served } = useServes('agents.list');
   const agents = list.data?.agents ?? [];
   const conn = useConnection();
-  const [search, setSearch] = useState('');
   const { nav, ready, change, togglePin: togglePinAgent } = useNav();
   const hidden = hiddenDots(nav.hidden);
   const collapsed = new Set(nav.collapsed);
@@ -71,7 +70,7 @@ export function Sidebar({
   const chipN = chipCounts(agents);
   const names = agents.map((x) => x.name);
   const tree = nav.layout === 'tree';
-  const nl = navList(agents, nav, search);
+  const nl = navList(agents, nav);
   const rows = tree ? byTeam(nl.rows, grouped, names) : nl.rows;
   const heads = tree && grouped;
   // A team's heading counts the rows under it, a child with its parent.
@@ -133,14 +132,6 @@ export function Sidebar({
         />
       </div>
       <div className="rail-opts relative flex items-center gap-1.5 px-2.5 py-2">
-        <input
-          className="search min-w-0 flex-1 rounded-ctl border border-line bg-canvas px-2 py-[5px]"
-          type="search"
-          placeholder="Search agents"
-          aria-label="Search agents"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
         <span className="relative inline-flex">
           <MenuButton icon="filter" label={nav.hidden.length ? `View: ${nav.hidden.length} hidden` : 'View'} name="View">
             <MenuLabel>Show agents that are</MenuLabel>

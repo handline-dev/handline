@@ -122,7 +122,7 @@ describe('the workspace', () => {
     expect(bar.querySelector('[aria-label="daemon open"]')).not.toBeNull();
     expect(text(bar)).toContain('daemon ok'); // the cell says its state in a word; the agent counts are the sidebar's
     expect(text(bar)).toMatch(/\d+ waiting on you.*\d+ blocked/);
-    expect($('.rail input[type=search]')).not.toBeNull();
+    expect($('.rail input[type=search]')).toBeNull(); // the palette (⌘K) finds agents
   });
 
   it('the list is under team headings with the task under each name, and the view menu switches the groups off', async () => {
