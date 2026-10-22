@@ -56,7 +56,7 @@ export function Dialog({
                 className={`ui-dialog flex flex-col gap-3 rounded-dialog bg-panel shadow-[var(--shadow-2)] ${
                   full
                     ? 'h-[calc(100vh_-_var(--sp-2))] w-[calc(100vw_-_var(--sp-2))] p-2'
-                    : 'w-[min(var(--w-dialog),calc(100vw_-_2_*_var(--sp-4)))] p-[calc(16px*var(--o,1))]'
+                    : 'w-[min(var(--w-dialog),calc(100vw_-_2_*_var(--sp-4)))] p-[calc(20px*var(--o,1))]'
                 }`}
                 aria-label={title}
                 aria-modal="true"

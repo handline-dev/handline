@@ -37,13 +37,13 @@
   --text-hint: var(--fs-hint);
   --text-hint--line-height: 14px;
   --text-label: var(--fs-label);
-  --text-label--line-height: 16px;
+  --text-label--line-height: 18px;
   --text-body: var(--fs-body);
-  --text-body--line-height: 18px;
+  --text-body--line-height: 22px;
   --text-title: var(--fs-title);
-  --text-title--line-height: 20px;
+  --text-title--line-height: 24px;
   --text-page: var(--fs-page);
-  --text-page--line-height: 26px;
+  --text-page--line-height: 28px;
   --radius-chip: var(--r-chip);
   --radius-ctl: var(--r-ctl);
   --radius-card: var(--r-card);

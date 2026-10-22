@@ -8,7 +8,7 @@ import { StateChip, useNow } from '#src/taskui.tsx';
 import { TaskDetail } from '#src/TaskDetail.tsx';
 import { useAgents } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { Button, Toolbar } from '#src/ui/index.ts';
+import { Button, Toolbar, Check } from '#src/ui/index.ts';
 import { RowMenu, VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from '#src/TaskVerbUi.tsx';
 import { useBulk } from '#src/taskActions.ts';
 import { useMarks } from '#src/useMarks.ts';
@@ -49,8 +49,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
               <RowMenu key={t.id} tasks={[t]} me={me} cans={cans} onPick={(v) => rowVerb(t.id, v)}>
                 {(more, menuOpen) => (
                   <li className="group/trow flex items-center gap-1.5">
-                    <input
-                      type="checkbox"
+                    <Check
                       aria-label={`Mark ${taskRef(t.id)}`}
                       checked={marked.has(t.id)}
                       onChange={() => undefined}

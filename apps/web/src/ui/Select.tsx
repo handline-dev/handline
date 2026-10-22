@@ -12,7 +12,7 @@ export function Select({
       <select
         aria-label={label}
         title={label}
-        className="h-8 min-w-0 max-w-full appearance-none truncate rounded-ctl border border-line-strong py-0 pl-2 pr-6 text-ink"
+        className="h-9 min-w-0 max-w-full appearance-none truncate rounded-ctl border-0 bg-panel py-0 pl-3 pr-8 text-ink hover:bg-raised"
         {...rest}
       >
         {options.map((o) => (
@@ -21,7 +21,7 @@ export function Select({
           </option>
         ))}
       </select>
-      <Icon name="chevron" size={14} label="Open" aria-hidden className="pointer-events-none absolute right-1.5 text-ink-2" />
+      <Icon name="chevron" size={14} label="Open" aria-hidden className="pointer-events-none absolute right-2.5 text-ink-2" />
     </span>
   );
 }

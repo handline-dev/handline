@@ -21,6 +21,7 @@ import { useOnce, useSelector } from '@handline/app-react';
 import { classify, sentence, useAgents, useHr, usePending, useWrite } from '@handline/app-data';
 import {
   Button,
+  Check,
   CardActions,
   CodeBlock,
   Empty,
@@ -262,7 +263,7 @@ function Card({
       <header className="hr-top flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
         <span className="hr-title inline-flex min-w-0 items-center gap-1.5 text-title font-semibold [overflow-wrap:anywhere]">
           {decider && waiting && pick ? (
-            <input type="checkbox" aria-label={`Select ${textSafe(p.title)}`} checked={!!on} onChange={pick} />
+            <Check aria-label={`Select ${textSafe(p.title)}`} checked={!!on} onChange={pick} />
           ) : null}
           <Icon name="team" size={16} aria-hidden="true" /> {textSafe(p.title)}
         </span>

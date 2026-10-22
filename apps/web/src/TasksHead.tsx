@@ -1,7 +1,7 @@
 // The header of the Tasks page: Open / Mine / Closed, search, Filter, View (List or Graph) and + New task; and the floating bar that acts on the ticked rows.
 import type { ReactNode } from 'react';
 import { CLOSED, LISTED, TASK_STATES, type TaskColumn, type TaskFilter } from '@handline/app-core';
-import { BarInput, Button, Icon, MenuButton, MenuItem, PageHead, PageTitle, Popup, Segmented, Select } from '#src/ui/index.ts';
+import { BarInput, Button, Icon, MenuButton, MenuItem, PageHead, PageTitle, Popup, Segmented, Select, Check } from '#src/ui/index.ts';
 import { STATE_GLYPH } from '#src/taskui.tsx';
 import { canCapture, requestCapture } from '#src/Capture.tsx';
 
@@ -74,8 +74,7 @@ export function TasksHead(props: {
             />
             {TASK_STATES.filter((s) => !CLOSED.includes(s)).map((s) => (
               <label key={s} className="tcheck inline-flex items-center gap-1">
-                <input
-                  type="checkbox"
+                <Check
                   checked={filter.states.has(s)}
                   onChange={(e) => {
                     const states = new Set(filter.states);

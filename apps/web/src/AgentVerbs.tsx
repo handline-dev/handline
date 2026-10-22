@@ -6,7 +6,7 @@ import { askOf, VERBS, verbsOf, type Verb } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useAccounts, useAgentDetail, useAgents, classify, sentence, useRetireAgent, useVerbRun } from '@handline/app-data';
-import { Button, Sheet, SheetActions } from '#src/ui/index.ts';
+import { Button, Select, Sheet, SheetActions } from '#src/ui/index.ts';
 import { useEscape } from '#src/useEscape.ts';
 
 /** Whether the daemon lists the verb's method; a verb it does not list is left out of the menu. */
@@ -62,14 +62,12 @@ export function VerbSheet({ a, verb, onClose }: { a: AgentView; verb: Verb; onCl
       {refused ? <span role="alert">{refused}</span> : null}
       {interruptFirst ? <span className="muted">{a.name} is mid-turn. Interrupt ends the turn and keeps the session.</span> : null}
       {move ? (
-        <select aria-label="Account" className="max-sm:min-h-12" value={account} onChange={(e) => setAccount(e.target.value)}>
-          <option value="">choose an account</option>
-          {accounts.map((x) => (
-            <option key={x} value={x}>
-              {x}
-            </option>
-          ))}
-        </select>
+        <Select
+          label="Account"
+          value={account}
+          onChange={(e) => setAccount(e.target.value)}
+          options={[{ value: '', label: 'choose an account' }, ...accounts.map((x) => ({ value: x, label: x }))]}
+        />
       ) : null}
       <SheetActions>
         <Button

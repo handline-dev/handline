@@ -1,6 +1,11 @@
 /* ui/*: the primitives, drawn only from tokens.css. The markup in ui/ carries its utilities inline; what is left here is what cannot move:
    the state-glyph animations (keyframes are css) and the gallery demo. */
 
+/* The tick of a checked ui-check: a mask the size of the box, painted in the ink on the primary fill. */
+.ui-check:checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l3 3 5-6' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
 /* A working agent's glyph turns, a booting one pulses; reduced motion stops both. */
 .ui-state[data-state='working'] svg {
   animation: ui-spin 1.2s linear infinite;

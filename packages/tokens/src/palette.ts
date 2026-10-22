@@ -24,12 +24,12 @@ export interface Colors {
 }
 
 const dark: Colors = {
-  surface: ['#0a0a0a', '#141414', '#171717', '#262626'],
+  surface: ['#0b0b0d', '#121215', '#1a1a1e', '#26262c'],
   line: '#ffffff12',
   lineStrong: '#ffffff26',
   ink: ['#fafafa', '#a1a1a1', '#6b6b6b'],
-  primary: '#fafafa',
-  onPrimary: '#0a0a0a',
+  primary: '#4a6fc4',
+  onPrimary: '#ffffff',
   accent: '#86a0dd',
   accentStrong: '#9fb5e6',
   working: '#56b4e9',
@@ -47,7 +47,7 @@ const light: Colors = {
   line: '#e4e4e7',
   lineStrong: '#c9c9d0',
   ink: ['#18181b', '#52525b', '#8a8a94'],
-  primary: '#18181b',
+  primary: '#3d62b5',
   onPrimary: '#ffffff',
   accent: '#3d62b5',
   accentStrong: '#2f4f98',
@@ -118,7 +118,7 @@ const flat = (c: Colors): Palette => ({
   muted: c.ink[1],
   hint: c.ink[2],
   accent: c.accent,
-  accentInk: c.onPrimary,
+  accentInk: c.surface[0],
   run: c.ok,
   idle: c.ink[2],
   wait: c.wait,

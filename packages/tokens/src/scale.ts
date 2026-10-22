@@ -3,16 +3,16 @@ export const breakpoints = { phone: 640, pc: 1024 } as const;
 export type Breakpoint = 'phone' | 'tablet' | 'pc';
 export const breakpointOf = (width: number): Breakpoint => (width < breakpoints.phone ? 'phone' : width < breakpoints.pc ? 'tablet' : 'pc');
 
-/** Six type steps. The PC scale is Linear-dense (13 px body); the phone's body is 14 px for touch. */
+/** Six type steps. The PC body is 15 px with room around it; the phone's body is 14 px for touch. */
 export const typeSteps = ['hint', 'label', 'body', 'title', 'page', 'display'] as const;
 export type TypeStep = (typeof typeSteps)[number];
 export const typeScale: Record<'pc' | 'phone', Record<TypeStep, { size: number; line: number }>> = {
   pc: {
     hint: { size: 11, line: 14 },
-    label: { size: 12, line: 16 },
-    body: { size: 13, line: 18 },
-    title: { size: 15, line: 20 },
-    page: { size: 20, line: 26 },
+    label: { size: 13, line: 18 },
+    body: { size: 15, line: 22 },
+    title: { size: 17, line: 24 },
+    page: { size: 20, line: 28 },
     display: { size: 28, line: 34 },
   },
   phone: {
@@ -37,11 +37,11 @@ export const font = {
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 
 /** chips, buttons and rows (ctl), cards and popups, dialogs, toggles and dots. */
-export const radius = { chip: 4, ctl: 6, card: 8, dialog: 12, pill: 999 } as const;
+export const radius = { chip: 6, ctl: 10, card: 14, dialog: 20, pill: 999 } as const;
 
 /** Three elevations: a lifted chip, a popup, a dialog. The colour comes from the scheme (`shadowAlpha`). */
 export const shadow = {
-  1: { y: 2, blur: 8 },
+  1: { y: 1, blur: 3 },
   2: { y: 8, blur: 24 },
   3: { y: 16, blur: 48 },
 } as const;
@@ -54,16 +54,16 @@ export const rowHeight = { line: 18, agent: 44, message: 56, task: 48, inbox: 56
 
 /** Sizes of the PC chrome (CSS px). */
 export const chrome = {
-  'h-row': 28,
-  'h-row-2': 44,
-  'h-tabs': 32,
-  'h-bar': 24,
-  'h-btn': 28,
-  'h-btn-sm': 24,
-  'h-btn-lg': 32,
-  'h-input': 32,
-  'h-field': 36,
-  'trow-h': 34,
+  'h-row': 36,
+  'h-row-2': 52,
+  'h-tabs': 40,
+  'h-bar': 28,
+  'h-btn': 32,
+  'h-btn-sm': 28,
+  'h-btn-lg': 36,
+  'h-input': 36,
+  'h-field': 40,
+  'trow-h': 36,
   'w-side': 240,
   'w-form': 640,
   'w-page': 960,

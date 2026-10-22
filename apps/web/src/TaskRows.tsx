@@ -1,4 +1,5 @@
 // One row of the Tasks list: mark (on hover), state icon, number, title, owner and priority chips, time. A click opens the task; only the box marks.
+import { Check } from '#src/ui/index.ts';
 import { idleText, isOver, isPerson, type RowVerb, taskRef, timeLeft, timeoutText, watchResult } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useStore } from '@handline/app-react';
@@ -49,8 +50,7 @@ export function Row(props: {
           }}
         >
           <AnimatedCell className={`c-mark w-8 text-center ${TD} max-sm:hidden`}>
-            <input
-              type="checkbox"
+            <Check
               className={props.markCell ? undefined : 'opacity-0 group-hover/trow:opacity-100 focus-visible:opacity-100'}
               aria-label={`Mark ${taskRef(t.id)}`}
               checked={props.marked}
