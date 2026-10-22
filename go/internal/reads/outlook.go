@@ -110,6 +110,26 @@ func overlayOf(rows usage.Samples, uses []usage.AgentUse, pick string, past []us
 	return out
 }
 
+// accountEnds is when each account the rows name stops counting: one that ends is cut at its end; one logged out is cut from when it was
+// found so, and counted again from the login.
+func (e *Env) accountEnds(cfg usage.Config, rows usage.Samples, clock time.Time) map[string]float64 {
+	now := clock.Unix()
+	ends := map[string]float64{}
+	for _, a := range usage.SampleAccounts(rows) {
+		cut, has := 0.0, false
+		if t, ok := cfg.EndOf(e.Home, a, clock); ok {
+			cut, has = float64(t.UnixNano())/1e9, true
+		}
+		if since, gone := (team.Accounts{Home: e.Home, Login: e.loginState}).GoneSince(a, float64(now)); gone && (!has || since < cut) {
+			cut, has = since, true
+		}
+		if has {
+			ends[a] = cut
+		}
+	}
+	return ends
+}
+
 func (e *Env) outlookAt(name string, hours int, clock time.Time, pick *string) (any, error) {
 	now := clock.Unix()
 	days := max(1, hours/24)
@@ -119,21 +139,7 @@ func (e *Env) outlookAt(name string, hours int, clock time.Time, pick *string) (
 	if err != nil {
 		return nil, err
 	}
-	// An account that ends is cut at its end; one logged out is cut from when it was found so, and counted again from the login.
-	ends := map[string]float64{}
-	for _, a := range usage.SampleAccounts(rows) {
-		cut, has := 0.0, false
-		if t, ok := cfg.EndOf(e.Home, a, clock); ok {
-			cut, has = float64(t.UnixNano())/1e9, true
-		}
-		if since, gone := (team.Accounts{Home: e.Home}).GoneSince(a, float64(now)); gone && (!has || since < cut) {
-			cut, has = since, true
-		}
-		if has {
-			ends[a] = cut
-		}
-	}
-	out := usage.WeeklyOutlook(rows, now, hours, ends)
+	out := usage.WeeklyOutlook(rows, now, hours, e.accountEnds(cfg, rows, clock))
 	first := time.Date(clock.Year(), clock.Month(), clock.Day()-(days-1), 0, 0, 0, 0, time.Local)
 	cost, err := usage.DailyCost(e.DB, first.Unix()-1, now, usage.PricesFromConfig(cfg))
 	if err != nil {

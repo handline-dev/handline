@@ -19,7 +19,11 @@ import (
 // touched: a login is told by a credential's presence (and, for the keychain, its modification time), never by reading it.
 // Registering an account's shared links, the subscription and identity lookups through the vendor's own commands, and
 // adding or removing an account are in accountsadmin.go.
-type Accounts struct{ Home string }
+type Accounts struct {
+	Home string
+	// Login replaces LoginState where GoneSince asks it: the daemon's own login check, which a test stands in for.
+	Login func(acct string) (loggedIn, known bool)
+}
 
 // ModifiedTTLS: the keychain read behind a credential's modification time is a subprocess, and every tick asks for each agent on
 // a stalled account, so a login is seen within this long.
@@ -179,7 +183,11 @@ func (a Accounts) GoneSince(acct string, now float64) (float64, bool) {
 	if m := a.Stalled(acct); m != nil {
 		return m.At, true
 	}
-	if in, known := a.LoginState(acct); known && !in {
+	login := a.LoginState
+	if a.Login != nil {
+		login = a.Login
+	}
+	if in, known := login(acct); known && !in {
 		return now, true
 	}
 	return 0, false

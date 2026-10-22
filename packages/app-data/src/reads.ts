@@ -51,6 +51,7 @@ export const reads = {
   'file.read': { resource: 'file' },
   'schedules.list': { resource: 'schedules' },
   'stats.get': { resource: 'stats' },
+  'stats.headroom': { resource: 'headroom' },
   'stats.outlook': { resource: 'outlook' },
   'settings.get': { resource: 'settings' },
   'prefs.get': { resource: 'prefs', feed: 'prefs' },
