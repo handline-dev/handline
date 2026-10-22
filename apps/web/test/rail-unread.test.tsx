@@ -45,6 +45,8 @@ describe('the rail unread marks', () => {
     const row = box.querySelector(`[data-agent="${ARCH}"]`)!;
     expect(row.querySelector('.unread')?.textContent).toBe('3');
     expect(row.querySelector('.row-sub')?.textContent).toBe('Should the daemon relay it?');
+    expect(row.querySelector('.row-time')).not.toBeNull(); // when it was said
+    expect(row.querySelector('[aria-label="Context window"]')).toBeNull(); // no bars on the row
     expect(rows().length).toBeGreaterThan(1);
     expect(pick('Unread').textContent).toBe('Unread1');
     await act(async () => pick('Unread').click());
