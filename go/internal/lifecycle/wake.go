@@ -322,9 +322,15 @@ func (m *Manager) wakeAgent(agent string, o WakeOpts) (bool, string) {
 }
 
 // personWaiting is whether what the agent would wake for is a person's message.
-func (m *Manager) personWaiting(agent string) bool {
+func (m *Manager) personWaiting(agent string) bool { return m.personHead(agent) != nil }
+
+// personHead is what the agent would wake for when it is a person's message, else nil.
+func (m *Manager) personHead(agent string) *db.Request {
 	head, err := m.Delivery.EffectiveHead(m.Q, agent)
-	return err == nil && head != nil && head.Requester == db.Human
+	if err != nil || head == nil || head.Requester != db.Human {
+		return nil
+	}
+	return head
 }
 
 // wakeClosed brings a closed agent back: its shell is put back into the session, resuming the same one first (which is what makes

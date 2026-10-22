@@ -775,8 +775,7 @@ func TestTheLoadNeverHoldsAPersonsMessage(t *testing.T) {
 	if passes("harbor") != 1 || len(sp.spawned)+len(sp.startedIn) == 0 {
 		t.Fatalf("one pass for one message, and a start: %d %v %v", passes("harbor"), sp.spawned, sp.startedIn)
 	}
-	d.head = &db.Request{ID: 10, TS: m.now() + 60, Requester: db.Human, Target: "harbor"}
-	m.Now = func() int64 { return d.head.TS }
+	d.head = &db.Request{ID: 10, TS: m.now(), Requester: db.Human, Target: "harbor"}
 	if m.StartForWork("harbor"); passes("harbor") != 2 {
 		t.Fatalf("the next message is a pass of its own: %d", passes("harbor"))
 	}

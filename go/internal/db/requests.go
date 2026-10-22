@@ -614,9 +614,12 @@ func closeWhere(q Q, rid int64, state, verdict, and string) (bool, error) {
 }
 
 // ClosedUnder is db.closed_under: closed out from under its target rather than answered by it.
-func ClosedUnder(q Q, rid int64) (bool, error) {
+func ClosedUnder(q Q, rid int64) (bool, error) { return RequestHasEvent(q, "closed_under", rid) }
+
+// RequestHasEvent: an event of kind names the request.
+func RequestHasEvent(q Q, kind string, rid int64) (bool, error) {
 	var one int
-	err := q.QueryRow("SELECT 1 FROM events WHERE kind = 'closed_under' AND "+eventRequest+" = ? LIMIT 1", rid).Scan(&one)
+	err := q.QueryRow("SELECT 1 FROM events WHERE kind = ? AND "+eventRequest+" = ? LIMIT 1", kind, rid).Scan(&one)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}

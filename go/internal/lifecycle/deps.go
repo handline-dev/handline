@@ -219,12 +219,11 @@ func (m *Manager) loadHeld(agent string) string {
 	if why == "" {
 		return ""
 	}
-	head, err := m.Delivery.EffectiveHead(m.Q, agent)
-	check(err)
-	if head == nil || head.Requester != db.Human {
+	head := m.personHead(agent)
+	if head == nil {
 		return why
 	}
-	if last, ok := must2(db.LastEventTS(m.Q, agent, "load_limit_passed")); !ok || last < head.TS {
+	if !must(db.RequestHasEvent(m.Q, "load_limit_passed", head.ID)) {
 		must(db.AddEvent(m.Q, agent, "load_limit_passed", db.KV{K: "held", V: why}, db.KV{K: "request_id", V: head.ID}))
 	}
 	return ""
