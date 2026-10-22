@@ -2,6 +2,7 @@ package compose
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/fold"
@@ -18,8 +19,8 @@ func (p *Parts) SessionRPC(cfg Config) *sessionrpc.Env {
 		ForceStart: c.ForceStart}
 }
 
-// ForceStart is agent.force_start: work the machine's load holds for the agent goes past the limits for its next start, at the next tick.
-// Refused when the load holds nothing of the agent's: no work waits, or the machine is under its limits.
+// ForceStart is agent.force_start: work the machine's load or its account's pace holds for the agent goes past them for its next start,
+// at the next tick. Refused when neither holds anything of the agent's: no work waits, or nothing holds it.
 func (c controls) ForceStart(agent string) (bool, string, error) {
 	m := c.lc.Manager
 	why := c.lc.Gate.Held(agent)
@@ -31,14 +32,28 @@ func (c controls) ForceStart(agent string) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
-	if why == "" || (owed == "" && !c.lc.Launch.Ports.WaitingFor(m.Q, agent)) {
-		return false, agent + ": the machine's load holds nothing of its", nil
+	paced := ""
+	if w := c.lc.Launch.WakeWait(m.Q, agent, row); w != nil && w.Pace != nil {
+		paced = lifecycle.DescribeWakeWait(w)
 	}
-	c.lc.Gate.Pass(agent)
-	if _, err := db.AddEvent(m.Q, agent, "load_limit_passed", db.KV{K: "held", V: why}); err != nil {
-		return false, "", err
+	if why == "" && paced == "" || (owed == "" && !c.lc.Launch.Ports.WaitingFor(m.Q, agent)) {
+		return false, agent + ": the machine's load and the accounts' pace hold nothing of its", nil
 	}
-	return true, agent + ": starts at the next tick past the load limits (" + why + ")", nil
+	var said []string
+	for _, p := range []struct {
+		held, kind, what string
+		pass             func(string)
+	}{{why, "load_limit_passed", "the load limits", c.lc.Gate.Pass}, {paced, "pace_passed", "the pace", c.lc.Launch.PassPace}} {
+		if p.held == "" {
+			continue
+		}
+		p.pass(agent)
+		if _, err := db.AddEvent(m.Q, agent, p.kind, db.KV{K: "held", V: p.held}); err != nil {
+			return false, "", err
+		}
+		said = append(said, p.what+" ("+p.held+")")
+	}
+	return true, agent + ": starts at the next tick past " + strings.Join(said, " and "), nil
 }
 
 // controls is sessionrpc.Controls over the lifecycle manager.

@@ -81,7 +81,7 @@ describe('the list', () => {
     await mount();
     await loaded();
     expect(rowIds()).toEqual([1684, 1688, 1700, 1690]); // P1, then P2 by number, then P3
-    expect($$('tr.tgroup').map((g) => text(g).trim())).toEqual(['Running 2', 'Queued 2']);
+    expect($$('tr.tgroup').map((g) => text(g).trim())).toEqual(['Running 2', 'Up next 2']);
     expect(text(row(1684))).toContain('P1');
     expect(text(row(1688))).toContain('doing');
     expect(text(row(1684))).toContain('handline.architect');

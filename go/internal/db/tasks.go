@@ -75,6 +75,11 @@ func OpenTasks(q Q) ([]*Task, error) {
 	return taskRows(q, "SELECT "+taskCols+" FROM tasks WHERE "+OpenSQL+" ORDER BY priority, id")
 }
 
+// OpenTasksOf is the open tasks owner holds, by priority then id.
+func OpenTasksOf(q Q, owner string) ([]*Task, error) {
+	return taskRows(q, "SELECT "+taskCols+" FROM tasks WHERE owner = ? AND "+OpenSQL+" ORDER BY priority, id", owner)
+}
+
 // OpenChildTasks is db.open_child_tasks.
 func OpenChildTasks(q Q, tid int64) ([]*Task, error) {
 	return taskRows(q, "SELECT "+taskCols+" FROM tasks WHERE parent_task = ? AND "+OpenSQL+" ORDER BY priority, id", tid)

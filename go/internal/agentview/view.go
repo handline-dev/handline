@@ -232,8 +232,12 @@ func (e *Env) word(agent string, row *db.AgentState, now int64, needs *NeedsYou)
 		}
 		return "PENDING", timefmt.Stamp(row.WakeAt.Int64, timefmt.Clock)
 	}
-	if state == states.Idle && !(row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) && e.Alive(agent) && e.Busy(agent) {
+	closed := row.ClosedAt.Valid && row.ClosedAt.Int64 != 0
+	if state == states.Idle && !closed && e.Alive(agent) && e.Busy(agent) {
 		return "RUNNING", ""
+	}
+	if state == states.Idle && closed && must(e.WouldWake(row)) { // work waits for it: it is not off, its start is pending
+		return "PENDING", ""
 	}
 	if state == states.Idle && must(e.HasBackgroundWork(e.Q, agent)) {
 		return "IDLE", e.backgroundDetail(agent, now)

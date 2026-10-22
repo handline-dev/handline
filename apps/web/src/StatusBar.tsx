@@ -3,6 +3,7 @@
 import { useConnection } from '@handline/app-react';
 import { machineCells } from '@handline/app-core';
 import { awayLine, useAway, useStatus, useTasks } from '@handline/app-data';
+import { NoticeBell } from '#src/Notices.tsx';
 import { useMyTurn } from '#src/MyTurn.tsx';
 import { UsageLink } from '#src/UsageLink.tsx';
 import { Chip, Icon } from '#src/ui/index.ts';
@@ -43,8 +44,9 @@ export function StatusBar() {
           ))}
         </Chip>
       ) : null}
-      <span className="status-end relative ml-auto">
+      <span className="status-end relative ml-auto flex items-center gap-3">
         <UsageLink />
+        <NoticeBell />
       </span>
     </footer>
   );

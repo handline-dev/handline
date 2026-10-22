@@ -1,6 +1,6 @@
 // One agent row of the list: the name and its marks on the first line, the task (or repo/branch) under it, and what the agent is doing now.
 import { useEffect, useRef, useState, type HTMLAttributes } from 'react';
-import { ago, dotOf, rowName, queueOf, handoffLine, type Verb, badgesOf, taskRef } from '@handline/app-core';
+import { ago, dotOf, rowName, queueOf, handoffLine, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useVerbMark } from '@handline/app-data';
@@ -132,7 +132,12 @@ export function AgentRow({
                   aria-current={selected ? 'true' : undefined}
                   title={tip}
                 >
-                  <Mark dot={dot} title={`${MARKS[dot].label} · ${ago(a.state_since)}`} />
+                  <Mark
+                    dot={dot}
+                    title={[MARKS[dot].label, dot === 'blocked' || dot === 'waiting' ? whyOf(a) : null, ago(a.state_since)]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  />
                   <span className="name h-5 min-w-[4.5rem] flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-5">
                     {rowName(a.name, depth, team)}
                   </span>
