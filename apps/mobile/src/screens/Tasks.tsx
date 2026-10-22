@@ -2,7 +2,25 @@
 // of TaskActions: new task, done, reopen, queue, draft, discard, edit, memo, withdraw, cancel. The pills Open / Mine / Closed and the state
 // chips narrow the list as on the web.
 import { useState } from 'react';
-import { activityOf, ago, CLOSED, defaultFilter, foldEvents, groupTasks, HELD, idleText, shown, sortTasks, TASK_STATES, taskMatches, taskRef, timeLeft, timeoutText, watchLine, watchResult } from '@handline/app-core';
+import {
+  activityOf,
+  ago,
+  CLOSED,
+  defaultFilter,
+  foldEvents,
+  groupTasks,
+  HELD,
+  idleText,
+  shown,
+  sortTasks,
+  TASK_STATES,
+  taskMatches,
+  taskRef,
+  timeLeft,
+  timeoutText,
+  watchLine,
+  watchResult,
+} from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task, TaskDetail } from '@handline/client';
 import { classify, useMemos, useServes, useTask, useTasks } from '@handline/app-data';
@@ -12,7 +30,8 @@ import { Linking, SectionList, ScrollView, Text, TextInput, View } from 'react-n
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
-import { Button, ListRow, MenuItem, MenuSheet, PageHeader, Pill } from '#src/screens/parts.tsx';
+import { GroupHead } from '#src/screens/TaskGroupHead.tsx';
+import { Button, EmptyState, ListRow, MenuItem, MenuSheet, PageHeader, Pill } from '#src/screens/parts.tsx';
 import { CommentBox, CommentRow } from '#src/screens/Comments.tsx';
 import { NewTask, TaskVerbs, useTaskPending } from '#src/screens/TaskActions.tsx';
 import { TaskHistorySection } from '#src/screens/TaskHistory.tsx';
@@ -77,7 +96,11 @@ function List(props: { onSelect: (id: number) => void }) {
         title="Tasks"
         actions={
           <>
-            <Button testID="tasks-select" label={selecting ? 'Done' : 'Select'} onPress={() => (selecting ? stopSelecting() : setSelecting(true))} />
+            <Button
+              testID="tasks-select"
+              label={selecting ? 'Done' : 'Select'}
+              onPress={() => (selecting ? stopSelecting() : setSelecting(true))}
+            />
             <Button testID="new-task-open" label="New task" icon="plus" onPress={() => setCreating(true)} />
             <Button testID="tasks-menu" label="" icon="menu" accessibilityLabel="More" onPress={() => setMenu(!menu)} />
           </>
@@ -108,12 +131,7 @@ function List(props: { onSelect: (id: number) => void }) {
               <Pill key={id} testID={`scope-${id}`} on={scope === id} label={label} onPress={() => setScope(id)} />
             ))}
             {scope !== 'closed' && (
-              <Pill
-                testID="filter-toggle"
-                on={filtering || narrowed}
-                label="Filter"
-                onPress={() => setFiltering(!filtering)}
-              />
+              <Pill testID="filter-toggle" on={filtering || narrowed} label="Filter" onPress={() => setFiltering(!filtering)} />
             )}
           </View>
           {scope !== 'closed' && filtering && (
@@ -159,7 +177,10 @@ function List(props: { onSelect: (id: number) => void }) {
         </>
       )}
       {selecting && (
-        <View testID="tasks-bar" style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderTopWidth: 1 }}>
+        <View
+          testID="tasks-bar"
+          style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md, borderTopWidth: 1 }}
+        >
           <Text style={{ flex: 1, fontWeight: '600' }}>{`${marked.size} selected`}</Text>
           <Button testID="tasks-bar-actions" label="Actions" disabled={!marked.size} onPress={() => setActing(true)} />
         </View>
@@ -195,15 +216,6 @@ function TaskSearch(props: { value: string; onChange: (v: string) => void }) {
   );
 }
 
-function GroupHead(props: { title: string; count: number }) {
-  const c = usePalette();
-  return (
-    <Text accessibilityRole="header" style={{ color: c.muted, fontSize: font.size.label, fontWeight: '700', paddingHorizontal: space.lg, paddingTop: space.lg, paddingBottom: space.xs, backgroundColor: c.bg }}>
-      {`${props.title} ${props.count}`}
-    </Text>
-  );
-}
-
 const TASK_ICON: Record<string, IconName> = {
   draft: 'taskDraft',
   queued: 'taskQueued',
@@ -229,7 +241,12 @@ function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () 
       testID={`task-${t.id}`}
       lead={
         props.selecting ? (
-          <Icon name={props.marked ? 'taskDone' : 'taskDraft'} label={props.marked ? 'Selected' : 'Not selected'} size={18} color={props.marked ? c.ink : c.muted} />
+          <Icon
+            name={props.marked ? 'taskDone' : 'taskDraft'}
+            label={props.marked ? 'Selected' : 'Not selected'}
+            size={18}
+            color={props.marked ? c.ink : c.muted}
+          />
         ) : (
           <Icon name={icon} label={t.state} size={18} color={t.state === 'blocked' || failed ? c.block : c.muted} />
         )
@@ -239,7 +256,11 @@ function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () 
       selected={props.selecting ? props.marked : undefined}
       trail={
         <View style={{ alignItems: 'flex-end' }}>
-          {t.priority ? <Text style={{ color: t.priority === 1 ? c.block : c.muted, fontWeight: '700', fontSize: font.size.label }}>{PRIORITY[t.priority]}</Text> : null}
+          {t.priority ? (
+            <Text style={{ color: t.priority === 1 ? c.block : c.muted, fontWeight: '700', fontSize: font.size.label }}>
+              {PRIORITY[t.priority]}
+            </Text>
+          ) : null}
           {time ? <Text style={{ color: time.startsWith('over') ? c.block : c.muted, fontSize: font.size.label }}>{time}</Text> : null}
         </View>
       }
@@ -250,7 +271,6 @@ function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () 
 }
 
 export function Detail(props: { id: number; onBack: () => void; backLabel?: string }) {
-  const c = usePalette();
   const query = useTask(props.id);
   const { served } = useServes('task.get');
   const gone = query.isError && classify(query.error).kind === 'not_found';
@@ -258,11 +278,15 @@ export function Detail(props: { id: number; onBack: () => void; backLabel?: stri
     <View style={{ flex: 1 }}>
       <PageHeader back={{ label: props.backLabel ?? 'Tasks', onPress: props.onBack, testID: 'task-back' }} />
       {gone ? (
-        <Text testID="empty" style={{ color: c.muted, padding: space.lg }}>
-          This task no longer exists.
-        </Text>
+        <EmptyState text="This task no longer exists." />
       ) : (
-        <Loadable query={query} served={served} skeleton="taskDetail" label={`task ${taskRef(props.id)}`} empty="This task no longer exists.">
+        <Loadable
+          query={query}
+          served={served}
+          skeleton="taskDetail"
+          label={`task ${taskRef(props.id)}`}
+          empty="This task no longer exists."
+        >
           {query.data ? <Body t={query.data} /> : null}
         </Loadable>
       )}
@@ -307,7 +331,11 @@ function Body({ t }: { t: TaskDetail }) {
         <Text testID="task-watch" style={{ color: c.muted }}>
           Watches{' '}
           {watch.url ? (
-            <Text style={{ color: c.accent, textDecorationLine: 'underline' }} accessibilityRole="link" onPress={() => void Linking.openURL(watch.url!)}>
+            <Text
+              style={{ color: c.accent, textDecorationLine: 'underline' }}
+              accessibilityRole="link"
+              onPress={() => void Linking.openURL(watch.url!)}
+            >
               {watch.text}
             </Text>
           ) : (
@@ -332,14 +360,18 @@ function Body({ t }: { t: TaskDetail }) {
       {t.children.length ? <Section title="Subtasks">{t.children.map((k, i) => line(`${taskRef(k)}`, i))}</Section> : null}
       {t.discarded ? (
         <Section title="Closed">
-          {line(`${t.discarded.by} discarded it${t.discarded.batch ? ' in a batch' : ''}${t.discarded.withdrew?.length ? `, withdrawing ${t.discarded.withdrew.length} ${t.discarded.withdrew.length === 1 ? 'request' : 'requests'}` : ''}`)}
+          {line(
+            `${t.discarded.by} discarded it${t.discarded.batch ? ' in a batch' : ''}${t.discarded.withdrew?.length ? `, withdrawing ${t.discarded.withdrew.length} ${t.discarded.withdrew.length === 1 ? 'request' : 'requests'}` : ''}`,
+          )}
           {t.discarded.reason ? line(t.discarded.reason, 'why') : null}
         </Section>
       ) : null}
-      {t.evidence ? <Section title="Evidence"><PrBody id={`evidence-${t.id}`} agent={t.to} body={t.evidence} /></Section> : null}
-      {t.deliveries.length ? (
-        <Section title="Delivery">{line(deliverySummary(t.deliveries))}</Section>
+      {t.evidence ? (
+        <Section title="Evidence">
+          <PrBody id={`evidence-${t.id}`} agent={t.to} body={t.evidence} />
+        </Section>
       ) : null}
+      {t.deliveries.length ? <Section title="Delivery">{line(deliverySummary(t.deliveries))}</Section> : null}
       <TaskHistorySection id={t.id} />
       <TaskTimeSection id={t.id} />
       <Activity t={t} />
@@ -355,7 +387,9 @@ function Activity({ t }: { t: TaskDetail }) {
   const { items, hidden } = foldEvents(activityOf(memos, t.timeline), all);
   return (
     <Section title="Activity">
-      {hidden ? <Button testID="activity-more" label={`Show ${hidden} earlier ${hidden === 1 ? 'event' : 'events'}`} onPress={() => setAll(true)} /> : null}
+      {hidden ? (
+        <Button testID="activity-more" label={`Show ${hidden} earlier ${hidden === 1 ? 'event' : 'events'}`} onPress={() => setAll(true)} />
+      ) : null}
       {items.map((i, n) => {
         const m = i.kind === 'comment' ? memos.find((x) => x.id === i.memo) : undefined;
         return m ? (
