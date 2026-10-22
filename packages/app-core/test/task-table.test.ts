@@ -140,13 +140,7 @@ test('a time box just edited shows at once, before the clock has caught up', () 
 });
 
 test('tasks group as Needs you, Running, Up next and Done, each keeping its order', () => {
-  const all = [
-    task(1),
-    task(2, { state: 'doing' }),
-    task(3, { to: 'human' }),
-    task(4, { state: 'done' }),
-    task(6, { state: 'doing' }),
-  ];
+  const all = [task(1), task(2, { state: 'doing' }), task(3, { to: 'human' }), task(4, { state: 'done' }), task(6, { state: 'doing' })];
   const g = groupTasks(all, 'me');
   assert.deepEqual(
     g.map((x) => [x.label, ids(x.rows)]),

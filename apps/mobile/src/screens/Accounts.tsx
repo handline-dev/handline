@@ -79,7 +79,9 @@ function UsageLines({ a }: { a: Account }) {
         <Text style={style}>{a.assignable ? 'can take another agent' : `cannot take another agent: ${dash(a.assign_reason)}`}</Text>
       )}
       {roster ? (
-        <Text style={style}>{`agents ${dash(a.agents_assigned)} assigned · ${dash(a.agents_running)} running · ${dash(a.agents_unplaced)} unplaced`}</Text>
+        <Text
+          style={style}
+        >{`agents ${dash(a.agents_assigned)} assigned · ${dash(a.agents_running)} running · ${dash(a.agents_unplaced)} unplaced`}</Text>
       ) : null}
     </View>
   );
@@ -93,7 +95,9 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
   return (
     <View testID={`gauge-${props.label}`} style={{ gap: 2 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-        <Text numberOfLines={1} style={{ color: c.muted, width: 76 }}>{props.label}</Text>
+        <Text numberOfLines={1} style={{ color: c.muted, width: 76 }}>
+          {props.label}
+        </Text>
         <View style={{ flex: 1, height: 6, borderRadius: 3, backgroundColor: c.line }}>
           <View style={{ width: `${g.pct}%`, height: 6, borderRadius: 3, backgroundColor: tone }} />
           {g.through !== null ? (
@@ -107,7 +111,9 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
           {g.pct}%{g.pct >= 100 ? ' full' : g.pct >= 80 ? ' !' : ''}
         </Text>
       </View>
-      {props.detail && g.resetIn !== null ? <Text style={{ color: c.muted, fontSize: font.size.label }}>resets in {span(g.resetIn)}</Text> : null}
+      {props.detail && g.resetIn !== null ? (
+        <Text style={{ color: c.muted, fontSize: font.size.label }}>resets in {span(g.resetIn)}</Text>
+      ) : null}
     </View>
   );
 }
@@ -153,7 +159,12 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
               </View>
               {stateText(a) ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{stateText(a)}</Text> : null}
               {stateOf(a) === 'needs_login' ? (
-                <Button testID={`login-${a.name}`} label="Log in" onPress={() => props.onSelect(a.name)} style={{ alignSelf: 'flex-start' }} />
+                <Button
+                  testID={`login-${a.name}`}
+                  label="Log in"
+                  onPress={() => props.onSelect(a.name)}
+                  style={{ alignSelf: 'flex-start' }}
+                />
               ) : (
                 <>
                   <Gauge label="5 hours" w={a.five_hour} />
@@ -226,11 +237,7 @@ function One({ name, onBack }: { name: string; onBack: () => void }) {
     <View style={{ flex: 1 }}>
       <PageHeader back={{ label: 'Accounts', onPress: onBack, testID: 'account-back' }} />
       <Loadable query={query} served={served} skeleton="accounts" label="accounts" empty="This account no longer exists.">
-        {a ? (
-          <Body a={a} />
-        ) : query.data ? (
-          <EmptyState text="This account no longer exists." />
-        ) : null}
+        {a ? <Body a={a} /> : query.data ? <EmptyState text="This account no longer exists." /> : null}
       </Loadable>
     </View>
   );
@@ -290,8 +297,20 @@ function Settings({ a }: { a: Account }) {
           The cap is a whole number, 1 or more.
         </Text>
       ) : null}
-      <Toggle testID="account-recover" label="Usage recovery" on={a.recover} disabled={!!off} onChange={(on) => save.mutate({ account: a.name, recover: on })} />
-      <Toggle testID="account-cycle" label="Ends this month" on={a.cycle.on} disabled={!!off} onChange={(on) => save.mutate({ account: a.name, cycle: on })} />
+      <Toggle
+        testID="account-recover"
+        label="Usage recovery"
+        on={a.recover}
+        disabled={!!off}
+        onChange={(on) => save.mutate({ account: a.name, recover: on })}
+      />
+      <Toggle
+        testID="account-cycle"
+        label="Ends this month"
+        on={a.cycle.on}
+        disabled={!!off}
+        onChange={(on) => save.mutate({ account: a.name, cycle: on })}
+      />
       <Input testID="account-cycle-end" label="Last day, as 2026-10-31 (blank: the monthly anniversary)" value={end} onChange={setEnd} />
       {badEnd ? (
         <Text accessibilityRole="alert" style={{ color: c.block }}>
@@ -319,7 +338,13 @@ function Toggle(props: { label: string; on: boolean; disabled: boolean; onChange
       accessibilityState={{ checked: props.on, disabled: props.disabled }}
       disabled={props.disabled}
       onPress={() => props.onChange(!props.on)}
-      style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44, opacity: props.disabled ? 0.4 : 1 }}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        minHeight: 44,
+        opacity: props.disabled ? 0.4 : 1,
+      }}
     >
       <Text style={{ color: c.ink }}>{props.label}</Text>
       <Text style={{ color: props.on ? c.run : c.muted, fontWeight: '700' }}>{props.on ? 'On' : 'Off'}</Text>

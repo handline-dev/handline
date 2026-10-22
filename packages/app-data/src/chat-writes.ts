@@ -120,7 +120,11 @@ export const chatWrites: Record<string, WriteSpec> = {
         return mapPages(d, (page) => ({
           ...page,
           messages: page.messages.flatMap((m) =>
-            m.id < 0 && m.to === agent && m.body === body && m.state !== 'failed' ? (has ? [] : (takeOver(request, m.id), [{ ...m, id: request }])) : [m],
+            m.id < 0 && m.to === agent && m.body === body && m.state !== 'failed'
+              ? has
+                ? []
+                : (takeOver(request, m.id), [{ ...m, id: request }])
+              : [m],
           ),
         }));
       });

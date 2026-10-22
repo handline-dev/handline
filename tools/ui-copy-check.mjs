@@ -19,9 +19,18 @@ const walk = (dir) =>
     return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(n) ? [p] : [];
   });
 const root = join(here, '..');
-const files = process.argv.length > 2 ? process.argv.slice(2) : ['apps', 'packages'].flatMap((g) => readdirSync(join(root, g)).map((a) => [g, a])).flatMap(([g, a]) => {
-  try { return walk(join(root, g, a, 'src')); } catch { return []; }
-});
+const files =
+  process.argv.length > 2
+    ? process.argv.slice(2)
+    : ['apps', 'packages']
+        .flatMap((g) => readdirSync(join(root, g)).map((a) => [g, a]))
+        .flatMap(([g, a]) => {
+          try {
+            return walk(join(root, g, a, 'src'));
+          } catch {
+            return [];
+          }
+        });
 
 let bad = 0;
 for (const file of files) {
@@ -32,12 +41,15 @@ for (const file of files) {
   const check = (node, s, whole = false) => {
     const { line } = src.getLineAndCharacterOfPosition(node.getStart());
     if (/copy-ok:/.test(lines[line] ?? '')) return;
-    for (const r of rules) if (whole ? s.trim() === r.re.exec(s)?.[0] : r.re.test(s)) (bad++, console.log(`${file}:${line + 1}: "${s.trim().slice(0, 70)}" holds ${r.re.source}; say: ${r.say}`));
+    for (const r of rules)
+      if (whole ? s.trim() === r.re.exec(s)?.[0] : r.re.test(s))
+        (bad++, console.log(`${file}:${line + 1}: "${s.trim().slice(0, 70)}" holds ${r.re.source}; say: ${r.say}`));
   };
   // Every string under a user-visible position: a conditional or a template in a prop holds several.
   const strings = (node, f) => {
     if (ts.isStringLiteralLike(node)) f(node, node.text);
-    else if (ts.isTemplateExpression(node)) (f(node.head, node.head.text), node.templateSpans.forEach((sp) => f(sp.literal, sp.literal.text)));
+    else if (ts.isTemplateExpression(node))
+      (f(node.head, node.head.text), node.templateSpans.forEach((sp) => f(sp.literal, sp.literal.text)));
     ts.forEachChild(node, (c) => strings(c, f));
   };
   const visit = (node) => {
