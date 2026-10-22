@@ -10,9 +10,6 @@ import (
 	"github.com/handline/handline/go/internal/textsafe"
 )
 
-// Where is the daemon's own account of where an agent was, put under its handoff at every fresh start, or in its place when there is
-// none: its open tasks with each one's last memo, its last messages with the founder and its lead, and, with no record, its last
-// progress note. All of it is already in the database, so it is there however the last session ended.
 const (
 	// WhereTasks and WhereMessages are how many of each it lists.
 	WhereTasks    = 8
@@ -58,15 +55,17 @@ func taskLines(q db.Q, agent string) ([]string, error) {
 	}
 	sort.SliceStable(ts, func(i, j int) bool { return states[ts[i].ID] == "doing" && states[ts[j].ID] != "doing" }) // what it is on, first
 	var lines []string
+	listed := 0
 	for _, t := range ts {
 		state := states[t.ID]
 		if state == "draft" {
 			continue // not handed to it yet
 		}
-		if len(lines) >= 2*WhereTasks {
+		if listed == WhereTasks {
 			lines = append(lines, "  ... more: hl task list")
 			break
 		}
+		listed++
 		line := fmt.Sprintf("  T%d %s P%d - %s", t.ID, state, t.Priority, cutRunes(textsafe.Oneline(t.Title), 120))
 		if ids, err := db.BlocksOnIDs(q, t.ID); err != nil {
 			return nil, err
@@ -133,8 +132,10 @@ func messageLines(q db.Q, agent, lead string) ([]string, error) {
 	return lines, nil
 }
 
-// WhereText is that account for agent, whose lead is lead ("" when the founder is its lead); record is the handoff it is given, "" for
-// none.
+// WhereText is the daemon's own account of where agent was, put under its handoff at every fresh start, or in its place when there is
+// none: its open tasks with each one's last memo, its last messages with the founder and its lead (lead; "" when that is the founder),
+// and, with no record (the handoff it is given), its last progress note. All of it is already in the database, so it is there however
+// the last session ended.
 func WhereText(q db.Q, agent, lead, record string, now time.Time) (string, error) {
 	if lead == "" {
 		lead = db.Human

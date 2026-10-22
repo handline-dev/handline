@@ -104,3 +104,33 @@ func TestWhereForAnAgentTheFounderLeads(t *testing.T) {
 		t.Errorf("%s", got)
 	}
 }
+
+// Ten tasks, a memo on every other one, and seven messages: it lists WhereTasks tasks and says there are more, and WhereMessages messages.
+func TestWhereKeepsToItsLimits(t *testing.T) {
+	w := newWorld(t)
+	q := w.DB
+	for i := range 10 {
+		tid, _ := db.NewTask(q, fmt.Sprintf("task %02d", i), "ann", "boss", 0, 2, "", 0, "")
+		if _, err := db.SetTaskQueued(q, tid, "boss"); err != nil {
+			t.Fatal(err)
+		}
+		if i%2 == 0 {
+			db.AddMemo(q, tid, "boss", "a memo")
+		}
+	}
+	for i := range 7 {
+		if _, err := db.AddRequest(q, db.NewRequest{Requester: db.Human, Target: "ann", Body: fmt.Sprintf("message %d", i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := WhereText(q, "ann", "boss", "", time.Unix(w.now, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(got, " queued P2 - task "); n != WhereTasks || !strings.Contains(got, "task 07\n  ... more: hl task list") {
+		t.Errorf("%d tasks listed, want %d then the more line:\n%s", n, WhereTasks, got)
+	}
+	if n := strings.Count(got, "human -> you: message"); n != WhereMessages || strings.Contains(got, "message 1\n") {
+		t.Errorf("%d messages listed, want the newest %d:\n%s", n, WhereMessages, got)
+	}
+}
