@@ -119,7 +119,11 @@ export function Appearance({ storage }: { storage: KV | null }) {
 export function Connection() {
   const hello = useSelector((s) => s.client.hello);
   const shellMode = useShellMode();
-  const mode = shellMode ? (shellMode.mode === 'own' ? 'This computer runs its own daemon' : (shellMode.remote ?? 'Another computer')) : null;
+  const mode = shellMode
+    ? shellMode.mode === 'own'
+      ? 'This computer runs its own daemon'
+      : (shellMode.remote ?? 'Another computer')
+    : null;
   const rows: [string, string | undefined][] = [
     ['Daemon', mode ?? undefined],
     ['Version', hello?.daemon.slice(0, 9)],
