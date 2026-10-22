@@ -82,7 +82,7 @@ function Chart({ h }: { h: Headroom }) {
     const d = new Date(t0);
     d.setHours(every < 24 ? Math.ceil(d.getHours() / every) * every : d.getHours() > 0 ? 24 : 0, 0, 0, 0);
     for (; d.getTime() <= t1; d.setHours(d.getHours() + every))
-      out.push({ t: d.getTime(), label: d.toLocaleString([], every < 24 ? { hour: 'numeric' } : { weekday: 'short' }) });
+      out.push({ t: d.getTime(), label: d.toLocaleString([], every < 24 ? { hour: 'numeric' } : { weekday: 'short', day: 'numeric' }) });
     return out;
   }, [t0, t1, width]);
   const balloonX = cursor === null ? 0 : Math.min(Math.max(x(cursor), 115), Math.max(115, width - 115));
@@ -219,13 +219,11 @@ function Accounts({ h }: { h: Headroom }) {
           next('7d') && `week ${dateTime(next('7d')!.at)}`,
         ].filter(Boolean);
         return (
-          <View
-            key={a.account}
-            testID={`headroom-${a.account}`}
-            style={{ flexDirection: 'row', justifyContent: 'space-between', gap: space.md }}
-          >
-            <Text style={{ color: c.ink, flexShrink: 1 }}>{a.account}</Text>
-            <Text style={{ color: c.muted, textAlign: 'right', flexShrink: 1 }}>
+          <View key={a.account} testID={`headroom-${a.account}`}>
+            <Text numberOfLines={1} style={{ color: c.ink }}>
+              {a.account}
+            </Text>
+            <Text style={{ color: c.muted }}>
               {last ? `${Math.round(last.pct!)}% left` : 'no reading'}
               {resets.length ? ` · resets ${resets.join(', ')}` : ''}
             </Text>
