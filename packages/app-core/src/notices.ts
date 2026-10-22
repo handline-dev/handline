@@ -73,7 +73,14 @@ export class Notices {
     this.shownUntil.set(n.id, at + TOAST_MS[level]);
     this.paused.delete(n.id);
     this.emit();
+    this.expireAt(this.shownUntil.get(n.id)!);
     return n;
+  }
+
+  /** Tells the listeners once the toast that runs out at `when` has: what is on screen depends on the clock, and nothing else would draw again. */
+  private expireAt(when: number): void {
+    const timer = setTimeout(() => this.emit(), Math.max(when - this.now(), 0) + 1);
+    timer.unref?.();
   }
 
   /** Takes an event from the stream or the feed once; a decision or an unknown kind is skipped. */
@@ -116,6 +123,7 @@ export class Notices {
     if (left === undefined) return;
     this.paused.delete(id);
     this.shownUntil.set(id, this.now() + left);
+    this.expireAt(this.shownUntil.get(id)!);
   }
   /** Hides every toast (the person closed them); the list keeps them. */
   dismissToasts(): void {
