@@ -275,6 +275,7 @@ func (e *Env) decide(pid, call, by, note, subject string, tell bool) (bool, stri
 }
 
 // apply carries out a proposal the founder approved. It refuses anything else, and anything whose recorded approval is not for the draft as it is now.
+// A change to an agent with a session running is held until its turn ends (SweepHeld applies it then).
 func (e *Env) apply(pid string, tell bool) (bool, string, error) {
 	prop, why := e.open(pid)
 	if why != "" {
@@ -286,18 +287,45 @@ func (e *Env) apply(pid string, tell bool) (bool, string, error) {
 	case state != "approved":
 		return false, fmt.Sprintf("proposal %s is %s, not approved - the founder decides it in the app's HR tab", pid, state), nil
 	}
-	got := e.decisionOf(pid)
-	if got == nil || got["call"] != "approved" {
-		return false, fmt.Sprintf("no approval from the founder is on record for proposal %s - it was not decided by the founder; raise it again", pid), nil
+	if why := e.unapproved(prop); why != "" {
+		return false, why, nil
 	}
-	if got["subject"] != prop.subject() {
-		return false, fmt.Sprintf("proposal %s was changed after the founder approved it - what they approved is not what is in the draft now; raise it again", pid), nil
+	if busy := e.heldBy(prop); len(busy) > 0 {
+		if err := e.hold(prop, busy); err != nil {
+			return false, "", err
+		}
+		said := fmt.Sprintf("proposal %s approved: it is applied when %s ends the turn running now", pid, strings.Join(busy, ", "))
+		if tell {
+			e.tell(prop, said+".")
+		}
+		return true, said, nil
 	}
 	ok, said, err := e.run(prop)
 	if err != nil {
 		return false, "", err
 	}
+	return e.record(prop, ok, said, tell)
+}
+
+// unapproved is why prop may not be applied: no approval from the founder on record, or one for another draft. "" when it may.
+func (e *Env) unapproved(prop *Prop) string {
+	pid := prop.id()
+	got := e.decisionOf(pid)
+	if got == nil || got["call"] != "approved" {
+		return fmt.Sprintf("no approval from the founder is on record for proposal %s - it was not decided by the founder; raise it again", pid)
+	}
+	if got["subject"] != prop.subject() {
+		return fmt.Sprintf("proposal %s was changed after the founder approved it - what they approved is not what is in the draft now; raise it again", pid)
+	}
+	return ""
+}
+
+// record keeps how an apply went (applied, or approved with the error, which hr.list shows as apply_failed) and tells the proposer.
+func (e *Env) record(prop *Prop, ok bool, said string, tell bool) (bool, string, error) {
+	pid := prop.id()
+	prop.pop("waiting_on")
 	if !ok {
+		prop.set("state", "approved")
 		prop.set("error", said)
 		if err := e.save(prop); err != nil {
 			return false, "", err

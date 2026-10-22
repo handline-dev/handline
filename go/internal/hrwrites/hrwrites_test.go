@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -410,10 +411,15 @@ func TestRetireArchivesTheFolderAndRenameMovesTheNameAndItsRows(t *testing.T) {
 	}
 	p, id := r.propose("aaaa0005", "kind", "rename", "agent", "bob", "to", "robert")
 	r.live["bob"] = true
-	if m := r.decide(id, "approve", p.subject(), "e1"); m["error"] == nil || !strings.Contains(m["error"].(map[string]any)["message"].(string), "has a session running") {
-		t.Fatalf("not while it runs: %v", m)
+	if m := r.decide(id, "approve", p.subject(), "e1"); m["result"] == nil || !strings.Contains(m["result"].(map[string]any)["said"].(string), "when bob ends the turn") {
+		t.Fatalf("held, not refused, while it runs: %v", m)
 	}
-	r.live["bob"] = false
+	if r.state("aaaa0005") != "applying" || !strings.Contains(r.file("team.yaml"), "  bob: {}") {
+		t.Fatalf("nothing changes while bob's turn runs: %s", r.state("aaaa0005"))
+	}
+	if m := r.decide(id, "approve", p.subject(), "e2"); gate(m) != "proposal_settled" {
+		t.Fatalf("an applying proposal is not decided again: %v", m)
+	}
 	// a sandboxed agent's caches, with a read-only folder as Go's module cache keeps them
 	cache := func(name string) string {
 		ro := filepath.Join(r.home, "caches", name, "go-mod", "m@v1")
@@ -423,9 +429,22 @@ func TestRetireArchivesTheFolderAndRenameMovesTheNameAndItsRows(t *testing.T) {
 		return filepath.Join(r.home, "caches", name)
 	}
 	bobs := cache("bob")
-	res := r.decide(id, "approve", p.subject(), "e2")["result"].(map[string]any)
-	if !strings.HasPrefix(res["said"].(string), "bob is now robert") {
-		t.Fatalf("%v", res)
+	idle, closed, started := false, []string{}, []string{}
+	ports := HeldPorts{Alive: func(a string) bool { return r.live[a] }, Idle: func(string) bool { return idle },
+		Close: func(a string) (bool, string) { closed = append(closed, a); r.live[a] = false; return true, "" },
+		Start: func(a string) (bool, string) { started = append(started, a); return true, "" }}
+	r.e.SweepHeld(ports) // mid-turn: not closed
+	if len(closed) != 0 || r.state("aaaa0005") != "applying" {
+		t.Fatalf("a turn is never cut: %v %s", closed, r.state("aaaa0005"))
+	}
+	idle = true
+	r.e.SweepHeld(ports) // at its prompt: closed, applied on the next look
+	if !reflect.DeepEqual(closed, []string{"bob"}) || r.state("aaaa0005") != "applying" {
+		t.Fatalf("closed at its prompt: %v %s", closed, r.state("aaaa0005"))
+	}
+	r.e.SweepHeld(ports)
+	if r.state("aaaa0005") != "applied" || !reflect.DeepEqual(started, []string{"robert"}) {
+		t.Fatalf("applied, and the agent started under its new name: %s %v", r.state("aaaa0005"), started)
 	}
 	var target, agent string
 	r.db.QueryRow("SELECT target FROM requests WHERE body = 'hi'").Scan(&target)
@@ -443,7 +462,7 @@ func TestRetireArchivesTheFolderAndRenameMovesTheNameAndItsRows(t *testing.T) {
 	}
 	roberts := cache("robert")
 	p2, id2 := r.propose("aaaa0006", "kind", "retire", "agent", "robert")
-	res = r.decide(id2, "approve", p2.subject(), "e3")["result"].(map[string]any)
+	res := r.decide(id2, "approve", p2.subject(), "e3")["result"].(map[string]any)
 	if !strings.Contains(res["said"].(string), "robert is retired; its folder is at") {
 		t.Fatalf("%v", res)
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
@@ -14,7 +15,7 @@ import (
 )
 
 // retireMethod is agent.retire: the founder retires an agent at once, by the same step an approved retire proposal runs
-// (doRetire). Refused while the agent has a session running, or while another agent reports to it or hangs under its name.
+// (doRetire). One with a session running is retired when its turn ends. Refused while another agent reports to it or hangs under its name.
 func (e *Env) retireMethod(c *rpc.Conn, params map[string]any) (any, error) {
 	agent, _ := params["agent"].(string)
 	if agent == "" {
@@ -33,11 +34,24 @@ func (e *Env) retireMethod(c *rpc.Conn, params map[string]any) (any, error) {
 	if !ok {
 		return nil, rpc.Refused("could not confirm whether "+agent+" has a session running just now - try again in a moment.", "state", "")
 	}
-	if live[agent] {
-		return nil, rpc.Refused(agent+" has a session running. Close it first: an agent is not retired under a running session.", "state", "")
-	}
 	if deps := e.dependents(agent, everyone); len(deps) > 0 {
 		return nil, rpc.Refused(fmt.Sprintf("%s has agents under it (%s): retire or move them first.", agent, strings.Join(deps, ", ")), "state", "")
+	}
+	if live[agent] {
+		// Held as the founder's own approved proposal, which hr.list never shows, so SweepHeld retires it when its turn ends.
+		prop, err := newProp("retire", agent, db.Human, "retired by the founder")
+		if err == nil {
+			err = e.recordDecision(prop.id(), "approved", prop.subject())
+		}
+		if err == nil {
+			err = e.hold(prop, []string{agent})
+		}
+		if err != nil {
+			return nil, err
+		}
+		return c.Effect(func(*sql.Tx) (map[string]any, error) {
+			return map[string]any{"accepted": true, "said": agent + " is retired when it ends the turn running now."}, nil
+		})
 	}
 	prop := &Prop{pairs: []yamlcompat.Pair{{Key: "kind", Val: "retire"}, {Key: "agent", Val: agent},
 		{Key: "id", Val: fmt.Sprintf("%x", time.Now().UnixNano())}}}
