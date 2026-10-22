@@ -19,6 +19,7 @@ import {
 import type { AgentView, NavPrefsChanges } from '@handline/client';
 import { useConnection } from '@handline/app-react';
 import { useAgents, useHrCount, useNav, useServes, useUnreached, useWorktrees } from '@handline/app-data';
+import { useRowDrag } from '#src/RowDrag.ts';
 import { useMyTurn } from '#src/MyTurn.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
 import { Button, Icon, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
@@ -47,7 +48,12 @@ export function Sidebar({
   const { nav, ready, change, togglePin: togglePinAgent } = useNav();
   const hidden = hiddenDots(nav.hidden);
   const collapsed = new Set(nav.collapsed);
-  useMoveSettings(storage, ready && !!list.data, agents.map((x) => x.name), change);
+  useMoveSettings(
+    storage,
+    ready && !!list.data,
+    agents.map((x) => x.name),
+    change,
+  );
   // The view menu: the list under its teams, and the line under a name that says what the agent is doing.
   const [grouped, setGrouped] = useState(() => setting(storage, 'groupTeams', '1').value !== '0');
   const [activity, setActivity] = useState(() => setting(storage, 'activityLines', '1').value !== '0');
@@ -74,6 +80,15 @@ export function Sidebar({
     if (depth === 0) blockTeam = teamOf(agent.name, names);
     teamSize.set(blockTeam, (teamSize.get(blockTeam) ?? 0) + 1);
   }
+  // Beside an agent: the rows shown under the same parent (the top level within its team), in the order shown.
+  const siblingsOf = (a: AgentView) =>
+    rows
+      .filter(
+        (r) =>
+          r.agent.parent === a.parent && (a.parent || r.depth === 0) && (a.parent || teamOf(r.agent.name, names) === teamOf(a.name, names)),
+      )
+      .map((r) => r.agent.name);
+  const drag = useRowDrag(tree, nav.order, siblingsOf, (order) => change({ order }));
   const row = (agent: AgentView, depth: number, kids: number, team: string, key?: string) => (
     <AgentRow
       key={key}
@@ -89,6 +104,7 @@ export function Sidebar({
       selected={agent.name === selected}
       pinned={nav.pins.includes(agent.name)}
       onPin={() => togglePinAgent(agent.name)}
+      drag={key?.startsWith('pin-') ? undefined : { attrs: drag.attrs(agent), mark: drag.mark(agent.name) }}
     />
   );
   const counts = new Map<Dot, number>();
@@ -233,7 +249,10 @@ export function Sidebar({
         <span className="relative inline-flex">
           <Button icon="settings" label="Settings" onClick={() => void (location.hash = '#/settings')} />
           {hr ? (
-            <span className="rail-hr pointer-events-none absolute -right-1 -top-0.5 rounded-full bg-bad px-1 text-hint text-canvas" title={`${hr} HR proposals wait for you`}>
+            <span
+              className="rail-hr pointer-events-none absolute -right-1 -top-0.5 rounded-full bg-bad px-1 text-hint text-canvas"
+              title={`${hr} HR proposals wait for you`}
+            >
               {hr}
             </span>
           ) : null}
@@ -277,4 +296,8 @@ const lastTop = (rows: { agent: AgentView; depth: number }[], i: number, names: 
 };
 
 /** The first line of the agent's newest request to the founder, for the line under its name. */
-const lastLine = (a: AgentView): string => a.last_to_founder?.text.split('\n').find((l) => l.trim())?.trim() ?? '';
+const lastLine = (a: AgentView): string =>
+  a.last_to_founder?.text
+    .split('\n')
+    .find((l) => l.trim())
+    ?.trim() ?? '';
