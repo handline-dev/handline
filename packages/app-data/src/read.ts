@@ -196,6 +196,7 @@ export const useSchedules = () => useRead('schedules.list', {});
 export const useStats = (window: CallParams<'stats.get'>['window']) => useRead('stats.get', { window });
 export const useOutlook = (range: CallParams<'stats.outlook'>['range']) => useRead('stats.outlook', { range });
 export const useSettings = (agent?: string) => useRead('settings.get', { agent });
+export const useConnection = () => useRead('connection.get', {});
 export const useAnswers = () => useRead('answers.list', {});
 export const useDevices = () => useRead('devices.list', {});
 export const useOperation = (operation: string) => useRead('operation.get', { operation });

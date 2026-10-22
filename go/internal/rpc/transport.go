@@ -47,9 +47,10 @@ func (t *LineTransport) ReadMessage(timeout time.Duration) ([]byte, error) {
 	}
 }
 
+// WriteMessage writes b and its newline. b is never written to: one notice's bytes go to every subscriber at once.
 func (t *LineTransport) WriteMessage(b []byte) error {
 	t.conn.SetWriteDeadline(time.Now().Add(RecvTimeout))
-	_, err := t.conn.Write(append(b, '\n'))
+	_, err := t.conn.Write(append(b[:len(b):len(b)], '\n'))
 	return err
 }
 
