@@ -33,7 +33,9 @@ const typeInto = (el: HTMLTextAreaElement, value: string) =>
 
 const opened: string[] = [];
 async function mount(hash: string) {
+  opened.length = 0;
   const s = setup();
+  s.daemon.chat.seed('handline.architect', { from: 'handline.architect', to: 'human', body: 'The preview is at http://localhost:5173 now.' });
   Object.assign(window, {
     handline: {
       api: 1,
@@ -61,10 +63,10 @@ afterEach(async () => {
 });
 
 async function openPreview(url: string) {
-  await until(() => $('[aria-label="Add a tab"]'), 'the + menu');
-  await click($('[aria-label="Add a tab"]'));
-  await until(() => items().find((i) => /Preview/.test(i.textContent ?? '')), 'the Preview item');
-  await click(items().find((i) => /Preview/.test(i.textContent ?? '')));
+  await until(() => $('[data-url]'), 'the link in the message');
+  await click($('[data-url]'));
+  await until(() => button('In app'), 'the question where to open it');
+  await click(button('In app'));
   await until(() => $('input[aria-label="Address"]'), 'the address field');
   const input = $('input[aria-label="Address"]') as HTMLInputElement;
   await act(async () => {
@@ -75,6 +77,26 @@ async function openPreview(url: string) {
 }
 
 describe('the Preview tab', () => {
+  it('a web address in a message asks where to open it: the external browser opens it and adds no tab', async () => {
+    await mount('#/agents/handline.architect');
+    await until(() => $('[data-url]'), 'the link in the message');
+    await click($('[data-url]'));
+    await until(() => button('External browser'), 'the question');
+    opened.length = 0;
+    await click(button('External browser'));
+    expect(opened).toEqual(['http://localhost:5173']);
+    expect($('[data-tab^="web"]')).toBeNull();
+    expect(button('External browser')).toBeUndefined();
+  });
+
+  it('the picker of a fresh pane is a flat grid of tiles without Preview, File, Activity or Timeline', async () => {
+    await mount('#/agents/handline.architect');
+    await until(() => $('[aria-label="Split this pane"]'), 'the split button');
+    await click($('[aria-label="Split this pane"]'));
+    await until(() => $('.new-tab .tile'), 'the tiles');
+    expect($$('.new-tab .tile').map((t) => (t.textContent ?? '').trim())).toEqual(['Terminal', 'Tasks', 'Android', 'iOS']);
+  });
+
   it('opens the address outside the app', async () => {
     await mount('#/agents/handline.architect');
     await openPreview('localhost:5173');

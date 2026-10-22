@@ -6,7 +6,6 @@ import {
   needsAttention,
   closeTab,
   fillTab,
-  tabId,
   splitPane,
   CHAT,
   moveTab,
@@ -17,7 +16,6 @@ import {
   type Tab,
   type TabKind,
   type TabParams,
-  type Workspace,
 } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { ChatTab } from '#src/ChatTab.tsx';
@@ -70,19 +68,14 @@ export function Pane({ group }: { group: Group }) {
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
   const badges = badgesOf(detail, store.me);
-  // What a new tab can show: the same list for the + menu and for the picker in a freshly split pane.
+  const structured = detail.structured === true;
+  // What a new tab can show: the same flat list for the + menu and for the picker in a freshly split pane.
   const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; disabled?: boolean }[] = [
+    ...(structured ? [] : [{ kind: 'terminal' as const, params: { handle: detail.terminal ?? '' }, label: 'Terminal', icon: 'terminal' as const, disabled: !detail.terminal }]),
     { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
-    { kind: 'web', params: { id: 'new' }, label: 'Preview', icon: 'web' },
     { kind: 'android', params: { id: 'new' }, label: 'Android', icon: 'device' },
     { kind: 'ios', params: { id: 'new' }, label: 'iOS', icon: 'device' },
   ];
-  // The preview opens in a pane of its own next to the chat when there is room, else as a tab here.
-  const besideChat = (w: Workspace, c: (typeof choices)[number]) => {
-    const split = canSplit(group.id) ? splitPane(w, group.id) : null;
-    return split ? fillTab(split, tabId(w, 'new', {}), c.kind, c.params) : openTab(w, c.kind, c.params, group.id);
-  };
-  const structured = detail.structured === true;
   // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.
   // The first terminal tab of the group: a group holds one terminal tab per agent, so the unread dot follows that one.
   const termId = group.tabs.find((id) => ws.tabs[id]?.kind === 'terminal' || ws.tabs[id]?.kind === 'transcript');
@@ -185,7 +178,7 @@ export function Pane({ group }: { group: Group }) {
         })}
         <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="ml-0.5 self-center">
           {choices.map((c) => (
-            <MenuItem key={c.label} icon={c.icon} disabled={c.disabled} onSelect={() => apply((w) => (c.kind === 'web' && group.tabs.includes(CHAT) ? besideChat(w, c) : openTab(w, c.kind, c.params, group.id)))}>
+            <MenuItem key={c.label} icon={c.icon} disabled={c.disabled} onSelect={() => apply((w) => openTab(w, c.kind, c.params, group.id))}>
               {c.label}
             </MenuItem>
           ))}
@@ -204,20 +197,22 @@ export function Pane({ group }: { group: Group }) {
         {!tab ? null : tab.kind === 'chat' ? (
           <ChatTab agent={agent} detail={detail} />
         ) : tab.kind === 'new' ? (
-          <div className="new-tab flex flex-col items-center justify-center gap-1 p-6">
-            <p className="m-0 mb-2 text-ink-2">Open in this pane</p>
-            {choices.map((c) => (
-              <Button
-                key={c.label}
-                variant="outline"
-                icon={c.icon}
-                label={c.label}
-                disabled={c.disabled}
-                onClick={() => apply((w) => fillTab(w, tab.id, c.kind, c.params))}
-              >
-                {c.label}
-              </Button>
-            ))}
+          <div className="new-tab flex flex-col items-center justify-center gap-3 p-6">
+            <p className="m-0 text-ink-2">Open in this pane</p>
+            <div className="grid w-full max-w-sm grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-1">
+              {choices.map((c) => (
+                <button
+                  key={c.label}
+                  type="button"
+                  className="tile flex aspect-square flex-col items-center justify-center gap-2 rounded-card border-0 bg-transparent text-body text-ink hover:enabled:bg-raised disabled:opacity-50"
+                  disabled={c.disabled}
+                  onClick={() => apply((w) => fillTab(w, tab.id, c.kind, c.params))}
+                >
+                  <Icon name={c.icon} size={20} aria-hidden />
+                  {c.label}
+                </button>
+              ))}
+            </div>
           </div>
         ) : tab.kind === 'tasks' ? (
           <TasksTab agent={agent} task={typeof tab.params.task === 'number' ? tab.params.task : null} />

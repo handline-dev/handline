@@ -196,6 +196,7 @@ describe('the workspace', () => {
     expect($$('.pane [data-tab]').map((t) => t.getAttribute('data-tab'))).toEqual(['chat', `terminal:term:${ARCH}`]);
     expect($('[data-tab="chat"]')!.getAttribute('aria-selected')).toBe('true');
     expect($('.terminal-tab')).toBeNull(); // not shown
+    expect($('[data-tab="chat"] .x')).toBeNull(); // Chat is pinned: it has no close
     vi.stubGlobal('confirm', () => false);
     await click($(`${termTab} .x`)!);
     expect($(termTab)).not.toBeNull(); // refused at the confirm
