@@ -90,3 +90,14 @@ test('an event is a line unless it asks for a decision, and one cursor is taken 
   assert.deepEqual(n.list().map((x) => [x.text, x.count]), [['a.b stalled', 1]]);
   assert.equal(eventText(ev(4, 'notifications', 'account_out', { data: { account: 'alpha' } })), 'Account alpha is out');
 });
+
+test('the listeners hear when a toast runs out, so a screen that draws on change takes it down', async () => {
+  const n = new Notices();
+  let heard = 0;
+  n.subscribe(() => heard++);
+  n.push('ok', 'x');
+  const after = heard;
+  await new Promise((r) => setTimeout(r, 3100));
+  assert.ok(heard > after);
+  assert.equal(n.toasts().length, 0);
+});
