@@ -220,7 +220,7 @@ test('controls follow the session and who holds the input', () => {
     ['stop', 'release', 'typing'],
   );
   assert.equal(controlsOf(mine, 'you').take, false); // someone else holds it
-  assert.equal(holderLabel(mine.input_holders?.[0], 'me'), 'YOU');
+  assert.equal(holderLabel(mine.input_holders?.[0], 'me'), 'You');
 });
 
 test('the pane layout is remembered per agent and survives bad or blocked storage', () => {

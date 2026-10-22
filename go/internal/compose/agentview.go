@@ -108,8 +108,11 @@ func (p *Parts) agentView(cfg Config, cutover, terminals bool, tu tickUsage) *ag
 			if w == nil {
 				return nil
 			}
-			out := &agentview.Wall{Text: lifecycle.DescribeWakeWait(w), Slot: w.Slot}
-			if !w.Slot {
+			out := &agentview.Wall{Text: lifecycle.DescribeWakeWait(w), Slot: w.Slot, Pace: w.Pace != nil}
+			switch {
+			case w.Pace != nil:
+				out.Reset = w.Pace.BackAt
+			case !w.Slot:
 				out.Reset = w.Reset
 			}
 			return out

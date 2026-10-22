@@ -18,6 +18,7 @@ apps() {
         local r=0
         pnpm turbo test typecheck lint --continue || r=1
         tools/dupes.sh || r=1
+        node tools/ui-copy-check.mjs || r=1
         return "$r"
     else
         pnpm --dir packages/app-data test

@@ -11,7 +11,7 @@ import (
 )
 
 func TestEachAgentIsServedWithItsStateAndReason(t *testing.T) {
-	r := newRig(t, "run", "ask", "crash", "idle", "gone", "work", "nap", "move", "walled", "full", "held", "bg", "loaded")
+	r := newRig(t, "run", "ask", "crash", "idle", "gone", "work", "nap", "move", "walled", "full", "paced", "held", "bg", "loaded")
 	r.state(t, "run", states.Running, "")
 	r.sess.alive["run"], r.sess.busy["run"] = true, true
 	r.state(t, "ask", states.Idle, "")
@@ -27,6 +27,7 @@ func TestEachAgentIsServedWithItsStateAndReason(t *testing.T) {
 	r.state(t, "move", states.Queued, states.MovingMark+" to b")
 	r.state(t, "walled", states.Queued, "")
 	r.state(t, "full", states.Queued, "")
+	r.state(t, "paced", states.Queued, "")
 	r.state(t, "held", states.Idle, "")
 	r.sess.alive["held"] = true
 	r.state(t, "bg", states.Idle, "")
@@ -53,6 +54,8 @@ func TestEachAgentIsServedWithItsStateAndReason(t *testing.T) {
 			return &Wall{Text: "waiting for a's 5h window (100%, rolls over 04:00)", Reset: 7200}
 		case "full":
 			return &Wall{Text: "waiting for a slot on a (2 of 2 mid-turn)", Slot: true}
+		case "paced":
+			return &Wall{Text: "waiting for a's weekly pace: 60% used, 20 points ahead of its line (40%)", Slot: true, Pace: true, Reset: 3600}
 		}
 		return nil
 	}
@@ -72,6 +75,7 @@ func TestEachAgentIsServedWithItsStateAndReason(t *testing.T) {
 		{"move", "waiting", "move", "moving to another account", nil, nil},
 		{"walled", "stopped", "wall", "waiting for a's 5h window (100%, rolls over 04:00)", "1970-01-01T02:00:00Z", nil},
 		{"full", "stopped", "cap", "waiting for a slot on a (2 of 2 mid-turn)", nil, nil},
+		{"paced", "waiting", "pace", "waiting for a's weekly pace: 60% used, 20 points ahead of its line (40%)", "1970-01-01T01:00:00Z", nil},
 		{"held", "waiting", "task", "blocked by T2 (other)", nil, []any{float64(2)}},
 		{"bg", "running", "background", "background work", nil, nil},
 		{"loaded", "waiting", "load", "held: machine load - 9% of memory free, limit 10%", nil, nil},
@@ -86,4 +90,41 @@ func TestEachAgentIsServedWithItsStateAndReason(t *testing.T) {
 			t.Errorf("%s: %v; want %s/%s %q until %v tasks %v", c.agent, s, c.state, c.reason, c.text, c.until, tasks)
 		}
 	}
+}
+
+// harbor closed its session at 23:07 and a message came at 23:11; every minute the wake was held by the machine's load, while beta's
+// slots were full too. It is not off with no terminal: its start is queued, held by the load, which the wake asks first. Without the
+// load it waits for the slot; with nothing waiting it is off.
+func TestAClosedAgentWithWorkWaitingIsQueuedAndSaysTheLoadHoldsIt(t *testing.T) {
+	r := newRig(t, "harbor", "quiet")
+	for _, a := range []string{"harbor", "quiet"} {
+		r.state(t, a, states.Idle, "")
+		if _, err := r.env.Q.Exec("UPDATE agent_state SET closed_at = 4000 WHERE agent = ?", a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.wake.would["harbor"] = true
+	load := "held: machine load - load 5.40 per core, limit 1.50"
+	r.env.LoadHeld = func(string) string { return load }
+	r.env.Walled = func(agent string, _ *db.AgentState) *Wall {
+		if agent == "harbor" {
+			return &Wall{Text: "waiting for a slot on beta (3 of 3 mid-turn)", Slot: true}
+		}
+		return nil
+	}
+	check := func(agent, state, st, reason, text string) {
+		t.Helper()
+		r.env.RefreshOne(agent)
+		v := r.stored(t, agent)
+		s, _ := v["status"].(map[string]any)
+		if v["state"] != state || s["state"] != st || s["reason"] != reason || s["text"] != text {
+			t.Errorf("%s: %v %v; want %s, %s/%s %q", agent, v["state"], s, state, st, reason, text)
+		}
+	}
+	check("harbor", "queued", "waiting", "load", load)
+	check("quiet", "no_terminal", "off", "none", "no terminal")
+	load = ""
+	check("harbor", "queued", "stopped", "cap", "waiting for a slot on beta (3 of 3 mid-turn)")
+	r.env.Walled = func(string, *db.AgentState) *Wall { return nil }
+	check("harbor", "queued", "preparing", "work", "has work: starts at the next tick")
 }
