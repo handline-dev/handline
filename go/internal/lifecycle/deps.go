@@ -62,6 +62,8 @@ type HandoffPort interface {
 	// CacheClock is when the session last answered and how long its prompt cache lives; ok false when the transcript gives no clock.
 	CacheClock(q db.Q, agent, session string) (at, ttl int64, ttlKnown, ok bool)
 	CacheMargin(ttl int64) int64
+	// ContextUsed is how many tokens the session's context held at its last reply; ok false when its transcript gives none.
+	ContextUsed(q db.Q, agent, session string) (tokens int64, ok bool)
 	ClearNote(q db.Q, agent string)
 }
 
