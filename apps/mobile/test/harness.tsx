@@ -45,6 +45,7 @@ export const press = (el: HTMLElement | null) => act(async () => void el?.click(
 export async function pickItem(id: string) {
   await until(() => $('verbs-open'), 'the page');
   await press($('verbs-open'));
+  if (!$(id)) await press($('verb-advanced'));
   await until(() => $(id), `the ${id} item`);
   await press($(id));
 }
