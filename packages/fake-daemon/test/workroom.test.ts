@@ -73,7 +73,8 @@ test('agent.options lists the repos, roles, models, efforts, accounts with their
   );
   assert.deepEqual(o.efforts, ['low', 'medium', 'high', 'xhigh', 'max']);
   assert.ok(o.models.includes('opus'));
-  assert.ok(o.roles.some((r) => r.name === 'handline.architect'));
+  assert.ok(o.roles.some((r) => r.name === 'architect' && r.description));
+  assert.ok(o.roles.every((r) => !r.name.includes('.')), 'roles are role names, not agent names');
   assert.deepEqual(
     o.accounts.find((a) => a.name === 'gamma'),
     { name: 'gamma', login_state: 'needs_login' },

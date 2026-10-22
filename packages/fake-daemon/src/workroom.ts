@@ -18,6 +18,11 @@ type Accepted = (said: string, extra?: object) => unknown;
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const MODELS = ['fable', 'mythos', 'opus', 'sonnet', 'haiku'];
 /** Agents the team file names that have no session yet: what the form suggests as a name. */
+const ROLE_NOTES: Record<string, string> = {
+  implementer: 'Builds a change on a branch and opens the pull request.',
+  architect: 'Plans and reviews the design; does not build.',
+  auditor: 'Reviews a branch before it goes up.',
+};
 const TEAM_NAMES = ['handline.new-builder', 'handline.new-reviewer'];
 const STEPS = ['registering the agent', 'making its worktree', 'starting the agent'];
 const METHODS = /^(worktree\.set_status|agent\.create|agent\.options|operation\.get)$/;
@@ -73,7 +78,7 @@ export class FakeWork {
     const { sessions, admin } = this.host;
     return {
       repos: admin.worktrees.repos.map((r) => ({ ...r })),
-      roles: [...sessions.values()].map((s) => ({ name: s.fx.name, description: s.fx.role })),
+      roles: [...new Set([...sessions.values()].map((s) => s.fx.role))].map((r) => ({ name: r, description: ROLE_NOTES[r] ?? r })),
       models: MODELS,
       efforts: EFFORTS,
       accounts: this.host.accounts.list().accounts.map((a) => ({ name: a.name, login_state: a.login_state })),
