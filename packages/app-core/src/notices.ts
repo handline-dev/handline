@@ -79,8 +79,9 @@ export class Notices {
 
   /** Tells the listeners once the toast that runs out at `when` has: what is on screen depends on the clock, and nothing else would draw again. */
   private expireAt(when: number): void {
-    const timer = setTimeout(() => this.emit(), Math.max(when - this.now(), 0) + 1);
-    timer.unref?.();
+    const timer: unknown = setTimeout(() => this.emit(), Math.max(when - this.now(), 0) + 1);
+    // Under Node a pending timer would keep a finished process (a test) alive; a browser's handle is a number and has no unref.
+    if (typeof timer === 'object' && timer !== null && 'unref' in timer && typeof timer.unref === 'function') timer.unref();
   }
 
   /** Takes an event from the stream or the feed once; a decision or an unknown kind is skipped. */
