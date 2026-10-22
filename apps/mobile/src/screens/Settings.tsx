@@ -12,6 +12,7 @@ import { Loadable } from '#src/screens/Loadable.tsx';
 import { Answers } from '#src/screens/StandingAnswers.tsx';
 import { AppUpdate } from '#src/screens/AppUpdate.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
+import { Connection } from '#src/screens/Connection.tsx';
 import { PairedDevices } from '#src/screens/PairedDevices.tsx';
 
 function Note(props: { error: unknown; pending: boolean; bad?: string | null; testID: string }) {
@@ -163,6 +164,7 @@ function Devices(props: { onUnpair: () => void }) {
   const c = usePalette();
   return (
     <View testID="devices" style={{ gap: space.sm }}>
+      <Connection />
       <Text style={{ color: c.ink, fontWeight: '700' }}>Devices</Text>
       <Text style={{ color: c.muted }}>This phone</Text>
       <Button testID="unpair" label="Unpair this phone" onPress={props.onUnpair} style={{ alignSelf: 'flex-start' }} />

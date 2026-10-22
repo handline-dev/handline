@@ -299,11 +299,14 @@ export class FakeAdmin {
     };
   }
 
+  /** Answer connection.get as a process with no network listener (a daemon behind a gateway). */
+  noListener = false;
+
   /** A TLS listener on a Tailscale-less address, one heavy slot, dev mode as the settings say. */
   connection(): ConnectionInfo {
     return {
-      served_by: 'daemon',
-      listener: { address: '192.168.1.20:7777', encryption: 'tls', fingerprint: FINGERPRINT, tailscale_host: null },
+      served_by: this.noListener ? 'gateway' : 'daemon',
+      listener: this.noListener ? null : { address: '192.168.1.20:7777', encryption: 'tls', fingerprint: FINGERPRINT, tailscale_host: null },
       heavy_slots: { slots: 1, dir: '/home/fake/.handline/heavy-slots' },
       dev_mode: this.values.dev_mode === true,
     };
