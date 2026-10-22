@@ -184,6 +184,7 @@ describe('the header row of a structured agent', () => {
     await until(() => $('verbs-open'), 'the header row');
     expect(buttons()).not.toContain('Kill');
     await press($('verbs-open'));
+    await press($('verb-advanced'));
     await until(() => button('Close'), 'the menu');
     expect(buttons()).toContain('Kill');
     expect(buttons()).not.toContain('Exit');
