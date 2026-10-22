@@ -112,7 +112,7 @@ export function Sidebar({
   const onUsage = onAccounts || pageRoute === 'stats';
   return (
     <nav
-      className="rail flex w-[var(--rail-w,280px)] flex-none flex-col overflow-hidden border-r border-line bg-panel min-h-0 max-[900px]:fixed max-[900px]:z-10 max-[900px]:[inset:0_auto_0_0] max-[900px]:w-[min(320px,90vw)] max-[900px]:shadow-[var(--shadow-pop)]"
+      className="rail flex w-[var(--rail-w,280px)] flex-none flex-col overflow-hidden border-r border-line bg-panel min-h-0 max-[900px]:fixed max-[900px]:z-10 max-[900px]:[inset:0_auto_0_0] max-[900px]:w-[min(320px,90vw)] max-[900px]:shadow-[var(--shadow-2)]"
       aria-label="Agents"
     >
       {/* The shell's drag strip: row as tall as a tab strip, centred on the traffic lights (--h-tabs and --lights-w follow the zoom: shell.ts); `rail-top` is the tests' hook. */}

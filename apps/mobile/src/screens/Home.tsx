@@ -3,7 +3,7 @@ import { BackHandler, Dimensions, PanResponder, Platform, Pressable, Text, View 
 import type { Store } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { useUnread } from '@handline/app-data';
-import { space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { History, HistoryProvider, useHistoryValue } from '#src/history.tsx';
 import { Accounts } from '#src/screens/Accounts.tsx';
@@ -155,7 +155,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
               }}
             >
               <Icon name={NAV_ICON[t]} decorative size={20} color={tab === t ? c.ink : c.muted} />
-              <Text numberOfLines={1} adjustsFontSizeToFit style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400', fontSize: 12 }}>
+              <Text numberOfLines={1} adjustsFontSizeToFit style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400', fontSize: font.size.label }}>
                 {t === 'agents'
                   ? 'Agents'
                   : t === 'inbox'

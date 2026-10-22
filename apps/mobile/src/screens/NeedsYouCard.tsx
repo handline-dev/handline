@@ -24,7 +24,7 @@ export function NeedsYouCard(props: { agent: string; needs: NeedsYou | null; pro
           gap: space.xs,
           borderWidth: 1,
           borderColor: c.wait,
-          borderRadius: radius.lg,
+          borderRadius: radius.dialog,
           backgroundColor: c.panel,
         }
       }

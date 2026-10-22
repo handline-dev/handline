@@ -5,7 +5,7 @@ import { branchOf, shortName } from '@handline/app-core';
 import { useNavDock, useOpenTabs, useWorktrees } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import type { AgentView } from '@handline/client';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon } from '#src/screens/Icon.tsx';
 import { StateMark } from '#src/screens/StateMark.tsx';
@@ -47,7 +47,7 @@ export function AgentDock(props: { agent: string; onMenu: () => void; onBack: ()
           style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs, height: 32, paddingLeft: space.md, paddingRight: closable && on ? space.xs : space.md }}
         >
           <StateMark agent={a} />
-          <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: on ? '700' : '500', fontSize: 14 }}>
+          <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: on ? '700' : '500', fontSize: font.size.body }}>
             {shortName(a.name, a.name.split('.')[0]!)}
           </Text>
         </Pressable>
@@ -81,7 +81,7 @@ export function AgentLabel({ agent }: { agent: string }) {
   const worktrees = useWorktrees().data?.worktrees ?? [];
   const branch = branchOf(worktrees, agent);
   return (
-    <Text testID="agent-label" numberOfLines={1} style={{ color: c.muted, fontSize: 12, paddingHorizontal: space.lg, paddingVertical: space.sm }}>
+    <Text testID="agent-label" numberOfLines={1} style={{ color: c.muted, fontSize: font.size.label, paddingHorizontal: space.lg, paddingVertical: space.sm }}>
       <Text style={{ color: c.ink, fontWeight: '600' }}>{agent}</Text>
       {branch ? ` · ${branch}` : ''}
     </Text>

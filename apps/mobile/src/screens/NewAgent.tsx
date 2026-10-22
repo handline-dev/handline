@@ -4,7 +4,7 @@ import type { FirstTask } from '#src/session.ts';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { EFFORTS, EMPTY_AGENT_FIELDS, classify, sentence, useNewAgentForm, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { NewAgentProgress } from '#src/screens/NewAgentProgress.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
@@ -21,8 +21,8 @@ function Label(props: { text: string; note?: string }) {
   const c = usePalette();
   return (
     <View>
-      <Text style={{ color: c.muted, fontSize: 12 }}>{props.text}</Text>
-      {props.note ? <Text style={{ color: c.muted, fontSize: 12 }}>{props.note}</Text> : null}
+      <Text style={{ color: c.muted, fontSize: font.size.label }}>{props.text}</Text>
+      {props.note ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{props.note}</Text> : null}
     </View>
   );
 }
@@ -53,7 +53,7 @@ function Input(props: {
           color: c.ink,
           borderWidth: 1,
           borderColor: c.line,
-          borderRadius: radius.md,
+          borderRadius: radius.card,
           padding: space.md,
           minHeight: props.multiline ? 88 : 44,
         }}

@@ -66,7 +66,7 @@ export function AgentPreview({ agent }: { agent: string }) {
           autoCapitalize="none"
           autoCorrect={false}
           keyboardType="url"
-          style={{ flex: 1, color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 44 }}
+          style={{ flex: 1, color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 44 }}
         />
         <Button testID="preview-go" label={url ? 'Reload' : 'Show'} onPress={go} />
       </View>

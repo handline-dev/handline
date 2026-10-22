@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { classify, sentence, useChatSearch, useServes } from '@handline/app-data';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { dateTime, searchSnippet } from '@handline/app-core';
 import { usePalette } from '#src/theme.ts';
 
@@ -33,7 +33,7 @@ export function ChatSearch(props: { agent: string; onGo: (id: number) => void })
         returnKeyType="search"
         autoCapitalize="none"
         autoCorrect={false}
-        style={{ color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.md, padding: space.sm }}
+        style={{ color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.card, padding: space.sm }}
       />
       {showing && (
         <ScrollView testID="search-results" style={{ maxHeight: 280 }} keyboardShouldPersistTaps="handled">
@@ -57,14 +57,14 @@ export function ChatSearch(props: { agent: string; onGo: (id: number) => void })
                 }}
                 style={{ paddingVertical: space.sm, gap: 2, borderBottomWidth: 1, borderBottomColor: c.line }}
               >
-                <Text style={{ color: c.muted, fontSize: 11 }}>
+                <Text style={{ color: c.muted, fontSize: font.size.hint }}>
                   {m.agent ?? props.agent} · {m.from} → {m.to} · {dateTime(m.at)}
                 </Text>
                 <Text style={{ color: c.ink }}>{searchSnippet(m.body, query)}</Text>
               </Pressable>
             ))
           )}
-          {found.isFetching && <Text style={{ color: c.muted, fontSize: 12 }}>Searching…</Text>}
+          {found.isFetching && <Text style={{ color: c.muted, fontSize: font.size.label }}>Searching…</Text>}
         </ScrollView>
       )}
     </View>

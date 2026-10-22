@@ -6,7 +6,7 @@ import { ago, NOTICE_SENDER, REVIEW_TAG } from '@handline/app-core';
 import type { InboxItem } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useInbox, useOff, usePending, useServes, useTask, useUnread, useWrite } from '@handline/app-data';
-import { radius, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
@@ -93,24 +93,24 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
           <Text numberOfLines={open ? undefined : 1} style={{ color: c.ink, fontWeight: i.read ? '400' : '700' }}>
             {i.title}
           </Text>
-          <Text style={{ color: c.muted, fontSize: 12 }}>
+          <Text style={{ color: c.muted, fontSize: font.size.label }}>
             {[KIND[i.kind] ?? i.kind, i.agent, i.task != null && `T${i.task}`].filter(Boolean).join(' · ')}
           </Text>
         </View>
-        <Text style={{ color: c.muted, fontSize: 12 }}>{ago(i.created)}</Text>
+        <Text style={{ color: c.muted, fontSize: font.size.label }}>{ago(i.created)}</Text>
       </Pressable>
       {open && (
         <View style={{ paddingHorizontal: space.lg, paddingBottom: space.lg, gap: space.md }}>
           {i.body && i.body !== i.title ? <Text style={{ color: c.ink }}>{i.body}</Text> : null}
           {i.evidence ? (
-            <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: 11 }} numberOfLines={12}>
+            <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: font.size.hint }} numberOfLines={12}>
               {i.evidence}
             </Text>
           ) : null}
           {i.prompt && i.agent ? (
             <PromptCard agent={i.agent} prompt={i.prompt} />
           ) : i.prompt ? (
-            <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: 11 }}>{i.prompt.command ?? i.prompt.lines.join('\n')}</Text>
+            <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: font.size.hint }}>{i.prompt.command ?? i.prompt.lines.join('\n')}</Text>
           ) : null}
           {props.pending && (
             <Text testID="inbox-sending" style={{ color: c.muted }}>
@@ -126,7 +126,7 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
                 value={text}
                 onChangeText={setText}
                 accessibilityLabel="Your reply"
-                style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 64 }}
+                style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 64 }}
               />
               <View style={{ flexDirection: 'row', gap: space.sm }}>
                 <Button testID="inbox-send" kind="yes" label="Send reply" disabled={!text.trim()} onPress={send} style={{ flex: 1 }} />
@@ -229,7 +229,7 @@ export function Inbox() {
         title="Inbox"
         actions={
           <>
-            <Text testID="unread-count" style={{ color: c.muted, fontSize: 14 }}>
+            <Text testID="unread-count" style={{ color: c.muted, fontSize: font.size.body }}>
               {unread.length}
             </Text>
             <Button

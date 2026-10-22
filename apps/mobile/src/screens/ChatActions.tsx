@@ -5,7 +5,7 @@ import { KeyboardAvoidingView, Modal, Platform, Text, View } from 'react-native'
 import { useStore } from '@handline/app-react';
 import type { ChatAction } from '@handline/client';
 import { classify, sentence } from '@handline/app-data';
-import { space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Button } from '#src/screens/parts.tsx';
 import { Input, Sheet } from '#src/screens/TaskActions.tsx';
@@ -46,7 +46,7 @@ export function ChatActions({ id, actions }: { id: number; actions: ChatAction[]
         ))}
       </View>
       {failure ? (
-        <Text testID={`action-error-${id}`} accessibilityRole="alert" style={{ color: c.block, fontSize: 12 }}>
+        <Text testID={`action-error-${id}`} accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
           {failure}
         </Text>
       ) : null}
@@ -55,7 +55,7 @@ export function ChatActions({ id, actions }: { id: number; actions: ChatAction[]
         <Modal transparent visible animationType="fade" onRequestClose={() => setAsking(null)}>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={{ flex: 1, justifyContent: 'flex-end', padding: space.md, backgroundColor: 'rgba(0,0,0,0.35)' }}
+            style={{ flex: 1, justifyContent: 'flex-end', padding: space.md, backgroundColor: c.scrim }}
           >
             <Sheet
               label={asking.label}

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import { space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import ApkUpdate from '#modules/apk-update/index.ts';
 import { usePalette } from '#src/theme.ts';
 import { checkForUpdate, type Channel, type Update } from '#src/update.ts';
@@ -95,7 +95,7 @@ export function AppUpdate() {
         <Button testID="channel-nightly" label={u.channel === 'nightly' ? '✓ Nightly' : 'Nightly'} kind={u.channel === 'nightly' ? 'yes' : 'plain'} onPress={() => u.choose('nightly')} />
         <Button testID="channel-stable" label={u.channel === 'stable' ? '✓ Stable' : 'Stable'} kind={u.channel === 'stable' ? 'yes' : 'plain'} onPress={() => u.choose('stable')} />
       </View>
-      <Text style={{ color: c.muted, fontSize: 12 }}>Nightly is built every night and may change often. Stable is cut by hand and changes less.</Text>
+      <Text style={{ color: c.muted, fontSize: font.size.label }}>Nightly is built every night and may change often. Stable is cut by hand and changes less.</Text>
       {status ? <Text testID="update-status" style={{ color: u.error ? c.block : c.muted }}>{status}</Text> : null}
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         <Button testID="update-check" label="Check now" disabled={u.state !== 'idle' || !u.channel} onPress={() => u.channel && void u.check(u.channel)} />

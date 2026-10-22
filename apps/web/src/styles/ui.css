@@ -28,7 +28,7 @@
   font: var(--t-page);
 }
 .gallery-section h3 {
-  margin: var(--sp-6) 0 var(--sp-3);
+  margin: var(--sp-4) 0 var(--sp-2);
   font: var(--t-hint);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -38,7 +38,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: var(--sp-5);
+  gap: var(--sp-3);
 }
 .gallery-anchor {
   position: relative;
