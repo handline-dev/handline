@@ -3074,7 +3074,7 @@
   },
   {
    "name": "chat.search",
-   "summary": "Find messages by text; each hit carries the scope that shows it (the jump is chat.locate).",
+   "summary": "Find messages by text; each hit carries the scope that shows it (the jump is chat.locate). An agent searches only its own messages: `agent` absent is the caller, any other name is refused (gate role).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3104,6 +3104,22 @@
      }
     },
     {
+     "name": "with",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Only messages whose other party is this name: an agent, or `human` for the person. When one agent's messages are searched (`agent`, or the caller for an agent), the party other than that agent; when the person searches every agent (no `agent`), messages from or to the name. A name no message has finds nothing."
+     }
+    },
+    {
+     "name": "since",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "Only messages sent at or after this time; one that is not a timestamp is bad_request (field since)."
+     }
+    },
+    {
      "name": "limit",
      "required": false,
      "schema": {
@@ -3128,7 +3144,7 @@
      ]
     }
    },
-   "x-role": "member",
+   "x-role": "agent",
    "x-write": false,
    "x-since": 1,
    "errors": [
@@ -3137,7 +3153,13 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/refused"
     }
+   ],
+   "x-gates": [
+    "role"
    ]
   },
   {
@@ -10193,6 +10215,31 @@
      "state_detail": {
       "type": "string",
       "description": "The text drawn beside the state word (a clock, what a wait is for), at most 40 characters; empty when there is none. The state column is drawn from state and state_detail alone."
+     },
+     "doing": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "text": {
+          "type": "string",
+          "description": "From the running turn's newest tool item of chat.transcript: its `tool`, a space and the first line of its `text`, or the tool alone when that text is empty; cut to 60 characters (Unicode code points, no ellipsis)."
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp",
+          "description": "When that call began."
+         }
+        },
+        "required": [
+         "text",
+         "at"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What a running agent is doing now, for the line under its name: while state is running and handoff is null, a client draws it in place of status.text. null when no turn runs or the turn has called no tool yet. Absent from a daemon that does not send it. A change of doing alone is pushed (agent.changed) at most once every 5 s, with the newest value."
      },
      "started": {
       "type": "boolean",

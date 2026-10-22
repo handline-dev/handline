@@ -100,6 +100,20 @@ test('an event is a line unless it asks for a decision, and one cursor is taken 
   assert.equal(eventText(ev(4, 'notifications', 'account_out', { data: { account: 'alpha' } })), 'Account alpha is out');
 });
 
+test('agent events are filed under team, results under system', () => {
+  const t = 0;
+  const n = new Notices(() => t);
+  n.takeEvent({ cursor: 1, topic: 'notifications', type: 'task_done', agent: 'a', title: 'a done', data: {} } as unknown as WireEvent);
+  n.push('ok', 'Applied');
+  assert.deepEqual(
+    n.list().map((x) => [x.text, x.lane]),
+    [
+      ['Applied', 'system'],
+      ['a done', 'team'],
+    ],
+  );
+});
+
 test('the listeners hear when a toast runs out, so a screen that draws on change takes it down', async () => {
   const n = new Notices();
   let heard = 0;
