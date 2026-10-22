@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { dateTime, searchSnippet, taskRef } from '@handline/app-core';
 import { useAgents, useChatSearch, useServes, useTasks } from '@handline/app-data';
 import { canCapture, requestCapture } from '#src/Capture.tsx';
-import { goAgent, goMessage, goNew, goTasks, goTeam, goWorktrees } from '#src/route.ts';
+import { goAgent, goMessage, goNew, goTasks, goTeam } from '#src/route.ts';
 import { Backdrop, Icon, PROW, PROW_HINT, PROW_NAME, useOpenMotion, type IconName } from '#src/ui/index.ts';
 
 interface Hit {
@@ -19,7 +19,6 @@ const PAGES: [string, IconName, () => void][] = [
   ['Inbox', 'inbox', () => void (location.hash = '#/my-turn')],
   ['Tasks', 'tasks', () => goTasks()],
   ['Team', 'team', () => goTeam()],
-  ['Worktrees', 'worktrees', () => goWorktrees()],
   ['New agent', 'plus', () => goNew()],
   ['HR', 'team', () => goTeam('hr')],
   ['Usage', 'accounts', () => void (location.hash = '#/accounts')],

@@ -113,7 +113,7 @@ describe('the workspace', () => {
     expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*More/);
     expect($$('.rail-nav .nav svg').length).toBe(3);
     await openMore();
-    expect(menuItems().map((t) => t.trim().split(' ')[0])).toEqual(['Team', 'Worktrees', 'Usage']);
+    expect(menuItems().map((t) => t.trim().split(' ')[0])).toEqual(['Team', 'Usage']);
     await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
     expect($$('.rail-foot button').map((b) => b.getAttribute('aria-label'))).toEqual(['Settings', 'Keys (?)']);
     expect($('.rail-status')).toBeNull();

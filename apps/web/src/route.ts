@@ -74,17 +74,6 @@ export function usePageRoute(): 'stats' | 'settings' | 'my-turn' | 'admin' | '' 
   return hash === '#/stats' ? 'stats' : hash === '#/settings' ? 'settings' : hash === '#/my-turn' ? 'my-turn' : hash === '#/admin' ? 'admin' : '';
 }
 
-const WORKTREES = /^#\/worktrees(?:\/(.+))?$/;
-/** The Worktrees route: whether the URL is `#/worktrees` or `#/worktrees/:path`, and the worktree path it names. */
-export function useWorktreesRoute(): { open: boolean; path: string | null } {
-  const hash = useSyncExternalStore(subscribe, () => location.hash);
-  const m = WORKTREES.exec(hash);
-  return { open: !!m, path: m?.[1] ? decodeURIComponent(m[1]) : null };
-}
-export const goWorktrees = (path?: string): void => {
-  location.hash = path === undefined ? '#/worktrees' : `#/worktrees/${encodeURIComponent(path)}`;
-};
-
 const NEW_AGENT = /^#\/new(?:\/(.+))?$/;
 /** The New agent route: whether the URL is `#/new` or `#/new/:operation`, and the operation it names. */
 export function useNewAgentRoute(): { open: boolean; operation: string | null } {

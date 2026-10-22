@@ -15,7 +15,6 @@ import { SettingsPage } from '#src/screens/Settings.tsx';
 import { TeamPage } from '#src/screens/TeamEntry.tsx';
 import { Stats } from '#src/screens/Stats.tsx';
 import { Tasks } from '#src/screens/Tasks.tsx';
-import { Worktrees } from '#src/screens/Worktrees.tsx';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
 import { Banner } from '#src/screens/parts.tsx';
 
@@ -23,7 +22,7 @@ const TABS = ['agents', 'inbox', 'tasks', 'usage'] as const;
 type Tab = (typeof TABS)[number];
 const NAV_ICON: Record<Tab, IconName> = { agents: 'agent', inbox: 'inbox', tasks: 'tasks', usage: 'stats' };
 
-type Page = 'worktrees' | 'new' | 'settings' | 'team' | null;
+type Page = 'new' | 'settings' | 'team' | null;
 
 /** `pending` is where New agent was left: with an operation in it, the app starts on that page. */
 export function Home(props: { store: Store; onUnpair: () => void; pending?: Pending }) {
@@ -118,8 +117,6 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
       <View style={{ flex: 1 }}>
         {open ? (
           <AgentPage />
-        ) : page === 'worktrees' ? (
-          <Worktrees onClose={() => setPage(null)} onAgent={toAgent} />
         ) : page === 'team' ? (
           <TeamPage onClose={() => setPage(null)} />
         ) : page === 'settings' ? (

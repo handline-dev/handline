@@ -26,11 +26,9 @@ import { setting } from '#src/daemon.ts';
 import {
   goTasks,
   goTeam,
-  goWorktrees,
   useAccountsRoute,
   usePageRoute,
   useTeamRoute,
-  useWorktreesRoute,
 } from '#src/route.ts';
 import { AgentRow, liveOf } from '#src/AgentRow.tsx';
 import { NewAgentButton } from '#src/NewAgent.tsx';
@@ -106,8 +104,6 @@ export function Sidebar({
   const hr = useHrCount();
   const onTeam = !!useTeamRoute();
   const onAccounts = useAccountsRoute().open;
-  const onWorktrees = useWorktreesRoute().open;
-  const worktreesServed = useServes('worktrees.list').served;
   const pageRoute = usePageRoute();
   const onUsage = onAccounts || pageRoute === 'stats';
   return (
@@ -198,15 +194,10 @@ export function Sidebar({
         <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           <Icon name="tasks" size={14} aria-hidden /> Tasks
         </button>
-        <MoreMenu on={onTeam || onWorktrees || onUsage} hint={hr}>
+        <MoreMenu on={onTeam || onUsage} hint={hr}>
           <MenuItem icon="team" onSelect={() => goTeam(hr ? 'hr' : 'team')}>
             Team{hr ? ` · HR ${hr}` : ''}
           </MenuItem>
-          {worktreesServed ? (
-            <MenuItem icon="worktrees" onSelect={() => goWorktrees()}>
-              Worktrees
-            </MenuItem>
-          ) : null}
           <MenuItem icon="accounts" onSelect={() => void (location.hash = '#/accounts')}>
             Usage
           </MenuItem>
