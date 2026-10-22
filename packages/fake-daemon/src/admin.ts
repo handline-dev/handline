@@ -72,6 +72,8 @@ function byAccount(past: Outlook['past'], future: Outlook['future'], now: number
 export class FakeAdmin {
   readonly worktrees: FakeWorktrees;
   readonly prefs: FakePrefs;
+  /** A daemon behind a gateway has no listener of its own: connection.get then answers null. */
+  noListener = false;
   private now: () => Timestamp;
   private on: boolean;
   private values: Settings['values'] = structuredClone(DEFAULTS);
@@ -303,7 +305,7 @@ export class FakeAdmin {
   connection(): ConnectionInfo {
     return {
       served_by: 'daemon',
-      listener: { address: '192.168.1.20:7777', encryption: 'tls', fingerprint: FINGERPRINT, tailscale_host: null },
+      listener: this.noListener ? null : { address: '192.168.1.20:7777', encryption: 'tls', fingerprint: FINGERPRINT, tailscale_host: null },
       heavy_slots: { slots: 1, dir: '/home/fake/.handline/heavy-slots' },
       dev_mode: this.values.dev_mode === true,
     };

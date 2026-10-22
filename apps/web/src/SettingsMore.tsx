@@ -2,7 +2,8 @@
 import { useState } from 'react';
 import { parseSeconds, type KV } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
-import { SectionHead, Segmented, SettingsCard } from '#src/ui/index.ts';
+import { useRead, useServes } from '@handline/app-data';
+import { Button, SectionHead, Segmented, SettingsCard } from '#src/ui/index.ts';
 import { applyTheme, themeOf, type Theme } from '#src/appearance.ts';
 import { setting } from '#src/daemon.ts';
 import { NumberRow, Row } from '#src/SettingsRows.tsx';
@@ -125,6 +126,19 @@ export function Connection() {
     ['Role', hello?.role],
     ['Transport', hello ? (hello.transport === 'tls' ? 'Encrypted network connection' : 'Local socket') : undefined],
   ];
+  const { served } = useServes('connection.get');
+  const info = useRead('connection.get', {}).data;
+  const net = info?.listener;
+  if (info) {
+    rows.push(
+      ['Network address', net ? net.address : 'No network listener'],
+      ...(net ? ([['Encryption', net.encryption === 'tls' ? 'Encrypted' : 'Tailscale']] as [string, string][]) : []),
+      ...(net?.tailscale_host ? ([['Tailscale host', net.tailscale_host]] as [string, string][]) : []),
+      ['Heavy slots', String(info.heavy_slots.slots)],
+      ['Dev mode', info.dev_mode ? 'On' : 'Off'],
+    );
+  }
+  const print = served ? net?.fingerprint : null;
   return (
     <>
       <SectionHead>Connection</SectionHead>
@@ -136,6 +150,14 @@ export function Connection() {
               <span className="text-ink-2">{value}</span>
             </Row>
           ))}
+        {print ? (
+          <Row label="Fingerprint" hint="Compare it with the one a device shows when pairing">
+            <span className="text-ink-2" title={print}>
+              {print.length > 24 ? `${print.slice(0, 15)}…${print.slice(-6)}` : print}
+            </span>
+            <Button icon="reference" label="Copy fingerprint" size="sm" onClick={() => void navigator.clipboard?.writeText(print)} />
+          </Row>
+        ) : null}
       </SettingsCard>
     </>
   );
