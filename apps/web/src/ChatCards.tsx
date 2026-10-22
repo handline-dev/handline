@@ -1,6 +1,6 @@
 // What sits around the transcript of an agent's chat: the one-line strip of its state, the banner when it is stuck, and the HR proposals
 // that concern it, decided where they were discussed.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
 import { ago, clockTime, decidedProposals, restartingLine, restartShown } from '@handline/app-core';
@@ -25,9 +25,15 @@ const tokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : 
 /** One line under the composer: the model and account (menus), the task, the branch (dropped when the line is tight), and the context and
  *  prompt cache in words. */
 export function ChatStrip({ detail }: { detail: AgentDetail }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
   const cache = until(detail.cache_until);
   const { apply } = useWorkspace();
   const strip = useAgentStrip(detail.name).data;
+  const ctxPct = detail.ctx_pct ?? strip?.ctx_pct;
   const used = strip?.ctx_used;
   const limit = strip?.ctx_limit;
   return (
@@ -48,7 +54,7 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
         </span>
       ) : null}
       <AgentGauges
-        ctx={typeof (detail.ctx_pct ?? strip?.ctx_pct) === 'number' ? Math.round((detail.ctx_pct ?? strip?.ctx_pct)!) : null}
+        ctx={ctxPct == null ? null : Math.round(ctxPct)}
         cacheMin={cache}
         ctxText={used != null && limit != null ? `${tokens(used)} / ${tokens(limit)}` : undefined}
         cacheText={cache === null ? undefined : cache <= 0 ? 'lapsed' : `${cache}m`}

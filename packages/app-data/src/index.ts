@@ -20,7 +20,6 @@ export * from '#src/attachments.ts';
 export * from '#src/image-drafts.ts';
 export * from '#src/file-editor.ts';
 export * from '#src/chat-read.ts';
-export * from '#src/worktree-moves.ts';
 export * from '#src/team-board.ts';
 export * from '#src/schedule-editor.ts';
 export * from '#src/field-row.ts';

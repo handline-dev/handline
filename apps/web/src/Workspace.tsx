@@ -116,12 +116,14 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
       synced.current = theirs;
       if (theirs !== mine) setWs((w) => parse(entry!) ?? w);
     }
+    // Runs when the entry changes (Back or Forward); `mine` and `ws` are read as they are at that moment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entry]);
   useEffect(() => {
     if (synced.current === null || synced.current === mine) return;
     synced.current = mine;
     push(JSON.stringify(ws));
+    // Runs when the layout changes (`mine` stands for `ws`); `push` is new every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mine]);
   const root = useRef<HTMLDivElement>(null);

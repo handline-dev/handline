@@ -191,7 +191,6 @@ export const useHrCount = (): number => waitingCount(useHr().data?.proposals ?? 
 export const usePrefs = () => useRead('prefs.get', {});
 export const useRepos = () => useRead('repos.list', {});
 export const useWorktrees = (filter: CallParams<'worktrees.list'> = {}) => useRead('worktrees.list', filter);
-export const useWorktreeDiff = (path: string, file?: string) => useRead('worktree.diff', { path, file });
 export const useFile = (agent: string, path: string) => useRead('file.read', { agent, path }, { enabled: path !== '' });
 export const useSchedules = () => useRead('schedules.list', {});
 export const useStats = (window: CallParams<'stats.get'>['window']) => useRead('stats.get', { window });

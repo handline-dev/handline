@@ -6,7 +6,7 @@ import { Meter } from '#src/RailIcons.tsx';
 /** The prompt cache lives an hour; a bar is full when it was just warmed. */
 export const CACHE_MINUTES = 60;
 
-/** `ctxText` (`120k / 200k`) and `cacheText` (`56m`) say the same in words. `ctx` is whole percent used or null; `cacheMin` is minutes left, 0 or less once lapsed, null when none is on record. */
+/** `ctx` is whole percent used or null; `cacheMin` is minutes left (0 or less once lapsed), null when none is on record; the `*Text` props say each in words. */
 export function AgentGauges({ ctx, cacheMin, ctxText, cacheText }: { ctx: number | null; cacheMin: number | null; ctxText?: string; cacheText?: string }) {
   const lapsed = cacheMin !== null && cacheMin <= 0;
   return (

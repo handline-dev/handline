@@ -122,8 +122,37 @@ export function Sidebar({
           onClick={() => history.forward()}
         />
       </div>
-      <div className="rail-opts relative flex items-center gap-1.5 px-2.5 py-2">
-        <span className="relative inline-flex">
+      <div className="rail-nav flex flex-wrap gap-0.5 border-b border-line px-1.5 pb-1.5">
+        <button
+          className={navOf(pageRoute === 'my-turn')}
+          aria-current={pageRoute === 'my-turn' ? 'page' : undefined}
+          onClick={() => void (location.hash = '#/my-turn')}
+        >
+          <Icon name="inbox" size={14} aria-hidden /> Inbox{myTurn ? ` ${myTurn}` : ''}
+        </button>
+        <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
+          <Icon name="tasks" size={14} aria-hidden /> Tasks
+        </button>
+      </div>
+      <div className="rail-read flex gap-0.5 px-2.5 py-1.5" role="group" aria-label="Show agents">
+        {(
+          [
+            ['all', 'All'],
+            ['unread', 'Unread'],
+            ['needs', 'Needs me'],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            className={`rounded-ctl border-0 px-2 py-0.5 text-label ${chip === id ? 'bg-canvas text-ink' : 'bg-transparent text-ink-2'}`}
+            aria-pressed={chip === id}
+            onClick={() => change(chipChanges(id))}
+          >
+            {label}
+            {id !== 'all' && chipN[id] ? <span className="ml-1 text-wait">{chipN[id]}</span> : null}
+          </button>
+        ))}
+        <span className="rail-opts relative ml-auto inline-flex">
           <MenuButton icon="filter" label={nav.hidden.length ? `View: ${nav.hidden.length} hidden` : 'View'} name="View">
             <MenuLabel>Show agents that are</MenuLabel>
             {RAIL_FILTERS.map((f) => {
@@ -164,37 +193,6 @@ export function Sidebar({
             />
           ) : null}
         </span>
-      </div>
-      <div className="rail-nav flex flex-wrap gap-0.5 border-b border-line px-1.5 pb-1.5">
-        <button
-          className={navOf(pageRoute === 'my-turn')}
-          aria-current={pageRoute === 'my-turn' ? 'page' : undefined}
-          onClick={() => void (location.hash = '#/my-turn')}
-        >
-          <Icon name="inbox" size={14} aria-hidden /> Inbox{myTurn ? ` ${myTurn}` : ''}
-        </button>
-        <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
-          <Icon name="tasks" size={14} aria-hidden /> Tasks
-        </button>
-      </div>
-      <div className="rail-read flex gap-0.5 px-2.5 py-1.5" role="group" aria-label="Show agents">
-        {(
-          [
-            ['all', 'All'],
-            ['unread', 'Unread'],
-            ['needs', 'Needs me'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            className={`rounded-ctl border-0 px-2 py-0.5 text-label ${chip === id ? 'bg-canvas text-ink' : 'bg-transparent text-ink-2'}`}
-            aria-pressed={chip === id}
-            onClick={() => change(chipChanges(id))}
-          >
-            {label}
-            {id !== 'all' && chipN[id] ? <span className="ml-1 text-wait">{chipN[id]}</span> : null}
-          </button>
-        ))}
       </div>
       <div className="rail-list min-h-0 flex-1 overflow-auto">
         {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}

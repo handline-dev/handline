@@ -204,7 +204,6 @@ export function Pane({ group }: { group: Group }) {
           </div>
         ) : tab.kind === 'tasks' ? (
           <TasksTab agent={agent} task={typeof tab.params.task === 'number' ? tab.params.task : null} />
-
         ) : tab.kind === 'web' ? (
           <WebTab
             agent={agent}
