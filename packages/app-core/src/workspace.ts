@@ -6,7 +6,9 @@ import { detach, group, groupOf, groupsOf, replaceGroup } from '#src/layout-tree
 
 export { groupOf, groupsOf };
 
-export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'android' | 'ios' | 'web' | 'markdown' | 'review' | 'timeline' | 'activity' | 'changes' | 'file' | 'new';
+export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'android' | 'ios' | 'web' | 'markdown' | 'review' | 'new';
+/** Kinds an older workspace may still hold: parseWorkspace closes them and keeps the rest of the layout. */
+const REMOVED_KINDS: readonly string[] = ['timeline', 'activity', 'changes', 'file'];
 export const TAB_KINDS: readonly TabKind[] = [
   'chat',
   'tasks',
@@ -19,10 +21,6 @@ export const TAB_KINDS: readonly TabKind[] = [
   'web',
   'markdown',
   'review',
-  'timeline',
-  'activity',
-  'changes',
-  'file',
   'new',
 ];
 export type TabParams = Record<string, string | number>;
@@ -62,8 +60,6 @@ export type Path = ('a' | 'b')[];
 export const CHAT = 'chat';
 export const TASKS = 'tasks';
 export const TRANSCRIPT = 'transcript';
-export const TIMELINE = 'timeline';
-export const ACTIVITY = 'activity';
 export const MAX_GROUPS = 4;
 export const MIN_AT = 0.15;
 export const MAX_AT = 0.85;
@@ -77,9 +73,6 @@ export function tabId(ws: Workspace | null, kind: TabKind, params: TabParams): s
   if (kind === 'chat') return CHAT;
   if (kind === 'tasks') return params.pinned ? `tasks:${params.task}` : TASKS;
   if (kind === 'transcript') return TRANSCRIPT;
-  if (kind === 'timeline') return TIMELINE;
-  if (kind === 'activity') return ACTIVITY;
-  if (kind === 'changes') return 'changes';
   const named = params.handle ?? params.path ?? params.port ?? params.url ?? params.device ?? params.id;
   if (named !== undefined) return `${kind}:${named}`;
   let n = 1;
@@ -91,15 +84,15 @@ const nextGroupId = (ws: Workspace): string => `g${Math.max(0, ...groupsOf(ws.ro
 
 /** One pane: Chat first and shown, the agent's Claude Code terminal (or, for a structured agent, its transcript) second behind it. No session, no terminal tab. */
 export function defaultWorkspace(opts: { terminal?: string; structured?: boolean } = {}): Workspace {
-  const tabs: Record<string, Tab> = { [CHAT]: { id: CHAT, kind: 'chat', params: {} }, [ACTIVITY]: { id: ACTIVITY, kind: 'activity', params: {} } };
+  const tabs: Record<string, Tab> = { [CHAT]: { id: CHAT, kind: 'chat', params: {} } };
   if (opts.structured) {
     tabs[TRANSCRIPT] = { id: TRANSCRIPT, kind: 'transcript', params: {} };
-    return { v: 1, root: group('g1', [CHAT, ACTIVITY, TRANSCRIPT], CHAT), active: 'g1', tabs };
+    return { v: 1, root: group('g1', [CHAT, TRANSCRIPT], CHAT), active: 'g1', tabs };
   }
-  if (!opts.terminal) return { v: 1, root: group('g1', [CHAT, ACTIVITY], CHAT), active: 'g1', tabs };
+  if (!opts.terminal) return { v: 1, root: group('g1', [CHAT], CHAT), active: 'g1', tabs };
   const t = tabId(null, 'terminal', { handle: opts.terminal });
   tabs[t] = { id: t, kind: 'terminal', params: { handle: opts.terminal } };
-  return { v: 1, root: group('g1', [CHAT, ACTIVITY, t], CHAT), active: 'g1', tabs };
+  return { v: 1, root: group('g1', [CHAT, t], CHAT), active: 'g1', tabs };
 }
 
 /** Adds a tab at the end of a group (the focused one by default) without showing it. The same thing already open stays where it is. */
@@ -180,12 +173,6 @@ export function openTab(ws: Workspace, kind: TabKind, params: TabParams = {}, in
 export function openTask(ws: Workspace, task: number | null, into: string = ws.active): Workspace {
   const opened = openTab(ws, 'tasks', {}, into);
   return { ...opened, tabs: { ...opened.tabs, [TASKS]: { ...opened.tabs[TASKS]!, params: task === null ? {} : { task } } } };
-}
-
-/** Opens the Activity tab, on a row to highlight (`m<message>`) when one is named. */
-export function openActivity(ws: Workspace, row?: string, into: string = ws.active): Workspace {
-  const opened = openTab(ws, 'activity', {}, into);
-  return { ...opened, tabs: { ...opened.tabs, [ACTIVITY]: { ...opened.tabs[ACTIVITY]!, params: row ? { row } : {} } } };
 }
 
 /** Opens one task in a tab of its own, beside the Tasks tab; the same task twice finds the first. */
@@ -382,7 +369,7 @@ export function parseWorkspace(raw: unknown): Workspace | null {
   if (!isObj(raw) || raw.v !== 1 || !isObj(raw.tabs)) return null;
   const tabs: Record<string, Tab> = {};
   for (const [id, t] of Object.entries(raw.tabs)) {
-    if (!isObj(t) || t.id !== id || !TAB_KINDS.includes(t.kind as TabKind) || !isObj(t.params)) return null;
+    if (!isObj(t) || t.id !== id || !(TAB_KINDS.includes(t.kind as TabKind) || REMOVED_KINDS.includes(t.kind as string)) || !isObj(t.params)) return null;
     if ((t.kind === 'chat') !== (id === CHAT)) return null;
     tabs[id] = { id, kind: t.kind as TabKind, params: t.params as TabParams, ...(typeof t.from === 'string' ? { from: t.from } : {}) };
   }
@@ -393,12 +380,14 @@ export function parseWorkspace(raw: unknown): Workspace | null {
   if (seen.size !== Object.keys(tabs).length || [...seen].some((t) => !tabs[t])) return null;
   const active = typeof raw.active === 'string' && ids.has(raw.active) ? raw.active : groupsOf(root)[0]!.id;
   const ws: Workspace = { v: 1, root, active, tabs };
-  if (tabs[CHAT]) return ws;
-  return {
-    ...ws,
-    tabs: { ...tabs, [CHAT]: { id: CHAT, kind: 'chat', params: {} } },
-    root: replaceGroup(root, active, (g) => ({ ...g, tabs: [CHAT, ...g.tabs] })),
-  };
+  const withChat: Workspace = tabs[CHAT]
+    ? ws
+    : {
+        ...ws,
+        tabs: { ...tabs, [CHAT]: { id: CHAT, kind: 'chat', params: {} } },
+        root: replaceGroup(root, active, (g) => ({ ...g, tabs: [CHAT, ...g.tabs] })),
+      };
+  return Object.values(withChat.tabs).reduce((w, t) => (REMOVED_KINDS.includes(t.kind) ? closeTab(w, t.id) : w), withChat);
 }
 
 /** The saved workspace, or `fallback()` when storage is blocked, empty or unreadable. */

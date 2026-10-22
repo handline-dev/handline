@@ -199,7 +199,7 @@ describe('the workspace', () => {
   it('opens with Chat alone in view and the Claude Code tab second, behind it; closing a running one asks first', async () => {
     const { daemon } = await mount(ARCH, textGrid(), setup(), true);
     await until(() => $$('.pane').length === 1 && $(termTab), 'one pane with the terminal tab');
-    expect($$('.pane [data-tab]').map((t) => t.getAttribute('data-tab'))).toEqual(['chat', 'activity', `terminal:term:${ARCH}`]);
+    expect($$('.pane [data-tab]').map((t) => t.getAttribute('data-tab'))).toEqual(['chat', `terminal:term:${ARCH}`]);
     expect($('[data-tab="chat"]')!.getAttribute('aria-selected')).toBe('true');
     expect($('.terminal-tab')).toBeNull(); // not shown
     vi.stubGlobal('confirm', () => false);

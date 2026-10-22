@@ -5,7 +5,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { openActivity, timeline, type TimelineEntry } from '@handline/app-core';
+import { timeline, type TimelineEntry } from '@handline/app-core';
 import { useNearEnd, useSelector, useStore } from '@handline/app-react';
 import {
   Skeleton,
@@ -128,7 +128,7 @@ function putBack(box: HTMLElement, a: { id: string; off: number }) {
 }
 
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
-  const { storage, apply } = useWorkspace();
+  const { storage } = useWorkspace();
   const canSend = useSelector((s) => s.can('chat.send'));
   const me = useStore().me;
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
@@ -247,11 +247,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const where = locate.data?.scope;
   useEffect(() => {
     if (going === null || !where) return;
-    if (where !== scope) {
-      // Said between agents: it is a row of the Activity tab.
-      apply((w) => openActivity(w, `m${going}`));
-      return setGoing(null);
-    }
+    // Said between agents: there is no tab that shows it.
+    if (where !== scope) return setGoing(null);
     if (jumpTo(going)) return setGoing(null);
     const found = locate.data;
     if (!found) return;

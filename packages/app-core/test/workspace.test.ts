@@ -1,8 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ACTIVITY,
-  openActivity,
   CHAT,
   toggleView,
   TRANSCRIPT,
@@ -37,12 +35,12 @@ import {
   type Workspace,
 } from '#src/index.ts';
 
-/** Chat beside the terminal, each in its own pane: the default split by hand, without the Activity tab. */
-const two = () => closeTab(splitTab(defaultWorkspace({ terminal: 'term:a' }), 'terminal:term:a', 'g1', 'right')!, ACTIVITY);
+/** Chat beside the terminal, each in its own pane: the default split by hand, . */
+const two = () => splitTab(defaultWorkspace({ terminal: 'term:a' }), 'terminal:term:a', 'g1', 'right')!;
 const ids = (ws: Workspace) => groupsOf(ws.root).map((g) => g.tabs.join('+'));
 /** A workspace with n groups, one tab each beside Chat's: chat | md:1 | md:2 | md:3 */
 const many = (n: number) => {
-  let ws = closeTab(defaultWorkspace(), ACTIVITY);
+  let ws = defaultWorkspace();
   for (let i = 1; i < n; i++) ws = splitRoot(openTab(ws, 'markdown', { path: `f${i}.md` }), `markdown:f${i}.md`, 'right')!;
   return ws;
 };
@@ -292,24 +290,24 @@ test('the default layout is one pane: Chat shown, the session terminal second be
   const ws = defaultWorkspace({ terminal: 'term:a' });
   assert.equal(ws.root.type, 'group');
   if (ws.root.type !== 'group') return;
-  assert.deepEqual(ws.root.tabs, [CHAT, ACTIVITY, 'terminal:term:a']);
+  assert.deepEqual(ws.root.tabs, [CHAT, 'terminal:term:a']);
   assert.equal(ws.root.activeTab, CHAT);
   assert.equal(ws.tabs['terminal:term:a']!.params.handle, 'term:a');
   assert.equal(ws.active, 'g1');
   const later = addTab(defaultWorkspace(), 'terminal', { handle: 'term:b' });
-  assert.deepEqual(groupsOf(later.root)[0]!.tabs, [CHAT, ACTIVITY, 'terminal:term:b']);
+  assert.deepEqual(groupsOf(later.root)[0]!.tabs, [CHAT, 'terminal:term:b']);
   assert.equal(groupsOf(later.root)[0]!.activeTab, CHAT);
   assert.equal(addTab(later, 'terminal', { handle: 'term:b' }), later);
   const none = defaultWorkspace();
   assert.equal(none.root.type, 'group');
-  assert.deepEqual(ids(none), [`${CHAT}+${ACTIVITY}`]);
+  assert.deepEqual(ids(none), [CHAT]);
   invariants(ws);
   invariants(none);
 });
 
 test('a structured agent opens with Chat and Transcript, and the transcript tab is one per workspace', () => {
   const ws = defaultWorkspace({ structured: true });
-  assert.deepEqual(ids(ws), [`${CHAT}+${ACTIVITY}+${TRANSCRIPT}`]);
+  assert.deepEqual(ids(ws), [`${CHAT}+${TRANSCRIPT}`]);
   assert.deepEqual(openTab(ws, 'transcript'), activate(ws, TRANSCRIPT));
   assert.deepEqual(parseWorkspace(JSON.parse(serialize(ws))), ws);
   invariants(ws);
@@ -328,16 +326,16 @@ test('openTask opens the Tasks tab on that task, and moves an open one to anothe
 
 test('an agent has one terminal tab: a new handle takes the old one place', () => {
   const none = setTerminal(defaultWorkspace(), 'term:a');
-  assert.deepEqual(groupsOf(none.root)[0]!.tabs, [CHAT, ACTIVITY, 'terminal:term:a']);
+  assert.deepEqual(groupsOf(none.root)[0]!.tabs, [CHAT, 'terminal:term:a']);
   assert.equal(setTerminal(none, 'term:a'), none);
   const shown = activate(none, 'terminal:term:a');
   const restarted = setTerminal(shown, 'term:b');
-  assert.deepEqual(groupsOf(restarted.root)[0]!.tabs, [CHAT, ACTIVITY, 'terminal:term:b']);
+  assert.deepEqual(groupsOf(restarted.root)[0]!.tabs, [CHAT, 'terminal:term:b']);
   assert.equal(groupsOf(restarted.root)[0]!.activeTab, 'terminal:term:b');
-  assert.deepEqual(Object.keys(restarted.tabs), [CHAT, ACTIVITY, 'terminal:term:b']);
+  assert.deepEqual(Object.keys(restarted.tabs), [CHAT, 'terminal:term:b']);
   const two = addTab(none, 'terminal', { handle: 'term:b' });
   const merged = setTerminal(two, 'term:b');
-  assert.deepEqual(groupsOf(merged.root)[0]!.tabs, [CHAT, ACTIVITY, 'terminal:term:b']);
+  assert.deepEqual(groupsOf(merged.root)[0]!.tabs, [CHAT, 'terminal:term:b']);
 });
 
 test('Split halves a pane with a new tab; choosing fills it, moving a tab already open', () => {
@@ -349,7 +347,7 @@ test('Split halves a pane with a new tab; choosing fills it, moving a tab alread
   assert.deepEqual(groupsOf(tasks.root)[1]!.tabs, ['tasks']);
   assert.equal(tasks.tabs['new:1'], undefined);
   const term = fillTab(splitPane(ws, 'g1')!, 'new:1', 'terminal', { handle: 'term:a' });
-  assert.deepEqual(groupsOf(term.root).map((g) => g.tabs), [[CHAT, ACTIVITY], ['terminal:term:a']]);
+  assert.deepEqual(groupsOf(term.root).map((g) => g.tabs), [[CHAT], ['terminal:term:a']]);
   let full: Workspace = ws;
   for (let i = 0; i < MAX_GROUPS; i++) full = splitPane(full, 'g1') ?? full;
   assert.equal(groupsOf(full.root).length, MAX_GROUPS);
@@ -362,14 +360,14 @@ test('Split after a collapse still opens a new right half', () => {
   assert.equal(groupsOf(collapsed.root).length, 1);
   const again = splitPane(collapsed, groupsOf(collapsed.root)[0]!.id)!;
   assert.equal(groupsOf(again.root).length, 2);
-  assert.deepEqual(groupsOf(again.root).map((g) => g.tabs.length), [3, 1]);
+  assert.deepEqual(groupsOf(again.root).map((g) => g.tabs.length), [2, 1]);
   assert.notEqual(groupsOf(again.root)[1]!.tabs[0], 'new:1');
 });
 
 test('without a session, saved Claude Code tabs of old handles collapse to one', () => {
   const two = addTab(addTab(defaultWorkspace(), 'terminal', { handle: 'term:a' }), 'terminal', { handle: 'term:b' });
   const one = oneTerminal(two);
-  assert.deepEqual(groupsOf(one.root)[0]!.tabs, [CHAT, ACTIVITY, 'terminal:term:a']);
+  assert.deepEqual(groupsOf(one.root)[0]!.tabs, [CHAT, 'terminal:term:a']);
   assert.equal(oneTerminal(one), one);
 });
 
@@ -383,15 +381,9 @@ test('the view switch goes from the chat to Claude Code and back, opening the ta
   assert.equal(shown(toggleView(defaultWorkspace(), undefined, true)), 'transcript');
 });
 
-test('openActivity opens the Activity tab on a row to highlight, and a plain open clears it', () => {
-  const ws = openActivity(defaultWorkspace(), 'm42');
-  assert.equal(ws.tabs[ACTIVITY]!.params.row, 'm42');
-  assert.deepEqual(openActivity(ws).tabs[ACTIVITY]!.params, {});
-});
-
 test('closing a task tab goes back to the tab it was opened from, not to the terminal beside it', () => {
   const ws = defaultWorkspace({ terminal: 'term:a' });
-  assert.deepEqual(ids(ws), ['chat+activity+terminal:term:a']);
+  assert.deepEqual(ids(ws), ['chat+terminal:term:a']);
   const opened = openTaskTab(activate(ws, CHAT), 12);
   assert.equal(groupOf(opened, 'tasks:12')!.activeTab, 'tasks:12');
   assert.equal(groupOf(closeTab(opened, 'tasks:12'), CHAT)!.activeTab, CHAT);
@@ -399,4 +391,14 @@ test('closing a task tab goes back to the tab it was opened from, not to the ter
   const fromTerminal = openTaskTab(activate(ws, 'terminal:term:a'), 12);
   assert.equal(groupOf(closeTab(fromTerminal, 'tasks:12'), CHAT)!.activeTab, 'terminal:term:a');
   assert.equal(groupOf(closeTab(activate(opened, CHAT), 'tasks:12'), CHAT)!.activeTab, CHAT);
+});
+
+test('a saved layout with removed tab kinds loses those tabs and keeps the rest', () => {
+  const old = JSON.parse(serialize(defaultWorkspace({ terminal: 'term:a' })));
+  old.tabs.activity = { id: 'activity', kind: 'activity', params: {} };
+  old.tabs.timeline = { id: 'timeline', kind: 'timeline', params: {} };
+  old.root.tabs.splice(1, 0, 'activity', 'timeline');
+  const ws = parseWorkspace(old)!;
+  assert.deepEqual(ids(ws), ['chat+terminal:term:a']);
+  assert.deepEqual(Object.keys(ws.tabs), ['chat', 'terminal:term:a']);
 });
