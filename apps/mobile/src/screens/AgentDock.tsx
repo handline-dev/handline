@@ -23,12 +23,19 @@ export function AgentDock(props: { base: string; tabs: AgentTabs; onMenu: () => 
   const c = usePalette();
   const { tabs } = props;
   const strip = useRef<ScrollView>(null);
+  const at = useRef<Record<string, number>>({});
+  const activeKey = tabs.active ?? 'base';
+  const reveal = (key: string) => strip.current?.scrollTo({ x: Math.max(0, (at.current[key] ?? 0) - space.lg) });
+  useEffect(() => reveal(activeKey), [activeKey]);
   const inset = Platform.OS === 'android' ? 16 : 0; // the gesture bar is drawn over the page
   const btn = { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' } as const;
   const tab = (id: string | null, label: string, closable: boolean) => {
     const on = tabs.active === id;
     return (
-      <View key={id ?? 'base'} style={{ flexDirection: 'row', alignItems: 'center', borderRadius: radius.pill, backgroundColor: on ? c.panel : 'transparent' }}>
+      <View key={id ?? 'base'} onLayout={(e) => {
+          at.current[id ?? 'base'] = e.nativeEvent.layout.x;
+          if (on) reveal(id ?? 'base');
+        }} style={{ flexDirection: 'row', alignItems: 'center', borderRadius: radius.pill, backgroundColor: on ? c.panel : 'transparent' }}>
         <Pressable
           testID={`dock-${id ?? 'base'}`}
           accessibilityRole="tab"
@@ -56,7 +63,7 @@ export function AgentDock(props: { base: string; tabs: AgentTabs; onMenu: () => 
       <Pressable testID="verbs-open" accessibilityRole="button" accessibilityLabel="Menu" onPress={props.onMenu} style={btn}>
         <Icon name="menu" decorative size={22} color={c.ink} />
       </Pressable>
-      <ScrollView ref={strip} horizontal showsHorizontalScrollIndicator={false} onContentSizeChange={() => strip.current?.scrollToEnd()} contentContainerStyle={{ alignItems: 'center', gap: space.xs, paddingRight: space.sm }}>
+      <ScrollView ref={strip} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center', gap: space.xs, paddingRight: space.sm }}>
         {tab(null, props.base, false)}
         {tabs.tabs.map((t) => tab(t.id, tabLabel(t), true))}
       </ScrollView>

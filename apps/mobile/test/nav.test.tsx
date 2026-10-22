@@ -29,10 +29,10 @@ describe('the agent list on the shared nav model', () => {
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
     await until(() => $('dock-base'), 'the dock');
-    await pickTab('preview');
-    await until(() => $('dock-preview'), 'the preview tab');
-    await press($('dock-close-preview'));
-    await until(() => !$('dock-preview') && $('chat-input'), 'the chat');
+    await pickTab('file');
+    await until(() => $('dock-file:'), 'the file tab');
+    await press($('dock-close-file:'));
+    await until(() => !$('dock-file:') && $('chat-input'), 'the chat');
     m.store.stop();
   });
 });

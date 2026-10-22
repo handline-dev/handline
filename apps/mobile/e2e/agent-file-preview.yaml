@@ -1,4 +1,4 @@
-# The File and Preview tabs of an agent's page, against `pnpm fake-listener`:  maestro test -e URI="<the link>" e2e/agent-file-preview.yaml
+# The File tab of an agent's page, against `pnpm fake-listener`:  maestro test -e URI="<the link>" e2e/agent-file-preview.yaml
 appId: dev.handline.mobile
 ---
 - runFlow:
@@ -20,14 +20,3 @@ appId: dev.handline.mobile
 - assertVisible: the File tab
 - hideKeyboard
 - takeScreenshot: agent-file-tab
-- tapOn: { id: tab-preview }
-- tapOn: { id: preview-address }
-- inputText: example.com
-- tapOn: { id: preview-go }
-- extendedWaitUntil: { visible: Example Domain, timeout: 20000 }
-- takeScreenshot: agent-preview-tab
-- hideKeyboard
-- tapOn: { id: preview-mark }
-- assertVisible: 'Done'
-- takeScreenshot: agent-mark-an-area
-- tapOn: { id: mark-cancel }

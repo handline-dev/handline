@@ -1,8 +1,8 @@
-// The tabs opened inside one agent's page, beside its Chat or Terminal: a file, a task, the Tasks list, Activity, Preview. Back closes the last one opened.
+// The tabs opened inside one agent's page, beside its Chat or Terminal, which cannot be closed: a file, a task, the Tasks list. Back closes the last one opened.
 import { createContext, useContext } from 'react';
 import { useHistoryValue } from '#src/history.tsx';
 
-export type AgentTab = { id: string; kind: 'file' | 'task' | 'tasks' | 'activity' | 'preview'; path?: string; task?: number };
+export type AgentTab = { id: string; kind: 'file' | 'task' | 'tasks'; path?: string; task?: number };
 
 type State = { tabs: AgentTab[]; active: string | null };
 
@@ -34,5 +34,5 @@ export const useOpenInTab = () => useContext(AgentTabsContext);
 export function tabLabel(t: AgentTab): string {
   if (t.kind === 'file') return t.path ? t.path.split('/').at(-1)! : 'File';
   if (t.kind === 'task') return `T${t.task}`;
-  return { tasks: 'Tasks', activity: 'Activity', preview: 'Preview' }[t.kind];
+  return 'Tasks';
 }

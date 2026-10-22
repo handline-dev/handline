@@ -13,10 +13,8 @@ import { AgentDock, AgentLabel, useKeyboardUp } from '#src/screens/AgentDock.tsx
 import { AgentTabsContext, useAgentTabs, type AgentTabs } from '#src/screens/AgentTabs.tsx';
 import { AgentStrip } from '#src/screens/AgentStrip.tsx';
 import { AgentFile } from '#src/screens/AgentFile.tsx';
-import { AgentPreview } from '#src/screens/AgentPreview.tsx';
 import { AgentTasks } from '#src/screens/AgentTasks.tsx';
 import type { IconName } from '#src/screens/Icon.tsx';
-import { Activity } from '#src/screens/Activity.tsx';
 import { AgentVerbs } from '#src/screens/AgentVerbs.tsx';
 import { Chat } from '#src/screens/Chat.tsx';
 import { Detail } from '#src/screens/Tasks.tsx';
@@ -82,11 +80,8 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
   const shown = tabs.tabs.find((t) => t.id === tabs.active);
   const hasTasks = useServes('tasks.list').served;
   const showTasks = shown?.kind === 'tasks';
-  const hasChat = useServes('chat.messages').served;
-  const showActivity = shown?.kind === 'activity';
   const hasFile = useServes('file.read').served && !!detail.worktree;
   const showFile = shown?.kind === 'file';
-  const showPreview = shown?.kind === 'preview';
   const showTask = shown?.kind === 'task';
   const [searching, setSearching] = useHistoryValue(`chat.search:${name}`, false);
   const onChat = !shown && current === 'chat';
@@ -139,7 +134,6 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       {pageTab('chat', 'Chat')}
       {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
       {hasFile && tab('file', 'File', 'note', showFile, () => tabs.open({ id: 'file:', kind: 'file', path: '' }))}
-      {tab('preview', 'Preview', 'open', showPreview, () => tabs.open({ id: 'preview', kind: 'preview' }))}
       {hasTasks && tab('tasks', 'Tasks', 'tasks', showTasks, () => tabs.open({ id: 'tasks', kind: 'tasks' }))}
       {onChat && (
         <MenuItem
@@ -168,7 +162,6 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         onDeleted={() => void store.closeAgent()}
         onSettings={props.onSettings}
         before={views}
-        more={hasChat && tab('activity', 'Activity', 'history', showActivity, () => tabs.open({ id: 'activity', kind: 'activity' }))}
         stops={[
           ...(ctl.stop && !structured ? [{ id: 'exit', label: 'Exit', danger: false }] : []),
           ...(ctl.stop ? [{ id: 'close', label: 'Close', danger: false }, { id: 'kill', label: 'Kill', danger: true }] : []),
@@ -183,10 +176,6 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         </>
       ) : showTask ? (
         <Detail id={shown!.task!} backLabel="Close tab" onBack={() => tabs.close(shown!.id)} />
-      ) : showPreview ? (
-        <AgentPreview agent={name} />
-      ) : showActivity ? (
-        <Activity agent={name} />
       ) : showTasks ? (
         <AgentTasks agent={name} />
       ) : (
