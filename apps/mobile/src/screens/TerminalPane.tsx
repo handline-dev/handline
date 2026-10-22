@@ -172,11 +172,11 @@ export function TerminalPane(props: { agent: string; view: TerminalView; session
         style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }}
       />
       {!other && (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, padding: space.xs, backgroundColor: c.panel }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, backgroundColor: c.panel }} contentContainerStyle={{ flexGrow: 1, gap: space.xs, padding: space.xs }}>
           {KEYS.map((k) => (
-            <Button key={k.id} testID={`terminal-key-${k.id}`} label={k.label} onPress={() => type(k.data)} style={{ paddingHorizontal: space.sm }} />
+            <Button key={k.id} testID={`terminal-key-${k.id}`} label={k.label} onPress={() => type(k.data)} style={{ flexGrow: 1, paddingHorizontal: space.xs }} />
           ))}
-        </View>
+        </ScrollView>
       )}
       {failure ? <Text style={{ color: c.block, padding: space.xs }}>{(failure as Error).message}</Text> : null}
     </View>
