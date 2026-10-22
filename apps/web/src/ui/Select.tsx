@@ -6,7 +6,10 @@ export function Select({
   options,
   label,
   ...rest
-}: { options: { value: string; label: string }[]; label: string } & Omit<SelectHTMLAttributes<HTMLSelectElement>, 'children'>) {
+}: { options: { value: string; label: string; disabled?: boolean }[]; label: string } & Omit<
+  SelectHTMLAttributes<HTMLSelectElement>,
+  'children'
+>) {
   return (
     <span className="ui-select relative inline-flex max-w-full items-center">
       <select
@@ -16,7 +19,7 @@ export function Select({
         {...rest}
       >
         {options.map((o) => (
-          <option key={o.value} value={o.value}>
+          <option key={o.value} value={o.value} disabled={o.disabled}>
             {o.label}
           </option>
         ))}
