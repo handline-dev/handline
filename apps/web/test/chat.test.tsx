@@ -478,10 +478,10 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     expect(inbox.get(3).read).toBe(false);
   });
 
-  it('the strip shows the state as a glyph, the model, the account and the task; a stuck agent gets a banner', async () => {
+  it('the strip shows the model, the account and the task; a stuck agent gets a banner', async () => {
     const t = await mount(ARCH);
     await until(() => $('.chat-strip'), 'the strip');
-    expect($('.chat-strip .ui-state')!.getAttribute('data-state')).toBeTruthy();
+    expect($('.chat-strip .ui-state')).toBeNull(); // no spinner at the start; the head says the state
     expect(text($('.chat-strip'))).toContain('opus');
     expect($('.chat-strip a')!.getAttribute('href')).toMatch(/^#\/tasks\/\d+/);
     expect($('.chat-banner')).toBeNull();

@@ -53,6 +53,7 @@ export const SETTINGS_HANDLERS: Record<string, (h: Call) => unknown> = {
       next[k] = check(k, v);
     }
     s.settings = next;
+    if (typeof values.model === 'string' && s.state !== 'running') s.fx.model = values.model; // a working agent takes it when the work ends
     script.control(s, actor, 'agent.set', `${actor.name} set ${Object.keys(values).join(', ')}`);
     return script.accepted('Saved.');
   },

@@ -1,4 +1,4 @@
-// Search box in the Chat tab head: chat.search in the scope the tab shows; a hit goes to its message through the tab's jump (chat.locate).
+// Find bar in the Chat tab head (⌘F): chat.search in the scope the tab shows; a hit goes to its message through the tab's jump (chat.locate).
 import { useEffect, useState } from 'react';
 import type { ChatMessage } from '@handline/client';
 import { classify, sentence, useChatSearch, useServes, type ChatScope } from '@handline/app-data';
@@ -21,7 +21,7 @@ function Hit({ m, query, onGo }: { m: ChatMessage; query: string; onGo: (id: num
   );
 }
 
-export function ChatSearch({ agent, scope, onGo }: { agent: string; scope: ChatScope; onGo: (id: number) => void }) {
+export function ChatSearch({ agent, scope, onGo, onClose }: { agent: string; scope: ChatScope; onGo: (id: number) => void; onClose: () => void }) {
   const { served } = useServes('chat.search');
   const [text, setText] = useState('');
   const [query, setQuery] = useState(''); // the text once the person stops typing
@@ -50,7 +50,8 @@ export function ChatSearch({ agent, scope, onGo }: { agent: string; scope: ChatS
         aria-label="Search messages"
         value={text}
         onChange={(e) => (setText(e.target.value), setShut(false))}
-        onKeyDown={(e) => e.key === 'Escape' && setShut(true)}
+        autoFocus
+        onKeyDown={(e) => e.key === 'Escape' && (shut || text === '' ? onClose() : setShut(true))}
       />
       {showing ? (
         <div

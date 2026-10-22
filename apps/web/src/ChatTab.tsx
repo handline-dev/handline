@@ -29,7 +29,7 @@ import { Item, Message, TaskNote, jumpTo } from '#src/ChatMessages.tsx';
 import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, RoomTitle, useDecided } from '#src/ChatCards.tsx';
 import { ChatSearch } from '#src/ChatSearch.tsx';
 import { Button, Empty, Icon, Textarea, ComposeRow } from '#src/ui/index.ts';
-import { useWantedMessage } from '#src/route.ts';
+import { goSettings, useWantedMessage } from '#src/route.ts';
 import { useWorkspace } from '#src/Workspace.tsx';
 
 /** The heading where the day turns — 'Oct 11'; null on the same day. */
@@ -125,6 +125,21 @@ function putBack(box: HTMLElement, a: { id: string; off: number }) {
   if (!el) return;
   const drift = el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
   if (drift) box.scrollTop += drift;
+}
+
+/** ⌘F opens the find bar of this chat. */
+function useFindBar() {
+  const [finding, setFinding] = useState(false);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== 'f') return;
+      e.preventDefault();
+      setFinding(true);
+    };
+    addEventListener('keydown', key);
+    return () => removeEventListener('keydown', key);
+  }, []);
+  return [finding, setFinding] as const;
 }
 
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
@@ -260,12 +275,14 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [going, where, scope, locate.data, windowed, entries.length]);
 
+  const [finding, setFinding] = useFindBar();
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
     <section className={CHAT}>
       <div className="chat-head flex h-[var(--h-tabs)] items-center gap-2 border-b border-line px-2">
         <RoomTitle agent={agent} detail={detail} />
-        <ChatSearch agent={agent} scope={scope} onGo={jump} />
+        {finding ? <ChatSearch agent={agent} scope={scope} onGo={jump} onClose={() => setFinding(false)} /> : null}
+        <Button icon="settings" label={`${agent} settings`} onClick={() => goSettings(agent)} />
       </div>
       <ChatBanner detail={detail} />
       <div className="relative flex min-h-0 flex-1 flex-col">
