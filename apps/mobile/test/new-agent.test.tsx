@@ -89,7 +89,9 @@ describe('X5 phone New agent', () => {
     const ids = (prefix: string) => [...box.querySelectorAll(`[data-testid^="${prefix}"]`)].map((e) => e.getAttribute('data-testid'));
     expect(ids('na-model-')).toEqual(['default', ...o.models].map((x) => `na-model-${x}`));
     expect(ids('na-effort-')).toEqual(['default', ...o.efforts].map((x) => `na-effort-${x}`));
-    expect(ids('na-account-')).toEqual(['default', ...o.accounts.filter((a) => a.login_state === 'ok').map((a) => a.name)].map((x) => `na-account-${x}`));
+    expect(ids('na-account-')).toEqual(
+      ['default', ...o.accounts.filter((a) => a.login_state === 'ok').map((a) => a.name)].map((x) => `na-account-${x}`),
+    );
     expect(text(box)).toContain('gamma (not logged in)');
     expect(ids('na-free-')).toEqual(o.free_names.map((x) => `na-free-${x}`));
     expect(text(box)).not.toContain('none can be named yet');

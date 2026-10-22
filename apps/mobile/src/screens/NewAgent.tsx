@@ -156,7 +156,13 @@ export function NewAgent({ pending, onClose, onAgent }: { pending: Pending; onCl
       <Input id="name" label={prefix ? `Name (after ${prefix})` : 'Name'} value={f.name} onChange={(v) => set('name', v)} />
       <Label text="Plain text: no /, no leading ." />
       {choices.freeNames.length ? (
-        <Choice id="free" label="Free names" value={f.name} options={choices.freeNames.map((n) => ({ value: n, label: n }))} onChange={(v) => set('name', v)} />
+        <Choice
+          id="free"
+          label="Free names"
+          value={f.name}
+          options={choices.freeNames.map((n) => ({ value: n, label: n }))}
+          onChange={(v) => set('name', v)}
+        />
       ) : null}
       <Input id="role" label="Role" value={f.role} onChange={(v) => set('role', v)} />
       {choices.roles.length ? (
@@ -208,11 +214,16 @@ export function NewAgent({ pending, onClose, onAgent }: { pending: Pending; onCl
           id="account"
           label="Account"
           value={f.account}
-          options={[{ value: '', label: 'auto' }, ...choices.accounts.filter((a) => a.offered).map((a) => ({ value: a.name, label: a.name }))]}
-          note={choices.accounts
-            .filter((a) => !a.offered)
-            .map((a) => `${a.name} (not logged in)`)
-            .join(', ') || undefined}
+          options={[
+            { value: '', label: 'auto' },
+            ...choices.accounts.filter((a) => a.offered).map((a) => ({ value: a.name, label: a.name })),
+          ]}
+          note={
+            choices.accounts
+              .filter((a) => !a.offered)
+              .map((a) => `${a.name} (not logged in)`)
+              .join(', ') || undefined
+          }
           onChange={(v) => set('account', v)}
         />
       ) : (
