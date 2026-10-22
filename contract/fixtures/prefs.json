@@ -45,6 +45,9 @@
        },
        "collapsed": {
         "$type": "array"
+       },
+       "order": {
+        "$type": "array"
        }
       }
      }
@@ -315,6 +318,533 @@
       "data": {
        "code": "bad_request",
        "field": "changes.nav"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "prefs.set.order_is_stored_whole_and_read_back",
+   "spec": "prefs.set",
+   "as": "founder",
+   "about": "order is replaced whole by each prefs.set and prefs.get serves it as given; an empty list clears it. Needs --var order_a and order_b: two agents.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "order": [
+          "{{order_b}}",
+          "{{order_a}}"
+         ]
+        }
+       },
+       "request_id": "conf-prefs-order-1"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "prefs.get",
+      "params": {}
+     },
+     "result": {
+      "nav": {
+       "order": [
+        "{{order_b}}",
+        "{{order_a}}"
+       ]
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "order": [
+          "{{order_a}}"
+         ]
+        }
+       },
+       "request_id": "conf-prefs-order-2"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "prefs.get",
+      "params": {}
+     },
+     "result": {
+      "nav": {
+       "order": [
+        "{{order_a}}"
+       ]
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "order": []
+        }
+       },
+       "request_id": "conf-prefs-order-3"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "prefs.get",
+      "params": {}
+     },
+     "result": {
+      "nav": {
+       "order": []
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "prefs.set.order_refuses_a_name_twice_or_no_agent",
+   "spec": "prefs.set",
+   "as": "founder",
+   "about": "An order naming an agent twice, naming no agent, or not a list of names is bad_request naming changes.nav.order, and the stored order stays. Needs --var order_a.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "order": [
+          "{{order_a}}"
+         ]
+        }
+       },
+       "request_id": "conf-prefs-order-4"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "order": [
+          "{{order_a}}",
+          "{{order_a}}"
+         ]
+        }
+       },
+       "request_id": "conf-prefs-order-5"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "changes.nav.order"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "order": [
+          "{{order_a}}",
+          "conf-no-such-agent"
+         ]
+        }
+       },
+       "request_id": "conf-prefs-order-6"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "changes.nav.order"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "order": "{{order_a}}"
+        }
+       },
+       "request_id": "conf-prefs-order-7"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "changes.nav.order"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "prefs.get",
+      "params": {}
+     },
+     "result": {
+      "nav": {
+       "order": [
+        "{{order_a}}"
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "prefs.set.a_retired_agent_leaves_the_order",
+   "spec": "prefs.set",
+   "as": "founder",
+   "about": "agent.retire drops the agent from order, the rest keeping their places, and sends prefs.changed. Needs --var order_a and order_retire_agent: an agent the founder may retire (no session, nothing under it).",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "prefs"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "order": [
+          "{{order_retire_agent}}",
+          "{{order_a}}"
+         ]
+        }
+       },
+       "request_id": "conf-prefs-order-8"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "agent.retire",
+      "params": {
+       "agent": "{{order_retire_agent}}",
+       "request_id": "conf-prefs-order-9"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "prefs",
+        "type": "prefs.changed",
+        "data": {
+         "nav": {
+          "order": [
+           "{{order_a}}"
+          ]
+         }
+        }
+       }
+      }
+     ],
+     "notices_within_s": 5
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "prefs.get",
+      "params": {}
+     },
+     "result": {
+      "nav": {
+       "order": [
+        "{{order_a}}"
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "prefs.set.a_renamed_agent_keeps_its_place_in_the_order",
+   "spec": "prefs.set",
+   "as": "founder",
+   "with": {
+    "lead": "agent"
+   },
+   "about": "An approved hr rename puts the new name in the old one's place in order and sends prefs.changed. Needs --var order_a, order_rename_agent (an agent hr may rename) and order_rename_to (a free name).",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "on": "lead",
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "prefs"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "order": [
+          "{{order_a}}",
+          "{{order_rename_agent}}"
+         ]
+        }
+       },
+       "request_id": "conf-prefs-order-10"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "on": "lead",
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hr.propose",
+      "params": {
+       "kind": "rename",
+       "args": {
+        "name": "{{order_rename_agent}}",
+        "to": "{{order_rename_to}}"
+       },
+       "why": "conformance: the order follows a rename",
+       "request_id": "conf-prefs-order-11"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "proposal": {
+       "$save": "rename_id"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "hr.list",
+      "params": {
+       "state": "open"
+      }
+     },
+     "result": {
+      "proposals": {
+       "$contains": {
+        "id": "{{rename_id}}",
+        "subject": {
+         "$save": "rename_subject"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "hr.decide",
+      "params": {
+       "proposal": "{{rename_id}}",
+       "decision": "approve",
+       "subject": "{{rename_subject}}",
+       "request_id": "conf-prefs-order-12"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "prefs",
+        "type": "prefs.changed",
+        "data": {
+         "nav": {
+          "order": [
+           "{{order_a}}",
+           "{{order_rename_to}}"
+          ]
+         }
+        }
+       }
+      }
+     ],
+     "notices_within_s": 10
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "prefs.get",
+      "params": {}
+     },
+     "result": {
+      "nav": {
+       "order": [
+        "{{order_a}}",
+        "{{order_rename_to}}"
+       ]
       }
      }
     }
