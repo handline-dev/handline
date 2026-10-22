@@ -163,7 +163,8 @@ func hrBundle(c *hlclient.Client, args []string) (int, bool) {
 		return 1, true
 	}
 	c.NoteVerbChain([]string{"hr", "bundle"})
-	return said(c.Write("hr.propose", map[string]any{"kind": "bundle", "why": why, "args": map[string]any{"changes": changes}})), true
+	return said(c.Write("hr.propose", map[string]any{"kind": "bundle", "why": why,
+		"args": map[string]any{"name": fmt.Sprintf("%d changes", len(changes)), "changes": changes}})), true
 }
 
 // hrWhy is --why, or what is wrong with it: missing, or naming a message the founder cannot read.
@@ -178,7 +179,7 @@ func hrWhy(p parsed) (why, problem string) {
 	return why, ""
 }
 
-// messageRef is a message number in a reason (the app's MESSAGE_REF): the founder reads the reason, and a number tells them nothing.
+// messageRef is a message number in a reason (the app's MESSAGE_REF).
 var messageRef = regexp.MustCompile(`\b(?:msg_[0-9a-f]{7}|ocp-msg [0-9a-f]{8,})\b`)
 
 // expandHome is a path with a leading ~/ taken to the home folder.

@@ -89,6 +89,9 @@ func TestHrBundleSendsTheChangesAsOneProposalAndAWhyWithAMessageNumberIsRefused(
 	if out, errs, code := r.run(asAgent, "hr", "bundle", "--file", file, "--why", "tidy the team"); code != 0 || errs != "" || out == "" {
 		t.Errorf("bundle: %d %q %q", code, out, errs)
 	}
+	if _, errs, _ := r.run(asAgent, "hr", "bundle", "--file", file, "--why", "as asked in msg_8aebff7"); !strings.Contains(errs, "names msg_8aebff7") {
+		t.Errorf("a message number in --why: %q", errs)
+	}
 	for _, args := range [][]string{
 		{"hr", "bundle", "--file", file, "--why", "as asked in msg_8aebff7"},
 		{"hr", "retire", "a.one", "--why", "per ocp-msg 1a2b3c4d"},
@@ -99,7 +102,7 @@ func TestHrBundleSendsTheChangesAsOneProposalAndAWhyWithAMessageNumberIsRefused(
 			t.Errorf("%v: %d %q", args, code, errs)
 		}
 	}
-	want := []string{`hr.propose {"args":{"changes":[{"kind":"retire","name":"a.one"},{"kind":"rename","name":"b.two","to":"b.dos"}]},"kind":"bundle","why":"tidy the team"}`}
+	want := []string{`hr.propose {"args":{"changes":[{"kind":"retire","name":"a.one"},{"kind":"rename","name":"b.two","to":"b.dos"}],"name":"2 changes"},"kind":"bundle","why":"tidy the team"}`}
 	if got := sent(calls()); !reflect.DeepEqual(got, want) {
 		t.Errorf("calls\n got  %v\n want %v", got, want)
 	}
