@@ -1,6 +1,7 @@
 // The agent page's bottom dock: back, menu, pinned agents, then the agents opened on this device; hidden while the keyboard is up.
-import { useEffect, useState } from 'react';
-import { Keyboard, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect } from 'react';
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 import { branchOf, shortName } from '@handline/app-core';
 import { useNavDock, useOpenTabs, useWorktrees } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
@@ -10,16 +11,7 @@ import { usePalette } from '#src/theme.ts';
 import { Icon } from '#src/screens/Icon.tsx';
 import { StateMark } from '#src/screens/StateMark.tsx';
 
-export function useKeyboardUp(): boolean {
-  const [up, setUp] = useState(false);
-  useEffect(() => {
-    const ios = Platform.OS === 'ios';
-    const show = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', () => setUp(true));
-    const hide = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', () => setUp(false));
-    return () => (show.remove(), hide.remove());
-  }, []);
-  return up;
-}
+export const useKeyboardUp = (): boolean => useKeyboardState((k) => k.isVisible);
 
 /** Opens the agent as a tab on this device while its page is showing. */
 export function useRememberAgent(name: string): void {

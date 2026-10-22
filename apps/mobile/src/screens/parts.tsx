@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
@@ -175,28 +175,10 @@ export const Row = (props: { children: React.ReactNode; style?: ViewStyle }) => 
   <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, ...props.style }}>{props.children}</View>
 );
 
-/** A column that stays above the keyboard: its bottom padding is how far the keyboard reaches into it. */
+/** A column that stays above the keyboard. */
 export function AboveKeyboard(props: { children: React.ReactNode }) {
-  const ref = useRef<View>(null);
-  const [pad, setPad] = useState(0);
-  useEffect(() => {
-    // Android has no "will" events.
-    const ios = Platform.OS === 'ios';
-    const sub = Keyboard.addListener(ios ? 'keyboardWillChangeFrame' : 'keyboardDidShow', (e) => {
-      const top = e.endCoordinates.screenY;
-      ref.current?.measureInWindow((_x, y, _w, h) => setPad(Math.max(0, y + h - top)));
-    });
-    const hide = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', () => setPad(0));
-    return () => {
-      sub.remove();
-      hide.remove();
-    };
-  }, []);
-  return (
-    <View ref={ref} style={{ flex: 1, paddingBottom: pad }}>
-      {props.children}
-    </View>
-  );
+  const height = useKeyboardState((k) => k.height);
+  return <View style={{ flex: 1, paddingBottom: height }}>{props.children}</View>;
 }
 
 /** A small text link. */

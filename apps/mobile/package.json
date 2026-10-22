@@ -35,9 +35,12 @@
     "lucide-react-native": "1.52.0",
     "react": "19.2.3",
     "react-native": "0.86.3",
+    "react-native-keyboard-controller": "1.21.9",
+    "react-native-reanimated": "4.5.1",
     "react-native-svg": "15.15.4",
     "react-native-view-shot": "5.1.0",
-    "react-native-webview": "^14.0.1"
+    "react-native-webview": "^14.0.1",
+    "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
     "@handline/config": "workspace:*",

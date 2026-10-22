@@ -18,6 +18,7 @@ import { Tasks } from '#src/screens/Tasks.tsx';
 import { Worktrees } from '#src/screens/Worktrees.tsx';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
 import { Banner } from '#src/screens/parts.tsx';
+import { useKeyboardUp } from '#src/screens/AgentDock.tsx';
 
 const TABS = ['agents', 'inbox', 'tasks', 'usage'] as const;
 type Tab = (typeof TABS)[number];
@@ -108,6 +109,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
     first,
     save: (op, t = null) => (setKept(op), setFirst(t), props.pending?.save(op, t)),
   };
+  const keyboardUp = useKeyboardUp();
   const toAgent = (name: string) => (setPage(null), void props.store.openAgent(name));
   return (
     <View style={{ flex: 1 }} {...swipe}>
@@ -134,7 +136,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
           <AgentList onPage={setPage} />
         )}
       </View>
-      {!open && !page && (
+      {!open && !page && !keyboardUp && (
         <View
           accessibilityRole="tablist"
           style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.panel }}
