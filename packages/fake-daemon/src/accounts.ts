@@ -9,7 +9,7 @@ const VENDORS = ['claude', 'opencode'];
 /** What the accounts need of the daemon that hosts them: to emit on their topic, and the agents' fixtures. */
 interface Host {
   emit(topic: 'accounts', type: string, f: { title?: string; data: Record<string, unknown> }): void;
-  sessions: Map<string, { fx: { name: string; account: string | null } }>;
+  sessions: Map<string, { fx: { name: string; account: string | null; state: string } }>;
 }
 const HOUR = 3_600_000;
 
@@ -32,7 +32,7 @@ export class FakeAccounts {
 
   private emit(a: Account) {
     // The topic row is the one without the usage fields, as the gateway sends it.
-    const { plan: _p, assignable: _a, assign_reason: _r, ...row } = a;
+    const { plan: _p, assignable: _a, assign_reason: _r, agents_assigned: _n, agents_running: _g, ...row } = a;
     this.host.emit('accounts', 'account.changed', { title: a.label, data: row });
   }
   private agentsOn(account: string): string[] {
@@ -220,7 +220,15 @@ export class FakeAccounts {
   }
 
   private view(r: Account): Account {
-    return { ...r, agents: this.agentsOn(r.name), cycle: { ...r.cycle } };
+    const agents = this.agentsOn(r.name);
+    const running = [...this.host.sessions.values()].filter((s) => s.fx.account === r.name && ['running', 'waiting'].includes(s.fx.state));
+    return {
+      ...r,
+      agents,
+      agents_assigned: r.agents_assigned ?? agents.length,
+      agents_running: r.agents_running ?? running.length,
+      cycle: { ...r.cycle },
+    };
   }
   private find(name: unknown): Account {
     const r = this.rows.find((x) => x.name === name);
