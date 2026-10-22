@@ -157,9 +157,9 @@
    ]
   },
   {
-   "name": "agent.retire.a_running_agent_is_refused",
+   "name": "agent.retire.a_running_agent_is_retired_when_its_turn_ends",
    "spec": "agent.retire",
-   "about": "An agent with a session running is refused (gate state); nothing is retired.",
+   "about": "An agent mid-turn is accepted, not refused, with a said naming it; it stays until its turn ends and is then removed. Needs --var retire_turn_agent (an agent the founder may retire, mid-turn in a turn that ends on its own 20 to 60 s after the fixture starts).",
    "as": "founder",
    "steps": [
     {
@@ -179,17 +179,79 @@
      "send": {
       "jsonrpc": "2.0",
       "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "agents"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
       "method": "agent.retire",
       "params": {
-       "agent": "{{running_agent}}",
+       "agent": "{{retire_turn_agent}}",
        "request_id": "conf-ret-4"
       }
      },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$regex": "{{retire_turn_agent}}"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{retire_turn_agent}}"
+      }
+     },
+     "result": {
+      "name": "{{retire_turn_agent}}",
+      "session_open": true
+     }
+    },
+    {
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "agents",
+        "type": "agent.removed",
+        "data": {
+         "name": "{{retire_turn_agent}}"
+        }
+       }
+      }
+     ],
+     "notices_within_s": 90
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{retire_turn_agent}}"
+      }
+     },
      "error": {
-      "code": -32002,
+      "code": -32001,
       "data": {
-       "code": "refused",
-       "gate": "state"
+       "code": "not_found"
       }
      }
     }
