@@ -70,7 +70,7 @@ export const ICON_SPEC = {
   asleep: ['Moon', 'Sleeping'],
   context: ['Database', 'Context'],
   cache: ['Timer', 'Prompt cache'],
-  noTerminal: ['Moon', 'No terminal'],
+  noTerminal: ['Moon', 'Not started'],
   // chat: what a line is
   tool: ['Wrench', 'Tool'],
   permission: ['ShieldQuestion', 'Permission'],
@@ -100,7 +100,7 @@ export const ICON_SPEC = {
   newer: ['ArrowDown', 'New messages'],
   // tasks: the state of a task, a shape each
   taskDraft: ['CircleDashed', 'Draft'],
-  taskQueued: ['Clock', 'Queued'],
+  taskQueued: ['Clock', 'Up next'],
   taskDoing: ['Loader', 'Doing'],
   taskBlocked: ['TriangleAlert', 'Blocked'],
   taskDone: ['CircleCheck', 'Done'],

@@ -9,7 +9,7 @@ import { KIND } from '#src/screens/NeedsYouCard.tsx';
 import { usePalette } from '#src/theme.ts';
 import { StateMark } from '#src/screens/StateMark.tsx';
 import { Icon } from '#src/screens/Icon.tsx';
-import { Button, MenuItem, MenuSheet, PageHeader } from '#src/screens/parts.tsx';
+import { Button, EmptyState, MenuItem, MenuSheet, PageHeader } from '#src/screens/parts.tsx';
 import { TeamButton } from '#src/screens/TeamEntry.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
 
@@ -36,13 +36,22 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
   const names = agents.map((a) => a.name);
   const tree = nav.layout !== 'flat';
   const items: Item[] = [];
-  if (pinned.length) items.push({ key: 'h-pinned', head: 'Pinned' }, ...pinned.map((agent) => ({ key: `p-${agent.name}`, agent, depth: 0, label: agent.name })));
+  if (pinned.length)
+    items.push(
+      { key: 'h-pinned', head: 'Pinned' },
+      ...pinned.map((agent) => ({ key: `p-${agent.name}`, agent, depth: 0, label: agent.name })),
+    );
   let team = '';
   for (const r of rows) {
     const t = teamOf(r.agent.name, names);
     if (tree && t !== team) items.push({ key: `h-${t}`, head: t });
     team = t;
-    items.push({ key: r.agent.name, agent: r.agent, depth: tree ? r.depth : 0, label: tree ? rowName(r.agent.name, r.depth, t) : r.agent.name });
+    items.push({
+      key: r.agent.name,
+      agent: r.agent,
+      depth: tree ? r.depth : 0,
+      label: tree ? rowName(r.agent.name, r.depth, t) : r.agent.name,
+    });
   }
   const [target, setTarget] = useState<Agent | null>(null);
   const founder = store.client.hello?.role === 'founder';
@@ -57,7 +66,14 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
         actions={
           <>
             {founder && create ? (
-              <Button testID="new-agent-open" label="" icon="plus" accessibilityLabel="New agent" onPress={() => props.onPage('new')} style={{ paddingVertical: space.sm }} />
+              <Button
+                testID="new-agent-open"
+                label=""
+                icon="plus"
+                accessibilityLabel="New agent"
+                onPress={() => props.onPage('new')}
+                style={{ paddingVertical: space.sm }}
+              />
             ) : null}
             <Button
               testID="agents-menu"
@@ -92,7 +108,9 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
           data={items}
           keyExtractor={(i) => i.key}
           ListHeaderComponent={
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.lg, paddingVertical: space.sm }}>
+            <View
+              style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, paddingHorizontal: space.lg, paddingVertical: space.sm }}
+            >
               {CHIPS.map((x) => {
                 const on = chip === x.id;
                 return (
@@ -103,7 +121,14 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
                     accessibilityState={{ selected: on }}
                     disabled={!ready}
                     onPress={() => change(chipChanges(x.id))}
-                    style={{ paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: radius.pill, backgroundColor: on ? c.panel : 'transparent', borderWidth: 1, borderColor: on ? c.accent : c.line }}
+                    style={{
+                      paddingHorizontal: space.md,
+                      paddingVertical: space.xs,
+                      borderRadius: radius.pill,
+                      backgroundColor: on ? c.panel : 'transparent',
+                      borderWidth: 1,
+                      borderColor: on ? c.accent : c.line,
+                    }}
                   >
                     <Text style={{ color: on ? c.accent : c.muted, fontSize: font.size.body, fontWeight: on ? '700' : '500' }}>
                       {x.label} {counts[x.id]}
@@ -124,15 +149,27 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
               </Pressable>
             </View>
           }
-          ListEmptyComponent={<Text style={{ color: c.muted, padding: space.lg }}>No agents match.</Text>}
+          ListEmptyComponent={<EmptyState icon="search" text="No agents match." testID="no-match" />}
           renderItem={({ item }) => {
             if (item.head !== undefined)
-              return <Text style={{ color: c.muted, fontSize: font.size.label, paddingHorizontal: space.lg, paddingTop: space.md, paddingBottom: space.xs }}>{item.head}</Text>;
+              return (
+                <Text
+                  style={{
+                    color: c.muted,
+                    fontSize: font.size.label,
+                    paddingHorizontal: space.lg,
+                    paddingTop: space.md,
+                    paddingBottom: space.xs,
+                  }}
+                >
+                  {item.head}
+                </Text>
+              );
             const a = item.agent;
-            const need = a.needs_you ? a.needs_you.text ?? KIND[a.needs_you.kind] : '';
+            const need = a.needs_you ? (a.needs_you.text ?? KIND[a.needs_you.kind]) : '';
             const doing = need || a.task?.title || a.status?.text || a.state_detail || '';
-            const word = asks(a) ? 'asks' : a.status?.state ?? (a.block ? a.block.kind : a.state);
-            const age = a.needs_you ? a.needs_you.since : a.status?.since ?? a.state_since;
+            const word = asks(a) ? 'asks' : (a.status?.state ?? (a.block ? a.block.kind : a.state));
+            const age = a.needs_you ? a.needs_you.since : (a.status?.since ?? a.state_since);
             return (
               <Pressable
                 testID={`agent-${a.name}`}
@@ -153,7 +190,11 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
                 <StateMark agent={a} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: c.ink, fontWeight: '600' }}>{item.label}</Text>
-                  <Text numberOfLines={1} testID={need ? `needs-${a.name}` : undefined} style={{ color: need ? c.wait : c.muted, fontSize: font.size.label }}>
+                  <Text
+                    numberOfLines={1}
+                    testID={need ? `needs-${a.name}` : undefined}
+                    style={{ color: need ? c.wait : c.muted, fontSize: font.size.label }}
+                  >
                     {doing || ' '}
                   </Text>
                 </View>
