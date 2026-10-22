@@ -148,7 +148,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
       {going !== null && <ChatFind id={going} chat={chat} drawn={drawn} onFound={found} onLost={lost} />}
       {missing && (
         <Text testID="search-lost" style={{ color: c.muted, paddingHorizontal: space.md }}>
-          That message is no longer in this chat.
+          That message is not in this chat.
         </Text>
       )}
       <ScrollView
