@@ -1,6 +1,6 @@
 // The fake daemon's workroom: worktree.set_status, which labels a row of the admin surface's worktrees, and agent.create, a long-running
 // operation that registers an agent, makes its worktree and starts it, reported on the operations topic.
-import type { Operation, Repo, Timestamp } from '@handline/contract';
+import type { AgentOptions, Operation, Repo, Timestamp } from '@handline/contract';
 import { AGENTS, type AgentFixture } from '#src/fixtures.ts';
 import { Failure, invalidParams, refused } from '#src/errors.ts';
 import { newSession, view, type Session } from '#src/session.ts';
@@ -11,12 +11,21 @@ interface Host {
   emit(topic: 'operations' | 'agents', type: string, f: { agent?: string; title?: string; data: Record<string, unknown> }): void;
   sessions: Map<string, Session>;
   admin: { worktrees: FakeWorktrees };
+  accounts: { list(): { accounts: { name: string; login_state: string }[] } };
 }
 type Accepted = (said: string, extra?: object) => unknown;
 
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+const MODELS = ['fable', 'mythos', 'opus', 'sonnet', 'haiku'];
+const ROLE_NOTES: Record<string, string> = {
+  implementer: 'Builds a change on a branch and opens the pull request.',
+  architect: 'Plans and reviews the design; does not build.',
+  auditor: 'Reviews a branch before it goes up.',
+};
+/** Agents the team file names that have no session yet: what the form suggests as a name. */
+const TEAM_NAMES = ['handline.new-builder', 'handline.new-reviewer'];
 const STEPS = ['registering the agent', 'making its worktree', 'starting the agent'];
-const METHODS = /^(worktree\.set_status|agent\.create|operation\.get)$/;
+const METHODS = /^(worktree\.set_status|agent\.create|agent\.options|operation\.get)$/;
 
 export class FakeWork {
   /** How long each step of agent.create takes; a test that wants to see a step sets it. */
@@ -47,6 +56,8 @@ export class FakeWork {
         return this.setStatus(p, accepted);
       case 'operation.get':
         return this.operation(p.operation);
+      case 'agent.options':
+        return this.options();
       default:
         return this.create(p, accepted);
     }
@@ -60,6 +71,19 @@ export class FakeWork {
     if (!row) throw notFound(`${p.path} is not a worktree an agent works in`, 'worktree');
     row.status = p.status;
     return accepted(`Status is ${p.status}.`);
+  }
+
+  /** agent.options: what the new-agent form offers, from the fake's repos, agents, accounts and the team's free names. */
+  private options(): AgentOptions {
+    const { sessions, admin } = this.host;
+    return {
+      repos: admin.worktrees.repos.map((r) => ({ ...r })),
+      roles: [...new Set([...sessions.values()].map((s) => s.fx.role))].map((r) => ({ name: r, description: ROLE_NOTES[r] ?? r })),
+      models: MODELS,
+      efforts: EFFORTS,
+      accounts: this.host.accounts.list().accounts.map((a) => ({ name: a.name, login_state: a.login_state })),
+      free_names: TEAM_NAMES.filter((n) => !sessions.has(n)),
+    };
   }
 
   private operation(id: unknown): Operation {
@@ -78,7 +102,9 @@ export class FakeWork {
       if (p[k] !== undefined && typeof p[k] !== 'string') throw invalidParams(`${k} is a string`, k);
     if (p.effort !== undefined && !EFFORTS.includes(String(p.effort)))
       throw invalidParams(`effort is one of ${EFFORTS.join(', ')}`, 'effort');
-    if (p.account !== undefined) throw invalidParams("a new agent's account is chosen when it starts; none can be named yet", 'account');
+    if (p.account !== undefined && typeof p.account !== 'string') throw invalidParams('account is a string', 'account');
+    if (p.account !== undefined && !this.host.accounts.list().accounts.some((a) => a.name === p.account))
+      throw notFound(`no account ${p.account}`, 'account');
     const found = this.host.admin.worktrees.repos.find((r) => r.path === repo);
     if (!found) throw notFound(`no repo ${String(repo)}`, 'repo');
     if (parent !== undefined && !this.host.sessions.has(String(parent))) throw notFound(`no agent ${String(parent)}`, 'agent');
@@ -103,7 +129,7 @@ export class FakeWork {
       name,
       role,
       state: 'parked',
-      account: null,
+      account: typeof p.account === 'string' ? p.account : null,
       task: null,
       parent: typeof parent === 'string' ? parent : null,
       worktree: `${found.path}.${name}`,
