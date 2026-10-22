@@ -5,7 +5,7 @@ import { byUrgency, railMatch, railRows, visibleRows, RAIL_FILTERS, type Dot, ty
 export type NavGroup = NavPrefs['hidden'][number];
 export type NavChip = 'all' | 'unread' | 'needs';
 
-export const DEFAULT_NAV: NavPrefs = { pins: [], unread_only: false, hidden: [], layout: 'tree', collapsed: [] };
+export const DEFAULT_NAV: NavPrefs = { pins: [], unread_only: false, hidden: [], layout: 'tree', collapsed: [], order: [] };
 /** How many open tabs, not counting pinned agents, the dock keeps. */
 export const OPEN_MAX = 5;
 
