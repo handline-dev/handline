@@ -127,6 +127,27 @@ describe('the HR list', () => {
     m.store.stop();
   });
 
+  it('a bundle is one card that counts its changes and hides the message numbers in its reason', async () => {
+    const m = await mount((s) =>
+      raise(s, 1, {
+        kind: 'bundle',
+        agent: '3 changes',
+        title: 'bundle',
+        diff: '- retire a\n- retire b\n+ rename c',
+        reason: 'tidy the team (msg_8aebff7)',
+      }),
+    );
+    await openHr();
+    await until(() => $('hr-1'), 'the card');
+    expect($('hr-1')?.textContent).not.toContain('msg_');
+    expect($('hr-1')?.textContent).toContain('tidy the team');
+    expect($('hr-diff-toggle-1')?.textContent).toBe('Show 3 changes');
+    await press($('hr-diff-toggle-1'));
+    expect($('hr-diff-1')?.textContent).toContain('retire b');
+    expect($('hr-diff-toggle-1')?.textContent).toBe('Hide changes');
+    m.store.stop();
+  });
+
   it('shows its skeleton while slow, then the waiting count on the entry and the cards with a collapsed diff', async () => {
     let release = () => {};
     const m = await mount((s) => {

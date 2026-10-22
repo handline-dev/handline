@@ -1,7 +1,6 @@
 // Chat tab: the conversation with the agent. The person's messages show how far they got (sending, delivered...), the agent's
 // replies, tool lines and task events follow in time.
 // A daemon that does not serve chat gets an empty state; the permission card shows either way.
-import { motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
@@ -25,6 +24,7 @@ import {
 import { AnimatedItem, AnimatedList } from '#src/AnimatedList.tsx';
 import { PromptSlot } from '#src/PromptCard.tsx';
 import { Compose } from '#src/ChatCompose.tsx';
+import { LiveLine } from '#src/LiveLine.tsx';
 import { Item, Message, TaskNote, jumpTo } from '#src/ChatMessages.tsx';
 import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, RoomTitle, useDecided } from '#src/ChatCards.tsx';
 import { ChatSearch } from '#src/ChatSearch.tsx';
@@ -71,21 +71,18 @@ function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
 
 const CHAT = 'chat relative flex min-h-0 min-w-0 flex-col border-r border-line [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]';
 
-/** The agent is writing: three dots that rise in turn; what it is doing is the tooltip. */
-function Typing({ line }: { line: string }) {
-  const reduced = useReducedMotion();
+/** The count of messages that came while the person reads up; a click takes them down. */
+function NewerPill({ count, onClick }: { count: number; onClick: () => void }) {
   return (
-    <div className="line working flex items-center text-working" role="status" title={line} aria-label={line}>
-      <span className="inline-flex items-center gap-[3px]" aria-hidden="true">
-        {[0, 1, 2].map((n) => (
-          <motion.span
-            key={n}
-            className="block size-[5px] rounded-full bg-current"
-            animate={reduced ? undefined : { y: [0, -3, 0], opacity: [0.4, 1, 0.4] }}
-            transition={{ duration: 0.9, repeat: Infinity, delay: n * 0.15, ease: 'easeInOut' }}
-          />
-        ))}
-      </span>
+    // CHAT stretches every direct child to full width, so the row spans it and only the pill takes clicks.
+    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
+      <button
+        className="newer pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-2)]"
+        onClick={onClick}
+      >
+        {count} new {count === 1 ? 'message' : 'messages'}
+        <Icon name="newer" size={14} aria-hidden />
+      </button>
     </div>
   );
 }
@@ -94,7 +91,10 @@ function Typing({ line }: { line: string }) {
 function LatestPill({ onClick }: { onClick: () => void }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
-      <button className="latest pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-2)]" onClick={onClick}>
+      <button
+        className="latest pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-2)]"
+        onClick={onClick}
+      >
         Back to latest
         <Icon name="newer" size={14} aria-hidden />
       </button>
@@ -110,7 +110,14 @@ function useWindowedChat(agent: string, scope: ChatScope) {
   const first = win.messages[0]?.at ?? '';
   const last = win.messages.at(-1)?.at ?? '';
   const chat: Chat = windowed
-    ? { ...live, messages: win.messages, items: live.items.filter((i) => i.at >= first && i.at <= last), hasOlder: win.hasOlder, loadingOlder: win.loading, loadOlder: win.loadOlder }
+    ? {
+        ...live,
+        messages: win.messages,
+        items: live.items.filter((i) => i.at >= first && i.at <= last),
+        hasOlder: win.hasOlder,
+        loadingOlder: win.loading,
+        loadOlder: win.loadOlder,
+      }
     : live;
   return { chat, win, windowed };
 }
@@ -191,7 +198,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     if (!box || anchor.current) return;
     const { top, bottom } = box.getBoundingClientRect();
     // The last line in view: whatever page lands, it lands above it. The first one may be an old message above the paged window, which a page never moves.
-    const el = [...box.querySelectorAll('[data-id]')].filter((n) => n.getBoundingClientRect().top < bottom && n.getBoundingClientRect().bottom > top).at(-1);
+    const el = [...box.querySelectorAll('[data-id]')]
+      .filter((n) => n.getBoundingClientRect().top < bottom && n.getBoundingClientRect().bottom > top)
+      .at(-1);
     const id = el?.getAttribute('data-id');
     anchor.current = el && id ? { id, off: el.getBoundingClientRect().top - top } : null;
     setArmed(false);
@@ -212,7 +221,12 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   // After a jump the target stays where it was put: the sentinels wait until the person scrolls the window themselves.
   const [moved, setMoved] = useState<number | null>(null);
   const reading = !windowed || moved === win.target;
-  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && reading && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
+  const top = useNearEnd<HTMLDivElement, HTMLDivElement>(
+    stream,
+    more,
+    armed && reading && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready',
+    { atTop: true },
+  );
   // Around an old message, the way down is read as the bottom comes near, until the live tail is reached.
   const lower = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, win.loadNewer, windowed && reading && win.hasNewer && !win.loading);
   const own = useRef(false); // the next scroll event is our own jump to the bottom, not the person leaving it
@@ -224,7 +238,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     el.scrollTop = end;
   };
 
-  useLayoutEffect(repin, [last, entries.length, chat.working.turn_running]);
+  useLayoutEffect(repin, [last, entries.length, chat.working.turn_running, chat.items.length]);
 
   // New entries while scrolled up are counted, not scrolled to; the pill takes the person down.
   const count = useRef(entries.length);
@@ -332,7 +346,14 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                   className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-start"
                 >
                   {e.kind === 'message' ? (
-                    <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} group={groupOf(scope, entries[i - 1], e.message)} />
+                    <Message
+                      m={e.message}
+                      agent={agent}
+                      picked={e.id === picked}
+                      onPick={pick}
+                      byId={byId}
+                      group={groupOf(scope, entries[i - 1], e.message)}
+                    />
                   ) : e.kind === 'proposal' ? (
                     <DecidedCard p={e.proposal} />
                   ) : e.kind === 'note' ? (
@@ -368,24 +389,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           <HandoffCard detail={detail} items={chat.items} />
           {detail.prompt ? null : <NeedsYouCard detail={detail} />}
           {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
-          <div className="working-slot flex h-5 flex-none items-center self-start">
-            {chat.working.turn_running ? <Typing line={chat.working.line ?? 'Working'} /> : null}
-          </div>
+          <LiveLine working={chat.working} messages={chat.messages} items={chat.items} />
         </div>
-      {windowed ? (
-        <LatestPill onClick={() => (win.close(), bottom())} />
-      ) : newer ? (
-        // CHAT stretches every direct child to full width, so the row spans it and only the pill takes clicks.
-        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
-          <button
-            className="newer pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-2)]"
-            onClick={bottom}
-          >
-            {newer} new {newer === 1 ? 'message' : 'messages'}
-            <Icon name="newer" size={14} aria-hidden />
-          </button>
-        </div>
-      ) : null}
+        {windowed ? <LatestPill onClick={() => (win.close(), bottom())} /> : newer ? <NewerPill count={newer} onClick={bottom} /> : null}
       </div>
       <div className="cards px-3">
         <PromptSlot agent={agent} prompt={detail.prompt} />
