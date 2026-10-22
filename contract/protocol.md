@@ -283,7 +283,7 @@ Clear a STALLED agent: it goes to queued with its failure counters reset, as hl 
 
 ### `agent.force_start`
 
-Let work the machine's load holds for an agent (status reason load) go past the load limits once: it starts at the next tick, and agent.timeline records it (load_limit_passed). Refused (gate state) when the load holds nothing of the agent's.
+Let work that the machine's load or an account's pace holds for an agent (status reason load or pace) go past them once: it starts at the next tick, and agent.timeline records it (load_limit_passed, or pace_passed). Refused (gate state) when neither holds anything of the agent's.
 
 ### `agent.retire`
 
@@ -751,7 +751,7 @@ Counts and sums over a window.
 
 ### `stats.headroom`
 
-Each account's 5h and weekly headroom over a span, recorded up to now and guessed after, its resets, and the average of what binds.
+Retired: stats.outlook's by_account carries the same lines and the pace line, and no app reads this. It leaves the contract when the daemon stops serving it. Each account's 5h and weekly headroom over a span, recorded up to now and guessed after, its resets, and the average of what binds.
 
 ### `stats.outlook`
 
@@ -923,7 +923,7 @@ Every agent (AgentView.status) and every task (Task.status) carries one status: 
 | `preparing` | Has work and the daemon starts or sends it at its next tick; nothing stands in the way. Reasons: work, restart, retry. |
 | `starting` | A launch is in progress (agents). Reason: launch. |
 | `running` | Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, watch, handoff, background. |
-| `waiting` | Held by something the daemon names: a person, another task, the owner, a clock, an account move, the machine's load. Reasons: you, opener, task, owner, clock, move, load. |
+| `waiting` | Held by something the daemon names: a person, another task, the owner, a clock, an account move, the machine's load, an account's pace. Reasons: you, opener, task, owner, clock, move, load, pace. |
 | `stopped` | Will not go on by itself: no account has room (until the reset when it is known) or a person must unstall it. Reasons: wall, cap, stalled. |
 | `idle` | At its prompt with nothing to do (agents). Reason: none. |
 | `off` | Registered with no terminal and nothing waiting for it (agents). Reason: none. |
@@ -946,6 +946,7 @@ Every agent (AgentView.status) and every task (Task.status) carries one status: 
 | `clock` | Waits for a time: until says when. |
 | `move` | An account move is settling. |
 | `load` | The machine is over a load limit (host_active_cap, load_per_core_pct, ram_free_min_pct): the daemon starts none of its work until it is under, by itself; text names the limit that tripped. agent.force_start lets it go once. |
+| `pace` | Every account it may run on has no free slot only because of its weekly pace (Account.pace; without pacing one would have room): the daemon starts it when a slot frees or a line catches up, by itself, and a start goes to the account furthest behind its line. text names the account and how far ahead it is; until is the earliest back_at, null when not known. A turn a person starts (a message a person sends, a person's own start or wake) and a restart are never held. agent.force_start lets it go once. |
 | `wall` | The account it would run on is at a usage limit; until is when the window rolls over, null when not known. |
 | `cap` | No account has a free slot; it starts when a running turn ends. |
 | `stalled` | Stopped until a person unstalls it; text says why it stopped. |

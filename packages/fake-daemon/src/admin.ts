@@ -48,6 +48,27 @@ const OVERLAYS: Record<string, number[]> = {
   'grp:grp': [0, 2, 4.1, 5.5, 6.8, 7.5, 8.1, 8.4, 8.7, 9, 9.3, 9.6, 9.9],
 };
 
+/** stats.outlook's by_account: alpha a little above the average, beta below it, so the two average to about `left_pct`; alpha's week resets in 2 days, as its runway says. The fake does not pace, so there is no line. */
+function byAccount(past: Outlook['past'], future: Outlook['future'], now: number, head: number): Outlook['by_account'] {
+  const points = (pts: Outlook['past'], d: number) =>
+    pts.map((p) => ({
+      at: p.at,
+      five_left: null,
+      week_left: p.left_pct === null ? null : Math.min(100, Math.max(0, p.left_pct + d)),
+      line_left: null,
+    }));
+  const reset = now + 2 * DAY;
+  return [
+    {
+      account: 'alpha',
+      past: points(past, 5),
+      future: points(future, 5),
+      resets: reset <= now + head ? [{ at: new Date(reset).toISOString(), window: '7d' as const }] : [],
+    },
+    { account: 'beta', past: points(past, -5), future: points(future, -5), resets: [] },
+  ];
+}
+
 export class FakeAdmin {
   readonly worktrees: FakeWorktrees;
   readonly prefs: FakePrefs;
@@ -55,8 +76,22 @@ export class FakeAdmin {
   private on: boolean;
   private values: Settings['values'] = structuredClone(DEFAULTS);
   private devices = [
-    { id: 'd1', name: 'Handline desktop', role: 'founder' as const, created: '2026-10-01T09:00:00Z', last_seen: '2026-10-16T01:00:00Z', connected: true },
-    { id: 'd2', name: 'phone-3b54', role: 'founder' as const, created: '2026-10-05T09:00:00Z', last_seen: '2026-10-12T08:00:00Z', connected: false },
+    {
+      id: 'd1',
+      name: 'Handline desktop',
+      role: 'founder' as const,
+      created: '2026-10-01T09:00:00Z',
+      last_seen: '2026-10-16T01:00:00Z',
+      connected: true,
+    },
+    {
+      id: 'd2',
+      name: 'phone-3b54',
+      role: 'founder' as const,
+      created: '2026-10-05T09:00:00Z',
+      last_seen: '2026-10-12T08:00:00Z',
+      connected: false,
+    },
   ];
   private answers: StandingAnswer[] = [
     { kind: 'trust', key: ['/work/handline.architect'], text: 'trust folder /work/handline.architect' },
@@ -96,12 +131,38 @@ export class FakeAdmin {
       case 'agent.triggers':
         return { agents: AGENTS.map((agent, i) => ({ agent, fired: i === 0, reason: i === 0 ? 'a task arrived' : 'nothing to wake it' })) };
       case 'memory.status':
-        return { agents: AGENTS.map((agent, i) => ({ agent, bytes: 2000 * (i + 1), budget: 8000, entries: 3 * (i + 1), unused: i === 2 ? ['old-note'] : [] })) };
+        return {
+          agents: AGENTS.map((agent, i) => ({
+            agent,
+            bytes: 2000 * (i + 1),
+            budget: 8000,
+            entries: 3 * (i + 1),
+            unused: i === 2 ? ['old-note'] : [],
+          })),
+        };
       case 'events.feed':
         return {
           events: [
-            { cursor: 2, topic: 'tasks', type: 'task.changed', at: this.now(), actor: null, agent: AGENTS[1], title: 'Task T7 done', target: null },
-            { cursor: 1, topic: 'agents', type: 'agent.state', at: this.now(), actor: null, agent: AGENTS[0], title: 'Started', target: null },
+            {
+              cursor: 2,
+              topic: 'tasks',
+              type: 'task.changed',
+              at: this.now(),
+              actor: null,
+              agent: AGENTS[1],
+              title: 'Task T7 done',
+              target: null,
+            },
+            {
+              cursor: 1,
+              topic: 'agents',
+              type: 'agent.state',
+              at: this.now(),
+              actor: null,
+              agent: AGENTS[0],
+              title: 'Started',
+              target: null,
+            },
           ],
           cursor: 2,
           gap: false,
@@ -175,6 +236,7 @@ export class FakeAdmin {
       ],
       cost_per_day,
       agent_use: AGENT_USE.map((u) => ({ ...u, fracs: { ...u.fracs } })),
+      by_account: byAccount(past, future, now, head),
       ...(pick !== undefined && {
         overlay: (Object.hasOwn(OVERLAYS, pick) ? OVERLAYS[pick]! : []).map((v, i) => (i < past.length ? v : 0)).slice(0, past.length),
       }),
@@ -201,10 +263,10 @@ export class FakeAdmin {
     const at = (t: number) => new Date(t).toISOString().replace(/\.\d{3}Z$/, 'Z');
     const FIVE = 5 * HOUR;
     const firstReset = now + 2 * HOUR;
-    const saw = (t: number, perHour: number) => Math.max(0, 100 - perHour * ((((t - firstReset) % FIVE) + FIVE) % FIVE) / HOUR);
+    const saw = (t: number, perHour: number) => Math.max(0, 100 - (perHour * ((((t - firstReset) % FIVE) + FIVE) % FIVE)) / HOUR);
     const plans = [
-      { account: 'alpha', five: (t: number) => saw(t, 15), week: (t: number) => Math.max(0, 70 - (t - now) / DAY * 8) },
-      { account: 'beta', five: (t: number) => saw(t, 10), week: (t: number) => Math.max(0, 30 - (t - now) / DAY * 12) },
+      { account: 'alpha', five: (t: number) => saw(t, 15), week: (t: number) => Math.max(0, 70 - ((t - now) / DAY) * 8) },
+      { account: 'beta', five: (t: number) => saw(t, 10), week: (t: number) => Math.max(0, 30 - ((t - now) / DAY) * 12) },
     ];
     const times: number[] = [];
     for (let t = from; t <= to; t += stepMs) times.push(t);
@@ -214,9 +276,17 @@ export class FakeAdmin {
       const resets: Headroom['accounts'][number]['resets'] = [];
       for (let r = firstReset - Math.ceil((firstReset - from) / FIVE) * FIVE; r <= to; r += FIVE)
         if (r >= from) resets.push({ at: at(r), window: '5h' });
-      return { account: a.account, past: times.filter((t) => t <= now).map(point), future: times.filter((t) => t > now).map(point), resets };
+      return {
+        account: a.account,
+        past: times.filter((t) => t <= now).map(point),
+        future: times.filter((t) => t > now).map(point),
+        resets,
+      };
     });
-    const combined = (t: number) => ({ at: at(t), left_pct: round(plans.reduce((sum, a) => sum + Math.min(a.five(t), a.week(t)), 0) / plans.length) });
+    const combined = (t: number) => ({
+      at: at(t),
+      left_pct: round(plans.reduce((sum, a) => sum + Math.min(a.five(t), a.week(t)), 0) / plans.length),
+    });
     const future = times.filter((t) => t > now).map(combined);
     const next = firstReset > now && firstReset <= to ? firstReset : null;
     return {
