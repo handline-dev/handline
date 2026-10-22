@@ -101,7 +101,7 @@ test('an event is a line unless it asks for a decision, and one cursor is taken 
 });
 
 test('agent events are filed under team, results under system', () => {
-  let t = 0;
+  const t = 0;
   const n = new Notices(() => t);
   n.takeEvent({ cursor: 1, topic: 'notifications', type: 'task_done', agent: 'a', title: 'a done', data: {} } as unknown as WireEvent);
   n.push('ok', 'Applied');
