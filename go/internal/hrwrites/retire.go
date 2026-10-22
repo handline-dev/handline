@@ -38,7 +38,7 @@ func (e *Env) retireMethod(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, rpc.Refused(fmt.Sprintf("%s has agents under it (%s): retire or move them first.", agent, strings.Join(deps, ", ")), "state", "")
 	}
 	if live[agent] {
-		// Held as the founder's own approved proposal, which hr.list never shows, so SweepHeld retires it when its turn ends.
+		// Held as the founder's own approved proposal, so SweepHeld retires it when its turn ends.
 		prop, err := newProp("retire", agent, db.Human, "retired by the founder")
 		if err == nil {
 			err = e.recordDecision(prop.id(), "approved", prop.subject())

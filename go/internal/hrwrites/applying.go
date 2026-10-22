@@ -1,6 +1,7 @@
 package hrwrites
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -87,10 +88,11 @@ func (e *Env) carry(prop *Prop, p HeldPorts) error {
 		return err
 	}
 	if ok {
+		// An agent the change renamed has no session until it starts, so a failed start is apply_failed, as the contract has it.
 		for _, it := range stepsOf(prop) {
 			if it.kind() == "rename" && slices.Contains(waiting, it.str("agent")) {
-				if ok, said := p.Start(it.str("to")); !ok {
-					e.logf("  %s: renamed by proposal %s but not started: %s", it.str("to"), prop.id(), said)
+				if started, why := p.Start(it.str("to")); !started {
+					ok, said = false, fmt.Sprintf("the change is applied, but %s was not started: %s", it.str("to"), why)
 				}
 			}
 		}

@@ -1080,6 +1080,53 @@ func TestTheFoundersOwnAddIsAppliedAtOnce(t *testing.T) {
 	}
 }
 
+// sweepEnded sweeps once after bob's turn ended and his session closed, starting agents with start.
+func (r *rig) sweepEnded(start func(string) (bool, string)) {
+	r.live["bob"] = false
+	r.e.SweepHeld(HeldPorts{Alive: func(a string) bool { return r.live[a] }, Idle: func(string) bool { return true },
+		Close: func(string) (bool, string) { return true, "" }, Start: start})
+}
+
+// A held change is checked against the founder's approval again before it is applied: a draft changed while it waited is not applied.
+func TestAHeldChangeWhoseDraftChangedWhileItWaitedIsNotApplied(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa000a", "kind", "rename", "agent", "bob", "to", "robert")
+	r.live["bob"] = true
+	if m := r.decide(id, "approve", p.subject(), "h1"); m["result"] == nil || r.state("aaaa000a") != "applying" {
+		t.Fatalf("held: %v %s", m, r.state("aaaa000a"))
+	}
+	held, err := r.e.load("aaaa000a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	held.set("to", "mallory")
+	if err := r.e.save(held); err != nil {
+		t.Fatal(err)
+	}
+	r.sweepEnded(func(string) (bool, string) { return true, "" })
+	if st := r.state("aaaa000a"); st != "approved" || !strings.Contains(r.file("hr", "aaaa000a.yaml"), "was changed after the founder approved it") {
+		t.Fatalf("apply_failed, with why: %s\n%s", st, r.file("hr", "aaaa000a.yaml"))
+	}
+	if yml := r.file("team.yaml"); !strings.Contains(yml, "  bob: {}") || strings.Contains(yml, "mallory") {
+		t.Fatalf("nothing renamed:\n%s", yml)
+	}
+}
+
+// A rename whose agent then fails to start under its new name is apply_failed: it has no session again.
+func TestAHeldRenameWhoseAgentDoesNotStartIsApplyFailed(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa000b", "kind", "rename", "agent", "bob", "to", "robert")
+	r.live["bob"] = true
+	r.decide(id, "approve", p.subject(), "h2")
+	r.sweepEnded(func(string) (bool, string) { return false, "no account free" })
+	if st := r.state("aaaa000b"); st != "approved" || !strings.Contains(r.file("hr", "aaaa000b.yaml"), "robert was not started: no account free") {
+		t.Fatalf("apply_failed, with why: %s\n%s", st, r.file("hr", "aaaa000b.yaml"))
+	}
+	if !strings.Contains(r.file("team.yaml"), "  robert: {}") {
+		t.Fatal("the rename itself stands")
+	}
+}
+
 // A founder's proposal left waiting (raised before their own were applied at once) is listed and approved like any other.
 func TestAFoundersProposalLeftWaitingIsListedAndApprovable(t *testing.T) {
 	r := newRig(t)
