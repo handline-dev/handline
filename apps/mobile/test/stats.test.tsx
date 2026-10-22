@@ -49,11 +49,12 @@ describe('the stats tab', () => {
     m.store.stop();
   });
 
-  it('draws the week left with each account’s runway, and the cost per day for the picked period', async () => {
+  it('draws the headroom with each account’s share, and the cost per day for the picked period', async () => {
     const m = await mount();
-    await until(() => $('outlook-left'), 'the week left');
-    expect(text($('runway-beta'))).toContain('runs out in 2 h');
-    expect(text($('runway-alpha'))).toContain('lasts until the week resets');
+    await until(() => $('headroom-plot'), 'the headroom graph');
+    expect(text($('headroom-summary'))).toContain('% left');
+    expect(text($('headroom-alpha'))).toContain('% left');
+    expect(text($('headroom-beta'))).toContain('resets 5 h in');
     await press($('view-cost'));
     await press($('window-7d'));
     await until(() => $('outlook-cost')?.children.length === 7, 'seven days of cost');
@@ -83,7 +84,7 @@ describe('the stats tab', () => {
     const m = await mount({ admin: false });
     await until(() => $('not-served'), 'the notice');
     expect(text()).toContain('This daemon does not serve stats.');
-    expect(text()).toContain('This daemon does not serve the outlook.');
+    expect(text()).toContain('This daemon does not serve the headroom.');
     await settings();
     expect(text()).toContain('This daemon does not serve settings.');
     expect(text()).toContain('This daemon does not serve standing answers.');
