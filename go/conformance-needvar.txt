@@ -29,6 +29,7 @@ agent.get.view_fields_busy
 agent.get.view_fields_ready
 agent.get.view_fields_unwalled
 agent.get.view_fields_walled
+agent.get.warm_agent_stays_on_its_account
 agent.retire.a_running_agent_is_refused
 agent.unstall.state_gate_refuses_an_agent_that_is_not_stalled
 chat.cancel.a_written_operation_needs_confirm
