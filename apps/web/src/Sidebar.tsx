@@ -221,6 +221,14 @@ export function Sidebar({
             );
           })}
         </View>
+        {chip !== 'all' && conn === 'open' && agents.length > 0 && !rows.length && !nl.pinned.length ? (
+          <p className="m-0 px-2.5 py-2 text-ink-2" data-testid="filter-empty">
+            {chip === 'unread' ? 'No unread messages' : 'Nothing needs you'}.{' '}
+            <button className="border-0 bg-transparent p-0 text-link underline" onClick={() => change(chipChanges('all'))}>
+              Show all
+            </button>
+          </p>
+        ) : null}
       </div>
       <NewAgentButton />
       <footer className="rail-foot flex gap-0.5 border-t border-line px-2 py-1">
