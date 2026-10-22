@@ -38,8 +38,6 @@ const click = (el: Element) =>
     (el as HTMLElement).click();
   });
 const text = (el: Element | null) => el?.textContent ?? '';
-const openMore = () => click($('.rail-nav [aria-label^="More"]')!);
-const moreItem = (label: string) => [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((b) => text(b).includes(label))!;
 // The row's context menu is Radix's, in a portal: it opens on the row's contextmenu event.
 const menuItems = () => [...document.querySelectorAll('[role=menuitem]')].map((b) => text(b));
 const termTab = `[data-tab="terminal:term:${ARCH}"]`;
@@ -110,11 +108,9 @@ describe('the workspace', () => {
     expect($('.side')).toBeNull();
     const top = $$('.rail-top button').map((b) => b.getAttribute('aria-label') ?? '');
     expect(top.slice(0, 3)).toEqual(['Hide the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']);
-    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*More/);
+    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*Team/);
     expect($$('.rail-nav .nav svg').length).toBe(3);
-    await openMore();
-    expect(menuItems().map((t) => t.trim().split(' ')[0])).toEqual(['Team', 'Worktrees', 'Usage']);
-    await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(text($('.rail-nav'))).not.toMatch(/More|Worktrees|Usage/);
     expect($$('.rail-foot button').map((b) => b.getAttribute('aria-label'))).toEqual(['Settings', 'Keys (?)']);
     expect($('.rail-status')).toBeNull();
     const bar = $('.statusbar')!;
@@ -141,10 +137,9 @@ describe('the workspace', () => {
     await until(() => $('.rail'), 'sidebar');
     await click($$('.rail-nav .nav').find((b) => text(b).trim().startsWith('Inbox'))!);
     expect(location.hash).toBe('#/my-turn');
-    await openMore();
-    await click(moreItem('Usage'));
-    expect(location.hash).toBe('#/accounts');
-    expect($('.rail-nav .nav-more')!.classList.contains('on')).toBe(true);
+    await click($$('.rail-nav .nav').find((b) => text(b).trim().startsWith('Team'))!);
+    expect(location.hash).toMatch(/^#\/team/);
+    expect($$('.rail-nav .nav').find((b) => text(b).trim().startsWith('Team'))!.classList.contains('on')).toBe(true);
     const back = vi.spyOn(history, 'back').mockImplementation(() => undefined);
     const forward = vi.spyOn(history, 'forward').mockImplementation(() => undefined);
     await click($('.rail-top [aria-label="Back (⌘[)"]')!);

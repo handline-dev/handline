@@ -1,6 +1,6 @@
 // The agent list. A row shows an agent's state, its queue and a fold button when it has children; its actions (Start, the ⋯ menu)
 // show while the pointer is on it or it is selected. One filter button opens the menu of what to show.
-import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   chipChanges,
   chipCounts,
@@ -21,17 +21,9 @@ import { useConnection } from '@handline/app-react';
 import { useAgents, useHrCount, useNav, useServes, useUnreached, useWorktrees } from '@handline/app-data';
 import { useMyTurn } from '#src/MyTurn.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
-import { Button, Icon, MenuButton, MenuCheckItem, MenuItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
+import { Button, Icon, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
 import { setting } from '#src/daemon.ts';
-import {
-  goTasks,
-  goTeam,
-  goWorktrees,
-  useAccountsRoute,
-  usePageRoute,
-  useTeamRoute,
-  useWorktreesRoute,
-} from '#src/route.ts';
+import { goTasks, goTeam, usePageRoute, useTeamRoute } from '#src/route.ts';
 import { AgentRow, liveOf } from '#src/AgentRow.tsx';
 import { NewAgentButton } from '#src/NewAgent.tsx';
 import { View } from '#src/View.tsx';
@@ -105,11 +97,7 @@ export function Sidebar({
   const myTurn = useMyTurn().cards.length;
   const hr = useHrCount();
   const onTeam = !!useTeamRoute();
-  const onAccounts = useAccountsRoute().open;
-  const onWorktrees = useWorktreesRoute().open;
-  const worktreesServed = useServes('worktrees.list').served;
   const pageRoute = usePageRoute();
-  const onUsage = onAccounts || pageRoute === 'stats';
   return (
     <nav
       className="rail flex w-[var(--rail-w,280px)] flex-none flex-col overflow-hidden border-r border-line bg-panel min-h-0 max-[900px]:fixed max-[900px]:z-10 max-[900px]:[inset:0_auto_0_0] max-[900px]:w-[min(320px,90vw)] max-[900px]:shadow-[var(--shadow-2)]"
@@ -198,19 +186,9 @@ export function Sidebar({
         <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           <Icon name="tasks" size={14} aria-hidden /> Tasks
         </button>
-        <MoreMenu on={onTeam || onWorktrees || onUsage} hint={hr}>
-          <MenuItem icon="team" onSelect={() => goTeam(hr ? 'hr' : 'team')}>
-            Team{hr ? ` · HR ${hr}` : ''}
-          </MenuItem>
-          {worktreesServed ? (
-            <MenuItem icon="worktrees" onSelect={() => goWorktrees()}>
-              Worktrees
-            </MenuItem>
-          ) : null}
-          <MenuItem icon="accounts" onSelect={() => void (location.hash = '#/accounts')}>
-            Usage
-          </MenuItem>
-        </MoreMenu>
+        <button className={navOf(onTeam)} aria-current={onTeam ? 'page' : undefined} onClick={() => goTeam(hr ? 'hr' : 'team')}>
+          <Icon name="team" size={14} aria-hidden /> Team{hr ? ` ${hr}` : ''}
+        </button>
       </div>
       <div className="rail-read flex gap-0.5 px-2.5 py-1.5" role="group" aria-label="Show agents">
         {(
@@ -300,21 +278,3 @@ const lastTop = (rows: { agent: AgentView; depth: number }[], i: number, names: 
 
 /** The first line of the agent's newest request to the founder, for the line under its name. */
 const lastLine = (a: AgentView): string => a.last_to_founder?.text.split('\n').find((l) => l.trim())?.trim() ?? '';
-
-/** The nav row that opens the pages the top two leave out. */
-function MoreMenu({ on, hint, children }: { on: boolean; hint: number; children: ReactNode }) {
-  return (
-    <MenuButton
-      icon="more"
-      label={hint ? `More (${hint} waiting)` : 'More'}
-      aria-label={hint ? `More (${hint} waiting)` : 'More'}
-      aria-current={on ? 'page' : undefined}
-      trigger={hint ? `More ${hint}` : 'More'}
-      name="More"
-      align="start"
-      className={`${navOf(on)} nav-more !justify-start`}
-    >
-      {children}
-    </MenuButton>
-  );
-}

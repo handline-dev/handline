@@ -4,7 +4,7 @@ import { useConnection } from '@handline/app-react';
 import { machineCells } from '@handline/app-core';
 import { useStatus, useTasks } from '@handline/app-data';
 import { useMyTurn } from '#src/MyTurn.tsx';
-import { UsagePopup } from '#src/UsagePopup.tsx';
+import { UsageLink } from '#src/UsageLink.tsx';
 import { Chip, Icon } from '#src/ui/index.ts';
 
 const DAEMON = { open: 'daemon ok', connecting: 'connecting', reconnecting: 'reconnecting', closed: 'daemon down' } as const;
@@ -38,7 +38,7 @@ export function StatusBar() {
         </Chip>
       ) : null}
       <span className="status-end relative ml-auto">
-        <UsagePopup />
+        <UsageLink />
       </span>
     </footer>
   );

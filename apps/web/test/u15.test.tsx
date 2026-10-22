@@ -29,13 +29,8 @@ const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null) => el?.textContent ?? '';
-// The HR count is on the Team row of the More menu; the menu is closed again after the read.
-const teamRow = async () => {
-  await click($('.rail-nav [aria-label^="More"]')!);
-  const t = text([...document.querySelectorAll('[role=menuitem]')].find((b) => text(b).includes('Team')) ?? null);
-  await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
-  return t;
-};
+// The HR count is on the Team row of the sidebar.
+const teamRow = () => text($$('.rail-nav .nav').find((b) => text(b).trim().startsWith('Team')) ?? null);
 const card = (id: number) => $(`[data-proposal="${id}"]`)!;
 const btn = (within: Element, label: string) => [...within.querySelectorAll('button')].find((b) => text(b).trim().startsWith(label))!;
 const hrOf = (s: ReturnType<typeof setup>) => (s.daemon as unknown as { script: { hr: FakeHr } }).script.hr;
@@ -72,23 +67,23 @@ describe('U15 HR', () => {
     raise(s, 4, { state: 'on_hold' });
     await open(s);
     await until(() => $('.hr-card'), 'the cards');
-    expect(text($('[role=tab][aria-selected=true]'))).toContain('HR 2');
-    expect(await teamRow()).toContain('HR 2');
+    expect(text($('[role=tab][aria-selected=true]'))).toContain(' 2');
+    expect(teamRow()).toContain(' 2');
   });
 
   it('an hr.raised event raises the count with no reload', async () => {
     const s = setup();
     raise(s, 1);
     await open(s);
-    await until(() => $('.rail-nav [aria-label^="More ("]'), 'a waiting count on More');
-    expect(await teamRow()).toContain('HR 1');
+    await until(() => /\d/.test(teamRow()), 'a waiting count on Team');
+    expect(teamRow()).toContain(' 1');
     raise(s, 2);
     let two = '';
-    for (let i = 0; i < 100 && !two.includes('HR 2'); i++) {
+    for (let i = 0; i < 100 && !two.includes(' 2'); i++) {
       await wait(20);
-      two = await teamRow();
+      two = teamRow();
     }
-    expect(two).toContain('HR 2');
+    expect(two).toContain(' 2');
     expect($$('.hr-card')).toHaveLength(2);
   });
 

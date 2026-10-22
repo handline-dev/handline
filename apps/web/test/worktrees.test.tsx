@@ -152,18 +152,12 @@ describe('X1 Worktrees', () => {
   it('says so when the daemon does not serve worktrees, and has no rail entry', async () => {
     await mount('#/worktrees', setup({ daemon: { admin: false } }));
     await until(() => text($('.worktrees')).includes('This daemon does not serve worktrees.'), 'the note');
-    await click($('.rail-nav [aria-label^="More"]')!);
-    expect([...document.querySelectorAll('[role=menuitem]')].some((b) => text(b).includes('Worktrees'))).toBe(false);
+    expect(text($('.rail-nav'))).not.toContain('Worktrees');
   });
 
-  it('has a rail entry when served, and it opens the page', async () => {
+  it('has no rail entry while the page waits on the architect study', async () => {
     await mount('#/my-turn');
-    await click($('.rail-nav [aria-label^="More"]')!);
-    const entry = () => [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((b) => text(b).includes('Worktrees'));
-    await until(entry, 'the entry');
-    await click(entry()!);
-    expect(location.hash).toBe('#/worktrees');
-    await until(() => rows().length === 5, 'the rows');
+    expect(text($('.rail-nav'))).not.toContain('Worktrees');
   });
 
   it('notes how old the snapshot is past 30 s, with a Refresh that reads again', async () => {
