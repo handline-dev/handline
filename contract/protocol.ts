@@ -673,7 +673,7 @@ export type Proposal = {
   created: Timestamp;
   /** Digest of what the proposal changes as drawn; hr.decide's approve hands it back. */
   subject: string;
-  /** Who asked: an agent's name. Never human: hr.list leaves out what the founder did directly. Text from the daemon's record; optional. */
+  /** Who asked: an agent's name, or `human` for the founder's own change (a retire held for a running session, say); a client draws `human` as the founder, never as an agent. Text from the daemon's record; optional. */
   requested_by?: string;
   /** Why it asks, as the agent wrote it. Text only, from an agent: a client draws it as plain text, never as markup, and drops control characters. Optional. */
   reason?: string;
