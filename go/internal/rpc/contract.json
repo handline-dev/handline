@@ -97,7 +97,7 @@
   "role": "member"
  },
  "chat.search": {
-  "role": "member"
+  "role": "agent"
  },
  "chat.seen": {
   "role": "member"
