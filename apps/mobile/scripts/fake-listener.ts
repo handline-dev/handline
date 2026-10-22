@@ -42,6 +42,7 @@ const cert = fs.readFileSync(`${dir}/c.pem`);
 const daemon = new FakeDaemon();
 daemon.tasks.verbs = true; // done, reopen, queue... (the daemon's plan D3), so the phone's task verbs can be tried
 if (process.argv.includes('--founder-phone')) daemon.deviceRole = 'founder'; // so the HR verbs can be tried: a real phone is a member
+if (process.argv.includes('--stalled')) daemon.accounts.stall('beta', { reason: 'billing_error', detail: 'The turn ended: the organization has a billing problem.' }); // so STALLED and Wake can be tried
 if (process.argv.includes('--prompt')) {
   // The phone cannot type into a terminal, so a permission that waits on handline.architect is put in here, as the tests do.
   const s = daemon.sessions.get('handline.architect')!;
