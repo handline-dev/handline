@@ -1,0 +1,127 @@
+{
+ "fixtures": [
+  {
+   "name": "x-status.load_never_holds_the_persons_message",
+   "spec": "x-status",
+   "about": "With the free-memory limit set so it always trips (ram_free_min_pct 100: free memory is never all of it), a message the person sends still wakes its agent: load_limit_passed is in its timeline after the send, within the rule's 10 s. The setting is read first and put back before the check. Needs --var load_wake_agent: a closed agent that nothing but the load would hold, on an account with room.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "agent.timeline",
+      "params": {
+       "agent": "{{load_wake_agent}}",
+       "limit": 1
+      }
+     },
+     "result": {
+      "items": [
+       {
+        "id": {
+         "$save": "before"
+        }
+       }
+      ],
+      "more": {
+       "$type": "boolean"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "settings.get",
+      "params": {}
+     },
+     "result": {
+      "values": {
+       "ram_free_min_pct": {
+        "$type": "integer",
+        "$save": "ram_was"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "settings.set",
+      "params": {
+       "changes": {
+        "ram_free_min_pct": 100
+       },
+       "request_id": "conf-ld-1"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{load_wake_agent}}",
+       "body": "load probe from the person",
+       "request_id": "conf-ld-2"
+      }
+     },
+     "result": {}
+    },
+    {
+     "sleep_s": 10,
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "settings.set",
+      "params": {
+       "changes": {
+        "ram_free_min_pct": "{{ram_was}}"
+       },
+       "request_id": "conf-ld-3"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "agent.timeline",
+      "params": {
+       "agent": "{{load_wake_agent}}",
+       "limit": 20
+      }
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "kind": "load_limit_passed",
+        "id": {
+         "$above": "before"
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
