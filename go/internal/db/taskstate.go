@@ -299,7 +299,8 @@ func WaitingTasks(q Q, agent string) ([]WaitingTask, error) {
 				continue // delivered and answered since it last came due: not a reason to send it again
 			}
 		}
-		if sent || t.QueuedBy.Valid {
+		// sent_at counts a queued notice linked to the task (an unblock, a refusal), which asks nothing: a draft with one is still a draft.
+		if req != nil || t.QueuedBy.Valid {
 			out = append(out, WaitingTask{t, req})
 		}
 	}
