@@ -86,7 +86,7 @@ export function navList(agents: AgentView[], nav: NavPrefs, search = ''): { pinn
             .filter(railMatch(filter))
             .sort(byUrgency)
             .map((agent) => ({ agent, depth: 0, kids: 0 }))
-        : visibleRows(railRows(agents, filter), new Set(nav.collapsed)),
+        : visibleRows(railRows(agents, filter, nav.order), new Set(nav.collapsed)),
   };
 }
 
@@ -100,6 +100,14 @@ export function movePin(pins: readonly string[], name: string, index: number): s
   if (rest.length === pins.length) return [...pins];
   rest.splice(Math.max(0, Math.min(index, rest.length)), 0, name);
   return rest;
+}
+
+/** The saved order after `name` moves to `index` among its siblings (the names now shown under one parent, in the order shown). Other parents' entries stay as they are. */
+export function moveInOrder(order: readonly string[], siblings: readonly string[], name: string, index: number): string[] {
+  if (!siblings.includes(name)) return [...order];
+  const rest = siblings.filter((n) => n !== name);
+  rest.splice(Math.max(0, Math.min(index, rest.length)), 0, name);
+  return [...order.filter((n) => !siblings.includes(n)), ...rest];
 }
 
 /** The open tabs after opening `tab`: an open agent keeps its place and takes the new path; past `max` unpinned, the oldest unpinned goes. */
