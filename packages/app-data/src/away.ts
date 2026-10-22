@@ -15,7 +15,13 @@ const LIMIT = 100;
 const awayKey = (d: string) => ['away', d] as const;
 
 /** Reads the notices after `from` once and keeps their count under its own key (a resync of the daemon's reads leaves it alone). A failed read leaves no line. With `notices`, the events also go into its list. */
-export async function readAway(client: DaemonClient, qc: QueryClient, d: string, from: number | undefined, notices?: Notices): Promise<void> {
+export async function readAway(
+  client: DaemonClient,
+  qc: QueryClient,
+  d: string,
+  from: number | undefined,
+  notices?: Notices,
+): Promise<void> {
   if (from === undefined) return;
   const feed = await client.call('events.feed', { since: from, topics: ['notifications', 'hr'], limit: LIMIT }).catch(() => null);
   for (const e of feed?.events ?? []) notices?.takeEvent(e); // the missed ones join the list; the live ones taken before are skipped
