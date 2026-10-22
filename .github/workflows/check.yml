@@ -103,7 +103,8 @@ jobs:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
       - if: steps.plan.outputs.kind == 'go'
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends tmux # the terminal tests drive a real tmux; git and python3 are on the image
+        timeout-minutes: 10
+        run: tools/ci-tmux.sh # git and python3 are on the image
       - if: steps.plan.outputs.kind == 'go'
         # Fails a run that leaves a process, tmux server or temp file behind. Its TMPDIR is <dir>/tmp/: the same path each run,
         # as go test's cache needs, under the runner's temp directory.
@@ -134,7 +135,8 @@ jobs:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
       - if: steps.plan.outputs.kind == 'go'
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends tmux # the terminal tests drive a real tmux; git and python3 are on the image
+        timeout-minutes: 10
+        run: tools/ci-tmux.sh # git and python3 are on the image
       - if: steps.plan.outputs.kind == 'go'
         run: tools/leakcheck.py run --dir "$RUNNER_TEMP/hlc" tools/test-go.sh --gates
       - name: Contract files current
