@@ -6,6 +6,7 @@ import { findImageRefs, findRefs, openTask, openTaskTab, taskRef } from '@handli
 import { useAgents, usePullRequests, useTasks } from '@handline/app-data';
 import { AttachmentImage } from '#src/AttachmentImage.tsx';
 import { PathText } from '#src/PathText.tsx';
+import { WebLink, findUrls } from '#src/WebLink.tsx';
 import { goTasks } from '#src/route.ts';
 import { useWorkspaceIfAny } from '#src/Workspace.tsx';
 
@@ -19,13 +20,28 @@ function useKnownTask(): (id: number) => boolean {
 
 export function RichText({ text, agent }: { text: string; agent?: string }) {
   const images = findImageRefs(text);
-  if (!images.length) return <Refs text={text} agent={agent} />;
+  if (!images.length) return <Linked text={text} agent={agent} />;
   const parts: ReactNode[] = [];
   let at = 0;
   for (const i of images) {
-    if (i.start > at) parts.push(<Refs key={`t${at}`} text={text.slice(at, i.start)} agent={agent} />);
+    if (i.start > at) parts.push(<Linked key={`t${at}`} text={text.slice(at, i.start)} agent={agent} />);
     parts.push(<AttachmentImage key={i.start} id={i.id} name={i.caption} />);
     at = i.end;
+  }
+  if (at < text.length) parts.push(<Linked key={`t${at}`} text={text.slice(at)} agent={agent} />);
+  return <>{parts}</>;
+}
+
+/** Web addresses are links that ask where to open; the text between them goes on to the paths and numbers. */
+function Linked({ text, agent }: { text: string; agent?: string }) {
+  const urls = findUrls(text);
+  if (!urls.length) return <Refs text={text} agent={agent} />;
+  const parts: ReactNode[] = [];
+  let at = 0;
+  for (const u of urls) {
+    if (u.start > at) parts.push(<Refs key={`t${at}`} text={text.slice(at, u.start)} agent={agent} />);
+    parts.push(<WebLink key={u.start} url={text.slice(u.start, u.end)} />);
+    at = u.end;
   }
   if (at < text.length) parts.push(<Refs key={`t${at}`} text={text.slice(at)} agent={agent} />);
   return <>{parts}</>;

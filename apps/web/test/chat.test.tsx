@@ -48,10 +48,6 @@ async function pageBackTo(found: () => unknown, what: string) {
     await until(() => found() || $$('.msg').length !== before, `a page toward ${what}`);
   }
 }
-const tabEl = async (id: string) => {
-  await until(() => $(`[data-tab="${id}"]`), `the ${id} tab`);
-  return $(`[data-tab="${id}"]`)!;
-};
 const msg = (body: string) => $$('.msg').find((m) => text(m).includes(body));
 const landing = (body: string) => msg(body)?.getAttribute('data-landing');
 const link = (label: string, within: Element) =>
@@ -113,31 +109,6 @@ describe('the Chat tab', () => {
     expect(icon($$('[data-kind="task_event"]')[1], 'Task done')).not.toBeNull();
     expect(msg('Review is done')).toBeUndefined(); // agent to agent: the Activity tab
     expect($$('.chat-head [role="radio"]')).toHaveLength(0);
-  });
-
-  it('the Activity tab lists a tool line cut to nothing with how many lines were let go', async () => {
-    const t = setup();
-    t.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'ls', output: '', dropped_lines: 5 });
-    await mount(ARCH, t);
-    await click(await tabEl('activity'));
-    const bash = () => $$('.activity [data-kind="tools"]').find((r) => text(r).includes('Bash ls'));
-    await until(bash, 'the tool row');
-    await click(bash()!.querySelector('button')!);
-    expect(text(bash())).toContain('5 more lines not shown');
-  });
-
-  it('the Activity tab shows what a tool line printed on request', async () => {
-    const t = setup();
-    t.daemon.chat.seedItem(ARCH, { kind: 'tool', tool: 'Bash', text: 'ls', output: 'a\nb', dropped_lines: 3 });
-    await mount(ARCH, t);
-    await click(await tabEl('activity'));
-    const bash = () => $$('.activity [data-kind="tools"]').find((r) => text(r).includes('Bash ls'));
-    await until(bash, 'the tool row');
-    const row = bash()!;
-    expect(row.querySelector('.tool-output')).toBeNull();
-    await click(row.querySelector('button')!);
-    expect(row.querySelector('.tool-output')?.textContent).toBe('a\nb');
-    expect(text(row)).toContain('3 more lines not shown');
   });
 
   it('a session boundary says why it began, and its handoff opens in a dialog', async () => {
@@ -507,10 +478,10 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     expect(inbox.get(3).read).toBe(false);
   });
 
-  it('the strip shows the state as a glyph, the model, the account and the task; a stuck agent gets a banner', async () => {
+  it('the strip shows the model, the account and the task; a stuck agent gets a banner', async () => {
     const t = await mount(ARCH);
     await until(() => $('.chat-strip'), 'the strip');
-    expect($('.chat-strip .ui-state')!.getAttribute('data-state')).toBeTruthy();
+    expect($('.chat-strip .ui-state')).toBeNull(); // no spinner at the start; the head says the state
     expect(text($('.chat-strip'))).toContain('opus');
     expect($('.chat-strip a')!.getAttribute('href')).toMatch(/^#\/tasks\/\d+/);
     expect($('.chat-banner')).toBeNull();

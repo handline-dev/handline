@@ -297,6 +297,18 @@ describe('the pane', () => {
     }
   });
 
+  it('dims the pane with a Type here button while another device holds the input, and the button takes it', async () => {
+    const s = setup();
+    const session = s.daemon.sessions.get(ARCH)!;
+    session.holder = { kind: 'device', name: 'phone', since: new Date().toISOString() };
+    const m = await mount(s);
+    await until(() => box.querySelector('.input-elsewhere'), 'the overlay');
+    expect(box.querySelector('.input-elsewhere')!.textContent).toContain('Typing is on phone');
+    await act(async () => void [...box.querySelectorAll<HTMLButtonElement>('.input-elsewhere button')].find((b) => b.textContent === 'Type here')!.click());
+    await until(() => session.holder.name === m.store.me, 'the input to move here');
+    await until(() => !box.querySelector('.input-elsewhere'), 'the overlay to go');
+  });
+
   it("puts the daemon's own typing in the gutter as a marker, not in the stream", async () => {
     const m = await mount();
     await until(() => m.term() && rows(m.term()).length > 0, 'the screen');

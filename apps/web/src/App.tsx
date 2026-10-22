@@ -18,12 +18,10 @@ import {
   useSettingsOpen,
   useTasksRoute,
   useTeamRoute,
-  useWorktreesRoute,
 } from '#src/route.ts';
 import { useShell } from '#src/shell.ts';
 import { SettingsView } from '#src/SettingsView.tsx';
 import { TeamPage } from '#src/TeamPage.tsx';
-import { Worktrees } from '#src/Worktrees.tsx';
 import { NewAgent } from '#src/NewAgent.tsx';
 import { KeysSheet } from '#src/KeysSheet.tsx';
 import { Palette } from '#src/Palette.tsx';
@@ -60,7 +58,6 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const settings = useSettingsOpen();
   const accounts = useAccountsRoute();
   const team = useTeamRoute();
-  const worktrees = useWorktreesRoute();
   const newAgent = useNewAgentRoute();
   const page = usePageRoute();
   useShell(agent);
@@ -117,7 +114,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   }, [unread]);
   // Everything but the workspace lives in the sidebar, so the main view gets the whole window height.
   // The pages with no tab strip keep the rail's handle; on the agent workspace the controls ride the first strip.
-  const hasStrip = !team && !worktrees.open && !accounts.open && tasks === null && page !== 'stats' && page !== 'settings' && page !== 'admin' && !!agent && !settings;
+  const hasStrip = !team && !accounts.open && tasks === null && page !== 'stats' && page !== 'settings' && page !== 'admin' && !!agent && !settings;
   return (
     <FoldedControls.Provider value={railOpen ? null : { show: toggle }}>
     <div className="frame flex h-screen flex-col">
@@ -148,8 +145,6 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           <DaemonDown />
           {team ? (
             <TeamPage />
-          ) : worktrees.open ? (
-            <Worktrees path={worktrees.path} storage={storage} />
           ) : accounts.open || page === 'stats' ? (
             <AccountsPage name={accounts.name} />
           ) : tasks !== null ? (

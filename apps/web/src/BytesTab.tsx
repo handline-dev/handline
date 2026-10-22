@@ -228,6 +228,14 @@ export function BytesTab({
           ref={host}
           aria-label={`Terminal of ${agent}`}
         />
+        {state === 'live' && !watchOnly && heldBy && !holds ? (
+          <div className="input-elsewhere absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-term-bg/70">
+            <span className="text-hint text-term-ink">Typing is on {heldBy}</span>
+            <Button variant="solid" label="Type here" onClick={() => take({ agent, force: true })}>
+              Type here
+            </Button>
+          </div>
+        ) : null}
         {skeleton && (
           <div className="term-skeleton absolute inset-0 flex flex-col gap-2 bg-term-bg px-2.5 py-3" aria-hidden="true">
             {SKELETON_ROWS.map((w, i) => (
@@ -251,7 +259,6 @@ export function BytesTab({
             ) : (
               !heldBy && !takeInput.error && (watchOnly ? 'Watch only: no agent has this pane, so it takes no keys. ' : 'Click the terminal to type in it. ')
             ))}
-          {heldBy && !holds && `The input is held by ${heldBy}. `}
           {refused || (takeInput.error ? `Could not take the input: ${reasonOf(takeInput.error)}` : '')}
           {state === 'failed' && <Button variant="outline" size="sm" label="Retry" onClick={() => setAttempt((n) => n + 1)} />}
         </div>

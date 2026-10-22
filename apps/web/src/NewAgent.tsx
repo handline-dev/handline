@@ -3,6 +3,7 @@
 import { EFFORTS, EMPTY_AGENT_FIELDS, classify, sentence, useNewAgentForm, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Dialog, Field, Icon, Select, Textarea, NOTE, FIELD, FIELD_LABEL } from '#src/ui/index.ts';
+import { NAV } from '#src/NavRows.tsx';
 import { goNew, useNewAgentRoute } from '#src/route.ts';
 import { forgetFirstTask, keepFirstTask, NewAgentProgress } from '#src/NewAgentProgress.tsx';
 
@@ -14,9 +15,11 @@ export function NewAgentButton() {
   const { served } = useServes('agent.create');
   if (!founder || !served) return null;
   return (
-    <Button variant="outline" icon="plus" label="New agent" onClick={() => goNew()}>
-      New agent
-    </Button>
+    <div className="px-1.5 pb-1">
+      <button className={NAV} onClick={() => goNew()}>
+        <Icon name="plus" size={14} aria-hidden /> New agent
+      </button>
+    </div>
   );
 }
 

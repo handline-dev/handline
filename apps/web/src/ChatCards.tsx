@@ -1,15 +1,16 @@
 // What sits around the transcript of an agent's chat: the one-line strip of its state, the banner when it is stuck, and the HR proposals
 // that concern it, decided where they were discussed.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
 import { ago, clockTime, decidedProposals, restartingLine, restartShown } from '@handline/app-core';
-import { classify, sentence, useHr, useWrite } from '@handline/app-data';
-import { Button, Card, CardWhat, Chip, Dialog, Field, Icon, State, stateOfView } from '#src/ui/index.ts';
+import { classify, sentence, useAgentStrip, useHr, useWrite } from '@handline/app-data';
+import { Button, Card, CardWhat, Chip, Dialog, Field, Icon } from '#src/ui/index.ts';
 import { goTeam } from '#src/route.ts';
 import { openTaskOnClick } from '#src/ChatMessages.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
 import { AgentGauges } from '#src/AgentGauges.tsx';
+import { AccountMenu, ModelMenu } from '#src/AgentPickers.tsx';
 import { ViewSwitch } from '#src/ViewSwitch.tsx';
 import { useOpenTerminal } from '#src/ChatMenus.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
@@ -19,32 +20,45 @@ const until = (iso: string | null): number | null => {
   return Number.isNaN(t) ? null : Math.round((t - Date.now()) / 60_000);
 };
 
-/** One line of icons: the state, the model and effort, the account, the task, and the prompt cache's clock. The words are tooltips. */
+const tokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
+
+/** One line under the composer: the model and account (menus), the task, the branch (dropped when the line is tight), and the context and
+ *  prompt cache in words. */
 export function ChatStrip({ detail }: { detail: AgentDetail }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
   const cache = until(detail.cache_until);
   const { apply } = useWorkspace();
+  const strip = useAgentStrip(detail.name).data;
+  const ctxPct = detail.ctx_pct ?? strip?.ctx_pct;
+  const used = strip?.ctx_used;
+  const limit = strip?.ctx_limit;
   return (
-    <div className="chat-strip flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-hint text-ink-2">
-      <State kind={stateOfView(detail)} label={stateWord(detail)} />
-      {detail.model ? (
-        <Chip title={`Model ${detail.model}${detail.effort ? `, ${detail.effort}` : ''}`}>
-          <Icon name="agent" size={13} aria-hidden />
-          {detail.model}
-          {detail.effort ? <span className="muted"> · {detail.effort}</span> : null}
-        </Chip>
-      ) : null}
-      {detail.account ? (
-        <Chip title={`Account ${detail.account}`}>
-          <Icon name="accounts" size={13} aria-hidden />
-          {detail.account}
-        </Chip>
-      ) : null}
+    <div className="chat-strip @container flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-hint text-ink-2">
+      <ModelMenu detail={detail} />
+      <AccountMenu detail={detail} />
       {detail.task ? (
         <Chip as="a" href={`#/tasks/${detail.task.id}`} title={detail.task.title} onClick={openTaskOnClick(apply, detail.task.id)}>
           <Icon name="tasks" size={13} aria-hidden />T{detail.task.id}
         </Chip>
       ) : null}
-      <AgentGauges ctx={typeof detail.ctx_pct === 'number' ? Math.round(detail.ctx_pct) : null} cacheMin={cache} />
+      {detail.worktree ? (
+        <span className="branch hidden min-w-0 @[44rem]:inline-flex">
+          <Chip className="min-w-0" title={`Branch ${detail.worktree.branch}`}>
+            <Icon name="worktrees" size={13} aria-hidden />
+            <span className="truncate">{detail.worktree.branch}</span>
+          </Chip>
+        </span>
+      ) : null}
+      <AgentGauges
+        ctx={ctxPct == null ? null : Math.round(ctxPct)}
+        cacheMin={cache}
+        ctxText={used != null && limit != null ? `${tokens(used)} / ${tokens(limit)}` : undefined}
+        cacheText={cache === null ? undefined : cache <= 0 ? 'lapsed' : `${cache}m`}
+      />
       <ViewSwitch to="terminal" />
     </div>
   );
@@ -62,9 +76,6 @@ export function ChatBanner({ detail }: { detail: AgentDetail }) {
     </div>
   );
 }
-
-/** The state in words: a restarting agent says so (as its rail row does), else the daemon's word with why it is not running. */
-const stateWord = (d: AgentDetail) => (d.status ? d.status.text : d.handoff ? 'Restarting…' : d.state_detail ? `${d.state}: ${d.state_detail}` : d.state);
 
 /** The room's name over the chat, with the agent's state. */
 export const RoomTitle = ({ agent, detail }: { agent: string; detail: AgentDetail }) => (

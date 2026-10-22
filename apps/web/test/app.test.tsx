@@ -33,13 +33,26 @@ const fire = (el: Element, type: string) =>
   act(async () => {
     el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
   });
+const rect = (l: number, t: number, w: number, h: number) => ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h, x: l, y: t, toJSON() {} }) as DOMRect;
+/** jsdom has no layout: every pane is 800 x 600 with a 32 px strip of 100 px tabs. */
+const stubRects = () =>
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    if (this.matches('.pane, .drop-overlay')) return rect(0, 0, 800, 600);
+    if (this.matches('.strip')) return rect(0, 0, 800, 32);
+    if (this.matches('[role=tab]')) return rect([...this.parentElement!.querySelectorAll('[role=tab]')].indexOf(this) * 100, 0, 100, 32);
+    return rect(0, 0, 0, 0);
+  });
+/** A drag event over a pane's cover at a point of the pane. */
+const dragAt = (pane: Element, type: 'dragover' | 'drop', x: number, y: number) =>
+  act(async () => {
+    const e = Object.assign(new Event(type, { bubbles: true, cancelable: true }), { clientX: x, clientY: y, dataTransfer: { dropEffect: '' } });
+    pane.querySelector('.drop-overlay')!.dispatchEvent(e);
+  });
 const click = (el: Element) =>
   act(async () => {
     (el as HTMLElement).click();
   });
 const text = (el: Element | null) => el?.textContent ?? '';
-const openMore = () => click($('.rail-nav [aria-label^="More"]')!);
-const moreItem = (label: string) => [...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((b) => text(b).includes(label))!;
 // The row's context menu is Radix's, in a portal: it opens on the row's contextmenu event.
 const menuItems = () => [...document.querySelectorAll('[role=menuitem]')].map((b) => text(b));
 const termTab = `[data-tab="terminal:term:${ARCH}"]`;
@@ -110,11 +123,9 @@ describe('the workspace', () => {
     expect($('.side')).toBeNull();
     const top = $$('.rail-top button').map((b) => b.getAttribute('aria-label') ?? '');
     expect(top.slice(0, 3)).toEqual(['Hide the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']);
-    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*More/);
-    expect($$('.rail-nav .nav svg').length).toBe(3);
-    await openMore();
-    expect(menuItems().map((t) => t.trim().split(' ')[0])).toEqual(['Team', 'Worktrees', 'Usage']);
-    await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks/);
+    expect($$('.rail-nav .nav svg').length).toBe(2);
+    expect(text($('.rail-nav'))).not.toMatch(/More|Team|Worktrees|Usage/);
     expect($$('.rail-foot button').map((b) => b.getAttribute('aria-label'))).toEqual(['Settings', 'Keys (?)']);
     expect($('.rail-status')).toBeNull();
     const bar = $('.statusbar')!;
@@ -122,7 +133,7 @@ describe('the workspace', () => {
     expect(bar.querySelector('[aria-label="daemon open"]')).not.toBeNull();
     expect(text(bar)).toContain('daemon ok'); // the cell says its state in a word; the agent counts are the sidebar's
     expect(text(bar)).toMatch(/\d+ waiting on you.*\d+ blocked/);
-    expect($('.rail input[type=search]')).not.toBeNull();
+    expect($('.rail input[type=search]')).toBeNull(); // the palette (⌘K) finds agents
   });
 
   it('the list is under team headings with the task under each name, and the view menu switches the groups off', async () => {
@@ -141,10 +152,8 @@ describe('the workspace', () => {
     await until(() => $('.rail'), 'sidebar');
     await click($$('.rail-nav .nav').find((b) => text(b).trim().startsWith('Inbox'))!);
     expect(location.hash).toBe('#/my-turn');
-    await openMore();
-    await click(moreItem('Usage'));
-    expect(location.hash).toBe('#/accounts');
-    expect($('.rail-nav .nav-more')!.classList.contains('on')).toBe(true);
+    await click($$('.rail-nav .nav').find((b) => text(b).trim().startsWith('Tasks'))!);
+    expect(location.hash).toMatch(/^#\/tasks/);
     const back = vi.spyOn(history, 'back').mockImplementation(() => undefined);
     const forward = vi.spyOn(history, 'forward').mockImplementation(() => undefined);
     await click($('.rail-top [aria-label="Back (⌘[)"]')!);
@@ -199,9 +208,10 @@ describe('the workspace', () => {
   it('opens with Chat alone in view and the Claude Code tab second, behind it; closing a running one asks first', async () => {
     const { daemon } = await mount(ARCH, textGrid(), setup(), true);
     await until(() => $$('.pane').length === 1 && $(termTab), 'one pane with the terminal tab');
-    expect($$('.pane [data-tab]').map((t) => t.getAttribute('data-tab'))).toEqual(['chat', 'activity', `terminal:term:${ARCH}`]);
+    expect($$('.pane [data-tab]').map((t) => t.getAttribute('data-tab'))).toEqual(['chat', `terminal:term:${ARCH}`]);
     expect($('[data-tab="chat"]')!.getAttribute('aria-selected')).toBe('true');
     expect($('.terminal-tab')).toBeNull(); // not shown
+    expect($('[data-tab="chat"] .x')).toBeNull(); // Chat is pinned: it has no close
     vi.stubGlobal('confirm', () => false);
     await click($(`${termTab} .x`)!);
     expect($(termTab)).not.toBeNull(); // refused at the confirm
@@ -227,10 +237,41 @@ describe('the workspace', () => {
       history.replaceState(state, '');
       await act(async () => void dispatchEvent(new PopStateEvent('popstate')));
     };
-    await walk({ tab: term });
-    expect(shown()).toBe(term);
-    await walk({ tab: 'chat' });
+    const atChat = history.state as object;
+    await click($(termTab)!);
+    const atTerm = history.state as object;
+    await walk(atChat);
     expect(shown()).toBe('chat');
+    await walk(atTerm);
+    expect(shown()).toBe(term);
+  });
+
+  it('a pane split is a history entry, and Back puts the single pane back', async () => {
+    await mount(ARCH, textGrid(), setup(), true);
+    await until(() => $(termTab), 'the terminal tab');
+    const before = history.state as object;
+    const length = history.length;
+    const rects = stubRects();
+    await fire($(termTab)!, 'dragstart');
+    await dragAt($('.pane')!, 'drop', 790, 300);
+    rects.mockRestore();
+    expect($$('.pane')).toHaveLength(2);
+    expect(history.length).toBe(length + 1);
+    history.replaceState(before, '');
+    await act(async () => void dispatchEvent(new PopStateEvent('popstate')));
+    expect($$('.pane')).toHaveLength(1);
+  });
+
+  it('Back onto a closed tab opens it again', async () => {
+    await mount(ARCH, textGrid(), setup(), true);
+    await until(() => $(termTab), 'the terminal tab');
+    const withTerm = history.state as object;
+    vi.stubGlobal('confirm', () => true);
+    await click($(`${termTab} .x`)!);
+    expect($(termTab)).toBeNull();
+    history.replaceState(withTerm, '');
+    await act(async () => void dispatchEvent(new PopStateEvent('popstate')));
+    expect($(termTab)).not.toBeNull();
   });
 
   it('the sidebar is resized by dragging its edge, clamped, kept, and reset by a double click', async () => {
@@ -269,12 +310,18 @@ describe('the workspace', () => {
   it('a tab dropped on a pane edge splits it; the same thing opened twice is focused', async () => {
     await mount(ARCH);
     await until(() => $$('.pane').length === 2, 'two panes');
+    const rects = stubRects();
     await fire($(termTab)!, 'dragstart');
-    expect($$('.dz').length).toBeGreaterThan(0);
-    await fire($('.pane[data-group="g1"] .dz.bottom')!, 'drop');
+    const g1 = $('.pane[data-group="g1"]')!;
+    await dragAt(g1, 'dragover', 400, 590);
+    const preview = g1.querySelector<HTMLElement>('.drop-preview')!;
+    expect(preview.dataset.zone).toBe('bottom');
+    expect([preview.style.left, preview.style.top, preview.style.width, preview.style.height]).toEqual(['0px', '300px', '800px', '300px']); // the half the split takes
+    await dragAt(g1, 'drop', 400, 590);
+    rects.mockRestore();
     expect($('.split-col')).not.toBeNull();
     expect($$('.pane')).toHaveLength(2);
-    expect($('.dz')).toBeNull(); // the drag ended
+    expect($('.drop-overlay')).toBeNull(); // the drag ended
     await click($('.pane[data-group="g1"] [aria-label="Add a tab"]')!);
     expect([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((b) => text(b).trim())).not.toContain('Claude Code');
     expect($$('[data-tab^="terminal:"]')).toHaveLength(1);
@@ -290,13 +337,15 @@ describe('the workspace', () => {
     expect(text($('[data-tab="markdown:a.md"]'))).toContain('markdown');
     expect(box.textContent).toMatch(/does not serve markdown tabs/); // a kind this daemon lacks stays visible, closable
 
+    const rects = stubRects();
     await fire($(termTab)!, 'dragstart');
-    await fire($('.pane[data-group="g1"] .dz.right')!, 'drop'); // the terminal is alone in its pane: it frees one, so this is allowed
+    await dragAt($('.pane[data-group="g1"]')!, 'drop', 790, 300); // the terminal is alone in its pane: it frees one, so this is allowed
+    rects.mockRestore();
     expect($$('.pane')).toHaveLength(4);
     expect($('.toast')).toBeNull();
   });
 
-  it('refuses a fifth pane and says so', async () => {
+  it('a drop on the centre merges into the pane, a drop on a strip inserts at the line, and the Chat tab cannot be dragged', async () => {
     const storage = memory();
     let ws = defaultWorkspace({ terminal: `term:${ARCH}` });
     ws = applyPreset(openTab(openTab(ws, 'markdown', { path: 'a.md' }), 'web', { port: 3000 }), 'grid');
@@ -304,22 +353,28 @@ describe('the workspace', () => {
     saveWorkspace(storage, storageKey('test', ARCH), ws);
     await mount(ARCH, storage);
     await until(() => $$('.pane').length === 4, 'four panes');
+    expect($('[data-tab="chat"]')!.getAttribute('draggable')).toBe('false');
+    const rects = stubRects();
+    const last = $$('.pane')[3]!;
     await fire($('[data-tab="shell:1"]')!, 'dragstart');
-    await fire($$('.pane')[3]!.querySelector('.dz.bottom')!, 'drop');
+    await dragAt(last, 'dragover', 400, 300);
+    expect(last.querySelector<HTMLElement>('.drop-preview')!.dataset.zone).toBe('center');
+    await dragAt(last, 'dragover', 50, 10);
+    expect(last.querySelector('.drop-line')).not.toBeNull(); // the insert line between tabs
+    await dragAt(last, 'drop', 50, 10);
+    rects.mockRestore();
     expect($$('.pane')).toHaveLength(4);
-    expect(text($('.toast'))).toMatch(/At most 4 panes/);
-    await fire($('[data-tab="shell:1"]')!, 'dragstart');
-    await fire($$('.pane')[3]!.querySelector('.strip')!, 'drop');
-    expect($$('.pane')).toHaveLength(4); // a merge is never refused
-    expect($$('.pane')[3]!.querySelector('[data-tab="shell:1"]')).not.toBeNull();
+    expect(last.querySelector('[data-tab="shell:1"]')).not.toBeNull();
   });
 
   it('restores the layout after a reload, and a closed tab stays closed', async () => {
     const storage = memory();
     await mount(ARCH, storage);
     await until(() => $$('.pane').length === 2, 'two panes');
+    const rects = stubRects();
     await fire($(termTab)!, 'dragstart');
-    await fire($('.pane[data-group="g1"] .dz.bottom')!, 'drop');
+    await dragAt($('.pane[data-group="g1"]')!, 'drop', 400, 590);
+    rects.mockRestore();
     expect(storage.data.has(storageKey('test', ARCH))).toBe(true);
     await unmount();
     await mount(ARCH, storage);

@@ -7,8 +7,6 @@ import { useVerbMark } from '@handline/app-data';
 import { DeleteSheet, VerbSheet } from '#src/AgentVerbs.tsx';
 import { Badges } from '#src/Badges.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
-import { AgentGauges } from '#src/AgentGauges.tsx';
-import { useNow } from '#src/Gauge.tsx';
 import { Icon, Menu, type At, MenuContent, MenuTrigger } from '#src/ui/index.ts';
 import { goAgent } from '#src/route.ts';
 import { AgentMenu, RowControls } from '#src/RowControls.tsx';
@@ -31,15 +29,6 @@ export const liveOf = (a: AgentView): string => {
   const d = dotOf(a);
   if (d !== 'running' && d !== 'waking' && !a.state_detail) return '';
   return [a.state_detail || MARKS[d].label, ago(a.state_since)].filter(Boolean).join(' · ');
-};
-
-/** The minutes left in the prompt cache; null when none is on record, 0 or less once it has lapsed. */
-const cacheLeft = (until: string | null, now: number): number | null => (until ? Math.ceil((Date.parse(until) - now) / 60_000) : null);
-
-/** The daemon's context figure for an agent, as a whole percent; absent until the view carries it. */
-const ctxOf = (a: AgentView): number | null => {
-  const v = (a as { ctx_pct?: number | null }).ctx_pct;
-  return typeof v === 'number' ? Math.round(v) : null;
 };
 
 export function AgentRow({
@@ -89,9 +78,6 @@ export function AgentRow({
     ro.observe(el);
     return () => ro.disconnect();
   }, [kindLen]);
-  const now = useNow();
-  const cache = cacheLeft(a.cache_until, now);
-  const ctx = ctxOf(a);
   const queue = queueOf(a, unreached);
   const badges = badgesOf(a, store.me).filter((b) => b.kind !== 'no_terminal'); // the word already says it
   const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
@@ -165,6 +151,11 @@ export function AgentRow({
                       {wide ? <span>{a.needs_you.kind}</span> : null}
                     </span>
                   ) : null}
+                  {a.last_to_founder ? (
+                    <span className="row-time flex-none whitespace-nowrap text-hint text-ink-3" title={a.last_to_founder.at}>
+                      {ago(a.last_to_founder.at)}
+                    </span>
+                  ) : null}
                   {a.founder_unread ? (
                     <span
                       className="unread inline-flex flex-none items-center rounded-pill bg-primary px-1.5 text-label text-canvas"
@@ -192,7 +183,6 @@ export function AgentRow({
                       {queue.tasks}
                     </span>
                   ) : null}
-                  <AgentGauges ctx={ctx} cacheMin={cache} />
                 </button>
                 {sub ? (
                   <span

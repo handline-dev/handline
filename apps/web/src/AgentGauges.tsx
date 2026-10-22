@@ -6,8 +6,8 @@ import { Meter } from '#src/RailIcons.tsx';
 /** The prompt cache lives an hour; a bar is full when it was just warmed. */
 export const CACHE_MINUTES = 60;
 
-/** `ctx` is whole percent used or null; `cacheMin` is minutes left, 0 or less once lapsed, null when none is on record. */
-export function AgentGauges({ ctx, cacheMin }: { ctx: number | null; cacheMin: number | null }) {
+/** `ctx` is whole percent used or null; `cacheMin` is minutes left (0 or less once lapsed), null when none is on record; the `*Text` props say each in words. */
+export function AgentGauges({ ctx, cacheMin, ctxText, cacheText }: { ctx: number | null; cacheMin: number | null; ctxText?: string; cacheText?: string }) {
   const lapsed = cacheMin !== null && cacheMin <= 0;
   return (
     <>
@@ -15,6 +15,7 @@ export function AgentGauges({ ctx, cacheMin }: { ctx: number | null; cacheMin: n
         <span className="inline-flex flex-none items-center text-ink-2">
           <Icon name="context" size={12} aria-hidden />
           <Meter pct={Math.min(100, ctx)} label="Context window" title={`Context window ${ctx}% full`} fill="bg-working" />
+          {ctxText ? <span className="ml-1 whitespace-nowrap">{ctxText}</span> : null}
         </span>
       ) : null}
       {cacheMin !== null ? (
@@ -27,6 +28,7 @@ export function AgentGauges({ ctx, cacheMin }: { ctx: number | null; cacheMin: n
             fill="bg-ok"
             hot={false}
           />
+          {cacheText ? <span className="ml-1 whitespace-nowrap">{cacheText}</span> : null}
         </span>
       ) : null}
     </>

@@ -19,6 +19,7 @@ import {
   LINE,
   NOW_LINE,
   OUTLOOK_END,
+  RESET_LINE,
   tone,
 } from '#src/outlookStyle.ts';
 import { Button, ChartCard, Select, Segmented } from '#src/ui/index.ts';
@@ -37,6 +38,22 @@ function Line({ o }: { o: Outlook }) {
   const x = (at: string) => (t1 === t0 ? 0 : ((Date.parse(at) - t0) / (t1 - t0)) * W);
   const y = (pct: number) => H - (pct / 100) * H;
   const lastLeft = all.at(-1)?.left_pct ?? null;
+  const [cursor, setCursor] = useState<number | null>(null);
+  const points = [...o.past.map((p) => ({ ...p, guess: false })), ...o.future.map((p) => ({ ...p, guess: true }))].filter(
+    (p) => p.left_pct !== null,
+  );
+  const near =
+    cursor === null
+      ? null
+      : points.reduce((best, p) => (Math.abs(x(p.at) - cursor) < Math.abs(x(best.at) - cursor) ? p : best), points[0]!);
+  const resets = o.runway.flatMap((r) =>
+    r.week_resets_at && Date.parse(r.week_resets_at) >= t0 && Date.parse(r.week_resets_at) <= t1 ? [r.week_resets_at] : [],
+  );
+  const scrub = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const svg = e.currentTarget.querySelector('svg')!.getBoundingClientRect();
+    setCursor(Math.min(W, Math.max(0, ((e.clientX - svg.left) / (svg.width || r.width)) * W)));
+  };
   const path = (pts: Outlook['past']) =>
     pts
       .filter((p) => p.left_pct !== null)
@@ -44,7 +61,12 @@ function Line({ o }: { o: Outlook }) {
       .join(' ');
   return (
     <>
-      <div className="outlook-plot relative pr-[8.5rem]">
+      <div
+        className="outlook-plot relative touch-pan-y pr-[8.5rem]"
+        onPointerMove={scrub}
+        onPointerDown={scrub}
+        onPointerLeave={() => setCursor(null)}
+      >
         <svg
           viewBox={`0 0 ${W} ${H}`}
           preserveAspectRatio="none"
@@ -58,7 +80,18 @@ function Line({ o }: { o: Outlook }) {
           <path d={path(o.past)} className={`${LINE} past`} fill="none" />
           <path d={path(o.future)} className={`${LINE} future`} fill="none" strokeDasharray="5 4" />
           <line x1={x(o.now)} x2={x(o.now)} y1={0} y2={H} className={NOW_LINE} />
+          {resets.map((at) => (
+            <line key={at} data-reset={at} x1={x(at)} x2={x(at)} y1={0} y2={H} className={RESET_LINE} />
+          ))}
+          {near ? (
+            <line x1={x(near.at)} x2={x(near.at)} y1={0} y2={H} className="cursor stroke-primary [vector-effect:non-scaling-stroke]" />
+          ) : null}
         </svg>
+        <p className="outlook-readout muted m-0 mt-1 h-5 text-hint" aria-live="polite">
+          {near
+            ? `${new Date(near.at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · ${Math.round(near.left_pct!)}% left${near.guess ? ' (guess)' : ''}`
+            : 'Point at the line to read it'}
+        </p>
         <span className={OUTLOOK_END} style={{ top: `${((100 - (lastLeft ?? 0)) / 100) * 100}%` }}>
           {o.accounts === 1 ? 'the account' : `all ${o.accounts} accounts`}
         </span>
@@ -82,6 +115,14 @@ function Line({ o }: { o: Outlook }) {
           </svg>{' '}
           now
         </li>
+        {resets.length ? (
+          <li className={LEGEND_ITEM}>
+            <svg viewBox="0 0 24 8" width="24" height="8" aria-hidden>
+              <line x1="12" x2="12" y1="0" y2="8" className={RESET_LINE} />
+            </svg>{' '}
+            week resets
+          </li>
+        ) : null}
       </ul>
     </>
   );

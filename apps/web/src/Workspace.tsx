@@ -7,7 +7,6 @@ import {
   defaultWorkspace,
   groupsOf,
   loadWorkspace,
-  MAX_GROUPS,
   openTab,
   saveWorkspace,
   setSplit,
@@ -26,7 +25,6 @@ import { useConnection, useStore } from '@handline/app-react';
 import { classify, useAgentDetail, useAgents, useServes } from '@handline/app-data';
 import { recordHistoryValue, takeTerminalWish, useHistoryValue } from '#src/route.ts';
 import { View } from '#src/View.tsx';
-import { DropZones } from '#src/DropZones.tsx';
 import { Pane } from '#src/Pane.tsx';
 import { isSwitchChord, isTerminalSwitch } from '#src/terminal/core.ts';
 
@@ -46,6 +44,8 @@ export interface WorkspaceCtx {
   drop: (next: Workspace | null) => void;
   /** Whether Split on this pane shows as a pane of its own at this window size (narrower, the groups render as one strip). */
   canSplit: (group: string) => boolean;
+  /** The groups render as one strip (a narrow window): a drop can only reorder or merge, never split. */
+  merged: boolean;
   /** The pane whose strip comes first (the folded sidebar's buttons sit there): the one shown when the groups render as one. */
   lead: string;
   dragging: string | null;
@@ -61,7 +61,16 @@ export const useWorkspace = (): WorkspaceCtx => {
 /** The workspace when the caller sits in one; a text on a page with no panes (the Tasks page) has none. */
 export const useWorkspaceIfAny = (): WorkspaceCtx | null => useContext(Ctx);
 
-const shownTab = (w: Workspace): string => (groupsOf(w.root).find((g) => g.id === w.active) ?? groupsOf(w.root)[0]!).activeTab;
+/** What a history entry must tell apart: the layout without its split ratios, since a divider drag is not a move. */
+const shapeOf = (w: Workspace): string => JSON.stringify(w, (k, v) => (k === 'at' ? undefined : v));
+const parse = (s: string): Workspace | null => {
+  try {
+    const w = JSON.parse(s) as Workspace;
+    return w.v === 1 && w.root && w.tabs ? w : null;
+  } catch {
+    return null;
+  }
+};
 
 export function AgentWorkspace({ agent, daemon, storage }: { agent: string; daemon: string; storage: KV | null }) {
   const q = useAgentDetail(agent);
@@ -94,18 +103,29 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     loadWorkspace(storage, key, () => defaultWorkspace({ terminal: detail.terminal ?? undefined, structured: detail.structured === true })),
   );
   const [dragging, setDragging] = useState<string | null>(null);
-  // The shown tab rides in the history entry: Back and Forward put that entry's tab back (if it is still open).
-  const [entryTab, pushTab] = useHistoryValue('tab');
+  // The panes, their tabs and the shown tab ride in the history entry: Back and Forward put that screen back exactly, reopening a tab closed since.
+  const [entry, push] = useHistoryValue(`ws:${key}`);
+  const synced = useRef<string | null>(null);
+  const mine = shapeOf(ws);
   useEffect(() => {
-    if (entryTab) setWs((w) => activate(w, entryTab));
-  }, [entryTab]);
-  // The entry that opened this agent holds the tab shown on opening, so Back onto it restores that tab.
-  const opened = useRef(false);
+    const theirs = entry ? shapeOf(parse(entry) ?? ws) : null;
+    if (theirs === null) {
+      recordHistoryValue(`ws:${key}`, JSON.stringify(ws));
+      synced.current = mine;
+    } else if (synced.current === null || theirs !== synced.current) {
+      synced.current = theirs;
+      if (theirs !== mine) setWs((w) => parse(entry!) ?? w);
+    }
+    // Runs when the entry changes (Back or Forward); `mine` and `ws` are read as they are at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry]);
   useEffect(() => {
-    if (opened.current) return;
-    opened.current = true;
-    if (!entryTab) recordHistoryValue('tab', shownTab(ws));
-  }, [entryTab, ws]);
+    if (synced.current === null || synced.current === mine) return;
+    synced.current = mine;
+    push(JSON.stringify(ws));
+    // Runs when the layout changes (`mine` stands for `ws`); `push` is new every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mine]);
   const root = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: innerWidth, h: innerHeight });
 
@@ -132,7 +152,6 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   const flip = () => {
     const next = toggleView(ws, detail.terminal ?? undefined, detail.structured === true);
     setWs(next);
-    pushTab(shownTab(next));
   };
   const flipRef = useRef(flip);
   flipRef.current = flip;
@@ -164,6 +183,7 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     detail,
     agent,
     storage,
+    merged: arrange(ws, size.w, size.h).merged,
     lead: arrange(ws, size.w, size.h).merged ? ws.active : groupsOf(ws.root)[0]!.id,
     canSplit: (id) => {
       const next = splitPane(ws, id);
@@ -174,12 +194,11 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     apply: (f) => setWs(f),
     show: (tab) => {
       setWs((w) => activate(w, tab));
-      pushTab(tab);
     },
     drop: (next) => {
       setDragging(null);
       if (next) setWs(next);
-      else store.fail(`At most ${MAX_GROUPS} panes. Drop a tab on another pane's tab strip to merge it.`);
+      else store.fail('That tab is already alone in its pane.');
     },
   };
   const arr = arrange(ws, size.w, size.h);
@@ -192,7 +211,6 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
         ) : (
           <Tree node={ws.root} path={[]} />
         )}
-        {dragging ? <DropZones root /> : null}
       </div>
     </Ctx.Provider>
   );

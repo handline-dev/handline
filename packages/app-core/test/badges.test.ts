@@ -12,7 +12,7 @@ test('badges come from the parsed facts, one row of the design table each', () =
   assert.deepEqual(kinds(view({ has_dialog: true })), ['dialog']);
   assert.deepEqual(kinds(view({ state: 'stalled' })), ['stalled']);
   assert.deepEqual(kinds(view({ block: { kind: 'wall', since: 't' } })), ['stalled']);
-  assert.deepEqual(kinds(view({ input_holders: [{ kind: 'person', name: 'me', since: 't' }] })), ['you']);
+  assert.deepEqual(kinds(view({ input_holders: [{ kind: 'person', name: 'me', since: 't' }] })), []); // this device holds it: nothing said
   assert.deepEqual(kinds(view({ input_holders: [{ kind: 'device', name: 'phone', since: 't' }] })), ['held']);
   assert.deepEqual(kinds(view({ input_holders: [{ kind: 'daemon', name: 'daemon', since: null }] })), []);
   assert.deepEqual(kinds(view({ terminal: null, state: 'no_terminal' })), ['no_terminal']);

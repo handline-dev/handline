@@ -40,7 +40,10 @@ async function jumped() {
   await act(async () => {
     root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
   });
-  await until(() => $('.chat-search input'), 'the search box');
+  await until(() => $('.chat-head'), 'the chat head');
+  expect($('.chat-search')).toBeNull(); // no permanent box
+  await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true })));
+  await until(() => $('.chat-search input'), 'the find bar');
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call($('.chat-search input'), 'chat tab plan');
     $('.chat-search input')!.dispatchEvent(new Event('input', { bubbles: true }));

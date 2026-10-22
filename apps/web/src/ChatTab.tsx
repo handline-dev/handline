@@ -5,7 +5,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { openActivity, timeline, type TimelineEntry } from '@handline/app-core';
+import { timeline, type TimelineEntry } from '@handline/app-core';
 import { useNearEnd, useSelector, useStore } from '@handline/app-react';
 import {
   Skeleton,
@@ -29,7 +29,7 @@ import { Item, Message, TaskNote, jumpTo } from '#src/ChatMessages.tsx';
 import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, RoomTitle, useDecided } from '#src/ChatCards.tsx';
 import { ChatSearch } from '#src/ChatSearch.tsx';
 import { Button, Empty, Icon, Textarea, ComposeRow } from '#src/ui/index.ts';
-import { useWantedMessage } from '#src/route.ts';
+import { goSettings, useWantedMessage } from '#src/route.ts';
 import { useWorkspace } from '#src/Workspace.tsx';
 
 /** The heading where the day turns — 'Oct 11'; null on the same day. */
@@ -127,8 +127,23 @@ function putBack(box: HTMLElement, a: { id: string; off: number }) {
   if (drift) box.scrollTop += drift;
 }
 
+/** ⌘F opens the find bar of this chat. */
+function useFindBar() {
+  const [finding, setFinding] = useState(false);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== 'f') return;
+      e.preventDefault();
+      setFinding(true);
+    };
+    addEventListener('keydown', key);
+    return () => removeEventListener('keydown', key);
+  }, []);
+  return [finding, setFinding] as const;
+}
+
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
-  const { storage, apply } = useWorkspace();
+  const { storage } = useWorkspace();
   const canSend = useSelector((s) => s.can('chat.send'));
   const me = useStore().me;
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
@@ -247,11 +262,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const where = locate.data?.scope;
   useEffect(() => {
     if (going === null || !where) return;
-    if (where !== scope) {
-      // Said between agents: it is a row of the Activity tab.
-      apply((w) => openActivity(w, `m${going}`));
-      return setGoing(null);
-    }
+    // Said between agents: there is no tab that shows it.
+    if (where !== scope) return setGoing(null);
     if (jumpTo(going)) return setGoing(null);
     const found = locate.data;
     if (!found) return;
@@ -263,12 +275,14 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [going, where, scope, locate.data, windowed, entries.length]);
 
+  const [finding, setFinding] = useFindBar();
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
     <section className={CHAT}>
       <div className="chat-head flex h-[var(--h-tabs)] items-center gap-2 border-b border-line px-2">
         <RoomTitle agent={agent} detail={detail} />
-        <ChatSearch agent={agent} scope={scope} onGo={jump} />
+        {finding ? <ChatSearch agent={agent} scope={scope} onGo={jump} onClose={() => setFinding(false)} /> : null}
+        <Button icon="settings" label={`${agent} settings`} onClick={() => goSettings(agent)} />
       </div>
       <ChatBanner detail={detail} />
       <div className="relative flex min-h-0 flex-1 flex-col">
