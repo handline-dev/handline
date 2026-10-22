@@ -45,7 +45,11 @@ func (f *fakeDelivery) WaitingPrompt(db.Q, string) (string, func(string) error, 
 }
 func (f *fakeDelivery) WaitForSession(string, int, string) bool { return f.tookPrompt }
 
-type fakeHandoff struct{ HandoffPort }
+// fakeHandoff: ctx is the session's context size, 0 for none read.
+type fakeHandoff struct {
+	HandoffPort
+	ctx int64
+}
 
 func (fakeHandoff) AnsweredTurn(db.Q, string) bool                 { return false }
 func (fakeHandoff) Capture(db.Q, string) (string, []string, error) { return "record", nil, nil }
@@ -54,6 +58,7 @@ func (fakeHandoff) ClearNote(db.Q, string)                         {}
 func (fakeHandoff) CacheClock(db.Q, string, string) (int64, int64, bool, bool) {
 	return 0, 0, false, false
 }
+func (f fakeHandoff) ContextUsed(db.Q, string, string) (int64, bool)      { return f.ctx, f.ctx != 0 }
 func (fakeHandoff) PreviousSession(db.Q, string, string) (string, string) { return "s0", "/t/s0.jsonl" }
 func (fakeHandoff) RequestLine(db.Q, string) string                       { return "Your request: none." }
 func (fakeHandoff) MemoryLine(string) string                              { return "" }
@@ -311,6 +316,15 @@ func TestWakePromptByCase(t *testing.T) {
 	got, _ = m.WakePrompt("a", false, WakePromptIn{WasClosed: true, Cold: true, Waiting: "msg"})
 	if !strings.HasPrefix(got, "Your session was closed while idle") || !strings.HasSuffix(got, "take it first:\n\nmsg") {
 		t.Fatalf("a fresh start is handed what woke it, last: %q", got)
+	}
+	got, _ = m.WakePrompt("a", true, WakePromptIn{MovedTo: "beta", Waiting: "msg"})
+	if got != "msg" {
+		t.Fatalf("a session resumed on the account it moved to is told what woke it, as any resume: %q", got)
+	}
+	db.SetHandoff(m.Q, "a", "the record")
+	got, _ = m.WakePrompt("a", false, WakePromptIn{WasClosed: true, ContextFull: true})
+	if !strings.HasPrefix(got, "Your context was full, so this is a fresh session.") || strings.Contains(got, "could not be resumed") {
+		t.Fatalf("a context-full start says why it is fresh: %q", got)
 	}
 }
 

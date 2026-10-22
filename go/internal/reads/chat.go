@@ -905,7 +905,7 @@ func (e *Env) chatSearch(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	everyone, _, err := chatScopeParam(params, false)
+	everyone, scoped, err := chatScopeParam(params, false)
 	if err != nil {
 		return nil, err
 	}
@@ -913,10 +913,38 @@ func (e *Env) chatSearch(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if isAgent(c) {
+		// An agent searches its own messages only, every one it sent or received unless it asks for mine.
+		me, _ := c.Caller.Info["name"].(string)
+		if agent != "" && agent != me {
+			return nil, rpc.Refused("an agent searches only its own messages", "role", "leave out agent")
+		}
+		agent, everyone = me, everyone || !scoped
+	}
+	with, err := optStr(params, "with")
+	if err != nil {
+		return nil, err
+	}
+	since, err := optTime(params, "since")
+	if err != nil {
+		return nil, err
+	}
 	like := "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(strings.TrimSpace(query_)) + "%"
 	where, scopeArgs := "1 = 1", []any{}
 	if agent != "" {
 		where, scopeArgs = chatScope(agent, everyone)
+	}
+	switch {
+	case with != nil && agent != "":
+		where += " AND ((requester = ? AND target = ?) OR (requester = ? AND target = ?))"
+		scopeArgs = append(scopeArgs, agent, *with, *with, agent)
+	case with != nil:
+		where += " AND (requester = ? OR target = ?)"
+		scopeArgs = append(scopeArgs, *with, *with)
+	}
+	if since != nil {
+		where += " AND ts >= ?"
+		scopeArgs = append(scopeArgs, *since)
 	}
 	hits, err := query(e.DB, "SELECT id FROM requests WHERE state NOT IN "+neverReached+" AND "+where+
 		` AND body LIKE ? ESCAPE '\' `+

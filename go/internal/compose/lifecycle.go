@@ -394,6 +394,11 @@ func (h *handoffPort) CacheClock(_ db.Q, agent, session string) (int64, int64, b
 
 func (h *handoffPort) CacheMargin(ttl int64) int64 { return int64(handoff.Margin(int(ttl))) }
 
+func (h *handoffPort) ContextUsed(_ db.Q, _, session string) (int64, bool) {
+	used, _, ok := lastContext(h.env.FindTranscript(session, ""))
+	return used, ok
+}
+
 func (h *handoffPort) ClearNote(_ db.Q, agent string) { _ = h.env.ClearNote(agent) }
 
 // observer is the process table of the terminal agents' sessions, with each one's pid.
