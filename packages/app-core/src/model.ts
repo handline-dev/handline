@@ -5,6 +5,10 @@ import { DAEMON_KEYS, NAMED_KEYS } from '#src/keys.ts';
 
 export type Dot = 'running' | 'waking' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'none';
 
+/** Why an agent's mark is a warning, in the daemon's words: a blocker, the wall it hit, or the state's own detail; null when it says none. */
+export const whyOf = (a: Pick<AgentView, 'blocker' | 'wall_reason' | 'state_detail'>): string | null =>
+  [a.blocker, a.wall_reason, a.state_detail].map((t) => t?.trim()).find(Boolean) ?? null;
+
 /** The rail dot: the daemon's status when it sends one, else its state word plus its block kinds and a handoff that is starting a new session. Unknown words read as idle. */
 export function dotOf(a: Pick<AgentView, 'state' | 'has_dialog' | 'block' | 'handoff' | 'status'>): Dot {
   const s = a.status && dotOfStatus(a.status);
@@ -22,6 +26,17 @@ const URGENCY: Record<Dot, number> = { waiting: 0, blocked: 1, running: 2, wakin
 
 /** The rail's order: the agents that wait on someone first, then by name. */
 export const byUrgency = (a: AgentView, b: AgentView): number => URGENCY[dotOf(a)] - URGENCY[dotOf(b)] || a.name.localeCompare(b.name);
+
+/** The person's saved order among siblings: the agents it lists, in its order, then the others by name. */
+export const bySavedOrder =
+  (order: readonly string[]) =>
+  (a: AgentView, b: AgentView): number => {
+    const at = (x: AgentView) => {
+      const i = order.indexOf(x.name);
+      return i < 0 ? order.length : i;
+    };
+    return at(a) - at(b) || a.name.localeCompare(b.name);
+  };
 
 export interface RailRow {
   agent: AgentView;
@@ -60,8 +75,9 @@ export function railMatch(opts: RailFilter): (a: AgentView) => boolean {
   return (a) => (!opts.hidden?.has(dotOf(a)) || !!a.handoff) && found(a) && (!opts.unread || isUnread(a));
 }
 
-/** The agent list as one list: waiting ones sort up, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off (a hidden parent still shows while a child does). */
-export function railRows(agents: AgentView[], opts: RailFilter = {}): RailRow[] {
+/** The agent list as one list: siblings follow `order` when it is given, else the waiting ones sort up, and a child nests under the parent that spawned it. `hidden` lists the dots the filter menu has switched off (a hidden parent still shows while a child does). */
+export function railRows(agents: AgentView[], opts: RailFilter = {}, order?: readonly string[]): RailRow[] {
+  const sibling = order ? bySavedOrder(order) : byUrgency;
   const match = agents.filter(railMatch(opts));
   const found = railMatch({ search: opts.search });
   // Keep the parents a dot filter hides while a child shows, so the children do not float to the top level.
@@ -72,11 +88,11 @@ export function railRows(agents: AgentView[], opts: RailFilter = {}): RailRow[] 
   const shown = agents.filter((a) => names.has(a.name));
   const rows: RailRow[] = [];
   const walk = (a: AgentView, depth: number) => {
-    const kids = shown.filter((x) => x.parent === a.name).sort(byUrgency);
+    const kids = shown.filter((x) => x.parent === a.name).sort(sibling);
     rows.push({ agent: a, depth, kids: kids.length });
     for (const c of kids) walk(c, depth + 1);
   };
-  for (const a of shown.filter((x) => !x.parent || !names.has(x.parent)).sort(byUrgency)) walk(a, 0);
+  for (const a of shown.filter((x) => !x.parent || !names.has(x.parent)).sort(sibling)) walk(a, 0);
   return rows;
 }
 

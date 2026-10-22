@@ -3,6 +3,7 @@
 import { Failure, invalidParams, refused, storeFailure } from '#src/errors.ts';
 import type { Attachment, ChatMessage, ImagePart, Landing, TextPart, TranscriptItem, Working } from '@handline/contract';
 import { deliveryOf, receiptPatch, uuidFor, type Msg } from '#src/delivery.ts';
+import { searchHits } from '#src/chat-search.ts';
 
 type Emit = (
   type: 'chat.message' | 'chat.transcript' | 'chat.working',
@@ -419,21 +420,7 @@ export class FakeChat {
   }
   /** Messages whose body holds the text, newest first, each with the agent and the chat (scope) that shows it. */
   search(p: Record<string, unknown>) {
-    const query = typeof p.query === 'string' ? p.query.trim().toLowerCase() : '';
-    if (!query) throw invalidParams('query is text and not empty', 'query');
-    if (p.limit !== undefined && !(Number.isInteger(p.limit) && (p.limit as number) > 0))
-      throw invalidParams('limit is a positive integer', 'limit');
-    const limit = typeof p.limit === 'number' ? p.limit : 50;
-    const hits = this.messages
-      .filter(
-        (m) =>
-          (typeof p.agent !== 'string' || m.agent === p.agent) &&
-          !(m.receipt && m.landing === 'withdrawn') &&
-          m.body.toLowerCase().includes(query) &&
-          (p.scope !== 'mine' || this.shownInMine(m)),
-      )
-      .sort((a, b) => b.id - a.id)
-      .slice(0, limit);
+    const hits = searchHits(this.messages, p, (m) => this.shownInMine(m));
     return { messages: hits.map((m) => ({ ...this.view(m), agent: m.agent, scope: this.shownInMine(m) ? 'mine' : 'all' })) };
   }
   private shownInMine(m: ChatMessage & { agent: string }): boolean {
