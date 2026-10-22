@@ -5,6 +5,10 @@ import { DAEMON_KEYS, NAMED_KEYS } from '#src/keys.ts';
 
 export type Dot = 'running' | 'waking' | 'idle' | 'waiting' | 'blocked' | 'parked' | 'none';
 
+/** Why an agent's mark is a warning, in the daemon's words: a blocker, the wall it hit, or the state's own detail; null when it says none. */
+export const whyOf = (a: Pick<AgentView, 'blocker' | 'wall_reason' | 'state_detail'>): string | null =>
+  [a.blocker, a.wall_reason, a.state_detail].map((t) => t?.trim()).find(Boolean) ?? null;
+
 /** The rail dot: the daemon's status when it sends one, else its state word plus its block kinds and a handoff that is starting a new session. Unknown words read as idle. */
 export function dotOf(a: Pick<AgentView, 'state' | 'has_dialog' | 'block' | 'handoff' | 'status'>): Dot {
   const s = a.status && dotOfStatus(a.status);
@@ -157,7 +161,7 @@ export function controlsOf(d: AgentDetail, me: string): Controls {
 }
 
 export const holderLabel = (h: InputHolder | undefined, me: string): string =>
-  !h || h.kind === 'daemon' ? 'daemon' : h.name === me ? 'YOU' : h.name;
+  !h || h.kind === 'daemon' ? 'daemon' : h.name === me ? 'You' : h.name;
 
 export type StopMode = 'interrupt' | 'exit' | 'close' | 'kill';
 export const STOP_MODES: { mode: StopMode; label: string; hint: string }[] = [

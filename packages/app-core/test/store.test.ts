@@ -45,6 +45,20 @@ test("a failure the person asked about reads as the gate's sentence, and a lost 
   client.close();
 });
 
+test('a failure is a notice that stays in the list after the line goes, and the same one twice is counted', async () => {
+  const { store, client } = await open();
+  store.reportError('start', new RpcError('refused', 'busy'));
+  store.reportError('start', new RpcError('refused', 'busy'));
+  assert.deepEqual(
+    store.notices.list().map((n) => [n.text, n.count]),
+    [['start: busy', 2]],
+  );
+  store.dismissError();
+  assert.equal(store.error, null);
+  assert.equal(store.notices.unread(), 1);
+  client.close();
+});
+
 test('opening an agent page starts on Chat, Terminal is a tab away, and closing it detaches', async () => {
   const { store, client } = await open();
   await store.openAgent(TB);

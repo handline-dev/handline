@@ -1,6 +1,7 @@
 // A popup under its trigger (§1.6): a header with the title and an optional refresh, rows of 28 px, closed by Escape or a click outside.
 // `PopupRow` is a row; `opens` adds the chevron of a row that opens a second popup.
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { placePopover, type Placement } from '@handline/app-ui';
 import { motion } from 'framer-motion';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { Button } from '#src/ui/Button.tsx';
@@ -22,7 +23,7 @@ export function Popup({
   onRefresh?: () => void;
   children: ReactNode;
   align?: 'left' | 'right';
-  /** Opens above its trigger (a trigger at the bottom of a pane). */
+  /** Where it opens first; it flips to the other side, or edge, when the window leaves no room there. */
   up?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -38,16 +39,32 @@ export function Popup({
     };
   }, [open, onClose]);
   const grow = useOpenMotion();
+  const [placed, setPlaced] = useState<(Placement & { tight: boolean }) | null>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    const anchor = el?.parentElement?.getBoundingClientRect();
+    if (!open || !el || !anchor) return setPlaced(null);
+    const w = Math.max(el.offsetWidth, 220);
+    const at = placePopover(
+      anchor,
+      { w, h: el.scrollHeight },
+      { w: innerWidth, h: innerHeight },
+      { side: up ? 'top' : 'bottom', align: align === 'right' ? 'end' : 'start' },
+    );
+    setPlaced({ ...at, tight: at.maxHeight < el.scrollHeight });
+  }, [open, up, align]);
+  const top = placed ? placed.side === 'top' : !!up;
+  const end = placed ? placed.align === 'end' : align === 'right';
   return (
     <AnimatedList>
       {open ? (
         <motion.div
           {...grow}
-          className={`ui-popup ${align}${up ? ' up' : ''} absolute z-20 mt-1 min-w-[220px] rounded-card bg-panel pb-[calc(4px*var(--o,1))] shadow-[var(--shadow-2)]${align === 'right' ? ' right-0' : ''}${up ? ' bottom-full mb-1' : ''}`}
+          className={`ui-popup ${end ? 'right' : 'left'}${top ? ' up' : ''} absolute z-20 mt-1 min-w-[220px] rounded-card bg-panel pb-[calc(4px*var(--o,1))] shadow-[var(--shadow-2)]${end ? ' right-0' : ''}${top ? ' bottom-full mb-1' : ''}`}
           role="dialog"
           aria-label={title}
           ref={box}
-          style={{ overflowY: 'clip' }}
+          style={{ overflowY: placed?.tight ? 'auto' : 'clip', maxHeight: placed?.tight ? placed.maxHeight : undefined }}
         >
           <header className="flex items-center justify-between border-b border-line px-2 py-1.5 font-sans text-body font-medium">
             <strong>{title}</strong>

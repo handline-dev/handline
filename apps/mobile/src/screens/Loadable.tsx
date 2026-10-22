@@ -6,7 +6,7 @@ import { classify, sentence, viewState, type SkeletonName } from '@handline/app-
 import { font, space } from '@handline/tokens';
 import { Skeleton } from '#src/skeleton.tsx';
 import { usePalette } from '#src/theme.ts';
-import { Button } from '#src/screens/parts.tsx';
+import { Button, EmptyState } from '#src/screens/parts.tsx';
 
 interface Query {
   isPending: boolean;
@@ -43,7 +43,7 @@ export function Loadable(props: {
   if (state === 'error' && failure) {
     // A lost connection says nothing here (the banner does) and a missing thing is just empty.
     if (failure.kind === 'transport') return q.data === undefined ? null : <>{props.children}</>;
-    if (failure.kind === 'not_found') return note('empty', props.empty);
+    if (failure.kind === 'not_found') return props.empty ? <EmptyState text={props.empty} /> : null;
     if (failure.kind === 'not_served' && !props.retryRefused) return note('not-served', `This daemon does not serve ${props.label}.`);
     return (
       <View style={{ flex: 1 }}>
@@ -55,7 +55,7 @@ export function Loadable(props: {
       </View>
     );
   }
-  if (state === 'empty') return note('empty', props.empty);
+  if (state === 'empty') return props.empty ? <EmptyState text={props.empty} /> : null;
   return (
     <View style={{ flex: 1 }}>
       {state === 'refreshing' && (
