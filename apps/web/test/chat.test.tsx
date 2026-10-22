@@ -147,7 +147,7 @@ describe('the Chat tab', () => {
     await until(() => landing('ship it') === 'typed', 'typed');
     t.daemon.chat.tick();
     t.daemon.chat.tick();
-    await until(() => $('.working')?.getAttribute('title')?.includes('Reading the code'), 'the working line');
+    await until(() => $('.working')?.getAttribute('title')?.includes('now: Read src/main.ts'), 'the working line');
     t.daemon.chat.tick();
     await until(() => !$('.working'), 'the turn over');
     expect(landing('ship it')).toBe('delivered');
@@ -296,7 +296,14 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     s.daemon.chat.seedItem(ARCH, {
       at: new Date().toISOString(),
       kind: 'task_batch',
-      task_batch: { batch: 'b1', who: ARCH, tasks: [{ task: 1684, title: 'Gap list', reason: 'merged into T1700' }, { task: 1685, title: 'Second', reason: 'stale' }] },
+      task_batch: {
+        batch: 'b1',
+        who: ARCH,
+        tasks: [
+          { task: 1684, title: 'Gap list', reason: 'merged into T1700' },
+          { task: 1685, title: 'Second', reason: 'stale' },
+        ],
+      },
     });
     await mount(ARCH, s);
     await until(() => $('[data-kind="task_batch"]'), 'the batch card');
@@ -488,7 +495,7 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     void t;
   });
 
-  it('the strip counts the files changed in the agent\'s worktree', async () => {
+  it("the strip counts the files changed in the agent's worktree", async () => {
     await mount(ARCH);
     await until(() => $('.chat-strip [aria-label$="in the worktree"]'), 'the count');
     expect(text($('.chat-strip [aria-label$="in the worktree"]'))).toBe('1');

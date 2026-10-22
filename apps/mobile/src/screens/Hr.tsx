@@ -8,7 +8,9 @@ import {
   askedLines,
   cutError,
   DANGER,
+  changesToggle,
   diffLines,
+  plainText,
   FIELDS,
   isWaiting,
   kindOf,
@@ -188,7 +190,7 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
       {p.reason ? (
         <Text style={{ color: c.ink }}>
           <Text style={{ color: c.muted }}>why </Text>
-          {textSafe(p.reason)}
+          {plainText(p.reason)}
         </Text>
       ) : null}
       <Pressable
@@ -198,9 +200,7 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
         onPress={() => setShowDiff(!showDiff)}
         style={{ minHeight: 36, justifyContent: 'center' }}
       >
-        <Text style={{ color: c.ink, textDecorationLine: 'underline' }}>
-          {showDiff ? 'Hide diff' : `Show diff (${diff.length} change${diff.length === 1 ? '' : 's'})`}
-        </Text>
+        <Text style={{ color: c.ink, textDecorationLine: 'underline' }}>{changesToggle(p, showDiff)}</Text>
       </Pressable>
       {showDiff && (
         <View
@@ -209,7 +209,10 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
           style={{ padding: space.sm, backgroundColor: c.panel, borderRadius: radius.card }}
         >
           {diff.map((l, i) => (
-            <Text key={i} style={{ fontFamily: 'Courier', fontSize: font.size.label, color: l.mark === '-' ? c.block : l.mark === '+' ? c.run : c.ink }}>
+            <Text
+              key={i}
+              style={{ fontFamily: 'Courier', fontSize: font.size.label, color: l.mark === '-' ? c.block : l.mark === '+' ? c.run : c.ink }}
+            >
               {l.text}
             </Text>
           ))}

@@ -6,7 +6,7 @@ export type TimeKind = TimeSegment['kind'];
 /** The kinds in the order the totals list them. */
 export const TIME_KINDS: readonly TimeKind[] = ['working', 'waiting', 'queued', 'starting'];
 
-const WORD: Record<TimeKind, string> = { working: 'Working', waiting: 'Waiting', queued: 'Queued', starting: 'Starting' };
+const WORD: Record<TimeKind, string> = { working: 'Working', waiting: 'Waiting', queued: 'Up next', starting: 'Starting' };
 
 export interface TimeRow {
   kind: TimeKind;
