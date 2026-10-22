@@ -1,6 +1,6 @@
 // The Accounts tab of Settings (#/accounts, #/stats), also the page the status bar's usage item opens: one line per account, then the Stats section; #/accounts/:name is one account in three tabs.
 import { useState } from 'react';
-import { STATE_WORD, outUntil, stateOf, span, dateTime } from '@handline/app-core';
+import { STATE_WORD, agentsLine, outUntil, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAccounts, useAccountUsage, useAgents, useOff, useServes, useWrite } from '@handline/app-data';
@@ -48,12 +48,6 @@ export function StateChip({ account, now }: { account: Account; now: number }) {
     </span>
   );
 }
-
-/** Agents working on the account now over the most it takes at once; before the usage read arrives only the cap is known. */
-export const agentsLine = (account: Account) =>
-  account.agents_running === undefined
-    ? `cap ${account.cap_effective}`
-    : `${account.agents_running} working / cap ${account.cap_effective}`;
 
 const LOGIN_WORD: Record<Account['login_state'], string> = { ok: 'logged in', needs_login: 'needs login', unknown: 'login unknown' };
 

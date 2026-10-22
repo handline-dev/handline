@@ -4,7 +4,7 @@ import { $, mount, press, text, until } from '#test/harness.tsx';
 
 async function open() {
   const m = await mount((s) => {
-    s.daemon.accounts.add({ name: 'delta', label: 'delta', plan: null, runway: '~10m to wall', assignable: false, assign_reason: '5h 97% at last reading', agents_assigned: 3, agents_running: 1 });
+    s.daemon.accounts.add({ name: 'delta', label: 'delta', plan: null, runway: '~10m to wall', assignable: false, assign_reason: '5h 97% at last reading' });
   });
   await press($('nav-usage'));
   await until(() => $('usage-delta'), 'the usage lines');
@@ -17,9 +17,19 @@ describe('account usage lines', () => {
     const delta = text($('usage-delta'));
     expect(delta).toContain('plan — · runway ~10m to wall');
     expect(delta).toContain('cannot take another agent: 5h 97% at last reading');
-    expect(delta).toContain('agents 3 assigned · 1 running · — unplaced');
+    expect(delta).toContain('· — unplaced');
+    const alpha = (await m.store.client.call('accounts.list', { usage: true, roster: true })).accounts.find((a) => a.name === 'alpha')!;
+    expect(text($('usage-alpha'))).toContain(`agents ${alpha.agents_assigned} assigned · ${alpha.agents_running} running`);
     expect(text($('usage-alpha'))).toContain('plan pro');
     expect(text($('usage-alpha'))).toContain('can take another agent');
+    m.store.stop();
+  }, 20000);
+
+  it('counts the agents working now over the cap on the list row', async () => {
+    const m = await open();
+    const alpha = (await m.store.client.call('accounts.list', { usage: true, roster: true })).accounts.find((a) => a.name === 'alpha')!;
+    await until(() => text($('account-alpha')).includes('working / cap'), 'the usage read');
+    expect(text($('account-alpha'))).toContain(`${alpha.agents_running} working / cap ${alpha.cap_effective}`);
     m.store.stop();
   }, 20000);
 
