@@ -12,7 +12,10 @@ export interface Notice {
   /** How many times the same text came within `MERGE_MS`. */
   count: number;
   read: boolean;
+  /** Where the list files it: `team` for what agents did, `system` for the rest (results of what the person did, accounts). */
+  lane: NoticeLane;
 }
+export type NoticeLane = 'team' | 'system';
 
 export const MERGE_MS = 60_000;
 export const TOAST_MS = { ok: 3000, fail: 8000, info: 3000 } as const;
@@ -41,6 +44,8 @@ export function eventText(e: Pick<WireEvent, 'topic' | 'type' | 'agent' | 'title
   }
 }
 
+const TEAM_EVENTS = new Set(['task_done', 'stall', 'hr.settled']);
+
 export class Notices {
   private all: Notice[] = []; // newest first
   private shownUntil = new Map<number, number>();
@@ -62,10 +67,10 @@ export class Notices {
   }
 
   /** Adds a notice, or counts it again when the same text came within a minute. It is shown at once. */
-  push(level: NoticeLevel, text: string): Notice {
+  push(level: NoticeLevel, text: string, lane: NoticeLane = 'system'): Notice {
     const at = this.now();
-    const same = this.all.find((n) => n.level === level && n.text === text && at - n.at < MERGE_MS);
-    const n = same ?? { id: this.nextId++, level, text, at, count: 0, read: false };
+    const same = this.all.find((n) => n.level === level && n.text === text && n.lane === lane && at - n.at < MERGE_MS);
+    const n = same ?? { id: this.nextId++, level, text, at, count: 0, read: false, lane };
     n.count++;
     n.at = at;
     n.read = false;
@@ -81,7 +86,7 @@ export class Notices {
     if (this.seen.has(e.cursor)) return;
     this.seen.add(e.cursor);
     const text = eventText(e);
-    if (text) this.push('info', text);
+    if (text) this.push('info', text, TEAM_EVENTS.has(e.type) ? 'team' : 'system');
   }
 
   /** The list, newest first. */
@@ -100,6 +105,13 @@ export class Notices {
   toasts(): Notice[] {
     const at = this.now();
     return this.all.filter((n) => this.paused.has(n.id) || (this.shownUntil.get(n.id) ?? 0) > at).slice(0, MAX_TOASTS);
+  }
+  /** When the soonest toast on screen runs out (ms since epoch), or null when none will: a screen draws again then. */
+  nextExpiry(): number | null {
+    const times = this.toasts()
+      .filter((n) => !this.paused.has(n.id))
+      .map((n) => this.shownUntil.get(n.id) ?? 0);
+    return times.length ? Math.min(...times) : null;
   }
   /** The pointer is over a toast: it stays until the pointer leaves, then runs its time out again. */
   hold(id: number): void {
