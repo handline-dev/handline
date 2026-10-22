@@ -93,7 +93,7 @@ export function WorkingBubble(props: { working: boolean; line: string | null }) 
       {props.working && (
         <View testID="working" accessibilityRole="text" style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
           <View
-            style={{ flexDirection: 'row', gap: space.xs, alignItems: 'center', paddingHorizontal: space.md, height: 28, borderRadius: radius.lg, backgroundColor: c.panel }}
+            style={{ flexDirection: 'row', gap: space.xs, alignItems: 'center', paddingHorizontal: space.md, height: 28, borderRadius: radius.dialog, backgroundColor: c.panel }}
           >
             {dots.map((v, i) => (
               <Dot key={i} value={v} color={c.muted} />
