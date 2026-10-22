@@ -149,7 +149,7 @@ export type TaskGroupKey = 'needs' | 'running' | 'queued' | 'done';
 export const TASK_GROUPS: readonly { key: TaskGroupKey; label: string }[] = [
   { key: 'needs', label: 'Needs you' },
   { key: 'running', label: 'Running' },
-  { key: 'queued', label: 'Queued' },
+  { key: 'queued', label: 'Up next' },
   { key: 'done', label: 'Done' },
 ];
 
@@ -178,7 +178,7 @@ export type TaskBand = 'done' | 'running' | 'queued';
 export const TASK_BANDS: readonly { key: TaskBand; label: string }[] = [
   { key: 'done', label: 'Done' },
   { key: 'running', label: 'Running' },
-  { key: 'queued', label: 'Queued' },
+  { key: 'queued', label: 'Up next' },
 ];
 const DAY = 86_400_000;
 

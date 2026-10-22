@@ -32,7 +32,7 @@ test('totals the kinds the task spent time in, working first', () => {
   assert.deepEqual(timeView(segments).totals, [
     { kind: 'working', word: 'Working', seconds: 3 * 3600 },
     { kind: 'waiting', word: 'Waiting', seconds: 1800 },
-    { kind: 'queued', word: 'Queued', seconds: 3600 },
+    { kind: 'queued', word: 'Up next', seconds: 3600 },
   ]);
 });
 test('words a stretch with no reason by its kind, and an empty task has nothing', () => {
