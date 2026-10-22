@@ -598,13 +598,13 @@ export type Account = {
     detail: string;
     since: Timestamp;
   } | null;
-  /** Only with accounts.list `usage: true`. The account's weekly pace (settings pacing, pace_target_pct, pace_burst_pct); null when its weekly reading is unknown, stale or its reset is not known. back_at: for state over, when the line will have caught up to within pace_burst_pct of used_pct at no further use; else null. */
+  /** Only with accounts.list `usage: true`. The account's weekly pace (settings pacing, pace_target_pct, pace_burst_pct), judged on its last weekly reading, which is kept until its weekly reset even when it is stale. null when it has no weekly reading or its reset is not known; a null pace does not shrink the cap. back_at: for state over, when the line will have caught up to within pace_burst_pct of used_pct at no further use, or the end of its week when the line never gets there; else null. */
   pace?: {
-    /** behind: used_pct is at or under line_pct, and the cap is not shrunk for pace. ahead: over the line by at most pace_burst_pct points; the pace cap is ceil(cap x (line_pct + pace_burst_pct - used_pct) / pace_burst_pct), at least 1. over: further ahead; the pace cap is 0 and the account starts no new turn. off: the pacing setting is off; the figures are still given. */
+    /** behind: used_pct is at or under line_pct, and the cap is not shrunk for pace. ahead: over the line by at most pace_burst_pct points; the pace cap is ceil(C x (line_pct + pace_burst_pct - used_pct) / pace_burst_pct), at least 1, where C is cap, else the active_cap setting. over: further ahead; the pace cap is 0 and the account starts no new turn. off: the pacing setting is off; the figures are still given. cap_effective is the smallest of C, the wall-cutoff cap and the pace cap. */
     state: "behind" | "ahead" | "over" | "off";
-    /** Where the line is now: pace_target_pct times the share of the week that has passed. The week runs from its weekly reset less 7 days to its end (the reset, or the subscription end when that comes first). */
+    /** Where the line is now: pace_target_pct x (now - start) / (end - start), where start is its weekly reset less 7 days and end is that reset or the subscription end, whichever comes first. */
     line_pct: number;
-    /** The weekly window's used percent the pace is judged on (the trusted reading, as `weekly`). */
+    /** The weekly window's used percent the pace is judged on: the last weekly reading, kept until its reset. */
     used_pct: number;
     /** Points of the week per hour the account may use from now to reach pace_target_pct at the end of its week: (pace_target_pct - used_pct) / hours left; 0 at or past the target. */
     rate_pct_h: number;
@@ -1201,8 +1201,8 @@ export type Outlook = {
   }[];
   /** Only with `agent`: the points of the combined week the pick had used by each time of `past`, one number per `past` entry in the same order: its cost share of each account times what that account had used so far, averaged over the accounts. Empty when the pick used nothing in the span or is not an agent or group. Absent from a daemon that does not send it. */
   overlay?: number[];
-  /** Each account that has a reading in the span, by name: its windows and its pace line, for a chart per account. It replaces stats.headroom. */
-  by_account: {
+  /** Each account that has a reading in the span, by name: its windows and its pace line, for a chart per account. It replaces stats.headroom. Absent from a daemon that does not send it. */
+  by_account?: {
     account: string;
     /** What usage samples recorded, at the same points as `past`. */
     past: {
@@ -1211,7 +1211,7 @@ export type Outlook = {
       week_left: number | null;
       line_left: number | null;
     }[];
-    /** The guess of `future` for this account, at the same points; the 5h window keeps its use of the last day and starts again from nothing at its reset, so its line is a saw. */
+    /** The guess of `future` for this account, at the same points. The 5h window starts again from nothing at each reset, so its line is a saw; it goes at its use over the last day, and with pacing on at no more than the paced week rate converted to the 5h window by the account's measured ratio of weekly to 5h use. */
     future: {
       at: Timestamp;
       five_left: number | null;
@@ -2794,7 +2794,7 @@ export interface Methods {
   "accounts.list": { params: {
   /** Add each account's agents_assigned, agents_running and agents_unplaced. Default false. */
   roster?: boolean;
-  /** Add each account's plan, windows, ctx_pct, age_s, runway, assignable, assign_reason and pace: what `hl account list` prints beside the windows. Default false. */
+  /** Add each account's plan, windows, ctx_pct, age_s, runway, assignable and assign_reason (what `hl account list` prints beside the windows), and pace. Default false. */
   usage?: boolean;
 }; result: {
     accounts: Account[];

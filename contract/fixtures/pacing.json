@@ -74,6 +74,19 @@
        "field": "pace_target_pct"
       }
      }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "settings.get",
+      "params": {}
+     },
+     "result": {
+      "values": {
+       "pace_target_pct": 98
+      }
+     }
     }
    ]
   },
