@@ -118,29 +118,44 @@ describe('X3 New agent', () => {
     expect(sent[0]).not.toHaveProperty('account');
   });
 
-  it('sends model and effort when chosen, and offers the five efforts after default', async () => {
+  it("offers the daemon's models, efforts, accounts (a logged-out one shown, not offered), roles and free names", async () => {
     const s = setup();
+    const spy = calls(s);
+    await mount('#/new', s);
+    await fill();
+    const o = await s.client.call('agent.options', {});
+    await until(() => select('Model'), 'the model pick');
+    const values = (label: string) => [...select(label).options].map((x) => x.value);
+    expect(values('Model')).toEqual(['', ...o.models]);
+    expect(values('Effort')).toEqual(['', ...o.efforts]);
+    expect(values('Account')).toEqual(['', ...o.accounts.map((a) => a.name)]);
+    const gamma = [...select('Account').options].find((x) => x.value === 'gamma')!;
+    expect([gamma.disabled, gamma.textContent]).toEqual([true, 'gamma (not logged in)']);
+    expect($$('#na-roles option').map((x) => [x.getAttribute('value'), text(x)])).toEqual(o.roles.map((r) => [r.name, r.description]));
+    expect($$('#na-names option').map((x) => x.getAttribute('value'))).toEqual(o.free_names);
+    expect(text(dialog())).not.toContain('none can be named yet');
+    await pick('Effort', 'high');
+    await pick('Model', 'opus');
+    await pick('Account', 'beta');
+    await click(create());
+    await until(() => made(spy).length === 1, 'the call');
+    expect(made(spy)[0]).toMatchObject({ model: 'opus', effort: 'high', account: 'beta' });
+  });
+
+  it("shows today's form on a daemon without agent.options: free-text model, five efforts, the account disabled with its reason", async () => {
+    const s = setup();
+    s.daemon.knobs.unserve('agent.options');
     const spy = calls(s);
     await mount('#/new', s);
     await fill();
     await until(() => select('Effort'), 'the effort');
     expect([...select('Effort').options].map((o) => o.value)).toEqual(['', 'low', 'medium', 'high', 'xhigh', 'max']);
-    await pick('Effort', 'high');
     await type(findInput('Model'), 'opus');
-    await click(create());
-    await until(() => made(spy).length === 1, 'the call');
-    expect(made(spy)[0]).toMatchObject({ model: 'opus', effort: 'high' });
-  });
-
-  it('draws the account control disabled with its reason, and never sends it', async () => {
-    const s = setup();
-    const spy = calls(s);
-    await mount('#/new', s);
-    await fill();
     expect(select('Account').disabled).toBe(true);
     expect(text(dialog())).toContain('chosen when it starts');
     await click(create());
     await until(() => made(spy).length === 1, 'the call');
+    expect(made(spy)[0]).toMatchObject({ model: 'opus' });
     expect(made(spy)[0]).not.toHaveProperty('account');
   });
 

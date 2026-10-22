@@ -1,12 +1,13 @@
 // New agent (founder): the form of docs/design/new-agent-worktrees.md §1.2 as a sheet at `#/new`, then its progress at `#/new/:operation`.
 // One agent.create per click; the form's fields stay in this component, so a failed creation returns to them as they were.
-import { EFFORTS, EMPTY_AGENT_FIELDS, classify, sentence, useNewAgentForm, useServes } from '@handline/app-data';
+import { EMPTY_AGENT_FIELDS, classify, sentence, useNewAgentForm, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Dialog, Field, Icon, Select, Textarea, NOTE, FIELD, FIELD_LABEL } from '#src/ui/index.ts';
 import { NAV } from '#src/NavRows.tsx';
 import { goNew, useNewAgentRoute } from '#src/route.ts';
 import { forgetFirstTask, keepFirstTask, NewAgentProgress } from '#src/NewAgentProgress.tsx';
 
+/** Shown only by a daemon without agent.options, which cannot say what accounts there are. */
 const ACCOUNT_NOTE = "A new agent's account is chosen when it starts; none can be named yet.";
 
 /** The sidebar's button; only for the founder, and only on a daemon that lists agent.create. */
@@ -28,7 +29,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
   const store = useStore();
   const founder = store.client.hello?.role === 'founder';
   const { served } = useServes('agent.create');
-  const { create, agents, f, setF, set, list, prefix, ready, send } = useNewAgentForm((operation, made) => {
+  const { create, agents, choices, f, setF, set, list, prefix, ready, send } = useNewAgentForm((operation, made) => {
     keepFirstTask(operation, made.task, made.box);
     goNew(operation);
   });
@@ -83,14 +84,24 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
               label="Name"
               value={f.name}
               onChange={(e) => set('name', e.target.value)}
+              list={choices.freeNames.length ? 'na-names' : undefined}
               note="Plain text: no /, no leading ."
             />
+            <datalist id="na-names">
+              {choices.freeNames.map((n) => (
+                <option key={n} value={n} />
+              ))}
+            </datalist>
           </div>
           <Field label="Role" list="na-roles" value={f.role} onChange={(e) => set('role', e.target.value)} />
           <datalist id="na-roles">
-            {[...new Set(agents.map((a) => a.role).filter((r) => r && r.length <= 40))].map((r) => (
-              <option key={r} value={r} />
-            ))}
+            {choices.fromDaemon
+              ? choices.roles.map((r) => (
+                  <option key={r.name} value={r.name}>
+                    {r.description}
+                  </option>
+                ))
+              : [...new Set(agents.map((a) => a.role).filter((r) => r && r.length <= 40))].map((r) => <option key={r} value={r} />)}
           </datalist>
         </div>
         <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
@@ -111,22 +122,48 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
           <Field label="Base" value={f.base} onChange={(e) => set('base', e.target.value)} />
         </div>
         <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
-          <Field label="Model" placeholder="default" value={f.model} onChange={(e) => set('model', e.target.value)} />
+          {choices.models ? (
+            <div className={FIELD}>
+              <span className={FIELD_LABEL}>Model</span>
+              <Select
+                label="Model"
+                value={f.model}
+                onChange={(e) => set('model', e.target.value)}
+                options={[{ value: '', label: 'default' }, ...choices.models.map((m) => ({ value: m, label: m }))]}
+              />
+            </div>
+          ) : (
+            <Field label="Model" placeholder="default" value={f.model} onChange={(e) => set('model', e.target.value)} />
+          )}
           <div className={FIELD}>
             <span className={FIELD_LABEL}>Effort</span>
             <Select
               label="Effort"
               value={f.effort}
               onChange={(e) => set('effort', e.target.value)}
-              options={[{ value: '', label: 'default' }, ...EFFORTS.map((e) => ({ value: e, label: e }))]}
+              options={[{ value: '', label: 'default' }, ...choices.efforts.map((e) => ({ value: e, label: e }))]}
             />
           </div>
         </div>
         <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
           <div className={FIELD}>
             <span className={FIELD_LABEL}>Account</span>
-            <Select label="Account" disabled value="" onChange={() => {}} options={[{ value: '', label: 'auto' }]} />
-            <p className={NOTE}>{ACCOUNT_NOTE}</p>
+            {choices.fromDaemon ? (
+              <Select
+                label="Account"
+                value={f.account}
+                onChange={(e) => set('account', e.target.value)}
+                options={[
+                  { value: '', label: 'auto' },
+                  ...choices.accounts.map((a) => ({ value: a.name, label: a.offered ? a.name : `${a.name} (not logged in)`, disabled: !a.offered })),
+                ]}
+              />
+            ) : (
+              <>
+                <Select label="Account" disabled value="" onChange={() => {}} options={[{ value: '', label: 'auto' }]} />
+                <p className={NOTE}>{ACCOUNT_NOTE}</p>
+              </>
+            )}
           </div>
           <div className={FIELD}>
             <span className={FIELD_LABEL}>Parent</span>
