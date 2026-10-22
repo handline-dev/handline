@@ -81,10 +81,11 @@ function Chart({ h }: { h: Headroom }) {
     const every = [6, 12, 24, 48, 96].find((h) => (width * h * 3_600_000) / Math.max(1, t1 - t0) >= TICK_GAP) ?? 96;
     const d = new Date(t0);
     d.setHours(every < 24 ? Math.ceil(d.getHours() / every) * every : d.getHours() > 0 ? 24 : 0, 0, 0, 0);
-    // A label that would run past either edge is left out rather than shifted against its neighbour.
     for (; d.getTime() <= t1; d.setHours(d.getHours() + every))
-      if (d.getTime() >= t0 + (36 / width) * (t1 - t0) && d.getTime() <= t1 - (36 / width) * (t1 - t0))
-        out.push({ t: d.getTime(), label: d.toLocaleString([], every < 24 ? { hour: 'numeric' } : { weekday: 'short', day: 'numeric' }) });
+      out.push({ t: d.getTime(), label: d.toLocaleString([], every < 24 ? { hour: 'numeric' } : { weekday: 'short', day: 'numeric' }) });
+    // The first label is pushed right at the left edge; it goes when that crowds the next one.
+    const px = (t: number) => ((t - t0) / Math.max(1, t1 - t0)) * width;
+    if (out.length > 1 && px(out[0]!.t) < 36 && px(out[1]!.t) - 36 < TICK_GAP) out.shift();
     return out;
   }, [t0, t1, width]);
   const balloonX = cursor === null ? 0 : Math.min(Math.max(x(cursor), 115), Math.max(115, width - 115));
