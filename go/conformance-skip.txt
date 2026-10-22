@@ -1,4 +1,10 @@
 # Fixtures the Go run plays as an agent that fail on a gap too big for the change that gave the run its agent connection,
 # and ones waiting on a notice from the watcher, which this run does not start (no -terminal-tick -cutover).
+# The pacing fixtures (contract/fixtures/pacing.json) fail until the daemon paces accounts (T5552's daemon step).
 # contract/conformance.py --skip-file reads one per line. The fixtures still run: one that passes, or a name no fixture has, fails the run.
+accounts.list.usage_carries_the_pace
 prefs.set.stores_and_tells_the_prefs_topic
+settings.get.pacing_defaults
+settings.set.pace_keys_set_and_null_resets_them
+settings.set.pace_target_over_100_is_bad_request
+stats.outlook.by_account_shape

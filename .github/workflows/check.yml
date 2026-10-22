@@ -143,6 +143,27 @@ jobs:
           python3 contract/generate.py --check
           python3 tools/go_contract.py --check
 
+  # What a reviewer would otherwise catch by hand in the files the change adds or edits (tools/pr_checks.py files), and Prettier on
+  # those of them it formats: a file the change touches is formatted whole.
+  files:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - run: python3 -m unittest tools/test_pr_checks.py
+      - name: Binaries, images, scratch files and long comments
+        run: |
+          case "$BASE" in ""|0000000000000000000000000000000000000000) exit 0 ;; esac
+          python3 tools/pr_checks.py files "$BASE"
+      - name: Prettier on the files the change touches
+        run: |
+          case "$BASE" in ""|0000000000000000000000000000000000000000) exit 0 ;; esac
+          git diff --name-only --no-renames --diff-filter=AM "$BASE...HEAD" |
+            grep -E '^((packages|apps|web)/.*\.(ts|tsx|js|mjs|json|css)|[^/]*\.json)$' > "$RUNNER_TEMP/pretty" || exit 0
+          xargs npx --yes prettier@3.9.9 --check < "$RUNNER_TEMP/pretty"
+
   # The required check on main: green only when every shard and the contract job passed.
   go:
     needs: [daemon, contract]
@@ -150,3 +171,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: test "${{ needs.daemon.result }}" = success && test "${{ needs.contract.result }}" = success
+
+  # The one check an auditor waits for before starting: the apps, the Go suite and the file checks all passed.
+  pre-audit:
+    needs: [apps, go, files]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.apps.result }}" = success && test "${{ needs.go.result }}" = success && test "${{ needs.files.result }}" = success
