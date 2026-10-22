@@ -145,7 +145,7 @@ export function controlsOf(d: AgentDetail, me: string): Controls {
 }
 
 export const holderLabel = (h: InputHolder | undefined, me: string): string =>
-  !h || h.kind === 'daemon' ? 'daemon' : h.name === me ? 'YOU' : h.name;
+  !h || h.kind === 'daemon' ? 'daemon' : h.name === me ? 'You' : h.name;
 
 export type StopMode = 'interrupt' | 'exit' | 'close' | 'kill';
 export const STOP_MODES: { mode: StopMode; label: string; hint: string }[] = [

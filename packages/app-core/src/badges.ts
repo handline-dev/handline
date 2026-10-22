@@ -32,7 +32,7 @@ export function badgesOf(a: AgentView | AgentDetail, me: string): Badge[] {
   if (a.structured) {
     if (detail.session_open === false) out.push({ kind: 'no_session', label: 'no session', tip: 'Start or resume the agent to open one' });
   } else if (a.state === 'no_terminal' || detail.terminal === null)
-    out.push({ kind: 'no_terminal', label: 'no terminal', tip: 'Start or resume the agent to open one' });
+    out.push({ kind: 'no_terminal', label: 'not started', tip: 'Start the agent to open its terminal' });
   if (!(STATE_WORDS as readonly string[]).includes(a.state)) out.push({ kind: 'other', label: a.state, tip: `state: ${a.state}` });
   return out;
 }
