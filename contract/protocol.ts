@@ -134,6 +134,13 @@ export type AgentView = {
   input_holders?: InputHolder[];
   /** The text drawn beside the state word (a clock, what a wait is for), at most 40 characters; empty when there is none. The state column is drawn from state and state_detail alone. */
   state_detail: string;
+  /** What a running agent is doing now, for the line under its name: while state is running and handoff is null, a client draws it in place of status.text. null when no turn runs or the turn has called no tool yet. Absent from a daemon that does not send it. A change of doing alone is pushed (agent.changed) at most once every 5 s, with the newest value. */
+  doing?: {
+    /** From the running turn's newest tool item of chat.transcript: its `tool`, a space and the first line of its `text`, or the tool alone when that text is empty; cut to 60 characters (Unicode code points, no ellipsis). */
+    text: string;
+    /** When that call began. */
+    at: Timestamp;
+  } | null;
   /** Only with agents.list `status: true` (what `hl team` draws): whether the agent has ever run (a state row exists). */
   started?: boolean;
   /** Only with agents.list `status: true` (what `hl team` draws): whether its config names a repo. */
