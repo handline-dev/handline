@@ -54,12 +54,48 @@ test('agent.create checks its params in order and starts nothing when one is wro
     await assert.rejects(client.call('agent.create', p as never), (e: RpcError) => e.code === code && e.data?.[key] === value);
   await bad(make('x/y'), 'bad_request', 'field', 'name');
   await bad(make('ok.one', { effort: 'extreme', repo: '/nope' }), 'bad_request', 'field', 'effort');
-  await bad(make('ok.one', { account: 'alpha', repo: '/nope' }), 'bad_request', 'field', 'account');
+  await bad(make('ok.one', { account: 'nowhere', repo: '/nope' }), 'not_found', 'what', 'account');
   await bad(make('ok.one', { repo: '/nope' }), 'not_found', 'what', 'repo');
   await bad(make('ok.one', { parent: 'no.one' }), 'not_found', 'what', 'agent');
   await bad(make('other', { parent: 'handline.architect' }), 'bad_request', 'field', 'name');
   await bad(make('handline.auditor'), 'refused', 'gate', 'state');
   assert.equal(daemon.sessions.has('ok.one'), false);
+  client.close();
+});
+
+test('agent.options lists the repos, roles, models, efforts, accounts with their login state and free names; an agent is refused', async () => {
+  const { client, daemon } = setup();
+  await client.start();
+  const o = await client.call('agent.options', {});
+  assert.deepEqual(
+    o.repos.map((r) => r.path),
+    daemon.admin.worktrees.repos.map((r) => r.path),
+  );
+  assert.deepEqual(o.efforts, ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.ok(o.models.includes('opus'));
+  assert.ok(o.roles.some((r) => r.name === 'handline.architect'));
+  assert.deepEqual(
+    o.accounts.find((a) => a.name === 'gamma'),
+    { name: 'gamma', login_state: 'needs_login' },
+  );
+  assert.equal(o.free_names.includes('handline.new-builder'), true);
+  client.close();
+  const agent = setup({ role: 'agent' });
+  await agent.client.start();
+  await assert.rejects(agent.client.call('agent.options', {}), (e: RpcError) => e.gate === 'role');
+  agent.client.close();
+});
+
+test('agent.create keeps the account it is given, and a name taken leaves the free names', async () => {
+  const { client, daemon } = setup();
+  await client.start();
+  const seen: Event[] = [];
+  client.onEvent((e) => e.topic === 'operations' && seen.push(e));
+  await client.subscribe(['operations']);
+  await client.call('agent.create', make('handline.new-builder', { account: 'beta' }));
+  await until(() => seen.some((e) => (e.data as { state: string }).state === 'done'), 'done');
+  assert.equal(daemon.sessions.get('handline.new-builder')?.fx.account, 'beta');
+  assert.equal((await client.call('agent.options', {})).free_names.includes('handline.new-builder'), false);
   client.close();
 });
 
