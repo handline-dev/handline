@@ -132,7 +132,7 @@ def matches(want, got, saved: dict, at: str = "$") -> None:
 
 
 def substitute(node, vars_: dict):
-    """Replace {{name}} in every string of a request with a --var or a saved value."""
+    """Replace {{name}} in every string of a request or of what its reply and notices must hold with a --var or a saved value."""
     if isinstance(node, str):
         def one(m):
             if m.group(1) not in vars_:
@@ -378,9 +378,9 @@ def run_fixture(fx: dict, sockets: dict, vars_: dict, methods: set | None = None
                             raise Mismatch(f"wanted an error, got {json.dumps(reply)}")
                         matches(substitute(step["error"], saved), reply["error"], saved, "error")
                 if "notice_next" in step:
-                    conn.next_notice(step["notice_next"], saved, step.get("notices_within_s", NOTICE_WAIT_S))
+                    conn.next_notice(substitute(step["notice_next"], saved), saved, step.get("notices_within_s", NOTICE_WAIT_S))
                 for want in step.get("notices", []):
-                    conn.notice(want, saved, step.get("notices_within_s", NOTICE_WAIT_S), step.get("notices_any_order", False))
+                    conn.notice(substitute(want, saved), saved, step.get("notices_within_s", NOTICE_WAIT_S), step.get("notices_any_order", False))
             except (Mismatch, socket.timeout, ConnectionError, json.JSONDecodeError) as e:
                 return "fail", f"step {n}: {type(e).__name__ + ': ' if not isinstance(e, Mismatch) else ''}{e}"
         return "pass", ""
