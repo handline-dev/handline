@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Event as WireEvent } from '@handline/client';
-import { applyEvent, createBridge, qk, resync, writes, type Ctx } from '#src/index.ts';
+import { applyEvent, awayLine, createBridge, qk, resume, resync, writes, type Ctx } from '#src/index.ts';
 
 const D = 'd1';
 let qc: QueryClient;
@@ -171,6 +171,46 @@ describe('gap and reconnect', () => {
     resync(qc, D);
     expect(stale(key)).toBe(true);
     expect(qc.getQueryState(['d', 'other', 'agents'])?.isInvalidated).toBe(false);
+  });
+});
+
+describe('an event the read already holds', () => {
+  it('is left out of an entry read at or past its cursor, and applied to one read before it', () => {
+    qc.setQueryData(qk.agents(D), { agents: [agent('a')], cursor: 10 });
+    applyEvent(c, ev('agent.changed', agent('a', 'working'), { cursor: 10 }));
+    expect(qc.getQueryData<{ agents: { state: string }[] }>(qk.agents(D))!.agents[0]!.state).toBe('idle');
+    applyEvent(c, ev('agent.changed', agent('a', 'working'), { cursor: 11 }));
+    expect(qc.getQueryData<{ agents: { state: string }[] }>(qk.agents(D))!.agents[0]!.state).toBe('working');
+  });
+  it('leaves a status the read already answered', () => {
+    qc.setQueryData(qk.status(D), { alive: true, cursor: 20 });
+    applyEvent(c, ev('status.changed', { alive: false }, { topic: 'status', cursor: 19 }));
+    expect(qc.getQueryData<{ alive: boolean }>(qk.status(D))!.alive).toBe(true);
+  });
+});
+
+describe('resume', () => {
+  const pages = (n: number) => ({
+    pages: Array.from({ length: n }, () => ({ messages: [], more: true })),
+    pageParams: Array.from({ length: n }, (_, i) => i || undefined),
+  });
+  const key = (agent: string) => qk.chatMessages(D, agent, 'mine');
+  it('drops a chat to its first page unless the person is reading up in it, and reads every query again', () => {
+    qc.setQueryData(key('a'), pages(3));
+    qc.setQueryData(key('b'), pages(3));
+    resume(qc, D, new Set(['b']));
+    expect(qc.getQueryData<{ pages: unknown[]; pageParams: unknown[] }>(key('a'))!.pages).toHaveLength(1);
+    expect(qc.getQueryData<{ pageParams: unknown[] }>(key('a'))!.pageParams).toHaveLength(1);
+    expect(qc.getQueryData<{ pages: unknown[] }>(key('b'))!.pages).toHaveLength(3);
+    expect(stale(key('a'))).toBe(true);
+  });
+});
+
+describe('the line for what was missed', () => {
+  it('counts, and is a floor when the feed was cut', () => {
+    expect(awayLine({ count: 1, more: false })).toBe('1 notice while you were away');
+    expect(awayLine({ count: 3, more: false })).toBe('3 notices while you were away');
+    expect(awayLine({ count: 100, more: true })).toBe('100+ notices while you were away');
   });
 });
 

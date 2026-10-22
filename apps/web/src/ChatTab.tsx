@@ -271,6 +271,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         onScroll={(e) => {
           const el = e.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+          chat.holdPlace(!pinned.current);
           if (pinned.current) setNewer(0);
         }}
       >

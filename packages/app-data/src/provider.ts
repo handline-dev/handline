@@ -3,7 +3,9 @@ import { createContext, createElement, useContext, useEffect, useState, type Com
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useSelector, useStore } from '@handline/app-react';
 import type { Topic } from '@handline/client';
-import { createBridge, resync } from '#src/bridge.ts';
+import { createBridge, resume, resync } from '#src/bridge.ts';
+import { readAway } from '#src/away.ts';
+import { placesHeld } from '#src/chat.ts';
 import { retryDelay, retryRead } from '#src/errors.ts';
 
 /** What draws a skeleton box: each app gives its own (a `div` on the web, a `View` on the phone). */
@@ -30,6 +32,7 @@ export const makeQueryClient = () =>
 /**
  * Gives the tree React Query. It sits inside a `DaemonProvider`; `daemonId` starts every key, so two daemons never share an entry.
  * A gap in the event stream and a reconnect make every active query read again; the events in between are cache edits.
+ * A reconnect does not replay what was missed: the open screens read again and the events after the read are the changes since.
  */
 export function DataProvider(props: { daemonId: string; box?: BoxComponent; client?: QueryClient; children?: ReactNode }) {
   const { daemonId, box = null } = props;
@@ -40,8 +43,9 @@ export function DataProvider(props: { daemonId: string; box?: BoxComponent; clie
     const offs = [
       store.client.onEvent((e) => bridge.push(e)),
       store.client.onGap(() => resync(queries, daemonId)),
-      store.client.onState((st) => {
-        if (st === 'open') resync(queries, daemonId);
+      store.client.onResume((r) => {
+        resume(queries, daemonId, placesHeld(queries));
+        void readAway(store.client, queries, daemonId, r.from);
       }),
     ];
     return () => {

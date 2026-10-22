@@ -26,6 +26,7 @@ export function stubClient(reply: Reply = () => ({})) {
   const events = new Set<(e: WireEvent) => void>();
   const gaps = new Set<() => void>();
   const states = new Set<(s: string) => void>();
+  const resumes = new Set<(r: { from: number | undefined }) => void>();
   const stub = {
     state: 'open',
     hello: null,
@@ -38,6 +39,7 @@ export function stubClient(reply: Reply = () => ({})) {
     async subscribe() {},
     onEvent: (f: (e: WireEvent) => void) => (events.add(f), () => events.delete(f)),
     onGap: (f: () => void) => (gaps.add(f), () => gaps.delete(f)),
+    onResume: (f: (r: { from: number | undefined }) => void) => (resumes.add(f), () => resumes.delete(f)),
     onState: (f: (s: string) => void) => (states.add(f), () => states.delete(f)),
     close() {},
     emit: (e: Partial<WireEvent> & { type: string; topic: WireEvent['topic'] }) =>
@@ -45,7 +47,7 @@ export function stubClient(reply: Reply = () => ({})) {
         f({ cursor: 1, at: '2026-01-01T00:00:00Z', actor: null, agent: null, title: null, target: null, data: {}, ...e }),
       ),
     gap: () => gaps.forEach((f) => f()),
-    reconnect: () => states.forEach((f) => f('open')),
+    reconnect: (r = { from: undefined }) => resumes.forEach((f) => f(r)),
     count: (method: string) => calls.filter((c) => c.method === method).length,
   };
   return stub;

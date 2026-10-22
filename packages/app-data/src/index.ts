@@ -1,3 +1,4 @@
+export * from '#src/away.ts';
 export * from '#src/bridge.ts';
 export * from '#src/cache.ts';
 export * from '#src/chat.ts';

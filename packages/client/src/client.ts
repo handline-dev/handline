@@ -12,7 +12,7 @@ import {
   type TerminalSnapshot,
   type Topic,
 } from '#src/protocol.ts';
-import type { Transport } from '#src/transport.ts';
+import type { Resumed, Transport } from '#src/transport.ts';
 import { RpcError } from '#src/errors.ts';
 import { BytesChannel } from '#src/bytes-channel.ts';
 import { toBase64 } from '#src/byte-terminal-view.ts';
@@ -61,6 +61,8 @@ export class DaemonClient {
   private cursor: number | undefined;
   private eventHandlers = new Set<Handler<WireEvent>>();
   private gapHandlers = new Set<Handler<Notifications['gap']>>();
+  private resumeHandlers = new Set<Handler<Resumed>>();
+  private wasOpen = false; // the next connection is a reconnect
   private stateHandlers = new Set<Handler<ConnectionState>>();
   private views = new Map<string, TerminalView>();
   /** The terminal channel in format `bytes`, for a pane that renders the host's own escape codes. */
@@ -127,6 +129,7 @@ export class DaemonClient {
     } finally {
       this.opening = false;
     }
+    this.wasOpen = true;
     this.setState('open');
     const waiters = this.waitingForOpen;
     this.waitingForOpen = [];
@@ -154,7 +157,12 @@ export class DaemonClient {
   }
 
   private async establish(): Promise<void> {
-    if (this.topics.size) await this.callNow('subscribe', { topics: [...this.topics], since: this.cursor });
+    // A reconnect resumes at the newest event, not the last seen: the screens read again, and what follows is the changes since.
+    const back = this.wasOpen;
+    const r = this.topics.size && (await this.callNow('subscribe', { topics: [...this.topics], ...(back ? { resume: 'latest' as const } : { since: this.cursor }) }));
+    const from = this.cursor;
+    if (back && r) this.cursor = r.cursor;
+    if (back) for (const fn of this.resumeHandlers) fn({ from });
     for (const v of this.views.values()) await this.attach(v);
     await this.bytes.reattachAll();
   }
@@ -291,6 +299,10 @@ export class DaemonClient {
   onEvent(fn: Handler<WireEvent>): () => void {
     this.eventHandlers.add(fn);
     return () => this.eventHandlers.delete(fn);
+  }
+  /** The connection is back and the stream restarts at the newest event: read again what is shown. */
+  onResume(fn: Handler<Resumed>): () => void {
+    return (this.resumeHandlers.add(fn), () => this.resumeHandlers.delete(fn));
   }
   /** The daemon dropped history this client needed: refetch what the events described. */
   onGap(fn: Handler<Notifications['gap']>): () => void {
