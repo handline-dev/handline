@@ -1,0 +1,230 @@
+{
+ "fixtures": [
+  {
+   "name": "hr.decide.a_rename_of_a_running_agent_applies_when_its_turn_ends",
+   "spec": "hr.decide",
+   "as": "founder",
+   "with": {
+    "lead": "agent"
+   },
+   "about": "Approving a rename of an agent mid-turn is accepted with a said naming it, the proposal turns applying with the agent in waiting_on, and when the turn ends it turns approved: the old name is gone and the new one has a session. Needs --var hr_turn_agent (an agent hr may rename, mid-turn in a turn that ends on its own 20 to 60 s after the fixture starts) and hr_turn_rename_to (a free name).",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "on": "lead",
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "subscribe",
+      "params": {
+       "topics": [
+        "hr"
+       ]
+      }
+     },
+     "result": {
+      "cursor": {
+       "$type": "integer"
+      }
+     }
+    },
+    {
+     "on": "lead",
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "hr.propose",
+      "params": {
+       "kind": "rename",
+       "args": {
+        "name": "{{hr_turn_agent}}",
+        "to": "{{hr_turn_rename_to}}"
+       },
+       "why": "conformance: a rename waits for the turn",
+       "request_id": "conf-hr-applying-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "proposal": {
+       "$save": "applying_id"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "hr.list",
+      "params": {
+       "state": "open"
+      }
+     },
+     "result": {
+      "proposals": {
+       "$contains": {
+        "id": "{{applying_id}}",
+        "subject": {
+         "$save": "applying_subject"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "hr.decide",
+      "params": {
+       "proposal": "{{applying_id}}",
+       "decision": "approve",
+       "subject": "{{applying_subject}}",
+       "request_id": "conf-hr-applying-2"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$regex": "{{hr_turn_agent}}"
+      }
+     },
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "hr",
+        "type": "hr.settled",
+        "data": {
+         "proposal": {
+          "id": "{{applying_id}}",
+          "state": "applying",
+          "waiting_on": [
+           "{{hr_turn_agent}}"
+          ],
+          "settled": null
+         }
+        }
+       }
+      }
+     ]
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "hr.list",
+      "params": {
+       "state": "applying"
+      }
+     },
+     "result": {
+      "proposals": {
+       "$contains": {
+        "id": "{{applying_id}}",
+        "state": "applying"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "hr.decide",
+      "params": {
+       "proposal": "{{applying_id}}",
+       "decision": "approve",
+       "subject": "{{applying_subject}}",
+       "request_id": "conf-hr-applying-3"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "proposal_settled"
+      }
+     }
+    },
+    {
+     "notices": [
+      {
+       "jsonrpc": "2.0",
+       "method": "event",
+       "params": {
+        "topic": "hr",
+        "type": "hr.settled",
+        "data": {
+         "proposal": {
+          "id": "{{applying_id}}",
+          "state": "approved",
+          "settled": {
+           "$type": "timestamp"
+          }
+         }
+        }
+       }
+      }
+     ],
+     "notices_within_s": 90
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{hr_turn_rename_to}}"
+      }
+     },
+     "result": {
+      "name": "{{hr_turn_rename_to}}",
+      "session_open": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "agent.get",
+      "params": {
+       "agent": "{{hr_turn_agent}}"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
