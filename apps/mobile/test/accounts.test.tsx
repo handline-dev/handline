@@ -22,7 +22,9 @@ async function until(cond: () => unknown, what: string, ms = 4000) {
 
 let root: Root | null = null;
 let box: HTMLElement;
-const $ = (id: string) => box.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+// A sheet is a Modal, which draws outside the screen's own container.
+const $ = (id: string) =>
+  box.querySelector<HTMLElement>(`[data-testid="${id}"]`) ?? document.body.querySelector<HTMLElement>(`[data-testid="${id}"]`);
 const text = (el: Element | null = box) => el?.textContent ?? '';
 const press = (el: HTMLElement | null) => act(async () => void el?.click());
 const type = (id: string, value: string) =>

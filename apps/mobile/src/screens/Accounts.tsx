@@ -11,7 +11,8 @@ import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { AccountLogin } from '#src/screens/AccountLogin.tsx';
 import { Loadable } from '#src/screens/Loadable.tsx';
-import { Button, Card, PageHeader } from '#src/screens/parts.tsx';
+import { Button, PageHeader } from '#src/screens/parts.tsx';
+import { Sheet } from '#src/screens/TaskActions.tsx';
 
 /** The topic's rows are live; the usage read adds the fields only it carries. */
 function useUsageRows(): Account[] | undefined {
@@ -152,36 +153,16 @@ function Add() {
       <Button testID="account-add-open" label="Add account" disabled={!!off || asking} onPress={() => setAsking(true)} />
       {off ? <Text style={{ color: c.muted }}>Locked: {off}.</Text> : null}
       {asking ? (
-        <View
-          testID="sheet"
-          style={{
-            gap: space.sm,
-            padding: space.md,
-            borderWidth: 1,
-            borderColor: c.line,
-            borderRadius: radius.md,
-            backgroundColor: c.panel,
-            alignSelf: 'stretch',
-          }}
+        <Sheet
+          label="Add an account"
+          submit={adding ? 'Adding…' : 'Add account'}
+          busy={!name.trim() || adding}
+          onCancel={close}
+          onSubmit={() => add.mutate({ account: name.trim() }, { onSuccess: close })}
+          error={add.error ? sentence(classify(add.error)) : undefined}
         >
-          <Text style={{ color: c.ink, fontWeight: '600' }}>Add an account</Text>
           <Input testID="sheet-name" label="Name" value={name} onChange={setName} />
-          {add.error ? (
-            <Text testID="sheet-error" accessibilityRole="alert" style={{ color: c.block }}>
-              {sentence(classify(add.error))}
-            </Text>
-          ) : null}
-          <View style={{ flexDirection: 'row', gap: space.sm }}>
-            <Button
-              testID="sheet-submit"
-              label={adding ? 'Adding…' : 'Add account'}
-              disabled={!name.trim() || adding}
-              onPress={() => add.mutate({ account: name.trim() }, { onSuccess: close })}
-              style={{ flex: 1 }}
-            />
-            <Button testID="sheet-cancel" label="Cancel" onPress={close} />
-          </View>
-        </View>
+        </Sheet>
       ) : null}
     </View>
   );
@@ -341,8 +322,15 @@ function RemoveSheet({ a, onClose }: { a: Account; onClose: () => void }) {
   const would = plan.data?.would_remove === true;
   const failed = plan.error ?? remove.error;
   return (
-    <Card testID="sheet">
-      <Text style={{ color: c.ink, fontWeight: '600' }}>Remove {a.label}</Text>
+    <Sheet
+      label={`Remove ${a.label}`}
+      submit={removing ? 'Removing…' : 'Remove account'}
+      kind="no"
+      busy={!would || typed !== a.name || removing}
+      onCancel={onClose}
+      onSubmit={() => remove.mutate({ account: a.name, confirm: typed }, { onSuccess: onClose })}
+      error={failed ? sentence(classify(failed)) : undefined}
+    >
       {plan.isPending ? <Text style={{ color: c.muted }}>Checking what removing it would do…</Text> : null}
       {a.agents.length ? <Text style={{ color: c.wait }}>On it now: {a.agents.join(', ')}. Move them off first.</Text> : null}
       {(plan.data?.plan ?? []).map((l) => (
@@ -350,28 +338,12 @@ function RemoveSheet({ a, onClose }: { a: Account; onClose: () => void }) {
           • {l}
         </Text>
       ))}
-      {failed ? (
-        <Text testID="sheet-error" accessibilityRole="alert" style={{ color: c.block }}>
-          {sentence(classify(failed))}
-        </Text>
-      ) : null}
       {would ? (
         <>
           <Input testID="sheet-confirm" label={`Type ${a.name} to confirm`} value={typed} onChange={setTyped} />
           <Text style={{ color: c.muted, fontSize: 12 }}>Its directory is moved aside, not deleted.</Text>
         </>
       ) : null}
-      <View style={{ flexDirection: 'row', gap: space.sm }}>
-        <Button
-          testID="sheet-submit"
-          kind="no"
-          label={removing ? 'Removing…' : 'Remove account'}
-          disabled={!would || typed !== a.name || removing}
-          onPress={() => remove.mutate({ account: a.name, confirm: typed }, { onSuccess: onClose })}
-          style={{ flex: 1 }}
-        />
-        <Button testID="sheet-cancel" label="Cancel" onPress={onClose} />
-      </View>
-    </Card>
+    </Sheet>
   );
 }

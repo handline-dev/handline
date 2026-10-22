@@ -22,6 +22,7 @@ import { Detail } from '#src/screens/Tasks.tsx';
 import { NeedsYouCard } from '#src/screens/NeedsYouCard.tsx';
 import { ChatSearch } from '#src/screens/ChatSearch.tsx';
 import { useChatImages } from '#src/screens/ChatImages.tsx';
+import { SendButton, WorkingBubble } from '#src/screens/ChatSend.tsx';
 import { Icon } from '#src/screens/Icon.tsx';
 import { Button, Link, Row } from '#src/screens/parts.tsx';
 
@@ -216,11 +217,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
             />
           ),
         )}
-        {working && (
-          <Text testID="working" accessibilityRole="text" style={{ color: c.muted, fontSize: 12 }}>
-            ◐ {chat.working.line ?? 'Working'}…
-          </Text>
-        )}
+        <WorkingBubble working={working} line={chat.working.line ?? null} />
       </ScrollView>
       <HandoffLine handoff={props.detail.handoff ?? null} items={chat.items} />
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
@@ -248,14 +245,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
             padding: space.md,
           }}
         />
-        {working && props.detail.structured ? (
-          <View style={{ gap: space.xs }}>
-            <Button testID="chat-send-now" label="Send now" disabled={!canSend || empty} onPress={() => void send('now')} />
-            <Button testID="chat-send" label="Queue" disabled={!canSend || empty} onPress={() => void send('queue')} />
-          </View>
-        ) : (
-          <Button testID="chat-send" label="Send" disabled={!canSend || empty} onPress={() => void send()} />
-        )}
+        <SendButton disabled={!canSend || empty} choose={!!working && !!props.detail.structured} onSend={(d) => void send(d)} />
       </Row>
     </View>
   );

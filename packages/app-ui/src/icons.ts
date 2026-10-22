@@ -89,6 +89,7 @@ export const ICON_SPEC = {
   maybeRan: ['TriangleAlert', 'May or may not have run'],
   // chat: verbs
   send: ['SendHorizontal', 'Send'],
+  sendUp: ['ArrowUp', 'Send'],
   web: ['Globe', 'Preview'],
   device: ['Smartphone', 'Device'],
   reference: ['CornerUpLeft', 'Reply to this'],

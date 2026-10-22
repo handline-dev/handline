@@ -11,6 +11,7 @@ import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
 import { Schedules } from '#src/screens/Schedules.tsx';
+import { Sheet } from '#src/screens/TaskActions.tsx';
 
 const SECTIONS: { id: Field['section']; title: string }[] = [
   { id: 'model', title: 'Model' },
@@ -161,27 +162,20 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
         </Text>
       ) : null}
       {danger ? (
-        <View
-          testID={`${f.key}-ask`}
-          accessibilityRole="alert"
-          style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.block, borderRadius: radius.md }}
+        <Sheet
+          id={f.key}
+          label={danger.title}
+          submit={danger.go}
+          kind="no"
+          onCancel={() => setAsk(null)}
+          onSubmit={() => {
+            const v = ask!;
+            setAsk(null);
+            send(v);
+          }}
         >
-          <Text style={{ color: c.ink, fontWeight: '700' }}>{danger.title}</Text>
           <Text style={{ color: c.muted }}>{danger.text}</Text>
-          <View style={{ flexDirection: 'row', gap: space.sm }}>
-            <Button
-              testID={`${f.key}-go`}
-              label={danger.go}
-              kind="no"
-              onPress={() => {
-                const v = ask!;
-                setAsk(null);
-                send(v);
-              }}
-            />
-            <Button testID={`${f.key}-cancel`} label="Cancel" onPress={() => setAsk(null)} />
-          </View>
-        </View>
+        </Sheet>
       ) : null}
     </View>
   );

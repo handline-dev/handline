@@ -9,6 +9,7 @@ import {
   PanResponder,
   PixelRatio,
   Platform,
+  Pressable,
   SafeAreaView,
   StatusBar,
   Text,
@@ -22,6 +23,45 @@ import { MARK_COLOR, initialMarks, keptMarks, marksReducer, marksToShapes, shape
 import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Link } from '#src/screens/parts.tsx';
+
+const BAR_H = 48;
+
+function BarButton(props: { label: string; onPress: () => void; testID: string; disabled?: boolean; bold?: boolean }) {
+  return (
+    <Pressable
+      testID={props.testID}
+      accessibilityRole="button"
+      disabled={props.disabled}
+      hitSlop={8}
+      onPress={props.onPress}
+      style={{ opacity: props.disabled ? 0.4 : 1 }}
+    >
+      <Text style={{ color: '#fff', fontSize: 16, fontWeight: props.bold ? '700' : '500' }}>{props.label}</Text>
+    </Pressable>
+  );
+}
+
+/** The bar floats over the picture and is dragged up or down by its body; the buttons on it still take taps. */
+function useDraggableBar(roomH: number) {
+  const [y, setY] = useState<number>(space.md);
+  const yRef = useRef(y);
+  yRef.current = y;
+  const start = useRef(0);
+  const limit = useRef(0);
+  limit.current = Math.max(0, roomH - BAR_H);
+  const pan = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dy) > 6 && Math.abs(g.dy) > Math.abs(g.dx),
+        onPanResponderGrant: () => {
+          start.current = yRef.current;
+        },
+        onPanResponderMove: (_e, g) => setY(Math.min(limit.current, Math.max(0, start.current + g.dy))),
+      }),
+    [],
+  );
+  return { y, pan };
+}
 
 const MAX_SIDE = 2048;
 const MEMO_W = 220;
@@ -41,6 +81,7 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
   const [natural, setNatural] = useState({ w: 0, h: 0 });
   const [room, setRoom] = useState({ w: 0, h: 0 });
   const [capturing, setCapturing] = useState(false);
+  const bar = useDraggableBar(room.h);
   const shot = useRef<View>(null);
   const surface = useRef<View>(null);
   const origin = useRef({ x: 0, y: 0 });
@@ -108,16 +149,8 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
   return (
     <Modal visible animationType="slide" onRequestClose={props.onCancel}>
       {/* Android draws the modal under the status bar; SafeAreaView does not pad it there */}
-      <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0 }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#000', paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0 }}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg, padding: space.md }}>
-            <Link testID="mark-cancel" label="Cancel" onPress={props.onCancel} />
-            <Text style={{ color: c.muted, flex: 1, textAlign: 'center' }}>
-              {marks.length} {marks.length === 1 ? 'comment' : 'comments'}
-            </Text>
-            <Link testID="mark-undo" label="Undo" disabled={!state.past.length} onPress={() => dispatch({ type: 'undo' })} />
-            <Link testID="mark-done" label="Done" onPress={() => void done()} />
-          </View>
           <View
             testID="mark-room"
             style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
@@ -217,6 +250,30 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
                 )}
               </View>
             )}
+          </View>
+          <View
+            testID="mark-bar"
+            {...bar.pan.panHandlers}
+            style={{
+              position: 'absolute',
+              left: space.lg,
+              right: space.lg,
+              top: bar.y,
+              height: BAR_H,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: space.lg,
+              paddingHorizontal: space.lg,
+              borderRadius: radius.pill,
+              backgroundColor: 'rgba(24,24,24,0.72)',
+            }}
+          >
+            <BarButton testID="mark-cancel" label="Cancel" onPress={props.onCancel} />
+            <Text numberOfLines={1} style={{ color: '#fff', flex: 1, textAlign: 'center' }}>
+              {marks.length} {marks.length === 1 ? 'mark' : 'marks'}
+            </Text>
+            <BarButton testID="mark-undo" label="Undo" disabled={!state.past.length} onPress={() => dispatch({ type: 'undo' })} />
+            <BarButton testID="mark-done" label="Save" bold onPress={() => void done()} />
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>

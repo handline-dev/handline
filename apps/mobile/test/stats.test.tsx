@@ -153,14 +153,14 @@ describe('the standing answers', () => {
     expect(box.querySelectorAll('[data-testid="answer-trust"]').length).toBe(1);
     await press($('answer-new'));
     await type('answer-folder', '/work/new');
-    await press($('answer-add'));
+    await press($('answer-go'));
     await until(() => box.querySelectorAll('[data-testid="answer-trust"]').length === 2, 'the folder');
     await press($('answer-new'));
     await press($('kind-dialog'));
     await type('answer-vendor', 'claude');
     await type('answer-title', 'Continue');
     await type('answer-option', 'Yes');
-    await press($('answer-add'));
+    await press($('answer-go'));
     await until(() => box.querySelectorAll('[data-testid="answer-dialog"]').length === 2, 'the dialog answer');
     await press(box.querySelector('[data-testid="answer-trust"] [data-testid="answer-remove"]'));
     await until(() => box.querySelectorAll('[data-testid="answer-trust"]').length === 1, 'the removal');
@@ -174,7 +174,7 @@ describe('the standing answers', () => {
     m.daemon.knobs.refuse('answer.add', 'role', 'only the founder may add an answer');
     await press($('answer-new'));
     await type('answer-folder', '/work/refused');
-    await press($('answer-add'));
+    await press($('answer-go'));
     await until(() => text($('answers-note')).includes('only the founder may add'), 'the add refusal');
     await until(() => box.querySelectorAll('[data-testid="answer-trust"]').length === 1, 'the list back as it was');
     m.daemon.knobs.refuse('answer.remove', 'role', 'only the founder may remove an answer');
@@ -201,7 +201,7 @@ describe('the standing answers', () => {
     await settings();
     await until(() => $('answer-trust'), 'the answers');
     await press($('answer-new'));
-    await press($('answer-add'));
+    await press($('answer-go'));
     expect(box.querySelectorAll('[data-testid="answer-trust"]').length).toBe(1);
     m.store.stop();
   });

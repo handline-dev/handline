@@ -27,6 +27,7 @@ import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
 import { Button, Card as Panel } from '#src/screens/parts.tsx';
+import { Sheet } from '#src/screens/TaskActions.tsx';
 
 export function Hr() {
   const c = usePalette();
@@ -69,30 +70,26 @@ export function Hr() {
           )}
         </View>
         {all === 'ask' ? (
-          <View
-            testID="hr-all-sheet"
-            style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.md }}
+          <Sheet
+            id="hr-all"
+            label={`Approve all ${waiting.length}?`}
+            submit="Approve all"
+            busy={going}
+            onCancel={() => !going && setAll(null)}
+            onSubmit={() => void decideAll('approve')}
           >
-            <Text style={{ color: c.ink, fontWeight: '600' }}>Approve all {waiting.length}?</Text>
             <Text style={{ color: c.muted }}>Each is applied as its card shows it; one that fails stays waiting.</Text>
-            <View style={{ flexDirection: 'row', gap: space.sm }}>
-              <Button
-                testID="hr-all-go"
-                kind="yes"
-                label="Approve all"
-                disabled={going}
-                onPress={() => void decideAll('approve')}
-                style={{ flex: 1 }}
-              />
-              <Button testID="hr-all-cancel" label="Cancel" disabled={going} onPress={() => setAll(null)} />
-            </View>
-          </View>
+          </Sheet>
         ) : all === 'reject' ? (
-          <View
-            testID="hr-reject-all-sheet"
-            style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.md }}
+          <Sheet
+            id="hr-reject-all"
+            label={`Reject all ${waiting.length}?`}
+            submit="Reject all"
+            kind="no"
+            busy={going || !why.trim()}
+            onCancel={() => !going && setAll(null)}
+            onSubmit={() => void decideAll('reject')}
           >
-            <Text style={{ color: c.ink, fontWeight: '600' }}>Reject all {waiting.length}?</Text>
             <TextInput
               testID="hr-reject-all-why"
               accessibilityLabel="Reason"
@@ -102,18 +99,7 @@ export function Hr() {
               onChangeText={setWhy}
               style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.md, padding: space.md, minHeight: 44 }}
             />
-            <View style={{ flexDirection: 'row', gap: space.sm }}>
-              <Button
-                testID="hr-reject-all-go"
-                kind="no"
-                label="Reject all"
-                disabled={going || !why.trim()}
-                onPress={() => void decideAll('reject')}
-                style={{ flex: 1 }}
-              />
-              <Button testID="hr-reject-all-cancel" label="Cancel" disabled={going} onPress={() => setAll(null)} />
-            </View>
-          </View>
+          </Sheet>
         ) : all ? (
           <Text testID="hr-all-note" accessibilityRole="alert" style={{ color: c.block }}>
             {all}
@@ -250,7 +236,16 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
       )}
       {waiting && props.decider && (off.decide ?? null) && <Text style={{ color: c.muted, fontSize: 12 }}>{off.decide}</Text>}
       {ask === 'reject' && (
-        <View testID="hr-reject-sheet" style={{ gap: space.sm }}>
+        <Sheet
+          id="hr-reject"
+          label="Reject this proposal?"
+          submit="Reject"
+          kind="no"
+          busy={locked}
+          onCancel={() => setAsk(null)}
+          onSubmit={reject}
+          error={needWhy ? 'A reason is required.' : undefined}
+        >
           <TextInput
             testID="hr-reject-why"
             accessibilityLabel="Why reject"
@@ -267,32 +262,20 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
               minHeight: 44,
             }}
           />
-          {needWhy && (
-            <Text testID="hr-reject-error" accessibilityRole="alert" style={{ color: c.block }}>
-              A reason is required.
-            </Text>
-          )}
-          <View style={{ flexDirection: 'row', gap: space.sm }}>
-            <Button testID="hr-reject-go" kind="no" label="Reject" disabled={locked} onPress={reject} style={{ flex: 1 }} />
-            <Button testID="hr-reject-cancel" label="Cancel" onPress={() => setAsk(null)} />
-          </View>
-        </View>
+        </Sheet>
       )}
       {ask === 'withdraw' && (
-        <View testID="hr-withdraw-sheet" style={{ gap: space.sm }}>
+        <Sheet
+          id="hr-withdraw"
+          label="Withdraw this proposal?"
+          submit="Withdraw"
+          kind="no"
+          busy={locked}
+          onCancel={() => setAsk(null)}
+          onSubmit={() => sent(withdraw.mutateAsync({ proposal: p.id }), 'withdraw', () => setAsk(null))}
+        >
           <Text style={{ color: c.muted }}>Takes the proposal back; whoever raised it can raise it again.</Text>
-          <View style={{ flexDirection: 'row', gap: space.sm }}>
-            <Button
-              testID="hr-withdraw-go"
-              kind="no"
-              label="Withdraw"
-              disabled={locked}
-              onPress={() => sent(withdraw.mutateAsync({ proposal: p.id }), 'withdraw', () => setAsk(null))}
-              style={{ flex: 1 }}
-            />
-            <Button testID="hr-withdraw-cancel" label="Cancel" onPress={() => setAsk(null)} />
-          </View>
-        </View>
+        </Sheet>
       )}
       {ask === 'settings' && <AgentSettings agent={p.agent!} onClose={() => setAsk(null)} />}
     </View>
