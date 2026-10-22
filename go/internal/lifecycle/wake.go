@@ -321,6 +321,12 @@ func (m *Manager) wakeAgent(agent string, o WakeOpts) (bool, string) {
 	return false, "its session is still running; a handoff closes it and the wake starts a new one"
 }
 
+// personWaiting is whether what the agent would wake for is a person's message.
+func (m *Manager) personWaiting(agent string) bool {
+	head, err := m.Delivery.EffectiveHead(m.Q, agent)
+	return err == nil && head != nil && head.Requester == db.Human
+}
+
 // wakeClosed brings a closed agent back: its shell is put back into the session, resuming the same one first (which is what makes
 // closing cheap) and a fresh start the fallback, not the plan.
 func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string, o WakeOpts) (bool, string) {
@@ -395,10 +401,14 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	// lives; past that a resume pays for its context in full, and a fresh start elsewhere with the handoff is no worse.
 	session := row.ResumeSession.String
 	wait := m.Launch.WakeWait(m.Q, agent, row)
+	if wait != nil && wait.Pace != nil && (force || m.personWaiting(agent)) {
+		// The pace holds only the daemon's own work: a person's start or message, and a restart, go.
+		wait = nil
+	}
 	if o.Person && wait != nil && movedTo == "" {
 		// A person's start queues behind no older closed agent, and a full or walled account sends it where there is room now: the account
 		// with the most headroom against both its 5h and weekly fill rate.
-		if wait.Slot && wait.Busy < wait.Full {
+		if wait.Slot && wait.Busy < wait.Unpaced {
 			wait = nil
 		} else if session != "" {
 			to, why := m.Launch.RoomNow(m.Q, agent, row, wait.Account)

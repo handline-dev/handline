@@ -18,14 +18,14 @@ func TestForceStartPassesOnlyWorkTheLoadHolds(t *testing.T) {
 	db.SetAgentState(p.db, "alice", states.Running, 0, "") // one mid-turn, so a start may be held
 	p.db.Exec("UPDATE agent_state SET account = 'a' WHERE agent = 'alice'")
 	db.AddPending(p.db, "bob", "job", 1)
-	if ok, said, _ := c.ForceStart("bob"); ok || !strings.Contains(said, "holds nothing") {
+	if ok, said, _ := c.ForceStart("bob"); ok || !strings.Contains(said, "hold nothing") {
 		t.Fatalf("under the limits: %v %q", ok, said)
 	}
 	machine.Load1 = 8 // 2.00 per core
 	if lc.Gate.Held("bob") == "" {
 		t.Fatal("over the load limit and not held")
 	}
-	if ok, said, _ := c.ForceStart("carol"); ok || !strings.Contains(said, "holds nothing") {
+	if ok, said, _ := c.ForceStart("carol"); ok || !strings.Contains(said, "hold nothing") {
 		t.Fatalf("nothing waits for carol: %v %q", ok, said)
 	}
 	ok, said, err := c.ForceStart("bob")

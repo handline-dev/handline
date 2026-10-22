@@ -84,4 +84,39 @@ describe('settings: more sections', () => {
     await until(() => $('[data-setting="Role"]'), 'the connection');
     expect($('[data-setting="Role"] input')).toBeNull();
   });
+
+  it("the connection rows equal the daemon's answer, and the fingerprint copies whole", async () => {
+    const written: string[] = [];
+    vi.stubGlobal('navigator', { clipboard: { writeText: (t: string) => void written.push(t) } });
+    const s = await mount('#/settings');
+    const info = s.daemon.admin.connection();
+    await until(() => $('[data-setting="Network address"]'), 'the connection rows');
+    expect(text($('[data-setting="Network address"]'))).toContain(info.listener!.address);
+    expect(text($('[data-setting="Encryption"]'))).toContain('Encrypted');
+    expect(text($('[data-setting="Heavy slots"]'))).toContain(String(info.heavy_slots.slots));
+    expect(text($('[data-setting="Dev mode"]'))).toContain('Off');
+    const shown = text($('[data-setting="Fingerprint"] span'));
+    expect(shown.length).toBeLessThan(info.listener!.fingerprint!.length);
+    await click($('[data-setting="Fingerprint"] button'));
+    expect(written).toEqual([info.listener!.fingerprint]);
+  });
+
+  it('a daemon without connection.get shows the four rows it always had', async () => {
+    const s = setup();
+    s.daemon.knobs.unserve('connection.get');
+    await mount('#/settings', s);
+    await until(() => $('[data-setting="Role"]'), 'the connection');
+    expect($('[data-setting="Network address"]')).toBeNull();
+    expect($('[data-setting="Role"]')).not.toBeNull();
+  });
+
+  it('a null listener says there is no network listener', async () => {
+    const s = setup();
+    s.daemon.admin.noListener = true;
+    await mount('#/settings', s);
+    await until(() => $('[data-setting="Network address"]'), 'the connection rows');
+    expect(text($('[data-setting="Network address"]'))).toContain('No network listener');
+    expect($('[data-setting="Encryption"]')).toBeNull();
+    expect($('[data-setting="Fingerprint"]')).toBeNull();
+  });
 });

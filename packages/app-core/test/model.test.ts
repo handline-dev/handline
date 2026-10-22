@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { AgentDetail, AgentView, Prompt } from '@handline/client';
 import {
   promptChoices,
+  whyOf,
   promptTitle,
   controlsOf,
   dotOf,
@@ -219,7 +220,7 @@ test('controls follow the session and who holds the input', () => {
     ['stop', 'release', 'typing'],
   );
   assert.equal(controlsOf(mine, 'you').take, false); // someone else holds it
-  assert.equal(holderLabel(mine.input_holders?.[0], 'me'), 'YOU');
+  assert.equal(holderLabel(mine.input_holders?.[0], 'me'), 'You');
 });
 
 test('the pane layout is remembered per agent and survives bad or blocked storage', () => {
@@ -322,4 +323,11 @@ test('an agent that is restarting stays in the list whatever the filter hides', 
     rows.map((r) => r.agent.name),
     ['again'],
   );
+});
+
+test('a warning mark says why: the blocker, else the wall, else the state detail, else nothing', () => {
+  assert.equal(whyOf({ blocker: ' T7 is not done ', wall_reason: 'usage', state_detail: 'x' }), 'T7 is not done');
+  assert.equal(whyOf({ blocker: null, wall_reason: 'the account is out of usage', state_detail: 'x' }), 'the account is out of usage');
+  assert.equal(whyOf({ state_detail: 'waits for the build' }), 'waits for the build');
+  assert.equal(whyOf({ state_detail: '' }), null);
 });

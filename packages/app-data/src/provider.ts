@@ -45,7 +45,7 @@ export function DataProvider(props: { daemonId: string; box?: BoxComponent; clie
       store.client.onGap(() => resync(queries, daemonId)),
       store.client.onResume((r) => {
         resume(queries, daemonId, placesHeld(queries));
-        void readAway(store.client, queries, daemonId, r.from);
+        void readAway(store.client, queries, daemonId, r.from, store.notices);
       }),
     ];
     return () => {
