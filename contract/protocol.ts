@@ -1671,6 +1671,8 @@ export type NavPrefs = {
   layout: "tree" | "flat";
   /** Agents folded in the tree. */
   collapsed: AgentName[];
+  /** The person's order for the tree layout: agents under one parent, and the top-level agents, stand in this order; one not listed (a new agent) comes after the listed ones, by name. The flat layout ignores it. No name twice. */
+  order: AgentName[];
 };
 
 /** Any keys of NavPrefs; each given key replaces the stored value whole. */
@@ -1685,9 +1687,11 @@ export type NavPrefsChanges = {
   layout?: "tree" | "flat";
   /** Agents folded in the tree. */
   collapsed?: AgentName[];
+  /** The person's order for the tree layout: agents under one parent, and the top-level agents, stand in this order; one not listed (a new agent) comes after the listed ones, by name. The flat layout ignores it. No name twice. */
+  order?: AgentName[];
 };
 
-/** The person's view preferences, one set for the founder's devices, kept by the daemon. A new daemon serves the defaults: no pins, unread_only false, hidden empty, layout tree, collapsed empty. */
+/** The person's view preferences, one set for the founder's devices, kept by the daemon. A new daemon serves the defaults: no pins, unread_only false, hidden empty, layout tree, collapsed empty, order empty. */
 export type Prefs = {
   nav: NavPrefs;
 };

@@ -6618,7 +6618,7 @@
      "$ref": "#/components/errors/refused"
     }
    ],
-   "description": "A pin or a fold naming an agent the daemon does not know, or a name given twice, is bad_request naming the field. Once stored, a prefs.changed event on the prefs topic carries the whole Prefs. agent.retire drops the agent from pins and collapsed (and sends prefs.changed); a rename (hr) carries it over in place."
+   "description": "A pin, a fold or an order entry naming an agent the daemon does not know, or a name given twice, is bad_request naming the field. Once stored, a prefs.changed event on the prefs topic carries the whole Prefs. agent.retire drops the agent from pins, collapsed and order (and sends prefs.changed); a rename (hr) carries it over in place."
   },
   {
    "name": "task.queue",
@@ -16527,6 +16527,13 @@
        "$ref": "#/components/schemas/AgentName"
       },
       "description": "Agents folded in the tree."
+     },
+     "order": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "The person's order for the tree layout: agents under one parent, and the top-level agents, stand in this order; one not listed (a new agent) comes after the listed ones, by name. The flat layout ignores it. No name twice."
      }
     },
     "required": [
@@ -16534,7 +16541,8 @@
      "unread_only",
      "hidden",
      "layout",
-     "collapsed"
+     "collapsed",
+     "order"
     ],
     "additionalProperties": false
    },
@@ -16581,13 +16589,20 @@
        "$ref": "#/components/schemas/AgentName"
       },
       "description": "Agents folded in the tree."
+     },
+     "order": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "The person's order for the tree layout: agents under one parent, and the top-level agents, stand in this order; one not listed (a new agent) comes after the listed ones, by name. The flat layout ignores it. No name twice."
      }
     },
     "additionalProperties": false
    },
    "Prefs": {
     "type": "object",
-    "description": "The person's view preferences, one set for the founder's devices, kept by the daemon. A new daemon serves the defaults: no pins, unread_only false, hidden empty, layout tree, collapsed empty.",
+    "description": "The person's view preferences, one set for the founder's devices, kept by the daemon. A new daemon serves the defaults: no pins, unread_only false, hidden empty, layout tree, collapsed empty, order empty.",
     "properties": {
      "nav": {
       "$ref": "#/components/schemas/NavPrefs"
