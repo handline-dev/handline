@@ -65,6 +65,9 @@ jobs:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-${{ github.sha }}
           restore-keys: turbo-${{ runner.os }}-
+      - name: No internal words in the apps' user-visible strings
+        if: steps.plan.outputs.apps != 'no'
+        run: node tools/ui-copy-check.mjs
       - name: Tests, typecheck and lint of the apps
         if: steps.plan.outputs.apps != 'no'
         run: |

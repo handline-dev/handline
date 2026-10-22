@@ -32,9 +32,9 @@ func (f fakeBackground) WallReason(_ db.Q, a string, _ *db.AgentState) (string, 
 	return "", f.wallErr[a]
 }
 
-type fakeWakes struct{}
+type fakeWakes struct{ would map[string]bool }
 
-func (fakeWakes) WouldWake(*db.AgentState) (bool, error)                  { return false, nil }
+func (f fakeWakes) WouldWake(row *db.AgentState) (bool, error)            { return f.would[row.Agent], nil }
 func (fakeWakes) RestartRetryNote(string, *db.AgentState) (string, error) { return "", nil }
 
 type fakePrompts struct{ open map[string]*prompts.Block }
@@ -46,6 +46,7 @@ type rig struct {
 	sess fakeSessions
 	bg   fakeBackground
 	pr   fakePrompts
+	wake fakeWakes
 }
 
 func newRig(t *testing.T, structured ...string) *rig {
@@ -59,13 +60,14 @@ func newRig(t *testing.T, structured ...string) *rig {
 		sess: fakeSessions{map[string]bool{}, map[string]bool{}, map[string]bool{}},
 		bg:   fakeBackground{wallErr: map[string]error{}, work: map[string]bool{}},
 		pr:   fakePrompts{open: map[string]*prompts.Block{}},
+		wake: fakeWakes{would: map[string]bool{}},
 	}
 	names := []string{}
 	for _, n := range structured {
 		r.sess.structured[n] = true
 		names = append(names, n)
 	}
-	r.env = &Env{Q: d, Home: t.TempDir(), Sessions: r.sess, Background: r.bg, Wakes: fakeWakes{}, Prompts: r.pr,
+	r.env = &Env{Q: d, Home: t.TempDir(), Sessions: r.sess, Background: r.bg, Wakes: r.wake, Prompts: r.pr,
 		Agents: func() []string { return names }, Now: func() int64 { return 5000 }}
 	return r
 }

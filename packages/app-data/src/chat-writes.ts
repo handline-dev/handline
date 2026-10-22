@@ -120,7 +120,11 @@ export const chatWrites: Record<string, WriteSpec> = {
         return mapPages(d, (page) => ({
           ...page,
           messages: page.messages.flatMap((m) =>
-            m.id < 0 && m.to === agent && m.body === body && m.state !== 'failed' ? (has ? [] : (takeOver(request, m.id), [{ ...m, id: request }])) : [m],
+            m.id < 0 && m.to === agent && m.body === body && m.state !== 'failed'
+              ? has
+                ? []
+                : (takeOver(request, m.id), [{ ...m, id: request }])
+              : [m],
           ),
         }));
       });
@@ -136,7 +140,7 @@ export const chatWrites: Record<string, WriteSpec> = {
   // Taking back a message that was only queued: it was never written, so it leaves the conversation (a written one is closed, and stays).
   'chat.cancel': {
     kind: 'decided',
-    label: 'take back',
+    label: 'withdraw',
     reconcile: (c, p) => {
       const { request } = p as { request: number };
       editAll(c, (d) =>
