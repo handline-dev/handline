@@ -110,11 +110,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                   <section id="set-closing">
                     <SectionHead>Closing windows</SectionHead>
                     <SettingsCard>
-                      <NumberRow
-                        {...idleField(v.park_timeout_s)}
-                        hint="Idle time before a session closes"
-                        more="0 is never"
-                      />
+                      <NumberRow {...idleField(v.park_timeout_s)} hint="Idle time before a session closes" more="0 is never" />
                       <BackgroundRows notice={v.bg_notice_s} grace={v.bg_grace_s} check={v.bg_check_s} />
                     </SettingsCard>
                   </section>

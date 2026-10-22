@@ -66,7 +66,13 @@ export const idleField = (parkTimeoutS: number | undefined) => ({
 /** The machine load limits of the Settings page, on the PC and the phone: the daemon starts no new work over any of them; 0 is off. */
 export const limitFields = (v: { host_active_cap?: number; load_per_core_pct?: number; ram_free_min_pct?: number }) => {
   const allowed = 'a whole number, 0 or off for no limit, or empty for the default';
-  const field = (label: string, hint: string, unit: string, n: number | undefined, key: 'host_active_cap' | 'load_per_core_pct' | 'ram_free_min_pct') => ({
+  const field = (
+    label: string,
+    hint: string,
+    unit: string,
+    n: number | undefined,
+    key: 'host_active_cap' | 'load_per_core_pct' | 'ram_free_min_pct',
+  ) => ({
     label,
     hint,
     unit,
@@ -79,7 +85,13 @@ export const limitFields = (v: { host_active_cap?: number; load_per_core_pct?: n
   if (v.host_active_cap === undefined && v.load_per_core_pct === undefined && v.ram_free_min_pct === undefined) return [];
   return [
     field('Agents at once', 'Agents working at once on this machine, over every account', 'agents', v.host_active_cap, 'host_active_cap'),
-    field('Load per core', 'Most 1-minute load per core; over it no new work starts (150 is 1.5)', '%', v.load_per_core_pct, 'load_per_core_pct'),
+    field(
+      'Load per core',
+      'Most 1-minute load per core; over it no new work starts (150 is 1.5)',
+      '%',
+      v.load_per_core_pct,
+      'load_per_core_pct',
+    ),
     field('Least free memory', 'Under this share of memory free, no new work starts', '%', v.ram_free_min_pct, 'ram_free_min_pct'),
   ];
 };
