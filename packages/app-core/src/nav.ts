@@ -102,6 +102,14 @@ export function movePin(pins: readonly string[], name: string, index: number): s
   return rest;
 }
 
+/** The names shown under the same parent as `name`, in the order shown (a parent the filter hides counts as the top). */
+export function siblingsOf(rows: readonly RailRow[], name: string): string[] {
+  const shown = new Set(rows.map((r) => r.agent.name));
+  const parentOf = (a: AgentView) => (a.parent && shown.has(a.parent) ? a.parent : '');
+  const me = rows.find((r) => r.agent.name === name);
+  return me ? rows.filter((r) => parentOf(r.agent) === parentOf(me.agent)).map((r) => r.agent.name) : [];
+}
+
 /** The saved order after `name` moves to `index` among its siblings (the names now shown under one parent, in the order shown). Other parents' entries stay as they are. */
 export function moveInOrder(order: readonly string[], siblings: readonly string[], name: string, index: number): string[] {
   if (!siblings.includes(name)) return [...order];

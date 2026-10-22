@@ -8,6 +8,7 @@ import {
   DEFAULT_NAV,
   movePin,
   moveInOrder,
+  siblingsOf,
   navDock,
   navList,
   navOf,
@@ -107,4 +108,11 @@ test('moving an agent among its siblings rewrites only their part of the order',
   assert.deepEqual(moveInOrder(['x', 'a', 'b', 'c'], ['a', 'b', 'c'], 'c', 0), ['x', 'c', 'a', 'b']);
   assert.deepEqual(moveInOrder([], ['a', 'b'], 'a', 9), ['b', 'a']);
   assert.deepEqual(moveInOrder(['a'], ['a', 'b'], 'gone', 0), ['a']);
+});
+
+test('siblings are the agents under one parent in the order shown', () => {
+  const rows = navList(team, DEFAULT_NAV).rows;
+  assert.deepEqual(siblingsOf(rows, 'handline.pc'), ['handline.daemon', 'handline.pc']);
+  assert.deepEqual(siblingsOf(rows, 'orca'), ['handline', 'orca']);
+  assert.deepEqual(siblingsOf(rows, 'gone'), []);
 });

@@ -239,15 +239,15 @@ func (l *Launcher) FindRoom(agent string) string {
 }
 
 // ChooseAccount is which account this launch runs on, "" when there is none. The moment a session is made is the only moment its
-// account can be chosen, since after execve the config directory is fixed. Resuming is not that moment: a session id belongs to one
-// account's config directory, so a resumed session goes back to the account it was recorded on, or the run is not a resume at all.
-// account is a destination someone already chose (a move): Build still holds it to the vendor, login and wall checks.
+// account can be chosen, since after execve the config directory is fixed. A resume with no destination goes back to the account it
+// was recorded on. account is a destination someone already chose (a move), a resume too: Build carries the session there
+// (carrySession) and still holds the account to the vendor, login and wall checks.
 func (l *Launcher) ChooseAccount(agent string, resuming bool, account string) string {
-	if resuming {
-		return l.Ports.CurrentAccount(l.Q, agent)
-	}
 	if account != "" {
 		return account
+	}
+	if resuming {
+		return l.Ports.CurrentAccount(l.Q, agent)
 	}
 	return l.FindRoom(agent)
 }
