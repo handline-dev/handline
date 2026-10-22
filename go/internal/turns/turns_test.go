@@ -408,3 +408,48 @@ func TestALateExitOfTheOldProcessDoesNotEndANewLaunch(t *testing.T) {
 		t.Fatal("the old process's exit ended the new launch")
 	}
 }
+
+func call(tool, input string) string {
+	return `{"type":"assistant","timestamp":"2026-10-23T05:00:00.000Z","message":{"content":[{"type":"text","text":"ok"},{"type":"tool_use","name":"` +
+		tool + `","input":` + input + `}]}}`
+}
+
+func TestTheRunningTurnsNewestToolCallIsShownAtMostSoOftenAndGoneWhenItEnds(t *testing.T) {
+	tr, _ := tracker(t)
+	tr.doingEvery = 300 * time.Millisecond
+	told := make(chan struct{}, 8)
+	tr.OnChange(func(string) { told <- struct{}{} })
+	path := transcript(t, call("Read", `{"file_path":"/before/this/turn"}`))
+	tr.Hook("amy", "UserPromptSubmit", map[string]any{"transcript_path": path}, 10)
+	<-told
+	if d := tr.Doing("amy"); d != nil {
+		t.Fatalf("a turn that called nothing yet: %v", d)
+	}
+	write(t, path, call("Bash", `{"command":"sleep 30\necho done"}`))
+	select {
+	case <-told:
+	case <-time.After(wait):
+		t.Fatal("the first call was not told")
+	}
+	if d := tr.Doing("amy"); d == nil || d.Text != "Bash sleep 30" || d.At != 1792731600 {
+		t.Fatalf("got %+v", d)
+	}
+	long := strings.Repeat("é", 70)
+	write(t, path, call("Grep", `{"pattern":"x"}`), call("Bash", `{"command":"`+long+`"}`))
+	time.Sleep(50 * time.Millisecond)
+	if d := tr.Doing("amy"); d.Text != "Bash sleep 30" {
+		t.Fatalf("shown again before doingEvery passed: %+v", d)
+	}
+	select {
+	case <-told:
+	case <-time.After(wait):
+		t.Fatal("the held call was never told")
+	}
+	if d := tr.Doing("amy"); d.Text != "Bash "+strings.Repeat("é", 55) {
+		t.Fatalf("the newest, cut to 60 code points: %q", d.Text)
+	}
+	tr.Hook("amy", "Stop", map[string]any{}, 20)
+	if d := tr.Doing("amy"); d != nil {
+		t.Fatalf("still doing after the turn ended: %+v", d)
+	}
+}
