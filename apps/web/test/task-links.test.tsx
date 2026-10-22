@@ -34,6 +34,7 @@ async function mount() {
   await c.start();
   await c.call('chat.send', { agent: ARCH, body: 'look at T1684, not T99999 or T1684x' });
   c.close();
+  history.replaceState(null, ''); // a fresh page load: no entry left from the test before
   location.hash = `#/agents/${ARCH}`;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);

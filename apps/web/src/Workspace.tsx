@@ -104,13 +104,13 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   );
   const [dragging, setDragging] = useState<string | null>(null);
   // The panes, their tabs and the shown tab ride in the history entry: Back and Forward put that screen back exactly, reopening a tab closed since.
-  const [entry, push] = useHistoryValue('ws');
+  const [entry, push] = useHistoryValue(`ws:${key}`);
   const synced = useRef<string | null>(null);
   const mine = shapeOf(ws);
   useEffect(() => {
     const theirs = entry ? shapeOf(parse(entry) ?? ws) : null;
     if (theirs === null) {
-      recordHistoryValue('ws', JSON.stringify(ws));
+      recordHistoryValue(`ws:${key}`, JSON.stringify(ws));
       synced.current = mine;
     } else if (synced.current === null || theirs !== synced.current) {
       synced.current = theirs;
