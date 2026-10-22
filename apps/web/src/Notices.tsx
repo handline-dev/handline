@@ -1,6 +1,6 @@
 // The notices (T5591 N2): the bell at the status bar's right end with the unread count, the list that opens upward from it (a link to what
 // needs the person, then the team's and the system's), and the short results stacked above it.
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { Notice } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
 import { useMyTurn } from '#src/MyTurn.tsx';
@@ -72,15 +72,8 @@ function Lane({ title, items, fresh }: { title: string; items: Notice[]; fresh: 
 /** The results of what was just done, above the bell: a click closes them, a pointer over one keeps it, each runs out by itself. */
 function Toasts() {
   const store = useStore();
-  useSelector((s) => s.version); // what is on screen depends on the clock, so it is read here and not cached
+  useSelector((s) => s.version); // the store speaks again when a toast runs out; what is on screen depends on the clock, so it is read here and not cached
   const toasts = store.notices.toasts();
-  const next = store.notices.nextExpiry();
-  const [, draw] = useState(0);
-  useEffect(() => {
-    if (next === null) return;
-    const t = setTimeout(() => draw((n) => n + 1), Math.max(next - Date.now(), 0) + 1);
-    return () => clearTimeout(t);
-  }, [next]);
   if (!toasts.length) return null;
   return (
     <div className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[360px] max-w-[90vw] flex-col-reverse gap-1.5" role="status">
