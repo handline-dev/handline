@@ -16,6 +16,7 @@ import { Button, ListRow, MenuItem, MenuSheet, PageHeader, Pill } from '#src/scr
 import { CommentBox, CommentRow } from '#src/screens/Comments.tsx';
 import { NewTask, TaskVerbs, useTaskPending } from '#src/screens/TaskActions.tsx';
 import { TaskHistorySection } from '#src/screens/TaskHistory.tsx';
+import { TaskTimeSection } from '#src/screens/TaskTime.tsx';
 import { TaskGraph } from '#src/screens/TaskGraph.tsx';
 import { PrBody } from '#src/screens/PrBody.tsx';
 import { TaskBatch } from '#src/screens/TaskBatch.tsx';
@@ -340,6 +341,7 @@ function Body({ t }: { t: TaskDetail }) {
         <Section title="Delivery">{line(deliverySummary(t.deliveries))}</Section>
       ) : null}
       <TaskHistorySection id={t.id} />
+      <TaskTimeSection id={t.id} />
       <Activity t={t} />
     </ScrollView>
   );
