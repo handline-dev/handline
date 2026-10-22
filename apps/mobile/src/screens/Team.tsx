@@ -6,6 +6,7 @@ import { useTeamBoard } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Loadable } from '#src/screens/Loadable.tsx';
+import { TeamSeal } from '#src/screens/TeamSeal.tsx';
 
 export function Team() {
   const c = usePalette();
@@ -20,6 +21,7 @@ export function Team() {
       empty="No agents in the team."
     >
       <ScrollView testID="team-list" contentContainerStyle={{ padding: space.lg, gap: space.md }}>
+        <TeamSeal />
         {groups.map((g) => (
           <View key={g.parent ?? ''} style={{ gap: space.sm }}>
             <Text style={{ color: c.muted, fontWeight: '600' }}>{g.parent ? `Reports to ${g.parent}` : 'Top of the team'}</Text>
