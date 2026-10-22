@@ -2,17 +2,17 @@
    Dark is the default; light follows the OS and `data-theme` on <html> overrides both. */
 :root {
   /* surfaces: canvas, sidebar and bars, cards and inputs, hover and selected */
-  --bg-0: #0a0a0a;
-  --bg-1: #141414;
-  --bg-2: #171717;
-  --bg-3: #262626;
+  --bg-0: #0b0b0d;
+  --bg-1: #121215;
+  --bg-2: #1a1a1e;
+  --bg-3: #26262c;
   --line: #ffffff12;
   --line-strong: #ffffff26;
   --ink: #fafafa;
   --ink-2: #a1a1a1;
   --ink-3: #6b6b6b;
-  --primary: #fafafa;
-  --on-primary: #0a0a0a;
+  --primary: #4a6fc4;
+  --on-primary: #ffffff;
   --focus: #86a0dd;
   --link: #9fb5e6;
   --s-working: #56b4e9;
@@ -21,7 +21,7 @@
   --s-ok: #3fbf9b;
   --term-bg: #0a0a0b;
   --term-ink: #e8e6df;
-  --shadow-1: 0 2px 8px #0006;
+  --shadow-1: 0 1px 3px #0006;
   --shadow-2: 0 8px 24px #0006;
   --shadow-3: 0 16px 48px #0006;
   --scrim: #0008;
@@ -38,7 +38,7 @@
     --ink: #18181b;
     --ink-2: #52525b;
     --ink-3: #8a8a94;
-    --primary: #18181b;
+    --primary: #3d62b5;
     --on-primary: #ffffff;
     --focus: #3d62b5;
     --link: #2f4f98;
@@ -48,7 +48,7 @@
     --s-ok: #00875f;
     --term-bg: #16150f;
     --term-ink: #e8e6df;
-    --shadow-1: 0 2px 8px #0002;
+    --shadow-1: 0 1px 3px #0002;
     --shadow-2: 0 8px 24px #0002;
     --shadow-3: 0 16px 48px #0002;
     --scrim: #00000059;
@@ -65,7 +65,7 @@
   --ink: #18181b;
   --ink-2: #52525b;
   --ink-3: #8a8a94;
-  --primary: #18181b;
+  --primary: #3d62b5;
   --on-primary: #ffffff;
   --focus: #3d62b5;
   --link: #2f4f98;
@@ -75,7 +75,7 @@
   --s-ok: #00875f;
   --term-bg: #16150f;
   --term-ink: #e8e6df;
-  --shadow-1: 0 2px 8px #0002;
+  --shadow-1: 0 1px 3px #0002;
   --shadow-2: 0 8px 24px #0002;
   --shadow-3: 0 16px 48px #0002;
   --scrim: #00000059;
@@ -87,16 +87,16 @@
   --sans: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --fs-hint: 11px;
-  --fs-label: 12px;
-  --fs-body: 13px;
-  --fs-title: 15px;
+  --fs-label: 13px;
+  --fs-body: 15px;
+  --fs-title: 17px;
   --fs-page: 20px;
   --fs-display: 28px;
   --t-hint: 400 var(--fs-hint)/14px var(--sans);
-  --t-label: 400 var(--fs-label)/16px var(--sans);
-  --t-body: 400 var(--fs-body)/18px var(--sans);
-  --t-title: 600 var(--fs-title)/20px var(--sans);
-  --t-page: 600 var(--fs-page)/26px var(--sans);
+  --t-label: 400 var(--fs-label)/18px var(--sans);
+  --t-body: 400 var(--fs-body)/22px var(--sans);
+  --t-title: 600 var(--fs-title)/24px var(--sans);
+  --t-page: 600 var(--fs-page)/28px var(--sans);
   --t-display: 600 var(--fs-display)/34px var(--sans);
   --t-name: 500 var(--fs-body)/18px var(--sans);
   --t-mono: 400 12px/16px var(--mono);
@@ -108,10 +108,10 @@
   --sp-5: 24px;
   --sp-6: 32px;
   /* radius: chips, buttons and rows, cards and popups, dialogs, toggles and dots */
-  --r-chip: 4px;
-  --r-ctl: 6px;
-  --r-card: 8px;
-  --r-dialog: 12px;
+  --r-chip: 6px;
+  --r-ctl: 10px;
+  --r-card: 14px;
+  --r-dialog: 20px;
   --r-pill: 999px;
   /* motion */
   --dur-fast: 120ms;
@@ -119,16 +119,16 @@
   --dur-slow: 320ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
   /* sizes of chrome */
-  --h-row: 28px;
-  --h-row-2: 44px;
-  --h-tabs: 32px;
-  --h-bar: 24px;
-  --h-btn: 28px;
-  --h-btn-sm: 24px;
-  --h-btn-lg: 32px;
-  --h-input: 32px;
-  --h-field: 36px;
-  --trow-h: 34px;
+  --h-row: 36px;
+  --h-row-2: 52px;
+  --h-tabs: 40px;
+  --h-bar: 28px;
+  --h-btn: 32px;
+  --h-btn-sm: 28px;
+  --h-btn-lg: 36px;
+  --h-input: 36px;
+  --h-field: 40px;
+  --trow-h: 36px;
   --w-side: 240px;
   --w-form: 640px;
   --w-page: 960px;

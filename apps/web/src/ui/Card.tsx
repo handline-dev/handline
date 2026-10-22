@@ -4,7 +4,7 @@
 import type { ComponentProps, ElementType } from 'react';
 
 const join = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
-const BOX = 'rounded-card bg-surface';
+const BOX = 'rounded-card bg-surface shadow-[var(--shadow-1)]';
 const CHAT = 'card my-1 flex items-center gap-2 rounded-card px-2.5 py-1.5 text-[13px] [&_svg]:align-middle [&_a]:text-inherit';
 
 export function Card({

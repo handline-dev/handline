@@ -4,6 +4,7 @@ export { State, stateOf, stateOfView, type StateKind } from '#src/ui/State.tsx';
 export { Button, type ButtonProps } from '#src/ui/Button.tsx';
 export { Field, FIELD, FIELD_LABEL, NOTE, noteTone } from '#src/ui/Field.tsx';
 export { Select } from '#src/ui/Select.tsx';
+export { Check } from '#src/ui/Check.tsx';
 export { Switch } from '#src/ui/Switch.tsx';
 export { Segmented, type Choice } from '#src/ui/Segmented.tsx';
 export { Popup, PopupRow, PROW, PROW_NAME, PROW_HINT } from '#src/ui/Popup.tsx';

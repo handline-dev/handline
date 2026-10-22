@@ -7,7 +7,7 @@ import { clockTime, isAlways, promptTitle } from '@handline/app-core';
 import { usePromptAnswer } from '@handline/app-data';
 import { AnimatedItem, AnimatedList } from '#src/AnimatedList.tsx';
 import { Icon } from '#src/ui/Icon.tsx';
-import { Button, Card, CardActions, CodeBlock, Input, Kbd } from '#src/ui/index.ts';
+import { Button, Card, CardActions, CodeBlock, Input, Kbd, Check } from '#src/ui/index.ts';
 
 export function PromptCard({ agent, prompt: p, onStale }: { agent: string; prompt: Prompt; onStale?: () => void }) {
   const { answering, picked, typing, setTyping, text, setText, changed, all, cancel, opts, multi, question, send, toggle, mark } = usePromptAnswer(agent, p, onStale);
@@ -62,7 +62,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
             <li key={o.key}>
               {multi ? (
                 <label className="flex items-center gap-2 text-left">
-                  <input type="checkbox" checked={picked.includes(o.key)} disabled={answering} onChange={() => toggle(o.key)} /> {o.label}
+                  <Check checked={picked.includes(o.key)} disabled={answering} onChange={() => toggle(o.key)} /> {o.label}
                 </label>
               ) : (
                 <Button variant="outline" label={o.label} className="w-full justify-start text-left max-sm:min-h-12" disabled={answering} onClick={() => send(o.key, o.key)}>
