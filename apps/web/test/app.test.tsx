@@ -33,6 +33,21 @@ const fire = (el: Element, type: string) =>
   act(async () => {
     el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
   });
+const rect = (l: number, t: number, w: number, h: number) => ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h, x: l, y: t, toJSON() {} }) as DOMRect;
+/** jsdom has no layout: every pane is 800 x 600 with a 32 px strip of 100 px tabs. */
+const stubRects = () =>
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    if (this.matches('.pane, .drop-overlay')) return rect(0, 0, 800, 600);
+    if (this.matches('.strip')) return rect(0, 0, 800, 32);
+    if (this.matches('[role=tab]')) return rect([...this.parentElement!.querySelectorAll('[role=tab]')].indexOf(this) * 100, 0, 100, 32);
+    return rect(0, 0, 0, 0);
+  });
+/** A drag event over a pane's cover at a point of the pane. */
+const dragAt = (pane: Element, type: 'dragover' | 'drop', x: number, y: number) =>
+  act(async () => {
+    const e = Object.assign(new Event(type, { bubbles: true, cancelable: true }), { clientX: x, clientY: y, dataTransfer: { dropEffect: '' } });
+    pane.querySelector('.drop-overlay')!.dispatchEvent(e);
+  });
 const click = (el: Element) =>
   act(async () => {
     (el as HTMLElement).click();
@@ -264,12 +279,18 @@ describe('the workspace', () => {
   it('a tab dropped on a pane edge splits it; the same thing opened twice is focused', async () => {
     await mount(ARCH);
     await until(() => $$('.pane').length === 2, 'two panes');
+    const rects = stubRects();
     await fire($(termTab)!, 'dragstart');
-    expect($$('.dz').length).toBeGreaterThan(0);
-    await fire($('.pane[data-group="g1"] .dz.bottom')!, 'drop');
+    const g1 = $('.pane[data-group="g1"]')!;
+    await dragAt(g1, 'dragover', 400, 590);
+    const preview = g1.querySelector<HTMLElement>('.drop-preview')!;
+    expect(preview.dataset.zone).toBe('bottom');
+    expect([preview.style.left, preview.style.top, preview.style.width, preview.style.height]).toEqual(['0px', '300px', '800px', '300px']); // the half the split takes
+    await dragAt(g1, 'drop', 400, 590);
+    rects.mockRestore();
     expect($('.split-col')).not.toBeNull();
     expect($$('.pane')).toHaveLength(2);
-    expect($('.dz')).toBeNull(); // the drag ended
+    expect($('.drop-overlay')).toBeNull(); // the drag ended
     await click($('.pane[data-group="g1"] [aria-label="Add a tab"]')!);
     expect([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((b) => text(b).trim())).not.toContain('Claude Code');
     expect($$('[data-tab^="terminal:"]')).toHaveLength(1);
@@ -285,13 +306,15 @@ describe('the workspace', () => {
     expect(text($('[data-tab="markdown:a.md"]'))).toContain('markdown');
     expect(box.textContent).toMatch(/does not serve markdown tabs/); // a kind this daemon lacks stays visible, closable
 
+    const rects = stubRects();
     await fire($(termTab)!, 'dragstart');
-    await fire($('.pane[data-group="g1"] .dz.right')!, 'drop'); // the terminal is alone in its pane: it frees one, so this is allowed
+    await dragAt($('.pane[data-group="g1"]')!, 'drop', 790, 300); // the terminal is alone in its pane: it frees one, so this is allowed
+    rects.mockRestore();
     expect($$('.pane')).toHaveLength(4);
     expect($('.toast')).toBeNull();
   });
 
-  it('refuses a fifth pane and says so', async () => {
+  it('a drop on the centre merges into the pane, a drop on a strip inserts at the line, and the Chat tab cannot be dragged', async () => {
     const storage = memory();
     let ws = defaultWorkspace({ terminal: `term:${ARCH}` });
     ws = applyPreset(openTab(openTab(ws, 'markdown', { path: 'a.md' }), 'web', { port: 3000 }), 'grid');
@@ -299,22 +322,28 @@ describe('the workspace', () => {
     saveWorkspace(storage, storageKey('test', ARCH), ws);
     await mount(ARCH, storage);
     await until(() => $$('.pane').length === 4, 'four panes');
+    expect($('[data-tab="chat"]')!.getAttribute('draggable')).toBe('false');
+    const rects = stubRects();
+    const last = $$('.pane')[3]!;
     await fire($('[data-tab="shell:1"]')!, 'dragstart');
-    await fire($$('.pane')[3]!.querySelector('.dz.bottom')!, 'drop');
+    await dragAt(last, 'dragover', 400, 300);
+    expect(last.querySelector<HTMLElement>('.drop-preview')!.dataset.zone).toBe('center');
+    await dragAt(last, 'dragover', 50, 10);
+    expect(last.querySelector('.drop-line')).not.toBeNull(); // the insert line between tabs
+    await dragAt(last, 'drop', 50, 10);
+    rects.mockRestore();
     expect($$('.pane')).toHaveLength(4);
-    expect(text($('.toast'))).toMatch(/At most 4 panes/);
-    await fire($('[data-tab="shell:1"]')!, 'dragstart');
-    await fire($$('.pane')[3]!.querySelector('.strip')!, 'drop');
-    expect($$('.pane')).toHaveLength(4); // a merge is never refused
-    expect($$('.pane')[3]!.querySelector('[data-tab="shell:1"]')).not.toBeNull();
+    expect(last.querySelector('[data-tab="shell:1"]')).not.toBeNull();
   });
 
   it('restores the layout after a reload, and a closed tab stays closed', async () => {
     const storage = memory();
     await mount(ARCH, storage);
     await until(() => $$('.pane').length === 2, 'two panes');
+    const rects = stubRects();
     await fire($(termTab)!, 'dragstart');
-    await fire($('.pane[data-group="g1"] .dz.bottom')!, 'drop');
+    await dragAt($('.pane[data-group="g1"]')!, 'drop', 400, 590);
+    rects.mockRestore();
     expect(storage.data.has(storageKey('test', ARCH))).toBe(true);
     await unmount();
     await mount(ARCH, storage);

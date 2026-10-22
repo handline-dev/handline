@@ -8,7 +8,6 @@ import {
   fillTab,
   splitPane,
   CHAT,
-  moveTab,
   moveTabBy,
   openTab,
   taskRef,
@@ -22,7 +21,7 @@ import { ChatTab } from '#src/ChatTab.tsx';
 import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
 import { TasksTab } from '#src/TasksTab.tsx';
 import { Badges } from '#src/Badges.tsx';
-import { DropZones } from '#src/DropZones.tsx';
+import { DropOverlay } from '#src/DropOverlay.tsx';
 import { DeviceTab } from '#src/DeviceTab.tsx';
 import { WebTab } from '#src/WebTab.tsx';
 import { BytesTab } from '#src/BytesTab.tsx';
@@ -92,24 +91,13 @@ export function Pane({ group }: { group: Group }) {
   }, [termShown]);
 
   const hiddenActive = group.tabs.includes(CHAT) && ['terminal', 'transcript'].includes(ws.tabs[group.activeTab]?.kind ?? '');
-  const dropOnStrip = (e: React.DragEvent) => {
-    if (!dragging) return;
-    e.preventDefault();
-    const mids = [...strip.current!.querySelectorAll<HTMLElement>('[role=tab]')].map((el) => {
-      const r = el.getBoundingClientRect();
-      return r.left + r.width / 2;
-    });
-    const at = mids.findIndex((m) => e.clientX < m);
-    apply((w) => moveTab(w, dragging, group.id, at < 0 ? undefined : at));
-    setDragging(null);
-  };
   return (
     <section
       className={`pane relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas -outline-offset-1${ws.active === group.id ? ' focus outline-1 outline-[color-mix(in_srgb,var(--primary)_40%,transparent)]' : ''}`}
       data-group={group.id}
       onPointerDownCapture={() => ws.active !== group.id && apply((w) => ({ ...w, active: group.id }))}
     >
-      <div className="strip flex h-[var(--h-tabs)] items-stretch border-b border-line bg-surface px-2" role="tablist" ref={strip} onDragOver={(e) => dragging && e.preventDefault()} onDrop={dropOnStrip}>
+      <div className="strip flex h-[var(--h-tabs)] items-stretch border-b border-line bg-surface px-2" role="tablist" ref={strip}>
         {folded && lead === group.id ? (
           <div className="mr-1 flex flex-none items-center shell:pl-[var(--lights-w,86px)]">
             <RailControls show={folded.show} row />
@@ -128,7 +116,7 @@ export function Pane({ group }: { group: Group }) {
               aria-selected={id === group.activeTab || asleep}
               className={`tab group ${viaSwitch ? 'hidden' : 'inline-flex'} max-w-[200px] cursor-default select-none items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 font-sans text-body font-medium ${id === group.activeTab ? 'on border-b-ink text-ink' : asleep ? 'border-b-line-strong text-ink-2' : 'border-b-transparent text-ink-2'}`}
               data-tab={id}
-              draggable
+              draggable={id !== CHAT}
               onDragStart={(e) => {
                 e.dataTransfer?.setData('text/plain', id);
                 setDragging(id);
@@ -249,8 +237,8 @@ export function Pane({ group }: { group: Group }) {
             <p>This daemon does not serve {tab.kind} tabs. Close this tab.</p>
           </div>
         )}
-        {dragging ? <DropZones group={group.id} /> : null}
       </div>
+      {dragging ? <DropOverlay group={group} strip={strip} /> : null}
     </section>
   );
 }

@@ -7,7 +7,6 @@ import {
   defaultWorkspace,
   groupsOf,
   loadWorkspace,
-  MAX_GROUPS,
   openTab,
   saveWorkspace,
   setSplit,
@@ -26,7 +25,6 @@ import { useConnection, useStore } from '@handline/app-react';
 import { classify, useAgentDetail, useAgents, useServes } from '@handline/app-data';
 import { recordHistoryValue, takeTerminalWish, useHistoryValue } from '#src/route.ts';
 import { View } from '#src/View.tsx';
-import { DropZones } from '#src/DropZones.tsx';
 import { Pane } from '#src/Pane.tsx';
 import { isSwitchChord, isTerminalSwitch } from '#src/terminal/core.ts';
 
@@ -46,6 +44,8 @@ export interface WorkspaceCtx {
   drop: (next: Workspace | null) => void;
   /** Whether Split on this pane shows as a pane of its own at this window size (narrower, the groups render as one strip). */
   canSplit: (group: string) => boolean;
+  /** The groups render as one strip (a narrow window): a drop can only reorder or merge, never split. */
+  merged: boolean;
   /** The pane whose strip comes first (the folded sidebar's buttons sit there): the one shown when the groups render as one. */
   lead: string;
   dragging: string | null;
@@ -164,6 +164,7 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     detail,
     agent,
     storage,
+    merged: arrange(ws, size.w, size.h).merged,
     lead: arrange(ws, size.w, size.h).merged ? ws.active : groupsOf(ws.root)[0]!.id,
     canSplit: (id) => {
       const next = splitPane(ws, id);
@@ -179,7 +180,7 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     drop: (next) => {
       setDragging(null);
       if (next) setWs(next);
-      else store.fail(`At most ${MAX_GROUPS} panes. Drop a tab on another pane's tab strip to merge it.`);
+      else store.fail('That tab is already alone in its pane.');
     },
   };
   const arr = arrange(ws, size.w, size.h);
@@ -192,7 +193,6 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
         ) : (
           <Tree node={ws.root} path={[]} />
         )}
-        {dragging ? <DropZones root /> : null}
       </div>
     </Ctx.Provider>
   );

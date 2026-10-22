@@ -5,6 +5,7 @@ export * from '#src/shell.ts';
 export * from '#src/store.ts';
 export * from '#src/time.ts';
 export * from '#src/tasks.ts';
+export * from '#src/drop.ts';
 export * from '#src/workspace.ts';
 export * from '#src/badges.ts';
 export * from '#src/task-table.ts';

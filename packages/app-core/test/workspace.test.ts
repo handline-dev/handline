@@ -4,7 +4,6 @@ import {
   CHAT,
   toggleView,
   TRANSCRIPT,
-  MAX_GROUPS,
   activate,
   applyPreset,
   arrange,
@@ -27,7 +26,6 @@ import {
   saveWorkspace,
   serialize,
   setSplit,
-  splitRoot,
   splitTab,
   storageKey,
   type Edge,
@@ -41,14 +39,14 @@ const ids = (ws: Workspace) => groupsOf(ws.root).map((g) => g.tabs.join('+'));
 /** A workspace with n groups, one tab each beside Chat's: chat | md:1 | md:2 | md:3 */
 const many = (n: number) => {
   let ws = defaultWorkspace();
-  for (let i = 1; i < n; i++) ws = splitRoot(openTab(ws, 'markdown', { path: `f${i}.md` }), `markdown:f${i}.md`, 'right')!;
+  for (let i = 1; i < n; i++) ws = splitTab(openTab(ws, 'markdown', { path: `f${i}.md` }), `markdown:f${i}.md`, 'g1', 'right')!;
   return ws;
 };
 
 /** What must hold for every workspace, whatever was done to it. */
 function invariants(ws: Workspace): void {
   const gs = groupsOf(ws.root);
-  assert.ok(gs.length >= 1 && gs.length <= MAX_GROUPS, 'group count');
+  assert.ok(gs.length >= 1, 'group count');
   const all = gs.flatMap((g) => g.tabs);
   assert.equal(new Set(all).size, all.length, 'a tab sits in one group');
   assert.deepEqual([...all].sort(), Object.keys(ws.tabs).sort(), 'every tab is in a group');
@@ -72,17 +70,17 @@ function invariants(ws: Workspace): void {
   checkAt(ws.root);
 }
 
-test('rule 1: at most 4 panes; a drag past that is refused, a drop on a strip never is', () => {
+test('rule 1: there is no limit on panes; a lone tab dragged to its own pane is refused, one dragged elsewhere frees its pane', () => {
   const four = many(4);
   assert.equal(groupsOf(four.root).length, 4);
   let extra = openTab(four, 'markdown', { path: 'x.md' }, 'g1');
-  assert.equal(splitTab(extra, 'markdown:x.md', 'g2', 'bottom'), null);
-  assert.equal(splitRoot(extra, 'markdown:x.md', 'left'), null);
+  const five = splitTab(extra, 'markdown:x.md', 'g2', 'bottom')!;
+  assert.equal(groupsOf(five.root).length, 5);
   extra = moveTab(extra, 'markdown:x.md', 'g2');
   assert.deepEqual(groupOf(extra, 'markdown:x.md')!.id, 'g2');
-  // a lone tab dragged to another pane's edge frees its own pane, so the count stays 4
+  assert.equal(splitTab(four, 'markdown:f1.md', groupOf(four, 'markdown:f1.md')!.id, 'bottom'), null);
   assert.equal(groupsOf(splitTab(four, 'markdown:f1.md', 'g3', 'bottom')!.root).length, 4);
-  invariants(four);
+  invariants(five);
   invariants(extra);
 });
 
@@ -90,7 +88,7 @@ test('rule 1: any shape is allowed: 2x2, and one wide pane over two narrow ones'
   const grid = applyPreset(many(4), 'grid');
   assert.equal(grid.root.type === 'split' && grid.root.dir, 'col');
   let ws = defaultWorkspace();
-  ws = splitRoot(openTab(ws, 'markdown', { path: 'a' }), 'markdown:a', 'bottom')!;
+  ws = splitTab(openTab(ws, 'markdown', { path: 'a' }), 'markdown:a', 'g1', 'bottom')!;
   ws = splitTab(openTab(ws, 'markdown', { path: 'b' }), 'markdown:b', groupOf(ws, 'markdown:a')!.id, 'right')!;
   assert.equal(ws.root.type === 'split' && ws.root.dir, 'col');
   assert.equal(groupsOf(ws.root).length, 3);
@@ -98,7 +96,7 @@ test('rule 1: any shape is allowed: 2x2, and one wide pane over two narrow ones'
   invariants(ws);
 });
 
-test('rule 2: an edge splits the pane, the strip merges, a free edge splits the root, presets rearrange', () => {
+test('rule 2: an edge splits the pane, the strip merges, presets rearrange', () => {
   let ws = openTab(two(), 'markdown', { path: 'n.md' }, 'g2');
   const right = splitTab(ws, 'markdown:n.md', 'g1', 'right')!;
   assert.deepEqual(ids(right), [CHAT, 'markdown:n.md', 'terminal:term:a']);
@@ -108,16 +106,13 @@ test('rule 2: an edge splits the pane, the strip merges, a free edge splits the 
   assert.equal(bottom.root.type === 'split' && bottom.root.b.type === 'split' && bottom.root.b.dir, 'col');
   ws = moveTab(ws, 'markdown:n.md', 'g1', 0);
   assert.deepEqual(ids(ws), ['markdown:n.md+chat', 'terminal:term:a']);
-  const rooted = splitRoot(ws, 'terminal:term:a', 'top')!;
-  assert.equal(rooted.root.type === 'split' && rooted.root.dir, 'col');
-  assert.deepEqual(ids(rooted)[0], 'terminal:term:a');
   const rows = applyPreset(two(), 'rows'),
     single = applyPreset(ws, 'single');
   assert.equal(rows.root.type === 'split' && rows.root.dir, 'col');
   assert.deepEqual(ids(single), ['markdown:n.md+chat+terminal:term:a']); // 3 tabs merge into one
   assert.deepEqual(ids(applyPreset(openTab(two(), 'markdown', { path: 'n.md' }), 'cols')), [CHAT, 'terminal:term:a+markdown:n.md']);
   assert.equal(groupsOf(applyPreset(defaultWorkspace(), 'grid').root).length, Object.keys(defaultWorkspace().tabs).length); // never more groups than tabs
-  for (const w of [right, left, bottom, ws, rooted, rows, single]) invariants(w);
+  for (const w of [right, left, bottom, ws, rows, single]) invariants(w);
 });
 
 test('rule 3: Chat has no close; closeTab on it is a no-op; it can move; a saved layout without it gets one', () => {
@@ -218,10 +213,6 @@ test('save and load round-trip; a newer version, bad shapes and blocked storage 
     mem.set(key, bad);
     assert.deepEqual(loadWorkspace(kv, key, dflt), dflt());
   }
-  const five = JSON.parse(serialize(many(4)));
-  five.root = { type: 'split', dir: 'row', a: five.root, b: { type: 'group', id: 'g9', tabs: ['x'], activeTab: 'x' }, at: 0.5 };
-  five.tabs.x = { id: 'x', kind: 'shell', params: {} };
-  assert.equal(parseWorkspace(five), null); // 5 groups
   const dup = JSON.parse(serialize(two()));
   dup.root.b.tabs.push('chat');
   assert.equal(parseWorkspace(dup), null); // a tab in two places
@@ -268,7 +259,7 @@ test('property: after any run of random operations, Chat is there and every inva
           ws = splitTab(ws, t, g, edges[rnd(4)]!) ?? ws;
           break;
         case 6:
-          ws = splitRoot(ws, t, edges[rnd(4)]!) ?? ws;
+          ws = splitPane(ws, g) ?? ws;
           break;
         case 7:
           ws = applyPreset(ws, (['single', 'cols', 'rows', 'grid'] as const)[rnd(4)]!);
@@ -348,10 +339,9 @@ test('Split halves a pane with a new tab; choosing fills it, moving a tab alread
   assert.equal(tasks.tabs['new:1'], undefined);
   const term = fillTab(splitPane(ws, 'g1')!, 'new:1', 'terminal', { handle: 'term:a' });
   assert.deepEqual(groupsOf(term.root).map((g) => g.tabs), [[CHAT], ['terminal:term:a']]);
-  let full: Workspace = ws;
-  for (let i = 0; i < MAX_GROUPS; i++) full = splitPane(full, 'g1') ?? full;
-  assert.equal(groupsOf(full.root).length, MAX_GROUPS);
-  assert.equal(splitPane(full, 'g1'), null);
+  let many: Workspace = ws;
+  for (let i = 0; i < 6; i++) many = splitPane(many, 'g1') ?? many;
+  assert.equal(groupsOf(many.root).length, 7);
 });
 
 test('Split after a collapse still opens a new right half', () => {

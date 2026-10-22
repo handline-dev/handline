@@ -60,7 +60,6 @@ export type Path = ('a' | 'b')[];
 export const CHAT = 'chat';
 export const TASKS = 'tasks';
 export const TRANSCRIPT = 'transcript';
-export const MAX_GROUPS = 4;
 export const MIN_AT = 0.15;
 export const MAX_AT = 0.85;
 export const MIN_PANE = { w: 320, h: 200 };
@@ -221,13 +220,11 @@ export function moveTabBy(ws: Workspace, id: string, delta: -1 | 1): Workspace {
   return from < 0 || !to ? ws : moveTab(ws, id, to.id);
 }
 
-/** Groups after taking `id` out and adding one: refused when that passes MAX_GROUPS or splits a lone tab off its own pane. */
-function fits(ws: Workspace, id: string, onto?: string): boolean {
+/** Refused when it would split a lone tab off its own pane. */
+function fits(ws: Workspace, id: string, onto: string): boolean {
   const from = groupOf(ws, id);
   if (!from) return false;
-  const alone = from.tabs.length === 1;
-  if (alone && (onto === from.id || groupsOf(ws.root).length === 1)) return false;
-  return groupsOf(ws.root).length - (alone ? 1 : 0) + 1 <= MAX_GROUPS;
+  return !(from.tabs.length === 1 && (onto === from.id || groupsOf(ws.root).length === 1));
 }
 
 const wrap = (existing: Node, fresh: Group, edge: Edge): Split => ({
@@ -246,9 +243,9 @@ export function splitTab(ws: Workspace, id: string, onto: string, edge: Edge): W
   return { ...ws, active: fresh.id, root: replaceGroup(root!, onto, (g) => wrap(g, fresh, edge)) };
 }
 
-/** The Split button: halves a pane, the new half (to its right) holding a "new" tab that offers what to open. Null at MAX_GROUPS. */
+/** The Split button: halves a pane, the new half (to its right) holding a "new" tab that offers what to open. */
 export function splitPane(ws: Workspace, onto: string): Workspace | null {
-  if (groupsOf(ws.root).length >= MAX_GROUPS || !groupsOf(ws.root).some((g) => g.id === onto)) return null;
+  if (!groupsOf(ws.root).some((g) => g.id === onto)) return null;
   const id = tabId(ws, 'new', {});
   const fresh = group(nextGroupId(ws), [id]);
   return {
@@ -266,14 +263,6 @@ export function fillTab(ws: Workspace, newTab: string, kind: TabKind, params: Ta
   const id = tabId(ws, kind, params);
   const placed = ws.tabs[id] ? moveTab(ws, id, into.id) : openTab(ws, kind, params, into.id);
   return closeTab(placed, newTab);
-}
-
-/** Drag to a free edge of the whole view: splits the root. */
-export function splitRoot(ws: Workspace, id: string, edge: Edge): Workspace | null {
-  if (!fits(ws, id)) return null;
-  const { root } = detach(ws, id);
-  const fresh = group(nextGroupId({ ...ws, root: root! }), [id]);
-  return { ...ws, active: fresh.id, root: wrap(root!, fresh, edge) };
 }
 
 /** Rearranges the existing tabs; extra tabs merge into the last group, and there are never more groups than tabs. */
@@ -364,7 +353,7 @@ function checkNode(x: unknown, seen: Set<string>, ids: Set<string>): Node | null
   return null;
 }
 
-/** A workspace from stored JSON, or null when it is not one this code understands (bad shape, a newer `v`, too many groups). Chat is recreated if missing. */
+/** A workspace from stored JSON, or null when it is not one this code understands (bad shape, a newer `v`). Chat is recreated if missing. */
 export function parseWorkspace(raw: unknown): Workspace | null {
   if (!isObj(raw) || raw.v !== 1 || !isObj(raw.tabs)) return null;
   const tabs: Record<string, Tab> = {};
@@ -376,7 +365,7 @@ export function parseWorkspace(raw: unknown): Workspace | null {
   const seen = new Set<string>(),
     ids = new Set<string>();
   const root = checkNode(raw.root, seen, ids);
-  if (!root || groupsOf(root).length > MAX_GROUPS) return null;
+  if (!root) return null;
   if (seen.size !== Object.keys(tabs).length || [...seen].some((t) => !tabs[t])) return null;
   const active = typeof raw.active === 'string' && ids.has(raw.active) ? raw.active : groupsOf(root)[0]!.id;
   const ws: Workspace = { v: 1, root, active, tabs };
