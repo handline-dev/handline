@@ -4,7 +4,6 @@ import type { Badge } from '@handline/app-core';
 const LOOK: Record<Badge['kind'], string> = {
   dialog: 'border-wait font-semibold text-wait',
   stalled: 'border-bad text-bad',
-  you: 'border-primary text-link',
   no_terminal: 'border-dashed border-line',
   other: 'border-line',
   held: 'border-line',

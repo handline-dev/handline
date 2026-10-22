@@ -1,7 +1,7 @@
 import type { AgentDetail, AgentView } from '@handline/client';
 import { STATE_WORDS } from '@handline/client';
 
-export type BadgeKind = 'dialog' | 'stalled' | 'you' | 'held' | 'no_terminal' | 'no_session' | 'other';
+export type BadgeKind = 'dialog' | 'stalled' | 'held' | 'no_terminal' | 'no_session' | 'other';
 export interface Badge {
   kind: BadgeKind;
   label: string;
@@ -23,16 +23,12 @@ export function badgesOf(a: AgentView | AgentDetail, me: string): Badge[] {
     out.push({ kind: 'stalled', label: a.state === 'stalled' ? 'STALLED' : 'blocked', tip: why });
   }
   const holder = a.input_holders?.[0];
-  if (holder && holder.kind !== 'daemon')
-    out.push(
-      holder.name === me
-        ? { kind: 'you', label: 'YOU', tip: 'This device holds the input' }
-        : {
-            kind: 'held',
-            label: `held: ${holder.name}`,
-            tip: `${holder.name} holds the input${holder.since ? ` since ${holder.since}` : ''}`,
-          },
-    );
+  if (holder && holder.kind !== 'daemon' && holder.name !== me)
+    out.push({
+      kind: 'held',
+      label: `held: ${holder.name}`,
+      tip: `${holder.name} holds the input${holder.since ? ` since ${holder.since}` : ''}`,
+    });
   if (a.structured) {
     if (detail.session_open === false) out.push({ kind: 'no_session', label: 'no session', tip: 'Start or resume the agent to open one' });
   } else if (a.state === 'no_terminal' || detail.terminal === null)
