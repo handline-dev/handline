@@ -213,7 +213,7 @@ export function Compose(props: {
         ) : null}
         <Textarea
           ref={box}
-          className="compose flex-1 resize-none border-0 bg-transparent px-1.5"
+          className="compose flex-1 resize-none border-0 bg-transparent px-1.5 focus-visible:outline-none"
           rows={2}
           value={text}
           disabled={!canSend}
@@ -243,7 +243,7 @@ export function Compose(props: {
           </label>
         ) : null}
         <Button
-          className="compose-send rounded-pill"
+          className="compose-send self-center rounded-pill"
           variant="solid"
           icon="send"
           label="Send"

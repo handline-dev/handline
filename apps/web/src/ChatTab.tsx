@@ -10,6 +10,7 @@ import { useNearEnd, useSelector, useStore } from '@handline/app-react';
 import {
   Skeleton,
   classify,
+  rowKey,
   sentence,
   useChat,
   useChatActions,
@@ -92,7 +93,7 @@ function Typing({ line }: { line: string }) {
 /** Shown while a window around an old message is open: it takes the person back to the live tail. */
 function LatestPill({ onClick }: { onClick: () => void }) {
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-[96px] flex justify-center">
+    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
       <button className="latest pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-2)]" onClick={onClick}>
         Back to latest
         <Icon name="newer" size={14} aria-hidden />
@@ -158,7 +159,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const [pickedItem, setPickedItem] = useState<TranscriptItem | null>(null);
   const pick = (m: ChatMessage) => (setPickedItem(null), setPicked((p) => (p === m.id ? null : m.id)));
   const pickItem = (i: TranscriptItem) => (setPicked(null), setPickedItem((p) => (p?.id === i.id ? null : i)));
-  const keyOf = (e: (typeof entries)[number]) => (e.kind === 'item' ? `i${e.id}` : e.kind === 'proposal' ? `p${e.id}` : `m${e.id}`);
+  const keyOf = (e: (typeof entries)[number]) => (e.kind === 'item' ? `i${e.id}` : e.kind === 'proposal' ? `p${e.id}` : `m${rowKey(e.id)}`);
   // Only an entry that arrives after the one that was last grows; older pages and a switch of scope appear at once.
   const seen = useRef<{ scope: ChatScope; last: string | null }>({ scope, last: null });
   const tail = seen.current.scope === scope && seen.current.last !== null ? entries.findIndex((e) => keyOf(e) === seen.current.last) : -1;
@@ -199,9 +200,13 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const top = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, more, armed && reading && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready', { atTop: true });
   // Around an old message, the way down is read as the bottom comes near, until the live tail is reached.
   const lower = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, win.loadNewer, windowed && reading && win.hasNewer && !win.loading);
+  const own = useRef(false); // the next scroll event is our own jump to the bottom, not the person leaving it
   const repin = () => {
     const el = stream.current;
-    if (el && pinned.current) el.scrollTop = el.scrollHeight;
+    if (!el || !pinned.current) return;
+    const end = el.scrollHeight - el.clientHeight;
+    if (Math.abs(el.scrollTop - end) >= 1) own.current = true;
+    el.scrollTop = end;
   };
 
   useLayoutEffect(repin, [last, entries.length, chat.working.turn_running]);
@@ -214,11 +219,16 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     if (grew > 0 && !pinned.current && tail >= 0 && !windowed) setNewer((n) => n + grew);
   }, [entries.length, tail, windowed]);
   const bottom = () => {
-    const el = stream.current;
-    if (el) el.scrollTop = el.scrollHeight;
     pinned.current = true;
+    repin();
     setNewer(0);
   };
+  // Sending always shows the message: the sent row is at the bottom, whatever the person had scrolled to.
+  const showSent = () => {
+    const e = entries.at(-1);
+    if (e?.kind === 'message' && e.message.id < 0 && e.message.from === me) bottom();
+  };
+  useLayoutEffect(showSent, [last]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useChatReadMarks(agent, chat, act.seen);
 
@@ -261,96 +271,98 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         <ChatSearch agent={agent} scope={scope} onGo={jump} />
       </div>
       <ChatBanner detail={detail} />
-      <div
-        className="stream col flex flex-1 flex-col gap-2 overflow-auto p-3 [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>.skeleton]:self-stretch"
-        ref={stream}
-        onWheel={() => setMoved(win.target)}
-        onTouchMove={() => setMoved(win.target)}
-        onKeyDown={() => setMoved(win.target)}
-        onLoadCapture={(e) => e.target instanceof HTMLImageElement && repin()} // a picture arriving late grows the stream
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-          chat.holdPlace(!pinned.current);
-          if (pinned.current) setNewer(0);
-        }}
-      >
-        <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
-        {chat.status === 'error' && sentence(classify(chat.error)) ? (
-          <div className="banner" role="alert">
-            {sentence(classify(chat.error))} <Button variant="outline" size="sm" label="Retry" onClick={chat.refetch} />
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          className="stream col flex flex-1 flex-col gap-2 overflow-auto px-3 pb-2 pt-3 [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>.skeleton]:self-stretch"
+          ref={stream}
+          onWheel={() => setMoved(win.target)}
+          onTouchMove={() => setMoved(win.target)}
+          onKeyDown={() => setMoved(win.target)}
+          onLoadCapture={(e) => e.target instanceof HTMLImageElement && repin()} // a picture arriving late grows the stream
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            if (own.current) return void (own.current = false);
+            pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            chat.holdPlace(!pinned.current);
+            if (pinned.current) setNewer(0);
+          }}
+        >
+          <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
+          {chat.status === 'error' && sentence(classify(chat.error)) ? (
+            <div className="banner" role="alert">
+              {sentence(classify(chat.error))} <Button variant="outline" size="sm" label="Retry" onClick={chat.refetch} />
+            </div>
+          ) : null}
+          {chat.hasOlder ? <div ref={top} aria-hidden className="h-px" /> : null}
+          {chat.hasOlder ? (
+            <button
+              className="icon older self-center"
+              disabled={chat.loadingOlder}
+              aria-label="Older messages"
+              title="Older messages"
+              onClick={chat.loadOlder}
+            >
+              <Icon name="less" label="Older messages" />
+            </button>
+          ) : null}
+          {chat.status === 'ready' && !entries.length ? <Empty icon="chat" name="No messages yet" hint={agent} /> : null}
+          {/* Keyed by the window: the rows of the live tail leave at once when a window opens, not after an exit animation above the target. */}
+          <AnimatedList key={win.target ?? 'live'}>
+            {entries.flatMap((e, i): ReactNode[] => {
+              const day = dayHeading(e.at, i === 0 ? null : entries[i - 1]!.at);
+              const body = (
+                <AnimatedItem
+                  key={keyOf(e)}
+                  instant={i <= tail || tail < 0}
+                  onFrame={repin}
+                  className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-start"
+                >
+                  {e.kind === 'message' ? (
+                    <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} group={groupOf(scope, entries[i - 1], e.message)} />
+                  ) : e.kind === 'proposal' ? (
+                    <DecidedCard p={e.proposal} />
+                  ) : e.kind === 'note' ? (
+                    <TaskNote m={e.message} task={e.task} titles={titles} />
+                  ) : (
+                    <Item
+                      i={e.item}
+                      titles={titles}
+                      agent={agent}
+                      onReply={canSend && canReplyItem ? pickItem : undefined}
+                      picked={pickedItem?.id === e.item.id}
+                    />
+                  )}
+                </AnimatedItem>
+              );
+              // A plain child of the list: never animated in or out.
+              return day
+                ? [
+                    <div
+                      key={`day ${day}`}
+                      role="separator"
+                      className="mt-3 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
+                    >
+                      {day}
+                    </div>,
+                    body,
+                  ]
+                : [body];
+            })}
+          </AnimatedList>
+          {windowed && win.hasNewer ? <div ref={lower} aria-hidden className="h-px" /> : null}
+          <HrCards agent={agent} />
+          <HandoffCard detail={detail} items={chat.items} />
+          {detail.prompt ? null : <NeedsYouCard detail={detail} />}
+          {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
+          <div className="working-slot flex h-5 flex-none items-center self-start">
+            {chat.working.turn_running ? <Typing line={chat.working.line ?? 'Working'} /> : null}
           </div>
-        ) : null}
-        {chat.hasOlder ? <div ref={top} aria-hidden className="h-px" /> : null}
-        {chat.hasOlder ? (
-          <button
-            className="icon older self-center"
-            disabled={chat.loadingOlder}
-            aria-label="Older messages"
-            title="Older messages"
-            onClick={chat.loadOlder}
-          >
-            <Icon name="less" label="Older messages" />
-          </button>
-        ) : null}
-        {chat.status === 'ready' && !entries.length ? <Empty icon="chat" name="No messages yet" hint={agent} /> : null}
-        {/* Keyed by the window: the rows of the live tail leave at once when a window opens, not after an exit animation above the target. */}
-        <AnimatedList key={win.target ?? 'live'}>
-          {entries.flatMap((e, i): ReactNode[] => {
-            const day = dayHeading(e.at, i === 0 ? null : entries[i - 1]!.at);
-            const body = (
-              <AnimatedItem
-                key={keyOf(e)}
-                instant={i <= tail || tail < 0}
-                onFrame={repin}
-                className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-start"
-              >
-                {e.kind === 'message' ? (
-                  <Message m={e.message} agent={agent} picked={e.id === picked} onPick={pick} byId={byId} group={groupOf(scope, entries[i - 1], e.message)} />
-                ) : e.kind === 'proposal' ? (
-                  <DecidedCard p={e.proposal} />
-                ) : e.kind === 'note' ? (
-                  <TaskNote m={e.message} task={e.task} titles={titles} />
-                ) : (
-                  <Item
-                    i={e.item}
-                    titles={titles}
-                    agent={agent}
-                    onReply={canSend && canReplyItem ? pickItem : undefined}
-                    picked={pickedItem?.id === e.item.id}
-                  />
-                )}
-              </AnimatedItem>
-            );
-            // A plain child of the list: never animated in or out.
-            return day
-              ? [
-                  <div
-                    key={`day ${day}`}
-                    role="separator"
-                    className="mt-3 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
-                  >
-                    {day}
-                  </div>,
-                  body,
-                ]
-              : [body];
-          })}
-        </AnimatedList>
-        {windowed && win.hasNewer ? <div ref={lower} aria-hidden className="h-px" /> : null}
-        <HrCards agent={agent} />
-        <HandoffCard detail={detail} items={chat.items} />
-        {detail.prompt ? null : <NeedsYouCard detail={detail} />}
-        {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
-        <div className="working-slot flex h-6 flex-none items-center self-start">
-          {chat.working.turn_running ? <Typing line={chat.working.line ?? 'Working'} /> : null}
         </div>
-      </div>
       {windowed ? (
         <LatestPill onClick={() => (win.close(), bottom())} />
       ) : newer ? (
         // CHAT stretches every direct child to full width, so the row spans it and only the pill takes clicks.
-        <div className="pointer-events-none absolute inset-x-0 bottom-[96px] flex justify-center">
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
           <button
             className="newer pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-2)]"
             onClick={bottom}
@@ -360,6 +372,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           </button>
         </div>
       ) : null}
+      </div>
       <div className="cards px-3">
         <PromptSlot agent={agent} prompt={detail.prompt} />
       </div>

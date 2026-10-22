@@ -2,7 +2,7 @@
 // or the optimistic row this person's send made, or is added when it is new.
 import type { ChatMessage, Event as WireEvent, TranscriptItem, Working } from '@handline/client';
 import type { AgentView } from '@handline/client';
-import { edit, mapPages, type Ctx, type Pages } from '#src/cache.ts';
+import { edit, mapPages, takeOver, type Ctx, type Pages } from '#src/cache.ts';
 import { qk } from '#src/reads.ts';
 
 export interface MsgPage {
@@ -31,7 +31,7 @@ function takeMessage(pages: Pages<MsgPage>, m: ChatMessage, me: string): Pages<M
     let swapped = false;
     return mapPages(pages, (p) => ({
       ...p,
-      messages: p.messages.flatMap((x) => (!swapped && mine(x) ? ((swapped = true), [m]) : [x])),
+      messages: p.messages.flatMap((x) => (!swapped && mine(x) ? ((swapped = true), takeOver(m.id, x.id), [m]) : [x])),
     }));
   }
   return mapPages(pages, (p, i) => (i === 0 ? { ...p, messages: [m, ...p.messages] } : p));
