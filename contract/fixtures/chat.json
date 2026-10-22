@@ -402,7 +402,6 @@
       "params": {
        "target": "{{task_owner}}",
        "body": "chat-search-probe sent",
-       "no_task": true,
        "request_id": "conf-cs-1"
       }
      },
@@ -589,7 +588,6 @@
       "params": {
        "target": "{{task_owner}}",
        "body": "chat-search-probe with",
-       "no_task": true,
        "request_id": "conf-cs-3"
       }
      },
