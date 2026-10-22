@@ -35,7 +35,7 @@ export function LiveLine({ working, messages, items }: { working: Working; messa
     const t = setInterval(() => tick((n) => n + 1), 30_000);
     return () => clearInterval(t);
   }, [running]);
-  const turn = turnSummary(messages, items);
+  const turn = turnSummary(messages, items, running);
   if (!running && !turn.count) return <div className="working-slot h-5 flex-none" />; // the row stays so the messages above never move
   const now = turn.last ?? working.line;
   const text = running

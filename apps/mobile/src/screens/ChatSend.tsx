@@ -100,7 +100,7 @@ export function WorkingBubble(props: { working: Working; messages: ChatMessage[]
     const t = setInterval(() => tick((n) => n + 1), 30_000);
     return () => clearInterval(t);
   }, [running]);
-  const turn = turnSummary(props.messages, props.items);
+  const turn = turnSummary(props.messages, props.items, running);
   const now = turn.last ?? props.working.line;
   const text = running
     ? ['Working', turnMinutes(props.working.since), turn.count ? commands(turn.count) : null, now ? `now: ${now}` : null]

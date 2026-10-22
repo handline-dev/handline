@@ -19,7 +19,10 @@ describe('the live work line', () => {
     expect($('turn-steps')).toBeNull();
     await press($('working'));
     expect($('turn-steps')!.textContent).toContain('Bash git status');
-    await act(async () => m.daemon.chat.setTurn(AUD, false));
+    await act(async () => {
+      m.daemon.chat.seedItem(AUD, { kind: 'reply', text: 'done' });
+      m.daemon.chat.setTurn(AUD, false);
+    });
     await until(() => $('ran')?.textContent?.includes('Ran 2 commands'), 'the folded line');
     m.store.stop();
   });

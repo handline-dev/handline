@@ -292,7 +292,7 @@ export function restartingLine(h: { cause: string; phase: 'writing' | 'starting'
   return `Restarting: ${why.charAt(0).toLowerCase()}${why.slice(1)}. ${what}…`;
 }
 
-/** The tool steps of the agent's current turn: those after its last reply and the last message in the chat, whichever is later. */
+/** The tool steps of the agent's current turn: those after its last reply and the last message in the chat, whichever is later. Once the turn is over (`running` false) its reply closes it, not opens the next: the steps are those after the last message. */
 export interface TurnSummary {
   steps: TranscriptItem[];
   /** The commands run, not counting permission asks. */
@@ -301,10 +301,10 @@ export interface TurnSummary {
   last: string | null;
 }
 
-export function turnSummary(messages: ChatMessage[], items: TranscriptItem[]): TurnSummary {
+export function turnSummary(messages: ChatMessage[], items: TranscriptItem[], running = true): TurnSummary {
   let from = '';
   for (const m of messages) if (m.id >= 0 && m.at > from) from = m.at;
-  for (const i of items) if (i.kind === 'reply' && i.at > from) from = i.at;
+  if (running) for (const i of items) if (i.kind === 'reply' && i.at > from) from = i.at;
   const steps = items.filter((i) => i.at > from && isToolStep(i));
   const tools = steps.filter((i) => i.kind === 'tool');
   const end = tools[tools.length - 1];
