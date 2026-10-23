@@ -3,7 +3,18 @@
 // to reply to (the reference the composer shows).
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { clockTime, ellipsis, isPerson, landingLabel, openTask, restartCause, sideOf, type TaskChange, taskRow, tickLevel } from '@handline/app-core';
+import {
+  clockTime,
+  ellipsis,
+  isPerson,
+  landingLabel,
+  openTask,
+  restartCause,
+  sideOf,
+  type TaskChange,
+  taskRow,
+  tickLevel,
+} from '@handline/app-core';
 import { useChatActions, useWrite } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon, type IconName } from '#src/ui/index.ts';
@@ -253,11 +264,11 @@ function SessionCard({ i }: { i: TranscriptItem }) {
       ) : null}
       <hr className="m-0 h-px flex-1 border-0 bg-line" />
       <AnimatedList>
-      {open ? (
-        <Dialog key="handoff" title="Handoff note" onClose={() => setOpen(false)}>
-          <CodeBlock className="handoff-full max-h-[60vh] overflow-auto whitespace-pre-wrap">{handoff}</CodeBlock>
-        </Dialog>
-      ) : null}
+        {open ? (
+          <Dialog key="handoff" title="Handoff note" onClose={() => setOpen(false)}>
+            <CodeBlock className="handoff-full max-h-[60vh] overflow-auto whitespace-pre-wrap">{handoff}</CodeBlock>
+          </Dialog>
+        ) : null}
       </AnimatedList>
     </div>
   );
@@ -335,7 +346,9 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
       <Icon name={TASK_EVENT[ev]!} size={14} label={`Task ${verb ?? 'changed'}`} />
       <span className="card-event text-meta font-semibold uppercase tracking-wide">{verb ? `Task ${verb}` : 'Task'}</span>
       <span className="mono">T{task}</span>
-      {titles?.get(task) ? <span className="max-w-[24ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{titles.get(task)}</span> : null}
+      {titles?.get(task) ? (
+        <span className="max-w-[24ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{titles.get(task)}</span>
+      ) : null}
       {rest ? <span className="muted min-w-0 break-words">{rest}</span> : null}
       <span className="muted card-time">{clockTime(m.at)}</span>
     </button>
