@@ -25,6 +25,7 @@ import { PromptSlot } from '#src/PromptCard.tsx';
 import { Compose } from '#src/ChatCompose.tsx';
 import { LiveLine } from '#src/LiveLine.tsx';
 import { FoldLine, entryKey, useFolds } from '#src/ChatFold.tsx';
+import { useCardTitles } from '#src/ChatTitles.ts';
 import { Item, Message, jumpTo } from '#src/ChatMessages.tsx';
 import { TaskNote } from '#src/ChatTaskCards.tsx';
 import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, RoomTitle, useDecided } from '#src/ChatCards.tsx';
@@ -181,7 +182,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   // Task titles for the transcript's task lines, so a card can say what it is about without opening the task.
   const { served } = useServes('tasks.list');
   const tasks = useTasks({ all: true, limit: 200 }); // done tasks too: a card of a closed task keeps its title
-  const titles = new Map((served ? (tasks.data?.items ?? []) : []).map((t) => [t.id, t.title]));
+  const titles = useCardTitles(served && tasks.data ? new Map(tasks.data.items.map((t) => [t.id, t.title])) : null, [
+    ...chat.items.flatMap((i) => (i.task_event ? [i.task_event.task] : [])),
+    ...entries.flatMap((e) => (e.kind === 'note' ? [e.task] : [])),
+  ]);
   const history = chat.messages
     .filter((m) => m.to === agent && m.from !== agent && m.landing !== 'withdrawn' && m.id > 0)
     .sort((a, b) => b.id - a.id)
