@@ -34,6 +34,9 @@ type Tracker struct {
 	pid      func(agent string) int
 	ended    func(agent string)
 	reapWait time.Duration // reapWait when 0
+	// now and after are the clock doing's hold reads and the timer it releases with: time.Now and time.AfterFunc when nil.
+	now   func() time.Time
+	after func(d time.Duration, f func()) (stop func() bool)
 }
 
 // OnChange sets what is told, after the fact, each time an agent's turn opens or closes or a session starts: the agent's view is
@@ -84,6 +87,12 @@ type turn struct {
 	unwatch    func()
 	pid        int // the session process watched for its exit
 	unwatchPid func()
+	// doing is the running turn's newest tool call shown, nextDoing one seen and not shown yet (release shows it); gen counts the turns
+	// whose calls were forgotten, so a release of an earlier turn shows nothing.
+	doing, nextDoing *Doing
+	shownAt          time.Time
+	release          func() bool // stops the pending release
+	gen              int
 }
 
 func (t *Tracker) get(agent string) *turn {
@@ -100,6 +109,7 @@ func (t *Tracker) get(agent string) *turn {
 
 func (tr *turn) set(s State) {
 	tr.state, tr.settled = s, false
+	tr.clearDoing()
 	close(tr.changed)
 	tr.changed = make(chan struct{})
 }
@@ -247,6 +257,8 @@ func (t *Tracker) watchTranscript(agent, path string) func() {
 	stop, err := watchLines(path, func(line []byte) {
 		if interruptEntry(line) {
 			t.interrupt(agent)
+		} else if d := toolCall(line); d != nil {
+			t.called(agent, d)
 		}
 	})
 	if err != nil {
