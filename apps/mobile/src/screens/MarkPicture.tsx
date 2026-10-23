@@ -10,8 +10,6 @@ import {
   PixelRatio,
   Platform,
   Pressable,
-  SafeAreaView,
-  StatusBar,
   Text,
   TextInput,
   View,
@@ -22,7 +20,7 @@ import { captureRef } from 'react-native-view-shot';
 import { MARK_COLOR, initialMarks, keptMarks, marksReducer, marksToShapes, shapesToSvg, type Mark } from '@handline/app-core';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
-import { Link } from '#src/screens/parts.tsx';
+import { Link, SafeScreen } from '#src/screens/parts.tsx';
 
 const BAR_H = 48;
 
@@ -148,8 +146,7 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
 
   return (
     <Modal visible animationType="slide" onRequestClose={props.onCancel}>
-      {/* Android draws the modal under the status bar; SafeAreaView does not pad it there */}
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#000', paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0 }}>
+      <SafeScreen background="#000">
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <View
             testID="mark-room"
@@ -276,7 +273,7 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
             <BarButton testID="mark-done" label="Save" bold onPress={() => void done()} />
           </View>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </SafeScreen>
     </Modal>
   );
 }
