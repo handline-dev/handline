@@ -17,7 +17,11 @@ export function useFolds(ready: boolean, entries: TimelineEntry[]) {
   return {
     entries: foldTasks(entries),
     open: (f: TaskFold) => open.has(f.id),
-    fresh: (f: TaskFold) => f.cards.length - (seen.current.get(f.id) ?? (loaded.current ? 0 : f.cards.length)),
+    fresh: (f: TaskFold) => {
+      // A line already there when the chat loads is seen as it stands; one that comes later starts at none seen.
+      if (!seen.current.has(f.id) && !loaded.current) seen.current.set(f.id, f.cards.length);
+      return f.cards.length - (seen.current.get(f.id) ?? 0);
+    },
     toggle: (f: TaskFold) => {
       seen.current.set(f.id, f.cards.length);
       setOpen((s) => new Set(s.has(f.id) ? [...s].filter((x) => x !== f.id) : [...s, f.id]));

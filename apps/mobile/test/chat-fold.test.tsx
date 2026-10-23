@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ARCH, $, mount, press, until } from '#test/harness.tsx';
+import { ARCH, $, mount, press, sleep, until } from '#test/harness.tsx';
 
 const card = (task: number, event: 'opened' | 'done', who = ARCH) => ({
   kind: 'task_event' as const,
@@ -25,6 +25,8 @@ describe('a run of task cards in the chat', () => {
     await until(toggle, 'the fold line');
     expect(toggle()!.textContent).toContain('3 tasks · 3 added · 1 done');
     expect(cards()).toBe(0);
+    await sleep(100); // a later render
+    expect(toggle()!.textContent).not.toContain('new'); // it was there when the chat opened
     await press(toggle());
     await until(() => cards() === 3, 'the cards open in place'); // the added card of task 3 is merged into its done card
     await press(toggle());
