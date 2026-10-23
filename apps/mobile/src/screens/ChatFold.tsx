@@ -4,7 +4,6 @@ import { Pressable, Text, View } from 'react-native';
 import { clockTime, foldTasks, type TaskFold, type TimelineEntry } from '@handline/app-core';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
-import { Line } from '#src/screens/ChatLines.tsx';
 import { Icon } from '#src/screens/Icon.tsx';
 
 /** Which lines are open, and how many cards each held when the person last opened it; a line first seen after the chat loaded counts all its cards as new. */
