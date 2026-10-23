@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/reads"
@@ -61,6 +62,33 @@ func truthy(v any) bool {
 	return true
 }
 
+// resultCap is how many characters of the done evidence's first non-blank line a task_done carries.
+const resultCap = 140
+
+// taskDone is a task_done's data: the task, and its title and the first non-blank line of its done evidence when the store has them.
+func taskDone(q *sql.DB, task any) (map[string]any, error) {
+	data := map[string]any{"task": task}
+	var title, evidence sql.NullString
+	err := q.QueryRow("SELECT title, done_evidence FROM tasks WHERE id = ?", fmt.Sprint(task)).Scan(&title, &evidence)
+	if err == sql.ErrNoRows {
+		return data, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if title.String != "" {
+		data["task_title"] = title.String
+	}
+	first, _, _ := strings.Cut(strings.TrimSpace(evidence.String), "\n")
+	if r := []rune(strings.TrimSpace(first)); len(r) > 0 {
+		if len(r) > resultCap {
+			r = r[:resultCap]
+		}
+		data["result"] = string(r)
+	}
+	return data, nil
+}
+
 func (n *Notifications) Scan(q *sql.DB, emit Emit) error {
 	last, err := Prime(q, eventsCursor, "SELECT COALESCE(MAX(id), 0) FROM events")
 	if err != nil {
@@ -95,7 +123,11 @@ func (n *Notifications) Scan(q *sql.DB, emit Emit) error {
 			task, named := payload["task_id"]
 			if done, has := payload["done"]; (!has || truthy(done)) && named && task != nil {
 				id := fmt.Sprint(task)
-				if _, err := emit(stream.Entry{Topic: "notifications", Type: "task_done", Data: map[string]any{"task": task}, Agent: e.agent,
+				data, err := taskDone(q, task)
+				if err != nil {
+					return err
+				}
+				if _, err := emit(stream.Entry{Topic: "notifications", Type: "task_done", Data: data, Agent: e.agent,
 					Title: "task " + id + " done", Target: map[string]any{"screen": "task", "id": id}}); err != nil {
 					return err
 				}
