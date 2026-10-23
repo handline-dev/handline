@@ -286,9 +286,9 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(events[0]!.tagName).toBe('BUTTON');
     const changed = events.find((c) => c.getAttribute('data-event') === 'changed')!;
     expect(text(changed)).toContain('assigned to alice');
-    expect(text(changed.querySelector('s'))).toBe('2'); // the old priority struck through, the new one after it
-    expect(text(changed)).toContain('priority 2 1');
-    expect(changed.className).toContain('w-fit');
+    expect(text(changed)).toContain('priority 2 → 1');
+    expect(changed.querySelector('.card-time')).not.toBeNull(); // the time has its own column on the right
+    expect(text(events[0])).not.toMatch(/TASK|task added/); // no shouted label: the dot says it
   });
 
   it('a batch discard is one card with a line per task: the line opens the task, Reopen brings it back', async () => {
