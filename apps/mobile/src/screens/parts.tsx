@@ -1,31 +1,34 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  Text,
-  View,
-  type ViewStyle,
-} from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
 
-/** A full-screen region that keeps clear of the notch and status bar. iOS pads through SafeAreaView; on Android, which draws edge to edge, it does not, so the status bar height is added. */
+/** A full-screen region that keeps clear of the notch, the status bar and the navigation bar. It carries its own provider because a Modal is a separate window whose insets the app's provider does not see. */
 export function SafeScreen(props: { children: React.ReactNode; background: string; testID?: string }) {
   return (
-    <SafeAreaView
+    <SafeAreaProvider>
+      <Padded {...props} />
+    </SafeAreaProvider>
+  );
+}
+
+function Padded(props: { children: React.ReactNode; background: string; testID?: string }) {
+  const { top, bottom, left, right } = useSafeAreaInsets();
+  return (
+    <View
       testID={props.testID}
-      style={{ flex: 1, backgroundColor: props.background, paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0 }}
+      style={{ flex: 1, backgroundColor: props.background, paddingTop: top, paddingBottom: bottom, paddingLeft: left, paddingRight: right }}
     >
       {props.children}
-    </SafeAreaView>
+    </View>
   );
+}
+
+/** Insets of the window a Modal opens: read inside a SafeAreaProvider that the Modal itself holds. */
+export function InsetModal(props: { children: React.ReactNode }) {
+  return <SafeAreaProvider style={{ flex: 1 }}>{props.children}</SafeAreaProvider>;
 }
 
 /** An empty region: an icon over one line, so it never reads as a blank screen. The PC's ui/Empty is the same shape. */
@@ -266,36 +269,45 @@ export function Link(props: { label: string; onPress: () => void; testID: string
 
 /** A sheet at the bottom of the screen over a dimmed page that a tap on closes; it rides above the keyboard. */
 export function BottomSheet(props: { onClose: () => void; children: React.ReactNode; testID?: string; padded?: boolean }) {
-  const c = usePalette();
   return (
     <Modal transparent visible animationType="fade" onRequestClose={props.onClose}>
-      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
-        <Pressable
-          accessibilityLabel="Close the sheet"
-          onPress={props.onClose}
-          style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' }}
-        >
-          <View
-            testID={props.testID}
-            onStartShouldSetResponder={() => true}
-            style={{
-              backgroundColor: c.bg,
-              borderTopLeftRadius: radius.dialog,
-              borderTopRightRadius: radius.dialog,
-              paddingBottom: space.xl,
-              maxHeight: '85%',
-            }}
-          >
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={props.padded ? { padding: space.lg, gap: space.sm } : undefined}
-            >
-              {props.children}
-            </ScrollView>
-          </View>
-        </Pressable>
-      </KeyboardAvoidingView>
+      <InsetModal>
+        <SheetBody {...props} />
+      </InsetModal>
     </Modal>
+  );
+}
+
+function SheetBody(props: { onClose: () => void; children: React.ReactNode; testID?: string; padded?: boolean }) {
+  const c = usePalette();
+  const { bottom } = useSafeAreaInsets();
+  return (
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+      <Pressable
+        accessibilityLabel="Close the sheet"
+        onPress={props.onClose}
+        style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)' }}
+      >
+        <View
+          testID={props.testID}
+          onStartShouldSetResponder={() => true}
+          style={{
+            backgroundColor: c.bg,
+            borderTopLeftRadius: radius.dialog,
+            borderTopRightRadius: radius.dialog,
+            paddingBottom: space.xl + bottom,
+            maxHeight: '85%',
+          }}
+        >
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={props.padded ? { padding: space.lg, gap: space.sm } : undefined}
+          >
+            {props.children}
+          </ScrollView>
+        </View>
+      </Pressable>
+    </KeyboardAvoidingView>
   );
 }
 
