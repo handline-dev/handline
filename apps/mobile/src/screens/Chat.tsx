@@ -22,6 +22,7 @@ import { taskTab, useOpenInTab } from '#src/screens/AgentTabs.tsx';
 import { NeedsYouCard } from '#src/screens/NeedsYouCard.tsx';
 import { ChatSearch } from '#src/screens/ChatSearch.tsx';
 import { useChatImages } from '#src/screens/ChatImages.tsx';
+import { FoldLine, useFolds } from '#src/screens/ChatFold.tsx';
 import { useSendAnchor } from '#src/screens/ChatAnchor.ts';
 import { SendButton, WorkingBubble } from '#src/screens/ChatSend.tsx';
 import { Icon } from '#src/screens/Icon.tsx';
@@ -91,6 +92,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const tasks = useTasks({ all: true, limit: 200 }); // done tasks too: a card of a closed task keeps its title
   const titles = new Map((served ? (tasks.data?.items ?? []) : []).map((t) => [t.id, t.title]));
   const entries = chatEntries(chat.messages, chat.items, agent, decidedProposals(hr.data?.proposals, agent));
+  const folds = useFolds(chat.status === 'ready', entries);
 
   useChatReadMarks(agent, chat, act.seen);
 
@@ -178,8 +180,15 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
         )}
         {chat.hasOlder && <Button testID="older" label="Older messages" disabled={chat.loadingOlder} onPress={chat.loadOlder} />}
         {chat.status === 'ready' && !entries.length && <EmptyState icon="chat" text="No messages yet" />}
-        {entries.map((e) =>
-          e.kind === 'proposal' ? (
+        {folds.entries.map((e) =>
+          e.kind === 'fold' ? (
+            <FoldLine
+              key={`f${e.id}`}
+              f={e}
+              folds={folds}
+              line={(i) => <Line i={i} agent={agent} me={me} titles={titles} onTask={setOpenTask} />}
+            />
+          ) : e.kind === 'proposal' ? (
             <Decided key={`p${e.id}`} p={e.proposal} />
           ) : e.kind !== 'item' ? (
             <Bubble
