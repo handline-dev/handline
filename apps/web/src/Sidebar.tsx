@@ -11,21 +11,21 @@ import {
   teamOf,
   togglePin as toggleIn,
   RAIL_FILTERS,
-  taskRef,
+  agentLine,
   type Dot,
   type KV,
   type NavGroup,
 } from '@handline/app-core';
 import type { AgentView, NavPrefsChanges } from '@handline/client';
 import { useConnection } from '@handline/app-react';
-import { useAgents, useHrCount, useNav, useServes, useUnreached, useWorktrees } from '@handline/app-data';
+import { useAgents, useHrCount, useNav, useServes } from '@handline/app-data';
 import { useRowDrag } from '#src/RowDrag.ts';
 import { useMyTurn } from '#src/MyTurn.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
 import { Button, Icon, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
 import { setting } from '#src/daemon.ts';
 import { goTasks, usePageRoute } from '#src/route.ts';
-import { AgentRow, liveOf } from '#src/AgentRow.tsx';
+import { AgentRow } from '#src/AgentRow.tsx';
 import { NewAgentButton } from '#src/NewAgent.tsx';
 import { View } from '#src/View.tsx';
 import { navOf } from '#src/NavRows.tsx';
@@ -54,18 +54,12 @@ export function Sidebar({
     agents.map((x) => x.name),
     change,
   );
-  // The view menu: the list under its teams, and the line under a name that says what the agent is doing.
+  // The view menu: the list under its teams.
   const [grouped, setGrouped] = useState(() => setting(storage, 'groupTeams', '1').value !== '0');
-  const [activity, setActivity] = useState(() => setting(storage, 'activityLines', '1').value !== '0');
   const toggle = (key: string, on: boolean, set: (on: boolean) => void) => {
     setting(storage, key, '').save(on ? '1' : '0');
     set(on);
   };
-  const unreached = useUnreached();
-  // Where an agent works, for the line under its name when it has no task: the repo and branch of the worktree it owns.
-  const trees = useWorktrees();
-  const where = new Map<string, string>();
-  for (const w of trees.data?.worktrees ?? []) if (w.owner && !where.has(w.owner)) where.set(w.owner, `${w.repo}/${w.branch}`);
   const chip = chipOf(nav);
   const chipN = chipCounts(agents);
   const names = agents.map((x) => x.name);
@@ -73,13 +67,6 @@ export function Sidebar({
   const nl = navList(agents, nav);
   const rows = tree ? byTeam(nl.rows, grouped, names) : nl.rows;
   const heads = tree && grouped;
-  // A team's heading counts the rows under it, a child with its parent.
-  const teamSize = new Map<string, number>();
-  let blockTeam = '';
-  for (const { agent, depth } of rows) {
-    if (depth === 0) blockTeam = teamOf(agent.name, names);
-    teamSize.set(blockTeam, (teamSize.get(blockTeam) ?? 0) + 1);
-  }
   // Beside an agent: the rows shown under the same parent (the top level within its team), in the order shown.
   const siblingsOf = (a: AgentView) =>
     rows
@@ -96,11 +83,9 @@ export function Sidebar({
       depth={depth}
       kids={kids}
       team={team}
-      sub={lastLine(agent) || (agent.task ? `${taskRef(agent.task.id)} ${agent.task.title}` : (where.get(agent.name) ?? ''))}
-      live={activity || agent.handoff ? liveOf(agent) : ''}
+      line={agentLine(agent)}
       folded={collapsed.has(agent.name)}
       onFold={() => change({ collapsed: toggleIn(nav.collapsed, agent.name) })}
-      unreached={unreached.get(agent.name) ?? null}
       selected={agent.name === selected}
       pinned={nav.pins.includes(agent.name)}
       onPin={() => togglePinAgent(agent.name)}
@@ -197,9 +182,6 @@ export function Sidebar({
             <MenuCheckItem checked={grouped} onCheckedChange={(on) => toggle('groupTeams', on, setGrouped)}>
               Group by team
             </MenuCheckItem>
-            <MenuCheckItem checked={activity} onCheckedChange={(on) => toggle('activityLines', on, setActivity)}>
-              Show what each agent is doing
-            </MenuCheckItem>
           </MenuButton>
           {nav.hidden.length ? (
             <span
@@ -226,9 +208,7 @@ export function Sidebar({
             return (
               <Fragment key={agent.name}>
                 {head ? (
-                  <h3 className="team-head m-0 px-2.5 pb-0.5 pt-2 text-hint font-normal uppercase tracking-wide text-ink-3">
-                    {team} <span className="count">{teamSize.get(team)}</span>
-                  </h3>
+                  <h3 className="team-head m-0 px-2.5 pb-0.5 pt-2 text-hint font-normal uppercase tracking-wide text-ink-3">{team}</h3>
                 ) : null}
                 {row(agent, depth, kids, team)}
               </Fragment>
@@ -294,10 +274,3 @@ const lastTop = (rows: { agent: AgentView; depth: number }[], i: number, names: 
   for (let j = i - 1; j >= 0; j--) if (rows[j]!.depth === 0) return teamOf(rows[j]!.agent.name, names);
   return '';
 };
-
-/** The first line of the agent's newest request to the founder, for the line under its name. */
-const lastLine = (a: AgentView): string =>
-  a.last_to_founder?.text
-    .split('\n')
-    .find((l) => l.trim())
-    ?.trim() ?? '';

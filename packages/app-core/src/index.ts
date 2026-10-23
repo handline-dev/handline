@@ -1,3 +1,4 @@
+export * from '#src/agent-line.ts';
 export * from '#src/chat.ts';
 export * from '#src/keys.ts';
 export * from '#src/model.ts';

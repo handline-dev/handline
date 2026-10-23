@@ -30,7 +30,8 @@ afterEach(async () => {
 });
 
 const rows = () => [...box.querySelectorAll('[data-agent]')].map((r) => r.getAttribute('data-agent'));
-const pick = (label: string) => [...box.querySelectorAll<HTMLButtonElement>('.rail-read button')].find((b) => b.textContent?.startsWith(label))!;
+const pick = (label: string) =>
+  [...box.querySelectorAll<HTMLButtonElement>('.rail-read button')].find((b) => b.textContent?.startsWith(label))!;
 
 describe('the rail unread marks', () => {
   it('shows the count and the last request, and the Unread filter keeps only agents with something unseen', async () => {
@@ -44,7 +45,7 @@ describe('the rail unread marks', () => {
     await until(() => box.querySelector('[data-agent]'), 'the agent rows');
     const row = box.querySelector(`[data-agent="${ARCH}"]`)!;
     expect(row.querySelector('.unread')?.textContent).toBe('3');
-    expect(row.querySelector('.row-sub')?.textContent).toBe('Should the daemon relay it?');
+    expect(row.querySelector('.row-line')?.textContent).toBe('Should the daemon relay it?');
     expect(row.querySelector('.row-time')).not.toBeNull(); // when it was said
     expect(row.querySelector('[aria-label="Context window"]')).toBeNull(); // no bars on the row
     expect(rows().length).toBeGreaterThan(1);
