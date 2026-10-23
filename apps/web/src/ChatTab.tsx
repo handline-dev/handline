@@ -4,12 +4,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { timeline, type TimelineEntry } from '@handline/app-core';
+import { type TaskFold, type TimelineEntry } from '@handline/app-core';
 import { useNearEnd, useSelector, useStore } from '@handline/app-react';
 import {
   Skeleton,
   classify,
-  rowKey,
   sentence,
   useChat,
   useChatActions,
@@ -25,7 +24,9 @@ import { AnimatedItem, AnimatedList } from '#src/AnimatedList.tsx';
 import { PromptSlot } from '#src/PromptCard.tsx';
 import { Compose } from '#src/ChatCompose.tsx';
 import { LiveLine } from '#src/LiveLine.tsx';
-import { Item, Message, TaskNote, jumpTo } from '#src/ChatMessages.tsx';
+import { FoldLine, entryKey, useFolds } from '#src/ChatFold.tsx';
+import { Item, Message, jumpTo } from '#src/ChatMessages.tsx';
+import { TaskNote } from '#src/ChatTaskCards.tsx';
 import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, RoomTitle, useDecided } from '#src/ChatCards.tsx';
 import { ChatSearch } from '#src/ChatSearch.tsx';
 import { Button, Empty, Icon, Textarea, ComposeRow } from '#src/ui/index.ts';
@@ -123,7 +124,7 @@ function useWindowedChat(agent: string, scope: ChatScope) {
 }
 
 /** In the all room, the sender's name over a message, left out when the entry before is a message from the same sender. */
-const groupOf = (scope: ChatScope, prev: TimelineEntry | undefined, m: ChatMessage) =>
+const groupOf = (scope: ChatScope, prev: TimelineEntry | TaskFold | undefined, m: ChatMessage) =>
   scope === 'all' ? { name: prev?.kind === 'message' && prev.message.from === m.from ? null : m.from } : undefined;
 
 /** Scrolls `box` so the line `a` remembered is back where it was. Found again by its id: a page landing can re-create the element (separators, grouping). */
@@ -176,7 +177,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const locate = useChatLocate({ request: going ?? 0 }, going !== null);
   const stream = useRef<HTMLDivElement>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
-  const entries = timeline(chat.messages, chat.items, scope, agent, me, useDecided(agent));
+  const { entries, ...folds } = useFolds(chat, scope, agent, me, useDecided(agent));
   // Task titles for the transcript's task lines, so a card can say what it is about without opening the task.
   const { served } = useServes('tasks.list');
   const tasks = useTasks({ all: true, limit: 200 }); // done tasks too: a card of a closed task keeps its title
@@ -192,7 +193,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const [pickedItem, setPickedItem] = useState<TranscriptItem | null>(null);
   const pick = (m: ChatMessage) => (setPickedItem(null), setPicked((p) => (p === m.id ? null : m.id)));
   const pickItem = (i: TranscriptItem) => (setPicked(null), setPickedItem((p) => (p?.id === i.id ? null : i)));
-  const keyOf = (e: (typeof entries)[number]) => (e.kind === 'item' ? `i${e.id}` : e.kind === 'proposal' ? `p${e.id}` : `m${rowKey(e.id)}`);
+  const keyOf = entryKey;
   // Only an entry that arrives after the one that was last grows; older pages and a switch of scope appear at once.
   const seen = useRef<{ scope: ChatScope; last: string | null }>({ scope, last: null });
   const tail = seen.current.scope === scope && seen.current.last !== null ? entries.findIndex((e) => keyOf(e) === seen.current.last) : -1;
@@ -364,7 +365,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                   onFrame={repin}
                   className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-start"
                 >
-                  {e.kind === 'message' ? (
+                  {e.kind === 'fold' ? (
+                    <FoldLine f={e} folds={folds} titles={titles} agent={agent} />
+                  ) : e.kind === 'message' ? (
                     <Message
                       m={e.message}
                       agent={agent}

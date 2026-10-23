@@ -10,6 +10,7 @@ import { Desk } from '#src/desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from '#src/editor.ts';
 import { serveCapture } from '#src/capture.ts';
 import { gitView, scratch } from '#src/git-view.ts';
+import { Dropper } from '#src/drop.ts';
 import { Opener } from '#src/open.ts';
 import { Devices } from '#src/devices.ts';
 import { Preview } from '#src/preview.ts';
@@ -283,6 +284,8 @@ if (!app.requestSingleInstanceLock()) {
     });
     const composer = new Composer(origin, { env: editorEnv, tmp: app.getPath('temp') });
     ipcMain.handle(CHANNELS.openPath, (e, arg) => opener.openPath(e, arg));
+    const dropper = new Dropper(origin, async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null);
+    ipcMain.handle(CHANNELS.bringIn, (e, arg) => dropper.bringIn(e, arg));
     ipcMain.handle(CHANNELS.compose, (e, arg) => composer.compose(e, arg));
     ipcMain.handle(CHANNELS.cancelCompose, (e, arg) => composer.cancel(e, arg));
     app.on('quit', () => composer.dispose());

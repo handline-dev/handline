@@ -156,9 +156,10 @@ describe('a folder or file dropped from Finder', () => {
       compose().dispatchEvent(e);
     });
   const folder = (name: string) => Object.assign(new File([], name), { fakePath: `/Users/me/${name}` });
-  const withShell = (on: boolean) => {
+  const withShell = (on: boolean, bringIn?: unknown) => {
     const w = window as unknown as { handline?: unknown };
-    if (on) w.handline = { api: 1, pathOf: (f: File & { fakePath?: string }) => f.fakePath ?? '', onNavigate: () => () => undefined };
+    if (on)
+      w.handline = { api: 1, pathOf: (f: File & { fakePath?: string }) => f.fakePath ?? '', bringIn, onNavigate: () => () => undefined };
     else delete w.handline;
   };
   afterEach(() => withShell(false));
@@ -177,6 +178,22 @@ describe('a folder or file dropped from Finder', () => {
     const mine = (await s.client.call('chat.messages', { agent: AUD, scope: 'mine' })).messages.map((m) => m.body);
     expect(mine).toContain('look at this\n/Users/me/proj');
     expect(mine.join()).not.toContain('notes.md');
+  });
+
+  it('is sent as the copy the shell made in the agent folder; when the copy fails the original path is sent', async () => {
+    withShell(true, async (a: { path: string }) =>
+      a.path.endsWith('bad')
+        ? { ok: false, code: 'unavailable', message: 'x' }
+        : { ok: true, path: `/wt/.handline-drops/d-1/${a.path.split('/').pop()}` },
+    );
+    const s = await mount();
+    await drop([folder('notes.md'), folder('bad')]);
+    await until(() => chips().length === 2, 'chips');
+    await typeInto(compose(), 'see');
+    await click(sendBtn());
+    await until(() => chips().length === 0, 'sent');
+    const mine = (await s.client.call('chat.messages', { agent: AUD, scope: 'mine' })).messages.map((m) => m.body);
+    expect(mine).toContain('see\n/wt/.handline-drops/d-1/notes.md\n/Users/me/bad');
   });
 
   it('is ignored where the shell cannot say the path', async () => {
