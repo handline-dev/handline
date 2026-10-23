@@ -81,6 +81,9 @@ func TestARetiredAgentLeavesPinsFoldsAndOrderAndARenamedOneKeepsItsPlace(t *test
 	if err := set(t, d, "human", map[string]any{"pins": []any{"a", "b", "c"}, "collapsed": []any{"b"}, "order": []any{"c", "b", "a"}}, agents); err != nil {
 		t.Fatal(err)
 	}
+	if err := set(t, d, "other", map[string]any{"order": []any{"b", "a", "c"}}, agents); err != nil { // the order alone names them
+		t.Fatal(err)
+	}
 	tx, _ := d.Begin()
 	if err := Forget(tx, "b"); err != nil {
 		t.Fatal(err)
@@ -92,5 +95,8 @@ func TestARetiredAgentLeavesPinsFoldsAndOrderAndARenamedOneKeepsItsPlace(t *test
 	n, _ := navOf(d, "human")
 	if !slices.Equal(n.Pins, []string{"z", "c"}) || len(n.Collapsed) != 0 || !slices.Equal(n.Order, []string{"c", "z"}) {
 		t.Fatalf("%+v", n)
+	}
+	if n, _ := navOf(d, "other"); !slices.Equal(n.Order, []string{"z", "c"}) {
+		t.Fatalf("an order-only change was not stored: %+v", n)
 	}
 }
