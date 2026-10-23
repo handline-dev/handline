@@ -2,15 +2,7 @@
 // message (a small copy; a click opens the original). The files come from a paste, a drop or the file picker.
 import { useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import type { Attachment } from '@handline/client';
-import {
-  MAX_PER_MESSAGE,
-  forgetAttachment,
-  rememberAttachment,
-  sentence,
-  classify,
-  useUploadImage,
-  whyNotImage,
-} from '@handline/app-data';
+import { MAX_PER_MESSAGE, forgetAttachment, rememberAttachment, sentence, classify, useUploadImage, whyNotImage } from '@handline/app-data';
 import { AttachmentImage } from '#src/AttachmentImage.tsx';
 import { shell } from '#src/shell.ts';
 import { Icon } from '#src/ui/index.ts';
@@ -35,7 +27,7 @@ export interface Ref {
 let nextKey = 1;
 
 /** The images being attached to the next message: each is sent to the daemon as soon as it is added. */
-export function useAttachDraft() {
+export function useAttachDraft(agent?: string) {
   const upload = useUploadImage();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
@@ -62,15 +54,23 @@ export function useAttachDraft() {
       );
     }
   };
-  // Only the desktop shell knows a dropped file's path; elsewhere nothing is added.
-  const refer = (files: File[]) => {
+  // Only the desktop shell knows a dropped file's path; elsewhere nothing is added. The shell copies it into the agent's worktree, so the
+  // path the message carries is one the agent can read; when it cannot copy, the original path is sent as before.
+  const refer = async (files: File[]) => {
     const api = shell('pathOf');
     if (!api) return;
-    const added = files.flatMap((f) => {
+    const bring = shell('bringIn')?.bringIn;
+    const found = files.flatMap((f) => {
       const path = api.pathOf!(f);
-      return path && !refs.some((r) => r.path === path) ? [{ key: nextKey++, name: f.name || path.split('/').pop() || path, path }] : [];
+      return path ? [{ name: f.name || path.split('/').pop() || path, path }] : [];
     });
-    if (added.length) setRefs((r) => [...r, ...added.filter((a, i) => added.findIndex((b) => b.path === a.path) === i)]);
+    const added = await Promise.all(
+      found.map(async (f) => {
+        const copy = agent && bring ? await bring({ path: f.path, agent }) : null;
+        return { key: nextKey++, name: f.name, path: copy?.ok ? copy.path : f.path };
+      }),
+    );
+    setRefs((r) => [...r, ...added.filter((a, i) => !r.some((x) => x.path === a.path) && added.findIndex((b) => b.path === a.path) === i)]);
   };
   // Stops the upload and lets go of the preview; false when the draft was already gone.
   const drop = (key: number) => {
@@ -114,7 +114,7 @@ export function useAttachDraft() {
 const imagesOf = (list: FileList | null | undefined): File[] => Array.from(list ?? []).filter((f) => f.type.startsWith('image/'));
 
 /** Handlers that take images from a paste or a drop; the rest of the paste goes into the box as text. */
-export function attachHandlers(add: (files: File[]) => void, refer?: (files: File[]) => void) {
+export function attachHandlers(add: (files: File[]) => void, refer?: (files: File[]) => void | Promise<void>) {
   return {
     onPaste: (e: ClipboardEvent) => {
       const files = imagesOf(e.clipboardData?.files);
@@ -170,7 +170,12 @@ export function AttachChips(props: {
         </span>
       ))}
       {props.refs?.map((r) => (
-        <span key={r.key} className="attach-chip inline-flex items-center gap-1.5 rounded-chip bg-panel px-1.5 py-0.5 text-[12px]" data-state="ref" title={r.path}>
+        <span
+          key={r.key}
+          className="attach-chip inline-flex items-center gap-1.5 rounded-chip bg-panel px-1.5 py-0.5 text-[12px]"
+          data-state="ref"
+          title={r.path}
+        >
           <Icon name="attach" size={13} label="Path" />
           <span className="max-w-[180px] truncate">{r.name}</span>
           <button className="icon" aria-label={`Remove ${r.name}`} title="Remove" onClick={() => props.onUnref?.(r.key)}>

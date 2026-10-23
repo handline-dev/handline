@@ -12,6 +12,7 @@ type Call =
   | 'unsent'
   | 'onNavigate'
   | 'openPath'
+  | 'bringIn'
   | 'compose'
   | 'cancelCompose'
   | 'mode'

@@ -42,7 +42,7 @@ export function Compose(props: {
   const { agent, detail, storage, canSend, history, messages, target, item, onClear, running } = props;
   useScreenKeys('In the message box', COMPOSE_KEYS);
   const act = useChatActions(agent);
-  const att = useAttachDraft();
+  const att = useAttachDraft(agent);
   const canAttach = useCan('attachment.put');
   const agents = useAgents().data?.agents ?? [];
   const view = agents.find((a) => a.name === agent);

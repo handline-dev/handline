@@ -39,6 +39,8 @@ export interface ShellApi {
     /** Branch names the message holds: a repo path opens the version on one of them (read-only), else the worktree's file, else main, else GitHub. */
     branches?: string[];
   }): Promise<{ ok: true; how: 'opened' | 'revealed' | 'branch' | 'main' | 'github' } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
+  /** Copy a dropped file or folder into the agent's worktree and give the copy's path. Absent in a shell that lacks it. */
+  bringIn?(a: { path: string; agent: string }): Promise<{ ok: true; path: string } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
   /** Edit text in the person's editor and read it back. Absent in a shell that lacks it. */
   compose?(a: {
     text?: string;

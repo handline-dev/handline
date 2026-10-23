@@ -35,6 +35,7 @@ export function makeApi(ipc: Ipc, zoom: () => number = () => 1): ShellApi {
     screen: (s) => call(CHANNELS.screen, s),
     unsent: (on) => call(CHANNELS.unsent, on),
     openPath: (a) => call(CHANNELS.openPath, a),
+    bringIn: (a) => call(CHANNELS.bringIn, a),
     compose: (a) => call(CHANNELS.compose, a ?? {}),
     cancelCompose: () => call(CHANNELS.cancelCompose),
     captureWindows: () => call(CHANNELS.captureWindows),
