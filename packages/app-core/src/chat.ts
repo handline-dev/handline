@@ -266,6 +266,72 @@ export function taskRow(i: TranscriptItem, titles?: Map<number, string>): TaskRo
   };
 }
 
+/** A run of task cards drawn as one line. `rows` are the cards that stay after a task's added card is merged into its done card. */
+export interface TaskFold {
+  kind: 'fold';
+  /** The first card's id, so the line keeps its key while cards join the run. */
+  id: number;
+  at: string;
+  /** The last card's time. */
+  until: string;
+  /** Distinct tasks in the run. */
+  tasks: number;
+  added: number;
+  done: number;
+  rows: Extract<TimelineEntry, { kind: 'item' }>[];
+  /** Every card in the run, merged ones too, as the unread count sees them. */
+  cards: string[];
+}
+export const FOLD_MIN = 3;
+
+/** A task card the run takes: the founder's own (they made it, or it is assigned to them) always stays a card of its own. */
+function foldable(e: TimelineEntry): e is Extract<TimelineEntry, { kind: 'item' }> {
+  if (e.kind !== 'item' || e.item.kind !== 'task_event' || !e.item.task_event) return false;
+  const t = e.item.task_event as { who?: string | null; change?: string | null; evidence?: string | null };
+  return t.who !== 'human' && !/\bhuman\b/.test(`${t.change ?? ''} ${t.evidence ?? ''}`);
+}
+
+/** Three or more task cards in a row (no message, session line or new day between) become one fold line; a task added and then done in the run is one row. */
+export function foldTasks(entries: TimelineEntry[]): (TimelineEntry | TaskFold)[] {
+  const out: (TimelineEntry | TaskFold)[] = [];
+  let run: Extract<TimelineEntry, { kind: 'item' }>[] = [];
+  const day = (e: TimelineEntry) => new Date(e.at).toDateString();
+  const flush = () => {
+    if (run.length >= FOLD_MIN) {
+      const rows: TaskFold['rows'] = [];
+      for (const e of run) {
+        const ev = e.item.task_event!;
+        const at = rows.findIndex((r) => r.item.task_event!.task === ev.task && r.item.task_event!.event === 'opened');
+        if (ev.event === 'done' && at >= 0) rows[at] = e;
+        else rows.push(e);
+      }
+      const tasks = new Set(run.map((e) => e.item.task_event!.task));
+      out.push({
+        kind: 'fold',
+        id: run[0]!.id,
+        at: run[0]!.at,
+        until: run.at(-1)!.at,
+        tasks: tasks.size,
+        added: new Set(run.filter((e) => e.item.task_event!.event === 'opened').map((e) => e.item.task_event!.task)).size,
+        done: new Set(run.filter((e) => e.item.task_event!.event === 'done').map((e) => e.item.task_event!.task)).size,
+        rows,
+        cards: run.map((e) => e.at),
+      });
+    } else out.push(...run);
+    run = [];
+  };
+  for (const e of entries) {
+    if (foldable(e) && (!run.length || day(run[0]!) === day(e))) run.push(e);
+    else {
+      flush();
+      if (foldable(e)) run.push(e);
+      else out.push(e);
+    }
+  }
+  flush();
+  return out;
+}
+
 const HANDOFF_WHY: Record<string, string> = {
   context_full: 'Context full',
   move: 'Moving to another account',
