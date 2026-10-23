@@ -4,3 +4,5 @@
 # prefs.get.serves_the_whole_nav fails until the daemon keeps the nav order.
 prefs.get.serves_the_whole_nav
 prefs.set.stores_and_tells_the_prefs_topic
+# task.done.the_notice_names_the_agent_the_task_and_the_result waits on the watcher's task_done notice.
+task.done.the_notice_names_the_agent_the_task_and_the_result
