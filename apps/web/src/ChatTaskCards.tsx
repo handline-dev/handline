@@ -15,7 +15,7 @@ function TaskCard(props: { ev: string; label: string; task: number; title?: stri
   return (
     <button
       type="button"
-      className="card-task flex w-[36rem] max-w-full cursor-pointer items-baseline gap-x-2 rounded-card border-0 bg-transparent px-1.5 py-1 text-left text-body hover:bg-panel"
+      className="card-task flex w-full cursor-pointer items-baseline gap-x-2 rounded-card border-0 bg-transparent px-1.5 py-1 text-left text-body hover:bg-panel"
       data-kind="task_event"
       data-event={props.ev}
       title={`Open T${props.task} in the Tasks tab`}
