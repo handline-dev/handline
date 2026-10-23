@@ -68,9 +68,7 @@ export interface ShellApi {
   /** One window of that list as a PNG (base64). */
   captureWindow?(a: {
     id: string;
-  }): Promise<
-    { ok: true; name: string; png: string } | Fail<'bad_request' | 'unavailable' | 'no_permission' | 'not_found' | 'too_large'>
-  >;
+  }): Promise<{ ok: true; name: string; png: string } | Fail<'bad_request' | 'unavailable' | 'no_permission' | 'not_found' | 'too_large'>>;
   /** Shows an address in a native view over the given rectangle of the window (CSS pixels), or removes the view with null. Absent in a shell that lacks it. */
   preview?(a: { url: string; x: number; y: number; width: number; height: number } | null): Promise<{ ok: true } | Fail<'bad_request'>>;
   /** The preview as it is on screen, a PNG (base64). */

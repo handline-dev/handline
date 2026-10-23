@@ -235,10 +235,7 @@ export function Compose(props: {
           </span>
         ) : null}
         {choosing ? (
-          <label
-            className="compose-now inline-flex gap-0.5 self-center text-ink-2"
-            title="Send now"
-          >
+          <label className="compose-now inline-flex gap-0.5 self-center text-ink-2" title="Send now">
             <Check checked={now} onChange={(e) => setNow(e.target.checked)} /> Now
           </label>
         ) : null}
