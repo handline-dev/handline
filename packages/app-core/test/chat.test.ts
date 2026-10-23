@@ -14,6 +14,7 @@ import {
   taskRow,
   changeParts,
   timeline,
+  foldTasks,
   chatEntries,
   activity,
   restartCause,
@@ -363,4 +364,64 @@ test('turn minutes round down and say under a minute', () => {
   assert.equal(turnMinutes('2026-01-01T00:00:00Z', now), '12m');
   assert.equal(turnMinutes('2026-01-01T00:12:00Z', now), '<1m');
   assert.equal(turnMinutes(null, now), '<1m');
+});
+
+const card = (id: number, event: string, task: number, at: string, who: string | null = 'handline.pc', change: string | null = null) => ({
+  kind: 'item' as const,
+  at,
+  id,
+  item: {
+    id,
+    at,
+    kind: 'task_event',
+    task_event: { event, task, request: null, evidence: null, who, change },
+  } as unknown as TranscriptItem,
+});
+
+test('three task cards in a row fold into one line; added then done is one row; counts are tasks', () => {
+  const out = foldTasks([
+    card(1, 'opened', 5, '2026-01-01T10:00:00Z'),
+    card(2, 'opened', 6, '2026-01-01T10:01:00Z'),
+    card(3, 'done', 5, '2026-01-01T10:02:00Z'),
+  ]);
+  assert.equal(out.length, 1);
+  const f = out[0]!;
+  assert.ok(f.kind === 'fold');
+  assert.deepEqual([f.id, f.tasks, f.added, f.done, f.rows.map((r) => r.id), f.until], [1, 2, 2, 1, [3, 2], '2026-01-01T10:02:00Z']);
+});
+
+test("fewer than three stay cards; a message, a session line or a new day breaks the run; the founder's cards never fold", () => {
+  const m = { kind: 'message' as const, at: '2026-01-01T10:01:30Z', id: 90, message: msg({ id: 90 }) };
+  const s = { kind: 'item' as const, at: '2026-01-01T10:02:30Z', id: 91, item: item({ id: 91, kind: 'session' }) };
+  const t = (n: number, min: number) => card(n, 'opened', n, `2026-01-01T10:0${min}:00Z`);
+  assert.equal(
+    foldTasks([t(1, 0), t(2, 1)]).every((e) => e.kind === 'item'),
+    true,
+  );
+  assert.equal(foldTasks([t(1, 0), t(2, 1), m, t(3, 2), t(4, 3)]).filter((e) => e.kind === 'fold').length, 0);
+  assert.equal(
+    foldTasks([t(1, 0), t(2, 1), t(3, 2), s, t(4, 3)])
+      .map((e) => e.kind)
+      .join(),
+    'fold,item,item',
+  );
+  const days = [
+    card(1, 'opened', 1, '2026-01-01T10:00:00Z'),
+    card(2, 'opened', 2, '2026-01-01T10:01:00Z'),
+    card(3, 'opened', 3, '2026-01-03T10:00:00Z'),
+  ];
+  assert.equal(
+    foldTasks(days).some((e) => e.kind === 'fold'),
+    false,
+  );
+  const mine = [
+    card(1, 'opened', 1, '2026-01-01T10:00:00Z', 'human'),
+    card(2, 'opened', 2, '2026-01-01T10:01:00Z'),
+    card(3, 'opened', 3, '2026-01-01T10:02:00Z'),
+    card(4, 'changed', 4, '2026-01-01T10:03:00Z', 'handline.pc', 'assigned to human'),
+  ];
+  assert.deepEqual(
+    foldTasks(mine).map((e) => e.kind),
+    ['item', 'item', 'item', 'item'],
+  );
 });

@@ -357,11 +357,12 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		bg = stamp(at)
 	}
 	var cache any
+	warm := false
 	if e.CacheLeft != nil {
 		if left, ok, err := e.CacheLeft(agent, float64(now)); err != nil {
 			return nil, err
 		} else if ok {
-			cache = stamp(now + int64(left))
+			cache, warm = stamp(now+int64(left)), left > 0
 		}
 	}
 	var task any
@@ -373,7 +374,10 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 	var account, ctx any
 	if e.Account != nil {
 		if a := must(e.Account(agent)); a != "" {
-			account = a
+			// At rest past its cache's life it is on no account: its next wake goes wherever has the most headroom.
+			if warm || state == "running" || state == "starting" {
+				account = a
+			}
 			if e.CtxPct != nil {
 				if p := e.CtxPct(agent, a); p != nil {
 					ctx = *p

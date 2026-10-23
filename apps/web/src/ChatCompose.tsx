@@ -42,7 +42,7 @@ export function Compose(props: {
   const { agent, detail, storage, canSend, history, messages, target, item, onClear, running } = props;
   useScreenKeys('In the message box', COMPOSE_KEYS);
   const act = useChatActions(agent);
-  const att = useAttachDraft();
+  const att = useAttachDraft(agent);
   const canAttach = useCan('attachment.put');
   const agents = useAgents().data?.agents ?? [];
   const view = agents.find((a) => a.name === agent);
@@ -235,10 +235,7 @@ export function Compose(props: {
           </span>
         ) : null}
         {choosing ? (
-          <label
-            className="compose-now inline-flex gap-0.5 self-center text-ink-2"
-            title="Send now"
-          >
+          <label className="compose-now inline-flex gap-0.5 self-center text-ink-2" title="Send now">
             <Check checked={now} onChange={(e) => setNow(e.target.checked)} /> Now
           </label>
         ) : null}
