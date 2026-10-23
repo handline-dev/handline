@@ -32,7 +32,10 @@ export function useFolds(
   return {
     entries: foldedIn(scope, timeline(chat.messages, chat.items, scope, agent, me, decided)),
     open: (f: TaskFold) => open.has(f.id),
-    fresh: (f: TaskFold) => f.cards.length - (seen.current.get(f.id) ?? (loaded.current ? 0 : f.cards.length)),
+    fresh: (f: TaskFold) => {
+      if (!seen.current.has(f.id)) seen.current.set(f.id, loaded.current ? 0 : f.cards.length);
+      return f.cards.length - seen.current.get(f.id)!;
+    },
     toggle: (f: TaskFold) => {
       seen.current.set(f.id, f.cards.length);
       setOpen((s) => new Set(s.has(f.id) ? [...s].filter((x) => x !== f.id) : [...s, f.id]));
