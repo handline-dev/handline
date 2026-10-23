@@ -1,6 +1,6 @@
 # Fixtures the Go run plays as an agent that fail on a gap too big for the change that gave the run its agent connection,
 # and ones waiting on a notice from the watcher, which this run does not start (no -terminal-tick -cutover).
 # contract/conformance.py --skip-file reads one per line. The fixtures still run: one that passes, or a name no fixture has, fails the run.
-# prefs.get.serves_the_whole_nav fails until the daemon keeps the nav order.
-prefs.get.serves_the_whole_nav
+prefs.set.a_renamed_agent_keeps_its_place_in_the_order
+prefs.set.a_retired_agent_leaves_the_order
 prefs.set.stores_and_tells_the_prefs_topic

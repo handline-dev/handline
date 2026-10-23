@@ -60,7 +60,8 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
     names = {w: f"s.{w}" for w in STATES}
     output_agent = "s.output"
     ask_agent = ASK_AGENT
-    for n in [*names.values(), output_agent, ask_agent, DOING_AGENT, AGENT, LEAD, *RETIRE]:
+    order = {"order_a": names["idle"], "order_b": names["running"], **ORDER}
+    for n in [*names.values(), output_agent, ask_agent, DOING_AGENT, AGENT, LEAD, *RETIRE, *ORDER.values()]:
         (home / "agents" / n).mkdir(parents=True)
         (home / "agents" / n / "agent.yaml").write_text("role: seeded by conformance_fds\n")
     for _ in range(200):
@@ -78,12 +79,12 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
             seed_workroom(home, con)
             seed_open_question(con, ask_agent)
             typing = seed_typing_gates(home, con)
-            write_team(home, [*names.values(), output_agent, ask_agent, DOING_AGENT, AGENT, LEAD, *RETIRE, *typing.values()])
+            write_team(home, [*names.values(), output_agent, ask_agent, DOING_AGENT, AGENT, LEAD, *RETIRE, *ORDER.values(), *typing.values()])
             con.commit()
             con.close()
             return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, "session_agent": output_agent,
                     "ask_agent": ask_agent, "triggers_agent": names["idle"], "doing_agent": DOING_AGENT, "view_plain_agent": names["idle"], "retire_agent": RETIRE[0],
-                    "retire_parent": RETIRE[1], **WORKROOM, **typing}
+                    "retire_parent": RETIRE[1], **WORKROOM, **typing, **order, "order_rename_to": "o.new"}
         except sqlite3.Error:
             if daemon.poll() is not None:
                 break
@@ -129,6 +130,8 @@ def seed_doing(con: sqlite3.Connection) -> None:
     con.execute("INSERT OR REPLACE INTO agent_view(agent, view, updated) VALUES(?, ?, 0)", (DOING_AGENT, json.dumps(view)))
 # agent_retire.json: an agent nothing depends on, which it retires, and one with an agent under its name, which it may not.
 RETIRE = ["r.gone", "r.boss", "r.boss.kid"]
+# prefs.json's nav order fixtures: an agent they retire and one hr renames (to o.new); neither has a session.
+ORDER = {"order_retire_agent": "o.gone", "order_rename_agent": "o.old"}
 
 
 def write_team(home: Path, agents: list[str]) -> None:
