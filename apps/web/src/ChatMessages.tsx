@@ -272,7 +272,7 @@ const TASK_ACCENT: Record<string, string> = {
 };
 
 /** A task added, edited, done or deleted: a compact bar unlike a message, with the change in brief; a click opens the task in the Tasks tab. */
-function TaskLine({ i, titles, agent }: { i: TranscriptItem; titles?: Map<number, string>; agent?: string }) {
+export function TaskLine({ i, titles, agent }: { i: TranscriptItem; titles?: Map<number, string>; agent?: string }) {
   const { apply } = useWorkspace();
   const ev = i.task_event?.event ?? 'changed';
   const row = taskRow(i, titles);
