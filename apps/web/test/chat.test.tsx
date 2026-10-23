@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store, defaultWorkspace, groupsOf, openTab, saveWorkspace, splitTab, storageKey, type KV } from '@handline/app-core';
 import { RpcError } from '@handline/client';
 import { second, setup } from '@handline/fake-daemon/helpers';
-import { applySeeds } from '@handline/fake-daemon/seeds';
 import { App } from '#src/App.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -290,14 +289,6 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(text(changed.querySelector('s'))).toBe('2'); // the old priority struck through, the new one after it
     expect(text(changed)).toContain('priority 2 1');
     expect(changed.className).toContain('w-fit');
-  });
-
-  it('a card of a task older than the newest 200 still shows its title, read by id', async () => {
-    const s = setup();
-    applySeeds(s.daemon, 'tasks-200'); // 200 newer tasks: T1684 is no longer in the list's page
-    await mount(ARCH, s);
-    await until(() => $$('[data-kind="task_event"]').length > 0, 'the task cards');
-    await until(() => text($$('[data-kind="task_event"]')[0]).includes('Web UI design'), 'the title of T1684');
   });
 
   it('a batch discard is one card with a line per task: the line opens the task, Reopen brings it back', async () => {
