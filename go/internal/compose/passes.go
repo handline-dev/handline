@@ -5,6 +5,7 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/heal"
+	"github.com/handline/handline/go/internal/hrwrites"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/schedules"
@@ -28,6 +29,10 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 		Say: lc.Env.SystemSayThen, Log: func(s string) { cfg.Log("%s", s) }}
 	healer := &heal.Healer{Ports: healPorts{lc: lc, home: cfg.Home, needs: p.needsYou()}, Log: func(s string) { cfg.Log("%s", s) }}
 	p.healer = healer
+	held := &hrwrites.Env{DB: lc.Env.DB, Home: cfg.Home, Say: lc.Env, Log: cfg.Log}
+	if lc.Env.Observer != nil {
+		held.Live = lc.Env.Observer.LiveSessions
+	}
 	return []tick.NamedSweep{
 		{Name: "timebox", Run: func(q db.Q, now int64) error { return timebox.Sweep(tk, now) }},
 		{Name: "notice-digest", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepNotices(now) })},
@@ -38,6 +43,20 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 		{Name: "schedules", Run: fromCutover(cutover, func(q db.Q, now int64) error { return sched.Sweep(now) })},
 		{Name: "apply-settings", Run: func(q db.Q, now int64) error { return apply.Sweep(tk, now) }},
 		{Name: "heal", Run: fromCutover(cutover, healer.Sweep)},
+		{Name: "hr-held", Run: func(q db.Q, now int64) error { return held.SweepHeld(heldPorts(tk, q)) }},
+	}
+}
+
+// heldPorts are the tick's session calls for a roster change held until a turn ends: a session is closed only at its prompt.
+func heldPorts(tk *tick.Tick, q db.Q) hrwrites.HeldPorts {
+	return hrwrites.HeldPorts{
+		Alive: tk.Host.SessionAlive,
+		Idle:  func(a string) bool { return tk.Delivery.SessionPresent(a) && tk.Host.SessionIdle(a) },
+		Close: func(a string) (bool, string) {
+			acct, _ := team.CurrentAccount(q, a)
+			return tk.Lifecycle.CloseAgent(q, a, tk.Usage.ReadForAgent(a, acct))
+		},
+		Start: func(a string) (bool, string) { return tk.Lifecycle.WakeAgent(q, a) },
 	}
 }
 

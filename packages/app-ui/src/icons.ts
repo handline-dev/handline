@@ -117,6 +117,7 @@ export const ICON_SPEC = {
   closed: ['Archive', 'Closed'],
   select: ['SquareCheck', 'Select'],
   owner: ['UserRound', 'Owner'],
+  founder: ['UserRound', 'Founder'],
   priority: ['Flag', 'Priority'],
   merge: ['GitMerge', 'Merge'],
   cancel: ['CircleSlash', 'Cancel'],

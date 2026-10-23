@@ -71,6 +71,18 @@ describe('U15 HR', () => {
     expect(teamRow()).toBe('2');
   });
 
+  it('draws a proposal the founder asked for with the founder mark, not the agent icon', async () => {
+    const s = setup();
+    raise(s, 1, { requested_by: 'human' });
+    raise(s, 2);
+    await open(s);
+    await until(() => $$('.hr-card').length === 2, 'two cards');
+    expect(card(1).querySelector('[title="Asked by"] svg[data-icon="founder"]')).not.toBeNull();
+    expect(card(1).querySelector('[title="Asked by"] svg[data-icon="agent"]')).toBeNull();
+    expect(text(card(1).querySelector('[title="Asked by"]'))).toContain('Founder');
+    expect(card(2).querySelector('[title="Asked by"] svg[data-icon="agent"]')).not.toBeNull();
+  });
+
   it('an hr.raised event raises the count with no reload', async () => {
     const s = setup();
     raise(s, 1);

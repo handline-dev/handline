@@ -24,8 +24,9 @@ var proposalKinds = map[string]bool{"add": true, "retire": true, "rename": true,
 	"team": true, "settings": true, "context": true, "schedule": true, "global": true, "bundle": true}
 
 // hrState is the wire word for a proposal file's state, as handline/team/hr.py card() draws them: "proposed" waits for the
-// founder, "approved" is decided but did not go through, "applied" is done. "enacting" and "failed" are a human's own change, and are not served.
-var hrState = map[string]string{"proposed": "open", "approved": "apply_failed", "applied": "approved",
+// founder, "approved" is decided but did not go through, "applying" waits for running turns to end, "applied" is done. "enacting" and "failed"
+// are a human's own change, and are not served.
+var hrState = map[string]string{"proposed": "open", "approved": "apply_failed", "applying": "applying", "applied": "approved",
 	"rejected": "rejected", "withdrawn": "withdrawn"}
 
 func sha256Hex(s string) string {
@@ -43,7 +44,7 @@ type proposal struct {
 	settled int64
 }
 
-func (p proposal) waits() bool { return p.state == "open" || p.state == "apply_failed" }
+func (p proposal) waits() bool { return p.state == "open" || p.state == "applying" || p.state == "apply_failed" }
 
 // proposals is every proposal file under hr/ that reads as one: one that does not parse, or is not a proposal, is left out.
 func (e *Env) proposals() []proposal {
@@ -88,7 +89,17 @@ func (e *Env) proposalView(p proposal) map[string]any {
 	}
 	v := map[string]any{"id": p.wireID, "kind": p.text("kind"), "agent": agent, "title": p.title(), "diff": p.diff(),
 		"subject": p.subject(), "state": p.state, "created": ts(p.created), "settled": nil, "error": nil}
-	if p.state != "open" {
+	switch p.state {
+	case "open":
+	case "applying":
+		var waiting []any
+		for _, a := range strings.Split(p.text("waiting_on"), ",") {
+			if a != "" {
+				waiting = append(waiting, a)
+			}
+		}
+		v["waiting_on"] = waiting
+	default:
 		v["settled"] = ts(p.settled)
 	}
 	if p.state == "apply_failed" && p.truthy("error") {

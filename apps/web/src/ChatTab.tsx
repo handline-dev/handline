@@ -128,10 +128,21 @@ const groupOf = (scope: ChatScope, prev: TimelineEntry | undefined, m: ChatMessa
 
 /** Scrolls `box` so the line `a` remembered is back where it was. Found again by its id: a page landing can re-create the element (separators, grouping). */
 function putBack(box: HTMLElement, a: { id: string; off: number }) {
-  const el = box.querySelector(`[data-id="${CSS.escape(a.id)}"]`);
+  const el = [...box.querySelectorAll('[data-id]')].find((n) => n.getAttribute('data-id') === a.id);
   if (!el) return;
   const drift = el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
   if (drift) box.scrollTop += drift;
+}
+
+/** The first line in view and how far below the top of `box` it sits: what a reader is looking at. */
+function lineInView(box: HTMLElement): { id: string; off: number } | null {
+  const { top } = box.getBoundingClientRect();
+  for (const el of box.querySelectorAll('[data-id]')) {
+    const at = el.getBoundingClientRect();
+    const id = el.getAttribute('data-id');
+    if (id && at.bottom > top) return { id, off: at.top - top };
+  }
+  return null;
 }
 
 /** ⌘F opens the find bar of this chat. */
@@ -240,6 +251,13 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
 
   useLayoutEffect(repin, [last, entries.length, chat.working.turn_running, chat.items.length]);
 
+  // A reader above the bottom keeps the line they are on: whatever changes above or below it (steps folding, a line coming or going) does not move it.
+  const place = useRef<{ id: string; off: number } | null>(null);
+  useLayoutEffect(() => {
+    const box = stream.current;
+    if (box && place.current && !pinned.current && !anchor.current) putBack(box, place.current);
+  });
+
   // New entries while scrolled up are counted, not scrolled to; the pill takes the person down.
   const count = useRef(entries.length);
   useEffect(() => {
@@ -312,6 +330,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
             if (own.current) return void (own.current = false);
             pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
             chat.holdPlace(!pinned.current);
+            place.current = pinned.current ? null : lineInView(el);
             if (pinned.current) setNewer(0);
           }}
         >

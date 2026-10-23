@@ -15,3 +15,5 @@ What running teams taught us. Read it before `hl hr add`, `hl hr team`, `hl hr r
   accounts' week can carry.
 - **The founder** gets one decision at a time, in plain words, with your recommendation.
 - **Retiring.** Before `hl hr retire`, hand each of the agent's open tasks to a new owner (`hl task handoff`).
+- **Several changes are one bundle.** `hl hr bundle --file changes.json --why "..."` (a JSON list of
+  `{"kind", "name", ...}`) asks the founder once and applies all or nothing. Say the reason in words, not message numbers.

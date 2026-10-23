@@ -19,12 +19,13 @@ const CHIP_PAD = 28;
 const CHAR_W = 7;
 const GAP = 8;
 
-/** What the agent is doing now, from what the daemon sends: the word beside its state and how long. Empty for an agent at rest. */
+/** What the agent is doing now, from what the daemon sends: its newest tool line while a turn runs, else the word beside its state and how long. Empty for an agent at rest. */
 export const liveOf = (a: AgentView): string => {
   if (a.handoff) {
     const { why, what } = handoffLine(a.handoff);
     return `${why}: ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
   }
+  if (a.state === 'running' && a.doing?.text) return a.doing.text;
   if (a.status) return [a.status.text, ago(a.status.since ?? a.state_since)].filter(Boolean).join(' · ');
   const d = dotOf(a);
   if (d !== 'running' && d !== 'waking' && !a.state_detail) return '';

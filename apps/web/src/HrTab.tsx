@@ -276,7 +276,15 @@ function Card({
       <MetaLine className="hr-meta">
         {p.requested_by ? (
           <MetaItem title="Asked by">
-            <Icon name="agent" size={14} label="Asked by" /> {textSafe(p.requested_by)}
+            {p.requested_by === 'human' ? (
+              <>
+                <Icon name="founder" size={14} label="Asked by" /> Founder
+              </>
+            ) : (
+              <>
+                <Icon name="agent" size={14} label="Asked by" /> {textSafe(p.requested_by)}
+              </>
+            )}
           </MetaItem>
         ) : null}
         <MetaItem title="Raised">
