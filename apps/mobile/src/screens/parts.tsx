@@ -1,8 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View, type ViewStyle } from 'react-native';
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  Text,
+  View,
+  type ViewStyle,
+} from 'react-native';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
+
+/** A full-screen region that keeps clear of the notch and status bar. iOS pads through SafeAreaView; on Android, which draws edge to edge, it does not, so the status bar height is added. */
+export function SafeScreen(props: { children: React.ReactNode; background: string; testID?: string }) {
+  return (
+    <SafeAreaView
+      testID={props.testID}
+      style={{ flex: 1, backgroundColor: props.background, paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0 }}
+    >
+      {props.children}
+    </SafeAreaView>
+  );
+}
 
 /** An empty region: an icon over one line, so it never reads as a blank screen. The PC's ui/Empty is the same shape. */
 export function EmptyState(props: { text: string; icon?: IconName; testID?: string }) {
