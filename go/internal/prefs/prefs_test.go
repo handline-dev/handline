@@ -31,18 +31,19 @@ func set(t *testing.T, d *sql.DB, person string, changes map[string]any, agents 
 
 func TestAPersonsPrefsStartAsTheDefaultsAndEachKeyGivenReplacesItsOwn(t *testing.T) {
 	d := storetest.Open(t)
-	if n, _ := navOf(d, "human"); n.Layout != "tree" || len(n.Pins) != 0 || n.UnreadOnly {
+	if n, _ := navOf(d, "human"); n.Layout != "tree" || len(n.Pins) != 0 || n.UnreadOnly || n.Order == nil || len(n.Order) != 0 {
 		t.Fatalf("defaults: %+v", n)
 	}
 	agents := []string{"a", "b"}
 	if err := set(t, d, "human", map[string]any{"pins": []any{"b", "a"}, "layout": "flat"}, agents); err != nil {
 		t.Fatal(err)
 	}
-	if err := set(t, d, "human", map[string]any{"unread_only": true, "hidden": []any{"idle"}}, agents); err != nil {
+	if err := set(t, d, "human", map[string]any{"unread_only": true, "hidden": []any{"idle"}, "order": []any{"b", "a"}}, agents); err != nil {
 		t.Fatal(err)
 	}
 	n, _ := navOf(d, "human")
-	if !slices.Equal(n.Pins, []string{"b", "a"}) || n.Layout != "flat" || !n.UnreadOnly || !slices.Equal(n.Hidden, []string{"idle"}) {
+	if !slices.Equal(n.Pins, []string{"b", "a"}) || n.Layout != "flat" || !n.UnreadOnly || !slices.Equal(n.Hidden, []string{"idle"}) ||
+		!slices.Equal(n.Order, []string{"b", "a"}) {
 		t.Fatalf("%+v", n)
 	}
 }
@@ -56,6 +57,9 @@ func TestABadChangeIsRefusedNamingItsFieldAndKeepsNothing(t *testing.T) {
 		{map[string]any{"pins": []any{"ghost"}}, "changes.nav.pins"},
 		{map[string]any{"pins": []any{"a", "a"}}, "changes.nav.pins"},
 		{map[string]any{"collapsed": []any{"ghost"}}, "changes.nav.collapsed"},
+		{map[string]any{"order": []any{"ghost"}}, "changes.nav.order"},
+		{map[string]any{"order": []any{"a", "a"}}, "changes.nav.order"},
+		{map[string]any{"order": "a"}, "changes.nav.order"},
 		{map[string]any{"hidden": []any{"asleep"}}, "changes.nav.hidden"},
 		{map[string]any{"layout": "grid"}, "changes.nav.layout"},
 		{map[string]any{"unread_only": "yes"}, "changes.nav.unread_only"},
@@ -71,10 +75,10 @@ func TestABadChangeIsRefusedNamingItsFieldAndKeepsNothing(t *testing.T) {
 	}
 }
 
-func TestARetiredAgentLeavesPinsAndFoldsAndARenamedOneKeepsItsPlace(t *testing.T) {
+func TestARetiredAgentLeavesPinsFoldsAndOrderAndARenamedOneKeepsItsPlace(t *testing.T) {
 	d := storetest.Open(t)
 	agents := []string{"a", "b", "c"}
-	if err := set(t, d, "human", map[string]any{"pins": []any{"a", "b", "c"}, "collapsed": []any{"b"}}, agents); err != nil {
+	if err := set(t, d, "human", map[string]any{"pins": []any{"a", "b", "c"}, "collapsed": []any{"b"}, "order": []any{"c", "b", "a"}}, agents); err != nil {
 		t.Fatal(err)
 	}
 	tx, _ := d.Begin()
@@ -86,7 +90,7 @@ func TestARetiredAgentLeavesPinsAndFoldsAndARenamedOneKeepsItsPlace(t *testing.T
 	}
 	tx.Commit()
 	n, _ := navOf(d, "human")
-	if !slices.Equal(n.Pins, []string{"z", "c"}) || len(n.Collapsed) != 0 {
+	if !slices.Equal(n.Pins, []string{"z", "c"}) || len(n.Collapsed) != 0 || !slices.Equal(n.Order, []string{"c", "z"}) {
 		t.Fatalf("%+v", n)
 	}
 }
