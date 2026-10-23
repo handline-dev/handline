@@ -610,7 +610,7 @@ func (d *Daemon) ServeFile(f *os.File) error {
 	}
 	go func() {
 		defer d.untrack(c)
-		d.local.Serve(rpc.NewLineTransport(c), peer.PID(c))
+		d.local.Serve(rpc.NewLineTransport(&inherited{Conn: c}), peer.PID(c))
 	}()
 	return nil
 }
@@ -630,9 +630,29 @@ func (d *Daemon) ServeNetFile(f *os.File) error {
 	}
 	go func() {
 		defer d.untrack(c)
-		d.net.rs.ServeNet(rpc.NewLineTransport(c), "", func() { c.Close() })
+		d.net.rs.ServeNet(rpc.NewLineTransport(&inherited{Conn: c}), "", func() { c.Close() })
 	}()
 	return nil
+}
+
+// inherited is a connection the parent opened before it was needed: the pre-hello limit starts at its first byte,
+// not when the daemon began serving it, so a run that keeps spare connections for later fixtures does not lose them.
+type inherited struct {
+	net.Conn
+	spoke bool
+}
+
+func (c *inherited) Read(b []byte) (int, error) {
+	n, err := c.Conn.Read(b)
+	c.spoke = c.spoke || n > 0
+	return n, err
+}
+
+func (c *inherited) SetReadDeadline(t time.Time) error {
+	if !c.spoke {
+		return nil
+	}
+	return c.Conn.SetReadDeadline(t)
 }
 
 // Close stops listening, drops every connection and waits for their goroutines.
