@@ -70,6 +70,23 @@ func TestHrListServesWaitingOldestFirstThenSettledNewestFirstWithinAWeek(t *test
 	}
 }
 
+func TestAnApplyingProposalWaitsUnsettledAndNamesWhoseTurnItWaitsOn(t *testing.T) {
+	e := testEnv(t)
+	now := time.Now().Unix()
+	putProposal(t, e, "00000001", proposalFile("00000001", "applied", now-50, now-5, ""))
+	putProposal(t, e, "00000002", proposalFile("00000002", "applying", now-10, 0, "waiting_on: old,older\n"))
+	if got, want := hrIDs(t, e, map[string]any{}), []int64{2, 1}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("it waits, so it comes first: got %v want %v", got, want)
+	}
+	v := e.HRView("00000002")
+	if v["state"] != "applying" || v["settled"] != nil || !reflect.DeepEqual(v["waiting_on"], []any{"old", "older"}) {
+		t.Fatalf("%v", v)
+	}
+	if _, has := e.HRView("00000001")["waiting_on"]; has {
+		t.Fatal("waiting_on is only for applying")
+	}
+}
+
 func TestHrListSettledAreAtMostFifty(t *testing.T) {
 	e := testEnv(t)
 	now := time.Now().Unix()

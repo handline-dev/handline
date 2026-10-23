@@ -12,7 +12,7 @@ import (
 	"github.com/handline/handline/go/internal/team"
 )
 
-func TestAgentRetireRefusesARunningOrDependedOnAgentAndRetiresOneThatIsNot(t *testing.T) {
+func TestAgentRetireRefusesADependedOnAgentAndRetiresOneThatIsNot(t *testing.T) {
 	r := newRig(t)
 	refusal := func(m map[string]any) string {
 		t.Helper()
@@ -22,11 +22,6 @@ func TestAgentRetireRefusesARunningOrDependedOnAgentAndRetiresOneThatIsNot(t *te
 		}
 		return e["message"].(string)
 	}
-	r.live["bob"] = true
-	if msg := refusal(r.call("agent.retire", `{"agent":"bob","request_id":"r1"}`)); !strings.Contains(msg, "bob has a session running") {
-		t.Fatal(msg)
-	}
-	r.live["bob"] = false
 	// bob.kid hangs under bob's name; a supervisor edge from bob no longer makes alice its report
 	withEdge := strings.NewReplacer("  bob: {}\n", "  bob: {}\n  bob.kid: {}\n",
 		"edges:\n", "edges:\n  - { from: \"bob\", to: \"alice\", relation: supervisor }\n").Replace(teamYAML)
@@ -67,6 +62,32 @@ func TestAgentRetireRefusesARunningOrDependedOnAgentAndRetiresOneThatIsNot(t *te
 	}
 	if msg := refusal(r.call("agent.retire", `{"agent":"bob.kid","request_id":"r4"}`)); !strings.Contains(msg, "no such agent") {
 		t.Fatal(msg)
+	}
+}
+
+func TestTheFounderRetiringARunningAgentIsHeldUntilItsTurnEnds(t *testing.T) {
+	r := newRig(t)
+	r.live["bob"] = true
+	m := r.call("agent.retire", `{"agent":"bob","request_id":"h1"}`)
+	if res, _ := m["result"].(map[string]any); res == nil || res["said"] != "bob is retired when it ends the turn running now." {
+		t.Fatalf("accepted, not refused: %v", m)
+	}
+	held := r.e.listing()
+	if len(held) != 1 || held[0].str("state") != "applying" || held[0].str("waiting_on") != "bob" || held[0].str("requested_by") != "human" {
+		t.Fatalf("held as the founder's own approved retire: %v", held)
+	}
+	var started []string
+	ports := HeldPorts{Alive: func(a string) bool { return r.live[a] }, Idle: func(string) bool { return false },
+		Close: func(string) (bool, string) { t.Fatal("a turn is never cut"); return false, "" },
+		Start: func(a string) (bool, string) { started = append(started, a); return true, "" }}
+	r.e.SweepHeld(ports)
+	if !strings.Contains(r.file("team.yaml"), "  bob: {}") {
+		t.Fatal("bob stays while its turn runs")
+	}
+	r.live["bob"] = false // the turn ended and the session went
+	r.e.SweepHeld(ports)
+	if strings.Contains(r.file("team.yaml"), "bob") || len(started) != 0 || r.state(held[0].id()) != "applied" {
+		t.Fatalf("retired, and not started again: %v %s\n%s", started, r.state(held[0].id()), r.file("team.yaml"))
 	}
 }
 

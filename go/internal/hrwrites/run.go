@@ -208,13 +208,18 @@ func (e *Env) doer(kind string) func(*Env, step) (bool, string, error) {
 	}[kind]
 }
 
+// stepsOf are a proposal's changes in the order they are applied: its own, or each of a team diff's.
+func stepsOf(prop *Prop) []*Prop {
+	if prop.kind() == bundle {
+		return ordered(prop.items())
+	}
+	return []*Prop{prop}
+}
+
 // run carries out a proposal. A step that is refused or fails puts back everything the steps before it did; a diff says which step and why.
 func (e *Env) run(prop *Prop) (bool, string, error) {
 	isBundle := prop.kind() == bundle
-	items := []*Prop{prop}
-	if isBundle {
-		items = ordered(prop.items())
-	}
+	items := stepsOf(prop)
 	if why := e.hostServed(items); why != "" {
 		return false, why, nil
 	}
