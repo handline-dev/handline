@@ -16,6 +16,7 @@ export function Popup({
   children,
   align = 'left',
   up,
+  bare,
 }: {
   open: boolean;
   onClose: () => void;
@@ -25,6 +26,8 @@ export function Popup({
   align?: 'left' | 'right';
   /** Where it opens first; it flips to the other side, or edge, when the window leaves no room there. */
   up?: boolean;
+  /** No header: the title is only the dialog's name. */
+  bare?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -66,10 +69,12 @@ export function Popup({
           ref={box}
           style={{ overflowY: placed?.tight ? 'auto' : 'clip', maxHeight: placed?.tight ? placed.maxHeight : undefined }}
         >
-          <header className="flex items-center justify-between border-b border-line px-2 py-1.5 font-sans text-body font-medium">
-            <strong>{title}</strong>
-            {onRefresh ? <Button icon="refresh" label="Refresh" size="sm" onClick={onRefresh} /> : null}
-          </header>
+          {bare ? null : (
+            <header className="flex items-center justify-between border-b border-line px-2 py-1.5 font-sans text-body font-medium">
+              <strong>{title}</strong>
+              {onRefresh ? <Button icon="refresh" label="Refresh" size="sm" onClick={onRefresh} /> : null}
+            </header>
+          )}
           {children}
         </motion.div>
       ) : null}

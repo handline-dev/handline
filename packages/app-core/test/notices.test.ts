@@ -124,3 +124,14 @@ test('the listeners hear when a toast runs out, so a screen that draws on change
   assert.ok(heard > after);
   assert.equal(n.toasts().length, 0);
 });
+
+test('a finished task keeps its closer, number, title and result; other events carry nothing extra', () => {
+  const n = new Notices();
+  n.takeEvent(ev(1, 'notifications', 'task_done', { agent: 'a.b', data: { task: 7, task_title: 'Fix it', result: 'PASS' } }));
+  n.takeEvent(ev(2, 'notifications', 'task_done', { agent: 'a.c', data: { task: 8 } }));
+  n.takeEvent(ev(3, 'notifications', 'stall', { agent: 'a.b' }));
+  assert.deepEqual(
+    n.list().map((x) => x.about),
+    [undefined, { agent: 'a.c', task: 8 }, { agent: 'a.b', task: 7, title: 'Fix it', result: 'PASS' }],
+  );
+});
