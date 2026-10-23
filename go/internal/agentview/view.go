@@ -89,6 +89,8 @@ type Env struct {
 	Walled func(agent string, row *db.AgentState) *Wall
 	// LoadHeld is why the machine's load holds the start of agent's waiting work, "" when it does not. Nil is never.
 	LoadHeld func(agent string) string
+	// Doing is the running turn's newest tool call (its line and when it began), ok false for none. Nil is none.
+	Doing func(agent string) (text string, at int64, ok bool)
 }
 
 func (e *Env) now() int64 {
@@ -379,6 +381,12 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 			}
 		}
 	}
+	var doing any
+	if e.Doing != nil && state == "running" {
+		if text, at, ok := e.Doing(agent); ok {
+			doing = map[string]any{"text": text, "at": stamp(at)}
+		}
+	}
 	var parent any
 	if e.Parent != nil {
 		if p := e.Parent(agent); p != "" {
@@ -391,7 +399,7 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 		"block": block, "wall_reason": wall, "background_since": bg,
 		"would_wake": row != nil && must(e.WouldWake(row)),
 		"blocker":    blocker, "account": account, "task": task, "cache_until": cache, "ctx_pct": ctx,
-		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(needs), "handoff": handoff,
+		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(needs), "handoff": handoff, "doing": doing,
 		"status": e.status(agent, row, state, detail, handoff, now).Map(),
 	}, nil
 }

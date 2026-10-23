@@ -438,6 +438,35 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     expect($('.newer')).toBeNull();
   });
 
+  it('a reader scrolled up keeps the line they are on when something above it changes size', async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Which gap list'), 'history');
+    const stream = $('.stream')!;
+    for (const [k, v] of [
+      ['scrollHeight', 1000],
+      ['clientHeight', 100],
+    ] as const)
+      Object.defineProperty(stream, k, { value: v, configurable: true });
+    let above = 0; // how far what sits above the reader has grown (a layout jsdom does not do)
+    const rect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const at = (top: number) => ({ top, bottom: top + 50, left: 0, right: 0, width: 0, height: 50, x: 0, y: top, toJSON: () => ({}) });
+      if (this === stream) return at(0);
+      const i = [...stream.querySelectorAll('[data-id]')].indexOf(this);
+      return i < 0 ? rect.call(this) : at(i * 50 + above - stream.scrollTop);
+    };
+    try {
+      stream.scrollTop = 200;
+      await act(async () => void stream.dispatchEvent(new Event('scroll')));
+      above = 40;
+      await other(t, 'fresh news');
+      await until(() => $('.newer'), 'the new message');
+      expect(stream.scrollTop).toBe(240);
+    } finally {
+      Element.prototype.getBoundingClientRect = rect;
+    }
+  });
+
   it("the agent's messages leave FOR YOU once they are drawn: chat.seen goes up to the newest", async () => {
     const t = await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');

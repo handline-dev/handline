@@ -188,6 +188,23 @@ func TestALiveTurnShowsRunningWhateverTheRowSays(t *testing.T) {
 	}
 }
 
+// doing is the running turn's newest tool call while the agent runs, and null once its turn has ended.
+func TestDoingIsTheRunningTurnsToolCallAndNullAtRest(t *testing.T) {
+	r := newRig(t, "a")
+	r.env.Doing = func(string) (string, int64, bool) { return "Bash sleep 30", 4990, true }
+	r.state(t, "a", states.Idle, "")
+	r.sess.alive["a"], r.sess.busy["a"] = true, true
+	r.env.RefreshOne("a")
+	if got, _ := r.stored(t, "a")["doing"].(map[string]any); got["text"] != "Bash sleep 30" || got["at"] != "1970-01-01T01:23:10Z" {
+		t.Fatalf("doing %v", r.stored(t, "a")["doing"])
+	}
+	r.sess.busy["a"] = false
+	r.env.RefreshOne("a")
+	if v := r.stored(t, "a"); v["state"] != "idle" || v["doing"] != nil {
+		t.Fatalf("at rest: state %v doing %v", v["state"], v["doing"])
+	}
+}
+
 func TestAParkedAgentWhoseTurnRunsShowsRunning(t *testing.T) {
 	r := newRig(t, "a", "b")
 	r.state(t, "a", states.Parked, "")

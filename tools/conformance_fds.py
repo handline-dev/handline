@@ -60,7 +60,7 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
     names = {w: f"s.{w}" for w in STATES}
     output_agent = "s.output"
     ask_agent = ASK_AGENT
-    for n in [*names.values(), output_agent, ask_agent, AGENT, LEAD, *RETIRE]:
+    for n in [*names.values(), output_agent, ask_agent, DOING_AGENT, AGENT, LEAD, *RETIRE]:
         (home / "agents" / n).mkdir(parents=True)
         (home / "agents" / n / "agent.yaml").write_text("role: seeded by conformance_fds\n")
     for _ in range(200):
@@ -70,18 +70,19 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
                 view = {"name": n, "role": "seeded by conformance_fds", "model": None, "effort": None, "state": w, "state_detail": "",
                         "state_since": None, "block": None, "wall_reason": None, "background_since": None, "would_wake": False,
                         "blocker": None, "account": None, "task": None, "cache_until": None, "has_dialog": w == "waiting",
-                        "parent": None}
+                        "parent": None, "needs_you": None}
                 con.execute("INSERT OR REPLACE INTO agent_view(agent, view, updated) VALUES(?, ?, 0)", (n, json.dumps(view)))
+            seed_doing(con)
             seed_tool_items(con, output_agent)
             seed_session_start(con, output_agent)
             seed_workroom(home, con)
             seed_open_question(con, ask_agent)
             typing = seed_typing_gates(home, con)
-            write_team(home, [*names.values(), output_agent, ask_agent, AGENT, LEAD, *RETIRE, *typing.values()])
+            write_team(home, [*names.values(), output_agent, ask_agent, DOING_AGENT, AGENT, LEAD, *RETIRE, *typing.values()])
             con.commit()
             con.close()
             return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, "session_agent": output_agent,
-                    "ask_agent": ask_agent, "triggers_agent": names["idle"], "retire_agent": RETIRE[0],
+                    "ask_agent": ask_agent, "triggers_agent": names["idle"], "doing_agent": DOING_AGENT, "view_plain_agent": names["idle"], "retire_agent": RETIRE[0],
                     "retire_parent": RETIRE[1], **WORKROOM, **typing}
         except sqlite3.Error:
             if daemon.poll() is not None:
@@ -116,6 +117,16 @@ def seed_open_question(con: sqlite3.Connection, agent: str) -> None:
 
 
 ASK_AGENT = "s.ask"
+# agent.get.doing_names_the_tool_call: a running agent whose turn's newest tool call is Bash `sleep 30`, as the tick stores it.
+DOING_AGENT = "s.doing"
+
+
+def seed_doing(con: sqlite3.Connection) -> None:
+    view = {"name": DOING_AGENT, "role": "seeded by conformance_fds", "model": None, "effort": None, "state": "running", "state_detail": "",
+            "state_since": None, "block": None, "wall_reason": None, "background_since": None, "would_wake": False, "blocker": None,
+            "account": None, "task": None, "cache_until": None, "has_dialog": False, "parent": None, "needs_you": None,
+            "doing": {"text": "Bash sleep 30", "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}}
+    con.execute("INSERT OR REPLACE INTO agent_view(agent, view, updated) VALUES(?, ?, 0)", (DOING_AGENT, json.dumps(view)))
 # agent_retire.json: an agent nothing depends on, which it retires, and one with an agent under its name, which it may not.
 RETIRE = ["r.gone", "r.boss", "r.boss.kid"]
 
