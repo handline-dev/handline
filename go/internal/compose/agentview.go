@@ -100,6 +100,16 @@ func (p *Parts) agentView(cfg Config, cutover, terminals bool, tu tickUsage) *ag
 		Log:      func(s string) { cfg.Log("%s", s) },
 		DropGone: cutover,
 		LoadHeld: lc.Gate.Held,
+		Doing: func(agent string) (string, int64, bool) {
+			if cfg.Turns == nil || !terminals {
+				return "", 0, false
+			}
+			d := cfg.Turns.Doing(agent)
+			if d == nil {
+				return "", 0, false
+			}
+			return d.Text, d.At, true
+		},
 		Walled: func(agent string, row *db.AgentState) *agentview.Wall {
 			if yes, err := lc.Manager.WouldWake(row); err != nil || !yes {
 				return nil

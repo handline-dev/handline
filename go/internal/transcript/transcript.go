@@ -202,7 +202,7 @@ func Tools(db *sql.DB, agent string, w ToolWindow) ([]Tool, error) {
 		json.Unmarshal([]byte(body), &b)
 		byUse[b.Use.ID] = len(out)
 		ids = append(ids, b.Use.ID)
-		out = append(out, Tool{ID: ItemID(at, ItemTool, seq), At: at, Name: b.Use.Tool, Text: toolText(b.Use.Input)})
+		out = append(out, Tool{ID: ItemID(at, ItemTool, seq), At: at, Name: b.Use.Tool, Text: ToolText(b.Use.Input)})
 		if oldest == 0 || seq < oldest {
 			oldest = seq
 		}
@@ -258,8 +258,8 @@ func FitOutput(text string, max int) (string, int64) {
 	return kept, int64(linesIn(text[len(kept):]))
 }
 
-// toolText is what a tool call was asked to do, in one string: the command, else the path, pattern, address or description.
-func toolText(input map[string]any) string {
+// ToolText is what a tool call was asked to do, in one string: the command, else the path, pattern, address or description.
+func ToolText(input map[string]any) string {
 	for _, k := range []string{"command", "file_path", "path", "pattern", "url", "query", "description", "prompt"} {
 		if v, ok := input[k].(string); ok && v != "" {
 			return v
