@@ -25,7 +25,7 @@ if (!fs.existsSync(path.join(dir, '.git'))) {
 }
 run(dir, 'pnpm', ['install', '--frozen-lockfile']);
 if (fs.existsSync(path.join(dir, 'go')) && spawnSync('go', ['version']).status === 0)
-  run(dir, 'go', ['build', '-C', 'go', '-o', 'handlined', './cmd/handlined']);
+  run(dir, 'tools/build-go.sh', []);
 run(dir, 'pnpm', ['--filter', '@handline/web', 'build']);
 process.env.HANDLINE_FOLLOW = '1';
 process.env.HANDLINE_FOLLOW_DIR = dir;
