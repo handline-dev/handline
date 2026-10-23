@@ -352,6 +352,10 @@ test('a turn is the tool steps after the last reply or message', () => {
   assert.equal(s.last, 'Read a.ts');
   assert.equal(turnSummary([msg({ at: at(9) })], items).count, 0);
   assert.equal(turnSummary([], []).last, null);
+  // A turn that ended with its reply still counts its steps: the reply closes the turn, it does not open the next.
+  const done = [item({ id: 1, at: at(4), kind: 'tool', tool: 'Bash', text: 'ls' }), item({ id: 2, at: at(5), kind: 'reply' })];
+  assert.equal(turnSummary([msg({ at: at(3) })], done, false).count, 1);
+  assert.equal(turnSummary([msg({ at: at(3) })], done).count, 0);
 });
 
 test('turn minutes round down and say under a minute', () => {
