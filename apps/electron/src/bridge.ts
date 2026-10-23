@@ -10,6 +10,7 @@ export const CHANNELS = {
   navigate: 'handline:navigate',
   fullScreen: 'handline:full-screen',
   openPath: 'handline:openPath',
+  bringIn: 'handline:bringIn',
   compose: 'handline:compose',
   cancelCompose: 'handline:cancelCompose',
   mode: 'handline:mode',

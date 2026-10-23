@@ -152,6 +152,10 @@ The pairing screen's part in the app's two modes (Connect to a daemon, Run its o
 
 `pathOf(file: File): string` is synchronous (`webUtils.getPathForFile`, called in the preload; the page cannot get a path from a `File` otherwise). It returns the absolute path of a file or folder dropped from Finder, or `''`. The composer uses it for a dropped non-image: a chip with the name, and the path on its own line after the words.
 
+### 4.5 `bringIn`
+
+`bringIn({ path, agent })` copies a file or folder dropped from Finder into the agent's worktree (`.handline-drops/d-XXXX/<name>`, one folder to a drop; the folder holds a `.gitignore` of `*`) and gives `{ ok: true, path }` with the copy's path. The worktree is the daemon's answer for `agent`, never the page's. `path` must be absolute. The composer sends the copy's path in place of the original, so the agent needs no permission for the person's folders; when the copy fails the original path is sent as before.
+
 ## 5. Tests
 
 The shell tests run under node with the Electron side injected, as `Desk` and `Updater` already are.
