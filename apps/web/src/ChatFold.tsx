@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChatMessage, Proposal, TranscriptItem } from '@handline/client';
 import { clockTime, foldTasks, timeline, type TaskFold, type TimelineEntry } from '@handline/app-core';
-import { TaskLine } from '#src/ChatMessages.tsx';
+import { TaskLine } from '#src/ChatTaskCards.tsx';
 import { rowKey } from '@handline/app-data';
 import { Icon } from '#src/ui/index.ts';
 
