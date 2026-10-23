@@ -113,7 +113,7 @@ describe('the inbox tab', () => {
     m.store.stop();
   });
 
-  it('offers Open terminal on a card the daemon could not heal, and it opens that agent\'s terminal', async () => {
+  it("offers Open terminal on a card the daemon could not heal, and it opens that agent's terminal", async () => {
     const m = await mount((s) => {
       const r = s.daemon.inbox['items'].find((i) => i.id === RESULT)!;
       Object.assign(r, { agent: ARCH, fix: 'open_terminal' });
@@ -147,7 +147,7 @@ describe('the inbox tab', () => {
     m.store.stop();
   });
 
-  it('shows the task board\'s messages as one row that opens to them', async () => {
+  it("shows the task board's messages as one row that opens to them", async () => {
     const m = await mount((s) => {
       s.daemon.inbox.add({ kind: 'say', agent: 'task-board', title: 'T1 done by a', created: new Date().toISOString() });
       s.daemon.inbox.add({ kind: 'say', agent: 'task-board', title: 'T2 done by b', created: new Date().toISOString() });

@@ -36,7 +36,8 @@ describe('the chat tab', () => {
     await openChat();
     await type('chat-input', 'see notes/plan.md and T1684');
     await press($('chat-send'));
-    const find = (kind: string) => box.querySelector<HTMLElement>(`[data-testid^="${kind}-"][data-testid$="${kind === 'file' ? 'notes/plan.md' : '-1684'}"]`);
+    const find = (kind: string) =>
+      box.querySelector<HTMLElement>(`[data-testid^="${kind}-"][data-testid$="${kind === 'file' ? 'notes/plan.md' : '-1684'}"]`);
     const link = async (kind: string) => (await until(() => find(kind), `the ${kind} link`), find(kind));
     await press(await link('file'));
     await until(() => $('dock-file:notes/plan.md'), 'the file dock tab');
