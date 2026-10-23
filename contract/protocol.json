@@ -55,7 +55,7 @@
   "stale": "file.write: the file is not what the etag says (it changed, is gone, or exists when the etag is empty). Read it again; nothing was written.",
   "too_big": "file.write: the file on disk is over 1 MiB, so file.read gave only its start; it is not written (a text read from it would cut it)."
  },
- "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or its apply ran again: it was decided, withdrawn, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
+ "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or applying, or its apply ran again: it was decided, withdrawn, turned applying, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed.",
  "x-legacy": {
   "agent_set": "agent.set",
   "message": null,
@@ -1492,7 +1492,7 @@
   },
   {
    "name": "agent.retire",
-   "summary": "Retire an agent, as an approved HR retire does: it leaves team.yaml (team.yaml.bak keeps the old one), its scheduling row is deleted, its folder (ROLE.md, memory, settings) moves to agents/archive/<date>-<name>, its build caches are removed and its sealed key is forgotten. Its past messages, requests and events stay, and its git worktree is left as it is. Founder only. Refused (gate state) while the agent has a session running, or while another agent reports to it or hangs under its name (<agent>.<rest>): the reason names them. An agent the daemon does not have is not_found.",
+   "summary": "Retire an agent, as an approved HR retire does: it leaves team.yaml (team.yaml.bak keeps the old one), its scheduling row is deleted, its folder (ROLE.md, memory, settings) moves to agents/archive/<date>-<name>, its build caches are removed and its sealed key is forgotten. Its past messages, requests and events stay, and its git worktree is left as it is. Founder only. An agent with a session running is accepted, not refused: `said` names the wait, and the daemon retires it when its current turn ends (a session at its prompt is closed at once). Refused (gate state) while another agent reports to it or hangs under its name (<agent>.<rest>): the reason names them. An agent the daemon does not have is not_found.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3074,7 +3074,7 @@
   },
   {
    "name": "chat.search",
-   "summary": "Find messages by text; each hit carries the scope that shows it (the jump is chat.locate).",
+   "summary": "Find messages by text; each hit carries the scope that shows it (the jump is chat.locate). An agent searches only its own messages: `agent` absent is the caller, any other name is refused (gate role).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3104,6 +3104,22 @@
      }
     },
     {
+     "name": "with",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Only messages whose other party is this name: an agent, or `human` for the person. When one agent's messages are searched (`agent`, or the caller for an agent), the party other than that agent; when the person searches every agent (no `agent`), messages from or to the name. A name no message has finds nothing."
+     }
+    },
+    {
+     "name": "since",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "Only messages sent at or after this time; one that is not a timestamp is bad_request (field since)."
+     }
+    },
+    {
      "name": "limit",
      "required": false,
      "schema": {
@@ -3128,7 +3144,7 @@
      ]
     }
    },
-   "x-role": "member",
+   "x-role": "agent",
    "x-write": false,
    "x-since": 1,
    "errors": [
@@ -3137,7 +3153,13 @@
     },
     {
      "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/refused"
     }
+   ],
+   "x-gates": [
+    "role"
    ]
   },
   {
@@ -7943,7 +7965,7 @@
    "x-role": "agent",
    "x-write": false,
    "x-since": 1,
-   "description": "Without `state`: every proposal that waits (open, and apply_failed until it is decided again) and every settled one (approved, rejected, withdrawn) from the last 7 days, at most 50 of those. Order: the waiting ones first, oldest `created` first; then the settled ones, newest `settled` first. A client counts the dot from `open` and `apply_failed`. With `state`, only that state, in the same order, and no 7-day or 50 bound. A proposal whose requested_by is human is never listed: the founder made that change directly and was not asked (the bridge leaves it out of its cards too). The Python store's states map as: proposed = open; approved = apply_failed (it holds the founder's approval and the change is not applied: `error` is set when an apply ran and failed, null when it never ran, e.g. a crash between the two); applied = approved; rejected = rejected; withdrawn = withdrawn; enacting and failed exist only for a human's own change and are never listed.",
+   "description": "Without `state`: every proposal that waits (open, applying, and apply_failed until it is decided again) and every settled one (approved, rejected, withdrawn) from the last 7 days, at most 50 of those. Order: the waiting ones first, oldest `created` first; then the settled ones, newest `settled` first. A client counts the dot from `open` and `apply_failed`, never from `applying`. With `state`, only that state, in the same order, and no 7-day or 50 bound. A proposal whose requested_by is human (the founder's own change) is listed as any other, so a held one shows while it waits. The Python store's states map as: proposed = open; approved = apply_failed (it holds the founder's approval and the change is not applied: `error` is set when an apply ran and failed, null when it never ran, e.g. a crash between the two); applied = approved; rejected = rejected; withdrawn = withdrawn; enacting and failed are never listed.",
    "errors": [
     {
      "$ref": "#/components/errors/bad_request"
@@ -7952,7 +7974,7 @@
   },
   {
    "name": "hr.decide",
-   "summary": "Approve or reject a proposal; approving an apply_failed one applies it again. Refused with gate proposal_changed or proposal_settled, carrying the proposal as it is.",
+   "summary": "Approve or reject a proposal; approving an apply_failed one applies it again. Approving a change to an agent with a session running is accepted, not refused: the proposal turns applying, `said` names the agents whose turn it waits on, and the change is applied when those turns end. Refused with gate proposal_changed or proposal_settled, carrying the proposal as it is; an applying proposal is refused proposal_settled.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -10122,7 +10144,8 @@
        {
         "type": "null"
        }
-      ]
+      ],
+      "description": "The account the agent is on: the one its session runs on, or, at rest, the one whose prompt cache still holds its conversation, until cache_until. null at rest once cache_until has passed or is null: the agent is on no account and counts on none. Its next wake goes to the account with the most weekly headroom (furthest behind its pace line, Account.pace; with pacing off, the most left of its weekly window), carrying the conversation there; it starts fresh from its handoff only when the conversation cannot be carried. While the cache lives a wake stays on its account, unless that account cannot run it now (its wall, its pace, no free slot), when the usual moves apply."
      },
      "task": {
       "oneOf": [
@@ -10192,6 +10215,31 @@
      "state_detail": {
       "type": "string",
       "description": "The text drawn beside the state word (a clock, what a wait is for), at most 40 characters; empty when there is none. The state column is drawn from state and state_detail alone."
+     },
+     "doing": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "text": {
+          "type": "string",
+          "description": "From the running turn's newest tool item of chat.transcript: its `tool`, a space and the first line of its `text`, or the tool alone when that text is empty; cut to 60 characters (Unicode code points, no ellipsis)."
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp",
+          "description": "When that call began."
+         }
+        },
+        "required": [
+         "text",
+         "at"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What a running agent is doing now, for the line under its name: while state is running and handoff is null, a client draws it in place of status.text. null when no turn runs or the turn has called no tool yet. Absent from a daemon that does not send it. A change of doing alone is pushed (agent.changed) at most once every 5 s, with the newest value."
      },
      "started": {
       "type": "boolean",
@@ -11985,7 +12033,8 @@
       "type": "array",
       "items": {
        "$ref": "#/components/schemas/AgentName"
-      }
+      },
+      "description": "The agents on this account (AgentView.account): running on it, or at rest with their prompt cache alive. One past its cache life is on none."
      },
      "moves": {
       "type": "array",
@@ -12081,7 +12130,7 @@
      "agents_assigned": {
       "type": "integer",
       "minimum": 0,
-      "description": "Only with accounts.list `roster: true`. Agents on this account, running or not (the figure `hl account list` prints)."
+      "description": "Only with accounts.list `roster: true`. Agents on this account (Account.agents), running or at rest with their prompt cache alive (the figure `hl account list` prints)."
      },
      "agents_running": {
       "type": "integer",
@@ -12521,7 +12570,14 @@
      },
      "state": {
       "type": "string",
-      "description": "open: waits for the founder. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states."
+      "description": "open: waits for the founder. applying: approved by the founder and held until each agent in `waiting_on` ends its turn; the daemon then closes those sessions, applies the change and restarts each agent that stays; it turns approved once the change is applied and each agent that stays has a session again, or apply_failed; `settled` stays null and the founder is offered no action meanwhile. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states."
+     },
+     "waiting_on": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "Set only while state is applying: the agents whose running turn the change waits on, by their names before the change. A card names them."
      },
      "created": {
       "$ref": "#/components/schemas/Timestamp"
@@ -12532,7 +12588,7 @@
      },
      "requested_by": {
       "type": "string",
-      "description": "Who asked: an agent's name. Never human: hr.list leaves out what the founder did directly. Text from the daemon's record; optional."
+      "description": "Who asked: an agent's name, or `human` for the founder's own change (a retire held for a running session, say); a client draws `human` as the founder, never as an agent. Text from the daemon's record; optional."
      },
      "reason": {
       "type": "string",

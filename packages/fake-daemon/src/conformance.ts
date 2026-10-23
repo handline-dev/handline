@@ -1,11 +1,5 @@
-// What contract/fixtures/delivery.json needs of a daemon: two more structured sessions, one with a turn running and one whose last
-// message was lost after it was written. `node src/serve.ts --conformance` serves them; the vars are
-//   transcript_agent=handline.auditor working_agent=conf.working crashed_agent=conf.crashed terminal_agent=handline.term-build
-// and, for agent_view_fields.json, view_ready_agent=view.ready view_blocked_agent=view.blocked
-// view_busy_agent=view.busy view_walled_agent=view.walled view_plain_agent=view.plain; and, for agent_view_attention.json, view_fire_agent=view.fire
-// view_ask_agent=view.ask view_alert_agent=view.alert view_stuck_agent=view.stuck view_ignored_agent=view.ignored view_broken_agent=view.broken (plus busy and plain); and, for account_login.json and account_add.json, login_account=conf.login login_code=good-code login_wrong_code=wrong-code add_account=conf.added
-// add_used_account=conf.used add_retry_account=conf.retried; and, for tasks_list_fields.json,
-// tasks_blocked_owner=t.blocked tasks_timed_owner=t.timed tasks_overdue_owner=t.overdue tasks_done_owner=t.done tasks_paused_owner=t.paused; and, for transcript_output.json, output_agent=conf.output (three Bash tool items: one with output, one with output and dropped_lines 8, one with neither); and, for reply_parent.json, reply_agent=conf.reply other_reply_agent=conf.reply2
+// The agents, accounts and tasks the conformance fixtures need of a daemon, served by `node src/serve.ts --conformance`.
+// contract/README.md names, per fixture file, the var values that point at them.
 import { DaemonClient, memoryPair } from '@handline/client';
 import type { FakeDaemon } from '#src/daemon.ts';
 import { AGENTS } from '#src/fixtures.ts';
@@ -26,7 +20,18 @@ export async function seedConformance(daemon: FakeDaemon): Promise<void> {
   for (const [name, state, view] of [
     ['view.ready', 'idle', { kind: 'opus high', task_count: 2, ready: true, wall: null }],
     ['view.blocked', 'idle', { kind: 'opus high', task_count: 1, ready: false, wall: null }],
-    ['view.busy', 'running', { kind: 'codex gpt-5 mid', task_count: 1, ready: false, wall: null, attention: 'running' }],
+    [
+      'view.busy',
+      'running',
+      {
+        kind: 'codex gpt-5 mid',
+        task_count: 1,
+        ready: false,
+        wall: null,
+        attention: 'running',
+        doing: { text: 'Bash sleep 30', at: new Date().toISOString() },
+      },
+    ],
     ['view.walled', 'closed', { kind: 'opus max', task_count: 0, ready: false, wall }],
     [
       'view.plain',

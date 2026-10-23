@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,6 +23,8 @@ func hr(c *hlclient.Client, args []string) (int, bool) {
 	switch sub, rest := args[0], args[1:]; sub {
 	case "add", "retire", "rename", "link", "unlink", "team", "context":
 		return hrPropose(c, sub, rest)
+	case "bundle":
+		return hrBundle(c, rest)
 	case "withdraw":
 		p, ok := parse(rest, nil, nil, nil)
 		if !ok || len(p.pos) != 1 {
@@ -66,9 +69,9 @@ func hrPropose(c *hlclient.Client, kind string, args []string) (int, bool) {
 	if len(p.pos) != want {
 		return wrongArgs("it takes %s, and got %d word(s)", map[int]string{1: "one agent", 2: "two agents"}[want], len(p.pos))
 	}
-	why, hasWhy := p.opt("--why")
-	if !hasWhy {
-		return wrongArgs("--why is missing: say why, for the founder to decide")
+	why, problem := hrWhy(p)
+	if problem != "" {
+		return wrongArgs("%s", problem)
 	}
 	if _, ok := p.opt("--to"); kind == "rename" && !ok {
 		return wrongArgs("--to is missing: the new name")
@@ -130,6 +133,54 @@ func hrPropose(c *hlclient.Client, kind string, args []string) (int, bool) {
 	}
 	return said(c.Write("hr.propose", params)), true
 }
+
+// hrBundle raises several changes as one proposal, decided once: --file is a JSON list of changes, each {"kind", "name", ...} as hr.propose takes them.
+func hrBundle(c *hlclient.Client, args []string) (int, bool) {
+	p, ok := parse(args, []string{"--why", "--file"}, nil, nil)
+	if !ok || len(p.pos) != 0 {
+		return 0, false
+	}
+	why, problem := hrWhy(p)
+	if problem != "" {
+		return wrongArgs("%s", problem)
+	}
+	path, ok := p.opt("--file")
+	if !ok {
+		return wrongArgs("--file is missing: a JSON list of changes")
+	}
+	b, err := os.ReadFile(expandHome(path))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", path, err)
+		return 1, true
+	}
+	var changes []any
+	if err := json.Unmarshal(b, &changes); err != nil {
+		fmt.Fprintf(os.Stderr, "%s is not a JSON list of changes: %v\n", path, err)
+		return 1, true
+	}
+	if c.AskingAgent() == "" {
+		fmt.Println(hlclient.WhoRefusal("propos"))
+		return 1, true
+	}
+	c.NoteVerbChain([]string{"hr", "bundle"})
+	return said(c.Write("hr.propose", map[string]any{"kind": "bundle", "why": why,
+		"args": map[string]any{"name": fmt.Sprintf("%d changes", len(changes)), "changes": changes}})), true
+}
+
+// hrWhy is --why, or what is wrong with it: missing, or naming a message the founder cannot read.
+func hrWhy(p parsed) (why, problem string) {
+	why, ok := p.opt("--why")
+	if !ok {
+		return "", "--why is missing: say why, for the founder to decide"
+	}
+	if ref := messageRef.FindString(why); ref != "" {
+		return "", "--why names " + ref + ": say the reason in words, a message number means nothing to the founder"
+	}
+	return why, ""
+}
+
+// messageRef is a message number in a reason (the app's MESSAGE_REF).
+var messageRef = regexp.MustCompile(`\b(?:msg_[0-9a-f]{7}|ocp-msg [0-9a-f]{8,})\b`)
 
 // expandHome is a path with a leading ~/ taken to the home folder.
 func expandHome(path string) string {

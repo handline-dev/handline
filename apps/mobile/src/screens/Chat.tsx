@@ -214,7 +214,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
             />
           ),
         )}
-        <WorkingBubble working={working} line={chat.working.line ?? null} />
+        <WorkingBubble working={chat.working} messages={chat.messages} items={chat.items} />
       </ScrollView>
       <HandoffLine handoff={props.detail.handoff ?? null} items={chat.items} />
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />

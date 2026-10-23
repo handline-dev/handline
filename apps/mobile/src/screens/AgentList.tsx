@@ -4,7 +4,7 @@ import type { AgentView as Agent } from '@handline/client';
 import { useAgents, useHrCount, useNav, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { font, radius, rowHeight, space } from '@handline/tokens';
-import { ago, chipCounts, chipChanges, chipOf, navList, rowName, teamOf, type NavChip } from '@handline/app-core';
+import { ago, chipCounts, chipChanges, chipOf, moveInOrder, navList, rowName, siblingsOf, teamOf, type NavChip } from '@handline/app-core';
 import { KIND } from '#src/screens/NeedsYouCard.tsx';
 import { usePalette } from '#src/theme.ts';
 import { StateMark } from '#src/screens/StateMark.tsx';
@@ -94,6 +94,25 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
       )}
       {target && (
         <MenuSheet testID="agent-pin-menu" onClose={() => setTarget(null)}>
+          {tree && rows.some((r) => r.agent.name === target.name) ? (
+            <>
+              {(['up', 'down', 'top'] as const).map((way) => {
+                const sibs = siblingsOf(rows, target.name);
+                const at = sibs.indexOf(target.name);
+                const to = way === 'up' ? at - 1 : way === 'down' ? at + 1 : 0;
+                return (
+                  <MenuItem
+                    key={way}
+                    testID={`move-${way}`}
+                    label={way === 'up' ? 'Move up' : way === 'down' ? 'Move down' : 'Move to top'}
+                    icon={way === 'down' ? 'chevron' : 'less'}
+                    disabled={!ready || to < 0 || to >= sibs.length || to === at}
+                    onPress={() => (change({ order: moveInOrder(nav.order, sibs, target.name, to) }), setTarget(null))}
+                  />
+                );
+              })}
+            </>
+          ) : null}
           <MenuItem
             testID="pin-toggle"
             label={nav.pins.includes(target.name) ? 'Unpin' : 'Pin'}
@@ -167,7 +186,8 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
               );
             const a = item.agent;
             const need = a.needs_you ? (a.needs_you.text ?? KIND[a.needs_you.kind]) : '';
-            const doing = need || a.task?.title || a.status?.text || a.state_detail || '';
+            const doing =
+              need || a.task?.title || (a.state === 'running' && !a.handoff ? a.doing?.text : '') || a.status?.text || a.state_detail || '';
             const word = asks(a) ? 'asks' : (a.status?.state ?? (a.block ? a.block.kind : a.state));
             const age = a.needs_you ? a.needs_you.since : (a.status?.since ?? a.state_since);
             return (

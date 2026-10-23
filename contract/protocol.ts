@@ -120,6 +120,7 @@ export type AgentView = {
   background_since?: Timestamp | null;
   would_wake?: boolean;
   blocker?: string | null;
+  /** The account the agent is on: the one its session runs on, or, at rest, the one whose prompt cache still holds its conversation, until cache_until. null at rest once cache_until has passed or is null: the agent is on no account and counts on none. Its next wake goes to the account with the most weekly headroom (furthest behind its pace line, Account.pace; with pacing off, the most left of its weekly window), carrying the conversation there; it starts fresh from its handoff only when the conversation cannot be carried. While the cache lives a wake stays on its account, unless that account cannot run it now (its wall, its pace, no free slot), when the usual moves apply. */
   account: string | null;
   task: {
     id: number;
@@ -134,6 +135,13 @@ export type AgentView = {
   input_holders?: InputHolder[];
   /** The text drawn beside the state word (a clock, what a wait is for), at most 40 characters; empty when there is none. The state column is drawn from state and state_detail alone. */
   state_detail: string;
+  /** What a running agent is doing now, for the line under its name: while state is running and handoff is null, a client draws it in place of status.text. null when no turn runs or the turn has called no tool yet. Absent from a daemon that does not send it. A change of doing alone is pushed (agent.changed) at most once every 5 s, with the newest value. */
+  doing?: {
+    /** From the running turn's newest tool item of chat.transcript: its `tool`, a space and the first line of its `text`, or the tool alone when that text is empty; cut to 60 characters (Unicode code points, no ellipsis). */
+    text: string;
+    /** When that call began. */
+    at: Timestamp;
+  } | null;
   /** Only with agents.list `status: true` (what `hl team` draws): whether the agent has ever run (a state row exists). */
   started?: boolean;
   /** Only with agents.list `status: true` (what `hl team` draws): whether its config names a repo. */
@@ -527,6 +535,7 @@ export type Account = {
   login_state: "ok" | "needs_login" | "unknown";
   five_hour: Window | null;
   weekly: Window | null;
+  /** The agents on this account (AgentView.account): running on it, or at rest with their prompt cache alive. One past its cache life is on none. */
   agents: AgentName[];
   moves: {
     at: Timestamp;
@@ -550,7 +559,7 @@ export type Account = {
     /** end is not typed: the first monthly anniversary of the subscription start after it is first seen, held once reached. */
     end_is_default: boolean;
   };
-  /** Only with accounts.list `roster: true`. Agents on this account, running or not (the figure `hl account list` prints). */
+  /** Only with accounts.list `roster: true`. Agents on this account (Account.agents), running or at rest with their prompt cache alive (the figure `hl account list` prints). */
   agents_assigned?: number;
   /** Only with accounts.list `roster: true`. Those of them that are mid-turn or otherwise running. */
   agents_running?: number;
@@ -657,12 +666,14 @@ export type Proposal = {
   title: string;
   /** What approving does, in words, one change per line. Not a unified diff. */
   diff: string;
-  /** open: waits for the founder. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states. */
+  /** open: waits for the founder. applying: approved by the founder and held until each agent in `waiting_on` ends its turn; the daemon then closes those sessions, applies the change and restarts each agent that stays; it turns approved once the change is applied and each agent that stays has a session again, or apply_failed; `settled` stays null and the founder is offered no action meanwhile. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states. */
   state: string;
+  /** Set only while state is applying: the agents whose running turn the change waits on, by their names before the change. A card names them. */
+  waiting_on?: AgentName[];
   created: Timestamp;
   /** Digest of what the proposal changes as drawn; hr.decide's approve hands it back. */
   subject: string;
-  /** Who asked: an agent's name. Never human: hr.list leaves out what the founder did directly. Text from the daemon's record; optional. */
+  /** Who asked: an agent's name, or `human` for the founder's own change (a retire held for a running session, say); a client draws `human` as the founder, never as an agent. Text from the daemon's record; optional. */
   requested_by?: string;
   /** Why it asks, as the agent wrote it. Text only, from an agent: a client draws it as plain text, never as markup, and drops control characters. Optional. */
   reason?: string;
@@ -2073,6 +2084,10 @@ export interface Methods {
   query: string;
   /** mine: person and this agent; all: everything it sent or received. */
   scope?: "mine" | "all";
+  /** Only messages whose other party is this name: an agent, or `human` for the person. When one agent's messages are searched (`agent`, or the caller for an agent), the party other than that agent; when the person searches every agent (no `agent`), messages from or to the name. A name no message has finds nothing. */
+  with?: string;
+  /** Only messages sent at or after this time; one that is not a timestamp is bad_request (field since). */
+  since?: Timestamp;
   limit?: number;
 }; result: {
     messages: ChatMessage[];
@@ -3068,7 +3083,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "chat.locate": { role: "member", callers: null, write: false, since: 1 },
   "agent.strip": { role: "member", callers: null, write: false, since: 1 },
   "chat.refs": { role: "member", callers: null, write: false, since: 1 },
-  "chat.search": { role: "member", callers: null, write: false, since: 1 },
+  "chat.search": { role: "agent", callers: null, write: false, since: 1 },
   "chat.send": { role: "member", callers: null, write: true, since: 1 },
   "chat.send_now": { role: "member", callers: null, write: true, since: 1 },
   "chat.cancel": { role: "member", callers: null, write: true, since: 1 },

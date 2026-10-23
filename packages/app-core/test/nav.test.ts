@@ -1,7 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentView, Worktree } from '@handline/client';
-import { chipChanges, chipCounts, chipOf, DEFAULT_NAV, movePin, navDock, navList, navOf, togglePin, withOpen } from '#src/index.ts';
+import {
+  chipChanges,
+  chipCounts,
+  chipOf,
+  DEFAULT_NAV,
+  movePin,
+  moveInOrder,
+  siblingsOf,
+  navDock,
+  navList,
+  navOf,
+  togglePin,
+  withOpen,
+} from '#src/index.ts';
 
 const agent = (name: string, state: string, parent: string | null, unread = false) =>
   ({ name, state, parent, role: '', founder_unread: unread ? 1 : 0 }) as unknown as AgentView;
@@ -76,4 +89,30 @@ test('pins toggle and move; opening past the limit drops the oldest', () => {
   assert.deepEqual(withOpen(tabs('a', 'b'), { agent: 'a', path: '/w' }), [{ agent: 'a', path: '/w' }, { agent: 'b' }]);
   assert.deepEqual(withOpen(tabs('a', 'b', 'c'), { agent: 'd' }, [], 3), tabs('b', 'c', 'd'));
   assert.deepEqual(withOpen(tabs('p', 'b', 'c'), { agent: 'd' }, ['p'], 2), tabs('p', 'c', 'd'));
+});
+
+test('the tree follows the saved order under one parent and at the top, with unlisted agents after, by name', () => {
+  const nav = { ...DEFAULT_NAV, order: ['orca', 'handline.pc', 'handline.daemon'] };
+  assert.deepEqual(names(navList(team, nav).rows), ['orca', 'handline', '-handline.pc', '-handline.daemon', '--handline.daemon.auditor']);
+  const none = navList(team, { ...DEFAULT_NAV, order: [] });
+  assert.deepEqual(names(none.rows), ['handline', '-handline.daemon', '--handline.daemon.auditor', '-handline.pc', 'orca']);
+});
+
+test('a filter keeps the order of the agents it shows, and the flat layout ignores it', () => {
+  const nav = { ...DEFAULT_NAV, order: ['orca', 'handline'] };
+  assert.deepEqual(names(navList(team, { ...nav, ...chipChanges('unread') }).rows), ['orca', 'handline', '-handline.daemon']);
+  assert.deepEqual(names(navList(team, { ...nav, layout: 'flat' }).rows)[0], 'handline.daemon');
+});
+
+test('moving an agent among its siblings rewrites only their part of the order', () => {
+  assert.deepEqual(moveInOrder(['x', 'a', 'b', 'c'], ['a', 'b', 'c'], 'c', 0), ['x', 'c', 'a', 'b']);
+  assert.deepEqual(moveInOrder([], ['a', 'b'], 'a', 9), ['b', 'a']);
+  assert.deepEqual(moveInOrder(['a'], ['a', 'b'], 'gone', 0), ['a']);
+});
+
+test('siblings are the agents under one parent in the order shown', () => {
+  const rows = navList(team, DEFAULT_NAV).rows;
+  assert.deepEqual(siblingsOf(rows, 'handline.pc'), ['handline.daemon', 'handline.pc']);
+  assert.deepEqual(siblingsOf(rows, 'orca'), ['handline', 'orca']);
+  assert.deepEqual(siblingsOf(rows, 'gone'), []);
 });

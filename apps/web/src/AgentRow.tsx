@@ -1,5 +1,5 @@
 // One agent row of the list: the name and its marks on the first line, the task (or repo/branch) under it, and what the agent is doing now.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type HTMLAttributes } from 'react';
 import { ago, dotOf, rowName, queueOf, handoffLine, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useStore } from '@handline/app-react';
@@ -19,12 +19,13 @@ const CHIP_PAD = 28;
 const CHAR_W = 7;
 const GAP = 8;
 
-/** What the agent is doing now, from what the daemon sends: the word beside its state and how long. Empty for an agent at rest. */
+/** What the agent is doing now, from what the daemon sends: its newest tool line while a turn runs, else the word beside its state and how long. Empty for an agent at rest. */
 export const liveOf = (a: AgentView): string => {
   if (a.handoff) {
     const { why, what } = handoffLine(a.handoff);
     return `${why}: ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
   }
+  if (a.state === 'running' && a.doing?.text) return a.doing.text;
   if (a.status) return [a.status.text, ago(a.status.since ?? a.state_since)].filter(Boolean).join(' · ');
   const d = dotOf(a);
   if (d !== 'running' && d !== 'waking' && !a.state_detail) return '';
@@ -44,6 +45,7 @@ export function AgentRow({
   selected,
   pinned,
   onPin,
+  drag,
 }: {
   agent: AgentView;
   depth: number;
@@ -57,6 +59,8 @@ export function AgentRow({
   selected: boolean;
   pinned: boolean;
   onPin: () => void;
+  /** Dragging the row to reorder (tree layout): the handlers for the row, and the line where a drop would land. */
+  drag?: { attrs: HTMLAttributes<HTMLDivElement>; mark: 'before' | 'after' | null };
 }) {
   const store = useStore();
   const dot = dotOf(a);
@@ -94,8 +98,10 @@ export function AgentRow({
       <Menu onOpenChange={setMenuOpen} openRef={opener}>
         <MenuTrigger asChild>
           <div
-            className={`row-wrap relative${selected ? ' on bg-canvas' : ''}`}
+            className={`row-wrap relative${selected ? ' on bg-canvas' : ''}${drag?.mark === 'before' ? ' shadow-[inset_0_2px_0_var(--c-primary,currentColor)]' : drag?.mark === 'after' ? ' shadow-[inset_0_-2px_0_var(--c-primary,currentColor)]' : ''}`}
             data-agent={a.name}
+            data-drop={drag?.mark ?? undefined}
+            {...drag?.attrs}
             onPointerEnter={() => setHot(true)}
             onPointerLeave={() => setHot(false)}
             onFocus={() => setHot(true)}

@@ -1,6 +1,6 @@
 // The Accounts tab of Settings (#/accounts, #/stats), also the page the status bar's usage item opens: one line per account, then the Stats section; #/accounts/:name is one account in three tabs.
 import { useState } from 'react';
-import { STATE_WORD, outUntil, stateOf, span, dateTime } from '@handline/app-core';
+import { STATE_WORD, agentsLine, outUntil, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAccounts, useAccountUsage, useAgents, useOff, useServes, useWrite } from '@handline/app-data';
@@ -48,8 +48,6 @@ export function StateChip({ account, now }: { account: Account; now: number }) {
     </span>
   );
 }
-
-export const agentsLine = (account: Account) => `${account.agents.length} / cap ${account.cap_effective}`;
 
 const LOGIN_WORD: Record<Account['login_state'], string> = { ok: 'logged in', needs_login: 'needs login', unknown: 'login unknown' };
 
@@ -116,10 +114,10 @@ function Row({ account, now }: { account: Account; now: number }) {
         <Gauge label="week" window={account.weekly} now={now} />
         <span
           className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2"
-          title={`Agents on it, and its cap: ${agentsLine(account)}`}
+          title="Agents working on it now, and the most it takes at once"
         >
           <Icon name="agent" size={14} label="Agents" />
-          {account.agents.length}/{account.cap_effective}
+          {agentsLine(account)}
         </span>
         <UsageLine account={account} />
       </a>
@@ -143,30 +141,26 @@ function AddAccount() {
     <>
       <Button icon="plus" label="Add an account" disabled={!!off} title={off} onClick={() => setAsking(true)} />
       <AnimatedList>
-      {asking ? (
-        <Dialog key="add"
-          title="Add an account"
-          onClose={close}
-          action={{
-            label: add.isPending ? 'Adding…' : 'Add account',
-            disabled: !name.trim() || add.isPending,
-            onClick: () => add.mutate({ account: name.trim() }, { onSuccess: close }),
-          }}
-        >
-          <Field
-            label="Name"
-            value={name}
-            autoComplete="off"
-            onChange={(e) => setName(e.target.value)}
-          />
-          {add.error ? (
-            <p className={`${NOTE} text-bad`} role="alert">
-              <Icon name="failed" size={14} label="Error" />
-              {sentence(classify(add.error))}
-            </p>
-          ) : null}
-        </Dialog>
-      ) : null}
+        {asking ? (
+          <Dialog
+            key="add"
+            title="Add an account"
+            onClose={close}
+            action={{
+              label: add.isPending ? 'Adding…' : 'Add account',
+              disabled: !name.trim() || add.isPending,
+              onClick: () => add.mutate({ account: name.trim() }, { onSuccess: close }),
+            }}
+          >
+            <Field label="Name" value={name} autoComplete="off" onChange={(e) => setName(e.target.value)} />
+            {add.error ? (
+              <p className={`${NOTE} text-bad`} role="alert">
+                <Icon name="failed" size={14} label="Error" />
+                {sentence(classify(add.error))}
+              </p>
+            ) : null}
+          </Dialog>
+        ) : null}
       </AnimatedList>
     </>
   );

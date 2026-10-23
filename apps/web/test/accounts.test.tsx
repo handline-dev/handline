@@ -67,9 +67,22 @@ describe('the list', () => {
     expect(text(card('gamma').querySelector('.acct-state'))).toBe('login needed');
     expect(text(card('alpha').querySelector('[data-gauge="5 h"] .gauge-pct'))).toBe('41%');
     expect(card('alpha').querySelector('[data-gauge="5 h"]')!.getAttribute('title')).toMatch(/^resets in 2 h/);
-    expect(text(card('alpha').querySelector('.acct-agents'))).toContain('1/4');
-    expect(card('alpha').querySelector('.acct-agents')!.getAttribute('title')).toContain('1 / cap 4');
+    expect(text(card('alpha').querySelector('.acct-agents'))).toContain('0 working / cap 4'); // its one agent is idle
+    expect(card('alpha').querySelector('.acct-agents')!.getAttribute('title')).toContain('working on it now');
     expect(text(card('gamma'))).toContain('no reading');
+  });
+
+  it('counts the agents working now, not those tied to the account', async () => {
+    const s = setup();
+    const fx = s.daemon.sessions.get('handline.architect')!.fx;
+    const was = fx.state;
+    fx.state = 'running';
+    try {
+      await mount('#/accounts', s);
+      await until(() => text(card('alpha').querySelector('.acct-agents')).includes('1 working / cap 4'), 'the running count');
+    } finally {
+      fx.state = was;
+    }
   });
 
   it('says on each line the login, the plan, when the week resets, and whether it can take another agent and why not', async () => {
@@ -84,7 +97,7 @@ describe('the list', () => {
     const s = await mount();
     await until(() => text(card('beta').querySelector('[data-usage]')).includes('cannot'), 'the usage line');
     await act(async () => void s.daemon.accounts.set({ account: 'beta', cap: 3 }));
-    await until(() => text(card('beta').querySelector('.acct-agents')).includes('/3'), 'the event');
+    await until(() => text(card('beta').querySelector('.acct-agents')).includes('/ cap 3'), 'the event');
     expect(text(card('beta').querySelector('[data-usage]'))).toContain('cannot take another agent: 5h 88% at last reading');
   });
 

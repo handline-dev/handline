@@ -45,6 +45,7 @@ type WakePromptIn struct {
 	WasClosed   bool
 	MovedTo     string
 	Cold        bool
+	ContextFull bool   // the last session ended with its context full
 	Waiting     string // what was waiting for a resume, "" for none
 	RestartNote string
 }
@@ -73,11 +74,11 @@ func (m *Manager) WakePrompt(agent string, resumed bool, in WakePromptIn) (text 
 		parts = append(parts, in.RestartNote)
 	}
 	switch {
+	case resumed:
+		return joinNonEmpty(in.RestartNote, in.Waiting), nil
 	case in.MovedTo != "":
 		// A move is not a close. Its handoff was taken as its session ended, and the launch has already put it in this session's system prompt.
 		parts = append(parts, fmt.Sprintf("Your account was at its 5h limit, so this session was started on %s. Your handoff is in your system prompt above; carry on from there.", in.MovedTo))
-	case resumed:
-		return joinNonEmpty(in.RestartNote, in.Waiting), nil
 	case in.Cold:
 		// The handoff is in the system prompt, and carries the transcript's path: nothing more is appended for it below.
 		record = must(db.GetHandoff(m.Q, agent))
@@ -85,7 +86,9 @@ func (m *Manager) WakePrompt(agent string, resumed bool, in WakePromptIn) (text 
 	case in.WasClosed:
 		// Taking the parked branch here would tell an agent that was never parked that its context was cleared.
 		record = must(db.GetHandoff(m.Q, agent))
-		if record != "" {
+		if record != "" && in.ContextFull {
+			parts = append(parts, "Your context was full, so this is a fresh session. Your handoff is in your system prompt above.")
+		} else if record != "" {
 			parts = append(parts, "Your session could not be resumed, so this is a fresh one. Your handoff is in your system prompt above.")
 		} else {
 			parts = append(parts, "Your session could not be resumed, so this is a fresh one. There is no handoff. Read your journal and your inbox before carrying on.")
@@ -379,8 +382,7 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 		return false, NothingWaiting
 	}
 	if owed := m.moveOwed(agent, row); movedTo == "" && owed != nil {
-		// A person moved it while it was closed: a fresh start there from the handoff record, since a resume id cannot follow an
-		// account change.
+		// A person moved it while it was closed: the session goes with it (carried) and the handoff record is the fallback.
 		to, _ := owed["to"].(string)
 		by, _ := owed["by"].(string)
 		if why := m.Launch.RoomOn(m.Q, agent, row, to); why != "" {
@@ -394,7 +396,9 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 		movedID, _ := must2(db.LastEventID(m.Q, agent, "moved_account"))
 		if owedID, _ := must2(db.LastEventID(m.Q, agent, MoveOwedKind)); movedID < owedID {
 			// Once per move, not on every retry of a wake that fails after it.
-			check(db.ForgetResume(m.Q, agent))
+			if m.carried(agent, row.ResumeSession.String) == "" {
+				check(db.ForgetResume(m.Q, agent))
+			}
 			must(db.AddEvent(m.Q, agent, "moved_account", db.KV{K: "from", V: row.Account.String}, db.KV{K: "to", V: to},
 				db.KV{K: "trigger", V: "forced"}))
 			m.Agents.MeasureBegin(m.Q, agent, to)
@@ -404,7 +408,7 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	// `hl launch` refuses at the 5h wall, and the daemon can read that before it types anything. Trying anyway would spend the wake
 	// timeout to be told what we already knew, and count a streak against an agent whose only problem rolls over by itself. The account
 	// this launch lands on is the one a session to resume lives under. Keeping the conversation is worth a wait only while its prompt cache
-	// lives; past that a resume pays for its context in full, and a fresh start elsewhere with the handoff is no worse.
+	// lives; past that a resume pays for its context in full on any account, so it moves rather than waits.
 	session := row.ResumeSession.String
 	wait := m.Launch.WakeWait(m.Q, agent, row)
 	if wait != nil && wait.Pace != nil && (force || m.personWaiting(agent)) {
@@ -418,31 +422,38 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 			wait = nil
 		} else if session != "" {
 			to, why := m.Launch.RoomNow(m.Q, agent, row, wait.Account)
-			if to != "" && !m.startFreshElsewhere(agent, session, wait.Account, to, "started by a person, "+wait.Account+" has no room") {
-				to, why = "", "its handoff could not be read whole"
+			kept, moved := "", false
+			if to != "" {
+				if kept, moved = m.moveElsewhere(agent, session, wait.Account, to, "started by a person, "+wait.Account+" has no room"); !moved {
+					why = "its handoff could not be read whole"
+				}
 			}
-			if to == "" {
+			if !moved {
 				return false, m.Launch.DescribeWakeWait(wait) + "; not moved: " + why
 			}
-			session, movedTo, wait = "", to, nil
+			session, movedTo, wait = kept, to, nil
 		}
 	}
 	if wait != nil && wait.Slot {
 		// No wall, no slot. When a slot frees cannot be told, so it is never within the prompt cache's life: the agent moves to an account
-		// with a free slot, the one furthest behind its week, a warm restart too; a fresh start costs only the handoff. With nowhere to go
-		// any wake waits.
+		// with a free slot, the one furthest behind its week, a warm restart too, and takes its session along. With nowhere to go any wake
+		// waits.
 		to := ""
 		if movedTo == "" && session != "" {
 			to = m.Launch.SlowestPaced(m.Q, agent, row, wait.Account)
 		}
-		if to == "" || !m.startFreshElsewhere(agent, session, wait.Account, to, fmt.Sprintf("%s is full", wait.Account)) {
+		kept, moved := "", false
+		if to != "" {
+			kept, moved = m.moveElsewhere(agent, session, wait.Account, to, fmt.Sprintf("%s is full", wait.Account))
+		}
+		if !moved {
 			return false, m.Launch.DescribeWakeWait(wait)
 		}
-		session, movedTo, wait = "", to, nil
+		session, movedTo, wait = kept, to, nil
 	}
 	if wait != nil {
-		// The resume account is at the wall. Unless it resets within the prompt cache's life (MovePlan), start fresh where another account
-		// has room: a resume id cannot follow an account change.
+		// The resume account is at the wall. Unless it resets within the prompt cache's life (MovePlan), move where another account has
+		// room, taking the session along.
 		// The handoff is the record the close took while the session was live; a snapshot read now is stale by construction. One that is
 		// missing a fact keeps the id, since the session is the only complete copy of the context.
 		rescued := false
@@ -457,8 +468,8 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 		}
 		if elsewhere != "" {
 			why := fmt.Sprintf("pinned to %s at %d%% (%s)", acct, pct, wait.Window)
-			if m.startFreshElsewhere(agent, session, acct, elsewhere, why) {
-				session, movedTo, rescued = "", elsewhere, true
+			if kept, moved := m.moveElsewhere(agent, session, acct, elsewhere, why); moved {
+				session, movedTo, rescued = kept, elsewhere, true
 			}
 		}
 		if !rescued {
@@ -475,10 +486,11 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	return m.launchClosed(agent, row, wt, session, c)
 }
 
-// startFreshElsewhere moves a closed agent off the account its session is tied to: the handoff the close took is the record, the closed mark
-// goes, and the wake that follows starts fresh on `to`. why is what the log says the agent was stuck on. False when the handoff could not be
-// read whole: the session is the only complete copy of the context, so the resume id stays and the wake goes on waiting.
-func (m *Manager) startFreshElsewhere(agent, session, from, to, why string) bool {
+// moveElsewhere moves a closed agent off the account its session is tied to, and the wake that follows starts on `to`: resuming the
+// session it returns (carried), else fresh from the handoff the close took. why is what the log says the agent was stuck on. moved is
+// false when the handoff could not be read whole: it is the fallback should the resume fail, so the agent stays and the wake goes on
+// waiting.
+func (m *Manager) moveElsewhere(agent, session, from, to, why string) (kept string, moved bool) {
 	hid := newHandoffID()
 	check(db.StartHandoff(m.Q, hid, agent, session, "pinned", m.now()+states.HandoffDeadlineS))
 	var missing []string
@@ -490,15 +502,29 @@ func (m *Manager) startFreshElsewhere(agent, session, from, to, why string) bool
 		check(db.AdvanceHandoff(m.Q, hid, "released", "degraded", clip300(gap)))
 		check(db.BumpCounter(m.Q, agent, "throttle_count", 1))
 		m.Log("  %s: handoff degraded (%s); keeping the resume id", agent, gap)
-		return false
+		return "", false
 	}
 	check(db.AdvanceHandoff(m.Q, hid, "released", "done", ""))
 	check(db.ResetCounter(m.Q, agent, "throttle_count"))
-	check(db.SetClosed(m.Q, agent, ""))
+	kept = m.carried(agent, session)
+	check(db.SetClosed(m.Q, agent, kept))
 	must(db.AddEvent(m.Q, agent, "moved_account", db.KV{K: "from", V: from}, db.KV{K: "to", V: to}, db.KV{K: "trigger", V: "pinned"}))
-	m.Log("  %s: %s - starting fresh on %s", agent, why, to)
+	m.Log("  %s: %s - %s on %s", agent, why, ifTrue(kept != "", "resuming")+ifTrue(kept == "", "starting fresh"), to)
 	m.Agents.MeasureBegin(m.Q, agent, to)
-	return true
+	return kept, true
+}
+
+// ResumeMaxContext is the most context a resume the prompt cache cannot serve is worth: its first turn reads it all again once, still
+// quicker back to work than a fresh start finding its way from the handoff. Past it, a fresh start with the handoff.
+const ResumeMaxContext = 120_000
+
+// carried is the session a wake past the cache, or a move, resumes: "" when its context is past ResumeMaxContext. An unread size is not
+// too big: a resume of a transcript that is not there fails, and the fresh start after it has the handoff.
+func (m *Manager) carried(agent, session string) string {
+	if used, ok := m.Handoff.ContextUsed(m.Q, agent, session); ok && used >= ResumeMaxContext {
+		return ""
+	}
+	return session
 }
 
 func clip300(s string) string {
@@ -581,9 +607,9 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 		return false, "", false
 	}
 
-	// Past the cache's life a resume costs the whole transcript and a fresh start costs the handoff; the record stays on the row for the
-	// launch to inject.
-	cold := c.movedTo == "" && !c.warm && m.cacheExpiredAt(agent, session, m.now())
+	// Past the cache's life a resume reads the whole transcript again, worth it up to ResumeMaxContext; past that a fresh start costs the
+	// handoff, and the record stays on the row for the launch to inject.
+	cold := c.movedTo == "" && !c.warm && m.cacheExpiredAt(agent, session, m.now()) && m.carried(agent, session) == ""
 	// A fresh start goes where there is room. With none, `hl launch` would refuse and the refusal would count against the agent's wake
 	// attempts, though it is the accounts that are full.
 	if c.movedTo == "" && (cold || session == "") && !m.Launch.ChooseAccount(m.Q, agent) {
@@ -642,7 +668,8 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 		if c.restartedBy != "" {
 			restartNote = RestartNotice(c.restartedBy, resume, c.applying)
 		}
-		text, err := m.WakePrompt(agent, resume, WakePromptIn{WasClosed: closed, MovedTo: c.movedTo, Cold: cold, Waiting: waiting.text, RestartNote: restartNote})
+		text, err := m.WakePrompt(agent, resume, WakePromptIn{WasClosed: closed, MovedTo: c.movedTo, Cold: cold, ContextFull: why0 == "context_full", Waiting: waiting.text,
+			RestartNote: restartNote})
 		check(err)
 		pf, err := m.writeWakePrompt(agent, text, "txt")
 		check(err)
@@ -713,7 +740,7 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 	case resumed:
 		how = " (session resumed)"
 	case cold:
-		how = " (fresh - its prompt cache had expired)"
+		how = " (fresh - its prompt cache had expired and its context is too big to read again)"
 	}
 	m.Log("  %s: relaunched with its wake prompt%s", agent, how)
 	return true, "relaunched with the wake prompt"

@@ -249,7 +249,7 @@ func (h planHandoff) MovePlan(_ db.Q, _, _ string, starting bool) (string, strin
 }
 func (h planHandoff) BackingOff(db.Q, string) bool { return h.backoff }
 
-func TestAPersonsStartOnAWalledPinnedAccountStartsFreshWhereThereIsRoom(t *testing.T) {
+func TestAPersonsStartOnAWalledPinnedAccountResumesWhereThereIsRoom(t *testing.T) {
 	m, d, tm := newManager(t)
 	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
 	m.Launch = wallLaunch{dest: "b"}
@@ -265,8 +265,24 @@ func TestAPersonsStartOnAWalledPinnedAccountStartsFreshWhereThereIsRoom(t *testi
 	if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); !moved || p["from"] != "a" || p["to"] != "b" {
 		t.Fatalf("%v %v", moved, p)
 	}
-	if last := tm.relaunched[len(tm.relaunched)-1]; strings.Contains(last, "--resume") {
-		t.Fatalf("fresh, since the session cannot follow: %v", tm.relaunched)
+	if last := tm.relaunched[len(tm.relaunched)-1]; !strings.HasSuffix(last, "-- --resume sess-1") {
+		t.Fatalf("the session goes with it: %v", tm.relaunched)
+	}
+}
+
+func TestAMoveOfAContextPastTheResumeLimitStartsFresh(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	m.Launch = slowLaunch{}
+	m.Handoff = fakeHandoff{ctx: ResumeMaxContext}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", "Stop")
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if len(tm.relaunched) != 1 || strings.Contains(tm.relaunched[0], "--resume") {
+		t.Fatalf("fresh from the handoff: %v", tm.relaunched)
 	}
 }
 
@@ -404,9 +420,29 @@ func TestAColdResumeOntoAFullAccountMovesToTheSlowestPacedOne(t *testing.T) {
 	}
 }
 
+func TestAColdWakeUnderTheResumeLimitResumes(t *testing.T) {
+	for _, ctx := range []int64{0, ResumeMaxContext - 1} {
+		m, d, tm := newManager(t)
+		d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+		m.Handoff = fakeHandoff{ctx: ctx}
+		db.SetTerminal(m.Q, "a", "t1", "/wt")
+		db.SetClosed(m.Q, "a", "sess-1") // no activity on record: its cache is cold
+		if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+			t.Fatalf("%v %q %v", ok, said, err)
+		}
+		if len(tm.relaunched) != 1 || !strings.HasSuffix(tm.relaunched[0], "-- --resume sess-1") {
+			t.Fatalf("context %d: resumed, not started fresh: %q", ctx, tm.relaunched)
+		}
+		if _, p, _, _ := db.LastEvent(m.Q, "a", "wake"); p["cache_expired"] != nil {
+			t.Fatalf("not recorded as a cold start: %v", p)
+		}
+	}
+}
+
 func TestAColdWakeIsHandedWhatWokeItAsItsFirstPrompt(t *testing.T) {
 	m, d, tm := newManager(t)
 	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	m.Handoff = fakeHandoff{ctx: ResumeMaxContext} // too big to read again
 	db.SetTerminal(m.Q, "a", "t1", "/wt")
 	db.SetClosed(m.Q, "a", "sess-1") // no activity on record: its cache is cold
 	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
@@ -459,7 +495,7 @@ func (roomLaunch) RoomOn(_ db.Q, _ string, _ *db.AgentState, acct string) string
 	return ""
 }
 
-func TestAClosedAgentMovedByHandWakesFreshOnTheNewAccountOnce(t *testing.T) {
+func TestAClosedAgentMovedByHandResumesOnTheNewAccountOnce(t *testing.T) {
 	m, d, tm := newManager(t)
 	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
 	m.Launch = roomLaunch{}
@@ -491,8 +527,8 @@ func TestAClosedAgentMovedByHandWakesFreshOnTheNewAccountOnce(t *testing.T) {
 	if _, p, held, _ := db.LastEvent(m.Q, "a", "wake_reserved"); !held || p["account"] != "beta" {
 		t.Fatalf("it starts on the account it was moved to: %v %v", held, p)
 	}
-	if last := tm.relaunched[len(tm.relaunched)-1]; strings.Contains(last, "--resume") {
-		t.Fatalf("a fresh start, not a resume of the old account's session: %v", tm.relaunched)
+	if last := tm.relaunched[len(tm.relaunched)-1]; !strings.HasSuffix(last, "-- --resume sess-1") {
+		t.Fatalf("the session goes with it: %v", tm.relaunched)
 	}
 	db.SetClosed(m.Q, "a", "sess-2")
 	row, _ := db.GetAgentState(m.Q, "a")

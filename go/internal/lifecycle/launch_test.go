@@ -313,8 +313,11 @@ func TestRoomIsTheLoggedInAccountNothingSaysIsBad(t *testing.T) {
 		t.Fatalf("a move's destination stands: %q", got)
 	}
 	r.l.Ports.CurrentAccount = func(db.Q, string) string { return "b" }
-	if got := r.l.ChooseAccount("ann", true, "a"); got != "b" {
+	if got := r.l.ChooseAccount("ann", true, ""); got != "b" {
 		t.Fatalf("a resume goes back: %q", got)
+	}
+	if got := r.l.ChooseAccount("ann", true, "a"); got != "a" {
+		t.Fatalf("a moved resume goes where it was moved: %q", got)
 	}
 }
 

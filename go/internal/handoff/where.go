@@ -161,6 +161,6 @@ func WhereText(q db.Q, agent, lead, record string, now time.Time) (string, error
 		}
 		lines = append(lines, progress...)
 	}
-	lines = append(lines, "Older messages: `hl inbox --all`, then `hl read <id>`.")
+	lines = append(lines, "Older messages: `hl inbox --all`, then `hl read <id>`; find one by its text with `hl chat search \"<text>\" [--with <name>] [--since 2d]`.")
 	return strings.Join(lines, "\n"), nil
 }
