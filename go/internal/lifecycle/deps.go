@@ -211,10 +211,22 @@ func (m *Manager) sleep(d time.Duration) {
 
 var _ Delivery = (*supervisor.Env)(nil)
 
-// loadHeld is why the machine's load holds a start of agent the daemon makes on its own, "" when nothing does.
+// loadHeld is why the machine's load holds a start of agent the daemon makes on its own, "" when nothing does. A person's message is
+// never held: its agent goes, and the pass is recorded once for that message (load_limit_passed).
 func (m *Manager) loadHeld(agent string) string {
 	if m.LoadHeld == nil {
 		return ""
 	}
-	return m.LoadHeld(agent)
+	why := m.LoadHeld(agent)
+	if why == "" {
+		return ""
+	}
+	head := m.personHead(agent)
+	if head == nil {
+		return why
+	}
+	if !must(db.RequestHasEvent(m.Q, "load_limit_passed", head.ID)) {
+		must(db.AddEvent(m.Q, agent, "load_limit_passed", db.KV{K: "held", V: why}, db.KV{K: "request_id", V: head.ID}))
+	}
+	return ""
 }

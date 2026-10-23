@@ -783,3 +783,43 @@ func TestTheLoadHoldsTheDaemonsOwnStartsButNotAPersons(t *testing.T) {
 		}
 	}
 }
+
+// The harbor case: closed at 23:07, the founder's message at 23:11, and every wake held by the machine's load until 23:26. A person's
+// message is never held: the start or wake for it goes, and the pass is recorded once for that message.
+func TestTheLoadNeverHoldsAPersonsMessage(t *testing.T) {
+	m, d, _ := newManager(t)
+	m.LoadHeld = func(string) string { return "held: machine load - load 5.40 per core, limit 1.50" }
+	m.Agents = fakeAgents{repo: "/repo"}
+	sp := m.Spawn.(*fakeSpawn)
+	passes := func(agent string) int {
+		var n int
+		if err := m.Q.QueryRow("SELECT COUNT(*) FROM events WHERE agent = ? AND kind = 'load_limit_passed'", agent).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	d.head = &db.Request{ID: 7, TS: m.now(), Requester: "lead", Target: "harbor"}
+	if said, _ := m.StartForWork("harbor"); !strings.Contains(said, "not started - held: machine load") || passes("harbor") != 0 {
+		t.Fatalf("an agent's message went past the load: %q", said)
+	}
+	d.head = &db.Request{ID: 8, TS: m.now(), Requester: db.Human, Target: "harbor"}
+	for range 2 {
+		if said, _ := m.StartForWork("harbor"); strings.Contains(said, "held: machine load") {
+			t.Fatalf("the founder's message was held: %q", said)
+		}
+	}
+	if passes("harbor") != 1 || len(sp.spawned)+len(sp.startedIn) == 0 {
+		t.Fatalf("one pass for one message, and a start: %d %v %v", passes("harbor"), sp.spawned, sp.startedIn)
+	}
+	d.head = &db.Request{ID: 10, TS: m.now(), Requester: db.Human, Target: "harbor"}
+	if m.StartForWork("harbor"); passes("harbor") != 2 {
+		t.Fatalf("the next message is a pass of its own: %d", passes("harbor"))
+	}
+	db.SetTerminal(m.Q, "b", "t1", "/wt")
+	db.SetClosed(m.Q, "b", "sess-1")
+	db.SetAgentState(m.Q, "b", states.Idle, 0, "")
+	d.head = &db.Request{ID: 9, TS: m.now(), Requester: db.Human, Target: "b"}
+	if _, said, _ := m.WakeAgent("b", WakeOpts{}); strings.Contains(said, "held: machine load") || passes("b") != 1 {
+		t.Fatalf("the daemon's wake for the founder's message was held: %q", said)
+	}
+}
