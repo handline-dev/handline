@@ -62,10 +62,10 @@ func truthy(v any) bool {
 	return true
 }
 
-// resultCap is how many characters of the done evidence's first line a task_done carries.
+// resultCap is how many characters of the done evidence's first non-blank line a task_done carries.
 const resultCap = 140
 
-// taskDone is a task_done's data: the task, and its title and the first line of its done evidence when the store has them.
+// taskDone is a task_done's data: the task, and its title and the first non-blank line of its done evidence when the store has them.
 func taskDone(q *sql.DB, task any) (map[string]any, error) {
 	data := map[string]any{"task": task}
 	var title, evidence sql.NullString

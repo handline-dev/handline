@@ -170,12 +170,16 @@ func TestATaskDoneCarriesTheTasksTitleAndTheFirstLineOfItsEvidence(t *testing.T)
 		t.Fatal(err)
 	}
 	long := strings.Repeat("é", resultCap+10)
-	for i, evidence := range []any{"built and tested\nPR 12, check green", nil, long} {
+	tasks := []struct {
+		title    string
+		evidence any
+	}{{"task 7", "built and tested\nPR 12, check green"}, {"task 8", nil}, {"task 9", long}, {"", "\n\n  first  \r\nsecond"}}
+	for i, task := range tasks {
 		id := 7 + i
-		exec(t, d, "INSERT INTO tasks(id, title, owner, opened_by, done_evidence, created_at) VALUES(?, ?, 'bob', 'human', ?, 1)", id, fmt.Sprint("task ", id), evidence)
+		exec(t, d, "INSERT INTO tasks(id, title, owner, opened_by, done_evidence, created_at) VALUES(?, ?, 'bob', 'human', ?, 1)", id, task.title, task.evidence)
 		exec(t, d, "INSERT INTO events(ts, agent, kind, payload) VALUES(?, 'bob', 'mark_task_done', ?)", id, fmt.Sprintf(`{"task_id": %d}`, id))
 	}
-	exec(t, d, "INSERT INTO events(ts, agent, kind, payload) VALUES(10, 'bob', 'mark_task_done', '{\"task_id\": 99}')") // no such task
+	exec(t, d, "INSERT INTO events(ts, agent, kind, payload) VALUES(20, 'bob', 'mark_task_done', '{\"task_id\": 99}')") // no such task
 	if err := n.Scan(d, emit); err != nil {
 		t.Fatal(err)
 	}
@@ -183,6 +187,7 @@ func TestATaskDoneCarriesTheTasksTitleAndTheFirstLineOfItsEvidence(t *testing.T)
 		`{"result":"built and tested","task":7,"task_title":"task 7"}`,
 		`{"task":8,"task_title":"task 8"}`,
 		`{"result":"` + long[:2*resultCap] + `","task":9,"task_title":"task 9"}`,
+		`{"result":"first","task":10}`,
 		`{"task":99}`,
 	}
 	got := notes(t, l)
