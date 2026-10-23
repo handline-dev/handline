@@ -46,7 +46,7 @@ const common: BuildOptions = {
 
 // Own mode starts go/handlined; a fresh checkout has none.
 if (fs.existsSync(goDir) && !fs.existsSync(path.join(goDir, 'handlined')))
-  spawnSync('go', ['build', '-o', 'handlined', './cmd/handlined'], { cwd: goDir, stdio: 'inherit' });
+  spawnSync(path.join(goDir, '..', 'tools', 'build-go.sh'), { stdio: 'inherit' });
 
 const ctx = await context({
   ...common,

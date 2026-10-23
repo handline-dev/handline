@@ -116,7 +116,7 @@ export class Follower {
       await this.git('merge', '--ff-only', target);
       const r = decide(files);
       if (r.install) await this.d.run('pnpm', ['install', '--frozen-lockfile']);
-      if (r.gateway) await this.d.run('go', ['build', '-C', 'go', '-o', 'handlined', './cmd/handlined']);
+      if (r.gateway) await this.d.run('tools/build-go.sh', []);
       if (r.web) await this.d.run('pnpm', ['--filter', '@handline/web', 'build']);
       if (r.electron) await this.d.run('pnpm', ['--filter', '@handline/electron', 'build']);
       this.d.beforeRelaunch();
