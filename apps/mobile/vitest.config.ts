@@ -5,6 +5,7 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: /^react-native-svg$/, replacement: new URL('./test/svg-stub.tsx', import.meta.url).pathname },
+      { find: 'react-native-safe-area-context', replacement: new URL('./test/safe-area-stub.tsx', import.meta.url).pathname },
       { find: 'lucide-react-native', replacement: 'lucide-react' },
       { find: 'react-native-view-shot', replacement: new URL('./test/view-shot-stub.ts', import.meta.url).pathname },
       { find: 'react-native', replacement: 'react-native-web' },

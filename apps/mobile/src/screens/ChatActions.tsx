@@ -2,13 +2,27 @@
 // action names with its params; an action that `needs` a note asks for it first. The daemon takes the buttons away once the task changes.
 import { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStore } from '@handline/app-react';
 import type { ChatAction } from '@handline/client';
 import { classify, sentence } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
-import { Button } from '#src/screens/parts.tsx';
+import { Button, InsetModal } from '#src/screens/parts.tsx';
 import { Input, Sheet } from '#src/screens/TaskActions.tsx';
+
+function AskFrame({ children }: { children: React.ReactNode }) {
+  const c = usePalette();
+  const { bottom } = useSafeAreaInsets();
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={{ flex: 1, justifyContent: 'flex-end', padding: space.md, paddingBottom: space.md + bottom, backgroundColor: c.scrim }}
+    >
+      {children}
+    </KeyboardAvoidingView>
+  );
+}
 
 export function ChatActions({ id, actions }: { id: number; actions: ChatAction[] }) {
   const c = usePalette();
@@ -53,22 +67,21 @@ export function ChatActions({ id, actions }: { id: number; actions: ChatAction[]
       {asking ? (
         // Out of the narrow bubble and above the keyboard, so the submit and cancel buttons stay in reach.
         <Modal transparent visible animationType="fade" onRequestClose={() => setAsking(null)}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={{ flex: 1, justifyContent: 'flex-end', padding: space.md, backgroundColor: c.scrim }}
-          >
-            <Sheet
-              label={asking.label}
-              submit={asking.label}
-              kind="no"
-              busy={busy}
-              onCancel={() => setAsking(null)}
-              onSubmit={() => note.trim() && send(asking, { [asking.needs!]: note.trim() })}
-              error={failure || undefined}
-            >
-              <Input testID={`action-note-${id}`} label="Note" value={note} onChange={setNote} />
-            </Sheet>
-          </KeyboardAvoidingView>
+          <InsetModal>
+            <AskFrame>
+              <Sheet
+                label={asking.label}
+                submit={asking.label}
+                kind="no"
+                busy={busy}
+                onCancel={() => setAsking(null)}
+                onSubmit={() => note.trim() && send(asking, { [asking.needs!]: note.trim() })}
+                error={failure || undefined}
+              >
+                <Input testID={`action-note-${id}`} label="Note" value={note} onChange={setNote} />
+              </Sheet>
+            </AskFrame>
+          </InsetModal>
         </Modal>
       ) : null}
     </View>

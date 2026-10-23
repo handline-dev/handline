@@ -1,7 +1,18 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Store, activate, applyPreset, closeTab, defaultWorkspace, openTab, saveWorkspace, splitTab, storageKey, type KV } from '@handline/app-core';
+import {
+  Store,
+  activate,
+  applyPreset,
+  closeTab,
+  defaultWorkspace,
+  openTab,
+  saveWorkspace,
+  splitTab,
+  storageKey,
+  type KV,
+} from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
 
@@ -33,7 +44,8 @@ const fire = (el: Element, type: string) =>
   act(async () => {
     el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
   });
-const rect = (l: number, t: number, w: number, h: number) => ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h, x: l, y: t, toJSON() {} }) as DOMRect;
+const rect = (l: number, t: number, w: number, h: number) =>
+  ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h, x: l, y: t, toJSON() {} }) as DOMRect;
 /** jsdom has no layout: every pane is 800 x 600 with a 32 px strip of 100 px tabs. */
 const stubRects = () =>
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
@@ -45,7 +57,11 @@ const stubRects = () =>
 /** A drag event over a pane's cover at a point of the pane. */
 const dragAt = (pane: Element, type: 'dragover' | 'drop', x: number, y: number) =>
   act(async () => {
-    const e = Object.assign(new Event(type, { bubbles: true, cancelable: true }), { clientX: x, clientY: y, dataTransfer: { dropEffect: '' } });
+    const e = Object.assign(new Event(type, { bubbles: true, cancelable: true }), {
+      clientX: x,
+      clientY: y,
+      dataTransfer: { dropEffect: '' },
+    });
     pane.querySelector('.drop-overlay')!.dispatchEvent(e);
   });
 const click = (el: Element) =>
@@ -140,8 +156,13 @@ describe('the workspace', () => {
     await mount(ARCH);
     await until(() => $('.rail-list [data-agent]'), 'the rows');
     expect($$('.team-head').length).toBeGreaterThan(0);
-    expect(text($('.team-head'))).toMatch(/\w+ \d+/);
-    expect($$('.row-sub').some((r) => text(r).includes('Web UI design'))).toBe(true);
+    expect(text($('.team-head'))).toMatch(/^\w+$/);
+    expect($$('.row-line').some((r) => text(r).includes('Web UI design'))).toBe(true);
+    for (const r of $$('.rail-list .row')) {
+      expect(r.querySelectorAll('.row-line')).toHaveLength(1); // name and one line, so every row is as tall as the next
+      expect(r.className).toContain('h-11');
+      expect(text(r.querySelector('.row-line'))).not.toMatch(/no terminal|idle/i);
+    }
     await click($('.rail-opts [aria-label^="View"]')!);
     await click([...document.querySelectorAll<HTMLElement>('[role=menuitemcheckbox]')].find((b) => text(b).includes('Group by team'))!);
     expect($$('.team-head')).toHaveLength(0);

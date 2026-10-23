@@ -1,6 +1,7 @@
+import { SafeScreen } from '#src/screens/parts.tsx';
 import { UpdateBanner } from '#src/screens/AppUpdate.tsx';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, SafeAreaView, StatusBar as RNStatusBar, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { DataProvider } from '@handline/app-data';
 import { DaemonProvider } from '@handline/app-react';
@@ -52,10 +53,10 @@ export default function App() {
       </DaemonProvider>
     );
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: c.bg, paddingTop: Platform.OS === 'android' ? (RNStatusBar.currentHeight ?? 0) : 0 }}>
+    <SafeScreen background={c.bg}>
       <StatusBar style="auto" />
       <UpdateBanner />
       <View style={{ flex: 1 }}>{body}</View>
-    </SafeAreaView>
+    </SafeScreen>
   );
 }

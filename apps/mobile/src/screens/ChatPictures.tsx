@@ -1,11 +1,12 @@
 // The pictures of a sent message: thumbnails in the bubble, and one full screen behind a tap. The bytes are read with attachment.get
 // like the web does and drawn from a data URI (React Native has no object URLs).
 import { useMemo, useState } from 'react';
-import { Image, Modal, Pressable, SafeAreaView, Text, View } from 'react-native';
+import { Image, Modal, Pressable, Text, View } from 'react-native';
 import type { Attachment } from '@handline/client';
 import { useAttachmentBytes } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
+import { SafeScreen } from '#src/screens/parts.tsx';
 
 /** What a picture needs of its file: a chat attachment or an image a memo carries. */
 export type Picture = Pick<Attachment, 'id' | 'name'>;
@@ -42,7 +43,7 @@ function Full({ a, onClose }: { a: Picture; onClose: () => void }) {
   return (
     <Modal visible animationType="fade" onRequestClose={onClose}>
       {/* The safe area keeps Close out from under the status bar, where it could not be tapped. */}
-      <SafeAreaView testID={`picture-full-${a.id}`} style={{ flex: 1, backgroundColor: c.bg }}>
+      <SafeScreen testID={`picture-full-${a.id}`} background={c.bg}>
         <View style={{ flex: 1, padding: space.md, gap: space.md }}>
           <Pressable testID="picture-close" accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={8}>
             <Text style={{ color: c.accent, fontWeight: '600' }}>Close</Text>
@@ -64,7 +65,7 @@ function Full({ a, onClose }: { a: Picture; onClose: () => void }) {
             <Text style={{ color: c.muted }}>Loading…</Text>
           )}
         </View>
-      </SafeAreaView>
+      </SafeScreen>
     </Modal>
   );
 }

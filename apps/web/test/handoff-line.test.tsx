@@ -49,7 +49,7 @@ describe('handoff line', () => {
     await until(() => card(), 'the line');
     expect(card()!.textContent).toBe('Restarting: context full. Writing the handoff…');
     expect(box.querySelector('[data-agent="handline.architect"] .restarting')!.textContent).toBe('Restarting…');
-    expect(box.querySelector('[data-agent="handline.architect"] .row-live')!.textContent).toBe('Context full: writing the handoff');
+    expect(box.querySelector('[data-agent="handline.architect"] .row-line')!.textContent).toBe('Context full: writing the handoff');
     expect(card()!.querySelector('svg')!.getAttribute('class')).toContain('animate-');
     expect(box.querySelectorAll('.card-handoff')).toHaveLength(1); // earlier session boundaries stay above it
     expect(box.querySelector('h2')!.textContent).toBe('handline.architect Restarting…');
