@@ -485,6 +485,87 @@ func TestAColdResumeWhoseOwnAccountIsFullOnlyByOlderWaitersDoesNotMoveToItself(t
 	}
 }
 
+// headroomLaunch has room on every account, "roomy" the most; asked counts the picks. full has the agent's own account full.
+type headroomLaunch struct {
+	fakeLaunch
+	asked *int
+	full  bool
+}
+
+func (l headroomLaunch) WakeWait(q db.Q, agent string, row *db.AgentState) *WakeWait {
+	if l.full {
+		return fullLaunch{}.WakeWait(q, agent, row)
+	}
+	return nil
+}
+
+func (l headroomLaunch) RoomElsewhere(_ db.Q, _ string, _ *db.AgentState, exclude map[string]string) (string, string) {
+	*l.asked++
+	if len(exclude) != 0 {
+		return "", "the cold pick leaves no account out"
+	}
+	return "roomy", ""
+}
+
+func TestAColdWakeGoesToTheAccountWithTheMostHeadroomTakingItsSession(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	asked := 0
+	m.Launch = headroomLaunch{asked: &asked, full: true} // its own account is full, and that is not what moves it
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetAccount(m.Q, "a", "own", "recorded")
+	db.SetClosed(m.Q, "a", "sess-1") // no activity on record: its cache is cold
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); !moved || p["from"] != "own" || p["to"] != "roomy" {
+		t.Fatalf("a cold wake moves to the most headroom: %v %v", moved, p)
+	}
+	if len(tm.relaunched) != 1 || !strings.HasSuffix(tm.relaunched[0], "-- --resume sess-1") {
+		t.Fatalf("carrying its session: %q", tm.relaunched)
+	}
+	if _, p, held, _ := db.LastEvent(m.Q, "a", "wake_reserved"); !held || p["account"] != "roomy" {
+		t.Fatalf("and holds the slot it moved to: %v %v", held, p)
+	}
+}
+
+func TestAColdWakeWhoseOwnAccountHasTheMostHeadroomStays(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	asked := 0
+	m.Launch = headroomLaunch{asked: &asked}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetAccount(m.Q, "a", "roomy", "recorded")
+	db.SetClosed(m.Q, "a", "sess-1")
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); moved || asked != 1 {
+		t.Fatalf("not moved: %v %v, asked %d", moved, p, asked)
+	}
+}
+
+func TestAWakeWhileTheCacheLivesKeepsItsAccount(t *testing.T) {
+	for _, warm := range []bool{false, true} {
+		m, d, tm := newManager(t)
+		d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+		asked := 0
+		m.Launch = headroomLaunch{asked: &asked}
+		db.SetTerminal(m.Q, "a", "t1", "/wt")
+		db.SetAccount(m.Q, "a", "own", "recorded")
+		db.SetClosed(m.Q, "a", "sess-1")
+		if !warm {
+			db.AddEvent(m.Q, "a", "Stop") // its cache lives
+		}
+		if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true, Warm: warm}); err != nil || !ok {
+			t.Fatalf("%v %q %v", ok, said, err)
+		}
+		if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); moved || asked != 0 {
+			t.Fatalf("warm restart %v: not moved: %v %v, asked %d", warm, moved, p, asked)
+		}
+	}
+}
+
 // roomLaunch has room on every account but "full".
 type roomLaunch struct{ fakeLaunch }
 

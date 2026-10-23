@@ -410,7 +410,21 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	// this launch lands on is the one a session to resume lives under. Keeping the conversation is worth a wait only while its prompt cache
 	// lives; past that a resume pays for its context in full on any account, so it moves rather than waits.
 	session := row.ResumeSession.String
+	rehomed := false
+	if movedTo == "" && !warm && session != "" && m.cacheExpiredAt(agent, session, m.now()) {
+		// Past its cache's life the agent is on no account: it goes to the one with the most weekly headroom that has room, its own
+		// included, taking the session along.
+		if to, _ := m.Launch.RoomElsewhere(m.Q, agent, row, nil); to != "" && to != row.Account.String {
+			var kept string
+			if kept, rehomed = m.moveElsewhere(agent, session, row.Account.String, to, "its prompt cache has expired"); rehomed {
+				session, movedTo = kept, to
+			}
+		}
+	}
 	wait := m.Launch.WakeWait(m.Q, agent, row)
+	if rehomed {
+		wait = nil // the account it moved to was picked for having room
+	}
 	if wait != nil && wait.Pace != nil && (force || m.personWaiting(agent)) {
 		// The pace holds only the daemon's own work: a person's start or message, and a restart, go.
 		wait = nil
