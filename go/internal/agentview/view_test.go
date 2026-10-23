@@ -205,6 +205,40 @@ func TestDoingIsTheRunningTurnsToolCallAndNullAtRest(t *testing.T) {
 	}
 }
 
+// An agent at rest is on its account only while its prompt cache lives; a running one always is.
+func TestAnAgentAtRestPastItsCacheIsOnNoAccount(t *testing.T) {
+	r := newRig(t, "a")
+	r.env.Account = func(string) (string, error) { return "beta", nil }
+	left, known := 60.0, true
+	r.env.CacheLeft = func(string, float64) (float64, bool, error) { return left, known, nil }
+	r.state(t, "a", states.Idle, "")
+	r.sess.alive["a"] = true
+	for _, c := range []struct {
+		left        float64
+		known, busy bool
+		account     any
+	}{
+		{60, true, false, "beta"},
+		{0, true, false, nil},
+		{-60, true, false, nil},
+		{0, false, false, nil},
+		{-60, true, true, "beta"},
+	} {
+		left, known, r.sess.busy["a"] = c.left, c.known, c.busy
+		r.env.RefreshOne("a")
+		if got := r.stored(t, "a")["account"]; got != c.account {
+			t.Errorf("cache left %v (known %v), busy %v: account %v, want %v", c.left, c.known, c.busy, got, c.account)
+		}
+	}
+	r.sess.busy["a"] = false // the cache still cold
+	r.env.PaneRuns = func(string) bool { return true }
+	db.AddEventAt(r.env.Q, 4990, "a", "launching")
+	r.env.RefreshOne("a")
+	if v := r.stored(t, "a"); v["state"] != "starting" || v["account"] != "beta" {
+		t.Fatalf("a launch is on the account it starts on: %v %v", v["state"], v["account"])
+	}
+}
+
 func TestAParkedAgentWhoseTurnRunsShowsRunning(t *testing.T) {
 	r := newRig(t, "a", "b")
 	r.state(t, "a", states.Parked, "")

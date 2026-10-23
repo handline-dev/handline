@@ -139,3 +139,26 @@ func TestAStalledAccountRowSaysStalledWithItsReason(t *testing.T) {
 		t.Fatalf("%v", acct["stalled"])
 	}
 }
+
+// An account lists the agents its views put on it: a cold agent's view is on none, whatever account it last ran on.
+func TestAnAccountListsTheAgentsItsViewsPutOnIt(t *testing.T) {
+	e := testEnv(t)
+	if err := os.MkdirAll(filepath.Join(e.Home, "accounts", "main"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"cold", "fresh", "warm"} {
+		addAgent(t, e, n, "")
+		if _, err := e.DB.Exec("INSERT INTO agent_state(agent, state, account, updated) VALUES(?, 'IDLE', 'main', 1)", n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for n, view := range map[string]string{"cold": `{"account": null}`, "warm": `{"account": "main"}`} {
+		if _, err := e.DB.Exec("INSERT INTO agent_view(agent, view, updated) VALUES(?, ?, 1)", n, view); err != nil {
+			t.Fatal(err)
+		}
+	}
+	acct, _ := e.Account("main")
+	if got, _ := json.Marshal(acct["agents"]); string(got) != `["fresh","warm"]` {
+		t.Fatalf("agents %s", got)
+	}
+}

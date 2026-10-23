@@ -14,8 +14,28 @@ export interface Notice {
   read: boolean;
   /** Where the list files it: `team` for what agents did, `system` for the rest (results of what the person did, accounts). */
   lane: NoticeLane;
+  /** What a finished task adds to the line: who closed it, which task, its title and the first line of its evidence. */
+  about?: NoticeAbout;
+}
+export interface NoticeAbout {
+  agent?: string;
+  task?: number;
+  title?: string;
+  result?: string;
 }
 export type NoticeLane = 'team' | 'system';
+
+/** The task a task_done event is about, from the event alone; null for any other event. */
+export function aboutOf(e: Pick<WireEvent, 'type' | 'agent' | 'data'>): NoticeAbout | null {
+  if (e.type !== 'task_done') return null;
+  const d = (e.data ?? {}) as { task?: unknown; task_title?: unknown; result?: unknown };
+  return {
+    ...(e.agent ? { agent: e.agent } : {}),
+    ...(typeof d.task === 'number' ? { task: d.task } : {}),
+    ...(typeof d.task_title === 'string' && d.task_title ? { title: d.task_title } : {}),
+    ...(typeof d.result === 'string' && d.result ? { result: d.result } : {}),
+  };
+}
 
 export const MERGE_MS = 60_000;
 export const TOAST_MS = { ok: 3000, fail: 8000, info: 3000 } as const;
@@ -67,10 +87,10 @@ export class Notices {
   }
 
   /** Adds a notice, or counts it again when the same text came within a minute. It is shown at once. */
-  push(level: NoticeLevel, text: string, lane: NoticeLane = 'system'): Notice {
+  push(level: NoticeLevel, text: string, lane: NoticeLane = 'system', about?: NoticeAbout): Notice {
     const at = this.now();
     const same = this.all.find((n) => n.level === level && n.text === text && n.lane === lane && at - n.at < MERGE_MS);
-    const n = same ?? { id: this.nextId++, level, text, at, count: 0, read: false, lane };
+    const n = same ?? { id: this.nextId++, level, text, at, count: 0, read: false, lane, ...(about ? { about } : {}) };
     n.count++;
     n.at = at;
     n.read = false;
@@ -94,7 +114,7 @@ export class Notices {
     if (this.seen.has(e.cursor)) return;
     this.seen.add(e.cursor);
     const text = eventText(e);
-    if (text) this.push('info', text, TEAM_EVENTS.has(e.type) ? 'team' : 'system');
+    if (text) this.push('info', text, TEAM_EVENTS.has(e.type) ? 'team' : 'system', aboutOf(e) ?? undefined);
   }
 
   /** The list, newest first. */

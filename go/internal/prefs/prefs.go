@@ -19,6 +19,7 @@ type Nav struct {
 	Hidden     []string `json:"hidden"`
 	Layout     string   `json:"layout"`
 	Collapsed  []string `json:"collapsed"`
+	Order      []string `json:"order"`
 }
 
 var (
@@ -27,7 +28,7 @@ var (
 )
 
 func defaults() Nav {
-	return Nav{Pins: []string{}, Hidden: []string{}, Layout: "tree", Collapsed: []string{}}
+	return Nav{Pins: []string{}, Hidden: []string{}, Layout: "tree", Collapsed: []string{}, Order: []string{}}
 }
 
 type querier interface {
@@ -102,7 +103,7 @@ func apply(n *Nav, changes map[string]any, agents []string) error {
 	for k, v := range changes {
 		field := "changes.nav." + k
 		switch k {
-		case "pins", "collapsed":
+		case "pins", "collapsed", "order":
 			names, ok := uniqueNames(v)
 			if !ok {
 				return bad(field+" is a list of agent names, none twice", field)
@@ -112,10 +113,13 @@ func apply(n *Nav, changes map[string]any, agents []string) error {
 					return bad(field+" names "+name+", which is no agent", field)
 				}
 			}
-			if k == "pins" {
+			switch k {
+			case "pins":
 				n.Pins = names
-			} else {
+			case "collapsed":
 				n.Collapsed = names
+			default:
+				n.Order = names
 			}
 		case "hidden":
 			names, ok := uniqueNames(v)
@@ -161,14 +165,14 @@ func uniqueNames(v any) ([]string, bool) {
 	return out, true
 }
 
-// Forget drops agent from every person's pins and folds.
+// Forget drops agent from every person's pins, folds and order.
 func Forget(tx *sql.Tx, agent string) error {
 	return each(tx, func(names []string) []string {
 		return slices.DeleteFunc(names, func(s string) bool { return s == agent })
 	})
 }
 
-// Rename makes old new in every person's pins and folds, in place.
+// Rename makes old new in every person's pins, folds and order, in place.
 func Rename(tx *sql.Tx, old, new string) error {
 	return each(tx, func(names []string) []string {
 		for i, s := range names {
@@ -180,7 +184,7 @@ func Rename(tx *sql.Tx, old, new string) error {
 	})
 }
 
-// each rewrites the pins and folds of every person, storing only what changed.
+// each rewrites the pins, folds and order of every person, storing only what changed.
 func each(tx *sql.Tx, edit func([]string) []string) error {
 	rows, err := tx.Query("SELECT person FROM prefs")
 	if err != nil {
@@ -204,9 +208,9 @@ func each(tx *sql.Tx, edit func([]string) []string) error {
 		if err != nil {
 			return err
 		}
-		pins, folds := slices.Clone(n.Pins), slices.Clone(n.Collapsed)
-		n.Pins, n.Collapsed = edit(n.Pins), edit(n.Collapsed)
-		if slices.Equal(pins, n.Pins) && slices.Equal(folds, n.Collapsed) {
+		pins, folds, order := slices.Clone(n.Pins), slices.Clone(n.Collapsed), slices.Clone(n.Order)
+		n.Pins, n.Collapsed, n.Order = edit(n.Pins), edit(n.Collapsed), edit(n.Order)
+		if slices.Equal(pins, n.Pins) && slices.Equal(folds, n.Collapsed) && slices.Equal(order, n.Order) {
 			continue
 		}
 		if err := save(tx, p, n); err != nil {

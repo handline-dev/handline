@@ -1,7 +1,6 @@
 # Fixtures the Go run cannot seed yet (they need a --var naming an agent in a given state). contract/conformance.py
 # --allow-needvar-file reads one per line. The Go task owns this file: delete a line when it supplies the var, so a listed
 # fixture that no longer needs one fails the run.
-# The nav order fixtures (prefs.set.order_*, and the retire and rename ones) wait for the daemon to keep the order and seed their agents.
 account.login.a_code_after_the_end_is_refused
 account.login.a_second_login_is_refused_while_one_waits
 account.login.a_wrong_code_ends_failed_with_a_reason
@@ -52,10 +51,6 @@ hr.decide.a_proposal_changed_since_it_was_read_is_refused_with_it
 hr.decide.a_rename_of_a_running_agent_applies_when_its_turn_ends
 hr.decide.a_settled_proposal_is_refused_with_it
 hr.settled.is_sent_when_a_proposal_is_decided
-prefs.set.a_renamed_agent_keeps_its_place_in_the_order
-prefs.set.a_retired_agent_leaves_the_order
-prefs.set.order_is_stored_whole_and_read_back
-prefs.set.order_refuses_a_name_twice_or_no_agent
 session.input.screen_blocker_gate
 session.input.shell_prompt_gate
 session.input.wall_gate
