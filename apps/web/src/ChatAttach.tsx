@@ -133,7 +133,7 @@ export function attachHandlers(add: (files: File[]) => void, refer?: (files: Fil
       if (!files.length && !rest.length) return;
       e.preventDefault();
       if (files.length) add(files);
-      if (rest.length) refer!(rest);
+      if (rest.length) void refer!(rest);
     },
   };
 }
