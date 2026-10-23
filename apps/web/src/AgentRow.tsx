@@ -1,6 +1,6 @@
-// One agent row of the list: the name and its marks on the first line, the task (or repo/branch) under it, and what the agent is doing now.
+// One agent row of the list, always the same height: the name and its marks on the first line, one line under it (agentLine).
 import { useEffect, useRef, useState, type HTMLAttributes } from 'react';
-import { ago, dotOf, rowName, queueOf, handoffLine, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
+import { ago, dotOf, rowName, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useVerbMark } from '@handline/app-data';
@@ -19,29 +19,14 @@ const CHIP_PAD = 28;
 const CHAR_W = 7;
 const GAP = 8;
 
-/** What the agent is doing now, from what the daemon sends: its newest tool line while a turn runs, else the word beside its state and how long. Empty for an agent at rest. */
-export const liveOf = (a: AgentView): string => {
-  if (a.handoff) {
-    const { why, what } = handoffLine(a.handoff);
-    return `${why}: ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
-  }
-  if (a.state === 'running' && a.doing?.text) return a.doing.text;
-  if (a.status) return [a.status.text, ago(a.status.since ?? a.state_since)].filter(Boolean).join(' · ');
-  const d = dotOf(a);
-  if (d !== 'running' && d !== 'waking' && !a.state_detail) return '';
-  return [a.state_detail || MARKS[d].label, ago(a.state_since)].filter(Boolean).join(' · ');
-};
-
 export function AgentRow({
   agent: a,
   depth,
   kids,
   team,
-  sub,
-  live,
+  line,
   folded,
   onFold,
-  unreached,
   selected,
   pinned,
   onPin,
@@ -51,11 +36,9 @@ export function AgentRow({
   depth: number;
   kids: number;
   team: string;
-  sub: string;
-  live: string;
+  line: string;
   folded: boolean;
   onFold: () => void;
-  unreached: number | null;
   selected: boolean;
   pinned: boolean;
   onPin: () => void;
@@ -82,8 +65,8 @@ export function AgentRow({
     ro.observe(el);
     return () => ro.disconnect();
   }, [kindLen]);
-  const queue = queueOf(a, unreached);
-  const badges = badgesOf(a, store.me).filter((b) => b.kind !== 'no_terminal'); // the word already says it
+  const stamp = a.founder_unread && a.last_to_founder ? a.last_to_founder.at : a.state_since; // when it last wrote to you, else since when it is in this state
+  const badges = badgesOf(a, store.me).filter((b) => b.kind === 'dialog' || b.kind === 'stalled'); // only what the founder must act on
   const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
     .filter(Boolean)
     .join(' · ');
@@ -108,7 +91,7 @@ export function AgentRow({
             onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setHot(false)}
           >
             <div
-              className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 py-[7px] border-l-[3px] hover:bg-canvas ${edge}`}
+              className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 h-11 py-[3px] border-l-[3px] hover:bg-canvas ${edge}`}
               style={{ paddingLeft: 10 + depth * 14 }}
             >
               {kids ? (
@@ -162,11 +145,6 @@ export function AgentRow({
                       {wide ? <span>{a.needs_you.kind}</span> : null}
                     </span>
                   ) : null}
-                  {a.last_to_founder ? (
-                    <span className="row-time flex-none whitespace-nowrap text-hint text-ink-3" title={a.last_to_founder.at}>
-                      {ago(a.last_to_founder.at)}
-                    </span>
-                  ) : null}
                   {a.founder_unread ? (
                     <span
                       className="unread inline-flex flex-none items-center rounded-pill bg-primary px-1.5 text-label text-canvas"
@@ -176,52 +154,15 @@ export function AgentRow({
                     </span>
                   ) : null}
                   <Badges badges={badges} />
-                  {queue.messages ? (
-                    <span
-                      className="q-msgs inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
-                      title={`${queue.messages} messages not yet delivered`}
-                    >
-                      <Icon name="inbox" size={12} aria-hidden />
-                      {queue.messages}
-                    </span>
-                  ) : null}
-                  {queue.tasks && !sub ? (
-                    <span
-                      className="q-tasks inline-flex flex-none items-center gap-0.5 text-hint text-ink-2"
-                      title={`${queue.tasks} tasks queued or doing`}
-                    >
-                      <Icon name="tasks" size={12} aria-hidden />
-                      {queue.tasks}
-                    </span>
-                  ) : null}
+                  <span className="row-time flex-none whitespace-nowrap text-hint text-ink-3">{ago(stamp)}</span>
                 </button>
-                {sub ? (
-                  <span
-                    className={`row-sub flex cursor-pointer items-center gap-1 pl-[22px] text-hint ${a.founder_unread ? 'font-medium text-ink' : 'text-ink-2'}`}
-                    title={sub}
-                    onClick={() => goAgent(a.name)}
-                  >
-                    <span className="truncate">{sub}</span>
-                    {queue.tasks ? (
-                      <span
-                        className="q-tasks ml-auto inline-flex flex-none items-center gap-0.5"
-                        title={`${queue.tasks} tasks queued or doing`}
-                      >
-                        <Icon name="tasks" size={12} aria-hidden />
-                        {queue.tasks}
-                      </span>
-                    ) : null}
-                  </span>
-                ) : null}
-                {live ? (
-                  <span
-                    className="row-live flex cursor-pointer items-center gap-1 truncate pl-[22px] text-hint text-ink-3"
-                    title={live}
-                    onClick={() => goAgent(a.name)}
-                  >
-                    <span className="truncate">{live}</span>
-                  </span>
-                ) : null}
+                <span
+                  className={`row-line block h-4 cursor-pointer truncate pl-[22px] text-hint leading-4 ${a.founder_unread ? 'font-medium text-ink' : 'text-ink-2'}`}
+                  title={line}
+                  onClick={() => goAgent(a.name)}
+                >
+                  {line}
+                </span>
               </div>
               {/* Laid over the row's right end, not beside the name: the row is the same height with or without them. */}
               {showControls ? (
