@@ -14,8 +14,8 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
-	"github.com/handline/handline/go/internal/usage"
 	"github.com/handline/handline/go/internal/term"
+	"github.com/handline/handline/go/internal/usage"
 )
 
 func TestStartForWorkNeedsARepoARoomAndCountsFailuresUntilItStalls(t *testing.T) {
