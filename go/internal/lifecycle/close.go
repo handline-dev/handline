@@ -67,6 +67,11 @@ func (m *Manager) cacheExpiredAt(agent, session string, now int64) bool {
 	if session == "" || m.Settings.IgnoreCacheExpiry(agent) {
 		return false
 	}
+	return m.cachePast(agent, session, now)
+}
+
+// cachePast is whether the session's prompt cache has lapsed by its clock, whatever the agent's ignore_cache_expiry says.
+func (m *Manager) cachePast(agent, session string, now int64) bool {
 	if at, ttl, ttlKnown, ok := m.Handoff.CacheClock(m.Q, agent, session); ok && ttlKnown {
 		return now-at >= ttl-m.Handoff.CacheMargin(ttl)
 	}

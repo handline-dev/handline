@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/states"
 	"github.com/handline/handline/go/internal/term"
 	"github.com/handline/handline/go/internal/usage"
@@ -492,6 +493,8 @@ type headroomLaunch struct {
 	full  bool
 }
 
+func (headroomLaunch) RoomOn(db.Q, string, *db.AgentState, string) string { return "" }
+
 func (l headroomLaunch) WakeWait(q db.Q, agent string, row *db.AgentState) *WakeWait {
 	if l.full {
 		return fullLaunch{}.WakeWait(q, agent, row)
@@ -526,6 +529,45 @@ func TestAColdWakeGoesToTheAccountWithTheMostHeadroomTakingItsSession(t *testing
 	}
 	if _, p, held, _ := db.LastEvent(m.Q, "a", "wake_reserved"); !held || p["account"] != "roomy" {
 		t.Fatalf("and holds the slot it moved to: %v %v", held, p)
+	}
+}
+
+func TestAColdWakeOfAnAgentThatIgnoresCacheExpiryStillGoesToTheMostHeadroom(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	if err := os.WriteFile(paths.ConfigFile(m.Home), []byte("ignore_cache_expiry: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	asked := 0
+	m.Launch = headroomLaunch{asked: &asked}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetAccount(m.Q, "a", "own", "recorded")
+	db.SetClosed(m.Q, "a", "sess-1")
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); !moved || p["to"] != "roomy" {
+		t.Fatalf("its view is on no account, so its wake goes where the most headroom is: %v %v", moved, p)
+	}
+}
+
+func TestAColdWakeOwedAPersonsMoveStartsWhereThePersonPut(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	asked := 0
+	m.Launch = headroomLaunch{asked: &asked}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetAccount(m.Q, "a", "own", "recorded")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", MoveOwedKind, db.KV{K: "to", V: "picked"}, db.KV{K: "by", V: "the founder"})
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if _, p, _, _ := db.LastEvent(m.Q, "a", "moved_account"); p["to"] != "picked" || asked != 0 {
+		t.Fatalf("the person's pick holds: %v, asked %d", p, asked)
+	}
+	if _, p, held, _ := db.LastEvent(m.Q, "a", "wake_reserved"); !held || p["account"] != "picked" {
+		t.Fatalf("%v %v", held, p)
 	}
 }
 
