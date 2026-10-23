@@ -70,6 +70,24 @@ func (e *Env) currentAccount(agent string) string {
 	return r.str("account")
 }
 
+// placedOn is the account each agent is on as its view says (AgentView.account), so one at rest past its cache's life is on none; an
+// agent with no view yet goes by the account it last ran on.
+func (e *Env) placedOn(names []string) map[string]string {
+	stored, _ := e.storedViews()
+	on := make(map[string]string, len(names))
+	for _, n := range names {
+		raw, ok := stored[n]
+		if !ok {
+			on[n] = e.currentAccount(n)
+			continue
+		}
+		var v struct{ Account string }
+		json.Unmarshal(raw, &v)
+		on[n] = v.Account
+	}
+	return on
+}
+
 func loginWord(in, known bool) string {
 	if !known {
 		return "unknown"
@@ -128,13 +146,15 @@ type accountView struct {
 	cfg   usage.Config
 	ue    *usage.Env
 	names []string
+	on    map[string]string // agent -> the account it is on
 	now   time.Time
 }
 
 func (e *Env) accountView() *accountView {
 	cfg := usage.LoadConfig(e.Home)
+	names := paths.ListAgents(e.Home)
 	return &accountView{e: e, cfg: cfg, ue: &usage.Env{Home: e.Home, LoginState: e.LoginState, Config: func() usage.Config { return cfg }},
-		names: paths.ListAgents(e.Home), now: time.Now()}
+		names: names, on: e.placedOn(names), now: time.Now()}
 }
 
 func (v *accountView) of(a string) map[string]any {
@@ -143,7 +163,7 @@ func (v *accountView) of(a string) map[string]any {
 	in, known := e.loginState(a)
 	on := []any{}
 	for _, n := range v.names {
-		if e.currentAccount(n) == a {
+		if v.on[n] == a {
 			on = append(on, n)
 		}
 	}

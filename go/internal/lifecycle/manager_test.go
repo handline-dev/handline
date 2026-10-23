@@ -102,6 +102,9 @@ type fakeLaunch struct{ Launch }
 func (fakeLaunch) Drifted(string, *db.AgentState) bool             { return false }
 func (fakeLaunch) WakeWait(db.Q, string, *db.AgentState) *WakeWait { return nil }
 func (fakeLaunch) ChooseAccount(db.Q, string) bool                 { return true }
+func (fakeLaunch) RoomElsewhere(db.Q, string, *db.AgentState, map[string]string) (string, string) {
+	return "", "no account can take one more agent"
+}
 func (fakeLaunch) AccountFor(_ db.Q, _ string, resuming bool) string {
 	if resuming {
 		return "resume-acct"
