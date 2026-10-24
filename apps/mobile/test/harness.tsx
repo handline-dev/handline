@@ -49,12 +49,14 @@ export async function pickItem(id: string) {
   await until(() => $(id), `the ${id} item`);
   await press($(id));
 }
-export const pickTab = (id: string) => pickItem(`tab-${id}`);
-/** What the menu's view item says (the menu stays open). */
+/** A view of the agent page: one tap on its tab under the top bar. */
+export const pickTab = async (id: string) => {
+  await until(() => $(`tab-${id}`), `the ${id} tab`);
+  await press($(`tab-${id}`));
+};
+/** What a tab under the top bar says. */
 export async function tabLabel(id: string) {
-  await until(() => $('verbs-open'), 'the page');
-  if (!$(`tab-${id}`)) await press($('verbs-open'));
-  await until(() => $(`tab-${id}`), `the ${id} item`);
+  await until(() => $(`tab-${id}`), `the ${id} tab`);
   return $(`tab-${id}`)!.textContent;
 }
 

@@ -9,12 +9,11 @@ import { TerminalPane } from '#src/screens/TerminalPane.tsx';
 import { usePalette } from '#src/theme.ts';
 import { useHistoryValue } from '#src/history.tsx';
 import { AgentSettings } from '#src/screens/AgentSettings.tsx';
-import { AgentDock, AgentLabel, useKeyboardUp } from '#src/screens/AgentDock.tsx';
+import { AgentTopBar } from '#src/screens/AgentTopBar.tsx';
 import { AgentTabsContext, useAgentTabs, type AgentTabs } from '#src/screens/AgentTabs.tsx';
 import { AgentStrip } from '#src/screens/AgentStrip.tsx';
 import { AgentFile } from '#src/screens/AgentFile.tsx';
 import { AgentTasks } from '#src/screens/AgentTasks.tsx';
-import type { IconName } from '#src/screens/Icon.tsx';
 import { AgentVerbs } from '#src/screens/AgentVerbs.tsx';
 import { Chat } from '#src/screens/Chat.tsx';
 import { Detail } from '#src/screens/Tasks.tsx';
@@ -41,12 +40,25 @@ export function AgentPage() {
   const row = useAgents().data?.agents.find((a) => a.name === name);
   const [settings, setSettings] = useHistoryValue(`agent.settings:${name}`, false);
   const [menu, setMenu] = useState(false);
-  const keyboardUp = useKeyboardUp();
+  const hasTasks = useServes('tasks.list').served;
+  const hasFile = useServes('file.read').served && !!detailQuery.data?.worktree;
   const tabs = useAgentTabs(name);
   if (!page) return null;
   const detail = detailQuery.data;
   return (
     <AboveKeyboard>
+      <AgentTopBar
+        agent={name}
+        row={row}
+        tabs={tabs}
+        view={page.tab}
+        structured={detail?.structured === true}
+        hasTasks={hasTasks}
+        hasFile={hasFile}
+        onView={(v) => store.setTab(v)}
+        onMenu={() => setMenu(true)}
+        onBack={() => void store.closeAgent()}
+      />
       {/* Every event of this agent refetches agent.get, so only the first load is a state to show. */}
       <Loadable
         query={{ ...detailQuery, isFetching: false }}
@@ -72,14 +84,6 @@ export function AgentPage() {
             </AgentTabsContext.Provider>
           ))}
       </Loadable>
-      {!keyboardUp && (
-        <AgentDock
-          base={page.tab === 'chat' ? 'Chat' : detail?.structured ? 'Transcript' : 'Terminal'}
-          tabs={tabs}
-          onMenu={() => setMenu(true)}
-          onBack={() => void store.closeAgent()}
-        />
-      )}
     </AboveKeyboard>
   );
 }
@@ -101,9 +105,7 @@ function Body(props: {
   const ctl = controlsOf(detail, me);
   const { tabs } = props;
   const shown = tabs.tabs.find((t) => t.id === tabs.active);
-  const hasTasks = useServes('tasks.list').served;
   const showTasks = shown?.kind === 'tasks';
-  const hasFile = useServes('file.read').served && !!detail.worktree;
   const showFile = shown?.kind === 'file';
   const showTask = shown?.kind === 'task';
   const [searching, setSearching] = useHistoryValue(`chat.search:${name}`, false);
@@ -129,35 +131,13 @@ function Body(props: {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Start new', style: 'destructive', onPress: () => start.mutate({ agent: name }) },
     ]);
-  const tab = (id: string, label: string, icon: IconName, on: boolean, onPress: () => void) => (
-    <MenuItem
-      testID={`tab-${id}`}
-      label={label}
-      icon={icon}
-      on={on}
-      onPress={() => {
-        props.setMenu(false);
-        onPress();
-      }}
-    />
-  );
-  const pageTab = (t: 'chat' | 'terminal', label: string) =>
-    tab(t, label, t, !shown && current === t, () => {
-      tabs.select(null);
-      store.setTab(t);
-    });
   const busy = mark !== null;
   // A structured session is watched as a transcript in place of its terminal; its permission cards are in the transcript.
   // The daemon says which agents it runs as a structured session: those are watched as a transcript, the rest keep the terminal.
   const structured = detail.structured === true;
   const views = (
     <>
-      <AgentLabel agent={name} />
       <AgentStrip agent={name} />
-      {pageTab('chat', 'Chat')}
-      {pageTab('terminal', structured ? 'Transcript' : 'Terminal')}
-      {hasFile && tab('file', 'File', 'note', showFile, () => tabs.open({ id: 'file:', kind: 'file', path: '' }))}
-      {hasTasks && tab('tasks', 'Tasks', 'tasks', showTasks, () => tabs.open({ id: 'tasks', kind: 'tasks' }))}
       {onChat && (
         <MenuItem
           testID="search-open"
@@ -204,10 +184,7 @@ function Body(props: {
         disabled={busy}
       />
       {showFile ? (
-        <>
-          <AgentLabel agent={name} />
-          <AgentFile key={shown!.id} agent={name} initial={shown!.path} />
-        </>
+        <AgentFile key={shown!.id} agent={name} initial={shown!.path} />
       ) : showTask ? (
         <Detail id={shown!.task!} backLabel="Close tab" onBack={() => tabs.close(shown!.id)} />
       ) : showTasks ? (
@@ -269,13 +246,7 @@ function Terminal(props: { detail: AgentDetail }) {
   useEffect(() => {
     if (opened && !view) void store.attachView();
   }, [opened, view, store]);
-  if (view)
-    return (
-      <>
-        <AgentLabel agent={props.detail.name} />
-        <TerminalPane agent={props.detail.name} view={view} sessionOpen={props.detail.session_open} />
-      </>
-    );
+  if (view) return <TerminalPane agent={props.detail.name} view={view} sessionOpen={props.detail.session_open} />;
   const name = props.detail.name;
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.lg }}>

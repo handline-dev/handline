@@ -24,15 +24,15 @@ describe('the agent list on the shared nav model', () => {
     m.store.stop();
   });
 
-  it('a tab opened in the agent shows in its dock, and closing it returns to the chat', async () => {
+  it('the Files tab is one tap under the top bar, and Chat returns to the chat', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
-    await until(() => $('dock-base'), 'the dock');
+    await until(() => $('tab-chat'), 'the top bar');
     await pickTab('file');
-    await until(() => $('dock-file:'), 'the file tab');
-    await press($('dock-close-file:'));
-    await until(() => !$('dock-file:') && $('chat-input'), 'the chat');
+    await until(() => !$('chat-input'), 'the files');
+    await pickTab('chat');
+    await until(() => $('chat-input'), 'the chat');
     m.store.stop();
   });
 });
