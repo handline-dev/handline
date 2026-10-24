@@ -47,13 +47,28 @@ export function AgentPage() {
   const detail = detailQuery.data;
   return (
     <AboveKeyboard>
-      <Loadable query={detailQuery} served={served} skeleton="agentDetail" label="the agent" empty={`${name} is gone`}>
+      {/* Every event of this agent refetches agent.get, so only the first load is a state to show. */}
+      <Loadable
+        query={{ ...detailQuery, isFetching: false }}
+        served={served}
+        skeleton="agentDetail"
+        label="the agent"
+        empty={`${name} is gone`}
+      >
         {detail &&
           (settings ? (
             <AgentSettings agent={name} onBack={() => setSettings(false)} />
           ) : (
             <AgentTabsContext.Provider value={tabs}>
-              <Body detail={detail} agent={row} tab={page.tab} tabs={tabs} menu={menu} setMenu={setMenu} onSettings={() => setSettings(true)} />
+              <Body
+                detail={detail}
+                agent={row}
+                tab={page.tab}
+                tabs={tabs}
+                menu={menu}
+                setMenu={setMenu}
+                onSettings={() => setSettings(true)}
+              />
             </AgentTabsContext.Provider>
           ))}
       </Loadable>
@@ -69,7 +84,15 @@ export function AgentPage() {
   );
 }
 
-function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: 'chat' | 'terminal'; tabs: AgentTabs; menu: boolean; setMenu: (open: boolean) => void; onSettings: () => void }) {
+function Body(props: {
+  detail: AgentDetail;
+  agent: AgentView | undefined;
+  tab: 'chat' | 'terminal';
+  tabs: AgentTabs;
+  menu: boolean;
+  setMenu: (open: boolean) => void;
+  onSettings: () => void;
+}) {
   const c = usePalette();
   const store = useStore();
   const me = useSelector((s) => s.me);
@@ -146,12 +169,18 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
           }}
         />
       )}
-      {ctl.start && <MenuItem label="Start" icon="play" disabled={busy} onPress={() => (props.setMenu(false), start.mutate({ agent: name }))} />}
+      {ctl.start && (
+        <MenuItem label="Start" icon="play" disabled={busy} onPress={() => (props.setMenu(false), start.mutate({ agent: name }))} />
+      )}
       {ctl.resume && <MenuItem label="Start new" icon="session" disabled={busy} onPress={() => (props.setMenu(false), startNew())} />}
-      {(structured ? ctl.interrupt : ctl.stop) && <MenuItem label="Interrupt" icon="cancel" disabled={busy} onPress={() => (props.setMenu(false), stop('interrupt'))} />}
+      {(structured ? ctl.interrupt : ctl.stop) && (
+        <MenuItem label="Interrupt" icon="cancel" disabled={busy} onPress={() => (props.setMenu(false), stop('interrupt'))} />
+      )}
     </>
   );
-  const note = [stalled && (stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`)].filter(Boolean);
+  const note = [
+    stalled && (stalled.tip.toLowerCase() === stalled.label.toLowerCase() ? stalled.label : `${stalled.label}: ${stalled.tip}`),
+  ].filter(Boolean);
   return (
     <View style={{ flex: 1 }}>
       <AgentVerbs
@@ -164,7 +193,12 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
         before={views}
         stops={[
           ...(ctl.stop && !structured ? [{ id: 'exit', label: 'Exit', danger: false }] : []),
-          ...(ctl.stop ? [{ id: 'close', label: 'Close', danger: false }, { id: 'kill', label: 'Kill', danger: true }] : []),
+          ...(ctl.stop
+            ? [
+                { id: 'close', label: 'Close', danger: false },
+                { id: 'kill', label: 'Kill', danger: true },
+              ]
+            : []),
         ]}
         onStop={(mode) => stop(mode as StopMode)}
         disabled={busy}
@@ -181,16 +215,28 @@ function Body(props: { detail: AgentDetail; agent: AgentView | undefined; tab: '
       ) : (
         <>
           {!(structured && current === 'terminal') && current !== 'chat' && <PromptSlot agent={name} prompt={detail.prompt ?? null} />}
-          {current === 'chat' ? <Chat detail={detail} searching={searching} /> : structured ? <TranscriptTab detail={detail} /> : <Terminal detail={detail} />}
+          {current === 'chat' ? (
+            <Chat detail={detail} searching={searching} />
+          ) : structured ? (
+            <TranscriptTab detail={detail} />
+          ) : (
+            <Terminal detail={detail} />
+          )}
         </>
       )}
       {mark && (
-        <Text testID="pending-mark" style={{ color: c.muted, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: font.size.label }}>
+        <Text
+          testID="pending-mark"
+          style={{ color: c.muted, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: font.size.label }}
+        >
           {mark}
         </Text>
       )}
       {note.length > 0 && (
-        <Text testID="badge-stalled" style={{ color: c.block, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: font.size.label }}>
+        <Text
+          testID="badge-stalled"
+          style={{ color: c.block, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: font.size.label }}
+        >
           {note.join(' · ')}
         </Text>
       )}
