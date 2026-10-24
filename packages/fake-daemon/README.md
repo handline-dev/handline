@@ -3,6 +3,13 @@
 A daemon that speaks the contract with scripted agents, for UI work and tests without a real daemon.
 `node src/serve.ts` serves it on a Unix socket and a WebSocket; `HANDLINE_FAKE=1 vite` in `apps/web` runs it beside the dev server.
 
+## Pairing a phone dev build
+
+`node src/serve.ts --phone --ws 7791 --socket /tmp/x.sock` serves the WebSocket as the paired-device listener and prints a one-time `handline://pair?...&plain=1` link.
+A dev build of the phone app takes it, and a release build ignores it. iOS simulator: `xcrun simctl launch <udid> dev.handline.mobile -handlineDevPair '<link>'`
+(`simctl openurl` makes iOS ask "Open in Handline?", which needs a tap). Android emulator: `adb reverse tcp:7791 tcp:7791`, then `adb shell am start -a android.intent.action.VIEW -d '<link>'`.
+The pairing is kept, so later launches need no link. Run Metro without `CI=1`, or it never rebuilds the bundle. Keep the socket path short (a Unix socket path over about 100 characters fails).
+
 ## Seeds
 
 The first-load fixtures leave out some states a UI check needs. Switch them on by name; `all` switches on every one.
