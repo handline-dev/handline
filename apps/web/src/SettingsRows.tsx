@@ -38,14 +38,16 @@ export function Row(props: { label: string; hint: string; more?: string; childre
   );
 }
 
-export function NumberRow(props: {
+/** One value as text, saved on its own: a number with its unit, or with `text` a line of words. */
+export function NumberRow<T = number>(props: {
   label: string;
   hint: string;
   more?: string;
-  unit: string;
+  unit?: string;
+  text?: boolean;
   current: string;
-  parse: (t: string) => number | null | typeof INVALID;
-  change: (v: number | null) => PageSettings;
+  parse: (t: string) => T | null | typeof INVALID;
+  change: (v: T | null) => PageSettings;
   allowed: string;
 }) {
   const save = useWrite('settings.set');
@@ -73,7 +75,7 @@ export function NumberRow(props: {
       <Field
         label={props.label}
         unit={props.unit}
-        inputMode="numeric"
+        inputMode={props.text ? 'text' : 'numeric'}
         value={text}
         disabled={!!off}
         title={off}

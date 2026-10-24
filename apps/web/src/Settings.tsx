@@ -2,7 +2,7 @@
 // own (authored: it shows at once and goes back with its own note when refused), and the standing answers. A section nav on the left, then one
 // card per section whose rows are a title, one grey line and the control on the right (docs/design-gaps.md G80).
 import { useEffect, useState } from 'react';
-import { capField, idleField, limitFields, type KV } from '@handline/app-core';
+import { INVALID, capField, idleField, limitFields, type KV } from '@handline/app-core';
 import { useServes, useSettings } from '@handline/app-data';
 import { Answers } from '#src/Answers.tsx';
 import { Devices } from '#src/Devices.tsx';
@@ -12,6 +12,8 @@ import { NumberRow, SwitchRow } from '#src/SettingsRows.tsx';
 import { Appearance, BackgroundRows, Connection, Notifications } from '#src/SettingsMore.tsx';
 import { SettingsTabs } from '#src/SettingsTabs.tsx';
 import { View } from '#src/View.tsx';
+
+export const parsePrompt = (t: string) => (/[\r\n]/.test(t) ? INVALID : t.trim());
 
 const SECTIONS: { id: string; title: string; icon: IconName; group: string }[] = [
   { id: 'concurrency', title: 'Concurrency', icon: 'agent', group: 'Agents' },
@@ -125,6 +127,23 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                         hint="A note for the next session before a close or move"
                         on={!!v.handoff_note}
                         change={(on) => ({ handoff_note: on })}
+                      />
+                      <NumberRow
+                        text
+                        label="Handoff prompt"
+                        hint={`One line; {path} is the note's file and {max} its size limit.${
+                          v.handoff_prompt?.includes('{path}') ? '' : ' Without {path} the path is added on a line of its own.'
+                        }`}
+                        current={v.handoff_prompt ?? ''}
+                        parse={parsePrompt}
+                        change={(t) => ({ handoff_prompt: t })}
+                        allowed="one line: no line break"
+                      />
+                      <SwitchRow
+                        label="Ignore cache expiry"
+                        hint="Resume the old session even after its cache went cold"
+                        on={!!v.ignore_cache_expiry}
+                        change={(on) => ({ ignore_cache_expiry: on })}
                       />
                     </SettingsCard>
                   </section>
