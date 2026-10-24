@@ -29,6 +29,8 @@ describe('the agent list on the shared nav model', () => {
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
     await until(() => $('tab-chat'), 'the top bar');
+    expect($('agent-name')?.textContent).toBe(ARCH);
+    expect($('agent-state-line')).not.toBeNull();
     await pickTab('file');
     await until(() => !$('chat-input'), 'the files');
     await pickTab('chat');

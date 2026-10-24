@@ -1,7 +1,7 @@
 // The agent page's top: back, the agent's name with what it is doing in words, the ⋯ menu, and under it one-tap tabs (Chat, Terminal or
 // Transcript, Tasks, Files, then the files and tasks opened beside them).
-import { useEffect, useRef, useState } from 'react';
-import { Keyboard, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useRef } from 'react';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { agentLine } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { font, radius, space } from '@handline/tokens';
@@ -9,17 +9,6 @@ import { usePalette } from '#src/theme.ts';
 import { Icon } from '#src/screens/Icon.tsx';
 import { StateMark } from '#src/screens/StateMark.tsx';
 import { tabLabel, type AgentTab, type AgentTabs } from '#src/screens/AgentTabs.tsx';
-
-export function useKeyboardUp(): boolean {
-  const [up, setUp] = useState(false);
-  useEffect(() => {
-    const ios = Platform.OS === 'ios';
-    const show = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', () => setUp(true));
-    const hide = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', () => setUp(false));
-    return () => (show.remove(), hide.remove());
-  }, []);
-  return up;
-}
 
 const FILES = 'file:';
 const TASKS = 'tasks';
