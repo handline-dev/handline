@@ -130,6 +130,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                       />
                       <NumberRow
                         text
+                        wide
                         label="Handoff prompt"
                         hint={`One line; {path} is the note's file and {max} its size limit.${
                           v.handoff_prompt?.includes('{path}') ? '' : ' Without {path} the path is added on a line of its own.'
