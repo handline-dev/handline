@@ -47,7 +47,8 @@ export function AgentPage() {
   const detail = detailQuery.data;
   return (
     <AboveKeyboard>
-      <Loadable query={detailQuery} served={served} skeleton="agentDetail" label="the agent" empty={`${name} is gone`}>
+      {/* Every event of this agent refetches agent.get, so only the first load is a state to show. */}
+      <Loadable query={{ ...detailQuery, isFetching: false }} served={served} skeleton="agentDetail" label="the agent" empty={`${name} is gone`}>
         {detail &&
           (settings ? (
             <AgentSettings agent={name} onBack={() => setSettings(false)} />
