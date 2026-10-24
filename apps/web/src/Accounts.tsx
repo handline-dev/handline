@@ -231,9 +231,7 @@ function AccountPageOne({ account, now }: { account: Account; now: number }) {
           <Gauge label="week" window={account.weekly} now={now} detail />
           <p className={FACT}>
             <Icon name="schedules" size={14} label="Month" />
-            {account.cycle.on
-              ? account.cycle.end ? `ends ${account.cycle.end}` : 'ends when its login drops'
-              : 'renewing'}
+            {account.cycle.on ? (account.cycle.end ? `ends ${account.cycle.end}` : 'ends when its login drops') : 'renewing'}
           </p>
           <p className={FACT}>
             <Icon name="refresh" size={14} label="Usage recovery" />
