@@ -14,6 +14,10 @@ export const PAGE_SETTINGS = [
   'bg_notice_s',
   'bg_grace_s',
   'bg_check_s',
+  'push_prompt_asked',
+  'push_task_done',
+  'push_stall',
+  'push_account_out',
 ] as const;
 export type PageSettings = Pick<SettingsChanges, (typeof PAGE_SETTINGS)[number]>;
 

@@ -13,6 +13,14 @@ export interface Ports {
   open(n: Notice): void;
 }
 
+/** The setting that turns off the desktop notice for each notifications event; an event not listed (an HR proposal) has no switch. */
+const PUSH_KEY = {
+  prompt_asked: 'push_prompt_asked',
+  task_done: 'push_task_done',
+  stall: 'push_stall',
+  account_out: 'push_account_out',
+} as const;
+
 /** Keeps the badge on the daemon's unread count and raises one native notice per notifications event. */
 export class Desk {
   private client: Feed;
@@ -69,6 +77,19 @@ export class Desk {
     if (!n || this.seen.has(e.cursor)) return;
     this.seen.add(e.cursor);
     if (suppressed(n, this.ports.screen())) return;
-    this.ports.notify(n, () => this.ports.open(n));
+    const key = PUSH_KEY[n.event as keyof typeof PUSH_KEY];
+    const notify = () => this.ports.notify(n, () => this.ports.open(n));
+    if (!key) return notify();
+    void this.pushedOn(key).then((on) => on && notify());
+  }
+
+  /** Read at each notice, so a switch turned off in the page holds back the next one; a daemon that does not answer or has no key raises it as before. */
+  private async pushedOn(key: (typeof PUSH_KEY)[keyof typeof PUSH_KEY]): Promise<boolean> {
+    try {
+      const values = (await this.client.call('settings.get', {})).values as Record<string, unknown> | undefined;
+      return values?.[key] !== false;
+    } catch {
+      return true;
+    }
   }
 }
