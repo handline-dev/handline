@@ -15,8 +15,6 @@ import {
   useChatReadMarks,
   useChatLocate,
   useChatWindow,
-  useServes,
-  useTasks,
   type Chat,
   type ChatScope,
 } from '@handline/app-data';
@@ -25,6 +23,7 @@ import { PromptSlot } from '#src/PromptCard.tsx';
 import { Compose } from '#src/ChatCompose.tsx';
 import { LiveLine } from '#src/LiveLine.tsx';
 import { FoldLine, entryKey, useFolds } from '#src/ChatFold.tsx';
+import { useCardTitles } from '#src/ChatTitles.ts';
 import { Item, Message, jumpTo } from '#src/ChatMessages.tsx';
 import { TaskNote } from '#src/ChatTaskCards.tsx';
 import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, RoomTitle, useDecided } from '#src/ChatCards.tsx';
@@ -178,10 +177,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const stream = useRef<HTMLDivElement>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
   const { entries, ...folds } = useFolds(chat, scope, agent, me, useDecided(agent));
-  // Task titles for the transcript's task lines, so a card can say what it is about without opening the task.
-  const { served } = useServes('tasks.list');
-  const tasks = useTasks({ all: true, limit: 200 }); // done tasks too: a card of a closed task keeps its title
-  const titles = new Map((served ? (tasks.data?.items ?? []) : []).map((t) => [t.id, t.title]));
+  const titles = useCardTitles(chat.items, entries); // for the task cards: what each is about, without opening the task
   const history = chat.messages
     .filter((m) => m.to === agent && m.from !== agent && m.landing !== 'withdrawn' && m.id > 0)
     .sort((a, b) => b.id - a.id)

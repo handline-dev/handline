@@ -1,6 +1,6 @@
 // The read hooks: `useRead` is the one place a read becomes a query, and every named hook is a line over it.
 import { useCallback, useMemo, useState } from 'react';
-import { keepPreviousData, useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { keepPreviousData, useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { hashNumbers, reviewPictures, waitingCount } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { CallParams, InboxItem, Methods } from '@handline/client';
@@ -163,6 +163,21 @@ export function useAgentTasks(agent: string) {
 }
 export const useAgentStrip = (agent: string) => useRead('agent.strip', { agent }, { enabled: agent !== '' });
 export const useTask = (task: number) => useRead('task.get', { task });
+/** The titles of these tasks, each read by its id (the same read, and cache, as `useTask`): for a task the list of the newest tasks no longer holds. */
+export function useTaskTitles(ids: readonly number[]): Map<number, string> {
+  const store = useStore();
+  const { daemon } = useData();
+  const { served, open } = useServes('task.get');
+  const results = useQueries({
+    queries: ids.map((task) => ({
+      queryKey: keyOf(daemon, 'task.get', { task }),
+      queryFn: () => store.client.call('task.get', { task }),
+      enabled: served && open,
+      staleTime: SNAPSHOT_STALE_MS,
+    })),
+  });
+  return new Map(results.flatMap((r) => (r.data ? [[r.data.id, r.data.title] as const] : [])));
+}
 export const useTaskHistory = (task: number) => useRead('task.history', { task });
 export const useTaskTime = (task: number) => useRead('task.time', { task });
 export const useMemos = (task: number) => useRead('task.comment.list', { task });
