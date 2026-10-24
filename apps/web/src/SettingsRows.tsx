@@ -25,27 +25,35 @@ export function Note({ error, pending, bad }: { error: unknown; pending: boolean
   );
 }
 
-export function Row(props: { label: string; hint: string; more?: string; children: ReactNode; note?: ReactNode }) {
+export function Row(props: { label: string; hint: string; more?: string; wide?: boolean; children: ReactNode; note?: ReactNode }) {
   return (
     <SettingsRow data-setting={props.label}>
       <RowText title={props.more}>
         <RowTitle>{props.label}</RowTitle>
         <RowHint>{props.hint}</RowHint>
       </RowText>
-      <RowControl>{props.children}</RowControl>
+      <RowControl
+        className={props.wide ? 'col-span-full [&_.ui-field]:w-full [&_.ui-input-wrap]:w-full [&_.ui-input-wrap_input]:!w-full' : undefined}
+      >
+        {props.children}
+      </RowControl>
       {props.note}
     </SettingsRow>
   );
 }
 
-export function NumberRow(props: {
+/** One value as text, saved on its own: a number with its unit, or with `text` a line of words. */
+export function NumberRow<T = number>(props: {
   label: string;
   hint: string;
   more?: string;
-  unit: string;
+  unit?: string;
+  text?: boolean;
+  /** The field on its own line under the label, as wide as the card. */
+  wide?: boolean;
   current: string;
-  parse: (t: string) => number | null | typeof INVALID;
-  change: (v: number | null) => PageSettings;
+  parse: (t: string) => T | null | typeof INVALID;
+  change: (v: T | null) => PageSettings;
   allowed: string;
 }) {
   const save = useWrite('settings.set');
@@ -69,11 +77,17 @@ export function NumberRow(props: {
     if (text.trim() !== props.current.trim()) save.mutate({ changes: props.change(v) });
   };
   return (
-    <Row label={props.label} hint={props.hint} more={props.more} note={<Note error={save.error} pending={save.isPending} bad={bad} />}>
+    <Row
+      label={props.label}
+      hint={props.hint}
+      more={props.more}
+      wide={props.wide}
+      note={<Note error={save.error} pending={save.isPending} bad={bad} />}
+    >
       <Field
         label={props.label}
         unit={props.unit}
-        inputMode="numeric"
+        inputMode={props.text ? 'text' : 'numeric'}
         value={text}
         disabled={!!off}
         title={off}
