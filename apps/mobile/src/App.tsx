@@ -36,7 +36,7 @@ export default function App() {
     ) : !store ? (
       <PairScreen onPaired={setPairing} />
     ) : (
-      <DaemonProvider store={store}>
+      <DaemonProvider store={store} notify={false}>
         <DataProvider daemonId={pairing!.host}>
           <Home
             store={store}

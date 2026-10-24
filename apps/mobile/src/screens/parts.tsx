@@ -44,7 +44,7 @@ export function EmptyState(props: { text: string; icon?: IconName; testID?: stri
   );
 }
 
-export function Banner(props: { text: string; error?: boolean; onPress?: () => void }) {
+export function Banner(props: { text: string; error?: boolean; action?: string; onPress?: () => void }) {
   const c = usePalette();
   return (
     <Pressable
@@ -55,6 +55,7 @@ export function Banner(props: { text: string; error?: boolean; onPress?: () => v
       <Text style={{ color: c.onFill }}>
         {props.text}
         {props.error ? '  ✕' : ''}
+        {props.action ? `   ${props.action}` : ''}
       </Text>
     </Pressable>
   );
