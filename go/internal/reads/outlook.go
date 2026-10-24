@@ -117,7 +117,7 @@ func (e *Env) accountEnds(cfg usage.Config, rows usage.Samples, clock time.Time)
 	ends := map[string]float64{}
 	for _, a := range usage.SampleAccounts(rows) {
 		cut, has := 0.0, false
-		if t, ok := cfg.EndOf(e.Home, a, clock); ok {
+		if t, ok := cfg.EndOf(a); ok {
 			cut, has = float64(t.UnixNano())/1e9, true
 		}
 		if since, gone := (team.Accounts{Home: e.Home, Login: e.loginState}).GoneSince(a, float64(now)); gone && (!has || since < cut) {

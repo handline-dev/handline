@@ -31,7 +31,10 @@ export function AccountSettings({ account }: { account: Account }) {
         disabled={!!off}
         title={off}
         onChange={(e) => setAlias(e.target.value)}
-        onBlur={() => alias.trim() !== (account.label === account.name ? '' : account.label) && save.mutate({ account: account.name, label: alias.trim() })}
+        onBlur={() =>
+          alias.trim() !== (account.label === account.name ? '' : account.label) &&
+          save.mutate({ account: account.name, label: alias.trim() })
+        }
       />
       <Field
         label="Cap"
@@ -50,11 +53,21 @@ export function AccountSettings({ account }: { account: Account }) {
         }}
       />
       <div className="acct-switch flex items-center gap-2" title="A dead usage read may spend one real turn to fix itself">
-        <Switch label="Usage recovery" on={account.recover} disabled={!!off} onChange={(on) => save.mutate({ account: account.name, recover: on })} />
+        <Switch
+          label="Usage recovery"
+          on={account.recover}
+          disabled={!!off}
+          onChange={(on) => save.mutate({ account: account.name, recover: on })}
+        />
         <span>Usage recovery</span>
       </div>
       <div className="acct-switch flex items-center gap-2">
-        <Switch label="Ends this month" on={account.cycle.on} disabled={!!off} onChange={(on) => save.mutate({ account: account.name, cycle: on })} />
+        <Switch
+          label="Ends this month"
+          on={account.cycle.on}
+          disabled={!!off}
+          onChange={(on) => save.mutate({ account: account.name, cycle: on })}
+        />
         <span>Ends this month</span>
       </div>
       <Field
@@ -62,10 +75,11 @@ export function AccountSettings({ account }: { account: Account }) {
         type="date"
         value={end}
         disabled={!!off}
-        title={off ?? 'Blank means the next monthly anniversary'}
+        title={off ?? 'Blank: it ends when its login drops'}
         onChange={(e) => setEnd(e.target.value)}
         onBlur={() =>
-          end !== (account.cycle.end_is_default ? '' : (account.cycle.end ?? '')) && save.mutate({ account: account.name, cycle_end: end || null })
+          end !== (account.cycle.end_is_default ? '' : (account.cycle.end ?? '')) &&
+          save.mutate({ account: account.name, cycle_end: end || null })
         }
       />
       <AccountLogin account={account} />

@@ -89,9 +89,6 @@ func (e *Env) SweepEndings() error {
 	now := e.now()
 	ahead := time.Duration(cfg.WarnDays()) * 24 * time.Hour
 	for _, acct := range paths.ListAccounts(e.Home) {
-		if err := cfg.PinEnd(e.Home, acct, now); err != nil {
-			return err
-		}
 		toldDay, _, err := db.Meta(e.DB, told(acct))
 		if err != nil {
 			return err
@@ -116,11 +113,11 @@ func (e *Env) SweepEndings() error {
 				}
 			}
 		}
-		end, ok := cfg.EndOf(e.Home, acct, now)
+		end, ok := cfg.EndOf(acct)
 		if !ok {
 			continue
 		}
-		day := cfg.EndDate(e.Home, acct, now)
+		day := cfg.EndDate(acct)
 		if !now.Before(end) {
 			if err := e.settle(acct, "the subscription ended; the account is shown as ended"); err != nil {
 				return err

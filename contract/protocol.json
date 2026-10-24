@@ -12123,7 +12123,7 @@
        },
        "end_is_default": {
         "type": "boolean",
-        "description": "end is not typed: the first monthly anniversary of the subscription start after it is first seen, held once reached."
+        "description": "No end day is typed: end is null, and the account ends only when its login drops."
        }
       }
      },

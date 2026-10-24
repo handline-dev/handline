@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestStatusReadsBothShapes(t *testing.T) {
@@ -39,13 +38,13 @@ func TestCapsLabelsAndEnd(t *testing.T) {
 	if c.CapOf("a") != 3 || c.LabelOf("a") != "a" || c.CapOf("z") != 3 || (Config{}).DefaultCap() != DefaultActiveCap {
 		t.Fatal("caps and labels")
 	}
-	if got := c.EndDate(t.TempDir(), "a", time.Now()); got != "2026-10-22" {
+	if got := c.EndDate("a"); got != "2026-10-22" {
 		t.Fatalf("a typed end counts without the switch: %q", got)
 	}
-	if got := c.EndDate(t.TempDir(), "b", time.Now()); got != "" {
+	if got := c.EndDate("b"); got != "" {
 		t.Fatalf("no profile, no end: %q", got)
 	}
-	if got := (Config{"month_cycle_a": false, "sub_end_a": "2026-10-22"}).EndDate("", "a", time.Now()); got != "" {
+	if got := (Config{"month_cycle_a": false, "sub_end_a": "2026-10-22"}).EndDate("a"); got != "" {
 		t.Fatalf("off keeps the date but has no end: %q", got)
 	}
 }
