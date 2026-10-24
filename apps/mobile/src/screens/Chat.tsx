@@ -163,7 +163,8 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
         keyboardShouldPersistTaps="handled"
         scrollEventThrottle={64}
         onLayout={(e) => anchor.layout(e.nativeEvent.layout.height)}
-        onScrollBeginDrag={anchor.drag}
+        onTouchStart={anchor.hold}
+        onScrollBeginDrag={anchor.hold}
         onScroll={(e) => {
           const { contentOffset } = e.nativeEvent;
           chat.holdPlace(!anchor.scrolled(e));
@@ -171,63 +172,65 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
         }}
         onContentSizeChange={(_, h) => anchor.content(h)}
       >
-        <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
-        {failure && (
-          <View testID="error" accessibilityRole="alert" style={{ gap: space.sm }}>
-            <Text style={{ color: c.block }}>{failure}</Text>
-            <Button label="Retry" onPress={chat.refetch} />
-          </View>
-        )}
-        {chat.hasOlder && <Button testID="older" label="Older messages" disabled={chat.loadingOlder} onPress={chat.loadOlder} />}
-        {chat.status === 'ready' && !entries.length && <EmptyState icon="chat" text="No messages yet" />}
-        {folds.entries.map((e) =>
-          e.kind === 'fold' ? (
-            <FoldLine
-              key={`f${e.id}`}
-              f={e}
-              folds={folds}
-              line={(i) => <Line i={i} agent={agent} me={me} titles={titles} onTask={setOpenTask} />}
-            />
-          ) : e.kind === 'proposal' ? (
-            <Decided key={`p${e.id}`} p={e.proposal} />
-          ) : e.kind !== 'item' ? (
-            <Bubble
-              key={`m${e.id}`}
-              m={e.message}
-              agent={agent}
-              picked={picked?.id === e.id}
-              flashed={flash === e.id}
-              onRow={(y) => {
-                rowY.current.set(e.id, y);
-                if (flash === e.id) reveal(e.id);
-                if (e.id === sent) anchor.row(y);
-              }}
-              working={working}
-              onPick={(m) => {
-                setItem(null);
-                setPicked((p) => (p?.id === m.id ? null : m));
-              }}
-            />
-          ) : (
-            <Line
-              key={`i${e.id}`}
-              i={e.item}
-              agent={agent}
-              me={me}
-              titles={titles}
-              onTask={setOpenTask}
-              onReply={
-                canSend && canReplyItem
-                  ? (i) => {
-                      setPicked(null);
-                      setItem((p) => (p?.id === i.id ? null : i));
-                    }
-                  : undefined
-              }
-            />
-          ),
-        )}
-        <WorkingBubble working={chat.working} messages={chat.messages} items={chat.items} />
+        <View style={{ gap: space.sm }} onLayout={(e) => anchor.lines(e.nativeEvent.layout.height)}>
+          <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
+          {failure && (
+            <View testID="error" accessibilityRole="alert" style={{ gap: space.sm }}>
+              <Text style={{ color: c.block }}>{failure}</Text>
+              <Button label="Retry" onPress={chat.refetch} />
+            </View>
+          )}
+          {chat.hasOlder && <Button testID="older" label="Older messages" disabled={chat.loadingOlder} onPress={chat.loadOlder} />}
+          {chat.status === 'ready' && !entries.length && <EmptyState icon="chat" text="No messages yet" />}
+          {folds.entries.map((e) =>
+            e.kind === 'fold' ? (
+              <FoldLine
+                key={`f${e.id}`}
+                f={e}
+                folds={folds}
+                line={(i) => <Line i={i} agent={agent} me={me} titles={titles} onTask={setOpenTask} />}
+              />
+            ) : e.kind === 'proposal' ? (
+              <Decided key={`p${e.id}`} p={e.proposal} />
+            ) : e.kind !== 'item' ? (
+              <Bubble
+                key={`m${e.id}`}
+                m={e.message}
+                agent={agent}
+                picked={picked?.id === e.id}
+                flashed={flash === e.id}
+                onRow={(y) => {
+                  rowY.current.set(e.id, y);
+                  if (flash === e.id) reveal(e.id);
+                  if (e.id === sent) anchor.row(y);
+                }}
+                working={working}
+                onPick={(m) => {
+                  setItem(null);
+                  setPicked((p) => (p?.id === m.id ? null : m));
+                }}
+              />
+            ) : (
+              <Line
+                key={`i${e.id}`}
+                i={e.item}
+                agent={agent}
+                me={me}
+                titles={titles}
+                onTask={setOpenTask}
+                onReply={
+                  canSend && canReplyItem
+                    ? (i) => {
+                        setPicked(null);
+                        setItem((p) => (p?.id === i.id ? null : i));
+                      }
+                    : undefined
+                }
+              />
+            ),
+          )}
+          <WorkingBubble working={chat.working} messages={chat.messages} items={chat.items} />
+        </View>
         {anchor.spacer > 0 && <View testID="send-spacer" style={{ height: anchor.spacer }} />}
       </ScrollView>
       <HandoffLine handoff={props.detail.handoff ?? null} items={chat.items} />
