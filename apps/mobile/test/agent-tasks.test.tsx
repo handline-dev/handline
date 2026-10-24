@@ -46,7 +46,7 @@ describe('the Tasks tab of the agent page', () => {
     await until(() => $('task-detail') && $('dock-task:1684'), 'the task tab');
     await press($('task-back'));
     await until(() => !$('dock-task:1684'), 'the tab closed');
-    await press($('dock-tasks'));
+    await press($('tab-tasks'));
     await until(() => $('agent-task-1684'), 'the list');
     m.store.stop();
   });

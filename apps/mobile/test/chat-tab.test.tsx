@@ -42,7 +42,7 @@ describe('the chat tab', () => {
     await press(await link('file'));
     await until(() => $('dock-file:notes/plan.md'), 'the file dock tab');
     await until(() => $('file-tab'), 'the file tab');
-    await press($('dock-base'));
+    await press($('tab-chat'));
     await press(await link('task'));
     await until(() => $('dock-task:1684') && $('task-detail'), 'the task tab');
     expect($('dock-file:notes/plan.md')).not.toBeNull();
