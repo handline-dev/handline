@@ -259,3 +259,44 @@ test('the page keeps its port from launch to launch, and takes a free one when t
     fs.rmSync(dir, { recursive: true });
   }
 });
+
+test('a push switch that is off holds back that notice only, from the next event on, and a daemon without the key raises all', async () => {
+  const { daemon, client } = setup();
+  const { log, p } = ports();
+  await client.start();
+  const desk = new Desk(client, p);
+  await desk.start();
+  daemon.emit('notifications', 'task_done', { agent: 'handline.pc', data: { task: 1 } });
+  await until(() => log.notices.length === 1, 'a notice with every switch on');
+  await client.call('settings.set', { changes: { push_task_done: false } });
+  daemon.emit('notifications', 'task_done', { agent: 'handline.pc', data: { task: 2 } });
+  daemon.emit('notifications', 'stall', { agent: 'handline.pc' });
+  await until(() => log.notices.length === 2, 'the stall');
+  assert.deepEqual(log.notices, ['Task 1 done', 'handline.pc is stalled']);
+  await client.call('settings.set', { changes: { push_task_done: true } });
+  daemon.emit('notifications', 'task_done', { agent: 'handline.pc', data: { task: 3 } });
+  await until(() => log.notices.length === 3, 'the switch back on');
+  desk.stop();
+  client.close();
+});
+
+test('a daemon that refuses settings.get raises every notice', async () => {
+  const handlers: { event?: (e: Event) => void } = {};
+  const feed = {
+    onEvent: (f: (e: Event) => void) => {
+      handlers.event = f;
+      return () => {};
+    },
+    onGap: () => () => {},
+    onState: () => () => {},
+    subscribe: async () => undefined,
+    call: async (m: string) => {
+      if (m === 'settings.get') throw new Error('refused');
+      return { inbox: { unread: 0 } };
+    },
+  } as unknown as Feed;
+  const { log, p } = ports();
+  await new Desk(feed, p).start();
+  handlers.event!(ev({ cursor: 9, type: 'task_done', data: { task: 4 } }));
+  await until(() => log.notices.length === 1, 'the notice');
+});
