@@ -113,11 +113,11 @@ func (e *Env) SweepEndings() error {
 				}
 			}
 		}
-		end, ok := cfg.EndOf(e.Home, acct, now)
+		end, ok := cfg.EndOf(acct)
 		if !ok {
 			continue
 		}
-		day := cfg.EndDate(e.Home, acct, now)
+		day := cfg.EndDate(acct)
 		if !now.Before(end) {
 			if err := e.settle(acct, "the subscription ended; the account is shown as ended"); err != nil {
 				return err

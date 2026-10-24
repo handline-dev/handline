@@ -11,16 +11,15 @@ import (
 func TestEndOfAndWarnDaysAgreeWithPython(t *testing.T) {
 	cfg := Config{"month_cycle_a": true, "sub_end_a": "2026-10-22", "month_cycle_b": false, "sub_end_b": "2026-10-22", "sub_end_c": "2026-11-30",
 		"month_cycle_d": true, "sub_end_d": "garbage", "cycle_warn_days": 5}
-	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.Local)
 	for acct, want := range map[string]string{"a": "2026-10-23", "c": "2026-12-01"} {
-		got, ok := cfg.EndOf("/nowhere", acct, now)
+		got, ok := cfg.EndOf(acct)
 		d, _ := time.ParseInLocation("2006-01-02", want, time.Local)
 		if !ok || !got.Equal(d) {
 			t.Errorf("%s: %v %v, want %v", acct, got, ok, d)
 		}
 	}
 	for _, acct := range []string{"b", "d", "z"} {
-		if got, ok := cfg.EndOf("/nowhere", acct, now); ok {
+		if got, ok := cfg.EndOf(acct); ok {
 			t.Errorf("%s: an end where Python has none: %v", acct, got)
 		}
 	}

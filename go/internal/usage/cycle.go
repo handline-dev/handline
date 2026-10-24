@@ -10,7 +10,7 @@ func (c Config) EndIsDefault(acct string) bool { return c["sub_end_"+acct] == ni
 
 // EndDate is cycle.end_date: the last day the account can be used as YYYY-MM-DD, or "" when none was typed. A month cycle with no typed
 // day has no end: the subscription may have been renewed, and the account counts as ended only once its login drops.
-func (c Config) EndDate(home, acct string, now time.Time) string {
+func (c Config) EndDate(acct string) string {
 	v := c["sub_end_"+acct]
 	if c["month_cycle_"+acct] != true {
 		if _, written := c["month_cycle_"+acct]; v == nil || written {
@@ -44,8 +44,8 @@ func DayEnd(day string) (time.Time, bool) {
 
 // EndOf is cycle.end_of: when the account stops being usable; ok is false when it is not on a cycle or no end day was typed. A typed
 // end day is usable through all of it, so the moment is the start of the next.
-func (c Config) EndOf(home, acct string, now time.Time) (time.Time, bool) {
-	day := c.EndDate(home, acct, now)
+func (c Config) EndOf(acct string) (time.Time, bool) {
+	day := c.EndDate(acct)
 	if day == "" {
 		return time.Time{}, false
 	}

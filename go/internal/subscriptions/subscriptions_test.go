@@ -347,7 +347,7 @@ func TestAMonthCycleWithNoTypedDayNeverEnds(t *testing.T) {
 	for _, now := range []time.Time{time.Date(2026, 10, 20, 12, 0, 0, 0, time.Local), time.Date(2026, 11, 30, 9, 0, 0, 0, time.Local)} {
 		w.now = now
 		w.sweep()
-		if end, ok := cfg.EndOf(w.Home, "omega", now); ok {
+		if end, ok := cfg.EndOf("omega"); ok {
 			t.Errorf("%v: an end of %v with no day typed", now, end)
 		}
 		ue.Now = func() float64 { return float64(now.Unix()) }
