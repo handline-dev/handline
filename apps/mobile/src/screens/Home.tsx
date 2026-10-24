@@ -17,7 +17,7 @@ import { Stats } from '#src/screens/Stats.tsx';
 import { Tasks } from '#src/screens/Tasks.tsx';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
 import { Bell, NoticesPage, Toasts } from '#src/screens/Notices.tsx';
-import { Banner } from '#src/screens/parts.tsx';
+import { ConnectionBar } from '#src/screens/ConnectionBar.tsx';
 
 const TABS = ['agents', 'inbox', 'tasks', 'usage'] as const;
 type Tab = (typeof TABS)[number];
@@ -94,7 +94,6 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   const swipe = useBack(props.history);
   useAgentEntry(props.store);
   const open = useSelector((s) => s.page?.agent ?? null);
-  const conn = useSelector((s) => s.conn);
   const unread = useUnread().length;
   const [tab, setTab] = useHistoryValue<Tab>('home.tab', 'agents');
   const [task, setTask] = useHistoryValue<number | null>('home.task', null);
@@ -110,7 +109,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   const toAgent = (name: string) => (setPage(null), void props.store.openAgent(name));
   return (
     <View style={{ flex: 1 }} {...swipe}>
-      {conn !== 'open' && <Banner text={conn === 'closed' ? 'Disconnected' : conn === 'connecting' ? 'Connecting…' : 'Reconnecting…'} />}
+      <ConnectionBar store={props.store} />
       {!open && !page && <Bell store={props.store} onOpen={() => setPage('notices')} />}
       <Toasts store={props.store} />
       <View style={{ flex: 1 }}>

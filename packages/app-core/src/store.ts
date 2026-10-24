@@ -22,6 +22,8 @@ export class Store {
   client: DaemonClient;
   notes = new Map<string, Note[]>(); // what happened to each agent while this page watched
   conn: ConnectionState = 'connecting';
+  /** The last try to reach the daemon failed and another is coming: a screen with one connection bar says so there instead of raising a notice. */
+  unreachable = false;
   me = '';
   /** The methods this caller may use, from hello; a screen shows only what the daemon serves. */
   served = new Set<string>();
@@ -111,6 +113,12 @@ export class Store {
       if (e.code === 'transport') return;
       this.notices.push('fail', `${what}: ${e.reason ?? e.message}${e.hint ? ` (${e.hint})` : ''}`);
     } else this.notices.push('fail', `${what}: ${(e as Error).message}`);
+    this.emit();
+  }
+
+  setUnreachable(v: boolean): void {
+    if (this.unreachable === v) return;
+    this.unreachable = v;
     this.emit();
   }
 

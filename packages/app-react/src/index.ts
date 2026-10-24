@@ -9,19 +9,29 @@ const StoreContext = createContext<Store | null>(null);
  * Gives the tree one store, and starts it. The caller builds the store (and its client), so each app picks its own transport.
  * `connect` false leaves it unstarted (the app has already said why). A daemon that cannot be reached is said so in `error` and tried again; one that refuses this client (protocol) is not.
  */
-export function DaemonProvider(props: { store: Store; where?: string; retryMs?: number; connect?: boolean; children?: ReactNode }) {
-  const { store, where, retryMs = 2000, connect = true } = props;
+export function DaemonProvider(props: {
+  store: Store;
+  where?: string;
+  retryMs?: number;
+  connect?: boolean;
+  /** False when the screen draws the unreachable daemon itself (from `store.unreachable`) and a notice would say it twice. */
+  notify?: boolean;
+  children?: ReactNode;
+}) {
+  const { store, where, retryMs = 2000, connect = true, notify = true } = props;
   useEffect(() => {
     if (!connect) return;
     let done = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const boot = () =>
       store.start().then(
-        () => store.dismissError(),
+        () => (store.setUnreachable(false), store.dismissError()),
         (e) => {
           if (done) return;
           const fatal = e instanceof RpcError && e.code === 'protocol';
-          store.fail(fatal ? (e.reason ?? e.message) : `Cannot reach the daemon${where ? ` at ${where}` : ''}; trying again.`);
+          if (fatal || notify)
+            store.fail(fatal ? (e.reason ?? e.message) : `Cannot reach the daemon${where ? ` at ${where}` : ''}; trying again.`);
+          store.setUnreachable(!fatal);
           if (!fatal) timer = setTimeout(boot, retryMs);
         },
       );
@@ -31,7 +41,7 @@ export function DaemonProvider(props: { store: Store; where?: string; retryMs?: 
       clearTimeout(timer);
       store.stop();
     };
-  }, [store, where, retryMs, connect]);
+  }, [store, where, retryMs, connect, notify]);
   return createElement(StoreContext.Provider, { value: store }, props.children);
 }
 
@@ -97,7 +107,10 @@ export function useNearEnd<R extends HTMLElement, S extends HTMLElement>(
     const el = sentinel.current;
     if (!enabled || !el || (root && !box)) return;
     if (typeof IntersectionObserver === 'function') {
-      const io = new IntersectionObserver((e) => e.some((x) => x.isIntersecting) && call.current(), { root: box, rootMargin: `${margin}px` });
+      const io = new IntersectionObserver((e) => e.some((x) => x.isIntersecting) && call.current(), {
+        root: box,
+        rootMargin: `${margin}px`,
+      });
       io.observe(el);
       return () => io.disconnect();
     }
