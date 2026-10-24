@@ -112,8 +112,8 @@ func (e *Env) accountSet(c *rpc.Conn, p map[string]any) (any, error) {
 	}
 	if hasCycle {
 		if cycleOn && cfg.get("sub_end_"+acct) == nil {
-			// The end it would default to is the next anniversary of the subscription's start, which only the account's profile knows.
-			return nil, refused("turning the month cycle on needs an end day: give cycle_end (the subscription's start is not read here)", "state")
+			// A cycle with no end day never ends, so turning one on only means something with a day.
+			return nil, refused("turning the month cycle on needs an end day: give cycle_end", "state")
 		}
 		cfg.set("month_cycle_"+acct, cycleOn)
 		said = append(said, fmt.Sprintf("%s: month cycle %s", acct, map[bool]string{true: "on", false: "off"}[cycleOn]))

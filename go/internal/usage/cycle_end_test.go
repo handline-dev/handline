@@ -32,22 +32,6 @@ func TestEndOfAndWarnDaysAgreeWithPython(t *testing.T) {
 	}
 }
 
-func TestADefaultEndIsTheNextAnniversaryOfTheSubscriptionStart(t *testing.T) {
-	home := t.TempDir()
-	dir := filepath.Join(home, "accounts", "a", ".claude")
-	os.MkdirAll(dir, 0o755)
-	os.WriteFile(filepath.Join(dir, ".claude.json"), []byte(`{"oauthAccount": {"subscriptionCreatedAt": "2026-08-31T09:30:00+00:00"}}`), 0o644)
-	cfg := Config{"month_cycle_a": true}
-	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.Local)
-	got, ok := cfg.EndOf(home, "a", now)
-	if !ok || !got.After(now) || got.Sub(now) > 32*24*time.Hour {
-		t.Fatalf("%v %v", got, ok)
-	}
-	if day := cfg.EndDate(home, "a", now); day != got.Format("2006-01-02") {
-		t.Errorf("end date %q, end %v", day, got)
-	}
-}
-
 func TestConfigOrNilTellsAMissingFileFromOneItCannotRead(t *testing.T) {
 	home := t.TempDir()
 	if c, ok := LoadConfigOrNil(home); !ok || len(c) != 0 {

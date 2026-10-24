@@ -309,7 +309,7 @@ function Settings({ a }: { a: Account }) {
         disabled={!!off}
         onChange={(on) => save.mutate({ account: a.name, cycle: on })}
       />
-      <Input testID="account-cycle-end" label="Last day, as 2026-10-31 (blank: the monthly anniversary)" value={end} onChange={setEnd} />
+      <Input testID="account-cycle-end" label="Last day, as 2026-10-31 (blank: when its login drops)" value={end} onChange={setEnd} />
       {badEnd ? (
         <Text accessibilityRole="alert" style={{ color: c.block }}>
           The last day is a date like 2026-10-31.

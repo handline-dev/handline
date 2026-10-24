@@ -556,7 +556,7 @@ export type Account = {
     /** One-month subscription; off is renewing. */
     on: boolean;
     end: string | null;
-    /** end is not typed: the first monthly anniversary of the subscription start after it is first seen, held once reached. */
+    /** No end day is typed: end is null, and the account ends only when its login drops. */
     end_is_default: boolean;
   };
   /** Only with accounts.list `roster: true`. Agents on this account (Account.agents), running or at rest with their prompt cache alive (the figure `hl account list` prints). */

@@ -17,7 +17,7 @@ export function accountAfter(a: Account, c: AccountChange): Account {
     ...(c.recover !== undefined ? { recover: c.recover } : {}),
   };
   if (c.cycle === undefined && c.cycle_end === undefined) return next;
-  // A date alone turns the cycle on, as the daemon does; null puts the end back to the monthly anniversary.
+  // A date alone turns the cycle on, as the daemon does; null clears it, so the account ends only when its login drops.
   const was = a.cycle;
   return {
     ...next,

@@ -62,7 +62,7 @@ export function AccountSettings({ account }: { account: Account }) {
         type="date"
         value={end}
         disabled={!!off}
-        title={off ?? 'Blank means the next monthly anniversary'}
+        title={off ?? 'Blank: it ends when its login drops'}
         onChange={(e) => setEnd(e.target.value)}
         onBlur={() =>
           end !== (account.cycle.end_is_default ? '' : (account.cycle.end ?? '')) && save.mutate({ account: account.name, cycle_end: end || null })

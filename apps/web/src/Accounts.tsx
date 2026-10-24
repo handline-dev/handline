@@ -232,7 +232,7 @@ function AccountPageOne({ account, now }: { account: Account; now: number }) {
           <p className={FACT}>
             <Icon name="schedules" size={14} label="Month" />
             {account.cycle.on
-              ? `ends ${account.cycle.end ?? 'at the next anniversary'}${account.cycle.end_is_default ? ' (the monthly anniversary)' : ''}`
+              ? account.cycle.end ? `ends ${account.cycle.end}` : 'ends when its login drops'
               : 'renewing'}
           </p>
           <p className={FACT}>
