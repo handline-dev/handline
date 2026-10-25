@@ -69,7 +69,8 @@ export function HrTab({ focus }: { focus: number | null }) {
   const [why, setWhy] = useState('');
   const [going, once] = useOnce();
   const list = q.data?.proposals ?? [];
-  const { waiting, recent } = ordered(list);
+  const { waiting, recent: settledAndHeld } = ordered(list);
+  const recent = settledAndHeld.filter((p) => !isHeld(p));
   const { fresh, stale } = splitStale(waiting);
   // Approved and held for a running turn: shown with the waiting ones, but the bulk verbs and the count leave them out.
   const held = list.filter(isHeld).sort((a, b) => Date.parse(a.created) - Date.parse(b.created));
