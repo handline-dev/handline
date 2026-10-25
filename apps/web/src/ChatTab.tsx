@@ -257,7 +257,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     const grew = entries.length - count.current;
     count.current = entries.length;
     if (grew > 0 && !pinned.current && tail >= 0 && !windowed && !(holding.current && !free.current)) setNewer((n) => n + grew); // a held view is already where the reply lands
-  }, [entries.length, tail, windowed]);
+  }, [entries.length, tail, windowed, holding, free]);
   const bottom = () => {
     release();
     pinned.current = true;
