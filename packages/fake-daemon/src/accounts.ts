@@ -12,6 +12,26 @@ interface Host {
   sessions: Map<string, { fx: { name: string; account: string | null; state: string } }>;
 }
 const HOUR = 3_600_000;
+/** The Go defaults (go/internal/usage/pace.go): the line ends the week at 98%, and an account may run 10 points ahead of it. */
+const PACE_TARGET = 98;
+const PACE_BURST = 10;
+
+/** An account's pace as the daemon computes it for a weekly reading of `used` percent that resets `resetIn` hours from `now`, at the default settings. */
+function paceOf(used: number, resetIn: number, now: number): NonNullable<Account['pace']> {
+  const week = 168;
+  const line = (PACE_TARGET * (week - resetIn)) / week;
+  const ahead = used - line;
+  const state = ahead <= 0 ? 'behind' : ahead <= PACE_BURST ? 'ahead' : 'over';
+  // With no further use the line reaches used less the burst at this point of the week, or never: then the week's end.
+  const back = Math.min(resetIn, ((used - PACE_BURST) / PACE_TARGET) * week - (week - resetIn));
+  return {
+    state,
+    line_pct: line,
+    used_pct: used,
+    rate_pct_h: Math.max(0, (PACE_TARGET - used) / resetIn),
+    back_at: state === 'over' ? new Date(now + back * HOUR).toISOString() : null,
+  };
+}
 
 export class FakeAccounts {
   private rows: Account[] = [];
@@ -59,13 +79,15 @@ export class FakeAccounts {
     return row;
   }
 
-  /** Seeds the three accounts the sessions' fixtures mention, in the states a page has to draw. */
+  /** Seeds the three accounts the sessions' fixtures mention, in the states a page has to draw: alpha ahead of its pace line, beta behind it, gamma over it. */
   private seed(): void {
-    const at = (h: number): Timestamp => new Date(Date.parse(this.now()) + h * HOUR).toISOString();
+    const now = Date.parse(this.now());
+    const at = (h: number): Timestamp => new Date(now + h * HOUR).toISOString();
     this.add({
       name: 'alpha',
       five_hour: { used_pct: 41, resets_at: at(2.2), source: 'measured' },
       weekly: { used_pct: 62, resets_at: at(70), source: 'measured' },
+      pace: paceOf(62, 70, now),
       cap: 4,
       label: 'alpha',
       plan: 'pro',
@@ -76,13 +98,15 @@ export class FakeAccounts {
       name: 'beta',
       label: 'review',
       five_hour: { used_pct: 88, resets_at: at(1), source: 'measured' },
-      weekly: { used_pct: 30, resets_at: at(120), source: 'estimated' },
+      weekly: { used_pct: 30, resets_at: at(100), source: 'estimated' },
+      pace: paceOf(30, 100, now),
       cycle: { on: true, end: '2026-10-28', end_is_default: false },
       plan: 'pro',
       assignable: false,
       assign_reason: '5h 88% at last reading',
     });
-    this.add({ name: 'gamma', login_state: 'needs_login', five_hour: null, weekly: null });
+    // gamma's pace is its last weekly reading, kept until the week resets though the login has lapsed: it is far over the line.
+    this.add({ name: 'gamma', login_state: 'needs_login', five_hour: null, weekly: null, pace: paceOf(97, 50, now) });
   }
 
   /** One accounts method; `accepted` makes the reply of a write. */
