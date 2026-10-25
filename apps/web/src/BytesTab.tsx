@@ -145,7 +145,12 @@ export function BytesTab({
         pane.blur?.();
         if (holding) release({ agent });
       };
+      /** Focus leaving the terminal (a click elsewhere) lets go of the hold. */
+      const drop = (e: FocusEvent) => {
+        if (holding && !stage.contains(e.relatedTarget as Node | null)) release({ agent });
+      };
       stage.addEventListener('mousedown', grab);
+      stage.addEventListener('focusout', drop);
       stage.addEventListener('focusin', grab);
       stage.addEventListener('keydown', leave);
       watch.observe(el);
@@ -197,6 +202,7 @@ export function BytesTab({
         typing.dispose();
         stage.removeEventListener('mousedown', grab);
         stage.removeEventListener('focusin', grab);
+        stage.removeEventListener('focusout', drop);
         stage.removeEventListener('keydown', leave);
         off();
         if (live.current) {

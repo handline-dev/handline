@@ -453,6 +453,10 @@ describe('the pane', () => {
     m.term().input('hi\r', true); // what xterm's onData gives for typing
     await until(() => input.mock.calls.length > 0, 'the input call');
     expect(new TextDecoder().decode(input.mock.calls[0]![1])).toBe('hi\r');
+    stage.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: document.body }));
+    await until(() => box.textContent?.includes('Click the terminal to type'), 'the release on focus leaving');
+    stage.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await until(() => !box.textContent?.includes('Click the terminal to type'), 'the hold again');
     stage.dispatchEvent(new KeyboardEvent('keydown', { key: 'E', ctrlKey: true, shiftKey: true, bubbles: true }));
     await until(() => box.textContent?.includes('Click the terminal to type'), 'the release');
     vi.unstubAllGlobals();
