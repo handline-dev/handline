@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
-import { ago, clockTime, decidedProposals, restartingLine, restartShown } from '@handline/app-core';
+import { ago, clockTime, decidedProposals, heldLine, isHeld, isWaiting, restartingLine, restartShown } from '@handline/app-core';
 import { classify, sentence, useAgentStrip, useHr, useWorktrees, useWrite } from '@handline/app-data';
 import { Button, Card, CardWhat, Chip, Dialog, Field, Icon } from '#src/ui/index.ts';
 import { goTeam } from '#src/route.ts';
@@ -137,7 +137,7 @@ export function HrCards({ agent }: { agent: string }) {
     setRejecting(null);
     setNote('');
   };
-  const shown = proposalsOf(q.data?.proposals, agent).filter((p) => p.state === 'open' || p.state === 'apply_failed');
+  const shown = proposalsOf(q.data?.proposals, agent).filter((p) => isWaiting(p) || isHeld(p));
   return (
     <>
       {shown.map((p) => {
@@ -152,6 +152,8 @@ export function HrCards({ agent }: { agent: string }) {
               <strong>{p.title}</strong>
               {p.state === 'apply_failed' ? (
                 <span className="outcome text-bad">Not applied{p.error ? `: ${p.error}` : ''}. Approve to try again.</span>
+              ) : isHeld(p) ? (
+                <span className="muted hr-held">{heldLine(p)}</span>
               ) : p.reason ? (
                 <span className="muted">{p.reason}</span>
               ) : null}
@@ -161,7 +163,7 @@ export function HrCards({ agent }: { agent: string }) {
                 </span>
               ) : null}
             </CardWhat>
-            {can ? (
+            {can && !isHeld(p) ? (
               <>
                 <Button
                   icon="markRead"
@@ -196,11 +198,16 @@ export function HrCards({ agent }: { agent: string }) {
         );
       })}
       <AnimatedList>
-      {rejecting ? (
-        <Dialog key="reject" title="Reject" onClose={() => setRejecting(null)} action={{ label: 'Reject', onClick: reject, disabled: !note.trim() }}>
-          <Field label="Why" value={note} onChange={(e) => setNote(e.target.value)} />
-        </Dialog>
-      ) : null}
+        {rejecting ? (
+          <Dialog
+            key="reject"
+            title="Reject"
+            onClose={() => setRejecting(null)}
+            action={{ label: 'Reject', onClick: reject, disabled: !note.trim() }}
+          >
+            <Field label="Why" value={note} onChange={(e) => setNote(e.target.value)} />
+          </Dialog>
+        ) : null}
       </AnimatedList>
     </>
   );
