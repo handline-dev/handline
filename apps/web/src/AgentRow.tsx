@@ -72,7 +72,7 @@ export function AgentRow({
     .join(' · ');
   // The left edge: the waiting hue outranks the selection.
   const edge = dot === 'waiting' ? 'border-l-wait' : selected ? 'border-l-primary' : 'border-l-transparent';
-  const showControls = selected || hot || menuOpen;
+  const showControls = hot || menuOpen || !!mark; // never just because the row is selected; a pending verb's mark is drawn in the button
   // The ⋯ button asks the row for its own context menu, at the button.
   const opener = useRef<((at: At) => void) | null>(null);
   const openMenu = (at: At) => opener.current?.(at);
@@ -111,7 +111,7 @@ export function AgentRow({
                 {/* One line tall and wrapping: a chip that does not fit drops below the box whole, never cut off. */}
                 <button
                   ref={main}
-                  className={`row-main flex h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden border-0 bg-transparent p-0 text-left${showControls ? ' pr-7' : ''}`}
+                  className={`row-main flex h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden border-0 bg-transparent p-0 text-left`}
                   onClick={() => goAgent(a.name)}
                   aria-current={selected ? 'true' : undefined}
                   title={tip}
@@ -164,9 +164,9 @@ export function AgentRow({
                   {line}
                 </span>
               </div>
-              {/* Laid over the row's right end, not beside the name: the row is the same height with or without them. */}
+              {/* In the row's right column, so the time, badges and preview line move left in full; the row is the same height with or without it. */}
               {showControls ? (
-                <div className="absolute right-1 top-1/2 -translate-y-1/2 bg-canvas">
+                <div className="flex-none self-center">
                   <RowControls agent={a} onMenu={openMenu} />
                 </div>
               ) : null}
