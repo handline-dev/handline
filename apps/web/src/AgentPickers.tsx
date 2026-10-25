@@ -79,7 +79,7 @@ export function AccountMenu({ detail }: { detail: AgentDetail }) {
           icon={a === detail.account ? 'markRead' : undefined}
           onSelect={() => a !== detail.account && move.mutate({ agent: detail.name, account: a })}
         >
-          <span className="flex-1">{a}</span>
+          <span className="acct-name flex-1">{a}</span>
           <Room left={left(a)} />
         </MenuItem>
       ))}
