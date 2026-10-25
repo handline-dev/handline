@@ -411,6 +411,14 @@ describe('the workspace', () => {
 });
 
 describe('the sidebar', () => {
+  it('a lead row with sub-agents working says nothing while it is open', async () => {
+    const s = setup();
+    s.daemon.sessions.get('handline.auditor')!.state = 'running';
+    await mount(TB, undefined, s);
+    await until(() => $$('.row-wrap').length === 3, 'rows');
+    expect($('.row-working')).toBeNull();
+  });
+
   it('shows no Start on a row, and the row menu keeps only Open in, the copies, what stops a turn and Delete agent', async () => {
     await mount(TB);
     await until(() => $$('.row-wrap').length === 3, 'rows');
