@@ -24,8 +24,7 @@ const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const items = () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
 const text = (el: Element | null) => el?.textContent ?? '';
 
-async function mount(state?: string) {
-  const s = setup();
+async function mount(state?: string, s = setup()) {
   if (state) s.daemon.sessions.get(ARCH)!.state = state as never;
   location.hash = `#/agents/${ARCH}`;
   box = document.body.appendChild(document.createElement('div'));
@@ -55,7 +54,11 @@ describe('the chat strip', () => {
     const s = await mount();
     await act(async () => chip('Model').click());
     await until(() => items().length, 'the model menu');
-    await act(async () => items().find((i) => text(i).trim() === 'sonnet')!.click());
+    await act(async () =>
+      items()
+        .find((i) => text(i).trim() === 'sonnet')!
+        .click(),
+    );
     await until(() => text(chip('Model')).includes('sonnet'), 'the new model');
     expect(s.daemon.sessions.get(ARCH)!.settings.model).toBe('sonnet');
   });
@@ -64,7 +67,11 @@ describe('the chat strip', () => {
     await mount('running');
     await act(async () => chip('Model').click());
     await until(() => items().length, 'the model menu');
-    await act(async () => items().find((i) => text(i).trim() === 'haiku')!.click());
+    await act(async () =>
+      items()
+        .find((i) => text(i).trim() === 'haiku')!
+        .click(),
+    );
     await until(() => text(chip('Model')).includes('applies when current work ends'), 'the note');
   });
 
@@ -72,11 +79,25 @@ describe('the chat strip', () => {
     const s = await mount();
     await act(async () => chip('Account').click());
     await until(() => items().length > 1, 'the account menu');
-    const other = items().find((i) => !text(chip('Account')).includes(text(i).trim()))!;
-    const name = text(other).trim();
+    const label = (i: Element) => text(i.querySelector('.acct-name')).trim();
+    const other = items().find((i) => !text(chip('Account')).includes(label(i)))!;
+    const name = label(other);
     await act(async () => other.click());
     await until(() => s.daemon.sessions.get(ARCH)!.fx.account === name, 'the move');
     await until(() => text(chip('Account')).includes(name), 'the chip');
+  });
+
+  it('each account in the menu shows the room left in its 5 h window, or says there is no reading', async () => {
+    const s = setup();
+    s.daemon.accounts.add({ name: 'quiet', five_hour: { used_pct: 12, resets_at: null, source: 'measured' } });
+    s.daemon.accounts.add({ name: 'unread' });
+    await mount(undefined, s);
+    await act(async () => chip('Account').click());
+    await until(() => items().length > 1, 'the account menu');
+    const row = (n: string) => items().find((i) => text(i.querySelector('.acct-name')).trim() === n)!;
+    expect(row('quiet').querySelector('.room')!.getAttribute('data-left')).toBe('88');
+    expect(text(row('quiet'))).toContain('88% left');
+    expect(text(row('unread'))).toContain('no reading');
   });
 
   it('the head has the settings gear; the find bar waits for ⌘F and Escape closes it', async () => {
