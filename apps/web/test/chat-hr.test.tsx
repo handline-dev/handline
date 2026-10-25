@@ -83,7 +83,9 @@ describe('HR proposals in the chat', () => {
 
   it('a proposal already decided keeps its place in the timeline, by the time it was settled, and is not pinned after the newest message', async () => {
     const s = setup();
-    const hr = (s.daemon as unknown as { script: { hr: { raise: (p: object) => { id: number }; settle: (p: object, st: string) => void } } }).script.hr;
+    const hr = (
+      s.daemon as unknown as { script: { hr: { raise: (p: object) => { id: number }; settle: (p: object, st: string) => void } } }
+    ).script.hr;
     const p = hr.raise({ id: 43, title: 'context handline.pr', diff: 'replace ROLE.md', agent: ARCH });
     hr.settle(p, 'approved');
     (p as unknown as { settled: string }).settled = '2000-01-01T00:00:00Z'; // before every message
@@ -93,5 +95,42 @@ describe('HR proposals in the chat', () => {
     expect(text(line)).toContain('context handline.pr');
     const all = [...document.querySelectorAll('.stream *')];
     expect(all.indexOf(line)).toBeLessThan(all.indexOf(msg('Which gap list')!));
+  });
+  it('a held proposal is a card in the chat that names the agent it waits for and has no buttons', async () => {
+    const s = setup();
+    hrOf(s).raise({
+      id: 44,
+      title: 'settings handline.architect',
+      diff: 'effort: medium -> high',
+      agent: ARCH,
+      state: 'applying',
+      waiting_on: [ARCH],
+    });
+    await mount(ARCH, s);
+    await until(() => $('.card-hr'), 'the held card');
+    expect(text($('.card-hr'))).toContain(`waits for ${ARCH}'s turn to end`);
+    expect(labelled($('.card-hr'), 'Approve')).toBeUndefined();
+    expect(labelled($('.card-hr'), 'Reject')).toBeUndefined();
+  });
+
+  it('in the HR tab a held card sits with the waiting ones, has no decide buttons and is not in the count', async () => {
+    const s = setup();
+    hrOf(s).raise({ id: 45, title: 'link a -> b', diff: 'link', agent: ARCH });
+    hrOf(s).raise({ id: 46, title: 'settings handline.architect', diff: 'effort', agent: ARCH, state: 'applying', waiting_on: [ARCH] });
+    location.hash = '#/team/hr';
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />));
+    await until(() => $('[data-proposal="46"]'), 'the held card');
+    const held = $('[data-proposal="46"]')!;
+    expect(text(held)).toContain(`waits for ${ARCH}'s turn to end`);
+    const buttons = (el: Element) => [...el.querySelectorAll('button')].map((b) => text(b).trim());
+    const has = (el: Element, word: string) => buttons(el).some((b) => b.startsWith(word));
+    expect(has(held, 'Approve') || has(held, 'Reject')).toBe(false);
+    expect(has($('[data-proposal="45"]')!, 'Approve')).toBe(true);
+    // two cards of ours are shown, one is waiting: the held one is not counted
+    expect(text($('.hr-head strong'))).toBe('HR · 1 waiting');
+    const order = $$('.hr-card').map((c) => c.dataset.proposal);
+    expect(order.indexOf('46')).toBeGreaterThan(order.indexOf('45'));
   });
 });

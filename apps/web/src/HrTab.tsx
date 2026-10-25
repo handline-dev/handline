@@ -11,6 +11,8 @@ import {
   isBundle,
   plainText,
   kindOf,
+  heldLine,
+  isHeld,
   isWaiting,
   ordered,
   splitStale,
@@ -51,6 +53,7 @@ const STATE_KIND: Record<string, StateKind> = {
   open: 'needs',
   apply_failed: 'blocked',
   approved: 'done',
+  applying: 'working',
   rejected: 'rejected',
   withdrawn: 'idle',
 };
@@ -68,6 +71,8 @@ export function HrTab({ focus }: { focus: number | null }) {
   const list = q.data?.proposals ?? [];
   const { waiting, recent } = ordered(list);
   const { fresh, stale } = splitStale(waiting);
+  // Approved and held for a running turn: shown with the waiting ones, but the bulk verbs and the count leave them out.
+  const held = list.filter(isHeld).sort((a, b) => Date.parse(a.created) - Date.parse(b.created));
   const decider = can && !narrow;
   // The ones the bulk verbs act on: those ticked (and still waiting), else every waiting one.
   const chosen = waiting.filter((p) => picked.has(p.id));
@@ -186,6 +191,9 @@ export function HrTab({ focus }: { focus: number | null }) {
         </AnimatedList>
         {list.length ? null : <Empty icon="inbox" name="Nothing to decide" hint="Roster and role changes agents propose land here." />}
         {fresh.map(waitingCard)}
+        {held.map((p) => (
+          <Card key={p.id} p={p} decider={false} narrow={narrow} focus={focus === p.id} refresh={() => void q.refetch()} />
+        ))}
         {stale.length ? <SectionHead variant="small">Stale · no answer for 14 days</SectionHead> : null}
         {stale.map(waitingCard)}
         {recent.length ? <SectionHead variant="small">Recent</SectionHead> : null}
@@ -326,6 +334,7 @@ function Card({
           {note}
         </p>
       ) : null}
+      {isHeld(p) ? <p className="muted hr-held">{heldLine(p)}</p> : null}
       {waiting && narrow ? <p className="muted">Decide on a computer.</p> : null}
       {waiting && decider ? (
         <CardActions wrap>
