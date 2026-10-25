@@ -2,8 +2,8 @@
 // A model change while the agent works is kept by the daemon until the work ends; the chip says so until the live model matches.
 import { MODELS, toneOf } from '@handline/app-core';
 import type { AgentDetail } from '@handline/client';
-import { useAccounts, useServes, useVerbMark, useWrite } from '@handline/app-data';
-import { Icon, MenuButton, MenuItem } from '#src/ui/index.ts';
+import { EFFORTS, useAccounts, useServes, useVerbMark, useWrite } from '@handline/app-data';
+import { Icon, MenuButton, MenuItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
 
 const CHIP = 'h-5 gap-1 px-1.5 text-hint text-ink-2';
 
@@ -16,7 +16,8 @@ export function ModelMenu({ detail }: { detail: AgentDetail }) {
   const models = [...new Set([...MODELS, ...(chosen ? [chosen] : []), ...(live ? [live] : [])])];
   if (!live && !chosen) return null;
   const shown = chosen ?? live;
-  const label = `Model ${shown}${detail.effort ? `, ${detail.effort}` : ''}${waits ? ' (applies when current work ends)' : ''}`;
+  const effort = detail.settings?.effort ?? detail.effort;
+  const label = `Model ${shown}${effort ? `, ${effort}` : ''}${waits ? ' (applies when current work ends)' : ''}`;
   return (
     <MenuButton
       className={CHIP}
@@ -28,7 +29,7 @@ export function ModelMenu({ detail }: { detail: AgentDetail }) {
         <>
           <Icon name="agent" size={13} aria-hidden />
           {shown}
-          {detail.effort ? <span className="muted"> · {detail.effort}</span> : null}
+          {effort ? <span className="muted"> · {effort}</span> : null}
           {waits ? <span className="text-wait">applies when current work ends</span> : null}
         </>
       }
@@ -40,6 +41,17 @@ export function ModelMenu({ detail }: { detail: AgentDetail }) {
           onSelect={() => m !== shown && set.mutate({ agent: detail.name, values: { model: m } })}
         >
           {m}
+        </MenuItem>
+      ))}
+      <MenuSeparator />
+      <MenuLabel>Effort</MenuLabel>
+      {EFFORTS.map((e) => (
+        <MenuItem
+          key={e}
+          icon={e === effort ? 'markRead' : undefined}
+          onSelect={() => e !== effort && set.mutate({ agent: detail.name, values: { effort: e } })}
+        >
+          {e}
         </MenuItem>
       ))}
     </MenuButton>

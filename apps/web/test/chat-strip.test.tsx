@@ -50,6 +50,19 @@ describe('the chat strip', () => {
     expect(text($('.chat-strip'))).toMatch(/\d+m|lapsed/);
   });
 
+  it('the model menu lists the efforts, checks the current one and a pick is applied at once', async () => {
+    const s = await mount();
+    await act(async () => chip('Model').click());
+    await until(() => items().length, 'the model menu');
+    expect(items().filter((i) => ['low', 'medium', 'high', 'xhigh', 'max'].includes(text(i).trim()))).toHaveLength(5);
+    await act(async () =>
+      items()
+        .find((i) => text(i).trim() === 'low')!
+        .click(),
+    );
+    await until(() => s.daemon.sessions.get(ARCH)!.settings.effort === 'low', 'the effort applied');
+  });
+
   it('the model chip opens a menu and a pick is applied at once', async () => {
     const s = await mount();
     await act(async () => chip('Model').click());
