@@ -2,12 +2,12 @@ import { act, createRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { ScrollView } from 'react-native';
-import { useSendAnchor } from '#src/screens/ChatAnchor.ts';
+import { heldId, useSendAnchor } from '#src/screens/ChatAnchor.ts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 /** The hook on a view of 600 high whose scrolling is recorded. */
-async function mountAnchor() {
+async function mountAnchor(enter = true) {
   const scrollTo = vi.fn();
   const scrollToEnd = vi.fn();
   const ref = createRef<ScrollView>() as { current: unknown };
@@ -19,7 +19,7 @@ async function mountAnchor() {
   }
   await act(async () => createRoot(document.createElement('div')).render(<Probe />));
   const run = (f: () => void) => act(async () => f());
-  await run(() => a.layout(600));
+  await run(() => (a.layout(600), enter && a.enter(false)));
   return { a: () => a, run, scrollTo, scrollToEnd };
 }
 const scrollEvent = (y: number, content: number) =>
@@ -106,5 +106,75 @@ describe('a sent message goes to the top', () => {
     await m.run(() => (m.a().lines(2400), m.a().content(2416)));
     expect(m.scrollTo).not.toHaveBeenCalled();
     expect(m.scrollToEnd).not.toHaveBeenCalled();
+  });
+
+  it('stacks messages sent before a reply under the first, which stays at the top', async () => {
+    const m = await mountAnchor();
+    await sent(m); // the first message is held at 900
+    m.scrollTo.mockClear();
+    await m.run(() => (m.a().lines(1100), m.a().start(true))); // a second one joins it: the top is not looked for again
+    expect(m.a().spacer).toBe(376);
+    await m.run(() => m.a().content(1500));
+    expect(m.scrollTo).toHaveBeenLastCalledWith({ y: 900, animated: true });
+    await m.run(() => (m.a().lines(1800), m.a().content(1816))); // the reply lands below them
+    expect(m.a().spacer).toBe(0);
+    expect(m.scrollTo).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('entering the chat', () => {
+  it('hides the lines until the last message is at the top, put there without a glide', async () => {
+    const fresh = await mountAnchor(false);
+    await fresh.run(() => (fresh.a().lines(1000), fresh.a().content(1016)));
+    expect(fresh.a().placed).toBe(false); // not entered yet: nothing is placed
+    await fresh.run(() => fresh.a().enter(true));
+    await fresh.run(() => fresh.a().row(900));
+    expect(fresh.a().spacer).toBe(476);
+    expect(fresh.scrollTo).not.toHaveBeenCalled();
+    expect(fresh.a().placed).toBe(false);
+    await fresh.run(() => fresh.a().content(1500));
+    expect(fresh.scrollTo).toHaveBeenCalledWith({ y: 900, animated: false });
+    expect(fresh.a().placed).toBe(true);
+  });
+
+  it('holds the message even when its row was laid out before the chat was entered', async () => {
+    const fresh = await mountAnchor(false);
+    await fresh.run(() => (fresh.a().lines(1000), fresh.a().content(1016), fresh.a().row(900)));
+    await fresh.run(() => fresh.a().enter(true));
+    expect(fresh.a().spacer).toBe(476);
+    await fresh.run(() => fresh.a().content(1500));
+    expect(fresh.scrollTo).toHaveBeenCalledWith({ y: 900, animated: false });
+    expect(fresh.a().placed).toBe(true);
+  });
+
+  it('puts the message at the top when the layout reports fractions of a pixel', async () => {
+    const fresh = await mountAnchor(false);
+    await fresh.run(() => (fresh.a().layout(592.6666870117188), fresh.a().enter(true)));
+    await fresh.run(() => (fresh.a().lines(3013.333251953125), fresh.a().row(2706.666748046875)));
+    await fresh.run(() => fresh.a().content(3299.333251953125)); // the spacer is whole pixels: the room can fall a hair short of the view
+    expect(fresh.scrollTo).toHaveBeenCalledWith({ y: 2706.666748046875, animated: false });
+    expect(fresh.a().placed).toBe(true);
+  });
+
+  it('follows the end when the person has sent nothing', async () => {
+    const m = await mountAnchor();
+    await m.run(() => (m.a().lines(1000), m.a().content(1016)));
+    expect(m.scrollToEnd).toHaveBeenCalledWith({ animated: false });
+    expect(m.a().placed).toBe(true);
+  });
+});
+
+describe('the entry held at the top', () => {
+  const run = (...kinds: string[]) => kinds.map((k, id) => ({ id, k }));
+  const me = (e: { k: string }) => e.k === 'me';
+
+  it('is the first of the last run of the person’s messages, before and after the reply', () => {
+    expect(heldId(run('agent', 'me', 'agent', 'me', 'me', 'me'), me)).toBe(3);
+    expect(heldId(run('agent', 'me', 'agent', 'me', 'me', 'me', 'agent', 'agent'), me)).toBe(3);
+  });
+  it('is the last message when a reply sits between them, and nothing when the person has sent none', () => {
+    expect(heldId(run('me', 'agent', 'me', 'agent'), me)).toBe(2);
+    expect(heldId(run('agent', 'agent'), me)).toBeUndefined();
+    expect(heldId([], me)).toBeUndefined();
   });
 });

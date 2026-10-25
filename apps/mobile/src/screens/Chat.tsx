@@ -23,7 +23,7 @@ import { NeedsYouCard } from '#src/screens/NeedsYouCard.tsx';
 import { ChatSearch } from '#src/screens/ChatSearch.tsx';
 import { useChatImages } from '#src/screens/ChatImages.tsx';
 import { FoldLine, useFolds } from '#src/screens/ChatFold.tsx';
-import { useSendAnchor } from '#src/screens/ChatAnchor.ts';
+import { heldId, useSendAnchor } from '#src/screens/ChatAnchor.ts';
 import { SendButton, WorkingBubble } from '#src/screens/ChatSend.tsx';
 import { Icon } from '#src/screens/Icon.tsx';
 import { Button, EmptyState, Link, Row } from '#src/screens/parts.tsx';
@@ -96,7 +96,14 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
 
   useChatReadMarks(agent, chat, act.seen);
 
-  const sent = entries.findLast((e) => e.kind === 'message' && sideOf(e.message, agent, me) === 'person')?.id; // the row a send holds at the top
+  const person = (e?: (typeof entries)[number]): boolean => e?.kind === 'message' && sideOf(e.message, agent, me) === 'person';
+  const sent = heldId(entries, person);
+  const unanswered = person(entries.at(-1)); // the person's message is the newest entry: a send joins it
+  // Nothing is drawn before the task cards and the chat are both there, so the entry does not shift.
+  const loaded = chat.status !== 'loading' && !(served && tasks.isPending);
+  useEffect(() => {
+    if (loaded) anchor.enter(sent !== undefined);
+  });
   const drawn = going !== null && entries.some((e) => e.kind !== 'item' && e.id === going);
   const reveal = (id: number) => {
     const y = rowY.current.get(id);
@@ -134,7 +141,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
     setPicked(null);
     setItem(null);
     setText('');
-    anchor.start();
+    anchor.start(unanswered);
   };
   const failure = chat.status === 'error' ? sentence(classify(chat.error)) : null;
   const working = chat.working.turn_running;
@@ -158,7 +165,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
       <ScrollView
         ref={scroll}
         testID="chat"
-        style={{ flex: 1 }}
+        style={{ flex: 1, opacity: !loaded || anchor.placed ? 1 : 0 }}
         contentContainerStyle={{ padding: space.sm, gap: space.sm }}
         keyboardShouldPersistTaps="handled"
         scrollEventThrottle={64}
@@ -173,16 +180,18 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
         onContentSizeChange={(_, h) => anchor.content(h)}
       >
         <View style={{ gap: space.sm }} onLayout={(e) => anchor.lines(e.nativeEvent.layout.height)}>
-          <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
+          <Skeleton shape="chat" loading={!loaded} label="the conversation" />
           {failure && (
             <View testID="error" accessibilityRole="alert" style={{ gap: space.sm }}>
               <Text style={{ color: c.block }}>{failure}</Text>
               <Button label="Retry" onPress={chat.refetch} />
             </View>
           )}
-          {chat.hasOlder && <Button testID="older" label="Older messages" disabled={chat.loadingOlder} onPress={chat.loadOlder} />}
-          {chat.status === 'ready' && !entries.length && <EmptyState icon="chat" text="No messages yet" />}
-          {folds.entries.map((e) =>
+          {loaded && chat.hasOlder && (
+            <Button testID="older" label="Older messages" disabled={chat.loadingOlder} onPress={chat.loadOlder} />
+          )}
+          {loaded && chat.status === 'ready' && !entries.length && <EmptyState icon="chat" text="No messages yet" />}
+          {(loaded ? folds.entries : []).map((e) =>
             e.kind === 'fold' ? (
               <FoldLine
                 key={`f${e.id}`}
