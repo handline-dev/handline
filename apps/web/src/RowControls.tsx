@@ -26,7 +26,7 @@ export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (a
         aria-label={`More actions for ${agent}`}
         aria-haspopup="menu"
         size="sm"
-        className="!rounded-full bg-raised w-7 p-0"
+        className="!rounded-full !border-line bg-surface w-7 p-0"
         onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           onMenu({ x: r.left, y: r.top, w: r.width, h: r.height });
