@@ -416,6 +416,7 @@ describe('the sidebar', () => {
     await until(() => $$('.row-wrap').length === 3, 'rows');
     expect($('.row-actions')).toBeNull(); // no ⋮ on any row until one is hovered, selected or not
     await act(async () => void $('.row-wrap')!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
+    expect($('.row-actions')!.parentElement!.className).not.toContain('absolute'); // it takes its own space, so the time and the line beside it are not covered
     expect($$('.row-actions .ui-btn').some((b) => /Resume|Start/.test(text(b)))).toBe(false);
     await click($('.row-actions [aria-haspopup="menu"]')!);
     await until(() => menuItems().length, 'the row menu');
