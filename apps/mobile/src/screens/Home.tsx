@@ -118,7 +118,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
         ) : page === 'team' ? (
           <TeamPage onClose={() => setPage(null)} />
         ) : page === 'notices' ? (
-          <NoticesPage store={props.store} onClose={() => setPage(null)} />
+          <NoticesPage store={props.store} onClose={() => setPage(null)} onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))} />
         ) : page === 'settings' ? (
           <SettingsPage onClose={() => setPage(null)} onUnpair={props.onUnpair} />
         ) : page === 'new' ? (
