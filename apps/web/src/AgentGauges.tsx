@@ -14,6 +14,7 @@ function Gauge({ name, info, children }: { name: string; info?: ReactNode; child
     <MenuButton
       className="h-5 flex-none gap-0 px-1.5 text-hint text-ink-2"
       label={`${name} details`}
+      aria-label={`${name} details`}
       name={name}
       align="start"
       trigger={children}
