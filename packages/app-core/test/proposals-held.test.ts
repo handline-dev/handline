@@ -14,15 +14,11 @@ test('only an applying proposal is held, and a held one is not waiting', () => {
   assert.equal(isWaiting(p(1, { state: 'applying' })), false);
 });
 
-test('a held proposal is listed with the waiting ones, oldest first, and is not counted', () => {
+test('a held proposal is not counted and stays out of the waiting group, which the bulk verbs act on', () => {
   const l = [p(3), p(2, { state: 'applying' }), p(1, { state: 'approved', settled: '2026-10-04T00:00:00Z' })];
   assert.deepEqual(
     ordered(l).waiting.map((x) => x.id),
-    [2, 3],
-  );
-  assert.deepEqual(
-    ordered(l).recent.map((x) => x.id),
-    [1],
+    [3],
   );
   assert.equal(waitingCount(l), 1);
 });

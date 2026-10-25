@@ -5,7 +5,7 @@ import type { Proposal } from '@handline/client';
 export const isWaiting = (p: Proposal): boolean => p.state === 'open' || p.state === 'apply_failed';
 export const waitingCount = (l: readonly Proposal[]): number => l.filter(isWaiting).length;
 
-/** Approved and held until the agents in `waiting_on` end their turns: listed with the waiting ones, but the founder has no move and it is not counted. */
+/** Approved and held until the agents in `waiting_on` end their turns: the founder has no move on it and it is not counted. */
 export const isHeld = (p: Proposal): boolean => p.state === 'applying';
 
 /** What a held proposal waits for, in words: "waits for handline.pc's turn to end", or for several "waits for a and b to end their turns". */
@@ -25,12 +25,12 @@ const STATE_WORDS: Record<string, { word: string; tone: 'wait' | 'block' | 'run'
 };
 export const stateWord = (p: Proposal) => STATE_WORDS[p.state] ?? { word: p.state, tone: 'muted' as const };
 
-/** Waiting and held ones first and oldest first; settled ones after, newest settled first. */
+/** Waiting ones first and oldest first; settled ones after, newest settled first. */
 export function ordered(l: readonly Proposal[]): { waiting: Proposal[]; recent: Proposal[] } {
   const at = (t: string | null | undefined) => (t ? Date.parse(t) : 0);
   return {
-    waiting: l.filter((p) => isWaiting(p) || isHeld(p)).sort((a, b) => at(a.created) - at(b.created)),
-    recent: l.filter((p) => !isWaiting(p) && !isHeld(p)).sort((a, b) => at(b.settled ?? b.created) - at(a.settled ?? a.created)),
+    waiting: l.filter(isWaiting).sort((a, b) => at(a.created) - at(b.created)),
+    recent: l.filter((p) => !isWaiting(p)).sort((a, b) => at(b.settled ?? b.created) - at(a.settled ?? a.created)),
   };
 }
 
