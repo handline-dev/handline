@@ -437,7 +437,8 @@ describe('the pane', () => {
     expect(input).not.toHaveBeenCalled();
     const stage = box.querySelector('.xterm-host div')!;
     stage.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    await until(() => box.textContent?.includes('You hold the input'), 'the hold');
+    await until(() => !box.textContent?.includes('Click the terminal to type'), 'the hold');
+    expect(box.textContent).not.toContain('You hold the input');
     resize.mockClear();
     for (const w of [90, 95, 100]) {
       // a drag: several sizes inside the debounce
