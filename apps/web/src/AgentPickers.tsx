@@ -1,6 +1,6 @@
 // The model and account of an agent as two chips that open a menu and apply at once: agent.set for the model, agent.move for the account.
 // A model change while the agent works is kept by the daemon until the work ends; the chip says so until the live model matches.
-import { MODELS } from '@handline/app-core';
+import { MODELS, toneOf } from '@handline/app-core';
 import type { AgentDetail } from '@handline/client';
 import { useAccounts, useServes, useVerbMark, useWrite } from '@handline/app-data';
 import { Icon, MenuButton, MenuItem } from '#src/ui/index.ts';
@@ -34,7 +34,11 @@ export function ModelMenu({ detail }: { detail: AgentDetail }) {
       }
     >
       {models.map((m) => (
-        <MenuItem key={m} icon={m === shown ? 'markRead' : undefined} onSelect={() => m !== shown && set.mutate({ agent: detail.name, values: { model: m } })}>
+        <MenuItem
+          key={m}
+          icon={m === shown ? 'markRead' : undefined}
+          onSelect={() => m !== shown && set.mutate({ agent: detail.name, values: { model: m } })}
+        >
           {m}
         </MenuItem>
       ))}
@@ -45,7 +49,12 @@ export function ModelMenu({ detail }: { detail: AgentDetail }) {
 export function AccountMenu({ detail }: { detail: AgentDetail }) {
   const move = useWrite('agent.move', detail.name);
   const { served } = useServes('agent.move');
-  const listed = useAccounts().data?.accounts.map((a) => a.name) ?? [];
+  const all = useAccounts().data?.accounts ?? [];
+  const listed = all.map((a) => a.name);
+  const left = (name: string): number | null => {
+    const w = all.find((a) => a.name === name)?.five_hour;
+    return w ? 100 - Math.min(100, Math.max(0, Math.round(w.used_pct))) : null;
+  };
   const moving = useVerbMark(detail.name) === 'moving…';
   const accounts = [...new Set([...listed, ...(detail.account ? [detail.account] : [])])];
   if (!detail.account) return null;
@@ -65,10 +74,37 @@ export function AccountMenu({ detail }: { detail: AgentDetail }) {
       }
     >
       {accounts.map((a) => (
-        <MenuItem key={a} icon={a === detail.account ? 'markRead' : undefined} onSelect={() => a !== detail.account && move.mutate({ agent: detail.name, account: a })}>
-          {a}
+        <MenuItem
+          key={a}
+          icon={a === detail.account ? 'markRead' : undefined}
+          onSelect={() => a !== detail.account && move.mutate({ agent: detail.name, account: a })}
+        >
+          <span className="flex-1">{a}</span>
+          <Room left={left(a)} />
         </MenuItem>
       ))}
     </MenuButton>
+  );
+}
+
+const FILL = { ok: 'bg-ok', warn: 'bg-wait', bad: 'bg-bad' } as const;
+
+/** The 5 h window's room an account has left, as a short bar and the words, the same reading the footer gauge shows. */
+function Room({ left }: { left: number | null }) {
+  if (left === null) return <span className="muted text-label">no reading</span>;
+  return (
+    <span className="room ml-3 inline-flex items-center gap-2 text-label text-ink-2" data-left={left}>
+      <span
+        className="relative h-2 w-14 overflow-hidden rounded-chip bg-raised"
+        role="meter"
+        aria-label="5 h room left"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={left}
+      >
+        <span className={`block h-full ${FILL[toneOf(100 - left)]}`} style={{ width: `${left}%` }} />
+      </span>
+      <span className="font-mono tabular-nums">{left}% left</span>
+    </span>
   );
 }
