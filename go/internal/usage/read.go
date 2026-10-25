@@ -135,7 +135,7 @@ func (e *Env) Read(acct string) *AccountStatus {
 func (e *Env) ReadFile(acct, path string) *AccountStatus {
 	st := &AccountStatus{Account: acct, Clock: e.now, Short: AcctWindow{Readable: true}, Long: AcctWindow{Readable: true}}
 	cfg := e.config()
-	if end, ok := cfg.EndOf(e.Home, acct, time.Unix(int64(e.now()), 0)); ok {
+	if end, ok := cfg.EndOf(acct); ok {
 		st.SubEnd = float64(end.Unix())
 	}
 	st.LastWeekFirst = cfg["cycle_last_week_first"] != false

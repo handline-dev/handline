@@ -1,5 +1,5 @@
 // Runs the fake daemon on a Unix socket (lines) and a WebSocket port (for the browser), LAN/localhost only.
-//   node serve.ts [--seed NAMES|all] [--socket PATH] [--network-socket PATH] [--ws PORT] [--host 127.0.0.1] [--autoplay MS] [--conformance]
+//   node serve.ts [--seed NAMES|all] [--socket PATH] [--network-socket PATH] [--ws PORT] [--host 127.0.0.1] [--autoplay MS] [--conformance] [--phone]
 import type https from 'node:https';
 import net from 'node:net';
 import type { Transport } from '@handline/client';
@@ -33,7 +33,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (ms > 0) daemon.autoplay(ms);
   serveSocket(daemon, arg('socket', '/tmp/handline-fake-daemon.sock'));
   if (process.argv.includes('--network-socket')) serveSocket(daemon, arg('network-socket', ''), true);
-  serveWs(daemon, Number(arg('ws', '7777')), arg('host', '127.0.0.1'));
+  // --phone serves the WebSocket as the paired-device listener and prints a dev pairing link (`xcrun simctl openurl booted <link>`).
+  const phone = process.argv.includes('--phone');
+  serveWs(daemon, Number(arg('ws', '7777')), arg('host', '127.0.0.1'), undefined, phone);
+  if (phone)
+    console.log(
+      `pair a dev build: handline://pair?${new URLSearchParams({ host: `${arg('host', '127.0.0.1')}:${arg('ws', '7777')}`, code: daemon.issueCode(), plain: '1' })}`,
+    );
   console.log(
     `fake daemon: socket ${arg('socket', '/tmp/handline-fake-daemon.sock')}, ws://${arg('host', '127.0.0.1')}:${arg('ws', '7777')}`,
   );

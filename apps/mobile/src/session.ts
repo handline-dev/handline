@@ -41,6 +41,27 @@ export async function pair(uri: string, deviceName: string): Promise<Pairing> {
   return p;
 }
 
+/**
+ * Dev builds only: `handline://pair?host=…&code=…&plain=1` pairs to a plain ws listener (the fake daemon) with no fingerprint, so an
+ * agent can pair a simulator with `xcrun simctl openurl`. A release build, or a link without `plain=1`, returns null and is ignored.
+ */
+export async function pairFromDevLink(url: string, deviceName = 'phone'): Promise<Pairing | null> {
+  if (!__DEV__) return null;
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  const host = u.searchParams.get('host'),
+    code = u.searchParams.get('code');
+  if (u.protocol !== 'handline:' || u.hostname !== 'pair' || u.searchParams.get('plain') !== '1' || !host || !code) return null;
+  const { token, device } = await redeemPairing(connectTo(host, null), code, `${deviceName}-dev`);
+  const p = { host, fingerprint: null, token, device };
+  await SecureStore.setItemAsync(KEY, JSON.stringify(p));
+  return p;
+}
+
 export const storeFor = (p: Pairing): Store =>
   new Store(
     new DaemonClient({

@@ -136,6 +136,25 @@ test('a notice carries its event type and target, so a click can go where the da
   assert.equal(noticeFor({ ...e, target: null })!.target, null);
 });
 
+test('a finished task shows its title and result, else Task N done over the agent, and the number only once', () => {
+  const e = {
+    cursor: 2,
+    topic: 'notifications',
+    type: 'task_done',
+    at: 't',
+    actor: null,
+    agent: 'handline.pc.auditor',
+    title: 'T5720 done',
+    target: { screen: 'task', id: '5720' },
+    data: { task: 5720, task_title: 'Audit PR #536', result: 'PASS' },
+  } as Event;
+  const full = noticeFor(e)!;
+  assert.deepEqual([full.title, full.body], ['Audit PR #536', 'handline.pc.auditor: PASS']);
+  const bare = noticeFor({ ...e, data: { task: 5720 } } as Event)!;
+  assert.deepEqual([bare.title, bare.body], ['Task 5720 done', 'handline.pc.auditor']);
+  for (const n of [full, bare]) assert.equal(`${n.title} ${n.body}`.split('5720').length - 1, n === full ? 0 : 1);
+});
+
 test('the page switches the mode and pairs another device only from the window and with the right arguments', async () => {
   const seen: unknown[] = [];
   const c = new Connection(ORIGIN, {
@@ -183,7 +202,7 @@ test('settings: only get and set with checked arguments reach the daemon, and on
     { changes: [] },
     { changes: { 'Bad Key': 1 } },
     { changes: { dev_mode: true } }, // a daemon setting the page does not edit
-    { changes: { active_cap: 3, handoff_prompt: 'x' } },
+    { changes: { active_cap: 3, input_hold_idle_s: 5 } },
     { changes: { active_cap: {} } },
     { changes: { active_cap: Infinity } },
     { changes: { active_cap: 3 }, method: 'agent.remove' },

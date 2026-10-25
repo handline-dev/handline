@@ -172,7 +172,7 @@ func (v *accountView) of(a string) map[string]any {
 		cap = n
 	}
 	var end any
-	if d := cfg.EndDate(e.Home, a, v.now); d != "" {
+	if d := cfg.EndDate(a); d != "" {
 		end = d
 	}
 	acct := map[string]any{

@@ -335,47 +335,27 @@ func (w *world) started(acct string, start time.Time) {
 	}
 }
 
-func TestADefaultEndIsHeldOnceSeenSoTheAccountEndsOnIt(t *testing.T) {
+// A month cycle with no typed end day is never ended on a guess: the subscription may have been renewed, so the account stays usable
+// and nobody is told it ends until a day is typed or its login drops.
+func TestAMonthCycleWithNoTypedDayNeverEnds(t *testing.T) {
 	w := newWorld(t)
 	w.account("omega")
 	w.started("omega", time.Date(2026, 9, 21, 13, 43, 0, 0, time.Local))
 	w.config("month_cycle_omega: true\n")
-	w.now = time.Date(2026, 10, 20, 12, 0, 0, 0, time.Local)
-	w.sweep()
-
 	cfg := usage.LoadConfig(w.Home)
 	ue := &usage.Env{Home: w.Home, Config: func() usage.Config { return cfg }}
-	for _, c := range []struct {
-		now   time.Time
-		day   string
-		ended bool
-	}{
-		{time.Date(2026, 10, 21, 13, 42, 0, 0, time.Local), "2026-10-21", false},
-		{time.Date(2026, 10, 21, 13, 44, 0, 0, time.Local), "2026-10-21", true}, // without the pin this read 2026-11-21, not ended
-		{time.Date(2026, 11, 30, 9, 0, 0, 0, time.Local), "2026-10-21", true},
-	} {
-		w.now = c.now
+	for _, now := range []time.Time{time.Date(2026, 10, 20, 12, 0, 0, 0, time.Local), time.Date(2026, 11, 30, 9, 0, 0, 0, time.Local)} {
+		w.now = now
 		w.sweep()
-		end, ok := cfg.EndOf(w.Home, "omega", c.now)
-		if day := cfg.EndDate(w.Home, "omega", c.now); !ok || day != c.day || !c.now.Before(end) != c.ended {
-			t.Errorf("%v: end %v %v day %s, want %s ended %v", c.now, end, ok, day, c.day, c.ended)
+		if end, ok := cfg.EndOf("omega"); ok {
+			t.Errorf("%v: an end of %v with no day typed", now, end)
 		}
-		ue.Now = func() float64 { return float64(c.now.Unix()) }
-		if why := ue.EndedWhy("omega"); (why != "") != c.ended {
-			t.Errorf("%v: ended why %q", c.now, why)
+		ue.Now = func() float64 { return float64(now.Unix()) }
+		if why := ue.EndedWhy("omega"); why != "" {
+			t.Errorf("%v: ended %q", now, why)
 		}
 	}
-
-	// A new subscription is a new start: the pin worked out from the old one gives way.
-	w.started("omega", time.Date(2026, 11, 30, 8, 0, 0, 0, time.Local))
-	w.sweep()
-	if day := cfg.EndDate(w.Home, "omega", w.now); day != "2026-12-30" {
-		t.Errorf("after resubscribing: %s", day)
-	}
-	// A typed end day or the cycle turned off drops the pin.
-	w.config("month_cycle_omega: true\nsub_end_omega: \"2027-01-05\"\n")
-	w.sweep()
-	if _, err := os.Stat(filepath.Join(w.Home, "accounts", "omega", "cycle_end.json")); !os.IsNotExist(err) {
-		t.Errorf("pin kept beside a typed end: %v", err)
+	if len(w.asker.raised) != 0 {
+		t.Errorf("told %q", w.asker.raised)
 	}
 }

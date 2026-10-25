@@ -49,12 +49,12 @@ func (e *Env) NotFor(acct, vendor string) string {
 // EndedWhy is cycle.ended_why: why the account is out for good now, "" while it is not.
 func (e *Env) EndedWhy(acct string) string {
 	cfg, now := e.config(), time.Unix(int64(e.now()), 0)
-	end, ok := cfg.EndOf(e.Home, acct, now)
+	end, ok := cfg.EndOf(acct)
 	if !ok || now.Before(end) {
 		return ""
 	}
 	return fmt.Sprintf("subscription ended %s (month cycle) - not picked; after resubscribing, set the new end day in the app's settings for %s",
-		cfg.EndDate(e.Home, acct, now), acct)
+		cfg.EndDate(acct), acct)
 }
 
 // Runway is an estimate of how long an account's headroom lasts.

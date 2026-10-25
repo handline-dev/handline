@@ -8,10 +8,16 @@ export const PAGE_SETTINGS = [
   'active_cap',
   'park_timeout_s',
   'handoff_note',
+  'handoff_prompt',
+  'ignore_cache_expiry',
   'notice_digest_s',
   'bg_notice_s',
   'bg_grace_s',
   'bg_check_s',
+  'push_prompt_asked',
+  'push_task_done',
+  'push_stall',
+  'push_account_out',
 ] as const;
 export type PageSettings = Pick<SettingsChanges, (typeof PAGE_SETTINGS)[number]>;
 

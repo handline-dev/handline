@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/paths"
-	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
@@ -249,38 +248,6 @@ func ReadStatus(home, acct string) Status {
 		st.Long = windowOf(got[len(got)-1])
 	}
 	return st
-}
-
-// Started is cycle.started: the moment the subscription began, from claude's profile; absent for any other vendor.
-func Started(home, acct string) (time.Time, bool) {
-	if team.AccountVendor(home, acct) != "claude" {
-		return time.Time{}, false
-	}
-	dir, err := team.AccountConfigDir(home, acct)
-	if err != nil {
-		return time.Time{}, false
-	}
-	b, err := os.ReadFile(dir + "/.claude.json")
-	if err != nil {
-		return time.Time{}, false
-	}
-	var doc struct {
-		OA struct {
-			At any `json:"subscriptionCreatedAt"`
-		} `json:"oauthAccount"`
-	}
-	if json.Unmarshal(b, &doc) != nil {
-		return time.Time{}, false
-	}
-	s, ok := doc.OA.At.(string)
-	if !ok || len(s) > 40 {
-		return time.Time{}, false
-	}
-	t, ok := parseISO(s)
-	if !ok || t.Unix() == 0 {
-		return time.Time{}, false
-	}
-	return time.Unix(0, int64(float64(t.UnixNano()))).In(time.Local), true
 }
 
 var zoned = regexp.MustCompile(`(Z|[+-]\d\d:\d\d)$`)

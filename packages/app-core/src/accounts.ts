@@ -1,6 +1,7 @@
 // What an account's usage windows say, for the gauge cards and the usage popup: the bar's colour, how far through the window we are,
 // the reset in words, and how long the rest lasts at the pace so far. Pure: the page passes the time.
 import type { Account, Window } from '@handline/client';
+import { dateTime } from '#src/time.ts';
 
 export const FIVE_HOURS_MS = 5 * 3_600_000;
 export const WEEK_MS = 7 * 86_400_000;
@@ -100,3 +101,21 @@ export const agentsLine = (account: Pick<Account, 'agents_running' | 'cap_effect
   account.agents_running === undefined
     ? `cap ${account.cap_effective}`
     : `${account.agents_running} working / cap ${account.cap_effective}`;
+
+/** What an account's pace means for starting agents, in words; null for pacing off or an account with no pace. */
+export function paceLine(account: Pick<Account, 'pace'>): string | null {
+  const pace = account.pace;
+  if (!pace) return null;
+  switch (pace.state) {
+    case 'behind':
+      return 'on pace';
+    case 'ahead':
+      return 'ahead of pace: fewer agents start';
+    case 'over': {
+      const back = pace.back_at ? dateTime(pace.back_at) : '';
+      return back ? `over pace: no new turns until ${back}` : 'over pace: no new turns';
+    }
+    default:
+      return null;
+  }
+}

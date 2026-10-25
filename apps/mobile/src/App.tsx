@@ -1,7 +1,7 @@
 import { SafeScreen } from '#src/screens/parts.tsx';
 import { UpdateBanner } from '#src/screens/AppUpdate.tsx';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Linking, Settings, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { DataProvider } from '@handline/app-data';
 import { DaemonProvider } from '@handline/app-react';
@@ -10,6 +10,7 @@ import {
   loadFirstTask,
   loadOperation,
   loadPairing,
+  pairFromDevLink,
   saveFirstTask,
   saveOperation,
   type FirstTask,
@@ -29,6 +30,22 @@ export default function App() {
     void loadPairing().then(setPairing);
     void Promise.all([loadFirstTask(), loadOperation()]).then(([t, op]) => (setFirst(t), setOperation(op)));
   }, []);
+  useEffect(() => {
+    if (!__DEV__) return;
+    const take = (url: string | null) =>
+      void (
+        url &&
+        pairFromDevLink(url)
+          .then((p) => p && setPairing(p))
+          .catch(() => {})
+      );
+    void Linking.getInitialURL().then(take);
+    // iOS asks "Open in Handline?" before it hands over a custom-scheme link, so a simulator is paired by a launch argument instead:
+    // `xcrun simctl launch <udid> dev.handline.mobile -handlineDevPair <link>`.
+    take(Settings?.get('handlineDevPair') ?? null);
+    const sub = Linking.addEventListener('url', (e) => take(e.url));
+    return () => sub.remove();
+  }, []);
   const store = useMemo(() => (pairing ? storeFor(pairing) : null), [pairing]); // one store per pairing: a theme change re-renders App
   const body =
     pairing === undefined || operation === undefined ? (
@@ -36,7 +53,7 @@ export default function App() {
     ) : !store ? (
       <PairScreen onPaired={setPairing} />
     ) : (
-      <DaemonProvider store={store}>
+      <DaemonProvider store={store} notify={false}>
         <DataProvider daemonId={pairing!.host}>
           <Home
             store={store}

@@ -2,21 +2,32 @@
 import { useState } from 'react';
 import { parseSeconds, type KV } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
-import { useRead, useServes } from '@handline/app-data';
+import { useRead, useServes, useSettings } from '@handline/app-data';
 import { Button, SectionHead, Segmented, SettingsCard } from '#src/ui/index.ts';
 import { applyTheme, themeOf, type Theme } from '#src/appearance.ts';
 import { setting } from '#src/daemon.ts';
-import { NumberRow, Row } from '#src/SettingsRows.tsx';
+import { NumberRow, Row, SwitchRow } from '#src/SettingsRows.tsx';
 import { useShellMode } from '#src/shell.ts';
 
 const SECONDS = 'whole seconds, or empty for the default';
 const secondsOf = (v: number | undefined) => (v === undefined ? '' : String(v));
 
+const PUSH = [
+  { key: 'push_prompt_asked', label: 'A question asked', hint: 'A desktop notice when an agent asks you something' },
+  { key: 'push_task_done', label: 'A task done', hint: 'A desktop notice when a task is finished' },
+  { key: 'push_stall', label: 'A stall', hint: 'A desktop notice when an agent stops making progress' },
+  { key: 'push_account_out', label: 'An account out', hint: 'A desktop notice when an account hits its limit' },
+] as const;
+
 export function Notifications({ digest }: { digest: number | undefined }) {
+  const values = useSettings().data?.values as Record<string, unknown> | undefined;
   return (
     <>
       <SectionHead>Notifications</SectionHead>
       <SettingsCard>
+        {PUSH.map((p) => (
+          <SwitchRow key={p.key} label={p.label} hint={p.hint} on={values?.[p.key] !== false} change={(on) => ({ [p.key]: on })} />
+        ))}
         <NumberRow
           label="Notice batch"
           hint="Wait this long after the first notice, then tell the agent all of them at once"

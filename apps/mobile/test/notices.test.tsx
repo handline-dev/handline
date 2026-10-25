@@ -41,4 +41,44 @@ describe('the phone notices', () => {
     await until(() => text($('notices-page')).includes('Nothing yet'), 'the empty list');
     m.store.stop();
   });
+
+  it('draws a finished task as the PC bell does and opens that task on a tap', async () => {
+    const m = await mount();
+    const done = (cursor: number, data: Record<string, unknown>) =>
+      act(() =>
+        m.store.notices.takeEvent({
+          cursor,
+          topic: 'notifications',
+          type: 'task_done',
+          agent: 'handline.pc.auditor',
+          title: `T${data.task} done`,
+          data,
+        } as never),
+      );
+    done(9001, { task: 5720, task_title: 'Audit PR #536', result: 'PASS, real Chrome checked' });
+    await press($('bell'));
+    await until(() => $('notice'), 'the row');
+    const row = $('notice')!;
+    expect(text(row)).toContain('Audit PR #536');
+    expect(text(row)).toContain('T5720 done · PASS, real Chrome checked');
+    expect(text(row)).toContain('au');
+    expect($('notice-fresh')).not.toBeNull();
+    await press(row);
+    await until(() => $('task-back') && !$('notices-page'), 'the task');
+    m.store.stop();
+  });
+
+  it('keeps a notice with no task as one text line, with no dot once read', async () => {
+    const m = await mount();
+    act(() => void m.store.notices.push('info', 'task 5637 done'));
+    await press($('bell'));
+    await until(() => $('notice'), 'the row');
+    expect(text($('notice'))).toContain('task 5637 done');
+    expect(text($('notice'))).not.toContain('·');
+    await press($('notices-close'));
+    await press($('bell'));
+    await until(() => $('notice'), 'the row again');
+    expect($('notice-fresh')).toBeNull();
+    m.store.stop();
+  });
 });

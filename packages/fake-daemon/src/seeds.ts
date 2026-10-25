@@ -25,7 +25,11 @@ export const SEEDS: Record<string, Seed> = {
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
     const [before, after] = [d.uploads.add('before.png', png), d.uploads.add('after.png', png)];
     d.tasks.seed({ id: 9301, from: ARCH, to: ME, title: 'Review: wider margin on the board', state: 'doing', tags: ['review'] });
-    d.tasks.memo({ task: 9301, text: `Margin widened.\n![before](attachment:${before.id})\n![after](attachment:${after.id})` }, 'add', ARCH);
+    d.tasks.memo(
+      { task: 9301, text: `Margin widened.\n![before](attachment:${before.id})\n![after](attachment:${after.id})` },
+      'add',
+      ARCH,
+    );
     d.inbox.add({ kind: 'decision', agent: ARCH, title: 'Review: wider margin on the board', body: 'Is this right?', task: 9301 });
   },
 
@@ -57,6 +61,30 @@ export const SEEDS: Record<string, Seed> = {
       title: 'retire handline.term-build',
       diff: 'retire agent handline.term-build',
       reason: 'Its work is merged. Reject this one to keep the agent.',
+    });
+  },
+
+  /** Two more HR proposals: one applying, held for the agent's running turn, and one the founder asked for themself (`requested_by` human). */
+  'hr-held': (d) => {
+    const hr = d.script.hr;
+    hr.raise({
+      id: 904,
+      kind: 'settings',
+      agent: 'handline.auditor',
+      title: 'settings handline.auditor',
+      diff: 'effort: medium -> high',
+      asked: { sets: { effort: 'high' } },
+      state: 'applying',
+      waiting_on: ['handline.auditor'],
+    });
+    hr.raise({
+      id: 905,
+      kind: 'retire',
+      agent: 'handline.term-build',
+      title: 'retire handline.term-build',
+      diff: 'retire agent handline.term-build',
+      requested_by: 'human',
+      reason: 'Held until its running session ends.',
     });
   },
 

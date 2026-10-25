@@ -49,14 +49,80 @@ export function Toasts(props: { store: Store }) {
   return (
     <View testID="toasts">
       {toasts.map((n) => (
-        <Banner key={n.id} text={`${lineOf(n)}  ✕`} error={n.level === 'fail'} onPress={() => props.store.notices.dismissToasts()} />
+        <Banner key={n.id} text={lineOf(n)} error={n.level === 'fail'} onPress={() => props.store.notices.dismissToasts()} />
       ))}
     </View>
   );
 }
 
-/** The list, newest first; opening it reads them all. */
-export function NoticesPage(props: { store: Store; onClose: () => void }) {
+const hueOf = (name: string) => [...name].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 7);
+/** The two letters after the team prefix: `handline.pc.auditor` is `au`, `handline.pc` is `pc`. */
+const markOf = (agent: string) => (agent.split('.').at(-1) ?? agent).slice(0, 2).toLowerCase();
+
+/** One notice: who did it, what it is about (the task's title), the outcome in a line, the time. A notice without a task shows its words alone. */
+function NoticeRow(props: { n: Notice; fresh: boolean; onTask: (id: number) => void }) {
+  const c = usePalette();
+  const { n } = props;
+  const { about } = n;
+  const head = about?.title ?? lineOf(n);
+  const sub = about ? [about.task != null ? `T${about.task} done` : 'done', about.result].filter(Boolean).join(' · ') : null;
+  const task = about?.task;
+  const body = (
+    <>
+      {props.fresh ? (
+        <View testID="notice-fresh" accessibilityLabel="New" style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.ink }} />
+      ) : null}
+      {about?.agent ? (
+        <View
+          accessibilityLabel={about.agent}
+          style={{
+            width: 24,
+            height: 24,
+            borderRadius: 6,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: `hsl(${hueOf(about.agent)} 45% 45%)`,
+          }}
+        >
+          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>{markOf(about.agent)}</Text>
+        </View>
+      ) : null}
+      <View style={{ flex: 1 }}>
+        <Text numberOfLines={about ? 1 : undefined} style={{ color: n.level === 'fail' ? c.block : c.ink }}>
+          {head}
+        </Text>
+        {sub ? (
+          <Text numberOfLines={1} style={{ color: c.muted, fontSize: font.size.label }}>
+            {sub}
+          </Text>
+        ) : null}
+      </View>
+      <Text style={{ color: c.muted, fontSize: font.size.label }}>
+        {new Date(n.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+      </Text>
+    </>
+  );
+  const style = {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    borderTopWidth: 1,
+    borderTopColor: c.line,
+    paddingTop: space.sm,
+  } as const;
+  return task != null ? (
+    <Pressable testID="notice" accessibilityRole="button" onPress={() => props.onTask(task)} style={style}>
+      {body}
+    </Pressable>
+  ) : (
+    <View testID="notice" style={style}>
+      {body}
+    </View>
+  );
+}
+
+/** The list, newest first; opening it reads them all. A row for a finished task opens that task. */
+export function NoticesPage(props: { store: Store; onClose: () => void; onTask: (id: number) => void }) {
   const c = usePalette();
   const list = useSelector((s) => s.notices.list());
   const [fresh] = useState(
@@ -74,10 +140,7 @@ export function NoticesPage(props: { store: Store; onClose: () => void }) {
       <PageHeader bare title="Notices" back={{ label: 'Back', onPress: props.onClose, testID: 'notices-close' }} />
       {list.length === 0 ? <Text style={{ color: c.muted }}>Nothing yet. Results and events show here.</Text> : null}
       {list.map((n) => (
-        <View key={n.id} testID="notice" style={{ gap: 2, borderTopWidth: 1, borderTopColor: c.line, paddingTop: space.sm }}>
-          <Text style={{ color: n.level === 'fail' ? c.block : c.ink, fontWeight: fresh.has(n.id) ? '700' : '400' }}>{lineOf(n)}</Text>
-          <Text style={{ color: c.muted, fontSize: font.size.label }}>{new Date(n.at).toLocaleTimeString()}</Text>
-        </View>
+        <NoticeRow key={n.id} n={n} fresh={fresh.has(n.id)} onTask={props.onTask} />
       ))}
     </ScrollView>
   );
