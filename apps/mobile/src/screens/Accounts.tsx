@@ -3,7 +3,7 @@
 // typed to confirm (decided: nothing changes until the daemon accepts).
 import { useEffect, useState, type ReactNode } from 'react';
 import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { FIVE_HOURS_MS, STATE_WORD, agentsLine, WEEK_MS, gaugeOf, outUntil, span, stateOf } from '@handline/app-core';
+import { FIVE_HOURS_MS, STATE_WORD, agentsLine, paceLine, WEEK_MS, gaugeOf, outUntil, span, stateOf } from '@handline/app-core';
 import type { Account, Window } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAccounts, useAccountUsage, useOff, usePending, useServes, useWrite } from '@handline/app-data';
@@ -65,24 +65,21 @@ function Stall({ a }: { a: Account }) {
 
 const dash = (v: string | number | null | undefined) => (v === null || v === undefined || v === '' ? '—' : String(v));
 
-/** What `hl account list` adds to the gauges: plan and runway, whether another agent may start and why not, and the agents on it. Nothing until the usage read arrives. */
-function UsageLines({ a }: { a: Account }) {
+/** What `hl account list` adds to the gauges: plan and runway, and whether another agent may start and why not; `working` adds the agents count a list row already shows in its head. Nothing until the usage read arrives. */
+function UsageLines({ a, working }: { a: Account; working?: boolean }) {
   const c = usePalette();
   const style = { color: c.muted, fontSize: font.size.label };
-  const usage = a.plan !== undefined || a.runway !== undefined || a.assignable !== undefined;
-  const roster = a.agents_assigned !== undefined || a.agents_running !== undefined || a.agents_unplaced !== undefined;
-  if (!usage && !roster) return null;
+  if (a.plan === undefined && a.runway === undefined && a.assignable === undefined && !(working && a.agents_running !== undefined))
+    return null;
   return (
     <View testID={`usage-${a.name}`} style={{ gap: 2 }}>
-      {usage ? <Text style={style}>{`plan ${dash(a.plan)} · runway ${dash(a.runway)}`}</Text> : null}
+      {a.plan !== undefined || a.runway !== undefined ? (
+        <Text style={style}>{`plan ${dash(a.plan)} · runway ${dash(a.runway)}`}</Text>
+      ) : null}
       {a.assignable === undefined ? null : (
         <Text style={style}>{a.assignable ? 'can take another agent' : `cannot take another agent: ${dash(a.assign_reason)}`}</Text>
       )}
-      {roster ? (
-        <Text
-          style={style}
-        >{`agents ${dash(a.agents_assigned)} assigned · ${dash(a.agents_running)} running · ${dash(a.agents_unplaced)} unplaced`}</Text>
-      ) : null}
+      {working && a.agents_running !== undefined ? <Text style={style}>{agentsLine(a)}</Text> : null}
     </View>
   );
 }
@@ -116,6 +113,17 @@ function Gauge(props: { label: keyof typeof SPANS; w: Window | null; detail?: bo
       ) : null}
     </View>
   );
+}
+
+/** Under the week gauge: what the account's pace means for starting agents; nothing with pacing off or no pace. */
+function PaceLine({ a }: { a: Account }) {
+  const c = usePalette();
+  const line = paceLine(a);
+  return line ? (
+    <Text testID={`pace-line-${a.name}`} style={{ color: a.pace?.state === 'over' ? c.block : c.muted, fontSize: font.size.label }}>
+      {line}
+    </Text>
+  ) : null;
 }
 
 /** The state as a word, never only a colour. */
@@ -169,6 +177,7 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
                   <Gauge label="week" w={a.weekly} />
                 </>
               )}
+              <PaceLine a={a} />
               <Stall a={a} />
               <UsageLines a={a} />
             </Pressable>
@@ -249,8 +258,9 @@ function Body({ a }: { a: Account }) {
       {stateText(a) ? <Text style={{ color: c.muted }}>{stateText(a)}</Text> : null}
       <Gauge label="5 hours" w={a.five_hour} detail />
       <Gauge label="week" w={a.weekly} detail />
+      <PaceLine a={a} />
       <Stall a={a} />
-      <UsageLines a={a} />
+      <UsageLines a={a} working />
       <Text style={{ color: c.ink }}>{a.agents.length ? `On it: ${a.agents.join(', ')}` : 'No agents are on it.'}</Text>
       <Settings a={a} />
       <AccountLogin a={a} />
