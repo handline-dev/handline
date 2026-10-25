@@ -2,7 +2,7 @@
 // the first. On entry the person's last message is put there out of sight and shown once placed. An empty spacer after the last line
 // gives the view room to put it there; the view then stays where it is until the person scrolls themselves. The spacer is worked out from the
 // lines' own height, never from the scroll content that already holds it, so a resize or a late layout cannot make it flip between two sizes.
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { NativeScrollEvent, NativeSyntheticEvent, ScrollView } from 'react-native';
 import { space } from '@handline/tokens';
 
@@ -46,24 +46,29 @@ export function useSendAnchor(scroll: React.RefObject<ScrollView | null>) {
     if (heightWith(next) === size.current.content) settle();
   };
 
+  const enterNow = (held: boolean) => {
+    if (entered.current) return;
+    entered.current = true;
+    if (!held) {
+      scroll.current?.scrollToEnd({ animated: false }); // the size may have been reported before the entry
+      setPlaced(true);
+      return;
+    }
+    anchored.current = true;
+    follow.current = false;
+    due.current = 'snap';
+    top.current = seen.current;
+    fit();
+  };
+  const latest = useRef(enterNow);
+  latest.current = enterNow;
+  const enter = useCallback((held: boolean) => latest.current(held), []); // stable, so an effect can depend on it
+
   return {
     spacer,
     placed,
     /** The chat has loaded: hold the person's last message at the top, or follow the end when there is none. */
-    enter(held: boolean) {
-      if (entered.current) return;
-      entered.current = true;
-      if (!held) {
-        scroll.current?.scrollToEnd({ animated: false }); // the size may have been reported before the entry
-        setPlaced(true);
-        return;
-      }
-      anchored.current = true;
-      follow.current = false;
-      due.current = 'snap';
-      top.current = seen.current;
-      fit();
-    },
+    enter,
     /** The person sent: hold the message at the top from now on. `stacked`: it joins messages still unanswered, so the top stays where it is. */
     start(stacked = false) {
       anchored.current = true;

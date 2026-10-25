@@ -100,10 +100,11 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const sent = heldId(entries, person);
   const unanswered = person(entries.at(-1)); // the person's message is the newest entry: a send joins it
   // Nothing is drawn before the task cards and the chat are both there, so the entry does not shift.
+  const { enter } = anchor;
   const loaded = chat.status !== 'loading' && !(served && tasks.isPending);
   useEffect(() => {
-    if (loaded) anchor.enter(sent !== undefined);
-  }, [loaded, sent]);
+    if (loaded) enter(sent !== undefined);
+  }, [enter, loaded, sent]);
   const drawn = going !== null && entries.some((e) => e.kind !== 'item' && e.id === going);
   const reveal = (id: number) => {
     const y = rowY.current.get(id);
