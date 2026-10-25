@@ -81,5 +81,9 @@ export function useHold({
     watch.observe(box);
     return () => watch.disconnect();
   });
-  return { spacer, hold, release, start, holding, free };
+  /** A scroll we did not make (the scrollbar, a key, a drag): the view is the person's. Our own glide reports scrolls too. */
+  const scrolled = () => {
+    if (holding.current && !free.current && !(glide.current && performance.now() < glide.current.until)) free.current = true;
+  };
+  return { spacer, hold, release, start, scrolled, holding, free };
 }

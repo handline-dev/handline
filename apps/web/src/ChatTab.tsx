@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { heldId, type TaskFold, type TimelineEntry } from '@handline/app-core';
+import { heldId, sideOf, type TaskFold, type TimelineEntry } from '@handline/app-core';
 import { useNearEnd, useSelector, useStore } from '@handline/app-react';
 import {
   Skeleton,
@@ -241,14 +241,14 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
 
   useLayoutEffect(repin, [last, entries.length, chat.working.turn_running, chat.items.length]);
 
-  const held = windowed ? undefined : heldId(entries, (e) => e.kind === 'message' && e.message.from === me);
-  const { spacer, hold, release, start, holding, free } = useHold({ stream, held, own, anchor, pinned, ready: chat.status === 'ready', agent });
+  const held = windowed ? undefined : heldId(entries, (e) => e.kind === 'message' && sideOf(e.message, agent, me) === 'person' && e.message.landing !== 'withdrawn');
+  const { spacer, hold, release, start, scrolled, holding, free } = useHold({ stream, held, own, anchor, pinned, ready: chat.status === 'ready', agent });
 
   // A reader above the bottom keeps the line they are on: whatever changes above or below it (steps folding, a line coming or going) does not move it.
   const place = useRef<{ id: string; off: number } | null>(null);
   useLayoutEffect(() => {
     const box = stream.current;
-    if (box && place.current && !pinned.current && !anchor.current && !holding.current) putBack(box, place.current);
+    if (box && place.current && !pinned.current && !anchor.current && (free.current || !holding.current)) putBack(box, place.current);
   });
 
   // New entries while scrolled up are counted, not scrolled to; the pill takes the person down.
@@ -267,7 +267,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   // Sending always shows the message: the sent row is at the bottom, whatever the person had scrolled to.
   const showSent = () => {
     const e = entries.at(-1);
-    if (e?.kind !== 'message' || e.message.id >= 0 || e.message.from !== me) return;
+    if (e?.kind !== 'message' || e.message.id >= 0 || sideOf(e.message, agent, me) !== 'person') return;
     // The sent row joins the held run, or starts it: the view glides to put the run's first message at the top.
     start();
     setNewer(0);
@@ -326,7 +326,9 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           onScroll={(e) => {
             const el = e.currentTarget;
             if (own.current) return void (own.current = false);
-            if (holding.current && !free.current) return;
+            const held = holding.current && !free.current;
+            scrolled();
+            if (held && !free.current) return; // our own scroll
             // The spacer is empty room: being at its end is not being at the bottom of the conversation.
             pinned.current = !(spacer.current?.offsetHeight ?? 0) && el.scrollHeight - el.scrollTop - el.clientHeight < 40;
             chat.holdPlace(!pinned.current);

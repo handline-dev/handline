@@ -424,6 +424,7 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     const t = await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
     const stream = $('.stream')!;
+    await act(async () => void stream.dispatchEvent(new Event('scroll'))); // the report of the jump that holds the last sent message on entry
     for (const [k, v] of [
       ['scrollHeight', 1000],
       ['clientHeight', 100],
@@ -442,6 +443,7 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     const t = await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
     const stream = $('.stream')!;
+    await act(async () => void stream.dispatchEvent(new Event('scroll'))); // the report of the jump that holds the last sent message on entry
     for (const [k, v] of [
       ['scrollHeight', 1000],
       ['clientHeight', 100],
