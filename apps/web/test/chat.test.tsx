@@ -93,7 +93,7 @@ describe('the Chat tab', () => {
     await until(() => $('.chat'), 'the chat tab');
     expect(text($('.chat'))).toContain('No chat yet');
     expect(compose().disabled).toBe(true);
-    expect($('.chat-head')).toBeNull();
+    expect($('.chat-foot')).toBeNull();
   });
 
   it('draws every message state and transcript kind from the daemon', async () => {
@@ -108,7 +108,6 @@ describe('the Chat tab', () => {
     expect($$('[data-kind="tool"]')).toHaveLength(0); // tool lines are on the Activity tab
     expect(icon($$('[data-kind="task_event"]')[1], 'Task done')).not.toBeNull();
     expect(msg('Review is done')).toBeUndefined(); // agent to agent: the Activity tab
-    expect($$('.chat-head [role="radio"]')).toHaveLength(0);
   });
 
   it('a session boundary says why it began, and its handoff opens in a dialog', async () => {

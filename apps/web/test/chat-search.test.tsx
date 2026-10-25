@@ -36,7 +36,7 @@ async function mount() {
   await act(async () => {
     root!.render(<App store={store} daemon="test" storage={memory()} />);
   });
-  await until(() => $('.chat-head'), 'the chat head');
+  await until(() => $('.chat-foot'), 'the chat');
   expect($('.chat-search')).toBeNull(); // no permanent box
   await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true })));
   await until(() => $('.chat-search input'), 'the find bar');

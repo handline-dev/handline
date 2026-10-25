@@ -100,14 +100,14 @@ describe('the chat strip', () => {
     expect(text(row('unread'))).toContain('no reading');
   });
 
-  it('the head has the settings gear; the find bar waits for ⌘F and Escape closes it', async () => {
+  it('the tab strip has the settings gear; the find bar waits for ⌘F and Escape closes it', async () => {
     await mount();
     expect($('.chat-search')).toBeNull();
     await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true })));
     await until(() => $('.chat-search input'), 'the find bar');
     await act(async () => void $('.chat-search input')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     expect($('.chat-search')).toBeNull();
-    await act(async () => $(`.chat-head [aria-label="${ARCH} settings"]`)!.click());
+    await act(async () => $(`.strip [aria-label="${ARCH} settings"]`)!.click());
     expect(location.hash).toBe(`#/agents/${ARCH}/settings`);
   });
 });
