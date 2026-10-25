@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { setup } from '@handline/fake-daemon/helpers';
 import {
+  heldId,
   Store,
   noticeOf,
   takeBack,
@@ -424,4 +425,12 @@ test("fewer than three stay cards; a message, a session line or a new day breaks
     foldTasks(mine).map((e) => e.kind),
     ['item', 'item', 'item', 'item'],
   );
+});
+
+test('heldId: the first of the last run of the person\'s messages', () => {
+  const e = (id: number, me: boolean) => ({ id, me });
+  const mine = (x: { me: boolean }) => x.me;
+  assert.equal(heldId([e(1, true), e(2, false), e(3, true), e(4, true)], mine), 3); // sent twice before a reply: the first holds
+  assert.equal(heldId([e(1, true), e(2, true), e(3, false)], mine), 1); // a reply lands below it
+  assert.equal(heldId([e(1, false)], mine), undefined);
 });

@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { type TaskFold, type TimelineEntry } from '@handline/app-core';
+import { heldId, type TaskFold, type TimelineEntry } from '@handline/app-core';
 import { useNearEnd, useSelector, useStore } from '@handline/app-react';
 import {
   Skeleton,
@@ -22,6 +22,8 @@ import { AnimatedItem, AnimatedList } from '#src/AnimatedList.tsx';
 import { PromptSlot } from '#src/PromptCard.tsx';
 import { Compose } from '#src/ChatCompose.tsx';
 import { LiveLine } from '#src/LiveLine.tsx';
+import { useHold } from '#src/useHold.ts';
+import { sentBodies, useTail } from '#src/chatLines.ts';
 import { FoldLine, entryKey, useFolds } from '#src/ChatFold.tsx';
 import { useCardTitles } from '#src/ChatTitles.ts';
 import { Item, Message, jumpTo } from '#src/ChatMessages.tsx';
@@ -178,10 +180,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
   const { entries, ...folds } = useFolds(chat, scope, agent, me, useDecided(agent));
   const titles = useCardTitles(chat.items, entries); // for the task cards: what each is about, without opening the task
-  const history = chat.messages
-    .filter((m) => m.to === agent && m.from !== agent && m.landing !== 'withdrawn' && m.id > 0)
-    .sort((a, b) => b.id - a.id)
-    .map((m) => m.body);
+  const history = sentBodies(chat.messages, agent);
   const last = entries.at(-1)?.id;
   const byId = new Map(chat.messages.map((m) => [m.id, m]));
   const target = picked != null ? (byId.get(picked) ?? null) : null;
@@ -190,13 +189,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const pick = (m: ChatMessage) => (setPickedItem(null), setPicked((p) => (p === m.id ? null : m.id)));
   const pickItem = (i: TranscriptItem) => (setPicked(null), setPickedItem((p) => (p?.id === i.id ? null : i)));
   const keyOf = entryKey;
-  // Only an entry that arrives after the one that was last grows; older pages and a switch of scope appear at once.
-  const seen = useRef<{ scope: ChatScope; last: string | null }>({ scope, last: null });
-  const tail = seen.current.scope === scope && seen.current.last !== null ? entries.findIndex((e) => keyOf(e) === seen.current.last) : -1;
-  useEffect(() => {
-    const e = entries.at(-1);
-    seen.current = { scope, last: e ? keyOf(e) : null };
-  });
+  const tail = useTail(entries, scope);
   // The latest page shows first; older pages load as the top comes near. The line in view when a load starts is put back in the layout effect of
   // each commit that changes the entries, before the sentinel is armed again.
   const anchor = useRef<{ id: string; off: number } | null>(null);
@@ -248,11 +241,14 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
 
   useLayoutEffect(repin, [last, entries.length, chat.working.turn_running, chat.items.length]);
 
+  const held = windowed ? undefined : heldId(entries, (e) => e.kind === 'message' && e.message.from === me);
+  const { spacer, hold, release, start, holding, free } = useHold({ stream, held, own, anchor, pinned, ready: chat.status === 'ready', agent });
+
   // A reader above the bottom keeps the line they are on: whatever changes above or below it (steps folding, a line coming or going) does not move it.
   const place = useRef<{ id: string; off: number } | null>(null);
   useLayoutEffect(() => {
     const box = stream.current;
-    if (box && place.current && !pinned.current && !anchor.current) putBack(box, place.current);
+    if (box && place.current && !pinned.current && !anchor.current && !holding.current) putBack(box, place.current);
   });
 
   // New entries while scrolled up are counted, not scrolled to; the pill takes the person down.
@@ -260,9 +256,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   useEffect(() => {
     const grew = entries.length - count.current;
     count.current = entries.length;
-    if (grew > 0 && !pinned.current && tail >= 0 && !windowed) setNewer((n) => n + grew);
+    if (grew > 0 && !pinned.current && tail >= 0 && !windowed && !(holding.current && !free.current)) setNewer((n) => n + grew); // a held view is already where the reply lands
   }, [entries.length, tail, windowed]);
   const bottom = () => {
+    release();
     pinned.current = true;
     repin();
     setNewer(0);
@@ -270,7 +267,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   // Sending always shows the message: the sent row is at the bottom, whatever the person had scrolled to.
   const showSent = () => {
     const e = entries.at(-1);
-    if (e?.kind === 'message' && e.message.id < 0 && e.message.from === me) bottom();
+    if (e?.kind !== 'message' || e.message.id >= 0 || e.message.from !== me) return;
+    // The sent row joins the held run, or starts it: the view glides to put the run's first message at the top.
+    start();
+    setNewer(0);
   };
   useLayoutEffect(showSent, [last]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -278,6 +278,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
 
   // A message number: scroll to it when it is drawn; else learn its chat from the daemon, switch to it and read back until it is there.
   const jump = (id: number) => {
+    release();
     if (!jumpTo(id)) setGoing(id);
   };
   // A message chosen in the palette: this chat is its agent's, so find it the same way.
@@ -318,14 +319,16 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
         <div
           className="stream col flex flex-1 flex-col gap-2 overflow-auto px-3 pb-2 pt-3 [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>.skeleton]:self-stretch"
           ref={stream}
-          onWheel={() => setMoved(win.target)}
-          onTouchMove={() => setMoved(win.target)}
-          onKeyDown={() => setMoved(win.target)}
+          onWheel={() => ((free.current = true), setMoved(win.target))}
+          onTouchMove={() => ((free.current = true), setMoved(win.target))}
+          onKeyDown={() => ((free.current = true), setMoved(win.target))}
           onLoadCapture={(e) => e.target instanceof HTMLImageElement && repin()} // a picture arriving late grows the stream
           onScroll={(e) => {
             const el = e.currentTarget;
             if (own.current) return void (own.current = false);
-            pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            if (holding.current && !free.current) return;
+            // The spacer is empty room: being at its end is not being at the bottom of the conversation.
+            pinned.current = !(spacer.current?.offsetHeight ?? 0) && el.scrollHeight - el.scrollTop - el.clientHeight < 40;
             chat.holdPlace(!pinned.current);
             place.current = pinned.current ? null : lineInView(el);
             if (pinned.current) setNewer(0);
@@ -358,7 +361,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 <AnimatedItem
                   key={keyOf(e)}
                   instant={i <= tail || tail < 0}
-                  onFrame={repin}
+                  onFrame={() => (repin(), hold())}
                   className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-stretch"
                 >
                   {e.kind === 'fold' ? (
@@ -408,6 +411,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           {detail.prompt ? null : <NeedsYouCard detail={detail} />}
           {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
           <LiveLine working={chat.working} messages={chat.messages} items={chat.items} />
+          <div ref={spacer} aria-hidden className="h-0 flex-none" />
         </div>
         {windowed ? <LatestPill onClick={() => (win.close(), bottom())} /> : newer ? <NewerPill count={newer} onClick={bottom} /> : null}
       </div>
