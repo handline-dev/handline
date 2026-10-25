@@ -42,8 +42,17 @@ export function noticeFor(e: Event): Notice | null {
         target: e.target,
         event: e.type,
       };
-    case 'task_done':
-      return { title: `Task ${text(e.data.task)} done`, body: e.title ?? who, agent: e.agent, target: e.target, event: e.type };
+    case 'task_done': {
+      // e.title already reads "T5720 done", so it is left out: the number shows once, in the fallback title.
+      const result = text(e.data.result);
+      return {
+        title: text(e.data.task_title) || `Task ${text(e.data.task)} done`,
+        body: result ? (who ? `${who}: ${result}` : result) : who,
+        agent: e.agent,
+        target: e.target,
+        event: e.type,
+      };
+    }
     case 'stall':
       return {
         title: `${who || 'An agent'} is stalled`,
