@@ -1,6 +1,5 @@
-// Like ChatGPT: a message the person sends scrolls to the top of the chat and the reply grows under it. Messages sent before the reply
-// stack under the first of them, which stays at the top; on entry the chat opens with the person's last message there (or at its end when
-// there is none), laid out out of sight and shown once placed, so it never moves in front of the person. An empty spacer after the last line
+// Like ChatGPT: a message the person sends scrolls to the top of the chat and the reply grows under it; sends before the reply stack under
+// the first. On entry the person's last message is put there out of sight and shown once placed. An empty spacer after the last line
 // gives the view room to put it there; the view then stays where it is until the person scrolls themselves. The spacer is worked out from the
 // lines' own height, never from the scroll content that already holds it, so a resize or a late layout cannot make it flip between two sizes.
 import { useRef, useState } from 'react';
@@ -54,7 +53,11 @@ export function useSendAnchor(scroll: React.RefObject<ScrollView | null>) {
     enter(held: boolean) {
       if (entered.current) return;
       entered.current = true;
-      if (!held) return;
+      if (!held) {
+        scroll.current?.scrollToEnd({ animated: false }); // the size may have been reported before the entry
+        setPlaced(true);
+        return;
+      }
       anchored.current = true;
       follow.current = false;
       due.current = 'snap';
@@ -75,6 +78,7 @@ export function useSendAnchor(scroll: React.RefObject<ScrollView | null>) {
       anchored.current = false;
       follow.current = false;
       due.current = null;
+      setPlaced(true);
     },
     /** The row of the person's newest message was laid out at `y`, in the lines. */
     row(y: number) {
@@ -106,6 +110,7 @@ export function useSendAnchor(scroll: React.RefObject<ScrollView | null>) {
     hold() {
       dragged.current = true;
       due.current = null;
+      setPlaced(true);
     },
     scrolled(e: NativeSyntheticEvent<NativeScrollEvent>) {
       // Our own jump to the top is not the person's: until they move the view, the place is not read from it.

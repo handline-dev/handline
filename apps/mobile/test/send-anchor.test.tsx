@@ -156,6 +156,14 @@ describe('entering the chat', () => {
     expect(fresh.a().placed).toBe(true);
   });
 
+  it('shows the lines when a finger lands before the message is placed', async () => {
+    const fresh = await mountAnchor(false);
+    await fresh.run(() => (fresh.a().lines(1000), fresh.a().row(900), fresh.a().enter(true)));
+    expect(fresh.a().placed).toBe(false);
+    await fresh.run(() => fresh.a().hold());
+    expect(fresh.a().placed).toBe(true);
+  });
+
   it('follows the end when the person has sent nothing', async () => {
     const m = await mountAnchor();
     await m.run(() => (m.a().lines(1000), m.a().content(1016)));

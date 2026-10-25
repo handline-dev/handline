@@ -103,7 +103,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const loaded = chat.status !== 'loading' && !(served && tasks.isPending);
   useEffect(() => {
     if (loaded) anchor.enter(sent !== undefined);
-  });
+  }, [loaded, sent]);
   const drawn = going !== null && entries.some((e) => e.kind !== 'item' && e.id === going);
   const reveal = (id: number) => {
     const y = rowY.current.get(id);
