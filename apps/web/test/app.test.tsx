@@ -414,6 +414,8 @@ describe('the sidebar', () => {
   it('shows no Start on a row, and the row menu keeps only Open in, the copies, what stops a turn and Delete agent', async () => {
     await mount(TB);
     await until(() => $$('.row-wrap').length === 3, 'rows');
+    expect($('.row-actions')).toBeNull(); // no ⋮ on any row until one is hovered, selected or not
+    await act(async () => void $('.row-wrap')!.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
     expect($$('.row-actions .ui-btn').some((b) => /Resume|Start/.test(text(b)))).toBe(false);
     await click($('.row-actions [aria-haspopup="menu"]')!);
     await until(() => menuItems().length, 'the row menu');
@@ -428,6 +430,7 @@ describe('the sidebar', () => {
     expect(r).not.toMatch(/opus|alpha|yourname/);
     expect($('.row-wrap.on .name')?.textContent).toBe('architect'); // the team prefix is the group's title
     await until(() => $('.terminal-tab'), 'terminal tab');
+    expect($('.row-actions')).toBeNull(); // selected is not hovered: no ⋮
     expect($('.row-actions .ui-btn.solid')).toBeNull();
   });
 

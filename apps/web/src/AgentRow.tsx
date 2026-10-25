@@ -72,7 +72,7 @@ export function AgentRow({
     .join(' · ');
   // The left edge: the waiting hue outranks the selection.
   const edge = dot === 'waiting' ? 'border-l-wait' : selected ? 'border-l-primary' : 'border-l-transparent';
-  const showControls = selected || hot || menuOpen;
+  const showControls = hot || menuOpen || !!mark; // never just because the row is selected; a pending verb's mark is drawn in the button
   // The ⋯ button asks the row for its own context menu, at the button.
   const opener = useRef<((at: At) => void) | null>(null);
   const openMenu = (at: At) => opener.current?.(at);
@@ -166,7 +166,7 @@ export function AgentRow({
               </div>
               {/* Laid over the row's right end, not beside the name: the row is the same height with or without them. */}
               {showControls ? (
-                <div className="absolute right-1 top-1/2 -translate-y-1/2 bg-canvas">
+                <div className="absolute right-1 top-1/2 -translate-y-1/2">
                   <RowControls agent={a} onMenu={openMenu} />
                 </div>
               ) : null}
