@@ -96,6 +96,17 @@ export function railRows(agents: AgentView[], opts: RailFilter = {}, order?: rea
   return rows;
 }
 
+/** How many of an agent's sub-agents, at any depth, are working: a folded row shows it so the work under it is not out of sight. */
+export function workingUnder(agents: readonly AgentView[], name: string): number {
+  const under = new Set([name]);
+  let size = 0;
+  while (size < under.size) {
+    size = under.size;
+    for (const x of agents) if (x.parent && under.has(x.parent)) under.add(x.name);
+  }
+  return agents.filter((x) => x.name !== name && under.has(x.name) && dotOf(x) === 'running').length;
+}
+
 /** The rows left once the collapsed agents hide their descendants: a row is dropped while it sits deeper than the nearest collapsed row above it. */
 export function visibleRows<R extends { agent: AgentView; depth: number }>(rows: R[], collapsed: ReadonlySet<string>): R[] {
   const out: R[] = [];

@@ -23,6 +23,7 @@ export function AgentRow({
   agent: a,
   depth,
   kids,
+  working,
   team,
   line,
   folded,
@@ -35,6 +36,8 @@ export function AgentRow({
   agent: AgentView;
   depth: number;
   kids: number;
+  /** Sub-agents working under a folded row; 0 when it is open or none work. */
+  working: number;
   team: string;
   line: string;
   folded: boolean;
@@ -154,6 +157,20 @@ export function AgentRow({
                     </span>
                   ) : null}
                   <Badges badges={badges} />
+                  {working ? (
+                    <span
+                      className="row-working inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-primary"
+                      title={`${working} working under ${a.name}`}
+                    >
+                      <Icon
+                        name="refresh"
+                        size={11}
+                        aria-hidden
+                        className="animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none"
+                      />
+                      {working}
+                    </span>
+                  ) : null}
                   <span className="row-time flex-none whitespace-nowrap text-hint text-ink-3">{ago(stamp)}</span>
                 </button>
                 <span

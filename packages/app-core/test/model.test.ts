@@ -12,6 +12,7 @@ import {
   needsConfirm,
   offered,
   railRows,
+  workingUnder,
   visibleRows,
   queueOf,
   RAIL_FILTERS,
@@ -330,4 +331,17 @@ test('a warning mark says why: the blocker, else the wall, else the state detail
   assert.equal(whyOf({ blocker: null, wall_reason: 'the account is out of usage', state_detail: 'x' }), 'the account is out of usage');
   assert.equal(whyOf({ state_detail: 'waits for the build' }), 'waits for the build');
   assert.equal(whyOf({ state_detail: '' }), null);
+});
+
+test('workingUnder counts the running sub-agents at any depth, not the agent itself', () => {
+  const list = [
+    agent('lead', { state: 'running' }),
+    agent('a', { parent: 'lead', state: 'running' }),
+    agent('b', { parent: 'lead', state: 'idle' }),
+    agent('a1', { parent: 'a', state: 'running' }),
+    agent('other', { state: 'running' }),
+  ];
+  assert.equal(workingUnder(list, 'lead'), 2);
+  assert.equal(workingUnder(list, 'a'), 1);
+  assert.equal(workingUnder(list, 'b'), 0);
 });
