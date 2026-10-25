@@ -41,6 +41,7 @@ const gatewaySocket = path.join(home, 'gateway.sock');
 const root = path.resolve(import.meta.dirname, '../../..');
 /** The window always carries its daemon: a built page without `?daemon=` would take its own origin, which here is the static server. */
 let ws = env('WS') ?? (gateway ? `ws://${gateway}/rpc` : 'ws://127.0.0.1:7777');
+const APP_ICON = path.join(import.meta.dirname, '../assets/icon.png');
 const dist = env('WEB_DIST') ?? path.resolve(import.meta.dirname, '../../web/dist');
 
 let win: BrowserWindow | null = null;
@@ -167,6 +168,7 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
     width: 1280,
     height: 860,
     title: 'Handline',
+    icon: APP_ICON,
     show: false,
     // No OS title bar; the traffic lights sit over the sidebar (styles/base.css makes room).
     ...(os.platform() === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 10 } } : {}),
@@ -219,6 +221,8 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on('second-instance', show);
   void app.whenReady().then(async () => {
+    // An unpackaged app shows Electron's icon in the dock until it is told otherwise.
+    app.dock?.setIcon(APP_ICON);
     allowGatewayOrigin();
     const settings = new SettingsFile(path.join(app.getPath('userData'), 'settings.json'));
     const current = settings.read(parseMode(env('MODE')));

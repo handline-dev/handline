@@ -26,12 +26,11 @@ import { COPY_URL, phoneHtml } from '#src/phone-html.ts';
 import { grant } from '#src/grant.ts';
 import { onTailnet } from '#src/tailnet.ts';
 import { singleWindow } from '#src/single-window.ts';
-import { TRAY_PNG } from '#src/tray-icon.ts';
 import { trayMenu, type TrayFollow } from '#src/tray.ts';
 
-/** The menu-bar icon: a template image, so macOS tints it for a light or a dark bar. */
+/** The menu-bar icon: a template image (trayTemplate@2x.png is picked up on a Retina screen), so macOS tints it for a light or a dark bar. */
 function trayIcon(): Electron.NativeImage {
-  const img = nativeImage.createFromBuffer(TRAY_PNG.bytes(), { scaleFactor: TRAY_PNG.scale });
+  const img = nativeImage.createFromPath(path.join(import.meta.dirname, '../assets/trayTemplate.png'));
   img.setTemplateImage(true);
   return img;
 }
