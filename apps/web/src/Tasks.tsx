@@ -15,7 +15,7 @@ import {
   type TaskFilter,
 } from '@handline/app-core';
 import type { Task } from '@handline/client';
-import { useStore } from '@handline/app-react';
+import { useMe } from '@handline/app-react';
 import { TASK_PAGE, useAgents, useServes, usePagedTasks } from '@handline/app-data';
 import { goTasks } from '#src/route.ts';
 import { TaskDetail } from '#src/TaskDetail.tsx';
@@ -127,7 +127,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
   const now = useNow();
   const [filter, setFilter] = useState<TaskFilter>(defaultFilter);
   const [scope, setScope] = useState<Scope>('open');
-  const me = useStore().me;
+  const me = useMe();
   const [sort, setSort] = useState<{ by: TaskColumn; reverse: boolean }>({ by: 'priority', reverse: false });
   const [cursor, setCursor] = useState<number | null>(null);
   const [open, setOpen] = useState<Open>(null);

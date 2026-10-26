@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { sideOf, type TaskFold, type TimelineEntry } from '@handline/app-core';
-import { useNearEnd, useSelector, useStore } from '@handline/app-react';
+import { useMe, useNearEnd, useSelector } from '@handline/app-react';
 import {
   Skeleton,
   useSkeletonGate,
@@ -149,7 +149,7 @@ function useFindBar() {
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const { storage } = useWorkspace();
   const canSend = useSelector((s) => s.can('chat.send'));
-  const me = useStore().me;
+  const me = useMe();
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
   // Chat is the person and this agent only; the team's traffic is the Activity tab.

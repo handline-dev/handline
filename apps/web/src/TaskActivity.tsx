@@ -4,7 +4,7 @@ import { useState, type RefObject } from 'react';
 import { activityOf, ago, dateTime, foldEvents, type ActivityItem } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useOff, useWrite } from '@handline/app-data';
-import { useStore } from '@handline/app-react';
+import { useHello, useMe } from '@handline/app-react';
 import { BodyEditor } from '#src/BodyEditor.tsx';
 import { CommentPicture } from '#src/CommentPicture.tsx';
 import { MemoFiles } from '#src/MemoFiles.tsx';
@@ -17,7 +17,8 @@ import { Reveal } from '#src/ui/Reveal.tsx';
 /** One comment. Its author, and the founder for any, can Edit and Delete: both show at once and roll back with the daemon's reason; Delete asks first. */
 function Comment({ t, item }: { t: Detail; item: ActivityItem }) {
   const m = t.memos.find((x) => x.id === item.memo);
-  const store = useStore();
+  const me = useMe();
+  const hello = useHello();
   const edit = useWrite('task.comment.edit', String(t.id));
   const del = useWrite('task.comment.delete', String(t.id));
   const offEdit = useOff('task.comment.edit');
@@ -25,7 +26,7 @@ function Comment({ t, item }: { t: Detail; item: ActivityItem }) {
   const [ask, setAsk] = useState<null | 'edit' | 'delete'>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const mine = !!m && (m.author === store.me || store.client.hello?.role === 'founder');
+  const mine = !!m && (m.author === me || hello?.role === 'founder');
   const close = () => (setAsk(null), edit.reset(), del.reset());
   return (
     <li className="comment grid min-w-0 gap-0.5 rounded-card border border-line px-3 py-2">

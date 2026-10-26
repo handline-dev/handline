@@ -69,6 +69,9 @@ export function useSelector<T>(select: (s: Store) => T): T {
 
 export const useConnection = () => useSelector((s) => s.conn);
 export const useError = () => useSelector((s) => s.error);
+/** Who this window is and what the daemon said at hello: read through the store version, so a render is never left with the values from before the hello. */
+export const useMe = () => useSelector((s) => s.me);
+export const useHello = () => useSelector((s) => s.client.hello);
 
 /** Runs one async job at a time: a call while it runs does nothing. `going` is true meanwhile, for the buttons to disable. */
 export function useOnce(): [going: boolean, once: (job: () => Promise<void>) => Promise<void>] {

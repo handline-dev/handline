@@ -2,7 +2,7 @@
 // button(s) and a menu for the rest; a dialog the daemon does not know has only Open terminal.
 import { useMemo, useState, type KeyboardEvent } from 'react';
 import { APPROVED, ago, myTurn, type Card, type CardAction } from '@handline/app-core';
-import { useStore } from '@handline/app-react';
+import { useMe } from '@handline/app-react';
 import { classify, sentence, useAgents, useInbox, useTasks, useWrite } from '@handline/app-data';
 import { goTerminal } from '#src/route.ts';
 import { useWide } from '#src/taskui.tsx';
@@ -15,7 +15,7 @@ export function useMyTurn(): { cards: Card[]; loading: boolean } {
   const inbox = useInbox();
   const agents = useAgents();
   const tasks = useTasks({});
-  const me = useStore().me;
+  const me = useMe();
   const items = inbox.data?.items;
   const list = agents.data?.agents;
   const rows = tasks.data?.items;
@@ -82,7 +82,8 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
       case 'deny':
         return prompt.mutate({ agent: a.agent, prompt: a.prompt, choice: a.choice });
       case 'done':
-        return void (done.mutate({ task: a.item.task!, evidence: 'decided in the Inbox', reason: true }), read.mutate({ ids: [a.item.id] }));
+        return void (done.mutate({ task: a.item.task!, evidence: 'decided in the Inbox', reason: true }),
+        read.mutate({ ids: [a.item.id] }));
       case 'approve':
         return void (done.mutate({ task: a.item.task!, evidence: APPROVED, reason: true }), read.mutate({ ids: [a.item.id] }));
       case 'ask_change':
@@ -134,7 +135,11 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
           <h3 className="m-0 min-w-0 flex-1 truncate text-[15px] font-medium">{card.title}</h3>
         </header>
         <p className="muted m-0 mt-0.5 flex flex-wrap gap-x-3 text-hint">
-          {card.from ? <span>from <span className="mono">{card.from}</span></span> : null}
+          {card.from ? (
+            <span>
+              from <span className="mono">{card.from}</span>
+            </span>
+          ) : null}
           {card.task != null ? <span className="mono">T{card.task}</span> : null}
           {card.due != null ? <span>{dueText(card.due)}</span> : null}
           {card.since ? <span>waiting {ago(new Date(card.since).toISOString())}</span> : null}
@@ -178,15 +183,20 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
             setText('');
           }}
         >
-          <Input grow autoFocus aria-label="Your reply" placeholder={card.from ? `Reply to ${card.from}` : 'Reply'} value={text} onChange={(e) => setText(e.target.value)} />
+          <Input
+            grow
+            autoFocus
+            aria-label="Your reply"
+            placeholder={card.from ? `Reply to ${card.from}` : 'Reply'}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+          />
           <Button label="Send reply" type="submit" disabled={!text.trim()}>
             <Icon name="reply" aria-hidden /> Send
           </Button>
         </form>
       ) : null}
-      {asking && card.task != null && askId ? (
-        <AskChange task={card.task} item={askId} onClose={() => setAsking(false)} />
-      ) : null}
+      {asking && card.task != null && askId ? <AskChange task={card.task} item={askId} onClose={() => setAsking(false)} /> : null}
     </article>
   );
 }

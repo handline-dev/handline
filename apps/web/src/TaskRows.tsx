@@ -2,7 +2,7 @@
 import { Check } from '#src/ui/index.ts';
 import { idleText, isOver, isPerson, type RowVerb, taskRef, timeLeft, timeoutText, watchResult } from '@handline/app-core';
 import type { Task } from '@handline/client';
-import { useStore } from '@handline/app-react';
+import { useMe } from '@handline/app-react';
 import { goTasks } from '#src/route.ts';
 import { AnimatedCell, AnimatedRow } from '#src/AnimatedList.tsx';
 import { StateChip } from '#src/taskui.tsx';
@@ -27,7 +27,7 @@ export function Row(props: {
   verbs: { cans: Cans; onPick: (verb: RowVerb) => void };
 }) {
   const { t, now } = props;
-  const me = useStore().me;
+  const me = useMe();
   const over = isOver(t, now);
   const authored = props.mark === 'authored';
   const time = timeLeft(timeoutText(t, now) || idleText(t, now));

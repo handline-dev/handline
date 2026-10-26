@@ -3,7 +3,7 @@
 // hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { dateTime, HELD, taskRef, watchResult } from '@handline/app-core';
-import { useStore } from '@handline/app-react';
+import { useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, useOff, usePending, useTask, useTaskHistory, useTaskTime, useWrite } from '@handline/app-data';
 import { Button, MenuButton, MenuItem, MenuSeparator } from '#src/ui/index.ts';
@@ -72,7 +72,7 @@ export function TaskDetail({
 function Body({ t }: { t: Detail }) {
   const store = useStore();
   const now = useNow();
-  const me = store.me;
+  const me = useMe();
   const [ask, setAsk] = useState<Ask>(null);
   const commentBox = useRef<HTMLDivElement>(null);
   const edit = useEditTask(t);
