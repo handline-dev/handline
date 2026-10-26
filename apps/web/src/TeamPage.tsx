@@ -3,7 +3,6 @@ import { taskRef } from '@handline/app-core';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useServes, useTeamBoard } from '@handline/app-data';
 import { HrTab } from '#src/HrTab.tsx';
-import { TeamSeal } from '#src/TeamSeal.tsx';
 import { Empty, Icon, MetaItem, MetaLine, State, stateOfView } from '#src/ui/index.ts';
 import { SettingsSection, SettingsShell } from '#src/SettingsShell.tsx';
 import { goAgent, useTeamRoute } from '#src/route.ts';
@@ -18,7 +17,7 @@ export function TeamPage() {
       {route.tab === 'hr' && hrServed ? (
         <HrTab focus={route.proposal} />
       ) : (
-        <SettingsSection title="Team" action={<TeamSeal />}>
+        <SettingsSection title="Team">
           <TeamTable />
         </SettingsSection>
       )}

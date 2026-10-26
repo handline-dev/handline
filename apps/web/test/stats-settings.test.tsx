@@ -202,6 +202,8 @@ describe('settings', () => {
     await until(() => field('Default cap'), 'the fields');
     expect(field('Default cap').value).toBe('4');
     expect(field('Idle close').value).toBe('30');
+    await click($$('button[aria-expanded]').find((b) => text(b).includes('Advanced'))!);
+    await until(() => toggle('Handoff note'), 'the Advanced rows');
     expect(toggle('Handoff note').getAttribute('aria-checked')).toBe('true');
   });
 
@@ -244,7 +246,9 @@ describe('settings', () => {
 
   it('a switch saves on change', async () => {
     const s = await mount('#/settings');
-    await until(() => toggle('Handoff note'), 'the fields');
+    await until(() => $('button[aria-expanded]'), 'the fields');
+    await click($$('button[aria-expanded]').find((b) => text(b).includes('Advanced'))!);
+    await until(() => toggle('Handoff note'), 'the Advanced rows');
     await click(toggle('Handoff note'));
     await until(() => s.daemon.admin.settings().values.handoff_note === false, 'handoff note');
   });
@@ -269,6 +273,23 @@ describe('settings', () => {
       expect(head()).toEqual(first);
       expect($('.settings-shell > header [role=tablist]')).not.toBeNull();
     }
+  });
+
+  it('Advanced and About stay folded; opened, Advanced saves its rows and About holds the connection, Admin, Debug and Seal', async () => {
+    const s = await mount('#/settings');
+    await until(() => field('Default cap'), 'the fields');
+    expect($(`[data-setting="Pace target"]`)).toBeNull();
+    expect(button('Admin')).toBeUndefined();
+    const fold = (name: string) => $$('button[aria-expanded]').find((b) => text(b).includes(name))!;
+    await click(fold('Advanced'));
+    await until(() => field('Pace target'), 'the Advanced rows');
+    await setValue(field('Pace target'), '90');
+    await blur(field('Pace target'));
+    await until(() => s.daemon.admin.settings().values.pace_target_pct === 90, 'the pace target');
+    await click(fold('About'));
+    await until(() => button('Admin'), 'the About rows');
+    expect(button('Debug: terminals')).toBeDefined();
+    expect(text(document.body)).toContain('Connection');
   });
 
   it('lists the paired devices and revokes one only after a confirm', async () => {
