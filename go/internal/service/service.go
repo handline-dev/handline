@@ -391,7 +391,7 @@ func (s *Service) Uninstall() (string, error) {
 	return "removed " + s.Plist, nil
 }
 
-// plist is the job: the current version's daemon with the production flags, kept alive and throttled so a crash loop cannot run away.
+// plist is the job: the current version's daemon (its defaults are the service's), kept alive and throttled so a crash loop cannot run away.
 func (s *Service) plist() (string, error) {
 	claude, err := exec.LookPath("claude")
 	if err != nil {
@@ -403,7 +403,7 @@ func (s *Service) plist() (string, error) {
 	} else {
 		argv = append(argv, "-home", s.Home)
 	}
-	argv = append(argv, "-claude", claude, "-terminal-tick", "-cutover", "-turns-from-hooks", "-notification-needs-you")
+	argv = append(argv, "-claude", claude)
 	var b strings.Builder
 	str := func(v string) { fmt.Fprintf(&b, "<string>%s</string>", html.EscapeString(v)) }
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -113,6 +114,20 @@ var defaultNative = strings.Join([]string{
 	"worktrees.list",
 }, ",")
 
+// missingTools says, one line each, which of the tools agents are run with this machine lacks: the daemon still starts, so the app can show it.
+func missingTools(claude string) {
+	if _, err := os.Stat(claude); err != nil {
+		if _, err := exec.LookPath(claude); err != nil {
+			log.Printf("handlined: claude not found at %s: no agent can start (install Claude Code, or pass -claude)", claude)
+		}
+	}
+	for _, t := range []string{"git", "tmux"} {
+		if _, err := exec.LookPath(t); err != nil {
+			log.Printf("handlined: %s is not on PATH: no agent can start (brew install %s)", t, t)
+		}
+	}
+}
+
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "service" {
 		os.Exit(serviceCommand(os.Args[2:]))
@@ -140,12 +155,12 @@ func main() {
 	flag.StringVar(claude, "structured-cli", "", "the old name of -claude; accepted so a service plist written before still starts")
 	flag.String("claude-version", "", "ignored: it was the claude version a structured session accepted; accepted so a service plist written before still starts")
 	flag.Bool("structured-tick", false, "ignored: the tick over structured sessions is gone (-terminal-tick runs the tick); accepted so a service plist written before still starts")
-	cutover := flag.Bool("cutover", false, "with -terminal-tick: the Python daemon no longer ticks or watches, so this tick owns the usage poll and every agent_view row, and the stream rows of the topics whose detector is here; off, it writes no view and leaves the usage tables to Python")
+	cutover := flag.Bool("cutover", true, "with -terminal-tick: the Python daemon no longer ticks or watches, so this tick owns the usage poll and every agent_view row, and the stream rows of the topics whose detector is here; off, it writes no view and leaves the usage tables to Python")
 	flag.String("land-repo", "", "ignored: the daemon no longer lands; accepted so a service plist written before still starts (hl service install drops it)")
-	terminalTick := flag.Bool("terminal-tick", false, "run the policy tick over the terminal agents too, reading their sessions from <config dir>/sessions/<pid>.json (it wakes, closes, restarts and hands off their sessions); needs -claude, and the Python daemon must not tick beside it on the same home. The tick also reads every account's usage and token log")
-	notifiedNeedsYou := flag.Bool("notification-needs-you", false, "with -claude: a permission prompt Claude Code's Notification hook reports as unanswered raises the agent's needs-you card, until the agent moves on")
+	terminalTick := flag.Bool("terminal-tick", true, "run the policy tick over the terminal agents too, reading their sessions from <config dir>/sessions/<pid>.json (it wakes, closes, restarts and hands off their sessions); needs -claude, and the Python daemon must not tick beside it on the same home. The tick also reads every account's usage and token log")
+	notifiedNeedsYou := flag.Bool("notification-needs-you", true, "with -claude: a permission prompt Claude Code's Notification hook reports as unanswered raises the agent's needs-you card, until the agent moves on")
 	founderTyped := flag.Bool("founder-typed", true, "with -claude and -turns-from-hooks: the founder's own messages to a terminal agent are typed into its terminal as its person's prompt (it answers with hl say); one that cannot be typed then, and everything else, goes through the peer inbox. -founder-typed=false sends them all through the inbox")
-	turnsFromHooks := flag.Bool("turns-from-hooks", false, "tell whether a terminal agent is mid-turn or has background work from its hooks and transcript instead of its screen; the screen is still read where no hook has said")
+	turnsFromHooks := flag.Bool("turns-from-hooks", true, "tell whether a terminal agent is mid-turn or has background work from its hooks and transcript instead of its screen; the screen is still read where no hook has said")
 	showVersion := flag.Bool("version", false, "print the git sha this binary was built from")
 	flag.Parse()
 	if *showVersion {
@@ -166,6 +181,7 @@ func main() {
 	var tk *compose.Tick                                     // the policy tick, once built
 	var startTick func(stop <-chan struct{}) <-chan struct{} // set when the policy tick is on: runs it until stop closes, answers when it has returned
 	if *claude != "" && !*gateway {
+		missingTools(*claude)
 		if *founderTyped && !*turnsFromHooks {
 			log.Printf("handlined: founder chat goes through the inbox: -founder-typed takes effect only with -turns-from-hooks")
 		}
