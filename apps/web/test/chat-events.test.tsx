@@ -88,4 +88,30 @@ describe('event cards', () => {
     expect(card.dataset.tone).toBe('bad');
     expect([...card.querySelectorAll('button')].some((b) => b.textContent === 'Start now')).toBe(true);
   });
+
+  it('an agent blocked by a task shows it with the task as a link, and the card goes when the status does', async () => {
+    const s = setup();
+    const since = new Date().toISOString();
+    const view = (status?: object) => (s.daemon.sessions.get(ARCH)!.fx.view = { status } as never);
+    view({ state: 'waiting', reason: 'task', text: 'blocked by T1684 (human)', until: null, since, tasks: [1684] });
+    await mount(s);
+    await until(() => $('.card-blocked'), 'the blocked card');
+    const card = $('.card-blocked')!;
+    expect(card.dataset.tone).toBe('wait');
+    expect(card.textContent).toContain('Blocked by T1684 (human)');
+    const link = card.querySelector('a')!;
+    expect(link.getAttribute('href')).toBe('#/tasks/1684');
+    await until(() => link.textContent!.length > 'T1684'.length, 'the task title');
+  });
+
+  it('waiting on you with no dialog open shows the ask and an Open button; nothing when not blocked', async () => {
+    const s = setup();
+    s.daemon.sessions.get(ARCH)!.fx.view = {
+      status: { state: 'waiting', reason: 'you', text: 'waiting on you', until: null, since: new Date().toISOString(), tasks: [] },
+    } as never;
+    await mount(s);
+    await until(() => $('.card-blocked'), 'the card');
+    expect($('.card-blocked')!.textContent).toContain('Waiting on you');
+    expect([...$('.card-blocked')!.querySelectorAll('button')].some((b) => b.textContent === 'Open')).toBe(true);
+  });
 });

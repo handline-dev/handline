@@ -142,6 +142,16 @@ export const SEEDS: Record<string, Seed> = {
     };
   },
 
+  /** The architect waits on another task (status reason task): its chat shows the blocked-by card with the task as a link. */
+  'agent-blocked': (d) => {
+    const s = d.sessions.get(ARCH)!;
+    const since = new Date(Date.now() - 12 * 60_000).toISOString();
+    s.fx.view = {
+      ...s.fx.view,
+      status: { state: 'waiting', reason: 'task', text: 'blocked by T1684 (human)', until: null, since, tasks: [1684] },
+    };
+  },
+
   /** Two approved proposals whose change is applied but whose agent did not start: the architect's waits for the load, the auditor's failed. */
   'hr-followup': (d) => {
     const hr = d.script.hr;
