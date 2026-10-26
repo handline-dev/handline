@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/policy"
 )
 
 const (
 	// RetentionS is how long a row is kept; KeepRows how many at most. Prune drops what is past either.
-	RetentionS = 7 * 24 * 3600
+	RetentionS = int64(policy.StreamKeep / time.Second)
 	KeepRows   = 50000
 	// ReplayMax is the most a resume may be behind and still be replayed in full; one more is a gap.
 	ReplayMax = 5000

@@ -11,11 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/policy"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
 const (
-	settledWindow = 7 * 24 * time.Hour
+	settledWindow = policy.HRSettledShown
 	settledMax    = 50
 	maxError      = 400
 )
