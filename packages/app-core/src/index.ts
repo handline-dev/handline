@@ -41,3 +41,4 @@ export * from '#src/worktrees.ts';
 export * from '#src/terminal.ts';
 export * from '#src/nav.ts';
 export * from '#src/notices.ts';
+export * from '#src/week-forecast.ts';
