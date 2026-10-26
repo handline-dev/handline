@@ -113,6 +113,9 @@ describe('outlook', () => {
     await until(() => $('.outlook-svg'), 'the graph');
     expect($('.outlook-svg .line.future')!.getAttribute('stroke-dasharray')).toBeTruthy();
     expect(text($('.outlook-legend'))).toContain('guess');
+    const end = $('.outlook-svg .line.past')!.getAttribute('d')!.split(' ').at(-1);
+    expect($('.outlook-svg .line.future')!.getAttribute('d')!.split(' ')[0]).toBe(end!.replace('L', 'M')); // the guess starts where the recorded line ends
+    expect($('.outlook')!.compareDocumentPosition($('.acct-list')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // the graph comes before the accounts
     expect($$('.outlook-legend li svg .line.future')[0]!.getAttribute('stroke-dasharray')).toBeTruthy();
     expect(text($('[data-runway="beta"]'))).toContain('runs out in 2 h');
     expect(text($('[data-runway="alpha"]'))).toContain('lasts until the week resets');
