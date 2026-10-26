@@ -136,10 +136,7 @@ function useFollow(): [Follow | null, () => void] {
       ?.follow?.()
       .then((r) => r.ok && setF(r));
   useEffect(load, []);
-  const check = () =>
-    void shell('checkUpdate')
-      ?.checkUpdate?.()
-      .then(() => setTimeout(load, 1500));
+  const check = () => void shell('checkUpdate')?.checkUpdate?.().then(load);
   return [f?.following ? f : null, check];
 }
 
