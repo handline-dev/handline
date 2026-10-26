@@ -1,5 +1,5 @@
 // The Home settings sections that are not just a number or a switch: notices, background work, this window's appearance, and the connection.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { parseSeconds, type KV } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { useRead, useServes, useSettings } from '@handline/app-data';
@@ -7,7 +7,7 @@ import { Button, SectionHead, Segmented, SettingsCard } from '#src/ui/index.ts';
 import { applyTheme, themeOf, type Theme } from '#src/appearance.ts';
 import { setting } from '#src/daemon.ts';
 import { NumberRow, Row, SwitchRow } from '#src/SettingsRows.tsx';
-import { useShellMode } from '#src/shell.ts';
+import { shell, useShellMode } from '#src/shell.ts';
 
 const SECONDS = 'whole seconds, or empty for the default';
 const secondsOf = (v: number | undefined) => (v === undefined ? '' : String(v));
@@ -126,7 +126,24 @@ export function Appearance({ storage }: { storage: KV | null }) {
   );
 }
 
-/** What this window is connected to, to read only: changing it is the desktop app's connection screen, not a setting. */
+type Follow = { following: boolean; sha: string; state: string; next: string | null };
+
+/** The follow-main build's commit and whether main has moved, with a button to look now. Nothing in any other build. */
+function useFollow(): [Follow | null, () => void] {
+  const [f, setF] = useState<Follow | null>(null);
+  const load = () =>
+    void shell('follow')
+      ?.follow?.()
+      .then((r) => r.ok && setF(r));
+  useEffect(load, []);
+  const check = () =>
+    void shell('checkUpdate')
+      ?.checkUpdate?.()
+      .then(() => setTimeout(load, 1500));
+  return [f?.following ? f : null, check];
+}
+
+/** What this window is connected to. The mode and the main this build follows can be changed here; the rest is read only. */
 export function Connection() {
   const hello = useSelector((s) => s.client.hello);
   const shellMode = useShellMode();
@@ -135,9 +152,14 @@ export function Connection() {
       ? 'This computer runs its own daemon'
       : (shellMode.remote ?? 'Another computer')
     : null;
+  const [follow, check] = useFollow();
   const rows: [string, string | undefined][] = [
     ['Daemon', mode ?? undefined],
     ['Version', hello?.daemon.slice(0, 9)],
+    [
+      'App',
+      follow ? `main ${follow.sha.slice(0, 7)}${follow.next ? `, newer main ${follow.next.slice(0, 7)} is waiting` : ''}` : undefined,
+    ],
     ['Role', hello?.role],
     ['Transport', hello ? (hello.transport === 'tls' ? 'Encrypted network connection' : 'Local socket') : undefined],
   ];
@@ -165,6 +187,23 @@ export function Connection() {
               <span className="text-ink-2">{value}</span>
             </Row>
           ))}
+        {follow && !follow.next ? (
+          <Row label="Update" hint="Look at GitHub's main now">
+            <Button label="Check for update" size="sm" onClick={check} />
+          </Row>
+        ) : null}
+        {shellMode ? (
+          <Row
+            label="Mode"
+            hint={shellMode.mode === 'own' ? "Use another computer's daemon instead" : 'Run a daemon on this computer instead'}
+          >
+            <Button
+              label={shellMode.mode === 'own' ? 'Switch to Connect' : 'Switch to Own daemon'}
+              size="sm"
+              onClick={() => void shell('setMode')?.setMode?.(shellMode.mode === 'own' ? 'connect' : 'own')}
+            />
+          </Row>
+        ) : null}
         {print ? (
           <Row label="Fingerprint" hint="Compare it with the one a device shows when pairing">
             <span className="text-ink-2" title={print}>

@@ -178,6 +178,45 @@ describe('Pair a phone', () => {
   });
 });
 
+describe('Settings > Connection in the shell', () => {
+  const text = () => box.querySelector('#set-connection, #set-devices')?.parentElement?.textContent ?? box.textContent ?? '';
+  const named = (label: string) =>
+    [...box.querySelectorAll('button')].find((b) => b.textContent?.includes(label)) as HTMLElement | undefined;
+  const stub = (follow: object) => {
+    const log: string[] = [];
+    const api = {
+      api: 1,
+      onNavigate: () => () => {},
+      mode: async () => ({ ok: true as const, mode: 'own' as const, remote: null, phone: false }),
+      setMode: async (m: string) => (log.push(`mode ${m}`), { ok: true as const }),
+      follow: async () => ({ ok: true as const, ...follow }),
+      checkUpdate: async () => (log.push('check'), { ok: true as const }),
+    };
+    vi.stubGlobal('handline', api);
+    Object.assign(window, { handline: api });
+    return log;
+  };
+
+  it('switches the mode and looks for an update from the page, in a follow-main build', async () => {
+    const log = stub({ following: true, sha: 'abc1234567', state: 'current', next: null });
+    await mount('settings');
+    await until(() => named('Switch to Connect'), 'the switch');
+    await until(() => named('Check for update'), 'the update check');
+    expect(text()).toContain('main abc1234');
+    await act(async () => named('Check for update')!.click());
+    await act(async () => named('Switch to Connect')!.click());
+    expect(log).toEqual(['check', 'mode connect']);
+  });
+
+  it('offers no update check in a build that does not follow main, and none while a newer main is waiting', async () => {
+    stub({ following: false, sha: '', state: 'current', next: null });
+    await mount('settings');
+    await until(() => named('Switch to Connect'), 'the switch');
+    await wait(50);
+    expect(named('Check for update')).toBeUndefined();
+  });
+});
+
 describe('settings through the shell', () => {
   it('answers settings.get and settings.set from the shell, and throws a refusal as a daemon refusal', async () => {
     expect(settingsRelay()).toBeUndefined(); // a plain browser
