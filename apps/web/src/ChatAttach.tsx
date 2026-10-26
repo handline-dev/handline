@@ -1,8 +1,17 @@
 // Images on a message: the chips under the box while they upload (a preview, the progress, a remove mark) and the pictures drawn in a sent
 // message (a small copy; a click opens the original). The files come from a paste, a drop or the file picker.
-import { useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
+import { useRef, type ClipboardEvent, type DragEvent } from 'react';
 import type { Attachment } from '@handline/client';
-import { MAX_PER_MESSAGE, forgetAttachment, rememberAttachment, sentence, classify, useUploadImage, whyNotImage } from '@handline/app-data';
+import {
+  MAX_PER_MESSAGE,
+  forgetAttachment,
+  keptState,
+  rememberAttachment,
+  sentence,
+  classify,
+  useUploadImage,
+  whyNotImage,
+} from '@handline/app-data';
 import { AttachmentImage } from '#src/AttachmentImage.tsx';
 import { shell } from '#src/shell.ts';
 import { Icon } from '#src/ui/index.ts';
@@ -26,28 +35,34 @@ export interface Ref {
 
 let nextKey = 1;
 
-/** The images being attached to the next message: each is sent to the daemon as soon as it is added. */
+interface Held {
+  drafts: Draft[];
+  problem: string | null;
+  refs: Ref[];
+  live: Map<number, { aborted: boolean; preview: string }>;
+}
+const useHeld = keptState<Held>(() => ({ drafts: [], problem: null, refs: [], live: new Map() }));
+
+/** The images being attached to the next message: each is sent to the daemon as soon as it is added. Kept per agent, so they are still there when the person comes back to the chat. */
 export function useAttachDraft(agent?: string) {
   const upload = useUploadImage();
-  const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [refs, setRefs] = useState<Ref[]>([]);
-  const live = useRef(new Map<number, { aborted: boolean; preview: string }>());
-  const count = useRef(0);
-  const patch = (key: number, p: Partial<Draft>) => setDrafts((d) => d.map((x) => (x.key === key ? { ...x, ...p } : x)));
+  const held = useHeld(agent);
+  const { drafts, problem, refs } = held.state;
+  const live = held.get().live;
+  const patch = (key: number, p: Partial<Draft>) =>
+    held.set((s) => ({ drafts: s.drafts.map((x) => (x.key === key ? { ...x, ...p } : x)) }));
 
   const add = (files: File[]) => {
-    setProblem(null);
+    held.set({ problem: null });
     for (const f of files) {
       const why = whyNotImage(f);
-      if (why) return setProblem(why);
-      if (count.current >= MAX_PER_MESSAGE) return setProblem(`At most ${MAX_PER_MESSAGE} images to a message`);
-      count.current += 1;
+      if (why) return held.set({ problem: why });
+      if (live.size >= MAX_PER_MESSAGE) return held.set({ problem: `At most ${MAX_PER_MESSAGE} images to a message` });
       const key = nextKey++;
       const preview = URL.createObjectURL(f);
       const signal = { aborted: false, preview };
-      live.current.set(key, signal);
-      setDrafts((d) => [...d, { key, name: f.name || 'image', preview, progress: 0 }]);
+      live.set(key, signal);
+      held.set((s) => ({ drafts: [...s.drafts, { key, name: f.name || 'image', preview, progress: 0 }] }));
       upload(f, f.name || 'image', f.type as Attachment['mime'], (sent, total) => patch(key, { progress: sent / total }), signal).then(
         (attachment) => !signal.aborted && (rememberAttachment(attachment), patch(key, { attachment, progress: 1 })),
         (e) => !signal.aborted && patch(key, { error: sentence(classify(e)) }),
@@ -70,30 +85,31 @@ export function useAttachDraft(agent?: string) {
         return { key: nextKey++, name: f.name, path: copy?.ok ? copy.path : f.path };
       }),
     );
-    setRefs((r) => [...r, ...added.filter((a, i) => !r.some((x) => x.path === a.path) && added.findIndex((b) => b.path === a.path) === i)]);
+    held.set((s) => ({
+      refs: [
+        ...s.refs,
+        ...added.filter((a, i) => !s.refs.some((x) => x.path === a.path) && added.findIndex((b) => b.path === a.path) === i),
+      ],
+    }));
   };
   // Stops the upload and lets go of the preview; false when the draft was already gone.
   const drop = (key: number) => {
-    const l = live.current.get(key);
+    const l = live.get(key);
     if (!l) return false;
     l.aborted = true;
     URL.revokeObjectURL(l.preview);
-    live.current.delete(key);
+    live.delete(key);
     return true;
   };
   const remove = (key: number) => {
     if (!drop(key)) return;
-    const gone = drafts.find((x) => x.key === key)?.attachment;
+    const gone = held.get().drafts.find((x) => x.key === key)?.attachment;
     if (gone) forgetAttachment(gone.id);
-    count.current -= 1;
-    setDrafts((d) => d.filter((x) => x.key !== key));
+    held.set((s) => ({ drafts: s.drafts.filter((x) => x.key !== key) }));
   };
   const clear = () => {
-    for (const key of [...live.current.keys()]) drop(key);
-    count.current = 0;
-    setDrafts([]);
-    setRefs([]);
-    setProblem(null);
+    for (const key of [...live.keys()]) drop(key);
+    held.set({ drafts: [], refs: [], problem: null });
   };
   return {
     drafts,
@@ -101,7 +117,7 @@ export function useAttachDraft(agent?: string) {
     problem,
     add,
     refer,
-    unrefer: (key: number) => setRefs((r) => r.filter((x) => x.key !== key)),
+    unrefer: (key: number) => held.set((s) => ({ refs: s.refs.filter((x) => x.key !== key) })),
     remove,
     clear,
     /** Sent to the daemon in full: the ids to name in the message. */

@@ -127,7 +127,7 @@ describe('X5 phone New agent', () => {
 
   it('draws the account note and never sends an account', async () => {
     const m = await open(await mount());
-    expect(text($('new-agent'))).toContain('chosen when it starts');
+    await until(() => text($('new-agent')).includes('chosen when it starts'), 'the account note');
     m.store.stop();
   });
 

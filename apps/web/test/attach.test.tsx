@@ -96,6 +96,29 @@ describe('images in the send box', () => {
     expect(mine[0]!.attachments![0]!.name).toBe('shot.png');
   });
 
+  it('keeps the attached images when the person leaves the chat and comes back, until they are sent or removed', async () => {
+    await mount();
+    await paste([image('a.png'), image('b.png')]);
+    await until(() => chips().length === 2 && chips().every((c) => c.getAttribute('data-state') === 'ready'), 'both uploaded');
+    await click($('[data-tab="transcript"]')!);
+    await until(() => !compose(), 'the send box gone');
+    await click($('[data-tab^="chat"]')!);
+    await until(() => compose(), 'the send box again');
+    expect(chips().map((c) => text(c))).toEqual([expect.stringContaining('a.png'), expect.stringContaining('b.png')]);
+    expect(sendBtn().disabled).toBe(false);
+    await click(chips()[0]!.querySelector('button[aria-label^="Remove"]')!);
+    await click($('[data-tab="transcript"]')!);
+    await click($('[data-tab^="chat"]')!);
+    await until(() => compose(), 'the send box once more');
+    expect(chips().map((c) => text(c))).toEqual([expect.stringContaining('b.png')]);
+    await click(sendBtn());
+    await until(() => $$('.msg .attachment img').length === 1, 'the picture');
+    await click($('[data-tab="transcript"]')!);
+    await click($('[data-tab^="chat"]')!);
+    await until(() => compose(), 'the send box after sending');
+    expect(chips()).toHaveLength(0);
+  });
+
   it('under a picked question the words and the images go as one message that replies to it', async () => {
     const s = setup();
     const id = s.daemon.chat.ask(AUD, 'Which of the two?', 'founder');
