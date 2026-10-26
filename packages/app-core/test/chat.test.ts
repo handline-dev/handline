@@ -47,6 +47,22 @@ const msg = (over: Partial<ChatMessage>): ChatMessage => ({
 });
 const item = (over: Partial<TranscriptItem>): TranscriptItem => ({ id: 1, at: '2026-01-01T00:00:00Z', kind: 'reply', text: 'ok', ...over });
 
+test('a message sent during a restart and delivered to the new session reads below its session line', () => {
+  const sent = msg({ id: 2, at: '2026-01-01T00:01:00Z', delivered_at: '2026-01-01T00:03:00Z' });
+  const before = msg({ id: 1, at: '2026-01-01T00:00:00Z', delivered_at: '2026-01-01T00:00:01Z' });
+  const session = item({
+    id: 7,
+    at: '2026-01-01T00:02:00Z',
+    kind: 'session',
+    session: { id: 's', started: '2026-01-01T00:02:00Z', handoff: null },
+  });
+  const out = timeline([sent, before], [session]);
+  assert.deepEqual(
+    out.map((e) => `${e.kind}${e.id}`),
+    ['message1', 'item7', 'message2'],
+  );
+});
+
 test('the timeline puts messages and transcript items in time order, a message first at the same time', () => {
   const out = timeline(
     [msg({ id: 2, at: '2026-01-01T00:02:00Z' }), msg({ id: 1, at: '2026-01-01T00:00:00Z' })],

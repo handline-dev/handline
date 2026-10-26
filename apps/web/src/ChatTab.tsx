@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { heldId, sideOf, type TaskFold, type TimelineEntry } from '@handline/app-core';
+import { heldId, restartShown, sideOf, type TaskFold, type TimelineEntry } from '@handline/app-core';
 import { useNearEnd, useSelector, useStore } from '@handline/app-react';
 import {
   Skeleton,
@@ -173,6 +173,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const { entries, ...folds } = useFolds(chat, scope, agent, me, useDecided(agent));
   const { titles, settled } = useCardTitles(chat.items, entries); // for the task cards: what each is about, without opening the task
   const history = sentBodies(chat.messages, agent);
+  // The restart line sits where the restart began: what was sent while it ran reads below it.
+  const since = detail.handoff && restartShown(detail.handoff, chat.items) ? detail.handoff.since : null;
+  const restartAt = since === null ? -1 : entries.findIndex((e) => e.at >= since);
+  const restart = <HandoffCard key="handoff" detail={detail} items={chat.items} />;
   const last = entries.at(-1)?.id;
   const byId = new Map(chat.messages.map((m) => [m.id, m]));
   const target = picked != null ? (byId.get(picked) ?? null) : null;
@@ -367,8 +371,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 </AnimatedItem>
               );
               // A plain child of the list: never animated in or out.
+              const head = i === restartAt ? [restart] : [];
               return day
                 ? [
+                    ...head,
                     <div
                       key={`day ${day}`}
                       role="separator"
@@ -378,12 +384,12 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                     </div>,
                     body,
                   ]
-                : [body];
+                : [...head, body];
             })}
           </AnimatedList>
           {windowed && win.hasNewer ? <div ref={lower} aria-hidden className="h-px" /> : null}
           <HrCards agent={agent} />
-          <HandoffCard detail={detail} items={chat.items} />
+          {restartAt < 0 ? restart : null}
           {detail.prompt ? null : <NeedsYouCard detail={detail} />}
           {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
           <LiveLine working={chat.working} messages={chat.messages} items={chat.items} />

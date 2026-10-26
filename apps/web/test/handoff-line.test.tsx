@@ -54,6 +54,26 @@ describe('handoff line', () => {
     expect(box.querySelectorAll('.card-handoff')).toHaveLength(1); // earlier session boundaries stay above it
   });
 
+  it('sits where the restart began: what was sent after it reads below the line', async () => {
+    const s = setup();
+    const fx = s.daemon.sessions.get(ARCH)!.fx;
+    keep = () => void (fx.view = undefined);
+    await mount(s);
+    await until(() => box.querySelector('.msg'), 'the chat');
+    await act(async () => void (await new Promise((r) => setTimeout(r, 50))));
+    fx.view = { handoff: { cause: 'context_full', phase: 'writing', since: new Date().toISOString() } };
+    const session = s.daemon.sessions.get(ARCH)!;
+    (s.daemon as unknown as { script: { setState(x: unknown, st: string): void } }).script.setState(session, session.state); // announces the change as the daemon does
+    await until(() => card(), 'the line');
+    await act(async () => void (await s.client.call('chat.send', { agent: ARCH, body: 'sent while restarting', request_id: 'r1' })));
+    await until(
+      () => card() && [...box.querySelectorAll('.msg')].some((m) => m.textContent?.includes('sent while restarting')),
+      'the line and the message',
+    );
+    const mine = [...box.querySelectorAll('.msg')].find((m) => m.textContent?.includes('sent while restarting'))!;
+    expect(card()!.compareDocumentPosition(mine) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('changes the words in place when the phase moves on', async () => {
     const s = setup();
     const fx = s.daemon.sessions.get(ARCH)!.fx;

@@ -64,7 +64,18 @@ export function timeline(
     ...decided.flatMap((p): TimelineEntry[] => (p.settled ? [{ kind: 'proposal', at: p.settled, id: p.id, proposal: p }] : [])),
   ];
   const rank = (e: TimelineEntry) => (e.kind === 'item' ? 1 : e.kind === 'proposal' ? 2 : 0); // at one instant: messages, then the transcript, then a decision
-  out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : rank(a) - rank(b) || a.id - b.id));
+  const starts = items.filter((i) => i.kind === 'session').map((i) => i.at);
+  // A message that waited through a restart and was delivered to the new session reads below that session's line, not above it.
+  const waited = new Map(
+    out.flatMap((e): [TimelineEntry, string][] => {
+      const sent = e.kind === 'message' ? e.message.delivered_at : null;
+      const start = sent ? starts.filter((at) => at > e.at && at <= sent).at(-1) : undefined;
+      return start ? [[e, start]] : [];
+    }),
+  );
+  const at = (e: TimelineEntry) => waited.get(e) ?? e.at;
+  const order = (e: TimelineEntry) => (waited.has(e) ? 3 : rank(e));
+  out.sort((a, b) => (at(a) < at(b) ? -1 : at(a) > at(b) ? 1 : order(a) - order(b) || a.id - b.id));
   return out.reduce<TimelineEntry[]>((all, e) => {
     const prev = all.at(-1);
     if (prev?.kind === 'item' && e.kind === 'item' && prev.item.kind === 'session' && e.item.kind === 'session')
