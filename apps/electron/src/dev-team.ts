@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import { inBackground } from '#src/background.ts';
 
 /** What `hl dev on` writes to ~/.handline-dev/<team>/instance.json, as far as the app reads it. */
 export interface Instance {
@@ -49,7 +50,8 @@ export async function offReason(i: Instance, up: (where: string) => Promise<bool
 }
 
 /** The environment the page and the shell run with: every HANDLINE_ and OCP_ variable dropped, so nothing names the live home or its
- * gateway, then the instance's. Connect mode attaches to the instance and never starts a daemon of its own on that home. */
+ * gateway, then the instance's. Connect mode attaches to the instance and never starts a daemon of its own on that home. Whether the
+ * run stays in the background is decided before the drop, since an agent is known by its OCP_AGENT. */
 export function teamEnv(base: NodeJS.ProcessEnv, i: Instance, devUrl: string): NodeJS.ProcessEnv {
   const env = Object.fromEntries(Object.entries(base).filter(([k]) => !k.startsWith('HANDLINE_') && !k.startsWith('OCP_')));
   return {
@@ -60,6 +62,7 @@ export function teamEnv(base: NodeJS.ProcessEnv, i: Instance, devUrl: string): N
     HANDLINE_GATEWAY_WS: i.gateway,
     HANDLINE_MODE: 'connect',
     HANDLINE_DEV_URL: devUrl,
+    HANDLINE_BACKGROUND: inBackground(base) ? '1' : '0',
   };
 }
 

@@ -57,11 +57,11 @@ describe('the list', () => {
   it('shows the skeleton while loading, then a line per account with its gauges, state chip and agents', async () => {
     const s = setup();
     s.daemon.knobs.latency(400);
-    await mount('#/accounts', s);
-    await until(() => $('.accounts .skeleton'), 'the skeleton');
-    expect($('.accounts .skeleton')!.getAttribute('aria-busy')).toBe('true');
+    await mount('#/stats', s);
+    await until(() => $('.usage-page .skeleton'), 'the skeleton');
+    expect($('.usage-page .skeleton')!.getAttribute('aria-busy')).toBe('true');
     await until(() => $$('.acct-row').length === 3, 'the rows', 600);
-    await until(() => !$('.accounts .skeleton'), 'the Stats section below them to load too', 600);
+    await until(() => !$('.usage-page .skeleton'), 'the Stats section below them to load too', 600);
     expect(text(card('alpha').querySelector('.acct-state'))).toBe('in use');
     expect(text(card('beta').querySelector('strong'))).toBe('review');
     expect(text(card('gamma').querySelector('.acct-state'))).toBe('login needed');
@@ -75,7 +75,7 @@ describe('the list', () => {
   it('says under the week gauge where the week stands against its pace, and nothing without a pace', async () => {
     const s = setup();
     s.daemon.accounts.add({ name: 'delta', pace: null });
-    await mount('#/accounts', s);
+    await mount('#/stats', s);
     await until(() => $$('.acct-row').length === 4, 'the rows', 600);
     expect(card('delta').querySelector('.acct-pace')).toBeNull();
     expect(text(card('alpha').querySelector('.acct-pace'))).toBe('ahead');
@@ -92,7 +92,7 @@ describe('the list', () => {
     const was = fx.state;
     fx.state = 'running';
     try {
-      await mount('#/accounts', s);
+      await mount('#/stats', s);
       await until(() => text(card('alpha').querySelector('.acct-agents')).includes('1 working / cap 4'), 'the running count');
     } finally {
       fx.state = was;
@@ -100,7 +100,7 @@ describe('the list', () => {
   });
 
   it('says on each line the login, the plan, when the week resets, and whether it can take another agent and why not', async () => {
-    await mount();
+    await mount('#/stats');
     await until(() => text(card('beta').querySelector('[data-usage]')).includes('cannot'), 'the usage line');
     expect(text(card('alpha').querySelector('[data-usage]'))).toMatch(/^logged in · pro · week resets .*· can take another agent$/);
     expect(text(card('beta').querySelector('[data-usage]'))).toContain('cannot take another agent: 5h 88% at last reading');
@@ -108,7 +108,7 @@ describe('the list', () => {
   });
 
   it('keeps the usage line when the accounts topic sends a row without those fields', async () => {
-    const s = await mount();
+    const s = await mount('#/stats');
     await until(() => text(card('beta').querySelector('[data-usage]')).includes('cannot'), 'the usage line');
     await act(async () => void s.daemon.accounts.set({ account: 'beta', cap: 3 }));
     await until(() => text(card('beta').querySelector('.acct-agents')).includes('/ cap 3'), 'the event');
@@ -119,7 +119,7 @@ describe('the list', () => {
     const s = setup();
     for (const p of [59, 60, 84, 85])
       s.daemon.accounts.add({ name: `p${p}`, five_hour: { used_pct: p, resets_at: null, source: 'measured' } });
-    await mount('#/accounts', s);
+    await mount('#/stats', s);
     await until(() => $$('.acct-row').length === 7, 'the rows');
     const tone = (n: string) => card(n).querySelector('[data-gauge="5 h"]')!.getAttribute('data-tone');
     expect([59, 60, 84, 85].map((p) => tone(`p${p}`))).toEqual(['ok', 'warn', 'warn', 'bad']);
@@ -132,7 +132,7 @@ describe('the list', () => {
       name: 'full',
       five_hour: { used_pct: 100, resets_at: new Date(Date.now() + 3_600_000).toISOString(), source: 'measured' },
     });
-    await mount('#/accounts', s);
+    await mount('#/stats', s);
     await until(() => card('full'), 'the card');
     expect(card('full').querySelector('.acct-state')!.getAttribute('data-state')).toBe('out');
     expect(text(card('full').querySelector('.acct-state'))).toContain('out until');
@@ -140,7 +140,7 @@ describe('the list', () => {
 
   it('a daemon that does not serve accounts says so and has no usage link', async () => {
     await mount('#/accounts', setup({ daemon: { accounts: false } }), '1');
-    await until(() => text($('.accounts')).includes('does not serve accounts'), 'the notice');
+    await until(() => text($('.settings-shell')).includes('does not serve accounts'), 'the notice');
     expect($('.usage')).toBeNull();
   });
 });
@@ -154,7 +154,7 @@ describe('the usage link', () => {
     expect($('.usage-btn .count')!.className).toContain('text-wait'); // 80% and over
     expect($('.usage-pop')).toBeNull();
     await click($('.usage-btn'));
-    expect(location.hash).toBe('#/accounts');
+    expect(location.hash).toBe('#/stats');
   });
 
   it('follows the accounts topic', async () => {

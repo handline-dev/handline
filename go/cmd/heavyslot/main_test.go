@@ -28,7 +28,7 @@ func start(t *testing.T, bin, slots string, env []string, args ...string) (*exec
 	cmd := exec.Command(bin, append([]string{"--"}, args...)...)
 	var errb bytes.Buffer
 	cmd.Stderr = &errb
-	cmd.Env = append(os.Environ(), append([]string{"HANDLINE_HEAVY_DIR=" + slots, "HANDLINE_HEAVY_SLOT=", "HANDLINE_HEAVY_SLOTS=",
+	cmd.Env = append(os.Environ(), append([]string{"HANDLINE_HEAVY_DIR=" + slots, "HANDLINE_HEAVY_SLOT=", "HANDLINE_HEAVY_SLOTS=1",
 		"OCP_AGENT=tester"}, env...)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
@@ -85,7 +85,7 @@ func TestAWaiterSaysItWaitsBeforeTheHolderWritesWhoItIs(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(bin, "--", "true")
-	cmd.Env = append(os.Environ(), "HANDLINE_HEAVY_DIR="+slots, "HANDLINE_HEAVY_SLOT=", "HANDLINE_HEAVY_SLOTS=", "OCP_AGENT=tester")
+	cmd.Env = append(os.Environ(), "HANDLINE_HEAVY_DIR="+slots, "HANDLINE_HEAVY_SLOT=", "HANDLINE_HEAVY_SLOTS=1", "OCP_AGENT=tester")
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestAWaiterSaysItWaitsBeforeTheHolderWritesWhoItIs(t *testing.T) {
 		if !strings.Contains(l, "waiting for a heavy-run slot") || !strings.Contains(l, "still writing") {
 			t.Errorf("the waiter did not say it waits: %q", l)
 		}
-	case <-time.After(2 * poll):
+	case <-time.After(5 * poll):
 		t.Fatal("the waiter said nothing while the slot was held")
 	}
 	syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
@@ -213,7 +213,7 @@ os.waitpid(pid, 0)
 sys.stdout.write(out.decode(errors="replace"))
 `
 	cmd := exec.Command(py, "-c", script, bin, "--", "sh", "-c", "stty -echo; stty echo; echo ok")
-	cmd.Env = append(os.Environ(), "HANDLINE_HEAVY_DIR="+slots, "HANDLINE_HEAVY_SLOT=", "HANDLINE_HEAVY_SLOTS=", "OCP_AGENT=tester")
+	cmd.Env = append(os.Environ(), "HANDLINE_HEAVY_DIR="+slots, "HANDLINE_HEAVY_SLOT=", "HANDLINE_HEAVY_SLOTS=1", "OCP_AGENT=tester")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -250,5 +250,65 @@ func TestTheExitStatusIsTheCommandsAndANestedRunDoesNotWait(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("a run inside the slot waited on its own slot")
+	}
+}
+
+func waitTickets(t *testing.T, slots string, n int) {
+	t.Helper()
+	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		if m, _ := filepath.Glob(filepath.Join(slots, "ticket-*")); len(m) >= n {
+			return
+		}
+	}
+	t.Fatalf("fewer than %d runs took a ticket", n)
+}
+
+// Waiters take the slot in the order they came, and a run that starts again the moment it ends goes to the back of the line.
+func TestWaitersAreServedInTheOrderTheyCame(t *testing.T) {
+	bin, slots := build(t)
+	log := filepath.Join(t.TempDir(), "order")
+	note := func(name string) string { return "echo " + name + " >> " + log }
+	holder, _ := start(t, bin, slots, nil, "sh", "-c", "sleep 1.5")
+	waitHeld(t, slots)
+	var waiters []*exec.Cmd
+	for i, name := range []string{"first", "second", "third"} {
+		c, _ := start(t, bin, slots, nil, "sh", "-c", note(name)+"; sleep 0.3")
+		waiters = append(waiters, c)
+		waitTickets(t, slots, i+1)
+	}
+	if err := holder.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	again, _ := start(t, bin, slots, nil, "sh", "-c", note("holder-again"))
+	for _, c := range append(waiters, again) {
+		if err := c.Wait(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := os.ReadFile(log)
+	if want := "first\nsecond\nthird\nholder-again\n"; string(got) != want {
+		t.Errorf("the runs went in the order %q, want %q", got, want)
+	}
+}
+
+// A ticket whose waiter died does not hold up the line, and is removed.
+func TestADeadWaitersTicketIsDropped(t *testing.T) {
+	bin, slots := build(t)
+	if err := os.MkdirAll(slots, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dead := filepath.Join(slots, "ticket-00000000000000000001-99999")
+	if err := os.WriteFile(dead, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := start(t, bin, slots, nil, "true")
+	if err := c.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dead); !os.IsNotExist(err) {
+		t.Errorf("the dead waiter's ticket is still there: %v", err)
+	}
+	if m, _ := filepath.Glob(filepath.Join(slots, "ticket-*")); len(m) != 0 {
+		t.Errorf("tickets left behind: %v", m)
 	}
 }

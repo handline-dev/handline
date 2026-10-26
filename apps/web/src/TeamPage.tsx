@@ -3,9 +3,8 @@ import { taskRef } from '@handline/app-core';
 import type { AgentView, TeamAgent } from '@handline/client';
 import { useServes, useTeamBoard } from '@handline/app-data';
 import { HrTab } from '#src/HrTab.tsx';
-import { TeamSeal } from '#src/TeamSeal.tsx';
-import { Empty, Icon, PageHead, PageTitle, ScrollPage, MetaItem, MetaLine, State, stateOfView } from '#src/ui/index.ts';
-import { SettingsTabs } from '#src/SettingsTabs.tsx';
+import { Empty, Icon, MetaItem, MetaLine, State, stateOfView } from '#src/ui/index.ts';
+import { SettingsSection, SettingsShell } from '#src/SettingsShell.tsx';
 import { goAgent, useTeamRoute } from '#src/route.ts';
 import { View } from '#src/View.tsx';
 import { Reveal } from '#src/ui/Reveal.tsx';
@@ -14,16 +13,15 @@ export function TeamPage() {
   const route = useTeamRoute()!;
   const { served: hrServed } = useServes('hr.list');
   return (
-    <ScrollPage className="team" aria-label="Team">
-      <PageHead>
-        <PageTitle>Settings</PageTitle>
-        <span className="ml-auto">
-          <TeamSeal />
-        </span>
-      </PageHead>
-      <SettingsTabs value={route.tab} />
-      {route.tab === 'hr' && hrServed ? <HrTab focus={route.proposal} /> : <TeamTable />}
-    </ScrollPage>
+    <SettingsShell tab={route.tab} label="Team">
+      {route.tab === 'hr' && hrServed ? (
+        <HrTab focus={route.proposal} />
+      ) : (
+        <SettingsSection title="Team">
+          <TeamTable />
+        </SettingsSection>
+      )}
+    </SettingsShell>
   );
 }
 
@@ -44,14 +42,7 @@ function TeamTable() {
               ) : null}
               <div className="team-cards grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2">
                 {g.agents.map((a) => (
-                  <Card
-                    key={a.name}
-                    a={a}
-                    d={doing(a.name)}
-                    edges={edges}
-                    open={isOpen(a.name)}
-                    onOpen={() => toggle(a.name)}
-                  />
+                  <Card key={a.name} a={a} d={doing(a.name)} edges={edges} open={isOpen(a.name)} onOpen={() => toggle(a.name)} />
                 ))}
               </div>
             </section>

@@ -623,7 +623,7 @@ export type Account = {
 
 export type DaemonStatus = {
   alive: boolean;
-  /** Loaded git sha. */
+  /** The loaded build's identity: its git sha, or <version>+<sha>[-dirty] for a release build. */
   version: string;
   protocol: number;
   schema: number;
@@ -1562,7 +1562,7 @@ export type ConnectionInfo = {
     tailscale_host: string | null;
   };
   heavy_slots: {
-    /** HANDLINE_HEAVY_SLOTS as this process sees it, default 1. */
+    /** HANDLINE_HEAVY_SLOTS as this process sees it, default 2. */
     slots: number;
     /** Where the slot locks are kept: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots. */
     dir: string | null;
@@ -1771,7 +1771,7 @@ export interface Methods {
     protocol: number;
     /** Oldest client protocol it still serves. */
     min_client: number;
-    /** Loaded git sha. */
+    /** The loaded build's identity: its git sha, or <version>+<sha>[-dirty] for a release build. */
     daemon: string;
     schema: number;
     role: Role;

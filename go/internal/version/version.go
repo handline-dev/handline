@@ -1,9 +1,10 @@
-// Package version holds the build's identity: the git sha the binary was made from.
+// Package version holds the build's identity: the git sha the binary was made from, with the version for a release.
 package version
 
 import "runtime/debug"
 
-// Sha is stamped at build time: -ldflags "-X github.com/handline/handline/go/internal/version.Sha=$(git rev-parse --short HEAD)".
+// Sha is stamped at build time: -ldflags "-X github.com/handline/handline/go/internal/version.Sha=$(git rev-parse --short HEAD)"
+// (tools/build-go.sh), or <version>+<sha>[-dirty] for a release (tools/build-darwin.sh).
 // A plain `go build` in the checkout leaves it unstamped; init then takes the revision go records in the binary itself.
 var Sha = "unknown"
 
