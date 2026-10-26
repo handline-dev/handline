@@ -4,13 +4,16 @@ package service
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -295,11 +298,63 @@ func (s *Service) load(body string) error {
 	return nil
 }
 
-// Upgrade switches the job to the binaries in src. A version that does not answer within the wait is switched back and removed.
-func (s *Service) Upgrade(src string) (string, error) {
+// BinDir is where the binaries are for src: src itself, or the bin folder of the Handline.app src is or sits in.
+func BinDir(src string) string {
+	for _, d := range []string{src, filepath.Join(src, "Contents", "Resources", "bin")} {
+		if _, err := os.Stat(filepath.Join(d, "handlined")); err == nil {
+			return d
+		}
+	}
+	return src
+}
+
+// number is the dotted numbers a version starts with ("1.2.10+abc" is 1, 2, 10), nil when it does not start with one.
+func number(v string) []int {
+	var n []int
+	for _, p := range strings.Split(strings.TrimPrefix(v, "v"), ".") {
+		end := 0
+		for end < len(p) && p[end] >= '0' && p[end] <= '9' {
+			end++
+		}
+		if end == 0 {
+			break
+		}
+		x, _ := strconv.Atoi(p[:end])
+		n = append(n, x)
+		if end < len(p) {
+			break
+		}
+	}
+	return n
+}
+
+// newer reports whether v is above cur by their numbers; versions with no number (a dev build) cannot be ordered and pass.
+func newer(v, cur string) bool {
+	a, b := number(v), number(cur)
+	if a == nil || b == nil {
+		return true
+	}
+	for len(a) < len(b) {
+		a = append(a, 0)
+	}
+	for len(b) < len(a) {
+		b = append(b, 0)
+	}
+	return slices.Compare(a, b) > 0
+}
+
+// Upgrade switches the job to the binaries in src (a folder holding them, or a Handline.app). A version that is not above the
+// current one is refused unless force; one that does not answer within the wait is switched back and removed.
+func (s *Service) Upgrade(src string, force bool) (string, error) {
 	cur, prev := s.Current(), s.Previous()
 	if cur == "" {
 		return "", fmt.Errorf("%s is not installed (handlined service install)", s.Label)
+	}
+	src = BinDir(src)
+	if !force {
+		if v, err := s.Version(filepath.Join(src, "handlined")); err == nil && v != cur && !newer(v, cur) {
+			return "", fmt.Errorf("%s is not newer than %s; --force installs it anyway", v, cur)
+		}
 	}
 	v, fresh, err := s.add(src)
 	if err != nil {
@@ -377,6 +432,23 @@ func (s *Service) Status() string {
 	slices.Sort(kept)
 	return fmt.Sprintf("%s: %s\ncurrent: %s\nprevious: %s\nkept: %s\nrunning: %s", s.Label, job, cur, s.Previous(), strings.Join(kept, " "), ans)
 }
+
+// StatusJSON is Status as one JSON object for the app: installed, running (the job has a process), the current and previous
+// versions, and the job's pid (0 when it has none).
+func (s *Service) StatusJSON() string {
+	_, target := s.target()
+	out, _ := s.Launchctl("print", target)
+	pid := 0
+	if m := pidLine.FindStringSubmatch(out); m != nil {
+		pid, _ = strconv.Atoi(m[1])
+	}
+	b, _ := json.Marshal(map[string]any{
+		"installed": s.Current() != "", "running": pid > 0, "current": s.Current(), "previous": s.Previous(), "pid": pid, "path": filepath.Join(s.Bin, current),
+	})
+	return string(b)
+}
+
+var pidLine = regexp.MustCompile(`(?m)^\s*pid = (\d+)`)
 
 // Uninstall unloads the job and removes its file; the version folders stay.
 func (s *Service) Uninstall() (string, error) {
