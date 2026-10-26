@@ -125,6 +125,40 @@ export const SEEDS: Record<string, Seed> = {
     }
   },
 
+  /** The founder's requests: one waiting on them, one in review, one doing, a done one, a message that is not a task yet. */
+  requests: (d) => {
+    d.requests.add({
+      title: 'Show the usage graph first',
+      task: 6071,
+      status: 'doing',
+      agent: 'handline.pc',
+      holders: ['handline.pc'],
+      open: 2,
+      done: 1,
+    });
+    d.requests.add({
+      title: 'Open a new shell from the + menu',
+      task: 6068,
+      status: 'review',
+      agent: 'handline.pc',
+      holders: ['handline.pc'],
+      open: 1,
+      done: 2,
+      prs: [630],
+    });
+    d.requests.add({
+      title: 'Which build is live?',
+      task: 6020,
+      status: 'waiting_on_you',
+      agent: 'handline',
+      holders: ['handline'],
+      open: 1,
+      unread_comments: 2,
+    });
+    d.requests.add({ title: 'Settings in one place', task: 5983, status: 'done', agent: 'handline.pc', done: 6 });
+    d.requests.add({ title: 'Why is the build so slow today?', kind: 'message', agent: 'handline' });
+  },
+
   /** The architect is held back for the machine's load: its chat and row say so, and agent.force_start starts it. */
   'agent-held': (d) => {
     const s = d.sessions.get(ARCH)!;
