@@ -156,6 +156,7 @@ function makeUpdater(page: Page, composer: Composer): Updater {
       return !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true));
     },
     ask: async () =>
+      !background &&
       (
         await dialog.showMessageBox(win!, {
           message: 'Handline was updated. Restart now?',
@@ -260,6 +261,7 @@ if (!app.requestSingleInstanceLock({ background })) {
       loginPath: async () => (await editorEnv()).PATH,
       home,
       root,
+      background,
       socket,
       gatewaySocket,
       gateway,
