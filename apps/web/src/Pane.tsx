@@ -256,7 +256,7 @@ export function Pane({ group }: { group: Group }) {
         ) : tab.kind === 'android' || tab.kind === 'ios' ? (
           <DeviceTab agent={agent} kind={tab.kind} hidden={!!dragging} />
         ) : tab.kind === 'shell' ? (
-          <BytesTab agent={agent} detail={{ terminal: String(tab.params.handle) }} handle={String(tab.params.handle)} shell />
+          <BytesTab key={tab.id} agent={agent} detail={{ terminal: String(tab.params.handle) }} handle={String(tab.params.handle)} shell />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (
           <Watch
             agent={agent}
