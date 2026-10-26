@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Tray } from 'electron';
 import { webSocketTransport } from '@handline/client';
 import { pinnedWebSocketTransport, unixSocketTransport } from '@handline/client-node';
 import { CHANNELS, fromWindow } from '#src/bridge.ts';
@@ -26,13 +26,17 @@ import { COPY_URL, phoneHtml } from '#src/phone-html.ts';
 import { grant } from '#src/grant.ts';
 import { onTailnet } from '#src/tailnet.ts';
 import { singleWindow } from '#src/single-window.ts';
-import { trayMenu, type TrayFollow } from '#src/tray.ts';
+import { trayIcon as iconFor, trayMenu, type TrayActions, type TrayFollow, type TrayIcon, type TrayMode } from '#src/tray.ts';
 
-/** The menu-bar icon: a template image (trayTemplate@2x.png is picked up on a Retina screen), so macOS tints it for a light or a dark bar. */
-function trayIcon(): Electron.NativeImage {
-  const img = nativeImage.createFromPath(path.join(import.meta.dirname, '../assets/trayTemplate.png'));
-  img.setTemplateImage(true);
-  return img;
+/** The menu-bar icon. The plain one is a template image (trayTemplate@2x.png is picked up on a Retina screen), so macOS tints it for a light or a dark bar; one with a dot has a colour of its own, so it is drawn for the bar's brightness. */
+function trayImage(kind: TrayIcon): Electron.NativeImage {
+  const dir = path.join(import.meta.dirname, '../assets');
+  if (kind === 'plain') {
+    const img = nativeImage.createFromPath(path.join(dir, 'trayTemplate.png'));
+    img.setTemplateImage(true);
+    return img;
+  }
+  return nativeImage.createFromPath(path.join(dir, `tray-${kind}-${nativeTheme.shouldUseDarkColors ? 'dark' : 'light'}.png`));
 }
 
 /** A window with the QR of a fresh one-time link; rejects with the gateway's reason when it cannot make one (no network listener, no key). */
@@ -137,6 +141,8 @@ function relaunchWith(file: SettingsFile, next: Settings): void {
 export interface Own {
   /** Draws the tray menu again, after something it shows changed. */
   redraw(): void;
+  /** The inbox's unread count: the tray's dot and line. */
+  setUnread(n: number): void;
   /** Starts what is missing and pairs; resolves when the window can open (with or without a token), with the address the gateway ended up on. */
   ready(): Promise<string | undefined>;
   /** What the tray says in connect mode; the daemon's version is set once the shell's own connection says hello. */
@@ -162,6 +168,17 @@ async function daemonCmd(o: {
   return commands(o.env, o.root, o.gateway ?? '127.0.0.1:7443', o.advertise, claude).daemon;
 }
 
+/** The tray's icon and menu. No context menu is set: a click builds the menu, and Option held at the click adds the details. */
+function trayControls(tray: Tray, owner: Owner, actions: TrayActions, mode: () => TrayMode, follow?: () => TrayFollow) {
+  let unread = 0;
+  const menu = (details: boolean) =>
+    Menu.buildFromTemplate(trayMenu(owner.state, owner.reason, actions, follow?.(), mode(), { unread, details }));
+  const draw = () => tray.setImage(trayImage(iconFor(owner.state, owner.reason, actions, { unread, details: false }, follow?.(), mode())));
+  tray.on('click', (e) => tray.popUpContextMenu(menu(!!e.altKey)));
+  tray.on('right-click', (e) => tray.popUpContextMenu(menu(!!e.altKey)));
+  return { draw, setUnread: (n: number) => ((unread = n), draw()) };
+}
+
 export function ownDaemon(o: {
   env: (k: string) => string | undefined;
   home: string;
@@ -174,6 +191,8 @@ export function ownDaemon(o: {
   advertise: string | null;
   origin: string;
   openWindow: () => void;
+  /** Shows the window on a page that has no id: 'inbox' or 'settings'. */
+  openPage: (screen: 'inbox' | 'settings') => void;
   settings: SettingsFile;
   /** The mode and pairing in force; connect mode never starts or stops a daemon. */
   current: Settings;
@@ -191,7 +210,7 @@ export function ownDaemon(o: {
     wait: sleep,
   });
   app.on('quit', () => owner.stop());
-  const tray = new Tray(trayIcon());
+  const tray = new Tray(trayImage('plain'));
   tray.setToolTip('Handline');
   const link = new Link();
   link.set('connecting', { address: o.gateway ?? null });
@@ -199,28 +218,26 @@ export function ownDaemon(o: {
   const pair = async (i: OfferInput) => relaunchAs({ mode: 'connect', remote: await pairFrom(i) });
   const pairClipboard = () => pair({ link: clipboard.readText() }).catch((e: Error) => link.set('cannot-pair', { reason: e.message }));
   link.onChange(() => draw());
-  const draw = () =>
-    tray.setContextMenu(
-      Menu.buildFromTemplate(
-        trayMenu(
-          owner.state,
-          owner.reason,
-          { open: o.openWindow, startDaemon: () => void owner.start(), quit: () => app.quit() },
-          o.follow?.(),
-          {
-            mode: o.current.mode,
-            link,
-            switchTo: () => relaunchAs({ ...o.current, mode: o.current.mode === 'connect' ? 'own' : 'connect' }),
-            pair: () => void pairClipboard(),
-            phone: o.current.remote ? undefined : () => void showPhone(openPhone),
-          },
-        ),
-      ),
-    );
+  const actions = {
+    open: o.openWindow,
+    startDaemon: () => void owner.start(),
+    quit: () => app.quit(),
+    inbox: () => o.openPage('inbox'),
+    settings: () => o.openPage('settings'),
+    reconnect: () => relaunchAs(o.current),
+    copy: (text: string) => clipboard.writeText(text),
+  };
+  const mode = () => ({
+    mode: o.current.mode,
+    link,
+    switchTo: () => relaunchAs({ ...o.current, mode: o.current.mode === 'connect' ? 'own' : 'connect' }),
+    pair: () => void pairClipboard(),
+    phone: o.current.remote ? undefined : () => void showPhone(openPhone),
+  });
+  const { draw, setUnread } = trayControls(tray, owner, actions, mode, o.follow);
   owner.onChange(draw);
   logFailures(owner, log);
   draw();
-  tray.on('click', o.openWindow);
   // The key stays in this process; the page gets the device token only, from its own origin's top frame.
   let token: string | null = null;
   let ownHost: string | null = null;
@@ -259,6 +276,7 @@ export function ownDaemon(o: {
   }
   return {
     redraw: draw,
+    setUnread,
     link,
     remote: o.current.remote,
     switchMode: (m) => relaunchAs({ ...o.current, mode: m }),

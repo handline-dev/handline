@@ -17,6 +17,8 @@ type Call =
   | 'cancelCompose'
   | 'mode'
   | 'setMode'
+  | 'follow'
+  | 'checkUpdate'
   | 'pairRemote'
   | 'phone'
   | 'preview'

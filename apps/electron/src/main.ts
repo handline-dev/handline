@@ -15,6 +15,7 @@ import { Opener } from '#src/open.ts';
 import { Devices } from '#src/devices.ts';
 import { Preview } from '#src/preview.ts';
 import { followMain, takeRoute } from '#src/follow-app.ts';
+import type { Follower } from '#src/follow.ts';
 import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from '#src/mode.ts';
 import { ownDaemon, readFounderKey, type Own } from '#src/own.ts';
 import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from '#src/tailnet.ts';
@@ -112,15 +113,19 @@ function handleSettings(origin: string, client: DaemonClient, remote: Remote | n
   ipcMain.handle(CHANNELS.settingsSet, (e, arg) => s.set(e, arg));
 }
 
-function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote | null): void {
+function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote | null, f?: Follower): void {
   const c = new Connection(origin, {
     mode: () => ({ mode, remote: remote?.host ?? null }),
+    follow: () => (f ? { sha: f.sha, state: f.state, next: f.next?.sha ?? null } : null),
+    check: () => void f?.look(),
     setMode: (m) => own.switchMode(m),
     pair: (i) => own.pair(i),
     phone: () => own.phone(),
   });
   ipcMain.handle(CHANNELS.mode, (e) => c.mode(e));
   ipcMain.handle(CHANNELS.setMode, (e, arg) => c.setMode(e, arg));
+  ipcMain.handle(CHANNELS.follow, (e) => c.follow(e));
+  ipcMain.handle(CHANNELS.checkUpdate, (e) => c.checkUpdate(e));
   ipcMain.handle(CHANNELS.phone, (e) => c.phone(e));
   ipcMain.handle(CHANNELS.pairRemote, (e, arg) => c.pairRemote(e, arg));
   serveCapture(ipcMain, origin, { sources: (thumbnailSize) => desktopCapturer.getSources({ types: ['window'], thumbnailSize }) });
@@ -256,6 +261,7 @@ if (!app.requestSingleInstanceLock()) {
       settings,
       current,
       openWindow: () => void openWindow(),
+      openPage: (screen) => void openWindow().then(() => win?.webContents.send(CHANNELS.navigate, { screen, id: '', event: 'tray' })),
       follow:
         f &&
         (() => ({
@@ -267,7 +273,7 @@ if (!app.requestSingleInstanceLock()) {
           restart: () => void f.restartNow(),
         })),
     });
-    handleConnection(origin, own, current.mode, remote);
+    handleConnection(origin, own, current.mode, remote, f);
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
     const preview = new Preview(origin, () => win);
@@ -317,6 +323,7 @@ if (!app.requestSingleInstanceLock()) {
 
     const desk = new Desk(client, {
       setBadge: (t) => {
+        own.setUnread(Number(t.replace('+', '')) || 0);
         if (app.dock) app.dock.setBadge(t);
         else app.setBadgeCount(Number(t.replace('+', '')) || 0);
       },

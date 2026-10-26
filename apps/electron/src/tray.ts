@@ -14,6 +14,22 @@ export interface TrayActions {
   open(): void;
   startDaemon(): void;
   quit(): void;
+  /** The Inbox, where the items waiting on the person are. */
+  inbox(): void;
+  settings(): void;
+  /** Connect mode: try the daemon again. */
+  reconnect(): void;
+  /** Puts an address or a commit on the clipboard. */
+  copy(text: string): void;
+}
+
+/** What the menu-bar icon shows: nothing extra, a red dot (items wait on the person), a blue dot (an update is ready) or the yellow icon (trouble). */
+export type TrayIcon = 'plain' | 'turn' | 'update' | 'trouble';
+
+/** What the tray shows besides the daemon: the unread count, and whether the menu was opened with Option held (the details). */
+export interface TrayView {
+  unread: number;
+  details: boolean;
 }
 
 export const STATUS_WORDS: Record<DaemonState, string> = {
@@ -32,25 +48,6 @@ export interface TrayFollow {
   reason: string;
   check(): void;
   restart(): void;
-}
-
-export function followItems(f: TrayFollow): TrayItem[] {
-  const on = `Handline is on main ${f.sha.slice(0, 7)}`;
-  if (f.state === 'updating') return [{ label: 'Updating…', enabled: false }];
-  if (f.state === 'failed')
-    return [
-      { label: `Update failed: ${f.reason}`, enabled: false },
-      { label: 'Check again', click: f.check },
-    ];
-  if (f.state === 'available' && f.next)
-    return [
-      { label: `${on}; main is now ${f.next.slice(0, 7)}`, enabled: false },
-      { label: 'Restart to update', click: f.restart },
-    ];
-  return [
-    { label: on, enabled: false },
-    { label: 'Check for update', click: f.check },
-  ];
 }
 
 /** Which mode is on and which daemon the app talks to; `switchTo` flips the mode. */
@@ -86,23 +83,73 @@ function connectItems(l: TrayMode['link']): TrayItem[] {
   ];
 }
 
-export function trayMenu(state: DaemonState, reason: string, a: TrayActions, follow?: TrayFollow, m?: TrayMode): TrayItem[] {
-  const status: TrayItem = {
-    label: reason && state === 'failed' ? `${STATUS_WORDS[state]} (${reason})` : STATUS_WORDS[state],
-    enabled: false,
-  };
-  const items: TrayItem[] = [{ label: 'Open Handline', click: a.open }, { type: 'separator' }];
+/** The one line that says something is wrong, with its fix; null while all is well. */
+function trouble(state: DaemonState, reason: string, a: TrayActions, m?: TrayMode): TrayItem[] | null {
+  if (m?.mode === 'connect') {
+    if (m.link.status === 'cannot-pair')
+      return [
+        { label: `⚠ Cannot reach the daemon: ${m.link.reason || 'the gateway did not answer'}`, enabled: false },
+        { label: 'Reconnect', click: a.reconnect },
+      ];
+    if (m.link.status === 'no-daemon') return [{ label: '⚠ No daemon is running here', enabled: false }];
+    return null;
+  }
+  if (state === 'stopped')
+    return [
+      { label: '⚠ The daemon stopped', enabled: false },
+      { label: 'Start daemon', click: a.startDaemon },
+    ];
+  if (state === 'failed')
+    return [
+      { label: `⚠ The daemon failed${reason ? ` (${reason})` : ''}`, enabled: false },
+      { label: 'Start daemon', click: a.startDaemon },
+    ];
+  return null;
+}
+
+/** What the icon carries: trouble first, then the person's turn, then an update. */
+export function trayIcon(state: DaemonState, reason: string, a: TrayActions, view: TrayView, follow?: TrayFollow, m?: TrayMode): TrayIcon {
+  if (trouble(state, reason, a, m)) return 'trouble';
+  if (view.unread > 0) return 'turn';
+  return follow?.state === 'available' ? 'update' : 'plain';
+}
+
+/** What Option shows and the usual menu leaves out: the mode, the daemon and its address, the commit, and the switches. Addresses and commits copy on a click. */
+function detailItems(state: DaemonState, reason: string, a: TrayActions, follow?: TrayFollow, m?: TrayMode): TrayItem[] {
+  const items: TrayItem[] = [];
   if (m) items.push({ label: MODE_WORDS[m.mode], enabled: false });
   if (m?.mode === 'connect') items.push(...connectItems(m.link));
-  else {
-    if (m) items.push({ label: daemonWords(m.link), enabled: false });
-    items.push(status);
-    if (state === 'failed' || state === 'stopped') items.push({ label: 'Start daemon', click: a.startDaemon });
-  }
+  else items.push({ label: reason && state === 'failed' ? `${STATUS_WORDS[state]} (${reason})` : STATUS_WORDS[state], enabled: false });
+  if (m) items.push({ label: daemonWords(m.link), ...(m.link.address ? { click: () => a.copy(m.link.address!) } : { enabled: false }) });
+  if (follow) items.push({ label: `Handline is on main ${follow.sha.slice(0, 7)}`, click: () => a.copy(follow.sha) });
+  if (follow?.state !== 'available' && follow) items.push({ label: 'Check for update', click: follow.check });
   if (m?.mode === 'connect') items.push({ label: 'Pair with the link on the clipboard', click: m.pair });
-  if (m?.phone) items.push({ label: 'Pair a phone…', click: m.phone });
   if (m) items.push({ label: m.mode === 'connect' ? 'Switch to Own daemon' : 'Switch to Connect', click: m.switchTo });
-  if (follow) items.push({ type: 'separator' }, ...followItems(follow));
+  return items;
+}
+
+/** The menu: Open, Pair a phone, Settings, Quit; one more line only when something needs the person (items waiting, an update ready, trouble). */
+export function trayMenu(
+  state: DaemonState,
+  reason: string,
+  a: TrayActions,
+  follow?: TrayFollow,
+  m?: TrayMode,
+  view: TrayView = { unread: 0, details: false },
+): TrayItem[] {
+  const items: TrayItem[] = [{ label: 'Open Handline', click: a.open }];
+  const notes: TrayItem[] = [];
+  if (view.unread > 0) notes.push({ label: `${view.unread} waiting on you`, click: a.inbox });
+  notes.push(...(trouble(state, reason, a, m) ?? []));
+  if (follow?.state === 'available' && follow.next) notes.push({ label: 'Restart to update', click: follow.restart });
+  if (follow?.state === 'updating') notes.push({ label: 'Updating…', enabled: false });
+  if (follow?.state === 'failed')
+    notes.push({ label: `Update failed: ${follow.reason}`, enabled: false }, { label: 'Check again', click: follow.check });
+  if (notes.length) items.push({ type: 'separator' }, ...notes);
+  items.push({ type: 'separator' });
+  if (m?.phone) items.push({ label: 'Pair a phone…', click: m.phone });
+  items.push({ label: 'Settings…', click: a.settings });
+  if (view.details) items.push({ type: 'separator' }, ...detailItems(state, reason, a, follow, m));
   items.push({ type: 'separator' }, { label: 'Quit Handline', click: a.quit });
   return items;
 }

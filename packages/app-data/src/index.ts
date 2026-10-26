@@ -18,6 +18,7 @@ export * from '#src/write-spec.ts';
 export * from '#src/writes.ts';
 export * from '#src/attachments.ts';
 export * from '#src/image-drafts.ts';
+export * from '#src/kept.ts';
 export * from '#src/file-editor.ts';
 export * from '#src/chat-read.ts';
 export * from '#src/team-board.ts';

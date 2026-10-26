@@ -62,15 +62,22 @@ test('a refused connection says why', async () => {
   await assert.rejects(pairRemote({ address: 'mac.tail1.ts.net', code: 'abc' }, { open, name: 'x' }), /ECONNREFUSED/);
 });
 
-const actions = { open() {}, startDaemon() {}, quit() {} };
+const actions = { open() {}, startDaemon() {}, quit() {}, inbox() {}, settings() {}, reconnect() {}, copy() {} };
 const tray = (m: 'connect' | 'own', link: Partial<Link>) => {
   const calls: string[] = [];
-  const items = trayMenu('stopped', '', actions, undefined, {
-    mode: m,
-    link: { status: 'connected', address: null, version: null, reason: '', ...link },
-    switchTo: () => calls.push('switch'),
-    pair: () => calls.push('pair'),
-  });
+  const items = trayMenu(
+    'stopped',
+    '',
+    actions,
+    undefined,
+    {
+      mode: m,
+      link: { status: 'connected', address: null, version: null, reason: '', ...link },
+      switchTo: () => calls.push('switch'),
+      pair: () => calls.push('pair'),
+    },
+    { unread: 0, details: true }, // the mode and the daemon are what Option shows
+  );
   return { items, calls, labels: items.map((i) => i.label ?? '-') };
 };
 
