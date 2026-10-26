@@ -2,6 +2,7 @@
 // that concern it, decided where they were discussed.
 import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
+import { ApplyNow } from '#src/ApplyNow.tsx';
 import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
 import { ago, clockTime, decidedProposals, heldLine, isHeld, isWaiting, restartingLine, restartShown } from '@handline/app-core';
 import { classify, sentence, useAgentStrip, useHr, useWorktrees, useWrite } from '@handline/app-data';
@@ -167,7 +168,10 @@ export function HrCards({ agent }: { agent: string }) {
               {p.state === 'apply_failed' ? (
                 <span className="outcome text-bad">Not applied{p.error ? `: ${p.error}` : ''}. Approve to try again.</span>
               ) : isHeld(p) ? (
-                <span className="muted hr-held">{heldLine(p)}</span>
+                <span className="muted hr-held flex flex-wrap items-center gap-2">
+                  {heldLine(p)}
+                  <ApplyNow p={p} />
+                </span>
               ) : p.reason ? (
                 <span className="muted">{p.reason}</span>
               ) : null}

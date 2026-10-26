@@ -21,6 +21,7 @@ import {
   textSafe,
   waitingCount,
 } from '@handline/app-core';
+import { ApplyNow } from '#src/ApplyNow.tsx';
 import type { Proposal } from '@handline/client';
 import { useOnce, useSelector } from '@handline/app-react';
 import { classify, sentence, useAgents, useHr, usePending, useWrite } from '@handline/app-data';
@@ -335,7 +336,12 @@ function Card({
           {note}
         </p>
       ) : null}
-      {isHeld(p) ? <p className="muted hr-held">{heldLine(p)}</p> : null}
+      {isHeld(p) ? (
+        <p className="muted hr-held flex flex-wrap items-center gap-2">
+          {heldLine(p)}
+          <ApplyNow p={p} refresh={refresh} />
+        </p>
+      ) : null}
       {waiting && narrow ? <p className="muted">Decide on a computer.</p> : null}
       {waiting && decider ? (
         <CardActions wrap>

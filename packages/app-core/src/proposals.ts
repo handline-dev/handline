@@ -1,5 +1,6 @@
 // HR proposals as the HR tab draws them: which wait on the founder, the words for each state, and the text an agent wrote made safe to show.
 import type { Proposal } from '@handline/client';
+import { ago } from '#src/time.ts';
 
 /** The states that wait for the founder; any other word is drawn as text, offers no action and is not counted. */
 export const isWaiting = (p: Proposal): boolean => p.state === 'open' || p.state === 'apply_failed';
@@ -8,12 +9,13 @@ export const waitingCount = (l: readonly Proposal[]): number => l.filter(isWaiti
 /** Approved and held until the agents in `waiting_on` end their turns: the founder has no move on it and it is not counted. */
 export const isHeld = (p: Proposal): boolean => p.state === 'applying';
 
-/** What a held proposal waits for, in words: "waits for handline.pc's turn to end", or for several "waits for a and b to end their turns". */
-export function heldLine(p: Proposal): string {
+/** What a held proposal waits for, in words: "waits for handline.pc's turn to end", or for several "waits for a and b to end their turns"; "since 5m" when the daemon says since when. */
+export function heldLine(p: Proposal, now = Date.now()): string {
   const who = (p.waiting_on ?? []).map(textSafe);
-  if (!who.length) return 'waits for a turn to end';
-  if (who.length === 1) return `waits for ${who[0]}'s turn to end`;
-  return `waits for ${who.slice(0, -1).join(', ')} and ${who.at(-1)} to end their turns`;
+  const since = p.waiting_since ? `, since ${ago(p.waiting_since, now)}` : '';
+  if (!who.length) return `waits for a turn to end${since}`;
+  if (who.length === 1) return `waits for ${who[0]}'s turn to end${since}`;
+  return `waits for ${who.slice(0, -1).join(', ')} and ${who.at(-1)} to end their turns${since}`;
 }
 
 const STATE_WORDS: Record<string, { word: string; tone: 'wait' | 'block' | 'run' | 'muted' }> = {
