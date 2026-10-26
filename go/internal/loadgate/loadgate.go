@@ -69,8 +69,8 @@ func Held(l Limits, active int, m *sysres.Machine) string {
 	}
 	if l.LoadPct > 0 && m.Cores > 0 {
 		if pct := int(m.Load1 * 100 / float64(m.Cores)); pct > l.LoadPct {
-			return fmt.Sprintf(HeldPrefix+"the Mac is busy (%.1f per core, limit %.1f). It starts by itself when that drops.", float64(pct)/100,
-				float64(l.LoadPct)/100)
+			load, limit := perCore(pct, l.LoadPct)
+			return HeldPrefix + "the Mac is busy (" + load + " per core, limit " + limit + "). It starts by itself when that drops."
 		}
 	}
 	if l.RAMFreePct > 0 && m.RAMTotal > 0 {
@@ -80,6 +80,15 @@ func Held(l Limits, active int, m *sysres.Machine) string {
 		}
 	}
 	return ""
+}
+
+// perCore writes a load and its limit (percent of a core) with one decimal, or two when one would show them equal (1.51 over 1.50).
+func perCore(load, limit int) (string, string) {
+	a, b := fmt.Sprintf("%.1f", float64(load)/100), fmt.Sprintf("%.1f", float64(limit)/100)
+	if a == b {
+		a, b = fmt.Sprintf("%.2f", float64(load)/100), fmt.Sprintf("%.2f", float64(limit)/100)
+	}
+	return a, b
 }
 
 // PassFor is how long a force start lets an agent past the limits: long enough for the start it asked for, after which the agent counts

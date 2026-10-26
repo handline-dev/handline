@@ -70,7 +70,7 @@ if (process.argv.includes('--held-load')) {
   // handline.architect waits on the machine load limit, as the daemon reports it: the phone shows the text and Force start.
   const s = daemon.sessions.get('handline.architect')!;
   s.state = 'waiting';
-  s.fx.view = { ...s.fx.view, status: { state: 'waiting', reason: 'load', text: 'held: machine load - load 2.1 per core, limit 1.5' } };
+  s.fx.view = { ...s.fx.view, status: { state: 'waiting', reason: 'load', text: 'Held: the Mac is busy (2.1 per core, limit 1.5). It starts by itself when that drops.' } };
 }
 if (process.argv.includes('--queue')) {
   // Tasks waiting for two agents, as the Team screen shows them.

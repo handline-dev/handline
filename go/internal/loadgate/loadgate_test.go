@@ -34,6 +34,7 @@ func TestEachLimitHoldsAStartAndNoneHoldsTheFirst(t *testing.T) {
 		{"agents at the cap", l, 3, calm, "Held: 3 of 3 agents are working. It starts by itself when one finishes."},
 		{"agent cap off", Limits{LoadPct: 150}, 9, calm, ""},
 		{"load over", l, 1, &sysres.Machine{Cores: 8, Load1: 12.8, RAMTotal: 100, RAMFree: 50}, "Held: the Mac is busy (1.6 per core, limit 1.5). It starts by itself when that drops."},
+		{"load just over", l, 1, &sysres.Machine{Cores: 8, Load1: 12.08, RAMTotal: 100, RAMFree: 50}, "the Mac is busy (1.51 per core, limit 1.50)"},
 		{"load at the limit", l, 1, &sysres.Machine{Cores: 8, Load1: 12, RAMTotal: 100, RAMFree: 50}, ""},
 		{"memory short", l, 1, &sysres.Machine{Cores: 8, Load1: 1, RAMTotal: 100, RAMFree: 9}, "Held: the Mac is low on memory (9% free, limit 10%). It starts by itself when memory frees up."},
 		{"limits off", Limits{}, 1, busy, ""},
