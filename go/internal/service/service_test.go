@@ -177,3 +177,21 @@ func TestARehearsalLabelKeepsItsOwnVersions(t *testing.T) {
 		t.Errorf("%s %s", s.Bin, s.Plist)
 	}
 }
+
+func TestAFailedUpgradeToTheKeptVersionKeepsIt(t *testing.T) {
+	r := newRig(t)
+	r.s.Install(r.build("v1", false), false)
+	r.s.Upgrade(r.build("v2", false))
+	probe := r.s.Probe
+	r.s.Probe = func() (string, error) { // v1 no longer starts, say on a schema v2 changed
+		if r.s.Current() == "v1" {
+			return "", errors.New("not running")
+		}
+		return probe()
+	}
+	_, err := r.s.Upgrade(r.build("v1", false)) // the same bytes as the kept v1
+	if err == nil || !strings.Contains(err.Error(), "rolled back to v2") {
+		t.Fatalf("upgrade to the kept v1: %v", err)
+	}
+	r.want("v2", "v1", "v1", "v2") // v1's folder is the only copy to roll back to: it stays
+}
