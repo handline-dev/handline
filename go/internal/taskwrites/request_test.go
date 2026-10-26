@@ -39,7 +39,7 @@ func TestARequestIsATaskTheFounderOpenedFromTheirMessage(t *testing.T) {
 		"SELECT COUNT(*) FROM tasks": 1,
 		"SELECT COUNT(*) FROM tasks WHERE id = 1 AND title = 'please do the thing' AND owner = 'manager' AND opened_by = 'human' AND from_request = 1": 1,
 		"SELECT COUNT(*) FROM task_requests WHERE task_id = 1 AND request_id = 1":                                                                      1,
-		"SELECT COUNT(*) FROM task_memos WHERE task_id = 1 AND author = 'human' AND body LIKE 'please do the thing%' AND ask = 0":                      1,
+		"SELECT COUNT(*) FROM task_memos WHERE task_id = 1 AND author = 'human' AND body LIKE 'please do the thing%'":                                  1,
 		"SELECT COUNT(*) FROM agent_state WHERE agent = 'manager' AND current_task = 1":                                                                1,
 	} {
 		if got := count(t, db, q); got != want {

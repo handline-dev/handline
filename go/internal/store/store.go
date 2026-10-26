@@ -192,13 +192,12 @@ func addTaskWatch(tx *sql.Tx) error {
 }
 
 // addRequestThreads is a founder's message made a request: the message a task came from (tasks.from_request), a message marked as needing
-// no work (requests.no_work, by whom), and a comment's reply, ask mark and answer time.
+// no work (requests.no_work, by whom), and the comment a comment replies to.
 func addRequestThreads(tx *sql.Tx) error {
 	if err := addTaskColumns(tx, [][2]string{{"from_request", "INTEGER"}}); err != nil {
 		return err
 	}
-	for _, c := range [][3]string{{"requests", "no_work", "TEXT"}, {"requests", "no_work_by", "TEXT"}, {"task_memos", "reply_to", "INTEGER"},
-		{"task_memos", "ask", "INTEGER NOT NULL DEFAULT 0"}, {"task_memos", "answered_at", "INTEGER"}} {
+	for _, c := range [][3]string{{"requests", "no_work", "TEXT"}, {"requests", "no_work_by", "TEXT"}, {"task_memos", "reply_to", "INTEGER"}} {
 		if err := addColumn(tx, c[0], c[1], c[2]); err != nil {
 			return err
 		}
