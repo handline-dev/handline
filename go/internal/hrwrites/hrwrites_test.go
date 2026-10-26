@@ -1170,6 +1170,24 @@ func TestAHeldRenameWhoseStartFailsIsAppliedWithAFailedFollowUp(t *testing.T) {
 	}
 }
 
+// A failed follow-up ends when the agent is running, as after the founder's Start now; the sweep never starts it itself.
+func TestAFailedFollowUpEndsWhenTheAgentIsRunning(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa000f", "kind", "rename", "agent", "bob", "to", "robert")
+	r.live["bob"] = true
+	r.decide(id, "approve", p.subject(), "h6")
+	r.sweepEnded(func(string) (bool, string) { return false, "no account free" })
+	if r.followUp("aaaa000f")["state"] != "failed" {
+		t.Fatal("failed first")
+	}
+	r.live["robert"] = true
+	started := 0
+	r.sweepEnded(func(string) (bool, string) { started++; return true, "" })
+	if r.followUp("aaaa000f") != nil || started != 0 {
+		t.Fatalf("follow-up gone, no start by the sweep: %v %d", r.followUp("aaaa000f"), started)
+	}
+}
+
 // A rename whose agent starts at once leaves no follow-up.
 func TestAHeldRenameThatStartsLeavesNoFollowUp(t *testing.T) {
 	r := newRig(t)

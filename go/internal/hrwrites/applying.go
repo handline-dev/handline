@@ -56,7 +56,7 @@ func (e *Env) SweepHeld(p HeldPorts) error {
 		switch {
 		case prop.str("state") == applying:
 			err = e.carry(prop, p)
-		case prop.str("state") == "applied" && prop.str("start_state") == "held":
+		case prop.str("state") == "applied" && prop.str("start_agent") != "":
 			err = e.retryStart(prop, p)
 		default:
 			continue
@@ -132,17 +132,21 @@ func startState(why string) string {
 	return "failed"
 }
 
-// retryStart carries an applied change's held start on: it starts the agent once the load allows, and a start that fails for another
-// reason turns the follow-up failed, which only the founder's Start now retries.
+// retryStart carries an applied change's follow-up on. An agent that is running (the founder forced the start) ends it. Otherwise a held
+// start is made once the load allows, and one that fails for another reason turns the follow-up failed, which the sweep leaves to the
+// founder's Start now.
 func (e *Env) retryStart(prop *Prop, p HeldPorts) error {
 	agent := prop.str("start_agent")
-	ok, why := p.Start(agent)
+	ok, why := p.Alive(agent), ""
+	if !ok && prop.str("start_state") == "held" {
+		ok, why = p.Start(agent)
+	}
 	switch {
 	case ok:
 		prop.pop("start_agent")
 		prop.pop("start_state")
 		prop.pop("start_why")
-	case startState(why) == "failed":
+	case why != "" && startState(why) == "failed":
 		prop.set("start_state", "failed")
 		prop.set("start_why", why)
 	default:
