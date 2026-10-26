@@ -534,7 +534,9 @@ describe('the daemon-down notice', () => {
     m.net.down = true;
     m.daemon.dropConnections();
     await until(() => $('.daemon-down'), 'the notice');
-    expect(text($('.daemon-down'))).toContain('hl service install');
+    expect(text($('.daemon-down'))).toContain("Handline isn't running");
+    expect(text($('.daemon-down'))).not.toContain('hl service install'); // the command is behind the button, not in the sentence
+    expect($$('.daemon-down button').some((b) => text(b) === 'Copy command')).toBe(true);
     m.net.down = false;
     await until(() => !$('.daemon-down'), 'the notice gone');
   });

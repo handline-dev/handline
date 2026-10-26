@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   askedLines,
-  cutError,
+  applyFailure,
   decideMany,
   type DecideResult,
   changesToggle,
@@ -327,7 +327,17 @@ function Card({
           ))}
         </CodeBlock>
       </Reveal>
-      {p.state === 'apply_failed' ? <FNote tone="bad">{p.error ? cutError(textSafe(p.error)) : 'the change was not applied'}</FNote> : null}
+      {p.state === 'apply_failed' ? (
+        <FNote tone="bad">
+          {applyFailure(p).line}
+          {applyFailure(p).details ? (
+            <details className="muted">
+              <summary>Details</summary>
+              {applyFailure(p).details}
+            </details>
+          ) : null}
+        </FNote>
+      ) : null}
       {note === 'settled' ? (
         <p className="muted">already {p.state}</p>
       ) : note ? (
