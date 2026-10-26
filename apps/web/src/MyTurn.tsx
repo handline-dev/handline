@@ -9,6 +9,7 @@ import { useWide } from '#src/taskui.tsx';
 import { AskChange, ReviewPictures } from '#src/ReviewCard.tsx';
 import { TaskDetail } from '#src/TaskDetail.tsx';
 import { Button, Icon, Input, MenuButton, MenuItem, PageHead, PageTitle, ScrollPage } from '#src/ui/index.ts';
+import { useNow } from '#src/Gauge.tsx';
 
 /** The cards the person's turn holds: unread items, agents that need them. */
 export function useMyTurn(): { cards: Card[]; loading: boolean } {
@@ -30,7 +31,7 @@ const KIND: Record<Card['kind'], string> = {
   attention: 'Needs you',
 };
 
-function dueText(due: number, now = Date.now()): string {
+function dueText(due: number, now: number): string {
   const s = Math.round((due - now) / 1000);
   const t =
     Math.abs(s) < 3600
@@ -65,6 +66,7 @@ function label(a: CardAction): string {
 }
 
 function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; onOpen: (task: number) => void }) {
+  const now = useNow();
   const answer = useWrite('inbox.reply');
   const prompt = useWrite('prompt.answer');
   const done = useWrite('task.done');
@@ -141,8 +143,8 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
             </span>
           ) : null}
           {card.task != null ? <span className="mono">T{card.task}</span> : null}
-          {card.due != null ? <span>{dueText(card.due)}</span> : null}
-          {card.since ? <span>waiting {ago(new Date(card.since).toISOString())}</span> : null}
+          {card.due != null ? <span>{dueText(card.due, now)}</span> : null}
+          {card.since ? <span>waiting {ago(new Date(card.since).toISOString(), now)}</span> : null}
         </p>
         {card.detail ? (
           <p className={`m-0 mt-1 text-ink-2 [overflow-wrap:anywhere]${card.task != null ? ' line-clamp-3' : ' whitespace-pre-wrap'}`}>

@@ -172,7 +172,16 @@ async function launch(): Promise<Page> {
   const profile = mkdtempSync(join(tmpdir(), 'handline-perf-'));
   const args = ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--window-size=1400,900'];
   if (process.env.CI) args.push('--no-sandbox');
-  const proc = spawn(bin, [...args, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  // A process group of its own, so close() stops Chrome's helpers too and not only the main process.
+  const proc = spawn(bin, [...args, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'], detached: true });
+  const stop = () => {
+    try {
+      process.kill(-proc.pid!, 'SIGTERM');
+    } catch {
+      // already gone
+    }
+  };
+  process.once('exit', stop); // a run that dies on an error leaves no Chrome behind
   const port = await devtoolsPort(proc);
   const pages = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as { type: string; webSocketDebuggerUrl: string }[];
   const ws = new WebSocket(pages.find((p) => p.type === 'page')!.webSocketDebuggerUrl);
@@ -201,9 +210,14 @@ async function launch(): Promise<Page> {
     close: async () => {
       ws.close();
       const gone = new Promise((ok) => proc.once('exit', ok));
-      proc.kill();
+      stop();
       await gone;
-      rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+      // The profile is a temp folder: a helper still writing into it must not fail the check.
+      try {
+        rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      } catch (e) {
+        console.warn(`perf: left ${profile}: ${(e as Error).message}`);
+      }
     },
   };
 }
@@ -234,6 +248,7 @@ if (!argv.includes('--no-build'))
     resolve: { alias: [{ find: /^react-dom\/client$/, replacement: 'react-dom/profiling' }] },
     build: { outDir: join(OUT, 'dist'), emptyOutDir: true, minify: false },
   });
+if (!existsSync(join(OUT, 'dist/index.html'))) throw new Error('perf: no build to run; run it once without --no-build');
 const { daemon, port, incoming } = await fake();
 const base = `http://127.0.0.1:${await site(join(OUT, 'dist'))}/?daemon=ws://127.0.0.1:${port}`;
 const page = await launch();

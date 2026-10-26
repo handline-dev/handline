@@ -1,6 +1,6 @@
 // What sits around the transcript of an agent's chat: the one-line strip of its state, the banner when it is stuck, and the HR proposals
 // that concern it, decided where they were discussed.
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
 import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
 import { ago, clockTime, decidedProposals, heldLine, isHeld, isWaiting, restartingLine, restartShown } from '@handline/app-core';
@@ -14,10 +14,11 @@ import { AccountMenu, ModelMenu } from '#src/AgentPickers.tsx';
 import { ViewSwitch } from '#src/ViewSwitch.tsx';
 import { useOpenTerminal } from '#src/ChatMenus.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
+import { useNow } from '#src/Gauge.tsx';
 
-const until = (iso: string | null): number | null => {
+const until = (iso: string | null, now: number): number | null => {
   const t = iso ? Date.parse(iso) : NaN;
-  return Number.isNaN(t) ? null : Math.round((t - Date.now()) / 60_000);
+  return Number.isNaN(t) ? null : Math.round((t - now) / 60_000);
 };
 
 const tokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
@@ -25,12 +26,7 @@ const tokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : 
 /** One line under the composer: the model and account (menus), the task, the branch (dropped when the line is tight), and the context and
  *  prompt cache in words. */
 export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to?: 'chat' | 'terminal' }) {
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((n) => n + 1), 30_000);
-    return () => clearInterval(t);
-  }, []);
-  const cache = until(detail.cache_until);
+  const cache = until(detail.cache_until, useNow(30_000));
   const { apply } = useWorkspace();
   const strip = useAgentStrip(detail.name).data;
   const ctxPct = detail.ctx_pct ?? strip?.ctx_pct;
