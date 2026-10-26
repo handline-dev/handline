@@ -6,7 +6,7 @@ import { isPerson } from '#src/chat.ts';
 import { waitReason } from '#src/task-graph.ts';
 
 export const CARD_W = 208;
-export const CARD_H = 72;
+export const CARD_H = 88;
 export const GAP_X = 24;
 export const GAP_Y = 16;
 /** Left strip for the band names, and the strip on top for the column names. */

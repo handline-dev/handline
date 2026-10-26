@@ -19,7 +19,7 @@ import { useStore } from '@handline/app-react';
 import { TASK_PAGE, useAgents, useServes, usePagedTasks } from '@handline/app-data';
 import { goTasks } from '#src/route.ts';
 import { TaskDetail } from '#src/TaskDetail.tsx';
-import { TaskBands } from '#src/TaskGraph.tsx';
+import { TaskColumns } from '#src/TaskGraph.tsx';
 import { NewTask } from '#src/NewTask.tsx';
 import { Row } from '#src/TaskRows.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from '#src/TasksHead.tsx';
@@ -250,7 +250,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
   const listBody = (
     <>
       {graph ? (
-        <TaskBands tasks={rows} now={now} recent={scope !== 'closed'} />
+        <TaskColumns tasks={rows} now={now} me={me} scopeKey={scope} />
       ) : (
         <TaskTable
           groups={groups}
