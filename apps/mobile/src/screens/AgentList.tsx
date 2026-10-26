@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import type { AgentView as Agent } from '@handline/client';
-import { useAgents, useHrCount, useNav, useServes } from '@handline/app-data';
+import { useAgents, useHrCount, useNav, useQueuedTasks, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { font, radius, rowHeight, space } from '@handline/tokens';
 import {
   ago,
   rowWord,
+  queuedBehind,
+  taskRef,
   statusText,
   chipCounts,
   chipChanges,
@@ -67,6 +69,7 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
     });
   }
   const [target, setTarget] = useState<Agent | null>(null);
+  const [queueOf, setQueueOf] = useState<Agent | null>(null);
   const founder = store.client.hello?.role === 'founder';
   const create = useServes('agent.create').served;
   const hr = useHrCount();
@@ -105,6 +108,7 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
           <MenuItem testID="settings-open" label="Settings" icon="settings" onPress={() => go('settings')} />
         </MenuSheet>
       )}
+      {queueOf && <QueuedSheet agent={queueOf} onClose={() => setQueueOf(null)} />}
       {target && (
         <MenuSheet testID="agent-pin-menu" onClose={() => setTarget(null)}>
           {tree && rows.some((r) => r.agent.name === target.name) ? (
@@ -202,6 +206,7 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
             const doing =
               need || a.task?.title || (a.state === 'running' && !a.handoff ? a.doing?.text : '') || statusText(a) || a.state_detail || '';
             const word = asks(a) ? 'asks' : rowWord(a);
+            const queued = queuedBehind(a) || 0;
             const age = a.needs_you ? a.needs_you.since : (a.status?.since ?? a.state_since);
             return (
               <Pressable
@@ -222,7 +227,21 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
               >
                 <StateMark agent={a} />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: c.ink, fontWeight: '600' }}>{item.label}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                    <Text style={{ color: c.ink, fontWeight: '600' }}>{item.label}</Text>
+                    {queued ? (
+                      <Pressable
+                        testID={`queued-${a.name}`}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${queued} queued behind the current task`}
+                        onPress={() => setQueueOf(a)}
+                        hitSlop={8}
+                        style={{ borderWidth: 1, borderColor: c.line, borderRadius: radius.chip, paddingHorizontal: 6 }}
+                      >
+                        <Text style={{ color: c.muted, fontSize: font.size.hint }}>+{queued}</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                   <Text
                     numberOfLines={1}
                     testID={need ? `needs-${a.name}` : undefined}
@@ -241,5 +260,22 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
         />
       </Loadable>
     </View>
+  );
+}
+
+/** The tasks waiting behind an agent's current one; a row only closes the sheet. */
+function QueuedSheet(props: { agent: Agent; onClose: () => void }) {
+  const c = usePalette();
+  const waiting = useQueuedTasks(props.agent.name, true).data?.items ?? [];
+  const n = queuedBehind(props.agent) || 0;
+  return (
+    <MenuSheet testID="queued-sheet" onClose={props.onClose}>
+      <Text style={{ color: c.muted, paddingHorizontal: space.lg, paddingVertical: space.sm }}>
+        {n} queued behind {props.agent.task ? taskRef(props.agent.task.id) : 'nothing'} on {props.agent.name}
+      </Text>
+      {waiting.map((t) => (
+        <MenuItem key={t.id} testID={`queued-task-${t.id}`} label={`${taskRef(t.id)} ${t.title}`} onPress={props.onClose} />
+      ))}
+    </MenuSheet>
   );
 }

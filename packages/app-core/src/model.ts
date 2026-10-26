@@ -133,6 +133,11 @@ export function queueOf(a: AgentView, unreached: number | null = null): { tasks:
   return { tasks: a.task_count ?? null, messages: a.unreached ?? unreached };
 }
 
+/** Tasks waiting behind the one the agent is on: the owned tasks that are not done, less the current one. Null when the view carries no count. */
+export function queuedBehind(a: AgentView): number | null {
+  return a.task_count == null ? null : Math.max(0, a.task_count - (a.task ? 1 : 0));
+}
+
 export interface Controls {
   start: boolean;
   resume: boolean;

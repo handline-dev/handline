@@ -145,6 +145,8 @@ export function useUnread(): InboxItem[] {
   return useMemo(() => (items ?? []).filter((i) => !i.read), [items]);
 }
 export const useInboxItem = (id: number) => useRead('inbox.get', { id });
+/** The tasks waiting for an agent, read only when asked for (a row's list is opened). */
+export const useQueuedTasks = (agent: string, enabled: boolean) => useRead('tasks.list', { owner: agent, state: 'queued' }, { enabled });
 export const useTasks = (filter: CallParams<'tasks.list'> = {}) => useRead('tasks.list', filter);
 /** How many tasks a list shows at first and each time "Show older" is pressed. */
 export const TASK_PAGE = 100;

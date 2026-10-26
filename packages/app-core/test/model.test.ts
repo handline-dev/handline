@@ -15,6 +15,7 @@ import {
   workingUnder,
   visibleRows,
   queueOf,
+  queuedBehind,
   RAIL_FILTERS,
   stopModesOf,
   shortName,
@@ -131,6 +132,13 @@ test('queue counts are null when the view does not carry them, never a made-up 0
   assert.deepEqual(queueOf(agent('x')), { tasks: null, messages: null });
   assert.deepEqual(queueOf(agent('x', { task_count: 0, unreached: 3 })), { tasks: 0, messages: 3 });
   assert.deepEqual(queueOf(agent('x'), 2), { tasks: null, messages: 2 });
+});
+
+test('queued behind is the owned tasks less the current one, never negative, null with no count', () => {
+  assert.equal(queuedBehind(agent('x')), null);
+  assert.equal(queuedBehind(agent('x', { task_count: 4, task: { id: 7, title: 't' } })), 3);
+  assert.equal(queuedBehind(agent('x', { task_count: 2 })), 2); // no current task: all wait
+  assert.equal(queuedBehind(agent('x', { task_count: 0, task: { id: 7, title: 't' } })), 0);
 });
 
 test('keydown maps to named keys only; printable text and IME composition are left to the textarea', () => {
