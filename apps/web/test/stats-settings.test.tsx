@@ -75,15 +75,17 @@ describe('stats', () => {
     expect(text($('.chart[aria-label="Agent time"]'))).toContain('1 idle agent');
   });
 
-  it('Stats is a section of the Usage page, under the accounts: #/accounts and #/stats are the same page', async () => {
-    await mount('#/accounts');
+  it('Stats is a section of the Usage page, under the account gauges; the Accounts tab holds the accounts to manage and no stats', async () => {
+    await mount('#/stats');
     await until(() => $('[data-tile]'), 'the tiles');
-    expect(text($('h2'))).toBe('Settings');
-    expect($('.acct-list')).not.toBeNull();
+    expect(text($('h2'))).toBe('Usage');
+    expect($('.acct-list [data-account] [role=progressbar], .acct-list [data-account] .gauge')).not.toBeNull();
     expect($('.acct-list')!.compareDocumentPosition($('[data-tile]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect($('[data-use]')).toBeNull();
-    await act(async () => void (location.hash = '#/stats'));
-    await until(() => $('.acct-list') && $('[data-tile]'), 'the same page');
+    await act(async () => void (location.hash = '#/accounts'));
+    await until(() => text($('h2')) === 'Settings' && $('.acct-list [data-account]'), 'the Accounts tab');
+    expect($('[data-tile]')).toBeNull();
+    expect($('.acct-list .gauge')).toBeNull();
+    expect(text($('.acct-list [data-account]'))).toMatch(/week \d+%.*cap \d+/);
   });
 
   it('every tile has an icon', async () => {
