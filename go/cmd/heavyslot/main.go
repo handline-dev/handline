@@ -1,10 +1,8 @@
 // heavyslot runs a command once it holds one of the machine's heavy-run slots: heavyslot -- <command> [args...]
 //
-// A slot is an flock on <dir>/slot-<n>.lock (dir: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots; n up to HANDLINE_HEAVY_SLOTS,
-// default 1). The kernel lets go of the lock when its holder dies, so a killed run frees its slot by itself. The holder writes
-// who it is into the lock file, and a waiter prints that whenever the holders change. The command runs with HANDLINE_HEAVY_SLOT
-// set, so a heavy script it starts runs in the same slot rather than waiting on itself. When the slots cannot be kept (no
-// writable directory), it says so and runs the command anyway: the slots spread load, they must never stop a check.
+// A slot is an flock on <dir>/slot-<n>.lock (dir: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots; n up to HANDLINE_HEAVY_SLOTS, default
+// 2), freed by the kernel when its holder dies; the holder writes who it is into the file. Waiters go in the order they came (a ticket
+// each). The command runs with HANDLINE_HEAVY_SLOT set, so a heavy script it starts shares the slot. With no writable directory it runs anyway.
 package main
 
 import (
@@ -14,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -54,15 +53,25 @@ func acquire() (*os.File, int, error) {
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		return nil, 0, err
 	}
+	ticket, err := takeTicket(d)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer ticket.drop()
 	me, last, spoke := holder(), "", false
 	for {
+		ahead := ticket.ahead()
 		var held, said []string
 		for n := 1; n <= heavyslots.Slots(); n++ {
 			f, err := os.OpenFile(filepath.Join(d, fmt.Sprintf("slot-%d.lock", n)), os.O_RDWR|os.O_CREATE, 0o644)
 			if err != nil {
 				return nil, 0, err
 			}
-			err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+			// Only the first in line may take a free slot; the others look at who holds them.
+			err = syscall.EWOULDBLOCK
+			if ahead == 0 {
+				err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+			}
 			if err == nil {
 				f.Truncate(0)
 				f.WriteAt([]byte(me), 0)
@@ -76,13 +85,71 @@ func acquire() (*os.File, int, error) {
 			held = append(held, string(who))
 			said = append(said, describe(strings.TrimSpace(string(who))))
 		}
-		if now := strings.Join(held, "\x00"); !spoke || now != last {
-			fmt.Fprintf(os.Stderr, "heavyslot: waiting for a heavy-run slot (HANDLINE_HEAVY_SLOTS=%d): %s\n", heavyslots.Slots(), strings.Join(said, "; "))
+		if now := strings.Join(held, "\x00") + fmt.Sprint(ahead); !spoke || now != last {
+			line := strings.Join(said, "; ")
+			if ahead > 0 {
+				line += fmt.Sprintf("; %d waiting before this run", ahead)
+			}
+			fmt.Fprintf(os.Stderr, "heavyslot: waiting for a heavy-run slot (HANDLINE_HEAVY_SLOTS=%d): %s\n", heavyslots.Slots(), line)
 			last = now
 			spoke = true
 		}
 		time.Sleep(poll)
 	}
+}
+
+// A ticket is a waiter's place in line: a file ticket-<nanoseconds>-<pid>, which the waiter keeps locked until it has a slot or ends.
+// It is locked under a name no waiter reads and renamed (the lock stays), so no waiter ever finds a ticket that is not yet locked.
+type ticket struct {
+	dir  string
+	name string
+	f    *os.File
+}
+
+func takeTicket(dir string) (*ticket, error) {
+	name := fmt.Sprintf("ticket-%020d-%d", time.Now().UnixNano(), os.Getpid())
+	pending := filepath.Join(dir, fmt.Sprintf("pending-%d", os.Getpid()))
+	f, err := os.OpenFile(pending, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err == nil {
+		err = os.Rename(pending, filepath.Join(dir, name))
+	}
+	if err != nil {
+		f.Close()
+		os.Remove(pending)
+		return nil, err
+	}
+	return &ticket{dir: dir, name: name, f: f}, nil
+}
+
+func (t *ticket) drop() {
+	os.Remove(filepath.Join(t.dir, t.name))
+	t.f.Close()
+}
+
+// ahead is how many live waiters hold an earlier ticket. A ticket nobody holds the lock of belongs to a run that died: it is removed.
+func (t *ticket) ahead() int {
+	names, _ := filepath.Glob(filepath.Join(t.dir, "ticket-*"))
+	sort.Strings(names)
+	n := 0
+	for _, path := range names {
+		if filepath.Base(path) >= t.name {
+			break
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+			os.Remove(path)
+		} else {
+			n++
+		}
+		f.Close()
+	}
+	return n
 }
 
 // holder is this run as a slot file records it: agent, worktree, pid and since (epoch seconds), one per line.

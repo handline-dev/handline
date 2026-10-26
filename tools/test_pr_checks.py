@@ -44,6 +44,15 @@ class Body(unittest.TestCase):
         made_up = GOOD + "\nFrom msg_0123abc.\n"  # local-ref-ok: a made-up id the check must refuse
         self.assertEqual(len(pr_checks.body_problems(pr(made_up), [])), 1)
 
+    def test_a_body_from_a_file(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".md") as f:
+            f.write(GOOD.replace("## Risk\nNone.\n", ""))
+            f.flush()
+            run = lambda base: subprocess.run([sys.executable, pr_checks.__file__, "body-file", f.name, "A change", base], capture_output=True, text=True)
+            got = run("main")
+            self.assertEqual((got.returncode, got.stdout), (1, "the body has no '## Risk' section with text under it\n"))
+            self.assertIn("the base is dev", run("dev").stdout)
+
 
 class Comments(unittest.TestCase):
     def test_runs_of_comment_lines(self):

@@ -16,10 +16,10 @@ func Dir() (string, error) {
 	return filepath.Join(home, ".handline", "heavy-slots"), err
 }
 
-// Slots is how many runs may hold a slot at once: HANDLINE_HEAVY_SLOTS, default 1.
+// Slots is how many runs may hold a slot at once: HANDLINE_HEAVY_SLOTS, default 2.
 func Slots() int {
 	if n, err := strconv.Atoi(os.Getenv("HANDLINE_HEAVY_SLOTS")); err == nil && n > 0 {
 		return n
 	}
-	return 1
+	return 2
 }

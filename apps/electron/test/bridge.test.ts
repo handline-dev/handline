@@ -163,7 +163,7 @@ test('the page switches the mode and pairs another device only from the window a
       throw new Error('paired with another device');
     },
     follow: () => ({ sha: 'abc1234', state: 'available', next: 'def5678' }),
-    check: () => void seen.push('check'),
+    check: async () => void seen.push('check'),
     setMode: (m) => void seen.push(m),
     pair: async (i) => {
       if (i.code === 'bad') throw new Error('the gateway at x cannot be paired with: nothing answered');
@@ -175,8 +175,8 @@ test('the page switches the mode and pairs another device only from the window a
   assert.equal(c.mode(evil).ok, false);
   assert.deepEqual(c.follow(top), { ok: true, following: true, sha: 'abc1234', state: 'available', next: 'def5678' });
   assert.equal(c.follow(evil).ok, false);
-  assert.deepEqual(c.checkUpdate(top), { ok: true });
-  assert.equal(c.checkUpdate(evil).ok, false);
+  assert.deepEqual(await c.checkUpdate(top), { ok: true });
+  assert.equal((await c.checkUpdate(evil)).ok, false);
   assert.deepEqual(c.setMode(top, 'own'), { ok: true });
   assert.equal(c.setMode(top, 'nonsense').ok, false);
   assert.equal(c.setMode(evil, 'own').ok, false);

@@ -20,7 +20,7 @@ const PUSH = [
   { key: 'push_account_out', label: 'An account out', hint: 'A desktop notice when an account hits its limit' },
 ] as const;
 
-export function Notifications({ digest }: { digest: number | undefined }) {
+export function Notifications() {
   const values = useSettings().data?.values as Record<string, unknown> | undefined;
   return (
     <>
@@ -29,22 +29,28 @@ export function Notifications({ digest }: { digest: number | undefined }) {
         {PUSH.map((p) => (
           <SwitchRow key={p.key} label={p.label} hint={p.hint} on={values?.[p.key] !== false} change={(on) => ({ [p.key]: on })} />
         ))}
-        <NumberRow
-          label="Notice batch"
-          hint="Wait this long after the first notice, then tell the agent all of them at once"
-          more="Never in the middle of a turn; a message from a person comes sooner"
-          unit="s"
-          current={secondsOf(digest)}
-          parse={parseSeconds}
-          change={(n) => ({ notice_digest_s: n })}
-          allowed={SECONDS}
-        />
       </SettingsCard>
     </>
   );
 }
 
-/** The idle-background rows join the Closing windows card: when an idle agent with background work is told to finish it, and when it is stopped. */
+/** Wait this long after the first notice, then tell the agent all of them at once. */
+export function NoticeBatch({ digest }: { digest: number | undefined }) {
+  return (
+    <NumberRow
+      label="Notice batch"
+      hint="Wait this long after the first notice, then tell the agent all of them at once"
+      more="Never in the middle of a turn; a message from a person comes sooner"
+      unit="s"
+      current={secondsOf(digest)}
+      parse={parseSeconds}
+      change={(n) => ({ notice_digest_s: n })}
+      allowed={SECONDS}
+    />
+  );
+}
+
+/** The idle-background rows: when an idle agent with background work is told to finish it, and when it is stopped. */
 export function BackgroundRows(props: { notice?: number; grace?: number; check?: number }) {
   return (
     <>
@@ -83,7 +89,6 @@ export function BackgroundRows(props: { notice?: number; grace?: number; check?:
 /** This window's own choices, kept in the browser: the daemon has nothing to say about them. */
 export function Appearance({ storage }: { storage: KV | null }) {
   const [theme, setTheme] = useState<Theme>(() => themeOf(storage));
-  const [terminal, setTerminal] = useState(() => (setting(storage, 'terminal', 'auto').value === 'text' ? 'text' : 'auto'));
   return (
     <>
       <SectionHead>Appearance</SectionHead>
@@ -104,26 +109,32 @@ export function Appearance({ storage }: { storage: KV | null }) {
             }}
           />
         </Row>
-        <Row
-          label="Terminal view"
-          hint="Auto draws the live terminal; Text shows the text grid. This window only"
-          more="A phone held upright always uses the text view"
-        >
-          <Segmented
-            label="Terminal view"
-            value={terminal}
-            options={[
-              { value: 'auto', label: 'Auto' },
-              { value: 'text', label: 'Text' },
-            ]}
-            onChange={(v) => {
-              setTerminal(v);
-              setting(storage, 'terminal', 'auto').save(v);
-            }}
-          />
-        </Row>
       </SettingsCard>
     </>
+  );
+}
+
+export function TerminalRow({ storage }: { storage: KV | null }) {
+  const [terminal, setTerminal] = useState(() => (setting(storage, 'terminal', 'auto').value === 'text' ? 'text' : 'auto'));
+  return (
+    <Row
+      label="Terminal view"
+      hint="Auto draws the live terminal; Text shows the text grid. This window only"
+      more="A phone held upright always uses the text view"
+    >
+      <Segmented
+        label="Terminal view"
+        value={terminal}
+        options={[
+          { value: 'auto', label: 'Auto' },
+          { value: 'text', label: 'Text' },
+        ]}
+        onChange={(v) => {
+          setTerminal(v);
+          setting(storage, 'terminal', 'auto').save(v);
+        }}
+      />
+    </Row>
   );
 }
 
@@ -137,10 +148,7 @@ function useFollow(): [Follow | null, () => void] {
       ?.follow?.()
       .then((r) => r.ok && setF(r));
   useEffect(load, []);
-  const check = () =>
-    void shell('checkUpdate')
-      ?.checkUpdate?.()
-      .then(() => setTimeout(load, 1500));
+  const check = () => void shell('checkUpdate')?.checkUpdate?.().then(load);
   return [f?.following ? f : null, check];
 }
 
