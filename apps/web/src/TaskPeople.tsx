@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { assignGroups, taskRef } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useAgents, useChatActions, useTeam, useWrite } from '@handline/app-data';
-import { Textarea } from '#src/ui/index.ts';
+import { Input, Textarea } from '#src/ui/index.ts';
 import { Sheet } from '#src/taskui.tsx';
 
 export const CHIP = 'rounded-full border px-2 py-0.5 text-label';
@@ -19,6 +19,13 @@ export function AssignSheet({ t, me, onClose }: { t: Detail; me: string; onClose
   const groups = assignGroups(t, team, known, me);
   const [to, setTo] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  const [find, setFind] = useState('');
+  const [more, setMore] = useState(false);
+  // A search looks through everyone, in one flat list; with none, the short list and the other teams behind one row.
+  const q = find.trim().toLowerCase();
+  const hits = q ? groups.flatMap((g) => g.names).filter((n) => n.toLowerCase().includes(q)) : [];
+  const shown = q ? [{ key: 'hits', label: 'Matches', names: hits }] : groups.filter((g) => g.key !== 'rest' || more);
+  const others = q ? 0 : (groups.find((g) => g.key === 'rest')?.names.length ?? 0);
   const submit = () => {
     if (!to) return;
     const text = note.trim();
@@ -41,8 +48,21 @@ export function AssignSheet({ t, me, onClose }: { t: Detail; me: string; onClose
       busy={edit.isPending}
     >
       <div className="grid gap-2">
+        <Input
+          type="text"
+          aria-label="Find someone"
+          placeholder="Find someone"
+          value={find}
+          onChange={(e) => setFind(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && hits[0]) {
+              e.preventDefault();
+              setTo(hits[0]);
+            }
+          }}
+        />
         {groups.length ? (
-          groups.map((g) => (
+          shown.map((g) => (
             <section key={g.key} aria-label={g.label}>
               <div className="mb-1 text-label text-ink-3">{g.label}</div>
               <div className="flex flex-wrap gap-1.5">
@@ -63,6 +83,12 @@ export function AssignSheet({ t, me, onClose }: { t: Detail; me: string; onClose
         ) : (
           <span className="muted">There is no one else to assign it to.</span>
         )}
+        {q && !hits.length ? <span className="muted">No one matches.</span> : null}
+        {others ? (
+          <button type="button" className="text-left text-label text-ink-2" aria-expanded={more} onClick={() => setMore(!more)}>
+            {more ? 'Hide other teams' : `Other teams (${others})`}
+          </button>
+        ) : null}
         <Textarea
           grow
           className="tinput"

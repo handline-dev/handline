@@ -514,6 +514,23 @@ describe('the detail', () => {
     );
   });
 
+  it('the assign picker hides the other teams behind one row and a search finds anyone', async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks/1688', s);
+    await until(() => button('Owner ·'), 'the owner button');
+    await click(button('Owner ·')!);
+    const ask = sheet('Assign T1688 to…')!; // local-ref-ok
+    expect($('section[aria-label="Other teams"]', ask)).toBeNull();
+    const row = button('Other teams', ask);
+    if (row) {
+      await click(row);
+      expect($('section[aria-label="Other teams"]', sheet('Assign T1688 to…')!)).not.toBeNull(); // local-ref-ok
+    }
+    await typeInto($('input[aria-label="Find someone"]', ask) as HTMLInputElement, 'architect');
+    expect($('section[aria-label="Matches"]', ask)).not.toBeNull();
+    expect($('section[aria-label="Worked on this task"]', ask)).toBeNull();
+  });
+
   it('keeps the assign sheet open and says why when the daemon refuses the new owner', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
