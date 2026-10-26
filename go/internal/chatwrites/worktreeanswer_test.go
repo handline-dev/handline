@@ -17,17 +17,13 @@ func askedAbout(t *testing.T, r *rig) (tid int64, path string, main string) {
 	t.Helper()
 	root, _ := filepath.EvalSymlinks(t.TempDir())
 	main = filepath.Join(root, "main")
-	git := func(dir string, args ...string) {
-		t.Helper()
-		if out := gitrun.Run(dir, append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, args...)...); out.RC != 0 {
-			t.Fatalf("git %v: %s", args, out.Stderr)
+	path = filepath.Join(root, "bobs")
+	os.MkdirAll(main, 0o755)
+	for _, c := range [][]string{{main, "init", "-q", "-b", "main"}, {main, "commit", "-q", "--allow-empty", "-m", "start"}, {main, "worktree", "add", "-q", "-b", "bobs", path}} {
+		if out := gitrun.Run(c[0], append([]string{"-c", "user.name=t", "-c", "user.email=t@t"}, c[1:]...)...); out.RC != 0 {
+			t.Fatalf("git %v: %s", c[1:], out.Stderr)
 		}
 	}
-	os.MkdirAll(main, 0o755)
-	git(main, "init", "-q", "-b", "main")
-	git(main, "commit", "-q", "--allow-empty", "-m", "start")
-	path = filepath.Join(root, "bobs")
-	git(main, "worktree", "add", "-q", "-b", "bobs", path)
 	os.WriteFile(filepath.Join(path, "left.txt"), []byte("work"), 0o644)
 	card := r.request("human", "human", "Remove bob's worktree?\n\nPath: "+path+"\nBranch: bobs\n\nMember: bob\n\nReply with the number")
 	tid, err := dbpkg.NewTask(r.db, "Remove bob's worktree?", "human", "human", 0, dbpkg.DefaultPriority, "decision", 0, "")
