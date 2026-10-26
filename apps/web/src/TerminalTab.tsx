@@ -2,8 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AgentDetail, TerminalView } from '@handline/client';
 import { useStore } from '@handline/app-react';
-import { Skeleton, useWrite } from '@handline/app-data';
-import { Button } from '#src/ui/index.ts';
+import { Skeleton } from '@handline/app-data';
+import { StartTerminal } from '#src/StartTerminal.tsx';
 import { fontFor } from '#src/terminal/core.ts';
 import { drawRows } from '#src/terminal/spans.ts';
 
@@ -14,7 +14,6 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
   const [status, setStatus] = useState('');
   const [attaching, setAttaching] = useState(false); // the grid's skeleton shows until the terminal is attached or refused
   const hasTerminal = !!detail.terminal;
-  const startTerminal = useWrite('session.start', agent);
 
   useEffect(() => {
     const g = grid.current!;
@@ -89,17 +88,11 @@ export function TerminalTab({ agent, detail }: { agent: string; detail: AgentDet
             if (e.currentTarget.scrollTop === 0 && v?.historyMore) void store.client.loadOlder(v).catch(() => {});
           }}
         />
+        {!hasTerminal && <StartTerminal agent={agent} />}
         <div className="grid-skeleton pointer-events-none absolute inset-0 overflow-hidden px-2.5 py-2 empty:hidden [&_.sk]:bg-[color-mix(in_srgb,var(--term-ink)_16%,transparent)]">
           <Skeleton shape="terminalGrid" loading={attaching} label="the terminal" />
         </div>
-        <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">
-          {status}
-          {!hasTerminal && (
-            <Button variant="outline" size="sm" label="Start terminal" className="text-term-ink" disabled={startTerminal.isPending} onClick={() => startTerminal.mutate({ agent })}>
-              Start terminal
-            </Button>
-          )}
-        </div>
+        <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">{status}</div>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentView } from '@handline/client';
-import { agentLine, doingWords } from '#src/agent-line.ts';
+import { agentLine, doingWords, rowWord } from '#src/agent-line.ts';
 
 const agent = (over: Record<string, unknown>) => ({ name: 'a', state: 'idle', ...over }) as unknown as AgentView;
 
@@ -30,5 +30,20 @@ describe('agentLine', () => {
   });
   it('leaves out a system nudge, the state word and the folder', () => {
     assert.equal(agentLine(agent({ last_to_founder: { text: 'T3867 has waited 2h on you', at: 't' }, state_detail: 'idle' })), '');
+  });
+});
+
+describe('the daemon words for a quiet state', () => {
+  const quiet = (state: string, text: string) => agent({ status: { state, reason: 'none', text, since: 1 } });
+  it('draws no line and no word for idle or no terminal; the icon says it', () => {
+    assert.equal(agentLine(quiet('idle', 'idle')), '');
+    assert.equal(agentLine(quiet('off', 'no terminal')), '');
+    assert.equal(rowWord(quiet('idle', 'idle')), '');
+    assert.equal(rowWord(quiet('off', 'no terminal')), '');
+  });
+  it('keeps what means something', () => {
+    const waits = agent({ status: { state: 'waiting', reason: 'clock', text: 'wakes at 10:00', since: 1 } });
+    assert.equal(agentLine(waits), 'wakes at 10:00');
+    assert.equal(rowWord(waits), 'waiting');
   });
 });

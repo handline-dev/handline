@@ -419,12 +419,15 @@ describe('the sidebar', () => {
     expect($('.row-working')).toBeNull();
   });
 
-  it("a hovered row's gear opens that agent's settings, whose back button, above the title, returns to the agent", async () => {
+  it("a row's menu holds Settings, which opens that agent's settings, whose back button, above the title, returns to the agent", async () => {
     await mount(TB);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     const row = $('[data-agent="handline.architect"]')!;
     await act(async () => void row.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
-    await click(row.querySelector('[aria-label="Settings of handline.architect"]')!);
+    expect(row.querySelector('[aria-label="Settings of handline.architect"]')).toBeNull(); // no separate gear on the row
+    await click(row.querySelector('[aria-haspopup="menu"]')!);
+    await until(() => menuItems().length, 'the row menu');
+    await click([...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((i) => text(i).trim() === 'Settings')!);
     expect(location.hash).toBe('#/agents/handline.architect/settings');
     await until(() => $('.settings-agent .back'), 'the back button');
     expect($('.settings-agent .back')!.nextElementSibling).toBeNull(); // on a line of its own, apart from the title
@@ -432,7 +435,7 @@ describe('the sidebar', () => {
     expect(location.hash).toBe('#/agents/handline.architect');
   });
 
-  it('shows no Start on a row, and the row menu keeps only Open in, the copies, what stops a turn and Delete agent', async () => {
+  it('shows no Start on a row, and the row menu keeps only Settings, Open in, the copies, what stops a turn and Delete agent', async () => {
     await mount(TB);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     expect($('.row-actions')).toBeNull(); // no ⋮ on any row until one is hovered, selected or not
@@ -441,7 +444,7 @@ describe('the sidebar', () => {
     expect($$('.row-actions .ui-btn').some((b) => /Resume|Start/.test(text(b)))).toBe(false);
     await click($('.row-actions [aria-haspopup="menu"]')!);
     await until(() => menuItems().length, 'the row menu');
-    expect(menuItems()).toEqual(['Pin', 'Copy path', 'Copy worktree name', 'Delete agent']);
+    expect(menuItems()).toEqual(['Pin', 'Settings', 'Copy path', 'Copy worktree name', 'Delete agent']);
   });
 
   it('keeps the selected row short (no model, account or detail block there)', async () => {

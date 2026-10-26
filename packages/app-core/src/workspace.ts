@@ -6,7 +6,8 @@ import { detach, group, groupOf, groupsOf, replaceGroup } from '#src/layout-tree
 
 export { groupOf, groupsOf };
 
-export type TabKind = 'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'android' | 'ios' | 'web' | 'markdown' | 'review' | 'new';
+export type TabKind =
+  'chat' | 'tasks' | 'terminal' | 'transcript' | 'shell' | 'emulator' | 'android' | 'ios' | 'web' | 'markdown' | 'review' | 'new';
 /** Kinds an older workspace may still hold: parseWorkspace closes them and keeps the rest of the layout. */
 const REMOVED_KINDS: readonly string[] = ['timeline', 'activity', 'changes', 'file'];
 export const TAB_KINDS: readonly TabKind[] = [
@@ -108,7 +109,9 @@ export function addTab(ws: Workspace, kind: TabKind, params: TabParams = {}, int
 
 /** With no session to name, saved Claude Code tabs of old handles still collapse to the first in reading order. */
 export function oneTerminal(ws: Workspace): Workspace {
-  const all = groupsOf(ws.root).flatMap((g) => g.tabs).filter((t) => ws.tabs[t]?.kind === 'terminal');
+  const all = groupsOf(ws.root)
+    .flatMap((g) => g.tabs)
+    .filter((t) => ws.tabs[t]?.kind === 'terminal');
   return all.slice(1).reduce(closeTab, ws);
 }
 
@@ -144,7 +147,10 @@ export function activate(ws: Workspace, tab: string): Workspace {
   return { ...ws, active: g.id, root: replaceGroup(ws.root, g.id, (x) => ({ ...x, activeTab: tab })) };
 }
 
-/** The chat / Claude Code switch: from the terminal (or transcript) back to the chat, from anywhere else to the terminal, opened if the tab is not there. Nothing to switch to leaves it as it is. */
+/** The handle of the Claude Code tab opened while no terminal runs: it shows the Start button, and `setTerminal` swaps it for the real handle once one exists. */
+export const NO_TERMINAL = 'none';
+
+/** The chat / Claude Code switch: from the terminal (or transcript) back to the chat, from anywhere else to the terminal, opened if the tab is not there. With no terminal running it opens the tab that offers to start one. */
 export function toggleView(ws: Workspace, handle?: string, structured = false): Workspace {
   const here = groupOf(ws, CHAT);
   const shown = here ? ws.tabs[here.activeTab] : undefined;
@@ -152,7 +158,7 @@ export function toggleView(ws: Workspace, handle?: string, structured = false): 
   const other = Object.keys(ws.tabs).find((t) => ws.tabs[t]!.kind === 'terminal' || ws.tabs[t]!.kind === 'transcript');
   if (other) return activate(ws, other);
   if (structured) return openTab(ws, 'transcript', {}, here?.id);
-  return handle ? openTab(ws, 'terminal', { handle }, here?.id) : ws;
+  return openTab(ws, 'terminal', { handle: handle ?? NO_TERMINAL }, here?.id);
 }
 
 /** Opens a tab in a group (the focused one by default). The same thing already open is focused, not added again. */
@@ -358,7 +364,13 @@ export function parseWorkspace(raw: unknown): Workspace | null {
   if (!isObj(raw) || raw.v !== 1 || !isObj(raw.tabs)) return null;
   const tabs: Record<string, Tab> = {};
   for (const [id, t] of Object.entries(raw.tabs)) {
-    if (!isObj(t) || t.id !== id || !(TAB_KINDS.includes(t.kind as TabKind) || REMOVED_KINDS.includes(t.kind as string)) || !isObj(t.params)) return null;
+    if (
+      !isObj(t) ||
+      t.id !== id ||
+      !(TAB_KINDS.includes(t.kind as TabKind) || REMOVED_KINDS.includes(t.kind as string)) ||
+      !isObj(t.params)
+    )
+      return null;
     if ((t.kind === 'chat') !== (id === CHAT)) return null;
     tabs[id] = { id, kind: t.kind as TabKind, params: t.params as TabParams, ...(typeof t.from === 'string' ? { from: t.from } : {}) };
   }

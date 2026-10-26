@@ -4,7 +4,20 @@ import type { AgentView as Agent } from '@handline/client';
 import { useAgents, useHrCount, useNav, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { font, radius, rowHeight, space } from '@handline/tokens';
-import { ago, chipCounts, chipChanges, chipOf, moveInOrder, navList, rowName, siblingsOf, teamOf, type NavChip } from '@handline/app-core';
+import {
+  ago,
+  rowWord,
+  statusText,
+  chipCounts,
+  chipChanges,
+  chipOf,
+  moveInOrder,
+  navList,
+  rowName,
+  siblingsOf,
+  teamOf,
+  type NavChip,
+} from '@handline/app-core';
 import { KIND } from '#src/screens/NeedsYouCard.tsx';
 import { usePalette } from '#src/theme.ts';
 import { StateMark } from '#src/screens/StateMark.tsx';
@@ -187,8 +200,8 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
             const a = item.agent;
             const need = a.needs_you ? (a.needs_you.text ?? KIND[a.needs_you.kind]) : '';
             const doing =
-              need || a.task?.title || (a.state === 'running' && !a.handoff ? a.doing?.text : '') || a.status?.text || a.state_detail || '';
-            const word = asks(a) ? 'asks' : (a.status?.state ?? (a.block ? a.block.kind : a.state));
+              need || a.task?.title || (a.state === 'running' && !a.handoff ? a.doing?.text : '') || statusText(a) || a.state_detail || '';
+            const word = asks(a) ? 'asks' : rowWord(a);
             const age = a.needs_you ? a.needs_you.since : (a.status?.since ?? a.state_since);
             return (
               <Pressable

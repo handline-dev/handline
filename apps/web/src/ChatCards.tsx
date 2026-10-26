@@ -24,7 +24,7 @@ const tokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : 
 
 /** One line under the composer: the model and account (menus), the task, the branch (dropped when the line is tight), and the context and
  *  prompt cache in words. */
-export function ChatStrip({ detail }: { detail: AgentDetail }) {
+export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to?: 'chat' | 'terminal' }) {
   const [, tick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => tick((n) => n + 1), 30_000);
@@ -87,7 +87,7 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
           )
         }
       />
-      <ViewSwitch to="terminal" />
+      <ViewSwitch to={to} />
     </div>
   );
 }
