@@ -27,6 +27,8 @@ const KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c'
 export class Script {
   readonly timeline = new Timeline();
   readonly schedules: Schedule[] = [];
+  /** Handles of the shells shell.open started and shell.close has not ended. */
+  readonly shells = new Set<string>();
   scheduleId = 0;
   readonly hr: FakeHr;
   private host: Host;

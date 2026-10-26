@@ -281,6 +281,12 @@
  "settings.set": {
   "role": "founder"
  },
+ "shell.close": {
+  "role": "member"
+ },
+ "shell.open": {
+  "role": "member"
+ },
  "stats.get": {
   "role": "member"
  },

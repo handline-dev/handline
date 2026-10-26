@@ -1756,6 +1756,15 @@ export type ReadCursor = {
   cursor: number;
 };
 
+export type ShellOpening = {
+  agent: AgentName;
+  /** The shell's handle, as terminal.attach takes it. */
+  terminal: string;
+  /** The directory the shell started in. */
+  cwd: string;
+  host: string;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -2202,6 +2211,15 @@ export interface Methods {
   "terminal.open": { params: {
   agent: AgentName;
 }; result: TerminalOpening };
+  "shell.open": { params: {
+  agent: AgentName;
+  request_id: RequestId;
+}; result: ShellOpening };
+  "shell.close": { params: {
+  /** The handle shell.open answered. */
+  terminal: string;
+  request_id: RequestId;
+}; result: Accepted };
   "terminal.detach": { params: {
   terminal: string;
   /** With it, ends only that format's attach of the terminal on this connection; without it, every attach of that terminal on the connection. Neither is an error when there is nothing to end; any other word is bad_request naming `format`. */
@@ -3096,6 +3114,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "terminal.input": { role: "member", callers: null, write: true, since: 1 },
   "terminal.close": { role: "member", callers: null, write: true, since: 1 },
   "terminal.open": { role: "member", callers: null, write: false, since: 1 },
+  "shell.open": { role: "member", callers: null, write: true, since: 1 },
+  "shell.close": { role: "member", callers: null, write: true, since: 1 },
   "terminal.detach": { role: "member", callers: null, write: false, since: 1 },
   "debug.terminals": { role: "member", callers: null, write: false, since: 1 },
   "inbox.list": { role: "agent", callers: null, write: false, since: 1 },
