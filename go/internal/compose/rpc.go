@@ -37,13 +37,13 @@ func (c controls) ForceStart(agent string) (bool, string, error) {
 		paced = lifecycle.DescribeWakeWait(w)
 	}
 	if why == "" && paced == "" || (owed == "" && !c.lc.Launch.Ports.WaitingFor(m.Q, agent)) {
-		return false, agent + ": the machine's load and the accounts' pace hold nothing of its", nil
+		return false, "Nothing holds " + agent + " back: it starts by itself.", nil
 	}
 	var said []string
 	for _, p := range []struct {
 		held, kind, what string
 		pass             func(string)
-	}{{why, "load_limit_passed", "the load limits", c.lc.Gate.Pass}, {paced, "pace_passed", "the pace", c.lc.Launch.PassPace}} {
+	}{{why, "load_limit_passed", "the Mac is busy", c.lc.Gate.Pass}, {paced, "pace_passed", "its account is ahead of its weekly pace", c.lc.Launch.PassPace}} {
 		if p.held == "" {
 			continue
 		}
@@ -51,9 +51,9 @@ func (c controls) ForceStart(agent string) (bool, string, error) {
 		if _, err := db.AddEvent(m.Q, agent, p.kind, db.KV{K: "held", V: p.held}); err != nil {
 			return false, "", err
 		}
-		said = append(said, p.what+" ("+p.held+")")
+		said = append(said, p.what)
 	}
-	return true, agent + ": starts at the next tick past " + strings.Join(said, " and "), nil
+	return true, "Starting " + agent + " now, even though " + strings.Join(said, " and ") + ".", nil
 }
 
 // controls is sessionrpc.Controls over the lifecycle manager.
