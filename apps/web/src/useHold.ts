@@ -41,13 +41,17 @@ export function useHold({
     return { at, room: Math.ceil(at + box.clientHeight - lines) };
   };
 
-  const toBottom = (box: HTMLElement) => {
+  /** The tail does not fit under the held message: land at the bottom, but not past the conversation, so the last message stays in view when only system rows follow it. */
+  const land = (box: HTMLElement) => {
     holding.current = false;
     entering.current = false;
-    pinned.current = true;
     if (spacer.current) spacer.current.style.height = '0px';
+    const end = box.scrollHeight - box.clientHeight;
+    const last = [...box.querySelectorAll<HTMLElement>('.msg')].at(-1);
+    const to = last ? Math.min(end, last.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - PAD) : end;
+    pinned.current = to >= end;
     own.current = true;
-    box.scrollTop = box.scrollHeight;
+    box.scrollTop = to;
   };
 
   const hold = (smooth = false, picture = false) => {
@@ -57,7 +61,7 @@ export function useHold({
     const el = box.querySelector<HTMLElement>(`.msg[data-id="${held}"]`);
     if (!el) return;
     const { at, room: need } = place(box, room, el);
-    if (picture && entering.current && need < 0 && !free.current) return toBottom(box);
+    if (picture && entering.current && need < 0 && !free.current) return land(box);
     room.style.height = `${Math.max(0, need)}px`;
     if (free.current) return;
     const going = glide.current;
@@ -96,7 +100,7 @@ export function useHold({
     entering.current = holding.current;
     pinned.current = !holding.current;
     if (holding.current) hold();
-    else if (box && el) toBottom(box);
+    else if (box && el) land(box);
   }, [ready, agent]); // eslint-disable-line react-hooks/exhaustive-deps
   useLayoutEffect(() => hold()); // whatever changed above or below the held message, it stays where it was put
   useEffect(() => {
