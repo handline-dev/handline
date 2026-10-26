@@ -300,6 +300,9 @@ if (!app.requestSingleInstanceLock({ background })) {
     const devices = new Devices(origin);
     ipcMain.handle(CHANNELS.deviceShot, (e, arg) => devices.shot(e, arg));
     ipcMain.handle(CHANNELS.deviceTap, (e, arg) => devices.tap(e, arg));
+    ipcMain.handle(CHANNELS.deviceList, (e) => devices.list(e));
+    ipcMain.handle(CHANNELS.deviceSwipe, (e, arg) => devices.swipe(e, arg));
+    ipcMain.handle(CHANNELS.deviceText, (e, arg) => devices.text(e, arg));
     handleSettings(origin, client, remote);
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
     const opener = new Opener(origin, {
