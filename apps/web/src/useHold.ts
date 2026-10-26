@@ -31,17 +31,34 @@ export function useHold({
   const holding = useRef(false); // the chat is laid out around a held message
   const free = useRef(false); // the person has scrolled since: the view is theirs
   const entered = useRef<string | null>(null);
+  const entering = useRef(false); // the hold is the entry's, not a send's: a picture arriving late that outgrows the view gives it up for the bottom
   const glide = useRef<{ to: number; until: number } | null>(null);
 
-  const hold = (smooth = false) => {
+  /** Where the held message sits at the top, and the room that takes under it, from the lines alone (the spacer left out). */
+  const place = (box: HTMLElement, room: HTMLElement, el: HTMLElement) => {
+    const at = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - PAD;
+    const lines = box.scrollHeight - room.offsetHeight; // the content without the spacer, so the room never depends on itself
+    return { at, room: Math.ceil(at + box.clientHeight - lines) };
+  };
+
+  const toBottom = (box: HTMLElement) => {
+    holding.current = false;
+    entering.current = false;
+    pinned.current = true;
+    if (spacer.current) spacer.current.style.height = '0px';
+    own.current = true;
+    box.scrollTop = box.scrollHeight;
+  };
+
+  const hold = (smooth = false, picture = false) => {
     const box = stream.current;
     const room = spacer.current;
     if (!box || !room || !holding.current || held === undefined || anchor.current) return;
     const el = box.querySelector<HTMLElement>(`.msg[data-id="${held}"]`);
     if (!el) return;
-    const at = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - PAD;
-    const lines = box.scrollHeight - room.offsetHeight; // the content without the spacer, so the room never depends on itself
-    room.style.height = `${Math.max(0, Math.ceil(at + box.clientHeight - lines))}px`;
+    const { at, room: need } = place(box, room, el);
+    if (picture && entering.current && need < 0 && !free.current) return toBottom(box);
+    room.style.height = `${Math.max(0, need)}px`;
     if (free.current) return;
     const going = glide.current;
     if (going && performance.now() < going.until && Math.abs(going.to - at) < 2) return; // a glide to the same place is under way
@@ -53,12 +70,15 @@ export function useHold({
       box.scrollTo({ top: at, behavior: 'smooth' });
     } else box.scrollTop = at;
   };
+  /** A picture arrived: the entry's hold gives way to the bottom if the tail no longer fits under the message. */
+  const picture = () => hold(false, true);
   const release = () => {
     holding.current = false;
     if (spacer.current) spacer.current.style.height = '0px';
   };
   /** The person sent: the run's first message goes to the top, gliding. */
   const start = () => {
+    entering.current = false;
     holding.current = true;
     free.current = false;
     pinned.current = false;
@@ -69,9 +89,14 @@ export function useHold({
     if (!ready || entered.current === agent) return;
     entered.current = agent;
     free.current = false;
-    holding.current = held !== undefined;
-    pinned.current = held === undefined;
-    hold();
+    // Entering holds the last sent message at the top only when everything after it fits under it; a longer tail would stop the view mid-chat.
+    const box = stream.current;
+    const el = held === undefined ? null : box?.querySelector<HTMLElement>(`.msg[data-id="${held}"]`);
+    holding.current = !!box && !!el && !!spacer.current && place(box, spacer.current, el).room >= 0;
+    entering.current = holding.current;
+    pinned.current = !holding.current;
+    if (holding.current) hold();
+    else if (box && el) toBottom(box);
   }, [ready, agent]); // eslint-disable-line react-hooks/exhaustive-deps
   useLayoutEffect(() => hold()); // whatever changed above or below the held message, it stays where it was put
   useEffect(() => {
@@ -85,5 +110,5 @@ export function useHold({
   const scrolled = () => {
     if (holding.current && !free.current && !(glide.current && performance.now() < glide.current.until)) free.current = true;
   };
-  return { spacer, hold, release, start, scrolled, holding, free };
+  return { spacer, hold, picture, release, start, scrolled, holding, free };
 }
