@@ -359,6 +359,9 @@
  "task.new": {
   "role": "agent"
  },
+ "task.none": {
+  "role": "agent"
+ },
  "task.progress": {
   "callers": [
    "agent"
@@ -372,6 +375,9 @@
   "role": "agent"
  },
  "task.reopen": {
+  "role": "agent"
+ },
+ "task.request": {
   "role": "agent"
  },
  "task.shot": {

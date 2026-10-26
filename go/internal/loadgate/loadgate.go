@@ -86,6 +86,7 @@ type Gate struct {
 
 	mu     sync.Mutex
 	passed map[string]time.Time
+	since  map[string]time.Time // when ForWork first found the agent's work held
 }
 
 func (g *Gate) now() time.Time {
@@ -113,10 +114,46 @@ func (g *Gate) Held(agent string) string {
 	return Held(g.Limits(), g.Active(), m)
 }
 
+// Ceiling is the longest the load holds an agent's waiting work: past it the work goes once, as a force start would.
+const Ceiling = 10 * time.Minute
+
+// ForWork is Held for an agent with work waiting, with Ceiling on it: the first ask held Ceiling ago lets the agent past once and calls
+// onCeiling with why it had been held. Only the start and delivery paths ask it, so an agent with nothing waiting starts no clock.
+func (g *Gate) ForWork(agent string, onCeiling func(why string)) string {
+	why := g.Held(agent)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if why == "" {
+		delete(g.since, agent)
+		return ""
+	}
+	if g.since == nil {
+		g.since = map[string]time.Time{}
+	}
+	since, ok := g.since[agent]
+	if !ok {
+		g.since[agent] = g.now()
+		return why
+	}
+	if g.now().Sub(since) < Ceiling {
+		return why
+	}
+	delete(g.since, agent)
+	g.pass(agent)
+	if onCeiling != nil {
+		onCeiling(why)
+	}
+	return ""
+}
+
 // Pass lets agent's next start past the limits (a person's force start).
 func (g *Gate) Pass(agent string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.pass(agent)
+}
+
+func (g *Gate) pass(agent string) {
 	if g.passed == nil {
 		g.passed = map[string]time.Time{}
 	}
