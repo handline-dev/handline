@@ -43,6 +43,18 @@ const firstLine = (text: string): string =>
     .map((l) => l.trim())
     .find(Boolean) ?? '';
 
+/** The daemon's words for a state the icon already shows ("idle", "no terminal"): not worth a line. */
+const QUIET = new Set(['idle', 'off']);
+
+/** What the daemon says the agent is doing or waiting for; '' when it only names a quiet state. */
+export const statusText = (a: AgentView): string => (a.status && !QUIET.has(a.status.state) ? a.status.text : '');
+
+/** The state word beside a phone row; '' for a quiet state. */
+export const rowWord = (a: AgentView): string => {
+  const w = a.status?.state ?? (a.block ? a.block.kind : a.state);
+  return QUIET.has(w) ? '' : w;
+};
+
 /** The line under the name: what it is doing now in words, else a request to the founder they have not seen, else the title of its held task, else its last message; '' when none. */
 export function agentLine(a: AgentView): string {
   if (a.handoff) {
@@ -50,7 +62,8 @@ export function agentLine(a: AgentView): string {
     return `${why}: ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
   }
   if (a.state === 'running' && a.doing?.text) return doingWords(a.doing.text);
-  if (a.status?.text) return a.status.text;
+  const said = statusText(a);
+  if (said) return said;
   const last = firstLine(a.last_to_founder?.text ?? '');
   const say = last && !nudge(last) ? last : '';
   if (a.founder_unread && say) return say; // a request you have not seen outranks the task
