@@ -54,7 +54,7 @@ const VERB_ICON: Record<RowVerb, IconName> = {
   timebox: 'waiting',
   withdraw: 'withdrawn',
   cancel: 'cancel',
-  discard: 'discard',
+  discard: 'close',
 };
 
 /** The items of a task menu: what is said of the task first, then only the verbs that can run now, in groups with a line between; for one task
