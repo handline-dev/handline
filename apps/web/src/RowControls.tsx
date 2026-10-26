@@ -1,4 +1,4 @@
-// The ⋯ button of an agent row, and the agent's context menu (right-click on the row, or the ⋯ button). No Start or Resume: the daemon wakes, parks, restarts and moves agents by itself, so the person is not shown those.
+// The ⋯ button of an agent row, and the agent's context menu (right-click on the row, or the ⋯ button): Pin, Settings, Open in, the copies and the session verbs. No Start or Resume: the daemon wakes, parks, restarts and moves agents by itself, so the person is not shown those.
 import { asks, verbsOf, type Verb, type VerbId } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useAgentDetail, useVerbMark, useVerbRun } from '@handline/app-data';
@@ -16,21 +16,12 @@ const VERB_ICON: Partial<Record<VerbId, IconName>> = {
 /** The only session verbs the menu offers: stopping a turn is the person's call; the rest the daemon does itself. */
 const MENU_VERBS: VerbId[] = ['interrupt'];
 
-/** The row's two buttons: the agent's Settings, and the one that opens the row's menu at itself. */
+/** The row's one button: it opens the row's menu at itself. */
 export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (at: At) => void }) {
   const agent = a.name;
   const mark = useVerbMark(agent);
   return (
     <span className="row-actions relative flex flex-none items-center gap-1">
-      <Button
-        label={`Settings of ${agent}`}
-        aria-label={`Settings of ${agent}`}
-        size="sm"
-        className="!rounded-full !border-line bg-surface w-7 p-0"
-        onClick={() => goSettings(agent)}
-      >
-        <Icon name="settings" size={14} aria-hidden />
-      </Button>
       <Button
         label={`More actions for ${agent}`}
         aria-label={`More actions for ${agent}`}
@@ -76,6 +67,9 @@ export function AgentMenu({
     <>
       <MenuItem icon="pin" onSelect={onPin}>
         {pinned ? 'Unpin' : 'Pin'}
+      </MenuItem>
+      <MenuItem icon="settings" onSelect={() => goSettings(agent)}>
+        Settings
       </MenuItem>
       <MenuSeparator />
       {open ? (
