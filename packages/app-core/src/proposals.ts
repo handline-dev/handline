@@ -9,6 +9,13 @@ export const waitingCount = (l: readonly Proposal[]): number => l.filter(isWaiti
 /** Approved and held until the agents in `waiting_on` end their turns: the founder has no move on it and it is not counted. */
 export const isHeld = (p: Proposal): boolean => p.state === 'applying';
 
+/** The start of an applied proposal's agent that did not go through: the change is applied, only the start waits (`waiting`, for the load) or failed. */
+export type FollowUp = { agent: string; state: string; text: string };
+export function followUpOf(p: Proposal): FollowUp | null {
+  const f = p.follow_up;
+  return p.state === 'approved' && f ? { agent: textSafe(f.agent), state: f.state, text: textSafe(f.text) } : null;
+}
+
 /** What a held proposal waits for, in words: "waits for handline.pc's turn to end", or for several "waits for a and b to end their turns"; "since 5m" when the daemon says since when. */
 export function heldLine(p: Proposal, now = Date.now()): string {
   const who = (p.waiting_on ?? []).map(textSafe);

@@ -95,3 +95,31 @@ func TestWorkHeldPastTheCeilingGoesOnceAndSaysWhy(t *testing.T) {
 		t.Fatal("a ceiling pass outlived PassFor; the next hold starts its own clock")
 	}
 }
+
+func TestWorkThatWentAwayLeavesNoClock(t *testing.T) {
+	now := time.Unix(1000, 0)
+	g := &Gate{Limits: func() Limits { return Limits{Agents: 1} }, Active: func() int { return 1 }, Now: func() time.Time { return now }}
+	g.ForWork("amy", nil)
+	g.Forget("amy") // amy's work went away while the load stayed high; new work comes an hour later
+	now = now.Add(time.Hour)
+	if g.ForWork("amy", func(string) { t.Fatal("old clock let new work past") }) == "" {
+		t.Fatal("new work went past the hold at once")
+	}
+	var none *Gate
+	none.Forget("amy")
+}
+
+func TestTheCeilingIsSaidOutsideTheLock(t *testing.T) {
+	now := time.Unix(1000, 0)
+	g := &Gate{Limits: func() Limits { return Limits{Agents: 1} }, Active: func() int { return 1 }, Now: func() time.Time { return now }}
+	g.ForWork("amy", nil)
+	now = now.Add(Ceiling)
+	g.ForWork("amy", func(string) { g.Pass("bob") }) // would deadlock if called with g.mu held
+	if g.Held("bob") != "" {
+		t.Fatal("onCeiling did not run")
+	}
+	var none *Gate
+	if none.ForWork("amy", nil) != "" {
+		t.Fatal("a nil gate held work")
+	}
+}

@@ -34,6 +34,7 @@ export const reads = {
   'inbox.list': { resource: 'inbox', feed: 'inbox' },
   'inbox.get': { resource: 'inbox-item', id: by('id'), feed: 'inbox' },
   'tasks.list': { resource: 'tasks', feed: 'tasks' },
+  'requests.list': { resource: 'requests', feed: 'requests' },
   'task.get': { resource: 'task', id: by('task'), feed: 'tasks' },
   'task.history': { resource: 'task-history', id: by('task') },
   'task.time': { resource: 'task-time', id: by('task'), feed: 'tasks' },
@@ -71,7 +72,6 @@ export const NOT_QUERIES = [
   'events.feed',
   'progress.get',
   'task.memo.list', // the old name of task.comment.list; the screens read the new one
-  'requests.list', // the Requests page (P1, T5985) keys it with the requests topic
   // An image's bytes are read once per image into an object URL (attachments.ts), not kept as a cache entry.
   'attachment.get',
   'terminal.attach',

@@ -15,6 +15,7 @@ import (
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/housekeeping"
 	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/loadgate"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/states"
@@ -128,7 +129,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		Usage:     tu,
 		Delivery:  tickDelivery{env: env},
 		Messaging: tickMessaging{env: env},
-		Lifecycle: tickLifecycle{m: lc.Manager},
+		Lifecycle: tickLifecycle{m: lc.Manager, gate: lc.Gate},
 		Handoff:   tickHandoff{ho: lc.Handoff, mv: lc.Mover},
 		Login:     loginPorts(team.Accounts{Home: home}, uenv.EndedWhy, founderAsker{env}),
 		Reconcile: tickReconciler{r: reconciler},
@@ -531,7 +532,12 @@ func (m tickMessaging) TellUndelivered(q db.Q, agent string) { m.env.TellUndeliv
 func (m tickMessaging) DeliverPending(q db.Q, agent string)  { m.env.DeliverPending(q, agent) }
 
 // tickLifecycle is tick.Lifecycle over the lifecycle manager.
-type tickLifecycle struct{ m *lifecycle.Manager }
+type tickLifecycle struct {
+	m    *lifecycle.Manager
+	gate *loadgate.Gate
+}
+
+func (l tickLifecycle) ForgetLoadHold(agent string) { l.gate.Forget(agent) }
 
 func sessionOf(st tick.Status) lifecycle.SessionStatus {
 	return lifecycle.SessionStatus{SessionID: st.SessionID}

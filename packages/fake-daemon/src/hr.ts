@@ -40,6 +40,14 @@ export class FakeHr {
     p.settled = this.host.iso();
     this.host.emit('hr', 'hr.settled', { agent: p.agent, title: p.title, data: { proposal: p } });
   }
+  /** The start an approved proposal's agent was waiting for went through: its follow_up goes. False when none waited on `agent`. */
+  started(agent: string): boolean {
+    const p = this.proposals.find((x) => x.follow_up?.agent === agent);
+    if (!p) return false;
+    delete p.follow_up;
+    this.host.emit('hr', 'hr.settled', { agent: p.agent, title: p.title, data: { proposal: p } });
+    return true;
+  }
   find(id: unknown): Proposal {
     const p = this.proposals.find((x) => x.id === id);
     if (!p) throw new Failure('not_found', 'no such proposal', { what: 'proposal' });

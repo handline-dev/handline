@@ -78,6 +78,8 @@ type Lifecycle interface {
 	WakeAgent(q db.Q, agent string) (bool, string)
 	StartOrWakeNeeded(q db.Q, agent string, row *db.AgentState) *Need
 	StartForWork(q db.Q, agent string) string
+	// ForgetLoadHold drops the load hold's clock for an agent with nothing waiting (loadgate.Gate.Forget).
+	ForgetLoadHold(agent string)
 	// ColdBeforeSend is nil when it did not apply, true when it closed the session, false when it applied and closed nothing.
 	ColdBeforeSend(q db.Q, agent string, row *db.AgentState, now int64, st Status) *bool
 	ShouldClose(q db.Q, agent, state string, row *db.AgentState, now int64, st Status) bool

@@ -46,7 +46,7 @@ const chip = (name: string) => $(`.chat-strip [title^="${name}"]`)!;
 describe('the chat strip', () => {
   it('says the context as used / limit and the cache as time left', async () => {
     await mount();
-    await until(() => text($('.chat-strip')).includes('74k / 200k'), 'the context words');
+    await until(() => text($('.chat-strip')).includes('74k / 300k'), 'the context words');
     expect(text($('.chat-strip'))).toMatch(/\d+m|lapsed/);
   });
 

@@ -228,6 +228,23 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(text(msg('and the transcripts')!.querySelector('.msg-ref'))).toContain('Use the contract fixtures.');
   });
 
+  it('a picked message of the person offers Make a request; the request is a link to its task under the message', async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Use the contract fixtures.'), 'history');
+    expect($('.msg-request')).toBeNull(); // nothing under a message that is not picked
+    await click(msg('Use the contract fixtures.')!.querySelector('.msg-body')!);
+    const make = $$('.msg-request button').find(
+      (b) => text(b).includes('Make a request') || b.getAttribute('aria-label') === 'Make a request',
+    );
+    expect(make).toBeDefined();
+    await click(make!);
+    await until(() => $('a.msg-request'), 'the request chip');
+    const chip = $('a.msg-request')!;
+    expect(chip.getAttribute('href')).toMatch(/^#\/tasks\/\d+$/);
+    expect(t.daemon.requests.rows.some((r) => r.kind === 'task' && r.title.startsWith('Use the contract fixtures.'))).toBe(true);
+    expect($$('.msg-request button')).toHaveLength(0); // made once
+  });
+
   it("a reply quoting another agent's message goes to this chat's agent, with the quote as its parent", async () => {
     const s = setup();
     s.daemon.chat.seed(ARCH, { from: 'handline.pr', to: ARCH, body: 'PR note from elsewhere' });

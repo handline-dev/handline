@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AgentView } from '@handline/client';
+import type { AgentView, Status } from '@handline/client';
 import { agentLine, doingWords, rowWord } from '#src/agent-line.ts';
 
 const agent = (over: Record<string, unknown>) => ({ name: 'a', state: 'idle', ...over }) as unknown as AgentView;
@@ -20,6 +20,18 @@ describe('doingWords', () => {
 });
 
 describe('agentLine', () => {
+  it('says a load hold in a few words, the numbers staying in the chat', () => {
+    const status: Status = {
+      state: 'waiting',
+      reason: 'load',
+      text: 'held: machine load - load 2.19 per core, limit 1.50',
+      until: null,
+      since: '2026-10-26T12:00:00Z',
+      tasks: [],
+    };
+    assert.equal(agentLine(agent({ status })), 'waiting: machine load');
+  });
+
   const task = { id: 5745, title: 'Trim the list' };
   it('prefers what it is doing now, then the held task, then its last message', () => {
     const last_to_founder = { text: 'Done with the review\nmore', at: 't' };

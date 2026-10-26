@@ -21,6 +21,8 @@ A name that does not exist is an error.
 | `hr` | Three proposals: add `handline.new-builder` (team `handline`, model `sonnet`), a setting change `model: sonnet -> opus`, and a retire to reject. |
 | `tasks-200` | 200 tasks, T6000 to T6199, in every state. |
 | `agent-held` | `handline.architect` waits on the machine load (`status.reason` load): its chat shows the line and Start now, and `agent.force_start` ends it. |
+| `agent-blocked` | `handline.architect` waits on T1684 (`status.reason` task): its chat shows the blocked-by card with the task as a link. |
+| `hr-followup` | Two approved proposals whose change is applied but whose agent did not start: `handline.architect` waits for the load (`follow_up.state` waiting), `handline.auditor` failed. `agent.force_start` ends the architect's. |
 | `chat-actions` | A message from `handline.architect` with OK / No actions on an open task the founder owns (T6902). |
 | `chat-long` | 120 messages with `handline.architect` (four pages), every seventh with a picture. |
 | `account-stalled` | The account `beta` stalled (`billing_error`): the Usage list shows STALLED and its reason, and `account.wake` ends it. |
