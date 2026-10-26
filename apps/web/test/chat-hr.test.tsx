@@ -129,7 +129,7 @@ describe('HR proposals in the chat', () => {
     expect(has(held, 'Approve') || has(held, 'Reject')).toBe(false);
     expect(has($('[data-proposal="45"]')!, 'Approve')).toBe(true);
     // two cards of ours are shown, one is waiting: the held one is not counted
-    expect(text($('.hr-head strong'))).toBe('HR · 1 waiting');
+    expect(text($('.hr-head strong'))).toBe('1 waiting');
     const order = $$('.hr-card').map((c) => c.dataset.proposal);
     expect(order.filter((id) => id === '46')).toHaveLength(1); // not again under Recent
     expect(order.indexOf('46')).toBeGreaterThan(order.indexOf('45'));

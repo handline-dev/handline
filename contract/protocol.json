@@ -712,7 +712,7 @@
       },
       "daemon": {
        "type": "string",
-       "description": "Loaded git sha."
+       "description": "The loaded build's identity: its git sha, or <version>+<sha>[-dirty] for a release build."
       },
       "schema": {
        "type": "integer"
@@ -12392,7 +12392,7 @@
      },
      "version": {
       "type": "string",
-      "description": "Loaded git sha."
+      "description": "The loaded build's identity: its git sha, or <version>+<sha>[-dirty] for a release build."
      },
      "protocol": {
       "type": "integer"

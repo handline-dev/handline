@@ -125,6 +125,23 @@ export const SEEDS: Record<string, Seed> = {
     }
   },
 
+  /** The architect is held back for the machine's load: its chat and row say so, and agent.force_start starts it. */
+  'agent-held': (d) => {
+    const s = d.sessions.get(ARCH)!;
+    const since = new Date(Date.now() - 4 * 60_000).toISOString();
+    s.fx.view = {
+      ...s.fx.view,
+      status: {
+        state: 'waiting',
+        reason: 'load',
+        text: 'held: machine load - load 5.40 per core, limit 1.50',
+        until: null,
+        since,
+        tasks: [],
+      },
+    };
+  },
+
   /** Chat messages with one-tap actions: OK / No on an open task the founder owns. */
   'chat-actions': (d) => {
     task(d, 6902, { id: 6902, from: ARCH, to: ME, title: 'Open task the founder owns', state: 'doing' });

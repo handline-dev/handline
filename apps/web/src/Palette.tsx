@@ -21,7 +21,7 @@ const PAGES: [string, IconName, () => void][] = [
   ['Team', 'team', () => goTeam()],
   ['New agent', 'plus', () => goNew()],
   ['HR', 'team', () => goTeam('hr')],
-  ['Usage', 'accounts', () => void (location.hash = '#/accounts')],
+  ['Usage', 'accounts', () => void (location.hash = '#/stats')],
   ['Settings', 'settings', () => void (location.hash = '#/settings')],
 ];
 
@@ -43,10 +43,18 @@ export function Palette({ onClose }: { onClose: () => void }) {
     const agents = agentData ?? [];
     const tasks = taskData ?? [];
     const all: Hit[] = [
-      ...(canCapture() ? [{ key: 'c:capture', icon: 'select', label: 'Capture a window', hint: 'action', run: requestCapture } satisfies Hit] : []),
+      ...(canCapture()
+        ? [{ key: 'c:capture', icon: 'select', label: 'Capture a window', hint: 'action', run: requestCapture } satisfies Hit]
+        : []),
       ...PAGES.map(([label, icon, run]): Hit => ({ key: `p:${label}`, icon, label, hint: 'page', run })),
       ...agents.map((a): Hit => ({ key: `a:${a.name}`, icon: 'agent', label: a.name, hint: a.state, run: () => goAgent(a.name) })),
-      ...tasks.map((t): Hit => ({ key: `t:${t.id}`, icon: 'tasks', label: `${taskRef(t.id)} ${t.title}`, hint: t.to, run: () => goTasks(t.id) })),
+      ...tasks.map((t): Hit => ({
+        key: `t:${t.id}`,
+        icon: 'tasks',
+        label: `${taskRef(t.id)} ${t.title}`,
+        hint: t.to,
+        run: () => goTasks(t.id),
+      })),
     ];
     const names = new Set(agents.map((a) => a.name));
     const messages = (messageQuery ? (found ?? []) : []).map((m): Hit => {

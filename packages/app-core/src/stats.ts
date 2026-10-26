@@ -73,6 +73,7 @@ export const limitFields = (v: { host_active_cap?: number; load_per_core_pct?: n
     n: number | undefined,
     key: 'host_active_cap' | 'load_per_core_pct' | 'ram_free_min_pct',
   ) => ({
+    setting: key,
     label,
     hint,
     unit,
