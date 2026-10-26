@@ -7,6 +7,9 @@ export function Chip({
   className,
   ...rest
 }: ComponentProps<'span'> & { variant?: 'ico' | 'cell'; as?: ElementType; href?: string }) {
-  const look = variant === 'ico' ? 'chip-ico whitespace-nowrap text-inherit no-underline data-[lapsed]:text-bad' : 'status-cell';
+  const look =
+    variant === 'ico'
+      ? 'chip-ico h-5 rounded-ctl px-1.5 whitespace-nowrap text-inherit no-underline data-[lapsed]:text-bad'
+      : 'status-cell';
   return <Tag {...rest} className={`${look} inline-flex items-center gap-1${className ? ` ${className}` : ''}`} />;
 }
