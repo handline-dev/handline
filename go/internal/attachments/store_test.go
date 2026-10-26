@@ -424,25 +424,31 @@ func TestWebPSizeFromEachHeaderKind(t *testing.T) {
 	}
 }
 
-// jpegWithOrientation is a w x h JPEG carrying an Exif segment that says orientation o, as a phone writes one.
-func jpegWithOrientation(t *testing.T, w, h int, o uint16) []byte {
+// jpegWithOrientation is a w x h JPEG carrying an Exif segment that says orientation o, as a phone writes one; pad fills the segment
+// out, as a camera's thumbnail and maker notes do.
+func jpegWithOrientation(t *testing.T, w, h int, o uint16, pad int) []byte {
 	var b bytes.Buffer
 	if err := jpeg.Encode(&b, image.NewRGBA(image.Rect(0, 0, w, h)), nil); err != nil {
 		t.Fatal(err)
 	}
 	tiff := []byte("MM\x00\x2a\x00\x00\x00\x08\x00\x01\x01\x12\x00\x03\x00\x00\x00\x01")
 	tiff = append(tiff, byte(o>>8), byte(o), 0, 0, 0, 0, 0, 0)
-	seg := append([]byte("Exif\x00\x00"), tiff...)
+	seg := append(append([]byte("Exif\x00\x00"), tiff...), make([]byte, pad)...)
 	app1 := append([]byte{0xff, 0xe1, byte((len(seg) + 2) >> 8), byte(len(seg) + 2)}, seg...)
 	return append(append([]byte{0xff, 0xd8}, app1...), b.Bytes()[2:]...)
 }
 
 func TestAJpegTurnedByItsExifIsSizedAsItIsDrawn(t *testing.T) {
 	s, _, q := testStore(t)
-	for o, want := range map[uint16][2]int{1: {40, 30}, 6: {30, 40}, 8: {30, 40}} {
-		info := putAll(t, s, q, "photo.jpg", "image/jpeg", jpegWithOrientation(t, 40, 30, o), 1000)
-		if info.Width != want[0] || info.Height != want[1] {
-			t.Errorf("orientation %d: %dx%d, want %dx%d", o, info.Width, info.Height, want[0], want[1])
+	full := 65535 - 2 - 6 - 26 // the largest APP1: its length field at 65535, longer than the head that is read
+	for _, c := range []struct {
+		o    uint16
+		pad  int
+		want [2]int
+	}{{1, 0, [2]int{40, 30}}, {6, 0, [2]int{30, 40}}, {8, 0, [2]int{30, 40}}, {9, 0, [2]int{40, 30}}, {6, full, [2]int{30, 40}}} {
+		info := putAll(t, s, q, "photo.jpg", "image/jpeg", jpegWithOrientation(t, 40, 30, c.o, c.pad), 100000)
+		if info.Width != c.want[0] || info.Height != c.want[1] {
+			t.Errorf("orientation %d, pad %d: %dx%d, want %dx%d", c.o, c.pad, info.Width, info.Height, c.want[0], c.want[1])
 		}
 	}
 }

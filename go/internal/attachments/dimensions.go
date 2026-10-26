@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-// headSize is how much of the file the size is read from: enough for a JPEG's Exif segment, which comes before its picture.
+// headSize is how much of the file the size is read from: a JPEG's Exif orientation sits near the start of its segment, before its picture.
 const headSize = 64 << 10
 
 // dimensions is the picture's width and height as it is drawn, from its header; 0, 0 when it cannot be read. A JPEG whose Exif
@@ -68,10 +68,10 @@ func jpegTurned(b []byte) bool {
 	}
 	for i := 2; i+4 <= len(b) && b[i] == 0xff; {
 		marker, n := b[i+1], int(binary.BigEndian.Uint16(b[i+2:]))
-		if marker == 0xda || n < 2 || i+2+n > len(b) { // the picture data starts: no Exif after it
+		if marker == 0xda || n < 2 { // the picture data starts: no Exif after it
 			return false
 		}
-		if seg := b[i+4 : i+2+n]; marker == 0xe1 && len(seg) > 6 && string(seg[:6]) == "Exif\x00\x00" {
+		if seg := b[i+4 : min(i+2+n, len(b))]; marker == 0xe1 && len(seg) > 6 && string(seg[:6]) == "Exif\x00\x00" {
 			o := exifOrientation(seg[6:])
 			return o >= 5 && o <= 8
 		}
