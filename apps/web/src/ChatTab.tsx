@@ -23,7 +23,7 @@ import { PromptSlot } from '#src/PromptCard.tsx';
 import { Compose } from '#src/ChatCompose.tsx';
 import { LiveLine } from '#src/LiveLine.tsx';
 import { useHold } from '#src/useHold.ts';
-import { sentBodies, useTail } from '#src/chatLines.ts';
+import { putBack, sentBodies, useOlderPages, useTail } from '#src/chatLines.ts';
 import { FoldLine, entryKey, useFolds } from '#src/ChatFold.tsx';
 import { useCardTitles } from '#src/ChatTitles.ts';
 import { Item, Message, jumpTo } from '#src/ChatMessages.tsx';
@@ -128,14 +128,6 @@ function useWindowedChat(agent: string, scope: ChatScope) {
 const groupOf = (scope: ChatScope, prev: TimelineEntry | TaskFold | undefined, m: ChatMessage) =>
   scope === 'all' ? { name: prev?.kind === 'message' && prev.message.from === m.from ? null : m.from } : undefined;
 
-/** Scrolls `box` so the line `a` remembered is back where it was. Found again by its id: a page landing can re-create the element (separators, grouping). */
-function putBack(box: HTMLElement, a: { id: string; off: number }) {
-  const el = [...box.querySelectorAll('[data-id]')].find((n) => n.getAttribute('data-id') === a.id);
-  if (!el) return;
-  const drift = el.getBoundingClientRect().top - box.getBoundingClientRect().top - a.off;
-  if (drift) box.scrollTop += drift;
-}
-
 /** The first line in view and how far below the top of `box` it sits: what a reader is looking at. */
 function lineInView(box: HTMLElement): { id: string; off: number } | null {
   const { top } = box.getBoundingClientRect();
@@ -190,35 +182,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const pickItem = (i: TranscriptItem) => (setPicked(null), setPickedItem((p) => (p?.id === i.id ? null : i)));
   const keyOf = entryKey;
   const tail = useTail(entries, scope);
-  // The latest page shows first; older pages load as the top comes near. The line in view when a load starts is put back in the layout effect of
-  // each commit that changes the entries, before the sentinel is armed again.
-  const anchor = useRef<{ id: string; off: number } | null>(null);
-  const [armed, setArmed] = useState(true);
-  const more = () => {
-    const box = stream.current;
-    if (!box || anchor.current) return;
-    const { top, bottom } = box.getBoundingClientRect();
-    // The last line in view: whatever page lands, it lands above it. The first one may be an old message above the paged window, which a page never moves.
-    const el = [...box.querySelectorAll('[data-id]')]
-      .filter((n) => n.getBoundingClientRect().top < bottom && n.getBoundingClientRect().bottom > top)
-      .at(-1);
-    const id = el?.getAttribute('data-id');
-    anchor.current = el && id ? { id, off: el.getBoundingClientRect().top - top } : null;
-    setArmed(false);
-    chat.loadOlder();
-  };
-  useLayoutEffect(() => {
-    const box = stream.current;
-    const a = anchor.current;
-    if (!box || !a) return;
-    putBack(box, a);
-    if (!chat.loadingOlder) anchor.current = null; // the load is over; the next one remembers its own line
-  }, [entries.length, chat.loadingOlder]);
-  useEffect(() => {
-    if (chat.loadingOlder || anchor.current) return;
-    const id = requestAnimationFrame(() => setArmed(true));
-    return () => cancelAnimationFrame(id);
-  }, [chat.loadingOlder, entries.length]);
+  const { anchor, armed, more } = useOlderPages(stream, chat, entries.length);
   // After a jump the target stays where it was put: the sentinels wait until the person scrolls the window themselves.
   const [moved, setMoved] = useState<number | null>(null);
   const reading = !windowed || moved === win.target;
