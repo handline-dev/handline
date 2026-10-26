@@ -21,6 +21,7 @@ import { FakeAdmin } from '#src/admin.ts';
 import { FakePairing } from '#src/pairing.ts';
 import { FakeInbox } from '#src/inbox.ts';
 import { FakeWork } from '#src/workroom.ts';
+import { FakeRequests } from '#src/requests.ts';
 import { FakeTasks, taskCall } from '#src/tasks.ts';
 import { FakeAttachments } from '#src/attachments.ts';
 import { chatMethod, FakeChat } from '#src/chat.ts';
@@ -54,6 +55,8 @@ export class FakeDaemon {
   readonly unservedTopics = new Set<Topic>(); // topics `subscribe` refuses, as a daemon that lacks the list does
   readonly inbox: FakeInbox;
   readonly tasks = new FakeTasks(this, () => this.iso());
+  /** The founder's requests (requests.list) and task.request / task.none; `requests.add` puts a row in. */
+  readonly requests = new FakeRequests(this, () => this.iso());
   readonly accounts: FakeAccounts;
   readonly admin: FakeAdmin;
   /** The repos, worktrees and the agent.create operation; `work.stepMs` slows its steps. */
@@ -381,7 +384,8 @@ export class FakeDaemon {
       case 'pr.exists': {
         const repo = agent().fx.repo ?? null;
         const nums = p.numbers;
-        if (!Array.isArray(nums) || nums.length > 20 || !nums.every((n) => Number.isInteger(n))) throw badRequest('numbers must be at most 20 integers', 'numbers');
+        if (!Array.isArray(nums) || nums.length > 20 || !nums.every((n) => Number.isInteger(n)))
+          throw badRequest('numbers must be at most 20 integers', 'numbers');
         return { repo, found: repo ? (nums as number[]).filter((n) => this.pullRequests.has(n)) : [] };
       }
       case 'subscribe': {
@@ -408,6 +412,7 @@ export class FakeDaemon {
   private get served(): { lists(name: string): boolean }[] {
     return [
       this.tasks,
+      this.requests,
       this.inbox,
       this.accounts,
       this.admin,
@@ -429,6 +434,7 @@ export class FakeDaemon {
       return { value };
     }
     if (this.work.owns(method)) return { value: this.work.call(method, p, ok) };
+    if (this.requests.owns(method)) return { value: this.requests.call(method, p, ok) };
     if (method.startsWith('attachment.')) return { value: this.uploads.call(method, p, ok) };
     if (method.startsWith('inbox.')) return { value: this.inbox.call(method, p, c.caller.name, ok) };
     if (this.tasks.serves(method))

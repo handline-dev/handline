@@ -2,10 +2,13 @@ package chatwrites
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/taskwrites"
 )
@@ -82,6 +85,15 @@ func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text s
 			names[i] = fmt.Sprintf("T%d", k.ID)
 		}
 		return refusal(fmt.Sprintf("task T%d still has open child tasks (%s) - finish them first", tid, strings.Join(names, ", "))), nil
+	}
+	if handled, verdict, err := answerWorktree(q, tid, text, time.Now()); err != nil {
+		var re *rpc.Error
+		if errors.As(err, &re) {
+			return refusal(re.Message), nil
+		}
+		return nil, err
+	} else if handled {
+		text = verdict // what was done is the task's answer
 	}
 	card, err := cardOf(q, tid)
 	if err != nil {

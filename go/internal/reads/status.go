@@ -3,7 +3,9 @@ package reads
 import (
 	"encoding/json"
 
+	"github.com/handline/handline/go/internal/loadgate"
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/usage"
 )
 
 func (e *Env) status(c *rpc.Conn, params map[string]any) (any, error) {
@@ -45,5 +47,22 @@ func (e *Env) resources() map[string]any {
 	if e.Resources == nil {
 		return nil
 	}
-	return e.Resources()
+	r := e.Resources()
+	if r == nil {
+		return nil
+	}
+	// Whether new starts are held now, and why: the load gate's own answer on the same measure and limits.
+	var hold any
+	if e.Machine != nil {
+		by, _ := (&usage.Env{Home: e.Home}).ActiveByAccount(e.DB)
+		active := 0
+		for _, agents := range by {
+			active += len(agents)
+		}
+		if why := loadgate.Held(loadgate.LimitsOf(usage.LoadConfig(e.Home)), active, e.Machine()); why != "" {
+			hold = why
+		}
+	}
+	r["start_hold"] = hold
+	return r
 }

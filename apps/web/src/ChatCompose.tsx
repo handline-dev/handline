@@ -187,7 +187,14 @@ export function Compose(props: {
           <Icon name="warn" size={14} aria-hidden /> {refused}
         </p>
       ) : null}
-      <AttachChips drafts={att.drafts} refs={att.refs} problem={att.problem} onRemove={att.remove} onUnref={att.unrefer} />
+      <AttachChips
+        drafts={att.drafts}
+        refs={att.refs}
+        problem={att.problem}
+        onRemove={att.remove}
+        onRetry={att.retry}
+        onUnref={att.unrefer}
+      />
       <ComposeRow>
         {menu ? (
           <ul

@@ -7,11 +7,13 @@ import (
 	"hash/fnv"
 	"sync"
 	"time"
+
+	"github.com/handline/handline/go/internal/policy"
 )
 
 const (
 	// ReplyKeep is how long a write's reply and effects are kept for a retry.
-	ReplyKeep    = 24 * time.Hour
+	ReplyKeep    = policy.ReplyKeep
 	requestIDMax = 128
 )
 
