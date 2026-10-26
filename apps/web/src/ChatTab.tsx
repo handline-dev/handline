@@ -1,11 +1,11 @@
 // Chat tab: the conversation with the agent. The person's messages show how far they got (sending, delivered...), the agent's
 // replies, tool lines and task events follow in time.
 // A daemon that does not serve chat gets an empty state; the permission card shows either way.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { OLDER_DWELL_MS, restartShown, sideOf, type TaskFold, type TimelineEntry } from '@handline/app-core';
-import { useMe, useNearEnd, useSelector } from '@handline/app-react';
+import { useMe, useNearEnd, useSelected } from '@handline/app-react';
 import {
   Skeleton,
   useSkeletonGate,
@@ -19,19 +19,19 @@ import {
   type Chat,
   type ChatScope,
 } from '@handline/app-data';
-import { AnimatedItem, AnimatedList } from '#src/AnimatedList.tsx';
+import { AnimatedList } from '#src/AnimatedList.tsx';
+import { ChatRow } from '#src/ChatRow.tsx';
 import { PromptSlot } from '#src/PromptCard.tsx';
 import { Compose } from '#src/ChatCompose.tsx';
 import { LiveLine } from '#src/LiveLine.tsx';
 import { useChatScroll } from '#src/useChatScroll.ts';
 import { sentBodies, useOlderPages, useTail } from '#src/chatLines.ts';
-import { FoldLine, entryKey, useFolds } from '#src/ChatFold.tsx';
+import { entryKey, useFolds } from '#src/ChatFold.tsx';
 import { useCardTitles } from '#src/ChatTitles.ts';
-import { Item, Message, jumpTo } from '#src/ChatMessages.tsx';
+import { jumpTo } from '#src/ChatMessages.tsx';
 import { ChatRefs } from '#src/RefsContext.tsx';
-import { TaskNote } from '#src/ChatTaskCards.tsx';
 import { BlockedCard, HeldCard } from '#src/ChatHeld.tsx';
-import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, useDecided } from '#src/ChatCards.tsx';
+import { ChatBanner, ChatStrip, HandoffCard, HrCards, NeedsYouCard, useDecided } from '#src/ChatCards.tsx';
 import { ChatSearch } from '#src/ChatSearch.tsx';
 import { Button, Empty, Icon, Textarea, ComposeRow } from '#src/ui/index.ts';
 import { useWantedMessage } from '#src/route.ts';
@@ -129,6 +129,12 @@ function useWindowedChat(agent: string, scope: ChatScope) {
   return { chat, win, windowed };
 }
 
+/** Marks what the chat shows as read. It draws nothing and owns the writes, so their pending and done states do not draw the chat. */
+function ReadMarks({ agent, chat }: { agent: string; chat: Chat }) {
+  useChatReadMarks(agent, chat);
+  return null;
+}
+
 /** In the all room, the sender's name over a message, left out when the entry before is a message from the same sender. */
 const groupOf = (scope: ChatScope, prev: TimelineEntry | TaskFold | undefined, m: ChatMessage) =>
   scope === 'all' ? { name: prev?.kind === 'message' && prev.message.from === m.from ? null : m.from } : undefined;
@@ -150,10 +156,10 @@ function useFindBar() {
 
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const { storage } = useWorkspace();
-  const canSend = useSelector((s) => s.can('chat.send'));
+  const canSend = useSelected((s) => s.can('chat.send'));
   const me = useMe();
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
-  const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
+  const canReplyItem = useSelected((s) => !!s.client.hello?.capabilities.transcript);
   // Chat is the person and this agent only; the team's traffic is the Activity tab.
   const scope: ChatScope = 'mine';
   const { chat, win, windowed } = useWindowedChat(agent, scope);
@@ -182,7 +188,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const target = picked != null ? (byId.get(picked) ?? null) : null;
   // A message or one of the agent's own replies is picked, never both.
   const [pickedItem, setPickedItem] = useState<TranscriptItem | null>(null);
-  const pick = (m: ChatMessage) => (setPickedItem(null), setPicked((p) => (p === m.id ? null : m.id)));
+  const pick = useCallback((m: ChatMessage) => (setPickedItem(null), setPicked((p) => (p === m.id ? null : m.id))), []);
   const pickItem = (i: TranscriptItem) => (setPicked(null), setPickedItem((p) => (p?.id === i.id ? null : i)));
   const keyOf = entryKey;
   const tail = useTail(entries, scope);
@@ -216,8 +222,6 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     if (e?.kind === 'message' && e.message.id < 0 && sideOf(e.message, agent, me) === 'person') scroll.sent();
   }, [last]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useChatReadMarks(agent, chat, act.seen);
-
   // A message number: scroll to it when it is drawn; else learn its chat from the daemon, switch to it and read back until it is there.
   const jump = (id: number) => {
     if (!jumpTo(id)) setGoing(id);
@@ -250,6 +254,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
     <ChatRefs agent={agent} text={refsText}>
+      <ReadMarks agent={agent} chat={chat} />
       <section className={CHAT}>
         {finding ? (
           <div className="chat-find flex items-center gap-2 border-b border-line px-2 py-1">
@@ -292,37 +297,20 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 {(drawn ? entries : []).flatMap((e, i): ReactNode[] => {
                   const day = dayHeading(e.at, i === 0 ? null : entries[i - 1]!.at);
                   const body = (
-                    <AnimatedItem
+                    <ChatRow
                       key={keyOf(e)}
+                      e={e}
                       instant={i <= tail || tail < 0}
-                      className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-stretch"
-                    >
-                      {e.kind === 'fold' ? (
-                        <FoldLine f={e} folds={folds} titles={titles} agent={agent} />
-                      ) : e.kind === 'message' ? (
-                        <Message
-                          m={e.message}
-                          agent={agent}
-                          picked={e.id === picked}
-                          onPick={pick}
-                          byId={byId}
-                          actions={rowActions}
-                          group={groupOf(scope, entries[i - 1], e.message)}
-                        />
-                      ) : e.kind === 'proposal' ? (
-                        <DecidedCard p={e.proposal} />
-                      ) : e.kind === 'note' ? (
-                        <TaskNote m={e.message} task={e.task} titles={titles} />
-                      ) : (
-                        <Item
-                          i={e.item}
-                          titles={titles}
-                          agent={agent}
-                          onReply={canSend && canReplyItem ? pickItem : undefined}
-                          picked={pickedItem?.id === e.item.id}
-                        />
-                      )}
-                    </AnimatedItem>
+                      agent={agent}
+                      picked={e.kind === 'item' ? pickedItem?.id === e.item.id : e.kind === 'message' && e.id === picked}
+                      group={e.kind === 'message' ? groupOf(scope, entries[i - 1], e.message) : undefined}
+                      onPick={pick}
+                      onReply={canSend && canReplyItem ? pickItem : undefined}
+                      byId={byId}
+                      actions={rowActions}
+                      titles={titles}
+                      folds={folds}
+                    />
                   );
                   // A plain child of the list: never animated in or out.
                   const restart = i === restartAt;

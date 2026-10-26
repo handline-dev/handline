@@ -7,19 +7,19 @@
     },
     "chat: 10 messages arrive in the open chat": {
       "commits": 50,
-      "renders": 18915
+      "renders": 4557
     },
     "chat: 10 messages arrive for another agent": {
-      "commits": 11,
-      "renders": 10150
+      "commits": 10,
+      "renders": 960
     },
     "switch agent 6 times": {
-      "commits": 39,
-      "renders": 19650
+      "commits": 41,
+      "renders": 17726
     },
     "tasks: type 10 characters in search": {
       "commits": 19,
-      "renders": 6410
+      "renders": 6278
     }
   }
 }

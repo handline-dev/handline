@@ -1,7 +1,7 @@
 // One line of the conversation: the person's and the agent's messages with how far each got, and the transcript's tool, prompt, task and
 // session lines as small cards. What a line is and where it stands is an icon with its words as the tooltip; a click on a message picks it
 // to reply to (the reference the composer shows).
-import { useState, type MouseEvent, type ReactNode } from 'react';
+import { memo, useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { clockTime, ellipsis, landingLabel, openTask, restartCause, sideOf, tickLevel } from '@handline/app-core';
 import { useWrite } from '@handline/app-data';
@@ -117,7 +117,9 @@ function MakeRequest({ id }: { id: number }) {
   );
 }
 
-export function Message(props: {
+export const Message = memo(MessageRow, sameMessage);
+
+type MessageProps = {
   m: ChatMessage;
   agent: string;
   /** The message a reply is being written to. */
@@ -130,7 +132,23 @@ export function Message(props: {
   /** A message number in the text was clicked. */
   /** In the all-messages room: the sender's name over a message that is not the person's (null when the one before is from the same sender), never `from -> to`. */
   group?: { name: string | null };
-}) {
+};
+
+/** A row draws again only when its own message, its sender line or the message it replies to changed: the chat hands every row the same maps and actions. */
+function sameMessage(a: MessageProps, b: MessageProps) {
+  const parentOf = (p: MessageProps) => (p.m.parent != null ? p.byId?.get(p.m.parent) : undefined);
+  return (
+    a.m === b.m &&
+    a.agent === b.agent &&
+    a.picked === b.picked &&
+    a.onPick === b.onPick &&
+    a.actions === b.actions &&
+    a.group?.name === b.group?.name &&
+    parentOf(a) === parentOf(b)
+  );
+}
+
+function MessageRow(props: MessageProps) {
   const { m, agent } = props;
   const act = props.actions;
   const side = sideOf(m, agent, useMe());
