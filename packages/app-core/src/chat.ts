@@ -10,6 +10,14 @@ export type TimelineEntry =
   /** An HR proposal that was decided: it keeps its place at the time it was settled. */
   | { kind: 'proposal'; at: string; id: number; proposal: Proposal };
 
+/** The entry the chat holds at the top: the first of the person's last run of messages, so ones sent before a reply stack under it and a reply lands below it. */
+export function heldId<T extends { id: number }>(entries: readonly T[], mine: (e: T) => boolean): number | undefined {
+  let at = entries.length - 1;
+  while (at >= 0 && !mine(entries[at]!)) at--;
+  while (at > 0 && mine(entries[at - 1]!)) at--;
+  return entries[at]?.id;
+}
+
 /** The proposals about this agent that were decided: they sit in the timeline where they were settled. */
 export const decidedProposals = (all: readonly Proposal[] | undefined, agent: string): Proposal[] =>
   (all ?? []).filter((p) => (p.agent === agent || p.requested_by === agent) && (p.state === 'approved' || p.state === 'rejected'));
