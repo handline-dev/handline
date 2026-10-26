@@ -6,6 +6,7 @@ import {
   chipCounts,
   chipOf,
   dotOf,
+  stuckUnder,
   workingUnder,
   hiddenDots,
   navList,
@@ -86,6 +87,7 @@ export function Sidebar({
         depth={depth}
         kids={kids}
         working={pin || collapsed.has(agent.name) ? workingUnder(agents, agent.name) : 0}
+        stuck={pin || collapsed.has(agent.name) ? stuckUnder(agents, agent.name) : 0}
         team={team}
         line={agentLine(agent)}
         folded={collapsed.has(agent.name)}

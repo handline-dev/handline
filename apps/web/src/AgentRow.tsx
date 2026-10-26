@@ -24,6 +24,7 @@ export function AgentRow({
   depth,
   kids,
   working,
+  stuck,
   team,
   line,
   folded,
@@ -38,6 +39,8 @@ export function AgentRow({
   kids: number;
   /** Sub-agents working under a folded or a pinned row; 0 when it is open and not pinned, or none work. */
   working: number;
+  /** Sub-agents under a folded or a pinned row that cannot go on: held for load, on a dialog, blocked. */
+  stuck: number;
   team: string;
   line: string;
   folded: boolean;
@@ -157,17 +160,21 @@ export function AgentRow({
                     </span>
                   ) : null}
                   <Badges badges={badges} />
+                  {stuck ? (
+                    <span
+                      className="row-stuck inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-wait"
+                      title={`${stuck} under ${a.name} cannot go on: held for load, waiting on a dialog, or blocked`}
+                    >
+                      <Icon name="warn" size={11} aria-hidden />
+                      {stuck}
+                    </span>
+                  ) : null}
                   {working ? (
                     <span
-                      className="row-working inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-primary"
+                      className="row-working inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-working"
                       title={`${working} working under ${a.name}`}
                     >
-                      <Icon
-                        name="refresh"
-                        size={11}
-                        aria-hidden
-                        className="animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none"
-                      />
+                      <Icon name="working" size={11} aria-hidden />
                       {working}
                     </span>
                   ) : null}

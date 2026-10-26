@@ -18,6 +18,11 @@ describe('doingWords', () => {
 });
 
 describe('agentLine', () => {
+  it('says a load hold in a few words, the numbers staying in the chat', () => {
+    const status = { state: 'waiting', reason: 'load', text: 'held: machine load - load 2.19 per core, limit 1.50', since: 0 } as const;
+    assert.equal(agentLine(agent({ status })), 'waiting: machine load');
+  });
+
   const task = { id: 5745, title: 'Trim the list' };
   it('prefers what it is doing now, then the held task, then its last message', () => {
     const last_to_founder = { text: 'Done with the review\nmore', at: 't' };

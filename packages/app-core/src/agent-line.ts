@@ -47,7 +47,8 @@ const firstLine = (text: string): string =>
 const QUIET = new Set(['idle', 'off']);
 
 /** What the daemon says the agent is doing or waiting for; '' when it only names a quiet state. */
-export const statusText = (a: AgentView): string => (a.status && !QUIET.has(a.status.state) ? a.status.text : '');
+export const statusText = (a: AgentView): string =>
+  a.status?.reason === 'load' ? 'waiting: machine load' : a.status && !QUIET.has(a.status.state) ? a.status.text : '';
 
 /** The state word beside a phone row; '' for a quiet state. */
 export const rowWord = (a: AgentView): string => {
