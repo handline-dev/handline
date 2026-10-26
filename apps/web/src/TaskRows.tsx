@@ -78,7 +78,7 @@ export function Row(props: {
           </AnimatedCell>
           <AnimatedCell className={`c-owner w-28 text-right @max-[600px]:min-sm:hidden ${TD} max-sm:[grid-area:owner] max-sm:text-left`}>
             <span className={CHIP} title={`owner: ${t.to}`}>
-              {isPerson(t.to, me) ? 'you' : t.to}
+              {isPerson(t.to, me) ? 'you' : t.to.slice(t.to.lastIndexOf('.') + 1)}
             </span>
           </AnimatedCell>
           <AnimatedCell className={`c-pri mono w-14 @max-[720px]:min-sm:hidden ${TD} max-sm:[grid-area:pri] max-sm:text-right`} title="priority, 1 high to 3 low">
