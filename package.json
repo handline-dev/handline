@@ -8,7 +8,7 @@
   },
   "scripts": {
     "app": "node apps/electron/follow-start.ts",
-    "dev": "pnpm --filter @handline/web exec vite build --watch & pnpm --filter @handline/electron watch",
+    "dev": "node apps/electron/dev.ts",
     "dev:team": "node apps/electron/dev-team.ts",
     "test": "turbo test",
     "typecheck": "turbo typecheck",
