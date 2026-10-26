@@ -114,6 +114,9 @@ var defaultNative = strings.Join([]string{
 }, ",")
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "service" {
+		os.Exit(serviceCommand(os.Args[2:]))
+	}
 	home := flag.String("home", "", "the handline home (required while the daemon is in development)")
 	allowReal := flag.Bool("allow-real-home", false, "with no -home, use the default home, which a running install uses")
 	db := flag.String("db", "", "database file (default: <home>/db.sqlite)")
