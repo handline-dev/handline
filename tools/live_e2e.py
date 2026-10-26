@@ -496,7 +496,7 @@ def start_daemon(binary: str, root: Path, home: Path, account: dict, tmux: str, 
     env |= {"HANDLINE_TEST_ROOT": str(root), "HANDLINE_LIVE_ACCOUNTS": account["home"]}
     # A tmux server of the run's own, named so the run can stop it: the live one is never touched, and a stopped daemon leaves its own.
     env |= {"HANDLINE_TMUX_SOCKET": tmux, "OCP_TMUX_SOCKET": tmux}
-    flags = []
+    flags = ["-terminal-tick=false", "-turns-from-hooks=false", "-notification-needs-you=false"]  # the daemon's defaults are the service's
     if terminal:
         hl = str(REPO / "bin" / "hl")      # this checkout's hl, whose launch takes the real config dir under a test root
         subprocess.run([str(REPO / "tools" / "build-hl.sh")], check=True, stdout=subprocess.DEVNULL)
