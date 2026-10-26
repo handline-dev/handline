@@ -5,7 +5,6 @@ import {
   METHODS,
   PROTOCOL,
   ROLE_ORDER,
-  RPC_CODES,
   type Actor,
   type Event as WireEvent,
   type MethodName,
@@ -22,14 +21,15 @@ import { FakePairing } from '#src/pairing.ts';
 import { FakeInbox } from '#src/inbox.ts';
 import { FakeWork } from '#src/workroom.ts';
 import { FakeRequests } from '#src/requests.ts';
-import { FakeTasks, taskCall } from '#src/tasks.ts';
+import { FakeTasks } from '#src/tasks.ts';
+import { taskCall } from '#src/taskcall.ts';
 import { FakeAttachments } from '#src/attachments.ts';
 import { chatMethod, FakeChat } from '#src/chat.ts';
 import { HANDLERS } from '#src/handlers.ts';
 import { Script } from '#src/script.ts';
 import { Failure, badRequest, refused } from '#src/errors.ts';
 import { Knobs } from '#src/knobs.ts';
-import { TERMINAL_CAPS, TEXT_CAPS, UNKEPT, type Body, type Conn, type FakeDaemonOptions } from '#src/conn.ts';
+import { TERMINAL_CAPS, TEXT_CAPS, UNKEPT, failBody, type Body, type Conn, type FakeDaemonOptions } from '#src/conn.ts';
 
 export type { FakeDaemonOptions };
 export type { FakeHr } from '#src/hr.ts';
@@ -237,9 +237,6 @@ export class FakeDaemon {
   private reply(c: Conn, id: unknown, body: Body) {
     c.transport.send(JSON.stringify({ jsonrpc: '2.0', id, ...body }));
   }
-  private fail(e: Failure): Body {
-    return { error: { code: e.rpc ?? RPC_CODES[e.code] ?? -32603, message: e.message, data: e.data } };
-  }
 
   private onMessage(c: Conn, line: string) {
     let req: { id?: number | string; method?: string; params?: Record<string, unknown> };
@@ -249,12 +246,12 @@ export class FakeDaemon {
       return this.reply(c, null, { error: { code: -32700, message: 'The request is not valid JSON.', data: { code: 'bad_request' } } });
     }
     if (typeof req.method !== 'string' || req.id === undefined) {
-      return this.reply(c, req.id ?? null, this.fail(badRequest('A request needs an id and a method.')));
+      return this.reply(c, req.id ?? null, failBody(badRequest('A request needs an id and a method.')));
     }
     const params = req.params ?? {};
     if (c.network && !c.paired && !(req.method === 'device.redeem' || (req.method === 'hello' && this.pairing.knows(params.token)))) {
       // The listener's one reply to anyone unpaired, the same words whatever was asked.
-      return this.reply(c, req.id, this.fail(new Failure('refused', 'refused', { gate: 'unpaired', reason: 'not paired' })));
+      return this.reply(c, req.id, failBody(new Failure('refused', 'refused', { gate: 'unpaired', reason: 'not paired' })));
     }
     const { id, method } = req;
     this.knobs.defer(method, () => this.handle(c, id, method, params));
@@ -268,7 +265,7 @@ export class FakeDaemon {
       body = { result: stamped(method, this.head, () => this.withReplay(c, method, params)) };
     } catch (e) {
       if (!(e instanceof Failure)) throw e;
-      body = this.fail(e);
+      body = failBody(e);
     }
     this.reply(c, id, body);
     if (method === 'subscribe' && !body.error && params.resume !== 'latest') this.replay(c, params.since as number | undefined);

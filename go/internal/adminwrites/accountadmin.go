@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
 )
@@ -100,6 +101,7 @@ func logout(argv []string, env map[string]string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	cmd := osexec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir = paths.QuietDir()
 	cmd.Env = os.Environ()
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)

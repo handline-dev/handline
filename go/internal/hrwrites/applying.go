@@ -2,6 +2,7 @@ package hrwrites
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -56,7 +57,7 @@ func (e *Env) SweepHeld(p HeldPorts) error {
 		switch {
 		case prop.str("state") == applying:
 			err = e.carry(prop, p)
-		case prop.str("state") == "applied" && prop.str("start_state") == "held":
+		case prop.str("state") == "applied" && prop.str("start_agent") != "":
 			err = e.retryStart(prop, p)
 		default:
 			continue
@@ -70,19 +71,20 @@ func (e *Env) SweepHeld(p HeldPorts) error {
 
 func (e *Env) carry(prop *Prop, p HeldPorts) error {
 	waiting := strings.Split(prop.str("waiting_on"), ",")
-	running := false
+	running, interrupted := false, false
 	for _, a := range waiting {
 		if a == "" || !p.Alive(a) {
 			continue
 		}
 		running = true
 		if !p.Idle(a) {
-			if prop.str("apply_now") != "" && p.Interrupt != nil {
+			if e.interruptDue(prop, p) {
 				if ok, said := p.Interrupt(a); ok {
 					e.logf("  %s: turn interrupted so proposal %s can be applied now", a, prop.id())
 				} else {
 					e.logf("  %s: not interrupted for proposal %s: %s", a, prop.id(), said)
 				}
+				interrupted = true
 			}
 			continue
 		}
@@ -90,6 +92,12 @@ func (e *Env) carry(prop *Prop, p HeldPorts) error {
 			e.logf("  %s: closed so proposal %s can be applied", a, prop.id())
 		} else {
 			e.logf("  %s: not closed for proposal %s: %s", a, prop.id(), said)
+		}
+	}
+	if interrupted {
+		prop.set("apply_now_esc", time.Now().Unix())
+		if err := e.save(prop); err != nil {
+			return err
 		}
 	}
 	if running {
@@ -132,21 +140,38 @@ func startState(why string) string {
 	return "failed"
 }
 
-// retryStart carries an applied change's held start on: it starts the agent once the load allows, and a start that fails for another
-// reason turns the follow-up failed, which only the founder's Start now retries.
+// retryStart carries an applied change's follow-up on. An agent that is running (the founder forced the start) ends it. Otherwise a held
+// start is made once the load allows, and one that fails for another reason turns the follow-up failed, which the sweep leaves to the
+// founder's Start now.
 func (e *Env) retryStart(prop *Prop, p HeldPorts) error {
 	agent := prop.str("start_agent")
-	ok, why := p.Start(agent)
+	ok, why := p.Alive(agent), ""
+	if !ok && prop.str("start_state") == "held" {
+		ok, why = p.Start(agent)
+	}
 	switch {
 	case ok:
 		prop.pop("start_agent")
 		prop.pop("start_state")
 		prop.pop("start_why")
-	case startState(why) == "failed":
+	case why != "" && startState(why) == "failed":
 		prop.set("start_state", "failed")
 		prop.set("start_why", why)
 	default:
 		return nil // still held: the next tick looks again
 	}
 	return e.save(prop)
+}
+
+// interruptPause is how long a turn is given to end after an Esc before the sweep presses it again: a second Esc soon after the first
+// opens Claude Code's rewind menu, which keeps the session from ever being idle.
+var interruptPause = 30 * time.Second
+
+// interruptDue is whether an apply-now proposal may have its busy turns interrupted now: once, then again only after interruptPause.
+func (e *Env) interruptDue(prop *Prop, p HeldPorts) bool {
+	if prop.str("apply_now") == "" || p.Interrupt == nil {
+		return false
+	}
+	last, _ := strconv.ParseInt(prop.str("apply_now_esc"), 10, 64)
+	return last == 0 || time.Since(time.Unix(last, 0)) >= interruptPause
 }

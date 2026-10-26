@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/handline/handline/go/internal/delivery"
+	"github.com/handline/handline/go/internal/paths"
 	"io"
 	"os"
 	"os/exec"
@@ -98,7 +99,9 @@ func (l Launch) env() []string {
 
 // CheckVersion refuses a CLI that is not the pinned one.
 func CheckVersion(ctx context.Context, path, want string) error {
-	out, err := exec.CommandContext(ctx, path, "--version").Output()
+	cmd := exec.CommandContext(ctx, path, "--version")
+	cmd.Dir = paths.QuietDir()
+	out, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("claude --version: %w", err)
 	}
@@ -150,6 +153,9 @@ type entry struct {
 func Open(ctx context.Context, l Launch, h Handlers, timeout time.Duration) (*Session, error) {
 	cmd := exec.Command(l.Path, l.args()...)
 	cmd.Dir, cmd.Env = l.Cwd, l.env()
+	if cmd.Dir == "" { // never the daemon's own folder
+		cmd.Dir = paths.QuietDir()
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // the CLI and what it starts are one group, so close can prove they are gone
 	in, err := cmd.StdinPipe()
 	if err != nil {
