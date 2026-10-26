@@ -81,3 +81,30 @@ describe("an agent's Tasks tab", () => {
     expect(stop).toBeGreaterThan(edit);
   });
 });
+
+describe("the graph in an agent's Tasks tab", () => {
+  it("shows only that agent's column, with the same cards", async () => {
+    await open('#/agents/handline.architect', 'tasks-200');
+    await until(() => $('.tasks-tab-list'), 'the list');
+    await click($('[aria-label="View"] [aria-label="Graph"]'));
+    await until(() => $('[data-testid="task-graph"]'), 'the graph');
+    expect($$('[data-testid="task-graph"] h2').map((h) => h.textContent)).toEqual(['architect']);
+    expect($('[data-testid="task-graph"] [data-node]')).not.toBeNull();
+    expect($('.tasks-tab-list')).toBeNull();
+  });
+});
+
+describe('a narrow Tasks list (detail panel open)', () => {
+  it('lets the title take the free width and hides priority, then owner, as the list narrows', async () => {
+    await open('#/tasks', 'tasks-200');
+    await until(() => $('tr[data-task]'), 'a row');
+    const cls = (sel: string) => $(sel)!.className;
+    expect(cls('.tasks-scroll')).toContain('@container');
+    expect(cls('tr[data-task] .c-title')).toContain('min-w-0');
+    expect($('tr[data-task] .ttitle')!.className).toContain('line-clamp-2');
+    expect(cls('tr[data-task] .c-pri')).toContain('@max-[720px]:min-sm:hidden');
+    expect(cls('tr[data-task] .c-owner')).toContain('@max-[600px]:min-sm:hidden');
+    expect(cls('tr[data-task] .c-time')).toContain('whitespace-nowrap');
+    expect($('tr[data-task] .c-owner span')!.getAttribute('title')).toMatch(/^owner: /);
+  });
+});

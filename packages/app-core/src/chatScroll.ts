@@ -46,6 +46,9 @@ export interface ScrollAnswer {
   room: number;
 }
 
+/** How long the top of the chat must stay in view, with no page loading, before the next older page is asked for. */
+export const OLDER_DWELL_MS = 300;
+
 export const START: ScrollState = { mode: 'follow', newer: 0 };
 
 /** The room a held message at `at` needs under the lines: zero when the lines already reach past the view. */
