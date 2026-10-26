@@ -43,15 +43,18 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 		{Name: "schedules", Run: fromCutover(cutover, func(q db.Q, now int64) error { return sched.Sweep(now) })},
 		{Name: "apply-settings", Run: func(q db.Q, now int64) error { return apply.Sweep(tk, now) }},
 		{Name: "heal", Run: fromCutover(cutover, healer.Sweep)},
-		{Name: "hr-held", Run: func(q db.Q, now int64) error { return held.SweepHeld(heldPorts(tk, q)) }},
+		{Name: "hr-held", Run: func(q db.Q, now int64) error {
+			return held.SweepHeld(heldPorts(tk, q, healPorts{lc: lc, home: cfg.Home}))
+		}},
 	}
 }
 
 // heldPorts are the tick's session calls for a roster change held until a turn ends: a session is closed only at its prompt.
-func heldPorts(tk *tick.Tick, q db.Q) hrwrites.HeldPorts {
+func heldPorts(tk *tick.Tick, q db.Q, h healPorts) hrwrites.HeldPorts {
 	return hrwrites.HeldPorts{
-		Alive: tk.Host.SessionAlive,
-		Idle:  func(a string) bool { return tk.Delivery.SessionPresent(a) && tk.Host.SessionIdle(a) },
+		Interrupt: h.Interrupt,
+		Alive:     tk.Host.SessionAlive,
+		Idle:      func(a string) bool { return tk.Delivery.SessionPresent(a) && tk.Host.SessionIdle(a) },
 		Close: func(a string) (bool, string) {
 			acct, _ := team.CurrentAccount(q, a)
 			return tk.Lifecycle.CloseAgent(q, a, tk.Usage.ReadForAgent(a, acct))

@@ -182,6 +182,7 @@ A method marked write takes a required `request_id`.
 | `team.get` | agent |  | none | `{agents, edges}` |  |  |
 | `hr.list` | agent |  | `state?` | `{proposals} & ReadCursor` | `bad_request` |  |
 | `hr.decide` | member | yes | `proposal`, `decision`, `note?`, `subject?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | proposal_changed, proposal_settled |
+| `hr.apply_now` | member | yes | `proposal`, `request_id` | `Accepted` | `refused`, `not_found` | proposal_settled |
 | `accounts.list` | agent |  | `roster?`, `usage?` | `{accounts} & ReadCursor` | `bad_request` |  |
 | `status.pick` | agent |  | none | `{picked, candidates, agent_costs}` |  |  |
 | `account.set` | founder | yes | `account`, `label?`, `cap?`, `recover?`, `cycle?`, `cycle_end?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -668,6 +669,10 @@ HR proposals with their diff: what waits for the founder, and what settled recen
 ### `hr.decide`
 
 Approve or reject a proposal; approving an apply_failed one applies it again. Approving a change to an agent with a session running is accepted, not refused: the proposal turns applying, `said` names the agents whose turn it waits on, and the change is applied when those turns end. Refused with gate proposal_changed or proposal_settled, carrying the proposal as it is; an applying proposal is refused proposal_settled.
+
+### `hr.apply_now`
+
+Apply a waiting HR change now: for an applying proposal, interrupt the turn of each agent in `waiting_on` (as session.interrupt does), then close the session, apply the change and restart the renamed agent at the next tick, without waiting for the turn to end. Returns at once with `said` naming the agents; the proposal stays applying until the change is applied (watch the hr topic). Refused with gate proposal_settled, carrying the proposal as it is, unless the proposal is applying. Works for every kind a running session can hold: rename, retire, context, link, settings.
 
 ### `accounts.list`
 
