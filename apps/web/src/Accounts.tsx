@@ -54,7 +54,9 @@ const LOGIN_WORD: Record<Account['login_state'], string> = { ok: 'logged in', ne
 /** Where the week stands against its pace line, in words; nothing when the account has no pace or pacing is off. */
 function PaceLine({ account }: { account: Account }) {
   const line = paceLine(account);
-  return line ? <span className="acct-pace text-label text-ink-2">{line}</span> : null;
+  return line ? <span className="acct-pace text-label text-ink-2" title={line}>
+      {line}
+    </span> : null;
 }
 
 /** What `hl account list` adds to the gauges: the login, the plan, when the week resets, and whether it can take another agent and why not. */
