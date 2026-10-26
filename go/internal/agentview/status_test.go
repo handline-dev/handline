@@ -133,7 +133,7 @@ func TestAClosedAgentWithWorkWaitingIsQueuedAndSaysTheLoadHoldsIt(t *testing.T) 
 // wake is in, never "every account": a wake may stay on its own account while another has room. Moving, or a limit nothing has acted
 // on yet, shows none.
 func TestTheLimitBannerNamesTheWaitAndNoneWhileMoving(t *testing.T) {
-	r := newRig(t, "move", "walled", "nap", "napper", "fresh", "free")
+	r := newRig(t, "move", "walled", "nap", "napper", "sleeper", "fresh", "free")
 	for a, why := range map[string]string{"move": "move is at its usage limit", "walled": "walled is at its usage limit",
 		"fresh": "fresh is at its usage limit"} {
 		r.bg.wall[a] = why
@@ -146,8 +146,14 @@ func TestTheLimitBannerNamesTheWaitAndNoneWhileMoving(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := db.AddRequest(r.env.Q, db.NewRequest{Requester: "human", Target: "napper", Body: "hi", Kind: "say"}); err != nil {
+	// sleeper is parked with a message waiting too, but by no limit: the supervisor finds no wall
+	if err := db.SetAgentState(r.env.Q, "sleeper", states.Parked, 9000, "wakes at "+timefmt.Stamp(9000, timefmt.Clock)); err != nil {
 		t.Fatal(err)
+	}
+	for _, a := range []string{"napper", "sleeper"} {
+		if _, err := db.AddRequest(r.env.Q, db.NewRequest{Requester: "human", Target: a, Body: "hi", Kind: "say"}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	r.state(t, "fresh", states.Idle, "")
 	r.sess.alive["fresh"] = true
@@ -160,12 +166,13 @@ func TestTheLimitBannerNamesTheWaitAndNoneWhileMoving(t *testing.T) {
 		return nil
 	}
 	for agent, want := range map[string]any{
-		"move":   nil,
-		"walled": "waiting for a's 5h window (100%, rolls over 02:00)",
-		"nap":    nil, // nothing waits for it: idle, nothing held
-		"napper": "waits for its account's usage window, back at " + timefmt.Stamp(9000, timefmt.Clock),
-		"fresh":  nil,
-		"free":   nil,
+		"move":    nil,
+		"walled":  "waiting for a's 5h window (100%, rolls over 02:00)",
+		"nap":     nil, // nothing waits for it: idle, nothing held
+		"napper":  "waits for its account's usage window, back at " + timefmt.Stamp(9000, timefmt.Clock),
+		"sleeper": nil,
+		"fresh":   nil,
+		"free":    nil,
 	} {
 		r.env.RefreshOne(agent)
 		if got := r.stored(t, agent)["wall_reason"]; got != want {
