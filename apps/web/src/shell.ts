@@ -19,6 +19,8 @@ type Call =
   | 'setMode'
   | 'follow'
   | 'checkUpdate'
+  | 'cli'
+  | 'linkCli'
   | 'pairRemote'
   | 'phone'
   | 'preview'

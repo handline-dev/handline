@@ -48,6 +48,8 @@ export function makeApi(ipc: Ipc, zoom: () => number = () => 1): ShellApi {
     setMode: (m) => call(CHANNELS.setMode, m),
     follow: () => call(CHANNELS.follow),
     checkUpdate: () => call(CHANNELS.checkUpdate),
+    cli: () => call(CHANNELS.cli),
+    linkCli: () => call(CHANNELS.linkCli),
     phone: () => call(CHANNELS.phone),
     pairRemote: (a) => call(CHANNELS.pairRemote, a),
     onFullScreen(cb) {
