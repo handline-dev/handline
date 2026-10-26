@@ -15,6 +15,8 @@ export const CHANNELS = {
   cancelCompose: 'handline:cancelCompose',
   mode: 'handline:mode',
   setMode: 'handline:setMode',
+  follow: 'handline:follow',
+  checkUpdate: 'handline:checkUpdate',
   pairRemote: 'handline:pairRemote',
   phone: 'handline:phone',
   token: 'handline:token',
@@ -77,6 +79,10 @@ export class Page {
 
 export interface ConnectionDeps {
   mode(): { mode: Mode; remote: string | null };
+  /** The follow-main state, or null in a build that does not follow main. */
+  follow(): { sha: string; state: 'current' | 'available' | 'updating' | 'failed'; next: string | null } | null;
+  /** Looks at GitHub's main now. */
+  check(): void;
   /** Saves the mode and relaunches. */
   setMode(m: Mode): void;
   /** Pairs and relaunches on the new device; rejects with a sentence when the gateway cannot be paired with. */
@@ -100,6 +106,16 @@ export class Connection {
     return fromWindow(e, this.origin)
       ? { ok: true, ...this.d.mode(), phone: this.d.mode().remote === null }
       : (bad('not from the app window') as Fail<'bad_request'>);
+  }
+  follow(e: Sender) {
+    if (!fromWindow(e, this.origin)) return bad('not from the app window') as Fail<'bad_request'>;
+    const f = this.d.follow();
+    return { ok: true as const, following: !!f, sha: f?.sha ?? '', state: f?.state ?? 'current', next: f?.next ?? null };
+  }
+  checkUpdate(e: Sender): Reply {
+    if (!fromWindow(e, this.origin)) return bad('not from the app window');
+    this.d.check();
+    return { ok: true };
   }
   setMode(e: Sender, arg: unknown): Reply {
     if (!fromWindow(e, this.origin)) return bad('not from the app window');

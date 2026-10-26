@@ -90,6 +90,13 @@ export interface ShellApi {
   mode?(): Promise<{ ok: true; mode: 'connect' | 'own'; remote: string | null; phone: boolean } | Fail<'bad_request'>>;
   /** Switches the mode; the app relaunches. */
   setMode?(mode: 'connect' | 'own'): Promise<{ ok: true } | Fail<'bad_request'>>;
+  /** The follow-main build's commit and whether a newer main is waiting; `following` is false in any other build. */
+  follow?(): Promise<
+    | { ok: true; following: boolean; sha: string; state: 'current' | 'available' | 'updating' | 'failed'; next: string | null }
+    | Fail<'bad_request'>
+  >;
+  /** Looks at GitHub's main now; the answer is `follow()` again. */
+  checkUpdate?(): Promise<{ ok: true } | Fail<'bad_request'>>;
   /** Opens the one-time QR window for pairing a phone with this app's gateway. `mode().phone` says whether that is possible. */
   phone?(): Promise<{ ok: true } | Fail<'bad_request' | 'cannot_pair'>>;
   /** Pairs with another device's gateway, from its `handline://` link or its address and code; the app relaunches on it. */
@@ -118,6 +125,9 @@ export interface ShellApi {
  * emits for a task_done without a task, or a screen this does not know).
  */
 export function routeOfTarget(target: { screen: string; id: string } | null): string | null {
+  // Pages with no id: the tray's Inbox and Settings lines.
+  if (target?.screen === 'inbox') return '#/my-turn';
+  if (target?.screen === 'settings') return '#/settings';
   if (!target || !target.id || target.id === 'None') return null;
   const id = encodeURIComponent(target.id);
   switch (target.screen) {

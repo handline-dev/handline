@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,5 +47,17 @@ func TestTheRealHomeAndDisagreeingNamesAreRefused(t *testing.T) {
 	t.Setenv("OCP_HOME", a)
 	if _, err := resolveHome(a, false); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEachMissingAgentToolIsOneLine(t *testing.T) {
+	var out bytes.Buffer
+	log.SetOutput(&out)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	t.Setenv("PATH", t.TempDir())
+	missingTools(filepath.Join(t.TempDir(), "claude"))
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 3 || !strings.Contains(lines[0], "claude not found") || !strings.Contains(lines[1], "git is not on PATH") || !strings.Contains(lines[2], "tmux is not on PATH") {
+		t.Errorf("%q", out.String())
 	}
 }

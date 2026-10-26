@@ -162,6 +162,8 @@ test('the page switches the mode and pairs another device only from the window a
     phone: async () => {
       throw new Error('paired with another device');
     },
+    follow: () => ({ sha: 'abc1234', state: 'available', next: 'def5678' }),
+    check: () => void seen.push('check'),
     setMode: (m) => void seen.push(m),
     pair: async (i) => {
       if (i.code === 'bad') throw new Error('the gateway at x cannot be paired with: nothing answered');
@@ -171,6 +173,10 @@ test('the page switches the mode and pairs another device only from the window a
   const evil: Sender = { senderFrame: { url: 'https://evil.example/', parent: null } };
   assert.deepEqual(c.mode(top), { ok: true, mode: 'connect', remote: 'mac.ts.net:7443', phone: false });
   assert.equal(c.mode(evil).ok, false);
+  assert.deepEqual(c.follow(top), { ok: true, following: true, sha: 'abc1234', state: 'available', next: 'def5678' });
+  assert.equal(c.follow(evil).ok, false);
+  assert.deepEqual(c.checkUpdate(top), { ok: true });
+  assert.equal(c.checkUpdate(evil).ok, false);
   assert.deepEqual(c.setMode(top, 'own'), { ok: true });
   assert.equal(c.setMode(top, 'nonsense').ok, false);
   assert.equal(c.setMode(evil, 'own').ok, false);
@@ -182,7 +188,7 @@ test('the page switches the mode and pairs another device only from the window a
   assert.deepEqual(failed, { ok: false, code: 'cannot_pair', message: 'the gateway at x cannot be paired with: nothing answered' });
   assert.deepEqual(await c.phone(top), { ok: false, code: 'cannot_pair', message: 'paired with another device' });
   assert.equal((await c.phone(evil)).ok, false);
-  assert.deepEqual(seen, ['own', { address: 'a.ts.net', code: 'c' }]);
+  assert.deepEqual(seen, ['check', 'own', { address: 'a.ts.net', code: 'c' }]);
 });
 
 test('settings: only get and set with checked arguments reach the daemon, and only from the window', async () => {
