@@ -1,7 +1,7 @@
 // New agent (founder): the form of docs/design/new-agent-worktrees.md §1.2 as a sheet at `#/new`, then its progress at `#/new/:operation`.
 // One agent.create per click; the form's fields stay in this component, so a failed creation returns to them as they were.
 import { EMPTY_AGENT_FIELDS, classify, sentence, useNewAgentForm, useServes } from '@handline/app-data';
-import { useStore } from '@handline/app-react';
+import { useHello } from '@handline/app-react';
 import { Button, Dialog, Field, Icon, Select, Textarea, NOTE, FIELD, FIELD_LABEL } from '#src/ui/index.ts';
 import { NAV } from '#src/NavRows.tsx';
 import { goNew, useNewAgentRoute } from '#src/route.ts';
@@ -12,7 +12,7 @@ const ACCOUNT_NOTE = "A new agent's account is chosen when it starts; none can b
 
 /** The sidebar's button; only for the founder, and only on a daemon that lists agent.create. */
 export function NewAgentButton() {
-  const founder = useStore().client.hello?.role === 'founder';
+  const founder = useHello()?.role === 'founder';
   const { served } = useServes('agent.create');
   if (!founder || !served) return null;
   return (
@@ -26,8 +26,7 @@ export function NewAgentButton() {
 
 export function NewAgent({ onClose }: { onClose: () => void }) {
   const route = useNewAgentRoute();
-  const store = useStore();
-  const founder = store.client.hello?.role === 'founder';
+  const founder = useHello()?.role === 'founder';
   const { served } = useServes('agent.create');
   const { create, agents, choices, f, setF, set, list, prefix, ready, send } = useNewAgentForm((operation, made) => {
     keepFirstTask(operation, made.task, made.box);
@@ -155,7 +154,11 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
                 onChange={(e) => set('account', e.target.value)}
                 options={[
                   { value: '', label: 'auto' },
-                  ...choices.accounts.map((a) => ({ value: a.name, label: a.offered ? a.name : `${a.name} (not logged in)`, disabled: !a.offered })),
+                  ...choices.accounts.map((a) => ({
+                    value: a.name,
+                    label: a.offered ? a.name : `${a.name} (not logged in)`,
+                    disabled: !a.offered,
+                  })),
                 ]}
               />
             ) : (
@@ -177,7 +180,13 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
         </div>
         <div className={FIELD}>
           <label htmlFor="na-task">First task (optional)</label>
-          <Textarea id="na-task" className="bg-panel border-line-strong px-3 py-2 resize-y" rows={3} value={f.task} onChange={(e) => set('task', e.target.value)} />
+          <Textarea
+            id="na-task"
+            className="bg-panel border-line-strong px-3 py-2 resize-y"
+            rows={3}
+            value={f.task}
+            onChange={(e) => set('task', e.target.value)}
+          />
         </div>
         {f.task.trim() ? <Field label="Time box" value={f.box} onChange={(e) => set('box', e.target.value)} /> : null}
         <Button label="Cancel" onClick={onClose} />

@@ -8,7 +8,7 @@ import { Icon } from '#src/Icon.tsx';
 import { StateChip, useNow } from '#src/taskui.tsx';
 import { TaskDetail } from '#src/TaskDetail.tsx';
 import { useAgents } from '@handline/app-data';
-import { useStore } from '@handline/app-react';
+import { useMe } from '@handline/app-react';
 import { Button, Toolbar, Check, Segmented } from '#src/ui/index.ts';
 import { TaskColumns } from '#src/TaskGraph.tsx';
 import { RowMenu, VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from '#src/TaskVerbUi.tsx';
@@ -39,7 +39,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
     const waited = new Set(held.flatMap((t) => t.blocked_by ?? []));
     return mine.filter((t) => t.to === agent || waited.has(t.id));
   }, [mine, agent]);
-  const me = useStore().me;
+  const me = useMe();
   const cans = useVerbCans();
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
   const { marked, setMarked, toggle, toggleAll } = useMarks(mine.map((t) => t.id));
