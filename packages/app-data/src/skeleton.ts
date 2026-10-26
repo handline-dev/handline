@@ -47,10 +47,11 @@ function draw(Box: NonNullable<ReturnType<typeof useData>['box']> | string, node
   );
 }
 
-/** A view's loading shape, by name or as a tree. `loading` is the view's first-load flag; the gate applies the delay and the minimum. */
-export function Skeleton(props: { shape: SkeletonName | SkeletonNode; loading: boolean; label: string }): ReactNode {
+/** A view's loading shape, by name or as a tree. `loading` is the view's first-load flag; the gate applies the delay and the minimum. A view that must not draw anything beside the skeleton runs the gate itself and passes `shown`. */
+export function Skeleton(props: { shape: SkeletonName | SkeletonNode; loading: boolean; label: string; shown?: boolean }): ReactNode {
   const { box } = useData();
-  const show = useSkeletonGate(props.loading);
+  const gated = useSkeletonGate(props.loading);
+  const show = props.shown ?? gated;
   if (!show) return null;
   const node = typeof props.shape === 'string' ? skeletons[props.shape] : props.shape;
   return createElement(
