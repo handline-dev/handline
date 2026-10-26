@@ -2,7 +2,7 @@
 // own (authored: it shows at once and goes back with its own note when refused), and the standing answers. A section nav on the left, then one
 // card per section whose rows are a title, one grey line and the control on the right (docs/design-gaps.md G80).
 import { useEffect, useState } from 'react';
-import { INVALID, capField, idleField, limitFields, type KV } from '@handline/app-core';
+import { INVALID, capField, idleField, limitFields, paceFields, type KV } from '@handline/app-core';
 import { useServes, useSettings } from '@handline/app-data';
 import { Answers } from '#src/Answers.tsx';
 import { Devices } from '#src/Devices.tsx';
@@ -105,6 +105,17 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                         more="An account with its own cap keeps it"
                       />
                       {limitFields(v).map((f) => (
+                        <NumberRow key={f.label} {...f} />
+                      ))}
+                      {v.pacing === undefined ? null : (
+                        <SwitchRow
+                          label="Pacing"
+                          hint="An account ahead of its weekly pace line starts fewer turns"
+                          on={!!v.pacing}
+                          change={(on) => ({ pacing: on })}
+                        />
+                      )}
+                      {paceFields(v).map((f) => (
                         <NumberRow key={f.label} {...f} />
                       ))}
                     </SettingsCard>

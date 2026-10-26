@@ -95,3 +95,37 @@ export const limitFields = (v: { host_active_cap?: number; load_per_core_pct?: n
     field('Least free memory', 'Under this share of memory free, no new work starts', '%', v.ram_free_min_pct, 'ram_free_min_pct'),
   ];
 };
+
+/** A whole number from `min` to `max`; empty clears it (null, back to the default), anything out of range is not sent. */
+export const parseRange =
+  (min: number, max: number) =>
+  (text: string): number | null | typeof INVALID => {
+    const t = text.trim();
+    if (t === '') return null;
+    return /^\d+$/.test(t) && Number(t) >= min && Number(t) <= max ? Number(t) : INVALID;
+  };
+
+/** The pacing rows of the Settings page, on the PC and the phone: the target the week is paced to and the burst allowed over the line. A daemon that has none of the keys does not pace: no rows. */
+export const paceFields = (v: { pacing?: boolean; pace_target_pct?: number; pace_burst_pct?: number }) => {
+  if (v.pacing === undefined && v.pace_target_pct === undefined && v.pace_burst_pct === undefined) return [];
+  const field = (
+    label: string,
+    hint: string,
+    n: number | undefined,
+    min: number,
+    max: number,
+    key: 'pace_target_pct' | 'pace_burst_pct',
+  ) => ({
+    label,
+    hint,
+    unit: '%',
+    current: n === undefined ? '' : String(n),
+    parse: parseRange(min, max),
+    change: (x: number | null): PageSettings => ({ [key]: x }),
+    allowed: `a whole number from ${min} to ${max}, or empty for the default`,
+  });
+  return [
+    field('Pace target', "The share of its week an account may have used by the week's end", v.pace_target_pct, 50, 100, 'pace_target_pct'),
+    field('Pace burst', 'Points over the pace line before an account starts no new turn', v.pace_burst_pct, 0, 50, 'pace_burst_pct'),
+  ];
+};

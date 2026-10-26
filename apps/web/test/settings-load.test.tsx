@@ -80,3 +80,36 @@ describe('settings: machine load limits', () => {
     expect($('[data-setting="Load per core"]')).toBeNull();
   });
 });
+
+describe('settings: pacing', () => {
+  const pacing = () => $('[aria-label="Pacing"]') as HTMLElement;
+
+  it('shows the switch and the two rows, and a change sends that key only', async () => {
+    const s = await mount();
+    await until(() => field('Pace target'), 'the rows');
+    expect([field('Pace target').value, field('Pace burst').value]).toEqual(['98', '10']);
+    const before = { ...values(s) };
+    await setValue(field('Pace target'), '90');
+    await blur(field('Pace target'));
+    await until(() => values(s).pace_target_pct === 90, 'the save');
+    expect({ ...values(s), pace_target_pct: 98 }).toEqual(before);
+    await act(async () => pacing().click());
+    await until(() => values(s).pacing === false, 'pacing off');
+    expect(values(s).pace_burst_pct).toBe(10);
+  });
+
+  it('a number out of range is not sent', async () => {
+    const s = await mount();
+    await until(() => field('Pace target'), 'the rows');
+    for (const [label, bad] of [
+      ['Pace target', '49'],
+      ['Pace target', '101'],
+      ['Pace burst', '51'],
+    ] as const) {
+      await setValue(field(label), bad);
+      await blur(field(label));
+      expect($(`[data-setting="${label}"] .ui-note`)?.textContent).toContain('whole number');
+    }
+    expect([values(s).pace_target_pct, values(s).pace_burst_pct]).toEqual([98, 10]);
+  });
+});

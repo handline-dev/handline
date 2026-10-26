@@ -1,6 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { INVALID, agentTime, bandOf, minutesOf, parseCap, parseMinutes, parseLimit, limitFields } from '#src/index.ts';
+import {
+  INVALID,
+  agentTime,
+  bandOf,
+  minutesOf,
+  parseCap,
+  parseMinutes,
+  parseLimit,
+  limitFields,
+  parseRange,
+  paceFields,
+} from '#src/index.ts';
 
 test('the bars change colour at 60 and 85 percent, not before', () => {
   assert.deepEqual([59, 60, 84, 85].map(bandOf), ['ok', 'warn', 'warn', 'bad']);
@@ -38,4 +49,24 @@ test('a machine limit takes a whole number, off as 0, empty as the default; a da
   assert.deepEqual(limitFields({}), []);
   const [agents, load] = limitFields({ host_active_cap: 0, load_per_core_pct: 150 });
   assert.deepEqual([agents!.current, load!.current, load!.change(200)], ['off', '150', { load_per_core_pct: 200 }]);
+});
+
+test('a pace number is a whole number inside its range, empty clears it, anything else is not sent', () => {
+  const target = parseRange(50, 100);
+  assert.deepEqual(['50', '100', ' 75 ', ''].map(target), [50, 100, 75, null]);
+  assert.deepEqual(['49', '101', '7.5', 'x', '-60'].map(target), Array(5).fill(INVALID));
+  assert.equal(parseRange(0, 50)('0'), 0);
+});
+
+test('the pace rows are the target and the burst, and a daemon without the keys has none', () => {
+  assert.deepEqual(paceFields({}), []);
+  const rows = paceFields({ pacing: true, pace_target_pct: 98, pace_burst_pct: 10 });
+  assert.deepEqual(
+    rows.map((r) => [r.label, r.current]),
+    [
+      ['Pace target', '98'],
+      ['Pace burst', '10'],
+    ],
+  );
+  assert.deepEqual(rows[1]!.change(20), { pace_burst_pct: 20 });
 });

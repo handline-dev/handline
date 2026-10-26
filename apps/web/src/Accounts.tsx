@@ -1,6 +1,6 @@
 // The Accounts tab of Settings (#/accounts, #/stats), also the page the status bar's usage item opens: one line per account, then the Stats section; #/accounts/:name is one account in three tabs.
 import { useState } from 'react';
-import { STATE_WORD, agentsLine, outUntil, stateOf, span, dateTime } from '@handline/app-core';
+import { STATE_WORD, agentsLine, outUntil, paceLine, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAccounts, useAccountUsage, useAgents, useOff, useServes, useWrite } from '@handline/app-data';
@@ -21,7 +21,7 @@ const STATE_TONE =
   'data-[state=out]:border-bad data-[state=out]:text-bad data-[state=needs_login]:border-bad data-[state=needs_login]:text-bad data-[state=in_use]:border-ok data-[state=in_use]:text-ok';
 const FACT = 'acct-fact m-0 flex items-center gap-2 [&_svg]:text-ink-3';
 const ROW =
-  'acct-row grid min-h-11 grid-cols-[minmax(8em,1.2fr)_auto_minmax(10em,1fr)_minmax(10em,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-2 text-inherit no-underline hover:bg-raised max-[960px]:grid-cols-[minmax(8em,1fr)_auto_auto] max-[960px]:[&_.gauge]:col-span-full';
+  'acct-row grid min-h-11 grid-cols-[minmax(8em,1.2fr)_auto_minmax(12em,1fr)_minmax(12em,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-2 text-inherit no-underline hover:bg-raised max-[1200px]:grid-cols-[minmax(8em,1fr)_auto_auto] max-[1200px]:[&_.gauge]:col-span-full';
 const WRAP = '[&:not(:first-child)]:border-t [&:not(:first-child)]:border-line';
 
 const STATE_ICON: Record<ReturnType<typeof stateOf>, IconName> = {
@@ -37,7 +37,7 @@ export function StateChip({ account, now }: { account: Account; now: number }) {
   const state = stateOf(account);
   const until = state === 'out' ? outUntil(account) : null;
   return (
-    <span className="acct-state-wrap inline-flex items-center gap-1.5">
+    <span className="acct-state-wrap inline-flex whitespace-nowrap items-center gap-1.5">
       <Icon name={STATE_ICON[state]} size={14} label={STATE_WORD[state]} />
       <span
         className={`badge acct-state ${state} mr-1.5 inline-block rounded-card border border-line px-1.5 text-hint text-ink-2 ${STATE_TONE}`}
@@ -50,6 +50,17 @@ export function StateChip({ account, now }: { account: Account; now: number }) {
 }
 
 const LOGIN_WORD: Record<Account['login_state'], string> = { ok: 'logged in', needs_login: 'needs login', unknown: 'login unknown' };
+
+/** Where the week stands against its pace line, in words; nothing when the account has no pace or pacing is off. */
+function PaceLine({ account, short = false }: { account: Account; short?: boolean }) {
+  const line = paceLine(account);
+  const text = short ? paceLine(account, true) : line;
+  return line ? (
+    <span className={`acct-pace text-label text-ink-2${short ? ' truncate' : ''}`} title={line}>
+      {text}
+    </span>
+  ) : null;
+}
 
 /** What `hl account list` adds to the gauges: the login, the plan, when the week resets, and whether it can take another agent and why not. */
 export function UsageLine({ account }: { account: Account }) {
@@ -111,9 +122,12 @@ function Row({ account, now }: { account: Account; now: number }) {
         </span>
         <StateChip account={account} now={now} />
         <Gauge label="5 h" window={account.five_hour} now={now} />
-        <Gauge label="week" window={account.weekly} now={now} />
+        <span className="acct-week flex min-w-0 flex-col gap-0.5 max-[1200px]:col-span-full">
+          <Gauge label="week" window={account.weekly} now={now} />
+          <PaceLine account={account} short />
+        </span>
         <span
-          className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2"
+          className="acct-agents inline-flex whitespace-nowrap items-center gap-1 font-mono text-label text-ink-2"
           title="Agents working on it now, and the most it takes at once"
         >
           <Icon name="agent" size={14} label="Agents" />
@@ -220,6 +234,7 @@ function AccountPageOne({ account, now }: { account: Account; now: number }) {
         <div className="acct-overview flex flex-col gap-3">
           <Gauge label="5 h" window={account.five_hour} now={now} detail />
           <Gauge label="week" window={account.weekly} now={now} detail />
+          <PaceLine account={account} />
           <p className={FACT}>
             <Icon name="schedules" size={14} label="Month" />
             {account.cycle.on ? (account.cycle.end ? `ends ${account.cycle.end}` : 'ends when its login drops') : 'renewing'}

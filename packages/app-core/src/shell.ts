@@ -18,6 +18,9 @@ export const PAGE_SETTINGS = [
   'push_task_done',
   'push_stall',
   'push_account_out',
+  'pacing',
+  'pace_target_pct',
+  'pace_burst_pct',
 ] as const;
 export type PageSettings = Pick<SettingsChanges, (typeof PAGE_SETTINGS)[number]>;
 
