@@ -50,10 +50,7 @@ export function SettingsView({ agent }: { agent: string }) {
   const editable = served && (role === 'founder' || role === 'agent'); // agent.set is for the founder and an agent on itself
   return (
     <ScrollPage className="settings" aria-label={`${agent} settings`}>
-      <PageHead className="settings-head settings-agent">
-        <Button className="back self-end mb-4 [&_svg]:rotate-180" icon="chevronRight" label={`Back to ${agent}`} onClick={() => goAgent(agent)}>
-          {agent}
-        </Button>
+      <PageHead className="settings-head settings-agent" back={{ label: agent, to: () => goAgent(agent) }}>
         <PageTitle>Settings</PageTitle>
         <p className="settings-lede m-0 basis-full text-body text-ink-2">Each change saves as you make it.</p>
       </PageHead>
@@ -92,7 +89,8 @@ export function SettingsView({ agent }: { agent: string }) {
 
 function FieldRow(props: { agent: string; f: Field; stored: string | undefined; editable: boolean; role: string | undefined }) {
   const { f } = props;
-  const { stored, pending, global, draft, setDraft, note, setNote, ask, setAsk, allowed, off, value, send, commit, choose, options } = useFieldRow(props);
+  const { stored, pending, global, draft, setDraft, note, setNote, ask, setAsk, allowed, off, value, send, commit, choose, options } =
+    useFieldRow(props);
   const [base, setBase] = useState('');
   const edit = (v: string) => {
     if (draft === null) setBase(stored);
@@ -179,27 +177,27 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
         </p>
       ) : null}
       <AnimatedList>
-      {danger ? (
-        <Sheet key="danger" danger role="alertdialog" aria-label={danger.title}>
-          <strong>{danger.title}</strong>
-          <span className="muted">{danger.text}</span>
-          <SheetActions>
-            <Button
-              variant="solid"
-              label={danger.go}
-              className="max-sm:min-h-12 max-sm:flex-1"
-              onClick={() => {
-                const v = ask!;
-                setAsk(null);
-                send(v);
-              }}
-            >
-              {danger.go}
-            </Button>
-            <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" onClick={() => setAsk(null)} />
-          </SheetActions>
-        </Sheet>
-      ) : null}
+        {danger ? (
+          <Sheet key="danger" danger role="alertdialog" aria-label={danger.title}>
+            <strong>{danger.title}</strong>
+            <span className="muted">{danger.text}</span>
+            <SheetActions>
+              <Button
+                variant="solid"
+                label={danger.go}
+                className="max-sm:min-h-12 max-sm:flex-1"
+                onClick={() => {
+                  const v = ask!;
+                  setAsk(null);
+                  send(v);
+                }}
+              >
+                {danger.go}
+              </Button>
+              <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" onClick={() => setAsk(null)} />
+            </SheetActions>
+          </Sheet>
+        ) : null}
       </AnimatedList>
     </SettingsRow>
   );
