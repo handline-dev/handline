@@ -81,3 +81,18 @@ describe("an agent's Tasks tab", () => {
     expect(stop).toBeGreaterThan(edit);
   });
 });
+
+describe('a narrow Tasks list (detail panel open)', () => {
+  it('lets the title take the free width and hides priority, then owner, as the list narrows', async () => {
+    await open('#/tasks', 'tasks-200');
+    await until(() => $('tr[data-task]'), 'a row');
+    const cls = (sel: string) => $(sel)!.className;
+    expect(cls('.tasks-scroll')).toContain('@container');
+    expect(cls('tr[data-task] .c-title')).toContain('min-w-0');
+    expect($('tr[data-task] .ttitle')!.className).toContain('line-clamp-2');
+    expect(cls('tr[data-task] .c-pri')).toContain('@max-[720px]:min-sm:hidden');
+    expect(cls('tr[data-task] .c-owner')).toContain('@max-[600px]:min-sm:hidden');
+    expect(cls('tr[data-task] .c-time')).toContain('whitespace-nowrap');
+    expect($('tr[data-task] .c-owner span')!.getAttribute('title')).toMatch(/^owner: /);
+  });
+});

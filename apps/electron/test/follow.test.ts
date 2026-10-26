@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { decide, Follower, peekMain, watchMain, type Main } from '#src/follow.ts';
 import { popoverHtml } from '#src/popover-html.ts';
-import { followItems } from '#src/tray.ts';
+import { trayMenu } from '#src/tray.ts';
 
 test('a web-only change rebuilds the page and nothing of the app; an app change rebuilds it too', () => {
   assert.deepEqual(decide(['apps/web/src/App.tsx', 'docs/x.md', 'tests/a.py']), {
@@ -126,13 +126,24 @@ test('the popover says the new sha and title, and a title cannot add markup', ()
   assert.match(html, /<script nonce="N0NCE">/);
 });
 
-test('the tray says what the app is on, and offers the restart once main has moved', () => {
+const actions = {
+  open: () => undefined,
+  startDaemon: () => undefined,
+  quit: () => undefined,
+  inbox: () => undefined,
+  settings: () => undefined,
+  reconnect: () => undefined,
+  copy: () => undefined,
+};
+
+test('the tray offers the restart once main has moved, and says so when the update failed; the commit is a detail', () => {
   const base = { sha: 'aaa1111ffff', next: null, reason: '', check: () => undefined, restart: () => undefined };
-  assert.equal(followItems({ ...base, state: 'current' })[0]!.label, 'Handline is on main aaa1111');
-  const moved = followItems({ ...base, state: 'available', next: 'bbb2222ffff' });
-  assert.equal(moved[0]!.label, 'Handline is on main aaa1111; main is now bbb2222');
-  assert.equal(moved[1]!.label, 'Restart to update');
-  assert.match(followItems({ ...base, state: 'failed', reason: 'vite failed' })[0]!.label!, /vite failed/);
+  const labels = (f: Parameters<typeof trayMenu>[3], details = false) =>
+    trayMenu('running', '', actions, f, undefined, { unread: 0, details }).map((i) => i.label ?? '-');
+  assert.ok(!labels({ ...base, state: 'current' }).some((l) => /main|update/i.test(l)));
+  assert.ok(labels({ ...base, state: 'current' }, true).includes('Handline is on main aaa1111'));
+  assert.ok(labels({ ...base, state: 'available', next: 'bbb2222ffff' }).includes('Restart to update'));
+  assert.ok(labels({ ...base, state: 'failed', reason: 'vite failed' }).includes('Update failed: vite failed'));
 });
 
 // fs.watch can start and then deliver nothing (macOS with an overloaded fseventsd); a bare watch on the same folder tells that from a bug in watchMain.
