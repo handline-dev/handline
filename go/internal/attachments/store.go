@@ -44,11 +44,18 @@ type Info struct {
 	Name  string `json:"name"`
 	Mime  string `json:"mime"`
 	Bytes int64  `json:"bytes"`
+	// Width and Height are the picture's as drawn, from its header when it was put; 0 when it could not be read, or put before they were kept.
+	Width  int `json:"width,omitempty"`
+	Height int `json:"height,omitempty"`
 }
 
-// Map is the Info as a member of a reply.
+// Map is the Info as a member of a reply; width and height only when known.
 func (i Info) Map() map[string]any {
-	return map[string]any{"id": i.ID, "name": i.Name, "mime": i.Mime, "bytes": i.Bytes}
+	m := map[string]any{"id": i.ID, "name": i.Name, "mime": i.Mime, "bytes": i.Bytes}
+	if i.Width > 0 && i.Height > 0 {
+		m["width"], m["height"] = i.Width, i.Height
+	}
+	return m
 }
 
 // Store is the attachments folder.
@@ -361,6 +368,7 @@ func (s *Store) finish(uploadID string, up upload) (*Info, error) {
 	if err := os.Rename(s.sub("uploads", uploadID+".part"), s.Path(im.Info)); err != nil {
 		return nil, err
 	}
+	im.Width, im.Height = dimensions(s.Path(im.Info), im.Mime)
 	if err := writeJSON(s.sub("meta", id+".json"), im); err != nil {
 		os.Remove(s.Path(im.Info))
 		return nil, err

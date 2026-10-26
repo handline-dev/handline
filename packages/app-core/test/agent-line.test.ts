@@ -10,6 +10,8 @@ describe('doingWords', () => {
     assert.equal(doingWords('Bash cd /Users/ron/orca && git fetch'), 'Running a command');
     assert.equal(doingWords('Edit /Users/ron/orca/apps/web/src/AgentRow.tsx'), 'Editing AgentRow.tsx');
     assert.equal(doingWords('Read /a/b/c.ts'), 'Reading c.ts');
+    assert.equal(doingWords('Read /Users/ron/.claude/projects/-Users-ron-workspaces-orcapipe-handline'), 'Reading a file'); // Claude's project folder
+    assert.equal(doingWords('Read -Users-ron-workspaces-orcapipe-handline'), 'Reading a file');
     assert.equal(doingWords('Grep foo'), 'Searching the code');
   });
   it('cuts the paths of a text it does not know to their last part', () => {

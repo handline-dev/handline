@@ -1,7 +1,7 @@
 // Remove one account (founder only): a dry run lists what would happen and which agents sit on it, then the founder types the name to confirm.
 import { useEffect, useState } from 'react';
 import type { Account } from '@handline/client';
-import { useStore } from '@handline/app-react';
+import { useHello } from '@handline/app-react';
 import { classify, sentence, useOff, useWrite } from '@handline/app-data';
 import { Button, Dialog, Field, Icon, NOTE } from '#src/ui/index.ts';
 import { AnimatedList } from '#src/AnimatedList.tsx';
@@ -59,18 +59,13 @@ function RemoveDialog({ account: a, onClose }: { account: Account; onClose: () =
 }
 
 export function AccountRemove({ account: a }: { account: Account }) {
-  const founder = useStore().client.hello?.role === 'founder';
+  const founder = useHello()?.role === 'founder';
   const off = useOff('account.remove');
   const [asking, setAsking] = useState(false);
   if (!founder) return null;
   return (
     <div className="acct-remove">
-      <Button
-        label="Remove account…"
-        disabled={!!off}
-        title={off}
-        onClick={() => setAsking(true)}
-      />
+      <Button label="Remove account…" disabled={!!off} title={off} onClick={() => setAsking(true)} />
       <AnimatedList>{asking ? <RemoveDialog key="RemoveDialog" account={a} onClose={() => setAsking(false)} /> : null}</AnimatedList>
     </div>
   );
