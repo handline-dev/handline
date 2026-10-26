@@ -897,7 +897,7 @@ The plan's earlier `requests` topic is replaced by `chat` (messages and landing 
 | `agents` | `agent.changed` (AgentView), `agent.removed` ({name}), `agent.control` (TimelineEntry) | `agents.list` |
 | `inbox` | `inbox.added` (InboxItem), `inbox.changed` (InboxItem) | `inbox.list` |
 | `tasks` | `task.changed` (Task) | `tasks.list` |
-| `notifications` | `task_done` ({task, task_title?, result?}), `prompt_asked` (Prompt), `stall` ({agent}), `account_out` ({account}) | `events.feed` |
+| `notifications` | `task_done` ({task, task_title?, result?}), `prompt_asked` (Prompt), `stall` ({agent}), `account_out` ({account}), `disk_low` ({free_bytes, total_bytes}) | `events.feed` |
 | `chat` | `chat.message` (ChatMessage), `chat.transcript` (TranscriptItem), `chat.working` (Working) | `chat.transcript` |
 | `operations` | `operation.progress` (Operation) | `operation.get` |
 | `devices` | `device.paired` (Device), `device.revoked` ({device}) | `devices.list` |
