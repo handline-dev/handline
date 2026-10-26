@@ -129,6 +129,11 @@ func TestOnSeedsBuildsAndStartsTheTeamsOwnInstance(t *testing.T) {
 	if !strings.Contains(string(gateway), "<string>-gateway</string><string>-home</string><string>"+home+"</string><string>-listen</string><string>127.0.0.1:7451</string>") {
 		t.Fatalf("gateway plist:\n%s", gateway)
 	}
+	for _, plist := range []string{string(daemon), string(gateway)} {
+		if !strings.Contains(plist, "<key>WorkingDirectory</key><string>"+home+"</string>") {
+			t.Fatalf("a job started by launchd would run in / without its own folder:\n%s", plist)
+		}
+	}
 	if !strings.Contains(string(daemon), "<key>HANDLINE_HOME</key><string>"+home+"</string>") {
 		t.Fatalf("the job's environment names its own home:\n%s", daemon)
 	}

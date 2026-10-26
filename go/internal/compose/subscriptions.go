@@ -85,6 +85,7 @@ func (p vendorPlans) Refresh(acct string) (string, error) {
 		cli = "claude"
 	}
 	cmd := exec.CommandContext(ctx, cli, "auth", "status", "--json")
+	cmd.Dir = paths.QuietDir()
 	cmd.Env = append(os.Environ(), team.ConfigDirEnv(team.DefaultVendor)+"="+dir)
 	out, err := cmd.Output()
 	var data struct {
