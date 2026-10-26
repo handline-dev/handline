@@ -82,10 +82,26 @@ export interface ShellApi {
   preview?(a: { url: string; x: number; y: number; width: number; height: number } | null): Promise<{ ok: true } | Fail<'bad_request'>>;
   /** The preview as it is on screen, a PNG (base64). */
   capturePreview?(): Promise<{ ok: true; png: string } | Fail<'bad_request' | 'unavailable'>>;
-  /** The picture of a running Android emulator or device (adb) or iOS simulator (simctl) as a PNG (base64); `unavailable` says plainly why there is none. */
-  deviceShot?(kind: 'android' | 'ios'): Promise<{ ok: true; png: string } | Fail<'bad_request' | 'unavailable'>>;
-  /** A tap on the Android device at a place in its last picture, as fractions (0 to 1) of its width and height. */
-  deviceTap?(a: { x: number; y: number }): Promise<{ ok: true } | Fail<'bad_request' | 'unavailable'>>;
+  /** The booted iOS simulators and the Android devices adb sees, and whether idb is installed (a simulator is driven through it). */
+  deviceList?(): Promise<
+    { ok: true; devices: { kind: 'android' | 'ios'; id: string; name: string }[]; idb: boolean } | Fail<'bad_request' | 'unavailable'>
+  >;
+  /** The picture of one running Android emulator or device (adb) or iOS simulator (simctl) as a PNG (base64); `unavailable` says plainly why there is none. */
+  deviceShot?(a: { kind: 'android' | 'ios'; id: string }): Promise<{ ok: true; png: string } | Fail<'bad_request' | 'unavailable'>>;
+  /** A tap on that device at a place in its last picture, as fractions (0 to 1) of its width and height. */
+  deviceTap?(a: { kind: 'android' | 'ios'; id: string; x: number; y: number }): Promise<{ ok: true } | Fail<'bad_request' | 'unavailable'>>;
+  /** A drag on that device between two places of its last picture, as fractions, over `ms` milliseconds. */
+  deviceSwipe?(a: {
+    kind: 'android' | 'ios';
+    id: string;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    ms?: number;
+  }): Promise<{ ok: true } | Fail<'bad_request' | 'unavailable'>>;
+  /** One line typed on that device. */
+  deviceText?(a: { kind: 'android' | 'ios'; id: string; text: string }): Promise<{ ok: true } | Fail<'bad_request' | 'unavailable'>>;
   /** Which daemon the app talks to: its mode and, in connect mode, the paired device's address. Absent in a shell with one mode. */
   mode?(): Promise<{ ok: true; mode: 'connect' | 'own'; remote: string | null; phone: boolean } | Fail<'bad_request'>>;
   /** Switches the mode; the app relaunches. */
