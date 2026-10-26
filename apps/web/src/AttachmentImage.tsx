@@ -25,7 +25,7 @@ export function AttachmentImage({ id, name }: { id: string; name: string }) {
     <>
       <button
         type="button"
-        className="attachment border-0 bg-transparent p-0"
+        className="attachment flex h-40 min-w-24 max-w-full items-start border-0 bg-transparent p-0 text-left"
         title={label}
         aria-label={`Open ${label}`}
         onClick={() => setOpen(true)}

@@ -6,12 +6,12 @@ import { useServes, useTaskTitleReads, useTasks } from '@handline/app-data';
 /** At most the newest MAX missing titles are read by id, for a chat of years of cards. */
 const MAX = 50;
 
-/** `settled` says the cards' titles are known: the list and the reads of the cards it lacks have come, or there are no cards, or the daemon will not list them. */
+/** What each card is about, as far as known: a card shows its number until its title arrives, and nothing waits for it. */
 export function useCardTitles(
   items: readonly TranscriptItem[],
   entries: readonly (TimelineEntry | TaskFold)[],
-): { titles: Map<number, string>; settled: boolean } {
-  const { served, open } = useServes('tasks.list');
+): Map<number, string> {
+  const { served } = useServes('tasks.list');
   const tasks = useTasks({ all: true, limit: 200 }); // done tasks too: a card of a closed task keeps its title
   const listed = served && tasks.data ? new Map(tasks.data.items.map((t) => [t.id, t.title])) : null;
   const cards = [
@@ -25,7 +25,6 @@ export function useCardTitles(
         .sort((a, b) => b - a)
         .slice(0, MAX)
     : [];
-  const { titles: own, pending } = useTaskTitleReads(missing);
-  const settled = !cards.length || !served || !open || ((tasks.isSuccess || tasks.isError) && !pending);
-  return { titles: new Map([...(listed ?? []), ...own]), settled };
+  const { titles: own } = useTaskTitleReads(missing);
+  return new Map([...(listed ?? []), ...own]);
 }
