@@ -92,12 +92,13 @@ export function useOnce(): [going: boolean, once: (job: () => Promise<void>) => 
  * Calls `more` when the sentinel element comes within `margin` px of the scroll box `root` (the top of a chat, the end of a list; `null` for the window): put the
  * returned ref on an empty element at that end. Where there is no IntersectionObserver the box's own scroll is watched for the same distance.
  * `more` is called again only after the sentinel has left the margin and come back, or after `enabled` turns false and true.
+ * With `dwell` ms, the sentinel must stay inside the margin that long first: a scroll that only passes by loads nothing.
  */
 export function useNearEnd<R extends HTMLElement, S extends HTMLElement>(
   root: { current: R | null } | null,
   more: () => void,
   enabled: boolean,
-  { margin = 200, atTop = false }: { margin?: number; atTop?: boolean } = {},
+  { margin = 200, atTop = false, dwell = 0 }: { margin?: number; atTop?: boolean; dwell?: number } = {},
 ): { current: S | null } {
   const sentinel = useRef<S | null>(null);
   const call = useRef(more);
@@ -107,12 +108,16 @@ export function useNearEnd<R extends HTMLElement, S extends HTMLElement>(
     const el = sentinel.current;
     if (!enabled || !el || (root && !box)) return;
     if (typeof IntersectionObserver === 'function') {
-      const io = new IntersectionObserver((e) => e.some((x) => x.isIntersecting) && call.current(), {
-        root: box,
-        rootMargin: `${margin}px`,
-      });
+      let wait: ReturnType<typeof setTimeout> | undefined;
+      const io = new IntersectionObserver(
+        (e) => {
+          clearTimeout(wait);
+          if (e.at(-1)?.isIntersecting) wait = setTimeout(() => call.current(), dwell);
+        },
+        { root: box, rootMargin: `${margin}px` },
+      );
       io.observe(el);
-      return () => io.disconnect();
+      return () => (clearTimeout(wait), io.disconnect());
     }
     const target: HTMLElement | Window = box ?? window;
     const onScroll = () => {
@@ -122,6 +127,6 @@ export function useNearEnd<R extends HTMLElement, S extends HTMLElement>(
     };
     target.addEventListener('scroll', onScroll);
     return () => target.removeEventListener('scroll', onScroll);
-  }, [root, enabled, margin, atTop]);
+  }, [root, enabled, margin, atTop, dwell]);
   return sentinel;
 }

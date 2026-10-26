@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { sideOf, type TaskFold, type TimelineEntry } from '@handline/app-core';
+import { OLDER_DWELL_MS, sideOf, type TaskFold, type TimelineEntry } from '@handline/app-core';
 import { useNearEnd, useSelector, useStore } from '@handline/app-react';
 import {
   Skeleton,
@@ -181,7 +181,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     stream,
     more,
     armed && reading && chat.hasOlder && !chat.loadingOlder && chat.status === 'ready',
-    { atTop: true },
+    { atTop: true, dwell: OLDER_DWELL_MS },
   );
   // Around an old message, the way down is read as the bottom comes near, until the live tail is reached.
   const lower = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, win.loadNewer, windowed && reading && win.hasNewer && !win.loading);
@@ -191,12 +191,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const drawn = !loading && !skeleton;
   const scroll = useChatScroll({ stream, content, ready: chat.status === 'ready' && drawn, agent, reading: chat.holdPlace });
 
-  // New entries while the reader is above the bottom are counted, not scrolled to; the pill takes them down.
-  const count = useRef(entries.length);
+  // New entries while the reader is above the bottom are counted, not scrolled to; the pill takes them down. An older page lands above the last entry and is no news.
   useEffect(() => {
-    const grew = entries.length - count.current;
-    count.current = entries.length;
-    if (grew > 0 && tail >= 0 && !windowed) scroll.added(grew);
+    const grew = tail >= 0 ? entries.length - 1 - tail : 0;
+    if (grew > 0 && !windowed) scroll.added(grew);
   }, [entries.length, tail, windowed]); // eslint-disable-line react-hooks/exhaustive-deps
   const bottom = () => scroll.bottom();
   // Sending always shows the message: the sent row is at the bottom, whatever the person had scrolled to.
