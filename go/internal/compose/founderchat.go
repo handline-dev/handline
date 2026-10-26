@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"github.com/handline/handline/go/internal/db"
-	"github.com/handline/handline/go/internal/inputhold"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/sessionrpc"
 	"github.com/handline/handline/go/internal/turns"
@@ -21,8 +20,9 @@ func (p *Parts) typedOp(agent, op string) bool {
 }
 
 // typeable is "" when the founder's words may be typed at agent now, else why not: its hooks must have said where its turn is (idle, or
-// mid-turn, where the line is queued into the turn), no person or device may hold its input, nothing on its screen may be what a typed
-// line would answer, and no shell may be left in place of its session (term.ShellLeft).
+// mid-turn, where the line is queued into the turn), nothing on its screen may be what a typed line would answer, and no shell may be left
+// in place of its session (term.ShellLeft). A person or device holding its input does not stop it: the typing takes the terminal lock,
+// so it never lands between someone's keys.
 func (p *Parts) typeable(agent string) string {
 	if p.turns == nil || p.turns.State(agent) == turns.Unknown {
 		return "its turn is not known from its hooks yet"
@@ -33,9 +33,6 @@ func (p *Parts) typeable(agent string) string {
 	handle, err := db.Terminal(p.db, agent)
 	if err != nil || handle == "" {
 		return "it has no terminal"
-	}
-	if held, err := (&inputhold.Store{DB: p.db}).Held(agent); err != nil || held {
-		return "a person or device holds its input"
 	}
 	if b := p.LC.term.ScreenBlocker(handle); b != nil {
 		return b.Reason()
