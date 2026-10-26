@@ -6,6 +6,8 @@
                                             the change adds or edits
     python3 tools/pr_checks.py body         the pull request in $GITHUB_EVENT_PATH: base, body sections, no Korean and
                                             no message ids
+    python3 tools/pr_checks.py body-file FILE TITLE BASE
+                                            the same, for a pull request not opened yet (tools/pr-open.sh)
 
 Each prints one line per problem and exits 1 when there is one."""
 import json
@@ -102,6 +104,9 @@ def main(argv: list[str]) -> int:
     elif len(argv) == 2 and argv[1] == "body":
         pr = json.load(open(os.environ["GITHUB_EVENT_PATH"]))["pull_request"]
         problems = body_problems(pr, git("diff", "--name-only", f"{pr['base']['sha']}...HEAD").split())
+    elif len(argv) == 5 and argv[1] == "body-file":
+        pr = {"title": argv[3], "body": open(argv[2]).read(), "base": {"ref": argv[4]}}
+        problems = body_problems(pr, [])
     else:
         print(__doc__, file=sys.stderr)
         return 2
