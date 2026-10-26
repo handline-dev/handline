@@ -236,7 +236,9 @@ export function BytesTab({
         />
         {!hasTerminal && <StartTerminal agent={agent} />}
         {state === 'live' && watchOnly ? (
-          <span className="watch-only absolute top-1.5 right-2.5 z-10 rounded-sm bg-term-bg/70 px-1.5 text-[11px] text-wait">Watch only</span>
+          <span className="watch-only absolute top-1.5 right-2.5 z-10 rounded-sm bg-term-bg/70 px-1.5 text-[11px] text-wait">
+            Watch only
+          </span>
         ) : null}
         {state === 'live' && !watchOnly && heldBy && !holds ? (
           <div className="input-elsewhere absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-term-bg/70">
