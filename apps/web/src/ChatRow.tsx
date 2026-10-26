@@ -1,4 +1,4 @@
-// One line of the chat, drawn again only when what it shows changed: a message arriving leaves the lines above it alone.
+// One chat line, redrawn only when its own subject changed.
 import { memo } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import type { TaskFold, TimelineEntry } from '@handline/app-core';
@@ -23,7 +23,7 @@ type Props = {
   folds: Omit<ReturnType<typeof useFolds>, 'entries'>;
 };
 
-/** What a line draws from its entry: the entry itself is rebuilt on every change of the chat, the message or item in it is not. */
+/** The entry is rebuilt on every change; the object inside it is not. */
 const subject = (e: Props['e']) =>
   e.kind === 'fold' ? e : e.kind === 'message' || e.kind === 'note' ? e.message : e.kind === 'item' ? e.item : e.proposal;
 

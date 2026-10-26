@@ -1,5 +1,4 @@
-// What the references in a text (T<N>, #N, an agent's name) need to be links, read once for a whole chat and handed down by context, so a row of
-// the chat holds no data hook of its own and an event for another agent redraws none of them.
+// What T<N>, #N and agent-name references need to be links, read once per chat so rows hold no data hook.
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { useAgents, usePullRequests, useTasks } from '@handline/app-data';
 import { useWorkspaceIfAny, type WorkspaceCtx } from '#src/Workspace.tsx';
@@ -16,7 +15,7 @@ export interface RefsData {
 
 const Ctx = createContext<RefsData | null>(null);
 
-/** The reads behind the references of `text`: the task list, the agents, the workspace, and one pr.exists for every `#N` of the text. */
+/** The task list, the agents, the workspace and one pr.exists per `#N` of `text`. */
 export function useRefsData(agent: string | undefined, text: string): RefsData {
   const ws = useWorkspaceIfAny();
   const top = Math.max(0, ...(useTasks({ all: true, limit: 200 }).data?.items ?? []).map((t) => t.id));
@@ -29,7 +28,7 @@ export function useRefsData(agent: string | undefined, text: string): RefsData {
   );
 }
 
-/** One set of reads for everything inside: `text` is all the text whose `#N` the chat shows. */
+/** `text` is all the chat text whose `#N` is checked. */
 export function ChatRefs({ agent, text, children }: { agent: string; text: string; children: ReactNode }) {
   return <Ctx.Provider value={useRefsData(agent, text)}>{children}</Ctx.Provider>;
 }
