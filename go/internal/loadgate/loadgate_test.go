@@ -124,3 +124,20 @@ func TestTheCeilingIsSaidOutsideTheLock(t *testing.T) {
 		t.Fatal("a nil gate held work")
 	}
 }
+
+func TestTheCauseOfAHoldIsItsFirstClause(t *testing.T) {
+	l := Limits{Agents: 3, LoadPct: 150, RAMFreePct: 10}
+	for m, want := range map[*sysres.Machine]string{
+		{Cores: 8, Load1: 1, RAMTotal: 100, RAMFree: 50}:  "3 of 3 agents are working",
+		{Cores: 8, Load1: 16, RAMTotal: 100, RAMFree: 50}: "the Mac is busy",
+		{Cores: 8, Load1: 1, RAMTotal: 100, RAMFree: 5}:   "the Mac is low on memory",
+	} {
+		active := 1
+		if want == "3 of 3 agents are working" {
+			active = 3
+		}
+		if got := Cause(Held(l, active, m)); got != want {
+			t.Errorf("cause %q, want %q", got, want)
+		}
+	}
+}

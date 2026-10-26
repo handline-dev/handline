@@ -55,6 +55,15 @@ const HeldPrefix = "Held: "
 // IsHeld is whether why is a reason Held gave.
 func IsHeld(why string) bool { return strings.HasPrefix(why, HeldPrefix) }
 
+// Cause is the clause of a Held reason that names what holds it: "the Mac is busy", "3 of 3 agents are working".
+func Cause(why string) string {
+	s := strings.TrimPrefix(why, HeldPrefix)
+	if i := strings.IndexAny(s, "(."); i > 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}
+
 // Held is why a new start must wait, "" when it may go. active is the agents mid-turn on the machine; m is the latest measure, nil
 // before the first, when only the agent cap is checked.
 func Held(l Limits, active int, m *sysres.Machine) string {

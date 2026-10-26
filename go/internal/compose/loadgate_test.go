@@ -1,7 +1,6 @@
 package compose
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/db"
@@ -25,7 +24,7 @@ func TestForceStartPassesOnlyWorkTheLoadHolds(t *testing.T) {
 	if lc.Gate.Held("bob") == "" {
 		t.Fatal("over the load limit and not held")
 	}
-	if ok, said, _ := c.ForceStart("carol"); ok || !strings.Contains(said, "Nothing holds carol back") {
+	if ok, said, _ := c.ForceStart("carol"); ok || said != "Nothing to start: carol has no work waiting." {
 		t.Fatalf("nothing waits for carol: %v %q", ok, said)
 	}
 	ok, said, err := c.ForceStart("bob")

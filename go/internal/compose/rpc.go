@@ -7,6 +7,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/fold"
 	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/loadgate"
 	"github.com/handline/handline/go/internal/sessionrpc"
 	"github.com/handline/handline/go/internal/team"
 )
@@ -36,14 +37,17 @@ func (c controls) ForceStart(agent string) (bool, string, error) {
 	if w := c.lc.Launch.WakeWait(m.Q, agent, row); w != nil && w.Pace != nil {
 		paced = lifecycle.DescribeWakeWait(w)
 	}
-	if why == "" && paced == "" || (owed == "" && !c.lc.Launch.Ports.WaitingFor(m.Q, agent)) {
+	if owed == "" && !c.lc.Launch.Ports.WaitingFor(m.Q, agent) {
+		return false, "Nothing to start: " + agent + " has no work waiting.", nil
+	}
+	if why == "" && paced == "" {
 		return false, "Nothing holds " + agent + " back: it starts by itself.", nil
 	}
 	var said []string
 	for _, p := range []struct {
 		held, kind, what string
 		pass             func(string)
-	}{{why, "load_limit_passed", "the Mac is busy", c.lc.Gate.Pass}, {paced, "pace_passed", "its account is ahead of its weekly pace", c.lc.Launch.PassPace}} {
+	}{{why, "load_limit_passed", loadgate.Cause(why), c.lc.Gate.Pass}, {paced, "pace_passed", "its account is ahead of its weekly pace", c.lc.Launch.PassPace}} {
 		if p.held == "" {
 			continue
 		}
