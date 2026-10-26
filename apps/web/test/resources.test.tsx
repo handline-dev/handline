@@ -34,12 +34,21 @@ afterEach(async () => {
 });
 
 describe('system resources', () => {
-  it('the status bar says memory left, CPU and disk left in one line, red only for a cell that is over', async () => {
+  it('the status bar has one text cell of what the agents use and a keep-awake choice; settings show only after a click', async () => {
     await mount('#/my-turn');
-    await until(() => text(box.querySelector('.statusbar')).includes('memory 38% left'), 'the resources cell');
-    const bar = box.querySelector('.statusbar')!;
-    expect(text(bar)).toContain('memory 38% left · CPU ok · disk 120GB left');
-    expect(bar.querySelector('[data-over]')).toBeNull();
+    await until(() => box.querySelector('.resource-cell'), 'the resource cell');
+    expect(text(box.querySelector('.resource-cell'))).toMatch(/^Agents \d+% · .* · CPU ok · .* left$/);
+    expect(text(box.querySelector('.statusbar'))).toContain('Awake: Off');
+    expect(box.querySelector('.limit-editor')).toBeNull();
+    await act(async () => void box.querySelector<HTMLElement>('.resource-cell')!.click());
+    await until(() => box.querySelector('.resource-details'), 'the popover');
+    expect(box.querySelector('.limit-editor')).toBeNull(); // read-only until a row is clicked
+    const load = [...box.querySelectorAll<HTMLElement>('.resource-details button')].find((b) => text(b).startsWith('Load'))!;
+    await act(async () => void load.click());
+    await until(() => box.querySelector('.limit-editor'), 'the load editor');
+    expect(text(box.querySelector('.limit-editor'))).toContain('Now 0.3 → starts go.');
+    await act(async () => void box.querySelector<HTMLElement>('button[aria-label="Max"]')!.click());
+    await until(() => text(box.querySelector('.resource-details')).includes('/ 3.0'), 'the new limit');
   });
 
   it('the admin view lists agents heaviest first with a Stop button each and a totals line', async () => {
