@@ -2642,6 +2642,25 @@ export interface Methods {
   reason?: string;
   request_id: RequestId;
 }; result: Accepted };
+  "task.request": { params: {
+  /** The founder's message. Refused when it was not sent by the founder to an agent. */
+  request: RequestName;
+  /** Default: the message's first line. */
+  title?: string;
+  /** The agent who holds the request. Default: the agent the message was sent to. */
+  owner?: string;
+  request_id: RequestId;
+}; result: Accepted & {
+    task: number;
+    /** True when the message had already been made a request. */
+    existing?: boolean;
+  } };
+  "task.none": { params: {
+  /** The founder's message. */
+  request: RequestName;
+  reason: string;
+  request_id: RequestId;
+}; result: Accepted };
   "task.wait": { params: {
   task: number;
   watch: Watch;
@@ -3137,6 +3156,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.draft": { role: "agent", callers: null, write: true, since: 1 },
   "task.merge": { role: "agent", callers: null, write: true, since: 1 },
   "task.release": { role: "agent", callers: null, write: true, since: 1 },
+  "task.request": { role: "agent", callers: null, write: true, since: 1 },
+  "task.none": { role: "agent", callers: null, write: true, since: 1 },
   "task.wait": { role: "agent", callers: null, write: true, since: 1 },
   "task.discard": { role: "agent", callers: null, write: true, since: 1 },
   "task.board": { role: "agent", callers: null, write: false, since: 1 },

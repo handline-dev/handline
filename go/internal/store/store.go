@@ -158,6 +158,7 @@ var byHand = map[int]func(*sql.Tx) error{
 	22: addTaskEstimate,   // task_estimate
 	23: addFounderAuth,    // requests_founder_auth
 	24: addTaskWatch,      // task_watch
+	26: addRequestThreads, // request_threads
 }
 
 // addExtraWorktrees is _agent_extra_worktrees in schema.py: a database made before the column has none.
@@ -188,6 +189,21 @@ func addTaskEstimate(tx *sql.Tx) error {
 func addTaskWatch(tx *sql.Tx) error {
 	return addTaskColumns(tx, [][2]string{{"watch_vendor", "TEXT"}, {"watch_target", "TEXT"}, {"watch_until", "TEXT"}, {"watch_label", "TEXT"},
 		{"watch_result", "TEXT"}, {"watch_error", "TEXT"}})
+}
+
+// addRequestThreads is a founder's message made a request: the message a task came from (tasks.from_request), a message marked as needing
+// no work (requests.no_work, by whom), and a comment's reply, ask mark and answer time.
+func addRequestThreads(tx *sql.Tx) error {
+	if err := addTaskColumns(tx, [][2]string{{"from_request", "INTEGER"}}); err != nil {
+		return err
+	}
+	for _, c := range [][3]string{{"requests", "no_work", "TEXT"}, {"requests", "no_work_by", "TEXT"}, {"task_memos", "reply_to", "INTEGER"},
+		{"task_memos", "ask", "INTEGER NOT NULL DEFAULT 0"}, {"task_memos", "answered_at", "INTEGER"}} {
+		if err := addColumn(tx, c[0], c[1], c[2]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // addTaskColumns adds each (name, type) column the tasks table does not have yet.
