@@ -24,7 +24,20 @@ const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const text = (el: Element | null) => el?.textContent ?? '';
 
 async function mount(command: string, s = setup()) {
-  const prompt = { id: 'p9', agent: ARCH, kind: 'permission', tool: 'Bash', command, reason: null, lines: [], since: new Date().toISOString(), options: [{ key: 'allow', label: 'Allow', answer: 'yes', highlighted: true }, { key: 'deny', label: 'Deny', answer: 'no' }] };
+  const prompt = {
+    id: 'p9',
+    agent: ARCH,
+    kind: 'permission',
+    tool: 'Bash',
+    command,
+    reason: null,
+    lines: [],
+    since: new Date().toISOString(),
+    options: [
+      { key: 'allow', label: 'Allow', answer: 'yes', highlighted: true },
+      { key: 'deny', label: 'Deny', answer: 'no' },
+    ],
+  };
   s.daemon.sessions.get(ARCH)!.prompt = prompt as never;
   location.hash = `#/agents/${ARCH}`;
   box = document.body.appendChild(document.createElement('div'));
