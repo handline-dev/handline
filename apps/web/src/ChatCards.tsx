@@ -2,6 +2,7 @@
 // that concern it, decided where they were discussed.
 import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
+import { HeldLine } from '#src/ApplyNow.tsx';
 import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
 import {
   VERBS,
@@ -11,7 +12,6 @@ import {
   decidedProposals,
   applyFailure,
   followUpOf,
-  heldLine,
   isHeld,
   isWaiting,
   restartingLine,
@@ -246,7 +246,7 @@ export function HrCards({ agent }: { agent: string }) {
                   ) : null}
                 </>
               ) : isHeld(p) ? (
-                <span className="muted hr-held">{heldLine(p)}</span>
+                <HeldLine p={p} />
               ) : p.reason ? (
                 <span className="muted">{p.reason}</span>
               ) : null}
