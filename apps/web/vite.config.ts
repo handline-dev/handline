@@ -1,5 +1,6 @@
 import http from 'node:http';
 import tailwindcss from '@tailwindcss/vite';
+import react from '@vitejs/plugin-react';
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 
@@ -62,7 +63,8 @@ function realGateway(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [tailwindcss(), fakeDaemon(), realGateway()],
+  // React Compiler memoizes components and hooks, so a change redraws only what it touches (pnpm perf measures it).
+  plugins: [react({ babel: { plugins: ['babel-plugin-react-compiler'] } }), tailwindcss(), fakeDaemon(), realGateway()],
   server: { host: '127.0.0.1', watch: { usePolling: true, interval: 300 } },
   // maxWorkers: several teams' runs share one machine
   test: { environment: 'happy-dom', setupFiles: ['test/setup.ts'], include: ['test/**/*.test.tsx'], testTimeout: 20_000, maxWorkers: 2 },

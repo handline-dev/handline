@@ -2,7 +2,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { isPerson } from '@handline/app-core';
-import { useStore } from '@handline/app-react';
+import { useMe } from '@handline/app-react';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { BodyEditor } from '#src/BodyEditor.tsx';
 import { useCan } from '#src/taskui.tsx';
@@ -22,7 +22,8 @@ export function useEditTask(t: Detail) {
   };
 }
 
-const LOOK = 'cursor-text rounded-ctl border-0 bg-transparent p-0 text-left text-inherit hover:bg-raised hover:outline hover:outline-1 hover:outline-line';
+const LOOK =
+  'cursor-text rounded-ctl border-0 bg-transparent p-0 text-left text-inherit hover:bg-raised hover:outline hover:outline-1 hover:outline-line';
 
 /** The value as it reads; a click opens `input(done)`, which draws the field and calls `done` when it is over. Without the right to edit it is only the value. */
 export function Inline({
@@ -61,7 +62,17 @@ export function Inline({
 }
 
 /** One line of text: Enter or leaving the field saves a changed value, Escape leaves it as it was. */
-export function TextInput({ value, label, onSave, onClose }: { value: string; label: string; onSave: (v: string) => void; onClose: () => void }) {
+export function TextInput({
+  value,
+  label,
+  onSave,
+  onClose,
+}: {
+  value: string;
+  label: string;
+  onSave: (v: string) => void;
+  onClose: () => void;
+}) {
   const [text, setText] = useState(value);
   const left = useRef(false); // Escape closes first; the blur that follows must not save
   const finish = (keep: boolean) => {
@@ -107,7 +118,11 @@ export function BodyInline({ t, onClose }: { t: Detail; onClose: () => void }) {
         <Button label="Cancel" onClick={onClose}>
           Cancel
         </Button>
-        {edit.error ? <span className="text-bad" role="alert">{edit.error}</span> : null}
+        {edit.error ? (
+          <span className="text-bad" role="alert">
+            {edit.error}
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -115,10 +130,14 @@ export function BodyInline({ t, onClose }: { t: Detail; onClose: () => void }) {
 
 /** An agent's name opens that agent's chat; the person's own name and `human` are only text. */
 export function AgentLink({ name, className = '' }: { name: string; className?: string }) {
-  const me = useStore().me;
+  const me = useMe();
   if (!name || isPerson(name, me)) return <>{name}</>;
   return (
-    <a href={`#/agents/${encodeURIComponent(name)}`} className={`text-inherit no-underline hover:underline ${className}`} onClick={(e) => e.stopPropagation()}>
+    <a
+      href={`#/agents/${encodeURIComponent(name)}`}
+      className={`text-inherit no-underline hover:underline ${className}`}
+      onClick={(e) => e.stopPropagation()}
+    >
       {name}
     </a>
   );

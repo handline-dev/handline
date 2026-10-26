@@ -122,7 +122,9 @@
   "hl triggers": "agent.triggers",
   "hl schedule (show)": "schedules.list",
   "hl account list": "accounts.list",
-  "hl memory status": "memory.status"
+  "hl memory status": "memory.status",
+  "hl task request": "task.request",
+  "hl task none": "task.none"
  },
  "x-dropped-from-agents": {
   "note": "Agent commands the spec does not keep at agent role, for the founder to decide. Each is founder-only or a person's act today, or is not a daemon call.",
@@ -6839,6 +6841,134 @@
      "$ref": "#/components/errors/bad_request"
     }
    ]
+  },
+  {
+   "name": "task.request",
+   "summary": "Make a founder's chat message a request: a task the founder opened (opened_by human), owned by the lead the message was sent to. The message becomes its first comment, images included. A message converts once; a second call returns the task already made from it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestName",
+      "description": "The founder's message. Refused when it was not sent by the founder to an agent."
+     }
+    },
+    {
+     "name": "title",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Default: the message's first line."
+     }
+    },
+    {
+     "name": "owner",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The agent who holds the request. Default: the agent the message was sent to."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        },
+        "existing": {
+         "type": "boolean",
+         "description": "True when the message had already been made a request."
+        }
+       },
+       "required": [
+        "task"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "The founder, or the agent the message was sent to, may call it. Clears a no-work mark on the message."
+  },
+  {
+   "name": "task.none",
+   "summary": "Mark a founder's chat message as needing no work, with a reason in one line, so it is not chased as unanswered. Refused for a message already made a request.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestName",
+      "description": "The founder's message."
+     }
+    },
+    {
+     "name": "reason",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "The founder, or the agent the message was sent to, may call it."
   },
   {
    "name": "task.wait",
@@ -15775,6 +15905,16 @@
      },
      "bytes": {
       "type": "integer"
+     },
+     "width": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The picture's width in pixels as it is drawn (a JPEG's Exif orientation applied), read from its header when it was put, so a client can size it before it arrives. Absent when the header could not be read, or for an image put before it was kept."
+     },
+     "height": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The picture's height in pixels; present exactly when width is."
      }
     },
     "required": [
