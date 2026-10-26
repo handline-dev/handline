@@ -101,6 +101,17 @@ func GatewaySocket(home string) string {
 	return filepath.Join(home, "gateway.sock")
 }
 func MCPConfig(home string) string        { return filepath.Join(home, "shared", "mcp.json") }
+// QuietDir is the folder a claude the daemon starts outside any worktree runs in: empty and its own, under the daemon's home, so a claude
+// that walks its working folder finds nothing, and never inherits the daemon's (which may be / or the person's home).
+func QuietDir() string {
+	dir := filepath.Join(Home(), "run", "claude")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		dir = filepath.Join(os.TempDir(), "handline-claude")
+		os.MkdirAll(dir, 0o755)
+	}
+	return dir
+}
+
 func AccountsDir(home string) string      { return filepath.Join(home, "accounts") }
 func AccountDir(home, acct string) string { return filepath.Join(home, "accounts", acct) }
 func StatusFile(home, acct string) string {

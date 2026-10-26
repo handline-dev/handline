@@ -1170,6 +1170,24 @@ func TestAHeldRenameWhoseStartFailsIsAppliedWithAFailedFollowUp(t *testing.T) {
 	}
 }
 
+// A failed follow-up ends when the agent is running, as after the founder's Start now; the sweep never starts it itself.
+func TestAFailedFollowUpEndsWhenTheAgentIsRunning(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa000f", "kind", "rename", "agent", "bob", "to", "robert")
+	r.live["bob"] = true
+	r.decide(id, "approve", p.subject(), "h6")
+	r.sweepEnded(func(string) (bool, string) { return false, "no account free" })
+	if r.followUp("aaaa000f")["state"] != "failed" {
+		t.Fatal("failed first")
+	}
+	r.live["robert"] = true
+	started := 0
+	r.sweepEnded(func(string) (bool, string) { started++; return true, "" })
+	if r.followUp("aaaa000f") != nil || started != 0 {
+		t.Fatalf("follow-up gone, no start by the sweep: %v %d", r.followUp("aaaa000f"), started)
+	}
+}
+
 // A rename whose agent starts at once leaves no follow-up.
 func TestAHeldRenameThatStartsLeavesNoFollowUp(t *testing.T) {
 	r := newRig(t)
@@ -1288,5 +1306,55 @@ func TestApplyNowInterruptsTheBusyTurnAndAppliesTheChange(t *testing.T) {
 	}
 	if v := r.e.reader().HRView("aaaa000e"); v["waiting_since"] != nil {
 		t.Fatalf("no wait left: %v", v)
+	}
+}
+
+// A rename approved a second time, after it already took effect (a card left approved-but-failed), settles as applied.
+func TestApprovingARenameThatIsAlreadyInEffectSettlesItAsApplied(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa0011", "kind", "rename", "agent", "bob", "to", "robert")
+	if m := r.decide(id, "approve", p.subject(), "h8"); m["result"] == nil || r.state("aaaa0011") != "applied" {
+		t.Fatalf("first approve: %v %s", m, r.state("aaaa0011"))
+	}
+	again, err := r.e.load("aaaa0011")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again.set("state", "approved")
+	again.set("error", "gone wrong before")
+	if err := r.e.save(again); err != nil {
+		t.Fatal(err)
+	}
+	m := r.decide(id, "approve", again.subject(), "h9")
+	if m["result"] == nil || r.state("aaaa0011") != "applied" {
+		t.Fatalf("second approve settles it: %v %s", m, r.state("aaaa0011"))
+	}
+	if v := r.e.reader().HRView("aaaa0011"); v["error"] != nil {
+		t.Fatalf("no error left: %v", v)
+	}
+}
+
+// A turn that is slow to end after the Esc is not pressed again on the next tick, only after the pause.
+func TestApplyNowPressesEscOnceThenWaits(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa0010", "kind", "retire", "agent", "bob")
+	r.live["bob"] = true
+	r.decide(id, "approve", p.subject(), "h7")
+	r.call("hr.apply_now", fmt.Sprintf(`{"proposal":%d,"request_id":"an2"}`, id))
+	interrupted := 0
+	ports := HeldPorts{Alive: func(a string) bool { return r.live[a] }, Idle: func(string) bool { return false },
+		Interrupt: func(string) (bool, string) { interrupted++; return true, "" },
+		Close:     func(string) (bool, string) { return true, "" }, Start: func(string) (bool, string) { return true, "" }}
+	for range 3 {
+		r.e.SweepHeld(ports)
+	}
+	if interrupted != 1 {
+		t.Fatalf("one Esc while the turn is slow to end: %d", interrupted)
+	}
+	defer func(was time.Duration) { interruptPause = was }(interruptPause)
+	interruptPause = 0
+	r.e.SweepHeld(ports)
+	if interrupted != 2 {
+		t.Fatalf("pressed again after the pause: %d", interrupted)
 	}
 }

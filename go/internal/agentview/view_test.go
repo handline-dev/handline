@@ -20,6 +20,7 @@ func (f fakeSessions) Alive(a string) bool      { return f.alive[a] }
 func (f fakeSessions) Busy(a string) bool       { return f.busy[a] }
 
 type fakeBackground struct {
+	wall    map[string]string
 	wallErr map[string]error
 	work    map[string]bool
 }
@@ -29,7 +30,7 @@ func (fakeBackground) BgSince(db.Q, string) (int64, bool, error)          { retu
 func (fakeBackground) BgStale(db.Q, string, int64) (bool, error)          { return false, nil }
 func (fakeBackground) BgPromptedAt(db.Q, string) (int64, error)           { return 0, nil }
 func (f fakeBackground) WallReason(_ db.Q, a string, _ *db.AgentState) (string, error) {
-	return "", f.wallErr[a]
+	return f.wall[a], f.wallErr[a]
 }
 
 type fakeWakes struct{ would map[string]bool }
@@ -58,7 +59,7 @@ func newRig(t *testing.T, structured ...string) *rig {
 	t.Cleanup(func() { d.Close() })
 	r := &rig{
 		sess: fakeSessions{map[string]bool{}, map[string]bool{}, map[string]bool{}},
-		bg:   fakeBackground{wallErr: map[string]error{}, work: map[string]bool{}},
+		bg:   fakeBackground{wall: map[string]string{}, wallErr: map[string]error{}, work: map[string]bool{}},
 		pr:   fakePrompts{open: map[string]*prompts.Block{}},
 		wake: fakeWakes{would: map[string]bool{}},
 	}
