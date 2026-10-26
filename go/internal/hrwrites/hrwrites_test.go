@@ -1290,3 +1290,29 @@ func TestApplyNowInterruptsTheBusyTurnAndAppliesTheChange(t *testing.T) {
 		t.Fatalf("no wait left: %v", v)
 	}
 }
+||||||| parent of 4aa76052e (hr: approving a rename already in effect settles it; a taken name says so plainly)
+
+// A rename approved a second time, after it already took effect (a card left approved-but-failed), settles as applied.
+func TestApprovingARenameThatIsAlreadyInEffectSettlesItAsApplied(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa0011", "kind", "rename", "agent", "bob", "to", "robert")
+	if m := r.decide(id, "approve", p.subject(), "h8"); m["result"] == nil || r.state("aaaa0011") != "applied" {
+		t.Fatalf("first approve: %v %s", m, r.state("aaaa0011"))
+	}
+	again, err := r.e.load("aaaa0011")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again.set("state", "approved")
+	again.set("error", "gone wrong before")
+	if err := r.e.save(again); err != nil {
+		t.Fatal(err)
+	}
+	m := r.decide(id, "approve", again.subject(), "h9")
+	if m["result"] == nil || r.state("aaaa0011") != "applied" {
+		t.Fatalf("second approve settles it: %v %s", m, r.state("aaaa0011"))
+	}
+	if v := r.e.reader().HRView("aaaa0011"); v["error"] != nil {
+		t.Fatalf("no error left: %v", v)
+	}
+}
