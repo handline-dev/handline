@@ -28,7 +28,7 @@ import { BytesTab } from '#src/BytesTab.tsx';
 import { wantsBytes } from '#src/terminal/choose.ts';
 import { Watch } from '#src/TranscriptTab.tsx';
 import { TerminalTab } from '#src/TerminalTab.tsx';
-import { ViewSwitch } from '#src/ViewSwitch.tsx';
+import { ChatStrip } from '#src/ChatCards.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
 import { goSettings } from '#src/route.ts';
 import { RailControls, useFoldedControls } from '#src/RailControls.tsx';
@@ -252,8 +252,8 @@ export function Pane({ group }: { group: Group }) {
                 ) : (
                   <TerminalTab agent={agent} detail={detail} />
                 )}
-                <div className="chat-foot flex h-8 flex-none items-center border-t border-line px-3">
-                  <ViewSwitch to="chat" />
+                <div className="chat-foot flex h-8 max-w-none! flex-none items-center border-t border-line px-3">
+                  <ChatStrip detail={detail} to="chat" />
                 </div>
               </div>
             }

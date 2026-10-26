@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { paneKey, type AgentDetail, type ByteListener, type ByteTerminalView, type ByteViewState } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { useWrite } from '@handline/app-data';
+import { StartTerminal } from '#src/StartTerminal.tsx';
 import { RESIZE_MS } from '@handline/app-core';
 import { keep, reclaim } from '#src/terminal/keep.ts';
 import {
@@ -220,7 +221,6 @@ export function BytesTab({
   }, [store, agent, key, handle, watchOnly, hasTerminal, create, attempt, take, release]);
 
   const skeleton = useSkeleton(hasTerminal && state === 'attaching' && !everLive);
-  const startTerminal = useWrite('session.start', agent);
   const note = !hasTerminal ? '' : state === 'failed' ? failure : NOTE[state];
 
   return (
@@ -234,6 +234,7 @@ export function BytesTab({
           ref={host}
           aria-label={`Terminal of ${agent}`}
         />
+        {!hasTerminal && <StartTerminal agent={agent} />}
         {state === 'live' && !watchOnly && heldBy && !holds ? (
           <div className="input-elsewhere absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-term-bg/70">
             <span className="text-hint text-term-ink">Typing is on {heldBy}</span>
@@ -255,18 +256,6 @@ export function BytesTab({
         )}
         <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">
           {note}
-          {!hasTerminal && (
-            <Button
-              variant="outline"
-              size="sm"
-              label="Start terminal"
-              className="text-term-ink"
-              disabled={startTerminal.isPending}
-              onClick={() => startTerminal.mutate({ agent })}
-            >
-              Start terminal
-            </Button>
-          )}
           {state === 'live' &&
             !holds &&
             !heldBy &&

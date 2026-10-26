@@ -134,3 +134,26 @@ describe('the chat strip', () => {
     expect(location.hash).toBe(`#/agents/${ARCH}/settings`);
   });
 });
+
+describe('the terminal view of a chat', () => {
+  const flip = (label: string) =>
+    [...box.querySelectorAll<HTMLElement>('.chat-foot button')].find((b) => b.getAttribute('aria-label')?.startsWith(label))!;
+  it('shows the same footer strip under the terminal, with the way back to the chat', async () => {
+    await mount();
+    await act(async () => flip('Claude Code').click());
+    await until(() => $('.terminal-tab'), 'the terminal view');
+    expect($('.chat-foot .chat-strip [title^="Model"]')).not.toBeNull();
+    expect(flip('Back to the chat')).toBeDefined();
+  });
+
+  it('with no terminal running offers one Start terminal button, which starts it', async () => {
+    const s = setup();
+    s.daemon.sessions.get(ARCH)!.open = false; // closed, so no terminal
+    s.daemon.sessions.get(ARCH)!.hasTerminal = false;
+    await mount(undefined, s);
+    await until(() => $('.start-terminal'), 'the start button');
+    expect(text($('.terminal-tab'))).not.toMatch(/no terminal/i);
+    await act(async () => $('.start-terminal button')!.click());
+    await until(() => s.daemon.sessions.get(ARCH)!.hasTerminal, 'the terminal started');
+  });
+});

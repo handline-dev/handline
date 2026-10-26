@@ -13,7 +13,7 @@ const keyFor = (to: 'chat' | 'terminal') => (IS_MAC ? '⌘J' : to === 'chat' ? '
 export function ViewSwitch({ to }: { to: 'chat' | 'terminal' }) {
   const ws = useWorkspaceIfAny();
   const me = useStore().me;
-  if (!ws || (to === 'terminal' && !ws.detail.terminal && !ws.detail.structured)) return null;
+  if (!ws) return null;
   const label = to === 'chat' ? 'Back to the chat' : ws.detail.structured ? 'Transcript' : 'Claude Code';
   const badges = to === 'terminal' ? badgesOf(ws.detail, me) : [];
   const attention = needsAttention(badges);
@@ -22,7 +22,9 @@ export function ViewSwitch({ to }: { to: 'chat' | 'terminal' }) {
       <Badges badges={badges} onClick={{ dialog: ws.flip }} />
       <span className="relative inline-flex">
         <Button size="sm" icon={to === 'chat' ? 'chat' : 'terminal'} label={`${label} (${keyFor(to)})`} onClick={ws.flip} />
-        {attention ? <span className="unread-dot absolute top-0.5 right-0.5 h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" /> : null}
+        {attention ? (
+          <span className="unread-dot absolute top-0.5 right-0.5 h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" />
+        ) : null}
       </span>
     </span>
   );
