@@ -48,7 +48,7 @@ export function sentence(f: Failure): string {
     case 'other':
       return f.message;
     case 'busy':
-      return ''; // it asks again by itself (retryRead): nothing to tell the person
+      return 'Handline is busy. Try again in a moment.';
     case 'not_served':
       return 'This needs a newer Handline.';
     case 'transport':
