@@ -12,6 +12,8 @@ import {
   diffLines,
   plainText,
   FIELDS,
+  heldLine,
+  isHeld,
   isWaiting,
   kindOf,
   mayChange,
@@ -41,8 +43,11 @@ export function Hr() {
   const [why, setWhy] = useState('');
   const [going, once] = useOnce();
   const list = query.data?.proposals ?? [];
-  const { waiting, recent } = ordered(list);
+  const { waiting, recent: settledAndHeld } = ordered(list);
+  const recent = settledAndHeld.filter((p) => !isHeld(p));
   const { fresh, stale } = splitStale(waiting);
+  // Approved and held for a running turn: shown with the waiting ones, but the verbs and the count leave them out.
+  const held = list.filter(isHeld).sort((a, b) => Date.parse(a.created) - Date.parse(b.created));
   const decideAll = (decision: 'approve' | 'reject') =>
     once(async () => {
       const note = decision === 'reject' ? why.trim() : undefined;
@@ -109,6 +114,9 @@ export function Hr() {
         ) : null}
         {fresh.map((p) => (
           <Card key={p.id} p={p} decider={canDecide} refresh={() => void query.refetch()} />
+        ))}
+        {held.map((p) => (
+          <Card key={p.id} p={p} decider={false} refresh={() => void query.refetch()} />
         ))}
         {stale.length > 0 && <Text style={{ color: c.muted, fontWeight: '600' }}>Stale · no answer for 14 days</Text>}
         {stale.map((p) => (
@@ -179,8 +187,11 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
         </Text>
       </View>
       <Text style={{ color: c.muted, fontSize: font.size.label }}>
-        {[p.requested_by && textSafe(p.requested_by), ago(p.created), kindOf(p)].filter(Boolean).join(' · ')}
+        {[p.requested_by && (p.requested_by === 'human' ? 'by you' : textSafe(p.requested_by)), ago(p.created), kindOf(p)]
+          .filter(Boolean)
+          .join(' · ')}
       </Text>
+      {isHeld(p) && <Text style={{ color: c.muted }}>{heldLine(p)}</Text>}
       {askedLines(p).map(([k, v]) => (
         <Text key={k} style={{ color: c.ink }}>
           <Text style={{ color: c.muted }}>{k} </Text>

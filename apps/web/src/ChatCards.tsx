@@ -9,7 +9,7 @@ import { Button, Card, CardWhat, Chip, Dialog, Field, Icon } from '#src/ui/index
 import { goTeam } from '#src/route.ts';
 import { openTaskOnClick } from '#src/ChatMessages.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
-import { AgentGauges } from '#src/AgentGauges.tsx';
+import { AgentGauges, GaugeLine, CACHE_MINUTES } from '#src/AgentGauges.tsx';
 import { AccountMenu, ModelMenu } from '#src/AgentPickers.tsx';
 import { ViewSwitch } from '#src/ViewSwitch.tsx';
 import { useOpenTerminal } from '#src/ChatMenus.tsx';
@@ -66,6 +66,26 @@ export function ChatStrip({ detail }: { detail: AgentDetail }) {
         cacheMin={cache}
         ctxText={used != null && limit != null ? `${tokens(used)} / ${tokens(limit)}` : undefined}
         cacheText={cache === null ? undefined : cache <= 0 ? 'lapsed' : `${cache}m`}
+        ctxInfo={
+          <>
+            {used != null && limit != null ? (
+              <GaugeLine what="Used">{`${used.toLocaleString()} / ${limit.toLocaleString()} tokens`}</GaugeLine>
+            ) : null}
+            {ctxPct != null ? <GaugeLine what="Full">{`${Math.round(ctxPct)}%`}</GaugeLine> : null}
+          </>
+        }
+        cacheInfo={
+          cache === null ? null : (
+            <>
+              <GaugeLine what="Counts">time until the cache lapses</GaugeLine>
+              <GaugeLine what={cache <= 0 ? 'Lapsed' : 'Left'}>
+                {cache <= 0 ? ago(detail.cache_until!) : `${cache} of ${CACHE_MINUTES} min`}
+              </GaugeLine>
+              {cache > 0 ? <GaugeLine what="Lapses at">{clockTime(detail.cache_until!)}</GaugeLine> : null}
+              <GaugeLine what="Reset">by the next turn, which warms it again</GaugeLine>
+            </>
+          )
+        }
       />
       <ViewSwitch to="terminal" />
     </div>
