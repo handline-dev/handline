@@ -349,6 +349,8 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'account.login_cancel': 'cancel login',
     'account.add': 'add account',
     'terminal.close': 'close terminal',
+    'task.request': 'make a request',
+    'task.none': 'mark no work',
     'task.discard': 'discard',
     'task.ask': 'ask',
     'device.pair': 'pair',
@@ -412,8 +414,6 @@ export const NOT_FROM_UI = [
   'say',
   'hook.record',
   'task.wait', // hl task wait; no screen opens a gate yet
-  'task.request', // hl task request; the app's "make a request" (P1, T5985) moves it to the writes table
-  'task.none', // hl task none
   'hr.propose',
   'trust.propose',
   'task.begin',

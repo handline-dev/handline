@@ -25,6 +25,7 @@ import { useMyTurn } from '#src/MyTurn.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
 import { Button, Icon, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
 import { setting } from '#src/daemon.ts';
+import { useSelector } from '@handline/app-react';
 import { goTasks, usePageRoute } from '#src/route.ts';
 import { AgentRow } from '#src/AgentRow.tsx';
 import { NewAgentButton } from '#src/NewAgent.tsx';
@@ -102,6 +103,7 @@ export function Sidebar({
   const myTurn = useMyTurn().cards.length;
   const hr = useHrCount();
   const pageRoute = usePageRoute();
+  const requests = useSelector((s) => s.can('requests.list'));
   return (
     <nav
       className="rail flex w-[var(--rail-w,280px)] flex-none flex-col overflow-hidden border-r border-line bg-panel min-h-0 max-[900px]:fixed max-[900px]:z-10 max-[900px]:[inset:0_auto_0_0] max-[900px]:w-[min(320px,90vw)] max-[900px]:shadow-[var(--shadow-2)]"
@@ -139,6 +141,15 @@ export function Sidebar({
         <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           <Icon name="tasks" size={14} aria-hidden /> Tasks
         </button>
+        {requests ? (
+          <button
+            className={navOf(pageRoute === 'requests')}
+            aria-current={pageRoute === 'requests' ? 'page' : undefined}
+            onClick={() => void (location.hash = '#/requests')}
+          >
+            <Icon name="reply" size={14} aria-hidden /> Requests
+          </button>
+        ) : null}
         <button
           className={navOf(pageRoute === 'stats')}
           aria-current={pageRoute === 'stats' ? 'page' : undefined}
