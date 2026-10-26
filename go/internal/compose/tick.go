@@ -158,6 +158,8 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
 		{Name: "attachment sweep", Run: func(q db.Q, _ int64) error { return attachments.New(home).Sweep(q) }},
 		{Name: "worktree locks", Run: func(q db.Q, _ int64) error { return releaseWorktreeLocks(q, home) }},
+		{Name: "unanswered founder messages", Run: (&housekeeping.Unanswered{Lead: leadCheck(home), Log: logLine,
+			Notice: func(q db.Q, to, text, reason string) error { _, err := env.Notice(q, to, text, reason); return err }}).Check},
 		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Raise: raiseFromTaskBoard(env), Free: cfg.DiskFree}).Check},
 	}, Signalled: func() bool {
 		select {
@@ -178,6 +180,14 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 			}, Reload: func() error { return env.ReloadPending(q) }})
 	}
 	return &Tick{Tick: t, Loop: loop, dev: dev, Startup: startup, gates: &gates.Sweep{DB: q, Home: home, Tell: env, Log: cfg.Log}}
+}
+
+// leadCheck is whether an agent answers to no one in the team as it stands now.
+func leadCheck(home string) func(string) bool {
+	return func(agent string) bool {
+		tm, err := team.LoadTeam(home)
+		return err == nil && tm.LeadOf(agent) == ""
+	}
 }
 
 // raiseFromTaskBoard puts a decision from the task board in front of the founder: a My turn card.

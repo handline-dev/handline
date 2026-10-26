@@ -44,7 +44,9 @@ type proposal struct {
 	settled int64
 }
 
-func (p proposal) waits() bool { return p.state == "open" || p.state == "applying" || p.state == "apply_failed" }
+func (p proposal) waits() bool {
+	return p.state == "open" || p.state == "applying" || p.state == "apply_failed"
+}
 
 // proposals is every proposal file under hr/ that reads as one: one that does not parse, or is not a proposal, is left out.
 func (e *Env) proposals() []proposal {
@@ -99,8 +101,18 @@ func (e *Env) proposalView(p proposal) map[string]any {
 			}
 		}
 		v["waiting_on"] = waiting
+		if t, _ := p.get("waiting_since").(int64); t != 0 {
+			v["waiting_since"] = ts(t)
+		}
 	default:
 		v["settled"] = ts(p.settled)
+	}
+	if p.state == "approved" && p.truthy("start_agent") {
+		state := "waiting"
+		if p.text("start_state") == "failed" {
+			state = "failed"
+		}
+		v["follow_up"] = map[string]any{"agent": p.text("start_agent"), "state": state, "text": cut(p.text("start_why"), maxError)}
 	}
 	if p.state == "apply_failed" && p.truthy("error") {
 		v["error"] = cut(p.text("error"), maxError)

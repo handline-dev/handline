@@ -70,7 +70,7 @@ func TestTheFoundersReplyIsTypedWithTheMessageItAnswers(t *testing.T) {
 // A founder's message to an agent that cannot be typed at now is said through the inbox, as before, inside the send's own transaction.
 func TestTheFoundersMessageIsSaidThroughTheInboxWhenTheAgentCannotBeTypedAt(t *testing.T) {
 	r, in, typed := typedRig(t)
-	r.Typeable = func(string) string { return "a person or device holds its input" }
+	r.Typeable = func(string) string { return "a shell is left in place of its session" }
 	r.Agents.(*peerport.Port).Typeable = r.Typeable
 	mine := r.founderSays("bob", "what is 3+4?")
 	tx, err := r.DB.Begin()

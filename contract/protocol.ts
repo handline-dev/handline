@@ -10,8 +10,8 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. */
-export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr" | "transcript" | "prefs";
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. requests (member, which includes the founder): the founder's requests (RequestRow), so a Requests page is live. */
+export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr" | "transcript" | "prefs" | "requests";
 
 export type Caller = {
   kind: "person" | "device" | "agent" | "anonymous";
@@ -666,10 +666,20 @@ export type Proposal = {
   title: string;
   /** What approving does, in words, one change per line. Not a unified diff. */
   diff: string;
-  /** open: waits for the founder. applying: approved by the founder and held until each agent in `waiting_on` ends its turn; the daemon then closes those sessions, applies the change and restarts each agent that stays; it turns approved once the change is applied and each agent that stays has a session again, or apply_failed; `settled` stays null and the founder is offered no action meanwhile. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states. */
+  /** open: waits for the founder. applying: approved by the founder and held until each agent in `waiting_on` ends its turn; the daemon then closes those sessions, applies the change and restarts each agent that stays; it turns approved once the change is applied (an agent that stays and does not start at once is `follow_up`, not a failure), or apply_failed when the change itself fails; `settled` stays null and the founder is offered no action meanwhile. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states. */
   state: string;
   /** Set only while state is applying: the agents whose running turn the change waits on, by their names before the change. A card names them. */
   waiting_on?: AgentName[];
+  /** Set only while state is applying: when the proposal turned applying. With `waiting_on` it tells the card since when and why it waits (those agents' turns are running); hr.apply_now ends the wait. */
+  waiting_since?: Timestamp;
+  /** Set on an approved proposal whose change is applied but an agent it renamed is not running yet. Absent when the change needs no start or the start went through; it is removed when the start succeeds. The change is applied either way: a client never draws it as not applied or offers approve again. */
+  follow_up?: {
+    agent: AgentName;
+    /** waiting: the start is put off for machine load and the daemon makes it by itself when the load drops; the card shows no retry. failed: the start failed for another reason and only the founder's Start now (agent.force_start) retries it. An open set: draw a word you do not know as text. */
+    state: string;
+    /** Why, from the daemon (the held limit or the failure), one line. */
+    text: string;
+  };
   created: Timestamp;
   /** Digest of what the proposal changes as drawn; hr.decide's approve hands it back. */
   subject: string;
@@ -868,6 +878,8 @@ export type Memo = {
   parts?: (TextPart | ImagePart)[];
   /** The files the memo carries, in the order they were given; present only when it carries one. */
   files?: MemoFile[];
+  /** The comment this one answers; null for none. */
+  reply_to?: number | null;
 };
 
 export type TaskBoardRow = {
@@ -927,6 +939,10 @@ export type ChatMessage = {
   proposal?: number;
   /** One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task is owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb. */
   actions?: ChatAction[];
+  /** On a message of the founder's to an agent: the request task made from it (task.request); null for none. */
+  request_task?: number | null;
+  /** On a message of the founder's to an agent: why it needs no work (task.none); null for none. */
+  no_work?: string | null;
 };
 
 export type TranscriptItem = {
@@ -1445,6 +1461,10 @@ export type Attachment = {
   name: string;
   mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
   bytes: number;
+  /** The picture's width in pixels as it is drawn (a JPEG's Exif orientation applied), read from its header when it was put, so a client can size it before it arrives. Absent when the header could not be read, or for an image put before it was kept. */
+  width?: number;
+  /** The picture's height in pixels; present exactly when width is. */
+  height?: number;
 };
 
 /** One pane of the terminal host, with what the daemon knows of it. A field the daemon does not know is null. */
@@ -1754,6 +1774,40 @@ export type Headroom = {
 export type ReadCursor = {
   /** The newest stream cursor when this read began. An event above it may be in the answer already (applying it again changes nothing); none at or below it is missing. A client drops the events at or below it for this answer. */
   cursor: number;
+};
+
+/** One row of the founder's requests. */
+export type RequestRow = {
+  /** task: a request the founder opened (task.request, or a task of their own for a lead). message: a message of theirs that is not a task yet. */
+  kind: "task" | "message";
+  /** The request's task; null for a message. */
+  task: number | null;
+  /** The founder's message it was made from, or is; null for a task opened without one. */
+  ref: RequestRef | null;
+  title: string;
+  /** Read from the request's tree of tasks, never stored; the first that holds. waiting_on_you: a task assigned to the founder or a decision card waiting on them, anywhere in the tree. review: an open task has a PR. doing: some task in the tree is open. done: the request's own task is done (the agent that holds it judges and closes it; the founder does not). no_work: a message marked with task.none. not_yet: a message with neither a task nor a mark. */
+  status: "waiting_on_you" | "review" | "doing" | "done" | "no_work" | "not_yet";
+  /** Who holds the request, or the agent the message was sent to. */
+  agent: string;
+  /** The agent the message it was made from was sent to. Only on a task made from a message. */
+  origin?: string;
+  /** Agents holding an open task in the tree; empty once done. */
+  holders: string[];
+  /** Open tasks under the request's own. */
+  open: number;
+  /** Ended tasks under the request's own. */
+  done: number;
+  /** PRs of the open tasks in the tree. */
+  prs: number[];
+  /** Why a message needs no work (status no_work). */
+  reason: string | null;
+  /** Agents' comments on the request that the founder has not read: what its inbox line counts. */
+  unread_comments: number;
+  created: Timestamp;
+  last_activity: Timestamp;
+  /** Orders the list; pass the last row's as requests.list before. */
+  cursor: string;
+  [key: string]: unknown;
 };
 
 export interface Methods {
@@ -2402,6 +2456,15 @@ export interface Methods {
       closures_reason: number;
     };
   } & ReadCursor };
+  "requests.list": { params: {
+  state?: "waiting_on_you" | "review" | "doing" | "done" | "no_work" | "not_yet";
+  /** A row's cursor: the rows after it. */
+  before?: string;
+  limit?: number;
+}; result: {
+    items: RequestRow[];
+    more: boolean;
+  } };
   "task.get": { params: {
   task: number;
 }; result: TaskDetail & ReadCursor };
@@ -2459,7 +2522,10 @@ export interface Methods {
   /** The brief, Markdown. It may name images (x-attachments, texts). */
   body?: string;
   time_box?: Duration;
+  /** Default: when the caller's current task is a request (made from a founder's message), that task, unless no_parent. */
   parent?: number;
+  /** Do not hang the task under the caller's current request. Refused with parent. */
+  no_parent?: boolean;
   /** Open the task even when an open task under the same parent, or the parent itself, has nearly its title (gate duplicate_title). */
   duplicate_ok?: boolean;
   /** Cannot be worked until this task closes. */
@@ -2561,6 +2627,8 @@ export interface Methods {
   text: string;
   /** Tell every reader at once, even mid-turn. */
   now?: boolean;
+  /** The comment on the same task this one answers (Memo.reply_to). Refused (not_found memo) when the task has no such comment. */
+  reply?: number;
   /** Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files). */
   files?: string[];
   request_id: RequestId;
@@ -2640,6 +2708,25 @@ export interface Methods {
   task: number;
   to?: "queued" | "draft";
   reason?: string;
+  request_id: RequestId;
+}; result: Accepted };
+  "task.request": { params: {
+  /** The founder's message. Refused when it was not sent by the founder to an agent. */
+  request: RequestName;
+  /** Default: the message's first line. */
+  title?: string;
+  /** The agent who holds the request. Default: the agent the message was sent to. */
+  owner?: string;
+  request_id: RequestId;
+}; result: Accepted & {
+    task: number;
+    /** True when the message had already been made a request. */
+    existing?: boolean;
+  } };
+  "task.none": { params: {
+  /** The founder's message. */
+  request: RequestName;
+  reason: string;
   request_id: RequestId;
 }; result: Accepted };
   "task.wait": { params: {
@@ -2808,6 +2895,10 @@ export interface Methods {
   decision: "approve" | "reject";
   note?: string;
   subject?: string;
+  request_id: RequestId;
+}; result: Accepted };
+  "hr.apply_now": { params: {
+  proposal: number;
   request_id: RequestId;
 }; result: Accepted };
   "accounts.list": { params: {
@@ -3108,6 +3199,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "inbox.mark_read": { role: "agent", callers: null, write: true, since: 1 },
   "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },
   "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
+  "requests.list": { role: "member", callers: null, write: false, since: 1 },
   "task.get": { role: "agent", callers: null, write: false, since: 1 },
   "task.history": { role: "agent", callers: null, write: false, since: 1 },
   "task.time": { role: "agent", callers: null, write: false, since: 1 },
@@ -3137,6 +3229,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "task.draft": { role: "agent", callers: null, write: true, since: 1 },
   "task.merge": { role: "agent", callers: null, write: true, since: 1 },
   "task.release": { role: "agent", callers: null, write: true, since: 1 },
+  "task.request": { role: "agent", callers: null, write: true, since: 1 },
+  "task.none": { role: "agent", callers: null, write: true, since: 1 },
   "task.wait": { role: "agent", callers: null, write: true, since: 1 },
   "task.discard": { role: "agent", callers: null, write: true, since: 1 },
   "task.board": { role: "agent", callers: null, write: false, since: 1 },
@@ -3156,6 +3250,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "team.get": { role: "agent", callers: null, write: false, since: 1 },
   "hr.list": { role: "agent", callers: null, write: false, since: 1 },
   "hr.decide": { role: "member", callers: null, write: true, since: 1 },
+  "hr.apply_now": { role: "member", callers: null, write: true, since: 1 },
   "accounts.list": { role: "agent", callers: null, write: false, since: 1 },
   "status.pick": { role: "agent", callers: null, write: false, since: 1 },
   "account.set": { role: "founder", callers: null, write: true, since: 1 },

@@ -41,6 +41,7 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("hr.decide", rpc.Method{Role: "member", Write: true, Handler: e.decideMethod})
 	s.Register("agent.set", rpc.Method{Role: "agent", Write: true, Handler: e.agentSetMethod})
 	s.Register("hr.propose", rpc.Method{Role: "agent", Write: true, Handler: e.proposeMethod})
+	s.Register("hr.apply_now", rpc.Method{Role: "member", Write: true, Handler: e.applyNowMethod})
 	s.Register("hr.withdraw", rpc.Method{Role: "agent", Write: true, Handler: e.withdrawMethod})
 	s.Register("team.seal", rpc.Method{Role: "founder", Write: true, Unkept: true, OwnEvent: true, Handler: e.teamSealMethod})
 	s.Register("agent.retire", rpc.Method{Role: "founder", Write: true, Handler: e.retireMethod})
@@ -148,6 +149,28 @@ func (e *Env) proposalNamed(params map[string]any) (*Prop, error) {
 	err := rpc.NotFoundError(fmt.Sprintf("no proposal %d", pid))
 	err.Data = map[string]any{"what": "proposal", "name": strconv.FormatInt(pid, 10)}
 	return nil, err
+}
+
+// applyNowMethod is hr.apply_now: it marks an applying proposal so the next sweeps interrupt the turns it waits on, close those
+// sessions and apply it, instead of waiting for the turns to end.
+func (e *Env) applyNowMethod(c *rpc.Conn, params map[string]any) (any, error) {
+	prop, err := e.proposalNamed(params)
+	if err != nil {
+		return nil, err
+	}
+	if st := prop.str("state"); st != applying {
+		return nil, e.refusal("proposal_settled", fmt.Sprintf("proposal %s is %s, not waiting to be applied", prop.id(), st), prop)
+	}
+	if prop.str("apply_now") == "" {
+		prop.set("apply_now", time.Now().Unix())
+		if err := e.save(prop); err != nil {
+			return nil, err
+		}
+	}
+	said := fmt.Sprintf("proposal %s is applied as soon as %s stops", prop.id(), strings.ReplaceAll(prop.str("waiting_on"), ",", ", "))
+	return c.Effect(func(*sql.Tx) (map[string]any, error) {
+		return map[string]any{"accepted": true, "said": said}, nil
+	})
 }
 
 // withdrawMethod is hr.withdraw (hr.withdraw): the proposal's own author, or the founder, takes it back before it is applied. The state is read
@@ -324,6 +347,8 @@ func (e *Env) unapproved(prop *Prop) string {
 func (e *Env) record(prop *Prop, ok bool, said string, tell bool) (bool, string, error) {
 	pid := prop.id()
 	prop.pop("waiting_on")
+	prop.pop("waiting_since")
+	prop.pop("apply_now")
 	if !ok {
 		prop.set("state", "approved")
 		prop.set("error", said)

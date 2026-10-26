@@ -21,7 +21,7 @@ var taskCmds = map[string]taskCmd{
 	"new": taskNew, "begin": taskBegin, "handoff": taskHandoff, "start": taskStart, "note": taskNote,
 	"comment": taskMemo, "memo": taskMemo, "show": taskShow, "list": taskList, "queue": taskQueue(true), "draft": taskQueue(false),
 	"edit": taskEdit, "merge": taskMerge, "done": taskDone, "reopen": taskReopen, "release": taskRelease,
-	"discard": taskDiscard, "board": taskBoard, "wait": taskWait,
+	"discard": taskDiscard, "board": taskBoard, "wait": taskWait, "request": taskRequest, "none": taskNone,
 }
 
 // taskReads are the subcommands that change nothing, so no verb_chain is recorded for them (parser._TASK_READS).
@@ -122,7 +122,7 @@ func oneTask(args []string) (int, bool) {
 
 func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	p, ok := parse(args, []string{"--file", "--assign", "--owner", "--parent", "--blocked-by", "--priority", "--estimate", "--expects", "--timeout", "--tag"},
-		[]string{"--duplicate-ok"}, map[string]string{"-t": "--timeout"})
+		[]string{"--duplicate-ok", "--no-parent"}, map[string]string{"-t": "--timeout"})
 	if !ok {
 		return 0, false
 	}
@@ -229,6 +229,9 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if p.flags["--duplicate-ok"] {
 		params["duplicate_ok"] = true
+	}
+	if p.flags["--no-parent"] {
+		params["no_parent"] = true
 	}
 	if hasBlocked {
 		params["blocked_by"] = blocked
@@ -358,7 +361,7 @@ func taskNote(c *hlclient.Client, args []string) (int, bool) {
 }
 
 func taskMemo(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--file", "--attach"}, []string{"--now"}, nil)
+	p, ok := parse(args, []string{"--file", "--attach", "--reply"}, []string{"--now"}, nil)
 	if !ok || len(p.pos) < 2 {
 		return 0, false
 	}
@@ -383,6 +386,16 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if now && verb != "add" {
 		fmt.Println("--now goes with add")
+		return 1, true
+	}
+	replyText, hasReply := p.opt("--reply")
+	reply, okReply := integer(strings.TrimSpace(replyText))
+	if hasReply && !okReply {
+		fmt.Println("--reply wants the id of a comment")
+		return 1, true
+	}
+	if hasReply && verb != "add" {
+		fmt.Println("--reply goes with add")
 		return 1, true
 	}
 	attach := p.each["--attach"]
@@ -417,6 +430,9 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 		params := map[string]any{"task": tid, "text": rest[0]}
 		if now {
 			params["now"] = true
+		}
+		if hasReply {
+			params["reply"] = reply
 		}
 		if len(attach) > 0 {
 			files := make([]string, len(attach))
@@ -697,4 +713,51 @@ func taskWithReason(c *hlclient.Client, args []string, sub, verb, method, key st
 
 func taskRelease(c *hlclient.Client, args []string) (int, bool) {
 	return taskWithReason(c, args, "release", "release a task", "task.release", "reason", true)
+}
+
+// taskRequest is `hl task request <msg> ["<title>"]`: a founder's message made a request, a task the founder opened.
+func taskRequest(c *hlclient.Client, args []string) (int, bool) {
+	p, ok := parse(args, []string{"--owner"}, nil, nil)
+	if !ok {
+		return 0, false
+	}
+	if len(p.pos) < 1 || len(p.pos) > 2 {
+		return wrongArgs("it takes the founder's message and, in quotes, a title, and got %d word(s)", len(p.pos))
+	}
+	msg, ok := requestArg(p.pos[0])
+	if !ok {
+		return wrongArgs("%q is not a message: msg_<hash>", p.pos[0])
+	}
+	mutating(c, "request")
+	if !asking(c, "make a request") {
+		return 1, true
+	}
+	params := map[string]any{"request": msg}
+	if len(p.pos) == 2 {
+		params["title"] = p.pos[1]
+	}
+	if owner, given := p.opt("--owner"); given {
+		params["owner"] = owner
+	}
+	return said(c.Write("task.request", params)), true
+}
+
+// taskNone is `hl task none <msg> "<why>"`: a founder's message that needs no work.
+func taskNone(c *hlclient.Client, args []string) (int, bool) {
+	p, ok := parse(args, nil, nil, nil)
+	if !ok {
+		return 0, false
+	}
+	if len(p.pos) != 2 {
+		return wrongArgs("it takes the founder's message and the reason in quotes, and got %d word(s)", len(p.pos))
+	}
+	msg, ok := requestArg(p.pos[0])
+	if !ok {
+		return wrongArgs("%q is not a message: msg_<hash>", p.pos[0])
+	}
+	mutating(c, "none")
+	if !asking(c, "mark a message as needing no work") {
+		return 1, true
+	}
+	return said(c.Write("task.none", map[string]any{"request": msg, "reason": p.pos[1]})), true
 }

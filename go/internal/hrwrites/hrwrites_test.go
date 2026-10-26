@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1112,18 +1113,72 @@ func TestAHeldChangeWhoseDraftChangedWhileItWaitedIsNotApplied(t *testing.T) {
 	}
 }
 
-// A rename whose agent then fails to start under its new name is apply_failed: it has no session again.
-func TestAHeldRenameWhoseAgentDoesNotStartIsApplyFailed(t *testing.T) {
+// followUp is hr.list's follow_up of proposal pid (nil when none).
+func (r *rig) followUp(pid string) map[string]any {
+	v := r.e.reader().HRView(pid)
+	f, _ := v["follow_up"].(map[string]any)
+	return f
+}
+
+// A renamed agent whose start is held for machine load: the change is applied (approved on the wire), the follow-up waits, and the
+// sweep starts the agent by itself once the load allows, with nothing left on the proposal.
+func TestAHeldRenameWhoseStartIsHeldIsAppliedAndStartsByItself(t *testing.T) {
 	r := newRig(t)
 	p, id := r.propose("aaaa000b", "kind", "rename", "agent", "bob", "to", "robert")
 	r.live["bob"] = true
 	r.decide(id, "approve", p.subject(), "h2")
-	r.sweepEnded(func(string) (bool, string) { return false, "no account free" })
-	if st := r.state("aaaa000b"); st != "approved" || !strings.Contains(r.file("hr", "aaaa000b.yaml"), "robert was not started: no account free") {
-		t.Fatalf("apply_failed, with why: %s\n%s", st, r.file("hr", "aaaa000b.yaml"))
+	r.sweepEnded(func(string) (bool, string) { return false, "held: machine load - load 3.09 per core, limit 1.50" })
+	if v := r.e.reader().HRView("aaaa000b"); v["state"] != "approved" || v["error"] != nil {
+		t.Fatalf("applied, no error: %v", v)
+	}
+	f := r.followUp("aaaa000b")
+	if f["agent"] != "robert" || f["state"] != "waiting" || !strings.Contains(f["text"].(string), "machine load") {
+		t.Fatalf("follow-up waits: %v", f)
 	}
 	if !strings.Contains(r.file("team.yaml"), "  robert: {}") {
 		t.Fatal("the rename itself stands")
+	}
+	still := func(string) (bool, string) { return false, "held: machine load - load 3.00 per core, limit 1.50" }
+	r.sweepEnded(still)
+	if r.followUp("aaaa000b")["state"] != "waiting" {
+		t.Fatal("still waiting while held")
+	}
+	var started []string
+	r.sweepEnded(func(a string) (bool, string) { started = append(started, a); return true, "" })
+	if !slices.Equal(started, []string{"robert"}) || r.followUp("aaaa000b") != nil {
+		t.Fatalf("started %v, follow-up %v", started, r.followUp("aaaa000b"))
+	}
+}
+
+// A start that fails for another reason is a failed follow-up, not an apply failure, and the sweep does not retry it.
+func TestAHeldRenameWhoseStartFailsIsAppliedWithAFailedFollowUp(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa000c", "kind", "rename", "agent", "bob", "to", "robert")
+	r.live["bob"] = true
+	r.decide(id, "approve", p.subject(), "h3")
+	r.sweepEnded(func(string) (bool, string) { return false, "no account free" })
+	if v := r.e.reader().HRView("aaaa000c"); v["state"] != "approved" {
+		t.Fatalf("applied: %v", v)
+	}
+	if f := r.followUp("aaaa000c"); f["state"] != "failed" || f["text"] != "no account free" {
+		t.Fatalf("failed follow-up: %v", f)
+	}
+	calls := 0
+	r.sweepEnded(func(string) (bool, string) { calls++; return true, "" })
+	if calls != 0 {
+		t.Fatal("a failed start is not retried by the sweep")
+	}
+}
+
+// A rename whose agent starts at once leaves no follow-up.
+func TestAHeldRenameThatStartsLeavesNoFollowUp(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa000d", "kind", "rename", "agent", "bob", "to", "robert")
+	r.live["bob"] = true
+	r.decide(id, "approve", p.subject(), "h4")
+	r.sweepEnded(func(string) (bool, string) { return true, "" })
+	if v := r.e.reader().HRView("aaaa000d"); v["state"] != "approved" || r.followUp("aaaa000d") != nil {
+		t.Fatalf("applied, no follow-up: %v", v)
 	}
 }
 
@@ -1196,5 +1251,42 @@ func TestAProposedRepoIsKeptAbsoluteAndMustBeAGitCheckout(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(r.home, "agents", "dan")); err == nil {
 		t.Fatal("a refused add registers nothing")
+	}
+}
+
+// hr.apply_now on a proposal waiting for a busy turn: the sweep interrupts that turn, and once the session is idle closes it and applies
+// the change; the view shows since when it waited. Only an applying proposal is accepted.
+func TestApplyNowInterruptsTheBusyTurnAndAppliesTheChange(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa000e", "kind", "retire", "agent", "bob")
+	if m := r.call("hr.apply_now", fmt.Sprintf(`{"proposal":%d,"request_id":"an0"}`, id)); gate(m) != "proposal_settled" {
+		t.Fatalf("an open proposal is refused: %v", m)
+	}
+	r.live["bob"] = true
+	r.decide(id, "approve", p.subject(), "h5")
+	if v := r.e.reader().HRView("aaaa000e"); v["state"] != "applying" || v["waiting_since"] == nil {
+		t.Fatalf("waits, with since when: %v", v)
+	}
+	busy := true
+	interrupted := 0
+	ports := HeldPorts{Alive: func(a string) bool { return r.live[a] }, Idle: func(string) bool { return !busy },
+		Interrupt: func(string) (bool, string) { interrupted++; busy = false; return true, "" },
+		Close:     func(string) (bool, string) { r.live["bob"] = false; return true, "" },
+		Start:     func(string) (bool, string) { return true, "" }}
+	r.e.SweepHeld(ports)
+	if interrupted != 0 || r.state("aaaa000e") != "applying" {
+		t.Fatalf("without apply_now the busy turn is left alone: %d %s", interrupted, r.state("aaaa000e"))
+	}
+	if m := r.call("hr.apply_now", fmt.Sprintf(`{"proposal":%d,"request_id":"an1"}`, id)); m["result"] == nil {
+		t.Fatalf("accepted: %v", m)
+	}
+	for range 3 { // interrupt, close, apply: one step a tick
+		r.e.SweepHeld(ports)
+	}
+	if interrupted != 1 || r.state("aaaa000e") != "applied" {
+		t.Fatalf("interrupted once, then applied: %d %s", interrupted, r.state("aaaa000e"))
+	}
+	if v := r.e.reader().HRView("aaaa000e"); v["waiting_since"] != nil {
+		t.Fatalf("no wait left: %v", v)
 	}
 }

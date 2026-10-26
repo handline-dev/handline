@@ -103,8 +103,8 @@ function Row({ n, fresh }: { n: Notice; fresh: boolean }) {
 /** The results of what was just done, above the bell: a click closes them, a pointer over one keeps it, each runs out by itself. */
 function Toasts() {
   const store = useStore();
-  useSelector((s) => s.version); // the store speaks again when a toast runs out; what is on screen depends on the clock, so it is read here and not cached
-  const toasts = store.notices.toasts();
+  // The store speaks again when a toast runs out, so reading them once per store version keeps the list current.
+  const toasts = useSelector((s) => s.notices.toasts());
   if (!toasts.length) return null;
   return (
     <div className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[360px] max-w-[90vw] flex-col-reverse gap-1.5" role="status">

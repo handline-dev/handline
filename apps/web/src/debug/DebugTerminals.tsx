@@ -1,7 +1,7 @@
 // The hidden debug window (#/debug/terminals, opened from the bottom of Settings): every pane of the daemon's terminal host on the left,
 // the chosen one's live terminal and what the daemon knows of it on the right. Reads debug.terminals again every few seconds.
 import { useEffect, useState } from 'react';
-import { useStore } from '@handline/app-react';
+import { useHello } from '@handline/app-react';
 import { classify, sentence, useRead, useServes } from '@handline/app-data';
 import { BytesTab } from '#src/BytesTab.tsx';
 import type { CreateTerm } from '#src/terminal/core.ts';
@@ -60,7 +60,6 @@ function Facts({ p, now }: { p: DebugPane; now: number }) {
 
 /** `create` makes the terminal; a test hands in a headless one. */
 export function DebugTerminals({ create }: { create?: CreateTerm }) {
-  const store = useStore();
   const { served } = useServes('debug.terminals');
   const q = useRead('debug.terminals', {}, { refetchMs: REFRESH_MS });
   const [chosen, setChosen] = useState('');
@@ -72,15 +71,13 @@ export function DebugTerminals({ create }: { create?: CreateTerm }) {
   }, []);
   const panes = q.data?.panes ?? [];
   const pane = panes.find((p) => p.terminal === chosen);
-  const bytes = !!store.client.hello?.capabilities.terminal_format?.includes('bytes');
+  const bytes = !!useHello()?.capabilities.terminal_format?.includes('bytes');
   return (
     <div className="debug-terminals grid h-screen grid-cols-[320px_minmax(0,1fr)] bg-canvas" aria-label="Terminals (debug)">
       <aside className="flex min-h-0 flex-col border-r border-line bg-panel">
         <header className="flex items-center gap-2 px-3 py-2">
           <h2 className="m-0 text-body font-semibold text-ink">Terminals</h2>
-          <span className="text-label text-ink-3">
-            {q.data ? `${q.data.host} · ${panes.length} panes` : ''}
-          </span>
+          <span className="text-label text-ink-3">{q.data ? `${q.data.host} · ${panes.length} panes` : ''}</span>
           <Button variant="outline" size="sm" label="Refresh" className="ml-auto" onClick={() => void q.refetch()} />
         </header>
         {!served ? (

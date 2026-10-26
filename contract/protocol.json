@@ -122,7 +122,9 @@
   "hl triggers": "agent.triggers",
   "hl schedule (show)": "schedules.list",
   "hl account list": "accounts.list",
-  "hl memory status": "memory.status"
+  "hl memory status": "memory.status",
+  "hl task request": "task.request",
+  "hl task none": "task.none"
  },
  "x-dropped-from-agents": {
   "note": "Agent commands the spec does not keep at agent role, for the founder to decide. Each is founder-only or a person's act today, or is not a daemon call.",
@@ -243,6 +245,12 @@
    "snapshot": "prefs.get",
    "data": {
     "prefs.changed": "Prefs"
+   }
+  },
+  "requests": {
+   "snapshot": "requests.list",
+   "data": {
+    "request.changed": "RequestRow"
    }
   }
  },
@@ -5039,6 +5047,72 @@
    "description": "Newest id first. To read every task, call with `all: true` and `limit: 200`, then again with `before` set to the smallest `id` of the page before, until `more` is false: nothing is skipped or repeated, because a page is the rows with an id below `before`. The caller's own scope still applies (itself and its reports for an agent, unless `everyone`)."
   },
   {
+   "name": "requests.list",
+   "summary": "The founder's requests, newest activity first: the tasks they opened and the messages of theirs that are not a task yet, each with a status read from its tree of tasks. Done requests stay listed 30 days.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "state",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "waiting_on_you",
+       "review",
+       "doing",
+       "done",
+       "no_work",
+       "not_yet"
+      ]
+     }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "A row's cursor: the rows after it."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "items": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/RequestRow"
+       }
+      },
+      "more": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "items",
+      "more"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-write": false
+  },
+  {
    "name": "task.get",
    "summary": "One task with body, delivery history and linked events.",
    "paramStructure": "by-name",
@@ -5416,7 +5490,16 @@
      "name": "parent",
      "required": false,
      "schema": {
-      "type": "integer"
+      "type": "integer",
+      "description": "Default: when the caller's current task is a request (made from a founder's message), that task, unless no_parent."
+     }
+    },
+    {
+     "name": "no_parent",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Do not hang the task under the caller's current request. Refused with parent."
      }
     },
     {
@@ -6077,7 +6160,7 @@
   },
   {
    "name": "task.comment.add",
-   "summary": "Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
+   "summary": "Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer. The founder is told by one inbox line per request (a task made from their message, task.request) while it stays unread, counting the agents' new comments. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -6101,6 +6184,14 @@
      "schema": {
       "type": "boolean",
       "description": "Tell every reader at once, even mid-turn."
+     }
+    },
+    {
+     "name": "reply",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "The comment on the same task this one answers (Memo.reply_to). Refused (not_found memo) when the task has no such comment."
      }
     },
     {
@@ -6839,6 +6930,134 @@
      "$ref": "#/components/errors/bad_request"
     }
    ]
+  },
+  {
+   "name": "task.request",
+   "summary": "Make a founder's chat message a request: a task the founder opened (opened_by human), owned by the lead the message was sent to. The message becomes its first comment, images included. A message converts once; a second call returns the task already made from it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestName",
+      "description": "The founder's message. Refused when it was not sent by the founder to an agent."
+     }
+    },
+    {
+     "name": "title",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Default: the message's first line."
+     }
+    },
+    {
+     "name": "owner",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The agent who holds the request. Default: the agent the message was sent to."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        },
+        "existing": {
+         "type": "boolean",
+         "description": "True when the message had already been made a request."
+        }
+       },
+       "required": [
+        "task"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "The founder, or the agent the message was sent to, may call it. Clears a no-work mark on the message."
+  },
+  {
+   "name": "task.none",
+   "summary": "Mark a founder's chat message as needing no work, with a reason in one line, so it is not chased as unanswered. Refused for a message already made a request.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestName",
+      "description": "The founder's message."
+     }
+    },
+    {
+     "name": "reason",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "The founder, or the agent the message was sent to, may call it."
   },
   {
    "name": "task.wait",
@@ -8040,6 +8259,47 @@
    ],
    "x-gates": [
     "proposal_changed",
+    "proposal_settled"
+   ]
+  },
+  {
+   "name": "hr.apply_now",
+   "summary": "Apply a waiting HR change now: for an applying proposal, interrupt the turn of each agent in `waiting_on` (as session.interrupt does), then close the session, apply the change and restart the renamed agent at the next tick, without waiting for the turn to end. Returns at once with `said` naming the agents; the proposal stays applying until the change is applied (watch the hr topic). Refused with gate proposal_settled, carrying the proposal as it is, unless the proposal is applying. Works for every kind a running session can hold: rename, retire, context, link, settings.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "proposal",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
     "proposal_settled"
    ]
   },
@@ -9751,9 +10011,10 @@
      "devices",
      "hr",
      "transcript",
-     "prefs"
+     "prefs",
+     "requests"
     ],
-    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. requests (member, which includes the founder): the founder's requests (RequestRow), so a Requests page is live."
    },
    "Caller": {
     "type": "object",
@@ -12570,7 +12831,7 @@
      },
      "state": {
       "type": "string",
-      "description": "open: waits for the founder. applying: approved by the founder and held until each agent in `waiting_on` ends its turn; the daemon then closes those sessions, applies the change and restarts each agent that stays; it turns approved once the change is applied and each agent that stays has a session again, or apply_failed; `settled` stays null and the founder is offered no action meanwhile. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states."
+      "description": "open: waits for the founder. applying: approved by the founder and held until each agent in `waiting_on` ends its turn; the daemon then closes those sessions, applies the change and restarts each agent that stays; it turns approved once the change is applied (an agent that stays and does not start at once is `follow_up`, not a failure), or apply_failed when the change itself fails; `settled` stays null and the founder is offered no action meanwhile. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states."
      },
      "waiting_on": {
       "type": "array",
@@ -12578,6 +12839,32 @@
        "$ref": "#/components/schemas/AgentName"
       },
       "description": "Set only while state is applying: the agents whose running turn the change waits on, by their names before the change. A card names them."
+     },
+     "waiting_since": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "Set only while state is applying: when the proposal turned applying. With `waiting_on` it tells the card since when and why it waits (those agents' turns are running); hr.apply_now ends the wait."
+     },
+     "follow_up": {
+      "type": "object",
+      "properties": {
+       "agent": {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       "state": {
+        "type": "string",
+        "description": "waiting: the start is put off for machine load and the daemon makes it by itself when the load drops; the card shows no retry. failed: the start failed for another reason and only the founder's Start now (agent.force_start) retries it. An open set: draw a word you do not know as text."
+       },
+       "text": {
+        "type": "string",
+        "description": "Why, from the daemon (the held limit or the failure), one line."
+       }
+      },
+      "required": [
+       "agent",
+       "state",
+       "text"
+      ],
+      "description": "Set on an approved proposal whose change is applied but an agent it renamed is not running yet. Absent when the change needs no start or the start went through; it is removed when the start succeeds. The change is applied either way: a client never draws it as not applied or offers approve again."
      },
      "created": {
       "$ref": "#/components/schemas/Timestamp"
@@ -13425,6 +13712,17 @@
        "$ref": "#/components/schemas/MemoFile"
       },
       "description": "The files the memo carries, in the order they were given; present only when it carries one."
+     },
+     "reply_to": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The comment this one answers; null for none."
      }
     },
     "required": [
@@ -13677,6 +13975,28 @@
       "items": {
        "$ref": "#/components/schemas/ChatAction"
       }
+     },
+     "request_task": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "On a message of the founder's to an agent: the request task made from it (task.request); null for none."
+     },
+     "no_work": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "On a message of the founder's to an agent: why it needs no work (task.none); null for none."
      }
     },
     "required": [
@@ -15708,6 +16028,16 @@
      },
      "bytes": {
       "type": "integer"
+     },
+     "width": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The picture's width in pixels as it is drawn (a JPEG's Exif orientation applied), read from its header when it was put, so a client can size it before it arrives. Absent when the header could not be read, or for an image put before it was kept."
+     },
+     "height": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The picture's height in pixels; present exactly when width is."
      }
     },
     "required": [
@@ -16923,6 +17253,130 @@
     "required": [
      "cursor"
     ]
+   },
+   "RequestRow": {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "task",
+       "message"
+      ],
+      "description": "task: a request the founder opened (task.request, or a task of their own for a lead). message: a message of theirs that is not a task yet."
+     },
+     "task": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The request's task; null for a message."
+     },
+     "ref": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/RequestRef"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The founder's message it was made from, or is; null for a task opened without one."
+     },
+     "title": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "waiting_on_you",
+       "review",
+       "doing",
+       "done",
+       "no_work",
+       "not_yet"
+      ],
+      "description": "Read from the request's tree of tasks, never stored; the first that holds. waiting_on_you: a task assigned to the founder or a decision card waiting on them, anywhere in the tree. review: an open task has a PR. doing: some task in the tree is open. done: the request's own task is done (the agent that holds it judges and closes it; the founder does not). no_work: a message marked with task.none. not_yet: a message with neither a task nor a mark."
+     },
+     "agent": {
+      "type": "string",
+      "description": "Who holds the request, or the agent the message was sent to."
+     },
+     "origin": {
+      "type": "string",
+      "description": "The agent the message it was made from was sent to. Only on a task made from a message."
+     },
+     "holders": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "Agents holding an open task in the tree; empty once done."
+     },
+     "open": {
+      "type": "integer",
+      "description": "Open tasks under the request's own."
+     },
+     "done": {
+      "type": "integer",
+      "description": "Ended tasks under the request's own."
+     },
+     "prs": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "description": "PRs of the open tasks in the tree."
+     },
+     "reason": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Why a message needs no work (status no_work)."
+     },
+     "unread_comments": {
+      "type": "integer",
+      "description": "Agents' comments on the request that the founder has not read: what its inbox line counts."
+     },
+     "created": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "last_activity": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "cursor": {
+      "type": "string",
+      "description": "Orders the list; pass the last row's as requests.list before."
+     }
+    },
+    "required": [
+     "kind",
+     "task",
+     "ref",
+     "title",
+     "status",
+     "agent",
+     "holders",
+     "open",
+     "done",
+     "prs",
+     "reason",
+     "unread_comments",
+     "created",
+     "last_activity",
+     "cursor"
+    ],
+    "additionalProperties": true,
+    "description": "One row of the founder's requests."
    }
   },
   "errors": {

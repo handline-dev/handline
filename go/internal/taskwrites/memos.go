@@ -74,6 +74,8 @@ func Register(s *rpc.Server, home string, tell Teller, decide CardDecider) {
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopenMethod(home, tell)})
 	s.Register("task.done", rpc.Method{Role: "agent", Write: true, Handler: doneMethod(home, tell, decide)})
 	s.Register("task.cancel", rpc.Method{Role: "member", Write: true, Handler: cancelMethod(home, tell)})
+	s.Register("task.request", rpc.Method{Role: "agent", Write: true, Handler: requestMethod(home)})
+	s.Register("task.none", rpc.Method{Role: "agent", Write: true, Handler: noneMethod(home)})
 	s.Register("task.release", rpc.Method{Role: "agent", Write: true, Handler: releaseMethod(home, tell)})
 	s.Register("task.wait", rpc.Method{Role: "agent", Write: true, Handler: waitMethod(home, tell)})
 	s.Register("task.merge", rpc.Method{Role: "agent", Write: true, Handler: mergeMethod(home, tell)})
@@ -178,6 +180,10 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 		if err != nil {
 			return nil, err
 		}
+		reply, hasReply, err := optionalTask(p, "reply")
+		if err != nil {
+			return nil, err
+		}
 		paths, err := attachments.FilePaths(p)
 		if err != nil {
 			return nil, err
@@ -194,8 +200,21 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 			if err := claimImages(tx, home, c.Caller.Actor(), body, "", "text"); err != nil {
 				return nil, err
 			}
+			if hasReply {
+				if _, _, err := memoOf(tx, tid, reply); err != nil {
+					return nil, err
+				}
+			}
 			mid, err := db.AddMemo(tx, tid, c.Caller.Actor(), body)
 			if err != nil {
+				return nil, err
+			}
+			if hasReply {
+				if _, err := tx.Exec("UPDATE task_memos SET reply_to = ? WHERE id = ?", reply, mid); err != nil {
+					return nil, err
+				}
+			}
+			if err := noteRequestComment(tx, tid, c.Caller.Actor()); err != nil {
 				return nil, err
 			}
 			if files, err = store.AddFiles(tx, home, c.Caller.Actor(), c.Caller.Actor() == human, paths); err != nil {
