@@ -9,7 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/service"
 )
 
-const serviceUsage = "usage: handlined service install [--allow-live-home] | upgrade [<dir>] | rollback | status | uninstall"
+const serviceUsage = "usage: handlined service install [--allow-live-home] | upgrade [--force] [<dir or Handline.app>] | rollback | status [--json] | uninstall"
 
 // serviceCommand is `handlined service ...` on the home HANDLINE_HOME names (the default home otherwise). install and upgrade take
 // the handlined and hl in <dir>, the folder this binary is in by default (the app bundle's).
@@ -22,14 +22,26 @@ func serviceCommand(args []string) int {
 		msg, err = s.Install(ownDir(), false)
 	case len(args) == 2 && args[0] == "install" && args[1] == "--allow-live-home":
 		msg, err = s.Install(ownDir(), true)
-	case len(args) == 1 && args[0] == "upgrade":
-		msg, err = s.Upgrade(ownDir())
-	case len(args) == 2 && args[0] == "upgrade":
-		msg, err = s.Upgrade(args[1])
+	case len(args) >= 1 && args[0] == "upgrade":
+		force, rest := false, args[1:]
+		if len(rest) > 0 && rest[0] == "--force" {
+			force, rest = true, rest[1:]
+		}
+		if len(rest) > 1 {
+			fmt.Fprintln(os.Stderr, serviceUsage)
+			return 2
+		}
+		src := ownDir()
+		if len(rest) == 1 {
+			src = rest[0]
+		}
+		msg, err = s.Upgrade(src, force)
 	case len(args) == 1 && args[0] == "rollback":
 		msg, err = s.Rollback()
 	case len(args) == 1 && args[0] == "status":
 		msg = s.Status()
+	case len(args) == 2 && args[0] == "status" && args[1] == "--json":
+		msg = s.StatusJSON()
 	case len(args) == 1 && args[0] == "uninstall":
 		msg, err = s.Uninstall()
 	default:
