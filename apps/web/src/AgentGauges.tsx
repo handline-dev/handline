@@ -1,7 +1,7 @@
 // An agent's two gauges, one component for the sidebar row and the chat head: the context window FILLS as the session uses it (database, blue), the
 // prompt cache DRAINS as its minutes run out (timer, green). Each has its icon, so a bar is never read without knowing what it counts.
 import type { ReactNode } from 'react';
-import { Icon, MenuButton } from '#src/ui/index.ts';
+import { Icon, MenuButton, STRIP_ITEM } from '#src/ui/index.ts';
 import { Meter } from '#src/RailIcons.tsx';
 
 /** The prompt cache lives an hour; a bar is full when it was just warmed. */
@@ -12,7 +12,7 @@ function Gauge({ name, info, children }: { name: string; info?: ReactNode; child
   if (!info) return <span className="inline-flex flex-none items-center text-ink-2">{children}</span>;
   return (
     <MenuButton
-      className="h-5 flex-none gap-0 px-1.5 text-hint text-ink-2"
+      className={`${STRIP_ITEM} flex-none gap-0 text-hint text-ink-2`}
       label={`${name} details`}
       aria-label={`${name} details`}
       name={name}

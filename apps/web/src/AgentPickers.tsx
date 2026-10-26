@@ -3,9 +3,9 @@
 import { MODELS, toneOf } from '@handline/app-core';
 import type { AgentDetail } from '@handline/client';
 import { EFFORTS, useAccounts, useServes, useVerbMark, useWrite } from '@handline/app-data';
-import { Icon, MenuButton, MenuItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
+import { Icon, MenuButton, MenuItem, MenuLabel, MenuSeparator, STRIP_ITEM } from '#src/ui/index.ts';
 
-const CHIP = 'h-5 gap-1 px-1.5 text-hint text-ink-2';
+const CHIP = `${STRIP_ITEM} gap-1 text-hint text-ink-2`;
 
 export function ModelMenu({ detail }: { detail: AgentDetail }) {
   const set = useWrite('agent.set', detail.name);
