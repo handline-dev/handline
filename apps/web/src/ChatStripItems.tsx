@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import type { AgentDetail } from '@handline/client';
 import { useServes, useWrite } from '@handline/app-data';
-import { Icon, MenuItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
+import { Icon, MenuItem, MenuLabel, MenuSeparator, STRIP_ITEM } from '#src/ui/index.ts';
 
 const COPIED_MS = 1500;
 
@@ -18,7 +18,7 @@ export function BranchChip({ branch }: { branch: string }) {
   return (
     <button
       type="button"
-      className="group inline-flex h-5 min-w-0 items-center gap-1 rounded-ctl bg-transparent px-1.5 text-inherit hover:bg-raised focus-visible:bg-raised"
+      className={`group inline-flex ${STRIP_ITEM} min-w-0 items-center gap-1 rounded-ctl bg-transparent text-inherit hover:bg-raised focus-visible:bg-raised`}
       title={`Branch ${branch}: click to copy`}
       aria-label={copied ? 'Copied' : `Copy branch ${branch}`}
       onClick={() => void navigator.clipboard?.writeText(branch).then(() => setCopied(true))}
