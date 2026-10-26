@@ -28,6 +28,14 @@ import { onTailnet } from '#src/tailnet.ts';
 import { singleWindow } from '#src/single-window.ts';
 import { trayIcon as iconFor, trayMenu, type TrayActions, type TrayFollow, type TrayIcon, type TrayMode } from '#src/tray.ts';
 
+/** The menu bar icon; a background run gets one that draws nothing. */
+function makeTray(background?: boolean): Tray {
+  if (background) return { setImage: () => {}, on: () => {}, popUpContextMenu: () => {} } as unknown as Tray;
+  const tray = new Tray(trayImage('plain'));
+  tray.setToolTip('Handline');
+  return tray;
+}
+
 /** The menu-bar icon. The plain one is a template image (trayTemplate@2x.png is picked up on a Retina screen), so macOS tints it for a light or a dark bar; one with a dot has a colour of its own, so it is drawn for the bar's brightness. */
 function trayImage(kind: TrayIcon): Electron.NativeImage {
   const dir = path.join(import.meta.dirname, '../assets');
@@ -199,6 +207,8 @@ export function ownDaemon(o: {
   loginPath: () => Promise<string | undefined>;
   /** Follow-main mode adds its items to the tray. */
   follow?: () => TrayFollow;
+  /** A background run (background.ts): no tray icon in the menu bar. */
+  background?: boolean;
 }): Own {
   const log = fs.openSync(path.join(app.getPath('userData'), 'daemon.log'), 'a');
   const owner = new Owner({
@@ -210,8 +220,7 @@ export function ownDaemon(o: {
     wait: sleep,
   });
   app.on('quit', () => owner.stop());
-  const tray = new Tray(trayImage('plain'));
-  tray.setToolTip('Handline');
+  const tray = makeTray(o.background);
   const link = new Link();
   link.set('connecting', { address: o.gateway ?? null });
   const relaunchAs = (next: Settings) => relaunchWith(o.settings, next);
