@@ -1,7 +1,18 @@
 // Every write method of the contract, once, with its kind and what it does to the cache (docs/turborepo-layout.md §8.5).
 // A method in none of the four lists fails the guard test, so a new write is decided by a person before it ships.
 import { navOf, taskAfter, type TaskEdit, type TaskVerb } from '@handline/app-core';
-import type { Account, InboxItem, Memo, NavPrefsChanges, Prefs, Proposal, Schedule, Settings, StandingAnswer, Task } from '@handline/client';
+import type {
+  Account,
+  InboxItem,
+  Memo,
+  NavPrefsChanges,
+  Prefs,
+  Proposal,
+  Schedule,
+  Settings,
+  StandingAnswer,
+  Task,
+} from '@handline/client';
 import { edit, provisionalId, upsert, type Ctx } from '#src/cache.ts';
 import { accountAfter, type AccountChange } from '#src/account-after.ts';
 import { accountRemove } from '#src/account-remove.ts';
@@ -401,6 +412,8 @@ export const NOT_FROM_UI = [
   'say',
   'hook.record',
   'task.wait', // hl task wait; no screen opens a gate yet
+  'task.request', // hl task request; the app's "make a request" (P1, T5985) moves it to the writes table
+  'task.none', // hl task none
   'hr.propose',
   'trust.propose',
   'task.begin',

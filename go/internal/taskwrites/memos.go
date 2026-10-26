@@ -74,6 +74,8 @@ func Register(s *rpc.Server, home string, tell Teller, decide CardDecider) {
 	s.Register("task.reopen", rpc.Method{Role: "agent", Write: true, Handler: reopenMethod(home, tell)})
 	s.Register("task.done", rpc.Method{Role: "agent", Write: true, Handler: doneMethod(home, tell, decide)})
 	s.Register("task.cancel", rpc.Method{Role: "member", Write: true, Handler: cancelMethod(home, tell)})
+	s.Register("task.request", rpc.Method{Role: "agent", Write: true, Handler: requestMethod(home)})
+	s.Register("task.none", rpc.Method{Role: "agent", Write: true, Handler: noneMethod(home)})
 	s.Register("task.release", rpc.Method{Role: "agent", Write: true, Handler: releaseMethod(home, tell)})
 	s.Register("task.wait", rpc.Method{Role: "agent", Write: true, Handler: waitMethod(home, tell)})
 	s.Register("task.merge", rpc.Method{Role: "agent", Write: true, Handler: mergeMethod(home, tell)})
