@@ -147,7 +147,7 @@ function Folded({ cmd, text }: { cmd?: boolean; text: string }) {
   const long = text.split('\n').length > FOLD_LINES || text.length > 400;
   return (
     <>
-      <CodeBlock cmd={cmd} scroll={open || !long} className={long && !open ? 'max-h-[calc(5lh+0.75rem)] overflow-hidden' : undefined}>
+      <CodeBlock cmd={cmd} scroll={open || !long} className={long && !open ? 'max-h-[calc(5lh+0.375rem)] overflow-hidden' : undefined}>
         {text}
       </CodeBlock>
       {long ? (
