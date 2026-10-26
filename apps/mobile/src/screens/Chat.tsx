@@ -23,7 +23,7 @@ import { NeedsYouCard } from '#src/screens/NeedsYouCard.tsx';
 import { ChatSearch } from '#src/screens/ChatSearch.tsx';
 import { useChatImages } from '#src/screens/ChatImages.tsx';
 import { FoldLine, useFolds } from '#src/screens/ChatFold.tsx';
-import { useSendAnchor } from '#src/screens/ChatAnchor.ts';
+import { useChatScroll } from '#src/screens/ChatScroll.ts';
 import { SendButton, WorkingBubble } from '#src/screens/ChatSend.tsx';
 import { Icon } from '#src/screens/Icon.tsx';
 import { Button, EmptyState, Link, Row } from '#src/screens/parts.tsx';
@@ -77,7 +77,6 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const tabs = useOpenInTab();
   const setOpenTask = (id: number) => tabs?.open(taskTab(id)); // a task a batch card opened is a tab beside the chat
   const scroll = useRef<ScrollView>(null);
-  const anchor = useSendAnchor(scroll);
   const [going, setGoing] = useState<number | null>(null); // a message number being found
   const [flash, setFlash] = useState<number | null>(null); // the message a search hit just landed on
   const rowY = useRef(new Map<number, number>());
@@ -93,10 +92,11 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const titles = new Map((served ? (tasks.data?.items ?? []) : []).map((t) => [t.id, t.title]));
   const entries = chatEntries(chat.messages, chat.items, agent, decidedProposals(hr.data?.proposals, agent));
   const folds = useFolds(chat.status === 'ready', entries);
+  const sent = entries.findLast((e) => e.kind === 'message' && sideOf(e.message, agent, me) === 'person')?.id; // the row a send holds at the top
+  const anchor = useChatScroll(scroll, { ready: chat.status === 'ready', sent });
 
   useChatReadMarks(agent, chat, act.seen);
 
-  const sent = entries.findLast((e) => e.kind === 'message' && sideOf(e.message, agent, me) === 'person')?.id; // the row a send holds at the top
   const drawn = going !== null && entries.some((e) => e.kind !== 'item' && e.id === going);
   const reveal = (id: number) => {
     const y = rowY.current.get(id);
@@ -200,7 +200,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
               onRow={(y) => {
                 rowY.current.set(e.id, y);
                 if (flash === e.id) reveal(e.id);
-                if (e.id === sent) anchor.row(y);
+                anchor.row(e.id, y);
               }}
               working={working}
               onPick={(m) => {
@@ -228,7 +228,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
           ),
         )}
         <WorkingBubble working={chat.working} messages={chat.messages} items={chat.items} />
-        {anchor.spacer > 0 && <View testID="send-spacer" style={{ height: anchor.spacer }} />}
+        {anchor.room > 0 && <View testID="send-spacer" style={{ height: anchor.room }} />}
       </ScrollView>
       <HandoffLine handoff={props.detail.handoff ?? null} items={chat.items} />
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
