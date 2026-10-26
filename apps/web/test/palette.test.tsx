@@ -62,7 +62,7 @@ describe('palette', () => {
       expect(options().some((o) => o.includes(page))).toBe(true);
     await type('usage');
     await act(async () => void $$('.palette [role="option"] button')[0]!.click());
-    expect(location.hash).toBe('#/accounts');
+    expect(location.hash).toBe('#/stats');
   });
 
   it('adds a Messages group for two characters and lands the chat on the message of a hit', async () => {

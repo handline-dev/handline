@@ -31,7 +31,16 @@ test('the env names only the instance: the live home and gateway are dropped, an
     HANDLINE_GATEWAY_WS: '127.0.0.1:7452',
     HANDLINE_MODE: 'connect',
     HANDLINE_DEV_URL: 'http://127.0.0.1:5199',
+    HANDLINE_BACKGROUND: '0',
   });
+});
+
+test("an agent's run stays in the background, and HANDLINE_BACKGROUND decides either way", () => {
+  const bg = (base: NodeJS.ProcessEnv) => teamEnv(base, inst, 'http://127.0.0.1:5199').HANDLINE_BACKGROUND;
+  assert.equal(bg({ OCP_AGENT: 'handline.pc' }), '1');
+  assert.equal(bg({ OCP_AGENT: 'handline.pc', HANDLINE_BACKGROUND: '0' }), '0');
+  assert.equal(bg({ HANDLINE_BACKGROUND: '1' }), '1');
+  assert.equal(bg({}), '0');
 });
 
 test('an instance is on only when its daemon and its gateway both answer', async () => {
