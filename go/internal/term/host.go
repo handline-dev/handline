@@ -36,6 +36,55 @@ func (t Tmux) serverUp() bool {
 const AgentOption = "@hl_agent"
 
 func (t Tmux) CreateTerminal(command, cwd, title, agent string) (string, string) {
+	pane, why := t.newPane(cwd, title, "")
+	if pane == "" {
+		return "", why
+	}
+	if agent != "" {
+		if code, _, err := t.tmux(tmuxTimeout, "", "set-option", "-p", "-t", pane, AgentOption, agent); code != 0 {
+			t.CloseTerminal(pane, true)
+			return "", "could not stamp the new window with its agent: " + err
+		}
+	}
+	if ok, why := t.Send(pane, command, true); !ok {
+		t.CloseTerminal(pane, true)
+		return "", "could not type the command into the new window: " + why
+	}
+	return pane, ""
+}
+
+// ShellOption is the tmux pane option that names the agent a plain shell was opened beside; such a pane is the person's, not an agent's.
+const ShellOption = "@hl_shell"
+
+// CreateShell opens a window in cwd running the user's login shell, stamped as a shell of agent.
+func (t Tmux) CreateShell(cwd, title, agent string) (string, string) {
+	pane, why := t.newPane(cwd, title, `exec "${SHELL:-/bin/zsh}" -l`)
+	if pane == "" {
+		return "", why
+	}
+	if code, _, err := t.tmux(tmuxTimeout, "", "set-option", "-p", "-t", pane, ShellOption, agent); code != 0 {
+		t.CloseTerminal(pane, true)
+		return "", "could not stamp the new window as a shell: " + err
+	}
+	return pane, ""
+}
+
+// PaneShell is the agent a shell pane was opened beside; "" for any other pane, known false when tmux cannot say.
+func (t Tmux) PaneShell(handle string) (agent string, known bool) {
+	return t.paneOption(handle, ShellOption)
+}
+
+// paneOption is the pane's value of a tmux pane option, known false when tmux cannot say.
+func (t Tmux) paneOption(handle, option string) (string, bool) {
+	if !paneRE.MatchString(handle) {
+		return "", false
+	}
+	code, out, _ := t.tmux(tmuxTimeout, "", "display-message", "-p", "-t", handle, "#{"+option+"}")
+	return strings.TrimSpace(out), code == 0
+}
+
+// newPane opens a window in cwd that runs shellCmd (the default shell when empty) and answers its pane's handle.
+func (t Tmux) newPane(cwd, title, shellCmd string) (string, string) {
 	var args []string
 	if title != "" {
 		args = append(args, "-n", windowNameRE.ReplaceAllString(title, "_"))
@@ -50,6 +99,9 @@ func (t Tmux) CreateTerminal(command, cwd, title, agent string) (string, string)
 		args = append(args, "-e", "OCP_HOME="+t.Home, "-e", "HANDLINE_HOME="+t.Home, "-e", "OCP_TMUX_SOCKET="+sock, "-e", "HANDLINE_TMUX_SOCKET="+sock)
 	}
 	args = append(args, "-P", "-F", "#{pane_id}")
+	if shellCmd != "" {
+		args = append(args, shellCmd)
+	}
 	var code int
 	var out, err string
 	if t.serverUp() {
@@ -63,16 +115,6 @@ func (t Tmux) CreateTerminal(command, cwd, title, agent string) (string, string)
 			err = "tmux gave no pane id (" + pyRepr(cut(pane, 80)) + ")"
 		}
 		return "", err
-	}
-	if agent != "" {
-		if code, _, err := t.tmux(tmuxTimeout, "", "set-option", "-p", "-t", pane, AgentOption, agent); code != 0 {
-			t.CloseTerminal(pane, true)
-			return "", "could not stamp the new window with its agent: " + err
-		}
-	}
-	if ok, why := t.Send(pane, command, true); !ok {
-		t.CloseTerminal(pane, true)
-		return "", "could not type the command into the new window: " + why
 	}
 	return pane, ""
 }
@@ -99,11 +141,27 @@ func (t Tmux) RespawnTerminal(handle string) (bool, string) {
 
 // PaneAgent is the agent the daemon stamped the pane with; "" for a pane it did not open for an agent, known false when tmux cannot say.
 func (t Tmux) PaneAgent(handle string) (agent string, known bool) {
-	if !paneRE.MatchString(handle) {
-		return "", false
+	return t.paneOption(handle, AgentOption)
+}
+
+// Shells is what a host adds to open plain shells beside an agent.
+type Shells interface {
+	CreateShell(cwd, title, agent string) (handle, why string)
+	PaneShell(handle string) (agent string, known bool)
+}
+
+func (d dynamic) CreateShell(cwd, title, agent string) (string, string) {
+	if h, ok := d.cur().(Shells); ok {
+		return h.CreateShell(cwd, title, agent)
 	}
-	code, out, _ := t.tmux(tmuxTimeout, "", "display-message", "-p", "-t", handle, "#{"+AgentOption+"}")
-	return strings.TrimSpace(out), code == 0
+	return "", "the terminal host (" + d.Name() + ") cannot open a shell"
+}
+
+func (d dynamic) PaneShell(handle string) (string, bool) {
+	if h, ok := d.cur().(Shells); ok {
+		return h.PaneShell(handle)
+	}
+	return "", false
 }
 
 type paneAgenter interface {

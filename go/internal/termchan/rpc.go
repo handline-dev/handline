@@ -96,6 +96,8 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("terminal.detach", rpc.Method{Role: "member", Handler: e.detach})
 	s.Register("terminal.history", rpc.Method{Role: "member", Handler: e.history})
 	s.Register("terminal.open", rpc.Method{Role: "member", Handler: e.open})
+	s.Register("shell.open", rpc.Method{Role: "member", Write: true, Handler: e.shellOpen})
+	s.Register("shell.close", rpc.Method{Role: "member", Write: true, Handler: e.shellClose})
 	if e.Holds != nil {
 		s.Register("terminal.input", rpc.Method{Role: "member", Write: true, Handler: e.input})
 		s.Register("terminal.resize", rpc.Method{Role: "member", Write: true, Handler: e.resize})

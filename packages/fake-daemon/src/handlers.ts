@@ -199,6 +199,18 @@ const BASE: Record<string, (h: Call) => unknown> = {
     if (!s.hasTerminal) throw new Failure('not_found', `${s.fx.name} has no terminal`, { field: 'terminal' });
     return { agent: s.fx.name, terminal: tid(s), host: 'fake', attach: { argv: ['fake-attach', tid(s)] }, focused: false, local: true };
   },
+  'shell.open': ({ p, script, agent }) => {
+    if (typeof p.agent !== 'string') throw invalidParams('agent is required', 'agent');
+    const s = agent();
+    const terminal = `%sh${script.shells.size + 1}`;
+    script.shells.add(terminal);
+    return { agent: s.fx.name, terminal, cwd: `/fake/worktrees/${s.fx.name}`, host: 'fake' };
+  },
+  'shell.close': ({ p, script }) => {
+    if (typeof p.terminal !== 'string' || p.terminal === '') throw invalidParams('terminal is a handle', 'terminal');
+    if (!script.shells.delete(p.terminal)) throw new Failure('not_found', `no shell ${p.terminal}`, { field: 'terminal' });
+    return script.accepted('Shell closed.');
+  },
   'terminal.close': ({ actor, script, agent }) => {
     const s = agent();
     if (s.open) throw refused('state', `${s.fx.name} has a session running: stop it first`);
