@@ -51,6 +51,7 @@ describe('the strip branch and context maximum', () => {
     await until(() => $('.chat-strip .branch button'), 'the branch');
     await act(async () => $('.chat-strip .branch button')!.click());
     expect(write).toHaveBeenCalledWith(branch);
+    expect($('.chat-strip .branch button')!.className).toContain('border-0'); // no default button border: the chip looks like its neighbours
     await until(() => text($('.chat-strip .branch')).includes('Copied'), 'the Copied state');
   });
 
