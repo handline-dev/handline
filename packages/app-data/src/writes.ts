@@ -17,7 +17,7 @@ import { edit, provisionalId, upsert, type Ctx } from '#src/cache.ts';
 import { accountAfter, type AccountChange } from '#src/account-after.ts';
 import { accountRemove } from '#src/account-remove.ts';
 import { chatWrites } from '#src/chat-writes.ts';
-import { qk } from '#src/reads.ts';
+import { keyOf, qk } from '#src/reads.ts';
 import type { WriteSpec } from '#src/write-spec.ts';
 
 const as = <T>(p: never) => p as T;
@@ -202,6 +202,8 @@ const settings: Record<string, WriteSpec> = {
       const { agent, values } = as<{ agent: string; values: object }>(p);
       edit<{ settings?: object }>(c.qc, qk.agent(c.d, agent), (a) => ({ ...a, settings: { ...a.settings, ...values } }));
     },
+    // The strip's numbers (the context maximum among them) come from the settings but ride no event of their own: read them again.
+    reconcile: (c, p) => void c.qc.invalidateQueries({ queryKey: keyOf(c.d, 'agent.strip', { agent: as<{ agent: string }>(p).agent }) }),
   },
   'settings.set': {
     kind: 'authored',
