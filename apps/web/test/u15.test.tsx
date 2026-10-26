@@ -192,6 +192,13 @@ describe('U15 HR', () => {
     expect(btn($('.hr')!, 'Show')).toBeUndefined();
   });
 
+  it('a link to a decided proposal past the first ten shows the rest and opens its card', async () => {
+    const s = setup();
+    for (let id = 1; id <= 12; id++) raise(s, id, { state: 'approved', settled: new Date(Date.UTC(2026, 0, id)).toISOString() });
+    await open(s, '#/team/hr/1');
+    await until(() => $$('[data-done]').length === 12 && $('.hr-card[data-proposal="1"]'), 'the oldest card');
+  });
+
   it('Approve all sends one decide per waiting proposal; one whose apply fails stays waiting', async () => {
     const s = setup();
     const a = raise(s, 1);
