@@ -139,6 +139,7 @@ test('only the app window asks, a device is android or ios, and a place is insid
   assert.equal((await d.shot(other, { kind: 'android', id: '' })).ok, false);
   assert.equal((await d.shot(top, { kind: 'rm -rf', id: '' })).ok, false);
   assert.equal((await d.shot(top, { kind: 'android', id: '; reboot' })).ok, false);
+  assert.equal((await d.shot(top, { kind: 'ios', id: '--help' })).ok, false); // never an option of the command
   assert.equal((await d.tap(top, { kind: 'android', id: '', x: 2, y: 0 })).ok, false);
   assert.equal((await d.tap(other, { kind: 'android', id: '', x: 0, y: 0 })).ok, false);
 });
@@ -146,4 +147,12 @@ test('only the app window asks, a device is android or ios, and a place is insid
 test('an iOS picture says plainly when no simulator is booted', async () => {
   const { d } = make({});
   assert.match(((await d.shot(top, { kind: 'ios', id: '' })) as { message: string }).message, /No iOS simulator is booted/);
+});
+
+test('an iOS tap with no simulator picked is refused, not sent to idb with an empty id', async () => {
+  const { d, calls } = make({});
+  (d as unknown as { sizes: Map<string, unknown> }).sizes.set('ios:', { width: 1179, height: 2556 });
+  const r = (await d.tap(top, { kind: 'ios', id: '', x: 0.5, y: 0.5 })) as { ok: false; message: string };
+  assert.match(r.message, /Pick a simulator/);
+  assert.equal(calls.length, 0);
 });

@@ -100,6 +100,9 @@ export function DeviceTab({
     typed.current.text = '';
     if (text && list?.deviceText) void list.deviceText({ kind, id, text }).then(told);
   };
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+  useEffect(() => () => void (clearTimeout(typed.current.timer), flushRef.current()), []); // letters typed just before the tab closes still go
   const name = kind === 'android' ? 'Android' : 'iOS';
   return (
     <div className="device-tab flex min-h-0 flex-col">
@@ -116,7 +119,7 @@ export function DeviceTab({
           {why
             ? ''
             : drives
-              ? 'Click the picture to tap, drag to swipe, type to type.'
+              ? 'Click the picture to tap, drag to swipe, type letters and numbers to type.'
               : kind === 'ios' && !idb
                 ? IDB_HOW
                 : 'A picture of the device.'}
@@ -166,6 +169,7 @@ export function DeviceTab({
               const at = fraction(e);
               void tap!.deviceTap!({ kind, id, ...at }).then(told);
             }}
+            onBlur={() => void (clearTimeout(typed.current.timer), flush())}
             onKeyDown={(e) => {
               if (!drives || e.key.length !== 1 || e.metaKey || e.ctrlKey || e.altKey) return;
               e.preventDefault();

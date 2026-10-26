@@ -36,7 +36,7 @@ export interface DeviceInfo {
   name: string;
 }
 type Failure = Fail<'bad_request' | 'unavailable'>;
-const ID = /^[\w.:-]{1,80}$/;
+const ID = /^[A-Za-z0-9][\w.:-]{0,79}$/; // a serial or a UDID: never starts with a dash, which a command would read as an option
 const IDB_HOW = 'Taps and typing on an iOS simulator need idb: brew install facebook/fb/idb-companion && pip3 install fb-idb';
 
 /** Booted simulators out of `simctl list devices booted -j`. */
@@ -185,6 +185,7 @@ export class Devices {
   ): Promise<{ ok: true } | Failure> {
     const size = this.sizes.get(t.key);
     if (!size) return unavailable('There is no picture of the device yet.');
+    if (t.kind === 'ios' && !t.id) return unavailable('Pick a simulator first.');
     try {
       if (t.kind === 'android') {
         await this.exec(this.adb, [...(t.id ? ['-s', t.id] : []), 'shell', ...android((f, side) => Math.round(f * size[side]))]);
