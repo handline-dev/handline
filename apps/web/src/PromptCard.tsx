@@ -10,7 +10,8 @@ import { Icon } from '#src/ui/Icon.tsx';
 import { Button, Card, CardActions, CodeBlock, Input, Kbd, Check } from '#src/ui/index.ts';
 
 export function PromptCard({ agent, prompt: p, onStale }: { agent: string; prompt: Prompt; onStale?: () => void }) {
-  const { answering, picked, typing, setTyping, text, setText, changed, all, cancel, opts, multi, question, send, toggle, mark } = usePromptAnswer(agent, p, onStale);
+  const { answering, picked, typing, setTyping, text, setText, changed, all, cancel, opts, multi, question, send, toggle, mark } =
+    usePromptAnswer(agent, p, onStale);
   const [slow, setSlow] = useState(false);
   const card = useRef<HTMLDivElement>(null);
 
@@ -42,19 +43,25 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
   };
 
   return (
-    <Card variant="chat" className="prompt bg-surface" role="alert" ref={card} tabIndex={-1} onKeyDown={onKey} aria-busy={answering}>
+    <Card
+      variant="chat"
+      className="prompt !flex-col !items-stretch !gap-0 bg-surface"
+      role="alert"
+      ref={card}
+      tabIndex={-1}
+      onKeyDown={onKey}
+      aria-busy={answering}
+    >
       <div className="card-title mb-1.5 font-semibold">
         <Icon name="warn" size={13} aria-hidden className="mr-1 inline-block align-[-2px]" /> {promptTitle(p)}
-        <span className="muted font-normal">
-          {p.since ? ` · waiting since ${clockTime(p.since)}` : ''}
-        </span>
+        <span className="muted font-normal">{p.since ? ` · waiting since ${clockTime(p.since)}` : ''}</span>
       </div>
       {changed ? (
         <p className="text-wait m-0 mb-1.5" role="status">
           This prompt changed
         </p>
       ) : null}
-      {p.command ? <CodeBlock cmd scroll>{p.command}</CodeBlock> : <CodeBlock scroll>{p.lines.join('\n')}</CodeBlock>}
+      {p.command ? <Folded cmd text={p.command} /> : <CodeBlock scroll>{p.lines.join('\n')}</CodeBlock>}
       {p.reason ? <p className="muted">{p.reason}</p> : null}
       {question || multi ? (
         <ol className="opts m-0 mt-2 grid list-none gap-1.5 p-0">
@@ -65,7 +72,13 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
                   <Check checked={picked.includes(o.key)} disabled={answering} onChange={() => toggle(o.key)} /> {o.label}
                 </label>
               ) : (
-                <Button variant="outline" label={o.label} className="w-full justify-start text-left max-sm:min-h-12" disabled={answering} onClick={() => send(o.key, o.key)}>
+                <Button
+                  variant="outline"
+                  label={o.label}
+                  className="w-full justify-start text-left max-sm:min-h-12"
+                  disabled={answering}
+                  onClick={() => send(o.key, o.key)}
+                >
                   <Kbd>{o.key || i + 1}</Kbd> {mark(o.key, o.label)}
                 </Button>
               )}
@@ -96,7 +109,13 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
       ) : null}
       {multi ? (
         <CardActions>
-          <Button variant="solid" label="Submit" className="max-sm:min-h-12 max-sm:w-full" disabled={answering || !picked.length} onClick={submit}>
+          <Button
+            variant="solid"
+            label="Submit"
+            className="max-sm:min-h-12 max-sm:w-full"
+            disabled={answering || !picked.length}
+            onClick={submit}
+          >
             {mark('submit', 'Submit')}
           </Button>
         </CardActions>
@@ -119,23 +138,66 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
               disabled={answering}
               onChange={(e) => setText(e.target.value)}
             />
-            <Button type="submit" variant="solid" label="Send" className="max-sm:min-h-12 max-sm:w-full" disabled={answering || !text.trim()}>
+            <Button
+              type="submit"
+              variant="solid"
+              label="Send"
+              className="max-sm:min-h-12 max-sm:w-full"
+              disabled={answering || !text.trim()}
+            >
               {mark('text', 'Send')}
             </Button>
           </CardActions>
         ) : (
-          <Button variant="outline" label="Type something" className="w-full justify-start text-left max-sm:min-h-12" disabled={answering} onClick={() => setTyping(true)} />
+          <Button
+            variant="outline"
+            label="Type something"
+            className="w-full justify-start text-left max-sm:min-h-12"
+            disabled={answering}
+            onClick={() => setTyping(true)}
+          />
         )
       ) : null}
       {cancel ? (
         <CardActions>
-          <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:w-full" disabled={answering} onClick={() => send(cancel.key, cancel.key)}>
+          <Button
+            variant="outline"
+            label="Cancel"
+            className="max-sm:min-h-12 max-sm:w-full"
+            disabled={answering}
+            onClick={() => send(cancel.key, cancel.key)}
+          >
             {mark(cancel.key, 'Cancel')} <Kbd>esc</Kbd>
           </Button>
         </CardActions>
       ) : null}
       {answering ? <p className="muted">{slow ? 'still waiting' : 'answering…'}</p> : null}
     </Card>
+  );
+}
+
+const FOLD_LINES = 5;
+
+/** A command at full card width, folded to a few lines with a toggle when it runs long. */
+function Folded({ cmd, text }: { cmd?: boolean; text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.split('\n').length > FOLD_LINES || text.length > 400;
+  return (
+    <>
+      <CodeBlock cmd={cmd} scroll={open || !long} className={long && !open ? 'max-h-[calc(5lh+0.375rem)] overflow-hidden' : undefined}>
+        {text}
+      </CodeBlock>
+      {long ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          label={open ? 'Show less' : 'Show all'}
+          aria-label={open ? 'Show less' : 'Show all'}
+          className="mt-1 self-start"
+          onClick={() => setOpen(!open)}
+        />
+      ) : null}
+    </>
   );
 }
 
