@@ -28,6 +28,9 @@ func answerWorktree(tx db.Q, tid int64, words string, now time.Time) (handled bo
 	if err != nil || t == nil || t.Ended() {
 		return false, "", err
 	}
+	if t.OpenedBy != db.Human { // tags are free text: only the daemon's own question, opened as the founder's, is one
+		return false, "", nil
+	}
 	card, err := cardOf(tx, tid)
 	if err != nil || card == nil {
 		return false, "", err
@@ -35,6 +38,9 @@ func answerWorktree(tx db.Q, tid int64, words string, now time.Time) (handled bo
 	path, member := match(pathLine, card.Body), match(memberLine, card.Body)
 	if path == "" || member == "" {
 		return false, "", nil
+	}
+	if !registered(path) {
+		return true, "", rpc.Refused(path+" is not a worktree git knows beside its main checkout: nothing was done", "state", "")
 	}
 	fields := strings.Fields(strings.TrimSpace(words))
 	if len(fields) == 0 {
@@ -66,4 +72,15 @@ func match(re *regexp.Regexp, s string) string {
 		return strings.TrimSpace(m[1])
 	}
 	return ""
+}
+
+// registered is whether path is one of its repository's worktrees and not the main checkout (git lists that first).
+func registered(path string) bool {
+	all := worktreeprune.List(path)
+	for i, wt := range all {
+		if i > 0 && worktreeprune.Real(wt.Path) == worktreeprune.Real(path) {
+			return true
+		}
+	}
+	return false
 }

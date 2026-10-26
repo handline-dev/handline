@@ -55,7 +55,7 @@ func (e *Env) askAbout(member string, wt worktreeprune.Worktree, why string) str
 	title := fmt.Sprintf("Remove %s's worktree?", member)
 	body := worktreeprune.Describe(wt) + "\n\nMember: " + member + `
 
-Reply with the number (answer this task):
+Close this task with the number as its answer (a comment or a chat message does nothing):
 1  keep a copy, then remove: what is left is committed to a rescue/` + member + `-<date> branch, then the worktree goes
 2 yes  remove anyway: uncommitted files are lost (commits stay on the branch); "2" alone asks again
 3  leave it: the worktree stays, the member is gone

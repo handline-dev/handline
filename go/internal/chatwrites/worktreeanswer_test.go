@@ -122,3 +122,28 @@ func TestADecisionActsOnTheAnswerThenClosesTheTaskWithWhatWasDone(t *testing.T) 
 		t.Fatal("the task closes with what was done")
 	}
 }
+
+// Tags are free text: an agent's task that carries the tag and the lines is no retire question, and the founder's answer to it removes nothing.
+func TestATaggedTaskAnAgentOpenedIsNotARetireQuestion(t *testing.T) {
+	r := newRig(t)
+	tid, path, _ := askedAbout(t, r)
+	r.db.Exec("UPDATE tasks SET opened_by = 'alice' WHERE id = ?", tid)
+	if handled, _, err := answer(t, r, tid, "2 yes"); handled || err != nil {
+		t.Fatalf("%v %v", handled, err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal("an agent's task removed a worktree")
+	}
+}
+
+func TestOnlyARegisteredLinkedWorktreeIsActedOn(t *testing.T) {
+	r := newRig(t)
+	tid, _, main := askedAbout(t, r)
+	r.db.Exec("UPDATE requests SET body = ? WHERE id = (SELECT MIN(request_id) FROM task_requests WHERE task_id = ?)", "Path: "+main+"\nMember: bob", tid)
+	if handled, _, err := answer(t, r, tid, "2 yes"); !handled || err == nil || !strings.Contains(err.Error(), "not a worktree git knows") {
+		t.Fatalf("the main checkout: %v %v", handled, err)
+	}
+	if _, err := os.Stat(main); err != nil {
+		t.Fatal("the main checkout was touched")
+	}
+}
