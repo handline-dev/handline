@@ -298,7 +298,7 @@ func (s *Service) load(body string) error {
 	return nil
 }
 
-// BinDir is where the binaries are for src: src itself, or the bin folder of the Handline.app src is or sits in.
+// BinDir is where the binaries are for src: src itself, or the bin folder of the Handline.app src is.
 func BinDir(src string) string {
 	for _, d := range []string{src, filepath.Join(src, "Contents", "Resources", "bin")} {
 		if _, err := os.Stat(filepath.Join(d, "handlined")); err == nil {
@@ -308,7 +308,8 @@ func BinDir(src string) string {
 	return src
 }
 
-// number is the dotted numbers a version starts with ("1.2.10+abc" is 1, 2, 10), nil when it does not start with one.
+// number is the dotted numbers a version starts with ("1.2.10+abc" is 1, 2, 10), nil when there are not at least two: a bare git
+// sha is no version, whatever digit it starts with.
 func number(v string) []int {
 	var n []int
 	for _, p := range strings.Split(strings.TrimPrefix(v, "v"), ".") {
@@ -324,6 +325,9 @@ func number(v string) []int {
 		if end < len(p) {
 			break
 		}
+	}
+	if len(n) < 2 {
+		return nil
 	}
 	return n
 }

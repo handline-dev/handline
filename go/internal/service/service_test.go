@@ -239,3 +239,14 @@ func TestStatusJSON(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestUpgradeBetweenUnstampedBuildsIsNotOrdered(t *testing.T) {
+	r := newRig(t)
+	r.s.Install(r.build("93c3e5b83", false), false)
+	if _, err := r.s.Upgrade(r.build("3f9a2b1", false), false); err != nil {
+		t.Fatalf("digit-leading sha: %v", err)
+	}
+	if _, err := r.s.Upgrade(r.build("1.0.0", false), false); err != nil {
+		t.Fatalf("sha to release: %v", err)
+	}
+}
