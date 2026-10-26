@@ -208,7 +208,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const held = windowed
     ? undefined
     : heldId(entries, (e) => e.kind === 'message' && sideOf(e.message, agent, me) === 'person' && e.message.landing !== 'withdrawn');
-  const { spacer, hold, release, start, scrolled, holding, free } = useHold({
+  const { spacer, picture, release, start, scrolled, holding, free } = useHold({
     stream,
     held,
     own,
@@ -296,7 +296,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           onWheel={() => ((free.current = true), setMoved(win.target))}
           onTouchMove={() => ((free.current = true), setMoved(win.target))}
           onKeyDown={() => ((free.current = true), setMoved(win.target))}
-          onLoadCapture={(e) => e.target instanceof HTMLImageElement && repin()} // a picture arriving late grows the stream
+          onLoadCapture={(e) => e.target instanceof HTMLImageElement && (repin(), picture())} // a picture arriving late grows the stream
           onScroll={(e) => {
             const el = e.currentTarget;
             if (own.current) return void (own.current = false);
@@ -337,7 +337,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 <AnimatedItem
                   key={keyOf(e)}
                   instant={i <= tail || tail < 0}
-                  onFrame={() => (repin(), hold())}
+                  onFrame={() => (repin(), picture())}
                   className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-stretch"
                 >
                   {e.kind === 'fold' ? (

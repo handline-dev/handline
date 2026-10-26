@@ -50,18 +50,20 @@ const free = {
   },
 };
 
-function Harness({ held, lines, ready = true }: { held: number | undefined; lines: number; ready?: boolean }) {
+function Harness({ held, lines, last, ready = true }: { held: number | undefined; lines: number; last?: number; ready?: boolean }) {
   const stream = useRef<HTMLDivElement>(null);
   const own = useRef(false);
   const anchor = useRef(null);
   const pinned = useRef(true);
-  const { spacer, start, free } = useHold({ stream, held, own, anchor, pinned, ready, agent: 'a' });
+  const { spacer, start, picture, free } = useHold({ stream, held, own, anchor, pinned, ready, agent: 'a' });
   freeRef = free;
   return (
     <div ref={stream} className="stream" data-lines={lines}>
       <div className="msg" data-id={1} data-top={200} />
+      {last !== undefined && <div className="msg" data-id={2} data-top={last} />}
       <div ref={spacer} className="room" />
       <button className="send" onClick={() => start()} />
+      <button className="pic" onClick={() => picture()} />
     </div>
   );
 }
@@ -87,6 +89,27 @@ describe('the held message', () => {
     await show(<Harness held={1} lines={400} />);
     expect(stream().scrollTop).toBe(188); // its top, less the stream's padding
     expect(room()).toBe(88); // 188 + 300 - 400: just enough to put it there
+  });
+
+  it('on entry a tail that does not fit under the last sent message leaves the view at the bottom', async () => {
+    await show(<Harness held={1} lines={900} last={850} />);
+    expect(stream().scrollTop).toBe(600);
+    expect(room()).toBeFalsy();
+  });
+
+  it('on entry a tail of system rows that does not fit keeps the last message in view, not the rows after it', async () => {
+    await show(<Harness held={1} lines={900} last={300} />);
+    expect(stream().scrollTop).toBe(288);
+    expect(room()).toBeFalsy();
+  });
+
+  it('an entry hold gives way when a picture grows the tail past the view', async () => {
+    await show(<Harness held={1} lines={400} />);
+    await show(<Harness held={1} lines={900} />);
+    expect(stream().scrollTop).toBe(188); // a reply growing keeps the hold
+    await act(async () => box.querySelector<HTMLButtonElement>('.pic')!.click()); // a picture arrived late
+    expect(stream().scrollTop).toBe(188); // only the held message is a message: it is the last, so it stays at the top
+    expect(room()).toBeFalsy();
   });
 
   it('a chat with no sent message gets no room and no scroll', async () => {
