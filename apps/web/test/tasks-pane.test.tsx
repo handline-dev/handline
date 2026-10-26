@@ -81,3 +81,15 @@ describe("an agent's Tasks tab", () => {
     expect(stop).toBeGreaterThan(edit);
   });
 });
+
+describe("the graph in an agent's Tasks tab", () => {
+  it("shows only that agent's column, with the same cards", async () => {
+    await open('#/agents/handline.architect', 'tasks-200');
+    await until(() => $('.tasks-tab-list'), 'the list');
+    await click($('[aria-label="View"] [aria-label="Graph"]'));
+    await until(() => $('[data-testid="task-graph"]'), 'the graph');
+    expect($$('[data-testid="task-graph"] h2').map((h) => h.textContent)).toEqual(['architect']);
+    expect($('[data-testid="task-graph"] [data-node]')).not.toBeNull();
+    expect($('.tasks-tab-list')).toBeNull();
+  });
+});
