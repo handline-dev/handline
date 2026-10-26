@@ -20,7 +20,7 @@ import { RichText } from '#src/RichText.tsx';
 import { View } from '#src/View.tsx';
 
 const CLOSED = ['done', 'discarded'];
-const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
+const typing = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable]');
 /** The bridge's own sentence for a key that does not apply. */
 const REOPEN_ONLY = 'only a done task that you asked for can be reopened';
 const H3 = 'mt-4 mb-1 flex items-center text-ink-3';

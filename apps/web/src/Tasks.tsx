@@ -44,7 +44,7 @@ const inScope = (tasks: Task[], scope: Scope, me: string, now: number, graph: bo
         (t) => graph || !CLOSED.includes(t.state) || now - Date.parse(t.done ?? t.created) <= DAY,
       );
 
-const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
+const typing = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable]');
 
 export function TasksPage({ route }: { route: string }) {
   const id = route && route !== 'graph' ? Number(route) : null;

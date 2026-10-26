@@ -1,9 +1,9 @@
 // The Activity of a task, one list: its comments and its events in words (the last three; older ones fold), and the composer under them.
 // `@agent` in a comment tells that agent; the assignee is told by default (the daemon's routing). Images go in as in the description.
 import { useState, type RefObject } from 'react';
-import { activityOf, ago, dateTime, foldEvents, type ActivityItem } from '@handline/app-core';
+import { activityOf, ago, dateTime, foldEvents, involved, type ActivityItem } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
-import { classify, sentence, useOff, useWrite } from '@handline/app-data';
+import { classify, sentence, useAgents, useOff, useWrite } from '@handline/app-data';
 import { useHello, useMe } from '@handline/app-react';
 import { BodyEditor } from '#src/BodyEditor.tsx';
 import { CommentPicture } from '#src/CommentPicture.tsx';
@@ -125,6 +125,8 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
   const [replyTo, setReplyTo] = useState<number | null>(null);
   const answering = replyTo === null ? undefined : t.memos.find((x) => x.id === replyTo);
   const { items, hidden } = foldEvents(activityOf(t.memos, t.timeline), all);
+  const names = (useAgents().data?.agents ?? []).map((a) => a.name);
+  const near = involved(t);
   const send = () => {
     if (!text.trim() || busy || add.isPending) return;
     add.mutate(
@@ -160,9 +162,17 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
                 <Button variant="outline" label="Cancel reply" onClick={() => setReplyTo(null)} />
               </p>
             ) : null}
-            <BodyEditor key={fresh} value={text} onChange={setText} onBusy={setBusy} label="Comment" />
+            <BodyEditor
+              key={fresh}
+              value={text}
+              onChange={setText}
+              onBusy={setBusy}
+              label="Comment"
+              onSubmit={send}
+              mentions={{ names, near }}
+            />
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="solid" icon="send" label="Comment" disabled={!text.trim() || busy || add.isPending} onClick={send}>
+              <Button variant="solid" icon="send" label="Comment" keys="⌘↵" disabled={!text.trim() || busy || add.isPending} onClick={send}>
                 {add.isPending ? 'Sending…' : 'Comment'}
               </Button>
               <CommentPicture onAttach={(md) => (setText((v) => [v.trim(), md].filter(Boolean).join('\n')), setFresh((n) => n + 1))} />
