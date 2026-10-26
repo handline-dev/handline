@@ -946,3 +946,25 @@ func TestTheLoadNeverHoldsAPersonsMessage(t *testing.T) {
 		t.Fatalf("the daemon's wake for the founder's message was held: %q", said)
 	}
 }
+
+// The harbor case again (10-26): the founder's message is a say, which is never the head of the queue, so the pass above never saw it
+// and every wake was held for 13 minutes. A say from the founder that the agent has not been shown is a person's message too.
+func TestTheLoadNeverHoldsTheFoundersSay(t *testing.T) {
+	m, _, _ := newManager(t)
+	m.LoadHeld = func(string) string { return "held: machine load - load 7.39 per core, limit 1.50" }
+	db.SetTerminal(m.Q, "harbor", "t1", "/wt")
+	db.SetClosed(m.Q, "harbor", "sess-1")
+	db.SetAgentState(m.Q, "harbor", states.Idle, 0, "")
+	if _, err := db.AddRequest(m.Q, db.NewRequest{Requester: "lead", Target: "harbor", Body: "fyi", Kind: "say"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, said, _ := m.WakeAgent("harbor", WakeOpts{}); !strings.Contains(said, "held: machine load") {
+		t.Fatalf("an agent's say went past the load: %q", said)
+	}
+	if _, err := db.AddRequest(m.Q, db.NewRequest{Requester: db.Human, Target: "harbor", Body: "can the corners be rounder?", Kind: "say"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, said, _ := m.WakeAgent("harbor", WakeOpts{}); strings.Contains(said, "held: machine load") {
+		t.Fatalf("the daemon's wake for the founder's say was held: %q", said)
+	}
+}
