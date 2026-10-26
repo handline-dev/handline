@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RpcError } from '@handline/client';
+import { forgetKept } from '@handline/app-data';
 import { $, mount, press, until, pickTab } from '#test/harness.tsx';
 
 const AUD = 'handline.auditor';
@@ -24,6 +25,8 @@ const chipKey = () =>
   $('image-chips')?.querySelector('[data-testid^="image-chip-"]')?.getAttribute('data-testid')?.replace('image-chip-', '');
 
 describe('attaching an image in Chat', () => {
+  afterEach(forgetKept);
+
   it('uploads a picked image, waits for it, then sends it with no words', async () => {
     const m = await mount();
     await openChat();
@@ -51,6 +54,27 @@ describe('attaching an image in Chat', () => {
     await press($(`image-retry-${chipKey()}`));
     await until(() => $('chat-send')?.getAttribute('aria-disabled') !== 'true', 'the send button');
     expect($(`image-retry-${chipKey()}`)).toBeNull();
+    m.store.stop();
+  });
+
+  it('keeps a picked image when the person goes back to the list and returns to the chat, until it is sent', async () => {
+    const m = await mount();
+    await openChat();
+    await press($('attach-image'));
+    await until(() => chipKey(), 'the chip');
+    await until(() => $('chat-send')?.getAttribute('aria-disabled') !== 'true', 'uploaded');
+    const key = chipKey();
+    await press($('back'));
+    await until(() => $(`agent-${AUD}`) && !$('attach-image'), 'the list');
+    await openChat();
+    expect(chipKey()).toBe(key);
+    expect($('chat-send')?.getAttribute('aria-disabled')).not.toBe('true');
+    await press($('chat-send'));
+    await until(() => $('pictures'), 'the picture in the sent message');
+    await press($('back'));
+    await until(() => $(`agent-${AUD}`) && !$('attach-image'), 'the list again');
+    await openChat();
+    expect(chipKey()).toBeUndefined();
     m.store.stop();
   });
 

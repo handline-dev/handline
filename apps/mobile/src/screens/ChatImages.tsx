@@ -14,8 +14,8 @@ interface Sent {
   attachments: string[];
 }
 
-export function useChatImages(canSend: boolean) {
-  const d = useImageDrafts();
+export function useChatImages(canSend: boolean, agent: string) {
+  const d = useImageDrafts(MAX_PER_MESSAGE, agent); // kept per agent: still there when the person comes back to this chat
   const upload = useUploadImage();
   const [error, setError] = useState<string | null>(null);
   const [marking, setMarking] = useState<number | null>(null);

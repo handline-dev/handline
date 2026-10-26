@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
+import { forgetKept } from '@handline/app-data';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
 
@@ -66,6 +67,7 @@ async function mount(s = setup()) {
 }
 
 afterEach(async () => {
+  forgetKept();
   await act(async () => root?.unmount());
   root = null;
   box?.remove();
@@ -94,6 +96,29 @@ describe('images in the send box', () => {
     const mine = (await s.client.call('chat.messages', { agent: AUD, scope: 'mine' })).messages.filter((m) => m.attachments?.length);
     expect(mine).toHaveLength(1);
     expect(mine[0]!.attachments![0]!.name).toBe('shot.png');
+  });
+
+  it('keeps the attached images when the person leaves the chat and comes back, until they are sent or removed', async () => {
+    await mount();
+    await paste([image('a.png'), image('b.png')]);
+    await until(() => chips().length === 2 && chips().every((c) => c.getAttribute('data-state') === 'ready'), 'both uploaded');
+    await click($('[data-tab="transcript"]')!);
+    await until(() => !compose(), 'the send box gone');
+    await click($('[data-tab^="chat"]')!);
+    await until(() => compose(), 'the send box again');
+    expect(chips().map((c) => text(c))).toEqual([expect.stringContaining('a.png'), expect.stringContaining('b.png')]);
+    expect(sendBtn().disabled).toBe(false);
+    await click(chips()[0]!.querySelector('button[aria-label^="Remove"]')!);
+    await click($('[data-tab="transcript"]')!);
+    await click($('[data-tab^="chat"]')!);
+    await until(() => compose(), 'the send box once more');
+    expect(chips().map((c) => text(c))).toEqual([expect.stringContaining('b.png')]);
+    await click(sendBtn());
+    await until(() => $$('.msg .attachment img').length === 1, 'the picture');
+    await click($('[data-tab="transcript"]')!);
+    await click($('[data-tab^="chat"]')!);
+    await until(() => compose(), 'the send box after sending');
+    expect(chips()).toHaveLength(0);
   });
 
   it('under a picked question the words and the images go as one message that replies to it', async () => {
