@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
+import { AttachChips } from '#src/ChatAttach.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -156,6 +157,32 @@ describe('images in the send box', () => {
     expect($('[role="dialog"] img')?.getAttribute('alt')).toBe('b.png');
     await click($('button[aria-label="Previous picture"]')!);
     expect($('[role="dialog"] img')?.getAttribute('alt')).toBe('a.png');
+  });
+
+  it('shows an upload as a ring over the thumbnail: filling while it sends, red with a retry when it failed, gone when done', async () => {
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    const retried: number[] = [];
+    const show = (d: object) =>
+      act(async () =>
+        root!.render(
+          <AttachChips
+            drafts={[{ key: 1, name: 'a.png', preview: 'blob:x', progress: 0.6, ...d }]}
+            problem={null}
+            onRemove={() => {}}
+            onRetry={(k) => retried.push(k)}
+          />,
+        ),
+      );
+    await show({});
+    expect($('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('60');
+    expect($('progress')).toBeNull();
+    await show({ error: 'Offline.' });
+    await click($('button[aria-label="Retry a.png"]')!);
+    expect(retried).toEqual([1]);
+    await show({ attachment: { id: 'x', name: 'a.png' } });
+    expect($('[role="progressbar"]')).toBeNull();
+    expect($('button[aria-label="Retry a.png"]')).toBeNull();
   });
 
   it('says why a file that is not an image, or too many images, are not attached', async () => {
