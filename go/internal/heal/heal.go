@@ -42,6 +42,8 @@ type Ports interface {
 	Agents() []string
 	// NeedsPerson is a prompt or dialog waiting on a person: it already has its own card, and a restart would throw the answer away.
 	NeedsPerson(agent string) bool
+	// LoadHeld is why the machine's load holds the agent's waiting work, "" when it does not: a hold is the reason, not trouble.
+	LoadHeld(agent string) string
 	// Interrupt presses Esc on the agent's terminal.
 	Interrupt(agent string) (ok bool, why string)
 	// Push delivers request rid to the agent now, starting or waking it as delivery does.
@@ -92,13 +94,18 @@ func (h *Healer) stuck(q db.Q, agent string, now int64) (*trouble, error) {
 	default: // mid-handoff, or waiting for its account on purpose
 		return nil, nil
 	}
-	// A task queued behind another is the task queue's; a notice waits for the digest on purpose. A message is typed when the agent is free.
+	// A task queued behind another is the task queue's; a notice waits for the digest on purpose. A message is typed when the agent is free,
+	// and one the load holds waits on purpose too, unless it is the founder's, which the load never holds.
 	waiting, err := db.UndeliveredFor(q, agent)
 	if err != nil {
 		return nil, err
 	}
+	held := ""
+	if len(waiting) > 0 {
+		held = h.Ports.LoadHeld(agent)
+	}
 	for _, r := range waiting {
-		if r.Kind.String == "task" || r.Notice.Int64 != 0 || r.EdgeOK.Int64 == 0 || now-r.TS < UndeliveredS {
+		if r.Kind.String == "task" || r.Notice.Int64 != 0 || r.EdgeOK.Int64 == 0 || now-r.TS < UndeliveredS || held != "" && r.Requester != db.Human {
 			continue
 		}
 		return &trouble{what: fmt.Sprintf("message %s has not been delivered for %dm", r.Ref, (now-r.TS)/60), rid: r.ID}, nil
