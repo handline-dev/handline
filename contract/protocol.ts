@@ -1127,6 +1127,10 @@ export type SettingsValues = {
   pace_target_pct?: number;
   /** How far, in points of the week, an account may run ahead of its pace line. Inside it the account's cap shrinks in step; past it the account starts no new turn. */
   pace_burst_pct?: number;
+  /** How many heavy runs (test and build slots, tools/heavy-slot.sh) may hold a slot at once on this machine. The count is read from the config.yaml of the home the process runs in, and the slots are one lock per machine: two homes on one machine share it, so set the same number in both. HANDLINE_HEAVY_SLOTS in the environment overrides it. A change reaches the next run without a restart. */
+  heavy_slots?: number;
+  /** Keep the machine from idle sleep: off; on (held while the daemon runs); working (held while an agent is mid-turn, released when the last one stops). The daemon holds macOS caffeinate -i; closing the lid still sleeps. Applied at the next tick, without a restart. */
+  keep_awake?: "off" | "on" | "working";
 };
 
 /** settings.set's changes: any of SettingsValues' keys; null removes one. */
@@ -1175,6 +1179,10 @@ export type SettingsChanges = {
   pace_target_pct?: number | null;
   /** How far, in points of the week, an account may run ahead of its pace line. Inside it the account's cap shrinks in step; past it the account starts no new turn. null removes the key (back to the default). */
   pace_burst_pct?: number | null;
+  /** How many heavy runs (test and build slots, tools/heavy-slot.sh) may hold a slot at once on this machine. The count is read from the config.yaml of the home the process runs in, and the slots are one lock per machine: two homes on one machine share it, so set the same number in both. HANDLINE_HEAVY_SLOTS in the environment overrides it. A change reaches the next run without a restart. null removes the key (back to the default). */
+  heavy_slots?: number | null;
+  /** Keep the machine from idle sleep: off; on (held while the daemon runs); working (held while an agent is mid-turn, released when the last one stops). The daemon holds macOS caffeinate -i; closing the lid still sleeps. Applied at the next tick, without a restart. null removes the key (back to the default). */
+  keep_awake?: ("off" | "on" | "working") | null;
 };
 
 /** One method as a daemon lists it: its role and whether this caller may call it. */
@@ -1641,7 +1649,20 @@ export type Resources = {
     /** Free space of the volume the daemon home is on. */
     disk_free_bytes: number;
     disk_total_bytes: number;
+    /** load_1m divided by cores; the load limit is compared with this (150 percent is 1.5). */
+    load_per_core: number;
+    /** ram_free_bytes in percent of ram_total_bytes; the free-memory floor is compared with this. */
+    ram_free_pct: number;
   };
+  /** What all agents with a terminal pane use together. */
+  agents_total: {
+    /** CPU in percent of one core, summed over every agent's tree. */
+    cpu_pct: number;
+    /** Resident memory summed over every agent's tree. */
+    rss_bytes: number;
+  };
+  /** Why the daemon starts no new work now (the machine is over a load limit: text names the limit, as the status reason load does), null when starts may go. Level-triggered on the same measure; a machine with no agent mid-turn never holds. */
+  start_hold: string | null;
 };
 
 /** One stretch of a task's time: one block of the bar under its title, sized by seconds. */

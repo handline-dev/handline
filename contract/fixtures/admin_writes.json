@@ -1407,6 +1407,109 @@
      }
     }
    ]
+  },
+  {
+   "name": "settings.set.keep_awake_other_than_off_on_working_is_bad_request",
+   "spec": "settings.set",
+   "about": "keep_awake takes off, on or working; nothing is written.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.set",
+      "params": {
+       "changes": {
+        "heavy_slots": 3,
+        "keep_awake": "always"
+       },
+       "request_id": "conf-w2-ka1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "keep_awake"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "settings.set.heavy_slots_and_keep_awake_are_set_and_null_resets_them",
+   "spec": "settings.set",
+   "about": "The heavy-run slots and the keep-awake mode are set, then null puts them back to their defaults.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "settings.set",
+      "params": {
+       "changes": {
+        "heavy_slots": 3,
+        "keep_awake": "working"
+       },
+       "request_id": "conf-w2-ka2"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "settings.set",
+      "params": {
+       "changes": {
+        "heavy_slots": null,
+        "keep_awake": null
+       },
+       "request_id": "conf-w2-ka3"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "said": {
+       "$type": "string"
+      }
+     }
+    }
+   ]
   }
  ]
 }
