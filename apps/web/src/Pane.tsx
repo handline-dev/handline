@@ -38,22 +38,31 @@ const label = (t: Tab, structured = false): string =>
     ? 'Chat'
     : t.kind === 'new'
       ? 'New tab'
-    : t.kind === 'tasks'
-      ? t.params.pinned
-        ? taskRef(Number(t.params.task))
-        : 'Tasks'
-      : t.kind === 'android'
-            ? 'Android'
+      : t.kind === 'tasks'
+        ? t.params.pinned
+          ? taskRef(Number(t.params.task))
+          : 'Tasks'
+        : t.kind === 'android'
+          ? 'Android'
           : t.kind === 'ios'
             ? 'iOS'
-          : t.kind === 'web'
-            ? String(t.params.url ?? 'Preview').replace(/^https?:\/\//, '')
-          : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
-          ? 'Transcript'
-          : t.kind === 'terminal'
-            ? 'Claude Code'
-            : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
-const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', web: 'web', android: 'device', ios: 'device', new: 'plus' };
+            : t.kind === 'web'
+              ? String(t.params.url ?? 'Preview').replace(/^https?:\/\//, '')
+              : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
+                ? 'Transcript'
+                : t.kind === 'terminal'
+                  ? 'Claude Code'
+                  : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
+const TAB_ICON: Record<string, IconName> = {
+  chat: 'chat',
+  tasks: 'tasks',
+  terminal: 'terminal',
+  transcript: 'terminal',
+  web: 'web',
+  android: 'device',
+  ios: 'device',
+  new: 'plus',
+};
 
 const TAB_KEYS: KeyRows = [
   ['Alt+Left Alt+Right', 'move the focused tab along the strip'],
@@ -71,7 +80,17 @@ export function Pane({ group }: { group: Group }) {
   const structured = detail.structured === true;
   // What a new tab can show: the same flat list for the + menu and for the picker in a freshly split pane.
   const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; disabled?: boolean }[] = [
-    ...(structured ? [] : [{ kind: 'terminal' as const, params: { handle: detail.terminal ?? '' }, label: 'Terminal', icon: 'terminal' as const, disabled: !detail.terminal }]),
+    ...(structured
+      ? []
+      : [
+          {
+            kind: 'terminal' as const,
+            params: { handle: detail.terminal ?? '' },
+            label: 'Terminal',
+            icon: 'terminal' as const,
+            disabled: !detail.terminal,
+          },
+        ]),
     { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
     { kind: 'android', params: { id: 'new' }, label: 'Android', icon: 'device' },
     { kind: 'ios', params: { id: 'new' }, label: 'iOS', icon: 'device' },
@@ -138,11 +157,10 @@ export function Pane({ group }: { group: Group }) {
               <span className="tab-label overflow-hidden text-ellipsis">{label(t, structured)}</span>
               {t.kind === 'terminal' || t.kind === 'transcript' ? (
                 <>
-                  <Badges
-                    badges={badges}
-                    onClick={{ dialog: () => show(CHAT) }}
-                  />
-                  {unread && id !== group.activeTab ? <span className="unread-dot ml-1 inline-block h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" /> : null}
+                  <Badges badges={badges} onClick={{ dialog: () => show(CHAT) }} />
+                  {unread && id !== group.activeTab ? (
+                    <span className="unread-dot ml-1 inline-block h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" />
+                  ) : null}
                 </>
               ) : null}
               {id === CHAT ? null : (
@@ -170,7 +188,12 @@ export function Pane({ group }: { group: Group }) {
         })}
         <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="ml-0.5 self-center">
           {choices.map((c) => (
-            <MenuItem key={c.label} icon={c.icon} disabled={c.disabled} onSelect={() => apply((w) => openTab(w, c.kind, c.params, group.id))}>
+            <MenuItem
+              key={c.label}
+              icon={c.icon}
+              disabled={c.disabled}
+              onSelect={() => apply((w) => openTab(w, c.kind, c.params, group.id))}
+            >
               {c.label}
             </MenuItem>
           ))}
