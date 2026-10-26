@@ -74,7 +74,6 @@ export function Pane({ group }: { group: Group }) {
   const { ws, detail, agent, storage, apply, show, canSplit, lead, dragging, setDragging } = useWorkspace();
   const folded = useFoldedControls();
   const strip = useRef<HTMLDivElement>(null);
-  const coverTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const tab = ws.tabs[group.activeTab];
   const me = useMe();
   const hello = useHello();
@@ -142,12 +141,9 @@ export function Pane({ group }: { group: Group }) {
               onDragStart={(e) => {
                 e.dataTransfer?.setData('text/plain', id);
                 // The drop cover appears over the tab being dragged; mounting it inside dragstart makes Chromium cancel the drag.
-                coverTimer.current = setTimeout(() => setDragging(id), 0);
+                setTimeout(() => setDragging(id), 0);
               }}
-              onDragEnd={() => {
-                clearTimeout(coverTimer.current);
-                setDragging(null);
-              }}
+              onDragEnd={() => setDragging(null)}
               onClick={() => show(id)}
               onKeyDown={(e) => {
                 if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
