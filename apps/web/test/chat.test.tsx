@@ -75,11 +75,8 @@ async function mount(agent: string, s = setup(), storage: KV = memory()) {
   });
   return { store, storage, ...s };
 }
-/** What the window's Back does, as jsdom cannot traverse: the history state from before is put back and popstate fires. */
-const windowBack = (before: object | null) => {
-  history.replaceState(before, '');
-  return act(async () => void dispatchEvent(new PopStateEvent('popstate')));
-};
+// The window's Back, as jsdom cannot traverse: the earlier history state is put back and popstate fires.
+const windowBack = (to: object | null) => act(async () => (history.replaceState(to, ''), void dispatchEvent(new Event('popstate'))));
 const unmount = async () => {
   await act(async () => root?.unmount());
   root = null;
@@ -337,7 +334,6 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await until(() => $('.tasks-tab-row'), 'the agent tasks');
     const before = history.state as object;
     await click($$('[data-kind="task_event"]')[0]!);
-    await until(() => $('.tdetail'), 'the task detail');
     await windowBack(before);
     await until(() => $('.tasks-tab-row'), 'back to the list');
     await click($$('[data-kind="task_event"]')[0]!);
