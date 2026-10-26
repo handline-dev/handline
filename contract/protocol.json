@@ -5418,7 +5418,16 @@
      "name": "parent",
      "required": false,
      "schema": {
-      "type": "integer"
+      "type": "integer",
+      "description": "Default: when the caller's current task is a request (made from a founder's message), that task, unless no_parent."
+     }
+    },
+    {
+     "name": "no_parent",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Do not hang the task under the caller's current request. Refused with parent."
      }
     },
     {

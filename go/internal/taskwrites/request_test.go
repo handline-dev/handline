@@ -78,3 +78,32 @@ func TestNoWorkMarksAMessageUntilItIsMadeARequest(t *testing.T) {
 		t.Fatalf("making it a request clears the mark: %v", r[0])
 	}
 }
+
+func TestATaskHangsUnderTheRequestItsOpenerIsWorkingOn(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, from_request) VALUES(1, 'the request', 'manager', 'human', 1, 5), (2, 'plain', 'manager', 'gp', 1, NULL)",
+		"INSERT INTO agent_state(agent, state, current_task, updated) VALUES('manager', 'idle', 1, 1)")
+	open := func(id int, extra, rid string) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.new","params":{"owner":"worker","title":"work %s","body":"b",%s"request_id":%q}}`, id, rid, extra, rid)
+	}
+	r := call(t, mk("manager", &fakeTeller{}),
+		open(2, "", "a"),
+		open(3, `"no_parent":true,`, "b"),
+		open(4, `"parent":2,`, "c"),
+		open(5, `"parent":2,"no_parent":true,`, "d"))
+	for i, want := range []int{1, 0, 2} {
+		q := fmt.Sprintf("SELECT COUNT(*) FROM tasks WHERE title = 'work %s' AND COALESCE(parent_task, 0) = %d", string(rune('a'+i)), want)
+		if r[i]["error"] != nil || count(t, db, q) != 1 {
+			t.Errorf("call %d: %v: %s", i, r[i], q)
+		}
+	}
+	if r[3]["error"] == nil {
+		t.Errorf("parent with no_parent is refused: %v", r[3])
+	}
+	exec(t, db, "UPDATE agent_state SET current_task = 2 WHERE agent = 'manager'")
+	r = call(t, mk("manager", &fakeTeller{}), open(2, "", "e"))
+	if r[0]["error"] != nil || count(t, db, "SELECT COUNT(*) FROM tasks WHERE title = 'work e' AND parent_task IS NULL") != 1 {
+		t.Errorf("a task that is not a request is not a default parent: %v", r[0])
+	}
+}

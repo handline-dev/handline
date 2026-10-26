@@ -122,7 +122,7 @@ func oneTask(args []string) (int, bool) {
 
 func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	p, ok := parse(args, []string{"--file", "--assign", "--owner", "--parent", "--blocked-by", "--priority", "--estimate", "--expects", "--timeout", "--tag"},
-		[]string{"--duplicate-ok"}, map[string]string{"-t": "--timeout"})
+		[]string{"--duplicate-ok", "--no-parent"}, map[string]string{"-t": "--timeout"})
 	if !ok {
 		return 0, false
 	}
@@ -229,6 +229,9 @@ func taskNew(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if p.flags["--duplicate-ok"] {
 		params["duplicate_ok"] = true
+	}
+	if p.flags["--no-parent"] {
+		params["no_parent"] = true
 	}
 	if hasBlocked {
 		params["blocked_by"] = blocked

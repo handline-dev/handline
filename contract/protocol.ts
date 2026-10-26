@@ -2459,7 +2459,10 @@ export interface Methods {
   /** The brief, Markdown. It may name images (x-attachments, texts). */
   body?: string;
   time_box?: Duration;
+  /** Default: when the caller's current task is a request (made from a founder's message), that task, unless no_parent. */
   parent?: number;
+  /** Do not hang the task under the caller's current request. Refused with parent. */
+  no_parent?: boolean;
   /** Open the task even when an open task under the same parent, or the parent itself, has nearly its title (gate duplicate_title). */
   duplicate_ok?: boolean;
   /** Cannot be worked until this task closes. */
