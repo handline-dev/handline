@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mentionAt, mentionNames } from '#src/index.ts';
+import { mentionAt, mentionNames, mentionState } from '#src/index.ts';
 
 test('a mention is an @word at the end, at the start or after a space', () => {
   assert.deepEqual(mentionAt('hi @pc'), { query: 'pc', length: 3 });
@@ -15,4 +15,11 @@ test('names near the task come first, then prefixes of the last word, then the r
   assert.deepEqual(mentionNames('pc', names, ['handline.pc.auditor']), ['handline.pc.auditor', 'handline.pc', 'other.pcb']);
   assert.deepEqual(mentionNames('', names, ['zeta'], 2), ['zeta', 'handline.mobile']);
   assert.deepEqual(mentionNames('nope', names), []);
+});
+
+test('an agent is working, needs you or is idle', () => {
+  assert.equal(mentionState({ state: 'running' }), 'working');
+  assert.equal(mentionState({ state: 'idle', needs_you: { kind: 'answer' } }), 'needs you');
+  assert.equal(mentionState({ state: 'waiting' }), 'needs you');
+  assert.equal(mentionState({ state: 'parked' }), 'idle');
 });

@@ -48,7 +48,7 @@ export function BodyEditor(props: {
   /** ⌘↵ / Ctrl+↵ in the field. */
   onSubmit?: () => void;
   /** Typing `@` offers these agents, the ones near the task first. */
-  mentions?: { names: readonly string[]; near: readonly string[] };
+  mentions?: { names: readonly string[]; near: readonly string[]; state?: (name: string) => string };
 }) {
   const { onBusy } = props;
   const [pick, setPick] = useState<{ names: string[]; len: number; at: number } | null>(null);
@@ -240,6 +240,7 @@ export function BodyEditor(props: {
                 onClick={() => choose(n)}
               >
                 @{n}
+                {live.current.mentions?.state ? <span className="ml-2 text-hint text-ink-3">{live.current.mentions.state(n)}</span> : null}
               </button>
             </li>
           ))}

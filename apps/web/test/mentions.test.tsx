@@ -69,4 +69,37 @@ describe('writing a comment and mentioning an agent', () => {
     await act(async () => void box.querySelector<HTMLElement>('[role="option"] button')!.click());
     expect((box_.value || '').startsWith('ask @')).toBe(true);
   });
+
+  it('in the comment editor the @ list is moved with the arrows, Enter puts the name in and Esc closes it', async () => {
+    const s = setup();
+    s.daemon.tasks.verbs = true;
+    await mount('#/tasks/1688', s);
+    await until(() => $('.body-editor'), 'the comment editor');
+    const pm = $('.body-editor') as HTMLElement;
+    const write = async (t: string) => {
+      pm.focus();
+      pm.textContent = t;
+      const range = document.createRange();
+      range.selectNodeContents(pm);
+      range.collapse(false);
+      getSelection()!.removeAllRanges();
+      getSelection()!.addRange(range);
+      await act(async () => void document.dispatchEvent(new Event('selectionchange')));
+    };
+    const press = (key: string) =>
+      act(async () => void pm.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })));
+    await write('hi @a');
+    await until(() => $('[role="listbox"][aria-label="Agents"]'), 'the agent list');
+    const names = () => [...box.querySelectorAll('.mention-list [role="option"]')].map((o) => text(o));
+    expect(names().length).toBeGreaterThan(1);
+    expect(box.querySelector('.mention-list [aria-selected="true"]')).toBe(box.querySelectorAll('.mention-list [role="option"]')[0]);
+    await press('ArrowDown');
+    expect(box.querySelector('.mention-list [aria-selected="true"]')).toBe(box.querySelectorAll('.mention-list [role="option"]')[1]);
+    await press('Escape');
+    expect($('.mention-list')).toBeNull();
+    await write('hi @au');
+    await until(() => $('.mention-list'), 'the list again');
+    await press('Enter');
+    await until(() => !$('.mention-list') && /hi @\S+ /.test(pm.textContent ?? ''), 'the name in the text');
+  });
 });

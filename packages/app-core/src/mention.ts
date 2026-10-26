@@ -23,3 +23,7 @@ export function mentionNames(query: string, names: readonly string[], near: read
     .slice(0, limit)
     .map((x) => x.n);
 }
+
+/** What an agent is doing, in the words next to its name in the list: "needs you", "working" or "idle". */
+export const mentionState = (a: { state: string; needs_you?: unknown }): string =>
+  a.needs_you || a.state === 'waiting' ? 'needs you' : a.state === 'running' ? 'working' : 'idle';

@@ -1,7 +1,7 @@
 // The Activity of a task, one list: its comments and its events in words (the last three; older ones fold), and the composer under them.
 // `@agent` in a comment tells that agent; the assignee is told by default (the daemon's routing). Images go in as in the description.
 import { useState, type RefObject } from 'react';
-import { activityOf, ago, dateTime, foldEvents, involved, type ActivityItem } from '@handline/app-core';
+import { activityOf, ago, dateTime, foldEvents, involved, mentionState, type ActivityItem } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useAgents, useOff, useWrite } from '@handline/app-data';
 import { useHello, useMe } from '@handline/app-react';
@@ -125,7 +125,9 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
   const [replyTo, setReplyTo] = useState<number | null>(null);
   const answering = replyTo === null ? undefined : t.memos.find((x) => x.id === replyTo);
   const { items, hidden } = foldEvents(activityOf(t.memos, t.timeline), all);
-  const names = (useAgents().data?.agents ?? []).map((a) => a.name);
+  const agents = useAgents().data?.agents ?? [];
+  const names = agents.map((a) => a.name);
+  const stateOf = (n: string) => mentionState(agents.find((a) => a.name === n) ?? { state: 'idle' });
   const near = involved(t);
   const send = () => {
     if (!text.trim() || busy || add.isPending) return;
@@ -169,7 +171,7 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
               onBusy={setBusy}
               label="Comment"
               onSubmit={send}
-              mentions={{ names, near }}
+              mentions={{ names, near, state: stateOf }}
             />
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="solid" icon="send" label="Comment" keys="⌘↵" disabled={!text.trim() || busy || add.isPending} onClick={send}>
