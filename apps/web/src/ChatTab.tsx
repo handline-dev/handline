@@ -316,8 +316,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                   </AnimatedItem>
                 );
                 // A plain child of the list: never animated in or out.
+                const head = i === restartAt ? [restart] : [];
                 return day
                   ? [
+                      ...head,
                       <div
                         key={`day ${day}`}
                         role="separator"
