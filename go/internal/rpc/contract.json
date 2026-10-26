@@ -150,6 +150,9 @@
   ],
   "role": "agent"
  },
+ "hr.apply_now": {
+  "role": "member"
+ },
  "hr.decide": {
   "role": "member"
  },

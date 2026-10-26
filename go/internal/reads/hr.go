@@ -101,6 +101,9 @@ func (e *Env) proposalView(p proposal) map[string]any {
 			}
 		}
 		v["waiting_on"] = waiting
+		if t, _ := p.get("waiting_since").(int64); t != 0 {
+			v["waiting_since"] = ts(t)
+		}
 	default:
 		v["settled"] = ts(p.settled)
 	}

@@ -670,6 +670,8 @@ export type Proposal = {
   state: string;
   /** Set only while state is applying: the agents whose running turn the change waits on, by their names before the change. A card names them. */
   waiting_on?: AgentName[];
+  /** Set only while state is applying: when the proposal turned applying. With `waiting_on` it tells the card since when and why it waits (those agents' turns are running); hr.apply_now ends the wait. */
+  waiting_since?: Timestamp;
   /** Set on an approved proposal whose change is applied but an agent it renamed is not running yet. Absent when the change needs no start or the start went through; it is removed when the start succeeds. The change is applied either way: a client never draws it as not applied or offers approve again. */
   follow_up?: {
     agent: AgentName;
@@ -2895,6 +2897,10 @@ export interface Methods {
   subject?: string;
   request_id: RequestId;
 }; result: Accepted };
+  "hr.apply_now": { params: {
+  proposal: number;
+  request_id: RequestId;
+}; result: Accepted };
   "accounts.list": { params: {
   /** Add each account's agents_assigned, agents_running and agents_unplaced. Default false. */
   roster?: boolean;
@@ -3244,6 +3250,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "team.get": { role: "agent", callers: null, write: false, since: 1 },
   "hr.list": { role: "agent", callers: null, write: false, since: 1 },
   "hr.decide": { role: "member", callers: null, write: true, since: 1 },
+  "hr.apply_now": { role: "member", callers: null, write: true, since: 1 },
   "accounts.list": { role: "agent", callers: null, write: false, since: 1 },
   "status.pick": { role: "agent", callers: null, write: false, since: 1 },
   "account.set": { role: "founder", callers: null, write: true, since: 1 },

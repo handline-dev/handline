@@ -1253,3 +1253,40 @@ func TestAProposedRepoIsKeptAbsoluteAndMustBeAGitCheckout(t *testing.T) {
 		t.Fatal("a refused add registers nothing")
 	}
 }
+
+// hr.apply_now on a proposal waiting for a busy turn: the sweep interrupts that turn, and once the session is idle closes it and applies
+// the change; the view shows since when it waited. Only an applying proposal is accepted.
+func TestApplyNowInterruptsTheBusyTurnAndAppliesTheChange(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa000e", "kind", "retire", "agent", "bob")
+	if m := r.call("hr.apply_now", fmt.Sprintf(`{"proposal":%d,"request_id":"an0"}`, id)); gate(m) != "proposal_settled" {
+		t.Fatalf("an open proposal is refused: %v", m)
+	}
+	r.live["bob"] = true
+	r.decide(id, "approve", p.subject(), "h5")
+	if v := r.e.reader().HRView("aaaa000e"); v["state"] != "applying" || v["waiting_since"] == nil {
+		t.Fatalf("waits, with since when: %v", v)
+	}
+	busy := true
+	interrupted := 0
+	ports := HeldPorts{Alive: func(a string) bool { return r.live[a] }, Idle: func(string) bool { return !busy },
+		Interrupt: func(string) (bool, string) { interrupted++; busy = false; return true, "" },
+		Close:     func(string) (bool, string) { r.live["bob"] = false; return true, "" },
+		Start:     func(string) (bool, string) { return true, "" }}
+	r.e.SweepHeld(ports)
+	if interrupted != 0 || r.state("aaaa000e") != "applying" {
+		t.Fatalf("without apply_now the busy turn is left alone: %d %s", interrupted, r.state("aaaa000e"))
+	}
+	if m := r.call("hr.apply_now", fmt.Sprintf(`{"proposal":%d,"request_id":"an1"}`, id)); m["result"] == nil {
+		t.Fatalf("accepted: %v", m)
+	}
+	for range 3 { // interrupt, close, apply: one step a tick
+		r.e.SweepHeld(ports)
+	}
+	if interrupted != 1 || r.state("aaaa000e") != "applied" {
+		t.Fatalf("interrupted once, then applied: %d %s", interrupted, r.state("aaaa000e"))
+	}
+	if v := r.e.reader().HRView("aaaa000e"); v["waiting_since"] != nil {
+		t.Fatalf("no wait left: %v", v)
+	}
+}
