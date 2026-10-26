@@ -56,8 +56,7 @@ func newRig(t *testing.T) *rig {
 
 // build is a folder holding handlined and hl at version v.
 func (r *rig) build(v string, broken bool) string {
-	dir := filepath.Join(r.root, "build-"+v)
-	os.MkdirAll(dir, 0o755)
+	dir, _ := os.MkdirTemp(r.root, "build-"+v+"-")
 	health := "echo " + v
 	if broken {
 		health = "exit 1"
@@ -68,13 +67,13 @@ func (r *rig) build(v string, broken bool) string {
 	return dir
 }
 
-func (r *rig) want(cur string, kept ...string) {
+func (r *rig) want(cur, prev string, kept ...string) {
 	r.t.Helper()
 	got := r.s.kept()
 	slices.Sort(got)
 	slices.Sort(kept)
-	if r.s.Current() != cur || !slices.Equal(got, kept) {
-		r.t.Fatalf("current %q kept %v, want %q %v", r.s.Current(), got, cur, kept)
+	if r.s.Current() != cur || r.s.Previous() != prev || !slices.Equal(got, kept) {
+		r.t.Fatalf("current %q previous %q kept %v, want %q %q %v", r.s.Current(), r.s.Previous(), got, cur, prev, kept)
 	}
 }
 
@@ -85,7 +84,7 @@ func TestABrokenUpgradeRollsBackToTheVersionThatRan(t *testing.T) {
 	} else if !strings.Contains(msg, "v1") {
 		t.Error(msg)
 	}
-	r.want("v1", "v1")
+	r.want("v1", "", "v1")
 	plist, _ := os.ReadFile(r.s.Plist)
 	if !strings.Contains(string(plist), filepath.Join(r.s.Bin, "current", "handlined")) || !strings.Contains(string(plist), "-home") || !r.loaded {
 		t.Fatalf("job: loaded %v\n%s", r.loaded, plist)
@@ -93,13 +92,13 @@ func TestABrokenUpgradeRollsBackToTheVersionThatRan(t *testing.T) {
 	if _, err := r.s.Upgrade(r.build("v2", false)); err != nil {
 		t.Fatal(err)
 	}
-	r.want("v2", "v1", "v2")
+	r.want("v2", "v1", "v1", "v2")
 
 	_, err := r.s.Upgrade(r.build("v3", true))
 	if err == nil || !strings.Contains(err.Error(), "rolled back to v2") {
 		t.Fatalf("broken upgrade: %v", err)
 	}
-	r.want("v2", "v1", "v2") // the broken one is not kept to be rolled back to
+	r.want("v2", "v1", "v1", "v2") // the broken one is not kept to be rolled back to
 	if n := strings.Count(strings.Join(r.calls, " "), "kickstart"); n != 3 {
 		t.Errorf("kickstarts %d, want 3 (v2, v3, back to v2): %v", n, r.calls)
 	}
@@ -107,15 +106,31 @@ func TestABrokenUpgradeRollsBackToTheVersionThatRan(t *testing.T) {
 	if msg, err := r.s.Rollback(); err != nil || msg != "rolled back v2 -> v1" {
 		t.Fatalf("rollback: %q %v", msg, err)
 	}
-	r.want("v1", "v1", "v2")
+	r.want("v1", "v2", "v1", "v2")
+	if msg, err := r.s.Rollback(); err != nil || msg != "rolled back v1 -> v2" {
+		t.Fatalf("second rollback: %q %v", msg, err)
+	}
 	if _, err := r.s.Upgrade(r.build("v4", false)); err != nil {
 		t.Fatal(err)
 	}
-	r.want("v4", "v1", "v4") // the last two: the one running and the one before it
+	r.want("v4", "v2", "v2", "v4") // the last two: the one running and the one before it
 	if msg, _ := r.s.Upgrade(r.build("v4", false)); msg != "already on v4" {
 		t.Error(msg)
 	}
-	if st := r.s.Status(); !strings.Contains(st, "current: v4") || !strings.Contains(st, "running: v4") || !strings.Contains(st, ": loaded") {
+	running, _ := os.ReadFile(filepath.Join(r.s.Bin, "v4", "handlined"))
+	other := r.build("v4", false) // a dirty tree at the same commit: same version, other bytes
+	os.WriteFile(filepath.Join(other, "hl"), []byte("#!/bin/sh\necho other\n"), 0o755)
+	if _, err := r.s.Upgrade(other); err == nil || !strings.Contains(err.Error(), "different build") {
+		t.Fatalf("a different build of v4: %v", err)
+	}
+	if now, _ := os.ReadFile(filepath.Join(r.s.Bin, "v4", "handlined")); string(now) != string(running) {
+		t.Error("the running version's folder was replaced")
+	}
+	if _, err := r.s.Install(r.build("v5", true), false); err == nil || !strings.Contains(err.Error(), "rolled back to v4") {
+		t.Fatalf("a broken install over v4: %v", err)
+	}
+	r.want("v4", "v2", "v2", "v4")
+	if st := r.s.Status(); !strings.Contains(st, "current: v4") || !strings.Contains(st, "previous: v2") || !strings.Contains(st, "running: v4") || !strings.Contains(st, ": loaded") {
 		t.Error(st)
 	}
 }
@@ -126,17 +141,23 @@ func TestAnUpgradeWithoutAVersionChangesNothing(t *testing.T) {
 		t.Fatalf("before install: %v", err)
 	}
 	r.s.Install(r.build("v1", false), false)
+	if _, err := r.s.Rollback(); err == nil {
+		t.Fatal("rolled back with nothing before v1")
+	}
 	bad := r.build("v2", false)
 	os.WriteFile(filepath.Join(bad, "handlined"), []byte("#!/bin/sh\nexit 1\n"), 0o755)
 	if _, err := r.s.Upgrade(bad); err == nil {
 		t.Fatal("a binary with no version was taken")
+	}
+	if _, err := r.s.Upgrade(r.build("unknown", false)); err == nil {
+		t.Fatal("an unstamped build was taken")
 	}
 	missing := r.build("v3", false)
 	os.Remove(filepath.Join(missing, "hl"))
 	if _, err := r.s.Upgrade(missing); err == nil {
 		t.Fatal("a folder without hl was taken")
 	}
-	r.want("v1", "v1")
+	r.want("v1", "", "v1")
 }
 
 func TestTheLiveLabelIsRefusedOnAScratchHome(t *testing.T) {

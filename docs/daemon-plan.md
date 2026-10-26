@@ -389,24 +389,23 @@ singleton it takes becomes unconditional (startup row above).
 
 #### Switching the service
 
-The service runs the daemon the `daemon_impl` setting names (`python`, the default, or `go`). `hl service use go` sets it,
-`hl service install` rewrites the plist from it and reloads the job, and `hl service status` prints which one is chosen.
-The Go job is `go/handlined` (built by `tools/build-go.sh`) with `-claude <claude>`, `-terminal-tick`, `-cutover`,
-`-turns-from-hooks`, and `-allow-real-home` on the live home or `-home <home>` on any other; the job's PATH holds
-python3's directory. The service runs one daemon at a time, so `-terminal-tick` never has the Python tick beside it on the home.
-`hl service install` reads the setting once, so a change takes effect at the next install and not before.
+`handlined service install | upgrade [<dir>] | rollback | status | uninstall` (go/internal/service; `hl service install |
+uninstall | status` runs the same code from `<checkout>/go`) keeps each version's `handlined` and `hl` in
+`~/Library/Application Support/Handline/bin/<version>/`, named by `handlined -version`. The job runs `<bin>/current/handlined`
+with `-claude <claude>` and `-allow-real-home` on the live home or `-home <home>` on any other. `upgrade` moves `current`, restarts
+the job and waits for hello to answer with that version; otherwise it goes back and removes the new folder. `previous` names the
+version a `rollback` returns to; only those two are kept. A build that says `unknown`, or a different build under a version
+already there, is refused.
 
-Rehearsal, on a scratch home and never the live service. The label keeps the rehearsal's job and plist apart from the live ones; the
-Go daemon is refused on a home that is not live under the live label, and on the live home without `hl service install --allow-live-home`.
-Run it from a shell outside the agent sandbox (launchd, `~/Library/LaunchAgents` and a unix socket are all denied inside it), from the
-checkout that holds the branch to be tried, with `tools/build-go.sh` run once:
+Rehearsal, on a scratch home and never the live service, from a shell outside the agent sandbox (launchd, `~/Library/LaunchAgents`
+and a unix socket are all denied inside it). The home's path must be short: a unix socket path is at most 104 bytes.
 
-1. `export OCP_HOME=$HOME/scratch-ocp OCP_SERVICE_LABEL=dev.orcapipe.rehearsal` (a folder that is not `~/.orcapipe` or `~/.handline`), then `mkdir -p $OCP_HOME` (`hl service use go` also makes a missing home, so a forgotten mkdir cannot leave the install on Python).
-2. `hl service use go`, then `hl service install`. It prints `daemon go`; `hl service status` shows the label, `daemon: go`, loaded, a pid.
-3. `hl ps` and `hl inbox` answer from the Go daemon; `tail $OCP_HOME/logs/daemon.err.log` holds one `handlined <sha> serving` line.
-   `hl service status` does not say crash-looping.
-4. There is no rollback to Python: `hl service use python` is refused (`docs/python-daemon-removal.md`).
-5. Clean up: `hl service uninstall` (with the same two variables set), then remove the scratch folder.
+1. `export HANDLINE_HOME=<short scratch folder> HANDLINE_SERVICE_LABEL=dev.handline.rehearsal`; the label gets its own
+   `bin-<label>` folder, so the live job's links never move.
+2. Build two versions (`tools/build-go.sh` at two commits, with `hl` beside each), then `<a>/handlined service install`,
+   `handlined service upgrade <b>`, and an upgrade to a `handlined` that exits at start: it says `rolled back to <b>`.
+3. `handlined service rollback` goes to `<a>`; `handlined service status` shows the job, `current`, `previous` and the running version.
+4. Clean up: `handlined service uninstall` with the same variables, then remove the scratch home and `bin-<label>`.
 
 The Go daemon takes the same singleton lock as the Python one and writes its pid into `locks/daemon.lock`
 (`lock.TakeSingleton`), so `hl ps`, `hl service install`'s note about a daemon started by hand and the lock holder read both alike.
