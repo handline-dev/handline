@@ -14,6 +14,7 @@ import (
 	"github.com/handline/handline/go/internal/prompts"
 	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/states"
+	"github.com/handline/handline/go/internal/status"
 	"github.com/handline/handline/go/internal/textsafe"
 	"github.com/handline/handline/go/internal/timefmt"
 )
@@ -348,10 +349,6 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 	if row != nil {
 		since = stamp(row.Updated)
 	}
-	var wall any
-	if w := must(e.WallReason(e.Q, agent, row)); w != "" {
-		wall = w
-	}
 	var bg any
 	if at, has := must2(e.BgSince(e.Q, agent)); has {
 		bg = stamp(at)
@@ -397,15 +394,30 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 			parent = p
 		}
 	}
+	st := e.status(agent, row, state, detail, handoff, now)
 	return map[string]any{
 		"name": agent, "role": e.roleLine(agent), "model": model, "effort": effort,
 		"state": state, "state_detail": detail, "state_since": since,
-		"block": block, "wall_reason": wall, "background_since": bg,
+		"block": block, "wall_reason": wallBanner(must(e.WallReason(e.Q, agent, row)), st), "background_since": bg,
 		"would_wake": row != nil && must(e.WouldWake(row)),
 		"blocker":    blocker, "account": account, "task": task, "cache_until": cache, "ctx_pct": ctx,
 		"has_dialog": word == "DIALOG", "parent": parent, "needs_you": needsView(needs), "handoff": handoff, "doing": doing,
-		"status": e.status(agent, row, state, detail, handoff, now).Map(),
+		"status": st.Map(),
 	}, nil
+}
+
+// wallBanner is the chat's limit banner: the wait the agent's wake is in, nil while it moves to another account or the limit holds nothing
+// yet. why is the supervisor's wall, which still refuses typing either way.
+func wallBanner(why string, st status.Status) any {
+	switch {
+	case why == "":
+		return nil
+	case st.Reason == status.Wall: // the account its wake is tied to, in the launcher's words
+		return st.Text
+	case st.Reason == status.Clock:
+		return "waits for its account's usage window, back at " + timefmt.Stamp(st.Until, timefmt.Clock)
+	}
+	return nil
 }
 
 func needsView(n *NeedsYou) any {
