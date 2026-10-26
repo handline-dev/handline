@@ -199,6 +199,7 @@ func (e *Env) runModel(prompt, acct string) (bool, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe, "--model", headlessModel, "-p", prompt)
+	cmd.Dir = paths.QuietDir()
 	for k, v := range e.Accounts.EnvFor(acct, "") {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

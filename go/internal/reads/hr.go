@@ -11,11 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/policy"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
 const (
-	settledWindow = 7 * 24 * time.Hour
+	settledWindow = policy.HRSettledShown
 	settledMax    = 50
 	maxError      = 400
 )
@@ -44,9 +45,7 @@ type proposal struct {
 	settled int64
 }
 
-func (p proposal) waits() bool {
-	return p.state == "open" || p.state == "applying" || p.state == "apply_failed"
-}
+func (p proposal) waits() bool { return p.state == "open" || p.state == "applying" || p.state == "apply_failed" }
 
 // proposals is every proposal file under hr/ that reads as one: one that does not parse, or is not a proposal, is left out.
 func (e *Env) proposals() []proposal {

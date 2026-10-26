@@ -30,9 +30,13 @@ const typeInto = (el: HTMLTextAreaElement, value: string) =>
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
-
-
-const taps: { x: number; y: number }[] = [];
+type Hit = { kind: string; id: string; x?: number; y?: number; x1?: number; y1?: number; x2?: number; y2?: number; text?: string };
+const taps: Hit[] = [];
+const swipes: Hit[] = [];
+const typed: Hit[] = [];
+const shots: { kind: string; id: string }[] = [];
+let devices: { kind: 'android' | 'ios'; id: string; name: string }[] = [];
+let idb = true;
 let reply: { ok: true; png: string } | { ok: false; code: 'unavailable'; message: string };
 async function mount(hash: string) {
   const s = setup();
@@ -42,8 +46,11 @@ async function mount(hash: string) {
       api: 1,
       screen: async () => ({ ok: true }),
       unsent: async () => ({ ok: true }),
-      deviceShot: async () => reply,
-      deviceTap: async (a: { x: number; y: number }) => (taps.push(a), { ok: true }),
+      deviceList: async () => ({ ok: true, devices, idb }),
+      deviceShot: async (a: { kind: string; id: string }) => (shots.push(a), reply),
+      deviceTap: async (a: Hit) => (taps.push(a), { ok: true }),
+      deviceSwipe: async (a: Hit) => (swipes.push(a), { ok: true }),
+      deviceText: async (a: Hit) => (typed.push(a), { ok: true }),
     },
   });
   location.hash = hash;
@@ -61,7 +68,17 @@ afterEach(async () => {
   delete (window as { handline?: unknown }).handline;
   location.hash = '';
   taps.length = 0;
+  swipes.length = 0;
+  typed.length = 0;
+  shots.length = 0;
+  devices = [];
+  idb = true;
 });
+
+const sized = (img: HTMLElement) => {
+  img.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400, x: 0, y: 0, toJSON: () => ({}) });
+  return img;
+};
 
 async function openTab(name: RegExp) {
   await until(() => $('[aria-label="Add a tab"]'), 'the + menu');
@@ -73,13 +90,78 @@ async function openTab(name: RegExp) {
 describe('the Android and iOS tabs', () => {
   it('shows the device and sends a click as a tap', async () => {
     reply = { ok: true, png: PNG };
+    devices = [{ kind: 'android', id: 'emulator-5554', name: 'emulator-5554' }];
     await mount('#/agents/handline.architect');
     await openTab(/Android/);
     await until(() => $('img[alt="Android screen"]'), 'the picture');
-    const img = $('img[alt="Android screen"]')!;
-    img.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 400, right: 200, bottom: 400, x: 0, y: 0, toJSON: () => ({}) });
+    const img = sized($('img[alt="Android screen"]')!);
     await act(async () => void img.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 100, clientY: 100 })));
-    expect(taps).toEqual([{ x: 0.5, y: 0.25 }]);
+    expect(taps).toEqual([{ kind: 'android', id: 'emulator-5554', x: 0.5, y: 0.25 }]);
+  });
+
+  it('lists the devices of its kind, shows the picked one, and a second tab can show another', async () => {
+    reply = { ok: true, png: PNG };
+    devices = [
+      { kind: 'android', id: 'emulator-5554', name: 'emulator-5554' },
+      { kind: 'android', id: 'R58M', name: 'R58M' },
+      { kind: 'ios', id: 'UDID-1', name: 'iPhone 16' },
+    ];
+    await mount('#/agents/handline.architect');
+    await openTab(/Android/);
+    await until(() => $('select[aria-label="Android device"]'), 'the picker');
+    expect([...$('select[aria-label="Android device"]')!.querySelectorAll('option')].map((o) => o.value)).toEqual([
+      'emulator-5554',
+      'R58M',
+    ]);
+    await until(() => shots.some((s) => s.id === 'emulator-5554'), 'the first device shown');
+    await act(async () => {
+      const sel = $('select[aria-label="Android device"]') as HTMLSelectElement;
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(sel, 'R58M');
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await until(() => shots.some((s) => s.id === 'R58M'), 'the picked device shown');
+    const img = sized($('img[alt="Android screen"]')!);
+    await act(async () => void img.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 50, clientY: 200 })));
+    expect(taps.at(-1)).toMatchObject({ kind: 'android', id: 'R58M' });
+    await until(() => !items().length, 'the menu closed');
+    const had = $$('[data-tab^="android:"]').length;
+    await openTab(/Android/);
+    await until(() => $$('select[aria-label="Android device"]').length === 1 && shots.length > 0, 'a second Android tab');
+    expect($$('[data-tab^="android:"]')).toHaveLength(had + 1); // a second tab, not the same one again
+  });
+
+  it('a drag is a swipe, and typing on the picture is typed on the device', async () => {
+    reply = { ok: true, png: PNG };
+    devices = [{ kind: 'android', id: 'emulator-5554', name: 'emulator-5554' }];
+    await mount('#/agents/handline.architect');
+    await openTab(/Android/);
+    await until(() => $('img[alt="Android screen"]'), 'the picture');
+    const img = sized($('img[alt="Android screen"]')!);
+    await act(async () => {
+      img.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 300 }));
+      img.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 100, clientY: 100 }));
+      img.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 100, clientY: 100 })); // the click a drag ends with
+    });
+    expect(swipes).toEqual([{ kind: 'android', id: 'emulator-5554', x1: 0.5, y1: 0.75, x2: 0.5, y2: 0.25 }]);
+    expect(taps).toEqual([]);
+    await act(async () => {
+      for (const key of ['h', 'i']) img.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key }));
+    });
+    await until(() => typed.length > 0, 'the typed text');
+    expect(typed).toEqual([{ kind: 'android', id: 'emulator-5554', text: 'hi' }]);
+  });
+
+  it('a simulator without idb stays view-only and says how to install it', async () => {
+    reply = { ok: true, png: PNG };
+    idb = false;
+    devices = [{ kind: 'ios', id: 'UDID-1', name: 'iPhone 16' }];
+    await mount('#/agents/handline.architect');
+    await openTab(/iOS/);
+    await until(() => $('img[alt="iOS screen"]'), 'the picture');
+    expect(box.textContent).toContain('brew install facebook/fb/idb-companion');
+    const img = sized($('img[alt="iOS screen"]')!);
+    await act(async () => void img.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: 100, clientY: 100 })));
+    expect(taps).toEqual([]);
   });
 
   it('says plainly when no device is running', async () => {
@@ -98,9 +180,13 @@ describe('the Android and iOS tabs', () => {
     await click(button('Mark an area'));
     await until(() => $('[data-testid="capture-preview"]'), 'the picture');
     await typeInto($('textarea[aria-label="Question"]') as HTMLTextAreaElement, 'Why is this blank');
-    await click([...document.querySelectorAll<HTMLElement>('.ui-dialog button')].find((b) => (b.textContent ?? '').trim().startsWith('Send')));
+    await click(
+      [...document.querySelectorAll<HTMLElement>('.ui-dialog button')].find((b) => (b.textContent ?? '').trim().startsWith('Send')),
+    );
     await until(() => !$('[data-testid="capture-preview"]'), 'the dialog to close', 600);
-    const r = (await s.client.call('chat.messages', { agent: 'handline.architect', scope: 'all' } as never)) as { messages: { body: string }[] };
+    const r = (await s.client.call('chat.messages', { agent: 'handline.architect', scope: 'all' } as never)) as {
+      messages: { body: string }[];
+    };
     expect(r.messages.some((m) => m.body.includes('Why is this blank'))).toBe(true);
   });
 });

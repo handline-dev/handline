@@ -13,6 +13,7 @@ import (
 
 	"github.com/handline/handline/go/internal/operations"
 	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/policy"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/textsafe"
@@ -27,7 +28,7 @@ import (
 
 const (
 	createKind   = "agent.create"
-	createKeep   = 7 * 24 * time.Hour
+	createKeep   = policy.CreateOperationKeep
 	createSteps  = 2
 	stepRegister = "register"
 	stepStart    = "start"

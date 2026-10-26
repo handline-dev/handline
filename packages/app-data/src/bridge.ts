@@ -11,6 +11,7 @@ import type {
   InboxItem,
   Operation,
   Prefs,
+  RequestRow,
   Task,
 } from '@handline/client';
 import { edit, inRead, put, upsert, type Ctx, type Pages } from '#src/cache.ts';
@@ -83,9 +84,28 @@ const rules: Record<string, Rule> = {
   'device.paired': ({ qc, d }) => void qc.invalidateQueries({ queryKey: ['d', d, 'devices'] }),
   'device.revoked': ({ qc, d }) => void qc.invalidateQueries({ queryKey: ['d', d, 'devices'] }),
   'prefs.changed': ({ qc, d }, e) => put<Prefs>(qc, qk.prefs(d), data<Prefs>(e), e.cursor),
+  // The row takes its place in every cached requests list (a message that became a request keeps its ref); a list is newest first, so a new one goes on top.
+  'request.changed': ({ qc, d }, e) => {
+    const row = data<RequestRow>(e);
+    const same = (x: RequestRow) => (row.ref !== null && x.ref === row.ref) || (row.task !== null && x.task === row.task);
+    for (const [key, page] of qc.getQueriesData<{ items: RequestRow[]; more: boolean }>({ queryKey: qk.resource(d, 'requests.list') })) {
+      if (!page || inRead(page, e.cursor)) continue;
+      const items = page.items.some(same) ? page.items.map((x) => (same(x) ? row : x)) : [row, ...page.items];
+      qc.setQueryData(key, { ...page, items });
+    }
+  },
 };
 
-type TaskFilter = { owner?: string; from?: string; state?: string; parent?: number; under?: number; before?: number; all?: boolean; limit?: number };
+type TaskFilter = {
+  owner?: string;
+  from?: string;
+  state?: string;
+  parent?: number;
+  under?: number;
+  before?: number;
+  all?: boolean;
+  limit?: number;
+};
 type TaskPage = { items: Task[]; more?: boolean };
 const isPage = (x: unknown): x is TaskPage => typeof x === 'object' && x !== null && Array.isArray((x as TaskPage).items);
 
@@ -131,7 +151,12 @@ function hr({ qc, d }: Ctx, e: WireEvent) {
   const p = data<{ proposal: Proposal }>(e).proposal;
   for (const [key] of qc.getQueriesData({ queryKey: qk.hrs(d) })) {
     if (key.length === qk.hrs(d).length)
-      edit<{ proposals: Proposal[] }>(qc, key, (l) => ({ ...l, proposals: upsert(l.proposals, p, (x) => x.id === p.id, 'start') }), e.cursor);
+      edit<{ proposals: Proposal[] }>(
+        qc,
+        key,
+        (l) => ({ ...l, proposals: upsert(l.proposals, p, (x) => x.id === p.id, 'start') }),
+        e.cursor,
+      );
     else void qc.invalidateQueries({ queryKey: key, exact: true });
   }
 }

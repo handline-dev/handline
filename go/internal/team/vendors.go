@@ -121,6 +121,7 @@ func run(limit time.Duration, env []string, argv ...string) (int, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir = paths.QuietDir()
 	if env != nil {
 		cmd.Env = env
 	}

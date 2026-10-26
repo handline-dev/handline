@@ -1500,7 +1500,7 @@
   },
   {
    "name": "agent.retire",
-   "summary": "Retire an agent, as an approved HR retire does: it leaves team.yaml (team.yaml.bak keeps the old one), its scheduling row is deleted, its folder (ROLE.md, memory, settings) moves to agents/archive/<date>-<name>, its build caches are removed and its sealed key is forgotten. Its past messages, requests and events stay, and its git worktree is left as it is. Founder only. An agent with a session running is accepted, not refused: `said` names the wait, and the daemon retires it when its current turn ends (a session at its prompt is closed at once). Refused (gate state) while another agent reports to it or hangs under its name (<agent>.<rest>): the reason names them. An agent the daemon does not have is not_found.",
+   "summary": "Retire an agent, as an approved HR retire does: it leaves team.yaml (team.yaml.bak keeps the old one), its scheduling row is deleted, its folder (ROLE.md, memory, settings) moves to agents/archive/<date>-<name>, its build caches are removed and its sealed key is forgotten. Its past messages, requests and events stay, and its git worktrees are judged: one that is merged into main, clean and no other agent's is removed (its branch stays); one that holds work (commits not on main, files not committed) stays and is put to the founder as a task tagged `worktree-removal`, which they answer as they answer any decision task: `1` (what is left is committed to a new branch rescue/<agent>-<date>, then the worktree is removed), `2 yes` (removed with whatever it holds; a bare `2` asks again) or `3` (it stays); nothing is removed before the answer, and an answer that cannot be carried out leaves the task open; any other worktree stays. `said` says which. Founder only. An agent with a session running is accepted, not refused: `said` names the wait, and the daemon retires it when its current turn ends (a session at its prompt is closed at once). Refused (gate state) while another agent reports to it or hangs under its name (<agent>.<rest>): the reason names them. An agent the daemon does not have is not_found.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -14645,6 +14645,22 @@
       "maximum": 50,
       "default": 10,
       "description": "How far, in points of the week, an account may run ahead of its pace line. Inside it the account's cap shrinks in step; past it the account starts no new turn."
+     },
+     "heavy_slots": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 2,
+      "description": "How many heavy runs (test and build slots, tools/heavy-slot.sh) may hold a slot at once on this machine. The count is read from the config.yaml of the home the process runs in, and the slots are one lock per machine: two homes on one machine share it, so set the same number in both. HANDLINE_HEAVY_SLOTS in the environment overrides it. A change reaches the next run without a restart."
+     },
+     "keep_awake": {
+      "type": "string",
+      "enum": [
+       "off",
+       "on",
+       "working"
+      ],
+      "default": "off",
+      "description": "Keep the machine from idle sleep: off; on (held while the daemon runs); working (held while an agent is mid-turn, released when the last one stops). The daemon holds macOS caffeinate -i; closing the lid still sleeps. Applied at the next tick, without a restart."
      }
     },
     "description": "Every global setting by its config.yaml name, with its default; every one is the founder's to set. Per-account keys (label, cap, usage recovery, cycle) are account.set; per-agent keys are agent.set and schedule.*; a key marked Per agent also takes `agent` in settings.set."
@@ -14914,6 +14930,34 @@
        }
       ],
       "description": "How far, in points of the week, an account may run ahead of its pace line. Inside it the account's cap shrinks in step; past it the account starts no new turn. null removes the key (back to the default)."
+     },
+     "heavy_slots": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "How many heavy runs (test and build slots, tools/heavy-slot.sh) may hold a slot at once on this machine. The count is read from the config.yaml of the home the process runs in, and the slots are one lock per machine: two homes on one machine share it, so set the same number in both. HANDLINE_HEAVY_SLOTS in the environment overrides it. A change reaches the next run without a restart. null removes the key (back to the default)."
+     },
+     "keep_awake": {
+      "oneOf": [
+       {
+        "type": "string",
+        "enum": [
+         "off",
+         "on",
+         "working"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Keep the machine from idle sleep: off; on (held while the daemon runs); working (held while an agent is mid-turn, released when the last one stops). The daemon holds macOS caffeinate -i; closing the lid still sleeps. Applied at the next tick, without a restart. null removes the key (back to the default)."
      }
     },
     "description": "settings.set's changes: any of SettingsValues' keys; null removes one."
@@ -16670,6 +16714,14 @@
        },
        "disk_total_bytes": {
         "type": "integer"
+       },
+       "load_per_core": {
+        "type": "number",
+        "description": "load_1m divided by cores; the load limit is compared with this (150 percent is 1.5)."
+       },
+       "ram_free_pct": {
+        "type": "integer",
+        "description": "ram_free_bytes in percent of ram_total_bytes; the free-memory floor is compared with this."
        }
       },
       "required": [
@@ -16679,14 +16731,47 @@
        "load_1m",
        "cores",
        "disk_free_bytes",
-       "disk_total_bytes"
+       "disk_total_bytes",
+       "load_per_core",
+       "ram_free_pct"
       ]
+     },
+     "agents_total": {
+      "type": "object",
+      "properties": {
+       "cpu_pct": {
+        "type": "number",
+        "description": "CPU in percent of one core, summed over every agent's tree."
+       },
+       "rss_bytes": {
+        "type": "integer",
+        "description": "Resident memory summed over every agent's tree."
+       }
+      },
+      "required": [
+       "cpu_pct",
+       "rss_bytes"
+      ],
+      "description": "What all agents with a terminal pane use together."
+     },
+     "start_hold": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Why the daemon starts no new work now (the machine is over a load limit: text names the limit, as the status reason load does), null when starts may go. Level-triggered on the same measure; a machine with no agent mid-turn never holds."
      }
     },
     "required": [
      "at",
      "agents",
-     "machine"
+     "machine",
+     "agents_total",
+     "start_hold"
     ]
    },
    "TimeSegment": {

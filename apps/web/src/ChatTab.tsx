@@ -30,7 +30,7 @@ import { useCardTitles } from '#src/ChatTitles.ts';
 import { Item, Message, jumpTo } from '#src/ChatMessages.tsx';
 import { ChatRefs } from '#src/RefsContext.tsx';
 import { TaskNote } from '#src/ChatTaskCards.tsx';
-import { HeldCard } from '#src/ChatHeld.tsx';
+import { BlockedCard, HeldCard } from '#src/ChatHeld.tsx';
 import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, useDecided } from '#src/ChatCards.tsx';
 import { ChatSearch } from '#src/ChatSearch.tsx';
 import { Button, Empty, Icon, Textarea, ComposeRow } from '#src/ui/index.ts';
@@ -346,6 +346,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
               {drawn && restartAt < 0 ? <HandoffCard detail={detail} items={chat.items} /> : null}
               {drawn && !detail.prompt ? <NeedsYouCard detail={detail} /> : null}
               {drawn ? <HeldCard detail={detail} /> : null}
+              {drawn ? <BlockedCard detail={detail} /> : null}
               {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
               <LiveLine working={chat.working} messages={chat.messages} items={chat.items} />
             </div>

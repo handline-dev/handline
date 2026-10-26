@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/policy"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/textsafe"
 )
@@ -28,9 +29,9 @@ const (
 	MaxOpen       = 20        // uploads open at once
 	MaxUnsent     = 100 << 20 // bytes of uploads open and images no message names
 	MaxName       = 128       // characters of a file name kept
-	UploadTTL     = time.Hour
-	UnsentTTL     = 24 * time.Hour
-	KeepFor       = 30 * 24 * time.Hour // after the message that names the image, or the last task that names it closes
+	UploadTTL     = policy.UploadOpen
+	UnsentTTL     = policy.ImageUnsent
+	KeepFor       = policy.ImageKept // after the message that names the image, or the last task that names it closes
 )
 
 // kinds are the types taken, by the mime a client says and the extension the file is stored with.

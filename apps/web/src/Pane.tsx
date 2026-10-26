@@ -93,8 +93,8 @@ export function Pane({ group }: { group: Group }) {
           },
         ]),
     { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
-    { kind: 'android', params: { id: 'new' }, label: 'Android', icon: 'device' },
-    { kind: 'ios', params: { id: 'new' }, label: 'iOS', icon: 'device' },
+    { kind: 'android', params: {}, label: 'Android', icon: 'device' },
+    { kind: 'ios', params: {}, label: 'iOS', icon: 'device' },
   ];
   // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.
   // The first terminal tab of the group: a group holds one terminal tab per agent, so the unread dot follows that one.
@@ -241,7 +241,13 @@ export function Pane({ group }: { group: Group }) {
             onUrl={(u) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, url: u } } } }))}
           />
         ) : tab.kind === 'android' || tab.kind === 'ios' ? (
-          <DeviceTab agent={agent} kind={tab.kind} hidden={!!dragging} />
+          <DeviceTab
+            agent={agent}
+            kind={tab.kind}
+            hidden={!!dragging}
+            picked={typeof tab.params.device === 'string' ? tab.params.device : ''}
+            onPick={(device) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, device } } } }))}
+          />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (
           <Watch
             agent={agent}

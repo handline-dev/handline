@@ -147,6 +147,8 @@ export function useUnread(): InboxItem[] {
   return useMemo(() => (items ?? []).filter((i) => !i.read), [items]);
 }
 export const useInboxItem = (id: number) => useRead('inbox.get', { id });
+/** The founder's requests, newest first, kept current by the requests topic; `state` keeps one status. */
+export const useRequests = (state?: CallParams<'requests.list'>['state']) => useRead('requests.list', state ? { state } : {});
 export const useTasks = (filter: CallParams<'tasks.list'> = {}) => useRead('tasks.list', filter);
 /** How many tasks a list shows at first and each time "Show older" is pressed. */
 export const TASK_PAGE = 100;
