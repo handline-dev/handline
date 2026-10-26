@@ -206,6 +206,8 @@ describe('Settings > Connection in the shell', () => {
     bundled = true;
     const log = stub({ following: false, sha: '', state: 'current', next: null });
     await mount('settings');
+    await until(() => aboutFold(), 'the About fold');
+    await act(async () => aboutFold()!.click());
     await until(() => named('Install hl'), 'the install button');
     await act(async () => named('Install hl')!.click());
     await until(() => box.textContent?.includes('hl is linked at /h/.local/bin/hl'), 'the linked line');
