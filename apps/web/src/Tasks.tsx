@@ -80,10 +80,10 @@ function TaskTable({
   rowProps: (t: Task) => RowProps;
 }) {
   return (
-    <div className="tasks-scroll min-h-0 flex-1 overflow-auto max-sm:bg-transparent" aria-busy={busy}>
+    <div className="tasks-scroll @container min-h-0 flex-1 overflow-auto max-sm:bg-transparent" aria-busy={busy}>
       <table className="ttable w-full table-fixed border-collapse max-sm:block" aria-label="Tasks">
         <colgroup className="max-sm:hidden">
-          {['w-8', 'w-8', 'w-16', '', 'w-44', 'w-14', 'w-28'].map((w, i) => (
+          {['w-8', 'w-8', 'w-16', '', 'w-28 @max-[600px]:min-sm:hidden', 'w-14 @max-[720px]:min-sm:hidden', 'w-28'].map((w, i) => (
             <col key={i} className={w} />
           ))}
         </colgroup>
