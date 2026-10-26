@@ -75,6 +75,11 @@ async function mount(agent: string, s = setup(), storage: KV = memory()) {
   });
   return { store, storage, ...s };
 }
+/** What the window's Back does, as jsdom cannot traverse: the history state from before is put back and popstate fires. */
+const windowBack = (before: object | null) => {
+  history.replaceState(before, '');
+  return act(async () => void dispatchEvent(new PopStateEvent('popstate')));
+};
 const unmount = async () => {
   await act(async () => root?.unmount());
   root = null;
@@ -330,9 +335,10 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await mount(ARCH, setup(), storage);
     await until(() => msg('Which gap list'), 'history');
     await until(() => $('.tasks-tab-row'), 'the agent tasks');
+    const before = history.state as object;
     await click($$('[data-kind="task_event"]')[0]!);
     await until(() => $('.tdetail'), 'the task detail');
-    await act(async () => (history.back(), void (await new Promise((r) => setTimeout(r, 50))))); // the window's Back
+    await windowBack(before);
     await until(() => $('.tasks-tab-row'), 'back to the list');
     await click($$('[data-kind="task_event"]')[0]!);
     await until(() => $('.tdetail'), 'the task detail again');
@@ -369,9 +375,10 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(li.querySelector('button[aria-label="Actions"]')).not.toBeNull();
     await act(async () => void li.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
     await until(() => document.querySelector('[role=menu]'), 'the row menu on a right-click');
+    const before = history.state as object;
     await click(rows[0]!);
     await until(() => $('.tdetail'), 'the task detail');
-    await act(async () => (history.back(), void (await new Promise((r) => setTimeout(r, 50))))); // the window's Back
+    await windowBack(before);
     expect($('.tasks-tab-row')).not.toBeNull();
   });
 });
