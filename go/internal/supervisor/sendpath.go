@@ -319,7 +319,7 @@ func (e *Env) tellStructured(q db.Q, row *db.Request, d delivery.Delivery) (what
 			defer e.sayInstead(q, rid)()
 			e.log("  %s: request %d is said through the inbox, not typed: %s", agent, rid, why)
 		} else {
-			folded, text = nil, founderText(row, e.imageLines(q, row))
+			folded, text = nil, founderText(q, row, e.imageLines(q, row))
 		}
 	}
 	state, why := e.sendOnce(q, agent, requestOp(rid), text, d)

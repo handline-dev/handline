@@ -50,6 +50,16 @@ describe('the chat strip', () => {
     expect(text($('.chat-strip'))).toMatch(/\d+m|lapsed/);
   });
 
+  it('the context and cache gauges open their details on click', async () => {
+    await mount();
+    await until(() => $('.chat-strip [aria-label="Context window details"]'), 'the context gauge');
+    await act(async () => $('.chat-strip [aria-label="Context window details"]')!.click());
+    await until(() => text(document.body).includes('74,000'), 'the context details');
+    await act(async () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await act(async () => $('.chat-strip [aria-label="Prompt cache details"]')!.click());
+    await until(() => text(document.body).includes('time until the cache lapses'), 'the cache details');
+  });
+
   it('the model chip opens a menu and a pick is applied at once', async () => {
     const s = await mount();
     await act(async () => chip('Model').click());
