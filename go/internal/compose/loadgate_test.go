@@ -29,7 +29,7 @@ func TestForceStartPassesOnlyWorkTheLoadHolds(t *testing.T) {
 		t.Fatalf("nothing waits for carol: %v %q", ok, said)
 	}
 	ok, said, err := c.ForceStart("bob")
-	if err != nil || !ok || !strings.Contains(said, "load 2.00 per core, limit 1.50") {
+	if err != nil || !ok || !strings.Contains(said, "2.0 per core, limit 1.5") {
 		t.Fatalf("%v %q %v", ok, said, err)
 	}
 	if lc.Gate.Held("bob") != "" || lc.Gate.Held("carol") == "" {
