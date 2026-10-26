@@ -14,7 +14,7 @@ import { SettingsFold, SettingsShell } from '#src/SettingsShell.tsx';
 import { View } from '#src/View.tsx';
 
 /** The machine-wide cap stays in General; the other load limits are Advanced. */
-const isHostCap = (f: { change: (n: null) => object }) => 'host_active_cap' in f.change(null);
+const isHostCap = (f: { setting: string }) => f.setting === 'host_active_cap';
 
 export const parsePrompt = (t: string) => (/[\r\n]/.test(t) ? INVALID : t.trim());
 
