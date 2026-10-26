@@ -112,7 +112,9 @@ export function useNearEnd<R extends HTMLElement, S extends HTMLElement>(
       const io = new IntersectionObserver(
         (e) => {
           clearTimeout(wait);
-          if (e.at(-1)?.isIntersecting) wait = setTimeout(() => call.current(), dwell);
+          if (!e.at(-1)?.isIntersecting) return;
+          if (dwell) wait = setTimeout(() => call.current(), dwell);
+          else call.current();
         },
         { root: box, rootMargin: `${margin}px` },
       );
