@@ -148,6 +148,16 @@ describe('images in the send box', () => {
     await until(() => $$('.msg .attachment img').length === 1, 'one picture');
   });
 
+  it('opens a draft picture in the enlarged viewer, with arrows between the drafts', async () => {
+    await mount();
+    await paste([image('a.png'), image('b.png')]);
+    await until(() => chips().length === 2 && chips().every((c) => c.getAttribute('data-state') === 'ready'), 'both uploaded');
+    await click(chips()[1]!.querySelector('button[aria-label="Open b.png"]')!);
+    expect($('[role="dialog"] img')?.getAttribute('alt')).toBe('b.png');
+    await click($('button[aria-label="Previous picture"]')!);
+    expect($('[role="dialog"] img')?.getAttribute('alt')).toBe('a.png');
+  });
+
   it('says why a file that is not an image, or too many images, are not attached', async () => {
     await mount();
     await paste([new File(['x'], 'notes.png', { type: 'image/svg+xml' })]);

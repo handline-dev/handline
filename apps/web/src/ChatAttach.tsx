@@ -1,6 +1,6 @@
 // Images on a message: the chips under the box while they upload (a preview, the progress, a remove mark) and the pictures drawn in a sent
 // message (a small copy; a click opens the original). The files come from a paste, a drop or the file picker.
-import { useRef, type ClipboardEvent, type DragEvent } from 'react';
+import { useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import type { Attachment } from '@handline/client';
 import {
   MAX_PER_MESSAGE,
@@ -13,6 +13,7 @@ import {
   whyNotImage,
 } from '@handline/app-data';
 import { AttachmentImage } from '#src/AttachmentImage.tsx';
+import { ImageViewer } from '#src/ImageViewer.tsx';
 import { shell } from '#src/shell.ts';
 import { Icon } from '#src/ui/index.ts';
 
@@ -161,6 +162,7 @@ export function AttachChips(props: {
   onRemove: (key: number) => void;
   onUnref?: (key: number) => void;
 }) {
+  const [viewing, setViewing] = useState<number | null>(null);
   if (!props.drafts.length && !props.refs?.length && !props.problem) return null;
   return (
     <div className="attach-chips mx-3 mb-1 flex flex-wrap items-center gap-1.5">
@@ -171,7 +173,15 @@ export function AttachChips(props: {
           data-state={d.error ? 'failed' : d.attachment ? 'ready' : 'sending'}
           title={d.error ?? d.name}
         >
-          <img src={d.preview} alt="" className="h-9 w-9 rounded-chip object-cover" />
+          <button
+            type="button"
+            className="border-0 bg-transparent p-0"
+            aria-label={`Open ${d.name}`}
+            title="Enlarge"
+            onClick={() => setViewing(props.drafts.indexOf(d))}
+          >
+            <img src={d.preview} alt="" className="h-9 w-9 rounded-chip object-cover" />
+          </button>
           <span className="max-w-[140px] truncate">{d.name}</span>
           {d.error ? (
             <span className="text-bad" role="alert">
@@ -203,6 +213,13 @@ export function AttachChips(props: {
         <span className="text-label text-bad" role="status">
           {props.problem}
         </span>
+      ) : null}
+      {viewing !== null ? (
+        <ImageViewer
+          pictures={props.drafts.map((d) => ({ url: d.preview, name: d.name }))}
+          start={viewing}
+          onClose={() => setViewing(null)}
+        />
       ) : null}
     </div>
   );
@@ -243,8 +260,8 @@ export function PickButton(props: { onPick: (files: File[]) => void; disabled?: 
 export function Pictures({ items }: { items: Pick<Attachment, 'id' | 'name'>[] }) {
   return (
     <div className="attachments mt-1 flex flex-wrap gap-1.5">
-      {items.map((a) => (
-        <AttachmentImage key={a.id} id={a.id} name={a.name} />
+      {items.map((a, i) => (
+        <AttachmentImage key={a.id} id={a.id} name={a.name} group={items} at={i} />
       ))}
     </div>
   );
