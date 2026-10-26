@@ -32,12 +32,20 @@ type mailbox struct {
 	kind string
 	body string
 	gate bool
+	// kept is a say already read, still listed for readSayKeepS.
+	kept bool
 }
 
 // founderOpen is a request to the founder still in their inbox: not yet dealt with, or a say not yet read.
 const founderOpen = "(state = 'queued' OR (kind = 'say' AND state = 'landed' AND landed_at IS NOT NULL AND read_at IS NULL))"
 
-func (e *Env) mailboxRows() ([]mailbox, error) {
+// readSayKeepS is how long a read say stays in the founder's inbox list, greyed, so it can be found again: 7 days.
+const readSayKeepS = 7 * 24 * 3600
+
+func (e *Env) mailboxRows() ([]mailbox, error) { return e.mailboxRowsKept(false) }
+
+// mailboxRowsKept is the mailbox; with kept it also holds the says read within readSayKeepS.
+func (e *Env) mailboxRowsKept(kept bool) ([]mailbox, error) {
 	gateRows, err := query(e.DB, "SELECT id FROM requests WHERE target = ? AND state = 'queued' AND id IN "+
 		"(SELECT MIN(l.request_id) FROM task_requests l JOIN tasks t ON t.id = l.task_id "+
 		"WHERE t.owner = ? AND t.discarded_by IS NULL AND t.done_evidence IS NULL GROUP BY t.id) ORDER BY id", human, human)
@@ -48,14 +56,19 @@ func (e *Env) mailboxRows() ([]mailbox, error) {
 	for _, g := range gateRows {
 		gates[g.i("id")] = true
 	}
-	rows, err := query(e.DB, "SELECT id, ref, ts, requester, kind, body FROM requests WHERE target = ? AND "+founderOpen+" ORDER BY id", human)
+	where, args := founderOpen, []any{human}
+	if kept {
+		where = "(" + founderOpen + " OR (kind = 'say' AND state = 'landed' AND read_at IS NOT NULL AND read_at >= ?))"
+		args = append(args, time.Now().Unix()-readSayKeepS)
+	}
+	rows, err := query(e.DB, "SELECT id, ref, ts, requester, kind, body, read_at FROM requests WHERE target = ? AND "+where+" ORDER BY id", args...)
 	if err != nil {
 		return nil, err
 	}
 	var out []mailbox
 	for _, r := range rows {
 		out = append(out, mailbox{id: r.i("id"), ref: r.str("ref"), ts: r.i("ts"), from: r.str("requester"), kind: r.str("kind"),
-			body: r.str("body"), gate: gates[r.i("id")]})
+			body: r.str("body"), gate: gates[r.i("id")], kept: kept && r.str("kind") == "say" && r.i("read_at") != 0})
 	}
 	return out, nil
 }
@@ -98,7 +111,12 @@ func (e *Env) founderItems() ([]map[string]any, error) { return e.FounderItems(0
 
 // FounderItems is the mailbox from request number since up (0 is all of it): what inbox.list shows the founder, item by item.
 func (e *Env) FounderItems(since int64) ([]map[string]any, error) {
-	rows, err := e.mailboxRows()
+	return e.founderItemsKept(since, false)
+}
+
+// founderItemsKept is FounderItems; with kept it also lists the says read in the last 7 days, as read.
+func (e *Env) founderItemsKept(since int64, kept bool) ([]map[string]any, error) {
+	rows, err := e.mailboxRowsKept(kept)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +141,7 @@ func (e *Env) FounderItems(since int64) ([]map[string]any, error) {
 		} else if kind == "" {
 			kind = "ask"
 		}
-		it, err := e.item(m.id, m.ref, kind, m.from, m.body, m.ts, m.id <= cursor)
+		it, err := e.item(m.id, m.ref, kind, m.from, m.body, m.ts, m.id <= cursor || (m.kept && !m.gate))
 		if err != nil {
 			return nil, err
 		}
@@ -187,7 +205,7 @@ func (e *Env) inboxPage(c *rpc.Conn, params map[string]any) (map[string]any, err
 	if c.Caller.Role == "agent" {
 		items, err = e.agentItems(c.Caller.Info["name"].(string))
 	} else {
-		items, err = e.founderItems()
+		items, err = e.founderItemsKept(0, true)
 	}
 	if err != nil {
 		return nil, err

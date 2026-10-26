@@ -94,6 +94,7 @@ export const ICON_SPEC = {
   device: ['Smartphone', 'Device'],
   reference: ['CornerUpLeft', 'Reply to this'],
   open: ['ExternalLink', 'Open'],
+  copy: ['Copy', 'Copy'],
   sendNow: ['Zap', 'Send now'],
   retry: ['RotateCw', 'Retry'],
   discard: ['Undo2', 'Discard'],

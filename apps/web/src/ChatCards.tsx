@@ -15,6 +15,7 @@ import { ViewSwitch } from '#src/ViewSwitch.tsx';
 import { useOpenTerminal } from '#src/ChatMenus.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { useNow } from '#src/Gauge.tsx';
+import { BranchChip, ContextMax } from '#src/ChatStripItems.tsx';
 
 const until = (iso: string | null, now: number): number | null => {
   const t = iso ? Date.parse(iso) : NaN;
@@ -35,20 +36,23 @@ export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to
   const used = strip?.ctx_used;
   const limit = strip?.ctx_limit;
   return (
-    <div className="chat-strip @container flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-hint text-ink-2">
+    <div className="chat-strip @container flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-hint text-ink-2">
       <ModelMenu detail={detail} />
       <AccountMenu detail={detail} />
       {detail.task ? (
-        <Chip as="a" href={`#/tasks/${detail.task.id}`} title={detail.task.title} onClick={openTaskOnClick(apply, detail.task.id)}>
+        <Chip
+          as="a"
+          href={`#/tasks/${detail.task.id}`}
+          className="hover:bg-raised"
+          title={detail.task.title}
+          onClick={openTaskOnClick(apply, detail.task.id)}
+        >
           <Icon name="tasks" size={13} aria-hidden />T{detail.task.id}
         </Chip>
       ) : null}
       {detail.worktree ? (
         <span className="branch hidden min-w-0 @[44rem]:inline-flex">
-          <Chip className="min-w-0" title={`Branch ${detail.worktree.branch}`}>
-            <Icon name="worktrees" size={13} aria-hidden />
-            <span className="truncate">{detail.worktree.branch}</span>
-          </Chip>
+          <BranchChip branch={detail.worktree.branch} />
         </span>
       ) : null}
       {changed ? (
@@ -68,6 +72,7 @@ export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to
               <GaugeLine what="Used">{`${used.toLocaleString()} / ${limit.toLocaleString()} tokens`}</GaugeLine>
             ) : null}
             {ctxPct != null ? <GaugeLine what="Full">{`${Math.round(ctxPct)}%`}</GaugeLine> : null}
+            <ContextMax detail={detail} limit={limit} />
           </>
         }
         cacheInfo={

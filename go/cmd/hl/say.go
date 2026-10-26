@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -79,6 +80,12 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 	if !asking(c, "say") {
 		return 1, true
 	}
+	if p.pos[0] == "human" && wantsAnswer(body) {
+		fmt.Println("refused: this say to human reads as a question, and a say is read once and gone. What needs the founder's " +
+			"answer is a task assigned to them: hl task new --assign human -t <time> '<title>' '<body>'. " +
+			"If it is only news, say it without asking for a reply.")
+		return 1, true
+	}
 	params := map[string]any{"target": p.pos[0], "body": body}
 	if hasParent {
 		params["parent"] = parentN
@@ -93,6 +100,22 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 		params["files"] = abs
 	}
 	return said(c.Write("say", params)), true
+}
+
+// asksForReply matches the words that ask for a reply, whole words in English (so "confirmed" is news) and as written in Korean.
+var asksForReply = regexp.MustCompile(`(?i)\b(reply|respond|confirm)\b|답장|답해|답변`)
+
+// wantsAnswer is whether a body reads as a request for the reader's answer: a line ending in a question mark, or a word that asks for a reply.
+func wantsAnswer(body string) bool {
+	if asksForReply.MatchString(body) {
+		return true
+	}
+	for _, ln := range strings.Split(body, "\n") {
+		if t := strings.TrimSpace(ln); strings.HasSuffix(t, "?") || strings.HasSuffix(t, "？") {
+			return true
+		}
+	}
+	return false
 }
 
 // lostToQuoting is say._LOST: two or more spaces between word characters, the gap a shell leaves where it ran
