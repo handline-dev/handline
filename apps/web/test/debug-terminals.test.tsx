@@ -113,7 +113,7 @@ describe('the debug window', () => {
     expect($('[data-fact="Agent"] dd')!.textContent).toBe(ARCH);
     expect($('[data-fact="Orca terminal"] dd')!.textContent).toBe('-');
     await until(() => $(`[aria-label="Terminal of ${ARCH}"]`), 'the terminal');
-    expect(box.textContent).toContain('Click the terminal to type in it.');
+    expect(box.textContent).not.toContain('Click the terminal to type');
     await act(async () => $('[data-pane="%stray"]')!.click());
     expect($('[data-fact="Agent"] dd')!.textContent).toContain('none (opened for');
   });

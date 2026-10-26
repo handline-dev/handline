@@ -235,6 +235,9 @@ export function BytesTab({
           aria-label={`Terminal of ${agent}`}
         />
         {!hasTerminal && <StartTerminal agent={agent} />}
+        {state === 'live' && watchOnly ? (
+          <span className="watch-only absolute top-1.5 right-2.5 z-10 rounded-sm bg-term-bg/70 px-1.5 text-[11px] text-wait">Watch only</span>
+        ) : null}
         {state === 'live' && !watchOnly && heldBy && !holds ? (
           <div className="input-elsewhere absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-term-bg/70">
             <span className="text-hint text-term-ink">Typing is on {heldBy}</span>
@@ -256,11 +259,6 @@ export function BytesTab({
         )}
         <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">
           {note}
-          {state === 'live' &&
-            !holds &&
-            !heldBy &&
-            !takeInput.error &&
-            (watchOnly ? 'Watch only: no agent has this pane, so it takes no keys. ' : 'Click the terminal to type in it. ')}
           {refused || (takeInput.error ? `Could not take the input: ${reasonOf(takeInput.error)}` : '')}
           {state === 'failed' && <Button variant="outline" size="sm" label="Retry" onClick={() => setAttempt((n) => n + 1)} />}
         </div>
