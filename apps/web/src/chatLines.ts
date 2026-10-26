@@ -8,7 +8,8 @@ import { entryKey } from '#src/ChatFold.tsx';
 /** Where the entries that arrived since the last render begin: only those grow; older pages and a switch of scope appear at once (-1 when none is new). */
 export function useTail(entries: (TimelineEntry | TaskFold)[], scope: ChatScope) {
   const seen = useRef<{ scope: ChatScope; last: string | null }>({ scope, last: null });
-  const tail = seen.current.scope === scope && seen.current.last !== null ? entries.findIndex((e) => entryKey(e) === seen.current.last) : -1;
+  const tail =
+    seen.current.scope === scope && seen.current.last !== null ? entries.findIndex((e) => entryKey(e) === seen.current.last) : -1;
   useEffect(() => {
     const e = entries.at(-1);
     seen.current = { scope, last: e ? entryKey(e) : null };

@@ -16,7 +16,12 @@ beforeAll(() => {
       return { top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON: () => ({}) };
     },
   });
-  Object.defineProperty(proto, 'offsetHeight', { configurable: true, get(this: HTMLElement) { return parseFloat(this.style.height || '0'); } });
+  Object.defineProperty(proto, 'offsetHeight', {
+    configurable: true,
+    get(this: HTMLElement) {
+      return parseFloat(this.style.height || '0');
+    },
+  });
   Object.defineProperty(proto, 'clientHeight', { configurable: true, get: () => 300 });
   Object.defineProperty(proto, 'scrollHeight', {
     configurable: true,
@@ -36,7 +41,14 @@ beforeAll(() => {
 });
 
 let freeRef: { current: boolean };
-const free = { get current() { return freeRef.current; }, set current(v: boolean) { freeRef.current = v; } };
+const free = {
+  get current() {
+    return freeRef.current;
+  },
+  set current(v: boolean) {
+    freeRef.current = v;
+  },
+};
 
 function Harness({ held, lines, ready = true }: { held: number | undefined; lines: number; ready?: boolean }) {
   const stream = useRef<HTMLDivElement>(null);

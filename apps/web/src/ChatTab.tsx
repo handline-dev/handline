@@ -241,8 +241,18 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
 
   useLayoutEffect(repin, [last, entries.length, chat.working.turn_running, chat.items.length]);
 
-  const held = windowed ? undefined : heldId(entries, (e) => e.kind === 'message' && sideOf(e.message, agent, me) === 'person' && e.message.landing !== 'withdrawn');
-  const { spacer, hold, release, start, scrolled, holding, free } = useHold({ stream, held, own, anchor, pinned, ready: chat.status === 'ready', agent });
+  const held = windowed
+    ? undefined
+    : heldId(entries, (e) => e.kind === 'message' && sideOf(e.message, agent, me) === 'person' && e.message.landing !== 'withdrawn');
+  const { spacer, hold, release, start, scrolled, holding, free } = useHold({
+    stream,
+    held,
+    own,
+    anchor,
+    pinned,
+    ready: chat.status === 'ready',
+    agent,
+  });
 
   // A reader above the bottom keeps the line they are on: whatever changes above or below it (steps folding, a line coming or going) does not move it.
   const place = useRef<{ id: string; off: number } | null>(null);

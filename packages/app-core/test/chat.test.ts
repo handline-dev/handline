@@ -427,7 +427,7 @@ test("fewer than three stay cards; a message, a session line or a new day breaks
   );
 });
 
-test('heldId: the first of the last run of the person\'s messages', () => {
+test("heldId: the first of the last run of the person's messages", () => {
   const e = (id: number, me: boolean) => ({ id, me });
   const mine = (x: { me: boolean }) => x.me;
   assert.equal(heldId([e(1, true), e(2, false), e(3, true), e(4, true)], mine), 3); // sent twice before a reply: the first holds
