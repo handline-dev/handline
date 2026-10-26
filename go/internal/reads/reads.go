@@ -18,6 +18,7 @@ import (
 	"unicode"
 
 	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/sysres"
 	"github.com/handline/handline/go/internal/team"
 )
 
@@ -47,6 +48,8 @@ type Env struct {
 	PullRequests func(ctx context.Context, repo string, numbers []int) ([]int, error)
 	// Resources is the latest measure of what the machine and each agent use (sysres.Sampler.Latest); nil serves none.
 	Resources func() map[string]any
+	// Machine is the latest measure of the machine alone (sysres.Sampler.LatestMachine), for whether new starts are held; nil says none.
+	Machine func() *sysres.Machine
 	// AccountWall is when an account's work stops and starts again, for a task's expected start and end: blockedUntil, the reset that
 	// lifts the limit it is at now (0 when it is not); runsOutAt, when it reaches a limit at the current burn (0 when it does not or
 	// is not known); resetsAt, when that limit lifts. nil reads the usage files.

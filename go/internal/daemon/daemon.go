@@ -502,6 +502,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	renv.Context = d.cfg.Context
 	if d.res != nil {
 		renv.Resources = d.res.Latest
+		renv.Machine = d.res.LatestMachine
 	}
 	if d.logins != nil {
 		renv.Login = d.logins.Of

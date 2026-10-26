@@ -6,6 +6,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/heal"
 	"github.com/handline/handline/go/internal/hrwrites"
+	"github.com/handline/handline/go/internal/keepawake"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/schedules"
@@ -13,6 +14,7 @@ import (
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
+	"github.com/handline/handline/go/internal/usage"
 )
 
 // passes are the guarded passes the tick makes after its per-agent turns, in daemon/evaluate.py's order: the timebox, the notices, the stuck waits,
@@ -33,7 +35,12 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 	if lc.Env.Observer != nil {
 		held.Live = lc.Env.Observer.LiveSessions
 	}
+	awake := &keepawake.Holder{Log: func(s string) { cfg.Log("%s", s) }}
 	return []tick.NamedSweep{
+		{Name: "keep-awake", Run: func(q db.Q, now int64) error {
+			awake.Sync(keepawake.ModeOf(usage.LoadConfig(cfg.Home)), lc.Gate.Active() > 0)
+			return nil
+		}},
 		{Name: "timebox", Run: func(q db.Q, now int64) error { return timebox.Sweep(tk, now) }},
 		{Name: "notice-digest", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepNotices(now) })},
 		{Name: "task-queue", Run: fromCutover(cutover, func(q db.Q, now int64) error { return lc.Env.SweepTaskQueue(now) })},

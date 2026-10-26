@@ -26,6 +26,8 @@ const KEYS = [
   'host_active_cap',
   'load_per_core_pct',
   'ram_free_min_pct',
+  'heavy_slots',
+  'keep_awake',
 ];
 
 test('settings.get serves every SettingsValues key, a load limit reads back, and null restores the default', async () => {
@@ -40,6 +42,14 @@ test('settings.get serves every SettingsValues key, a load limit reads back, and
   assert.deepEqual([set.values.load_per_core_pct, set.values.push_stall], [200, false]);
   await client.call('settings.set', { changes: { load_per_core_pct: null }, request_id: 'l1-b' });
   assert.equal((await client.call('settings.get', {})).values.load_per_core_pct, 150);
+  assert.deepEqual([first.values.heavy_slots, first.values.keep_awake], [2, 'off']);
+  await assert.rejects(
+    client.call('settings.set', { changes: { keep_awake: 'always' }, request_id: 'l1-d' }),
+    (e: RpcError) => e.code === 'bad_request',
+  );
+  await client.call('settings.set', { changes: { keep_awake: 'working', heavy_slots: 3 }, request_id: 'l1-e' });
+  const awake = (await client.call('settings.get', {})).values;
+  assert.deepEqual([awake.keep_awake, awake.heavy_slots], ['working', 3]);
   client.close();
 });
 
