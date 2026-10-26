@@ -4,10 +4,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
-import { heldId, sideOf, type TaskFold, type TimelineEntry } from '@handline/app-core';
+import { sideOf, type TaskFold, type TimelineEntry } from '@handline/app-core';
 import { useNearEnd, useSelector, useStore } from '@handline/app-react';
 import {
   Skeleton,
+  useSkeletonGate,
   classify,
   sentence,
   useChat,
@@ -22,8 +23,8 @@ import { AnimatedItem, AnimatedList } from '#src/AnimatedList.tsx';
 import { PromptSlot } from '#src/PromptCard.tsx';
 import { Compose } from '#src/ChatCompose.tsx';
 import { LiveLine } from '#src/LiveLine.tsx';
-import { useHold } from '#src/useHold.ts';
-import { putBack, sentBodies, useOlderPages, useTail } from '#src/chatLines.ts';
+import { useChatScroll } from '#src/useChatScroll.ts';
+import { sentBodies, useOlderPages, useTail } from '#src/chatLines.ts';
 import { FoldLine, entryKey, useFolds } from '#src/ChatFold.tsx';
 import { useCardTitles } from '#src/ChatTitles.ts';
 import { Item, Message, jumpTo } from '#src/ChatMessages.tsx';
@@ -116,6 +117,8 @@ function useWindowedChat(agent: string, scope: ChatScope) {
         ...live,
         messages: win.messages,
         items: live.items.filter((i) => i.at >= first && i.at <= last),
+        moreMessages: false,
+        moreItems: false,
         hasOlder: win.hasOlder,
         loadingOlder: win.loading,
         loadOlder: win.loadOlder,
@@ -127,17 +130,6 @@ function useWindowedChat(agent: string, scope: ChatScope) {
 /** In the all room, the sender's name over a message, left out when the entry before is a message from the same sender. */
 const groupOf = (scope: ChatScope, prev: TimelineEntry | TaskFold | undefined, m: ChatMessage) =>
   scope === 'all' ? { name: prev?.kind === 'message' && prev.message.from === m.from ? null : m.from } : undefined;
-
-/** The first line in view and how far below the top of `box` it sits: what a reader is looking at. */
-function lineInView(box: HTMLElement): { id: string; off: number } | null {
-  const { top } = box.getBoundingClientRect();
-  for (const el of box.querySelectorAll('[data-id]')) {
-    const at = el.getBoundingClientRect();
-    const id = el.getAttribute('data-id');
-    if (id && at.bottom > top) return { id, off: at.top - top };
-  }
-  return null;
-}
 
 /** ⌘F opens the find bar of this chat. */
 function useFindBar() {
@@ -164,14 +156,13 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const scope: ChatScope = 'mine';
   const { chat, win, windowed } = useWindowedChat(agent, scope);
   const [picked, setPicked] = useState<number | null>(null);
-  const [newer, setNewer] = useState(0); // entries that arrived while the person was reading further up
   const [going, setGoing] = useState<number | null>(null); // a message number being found
   const act = useChatActions(agent);
   const locate = useChatLocate({ request: going ?? 0 }, going !== null);
   const stream = useRef<HTMLDivElement>(null);
-  const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
+  const content = useRef<HTMLDivElement>(null);
   const { entries, ...folds } = useFolds(chat, scope, agent, me, useDecided(agent));
-  const { titles, settled } = useCardTitles(chat.items, entries); // for the task cards: what each is about, without opening the task
+  const titles = useCardTitles(chat.items, entries); // for the task cards: what each is about, without opening the task
   const history = sentBodies(chat.messages, agent);
   const last = entries.at(-1)?.id;
   const byId = new Map(chat.messages.map((m) => [m.id, m]));
@@ -182,7 +173,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const pickItem = (i: TranscriptItem) => (setPicked(null), setPickedItem((p) => (p?.id === i.id ? null : i)));
   const keyOf = entryKey;
   const tail = useTail(entries, scope);
-  const { anchor, armed, more } = useOlderPages(stream, chat, entries.length);
+  const { armed, more } = useOlderPages(stream, chat, entries.length);
   // After a jump the target stays where it was put: the sentinels wait until the person scrolls the window themselves.
   const [moved, setMoved] = useState<number | null>(null);
   const reading = !windowed || moved === win.target;
@@ -194,65 +185,30 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   );
   // Around an old message, the way down is read as the bottom comes near, until the live tail is reached.
   const lower = useNearEnd<HTMLDivElement, HTMLDivElement>(stream, win.loadNewer, windowed && reading && win.hasNewer && !win.loading);
-  const own = useRef(false); // the next scroll event is our own jump to the bottom, not the person leaving it
-  const repin = () => {
-    const el = stream.current;
-    if (!el || !pinned.current) return;
-    const end = el.scrollHeight - el.clientHeight;
-    if (Math.abs(el.scrollTop - end) >= 1) own.current = true;
-    el.scrollTop = end;
-  };
+  // The skeleton and the lines never share a frame: the lines are drawn in the commit that removes it, with no minimum time for it to stay.
+  const loading = chat.status === 'loading';
+  const skeleton = useSkeletonGate(loading, undefined, 0);
+  const drawn = !loading && !skeleton;
+  const scroll = useChatScroll({ stream, content, ready: chat.status === 'ready' && drawn, agent, reading: chat.holdPlace });
 
-  useLayoutEffect(repin, [last, entries.length, chat.working.turn_running, chat.items.length]);
-
-  const held = windowed
-    ? undefined
-    : heldId(entries, (e) => e.kind === 'message' && sideOf(e.message, agent, me) === 'person' && e.message.landing !== 'withdrawn');
-  const { spacer, picture, release, start, scrolled, holding, free } = useHold({
-    stream,
-    held,
-    own,
-    anchor,
-    pinned,
-    ready: chat.status === 'ready' && settled,
-    agent,
-  });
-
-  // A reader above the bottom keeps the line they are on: whatever changes above or below it (steps folding, a line coming or going) does not move it.
-  const place = useRef<{ id: string; off: number } | null>(null);
-  useLayoutEffect(() => {
-    const box = stream.current;
-    if (box && place.current && !pinned.current && !anchor.current && (free.current || !holding.current)) putBack(box, place.current);
-  });
-
-  // New entries while scrolled up are counted, not scrolled to; the pill takes the person down.
+  // New entries while the reader is above the bottom are counted, not scrolled to; the pill takes them down.
   const count = useRef(entries.length);
   useEffect(() => {
     const grew = entries.length - count.current;
     count.current = entries.length;
-    if (grew > 0 && !pinned.current && tail >= 0 && !windowed && !(holding.current && !free.current)) setNewer((n) => n + grew); // a held view is already where the reply lands
-  }, [entries.length, tail, windowed, holding, free]);
-  const bottom = () => {
-    release();
-    pinned.current = true;
-    repin();
-    setNewer(0);
-  };
+    if (grew > 0 && tail >= 0 && !windowed) scroll.added(grew);
+  }, [entries.length, tail, windowed]); // eslint-disable-line react-hooks/exhaustive-deps
+  const bottom = () => scroll.bottom();
   // Sending always shows the message: the sent row is at the bottom, whatever the person had scrolled to.
-  const showSent = () => {
+  useLayoutEffect(() => {
     const e = entries.at(-1);
-    if (e?.kind !== 'message' || e.message.id >= 0 || sideOf(e.message, agent, me) !== 'person') return;
-    // The sent row joins the held run, or starts it: the view glides to put the run's first message at the top.
-    start();
-    setNewer(0);
-  };
-  useLayoutEffect(showSent, [last]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (e?.kind === 'message' && e.message.id < 0 && sideOf(e.message, agent, me) === 'person') scroll.sent();
+  }, [last]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useChatReadMarks(agent, chat, act.seen);
 
   // A message number: scroll to it when it is drawn; else learn its chat from the daemon, switch to it and read back until it is there.
   const jump = (id: number) => {
-    release();
     if (!jumpTo(id)) setGoing(id);
   };
   // A message chosen in the palette: this chat is its agent's, so find it the same way.
@@ -273,7 +229,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     if (!found) return;
     if (win.target !== going) {
       // Not drawn: the stretch around it is read at once, not paged up to.
-      pinned.current = false;
+      scroll.leave();
       win.open(going, found.messages, found.more_older, found.more_newer);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -291,105 +247,98 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
       <ChatBanner detail={detail} />
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div
-          className="stream col flex flex-1 flex-col gap-2 overflow-auto px-3 pb-2 pt-3 [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:flex-none [&>.skeleton]:self-stretch"
+          className="stream col flex-1 overflow-auto [overflow-anchor:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           ref={stream}
-          onWheel={() => ((free.current = true), setMoved(win.target))}
-          onTouchMove={() => ((free.current = true), setMoved(win.target))}
-          onKeyDown={() => ((free.current = true), setMoved(win.target))}
-          onLoadCapture={(e) => e.target instanceof HTMLImageElement && (repin(), picture())} // a picture arriving late grows the stream
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            if (own.current) return void (own.current = false);
-            const held = holding.current && !free.current;
-            scrolled();
-            if (held && !free.current) return; // our own scroll
-            // The spacer is empty room: being at its end is not being at the bottom of the conversation.
-            pinned.current = !(spacer.current?.offsetHeight ?? 0) && el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-            chat.holdPlace(!pinned.current);
-            place.current = pinned.current ? null : lineInView(el);
-            if (pinned.current) setNewer(0);
-          }}
+          onWheel={() => (scroll.driven(), setMoved(win.target))}
+          onTouchMove={() => (scroll.driven(), setMoved(win.target))}
+          onKeyDown={() => (scroll.driven(), setMoved(win.target))}
+          onPointerDown={scroll.driven}
+          onScroll={scroll.onScroll}
         >
-          <Skeleton shape="chat" loading={chat.status === 'loading' || (chat.status === 'ready' && !settled)} label="the conversation" />
-          {chat.status === 'error' && sentence(classify(chat.error)) ? (
-            <div className="banner" role="alert">
-              {sentence(classify(chat.error))} <Button variant="outline" size="sm" label="Retry" onClick={chat.refetch} />
-            </div>
-          ) : null}
-          {chat.hasOlder ? <div ref={top} aria-hidden className="h-px" /> : null}
-          {chat.hasOlder ? (
-            <button
-              className="icon older self-center"
-              disabled={chat.loadingOlder}
-              aria-label="Older messages"
-              title="Older messages"
-              onClick={chat.loadOlder}
-            >
-              <Icon name="less" label="Older messages" />
-            </button>
-          ) : null}
-          {chat.status === 'ready' && settled && !entries.length ? <Empty icon="chat" name="No messages yet" hint={agent} /> : null}
-          {/* Keyed by the window: the rows of the live tail leave at once when a window opens, not after an exit animation above the target. */}
-          <AnimatedList key={win.target ?? 'live'}>
-            {(settled ? entries : []).flatMap((e, i): ReactNode[] => {
-              const day = dayHeading(e.at, i === 0 ? null : entries[i - 1]!.at);
-              const body = (
-                <AnimatedItem
-                  key={keyOf(e)}
-                  instant={i <= tail || tail < 0}
-                  onFrame={() => (repin(), picture())}
-                  className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-stretch"
-                >
-                  {e.kind === 'fold' ? (
-                    <FoldLine f={e} folds={folds} titles={titles} agent={agent} />
-                  ) : e.kind === 'message' ? (
-                    <Message
-                      m={e.message}
-                      agent={agent}
-                      picked={e.id === picked}
-                      onPick={pick}
-                      byId={byId}
-                      group={groupOf(scope, entries[i - 1], e.message)}
-                    />
-                  ) : e.kind === 'proposal' ? (
-                    <DecidedCard p={e.proposal} />
-                  ) : e.kind === 'note' ? (
-                    <TaskNote m={e.message} task={e.task} titles={titles} />
-                  ) : (
-                    <Item
-                      i={e.item}
-                      titles={titles}
-                      agent={agent}
-                      onReply={canSend && canReplyItem ? pickItem : undefined}
-                      picked={pickedItem?.id === e.item.id}
-                    />
-                  )}
-                </AnimatedItem>
-              );
-              // A plain child of the list: never animated in or out.
-              return day
-                ? [
-                    <div
-                      key={`day ${day}`}
-                      role="separator"
-                      className="mt-3 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
-                    >
-                      {day}
-                    </div>,
-                    body,
-                  ]
-                : [body];
-            })}
-          </AnimatedList>
-          {windowed && win.hasNewer ? <div ref={lower} aria-hidden className="h-px" /> : null}
-          <HrCards agent={agent} />
-          <HandoffCard detail={detail} items={chat.items} />
-          {detail.prompt ? null : <NeedsYouCard detail={detail} />}
-          {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
-          <LiveLine working={chat.working} messages={chat.messages} items={chat.items} />
-          <div ref={spacer} aria-hidden className="h-0 flex-none" />
+          <div ref={content} className="flex min-h-full flex-col gap-2 px-3 pb-2 pt-3 [&>*]:flex-none [&>.skeleton]:self-stretch">
+            <Skeleton shape="chat" loading={loading} shown={skeleton} label="the conversation" />
+            {chat.status === 'error' && sentence(classify(chat.error)) ? (
+              <div className="banner" role="alert">
+                {sentence(classify(chat.error))} <Button variant="outline" size="sm" label="Retry" onClick={chat.refetch} />
+              </div>
+            ) : null}
+            {chat.hasOlder ? <div ref={top} aria-hidden className="h-px" /> : null}
+            {chat.hasOlder ? (
+              <button
+                className="icon older self-center"
+                disabled={chat.loadingOlder}
+                aria-label="Older messages"
+                title="Older messages"
+                onClick={chat.loadOlder}
+              >
+                <Icon name="less" label="Older messages" />
+              </button>
+            ) : null}
+            {chat.status === 'ready' && drawn && !entries.length ? <Empty icon="chat" name="No messages yet" hint={agent} /> : null}
+            {/* Keyed by the window: the rows of the live tail leave at once when a window opens, not after an exit animation above the target. */}
+            <AnimatedList key={win.target ?? 'live'}>
+              {(drawn ? entries : []).flatMap((e, i): ReactNode[] => {
+                const day = dayHeading(e.at, i === 0 ? null : entries[i - 1]!.at);
+                const body = (
+                  <AnimatedItem
+                    key={keyOf(e)}
+                    instant={i <= tail || tail < 0}
+                    className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-stretch"
+                  >
+                    {e.kind === 'fold' ? (
+                      <FoldLine f={e} folds={folds} titles={titles} agent={agent} />
+                    ) : e.kind === 'message' ? (
+                      <Message
+                        m={e.message}
+                        agent={agent}
+                        picked={e.id === picked}
+                        onPick={pick}
+                        byId={byId}
+                        group={groupOf(scope, entries[i - 1], e.message)}
+                      />
+                    ) : e.kind === 'proposal' ? (
+                      <DecidedCard p={e.proposal} />
+                    ) : e.kind === 'note' ? (
+                      <TaskNote m={e.message} task={e.task} titles={titles} />
+                    ) : (
+                      <Item
+                        i={e.item}
+                        titles={titles}
+                        agent={agent}
+                        onReply={canSend && canReplyItem ? pickItem : undefined}
+                        picked={pickedItem?.id === e.item.id}
+                      />
+                    )}
+                  </AnimatedItem>
+                );
+                // A plain child of the list: never animated in or out.
+                return day
+                  ? [
+                      <div
+                        key={`day ${day}`}
+                        role="separator"
+                        className="mt-3 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
+                      >
+                        {day}
+                      </div>,
+                      body,
+                    ]
+                  : [body];
+              })}
+            </AnimatedList>
+            {windowed && win.hasNewer ? <div ref={lower} aria-hidden className="h-px" /> : null}
+            {drawn ? <HrCards agent={agent} /> : null}
+            {drawn ? <HandoffCard detail={detail} items={chat.items} /> : null}
+            {drawn && !detail.prompt ? <NeedsYouCard detail={detail} /> : null}
+            {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
+            <LiveLine working={chat.working} messages={chat.messages} items={chat.items} />
+          </div>
         </div>
-        {windowed ? <LatestPill onClick={() => (win.close(), bottom())} /> : newer ? <NewerPill count={newer} onClick={bottom} /> : null}
+        {windowed ? (
+          <LatestPill onClick={() => (win.close(), bottom())} />
+        ) : scroll.newer ? (
+          <NewerPill count={scroll.newer} onClick={bottom} />
+        ) : null}
       </div>
       <div className="cards px-3">
         <PromptSlot agent={agent} prompt={detail.prompt} />

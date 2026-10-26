@@ -22,6 +22,9 @@ export interface Chat {
   items: TranscriptItem[]; // oldest first
   working: Working;
   hasOlder: boolean;
+  /** The daemon has older messages / transcript lines than the oldest read: what `chatView` needs to draw only the stretch both have read. */
+  moreMessages: boolean;
+  moreItems: boolean;
   loadingOlder: boolean;
   loadOlder: () => void;
   /** Reads both again (the error block's Retry). */
@@ -78,6 +81,8 @@ export function useChat(agent: string, scope: ChatScope): Chat {
     items: byId([...(tr.data?.pages ?? [])].reverse().map((p) => p.items)).sort((a, b) => a.id - b.id),
     working: tr.data?.pages[0]?.working ?? NOT_WORKING,
     hasOlder: !!msgs.hasNextPage || !!tr.hasNextPage,
+    moreMessages: !!msgs.hasNextPage,
+    moreItems: !!tr.hasNextPage,
     loadingOlder: msgs.isFetchingNextPage || tr.isFetchingNextPage,
     refetch: () => {
       void msgs.refetch();
