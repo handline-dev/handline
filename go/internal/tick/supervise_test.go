@@ -119,6 +119,28 @@ func TestWorkWaitingForAnAgentWithNoSessionStartsItAndSaysSoOncePerReason(t *tes
 	}
 }
 
+func TestALoadHoldIsForgottenOnlyWhenNothingWaits(t *testing.T) {
+	cases := []struct {
+		name    string
+		need    *Need
+		waiting bool
+		forget  bool
+	}{
+		{"nothing to start, wake or tell", nil, false, true},
+		{"a task to tell an open session", nil, true, false},
+		{"work queued for no session", &Need{Kind: "start", What: "work waiting"}, false, false},
+		{"a closed agent to wake", &Need{Kind: "wake", What: "a request"}, false, false},
+	}
+	for _, c := range cases {
+		tk, w := newWorld(t)
+		w.need, w.waiting = c.need, c.waiting
+		supervise(tk, "a")
+		if w.did("forget hold a") != c.forget {
+			t.Errorf("%s: forgot %v, want %v: %v", c.name, !c.forget, c.forget, w.calls)
+		}
+	}
+}
+
 func TestWorkWaitingForAClosedAgentWakesIt(t *testing.T) {
 	tk, w := newWorld(t)
 	w.need = &Need{Kind: "wake", What: "a request"}

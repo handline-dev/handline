@@ -3,22 +3,31 @@
 import { useState } from 'react';
 import { changeAsked, keptMarks, markText, withImages, type Mark } from '@handline/app-core';
 import { classify, sentence, useAttachmentUrl, useLoaded, useReviewPictures, useUploadImage, useWrite } from '@handline/app-data';
+import { ImageViewer } from '#src/ImageViewer.tsx';
 import { Annotator } from '#src/Annotate.tsx';
 import { Dialog, NOTE, Textarea } from '#src/ui/index.ts';
 
-function Thumb({ id, name }: { id: string; name: string }) {
+function Thumb({ id, name, onOpen }: { id: string; name: string; onOpen: () => void }) {
   const { url } = useAttachmentUrl(id, true);
-  return url ? <img src={url} alt={name} className="h-16 w-auto max-w-[160px] rounded-card border border-line object-cover" /> : <span className="muted text-hint">{name}</span>;
+  return url ? (
+    <button type="button" className="border-0 bg-transparent p-0" aria-label={`Open ${name}`} title={name} onClick={onOpen}>
+      <img src={url} alt={name} className="h-16 w-auto max-w-[160px] rounded-card border border-line object-cover" />
+    </button>
+  ) : (
+    <span className="muted text-hint">{name}</span>
+  );
 }
 
 export function ReviewPictures({ task }: { task: number }) {
   const pictures = useReviewPictures(task);
+  const [viewing, setViewing] = useState<number | null>(null);
   if (!pictures.length) return null;
   return (
     <div className="mt-1.5 flex flex-wrap gap-2" aria-label="Pictures to review">
-      {pictures.map((p) => (
-        <Thumb key={p.id} {...p} />
+      {pictures.map((p, i) => (
+        <Thumb key={p.id} {...p} onOpen={() => setViewing(i)} />
       ))}
+      {viewing !== null ? <ImageViewer pictures={pictures} start={viewing} onClose={() => setViewing(null)} /> : null}
     </div>
   );
 }
@@ -61,7 +70,17 @@ export function AskChange({ task, item, onClose }: { task: number; item: number;
       onClose={onClose}
       full
       action={{ label: 'Send', keys: '⌘↵', onClick: () => void send(), disabled: sending || !note.trim() }}
-      bar={<Textarea rows={1} autoFocus aria-label="What should change" placeholder="What should change?" className="min-w-0 flex-1" value={note} onChange={(e) => setNote(e.target.value)} />}
+      bar={
+        <Textarea
+          rows={1}
+          autoFocus
+          aria-label="What should change"
+          placeholder="What should change?"
+          className="min-w-0 flex-1"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+      }
     >
       {shot ? <Annotator image={shot} onChange={(b, m) => (setMarked(b), setMarks(m))} /> : null}
       {problem ? (

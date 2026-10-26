@@ -85,16 +85,14 @@ describe('images an agent attaches to a message', () => {
     expect(imgs.filter(Boolean).join(',')).toContain('text,img,text,img,text');
   });
 
-  it('opens a picture larger on a click, with a Close button that closes it', async () => {
+  it('opens a picture larger on a click, and Escape closes it', async () => {
     const s = setup();
     seed(s);
     await mount(s);
     await until(() => box.querySelectorAll('.msg .attachment img').length === 2, 'the pictures');
     await click(box.querySelector('.msg button.attachment')!);
     await until(() => $('.ui-dialog img'), 'the larger picture');
-    const close = [...document.querySelectorAll<HTMLElement>('.ui-dialog button')].find((b) => b.textContent?.includes('Close'))!;
-    expect(close).toBeTruthy();
-    await click(close);
+    await act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))); // Base UI listens on the document
     await until(() => !$('.ui-dialog'), 'the dialog closed');
   });
 
@@ -115,7 +113,13 @@ describe('images an agent attaches to a message', () => {
     const s = setup();
     const a = s.daemon.uploads.addMemoFile('first.png', 'image/png', PNG);
     const image = { id: a.id, name: a.name, mime: 'image/png' as const, bytes: a.bytes };
-    s.daemon.chat.seed(ARCH, { from: ARCH, to: 'human', body: 'see', attachments: [image], parts: [{ text: 'see ' }, { image, caption: 'one', gone: true }] });
+    s.daemon.chat.seed(ARCH, {
+      from: ARCH,
+      to: 'human',
+      body: 'see',
+      attachments: [image],
+      parts: [{ text: 'see ' }, { image, caption: 'one', gone: true }],
+    });
     await mount(s);
     await until(() => box.querySelector('.msg .attachment.gone'), 'the dropped image');
     expect(box.querySelector('.msg .attachment.gone')!.textContent).toBe('one - no longer kept');

@@ -383,7 +383,7 @@ func (e *Env) plistBody(label string, args []string, home, out, errLog string) s
 		b.WriteString(s(a))
 	}
 	b.WriteString("</array>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n<key>ThrottleInterval</key><integer>10</integer>\n")
-	b.WriteString("<key>StandardOutPath</key>" + s(out) + "\n<key>StandardErrorPath</key>" + s(errLog) + "\n")
+	b.WriteString("<key>WorkingDirectory</key>" + s(home) + "\n<key>StandardOutPath</key>" + s(out) + "\n<key>StandardErrorPath</key>" + s(errLog) + "\n")
 	b.WriteString("<key>EnvironmentVariables</key><dict><key>HOME</key>" + s(e.UserHome) + "<key>PATH</key>" + s(e.Path) +
 		"<key>HANDLINE_HOME</key>" + s(home) + "</dict>\n</dict>\n</plist>\n")
 	return b.String()

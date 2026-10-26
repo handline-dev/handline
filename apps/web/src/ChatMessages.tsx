@@ -92,6 +92,31 @@ function Ticks({ level, label, receipt }: { level: 0 | 1 | 2; label: string; rec
   );
 }
 
+/** Under a message of the person's: the request made from it (a link to its task), or why it needs no work; a picked one with neither offers Make a request. */
+function RequestChip({ m, picked }: { m: ChatMessage; picked: boolean }) {
+  if (m.request_task != null)
+    return (
+      <a
+        className="msg-request mt-0.5 w-fit self-end text-label text-link"
+        href={`#/tasks/${m.request_task}`}
+        data-request={m.request_task}
+      >
+        Request T{m.request_task}
+      </a>
+    );
+  if (m.no_work) return <span className="msg-request mt-0.5 w-fit self-end text-label text-ink-3">No work: {m.no_work}</span>;
+  return picked ? <MakeRequest id={m.id} /> : null;
+}
+
+function MakeRequest({ id }: { id: number }) {
+  const make = useWrite('task.request');
+  return (
+    <span className="msg-request mt-0.5 w-fit self-end">
+      <Button variant="outline" label="Make a request" disabled={make.isPending} onClick={() => make.mutate({ request: id })} />
+    </span>
+  );
+}
+
 export function Message(props: {
   m: ChatMessage;
   agent: string;
@@ -200,6 +225,7 @@ export function Message(props: {
           </div>
         ) : null}
       </div>
+      {side === 'person' && !unnumbered && !failed ? <RequestChip m={m} picked={!!props.picked} /> : null}
       <Stamp
         left={side !== 'agent'}
         time={clockTime(m.at)}

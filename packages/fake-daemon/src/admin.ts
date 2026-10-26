@@ -38,6 +38,8 @@ const DEFAULTS: Settings['values'] = {
   host_active_cap: 0,
   load_per_core_pct: 150,
   ram_free_min_pct: 10,
+  heavy_slots: 2,
+  keep_awake: 'off',
 };
 
 /** What the outlook_agent_use fixtures name (--var outlook_agent=grp.one outlook_group=grp): two agents of the group grp. */
@@ -334,6 +336,10 @@ export class FakeAdmin {
         throw badRequest('active_cap is a whole number from 1', 'active_cap');
       if (key === 'park_timeout_s' && value !== null && (!Number.isInteger(value) || (value as number) < 0))
         throw badRequest('park_timeout_s is a whole number of seconds, 0 for never', 'park_timeout_s');
+      if (key === 'heavy_slots' && value !== null && (!Number.isInteger(value) || (value as number) < 1))
+        throw badRequest('heavy_slots is a whole number, at least 1', 'heavy_slots');
+      if (key === 'keep_awake' && value !== null && value !== 'off' && value !== 'on' && value !== 'working')
+        throw badRequest('keep_awake is off, on or working', 'keep_awake');
       const values = this.values as Record<string, unknown>;
       if (value === null) {
         values[key] = structuredClone(DEFAULTS[key as keyof typeof DEFAULTS]);

@@ -9,12 +9,14 @@ import (
 	"github.com/handline/handline/go/internal/delivery"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/testkill"
 )
 
@@ -313,5 +315,19 @@ func assistantText(ev *events) func() string {
 			}
 		}
 		return ""
+	}
+}
+
+// CheckVersion runs the CLI in the daemon's quiet folder, not in the folder the daemon was started from.
+func TestCheckVersionRunsTheCLIInAFolderOfItsOwn(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HANDLINE_HOME", home)
+	cli := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\npwd -P\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := filepath.EvalSymlinks(paths.QuietDir())
+	if err := CheckVersion(context.Background(), cli, want); err != nil {
+		t.Fatalf("it did not run in %s: %v", want, err)
 	}
 }
