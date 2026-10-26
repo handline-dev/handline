@@ -1,11 +1,11 @@
-// Follow-main mode in Electron terms: the checkout the app runs from, a watch on the repo it was cloned from, and the popover in the window.
+// Follow-main mode in Electron terms: the checkout the app runs from, a watch on GitHub's main through the repo it was cloned from, and the popover in the window.
 // The decision and the update are in follow.ts; this connects them to git, the window and the tray.
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, ipcMain, WebContentsView, type BrowserWindow } from 'electron';
-import { Follower, watchMain, type Main } from '#src/follow.ts';
+import { Follower, peekMain, watchMain, type Main } from '#src/follow.ts';
 import { popoverHtml } from '#src/popover-html.ts';
 
 const sh = (file: string, args: string[], cwd: string): Promise<string> =>
@@ -65,10 +65,7 @@ export function followMain(o: { dir: string; window: () => BrowserWindow | null;
   let source = '';
   const follower = new Follower({
     run: (file, args) => sh(file, args, o.dir),
-    peek: async () => {
-      const git = (...a: string[]) => sh('git', ['-C', source, ...a], o.dir).then((s) => s.trim());
-      return { sha: await git('rev-parse', 'main'), title: await git('log', '-1', '--format=%s', 'main') };
-    },
+    peek: () => peekMain((...a) => sh('git', ['-C', source, ...a], o.dir).then((s) => s.trim())),
     beforeRelaunch: () => {
       const url = o.window()?.webContents.getURL() ?? '';
       try {
@@ -106,6 +103,13 @@ export function followMain(o: { dir: string; window: () => BrowserWindow | null;
         () => void follower.look(),
         (e) => follower.watchFailed(e),
       );
+      // A fetch anywhere in the source repo moves the watched ref; a window coming to the front looks by itself too, at most once a minute.
+      let looked = 0;
+      app.on('browser-window-focus', () => {
+        if (Date.now() - looked < 60_000) return;
+        looked = Date.now();
+        void follower.look();
+      });
       await follower.init();
     },
   };
