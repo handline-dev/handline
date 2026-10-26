@@ -419,6 +419,19 @@ describe('the sidebar', () => {
     expect($('.row-working')).toBeNull();
   });
 
+  it("a hovered row's gear opens that agent's settings, whose back button, above the title, returns to the agent", async () => {
+    await mount(TB);
+    await until(() => $$('.row-wrap').length === 3, 'rows');
+    const row = $('[data-agent="handline.architect"]')!;
+    await act(async () => void row.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
+    await click(row.querySelector('[aria-label="Settings of handline.architect"]')!);
+    expect(location.hash).toBe('#/agents/handline.architect/settings');
+    await until(() => $('.settings-agent .back'), 'the back button');
+    expect($('.settings-agent .back')!.nextElementSibling).toBeNull(); // on a line of its own, apart from the title
+    await click($('.settings-agent .back')!);
+    expect(location.hash).toBe('#/agents/handline.architect');
+  });
+
   it('shows no Start on a row, and the row menu keeps only Open in, the copies, what stops a turn and Delete agent', async () => {
     await mount(TB);
     await until(() => $$('.row-wrap').length === 3, 'rows');

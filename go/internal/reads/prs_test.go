@@ -197,3 +197,20 @@ func TestAWorktreeRecordedAsRepoIdAndPathStillNamesItsRepo(t *testing.T) {
 		t.Fatalf("%v", wt)
 	}
 }
+
+func TestAgentGetCarriesTheSettingsOfItsAgentFile(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "w", "")
+	writeAgentYAML(t, e, "w", "role: r\nmodel: opus\neffort: low\nweight: light\nrepo: handline\n")
+	got, err := e.agentGet(nil, map[string]any{"agent": "w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := got.(map[string]any)["settings"].(map[string]string)
+	if s["model"] != "opus" || s["effort"] != "low" || s["weight"] != "light" || s["repo"] != "handline" {
+		t.Fatalf("%v", s)
+	}
+	if _, has := s["session_account"]; has {
+		t.Fatalf("a key outside the contract: %v", s)
+	}
+}

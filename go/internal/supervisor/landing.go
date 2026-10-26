@@ -146,7 +146,7 @@ func (e *Env) shownIn(q db.Q, row *db.Request, transcript string, whole bool) bo
 	if !e.typedRow(q, row) {
 		return ShownIn(transcript, row.Ref, whole)
 	}
-	text := founderText(row, e.imageLines(q, row))
+	text := founderText(q, row, e.imageLines(q, row))
 	f, err := os.Open(transcript)
 	if err != nil {
 		return false

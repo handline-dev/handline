@@ -446,9 +446,12 @@ func typedRecord(text string) matcher {
 	}
 }
 
+// pasted is how Claude Code records a multi-line paste it collapsed to "[Pasted text #1 +3 lines]": the text wrapped in a tag pair.
+var pasted = regexp.MustCompile(`(?s)<pasted_content id="[^"]*">\n(.*?)\n</pasted_content id="[^"]*">`)
+
 func same(v any, text string) bool {
 	s, ok := v.(string)
-	return ok && strings.TrimSpace(s) == text
+	return ok && strings.TrimSpace(pasted.ReplaceAllString(s, "$1")) == text
 }
 
 // Type puts text into the session with typeIn and waits, as Deliver does, until the transcript shows it as the person's own prompt. It is
