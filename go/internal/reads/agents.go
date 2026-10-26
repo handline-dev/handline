@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -233,6 +234,22 @@ func (e *Env) agentGet(c *rpc.Conn, params map[string]any) (any, error) {
 	out["account_pick"] = map[string]any{"account": nil, "reason": "this daemon does not place sessions yet"}
 	if out["prompt"], err = e.openPrompt(name); err != nil {
 		return nil, err
+	}
+	if vals, err := e.agentSettings(name); err == nil { // an unreadable agent.yaml is doctor's to report; the detail still answers
+		out["settings"] = vals
+	}
+	return out, nil
+}
+
+// agentSettings is AgentDetail.settings: the keys the settings page edits, as the agent file holds them.
+func (e *Env) agentSettings(name string) (map[string]string, error) {
+	all, err := team.NewRoster(e.Home).SettingsOf(e.DB, name, "", func(s int64) string { return strconv.FormatInt((s+59)/60, 10) })
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(team.Editable))
+	for _, k := range team.Editable {
+		out[k] = all[k]
 	}
 	return out, nil
 }

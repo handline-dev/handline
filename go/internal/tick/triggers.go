@@ -13,10 +13,8 @@ import (
 
 // The numbers the triggers and the account pick are made from (session/triggers.py).
 const (
-	// ContextTokens replaces the cache-expiry trigger: an absolute figure, so it means the same on every model. An agent's own
-	// context_tokens overrides it, and ContextClampFraction holds a small-window model down to its share.
-	ContextTokens = 150_000
-	// ContextClampFraction is the ceiling of last resort for a model whose window is known.
+	// ContextClampFraction holds an agent's context threshold (team.ContextTokens or its own context_tokens) to this share of a model's
+	// window when the window is known.
 	ContextClampFraction = 0.60
 	// WallPct is where both windows are spent to their own ceiling.
 	WallPct = 100

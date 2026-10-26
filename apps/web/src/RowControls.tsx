@@ -6,6 +6,7 @@ import { useSelector } from '@handline/app-react';
 import { useServed } from '#src/AgentVerbs.tsx';
 import { Button, Icon, MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger, type At, type IconName } from '#src/ui/index.ts';
 import { shell } from '#src/shell.ts';
+import { goSettings } from '#src/route.ts';
 
 const VERB_ICON: Partial<Record<VerbId, IconName>> = {
   interrupt: 'cancel',
@@ -15,12 +16,21 @@ const VERB_ICON: Partial<Record<VerbId, IconName>> = {
 /** The only session verbs the menu offers: stopping a turn is the person's call; the rest the daemon does itself. */
 const MENU_VERBS: VerbId[] = ['interrupt'];
 
-/** The button that opens the row's menu at itself. */
+/** The row's two buttons: the agent's Settings, and the one that opens the row's menu at itself. */
 export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (at: At) => void }) {
   const agent = a.name;
   const mark = useVerbMark(agent);
   return (
     <span className="row-actions relative flex flex-none items-center gap-1">
+      <Button
+        label={`Settings of ${agent}`}
+        aria-label={`Settings of ${agent}`}
+        size="sm"
+        className="!rounded-full !border-line bg-surface w-7 p-0"
+        onClick={() => goSettings(agent)}
+      >
+        <Icon name="settings" size={14} aria-hidden />
+      </Button>
       <Button
         label={`More actions for ${agent}`}
         aria-label={`More actions for ${agent}`}
