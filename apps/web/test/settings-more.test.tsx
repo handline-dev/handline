@@ -36,24 +36,15 @@ const setValue = (el: HTMLInputElement | HTMLSelectElement, value: string) =>
 const blur = (el: HTMLElement) => act(async () => void el.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
 const field = (label: string) => $(`[data-setting="${label}"] input`) as HTMLInputElement;
 
-async function mount(hash: string, s = setup()) {
+async function mount(hash: string, s = setup(), folds = true) {
   location.hash = hash;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
   await act(async () => {
     root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
   });
-  await openFolds();
+  if (folds) await openFolds();
   return s;
-}
-
-/** The Advanced and About sections start folded: open them once the page has drawn them (a daemon without settings has none). */
-async function openFolds() {
-  for (let i = 0; i < 40; i++) {
-    const folds = [...document.querySelectorAll<HTMLElement>('.settings-shell button[aria-expanded="false"]')];
-    if (folds.length) return act(async () => folds.forEach((b) => b.click()));
-    await act(async () => void (await new Promise((r) => setTimeout(r, 50))));
-  }
 }
 const scrollIntoView = Element.prototype.scrollIntoView;
 afterEach(async () => {
@@ -130,3 +121,10 @@ describe('settings: more sections', () => {
     expect($('[data-setting="Fingerprint"]')).toBeNull();
   });
 });
+
+/** The Advanced and About sections start folded: open them once the page has drawn them. */
+async function openFolds() {
+  await until(() => document.querySelector('.settings-shell button[aria-expanded="false"]'), 'the folds');
+  const folds = [...document.querySelectorAll<HTMLElement>('.settings-shell button[aria-expanded="false"]')];
+  await act(async () => folds.forEach((b) => b.click()));
+}

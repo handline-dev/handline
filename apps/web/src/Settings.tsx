@@ -13,7 +13,8 @@ import { TeamSeal } from '#src/TeamSeal.tsx';
 import { SettingsFold, SettingsShell } from '#src/SettingsShell.tsx';
 import { View } from '#src/View.tsx';
 
-const HOST_CAP = 'Agents at once';
+/** The machine-wide cap stays in General; the other load limits are Advanced. */
+const isHostCap = (f: { change: (n: null) => object }) => 'host_active_cap' in f.change(null);
 
 export const parsePrompt = (t: string) => (/[\r\n]/.test(t) ? INVALID : t.trim());
 
@@ -41,7 +42,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                       more="An account with its own cap keeps it"
                     />
                     {limits
-                      .filter((f) => f.label === HOST_CAP)
+                      .filter((f) => isHostCap(f))
                       .map((f) => (
                         <NumberRow key={f.label} {...f} />
                       ))}
@@ -76,7 +77,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                 <SettingsFold title="Advanced" hint="Limits, pacing, background work, handoff notes, terminal view">
                   <SettingsCard>
                     {limits
-                      .filter((f) => f.label !== HOST_CAP)
+                      .filter((f) => !isHostCap(f))
                       .map((f) => (
                         <NumberRow key={f.label} {...f} />
                       ))}
