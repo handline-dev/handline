@@ -94,7 +94,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const entries = chatEntries(chat.messages, chat.items, agent, decidedProposals(hr.data?.proposals, agent));
   const folds = useFolds(chat.status === 'ready', entries);
 
-  useChatReadMarks(agent, chat, act.seen);
+  useChatReadMarks(agent, chat);
 
   const sent = entries.findLast((e) => e.kind === 'message' && sideOf(e.message, agent, me) === 'person')?.id; // the row a send holds at the top
   const drawn = going !== null && entries.some((e) => e.kind !== 'item' && e.id === going);

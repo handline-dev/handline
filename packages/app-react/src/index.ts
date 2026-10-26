@@ -1,5 +1,15 @@
 // React bindings for the shared store. No JSX, so the package is plain .ts that Vite and Metro compile as it is.
-import { createContext, createElement, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import type { Store } from '@handline/app-core';
 import { RpcError } from '@handline/client';
 
@@ -67,10 +77,22 @@ export function useSelector<T>(select: (s: Store) => T): T {
   return last.current.value;
 }
 
+/**
+ * Like `useSelector`, but draws again only when the selected value changes (by `Object.is`), not on every store change.
+ * For a flag, a name or a number; a value the store changes in place would not be noticed.
+ */
+export function useSelected<T extends string | number | boolean | null | undefined>(select: (s: Store) => T): T {
+  const store = useStore();
+  const pick = useRef(select);
+  pick.current = select;
+  const subscribe = useCallback((cb: () => void) => store.subscribe(cb), [store]);
+  return useSyncExternalStore(subscribe, () => pick.current(store));
+}
+
 export const useConnection = () => useSelector((s) => s.conn);
 export const useError = () => useSelector((s) => s.error);
 /** Who this window is and what the daemon said at hello: read through the store version, so a render is never left with the values from before the hello. */
-export const useMe = () => useSelector((s) => s.me);
+export const useMe = () => useSelected((s) => s.me);
 export const useHello = () => useSelector((s) => s.client.hello);
 
 /** Runs one async job at a time: a call while it runs does nothing. `going` is true meanwhile, for the buttons to disable. */
