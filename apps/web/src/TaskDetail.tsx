@@ -7,7 +7,7 @@ import { useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, useOff, usePending, useTask, useTaskHistory, useTaskTime, useWrite } from '@handline/app-data';
 import { Button, MenuButton, MenuItem, MenuSeparator } from '#src/ui/index.ts';
-import { goTasks } from '#src/route.ts';
+import { leave } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
 import { AskSheets, type Ask } from '#src/TaskAsk.tsx';
 import { TaskChips, TaskWatch, TaskLinks } from '#src/TaskDetailParts.tsx';
@@ -128,7 +128,7 @@ function Body({ t }: { t: Detail }) {
   } as const;
   const key = (e: KeyboardEvent) => {
     if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === 'Escape') return ask ? setAsk(null) : goTasks();
+    if (e.key === 'Escape') return ask ? setAsk(null) : leave('#/tasks');
     const f = (verbs as Record<string, () => void>)[e.key];
     if (!f) return;
     e.preventDefault();
