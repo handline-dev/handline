@@ -115,15 +115,7 @@ export function DeviceTab({
             options={mine.map((d) => ({ value: d.id, label: d.name }))}
           />
         ) : null}
-        <span className="min-w-0 flex-1 text-body text-ink-2">
-          {why
-            ? ''
-            : drives
-              ? 'Click the picture to tap, drag to swipe, type letters and numbers to type.'
-              : kind === 'ios' && !idb
-                ? IDB_HOW
-                : 'A picture of the device.'}
-        </span>
+        <span className="min-w-0 flex-1 text-body text-ink-2">{kind === 'ios' && !idb && !why ? IDB_HOW : ''}</span>
         <Button size="sm" icon="refresh" label="Refresh" onClick={() => setNow((n) => n + 1)} />
         {shot ? (
           <Button size="sm" variant="outline" label="Mark an area to ask" onClick={() => setMarking(latest.current)}>
