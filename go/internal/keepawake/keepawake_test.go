@@ -19,7 +19,10 @@ func TestModeOfReadsOffForAnythingUnknown(t *testing.T) {
 
 func TestTheLockIsHeldPerModeAndReleasedWhenNoLongerWanted(t *testing.T) {
 	held, released := 0, 0
-	h := &Holder{Start: func() (func(), error) { held++; return func() { released++ }, nil }}
+	h := &Holder{Start: func() (*Lock, error) {
+		held++
+		return &Lock{Release: func() { released++ }, Alive: func() bool { return true }}, nil
+	}}
 	h.Sync(Off, true)
 	h.Sync(Working, false)
 	if held != 0 || h.Holding() {
@@ -46,7 +49,7 @@ func TestTheLockIsHeldPerModeAndReleasedWhenNoLongerWanted(t *testing.T) {
 
 func TestAStartThatFailsIsTriedAgainOnlyAfterTheModeChanges(t *testing.T) {
 	tries := 0
-	h := &Holder{Start: func() (func(), error) { tries++; return nil, errNo }}
+	h := &Holder{Start: func() (*Lock, error) { tries++; return nil, errNo }}
 	for range 3 {
 		h.Sync(On, false)
 	}
@@ -65,3 +68,23 @@ type noErr string
 func (e noErr) Error() string { return string(e) }
 
 const errNo = noErr("no caffeinate")
+
+func TestALockWhoseProcessDiedIsTakenAgain(t *testing.T) {
+	alive, held := true, 0
+	h := &Holder{Start: func() (*Lock, error) {
+		held++
+		return &Lock{Release: func() {}, Alive: func() bool { return alive }}, nil
+	}}
+	h.Sync(On, false)
+	alive = false
+	if h.Holding() {
+		t.Fatal("a dead lock is not held")
+	}
+	alive = true
+	h.Sync(On, false)
+	alive = false
+	h.Sync(On, false)
+	if held != 2 {
+		t.Fatalf("started %d times", held)
+	}
+}

@@ -30,21 +30,28 @@ func ModeOf(cfg usage.Config) string {
 	return Off
 }
 
-// Holder holds the sleep lock while Sync says it is wanted. Start takes the lock and returns what releases it; nil runs caffeinate.
+// Lock is a held sleep lock: Release gives it up, and Alive says whether the process holding it still runs.
+type Lock struct {
+	Release func()
+	Alive   func() bool
+}
+
+// Holder holds the sleep lock while Sync says it is wanted. Start takes the lock; nil runs caffeinate. A lock whose process died (it was
+// killed) is dropped and taken again at the next Sync.
 type Holder struct {
-	Start func() (release func(), err error)
+	Start func() (*Lock, error)
 	Log   func(string)
 
-	mu      sync.Mutex
-	release func()
-	failed  bool
+	mu     sync.Mutex
+	lock   *Lock
+	failed bool
 }
 
 // Holding is whether the lock is held now.
 func (h *Holder) Holding() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.release != nil
+	return h.lock != nil && h.lock.Alive()
 }
 
 // Sync holds the lock when mode wants it (on, or working with an agent mid-turn) and releases it otherwise.
@@ -52,13 +59,16 @@ func (h *Holder) Sync(mode string, working bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	want := mode == On || (mode == Working && working)
+	if h.lock != nil && !h.lock.Alive() {
+		h.lock = nil
+	}
 	switch {
-	case want && h.release == nil && !h.failed:
+	case want && h.lock == nil && !h.failed:
 		start := h.Start
 		if start == nil {
 			start = caffeinate
 		}
-		release, err := start()
+		lock, err := start()
 		if err != nil {
 			h.failed = true // once, not at every tick
 			if h.Log != nil {
@@ -66,10 +76,10 @@ func (h *Holder) Sync(mode string, working bool) {
 			}
 			return
 		}
-		h.release = release
-	case !want && h.release != nil:
-		h.release()
-		h.release = nil
+		h.lock = lock
+	case !want && h.lock != nil:
+		h.lock.Release()
+		h.lock = nil
 	}
 	if !want {
 		h.failed = false
@@ -77,7 +87,7 @@ func (h *Holder) Sync(mode string, working bool) {
 }
 
 // caffeinate holds the idle-sleep lock until released or until this daemon exits (-w), so a killed daemon leaves none behind.
-func caffeinate() (func(), error) {
+func caffeinate() (*Lock, error) {
 	if runtime.GOOS != "darwin" {
 		return nil, fmt.Errorf("only macOS has caffeinate")
 	}
@@ -85,5 +95,16 @@ func caffeinate() (func(), error) {
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	return func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }, nil
+	died := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(died) }()
+	return &Lock{
+		Release: func() { _ = cmd.Process.Kill(); <-died },
+		Alive: func() bool {
+			select {
+			case <-died:
+				return false
+			default:
+				return true
+			}
+		}}, nil
 }

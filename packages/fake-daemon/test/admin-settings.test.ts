@@ -44,7 +44,7 @@ test('settings.get serves every SettingsValues key, a load limit reads back, and
   assert.equal((await client.call('settings.get', {})).values.load_per_core_pct, 150);
   assert.deepEqual([first.values.heavy_slots, first.values.keep_awake], [2, 'off']);
   await assert.rejects(
-    client.call('settings.set', { changes: { keep_awake: 'always' }, request_id: 'l1-d' }),
+    client.call('settings.set', { changes: { keep_awake: 'always' as never }, request_id: 'l1-d' }),
     (e: RpcError) => e.code === 'bad_request',
   );
   await client.call('settings.set', { changes: { keep_awake: 'working', heavy_slots: 3 }, request_id: 'l1-e' });
