@@ -44,7 +44,7 @@ type Info struct {
 	Name  string `json:"name"`
 	Mime  string `json:"mime"`
 	Bytes int64  `json:"bytes"`
-	// Width and Height are the picture's, from its header when it was put; 0 when it could not be read, or put before they were kept.
+	// Width and Height are the picture's as drawn, from its header when it was put; 0 when it could not be read, or put before they were kept.
 	Width  int `json:"width,omitempty"`
 	Height int `json:"height,omitempty"`
 }

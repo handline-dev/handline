@@ -1445,7 +1445,7 @@ export type Attachment = {
   name: string;
   mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
   bytes: number;
-  /** The picture's width in pixels, read from its header when it was put, so a client can size it before it arrives. Absent when the header could not be read, or for an image put before it was kept. */
+  /** The picture's width in pixels as it is drawn (a JPEG's Exif orientation applied), read from its header when it was put, so a client can size it before it arrives. Absent when the header could not be read, or for an image put before it was kept. */
   width?: number;
   /** The picture's height in pixels; present exactly when width is. */
   height?: number;
