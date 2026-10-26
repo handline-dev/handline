@@ -164,7 +164,9 @@ export function useAgentTasks(agent: string) {
 export const useAgentStrip = (agent: string) => useRead('agent.strip', { agent }, { enabled: agent !== '' });
 export const useTask = (task: number) => useRead('task.get', { task });
 /** The titles of these tasks, each read by its id (the same read, and cache, as `useTask`): for a task the list of the newest tasks no longer holds. */
-export function useTaskTitles(ids: readonly number[]): Map<number, string> {
+export const useTaskTitles = (ids: readonly number[]): Map<number, string> => useTaskTitleReads(ids).titles;
+/** The same, and whether any of the reads is still on its way. */
+export function useTaskTitleReads(ids: readonly number[]): { titles: Map<number, string>; pending: boolean } {
   const store = useStore();
   const { daemon } = useData();
   const { served, open } = useServes('task.get');
@@ -176,7 +178,10 @@ export function useTaskTitles(ids: readonly number[]): Map<number, string> {
       staleTime: SNAPSHOT_STALE_MS,
     })),
   });
-  return new Map(results.flatMap((r) => (r.data ? [[r.data.id, r.data.title] as const] : [])));
+  return {
+    titles: new Map(results.flatMap((r) => (r.data ? [[r.data.id, r.data.title] as const] : []))),
+    pending: results.some((r) => r.isPending && r.fetchStatus !== 'idle'),
+  };
 }
 export const useTaskHistory = (task: number) => useRead('task.history', { task });
 export const useTaskTime = (task: number) => useRead('task.time', { task });

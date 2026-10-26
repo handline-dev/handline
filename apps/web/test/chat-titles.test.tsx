@@ -33,19 +33,36 @@ describe('task card titles', () => {
     expect(found).toBe(true);
   });
 
-  it('draws no card before the titles are known, so a title never arrives later and moves the rows', async () => {
-    const s = setup();
+  const wait = (ms: number) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
+  const cards = () => [...box.querySelectorAll('[data-kind="task_event"]')];
+  const open = async (s: ReturnType<typeof setup>) => {
     location.hash = '#/agents/handline.architect';
     box = document.body.appendChild(document.createElement('div'));
     root = createRoot(box);
     await act(async () => root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />));
-    let seen = 0;
-    for (let i = 0; i < 100; i++) {
-      await act(async () => void (await new Promise((r) => setTimeout(r, 5))));
-      const cards = [...box.querySelectorAll('[data-kind="task_event"]')];
-      seen += cards.length;
-      expect(cards.filter((c) => c.textContent?.includes('T1684') && !c.textContent.includes('Web UI design'))).toEqual([]);
-    }
-    expect(seen).toBeGreaterThan(0);
+  };
+
+  it('draws no task card while the list of titles is on its way, then draws them titled', async () => {
+    const s = setup();
+    const release = s.daemon.knobs.hold('tasks.list');
+    await open(s);
+    await wait(500);
+    expect(cards()).toHaveLength(0);
+    release();
+    await wait(500);
+    expect(cards().length).toBeGreaterThan(0);
+    expect(cards().every((c) => c.textContent?.includes('Web UI design'))).toBe(true);
+  });
+
+  it('draws no card either while the title of an older task is read by its id', async () => {
+    const s = setup();
+    applySeeds(s.daemon, 'tasks-200');
+    const release = s.daemon.knobs.hold('task.get');
+    await open(s);
+    await wait(500);
+    expect(cards()).toHaveLength(0);
+    release();
+    await wait(500);
+    expect(cards().some((c) => c.textContent?.includes('Web UI design'))).toBe(true);
   });
 });
