@@ -48,7 +48,7 @@ afterEach(async () => {
 
 describe('a stalled account', () => {
   it('shows STALLED and its reason in the list, only on the stalled account', async () => {
-    await mount('#/accounts');
+    await mount('#/stats');
     await until(() => $('[data-stall="beta"]'), 'the stall');
     expect($('[data-stall="beta"]')!.textContent).toContain('STALLED');
     expect($('[data-stall="beta"]')!.textContent).toContain('billing_error');
@@ -56,7 +56,7 @@ describe('a stalled account', () => {
   });
 
   it('Wake ends the stall, on the list and on the account page', async () => {
-    const s = await mount('#/accounts');
+    const s = await mount('#/stats');
     await until(wakeButton, 'Wake');
     await act(async () => void wakeButton()!.click());
     await until(() => !$('[data-stall="beta"]'), 'the stall to end');
@@ -70,7 +70,7 @@ describe('a stalled account', () => {
   });
 
   it('says why when the daemon refuses, and puts the stall back', async () => {
-    const s = await mount('#/accounts');
+    const s = await mount('#/stats');
     await until(wakeButton, 'Wake');
     // The daemon's stall ended behind this page's back (no topic event yet), so its wake is refused.
     (s.daemon.accounts as unknown as { rows: { name: string; stalled: unknown }[] }).rows.find((r) => r.name === 'beta')!.stalled = null;
@@ -82,7 +82,7 @@ describe('a stalled account', () => {
   it('shows no Wake to a daemon that does not serve account.wake', async () => {
     const s = setup();
     s.daemon.knobs.unserve?.('account.wake');
-    await mount('#/accounts', s);
+    await mount('#/stats', s);
     await until(() => $('[data-stall="beta"]'), 'the stall');
     expect(wakeButton()).toBeUndefined();
   });

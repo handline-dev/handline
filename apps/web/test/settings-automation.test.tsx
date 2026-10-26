@@ -34,13 +34,14 @@ const blur = (el: HTMLElement) => act(async () => void el.dispatchEvent(new Focu
 const field = (label: string) => $(`[data-setting="${label}"] input`) as HTMLInputElement;
 const values = (s: ReturnType<typeof setup>) => s.daemon.admin.settings().values as Record<string, unknown>;
 
-async function mount(s = setup()) {
+async function mount(s = setup(), folds = true) {
   location.hash = '#/settings';
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
   await act(async () => {
     root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
   });
+  if (folds) await openFolds();
   return s;
 }
 const scrollIntoView = Element.prototype.scrollIntoView;
@@ -90,8 +91,15 @@ describe('settings: handoff prompt and cache expiry', () => {
   });
 
   it('a daemon without settings.get shows no rows', async () => {
-    await mount(setup({ daemon: { admin: false } }));
+    await mount(setup({ daemon: { admin: false } }), false);
     await wait(50);
     expect(prompt()).toBeNull();
   });
 });
+
+/** The Advanced and About sections start folded: open them once the page has drawn them. */
+async function openFolds() {
+  await until(() => document.querySelector('.settings-shell button[aria-expanded="false"]'), 'the folds');
+  const folds = [...document.querySelectorAll<HTMLElement>('.settings-shell button[aria-expanded="false"]')];
+  await act(async () => folds.forEach((b) => b.click()));
+}
