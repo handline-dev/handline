@@ -52,6 +52,8 @@ func (h healPorts) Interrupt(agent string) (bool, string) {
 
 func (h healPorts) Push(q db.Q, agent string, rid int64) string { return h.lc.Env.Push(q, agent, rid) }
 
+func (h healPorts) LoadHeld(agent string) string { return h.lc.Gate.Held(agent) }
+
 // Restart takes a RUNNING agent out of its turn without waiting for it (RestartHung); one between turns is restarted as a person's
 // restart is.
 func (h healPorts) Restart(agent string, fresh bool) (bool, string, error) {
