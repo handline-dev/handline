@@ -42,7 +42,7 @@ export function sentence(f: Failure): string {
     case 'busy':
       return 'The daemon is busy; trying again.';
     case 'not_served':
-      return 'This daemon does not serve that.';
+      return 'This needs a newer Handline.';
     case 'transport':
       return '';
   }

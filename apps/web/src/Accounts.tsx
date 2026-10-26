@@ -98,7 +98,7 @@ export function Stall({ account }: { account: Account }) {
     <span className="acct-stall flex flex-wrap items-center gap-2 text-hint" data-stall={account.name}>
       {account.stalled ? (
         <>
-          <span className="badge stalled inline-block rounded-card border border-bad px-1.5 text-bad">STALLED</span>
+          <span className="badge stalled inline-block rounded-card border border-bad px-1.5 text-bad">blocked</span>
           <span className="acct-stall-reason" title={account.stalled.detail || account.stalled.error}>
             {account.stalled.reason}
           </span>

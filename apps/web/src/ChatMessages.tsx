@@ -372,8 +372,8 @@ export function Item({
           {p?.kind === 'permission' ? <span className="mono">{p.tool}</span> : <span className="muted">{p?.kind}</span>}
           {p?.command ? <CardCode>{p.command}</CardCode> : null}
         </CardWhat>
-        <span className="card-state" title={i.open ? 'Waiting for you' : 'Answered'}>
-          <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Waiting for you' : 'Answered'} />
+        <span className="card-state" title={i.open ? 'Needs you' : 'Answered'}>
+          <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Needs you' : 'Answered'} />
         </span>
         <span className="muted card-time">{clockTime(i.at)}</span>
       </Card>

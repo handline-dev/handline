@@ -20,13 +20,13 @@ export function badgesOf(a: AgentView | AgentDetail, me: string): Badge[] {
   if (a.has_dialog || detail.prompt) out.push({ kind: 'dialog', label: '!', tip: 'A dialog is open: answer it in Chat' });
   if (a.block || a.state === 'stalled' || a.state === 'blocked') {
     const why = a.block ? `${a.block.kind} since ${a.block.since}` : a.state;
-    out.push({ kind: 'stalled', label: a.state === 'stalled' ? 'STALLED' : 'blocked', tip: why });
+    out.push({ kind: 'stalled', label: 'blocked', tip: why });
   }
   const holder = a.input_holders?.[0];
   if (holder && holder.kind !== 'daemon' && holder.name !== me)
     out.push({
       kind: 'held',
-      label: `held: ${holder.name}`,
+      label: `${holder.name} is typing`,
       tip: `${holder.name} holds the input${holder.since ? ` since ${holder.since}` : ''}`,
     });
   if (a.structured) {

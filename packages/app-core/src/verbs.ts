@@ -34,7 +34,7 @@ export const VERBS: Record<VerbId, Verb> = Object.fromEntries([
   V('fold', 'Fold into handoff', 'agent.fold', 'folding…'),
   V('move', 'Move account', 'agent.move', 'moving…'),
   V('force_start', 'Force start', 'agent.force_start', 'starting…', 'The machine is over its load limit; this starts the work now, once.'),
-  V('clear_stall', 'Clear stall', 'agent.unstall', 'waking…', 'The stall is cleared and the agent is woken.'),
+  V('clear_stall', 'Wake it', 'agent.unstall', 'waking…', 'The stall is cleared and the agent is woken.'),
 ] as [VerbId, Verb][]) as Record<VerbId, Verb>;
 
 /** The bridge's CONFIRM (close, restart, park, fold) with restart fresh as a restart (a person never wakes an agent by hand: a message does). */
