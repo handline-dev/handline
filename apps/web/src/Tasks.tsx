@@ -31,6 +31,7 @@ import { ReasonSheet, useCan, useNow, useWide } from '#src/taskui.tsx';
 import { useMarks } from '#src/useMarks.ts';
 import { VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from '#src/TaskVerbUi.tsx';
 import { View } from '#src/View.tsx';
+import { typing } from '#src/typing.ts';
 
 type Open = null | 'discard' | 'owner' | 'priority' | 'merge' | 'states' | 'keys' | 'new';
 
@@ -43,8 +44,6 @@ const inScope = (tasks: Task[], scope: Scope, me: string, now: number, graph: bo
     : (scope === 'mine' ? tasks.filter((t) => t.to === me) : tasks).filter(
         (t) => graph || !CLOSED.includes(t.state) || now - Date.parse(t.done ?? t.created) <= DAY,
       );
-
-const typing = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable]');
 
 export function TasksPage({ route }: { route: string }) {
   const id = route && route !== 'graph' ? Number(route) : null;
