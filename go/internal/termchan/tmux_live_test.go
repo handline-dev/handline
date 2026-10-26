@@ -30,6 +30,7 @@ func TestLiveTmux(t *testing.T) {
 
 func liveTmux(t *testing.T, sock string, file *string) {
 	t.Setenv("HANDLINE_TMUX_SOCKET", sock)
+	t.Setenv("SHELL", "/bin/sh") // the server and its windows start with this one: no user rc files to wait for
 	run := func(args ...string) string {
 		out, err := exec.Command("tmux", append([]string{"-L", sock}, args...)...).CombinedOutput()
 		if err != nil {

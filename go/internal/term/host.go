@@ -70,7 +70,9 @@ func (t Tmux) CreateShell(cwd, title, agent string) (string, string) {
 }
 
 // PaneShell is the agent a shell pane was opened beside; "" for any other pane, known false when tmux cannot say.
-func (t Tmux) PaneShell(handle string) (agent string, known bool) { return t.paneOption(handle, ShellOption) }
+func (t Tmux) PaneShell(handle string) (agent string, known bool) {
+	return t.paneOption(handle, ShellOption)
+}
 
 // paneOption is the pane's value of a tmux pane option, known false when tmux cannot say.
 func (t Tmux) paneOption(handle, option string) (string, bool) {
@@ -138,7 +140,9 @@ func (t Tmux) RespawnTerminal(handle string) (bool, string) {
 }
 
 // PaneAgent is the agent the daemon stamped the pane with; "" for a pane it did not open for an agent, known false when tmux cannot say.
-func (t Tmux) PaneAgent(handle string) (agent string, known bool) { return t.paneOption(handle, AgentOption) }
+func (t Tmux) PaneAgent(handle string) (agent string, known bool) {
+	return t.paneOption(handle, AgentOption)
+}
 
 // Shells is what a host adds to open plain shells beside an agent.
 type Shells interface {
