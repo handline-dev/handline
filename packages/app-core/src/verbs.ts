@@ -7,7 +7,15 @@ export interface Verb {
   id: VerbId;
   label: string;
   /** The daemon method behind it; a verb whose method the daemon does not list shows disabled. */
-  method: 'session.interrupt' | 'session.stop' | 'session.restart' | 'session.park' | 'agent.fold' | 'agent.move' | 'agent.unstall' | 'agent.force_start';
+  method:
+    | 'session.interrupt'
+    | 'session.stop'
+    | 'session.restart'
+    | 'session.park'
+    | 'agent.fold'
+    | 'agent.move'
+    | 'agent.unstall'
+    | 'agent.force_start';
   /** Shown while the write is in flight, in the state cell. */
   gerund: string;
   /** One sentence of consequence for the confirmation; absent when the verb asks nothing. */
@@ -38,7 +46,15 @@ export const VERBS: Record<VerbId, Verb> = Object.fromEntries([
 ] as [VerbId, Verb][]) as Record<VerbId, Verb>;
 
 /** The bridge's CONFIRM (close, restart, park, fold) with restart fresh as a restart (a person never wakes an agent by hand: a message does). */
-export const CONFIRM_VERBS: ReadonlySet<VerbId> = new Set(['close', 'restart', 'restart_fresh', 'park', 'fold', 'clear_stall', 'force_start']);
+export const CONFIRM_VERBS: ReadonlySet<VerbId> = new Set([
+  'close',
+  'restart',
+  'restart_fresh',
+  'park',
+  'fold',
+  'clear_stall',
+  'force_start',
+]);
 export const needsAsk = (id: VerbId): boolean => CONFIRM_VERBS.has(id);
 
 /** The verbs that apply to this row now, in menu order. A verb that does not apply is absent, not greyed. */
