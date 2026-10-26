@@ -1,7 +1,6 @@
 package hrwrites
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 )
@@ -49,10 +48,16 @@ func (e *Env) hold(prop *Prop, busy []string) error {
 // SweepHeld carries each held change one step on; one proposal's failure is logged, not the sweep's.
 func (e *Env) SweepHeld(p HeldPorts) error {
 	for _, prop := range e.listing() {
-		if prop.str("state") != applying {
+		var err error
+		switch {
+		case prop.str("state") == applying:
+			err = e.carry(prop, p)
+		case prop.str("state") == "applied" && prop.str("start_state") == "held":
+			err = e.retryStart(prop, p)
+		default:
 			continue
 		}
-		if err := e.carry(prop, p); err != nil {
+		if err != nil {
 			e.logf("  hr: proposal %s: %v", prop.id(), err)
 		}
 	}
@@ -87,16 +92,50 @@ func (e *Env) carry(prop *Prop, p HeldPorts) error {
 	if err != nil {
 		return err
 	}
+	var unstarted []string
 	if ok {
-		// An agent the change renamed has no session until it starts, so a failed start is apply_failed, as the contract has it.
+		// An agent the change renamed has no session until it starts. The change itself stands: a start that is held or fails is the
+		// agent's follow-up (start_*), not an apply failure.
 		for _, it := range stepsOf(prop) {
 			if it.kind() == "rename" && slices.Contains(waiting, it.str("agent")) {
 				if started, why := p.Start(it.str("to")); !started {
-					ok, said = false, fmt.Sprintf("the change is applied, but %s was not started: %s", it.str("to"), why)
+					prop.set("start_agent", it.str("to"))
+					prop.set("start_why", why)
+					unstarted = append(unstarted, it.str("to"))
 				}
 			}
 		}
 	}
+	if len(unstarted) > 0 {
+		prop.set("start_state", startState(prop.str("start_why")))
+	}
 	_, _, err = e.record(prop, ok, said, true)
 	return err
+}
+
+// startState is "held" for a start the machine load put off, which the sweep retries by itself, and "failed" for any other reason.
+func startState(why string) string {
+	if strings.HasPrefix(why, "held:") {
+		return "held"
+	}
+	return "failed"
+}
+
+// retryStart carries an applied change's held start on: it starts the agent once the load allows, and a start that fails for another
+// reason turns the follow-up failed, which only the founder's Start now retries.
+func (e *Env) retryStart(prop *Prop, p HeldPorts) error {
+	agent := prop.str("start_agent")
+	ok, why := p.Start(agent)
+	switch {
+	case ok:
+		prop.pop("start_agent")
+		prop.pop("start_state")
+		prop.pop("start_why")
+	case startState(why) == "failed":
+		prop.set("start_state", "failed")
+		prop.set("start_why", why)
+	default:
+		return nil // still held: the next tick looks again
+	}
+	return e.save(prop)
 }
