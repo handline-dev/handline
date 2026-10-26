@@ -1,7 +1,7 @@
 // A run of task cards drawn as one line, and what the person has seen of each line.
 import { useEffect, useRef, useState } from 'react';
 import type { ChatMessage, Proposal, TranscriptItem } from '@handline/client';
-import { clockTime, foldTasks, timeline, type TaskFold, type TimelineEntry } from '@handline/app-core';
+import { chatView, clockTime, foldTasks, type TaskFold, type TimelineEntry } from '@handline/app-core';
 import { TaskLine } from '#src/ChatTaskCards.tsx';
 import { rowKey } from '@handline/app-data';
 import { Icon } from '#src/ui/index.ts';
@@ -16,7 +16,7 @@ export const foldedIn = (scope: string, entries: TimelineEntry[]): (TimelineEntr
 
 /** Which lines are open, and how many cards each held when the person last opened it; a line first seen after the chat loaded counts all its cards as new. */
 export function useFolds(
-  chat: { status: string; messages: ChatMessage[]; items: TranscriptItem[] },
+  chat: { status: string; messages: ChatMessage[]; items: TranscriptItem[]; moreMessages: boolean; moreItems: boolean },
   scope: 'mine' | 'all',
   agent: string,
   me: string,
@@ -30,7 +30,7 @@ export function useFolds(
     if (ready) loaded.current = true;
   });
   return {
-    entries: foldedIn(scope, timeline(chat.messages, chat.items, scope, agent, me, decided)),
+    entries: foldedIn(scope, chatView(chat, scope, agent, me, decided).entries),
     open: (f: TaskFold) => open.has(f.id),
     fresh: (f: TaskFold) => {
       if (!seen.current.has(f.id)) seen.current.set(f.id, loaded.current ? 0 : f.cards.length);

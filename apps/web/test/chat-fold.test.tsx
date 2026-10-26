@@ -14,7 +14,13 @@ it('counts only cards that join after the chat loaded, and opening the line clea
   let api!: ReturnType<typeof useFolds>;
   let drawn = false;
   const Probe = ({ ready }: { ready: boolean }) => {
-    api = useFolds({ status: ready ? 'ready' : 'loading', messages: [], items: [] }, 'mine', 'a', '', []);
+    api = useFolds(
+      { status: ready ? 'ready' : 'loading', messages: [], items: [], moreMessages: false, moreItems: false },
+      'mine',
+      'a',
+      '',
+      [],
+    );
     if (!ready || !drawn) api.fresh(fold(1, 3)); // drawn in the render that shows the loaded chat, before its effects run
     drawn = true;
     return null;
