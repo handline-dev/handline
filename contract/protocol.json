@@ -246,6 +246,12 @@
    "data": {
     "prefs.changed": "Prefs"
    }
+  },
+  "requests": {
+   "snapshot": "requests.list",
+   "data": {
+    "request.changed": "RequestRow"
+   }
   }
  },
  "x-state-words": {
@@ -5041,6 +5047,72 @@
    "description": "Newest id first. To read every task, call with `all: true` and `limit: 200`, then again with `before` set to the smallest `id` of the page before, until `more` is false: nothing is skipped or repeated, because a page is the rows with an id below `before`. The caller's own scope still applies (itself and its reports for an agent, unless `everyone`)."
   },
   {
+   "name": "requests.list",
+   "summary": "The founder's requests, newest activity first: the tasks they opened and the messages of theirs that are not a task yet, each with a status read from its tree of tasks. Done requests stay listed 30 days.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "state",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "waiting_on_you",
+       "review",
+       "doing",
+       "done",
+       "no_work",
+       "not_yet"
+      ]
+     }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "A row's cursor: the rows after it."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "items": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/RequestRow"
+       }
+      },
+      "more": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "items",
+      "more"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-write": false
+  },
+  {
    "name": "task.get",
    "summary": "One task with body, delivery history and linked events.",
    "paramStructure": "by-name",
@@ -5418,7 +5490,16 @@
      "name": "parent",
      "required": false,
      "schema": {
-      "type": "integer"
+      "type": "integer",
+      "description": "Default: when the caller's current task is a request (made from a founder's message), that task, unless no_parent."
+     }
+    },
+    {
+     "name": "no_parent",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Do not hang the task under the caller's current request. Refused with parent."
      }
     },
     {
@@ -6079,7 +6160,7 @@
   },
   {
    "name": "task.comment.add",
-   "summary": "Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
+   "summary": "Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer. The founder is told by one inbox line per request (a task made from their message, task.request) while it stays unread, counting the agents' new comments. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -6103,6 +6184,14 @@
      "schema": {
       "type": "boolean",
       "description": "Tell every reader at once, even mid-turn."
+     }
+    },
+    {
+     "name": "reply",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "The comment on the same task this one answers (Memo.reply_to). Refused (not_found memo) when the task has no such comment."
      }
     },
     {
@@ -9881,9 +9970,10 @@
      "devices",
      "hr",
      "transcript",
-     "prefs"
+     "prefs",
+     "requests"
     ],
-    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. requests (member, which includes the founder): the founder's requests (RequestRow), so a Requests page is live."
    },
    "Caller": {
     "type": "object",
@@ -13577,6 +13667,17 @@
        "$ref": "#/components/schemas/MemoFile"
       },
       "description": "The files the memo carries, in the order they were given; present only when it carries one."
+     },
+     "reply_to": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The comment this one answers; null for none."
      }
     },
     "required": [
@@ -13829,6 +13930,28 @@
       "items": {
        "$ref": "#/components/schemas/ChatAction"
       }
+     },
+     "request_task": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "On a message of the founder's to an agent: the request task made from it (task.request); null for none."
+     },
+     "no_work": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "On a message of the founder's to an agent: why it needs no work (task.none); null for none."
      }
     },
     "required": [
@@ -17075,6 +17198,130 @@
     "required": [
      "cursor"
     ]
+   },
+   "RequestRow": {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "task",
+       "message"
+      ],
+      "description": "task: a request the founder opened (task.request, or a task of their own for a lead). message: a message of theirs that is not a task yet."
+     },
+     "task": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The request's task; null for a message."
+     },
+     "ref": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/RequestRef"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The founder's message it was made from, or is; null for a task opened without one."
+     },
+     "title": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "waiting_on_you",
+       "review",
+       "doing",
+       "done",
+       "no_work",
+       "not_yet"
+      ],
+      "description": "Read from the request's tree of tasks, never stored; the first that holds. waiting_on_you: a task assigned to the founder or a decision card waiting on them, anywhere in the tree. review: an open task has a PR. doing: some task in the tree is open. done: the request's own task is done (the agent that holds it judges and closes it; the founder does not). no_work: a message marked with task.none. not_yet: a message with neither a task nor a mark."
+     },
+     "agent": {
+      "type": "string",
+      "description": "Who holds the request, or the agent the message was sent to."
+     },
+     "origin": {
+      "type": "string",
+      "description": "The agent the message it was made from was sent to. Only on a task made from a message."
+     },
+     "holders": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "Agents holding an open task in the tree; empty once done."
+     },
+     "open": {
+      "type": "integer",
+      "description": "Open tasks under the request's own."
+     },
+     "done": {
+      "type": "integer",
+      "description": "Ended tasks under the request's own."
+     },
+     "prs": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "description": "PRs of the open tasks in the tree."
+     },
+     "reason": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Why a message needs no work (status no_work)."
+     },
+     "unread_comments": {
+      "type": "integer",
+      "description": "Agents' comments on the request that the founder has not read: what its inbox line counts."
+     },
+     "created": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "last_activity": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "cursor": {
+      "type": "string",
+      "description": "Orders the list; pass the last row's as requests.list before."
+     }
+    },
+    "required": [
+     "kind",
+     "task",
+     "ref",
+     "title",
+     "status",
+     "agent",
+     "holders",
+     "open",
+     "done",
+     "prs",
+     "reason",
+     "unread_comments",
+     "created",
+     "last_activity",
+     "cursor"
+    ],
+    "additionalProperties": true,
+    "description": "One row of the founder's requests."
    }
   },
   "errors": {

@@ -233,6 +233,9 @@
  "request.withdraw": {
   "role": "agent"
  },
+ "requests.list": {
+  "role": "member"
+ },
  "say": {
   "role": "agent"
  },
