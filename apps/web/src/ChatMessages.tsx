@@ -4,7 +4,7 @@
 import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { clockTime, ellipsis, landingLabel, openTask, restartCause, sideOf, tickLevel } from '@handline/app-core';
-import { useChatActions, useWrite } from '@handline/app-data';
+import { useWrite } from '@handline/app-data';
 import { useMe } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from '#src/msgClass.ts';
@@ -100,12 +100,14 @@ export function Message(props: {
   onPick?: (m: ChatMessage) => void;
   /** The messages the page holds, to say what a reply refers to. */
   byId?: Map<number, ChatMessage>;
+  /** What a failed message offers; the chat gives one value for every row. */
+  actions?: { retry: (id: number) => void; discard: (id: number) => void };
   /** A message number in the text was clicked. */
   /** In the all-messages room: the sender's name over a message that is not the person's (null when the one before is from the same sender), never `from -> to`. */
   group?: { name: string | null };
 }) {
   const { m, agent } = props;
-  const act = useChatActions(agent);
+  const act = props.actions;
   const side = sideOf(m, agent, useMe());
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
@@ -191,10 +193,10 @@ export function Message(props: {
         {failed ? (
           <div className={MSG_FAILED} role="alert">
             <Icon name="failed" size={13} /> {m.sending_reason}{' '}
-            <button className="icon" aria-label="Retry" title="Retry" onClick={() => act.retry(m.id)}>
+            <button className="icon" aria-label="Retry" title="Retry" onClick={() => act?.retry(m.id)}>
               <Icon name="retry" size={14} />
             </button>
-            <button className="icon" aria-label="Discard" title="Discard" onClick={() => act.discard(m.id)}>
+            <button className="icon" aria-label="Discard" title="Discard" onClick={() => act?.discard(m.id)}>
               <Icon name="discard" size={14} />
             </button>
           </div>
