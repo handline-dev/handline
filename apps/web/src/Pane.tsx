@@ -17,7 +17,7 @@ import {
   type TabParams,
   type Workspace,
 } from '@handline/app-core';
-import { useHello, useMe } from '@handline/app-react';
+import { useHello, useMe, useStore } from '@handline/app-react';
 import { ChatTab } from '#src/ChatTab.tsx';
 import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
 import { TasksTab } from '#src/TasksTab.tsx';
@@ -76,6 +76,7 @@ const TAB_KEYS: KeyRows = [
 export function Pane({ group }: { group: Group }) {
   useScreenKeys('On the tabs', TAB_KEYS);
   const { ws, detail, agent, storage, apply, show, canSplit, lead, dragging, setDragging } = useWorkspace();
+  const store = useStore();
   const folded = useFoldedControls();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
