@@ -5,6 +5,7 @@ import path from 'node:path';
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Notification, session, shell, type WebContents } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
+import { runsHidden } from '#src/hidden.ts';
 import { isDebugWindow } from '#src/debug-window.ts';
 import { Desk } from '#src/desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from '#src/editor.ts';
@@ -69,7 +70,7 @@ function allowGatewayOrigin(): void {
 }
 
 function show(): void {
-  if (!win || win.isDestroyed()) return;
+  if (!win || win.isDestroyed() || hidden) return;
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
@@ -152,6 +153,7 @@ function makeUpdater(page: Page, composer: Composer): Updater {
       return !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true));
     },
     ask: async () =>
+      !hidden &&
       (
         await dialog.showMessageBox(win!, {
           message: 'Handline was updated. Restart now?',
@@ -183,6 +185,7 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
       sandbox: true,
       nodeIntegration: false,
       preload: path.join(import.meta.dirname, 'preload.cjs'),
+      backgroundThrottling: !hidden, // a hidden window keeps painting, for the check that reads it
     },
   });
   // The traffic lights are gone in full screen: the page drops the room it keeps for them (shell.ts).
@@ -221,13 +224,16 @@ if (env('DEBUG_PORT')) app.commandLine.appendSwitch('remote-debugging-port', env
 const data = env('DATA');
 if (data) app.setPath('userData', data);
 
+const hidden = runsHidden(process.env);
+if (hidden) app.setActivationPolicy?.('accessory'); // no dock icon, and it never becomes the active app
+
 if (!app.requestSingleInstanceLock()) {
   app.quit(); // the first instance gets 'second-instance' and focuses its window
 } else {
   app.on('second-instance', show);
   void app.whenReady().then(async () => {
     // An unpackaged app shows Electron's icon in the dock until it is told otherwise.
-    app.dock?.setIcon(APP_ICON);
+    if (!hidden) app.dock?.setIcon(APP_ICON);
     allowGatewayOrigin();
     const settings = new SettingsFile(path.join(app.getPath('userData'), 'settings.json'));
     const current = settings.read(parseMode(env('MODE')));
@@ -253,6 +259,7 @@ if (!app.requestSingleInstanceLock()) {
       loginPath: async () => (await editorEnv()).PATH,
       home,
       root,
+      hidden,
       socket,
       gatewaySocket,
       gateway,
@@ -328,6 +335,7 @@ if (!app.requestSingleInstanceLock()) {
         else app.setBadgeCount(Number(t.replace('+', '')) || 0);
       },
       notify: (n, onClick) => {
+        if (hidden) return;
         const notice = new Notification({ title: n.title, body: n.body });
         notice.on('click', onClick);
         notice.show();
