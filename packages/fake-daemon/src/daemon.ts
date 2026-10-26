@@ -360,7 +360,7 @@ export class FakeDaemon {
         script: this.script,
         transcript: this.transcript,
         agent,
-        byTerminal: (id) => byTerminal(this.sessions, id),
+        byTerminal: (id) => byTerminal(new Map([...this.sessions, ...this.script.shells]), id),
         iso: () => this.iso(),
       });
     switch (method as MethodName) {
@@ -381,7 +381,8 @@ export class FakeDaemon {
       case 'pr.exists': {
         const repo = agent().fx.repo ?? null;
         const nums = p.numbers;
-        if (!Array.isArray(nums) || nums.length > 20 || !nums.every((n) => Number.isInteger(n))) throw badRequest('numbers must be at most 20 integers', 'numbers');
+        if (!Array.isArray(nums) || nums.length > 20 || !nums.every((n) => Number.isInteger(n)))
+          throw badRequest('numbers must be at most 20 integers', 'numbers');
         return { repo, found: repo ? (nums as number[]).filter((n) => this.pullRequests.has(n)) : [] };
       }
       case 'subscribe': {

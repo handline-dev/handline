@@ -48,6 +48,7 @@ export interface Session {
   counter: number;
   settings: Record<string, string>; // agent.set's values
   strip?: Partial<Methods['agent.strip']['result']>; // what a test sets over the numbers agent.strip answers
+  handle?: string; // a shell shell.open started: its terminal handle, with no agent session behind it
   received: { kind: 'text' | 'key'; value: string; actor: string }[]; // what reached the terminal
 }
 
@@ -57,7 +58,7 @@ export interface Attach {
   seq: number;
 }
 
-export const tid = (s: Session) => `term:${s.fx.name}`;
+export const tid = (s: Session) => s.handle ?? `term:${s.fx.name}`;
 
 /** The session whose terminal is `id`; not_found when none is. */
 export function byTerminal(sessions: Map<string, Session>, id: unknown): Session {
@@ -113,7 +114,12 @@ export function view(s: Session): AgentView {
     cache_until: s.open && s.state === 'idle' ? new Date(Date.parse(s.since) + 5 * 60_000).toISOString() : null,
     has_dialog: s.prompt !== null,
     needs_you: s.prompt
-      ? { kind: s.prompt.kind === 'permission' || s.prompt.kind === 'question' ? s.prompt.kind : 'dialog', since: s.prompt.since, text: s.prompt.reason ?? s.prompt.command ?? null, source: 'hook' }
+      ? {
+          kind: s.prompt.kind === 'permission' || s.prompt.kind === 'question' ? s.prompt.kind : 'dialog',
+          since: s.prompt.since,
+          text: s.prompt.reason ?? s.prompt.command ?? null,
+          source: 'hook',
+        }
       : null,
     parent: s.fx.parent,
     ...(s.structured && { structured: true }),

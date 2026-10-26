@@ -13,10 +13,12 @@ import {
   taskRef,
   type Group,
   type Tab,
+  type Workspace,
   type TabKind,
   type TabParams,
 } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
+import { useWrite } from '@handline/app-data';
 import { ChatTab } from '#src/ChatTab.tsx';
 import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
 import { TasksTab } from '#src/TasksTab.tsx';
@@ -42,21 +44,24 @@ const label = (t: Tab, structured = false): string =>
         ? t.params.pinned
           ? taskRef(Number(t.params.task))
           : 'Tasks'
-        : t.kind === 'android'
-          ? 'Android'
-          : t.kind === 'ios'
-            ? 'iOS'
-            : t.kind === 'web'
-              ? String(t.params.url ?? 'Preview').replace(/^https?:\/\//, '')
-              : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
-                ? 'Transcript'
-                : t.kind === 'terminal'
-                  ? 'Claude Code'
-                  : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
+        : t.kind === 'shell'
+          ? 'Terminal'
+          : t.kind === 'android'
+            ? 'Android'
+            : t.kind === 'ios'
+              ? 'iOS'
+              : t.kind === 'web'
+                ? String(t.params.url ?? 'Preview').replace(/^https?:\/\//, '')
+                : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
+                  ? 'Transcript'
+                  : t.kind === 'terminal'
+                    ? 'Claude Code'
+                    : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
 const TAB_ICON: Record<string, IconName> = {
   chat: 'chat',
   tasks: 'tasks',
   terminal: 'terminal',
+  shell: 'terminal',
   transcript: 'terminal',
   web: 'web',
   android: 'device',
@@ -79,22 +84,19 @@ export function Pane({ group }: { group: Group }) {
   const badges = badgesOf(detail, store.me);
   const structured = detail.structured === true;
   // What a new tab can show: the same flat list for the + menu and for the picker in a freshly split pane.
-  const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; disabled?: boolean }[] = [
-    ...(structured
-      ? []
-      : [
-          {
-            kind: 'terminal' as const,
-            params: { handle: detail.terminal ?? '' },
-            label: 'Terminal',
-            icon: 'terminal' as const,
-            disabled: !detail.terminal,
-          },
-        ]),
+  const openShell = useWrite('shell.open', agent);
+  const closeShell = useWrite('shell.close', agent);
+  const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; shell?: boolean }[] = [
+    { kind: 'shell', params: {}, label: 'Terminal', icon: 'terminal', shell: true },
     { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
     { kind: 'android', params: { id: 'new' }, label: 'Android', icon: 'device' },
     { kind: 'ios', params: { id: 'new' }, label: 'iOS', icon: 'device' },
   ];
+  /** A choice from the + menu or the new-tab tiles: a Terminal asks the daemon for its own shell first, the rest open at once. */
+  const choose = (c: (typeof choices)[number], place: (params: TabParams) => (w: Workspace) => Workspace) => {
+    if (!c.shell) return apply(place(c.params));
+    openShell.mutate({ agent }, { onSuccess: (r) => apply(place({ handle: r.terminal })) });
+  };
   // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.
   // The first terminal tab of the group: a group holds one terminal tab per agent, so the unread dot follows that one.
   const termId = group.tabs.find((id) => ws.tabs[id]?.kind === 'terminal' || ws.tabs[id]?.kind === 'transcript');
@@ -167,7 +169,13 @@ export function Pane({ group }: { group: Group }) {
                 <button
                   className="x inline-flex border-0 bg-transparent p-0.5 text-ink-3 opacity-0 focus-visible:opacity-100 group-hover:opacity-100 group-aria-selected:opacity-100"
                   aria-label={`Close ${label(t, structured)}`}
-                  title={t.kind === 'terminal' || t.kind === 'transcript' ? 'Close the tab; the agent keeps running' : 'Close the tab'}
+                  title={
+                    t.kind === 'shell'
+                      ? 'Close the terminal'
+                      : t.kind === 'terminal' || t.kind === 'transcript'
+                        ? 'Close the tab; the agent keeps running'
+                        : 'Close the tab'
+                  }
                   onClick={(e) => {
                     e.stopPropagation();
                     if (
@@ -177,6 +185,7 @@ export function Pane({ group }: { group: Group }) {
                       !confirm(`Close the Claude Code tab of ${agent}? The agent keeps running.`)
                     )
                       return;
+                    if (t.kind === 'shell' && typeof t.params.handle === 'string') closeShell.mutate({ terminal: t.params.handle });
                     apply((w) => closeTab(w, id));
                   }}
                 >
@@ -188,12 +197,7 @@ export function Pane({ group }: { group: Group }) {
         })}
         <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="ml-0.5 self-center">
           {choices.map((c) => (
-            <MenuItem
-              key={c.label}
-              icon={c.icon}
-              disabled={c.disabled}
-              onSelect={() => apply((w) => openTab(w, c.kind, c.params, group.id))}
-            >
+            <MenuItem key={c.label} icon={c.icon} onSelect={() => choose(c, (params) => (w) => openTab(w, c.kind, params, group.id))}>
               {c.label}
             </MenuItem>
           ))}
@@ -221,8 +225,8 @@ export function Pane({ group }: { group: Group }) {
                   key={c.label}
                   type="button"
                   className="tile flex aspect-square flex-col items-center justify-center gap-2 rounded-card border-0 bg-transparent text-body text-ink hover:enabled:bg-raised disabled:opacity-50"
-                  disabled={c.disabled}
-                  onClick={() => apply((w) => fillTab(w, tab.id, c.kind, c.params))}
+                  disabled={openShell.isPending}
+                  onClick={() => choose(c, (params) => (w) => fillTab(w, tab.id, c.kind, params))}
                 >
                   <Icon name={c.icon} size={20} aria-hidden />
                   {c.label}
@@ -239,6 +243,8 @@ export function Pane({ group }: { group: Group }) {
             hidden={!!dragging}
             onUrl={(u) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, url: u } } } }))}
           />
+        ) : tab.kind === 'shell' && typeof tab.params.handle === 'string' ? (
+          <BytesTab key={tab.id} agent={agent} detail={{ terminal: tab.params.handle }} handle={tab.params.handle} shell />
         ) : tab.kind === 'android' || tab.kind === 'ios' ? (
           <DeviceTab agent={agent} kind={tab.kind} hidden={!!dragging} />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (

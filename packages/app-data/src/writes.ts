@@ -349,6 +349,8 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'account.login_cancel': 'cancel login',
     'account.add': 'add account',
     'terminal.close': 'close terminal',
+    'shell.open': 'open terminal',
+    'shell.close': 'close terminal',
     'task.discard': 'discard',
     'task.ask': 'ask',
     'device.pair': 'pair',

@@ -48,17 +48,20 @@ const reasonOf = (e: unknown) => (e as { reason?: string }).reason ?? (e as Erro
 
 /**
  * `handle` attaches by terminal handle instead of by agent (the debug window). With no agent it is watch-only: no agent, no input holder.
+ * `shell` is a plain shell of the agent's worktree: nobody holds its input, so every key goes in and this pane sizes it.
  */
 export function BytesTab({
   agent,
   detail,
   create,
   handle,
+  shell = false,
 }: {
   agent: string;
   detail: Pick<AgentDetail, 'terminal'>;
   create?: CreateTerm;
   handle?: string;
+  shell?: boolean;
 }) {
   const store = useStore();
   const host = useRef<HTMLDivElement>(null);
@@ -71,7 +74,7 @@ export function BytesTab({
   const [failure, setFailure] = useState('');
   const [title, setTitle] = useState('');
   const [everLive, setEverLive] = useState(false);
-  const [holds, setHolds] = useState(false); // this device holds the input: keys go in and the pane sets the size
+  const [holds, setHolds] = useState(shell); // this device holds the input: keys go in and the pane sets the size
   const [refused, setRefused] = useState('');
   const [heldBy, setHeldBy] = useState(''); // someone else holds the input: a click cannot take it
   const [attempt, setAttempt] = useState(0); // Retry runs the effect again
@@ -96,7 +99,7 @@ export function BytesTab({
       const quiet = back?.quiet ?? guard(pane.term, (t) => title.to(t));
       let unwritten = 0;
       let wasLive = false;
-      let holding = false,
+      let holding = shell,
         otherHolds = false, // another person holds the input: they size the terminal and this pane only scales its font
         timer: ReturnType<typeof setTimeout> | undefined;
       /** The pane sizes the host unless another person holds the input: the one who holds, or anyone while nobody does. */
@@ -137,18 +140,18 @@ export function BytesTab({
       });
       const grab = () => {
         const v = live.current?.view;
-        if (!v || watchOnly || holding || v.state !== 'live' || v.holders.some((h) => h.kind !== 'daemon')) return;
+        if (!v || shell || watchOnly || holding || v.state !== 'live' || v.holders.some((h) => h.kind !== 'daemon')) return;
         take({ agent }); // a refusal is reported by the write
       };
       /** The one key the app keeps: the terminal lets go of the keyboard and the hold is released. */
       const leave = (e: KeyboardEvent) => {
         if (!isEscapeChord(e)) return;
         pane.blur?.();
-        if (holding) release({ agent });
+        if (holding && !shell) release({ agent });
       };
       /** Focus leaving the terminal (a click elsewhere) lets go of the hold. */
       const drop = (e: FocusEvent) => {
-        if (holding && !stage.contains(e.relatedTarget as Node | null)) release({ agent });
+        if (holding && !shell && !stage.contains(e.relatedTarget as Node | null)) release({ agent });
       };
       stage.addEventListener('mousedown', grab);
       stage.addEventListener('focusout', drop);
@@ -161,9 +164,9 @@ export function BytesTab({
       const settle = (v: ByteTerminalView) => {
         setState(v.state);
         setFailure(v.failure);
-        const now = v.state === 'live' && v.holders.some((h) => h.kind !== 'daemon' && h.name === store.me);
-        const other = v.state === 'live' && v.holders.some((h) => h.kind !== 'daemon' && h.name !== store.me);
-        setHeldBy(v.holders.find((h) => h.kind !== 'daemon' && h.name !== store.me)?.name ?? '');
+        const now = shell || (v.state === 'live' && v.holders.some((h) => h.kind !== 'daemon' && h.name === store.me));
+        const other = !shell && v.state === 'live' && v.holders.some((h) => h.kind !== 'daemon' && h.name !== store.me);
+        setHeldBy(shell ? '' : (v.holders.find((h) => h.kind !== 'daemon' && h.name !== store.me)?.name ?? ''));
         const wentLive = v.state === 'live' && !wasLive;
         wasLive = v.state === 'live';
         if (now !== holding || other !== otherHolds || wentLive) {
@@ -218,7 +221,7 @@ export function BytesTab({
       cancelled = true;
       cleanup();
     };
-  }, [store, agent, key, handle, watchOnly, hasTerminal, create, attempt, take, release]);
+  }, [store, agent, key, handle, shell, watchOnly, hasTerminal, create, attempt, take, release]);
 
   const skeleton = useSkeleton(hasTerminal && state === 'attaching' && !everLive);
   const note = !hasTerminal ? '' : state === 'failed' ? failure : NOTE[state];
@@ -232,7 +235,7 @@ export function BytesTab({
         <div
           className="xterm-host min-h-0 flex-1 overflow-hidden px-2.5 py-2 [&>div]:h-full"
           ref={host}
-          aria-label={`Terminal of ${agent}`}
+          aria-label={shell ? `Shell of ${agent}` : `Terminal of ${agent}`}
         />
         {!hasTerminal && <StartTerminal agent={agent} />}
         {state === 'live' && !watchOnly && heldBy && !holds ? (
