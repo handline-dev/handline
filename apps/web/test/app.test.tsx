@@ -414,9 +414,27 @@ describe('the sidebar', () => {
   it('a lead row with sub-agents working says nothing while it is open', async () => {
     const s = setup();
     s.daemon.sessions.get('handline.auditor')!.state = 'running';
+    s.daemon.sessions.get('handline.auditor')!.fx.wall = false; // the fixture's auditor is at its usage wall: blocked, not working
     await mount(TB, undefined, s);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     expect($('.row-working')).toBeNull();
+  });
+
+  it('a pinned lead row counts the sub-agents working under it, its tree open or not', async () => {
+    const s = setup();
+    s.daemon.sessions.get('handline.auditor')!.state = 'running';
+    s.daemon.sessions.get('handline.auditor')!.fx.wall = false; // the fixture's auditor is at its usage wall: blocked, not working
+    await mount(TB, undefined, s);
+    await until(() => $$('.row-wrap').length === 3, 'rows');
+    const lead = $$('.row-wrap').find((r) => r.querySelector('.kids, [aria-expanded]'))!;
+    const name = lead.closest('[data-agent]')!.getAttribute('data-agent')!;
+    await act(async () => void lead.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
+    await click(lead.querySelector('[aria-haspopup="menu"]')!);
+    await until(() => menuItems().length, 'the row menu');
+    await click([...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((i) => text(i).trim() === 'Pin')!);
+    await until(() => $('.pinned-head'), 'the pinned section');
+    const pinned = $$('.row-working').filter((w) => w.closest('[data-agent]')?.getAttribute('data-agent') === name);
+    expect(pinned.map((w) => text(w).trim())).toEqual(['1']); // the pinned copy; the open tree row says nothing
   });
 
   it("a row's menu holds Settings, which opens that agent's settings, whose back button, above the title, returns to the agent", async () => {
