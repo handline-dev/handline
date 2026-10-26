@@ -500,6 +500,19 @@ func TestAPromptTypedMidTurnIsQueuedAndDeliveredWhenTheTurnTakesItIn(t *testing.
 	}
 }
 
+func TestAPasteTheSessionCollapsedIsDeliveredByItsText(t *testing.T) {
+	r := newRig(t)
+	text := "1. first\n2. second?\n\nlast after a blank"
+	res := r.s.Type(context.Background(), r.sess, text, func(text string) error {
+		wrapped := "\n\n<pasted_content id=\"1bd6\">\n" + text + "\n</pasted_content id=\"1bd6\">\n"
+		r.append(map[string]any{"type": "user", "origin": map[string]any{"kind": "human"}, "message": map[string]any{"role": "user", "content": wrapped}})
+		return nil
+	})
+	if res.Kind != Delivered {
+		t.Fatalf("%+v", res)
+	}
+}
+
 func TestAPromptThatCouldNotBeTypedIsNotDelivered(t *testing.T) {
 	r := newRig(t)
 	res := r.s.Type(context.Background(), r.sess, "hi", func(string) error { return errors.New("a dialog is open on its screen") })
