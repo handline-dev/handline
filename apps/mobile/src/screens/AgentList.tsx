@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import type { AgentView as Agent } from '@handline/client';
-import { useAgents, useHrCount, useNav, useQueuedTasks, useServes } from '@handline/app-data';
+import { useAgents, useHrCount, useNav, useOpenTasks, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { font, radius, rowHeight, space } from '@handline/tokens';
 import {
   ago,
   rowWord,
   queuedBehind,
+  waitingTasks,
   taskRef,
   statusText,
   chipCounts,
@@ -233,7 +234,7 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
                       <Pressable
                         testID={`queued-${a.name}`}
                         accessibilityRole="button"
-                        accessibilityLabel={`${queued} queued behind the current task`}
+                        accessibilityLabel={`${queued} waiting behind the current task`}
                         onPress={() => setQueueOf(a)}
                         hitSlop={8}
                         style={{ borderWidth: 1, borderColor: c.line, borderRadius: radius.chip, paddingHorizontal: 6 }}
@@ -263,19 +264,23 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
   );
 }
 
-/** The tasks waiting behind an agent's current one; a row only closes the sheet. */
+/** The tasks waiting behind an agent's current one, as plain lines. */
 function QueuedSheet(props: { agent: Agent; onClose: () => void }) {
   const c = usePalette();
-  const waiting = useQueuedTasks(props.agent.name, true).data?.items ?? [];
+  const waiting = waitingTasks(props.agent, useOpenTasks(props.agent.name, true).data?.items ?? []);
   const n = queuedBehind(props.agent) || 0;
   return (
     <MenuSheet testID="queued-sheet" onClose={props.onClose}>
-      <Text style={{ color: c.muted, paddingHorizontal: space.lg, paddingVertical: space.sm }}>
-        {n} queued behind {props.agent.task ? taskRef(props.agent.task.id) : 'nothing'} on {props.agent.name}
-      </Text>
-      {waiting.map((t) => (
-        <MenuItem key={t.id} testID={`queued-task-${t.id}`} label={`${taskRef(t.id)} ${t.title}`} onPress={props.onClose} />
-      ))}
+      <View style={{ paddingHorizontal: space.lg, paddingVertical: space.sm, gap: space.sm }}>
+        <Text style={{ color: c.ink, fontWeight: '600' }}>
+          {n} waiting behind {props.agent.task ? taskRef(props.agent.task.id) : 'nothing'} on {props.agent.name}
+        </Text>
+        {waiting.map((t) => (
+          <Text key={t.id} testID={`queued-task-${t.id}`} style={{ color: c.muted }}>
+            {taskRef(t.id)} {t.title}
+          </Text>
+        ))}
+      </View>
     </MenuSheet>
   );
 }

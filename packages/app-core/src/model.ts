@@ -133,10 +133,14 @@ export function queueOf(a: AgentView, unreached: number | null = null): { tasks:
   return { tasks: a.task_count ?? null, messages: a.unreached ?? unreached };
 }
 
-/** Tasks waiting behind the one the agent is on: the owned tasks that are not done, less the current one. Null when the view carries no count. */
+/** Tasks waiting behind the one the agent is on: the owned tasks that are not done (queued or doing), less the current one. Null when the view carries no count. */
 export function queuedBehind(a: AgentView): number | null {
   return a.task_count == null ? null : Math.max(0, a.task_count - (a.task ? 1 : 0));
 }
+
+/** Which of an agent's open tasks wait behind its current one: the same set `task_count` counts, so the list adds up to the number. */
+export const waitingTasks = <T extends { id: number; state: string }>(a: AgentView, open: readonly T[]): T[] =>
+  open.filter((t) => t.state !== 'draft' && t.id !== a.task?.id);
 
 export interface Controls {
   start: boolean;

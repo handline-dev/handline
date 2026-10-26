@@ -29,6 +29,13 @@ afterEach(async () => {
 describe('queued tasks on a sidebar row', () => {
   it('shows +N for the tasks behind the current one and nothing at 0 or with no count', async () => {
     const s = setup();
+    const t = (id: number, state: 'doing' | 'queued' | 'draft', title: string) =>
+      s.daemon.tasks.seed({ id, from: 'founder', to: ARCH, title, state });
+    t(1684, 'doing', 'Web UI design'); // the current task
+    t(1685, 'queued', 'Second plan');
+    t(1686, 'doing', 'Also under way'); // counted too: the count is every task not done
+    t(1687, 'queued', 'Fourth one');
+    t(1688, 'draft', 'Not approved yet'); // not counted
     for (const [name, n] of Object.entries({ [ARCH]: 4, 'handline.auditor': 0 })) {
       const session = s.daemon.sessions.get(name)!;
       session.fx = { ...session.fx, view: { ...session.fx.view, task_count: n } };
@@ -39,7 +46,14 @@ describe('queued tasks on a sidebar row', () => {
     const chip = (name: string) => box.querySelector(`[data-agent="${name}"] .row-queued`);
     await until(() => chip(ARCH), 'the chip');
     expect(chip(ARCH)!.textContent).toBe('+3');
-    expect(chip(ARCH)!.getAttribute('title')).toContain('3 queued behind the current task');
+    await act(
+      async () => void box.querySelector(`[data-agent="${ARCH}"]`)!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })),
+    );
+    await act(async () => void box.querySelector(`[data-agent="${ARCH}"]`)!.dispatchEvent(new PointerEvent('pointerenter')));
+    await until(() => chip(ARCH)!.getAttribute('title')?.includes('T1685'), 'the list');
+    const tip = chip(ARCH)!.getAttribute('title')!;
+    expect(tip).toContain('3 waiting behind the current task');
+    expect(tip.split('\n').slice(1)).toEqual(['T1687 Fourth one', 'T1686 Also under way', 'T1685 Second plan']);
     expect(chip('handline.auditor')).toBeNull();
     expect(chip('handline.term-build')).toBeNull();
   });
