@@ -50,11 +50,11 @@ export function TasksPage({ route }: { route: string }) {
   const id = route && route !== 'graph' ? Number(route) : null;
   const wide = useWide(1100);
   if (route === 'graph') return <TaskList selected={null} graph />;
-  if (id !== null && !wide) return <TaskDetail id={id} onBack={() => goTasks()} />;
+  if (id !== null && !wide) return <TaskDetail id={id} />;
   return (
     <div className={`tasks-split relative flex min-h-0 min-w-0 flex-1${id !== null ? ' with-pane' : ''}`}>
       <TaskList selected={id} />
-      {id !== null ? <TaskDetail id={id} onBack={() => goTasks()} embedded drawer /> : null}
+      {id !== null ? <TaskDetail id={id} embedded drawer /> : null}
     </div>
   );
 }

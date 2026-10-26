@@ -332,7 +332,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await until(() => $('.tasks-tab-row'), 'the agent tasks');
     await click($$('[data-kind="task_event"]')[0]!);
     await until(() => $('.tdetail'), 'the task detail');
-    await click($('.tdetail .back')!);
+    await act(async () => (history.back(), void (await new Promise((r) => setTimeout(r, 50))))); // the window's Back
     await until(() => $('.tasks-tab-row'), 'back to the list');
     await click($$('[data-kind="task_event"]')[0]!);
     await until(() => $('.tdetail'), 'the task detail again');
@@ -371,7 +371,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await until(() => document.querySelector('[role=menu]'), 'the row menu on a right-click');
     await click(rows[0]!);
     await until(() => $('.tdetail'), 'the task detail');
-    await click($('.tdetail .back')!);
+    await act(async () => (history.back(), void (await new Promise((r) => setTimeout(r, 50))))); // the window's Back
     expect($('.tasks-tab-row')).not.toBeNull();
   });
 });

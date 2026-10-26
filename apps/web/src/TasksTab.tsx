@@ -1,5 +1,5 @@
 // The Tasks tab of an agent's workspace: the tasks this agent holds or opened, overdue first, then open ones, then the closed; a click opens the task in
-// the same pane (the task detail of the Tasks page) and Back returns to the list. Rows share one grid of fixed columns, so a long title is cut
+// the same pane (the task detail of the Tasks page); the window's Back returns to the list. Rows share one grid of fixed columns, so a long title is cut
 // with an ellipsis and never widens the row; boxes appear only in Select mode; older tasks come 100 at a time on a button.
 import { useEffect, useMemo, useState } from 'react';
 import { agentTasks, dueOf, openTask, taskRef, watchResult, type RowVerb } from '@handline/app-core';
@@ -49,7 +49,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
     return () => window.removeEventListener('keydown', esc);
   }, [selecting, setMarked]);
   const endSelect = () => (setSelecting(false), setMarked(new Set()));
-  if (open !== null) return <TaskDetail id={open} onBack={() => setOpen(null)} embedded />;
+  if (open !== null) return <TaskDetail id={open} embedded />;
   return (
     <section className="tasks-tab h-full overflow-auto p-2" aria-label={`Tasks of ${agent}`}>
       <View q={q} served={served} shape="tasks" what="the tasks" empty={!mine.length && `${agent} holds and has opened no tasks.`}>
