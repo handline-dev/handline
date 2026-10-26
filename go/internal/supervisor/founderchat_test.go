@@ -49,6 +49,24 @@ func TestTheFoundersMessageIsTypedAsWrittenAndAnAgentsStillGoesToTheInbox(t *tes
 	eventually(t, func() bool { row, _ := db.GetRequest(r.DB, mine); return row.LandedAt.Valid })
 }
 
+// A reply carries the message it answers, as the app shows it: typed alone, "OK merge" says nothing about what it agrees to.
+func TestTheFoundersReplyIsTypedWithTheMessageItAnswers(t *testing.T) {
+	r, _, typed := typedRig(t)
+	parent := r.ask("bob", "human", "#566 merge please\nthe checks are green", "say")
+	out, err := r.Ask(r.DB, AskIn{Target: "bob", Body: "OK merge", Requester: "human", Kind: "say", ParentID: parent})
+	r.must(err)
+	out.Finish()
+	r.must(db.MarkFounderAuthored(r.DB, out.RID))
+	if got, err := r.TellNow(r.DB, out.RID); err != nil || got != "sent" {
+		t.Fatalf("%q %v", got, err)
+	}
+	eventually(t, func() bool { return len(*typed) == 1 })
+	if want := "(in reply to " + db.MsgName(r.DB, parent) + ": #566 merge please)\nOK merge"; (*typed)[0] != want {
+		t.Fatalf("typed %q, want %q", (*typed)[0], want)
+	}
+	eventually(t, func() bool { row, _ := db.GetRequest(r.DB, out.RID); return row.LandedAt.Valid })
+}
+
 // A founder's message to an agent that cannot be typed at now is said through the inbox, as before, inside the send's own transaction.
 func TestTheFoundersMessageIsSaidThroughTheInboxWhenTheAgentCannotBeTypedAt(t *testing.T) {
 	r, in, typed := typedRig(t)

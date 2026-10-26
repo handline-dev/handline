@@ -213,7 +213,7 @@ func TestTheTriggerJudgesContextByTheAgentsOwnLimit(t *testing.T) {
 	if got := trigger(40000); !got.Applies || got.Fired || !strings.HasSuffix(got.Reason, "context 40,000 < 50,000") {
 		t.Fatalf("under his own limit: %+v", got)
 	}
-	// 60,000 is far under the 150,000 every agent has
+	// 60,000 is far under the 300,000 every agent has
 	if got, want := trigger(60000), (reads.Trigger{Applies: true, Fired: true, Kind: "context", Reason: "context 60,000 >= 50,000"}); got != want {
 		t.Fatalf("over his own limit: %+v", got)
 	}

@@ -188,17 +188,8 @@ export function AccountsPage({ name }: { name: string | null }) {
   const one = name === null ? null : list.find((account) => account.name === name);
   return (
     <ScrollPage className="accounts" aria-label={name === null ? 'Usage' : 'Accounts'}>
-      <PageHead className="accounts-head">
-        {name === null ? (
-          <PageTitle>Settings</PageTitle>
-        ) : (
-          <>
-            <Button className="back" icon="back" label="Back to usage" onClick={() => (location.hash = '#/accounts')}>
-              Usage
-            </Button>
-            <PageTitle>{one?.label ?? name}</PageTitle>
-          </>
-        )}
+      <PageHead className="accounts-head" back={name === null ? undefined : { label: 'usage', to: () => (location.hash = '#/accounts') }}>
+        <PageTitle>{name === null ? 'Settings' : (one?.label ?? name)}</PageTitle>
         {name === null ? <AddAccount /> : null}
       </PageHead>
       {name === null ? <SettingsTabs value="accounts" /> : null}
