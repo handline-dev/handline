@@ -136,6 +136,13 @@ export function Sidebar({
         <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           <Icon name="tasks" size={14} aria-hidden /> Tasks
         </button>
+        <button
+          className={navOf(pageRoute === 'stats')}
+          aria-current={pageRoute === 'stats' ? 'page' : undefined}
+          onClick={() => void (location.hash = '#/stats')}
+        >
+          <Icon name="stats" size={14} aria-hidden /> Usage
+        </button>
       </div>
       <div className="rail-read flex gap-0.5 px-2.5 py-1.5" role="group" aria-label="Show agents">
         {(

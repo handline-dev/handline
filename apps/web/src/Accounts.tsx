@@ -1,4 +1,4 @@
-// The Accounts tab of Settings (#/accounts, #/stats), also the page the status bar's usage item opens: one line per account, then the Stats section; #/accounts/:name is one account in three tabs.
+// The Accounts tab of Settings (#/accounts): one line per account to manage; #/accounts/:name is one account in three tabs. The gauges are the Usage page's (UsagePage.tsx).
 import { useState, type ReactNode } from 'react';
 import { STATE_WORD, agentsLine, outUntil, paceLine, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';
@@ -8,7 +8,6 @@ import { AccountLogin } from '#src/AccountLogin.tsx';
 import { AccountSettings } from '#src/AccountSettings.tsx';
 import { Gauge, useNow } from '#src/Gauge.tsx';
 import { SettingsSection, SettingsShell } from '#src/SettingsShell.tsx';
-import { StatsSection } from '#src/Stats.tsx';
 import { goAgent, useHistoryValue } from '#src/route.ts';
 import {
   Button,
@@ -124,7 +123,7 @@ export function Stall({ account }: { account: Account }) {
   );
 }
 
-function Row({ account, now }: { account: Account; now: number }) {
+export function UsageRow({ account, now }: { account: Account; now: number }) {
   return (
     <div className={WRAP}>
       <a className={ROW} href={`#/accounts/${encodeURIComponent(account.name)}`} data-account={account.name}>
@@ -192,13 +191,40 @@ function AddAccount() {
   );
 }
 
-export function AccountsPage({ name }: { name: string | null }) {
+/** The accounts the topic lists, each with the fields only the usage read carries. */
+export function useAccountList() {
   const q = useAccounts();
   const usage = useAccountUsage().data?.accounts;
   const { served } = useServes('accounts.list');
   const now = useNow();
   // The topic's rows are live; the usage read adds the fields only it carries.
   const list = (q.data?.accounts ?? []).map((account) => ({ ...usage?.find((u) => u.name === account.name), ...account }));
+  return { q, served, now, list };
+}
+
+/** One account to manage: its name, state, how much of the week is used and its cap; the row opens the account's own page. */
+function ManageRow({ account, now }: { account: Account; now: number }) {
+  return (
+    <a
+      className="acct-row flex min-h-11 items-center gap-x-4 px-4 py-2 text-inherit no-underline hover:bg-raised [&:not(:first-child)]:border-t [&:not(:first-child)]:border-line"
+      href={`#/accounts/${encodeURIComponent(account.name)}`}
+      data-account={account.name}
+    >
+      <span className="acct-name flex min-w-0 flex-1 items-baseline gap-2">
+        <strong>{account.label}</strong>
+        {account.label !== account.name ? <span className="muted mono">{account.name}</span> : null}
+      </span>
+      <StateChip account={account} now={now} />
+      <span className="acct-week-pct tabular-nums text-ink-2">
+        {account.weekly ? `week ${Math.round(account.weekly.used_pct)}%` : 'week –'}
+      </span>
+      <span className="acct-cap font-mono text-label text-ink-2">cap {account.cap_effective}</span>
+    </a>
+  );
+}
+
+export function AccountsPage({ name }: { name: string | null }) {
+  const { q, served, now, list } = useAccountList();
   const one = name === null ? null : list.find((account) => account.name === name);
   return (
     <Frame name={name} title={one?.label ?? name}>
@@ -206,7 +232,7 @@ export function AccountsPage({ name }: { name: string | null }) {
         {name === null ? (
           <SettingsCard className="acct-list flex flex-col">
             {list.map((account) => (
-              <Row key={account.name} account={account} now={now} />
+              <ManageRow key={account.name} account={account} now={now} />
             ))}
           </SettingsCard>
         ) : one ? (
@@ -215,12 +241,11 @@ export function AccountsPage({ name }: { name: string | null }) {
           <div className="empty">
             <strong>This account no longer exists</strong>
             <p>
-              <a href="#/accounts">Back to usage</a>
+              <a href="#/accounts">Back to accounts</a>
             </p>
           </div>
         )}
       </View>
-      {name === null ? <StatsSection /> : null}
     </Frame>
   );
 }
@@ -237,7 +262,7 @@ function Frame({ name, title, children }: { name: string | null; title: string |
     );
   return (
     <ScrollPage className="accounts" aria-label="Accounts">
-      <PageHead className="accounts-head" back={{ label: 'usage', to: () => (location.hash = '#/accounts') }}>
+      <PageHead className="accounts-head" back={{ label: 'accounts', to: () => (location.hash = '#/accounts') }}>
         <PageTitle>{title}</PageTitle>
       </PageHead>
       {children}

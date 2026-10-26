@@ -18,7 +18,7 @@ export function UsageLink() {
   return (
     <a
       className="usage usage-btn cursor-pointer text-ink-2 no-underline"
-      href="#/accounts"
+      href="#/stats"
       title={`Account usage (5 h): ${summary || 'none'}`}
       aria-label={`Account usage, 5 h: ${summary || 'none'}`}
     >
