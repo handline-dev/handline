@@ -1,5 +1,5 @@
 // The Accounts tab of Settings (#/accounts, #/stats), also the page the status bar's usage item opens: one line per account, then the Stats section; #/accounts/:name is one account in three tabs.
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { STATE_WORD, agentsLine, outUntil, paceLine, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';
 import { useStore } from '@handline/app-react';
@@ -7,10 +7,22 @@ import { classify, sentence, useAccounts, useAccountUsage, useAgents, useOff, us
 import { AccountLogin } from '#src/AccountLogin.tsx';
 import { AccountSettings } from '#src/AccountSettings.tsx';
 import { Gauge, useNow } from '#src/Gauge.tsx';
-import { SettingsTabs } from '#src/SettingsTabs.tsx';
+import { SettingsSection, SettingsShell } from '#src/SettingsShell.tsx';
 import { StatsSection } from '#src/Stats.tsx';
 import { goAgent, useHistoryValue } from '#src/route.ts';
-import { Button, Card, Dialog, Field, Icon, NOTE, ScrollPage, PageHead, PageTitle, TabStrip, type IconName } from '#src/ui/index.ts';
+import {
+  Button,
+  Dialog,
+  Field,
+  Icon,
+  NOTE,
+  ScrollPage,
+  PageHead,
+  PageTitle,
+  SettingsCard,
+  TabStrip,
+  type IconName,
+} from '#src/ui/index.ts';
 import { View } from '#src/View.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 
@@ -189,19 +201,14 @@ export function AccountsPage({ name }: { name: string | null }) {
   const list = (q.data?.accounts ?? []).map((account) => ({ ...usage?.find((u) => u.name === account.name), ...account }));
   const one = name === null ? null : list.find((account) => account.name === name);
   return (
-    <ScrollPage className="accounts" aria-label={name === null ? 'Usage' : 'Accounts'}>
-      <PageHead className="accounts-head" back={name === null ? undefined : { label: 'usage', to: () => (location.hash = '#/accounts') }}>
-        <PageTitle>{name === null ? 'Settings' : (one?.label ?? name)}</PageTitle>
-        {name === null ? <AddAccount /> : null}
-      </PageHead>
-      {name === null ? <SettingsTabs value="accounts" /> : null}
+    <Frame name={name} title={one?.label ?? name}>
       <View q={q} served={served} shape="accounts" what="accounts" empty={!list.length && 'No accounts configured.'}>
         {name === null ? (
-          <Card className="acct-list flex flex-col">
+          <SettingsCard className="acct-list flex flex-col">
             {list.map((account) => (
               <Row key={account.name} account={account} now={now} />
             ))}
-          </Card>
+          </SettingsCard>
         ) : one ? (
           <AccountPageOne account={one} now={now} />
         ) : (
@@ -214,6 +221,26 @@ export function AccountsPage({ name }: { name: string | null }) {
         )}
       </View>
       {name === null ? <StatsSection /> : null}
+    </Frame>
+  );
+}
+
+/** The accounts list is a tab of the Settings area; one account is a page of its own with a way back. */
+function Frame({ name, title, children }: { name: string | null; title: string | null; children: ReactNode }) {
+  if (name === null)
+    return (
+      <SettingsShell tab="accounts" label="Accounts">
+        <SettingsSection title="Accounts" action={<AddAccount />}>
+          {children}
+        </SettingsSection>
+      </SettingsShell>
+    );
+  return (
+    <ScrollPage className="accounts" aria-label="Accounts">
+      <PageHead className="accounts-head" back={{ label: 'usage', to: () => (location.hash = '#/accounts') }}>
+        <PageTitle>{title}</PageTitle>
+      </PageHead>
+      {children}
     </ScrollPage>
   );
 }

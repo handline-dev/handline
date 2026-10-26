@@ -58,10 +58,10 @@ describe('the list', () => {
     const s = setup();
     s.daemon.knobs.latency(400);
     await mount('#/accounts', s);
-    await until(() => $('.accounts .skeleton'), 'the skeleton');
-    expect($('.accounts .skeleton')!.getAttribute('aria-busy')).toBe('true');
+    await until(() => $('.settings-shell .skeleton'), 'the skeleton');
+    expect($('.settings-shell .skeleton')!.getAttribute('aria-busy')).toBe('true');
     await until(() => $$('.acct-row').length === 3, 'the rows', 600);
-    await until(() => !$('.accounts .skeleton'), 'the Stats section below them to load too', 600);
+    await until(() => !$('.settings-shell .skeleton'), 'the Stats section below them to load too', 600);
     expect(text(card('alpha').querySelector('.acct-state'))).toBe('in use');
     expect(text(card('beta').querySelector('strong'))).toBe('review');
     expect(text(card('gamma').querySelector('.acct-state'))).toBe('login needed');
@@ -140,7 +140,7 @@ describe('the list', () => {
 
   it('a daemon that does not serve accounts says so and has no usage link', async () => {
     await mount('#/accounts', setup({ daemon: { accounts: false } }), '1');
-    await until(() => text($('.accounts')).includes('does not serve accounts'), 'the notice');
+    await until(() => text($('.settings-shell')).includes('does not serve accounts'), 'the notice');
     expect($('.usage')).toBeNull();
   });
 });
