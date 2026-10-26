@@ -1562,7 +1562,7 @@ export type ConnectionInfo = {
     tailscale_host: string | null;
   };
   heavy_slots: {
-    /** HANDLINE_HEAVY_SLOTS as this process sees it, default 1. */
+    /** HANDLINE_HEAVY_SLOTS as this process sees it, default 2. */
     slots: number;
     /** Where the slot locks are kept: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots. */
     dir: string | null;

@@ -16175,7 +16175,7 @@
        "slots": {
         "type": "integer",
         "minimum": 1,
-        "description": "HANDLINE_HEAVY_SLOTS as this process sees it, default 1."
+        "description": "HANDLINE_HEAVY_SLOTS as this process sees it, default 2."
        },
        "dir": {
         "oneOf": [
