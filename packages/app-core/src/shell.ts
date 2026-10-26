@@ -95,6 +95,10 @@ export interface ShellApi {
     | { ok: true; following: boolean; sha: string; state: 'current' | 'available' | 'updating' | 'failed'; next: string | null }
     | Fail<'bad_request'>
   >;
+  /** The `hl` command an installed app carries: whether it has one, and whether it is linked into ~/.local/bin. */
+  cli?(): Promise<{ ok: true; bundled: boolean; linked: boolean; link: string } | Fail<'bad_request'>>;
+  /** Links the carried `hl` into ~/.local/bin; `cannot_link` says why not (another file is there). */
+  linkCli?(): Promise<{ ok: true } | Fail<'bad_request' | 'cannot_link'>>;
   /** Looks at GitHub's main now; the answer is `follow()` again. */
   checkUpdate?(): Promise<{ ok: true } | Fail<'bad_request'>>;
   /** Opens the one-time QR window for pairing a phone with this app's gateway. `mode().phone` says whether that is possible. */

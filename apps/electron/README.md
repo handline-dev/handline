@@ -37,6 +37,14 @@ Not in: an HR proposal notice (the contract has no event for it), a notice's cli
 
 The page's side is `window.handline` (docs/electron-bridge.md): `screen` (which agent is on screen, so no notice for it), `unsent` (whether a restart would lose something) and `onNavigate`. `src/preload.ts` is bundled to `dist/preload.cjs`; every call is checked for its sender and its arguments in `src/bridge.ts`. Until the page has called `unsent` once, the shell probes the page itself.
 
+## Packaging
+
+    pnpm install && pnpm package [version]
+
+Makes `apps/electron/release/Handline-<version>-universal.dmg` and `-mac.zip`: the web build, the main process, the universal `handlined` and `hl` from `tools/build-darwin.sh`, then electron-builder (`electron-builder.config.mjs`). The app carries the web build and both binaries under `Contents/Resources` (`src/bundle.ts`); an installed app runs that daemon and serves that page, unless `HANDLINE_HANDLINED` or `HANDLINE_WEB_DIST` name others. Settings > Connection offers to link the carried `hl` into `~/.local/bin`.
+
+Without a Developer ID the app is signed ad hoc (`ad-hoc-sign.mjs`): it runs on the Mac that built it, and anywhere else the first open needs right-click > Open. To sign with a Developer ID, set `HANDLINE_SIGN_IDENTITY` to its name before `pnpm package` (hardened runtime and `assets/entitlements.mac.plist` then apply); notarization takes the usual `APPLE_*` variables and is switched on in the config when they exist.
+
 ## Following main
 
     pnpm install && pnpm app

@@ -182,6 +182,7 @@ describe('Settings > Connection in the shell', () => {
   const text = () => box.querySelector('#set-connection, #set-devices')?.parentElement?.textContent ?? box.textContent ?? '';
   const named = (label: string) =>
     [...box.querySelectorAll('button')].find((b) => b.textContent?.includes(label)) as HTMLElement | undefined;
+  let bundled = false;
   const stub = (follow: object) => {
     const log: string[] = [];
     const api = {
@@ -191,11 +192,25 @@ describe('Settings > Connection in the shell', () => {
       setMode: async (m: string) => (log.push(`mode ${m}`), { ok: true as const }),
       follow: async () => ({ ok: true as const, ...follow }),
       checkUpdate: async () => (log.push('check'), { ok: true as const }),
+      cli: async () => ({ ok: true as const, bundled: bundled, linked: log.includes('link'), link: '/h/.local/bin/hl' }),
+      linkCli: async () => (log.push('link'), { ok: true as const }),
     };
     vi.stubGlobal('handline', api);
     Object.assign(window, { handline: api });
     return log;
   };
+
+  it('offers to link the carried hl and then says where it is linked; an app from a checkout says nothing', async () => {
+    bundled = true;
+    const log = stub({ following: false, sha: '', state: 'current', next: null });
+    await mount('settings');
+    await until(() => named('Install hl'), 'the install button');
+    await act(async () => named('Install hl')!.click());
+    await until(() => box.textContent?.includes('hl is linked at /h/.local/bin/hl'), 'the linked line');
+    expect(log).toEqual(['link']);
+    expect(named('Install hl')).toBeUndefined();
+    bundled = false;
+  });
 
   it('switches the mode and looks for an update from the page, in a follow-main build', async () => {
     const log = stub({ following: true, sha: 'abc1234567', state: 'current', next: null });

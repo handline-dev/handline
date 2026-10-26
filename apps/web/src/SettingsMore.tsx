@@ -7,6 +7,7 @@ import { Button, SectionHead, Segmented, SettingsCard } from '#src/ui/index.ts';
 import { applyTheme, themeOf, type Theme } from '#src/appearance.ts';
 import { setting } from '#src/daemon.ts';
 import { NumberRow, Row, SwitchRow } from '#src/SettingsRows.tsx';
+import { CliRow } from '#src/SettingsCli.tsx';
 import { shell, useShellMode } from '#src/shell.ts';
 
 const SECONDS = 'whole seconds, or empty for the default';
@@ -204,6 +205,7 @@ export function Connection() {
             />
           </Row>
         ) : null}
+        <CliRow />
         {print ? (
           <Row label="Fingerprint" hint="Compare it with the one a device shows when pairing">
             <span className="text-ink-2" title={print}>
