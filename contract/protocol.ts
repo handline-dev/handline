@@ -1445,6 +1445,10 @@ export type Attachment = {
   name: string;
   mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
   bytes: number;
+  /** The picture's width in pixels, read from its header when it was put, so a client can size it before it arrives. Absent when the header could not be read, or for an image put before it was kept. */
+  width?: number;
+  /** The picture's height in pixels; present exactly when width is. */
+  height?: number;
 };
 
 /** One pane of the terminal host, with what the daemon knows of it. A field the daemon does not know is null. */

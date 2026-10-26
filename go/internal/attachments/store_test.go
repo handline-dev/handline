@@ -380,3 +380,42 @@ func TestAMessagesImagesAreItsReferencesThenWhatItWasSentWith(t *testing.T) {
 		t.Fatalf("or one a message names: %v", err)
 	}
 }
+
+func TestAPutImageKnowsItsSize(t *testing.T) {
+	s, _, q := testStore(t)
+	info := putAll(t, s, q, "shot.png", "image/png", pngOf(40, 30), 100)
+	if info.Width != 40 || info.Height != 30 {
+		t.Fatalf("size %dx%d", info.Width, info.Height)
+	}
+	if got, _ := s.Lookup(info.ID); got.Width != 40 || got.Height != 30 {
+		t.Fatalf("kept size %dx%d", got.Width, got.Height)
+	}
+	if m := info.Map(); m["width"] != 40 || m["height"] != 30 {
+		t.Fatalf("map %v", m)
+	}
+	odd := putAll(t, s, q, "x.gif", "image/gif", []byte("GIF89a...."), 100) // a header too short to read
+	if _, ok := odd.Map()["width"]; ok || odd.Width != 0 {
+		t.Fatalf("an unreadable size was given: %+v", odd)
+	}
+}
+
+func TestWebPSizeFromEachHeaderKind(t *testing.T) {
+	head := func(kind string, body ...byte) []byte {
+		b := append([]byte("RIFF\x00\x00\x00\x00WEBP"+kind+"\x00\x00\x00\x00"), body...)
+		return append(b, make([]byte, 30-len(b))...)
+	}
+	bits := uint32(5-1) | uint32(7-1)<<14
+	for name, c := range map[string]struct {
+		b    []byte
+		w, h int
+	}{
+		"lossy":    {head("VP8 ", 0, 0, 0, 0x9d, 0x01, 0x2a, 5, 0, 7, 0), 5, 7},
+		"lossless": {head("VP8L", 0x2f, byte(bits), byte(bits>>8), byte(bits>>16), byte(bits>>24)), 5, 7},
+		"extended": {head("VP8X", 0, 0, 0, 0, 4, 0, 0, 6, 0, 0), 5, 7},
+		"unknown":  {head("ABCD"), 0, 0},
+	} {
+		if w, h := webpSize(c.b); w != c.w || h != c.h {
+			t.Errorf("%s: %dx%d, want %dx%d", name, w, h, c.w, c.h)
+		}
+	}
+}
