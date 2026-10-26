@@ -1,13 +1,13 @@
 // The two menus of the message box (docs/bridge-feature-tree.md §2.4): `/` lists what a person does in chat and `#` a task or a message to refer to,
 // and Ctrl+R lists what was sent before. A menu is entries; the box decides which one is open from its text.
 import { useMemo } from 'react';
-import { openTab, verbsOf, type Verb, taskRef } from '@handline/app-core';
+import { mentionAt, mentionNames, mentionState, openTab, verbsOf, type Verb, taskRef } from '@handline/app-core';
 import type { AgentDetail, ChatMessage } from '@handline/client';
 import { useAgents, useChatRefs, useServes, useTasks } from '@handline/app-data';
 import type { IconName } from '#src/ui/index.ts';
 import { useWorkspace } from '#src/Workspace.tsx';
 
-export type MenuKind = 'slash' | 'hash' | 'history';
+export type MenuKind = 'slash' | 'hash' | 'at' | 'history';
 export interface Entry {
   key: string;
   icon: IconName;
@@ -24,12 +24,14 @@ const VERB_ICON: Record<string, IconName> = { interrupt: 'cancel', clear_stall: 
 /** The verbs the slash menu offers: the ones a person reaches for. Restart, close, park, fold and move are automatic and are not shown. */
 const SLASH_VERBS: ReadonlySet<string> = new Set(['interrupt', 'clear_stall']);
 
-/** Which menu the text asks for: a line that is only `/word`, a `#` at its end, or none. */
+/** Which menu the text asks for: a line that is only `/word`, a `#` or `@` at its end, or none. */
 export function menuOf(text: string): { kind: MenuKind; query: string } | null {
   const slash = /^\/(\w*)$/.exec(text);
   if (slash) return { kind: 'slash', query: slash[1]! };
   const hash = /(?:^|\s)#(\w*)$/.exec(text);
   if (hash) return { kind: 'hash', query: hash[1]! };
+  const at = mentionAt(text);
+  if (at) return { kind: 'at', query: at.query };
   return null;
 }
 
@@ -45,7 +47,8 @@ export function useEntries(
   const tasks = useTasks({});
   const refsServed = useServes('chat.refs').served;
   const refs = useChatRefs(agent, kind === 'hash' && refsServed);
-  const view = (useAgents().data?.agents ?? []).find((a) => a.name === agent);
+  const agentList = useAgents().data?.agents;
+  const view = (agentList ?? []).find((a) => a.name === agent);
   return useMemo(() => {
     const q = query.toLowerCase();
     if (kind === 'slash') {
@@ -79,6 +82,17 @@ export function useEntries(
         .map(([id, line]): Entry => ({ key: `m${id}`, icon: 'reference', label: `#${id}`, hint: line, insert: `#${id} ` }));
       return [...mine, ...said].filter((e) => !q || e.label.slice(1).startsWith(q));
     }
+    if (kind === 'at') {
+      const all = (agentList ?? []).map((a) => a.name);
+      const stateOf = (n: string) => mentionState(agentList!.find((a) => a.name === n)!);
+      return mentionNames(query, all, [agent]).map((n): Entry => ({
+        key: `a${n}`,
+        icon: 'agent',
+        label: `@${n}`,
+        hint: stateOf(n),
+        insert: `@${n} `,
+      }));
+    }
     if (kind === 'history') {
       const hits = history.filter((h) => h.toLowerCase().includes(q));
       return hits
@@ -86,7 +100,7 @@ export function useEntries(
         .map((h, i): Entry => ({ key: `h${i}`, icon: 'typed', label: h.length > 70 ? `${h.slice(0, 70)}…` : h, insert: h }));
     }
     return [];
-  }, [kind, query, view, detail, served, tasks.data, refs.data, agent, messages, history]);
+  }, [kind, query, view, agentList, detail, served, tasks.data, refs.data, agent, messages, history]);
 }
 
 /** Opens the agent's terminal (a structured agent's transcript) beside the chat, as the `/terminal` and `/transcript` verbs do. */
