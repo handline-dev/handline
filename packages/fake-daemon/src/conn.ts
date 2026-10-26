@@ -1,8 +1,9 @@
 // What the fake daemon's connections and options are made of: one connection's state, the options a test passes, and the constants the
 // hello reply and the replay of a write read.
-import type { Caller, Role, Topic } from '@handline/contract';
+import { RPC_CODES, type Caller, type Role, type Topic } from '@handline/contract';
 import type { Transport } from '@handline/client';
 import type { Attach } from '#src/session.ts';
+import type { Failure } from '#src/errors.ts';
 
 export const TERMINAL_CAPS = { terminal_format: ['text', 'bytes', 'styled'], terminal_hosts: { fake: ['text', 'bytes', 'styled'] } };
 export const TEXT_CAPS = { terminal_format: ['text'], terminal_hosts: { fake: ['text'] } };
@@ -33,3 +34,6 @@ export interface FakeDaemonOptions {
 }
 
 export type Body = { result?: unknown; error?: { code: number; message: string; data: Record<string, unknown> } };
+
+/** The error body a failure answers with. */
+export const failBody = (e: Failure): Body => ({ error: { code: e.rpc ?? RPC_CODES[e.code] ?? -32603, message: e.message, data: e.data } });
