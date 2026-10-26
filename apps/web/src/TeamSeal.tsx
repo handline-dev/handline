@@ -1,6 +1,6 @@
 // Seal the hand-edited team.yaml and agent.yaml files (founder only): a dry run lists what would be sealed, then the founder confirms.
 import { useEffect, useState } from 'react';
-import { useStore } from '@handline/app-react';
+import { useHello } from '@handline/app-react';
 import { classify, sentence, useOff, useWrite } from '@handline/app-data';
 import { Button, Dialog, Icon, NOTE } from '#src/ui/index.ts';
 
@@ -41,7 +41,7 @@ function SealDialog({ onClose }: { onClose: () => void }) {
 }
 
 export function TeamSeal() {
-  const founder = useStore().client.hello?.role === 'founder';
+  const founder = useHello()?.role === 'founder';
   const off = useOff('team.seal');
   const [asking, setAsking] = useState(false);
   if (!founder) return null;

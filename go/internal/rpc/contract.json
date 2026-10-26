@@ -150,6 +150,9 @@
   ],
   "role": "agent"
  },
+ "hr.apply_now": {
+  "role": "member"
+ },
  "hr.decide": {
   "role": "member"
  },
@@ -232,6 +235,9 @@
  },
  "request.withdraw": {
   "role": "agent"
+ },
+ "requests.list": {
+  "role": "member"
  },
  "say": {
   "role": "agent"
@@ -365,6 +371,9 @@
  "task.new": {
   "role": "agent"
  },
+ "task.none": {
+  "role": "agent"
+ },
  "task.progress": {
   "callers": [
    "agent"
@@ -378,6 +387,9 @@
   "role": "agent"
  },
  "task.reopen": {
+  "role": "agent"
+ },
+ "task.request": {
   "role": "agent"
  },
  "task.shot": {

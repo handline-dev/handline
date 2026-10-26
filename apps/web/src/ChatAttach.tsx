@@ -1,6 +1,6 @@
 // Images on a message: the chips under the box while they upload (a preview, the progress, a remove mark) and the pictures drawn in a sent
 // message (a small copy; a click opens the original). The files come from a paste, a drop or the file picker.
-import { useRef, type ClipboardEvent, type DragEvent } from 'react';
+import { useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
 import type { Attachment } from '@handline/client';
 import {
   MAX_PER_MESSAGE,
@@ -13,6 +13,7 @@ import {
   whyNotImage,
 } from '@handline/app-data';
 import { AttachmentImage } from '#src/AttachmentImage.tsx';
+import { ImageViewer } from '#src/ImageViewer.tsx';
 import { shell } from '#src/shell.ts';
 import { Icon } from '#src/ui/index.ts';
 
@@ -39,7 +40,7 @@ interface Held {
   drafts: Draft[];
   problem: string | null;
   refs: Ref[];
-  live: Map<number, { aborted: boolean; preview: string }>;
+  live: Map<number, { aborted: boolean; preview: string; file: File }>;
 }
 const useHeld = keptState<Held>(() => ({ drafts: [], problem: null, refs: [], live: new Map() }));
 
@@ -52,6 +53,17 @@ export function useAttachDraft(agent?: string) {
   const patch = (key: number, p: Partial<Draft>) =>
     held.set((s) => ({ drafts: s.drafts.map((x) => (x.key === key ? { ...x, ...p } : x)) }));
 
+  const send = (key: number, f: File, signal: { aborted: boolean }) =>
+    upload(f, f.name || 'image', f.type as Attachment['mime'], (sent, total) => patch(key, { progress: sent / total }), signal).then(
+      (attachment) => !signal.aborted && (rememberAttachment(attachment), patch(key, { attachment, progress: 1 })),
+      (e) => !signal.aborted && patch(key, { error: sentence(classify(e)) }),
+    );
+  const retry = (key: number) => {
+    const l = live.get(key);
+    if (!l) return;
+    patch(key, { error: undefined, progress: 0 });
+    void send(key, l.file, l);
+  };
   const add = (files: File[]) => {
     held.set({ problem: null });
     for (const f of files) {
@@ -60,13 +72,10 @@ export function useAttachDraft(agent?: string) {
       if (live.size >= MAX_PER_MESSAGE) return held.set({ problem: `At most ${MAX_PER_MESSAGE} images to a message` });
       const key = nextKey++;
       const preview = URL.createObjectURL(f);
-      const signal = { aborted: false, preview };
+      const signal = { aborted: false, preview, file: f };
       live.set(key, signal);
       held.set((s) => ({ drafts: [...s.drafts, { key, name: f.name || 'image', preview, progress: 0 }] }));
-      upload(f, f.name || 'image', f.type as Attachment['mime'], (sent, total) => patch(key, { progress: sent / total }), signal).then(
-        (attachment) => !signal.aborted && (rememberAttachment(attachment), patch(key, { attachment, progress: 1 })),
-        (e) => !signal.aborted && patch(key, { error: sentence(classify(e)) }),
-      );
+      void send(key, f, signal);
     }
   };
   // Only the desktop shell knows a dropped file's path; elsewhere nothing is added. The shell copies it into the agent's worktree, so the
@@ -119,6 +128,7 @@ export function useAttachDraft(agent?: string) {
     refer,
     unrefer: (key: number) => held.set((s) => ({ refs: s.refs.filter((x) => x.key !== key) })),
     remove,
+    retry,
     clear,
     /** Sent to the daemon in full: the ids to name in the message. */
     ids: drafts.flatMap((d) => d.attachment?.id ?? []),
@@ -154,13 +164,37 @@ export function attachHandlers(add: (files: File[]) => void, refer?: (files: Fil
   };
 }
 
+/** A ring over a thumbnail that fills clockwise as the upload goes; a red full ring when it failed. */
+function Ring({ value, failed }: { value: number; failed?: boolean }) {
+  const r = 15;
+  const c = 2 * Math.PI * r;
+  return (
+    <svg viewBox="0 0 36 36" className="h-9 w-9 -rotate-90 rounded-chip bg-black/35" aria-hidden="true">
+      <circle cx="18" cy="18" r={r} fill="none" strokeWidth="3" className="stroke-white/30" />
+      <circle
+        cx="18"
+        cy="18"
+        r={r}
+        fill="none"
+        strokeWidth="3"
+        strokeLinecap="round"
+        className={failed ? 'stroke-bad' : 'stroke-white'}
+        strokeDasharray={c}
+        strokeDashoffset={c * (1 - (failed ? 1 : Math.max(0.04, value)))}
+      />
+    </svg>
+  );
+}
+
 export function AttachChips(props: {
   drafts: Draft[];
   refs?: Ref[];
   problem: string | null;
   onRemove: (key: number) => void;
+  onRetry?: (key: number) => void;
   onUnref?: (key: number) => void;
 }) {
+  const [viewing, setViewing] = useState<number | null>(null);
   if (!props.drafts.length && !props.refs?.length && !props.problem) return null;
   return (
     <div className="attach-chips mx-3 mb-1 flex flex-wrap items-center gap-1.5">
@@ -171,14 +205,44 @@ export function AttachChips(props: {
           data-state={d.error ? 'failed' : d.attachment ? 'ready' : 'sending'}
           title={d.error ?? d.name}
         >
-          <img src={d.preview} alt="" className="h-9 w-9 rounded-chip object-cover" />
+          <span className="relative inline-flex h-9 w-9">
+            <button
+              type="button"
+              className="border-0 bg-transparent p-0"
+              aria-label={`Open ${d.name}`}
+              title="Enlarge"
+              onClick={() => setViewing(props.drafts.indexOf(d))}
+            >
+              <img src={d.preview} alt="" className="h-9 w-9 rounded-chip object-cover" />
+            </button>
+            {d.error ? (
+              <button
+                type="button"
+                className="absolute inset-0 border-0 bg-transparent p-0"
+                aria-label={`Retry ${d.name}`}
+                title={`${d.error} Retry`}
+                onClick={() => props.onRetry?.(d.key)}
+              >
+                <Ring value={1} failed />
+              </button>
+            ) : !d.attachment ? (
+              <span
+                className="pointer-events-none absolute inset-0"
+                role="progressbar"
+                aria-label={`Sending ${d.name}`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(d.progress * 100)}
+              >
+                <Ring value={d.progress} />
+              </span>
+            ) : null}
+          </span>
           <span className="max-w-[140px] truncate">{d.name}</span>
           {d.error ? (
-            <span className="text-bad" role="alert">
-              <Icon name="failed" size={13} label={d.error} />
+            <span className="sr-only" role="alert">
+              {d.error}
             </span>
-          ) : !d.attachment ? (
-            <progress className="h-1 w-12" max={1} value={d.progress} aria-label={`Sending ${d.name}`} />
           ) : null}
           <button className="icon" aria-label={`Remove ${d.name}`} title="Remove" onClick={() => props.onRemove(d.key)}>
             <Icon name="close" size={12} label="Remove" />
@@ -203,6 +267,13 @@ export function AttachChips(props: {
         <span className="text-label text-bad" role="status">
           {props.problem}
         </span>
+      ) : null}
+      {viewing !== null ? (
+        <ImageViewer
+          pictures={props.drafts.map((d) => ({ url: d.preview, name: d.name }))}
+          start={viewing}
+          onClose={() => setViewing(null)}
+        />
       ) : null}
     </div>
   );
@@ -243,8 +314,8 @@ export function PickButton(props: { onPick: (files: File[]) => void; disabled?: 
 export function Pictures({ items }: { items: Pick<Attachment, 'id' | 'name'>[] }) {
   return (
     <div className="attachments mt-1 flex flex-wrap gap-1.5">
-      {items.map((a) => (
-        <AttachmentImage key={a.id} id={a.id} name={a.name} />
+      {items.map((a, i) => (
+        <AttachmentImage key={a.id} id={a.id} name={a.name} group={items} at={i} />
       ))}
     </div>
   );

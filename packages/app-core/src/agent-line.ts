@@ -5,11 +5,15 @@ import { taskRef } from '#src/tasks.ts';
 
 const base = (path: string): string => path.replace(/\/+$/, '').split('/').pop() || path;
 
+/** Claude's folder for a project is the project's path with its slashes turned to dashes (`-Users-ron-workspaces-app`): not a name worth a line. */
+const encodedPath = (name: string): boolean => /^-[\w.]+(?:-[\w.]+){2,}$/.test(name);
+
 /** A tool call (`Bash cd /x && ...`, `Edit /a/b.tsx`) as words; a text that is not one comes back with its absolute paths cut to their last part. */
 export function doingWords(text: string): string {
   const [tool = '', ...rest] = text.trim().split(/\s+/);
   const arg = rest.join(' ');
-  const file = arg ? base(rest[0]!) : '';
+  const name = arg ? base(rest[0]!) : '';
+  const file = encodedPath(name) ? '' : name;
   switch (tool) {
     case 'Edit':
     case 'MultiEdit':
@@ -47,7 +51,8 @@ const firstLine = (text: string): string =>
 const QUIET = new Set(['idle', 'off']);
 
 /** What the daemon says the agent is doing or waiting for; '' when it only names a quiet state. */
-export const statusText = (a: AgentView): string => (a.status && !QUIET.has(a.status.state) ? a.status.text : '');
+export const statusText = (a: AgentView): string =>
+  a.status?.reason === 'load' ? 'waiting: machine load' : a.status && !QUIET.has(a.status.state) ? a.status.text : '';
 
 /** The state word beside a phone row; '' for a quiet state. */
 export const rowWord = (a: AgentView): string => {

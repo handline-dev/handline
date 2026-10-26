@@ -17,7 +17,7 @@ import {
   type TabParams,
   type Workspace,
 } from '@handline/app-core';
-import { useStore } from '@handline/app-react';
+import { useHello, useMe } from '@handline/app-react';
 import { ChatTab } from '#src/ChatTab.tsx';
 import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
 import { TasksTab } from '#src/TasksTab.tsx';
@@ -77,18 +77,19 @@ export function Pane({ group }: { group: Group }) {
   useScreenKeys('On the tabs', TAB_KEYS);
   const { ws, detail, agent, storage, apply, show, canSplit, lead, dragging, setDragging } = useWorkspace();
   const folded = useFoldedControls();
-  const store = useStore();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
-  const badges = badgesOf(detail, store.me);
+  const me = useMe();
+  const hello = useHello();
+  const badges = badgesOf(detail, me);
   const structured = detail.structured === true;
   // What a new tab can show: the same flat list for the + menu and for the picker in a freshly split pane.
   const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; disabled?: boolean; open?: boolean }[] = [
     // A new plain shell in the agent's worktree, not its Claude Code terminal (that one is its own tab); several may be open.
     { kind: 'shell', params: {}, label: 'Terminal', icon: 'terminal', open: true },
     { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
-    { kind: 'android', params: { id: 'new' }, label: 'Android', icon: 'device' },
-    { kind: 'ios', params: { id: 'new' }, label: 'iOS', icon: 'device' },
+    { kind: 'android', params: {}, label: 'Android', icon: 'device' },
+    { kind: 'ios', params: {}, label: 'iOS', icon: 'device' },
   ];
   /** Opens what a choice shows; a new shell is first asked of the daemon and then shown by its handle. */
   const choose = async (c: (typeof choices)[number], place: (w: Workspace, kind: TabKind, params: TabParams) => Workspace) => {
@@ -254,7 +255,13 @@ export function Pane({ group }: { group: Group }) {
             onUrl={(u) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, url: u } } } }))}
           />
         ) : tab.kind === 'android' || tab.kind === 'ios' ? (
-          <DeviceTab agent={agent} kind={tab.kind} hidden={!!dragging} />
+          <DeviceTab
+            agent={agent}
+            kind={tab.kind}
+            hidden={!!dragging}
+            picked={typeof tab.params.device === 'string' ? tab.params.device : ''}
+            onPick={(device) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, device } } } }))}
+          />
         ) : tab.kind === 'shell' ? (
           <BytesTab key={tab.id} agent={agent} detail={{ terminal: String(tab.params.handle) }} handle={String(tab.params.handle)} shell />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (
@@ -263,7 +270,7 @@ export function Pane({ group }: { group: Group }) {
             structured={structured}
             terminal={
               <div className="flex min-h-0 flex-col [&>:nth-last-child(2)]:flex-1">
-                {wantsBytes(store.client.hello?.capabilities.terminal_format, storage) ? (
+                {wantsBytes(hello?.capabilities.terminal_format, storage) ? (
                   <BytesTab agent={agent} detail={detail} />
                 ) : (
                   <TerminalTab agent={agent} detail={detail} />

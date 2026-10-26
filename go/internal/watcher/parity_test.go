@@ -35,13 +35,14 @@ func same(a, b any) bool {
 }
 
 // withoutRefs is v without the requests' refs and the names made from them: they are random, and newer than the recorded rows.
+// It also drops the request-task keys (no_work, request_task) that the Python rows never carry.
 func withoutRefs(v any) any {
 	switch x := v.(type) {
 	case map[string]any:
 		out := map[string]any{}
 		_, named := x["ref"]
 		for k, e := range x {
-			if k != "ref" && k != "request_ref" && !(named && k == "name") {
+			if k != "ref" && k != "request_ref" && k != "no_work" && k != "request_task" && !(named && k == "name") {
 				out[k] = withoutRefs(e)
 			}
 		}

@@ -2,7 +2,7 @@
 // a colour dot for how it went, the task's title, a grey line for what happened, and the time in a column on the right.
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { clockTime, isPerson, openTask, type TaskChange, taskRow } from '@handline/app-core';
-import { useStore } from '@handline/app-react';
+import { useMe } from '@handline/app-react';
 import { useWorkspace } from '#src/Workspace.tsx';
 
 const DOT: Record<string, string> = { opened: 'bg-ok', changed: 'bg-wait', done: 'bg-ok', withdrawn: 'bg-bad' };
@@ -39,7 +39,7 @@ const sentence = (parts: TaskChange[]): string =>
 export function TaskLine({ i, titles, agent }: { i: TranscriptItem; titles?: Map<number, string>; agent?: string }) {
   const ev = i.task_event?.event ?? 'changed';
   const row = taskRow(i, titles);
-  const me = useStore().me;
+  const me = useMe();
   const by = row.who && row.who !== agent ? `by ${isPerson(row.who, me) ? 'you' : row.who}` : '';
   // A change says what it is on its own; added, done and deleted say the word and who did it.
   const what = ev === 'changed' ? [sentence(row.parts), by] : [[VERB[ev] ?? 'changed', by].filter(Boolean).join(' '), sentence(row.parts)];

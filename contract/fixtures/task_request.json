@@ -1,0 +1,194 @@
+{
+ "fixtures": [
+  {
+   "name": "task.request.unknown_message_is_refused",
+   "spec": "task.request",
+   "about": "A message nobody sent is refused, and no task is opened.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.request",
+      "params": {
+       "request": 999999,
+       "request_id": "conf-trq-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.request.needs_a_message",
+   "spec": "task.request",
+   "about": "A request names the message it is made from: bad_request.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.request",
+      "params": {
+       "request_id": "conf-trq-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.none.needs_a_reason",
+   "spec": "task.none",
+   "about": "A no-work mark carries its reason: bad_request naming reason.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.none",
+      "params": {
+       "request": 1,
+       "request_id": "conf-trn-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "reason"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.none.unknown_message_is_refused",
+   "spec": "task.none",
+   "about": "A message nobody sent is refused.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.none",
+      "params": {
+       "request": 999999,
+       "reason": "x",
+       "request_id": "conf-trn-2"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "task.new.parent_and_no_parent_together_is_bad_request",
+   "spec": "task.new",
+   "about": "A task is hung under a parent or kept free of any, not both: bad_request naming no_parent.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "t",
+       "parent": 1,
+       "no_parent": true,
+       "request_id": "conf-tnp-1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "no_parent"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

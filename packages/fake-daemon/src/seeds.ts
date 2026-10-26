@@ -125,6 +125,40 @@ export const SEEDS: Record<string, Seed> = {
     }
   },
 
+  /** The founder's requests: one waiting on them, one in review, one doing, a done one, a message that is not a task yet. */
+  requests: (d) => {
+    d.requests.add({
+      title: 'Show the usage graph first',
+      task: 6071,
+      status: 'doing',
+      agent: 'handline.pc',
+      holders: ['handline.pc'],
+      open: 2,
+      done: 1,
+    });
+    d.requests.add({
+      title: 'Open a new shell from the + menu',
+      task: 6068,
+      status: 'review',
+      agent: 'handline.pc',
+      holders: ['handline.pc'],
+      open: 1,
+      done: 2,
+      prs: [630],
+    });
+    d.requests.add({
+      title: 'Which build is live?',
+      task: 6020,
+      status: 'waiting_on_you',
+      agent: 'handline',
+      holders: ['handline'],
+      open: 1,
+      unread_comments: 2,
+    });
+    d.requests.add({ title: 'Settings in one place', task: 5983, status: 'done', agent: 'handline.pc', done: 6 });
+    d.requests.add({ title: 'Why is the build so slow today?', kind: 'message', agent: 'handline' });
+  },
+
   /** The architect is held back for the machine's load: its chat and row say so, and agent.force_start starts it. */
   'agent-held': (d) => {
     const s = d.sessions.get(ARCH)!;
@@ -140,6 +174,41 @@ export const SEEDS: Record<string, Seed> = {
         tasks: [],
       },
     };
+  },
+
+  /** The architect waits on another task (status reason task): its chat shows the blocked-by card with the task as a link. */
+  'agent-blocked': (d) => {
+    const s = d.sessions.get(ARCH)!;
+    const since = new Date(Date.now() - 12 * 60_000).toISOString();
+    s.fx.view = {
+      ...s.fx.view,
+      status: { state: 'waiting', reason: 'task', text: 'blocked by T1684 (human)', until: null, since, tasks: [1684] },
+    };
+  },
+
+  /** Two approved proposals whose change is applied but whose agent did not start: the architect's waits for the load, the auditor's failed. */
+  'hr-followup': (d) => {
+    const hr = d.script.hr;
+    hr.raise({
+      id: 906,
+      kind: 'settings',
+      agent: ARCH,
+      title: 'rename handline.architect',
+      diff: 'rename handline.architect -> handline.planner',
+      state: 'approved',
+      settled: new Date().toISOString(),
+      follow_up: { agent: ARCH, state: 'waiting', text: 'held: machine load - load 3.09 per core, limit 1.50' },
+    });
+    hr.raise({
+      id: 907,
+      kind: 'settings',
+      agent: AUD,
+      title: 'rename handline.auditor',
+      diff: 'rename handline.auditor -> handline.reviewer',
+      state: 'approved',
+      settled: new Date().toISOString(),
+      follow_up: { agent: AUD, state: 'failed', text: 'start failed: no free account' },
+    });
   },
 
   /** Chat messages with one-tap actions: OK / No on an open task the founder owns. */

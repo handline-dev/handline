@@ -5,7 +5,7 @@ import { useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { clockTime, ellipsis, landingLabel, openTask, restartCause, sideOf, tickLevel } from '@handline/app-core';
 import { useChatActions, useWrite } from '@handline/app-data';
-import { useStore } from '@handline/app-react';
+import { useMe } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from '#src/msgClass.ts';
 import { Pictures } from '#src/ChatAttach.tsx';
@@ -92,6 +92,31 @@ function Ticks({ level, label, receipt }: { level: 0 | 1 | 2; label: string; rec
   );
 }
 
+/** Under a message of the person's: the request made from it (a link to its task), or why it needs no work; a picked one with neither offers Make a request. */
+function RequestChip({ m, picked }: { m: ChatMessage; picked: boolean }) {
+  if (m.request_task != null)
+    return (
+      <a
+        className="msg-request mt-0.5 w-fit self-end text-label text-link"
+        href={`#/tasks/${m.request_task}`}
+        data-request={m.request_task}
+      >
+        Request T{m.request_task}
+      </a>
+    );
+  if (m.no_work) return <span className="msg-request mt-0.5 w-fit self-end text-label text-ink-3">No work: {m.no_work}</span>;
+  return picked ? <MakeRequest id={m.id} /> : null;
+}
+
+function MakeRequest({ id }: { id: number }) {
+  const make = useWrite('task.request');
+  return (
+    <span className="msg-request mt-0.5 w-fit self-end">
+      <Button variant="outline" label="Make a request" disabled={make.isPending} onClick={() => make.mutate({ request: id })} />
+    </span>
+  );
+}
+
 export function Message(props: {
   m: ChatMessage;
   agent: string;
@@ -106,7 +131,7 @@ export function Message(props: {
 }) {
   const { m, agent } = props;
   const act = useChatActions(agent);
-  const side = sideOf(m, agent, useStore().me);
+  const side = sideOf(m, agent, useMe());
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
@@ -200,6 +225,7 @@ export function Message(props: {
           </div>
         ) : null}
       </div>
+      {side === 'person' && !unnumbered && !failed ? <RequestChip m={m} picked={!!props.picked} /> : null}
       <Stamp
         left={side !== 'agent'}
         time={clockTime(m.at)}

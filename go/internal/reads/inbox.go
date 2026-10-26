@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/policy"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -39,8 +40,7 @@ type mailbox struct {
 // founderOpen is a request to the founder still in their inbox: not yet dealt with, or a say not yet read.
 const founderOpen = "(state = 'queued' OR (kind = 'say' AND state = 'landed' AND landed_at IS NOT NULL AND read_at IS NULL))"
 
-// readSayKeepS is how long a read say stays in the founder's inbox list, greyed, so it can be found again: 7 days.
-const readSayKeepS = 7 * 24 * 3600
+const readSayKeepS = int64(policy.ReadSayShown / time.Second)
 
 func (e *Env) mailboxRows() ([]mailbox, error) { return e.mailboxRowsKept(false) }
 

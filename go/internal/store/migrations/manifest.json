@@ -123,5 +123,10 @@
   "version": 25,
   "name": "prefs",
   "additive": true
+ },
+ {
+  "version": 26,
+  "name": "request_threads",
+  "additive": true
  }
 ]

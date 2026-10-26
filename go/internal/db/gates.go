@@ -2,6 +2,9 @@ package db
 
 import (
 	"database/sql"
+	"time"
+
+	"github.com/handline/handline/go/internal/policy"
 )
 
 // Watch is what a gate task watches: Target of Vendor (an outside tool, package watch), waiting for Until, said as Label ("PR #418 CI").
@@ -12,8 +15,8 @@ type Watch struct {
 	Since                        int64 // when the gate started watching: its creation
 }
 
-// GateDeadlineS is a gate's time box when none is given.
-const GateDeadlineS = 24 * 3600
+// GateDeadlineS is a gate's time box when none is given (policy.GateDeadline).
+const GateDeadlineS = int64(policy.GateDeadline / time.Second)
 
 // OpenGate makes task tid, owned by Gate, watch w: it is queued by `by` and doing from now, and its deadline is its time box from now.
 func OpenGate(q Q, tid int64, by string, w Watch) error {
