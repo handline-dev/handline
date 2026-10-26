@@ -4,7 +4,20 @@ import { useRef, useState, type ReactElement, type ReactNode } from 'react';
 import type { useBulk } from '#src/taskActions.ts';
 import { plan, taskRef, TASK_VERBS, type Outcome, type RowVerb } from '@handline/app-core';
 import type { Task } from '@handline/client';
-import { Button, Input, Menu, MenuButton, MenuContent, MenuItem, MenuTrigger, NativeSelect, type At } from '#src/ui/index.ts';
+import {
+  Button,
+  Input,
+  Menu,
+  MenuButton,
+  MenuContent,
+  MenuItem,
+  MenuLabel,
+  MenuSeparator,
+  MenuTrigger,
+  NativeSelect,
+  type At,
+} from '#src/ui/index.ts';
+import type { IconName } from '@handline/app-ui';
 import { Sheet, useCan } from '#src/taskui.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 
@@ -35,6 +48,77 @@ export function verbChoices(tasks: Task[], me: string, cans: Cans) {
   });
 }
 
+/** The menu's groups, in the order a person reaches for them: finish it, move it, change it, stop it (the stopping verbs last, in red). */
+const GROUPS: { verbs: RowVerb[]; danger?: boolean }[] = [
+  { verbs: ['done'] },
+  { verbs: ['queue', 'draft', 'release', 'reopen'] },
+  { verbs: ['owner', 'priority', 'timebox'] },
+  { verbs: ['withdraw', 'cancel', 'discard'], danger: true },
+];
+const VERB_ICON: Record<RowVerb, IconName> = {
+  done: 'done',
+  queue: 'queued',
+  draft: 'edit',
+  release: 'undo',
+  reopen: 'refresh',
+  owner: 'owner',
+  priority: 'priority',
+  timebox: 'waiting',
+  withdraw: 'withdrawn',
+  cancel: 'cancel',
+  discard: 'close',
+};
+
+/** The items of a task menu: what is said of the task first, then only the verbs that can run now, in groups with a line between; for one task
+ *  the current owner and priority sit at the right of the words that change them. */
+export function VerbItems(props: { tasks: Task[]; me: string; cans: Cans; onPick: (verb: RowVerb) => void }) {
+  const { tasks } = props;
+  const many = tasks.length > 1;
+  // A verb that applies to none of the tasks is left out; one the daemon does not serve stays, dimmed, with the reason.
+  const live = new Map(
+    TASK_VERBS.flatMap(({ verb }) => {
+      const run = plan(verb, tasks, props.me).run.length;
+      return run
+        ? [[verb, { verb, label: label(verb), count: run, why: props.cans[verb].ok ? undefined : props.cans[verb].why }] as const]
+        : [];
+    }),
+  );
+  const groups = GROUPS.map((g) => ({ ...g, items: g.verbs.flatMap((v) => live.get(v) ?? []) })).filter((g) => g.items.length);
+  const now = (verb: RowVerb) =>
+    many || !tasks[0] ? null : verb === 'owner' ? tasks[0].to : verb === 'priority' ? `P${tasks[0].priority ?? 2}` : null;
+  return (
+    <>
+      <MenuLabel>{many ? `${tasks.length} tasks` : tasks[0] ? `${taskRef(tasks[0].id)} ${tasks[0].title}` : ''}</MenuLabel>
+      {groups.length ? (
+        groups.map((g, i) => (
+          <div key={g.verbs[0]} role="group">
+            {i ? <MenuSeparator /> : null}
+            {g.items.map((c) => (
+              <MenuItem
+                key={c.verb}
+                icon={VERB_ICON[c.verb]}
+                danger={g.danger}
+                disabled={!!c.why}
+                title={c.why}
+                onSelect={() => props.onPick(c.verb)}
+              >
+                {c.label}
+                {many ? (
+                  <span className="muted ml-auto text-hint">{`${c.count} of ${tasks.length}`}</span>
+                ) : now(c.verb) ? (
+                  <span className="muted ml-auto pl-3 text-hint">{now(c.verb)}</span>
+                ) : null}
+              </MenuItem>
+            ))}
+          </div>
+        ))
+      ) : (
+        <MenuItem disabled>Nothing to do here</MenuItem>
+      )}
+    </>
+  );
+}
+
 /** A button that opens the verbs for `tasks` (one row's, or the marked rows'). */
 export function VerbMenu(props: {
   tasks: Task[];
@@ -58,12 +142,7 @@ export function VerbMenu(props: {
         onOpenChange={props.onOpenChange}
         name={many ? `${props.tasks.length} tasks` : `#${props.tasks[0]?.id}`}
       >
-        {verbChoices(props.tasks, props.me, props.cans).map((c) => (
-          <MenuItem key={c.verb} disabled={!!c.why} title={c.why} onSelect={() => props.onPick(c.verb)}>
-            {c.label}
-            {many && !c.why ? <span className="muted ml-auto text-hint">{`${c.count} of ${props.tasks.length}`}</span> : null}
-          </MenuItem>
-        ))}
+        <VerbItems tasks={props.tasks} me={props.me} cans={props.cans} onPick={props.onPick} />
       </MenuButton>
     </span>
   );
@@ -101,11 +180,7 @@ export function RowMenu(props: {
     <Menu openRef={at} onOpenChange={setOpen}>
       <MenuTrigger>{props.children(more, open)}</MenuTrigger>
       <MenuContent aria-label={`#${props.tasks[0]?.id}`} onClick={(e) => e.stopPropagation()}>
-        {verbChoices(props.tasks, props.me, props.cans).map((c) => (
-          <MenuItem key={c.verb} disabled={!!c.why} title={c.why} onSelect={() => props.onPick(c.verb)}>
-            {c.label}
-          </MenuItem>
-        ))}
+        <VerbItems tasks={props.tasks} me={props.me} cans={props.cans} onPick={props.onPick} />
       </MenuContent>
     </Menu>
   );
@@ -248,16 +323,21 @@ export function VerbSheets({ flow, ids }: { flow: ReturnType<typeof useVerbFlow>
   const { ask, setAsk, run, me, agents, all, bulk } = flow;
   return (
     <>
-      <AnimatedList>{ask ? <VerbSheet key="VerbSheet" verb={ask} tasks={flow.byId(ids)} me={me} agents={agents} onCancel={() => setAsk(null)} onRun={run} /> : null}</AnimatedList>
       <AnimatedList>
-      {bulk.result ? (
-        <ResultSheet key="result"
-          what={bulk.result.what}
-          outcomes={bulk.result.outcomes}
-          titles={new Map(all.map((t) => [t.id, t.title]))}
-          onClose={bulk.clearResult}
-        />
-      ) : null}
+        {ask ? (
+          <VerbSheet key="VerbSheet" verb={ask} tasks={flow.byId(ids)} me={me} agents={agents} onCancel={() => setAsk(null)} onRun={run} />
+        ) : null}
+      </AnimatedList>
+      <AnimatedList>
+        {bulk.result ? (
+          <ResultSheet
+            key="result"
+            what={bulk.result.what}
+            outcomes={bulk.result.outcomes}
+            titles={new Map(all.map((t) => [t.id, t.title]))}
+            onClose={bulk.clearResult}
+          />
+        ) : null}
       </AnimatedList>
     </>
   );

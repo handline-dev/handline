@@ -15,7 +15,7 @@ export function AgentTasks({ agent }: { agent: string }) {
   const { served } = useServes('tasks.list');
   const [open, setOpen] = useState<number | null>(null);
   const tabs = useOpenInTab();
-  const { query, items, capped } = useAgentTasks(agent);
+  const { query, items, more: capped } = useAgentTasks(agent);
   const now = Date.now();
   const rows = agentTasks(items, agent, now);
   if (open !== null) return <Detail id={open} onBack={() => setOpen(null)} />;
