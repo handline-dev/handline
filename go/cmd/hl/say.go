@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -101,16 +102,13 @@ func say(c *hlclient.Client, args []string) (int, bool) {
 	return said(c.Write("say", params)), true
 }
 
-// answerWords are the words that ask for a reply, wherever they stand in a body.
-var answerWords = []string{"답장", "답해", "답변", "reply", "respond", "confirm"}
+// asksForReply matches the words that ask for a reply, whole words in English (so "confirmed" is news) and as written in Korean.
+var asksForReply = regexp.MustCompile(`(?i)\b(reply|respond|confirm)\b|답장|답해|답변`)
 
 // wantsAnswer is whether a body reads as a request for the reader's answer: a line ending in a question mark, or a word that asks for a reply.
 func wantsAnswer(body string) bool {
-	low := strings.ToLower(body)
-	for _, w := range answerWords {
-		if strings.Contains(low, w) {
-			return true
-		}
+	if asksForReply.MatchString(body) {
+		return true
 	}
 	for _, ln := range strings.Split(body, "\n") {
 		if t := strings.TrimSpace(ln); strings.HasSuffix(t, "?") || strings.HasSuffix(t, "？") {

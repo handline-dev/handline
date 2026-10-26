@@ -68,7 +68,7 @@ func (e *Env) mailboxRowsKept(kept bool) ([]mailbox, error) {
 	var out []mailbox
 	for _, r := range rows {
 		out = append(out, mailbox{id: r.i("id"), ref: r.str("ref"), ts: r.i("ts"), from: r.str("requester"), kind: r.str("kind"),
-			body: r.str("body"), gate: gates[r.i("id")], kept: r.i("read_at") != 0})
+			body: r.str("body"), gate: gates[r.i("id")], kept: kept && r.str("kind") == "say" && r.i("read_at") != 0})
 	}
 	return out, nil
 }
