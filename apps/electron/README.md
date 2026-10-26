@@ -43,7 +43,7 @@ The page's side is `window.handline` (docs/electron-bridge.md): `screen` (which 
 
 Makes `apps/electron/release/Handline-<version>-universal.dmg` and `-mac.zip`: the web build, the main process, the universal `handlined` and `hl` from `tools/build-darwin.sh`, then electron-builder (`electron-builder.config.mjs`). The app carries the web build and both binaries under `Contents/Resources` (`src/bundle.ts`); an installed app runs that daemon and serves that page, unless `HANDLINE_HANDLINED` or `HANDLINE_WEB_DIST` name others. Settings > Connection offers to link the carried `hl` into `~/.local/bin`.
 
-Without a Developer ID the app is signed ad hoc (`ad-hoc-sign.mjs`): it runs on the Mac that built it, and anywhere else the first open needs right-click > Open. To sign with a Developer ID, set `HANDLINE_SIGN_IDENTITY` to its name before `pnpm package` (hardened runtime and `assets/entitlements.mac.plist` then apply); notarization takes the usual `APPLE_*` variables and is switched on in the config when they exist.
+Without a Developer ID the app is signed ad hoc (`ad-hoc-sign.mjs`): it runs on the Mac that built it, and anywhere else the first open needs right-click > Open. To sign with a Developer ID, set `HANDLINE_SIGN_IDENTITY` to its name before `pnpm package` (hardened runtime and `assets/entitlements.mac.plist` then apply). Notarization is off (`notarize: false`) until there is an Apple account.
 
 ## Following main
 
