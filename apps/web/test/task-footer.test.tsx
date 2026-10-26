@@ -11,7 +11,6 @@ let root: Root | null = null;
 let box: HTMLElement;
 const data = new Map<string, string>();
 const storage: KV = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => void data.set(k, v) };
-const text = (el: Element | null) => el?.textContent ?? '';
 async function until(cond: () => unknown, what: string) {
   for (let i = 0; i < 300; i++) {
     if (cond()) return;
