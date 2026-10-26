@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Proposal } from '@handline/client';
-import { decideMany, settled, splitStale } from '#src/proposals.ts';
+import { applyFailure, decideMany, settled, splitStale } from '#src/proposals.ts';
 
 const p = (id: number, over: object = {}): Proposal =>
   ({ id, title: `settings a${id}`, subject: `s${id}`, state: 'open', ...over }) as Proposal;
@@ -51,16 +51,35 @@ test('settled turns an accepted approve whose apply failed into a failed row wit
     rows.map((r) => [r.ok, r.error]),
     [
       [true, undefined],
-      [false, 'could not write the file'],
+      [false, 'Approved, but not applied: could not write the file.'],
     ],
   );
-  assert.equal(settled([{ id: 4, title: 'd', ok: true }], [p(4, { state: 'apply_failed' })])[0]!.error, 'the change was not applied');
+  assert.equal(settled([{ id: 4, title: 'd', ok: true }], [p(4, { state: 'apply_failed' })])[0]!.error, 'Approved, but not applied.');
 });
 
 test('splitStale moves a waiting proposal nobody answered for 14 days to stale', () => {
   const now = Date.UTC(2026, 0, 20);
   const day = (n: number) => new Date(Date.UTC(2026, 0, n)).toISOString();
   const r = splitStale([p(1, { created: day(1) }), p(2, { created: day(7) })], now);
-  assert.deepEqual(r.stale.map((x) => x.id), [1]);
-  assert.deepEqual(r.fresh.map((x) => x.id), [2]);
+  assert.deepEqual(
+    r.stale.map((x) => x.id),
+    [1],
+  );
+  assert.deepEqual(
+    r.fresh.map((x) => x.id),
+    [2],
+  );
+});
+
+test('applyFailure: one line, the first sentence of the error, the rest behind Details, and never a contradiction', () => {
+  const f = (error?: string) => applyFailure(p(9, { state: 'apply_failed', ...(error ? { error } : {}) }));
+  assert.deepEqual(f('worktree is dirty. Commit or stash first.'), {
+    line: 'Approved, but not applied: worktree is dirty.',
+    details: 'worktree is dirty. Commit or stash first.',
+  });
+  assert.equal(f('proposal p12 was not applied: no free slot').line, 'Approved, but not applied: no free slot.');
+  assert.equal(f('proposal p12 was not applied: the change is applied').line, 'Approved, but not applied.');
+  assert.deepEqual(f(), { line: 'Approved, but not applied.', details: null });
+  assert.equal(f('proposal p9 was not applied: agent.yaml is locked').line, 'Approved, but not applied: agent.yaml is locked.');
+  assert.equal(f('no free slot').line, 'Approved, but not applied: no free slot.'); // an error with no period
 });
