@@ -1,6 +1,6 @@
 // The frame all four tabs of the Settings area share: a title and the tab strip that stay put while the content scrolls under them, and one content width.
-import type { ReactNode } from 'react';
-import { PageHead, PageTitle, ScrollPage, SectionHead } from '#src/ui/index.ts';
+import { useState, type ReactNode } from 'react';
+import { Icon, PageHead, PageTitle, Reveal, ScrollPage, SectionHead } from '#src/ui/index.ts';
 import { SettingsTabs, type Tab } from '#src/SettingsTabs.tsx';
 
 export function SettingsShell({ tab, label, children }: { tab: Tab; label: string; children: ReactNode }) {
@@ -36,6 +36,28 @@ export function SettingsSection({
         {action}
       </div>
       {children}
+    </section>
+  );
+}
+
+/** A section that stays one line until the person opens it; its rows then appear in place. */
+export function SettingsFold({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section>
+      <button
+        type="button"
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-center gap-2 rounded-card border border-line bg-surface px-4 py-2 text-left"
+        onClick={() => setOpen(!open)}
+      >
+        <Icon name={open ? 'less' : 'more'} size={14} label={open ? `Fold ${title}` : `Show ${title}`} />
+        <span className="font-medium">{title}</span>
+        <span className="text-hint text-ink-3">{hint}</span>
+      </button>
+      <Reveal show={open}>
+        <div className="flex flex-col gap-4 pt-4">{children}</div>
+      </Reveal>
     </section>
   );
 }

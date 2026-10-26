@@ -8,9 +8,13 @@ import { Devices } from '#src/Devices.tsx';
 import { DebugEntry } from '#src/debug/DebugEntry.tsx';
 import { SectionHead, SettingsCard } from '#src/ui/index.ts';
 import { NumberRow, SwitchRow } from '#src/SettingsRows.tsx';
-import { Appearance, BackgroundRows, Connection, Notifications } from '#src/SettingsMore.tsx';
-import { SettingsShell } from '#src/SettingsShell.tsx';
+import { Appearance, BackgroundRows, Connection, NoticeBatch, Notifications, TerminalRow } from '#src/SettingsMore.tsx';
+import { TeamSeal } from '#src/TeamSeal.tsx';
+import { SettingsFold, SettingsShell } from '#src/SettingsShell.tsx';
 import { View } from '#src/View.tsx';
+
+/** The machine-wide cap stays in General; the other load limits are Advanced. */
+const isHostCap = (f: { setting: string }) => f.setting === 'host_active_cap';
 
 export const parsePrompt = (t: string) => (/[\r\n]/.test(t) ? INVALID : t.trim());
 
@@ -18,6 +22,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
   const q = useSettings();
   const { served } = useServes('settings.get');
   const v = q.data?.values;
+  const limits = v ? limitFields(v) : [];
   return (
     <SettingsShell tab="settings" label="Settings">
       <p className="settings-phone muted hidden max-sm:block">Open this on a computer.</p>
@@ -36,9 +41,11 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                       hint="Agents working at once on an account"
                       more="An account with its own cap keeps it"
                     />
-                    {limitFields(v).map((f) => (
-                      <NumberRow key={f.label} {...f} />
-                    ))}
+                    {limits
+                      .filter((f) => isHostCap(f))
+                      .map((f) => (
+                        <NumberRow key={f.label} {...f} />
+                      ))}
                     {v.pacing === undefined ? null : (
                       <SwitchRow
                         label="Pacing"
@@ -47,24 +54,38 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                         change={(on) => ({ pacing: on })}
                       />
                     )}
-                    {paceFields(v).map((f) => (
-                      <NumberRow key={f.label} {...f} />
-                    ))}
                   </SettingsCard>
                 </section>
                 <section id="set-closing">
                   <SectionHead>Closing windows</SectionHead>
                   <SettingsCard>
                     <NumberRow {...idleField(v.park_timeout_s)} hint="Idle time before a session closes" more="0 is never" />
-                    <BackgroundRows notice={v.bg_notice_s} grace={v.bg_grace_s} check={v.bg_check_s} />
                   </SettingsCard>
                 </section>
                 <section id="set-notifications">
-                  <Notifications digest={v.notice_digest_s} />
+                  <Notifications />
                 </section>
-                <section id="set-automation">
-                  <SectionHead>Automation</SectionHead>
+                <section id="set-answers">
+                  <Answers />
+                </section>
+                <section id="set-devices">
+                  <Devices />
+                </section>
+                <section id="set-appearance">
+                  <Appearance storage={storage} />
+                </section>
+                <SettingsFold title="Advanced" hint="Limits, pacing, background work, handoff notes, terminal view">
                   <SettingsCard>
+                    {limits
+                      .filter((f) => !isHostCap(f))
+                      .map((f) => (
+                        <NumberRow key={f.label} {...f} />
+                      ))}
+                    {paceFields(v).map((f) => (
+                      <NumberRow key={f.label} {...f} />
+                    ))}
+                    <BackgroundRows notice={v.bg_notice_s} grace={v.bg_grace_s} check={v.bg_check_s} />
+                    <NoticeBatch digest={v.notice_digest_s} />
                     <SwitchRow
                       label="Handoff note"
                       hint="A note for the next session before a close or move"
@@ -89,26 +110,19 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                       on={!!v.ignore_cache_expiry}
                       change={(on) => ({ ignore_cache_expiry: on })}
                     />
+                    <TerminalRow storage={storage} />
                   </SettingsCard>
-                </section>
-                <section id="set-answers">
-                  <Answers />
-                </section>
-                <section id="set-devices">
-                  <Devices />
-                </section>
-                <section id="set-appearance">
-                  <Appearance storage={storage} />
-                </section>
-                <section id="set-connection">
+                </SettingsFold>
+                <SettingsFold title="About" hint="Connection, version, Admin, Debug, seal the team files">
                   <Connection />
-                </section>
+                  <DebugEntry />
+                  <TeamSeal />
+                </SettingsFold>
               </>
             ) : null}
           </View>
         )}
       </div>
-      <DebugEntry />
     </SettingsShell>
   );
 }
