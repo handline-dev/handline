@@ -118,13 +118,18 @@ func (g *Gate) Held(agent string) string {
 const Ceiling = 10 * time.Minute
 
 // ForWork is Held for an agent with work waiting, with Ceiling on it: the first ask held Ceiling ago lets the agent past once and calls
-// onCeiling with why it had been held. Only the start and delivery paths ask it, so an agent with nothing waiting starts no clock.
+// onCeiling with why it had been held. Only the start and delivery paths ask it, so an agent with nothing waiting starts no clock. A nil
+// gate holds nothing.
 func (g *Gate) ForWork(agent string, onCeiling func(why string)) string {
+	if g == nil {
+		return ""
+	}
 	why := g.Held(agent)
+	now := g.now()
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	if why == "" {
 		delete(g.since, agent)
+		g.mu.Unlock()
 		return ""
 	}
 	if g.since == nil {
@@ -132,18 +137,30 @@ func (g *Gate) ForWork(agent string, onCeiling func(why string)) string {
 	}
 	since, ok := g.since[agent]
 	if !ok {
-		g.since[agent] = g.now()
-		return why
+		g.since[agent] = now
+		since = now
 	}
-	if g.now().Sub(since) < Ceiling {
+	if now.Sub(since) < Ceiling {
+		g.mu.Unlock()
 		return why
 	}
 	delete(g.since, agent)
 	g.pass(agent)
+	g.mu.Unlock()
 	if onCeiling != nil {
 		onCeiling(why)
 	}
 	return ""
+}
+
+// Forget drops agent's hold clock: its caller found nothing waiting for it, so the next work it gets starts a clock of its own.
+func (g *Gate) Forget(agent string) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	delete(g.since, agent)
+	g.mu.Unlock()
 }
 
 // Pass lets agent's next start past the limits (a person's force start).
