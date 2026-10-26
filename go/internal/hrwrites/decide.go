@@ -158,15 +158,35 @@ func (e *Env) applyNowMethod(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The state is read and the mark saved under one write lock, as hr.withdraw does, so a settle landing between them is not overwritten.
+	ctx := context.Background()
+	conn, err := e.DB.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	finish := func(stmt string) { conn.ExecContext(ctx, stmt); conn.Close() }
+	if again, err := e.load(prop.id()); err != nil {
+		finish("ROLLBACK")
+		return nil, err
+	} else if again != nil {
+		prop = again
+	}
 	if st := prop.str("state"); st != applying {
+		finish("ROLLBACK")
 		return nil, e.refusal("proposal_settled", fmt.Sprintf("proposal %s is %s, not waiting to be applied", prop.id(), st), prop)
 	}
 	if prop.str("apply_now") == "" {
 		prop.set("apply_now", time.Now().Unix())
 		if err := e.save(prop); err != nil {
+			finish("ROLLBACK")
 			return nil, err
 		}
 	}
+	finish("COMMIT")
 	said := fmt.Sprintf("proposal %s is applied as soon as %s stops", prop.id(), strings.ReplaceAll(prop.str("waiting_on"), ",", ", "))
 	return c.Effect(func(*sql.Tx) (map[string]any, error) {
 		return map[string]any{"accepted": true, "said": said}, nil
@@ -349,6 +369,7 @@ func (e *Env) record(prop *Prop, ok bool, said string, tell bool) (bool, string,
 	prop.pop("waiting_on")
 	prop.pop("waiting_since")
 	prop.pop("apply_now")
+	prop.pop("apply_now_esc")
 	if !ok {
 		prop.set("state", "approved")
 		prop.set("error", said)

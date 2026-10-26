@@ -1333,3 +1333,28 @@ func TestApprovingARenameThatIsAlreadyInEffectSettlesItAsApplied(t *testing.T) {
 		t.Fatalf("no error left: %v", v)
 	}
 }
+
+// A turn that is slow to end after the Esc is not pressed again on the next tick, only after the pause.
+func TestApplyNowPressesEscOnceThenWaits(t *testing.T) {
+	r := newRig(t)
+	p, id := r.propose("aaaa0010", "kind", "retire", "agent", "bob")
+	r.live["bob"] = true
+	r.decide(id, "approve", p.subject(), "h7")
+	r.call("hr.apply_now", fmt.Sprintf(`{"proposal":%d,"request_id":"an2"}`, id))
+	interrupted := 0
+	ports := HeldPorts{Alive: func(a string) bool { return r.live[a] }, Idle: func(string) bool { return false },
+		Interrupt: func(string) (bool, string) { interrupted++; return true, "" },
+		Close:     func(string) (bool, string) { return true, "" }, Start: func(string) (bool, string) { return true, "" }}
+	for range 3 {
+		r.e.SweepHeld(ports)
+	}
+	if interrupted != 1 {
+		t.Fatalf("one Esc while the turn is slow to end: %d", interrupted)
+	}
+	defer func(was time.Duration) { interruptPause = was }(interruptPause)
+	interruptPause = 0
+	r.e.SweepHeld(ports)
+	if interrupted != 2 {
+		t.Fatalf("pressed again after the pause: %d", interrupted)
+	}
+}
