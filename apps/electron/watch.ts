@@ -1,4 +1,4 @@
-// `pnpm app:watch`: rebuilds the main process and preloads on every save and restarts Electron after each rebuild.
+// `pnpm dev`: rebuilds the main process and preloads on every save and restarts Electron after each rebuild.
 // The web bundle is rebuilt by `vite build --watch` (run beside this); reload the window (Cmd+R) to see it.
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';

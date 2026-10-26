@@ -13,7 +13,7 @@ Known limits of this MVP: the app cannot create a task (founder decision), and e
 **With the desktop app** (the usual way). It starts the Python daemon and the gateway itself, listens on this Mac's Tailscale address, advertises its `*.ts.net` name, and pairs itself.
 
     pnpm install && tools/build-go.sh
-    pnpm app                  # or `pnpm app:main`: the app runs from its own clone of main and offers a restart when main moves
+    pnpm app                  # the app runs from its own clone of main and offers a restart when main moves
 
 Tailscale must be up when the app starts. Without it the gateway listens on loopback only and no phone can pair.
 

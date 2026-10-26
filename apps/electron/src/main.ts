@@ -236,7 +236,7 @@ if (!app.requestSingleInstanceLock()) {
     const page = new Page(origin);
     // The shell's own calls (an agent's worktree, the badge) are the founder's: hello carries the key from the protected store, as pairing does.
     const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: founderKey });
-    // Follow-main mode (pnpm app:main): the app runs from its own checkout of main and offers to restart when main moves.
+    // Follow-main mode (pnpm app): the app runs from its own checkout of main and offers to restart when main moves.
     const following = env('FOLLOW') ? followMain({ dir: root, window: () => win, changed: () => own.redraw() }) : null;
     const f = following?.follower;
     const own: Own = ownDaemon({

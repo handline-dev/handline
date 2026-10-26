@@ -1,4 +1,4 @@
-// `pnpm app:main`: runs Handline from its own checkout of main, which the app then keeps offering to update (src/follow.ts).
+// `pnpm app`: runs Handline from its own checkout of main, which the app then keeps offering to update (src/follow.ts).
 // The checkout is a clone of this repo's own main (the merger lands there), kept apart from every working tree, so nobody's work is touched.
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';

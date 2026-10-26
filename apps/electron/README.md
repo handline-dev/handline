@@ -2,7 +2,7 @@
 
 The desktop shell: one window on the built `apps/web`, one instance, a dock badge from the inbox count, native notifications.
 
-    pnpm --filter @handline/web build && pnpm --filter @handline/electron start
+    pnpm dev
 
 The main process serves `apps/web/dist` on a loopback port and holds its own daemon connection (the Unix socket) for the badge and the notices. The web app is unchanged and reaches the daemon by its WebSocket.
 
@@ -27,9 +27,9 @@ This section is Own-daemon mode (`HANDLINE_MODE=own`, or switch in the tray).
 
 With the Go gateway running (`127.0.0.1:7443`), from the repo root:
 
-    pnpm install && pnpm app
+    pnpm install && pnpm dev
 
-It builds `apps/web` and starts the app, which owns its daemon: it puts a tray icon up at once (open window, daemon status, start daemon, quit), starts the daemon and the gateway as its own child processes when their sockets do not answer (both `go/handlined` of the checkout, the daemon with the launchd service's flags; `HANDLINE_HANDLINED` names another binary and `HANDLINE_CLAUDE` the claude the daemon runs; build the gateway with `go build -o handlined ./cmd/handlined` in `go/`), and stops what it started when it quits. Closing the window leaves it running in the tray. It pairs itself: the app is the founder's own process, so it reads the founder key from the protected store, asks the gateway's local socket for a code and trades it for a device token, in the main process only. The key is not logged, stored or sent to the page; the token is kept in the app's data folder (`device.json`, mode 0600) and put in the page's storage by the preload. A token the gateway no longer lists is replaced at the next launch. There is no pairing step and no `hl device pair`; the pairing screen shows only if the app could not pair. The gateway listens on `127.0.0.1:7443` (`HANDLINE_GATEWAY=host:port` moves it); the page is served on `127.0.0.1:17443` (`HANDLINE_WEB_PORT`) because the token is kept per page origin, and the shell sets the page's `Origin` to the gateway's own for that one socket. The daemon's output goes to `daemon.log` in the app's data folder. The badge and notices still use the daemon's Unix socket.
+It builds `apps/web` and starts the app (both rebuild on every save; reload the window with Cmd+R for the page), which owns its daemon: it puts a tray icon up at once (open window, daemon status, start daemon, quit), starts the daemon and the gateway as its own child processes when their sockets do not answer (both `go/handlined` of the checkout, the daemon with the launchd service's flags; `HANDLINE_HANDLINED` names another binary and `HANDLINE_CLAUDE` the claude the daemon runs; build the gateway with `go build -o handlined ./cmd/handlined` in `go/`), and stops what it started when it quits. Closing the window leaves it running in the tray. It pairs itself: the app is the founder's own process, so it reads the founder key from the protected store, asks the gateway's local socket for a code and trades it for a device token, in the main process only. The key is not logged, stored or sent to the page; the token is kept in the app's data folder (`device.json`, mode 0600) and put in the page's storage by the preload. A token the gateway no longer lists is replaced at the next launch. There is no pairing step and no `hl device pair`; the pairing screen shows only if the app could not pair. The gateway listens on `127.0.0.1:7443` (`HANDLINE_GATEWAY=host:port` moves it); the page is served on `127.0.0.1:17443` (`HANDLINE_WEB_PORT`) because the token is kept per page origin, and the shell sets the page's `Origin` to the gateway's own for that one socket. The daemon's output goes to `daemon.log` in the app's data folder. The badge and notices still use the daemon's Unix socket.
 
 A device the gateway no longer knows (revoked, or a token from an older pairing) is dropped at the next launch and the window asks for a code again.
 
@@ -39,7 +39,7 @@ The page's side is `window.handline` (docs/electron-bridge.md): `screen` (which 
 
 ## Following main
 
-    pnpm install && pnpm app:main
+    pnpm install && pnpm app
 
 Run it from the checkout of main, once. It makes the app's own clone of this repo's `main` in `~/.local/share/handline/app-main` (`HANDLINE_FOLLOW_DIR` moves it), installs, builds the page and the gateway and starts the app from there, so no working tree is touched. Start it the same way every time; it brings the clone up to main first.
 
