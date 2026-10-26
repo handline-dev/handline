@@ -109,7 +109,20 @@ beforeEach(() => {
   history.replaceState(null, '');
   vi.stubGlobal('confirm', () => true);
 });
+// The fixtures are shared between tests: the auditor is at its usage wall (blocked, not working), and what a test changes is put back after it.
+const restores: (() => void)[] = [];
+function auditorWorking(daemon: ReturnType<typeof setup>['daemon']) {
+  const a = daemon.sessions.get('handline.auditor')!;
+  const was = { state: a.state, wall: a.fx.wall };
+  restores.push(
+    () => Object.assign(a, { state: was.state }),
+    () => void (a.fx.wall = was.wall),
+  );
+  a.state = 'running';
+  a.fx.wall = false;
+}
 afterEach(async () => {
+  restores.splice(0).forEach((r) => r());
   await unmount();
   vi.unstubAllGlobals();
 });
@@ -139,9 +152,9 @@ describe('the workspace', () => {
     expect($('.side')).toBeNull();
     const top = $$('.rail-top button').map((b) => b.getAttribute('aria-label') ?? '');
     expect(top.slice(0, 3)).toEqual(['Hide the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']);
-    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks/);
-    expect($$('.rail-nav .nav svg').length).toBe(2);
-    expect(text($('.rail-nav'))).not.toMatch(/More|Team|Worktrees|Usage/);
+    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*Usage/);
+    expect($$('.rail-nav .nav svg').length).toBe(3);
+    expect(text($('.rail-nav'))).not.toMatch(/More|Team|Worktrees/);
     expect($$('.rail-foot button').map((b) => b.getAttribute('aria-label'))).toEqual(['Settings', 'Keys (?)']);
     expect($('.rail-status')).toBeNull();
     const bar = $('.statusbar')!;
@@ -413,10 +426,26 @@ describe('the workspace', () => {
 describe('the sidebar', () => {
   it('a lead row with sub-agents working says nothing while it is open', async () => {
     const s = setup();
-    s.daemon.sessions.get('handline.auditor')!.state = 'running';
+    auditorWorking(s.daemon);
     await mount(TB, undefined, s);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     expect($('.row-working')).toBeNull();
+  });
+
+  it('a pinned lead row counts the sub-agents working under it, its tree open or not', async () => {
+    const s = setup();
+    auditorWorking(s.daemon);
+    await mount(TB, undefined, s);
+    await until(() => $$('.row-wrap').length === 3, 'rows');
+    const lead = $$('.row-wrap').find((r) => r.querySelector('.kids, [aria-expanded]'))!;
+    const name = lead.closest('[data-agent]')!.getAttribute('data-agent')!;
+    await act(async () => void lead.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
+    await click(lead.querySelector('[aria-haspopup="menu"]')!);
+    await until(() => menuItems().length, 'the row menu');
+    await click([...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((i) => text(i).trim() === 'Pin')!);
+    await until(() => $('.pinned-head'), 'the pinned section');
+    const pinned = $$('.row-working').filter((w) => w.closest('[data-agent]')?.getAttribute('data-agent') === name);
+    expect(pinned.map((w) => text(w).trim())).toEqual(['1']); // the pinned copy; the open tree row says nothing
   });
 
   it("a row's menu holds Settings, which opens that agent's settings, whose back button, above the title, returns to the agent", async () => {

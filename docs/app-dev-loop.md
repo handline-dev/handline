@@ -64,15 +64,11 @@ code into the page, as with a browser.
 To run the page and the shell against your team's own daemon and branch
 instead, use `pnpm dev:team <team>`: see [dev-instances](dev-instances.md).
 
-## Run by an agent: hidden
-
-An app started with `HANDLINE_AGENT` or `OCP_AGENT` set (any agent's shell) runs out of the founder's sight: no window shown,
-no dock or menu bar icon, no notice, no focus taken (`apps/electron/src/hidden.ts`). Its window still loads and paints, so check it
-through the DevTools port (`HANDLINE_DEBUG_PORT=9333`, then `Page.captureScreenshot`) rather than by looking.
-`HANDLINE_SHOW=1` shows it anyway; the founder's `pnpm app` (follow mode) is always shown.
+## One pnpm dev per checkout
 
 `pnpm dev` runs once per checkout: a second one says which pid already runs and stops. Ctrl-C or a TERM stops the vite watch,
-the shell's watch and its Electron together, and the shell's watch also stops once `pnpm dev` itself is gone.
+the shell's watch and its Electron together, and the shell's watch also stops once `pnpm dev` itself is gone. An agent's run stays
+in the background (apps/electron/README.md), with no menu bar icon and no update dialog either.
 
 ## Pairing and devices
 

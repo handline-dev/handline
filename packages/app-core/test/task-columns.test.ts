@@ -35,13 +35,13 @@ test('the person is the first column, then the agents by name, and every running
   assert.equal(card(gr, 3).holder, 'you');
 });
 
-test('queued tasks go below by priority, an agent with nothing running is idle', () => {
+test('queued tasks go below by priority, an agent with nothing running is idle, and a person with no tasks has no column', () => {
   const gr = g([task(1, { priority: 3 }), task(2, { priority: 1 }), task(3, { to: 'team.b', state: 'doing' })]);
   assert.ok(card(gr, 2).y < card(gr, 1).y);
   assert.equal(card(gr, 2).y, gr.nowY + CARD_H + GAP_Y);
   assert.deepEqual(
     gr.columns.map((c) => c.idle),
-    [false, true, false],
+    [true, false],
   );
 });
 

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Notification, session, shell, type WebContents } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
-import { runsHidden } from '#src/hidden.ts';
+import { inBackground } from '#src/background.ts';
 import { isDebugWindow } from '#src/debug-window.ts';
 import { Desk } from '#src/desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from '#src/editor.ts';
@@ -69,8 +69,11 @@ function allowGatewayOrigin(): void {
   );
 }
 
+const background = inBackground(process.env);
+
+/** Brings the window to the front, except in a background run, whose window stays hidden (the DevTools port still draws and captures it). */
 function show(): void {
-  if (!win || win.isDestroyed() || hidden) return;
+  if (!win || win.isDestroyed() || background) return;
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
@@ -118,7 +121,7 @@ function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote |
   const c = new Connection(origin, {
     mode: () => ({ mode, remote: remote?.host ?? null }),
     follow: () => (f ? { sha: f.sha, state: f.state, next: f.next?.sha ?? null } : null),
-    check: () => void f?.look(),
+    check: async () => void (await f?.look()),
     setMode: (m) => own.switchMode(m),
     pair: (i) => own.pair(i),
     phone: () => own.phone(),
@@ -153,7 +156,7 @@ function makeUpdater(page: Page, composer: Composer): Updater {
       return !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true));
     },
     ask: async () =>
-      !hidden &&
+      !background &&
       (
         await dialog.showMessageBox(win!, {
           message: 'Handline was updated. Restart now?',
@@ -185,7 +188,8 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
       sandbox: true,
       nodeIntegration: false,
       preload: path.join(import.meta.dirname, 'preload.cjs'),
-      backgroundThrottling: !hidden, // a hidden window keeps painting, for the check that reads it
+      // A hidden window would be throttled; a background run's page must keep drawing for its checks and captures.
+      backgroundThrottling: !background,
     },
   });
   // The traffic lights are gone in full screen: the page drops the room it keeps for them (shell.ts).
@@ -224,16 +228,14 @@ if (env('DEBUG_PORT')) app.commandLine.appendSwitch('remote-debugging-port', env
 const data = env('DATA');
 if (data) app.setPath('userData', data);
 
-const hidden = runsHidden(process.env);
-if (hidden) app.setActivationPolicy?.('accessory'); // no dock icon, and it never becomes the active app
-
-if (!app.requestSingleInstanceLock()) {
-  app.quit(); // the first instance gets 'second-instance' and focuses its window
+if (!app.requestSingleInstanceLock({ background })) {
+  app.quit(); // the first instance gets 'second-instance' and focuses its window, unless this run is a background one
 } else {
-  app.on('second-instance', show);
+  app.on('second-instance', (_e, _argv, _cwd, data) => (data as { background?: boolean } | undefined)?.background || show());
+  if (background) app.setActivationPolicy('accessory'); // no dock icon, and the app never becomes the active one
   void app.whenReady().then(async () => {
     // An unpackaged app shows Electron's icon in the dock until it is told otherwise.
-    if (!hidden) app.dock?.setIcon(APP_ICON);
+    app.dock?.setIcon(APP_ICON);
     allowGatewayOrigin();
     const settings = new SettingsFile(path.join(app.getPath('userData'), 'settings.json'));
     const current = settings.read(parseMode(env('MODE')));
@@ -259,7 +261,7 @@ if (!app.requestSingleInstanceLock()) {
       loginPath: async () => (await editorEnv()).PATH,
       home,
       root,
-      hidden,
+      background,
       socket,
       gatewaySocket,
       gateway,
@@ -335,7 +337,7 @@ if (!app.requestSingleInstanceLock()) {
         else app.setBadgeCount(Number(t.replace('+', '')) || 0);
       },
       notify: (n, onClick) => {
-        if (hidden) return;
+        if (background) return;
         const notice = new Notification({ title: n.title, body: n.body });
         notice.on('click', onClick);
         notice.show();

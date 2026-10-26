@@ -1,4 +1,5 @@
 // Seeds a UI check needs that the first-load fixtures leave out: switch them on by name, in a test or at serve time.
+import { crc32, deflateSync } from 'node:zlib';
 import type { FakeDaemon } from '#src/daemon.ts';
 
 const ARCH = 'handline.architect';
@@ -6,6 +7,27 @@ const AUD = 'handline.auditor';
 const ME = 'human';
 
 type Seed = (d: FakeDaemon) => void;
+
+/** A one-colour PNG of the size given: a picture with a real height for a layout check. */
+function solidPng(w: number, h: number): Buffer {
+  const chunk = (type: string, data: Buffer) => {
+    const out = Buffer.concat([Buffer.alloc(4), Buffer.from(type), data, Buffer.alloc(4)]);
+    out.writeUInt32BE(data.length, 0);
+    out.writeUInt32BE(crc32(out.subarray(4, out.length - 4)), out.length - 4);
+    return out;
+  };
+  const head = Buffer.alloc(13);
+  head.writeUInt32BE(w, 0);
+  head.writeUInt32BE(h, 4);
+  head.set([8, 2, 0, 0, 0], 8);
+  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(w * 3, 0x9a)]);
+  return Buffer.concat([
+    Buffer.from('89504e470d0a1a0a', 'hex'),
+    chunk('IHDR', head),
+    chunk('IDAT', deflateSync(Buffer.concat(Array.from({ length: h }, () => row)))),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
 
 const task = (d: FakeDaemon, id: number, more: Parameters<FakeDaemon['tasks']['seed']>[0]) => d.tasks.seed({ ...more, id });
 
@@ -103,6 +125,23 @@ export const SEEDS: Record<string, Seed> = {
     }
   },
 
+  /** The architect is held back for the machine's load: its chat and row say so, and agent.force_start starts it. */
+  'agent-held': (d) => {
+    const s = d.sessions.get(ARCH)!;
+    const since = new Date(Date.now() - 4 * 60_000).toISOString();
+    s.fx.view = {
+      ...s.fx.view,
+      status: {
+        state: 'waiting',
+        reason: 'load',
+        text: 'held: machine load - load 5.40 per core, limit 1.50',
+        until: null,
+        since,
+        tasks: [],
+      },
+    };
+  },
+
   /** Chat messages with one-tap actions: OK / No on an open task the founder owns. */
   'chat-actions': (d) => {
     task(d, 6902, { id: 6902, from: ARCH, to: ME, title: 'Open task the founder owns', state: 'doing' });
@@ -116,6 +155,21 @@ export const SEEDS: Record<string, Seed> = {
         { key: 'no', label: 'No', verb: 'task.handoff', task: 6902, params: { task: 6902, to: ARCH }, needs: 'note' },
       ],
     });
+  },
+
+  /** A long chat with the architect: 120 messages (four pages), every seventh with a picture, for paging up through history. */
+  'chat-long': (d) => {
+    const png = solidPng(240, 160);
+    for (let n = 1; n <= 120; n++) {
+      const mine = n % 2 === 0;
+      const shot = n % 7 === 0 ? d.uploads.add(`shot-${n}.png`, png) : null;
+      d.chat.seed(ARCH, {
+        from: mine ? ME : ARCH,
+        to: mine ? ARCH : ME,
+        body: `Message ${n}. ${'A line of the talk. '.repeat(1 + (n % 5))}`,
+        ...(shot ? { attachments: [{ id: shot.id, name: shot.name, mime: 'image/png', bytes: png.length }] } : {}),
+      });
+    }
   },
 
   /** The account beta stalled on a billing error: its row shows STALLED and a founder can Wake it. */
