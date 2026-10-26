@@ -27,7 +27,7 @@ export function heldLine(p: Proposal, now = Date.now()): string {
 
 const STATE_WORDS: Record<string, { word: string; tone: 'wait' | 'block' | 'run' | 'muted' }> = {
   open: { word: 'waiting for you', tone: 'wait' },
-  apply_failed: { word: 'approved, apply failed', tone: 'block' },
+  apply_failed: { word: 'approved, not applied', tone: 'block' },
   approved: { word: 'approved and applied', tone: 'run' },
   rejected: { word: 'rejected', tone: 'block' },
   withdrawn: { word: 'withdrawn', tone: 'muted' },
@@ -124,12 +124,21 @@ export async function decideMany(
   return out;
 }
 
-/** An accepted decision whose proposal now reads apply_failed did not apply: that row fails with the daemon's error. */
+/** An approved proposal that did not apply: one line the person reads, and the daemon's own words for Details. The line's reason is the
+ *  error's first sentence without a "not applied" lead of its own, and left out when it says "applied" (it would contradict the headline). */
+export function applyFailure(p: Proposal): { line: string; details: string | null } {
+  const raw = p.error ? textSafe(p.error).trim() : '';
+  const first = (raw.replace(/^(?:proposal\s+\S+\s+)?(?:was\s+)?not applied:?\s*/i, '').split(/\.\s|\n/)[0] ?? '')
+    .replace(/\.$/, '')
+    .trim();
+  const reason = /\bapplied\b/i.test(first) ? '' : first.length > 100 ? `${first.slice(0, 100)}…` : first;
+  return { line: `Approved, but not applied${reason ? `: ${reason}` : ''}.`, details: raw && raw !== reason ? cutError(raw) : null };
+}
+
+/** An accepted decision whose proposal now reads apply_failed did not apply: that row fails with the line above. */
 export function settled(rows: readonly DecideResult[], now: readonly Proposal[]): DecideResult[] {
   return rows.map((r) => {
     const p = now.find((x) => x.id === r.id);
-    return r.ok && p?.state === 'apply_failed'
-      ? { ...r, ok: false, error: p.error ? cutError(textSafe(p.error)) : 'the change was not applied' }
-      : r;
+    return r.ok && p?.state === 'apply_failed' ? { ...r, ok: false, error: applyFailure(p).line } : r;
   });
 }
