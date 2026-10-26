@@ -59,7 +59,14 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
               Done
             </Button>
           ) : (
-            <Button variant="outline" size="sm" icon="select" label="Select tasks" aria-label="Select tasks" onClick={() => setSelecting(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              icon="select"
+              label="Select tasks"
+              aria-label="Select tasks"
+              onClick={() => setSelecting(true)}
+            >
               Select
             </Button>
           )}
@@ -86,7 +93,10 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
                     >
                       <StateChip state={t.state} result={watchResult(t)} />
                       <span className="mono">{taskRef(t.id)}</span>
-                      <span className="ttitle min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-body font-medium" title={t.title}>
+                      <span
+                        className="ttitle min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-body font-medium"
+                        title={t.title}
+                      >
                         {t.title}
                       </span>
                       {role === 'assigned' ? (
@@ -125,7 +135,14 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
         {more ? (
           <div className="mt-2 flex items-center justify-center gap-3 text-hint text-ink-2">
             <span>{mine.length} shown · older ones exist</span>
-            <Button variant="outline" size="sm" label={`Show ${TASK_PAGE} older`} aria-label={`Show ${TASK_PAGE} older`} disabled={loadingOlder} onClick={() => void loadOlder()}>
+            <Button
+              variant="outline"
+              size="sm"
+              label={`Show ${TASK_PAGE} older`}
+              aria-label={`Show ${TASK_PAGE} older`}
+              disabled={loadingOlder}
+              onClick={() => void loadOlder()}
+            >
               {loadingOlder ? 'Loading…' : `Show ${TASK_PAGE} older`}
             </Button>
           </div>
@@ -138,7 +155,9 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
           <Button variant="outline" size="sm" label={marked.size >= mine.length ? 'Clear' : 'Select all'} onClick={toggleAll}>
             {marked.size >= mine.length ? 'Clear' : `Select all ${mine.length}`}
           </Button>
-          {marked.size ? <VerbMenu tasks={verbs.byId([...marked])} me={me} cans={cans} onPick={verbs.pick} title="Actions on the marked tasks" /> : null}
+          {marked.size ? (
+            <VerbMenu tasks={verbs.byId([...marked])} me={me} cans={cans} onPick={verbs.pick} title="Actions on the marked tasks" />
+          ) : null}
         </Toolbar>
       ) : null}
     </section>

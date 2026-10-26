@@ -263,21 +263,28 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
         />
       )}
       <AnimatedList>
-      {open === 'discard' ? (
-        <ReasonSheet key="discard"
-          label={targets().some((id) => all.find((t) => t.id === id)?.state === 'doing') ? 'stop it and discard - why:' : 'discard - why:'}
-          submit="Discard"
-          onCancel={shut}
-          onSubmit={(reason) => own('discard', reason)}
-        />
-      ) : null}
+        {open === 'discard' ? (
+          <ReasonSheet
+            key="discard"
+            label={
+              targets().some((id) => all.find((t) => t.id === id)?.state === 'doing') ? 'stop it and discard - why:' : 'discard - why:'
+            }
+            submit="Discard"
+            onCancel={shut}
+            onSubmit={(reason) => own('discard', reason)}
+          />
+        ) : null}
       </AnimatedList>
-      <AnimatedList>{open === 'owner' ? <OwnerSheet key="OwnerSheet" agents={agents} onCancel={shut} onPick={(o) => own('owner', o)} /> : null}</AnimatedList>
-      <AnimatedList>{open === 'priority' ? <PrioritySheet key="PrioritySheet" onCancel={shut} onPick={(p) => own('priority', String(p))} /> : null}</AnimatedList>
       <AnimatedList>
-      {open === 'merge' ? (
-        <MergeSheet key="merge" count={[...marked].filter((t) => t !== cursor).length} into={cursor} onCancel={shut} onSubmit={doMerge} />
-      ) : null}
+        {open === 'owner' ? <OwnerSheet key="OwnerSheet" agents={agents} onCancel={shut} onPick={(o) => own('owner', o)} /> : null}
+      </AnimatedList>
+      <AnimatedList>
+        {open === 'priority' ? <PrioritySheet key="PrioritySheet" onCancel={shut} onPick={(p) => own('priority', String(p))} /> : null}
+      </AnimatedList>
+      <AnimatedList>
+        {open === 'merge' ? (
+          <MergeSheet key="merge" count={[...marked].filter((t) => t !== cursor).length} into={cursor} onCancel={shut} onSubmit={doMerge} />
+        ) : null}
       </AnimatedList>
       <AnimatedList>{open === 'keys' ? <KeysSheet key="KeysSheet" onClose={shut} /> : null}</AnimatedList>
       <VerbSheets flow={verbs} ids={targets()} />
@@ -355,7 +362,14 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
       {more ? (
         <div className="flex items-center justify-center gap-3 py-3 text-hint text-ink-2">
           <span>{all.length} loaded · older ones exist</span>
-          <Button variant="outline" size="sm" label={`Show ${TASK_PAGE} older`} aria-label={`Show ${TASK_PAGE} older`} disabled={loadingOlder} onClick={() => void loadOlder()}>
+          <Button
+            variant="outline"
+            size="sm"
+            label={`Show ${TASK_PAGE} older`}
+            aria-label={`Show ${TASK_PAGE} older`}
+            disabled={loadingOlder}
+            onClick={() => void loadOlder()}
+          >
             {loadingOlder ? 'Loading…' : `Show ${TASK_PAGE} older`}
           </Button>
         </div>

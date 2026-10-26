@@ -4,7 +4,19 @@ import { useRef, useState, type ReactElement, type ReactNode } from 'react';
 import type { useBulk } from '#src/taskActions.ts';
 import { plan, taskRef, TASK_VERBS, type Outcome, type RowVerb } from '@handline/app-core';
 import type { Task } from '@handline/client';
-import { Button, Input, Menu, MenuButton, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger, NativeSelect, type At } from '#src/ui/index.ts';
+import {
+  Button,
+  Input,
+  Menu,
+  MenuButton,
+  MenuContent,
+  MenuItem,
+  MenuLabel,
+  MenuSeparator,
+  MenuTrigger,
+  NativeSelect,
+  type At,
+} from '#src/ui/index.ts';
 import type { IconName } from '@handline/app-ui';
 import { Sheet, useCan } from '#src/taskui.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
@@ -66,7 +78,9 @@ export function VerbItems(props: { tasks: Task[]; me: string; cans: Cans; onPick
   const live = new Map(
     TASK_VERBS.flatMap(({ verb }) => {
       const run = plan(verb, tasks, props.me).run.length;
-      return run ? [[verb, { verb, label: label(verb), count: run, why: props.cans[verb].ok ? undefined : props.cans[verb].why }] as const] : [];
+      return run
+        ? [[verb, { verb, label: label(verb), count: run, why: props.cans[verb].ok ? undefined : props.cans[verb].why }] as const]
+        : [];
     }),
   );
   const groups = GROUPS.map((g) => ({ ...g, items: g.verbs.flatMap((v) => live.get(v) ?? []) })).filter((g) => g.items.length);
@@ -80,7 +94,14 @@ export function VerbItems(props: { tasks: Task[]; me: string; cans: Cans; onPick
           <div key={g.verbs[0]} role="group">
             {i ? <MenuSeparator /> : null}
             {g.items.map((c) => (
-              <MenuItem key={c.verb} icon={VERB_ICON[c.verb]} danger={g.danger} disabled={!!c.why} title={c.why} onSelect={() => props.onPick(c.verb)}>
+              <MenuItem
+                key={c.verb}
+                icon={VERB_ICON[c.verb]}
+                danger={g.danger}
+                disabled={!!c.why}
+                title={c.why}
+                onSelect={() => props.onPick(c.verb)}
+              >
                 {c.label}
                 {many ? (
                   <span className="muted ml-auto text-hint">{`${c.count} of ${tasks.length}`}</span>
@@ -302,16 +323,21 @@ export function VerbSheets({ flow, ids }: { flow: ReturnType<typeof useVerbFlow>
   const { ask, setAsk, run, me, agents, all, bulk } = flow;
   return (
     <>
-      <AnimatedList>{ask ? <VerbSheet key="VerbSheet" verb={ask} tasks={flow.byId(ids)} me={me} agents={agents} onCancel={() => setAsk(null)} onRun={run} /> : null}</AnimatedList>
       <AnimatedList>
-      {bulk.result ? (
-        <ResultSheet key="result"
-          what={bulk.result.what}
-          outcomes={bulk.result.outcomes}
-          titles={new Map(all.map((t) => [t.id, t.title]))}
-          onClose={bulk.clearResult}
-        />
-      ) : null}
+        {ask ? (
+          <VerbSheet key="VerbSheet" verb={ask} tasks={flow.byId(ids)} me={me} agents={agents} onCancel={() => setAsk(null)} onRun={run} />
+        ) : null}
+      </AnimatedList>
+      <AnimatedList>
+        {bulk.result ? (
+          <ResultSheet
+            key="result"
+            what={bulk.result.what}
+            outcomes={bulk.result.outcomes}
+            titles={new Map(all.map((t) => [t.id, t.title]))}
+            onClose={bulk.clearResult}
+          />
+        ) : null}
       </AnimatedList>
     </>
   );
