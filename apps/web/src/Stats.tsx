@@ -1,11 +1,9 @@
 // The Stats section of the Usage page (#/accounts, #/stats), under the account list: the window's four counts, how long each agent worked, from
-// stats.get; the usage outlook below them when the daemon serves it. The previous window's figures stay on screen until the new ones arrive.
+// stats.get. The previous window's figures stay on screen until the new ones arrive.
 import { useEffect, useState } from 'react';
 import { agentTime, dateTime, span } from '@handline/app-core';
 import type { Stats } from '@handline/client';
-import { useSelector } from '@handline/app-react';
 import { useServes, useStats } from '@handline/app-data';
-import { OutlookSection } from '#src/Outlook.tsx';
 import { ChartCard, ChartTitle, Icon, SectionHead, Segmented, type IconName } from '#src/ui/index.ts';
 import { View } from '#src/View.tsx';
 
@@ -20,8 +18,7 @@ const TILES: [string, keyof Pick<Stats, 'tasks_done' | 'moves' | 'handoffs' | 'b
   ['blocks', 'blocks', 'blocked'],
 ];
 
-const TILE =
-  'stat-tile flex flex-col gap-1 rounded-card bg-surface px-4 py-3 [&_svg]:text-ink-3 data-[warn]:[&_svg]:text-bad';
+const TILE = 'stat-tile flex flex-col gap-1 rounded-card bg-surface px-4 py-3 [&_svg]:text-ink-3 data-[warn]:[&_svg]:text-bad';
 
 /** Icon, count, name: the icon says what is counted, so the name can stay small. */
 function Tiles({ s }: { s: Stats }) {
@@ -70,7 +67,6 @@ export function StatsSection() {
   const [win, setWin] = useState<Window>('24h');
   const q = useStats(win);
   const { served } = useServes('stats.get');
-  const outlook = useSelector((s) => s.can('stats.outlook'));
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'r' || e.metaKey || e.ctrlKey || e.altKey || (e.target as HTMLElement | null)?.closest?.('input, textarea, select'))
@@ -100,7 +96,6 @@ export function StatsSection() {
           </>
         ) : null}
       </View>
-      {outlook ? <OutlookSection /> : null}
     </section>
   );
 }

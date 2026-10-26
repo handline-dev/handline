@@ -5,6 +5,7 @@ import { DaemonProvider } from '@handline/app-react';
 import { DataProvider, SKELETON_CSS, useUnread, type BoxComponent } from '@handline/app-data';
 import { setting } from '#src/daemon.ts';
 import { AccountsPage } from '#src/Accounts.tsx';
+import { RequestsPage } from '#src/RequestsPage.tsx';
 import { UsagePage } from '#src/UsagePage.tsx';
 import { MyTurnPage } from '#src/MyTurn.tsx';
 import { SettingsPage } from '#src/Settings.tsx';
@@ -149,6 +150,8 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
               <AccountsPage name={accounts.name} />
             ) : tasks !== null ? (
               <TasksPage route={tasks} />
+            ) : page === 'requests' ? (
+              <RequestsPage />
             ) : page === 'my-turn' ? (
               <MyTurnPage />
             ) : page === 'settings' ? (

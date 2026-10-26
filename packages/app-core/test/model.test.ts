@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AgentDetail, AgentView, Prompt } from '@handline/client';
+import type { AgentDetail, AgentView, Prompt, Status } from '@handline/client';
 import {
   promptChoices,
   whyOf,
@@ -12,6 +12,7 @@ import {
   needsConfirm,
   offered,
   railRows,
+  stuckUnder,
   workingUnder,
   visibleRows,
   queueOf,
@@ -344,4 +345,25 @@ test('workingUnder counts the running sub-agents at any depth, not the agent its
   assert.equal(workingUnder(list, 'lead'), 2);
   assert.equal(workingUnder(list, 'a'), 1);
   assert.equal(workingUnder(list, 'b'), 0);
+});
+
+test('stuckUnder counts the sub-agents held for load, on a dialog or blocked, at any depth', () => {
+  const held: Status = {
+    state: 'waiting',
+    reason: 'load',
+    text: 'held: machine load - load 2.19 per core, limit 1.50',
+    until: null,
+    since: '2026-10-26T12:00:00Z',
+    tasks: [],
+  };
+  const list = [
+    agent('lead', { state: 'running' }),
+    agent('a', { parent: 'lead', state: 'idle', status: held }),
+    agent('b', { parent: 'lead', state: 'running' }),
+    agent('c', { parent: 'a', state: 'idle', has_dialog: true }),
+    agent('d', { parent: 'b', state: 'stalled' }),
+  ];
+  assert.equal(stuckUnder(list, 'lead'), 3);
+  assert.equal(stuckUnder(list, 'b'), 1);
+  assert.equal(stuckUnder(list, 'd'), 0);
 });

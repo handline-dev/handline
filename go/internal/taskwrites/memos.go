@@ -180,6 +180,10 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 		if err != nil {
 			return nil, err
 		}
+		reply, hasReply, err := optionalTask(p, "reply")
+		if err != nil {
+			return nil, err
+		}
 		paths, err := attachments.FilePaths(p)
 		if err != nil {
 			return nil, err
@@ -196,8 +200,21 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 			if err := claimImages(tx, home, c.Caller.Actor(), body, "", "text"); err != nil {
 				return nil, err
 			}
+			if hasReply {
+				if _, _, err := memoOf(tx, tid, reply); err != nil {
+					return nil, err
+				}
+			}
 			mid, err := db.AddMemo(tx, tid, c.Caller.Actor(), body)
 			if err != nil {
+				return nil, err
+			}
+			if hasReply {
+				if _, err := tx.Exec("UPDATE task_memos SET reply_to = ? WHERE id = ?", reply, mid); err != nil {
+					return nil, err
+				}
+			}
+			if err := noteRequestComment(tx, tid, c.Caller.Actor()); err != nil {
 				return nil, err
 			}
 			if files, err = store.AddFiles(tx, home, c.Caller.Actor(), c.Caller.Actor() == human, paths); err != nil {

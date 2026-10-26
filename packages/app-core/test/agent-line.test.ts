@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AgentView } from '@handline/client';
+import type { AgentView, Status } from '@handline/client';
 import { agentLine, doingWords, rowWord } from '#src/agent-line.ts';
 
 const agent = (over: Record<string, unknown>) => ({ name: 'a', state: 'idle', ...over }) as unknown as AgentView;
@@ -10,6 +10,8 @@ describe('doingWords', () => {
     assert.equal(doingWords('Bash cd /Users/ron/orca && git fetch'), 'Running a command');
     assert.equal(doingWords('Edit /Users/ron/orca/apps/web/src/AgentRow.tsx'), 'Editing AgentRow.tsx');
     assert.equal(doingWords('Read /a/b/c.ts'), 'Reading c.ts');
+    assert.equal(doingWords('Read /Users/ron/.claude/projects/-Users-ron-workspaces-orcapipe-handline'), 'Reading a file'); // Claude's project folder
+    assert.equal(doingWords('Read -Users-ron-workspaces-orcapipe-handline'), 'Reading a file');
     assert.equal(doingWords('Grep foo'), 'Searching the code');
   });
   it('cuts the paths of a text it does not know to their last part', () => {
@@ -18,6 +20,18 @@ describe('doingWords', () => {
 });
 
 describe('agentLine', () => {
+  it('says a load hold in a few words, the numbers staying in the chat', () => {
+    const status: Status = {
+      state: 'waiting',
+      reason: 'load',
+      text: 'held: machine load - load 2.19 per core, limit 1.50',
+      until: null,
+      since: '2026-10-26T12:00:00Z',
+      tasks: [],
+    };
+    assert.equal(agentLine(agent({ status })), 'waiting: machine load');
+  });
+
   const task = { id: 5745, title: 'Trim the list' };
   it('prefers what it is doing now, then the held task, then its last message', () => {
     const last_to_founder = { text: 'Done with the review\nmore', at: 't' };

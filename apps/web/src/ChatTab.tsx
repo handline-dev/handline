@@ -5,7 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { OLDER_DWELL_MS, restartShown, sideOf, type TaskFold, type TimelineEntry } from '@handline/app-core';
-import { useNearEnd, useSelector, useStore } from '@handline/app-react';
+import { useMe, useNearEnd, useSelector } from '@handline/app-react';
 import {
   Skeleton,
   useSkeletonGate,
@@ -29,7 +29,7 @@ import { FoldLine, entryKey, useFolds } from '#src/ChatFold.tsx';
 import { useCardTitles } from '#src/ChatTitles.ts';
 import { Item, Message, jumpTo } from '#src/ChatMessages.tsx';
 import { TaskNote } from '#src/ChatTaskCards.tsx';
-import { HeldCard } from '#src/ChatHeld.tsx';
+import { BlockedCard, HeldCard } from '#src/ChatHeld.tsx';
 import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, useDecided } from '#src/ChatCards.tsx';
 import { ChatSearch } from '#src/ChatSearch.tsx';
 import { Button, Empty, Icon, Textarea, ComposeRow } from '#src/ui/index.ts';
@@ -150,7 +150,7 @@ function useFindBar() {
 export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail }) {
   const { storage } = useWorkspace();
   const canSend = useSelector((s) => s.can('chat.send'));
-  const me = useStore().me;
+  const me = useMe();
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
   // Chat is the person and this agent only; the team's traffic is the Activity tab.
@@ -335,6 +335,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
             {drawn && restartAt < 0 ? <HandoffCard detail={detail} items={chat.items} /> : null}
             {drawn && !detail.prompt ? <NeedsYouCard detail={detail} /> : null}
             {drawn ? <HeldCard detail={detail} /> : null}
+            {drawn ? <BlockedCard detail={detail} /> : null}
             {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
             <LiveLine working={chat.working} messages={chat.messages} items={chat.items} />
           </div>

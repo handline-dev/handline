@@ -13,7 +13,8 @@
     "watch": "node watch.ts",
     "test": "node --test --test-timeout=10000 --test-reporter=spec test/*.test.ts",
     "lint": "eslint .",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "package": "node package.ts"
   },
   "dependencies": {
     "@handline/app-core": "workspace:*",
@@ -26,7 +27,9 @@
     "@handline/fake-daemon": "workspace:*",
     "@handline/web": "workspace:*",
     "electron": "^38",
+    "electron-builder": "^25.1.8",
     "esbuild": "^0.25",
     "happy-dom": "^18"
-  }
+  },
+  "author": "Handline"
 }

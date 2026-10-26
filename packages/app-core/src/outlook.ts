@@ -16,3 +16,9 @@ export function costByAgent(o: Outlook): { agents: string[]; sums: number[]; all
   const sums = agents.map((a) => o.cost_per_day.reduce((sum, d) => sum + (d.agents[a] ?? 0), 0));
   return { agents, sums, all: sums.reduce((a, b) => a + b, 0) };
 }
+
+/** The points of the guess line: it starts at the last recorded point, so the two lines join, then goes on with the guessed ones after it. */
+export function guessLine(o: Pick<Outlook, 'past' | 'future'>): Outlook['future'] {
+  const last = o.past.filter((p) => p.left_pct !== null).at(-1);
+  return last ? [last, ...o.future.filter((p) => Date.parse(p.at) > Date.parse(last.at))] : o.future;
+}

@@ -20,9 +20,11 @@ import type { Follower } from '#src/follow.ts';
 import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from '#src/mode.ts';
 import { ownDaemon, readFounderKey, type Own } from '#src/own.ts';
 import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from '#src/tailnet.ts';
-import { Connection, Page, Settings, CHANNELS } from '#src/bridge.ts';
+import { Cli, Connection, Page, Settings, CHANNELS } from '#src/bridge.ts';
 import { serveDir } from '#src/serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from '#src/update.ts';
+import { bundleAt } from '#src/bundle.ts';
+import { cliState, linkCli } from '#src/cli.ts';
 
 const env = (k: string) => process.env[`HANDLINE_${k}`] ?? process.env[`OCP_${k}`];
 /** The same rule the daemon uses: the environment's, else ~/.handline once it exists, else ~/.orcapipe. */
@@ -36,6 +38,9 @@ const founderKey = () => {
   const rel = path.relative(home, socket);
   return rel === '..' || rel.startsWith(`..${path.sep}`) ? null : readFounderKey(home);
 };
+/** An installed app runs the daemon it carries and serves the web build it carries, unless the environment names others. */
+const carried = bundleAt(app.isPackaged, process.resourcesPath);
+if (carried) process.env.HANDLINE_HANDLINED ??= carried.handlined;
 /** The Go gateway (host:port): the web app reaches it at /rpc with a device token the app got for itself. An explicit WS address with no gateway is the old plain mode. */
 let gateway = env('WS') && !env('GATEWAY') ? undefined : gatewayAddress(env('GATEWAY'), os.networkInterfaces());
 const gatewaySocket = path.join(home, 'gateway.sock');
@@ -44,7 +49,7 @@ const root = path.resolve(import.meta.dirname, '../../..');
 /** The window always carries its daemon: a built page without `?daemon=` would take its own origin, which here is the static server. */
 let ws = env('WS') ?? (gateway ? `ws://${gateway}/rpc` : 'ws://127.0.0.1:7777');
 const APP_ICON = path.join(import.meta.dirname, '../assets/icon.png');
-const dist = env('WEB_DIST') ?? path.resolve(import.meta.dirname, '../../web/dist');
+const dist = env('WEB_DIST') ?? carried?.web ?? path.resolve(import.meta.dirname, '../../web/dist');
 
 let win: BrowserWindow | null = null;
 
@@ -283,6 +288,10 @@ if (!app.requestSingleInstanceLock({ background })) {
         })),
     });
     handleConnection(origin, own, current.mode, remote, f);
+    const cliDir = path.join(os.homedir(), '.local', 'bin');
+    const cli = new Cli(origin, { state: () => cliState(carried?.hl ?? null, cliDir), link: () => linkCli(carried!.hl, cliDir) });
+    ipcMain.handle(CHANNELS.cli, (e) => cli.state(e));
+    ipcMain.handle(CHANNELS.linkCli, (e) => cli.link(e));
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
     const preview = new Preview(origin, () => win);
@@ -291,6 +300,9 @@ if (!app.requestSingleInstanceLock({ background })) {
     const devices = new Devices(origin);
     ipcMain.handle(CHANNELS.deviceShot, (e, arg) => devices.shot(e, arg));
     ipcMain.handle(CHANNELS.deviceTap, (e, arg) => devices.tap(e, arg));
+    ipcMain.handle(CHANNELS.deviceList, (e) => devices.list(e));
+    ipcMain.handle(CHANNELS.deviceSwipe, (e, arg) => devices.swipe(e, arg));
+    ipcMain.handle(CHANNELS.deviceText, (e, arg) => devices.text(e, arg));
     handleSettings(origin, client, remote);
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
     const opener = new Opener(origin, {

@@ -20,7 +20,7 @@ export const STRIP_HANDLERS: Record<string, (h: Call) => unknown> = {
       account: s.fx.account,
       ctx_pct: open ? 37 : null,
       ctx_used: open ? 74_000 : null,
-      ctx_limit: open ? 200_000 : null,
+      ctx_limit: open ? Number(s.settings.context_k) * 1000 : null, // the daemon's maximum follows agent.set context_k; no event says it changed
       cache_left_s: open ? 240 : null,
       screen_word: open ? (WORDS[s.state] ?? 'IDLE') : null,
       screen_detail: open ? s.state : '',

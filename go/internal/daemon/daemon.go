@@ -276,7 +276,7 @@ func Start(cfg Config) (*Daemon, error) {
 		w := &watcher.Watcher{DB: db, Emit: d.hub.Append, Log: cfg.Log, Signature: watcher.HRSignature(cfg.Home),
 			Detectors: []watcher.Detector{&watcher.Tasks{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Agents{}, &watcher.Notifications{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Inbox{Reads: &reads.Env{DB: db, Home: cfg.Home}},
 				&watcher.HR{Reads: &reads.Env{DB: db, Home: cfg.Home}},
-				&watcher.Prefs{},
+				&watcher.Prefs{}, &watcher.Requests{Reads: &reads.Env{DB: db, Home: cfg.Home}},
 				&watcher.Chat{Reads: &reads.Env{DB: db, Home: cfg.Home, Delivery: cfg.Delivery}}}}
 		d.wg.Add(1)
 		go func() {
@@ -367,11 +367,35 @@ func (d *Daemon) teller() taskwrites.Teller {
 // hrEnv is what hr.decide runs on: the telling layer for the proposer, and the process table when the Env has an observer.
 func (d *Daemon) hrEnv() *hrwrites.Env {
 	env := d.env()
-	h := &hrwrites.Env{DB: d.db, Home: d.cfg.Home, Say: env, Log: d.cfg.Log}
+	h := &hrwrites.Env{DB: d.db, Home: d.cfg.Home, Say: env, Log: d.cfg.Log, Ask: d.askFounder}
 	if env.Observer != nil {
 		h.Live = env.Observer.LiveSessions
 	}
 	return h
+}
+
+// askFounder opens a task for the founder, as hr.decide's retire needs to put them a question; it answers the task's number.
+func (d *Daemon) askFounder(title, body string, tags ...string) (int64, error) {
+	tx, err := d.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	tid, asked, err := taskwrites.OpenTask(tx, d.teller(), dbpkg.Human, taskwrites.NewIn{Owner: dbpkg.Human, Title: title, Body: body, Tags: tags,
+		Prio: dbpkg.DefaultPriority, Expects: "decision"})
+	if err != nil {
+		return 0, err
+	}
+	if !asked.OK {
+		return 0, fmt.Errorf("the founder's task was refused: %s", asked.Msg)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	if asked.After != nil {
+		asked.After()
+	}
+	return tid, nil
 }
 
 // legacy answers a legacy `{verb}` request that Python's hl still sends. nil is a verb it does not serve.
@@ -502,6 +526,7 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	renv.Context = d.cfg.Context
 	if d.res != nil {
 		renv.Resources = d.res.Latest
+		renv.Machine = d.res.LatestMachine
 	}
 	if d.logins != nil {
 		renv.Login = d.logins.Of

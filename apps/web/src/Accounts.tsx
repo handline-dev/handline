@@ -2,7 +2,7 @@
 import { useState, type ReactNode } from 'react';
 import { STATE_WORD, agentsLine, outUntil, paceLine, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';
-import { useStore } from '@handline/app-react';
+import { useHello } from '@handline/app-react';
 import { classify, sentence, useAccounts, useAccountUsage, useAgents, useOff, useServes, useWrite } from '@handline/app-data';
 import { AccountLogin } from '#src/AccountLogin.tsx';
 import { AccountSettings } from '#src/AccountSettings.tsx';
@@ -90,7 +90,7 @@ export function UsageLine({ account }: { account: Account }) {
 
 /** A stalled account: STALLED and its reason, and for the founder Wake (the row loses the stall at once; a refusal puts it back and says why). */
 export function Stall({ account }: { account: Account }) {
-  const founder = useStore().client.hello?.role === 'founder';
+  const founder = useHello()?.role === 'founder';
   const { served } = useServes('account.wake');
   const wake = useWrite('account.wake', account.name);
   if (!account.stalled && !wake.error) return null;
@@ -155,7 +155,7 @@ export function UsageRow({ account, now }: { account: Account; now: number }) {
 
 /** Founder only: a name registers the account, which then needs a login (the topic brings the row in). */
 function AddAccount() {
-  const founder = useStore().client.hello?.role === 'founder';
+  const founder = useHello()?.role === 'founder';
   const off = useOff('account.add');
   const [asking, setAsking] = useState(false);
   const [name, setName] = useState('');

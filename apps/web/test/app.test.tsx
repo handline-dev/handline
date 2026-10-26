@@ -152,8 +152,8 @@ describe('the workspace', () => {
     expect($('.side')).toBeNull();
     const top = $$('.rail-top button').map((b) => b.getAttribute('aria-label') ?? '');
     expect(top.slice(0, 3)).toEqual(['Hide the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']);
-    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*Usage/);
-    expect($$('.rail-nav .nav svg').length).toBe(3);
+    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*Requests.*Usage/);
+    expect($$('.rail-nav .nav svg').length).toBe(4);
     expect(text($('.rail-nav'))).not.toMatch(/More|Team|Worktrees/);
     expect($$('.rail-foot button').map((b) => b.getAttribute('aria-label'))).toEqual(['Settings', 'Keys (?)']);
     expect($('.rail-status')).toBeNull();
@@ -432,9 +432,13 @@ describe('the sidebar', () => {
     expect($('.row-working')).toBeNull();
   });
 
-  it('a pinned lead row counts the sub-agents working under it, its tree open or not', async () => {
+  it('a pinned lead row counts the sub-agents working and the ones that cannot go on, its tree open or not', async () => {
     const s = setup();
     auditorWorking(s.daemon);
+    const b = s.daemon.sessions.get('handline.term-build')!;
+    const was = b.fx.wall;
+    restores.push(() => void (b.fx.wall = was));
+    b.fx.wall = true; // walled like the auditor is until it works
     await mount(TB, undefined, s);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     const lead = $$('.row-wrap').find((r) => r.querySelector('.kids, [aria-expanded]'))!;
@@ -446,6 +450,8 @@ describe('the sidebar', () => {
     await until(() => $('.pinned-head'), 'the pinned section');
     const pinned = $$('.row-working').filter((w) => w.closest('[data-agent]')?.getAttribute('data-agent') === name);
     expect(pinned.map((w) => text(w).trim())).toEqual(['1']); // the pinned copy; the open tree row says nothing
+    const stuck = $$('.row-stuck').filter((w) => w.closest('[data-agent]')?.getAttribute('data-agent') === name);
+    expect(stuck.map((w) => text(w).trim())).toEqual(['1']);
   });
 
   it("a row's menu holds Settings, which opens that agent's settings, whose back button, above the title, returns to the agent", async () => {
