@@ -1,6 +1,4 @@
-// The status bar's usage item: how much of the week is left across the accounts and whether it lasts to the reset at the current pace
-// ("Week 62% left · lasts" / "runs out Thu 05:00"). It turns amber when the week runs out within the warning hours of Settings and says so once
-// per crossing in a notice. The hover lists each account's week; the link opens the Usage page.
+// The status bar's usage item: the week left across the accounts and whether it lasts at the current pace; the hover lists each account.
 import { useEffect, useRef } from 'react';
 import { alertText, forecastWords, runsOutSoon, span, weekForecast, type WeekForecast } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
@@ -31,15 +29,16 @@ export function UsageLink() {
   const now = Date.now();
   const f = weekForecast(list, outlook, now);
   const soon = runsOutSoon(f, weekAlertHours());
+  const said = soon ? alertText(f) : '';
   const told = useRef(false);
   // once per crossing: a new notice only after the warning has cleared and come back
   useEffect(() => {
     if (!soon) told.current = false;
     else if (!told.current) {
       told.current = true;
-      store.notices.push('info', alertText(f));
+      store.notices.push('info', said);
     }
-  }, [soon, store, f]);
+  }, [soon, said, store]);
   if (!served) return null;
   const rows = list.map((a) => {
     const left = a.weekly ? `${Math.round(100 - a.weekly.used_pct)}% left` : 'no reading';

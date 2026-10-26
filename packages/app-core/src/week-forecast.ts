@@ -1,5 +1,4 @@
-// The week across all accounts in two facts for the status bar: how much is left and whether it lasts to the reset at the current pace.
-// The pace is the Outlook's guess line, so the page, the bar and the phone agree. Pure.
+// The week across all accounts for the status bar, paced by the Outlook guess line. Pure.
 import type { Account, Outlook } from '@handline/client';
 import { span } from '#src/time.ts';
 
