@@ -1,6 +1,6 @@
 // The Accounts tab of Settings (#/accounts, #/stats), also the page the status bar's usage item opens: one line per account, then the Stats section; #/accounts/:name is one account in three tabs.
 import { useState } from 'react';
-import { STATE_WORD, agentsLine, outUntil, stateOf, span, dateTime } from '@handline/app-core';
+import { STATE_WORD, agentsLine, outUntil, paceLine, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAccounts, useAccountUsage, useAgents, useOff, useServes, useWrite } from '@handline/app-data';
@@ -50,6 +50,12 @@ export function StateChip({ account, now }: { account: Account; now: number }) {
 }
 
 const LOGIN_WORD: Record<Account['login_state'], string> = { ok: 'logged in', needs_login: 'needs login', unknown: 'login unknown' };
+
+/** Where the week stands against its pace line, in words; nothing when the account has no pace or pacing is off. */
+function PaceLine({ account }: { account: Account }) {
+  const line = paceLine(account);
+  return line ? <span className="acct-pace text-label text-ink-2">{line}</span> : null;
+}
 
 /** What `hl account list` adds to the gauges: the login, the plan, when the week resets, and whether it can take another agent and why not. */
 export function UsageLine({ account }: { account: Account }) {
@@ -111,7 +117,10 @@ function Row({ account, now }: { account: Account; now: number }) {
         </span>
         <StateChip account={account} now={now} />
         <Gauge label="5 h" window={account.five_hour} now={now} />
-        <Gauge label="week" window={account.weekly} now={now} />
+        <span className="acct-week flex min-w-0 flex-col gap-0.5 max-[960px]:col-span-full">
+          <Gauge label="week" window={account.weekly} now={now} />
+          <PaceLine account={account} />
+        </span>
         <span
           className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2"
           title="Agents working on it now, and the most it takes at once"
@@ -229,6 +238,7 @@ function AccountPageOne({ account, now }: { account: Account; now: number }) {
         <div className="acct-overview flex flex-col gap-3">
           <Gauge label="5 h" window={account.five_hour} now={now} detail />
           <Gauge label="week" window={account.weekly} now={now} detail />
+          <PaceLine account={account} />
           <p className={FACT}>
             <Icon name="schedules" size={14} label="Month" />
             {account.cycle.on ? (account.cycle.end ? `ends ${account.cycle.end}` : 'ends when its login drops') : 'renewing'}

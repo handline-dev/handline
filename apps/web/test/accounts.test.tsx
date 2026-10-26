@@ -72,6 +72,18 @@ describe('the list', () => {
     expect(text(card('gamma'))).toContain('no reading');
   });
 
+  it('says under the week gauge where the week stands against its pace, and nothing without a pace', async () => {
+    const s = setup();
+    s.daemon.accounts.add({ name: 'delta', pace: null });
+    await mount('#/accounts', s);
+    await until(() => $$('.acct-row').length === 4, 'the rows', 600);
+    expect(card('delta').querySelector('.acct-pace')).toBeNull();
+    expect(text(card('alpha').querySelector('.acct-pace'))).toBe('ahead of pace: fewer agents start');
+    expect(text(card('beta').querySelector('.acct-pace'))).toBe('on pace');
+    expect(text(card('gamma').querySelector('.acct-pace'))).toMatch(/^over pace: no new turns/);
+    expect(card('alpha').querySelector('.acct-week [data-gauge="week"]')).not.toBeNull();
+  });
+
   it('counts the agents working now, not those tied to the account', async () => {
     const s = setup();
     const fx = s.daemon.sessions.get('handline.architect')!.fx;
