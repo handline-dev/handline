@@ -47,7 +47,10 @@ export function AssignSheet({ t, me, onClose }: { t: Detail; me: string; onClose
           value={find}
           onChange={(e) => (setFind(e.target.value), setAt(0))}
           onKeyDown={(e) => {
-            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              submit();
+            } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
               e.preventDefault();
               setAt((i) => (i + (e.key === 'ArrowDown' ? 1 : names.length - 1)) % Math.max(names.length, 1));
             }
