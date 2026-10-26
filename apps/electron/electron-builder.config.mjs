@@ -2,6 +2,7 @@
 // to its name (and, for notarization, the usual APPLE_* variables electron-builder reads); with none, the app is ad-hoc signed, which is enough
 // to run on this Mac and is all there is without an Apple developer account.
 import { createRequire } from 'node:module';
+import process from 'node:process';
 
 const developerId = !!process.env.HANDLINE_SIGN_IDENTITY;
 
