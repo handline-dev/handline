@@ -1,63 +1,177 @@
 // The Team and HR tabs of the Settings area: Team (who is who, and who may ask whom) and HR (the proposals that wait for the founder).
+import { useState } from 'react';
 import { taskRef } from '@handline/app-core';
-import type { AgentView, TeamAgent } from '@handline/client';
-import { useServes, useTeamBoard } from '@handline/app-data';
+import type { AgentView } from '@handline/client';
+import { useServes, useTeamBoard, type TeamNode } from '@handline/app-data';
 import { HrTab } from '#src/HrTab.tsx';
 import { TeamSeal } from '#src/TeamSeal.tsx';
-import { Empty, Icon, MetaItem, MetaLine, State, stateOfView } from '#src/ui/index.ts';
+import { Button, Dialog, Empty, Icon, Segmented, State, stateOfView } from '#src/ui/index.ts';
 import { SettingsSection, SettingsShell } from '#src/SettingsShell.tsx';
-import { goAgent, useTeamRoute } from '#src/route.ts';
+import { goAgent, goSettings, useTeamRoute } from '#src/route.ts';
 import { View } from '#src/View.tsx';
 import { Reveal } from '#src/ui/Reveal.tsx';
+
+type Look = 'tree' | 'chart';
+const LOOK_KEY = 'team-look';
+
+/** The look is remembered by this window only; a browser that refuses storage starts on the tree. */
+function useLook(): [Look, (l: Look) => void] {
+  const [look, set] = useState<Look>(() => {
+    try {
+      return localStorage.getItem(LOOK_KEY) === 'chart' ? 'chart' : 'tree';
+    } catch {
+      return 'tree';
+    }
+  });
+  return [
+    look,
+    (l) => {
+      set(l);
+      try {
+        localStorage.setItem(LOOK_KEY, l);
+      } catch {
+        /* not remembered */
+      }
+    },
+  ];
+}
 
 export function TeamPage() {
   const route = useTeamRoute()!;
   const { served: hrServed } = useServes('hr.list');
+  const [look, setLook] = useLook();
   return (
     <SettingsShell tab={route.tab} label="Team">
       {route.tab === 'hr' && hrServed ? (
         <HrTab focus={route.proposal} />
       ) : (
-        <SettingsSection title="Team" action={<TeamSeal />}>
-          <TeamTable />
+        <SettingsSection
+          title="Team"
+          action={
+            <span className="flex items-center gap-2">
+              <Segmented
+                label="Team view"
+                value={look}
+                onChange={setLook}
+                options={[
+                  { value: 'tree', label: 'Tree' },
+                  { value: 'chart', label: 'Chart' },
+                ]}
+              />
+              <TeamSeal />
+            </span>
+          }
+        >
+          <TeamBoard look={look} />
         </SettingsSection>
       )}
     </SettingsShell>
   );
 }
 
-function TeamTable() {
-  const { query: q, served, team, groups, edges, doing, isOpen, toggle } = useTeamBoard();
+function TeamBoard({ look }: { look: Look }) {
+  const { query: q, served, team, tree, edges, doing } = useTeamBoard();
   return (
     <View q={q} served={served} shape="team" what="the team" empty={false}>
       {team && !team.agents.length ? (
         <Empty icon="team" name="No agents in the team" />
+      ) : look === 'tree' ? (
+        <TeamTree nodes={tree} doing={doing} edges={edges} />
       ) : (
-        <div className="team-board grid gap-4">
-          {groups.map((g) => (
-            <section key={g.parent ?? ''} className="team-group" aria-label={g.parent ? `Reports to ${g.parent}` : 'Top of the team'}>
-              {g.parent ? (
-                <h3 className="mx-0 mt-0 mb-2 flex items-center gap-1 text-label font-normal text-ink-3" title="Reports to">
-                  <Icon name="agent" label="Reports to" size={14} aria-hidden="true" /> {g.parent}
-                </h3>
-              ) : null}
-              <div className="team-cards grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2">
-                {g.agents.map((a) => (
-                  <Card key={a.name} a={a} d={doing(a.name)} edges={edges} open={isOpen(a.name)} onOpen={() => toggle(a.name)} />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+        <TeamChart nodes={tree} doing={doing} edges={edges} />
       )}
     </View>
   );
 }
 
-const day = (t: string | null) => (t ? new Date(t).toLocaleDateString() : 'not set');
+type Edges = { from: string; to: string }[];
+type Doing = (name: string) => AgentView | undefined;
 
-function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: string; to: string }[]; open: boolean; onOpen: () => void }) {
-  const { a, d } = props;
+/** What an agent is called under its manager: the last part of its name. */
+const shortName = (name: string) => name.slice(name.lastIndexOf('.') + 1);
+
+function StateOf({ d }: { d: AgentView | undefined }) {
+  return d ? (
+    <State
+      kind={stateOfView(d)}
+      label={d.status?.text || [d.block ? `blocked (${d.block.kind})` : d.state, d.state_detail].filter(Boolean).join(' · ')}
+    />
+  ) : (
+    <span className="inline-block w-3.5" aria-hidden />
+  );
+}
+
+/** The team as an indented list like the sidebar's: a team folds, a row opens who it may ask and the way to its chat and settings. */
+function TeamTree({ nodes, doing, edges }: { nodes: TeamNode[]; doing: Doing; edges: Edges }) {
+  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+  const [open, setOpen] = useState<string | null>(null);
+  const flip = (name: string) =>
+    setFolded((s) => {
+      const n = new Set(s);
+      if (!n.delete(name)) n.add(name);
+      return n;
+    });
+  const rows = (list: TeamNode[], depth: number): { n: TeamNode; depth: number }[] =>
+    list.flatMap((n) => [{ n, depth }, ...(folded.has(n.agent.name) ? [] : rows(n.children, depth + 1))]);
+  return (
+    <div className="team-board flex flex-col rounded-card bg-surface" role="tree" aria-label="Team">
+      {rows(nodes, 0).map(({ n, depth }) => {
+        const a = n.agent;
+        const d = doing(a.name);
+        const kids = n.children.length > 0;
+        return (
+          <div key={a.name} className="[&:not(:first-child)]:border-t [&:not(:first-child)]:border-line">
+            <div
+              className="team-row grid min-h-9 cursor-pointer grid-cols-[minmax(0,1.3fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,0.8fr)] items-center gap-x-3 px-3 py-1.5 hover:bg-raised"
+              role="treeitem"
+              aria-level={depth + 1}
+              aria-expanded={kids ? !folded.has(a.name) : undefined}
+              data-agent={a.name}
+              onClick={() => setOpen(open === a.name ? null : a.name)}
+            >
+              <span className="flex min-w-0 items-center gap-1.5" style={{ paddingLeft: `${depth * 16}px` }}>
+                {kids ? (
+                  <button
+                    type="button"
+                    className="team-fold inline-flex border-0 bg-transparent p-0 text-ink-3"
+                    aria-label={folded.has(a.name) ? `Show ${shortName(a.name)}'s team` : `Fold ${shortName(a.name)}'s team`}
+                    onClick={(e) => (e.stopPropagation(), flip(a.name))}
+                  >
+                    <Icon name={folded.has(a.name) ? 'more' : 'less'} size={14} aria-hidden />
+                  </button>
+                ) : (
+                  <span className="inline-block w-3.5" aria-hidden />
+                )}
+                <StateOf d={d} />
+                <span className="team-name min-w-0 truncate font-medium" title={a.name}>
+                  {depth ? shortName(a.name) : a.name}
+                </span>
+              </span>
+              <span
+                className="team-task min-w-0 truncate text-label text-ink-2"
+                title={d?.task ? `${taskRef(d.task.id)} ${d.task.title}` : undefined}
+              >
+                {d?.task ? `${taskRef(d.task.id)} ${d.task.title}` : ''}
+              </span>
+              <span className="team-model min-w-0 truncate text-label text-ink-2">
+                {d?.model ? `${d.model}${d.effort ? ` · ${d.effort}` : ''}` : ''}
+              </span>
+              <span className="team-account min-w-0 truncate text-label text-ink-2">{d?.account ?? ''}</span>
+            </div>
+            <Reveal show={open === a.name}>
+              <div className="px-3 pb-2" style={{ paddingLeft: `${depth * 16 + 12 + 20}px` }}>
+                <AgentDetail name={a.name} edges={edges} />
+              </div>
+            </Reveal>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Who the agent may ask and be asked by, and the way to its chat and its settings. No role text. */
+function AgentDetail({ name, edges }: { name: string; edges: Edges }) {
   const chips = (names: string[]) =>
     names.length ? (
       names.map((n) => (
@@ -73,68 +187,63 @@ function Card(props: { a: TeamAgent; d: AgentView | undefined; edges: { from: st
       <span className="muted">nobody</span>
     );
   return (
-    <article
-      className={`team-card flex cursor-pointer flex-col gap-1 rounded-card border border-line p-3${props.open ? ' open bg-panel' : ' bg-surface hover:bg-panel'}`}
-      data-agent={a.name}
-      onClick={props.onOpen}
-      title={`role file ${day(a.role_file.updated)} · base file ${day(a.base_file.updated)}`}
-    >
-      <header className="flex items-center gap-2">
-        {d ? (
-          <State
-            kind={stateOfView(d)}
-            label={d.status?.text || [d.block ? `blocked (${d.block.kind})` : d.state, d.state_detail].filter(Boolean).join(' · ')}
-          />
-        ) : null}
-        <button
-          className="team-name border-0 bg-transparent p-0 text-body font-medium text-ink hover:underline"
-          onClick={(e) => (e.stopPropagation(), goAgent(a.name))}
-        >
-          {a.name}
-        </button>
-        <button
-          className="team-more ml-auto inline-flex rounded-ctl border-0 bg-transparent p-1 text-ink-3 hover:bg-raised hover:text-ink"
-          aria-expanded={props.open}
-          aria-label={`Who ${a.name} may ask`}
-          title="Who may ask whom"
-          onClick={(e) => (e.stopPropagation(), props.onOpen())}
-        >
-          <Icon name={props.open ? 'less' : 'more'} label="Who may ask whom" size={14} aria-hidden="true" />
-        </button>
-      </header>
-      <p className="team-role m-0 text-body text-ink-2">{a.role}</p>
-      {d?.account || d?.model ? (
-        <MetaLine className="team-meta">
-          {d.account ? (
-            <MetaItem title="Account">
-              <Icon name="accounts" label="Account" size={14} aria-hidden="true" /> {d.account}
-            </MetaItem>
-          ) : null}
-          {d.model ? (
-            <MetaItem title="Model">
-              <Icon name="model" label="Model" size={14} aria-hidden="true" /> {d.model}
-              {d.effort ? ` · ${d.effort}` : ''}
-            </MetaItem>
-          ) : null}
-        </MetaLine>
+    <div className="edges grid gap-1.5 [&_svg]:text-ink-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Icon name="send" label="May ask" size={14} />
+        {chips(edges.filter((e) => e.from === name).map((e) => e.to))}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Icon name="reply" label="May be asked by" size={14} />
+        {chips(edges.filter((e) => e.to === name).map((e) => e.from))}
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" variant="outline" label="Open chat" onClick={() => goAgent(name)} />
+        <Button size="sm" variant="outline" label="Agent settings" onClick={() => goSettings(name)} />
+      </div>
+    </div>
+  );
+}
+
+/** The same team left to right, a box per agent with its reports to its right; a box opens the same detail in a small window. */
+function TeamChart({ nodes, doing, edges }: { nodes: TeamNode[]; doing: Doing; edges: Edges }) {
+  const [picked, setPicked] = useState<string | null>(null);
+  return (
+    <div className="team-chart flex flex-col gap-3 overflow-x-auto rounded-card bg-surface p-4" aria-label="Team chart">
+      {nodes.map((n) => (
+        <ChartNode key={n.agent.name} node={n} doing={doing} pick={setPicked} />
+      ))}
+      {picked ? (
+        <Dialog title={picked} onClose={() => setPicked(null)}>
+          <AgentDetail name={picked} edges={edges} />
+        </Dialog>
       ) : null}
-      {d?.task ? (
-        <p className="team-task m-0 flex flex-wrap items-center gap-1 text-label text-ink-2" title="Doing">
-          <Icon name="tasks" label="Doing" size={14} aria-hidden="true" /> {taskRef(d.task.id)} {d.task.title}
-        </p>
-      ) : null}
-      <Reveal show={props.open}>
-        <div className="edges mt-1.5 grid gap-1.5 border-t border-line pt-2 [&_svg]:text-ink-3">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Icon name="send" label="May ask" size={14} />
-            {chips(props.edges.filter((e) => e.from === a.name).map((e) => e.to))}
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Icon name="reply" label="May be asked by" size={14} />
-            {chips(props.edges.filter((e) => e.to === a.name).map((e) => e.from))}
-          </div>
+    </div>
+  );
+}
+
+function ChartNode({ node, doing, pick }: { node: TeamNode; doing: Doing; pick: (name: string) => void }) {
+  const a = node.agent;
+  const d = doing(a.name);
+  return (
+    <div className="flex items-center gap-4">
+      <button
+        type="button"
+        className="team-box flex min-w-0 max-w-56 flex-none cursor-pointer items-center gap-1.5 rounded-card border border-line bg-panel px-2.5 py-1.5 text-left hover:bg-raised"
+        data-agent={a.name}
+        onClick={() => pick(a.name)}
+      >
+        <StateOf d={d} />
+        <span className="truncate font-medium" title={a.name}>
+          {shortName(a.name)}
+        </span>
+      </button>
+      {node.children.length ? (
+        <div className="flex flex-col gap-2 border-l border-line pl-4">
+          {node.children.map((c) => (
+            <ChartNode key={c.agent.name} node={c} doing={doing} pick={pick} />
+          ))}
         </div>
-      </Reveal>
-    </article>
+      ) : null}
+    </div>
   );
 }
