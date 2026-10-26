@@ -109,7 +109,20 @@ beforeEach(() => {
   history.replaceState(null, '');
   vi.stubGlobal('confirm', () => true);
 });
+// The fixtures are shared between tests: the auditor is at its usage wall (blocked, not working), and what a test changes is put back after it.
+const restores: (() => void)[] = [];
+function auditorWorking(daemon: ReturnType<typeof setup>['daemon']) {
+  const a = daemon.sessions.get('handline.auditor')!;
+  const was = { state: a.state, wall: a.fx.wall };
+  restores.push(
+    () => Object.assign(a, { state: was.state }),
+    () => void (a.fx.wall = was.wall),
+  );
+  a.state = 'running';
+  a.fx.wall = false;
+}
 afterEach(async () => {
+  restores.splice(0).forEach((r) => r());
   await unmount();
   vi.unstubAllGlobals();
 });
@@ -413,8 +426,7 @@ describe('the workspace', () => {
 describe('the sidebar', () => {
   it('a lead row with sub-agents working says nothing while it is open', async () => {
     const s = setup();
-    s.daemon.sessions.get('handline.auditor')!.state = 'running';
-    s.daemon.sessions.get('handline.auditor')!.fx.wall = false; // the fixture's auditor is at its usage wall: blocked, not working
+    auditorWorking(s.daemon);
     await mount(TB, undefined, s);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     expect($('.row-working')).toBeNull();
@@ -422,8 +434,7 @@ describe('the sidebar', () => {
 
   it('a pinned lead row counts the sub-agents working under it, its tree open or not', async () => {
     const s = setup();
-    s.daemon.sessions.get('handline.auditor')!.state = 'running';
-    s.daemon.sessions.get('handline.auditor')!.fx.wall = false; // the fixture's auditor is at its usage wall: blocked, not working
+    auditorWorking(s.daemon);
     await mount(TB, undefined, s);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     const lead = $$('.row-wrap').find((r) => r.querySelector('.kids, [aria-expanded]'))!;
