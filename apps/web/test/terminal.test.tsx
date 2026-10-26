@@ -8,7 +8,18 @@ import { DataProvider, useAgentDetail, type BoxComponent } from '@handline/app-d
 import { BytesChannel, fromBase64, toBase64, type ByteEvent } from '@handline/client';
 import { second, setup } from '@handline/fake-daemon/helpers';
 import { BytesTab } from '#src/BytesTab.tsx';
-import { clampGrid, gridToSend, guard, isEscapeChord, isSwitchChord, isTerminalSwitch, keySender, paint, terminalOwnsKey, type CreateTerm } from '#src/terminal/core.ts';
+import {
+  clampGrid,
+  gridToSend,
+  guard,
+  isEscapeChord,
+  isSwitchChord,
+  isTerminalSwitch,
+  keySender,
+  paint,
+  terminalOwnsKey,
+  type CreateTerm,
+} from '#src/terminal/core.ts';
 import { KEEP_MS, dropKept, keep } from '#src/terminal/keep.ts';
 import { linkHandler, openLink } from '#src/terminal/xterm.ts';
 import { wantsBytes } from '#src/terminal/choose.ts';
@@ -247,7 +258,20 @@ describe('the pane', () => {
     const create: CreateTerm = () => {
       term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
       made.push(term);
-      return { term, propose: () => (cells ? cells(font) : proposed), onFit: (fn) => (fits.push(fn), { dispose: () => void fits.splice(fits.indexOf(fn), 1) }), setFontSize(px) { if (px !== font) { font = px; setTimeout(() => [...fits].forEach((f) => f()), 16); } }, mark: (l) => marks.push(l), focus() {}, dispose: () => term.dispose() };
+      return {
+        term,
+        propose: () => (cells ? cells(font) : proposed),
+        onFit: (fn) => (fits.push(fn), { dispose: () => void fits.splice(fits.indexOf(fn), 1) }),
+        setFontSize(px) {
+          if (px !== font) {
+            font = px;
+            setTimeout(() => [...fits].forEach((f) => f()), 16);
+          }
+        },
+        mark: (l) => marks.push(l),
+        focus() {},
+        dispose: () => term.dispose(),
+      };
     };
     const store = new Store(s.client);
     store.me = s.client.hello?.caller.name ?? ''; // the test store is never started, which is what sets it
@@ -304,7 +328,10 @@ describe('the pane', () => {
     const m = await mount(s);
     await until(() => box.querySelector('.input-elsewhere'), 'the overlay');
     expect(box.querySelector('.input-elsewhere')!.textContent).toContain('Typing is on phone');
-    await act(async () => void [...box.querySelectorAll<HTMLButtonElement>('.input-elsewhere button')].find((b) => b.textContent === 'Type here')!.click());
+    await act(
+      async () =>
+        void [...box.querySelectorAll<HTMLButtonElement>('.input-elsewhere button')].find((b) => b.textContent === 'Type here')!.click(),
+    );
     await until(() => session.holder.name === m.store.me, 'the input to move here');
     await until(() => !box.querySelector('.input-elsewhere'), 'the overlay to go');
   });
@@ -437,7 +464,8 @@ describe('the pane', () => {
     expect(input).not.toHaveBeenCalled();
     const stage = box.querySelector('.xterm-host div')!;
     stage.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    await until(() => box.textContent?.includes('You hold the input'), 'the hold');
+    await until(() => !box.textContent?.includes('Click the terminal to type'), 'the hold');
+    expect(box.textContent).not.toContain('You hold the input');
     resize.mockClear();
     for (const w of [90, 95, 100]) {
       // a drag: several sizes inside the debounce
@@ -452,6 +480,10 @@ describe('the pane', () => {
     m.term().input('hi\r', true); // what xterm's onData gives for typing
     await until(() => input.mock.calls.length > 0, 'the input call');
     expect(new TextDecoder().decode(input.mock.calls[0]![1])).toBe('hi\r');
+    stage.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: document.body }));
+    await until(() => box.textContent?.includes('Click the terminal to type'), 'the release on focus leaving');
+    stage.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    await until(() => !box.textContent?.includes('Click the terminal to type'), 'the hold again');
     stage.dispatchEvent(new KeyboardEvent('keydown', { key: 'E', ctrlKey: true, shiftKey: true, bubbles: true }));
     await until(() => box.textContent?.includes('Click the terminal to type'), 'the release');
     vi.unstubAllGlobals();
@@ -550,7 +582,14 @@ describe('keySender', () => {
 });
 
 describe('the chat / Claude Code switch chord', () => {
-  const k = (key: string, o: Partial<KeyboardEvent> = {}) => ({ key, ctrlKey: false, shiftKey: false, metaKey: false, altKey: false, ...o });
+  const k = (key: string, o: Partial<KeyboardEvent> = {}) => ({
+    key,
+    ctrlKey: false,
+    shiftKey: false,
+    metaKey: false,
+    altKey: false,
+    ...o,
+  });
   it('is Cmd+J on a Mac and never Ctrl+J there (a line feed)', () => {
     expect(isSwitchChord(k('j', { metaKey: true }), true)).toBe(true);
     expect(isSwitchChord(k('j', { ctrlKey: true }), true)).toBe(false);
