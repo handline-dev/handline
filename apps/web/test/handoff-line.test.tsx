@@ -52,7 +52,6 @@ describe('handoff line', () => {
     expect(box.querySelector('[data-agent="handline.architect"] .row-line')!.textContent).toBe('Context full: writing the handoff');
     expect(card()!.querySelector('svg')!.getAttribute('class')).toContain('animate-');
     expect(box.querySelectorAll('.card-handoff')).toHaveLength(1); // earlier session boundaries stay above it
-    expect(box.querySelector('h2')!.textContent).toBe('handline.architect Restarting…');
   });
 
   it('changes the words in place when the phase moves on', async () => {

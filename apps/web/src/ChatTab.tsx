@@ -26,10 +26,10 @@ import { FoldLine, entryKey, useFolds } from '#src/ChatFold.tsx';
 import { useCardTitles } from '#src/ChatTitles.ts';
 import { Item, Message, jumpTo } from '#src/ChatMessages.tsx';
 import { TaskNote } from '#src/ChatTaskCards.tsx';
-import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, RoomTitle, useDecided } from '#src/ChatCards.tsx';
+import { ChatBanner, ChatStrip, DecidedCard, HandoffCard, HrCards, NeedsYouCard, useDecided } from '#src/ChatCards.tsx';
 import { ChatSearch } from '#src/ChatSearch.tsx';
 import { Button, Empty, Icon, Textarea, ComposeRow } from '#src/ui/index.ts';
-import { goSettings, useWantedMessage } from '#src/route.ts';
+import { useWantedMessage } from '#src/route.ts';
 import { useWorkspace } from '#src/Workspace.tsx';
 
 /** The heading where the day turns — 'Oct 11'; null on the same day. */
@@ -308,11 +308,11 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
     <section className={CHAT}>
-      <div className="chat-head flex h-[var(--h-tabs)] items-center gap-2 border-b border-line px-2">
-        <RoomTitle agent={agent} detail={detail} />
-        {finding ? <ChatSearch agent={agent} scope={scope} onGo={jump} onClose={() => setFinding(false)} /> : null}
-        <Button icon="settings" label={`${agent} settings`} onClick={() => goSettings(agent)} />
-      </div>
+      {finding ? (
+        <div className="chat-find flex items-center gap-2 border-b border-line px-2 py-1">
+          <ChatSearch agent={agent} scope={scope} onGo={jump} onClose={() => setFinding(false)} />
+        </div>
+      ) : null}
       <ChatBanner detail={detail} />
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div

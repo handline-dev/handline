@@ -30,6 +30,7 @@ import { Watch } from '#src/TranscriptTab.tsx';
 import { TerminalTab } from '#src/TerminalTab.tsx';
 import { ViewSwitch } from '#src/ViewSwitch.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
+import { goSettings } from '#src/route.ts';
 import { RailControls, useFoldedControls } from '#src/RailControls.tsx';
 
 const label = (t: Tab, structured = false): string =>
@@ -37,22 +38,31 @@ const label = (t: Tab, structured = false): string =>
     ? 'Chat'
     : t.kind === 'new'
       ? 'New tab'
-    : t.kind === 'tasks'
-      ? t.params.pinned
-        ? taskRef(Number(t.params.task))
-        : 'Tasks'
-      : t.kind === 'android'
-            ? 'Android'
+      : t.kind === 'tasks'
+        ? t.params.pinned
+          ? taskRef(Number(t.params.task))
+          : 'Tasks'
+        : t.kind === 'android'
+          ? 'Android'
           : t.kind === 'ios'
             ? 'iOS'
-          : t.kind === 'web'
-            ? String(t.params.url ?? 'Preview').replace(/^https?:\/\//, '')
-          : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
-          ? 'Transcript'
-          : t.kind === 'terminal'
-            ? 'Claude Code'
-            : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
-const TAB_ICON: Record<string, IconName> = { chat: 'chat', tasks: 'tasks', terminal: 'terminal', transcript: 'terminal', web: 'web', android: 'device', ios: 'device', new: 'plus' };
+            : t.kind === 'web'
+              ? String(t.params.url ?? 'Preview').replace(/^https?:\/\//, '')
+              : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
+                ? 'Transcript'
+                : t.kind === 'terminal'
+                  ? 'Claude Code'
+                  : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
+const TAB_ICON: Record<string, IconName> = {
+  chat: 'chat',
+  tasks: 'tasks',
+  terminal: 'terminal',
+  transcript: 'terminal',
+  web: 'web',
+  android: 'device',
+  ios: 'device',
+  new: 'plus',
+};
 
 const TAB_KEYS: KeyRows = [
   ['Alt+Left Alt+Right', 'move the focused tab along the strip'],
@@ -70,7 +80,17 @@ export function Pane({ group }: { group: Group }) {
   const structured = detail.structured === true;
   // What a new tab can show: the same flat list for the + menu and for the picker in a freshly split pane.
   const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; disabled?: boolean }[] = [
-    ...(structured ? [] : [{ kind: 'terminal' as const, params: { handle: detail.terminal ?? '' }, label: 'Terminal', icon: 'terminal' as const, disabled: !detail.terminal }]),
+    ...(structured
+      ? []
+      : [
+          {
+            kind: 'terminal' as const,
+            params: { handle: detail.terminal ?? '' },
+            label: 'Terminal',
+            icon: 'terminal' as const,
+            disabled: !detail.terminal,
+          },
+        ]),
     { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
     { kind: 'android', params: { id: 'new' }, label: 'Android', icon: 'device' },
     { kind: 'ios', params: { id: 'new' }, label: 'iOS', icon: 'device' },
@@ -103,6 +123,9 @@ export function Pane({ group }: { group: Group }) {
             <RailControls show={folded.show} row />
           </div>
         ) : null}
+        <span className="agent-name mr-2 max-w-[180px] flex-none self-center truncate pl-1 text-body font-semibold text-ink" title={agent}>
+          {agent}
+        </span>
         {group.tabs.map((id) => {
           const t = ws.tabs[id]!;
           // Claude Code is reached by the switch (Cmd/Ctrl+J, /terminal, the icon in the bottom bar), not by a tab, while the chat is in the group.
@@ -114,7 +137,7 @@ export function Pane({ group }: { group: Group }) {
               role="tab"
               tabIndex={0}
               aria-selected={id === group.activeTab || asleep}
-              className={`tab group ${viaSwitch ? 'hidden' : 'inline-flex'} max-w-[200px] cursor-default select-none items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 font-sans text-body font-medium ${id === group.activeTab ? 'on border-b-ink text-ink' : asleep ? 'border-b-line-strong text-ink-2' : 'border-b-transparent text-ink-2'}`}
+              className={`tab group ${viaSwitch ? 'hidden' : 'inline-flex'} my-1 max-w-[200px] cursor-default select-none items-center gap-1.5 whitespace-nowrap rounded-ctl px-2.5 font-sans text-body font-medium hover:bg-raised ${id === group.activeTab ? 'on bg-raised text-ink' : asleep ? 'text-ink-2 bg-raised/50' : 'text-ink-2'}`}
               data-tab={id}
               draggable={id !== CHAT}
               onDragStart={(e) => {
@@ -134,11 +157,10 @@ export function Pane({ group }: { group: Group }) {
               <span className="tab-label overflow-hidden text-ellipsis">{label(t, structured)}</span>
               {t.kind === 'terminal' || t.kind === 'transcript' ? (
                 <>
-                  <Badges
-                    badges={badges}
-                    onClick={{ dialog: () => show(CHAT) }}
-                  />
-                  {unread && id !== group.activeTab ? <span className="unread-dot ml-1 inline-block h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" /> : null}
+                  <Badges badges={badges} onClick={{ dialog: () => show(CHAT) }} />
+                  {unread && id !== group.activeTab ? (
+                    <span className="unread-dot ml-1 inline-block h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" />
+                  ) : null}
                 </>
               ) : null}
               {id === CHAT ? null : (
@@ -166,7 +188,12 @@ export function Pane({ group }: { group: Group }) {
         })}
         <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="ml-0.5 self-center">
           {choices.map((c) => (
-            <MenuItem key={c.label} icon={c.icon} disabled={c.disabled} onSelect={() => apply((w) => openTab(w, c.kind, c.params, group.id))}>
+            <MenuItem
+              key={c.label}
+              icon={c.icon}
+              disabled={c.disabled}
+              onSelect={() => apply((w) => openTab(w, c.kind, c.params, group.id))}
+            >
               {c.label}
             </MenuItem>
           ))}
@@ -180,6 +207,7 @@ export function Pane({ group }: { group: Group }) {
           className="ml-auto self-center"
           onClick={() => apply((w) => splitPane(w, group.id) ?? w)}
         />
+        <Button icon="settings" size="sm" label={`${agent} settings`} className="self-center" onClick={() => goSettings(agent)} />
       </div>
       <div className="pane-body relative flex min-h-0 flex-1 flex-col [&>*]:min-h-0 [&>*]:flex-1" role="tabpanel">
         {!tab ? null : tab.kind === 'chat' ? (
