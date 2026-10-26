@@ -5,6 +5,11 @@ import { Failure, invalidParams } from '#src/errors.ts';
 
 interface Host {
   emit(topic: 'requests', type: string, f: { agent?: string; data: Record<string, unknown> }): void;
+  /** The chat, for a request named by the number of a message of the founder's. */
+  chat: {
+    find(id: unknown): { id: number; to: string; body: string; agent: string };
+    change(m: never, patch: { request_task?: number | null; no_work?: string | null }): void;
+  };
 }
 type Accepted = (said: string, extra?: object) => unknown;
 
@@ -52,11 +57,16 @@ export class FakeRequests {
 
   call(method: string, p: Record<string, unknown>, accepted: Accepted): unknown {
     if (method === 'requests.list') return this.list(p);
-    const row = this.rows.find((r) => r.ref !== null && r.ref === String(p.request));
+    const row = this.rows.find((r) => r.ref !== null && r.ref === String(p.request)) ?? this.fromChat(p.request);
     if (!row) throw new Failure('not_found', `no message ${String(p.request)} of the founder's`, { field: 'request' });
+    const mark = (patch: { request_task?: number | null; no_work?: string | null }) => {
+      const m = typeof row.ref === 'string' && row.ref.startsWith('msg:') ? this.host.chat.find(Number(row.ref.slice(4))) : null;
+      if (m) this.host.chat.change(m as never, patch);
+    };
     if (method === 'task.none') {
       if (typeof p.reason !== 'string' || !p.reason.trim()) throw invalidParams('reason says why no work is needed', 'reason');
       Object.assign(row, { status: 'no_work', reason: p.reason.trim() });
+      mark({ no_work: p.reason.trim() });
       this.host.emit('requests', 'request.changed', { agent: row.agent, data: { ...row } });
       return accepted('Marked: no work.');
     }
@@ -64,9 +74,21 @@ export class FakeRequests {
     if (!existing) {
       Object.assign(row, { kind: 'task', task: this.next++, status: 'doing', holders: [row.agent], origin: row.agent });
       if (typeof p.title === 'string' && p.title.trim()) row.title = p.title.trim();
+      mark({ request_task: row.task });
       this.host.emit('requests', 'request.changed', { agent: row.agent, data: { ...row } });
     }
     return accepted(existing ? 'Already a request.' : 'Request made.', { task: row.task, ...(existing ? { existing: true } : {}) });
+  }
+
+  /** A request named by a chat message's number: its row is made on the first call. */
+  private fromChat(name: unknown): RequestRow | undefined {
+    if (typeof name !== 'number' && !/^\d+$/.test(String(name))) return undefined;
+    try {
+      const m = this.host.chat.find(Number(name));
+      return this.add({ title: m.body.split('\n')[0]!.slice(0, 80), kind: 'message', agent: m.to, ref: `msg:${m.id}` });
+    } catch {
+      return undefined;
+    }
   }
 
   private list(p: Record<string, unknown>) {

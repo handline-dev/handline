@@ -15,8 +15,9 @@ import { Button } from '#src/ui/index.ts';
 import { Reveal } from '#src/ui/Reveal.tsx';
 
 /** One comment. Its author, and the founder for any, can Edit and Delete: both show at once and roll back with the daemon's reason; Delete asks first. */
-function Comment({ t, item }: { t: Detail; item: ActivityItem }) {
+function Comment({ t, item, onReply }: { t: Detail; item: ActivityItem; onReply?: (memo: number) => void }) {
   const m = t.memos.find((x) => x.id === item.memo);
+  const of = m?.reply_to != null ? t.memos.find((x) => x.id === m.reply_to) : undefined; // the comment this one answers
   const store = useStore();
   const edit = useWrite('task.comment.edit', String(t.id));
   const del = useWrite('task.comment.delete', String(t.id));
@@ -36,10 +37,16 @@ function Comment({ t, item }: { t: Detail; item: ActivityItem }) {
         {ago(item.at)}
         {item.edited ? ' · edited' : ''}
       </span>
+      {of ? <span className="truncate text-hint text-ink-3" data-reply-to={of.id}>{`↩ ${of.author}: ${firstLine(of.text)}`}</span> : null}
       <div className="min-w-0">
         <Markdown text={item.note} />
       </div>
       {m?.files?.length ? <MemoFiles files={m.files} /> : null}
+      {m && onReply && m.id > 0 ? (
+        <div className="flex">
+          <Button variant="outline" label="Reply" onClick={() => onReply(m.id)} />
+        </div>
+      ) : null}
       {mine && ask === null ? (
         <div className="flex flex-wrap items-center gap-2" title={offEdit || offDelete}>
           <Button variant="outline" label="Edit" disabled={m.id < 0 || !!offEdit} onClick={() => (setText(m.text), setAsk('edit'))} />
@@ -77,6 +84,13 @@ function Comment({ t, item }: { t: Detail; item: ActivityItem }) {
   );
 }
 
+const firstLine = (text: string): string =>
+  text
+    .split('\n')
+    .find((l) => l.trim())
+    ?.trim()
+    .slice(0, 90) ?? '';
+
 function Event({ item }: { item: ActivityItem }) {
   const [open, setOpen] = useState(false);
   return (
@@ -107,10 +121,15 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
   const [busy, setBusy] = useState(false);
   const [fresh, setFresh] = useState(0); // a new editor after a send: its content is the box's own
   const [all, setAll] = useState(false);
+  const [replyTo, setReplyTo] = useState<number | null>(null);
+  const answering = replyTo === null ? undefined : t.memos.find((x) => x.id === replyTo);
   const { items, hidden } = foldEvents(activityOf(t.memos, t.timeline), all);
   const send = () => {
     if (!text.trim() || busy || add.isPending) return;
-    add.mutate({ task: t.id, text: text.trim() }, { onSuccess: () => (setText(''), setFresh((n) => n + 1)) });
+    add.mutate(
+      { task: t.id, text: text.trim(), ...(answering ? { reply: answering.id } : {}) },
+      { onSuccess: () => (setText(''), setFresh((n) => n + 1), setReplyTo(null)) },
+    );
   };
   return (
     <section className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" aria-label="Activity">
@@ -123,13 +142,23 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
       {items.length ? (
         <ul className="tmemos m-0 grid min-w-0 grid-cols-[minmax(0,1fr)] list-none gap-2 p-0">
           {items.map((i, n) =>
-            i.kind === 'comment' ? <Comment key={`${n}-${i.memo}`} t={t} item={i} /> : <Event key={`${n}-${i.line}`} item={i} />,
+            i.kind === 'comment' ? (
+              <Comment key={`${n}-${i.memo}`} t={t} item={i} onReply={can.ok ? setReplyTo : undefined} />
+            ) : (
+              <Event key={`${n}-${i.line}`} item={i} />
+            ),
           )}
         </ul>
       ) : null}
       <div ref={box} className="grid gap-2" title={can.why}>
         {can.ok ? (
           <>
+            {answering ? (
+              <p className="m-0 flex items-center gap-2 text-hint text-ink-2" data-replying={answering.id}>
+                <span className="min-w-0 flex-1 truncate">{`Replying to ${answering.author}: ${firstLine(answering.text)}`}</span>
+                <Button variant="outline" label="Cancel reply" onClick={() => setReplyTo(null)} />
+              </p>
+            ) : null}
             <BodyEditor key={fresh} value={text} onChange={setText} onBusy={setBusy} label="Comment" />
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="solid" icon="send" label="Comment" disabled={!text.trim() || busy || add.isPending} onClick={send}>

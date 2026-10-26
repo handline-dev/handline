@@ -135,8 +135,8 @@ const tasks: Record<string, WriteSpec> = {
     label: 'add comment',
     touches: memoKeys,
     patch: (c, p) => {
-      const { task, text } = as<{ task: number; text: string }>(p);
-      const memo: Memo = { id: provisionalId(), task, author: c.me, at: c.now, text };
+      const { task, text, reply } = as<{ task: number; text: string; reply?: number }>(p);
+      const memo: Memo = { id: provisionalId(), task, author: c.me, at: c.now, text, ...(reply === undefined ? {} : { reply_to: reply }) };
       changeMemos(c, task, (l) => [...l, memo]);
     },
     reconcile: (c, p, r) => changeMemos(c, as<{ task: number }>(p).task, (l) => renumber(l, (m) => m.id < 0, (r as { memo: number }).memo)),

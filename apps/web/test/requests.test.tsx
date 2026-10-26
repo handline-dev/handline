@@ -2,7 +2,7 @@
 // sidebar entry, on the fake daemon.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
@@ -35,7 +35,6 @@ const setValue = (el: HTMLInputElement | HTMLSelectElement, value: string) =>
     Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, value);
     el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
   });
-const blur = (el: HTMLElement) => act(async () => void el.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
 
 async function mount(hash: string, s = setup()) {
   location.hash = hash;
@@ -94,8 +93,6 @@ describe('the Requests page', () => {
     await until(() => $$('.request-row').length === 2, 'two messages');
     const made = $(`[data-request="${msg.ref}"]`)!;
     await click([...made.querySelectorAll('button')].find((b) => text(b).includes('Make a request') || b.title === 'Make a request'));
-    await wait(300);
-    console.log('ROW', text(made), s.daemon.requests.rows.map((r) => `${r.ref}:${r.kind}`).join());
     await until(() => s.daemon.requests.rows.find((r) => r.ref === msg.ref)?.kind === 'task', 'the request made');
     expect(s.daemon.requests.rows.find((r) => r.ref === msg.ref)?.kind).toBe('task');
     const row = $(`[data-request="${other.ref}"]`)!;
