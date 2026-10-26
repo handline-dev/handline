@@ -1,7 +1,7 @@
 // Chat of one agent on the data layer: the person's messages and the agent's transcript as paged queries, and send as a write whose
 // row shows at once and, if refused, stays with its text and a Retry.
 import { useEffect, useState } from 'react';
-import { useInfiniteQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { replaceEqualDeep, useInfiniteQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
 import type { ChatMessage, TranscriptItem, Working } from '@handline/client';
 import { mapPages, type Pages } from '#src/cache.ts';
@@ -13,6 +13,23 @@ import { useWrite } from '#src/write.ts';
 
 export type ChatScope = 'mine' | 'all';
 const PAGE = 30;
+
+/**
+ * Keeps a row's object when a page is written again with the same row in it. React Query matches rows by position, and a message that
+ * arrives shifts every row after it, so by position nothing would match and every row would draw again.
+ */
+const sharedRows =
+  <P, R extends { id: number }>(rowsOf: (page: P) => R[], withRows: (page: P, rows: R[]) => P) =>
+  (prev: unknown, next: unknown): Pages<P> => {
+    const to = next as Pages<P>;
+    const before = new Map(((prev as Pages<P> | undefined)?.pages ?? []).flatMap((p) => rowsOf(p)).map((r) => [r.id, r]));
+    return mapPages(to, (page) =>
+      withRows(
+        page,
+        rowsOf(page).map((r) => (before.has(r.id) ? replaceEqualDeep(before.get(r.id), r) : r)),
+      ),
+    );
+  };
 
 export interface Chat {
   /** off: the daemon does not serve chat; loading: nothing cached yet (draw a skeleton); error; ready. */
@@ -60,6 +77,10 @@ export function useChat(agent: string, scope: ChatScope): Chat {
     enabled: on,
     staleTime: Infinity,
     initialPageParam: undefined as number | undefined,
+    structuralSharing: sharedRows<MsgPage, ChatMessage>(
+      (p) => p.messages,
+      (p, messages) => ({ ...p, messages }),
+    ),
     queryFn: ({ pageParam }) => store.client.call('chat.messages', { agent, scope, before: pageParam, limit: PAGE }),
     getNextPageParam: (last: MsgPage) => (last.more && last.messages.length ? Math.min(...last.messages.map((x) => x.id)) : undefined),
   });
@@ -68,6 +89,10 @@ export function useChat(agent: string, scope: ChatScope): Chat {
     enabled: on,
     staleTime: Infinity,
     initialPageParam: undefined as number | undefined,
+    structuralSharing: sharedRows<TrPage, TranscriptItem>(
+      (p) => p.items,
+      (p, items) => ({ ...p, items }),
+    ),
     queryFn: ({ pageParam }) => store.client.call('chat.transcript', { agent, before: pageParam, limit: PAGE }),
     getNextPageParam: (last: TrPage) => (last.more && last.items.length ? last.items[0]!.id : undefined),
   });
@@ -103,7 +128,6 @@ export function useChatActions(agent: string) {
   const send = useWrite('chat.send', agent);
   const sendNow = useWrite('chat.send_now', agent);
   const cancel = useWrite('chat.cancel', agent);
-  const seen = useWrite('chat.seen', agent);
   const rows = (f: (m: ChatMessage) => boolean) => {
     for (const [key] of qc.getQueriesData<Pages<MsgPage>>({ queryKey: qk.chatMessagesOf(daemon, agent) }))
       qc.setQueryData<Pages<MsgPage>>(key, (d) => d && mapPages(d, (p) => ({ ...p, messages: p.messages.filter(f) })));
@@ -160,8 +184,6 @@ export function useChatActions(agent: string) {
     sendNow: (request: number) => sendNow.mutate({ request }),
     /** Takes the message back, delivered or not (a queued one of a structured agent leaves the conversation, with no confirm); one the agent already has needs `confirm`. Resolves when the daemon has done it, rejects when it refuses. */
     cancel: (request: number, confirm = false) => cancel.mutateAsync({ request, ...(confirm ? { confirm: true } : {}) }),
-    /** The agent's messages up to this number are in front of the person: they leave the FOR YOU list. */
-    seen: (up_to: number) => seen.mutate({ agent, up_to }),
     sending: send.isPending,
   };
 }

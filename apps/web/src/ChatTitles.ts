@@ -1,4 +1,5 @@
 // The titles the task cards of a chat show: the newest tasks' list has most of them, and a card of an older task reads its own by id.
+import { useMemo } from 'react';
 import type { TranscriptItem } from '@handline/client';
 import type { TaskFold, TimelineEntry } from '@handline/app-core';
 import { useServes, useTaskTitleReads, useTasks } from '@handline/app-data';
@@ -23,5 +24,7 @@ export function useCardTitles(items: readonly TranscriptItem[], entries: readonl
         .slice(0, MAX)
     : [];
   const { titles: own } = useTaskTitleReads(missing);
-  return new Map([...(listed ?? []), ...own]);
+  // The same titles are the same Map, so the lines that show them are left alone.
+  const key = JSON.stringify([...(listed ?? []), ...own]);
+  return useMemo(() => new Map<number, string>(JSON.parse(key) as [number, string][]), [key]);
 }
