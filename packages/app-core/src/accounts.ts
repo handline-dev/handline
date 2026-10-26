@@ -102,17 +102,18 @@ export const agentsLine = (account: Pick<Account, 'agents_running' | 'cap_effect
     ? `cap ${account.cap_effective}`
     : `${account.agents_running} working / cap ${account.cap_effective}`;
 
-/** What an account's pace means for starting agents, in words; null for pacing off or an account with no pace. */
-export function paceLine(account: Pick<Account, 'pace'>): string | null {
+/** What an account's pace means for starting agents, in words (`short` for a one-word row form); null for pacing off or an account with no pace. */
+export function paceLine(account: Pick<Account, 'pace'>, short = false): string | null {
   const pace = account.pace;
   if (!pace) return null;
   switch (pace.state) {
     case 'behind':
       return 'on pace';
     case 'ahead':
-      return 'ahead of pace: fewer agents start';
+      return short ? 'ahead' : 'ahead of pace: fewer agents start';
     case 'over': {
       const back = pace.back_at ? dateTime(pace.back_at) : '';
+      if (short) return back ? `over · until ${back}` : 'over';
       return back ? `over pace: no new turns until ${back}` : 'over pace: no new turns';
     }
     default:

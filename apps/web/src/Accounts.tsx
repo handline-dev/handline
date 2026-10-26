@@ -21,7 +21,7 @@ const STATE_TONE =
   'data-[state=out]:border-bad data-[state=out]:text-bad data-[state=needs_login]:border-bad data-[state=needs_login]:text-bad data-[state=in_use]:border-ok data-[state=in_use]:text-ok';
 const FACT = 'acct-fact m-0 flex items-center gap-2 [&_svg]:text-ink-3';
 const ROW =
-  'acct-row grid min-h-11 grid-cols-[minmax(8em,1.2fr)_auto_minmax(10em,1fr)_minmax(10em,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-2 text-inherit no-underline hover:bg-raised max-[960px]:grid-cols-[minmax(8em,1fr)_auto_auto] max-[960px]:[&_.gauge]:col-span-full';
+  'acct-row grid min-h-11 grid-cols-[minmax(8em,1.2fr)_auto_minmax(13em,1fr)_minmax(13em,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-2 text-inherit no-underline hover:bg-raised max-[960px]:grid-cols-[minmax(8em,1fr)_auto_auto] max-[960px]:[&_.gauge]:col-span-full';
 const WRAP = '[&:not(:first-child)]:border-t [&:not(:first-child)]:border-line';
 
 const STATE_ICON: Record<ReturnType<typeof stateOf>, IconName> = {
@@ -52,10 +52,11 @@ export function StateChip({ account, now }: { account: Account; now: number }) {
 const LOGIN_WORD: Record<Account['login_state'], string> = { ok: 'logged in', needs_login: 'needs login', unknown: 'login unknown' };
 
 /** Where the week stands against its pace line, in words; nothing when the account has no pace or pacing is off. */
-function PaceLine({ account }: { account: Account }) {
+function PaceLine({ account, short = false }: { account: Account; short?: boolean }) {
   const line = paceLine(account);
-  return line ? <span className="acct-pace text-label text-ink-2" title={line}>
-      {line}
+  const text = short ? paceLine(account, true) : line;
+  return line ? <span className={`acct-pace text-label text-ink-2${short ? ' truncate' : ''}`} title={line}>
+      {text}
     </span> : null;
 }
 
@@ -121,7 +122,7 @@ function Row({ account, now }: { account: Account; now: number }) {
         <Gauge label="5 h" window={account.five_hour} now={now} />
         <span className="acct-week flex min-w-0 flex-col gap-0.5 max-[960px]:col-span-full">
           <Gauge label="week" window={account.weekly} now={now} />
-          <PaceLine account={account} />
+          <PaceLine account={account} short />
         </span>
         <span
           className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2"

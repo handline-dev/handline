@@ -22,3 +22,10 @@ test('paceLine is null with pacing off, no pace, or a state it does not know', (
 test('an account over its pace with no back_at still says no new turns', () => {
   assert.equal(paceLine(pace('over')), 'over pace: no new turns');
 });
+
+test('the short pace line fits a row: one word, and for over the time it ends', () => {
+  assert.equal(paceLine(pace('behind'), true), 'on pace');
+  assert.equal(paceLine(pace('ahead'), true), 'ahead');
+  assert.match(paceLine(pace('over', '2026-10-27T09:00:00Z'), true)!, /^over · until \S/);
+  assert.equal(paceLine(pace('over'), true), 'over');
+});

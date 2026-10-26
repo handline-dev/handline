@@ -78,9 +78,11 @@ describe('the list', () => {
     await mount('#/accounts', s);
     await until(() => $$('.acct-row').length === 4, 'the rows', 600);
     expect(card('delta').querySelector('.acct-pace')).toBeNull();
-    expect(text(card('alpha').querySelector('.acct-pace'))).toBe('ahead of pace: fewer agents start');
+    expect(text(card('alpha').querySelector('.acct-pace'))).toBe('ahead');
+    expect(card('alpha').querySelector('.acct-pace')?.getAttribute('title')).toBe('ahead of pace: fewer agents start');
     expect(text(card('beta').querySelector('.acct-pace'))).toBe('on pace');
-    expect(text(card('gamma').querySelector('.acct-pace'))).toMatch(/^over pace: no new turns/);
+    expect(text(card('gamma').querySelector('.acct-pace'))).toMatch(/^over · until /);
+    expect(card('gamma').querySelector('.acct-pace')?.getAttribute('title')).toMatch(/^over pace: no new turns/);
     expect(card('alpha').querySelector('.acct-week [data-gauge="week"]')).not.toBeNull();
   });
 
