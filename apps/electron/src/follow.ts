@@ -1,5 +1,5 @@
-// Follow-main mode: the app runs from its own checkout of main. It watches the main ref of the repo it was cloned from (the merger lands
-// there), says so when main moves, and on the person's yes brings its checkout up to date, rebuilds what changed and relaunches.
+// Follow-main mode: the app runs from its own checkout of main. It follows GitHub's main as the repo it was cloned from last fetched it
+// (PRs merge on GitHub, so that repo's own `main` branch stands still), says so when main moves, and on the person's yes brings its checkout up to date, rebuilds what changed and relaunches.
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -28,6 +28,17 @@ export function decide(files: string[]): Rebuild {
   return r;
 }
 
+/** The main that counts: the source repo's `origin/main`, which is GitHub's main as of its last fetch. */
+export const SOURCE_MAIN = 'origin/main';
+/** Run in the app's checkout: takes the source repo's `origin/main` as its own `origin/main`. */
+export const FETCH_SOURCE = ['fetch', 'origin', `+refs/remotes/${SOURCE_MAIN}:refs/remotes/${SOURCE_MAIN}`];
+
+/** Where GitHub's main is now. `git` runs in the source repo; a fetch that fails (offline) leaves the last one standing. */
+export async function peekMain(git: (...args: string[]) => Promise<string>): Promise<Main> {
+  await git('fetch', 'origin', 'main').catch(() => '');
+  return { sha: await git('rev-parse', SOURCE_MAIN), title: await git('log', '-1', '--format=%s', SOURCE_MAIN) };
+}
+
 export interface Main {
   sha: string;
   title: string;
@@ -38,7 +49,7 @@ export type FollowState = 'current' | 'available' | 'updating' | 'failed';
 export interface FollowDeps {
   /** Runs a command in the app's checkout and gives its output; rejects with the command's own words on a failure. */
   run(file: string, args: string[]): Promise<string>;
-  /** Where main is now, read from the repo the checkout was cloned from. */
+  /** Where GitHub's main is now, read through the repo the checkout was cloned from (`peekMain`). */
   peek(): Promise<Main>;
   /** Called before the relaunch: keeps what the window shows. */
   beforeRelaunch(): void;
@@ -110,7 +121,7 @@ export class Follower {
     this.set('updating');
     try {
       const target = (await this.d.peek()).sha;
-      await this.git('fetch', 'origin', 'main');
+      await this.git(...FETCH_SOURCE);
       const head = await this.git('rev-parse', 'HEAD');
       const files = (await this.git('diff', '--name-only', head, target)).split('\n').filter(Boolean);
       await this.git('merge', '--ff-only', target);
@@ -137,8 +148,14 @@ export class Follower {
   }
 }
 
-/** Calls `onMove` (once, after a pause) when the main ref of the repo at `gitDir` changes: a loose ref is replaced, or packed-refs is rewritten. */
-export function watchMain(gitDir: string, onMove: () => void, onError: (e: Error) => void, pause = 400): () => void {
+/** Calls `onMove` (once, after a pause) when `origin/main` of the repo at `gitDir` changes, as any fetch there does: a loose ref is replaced, or packed-refs is rewritten. `refs` is the folder of the ref. */
+export function watchMain(
+  gitDir: string,
+  onMove: () => void,
+  onError: (e: Error) => void,
+  pause = 400,
+  refs = path.join('refs', 'remotes', 'origin'),
+): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const ping = (name: string | Buffer | null) => {
     const n = name?.toString();
@@ -146,7 +163,7 @@ export function watchMain(gitDir: string, onMove: () => void, onError: (e: Error
     clearTimeout(timer);
     timer = setTimeout(onMove, pause);
   };
-  const watchers = [path.join(gitDir, 'refs', 'heads'), gitDir].flatMap((dir) => {
+  const watchers = [path.join(gitDir, refs), gitDir].flatMap((dir) => {
     try {
       // fs.watch reports a lost folder or too many open files as an event later; with no listener that would end the process.
       return [fs.watch(dir, (_event, name) => ping(name)).on('error', onError)];

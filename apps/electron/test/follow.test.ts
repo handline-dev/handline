@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { decide, Follower, watchMain, type Main } from '#src/follow.ts';
+import { decide, Follower, peekMain, watchMain, type Main } from '#src/follow.ts';
 import { popoverHtml } from '#src/popover-html.ts';
 import { followItems } from '#src/tray.ts';
 
@@ -78,7 +78,12 @@ test('Restart now fetches, moves the checkout to that main, builds only what cha
   await r.f.restartNow();
   assert.deepEqual(
     r.ran.filter((c) => !c.startsWith('git rev-parse')),
-    ['git fetch origin main', 'git diff --name-only aaa1111 bbb2222', 'git merge --ff-only bbb2222', 'pnpm --filter @handline/web build'],
+    [
+      'git fetch origin +refs/remotes/origin/main:refs/remotes/origin/main',
+      'git diff --name-only aaa1111 bbb2222',
+      'git merge --ff-only bbb2222',
+      'pnpm --filter @handline/web build',
+    ],
   );
   assert.deepEqual(r.calls, ['save', 'relaunch']);
 
@@ -143,7 +148,7 @@ async function watchDelivers(dir: string): Promise<boolean> {
 
 test('watchMain calls back once when the main ref is replaced or packed-refs is rewritten, and not for another branch', async (t) => {
   const git = fs.mkdtempSync(path.join(os.tmpdir(), 'watch-'));
-  fs.mkdirSync(path.join(git, 'refs', 'heads'), { recursive: true });
+  fs.mkdirSync(path.join(git, 'refs', 'remotes', 'origin'), { recursive: true });
   let n = 0;
   const errors: Error[] = [];
   const stop = watchMain(
@@ -161,11 +166,11 @@ test('watchMain calls back once when the main ref is replaced or packed-refs is 
   const until = async (f: () => boolean) => {
     for (let i = 0; i < 60 && !f(); i++) await wait(50);
   };
-  fs.writeFileSync(path.join(git, 'refs', 'heads', 'other'), 'x');
+  fs.writeFileSync(path.join(git, 'refs', 'remotes', 'origin', 'other'), 'x');
   await wait(300);
   assert.equal(n, 0);
-  fs.writeFileSync(path.join(git, 'refs', 'heads', 'main.lock'), 'x');
-  fs.renameSync(path.join(git, 'refs', 'heads', 'main.lock'), path.join(git, 'refs', 'heads', 'main'));
+  fs.writeFileSync(path.join(git, 'refs', 'remotes', 'origin', 'main.lock'), 'x');
+  fs.renameSync(path.join(git, 'refs', 'remotes', 'origin', 'main.lock'), path.join(git, 'refs', 'remotes', 'origin', 'main'));
   await wait(300);
   await until(() => n >= 1);
   assert.equal(n, 1);
@@ -173,6 +178,24 @@ test('watchMain calls back once when the main ref is replaced or packed-refs is 
   await wait(300);
   await until(() => n >= 2);
   assert.equal(n, 2);
+});
+
+test('main is GitHub main: the source repo fetches origin main first and reads origin/main, not its own main branch', async () => {
+  const ran: string[] = [];
+  const git = async (...args: string[]) => {
+    ran.push(args.join(' '));
+    return args[0] === 'rev-parse' ? 'ccc3333' : 'Merge pull request #1';
+  };
+  assert.deepEqual(await peekMain(git), { sha: 'ccc3333', title: 'Merge pull request #1' });
+  assert.deepEqual(ran, ['fetch origin main', 'rev-parse origin/main', 'log -1 --format=%s origin/main']);
+});
+
+test('offline, the last fetched origin/main still answers', async () => {
+  const git = async (...args: string[]) => {
+    if (args[0] === 'fetch') throw new Error('git fetch: could not resolve host');
+    return args[0] === 'rev-parse' ? 'ddd4444' : 't';
+  };
+  assert.equal((await peekMain(git)).sha, 'ddd4444');
 });
 
 test('a watch that cannot start or breaks is reported, not thrown', async () => {
@@ -183,7 +206,7 @@ test('a watch that cannot start or breaks is reported, not thrown', async () => 
     (e) => errors.push(e.message),
   );
   stop();
-  assert.equal(errors.length, 2); // refs/heads and the folder itself
+  assert.equal(errors.length, 2); // refs/remotes/origin and the folder itself
 
   const f = new Follower({
     run: async () => '',
