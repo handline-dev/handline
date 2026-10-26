@@ -54,7 +54,7 @@ export function AssignSheet({ t, me, onClose }: { t: Detail; me: string; onClose
           }}
         />
         <ul id="assign-list" className="m-0 grid list-none gap-0.5 p-0" role="listbox" aria-label={q ? 'Matches' : 'Likely'}>
-          {names.map((n, i) => (
+          {names.map((n) => (
             <li key={n} role="option" aria-selected={n === pick}>
               <button
                 type="button"

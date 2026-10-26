@@ -211,7 +211,9 @@ export function BodyEditor(props: {
             change.current(e.target.value);
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && props.onSubmit) (e.preventDefault(), props.onSubmit());
+            if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || !props.onSubmit) return;
+            e.preventDefault();
+            props.onSubmit();
           }}
           onPaste={(e) => {
             const files = imagesOf(e.clipboardData.files);
