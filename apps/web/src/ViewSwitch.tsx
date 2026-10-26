@@ -1,7 +1,7 @@
 // The one control that flips an agent's tab between the chat and Claude Code: a small icon with no label, in the bottom bar of either view.
 // Claude Code has no tab to carry its badges, so on the way there the icon carries them: what the terminal waits on, and a dot when it needs someone.
 import { badgesOf, needsAttention } from '@handline/app-core';
-import { useStore } from '@handline/app-react';
+import { useMe } from '@handline/app-react';
 import { useWorkspaceIfAny } from '#src/Workspace.tsx';
 import { Badges } from '#src/Badges.tsx';
 import { Button } from '#src/ui/index.ts';
@@ -12,7 +12,7 @@ const keyFor = (to: 'chat' | 'terminal') => (IS_MAC ? '⌘J' : to === 'chat' ? '
 
 export function ViewSwitch({ to }: { to: 'chat' | 'terminal' }) {
   const ws = useWorkspaceIfAny();
-  const me = useStore().me;
+  const me = useMe();
   if (!ws) return null;
   const label = to === 'chat' ? 'Back to the chat' : ws.detail.structured ? 'Transcript' : 'Claude Code';
   const badges = to === 'terminal' ? badgesOf(ws.detail, me) : [];

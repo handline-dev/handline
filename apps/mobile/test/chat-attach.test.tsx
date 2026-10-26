@@ -54,6 +54,27 @@ describe('attaching an image in Chat', () => {
     m.store.stop();
   });
 
+  it('keeps a picked image when the person goes back to the list and returns to the chat, until it is sent', async () => {
+    const m = await mount();
+    await openChat();
+    await press($('attach-image'));
+    await until(() => chipKey(), 'the chip');
+    await until(() => $('chat-send')?.getAttribute('aria-disabled') !== 'true', 'uploaded');
+    const key = chipKey();
+    await press($('back'));
+    await until(() => $(`agent-${AUD}`) && !$('attach-image'), 'the list');
+    await openChat();
+    expect(chipKey()).toBe(key);
+    expect($('chat-send')?.getAttribute('aria-disabled')).not.toBe('true');
+    await press($('chat-send'));
+    await until(() => $('pictures'), 'the picture in the sent message');
+    await press($('back'));
+    await until(() => $(`agent-${AUD}`) && !$('attach-image'), 'the list again');
+    await openChat();
+    expect(chipKey()).toBeUndefined();
+    m.store.stop();
+  });
+
   it('a removed chip leaves nothing to send', async () => {
     const m = await mount();
     await openChat();

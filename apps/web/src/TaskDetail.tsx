@@ -32,7 +32,8 @@ export function TaskDetail({
   drawer,
 }: {
   id: number;
-  onBack: () => void;
+  /** A close for a detail the window's own Back cannot return from; left out, the header is not drawn. */
+  onBack?: () => void;
   /** A pane inside its host (the Tasks tab of an agent pane, the Tasks page's split). */
   embedded?: boolean;
   /** The drawer over the Tasks table: absolute under the toolbar, only the Tasks page asks for it. */
@@ -51,11 +52,13 @@ export function TaskDetail({
       }`}
       aria-label={`Task ${taskRef(id)}`}
     >
-      <div className="mb-4 flex items-center justify-end gap-2">
-        <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
-          Back
-        </Button>
-      </div>
+      {onBack ? (
+        <div className="mb-4 flex items-center justify-end gap-2">
+          <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
+            Back
+          </Button>
+        </div>
+      ) : null}
       {gone ? (
         <div className="empty">
           <p>This task no longer exists.</p>

@@ -71,17 +71,24 @@ export function Row(props: {
             </a>
           </AnimatedCell>
           <AnimatedCell
-            className={`c-title min-w-40 ${TD} max-sm:[grid-area:title] max-sm:whitespace-normal max-sm:[display:-webkit-box] max-sm:[-webkit-line-clamp:2] max-sm:[-webkit-box-orient:vertical]`}
+            className={`c-title min-w-0 ${TD} max-sm:[grid-area:title] max-sm:whitespace-normal max-sm:[display:-webkit-box] max-sm:[-webkit-line-clamp:2] max-sm:[-webkit-box-orient:vertical]`}
             title={`asked by ${t.from}`}
           >
-            <span className={`ttitle text-body font-medium${authored ? ' ghost italic text-ink-2' : ''}`}>{t.title}</span>
-          </AnimatedCell>
-          <AnimatedCell className={`c-owner w-44 text-right ${TD} max-sm:[grid-area:owner] max-sm:text-left`}>
-            <span className={CHIP} title="owner">
-              {isPerson(t.to, me) ? 'you' : t.to}
+            <span
+              className={`ttitle line-clamp-2 break-words whitespace-normal text-body font-medium${authored ? ' ghost italic text-ink-2' : ''}`}
+            >
+              {t.title}
             </span>
           </AnimatedCell>
-          <AnimatedCell className={`c-pri mono w-14 ${TD} max-sm:[grid-area:pri] max-sm:text-right`} title="priority, 1 high to 3 low">
+          <AnimatedCell className={`c-owner w-28 text-right @max-[600px]:min-sm:hidden ${TD} max-sm:[grid-area:owner] max-sm:text-left`}>
+            <span className={CHIP} title={`owner: ${t.to}`}>
+              {isPerson(t.to, me) ? 'you' : t.to.slice(t.to.lastIndexOf('.') + 1)}
+            </span>
+          </AnimatedCell>
+          <AnimatedCell
+            className={`c-pri mono w-14 @max-[720px]:min-sm:hidden ${TD} max-sm:[grid-area:pri] max-sm:text-right`}
+            title="priority, 1 high to 3 low"
+          >
             <span className={CHIP}>P{t.priority ?? 2}</span>
           </AnimatedCell>
           <AnimatedCell

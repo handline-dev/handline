@@ -84,7 +84,7 @@ describe('the list', () => {
     expect($$('tr.tgroup').map((g) => text(g).trim())).toEqual(['Running 2', 'Up next 2']);
     expect(text(row(1684))).toContain('P1');
     expect(text(row(1688))).toContain('doing');
-    expect(text(row(1684))).toContain('handline.architect');
+    expect(text(row(1684))).toContain('architect');
     expect(text(row(1688))).toMatch(/left/); // a running task shows its time left
     expect(row(1650)).toBeNull();
     await click(button('Closed')!);

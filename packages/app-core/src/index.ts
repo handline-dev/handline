@@ -24,6 +24,7 @@ export * from '#src/rows.ts';
 export * from '#src/task-verbs.ts';
 export * from '#src/task-people.ts';
 export * from '#src/task-graph.ts';
+export * from '#src/task-columns.ts';
 export * from '#src/images.ts';
 export * from '#src/my-turn.ts';
 export * from '#src/annotation.ts';

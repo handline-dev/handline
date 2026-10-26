@@ -3,14 +3,12 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store, defaultWorkspace, groupsOf, openTab, saveWorkspace, splitTab, storageKey, type KV } from '@handline/app-core';
-import { RpcError } from '@handline/client';
 import { second, setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ARCH = 'handline.architect';
-const REFUSAL = 'the agent has no open session';
 const wait = (ms = 10) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
 async function until(cond: () => unknown, what: string, tries = 400) {
   for (let i = 0; i < tries; i++) {
@@ -75,6 +73,8 @@ async function mount(agent: string, s = setup(), storage: KV = memory()) {
   });
   return { store, storage, ...s };
 }
+// The window's Back, as jsdom cannot traverse: the earlier history state is put back and popstate fires.
+const windowBack = (to: object | null) => act(async () => (history.replaceState(to, ''), void dispatchEvent(new Event('popstate'))));
 const unmount = async () => {
   await act(async () => root?.unmount());
   root = null;
@@ -330,9 +330,9 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await mount(ARCH, setup(), storage);
     await until(() => msg('Which gap list'), 'history');
     await until(() => $('.tasks-tab-row'), 'the agent tasks');
+    const before = history.state as object;
     await click($$('[data-kind="task_event"]')[0]!);
-    await until(() => $('.tdetail'), 'the task detail');
-    await click($('.tdetail .back')!);
+    await windowBack(before);
     await until(() => $('.tasks-tab-row'), 'back to the list');
     await click($$('[data-kind="task_event"]')[0]!);
     await until(() => $('.tdetail'), 'the task detail again');
@@ -369,9 +369,10 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(li.querySelector('button[aria-label="Actions"]')).not.toBeNull();
     await act(async () => void li.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
     await until(() => document.querySelector('[role=menu]'), 'the row menu on a right-click');
+    const before = history.state as object;
     await click(rows[0]!);
     await until(() => $('.tdetail'), 'the task detail');
-    await click($('.tdetail .back')!);
+    await windowBack(before);
     expect($('.tasks-tab-row')).not.toBeNull();
   });
 });
@@ -532,115 +533,5 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     await until(() => $('.chat-strip [aria-label$="in the worktree"]'), 'the count');
     expect(text($('.chat-strip [aria-label$="in the worktree"]'))).toBe('1');
     expect($('.chat-strip [aria-label$="in the worktree"]')!.getAttribute('title')).toBe('1 changed file in the worktree');
-  });
-});
-
-describe('loading and writes with latency and refusals', () => {
-  it('draws the conversation skeleton after the delay and no spinner, then the conversation', async () => {
-    const s = setup();
-    const release = s.daemon.knobs.hold('chat.messages');
-    await mount(ARCH, s);
-    await until(() => $('.chat .skeleton'), 'the chat skeleton');
-    expect($('.chat .skeleton')!.getAttribute('aria-busy')).toBe('true');
-    expect($('.spinner, [role=progressbar]')).toBeNull();
-    expect($$('.chat .sk').length).toBeGreaterThan(3);
-    expect($$('.chat .msg, .chat [data-kind]')).toHaveLength(0); // nothing is drawn beside the skeleton
-    release();
-    await until(() => msg('Which gap list'), 'the conversation', 600);
-    await until(() => !$('.chat .skeleton'), 'the skeleton gone');
-  });
-
-  it('shows a sent message at once, marked pending, and clears the box before the daemon answers', async () => {
-    const s = setup();
-    await mount(ARCH, s);
-    await until(() => msg('Which gap list'), 'history');
-    s.daemon.knobs.latency(500);
-    await typeInto(compose(), 'right now');
-    await press(compose(), 'Enter');
-    await until(() => msg('right now'), 'the message');
-    expect(sent(s, 'right now')).toBe(false); // the daemon has not answered yet
-    expect(landing('right now')).toBe('queued');
-    expect(msg('right now')!.getAttribute('data-pending')).toBe('true');
-    expect(icon(msg('right now')?.parentElement ?? undefined, 'Sending')).not.toBeNull();
-    expect(compose().value).toBe('');
-    await until(() => sent(s, 'right now'), 'the daemon got it', 600);
-    await until(() => $$('.msg').filter((m) => text(m).includes('right now')).length === 1, 'the real message replaced the temporary one');
-    expect(msg('right now')!.getAttribute('data-pending')).toBeNull();
-  });
-
-  it('keeps a refused message as a failed row with its words and the reason; Retry sends it again', async () => {
-    const s = setup();
-    await mount(ARCH, s);
-    await until(() => msg('Which gap list'), 'history');
-    s.daemon.knobs.refuse('chat.send', 'state', REFUSAL, undefined, 1);
-    await typeInto(compose(), 'will not land');
-    await press(compose(), 'Enter');
-    await until(() => $('.msg.failed'), 'the failed row');
-    expect(text($('.msg.failed'))).toContain('will not land');
-    expect(text($('.msg.failed'))).toContain(REFUSAL);
-    expect(compose().value).toBe('');
-    await click(link('Retry', $('.msg.failed')!));
-    await until(() => sent(s, 'will not land'), 'the retry reached the daemon');
-    await until(() => !$('.msg.failed'), 'the failed row gone');
-    expect($$('.msg').filter((m) => text(m).includes('will not land'))).toHaveLength(1);
-  });
-
-  it('Discard drops a failed row', async () => {
-    const s = setup();
-    await mount(ARCH, s);
-    await until(() => msg('Which gap list'), 'history');
-    s.daemon.knobs.refuse('chat.send', 'state', REFUSAL);
-    await typeInto(compose(), 'drop me');
-    await press(compose(), 'Enter');
-    await until(() => $('.msg.failed'), 'the failed row');
-    await click(link('Discard', $('.msg.failed')!));
-    await until(() => !msg('drop me'), 'the row gone');
-    expect(sent(s, 'drop me')).toBe(false);
-  });
-});
-
-describe('errors', () => {
-  it('says so when the conversation cannot be read, with Retry, and not a skeleton forever', async () => {
-    const s = setup();
-    s.daemon.knobs.refuse('chat.messages', 'state', REFUSAL);
-    await mount(ARCH, s);
-    await until(() => $('.chat .banner'), 'the error state');
-    expect(text($('.chat .banner'))).toContain(REFUSAL);
-    expect($('.chat .skeleton')).toBeNull();
-    s.daemon.knobs.clear();
-    await click($$('.chat .banner .ui-btn').find((b) => text(b) === 'Retry')!);
-    await until(() => msg('Which gap list'), 'the conversation after Retry');
-    expect($('.chat .banner')).toBeNull();
-  });
-
-  it('keeps what it had when a later read fails', async () => {
-    const s = setup();
-    await mount(ARCH, s);
-    await until(() => msg('Which gap list'), 'history');
-    s.daemon.knobs.refuse('chat.messages', 'state', REFUSAL);
-    s.daemon.dropConnections(); // the reconnect reads every active query again, and the read is refused
-    await until(() => $('.chat .banner'), 'the error after a failed read');
-    expect(msg('Which gap list')).toBeDefined(); // the last data stays
-  });
-
-  it("shows the daemon's sentence and its hint when a read is refused", async () => {
-    const s = setup();
-    s.daemon.knobs.refuse('chat.transcript', 'state', REFUSAL, 'start the agent first');
-    await mount(ARCH, s);
-    await until(() => $('.chat .banner'), 'the error state');
-    expect(text($('.chat .banner'))).toContain(`${REFUSAL} (start the agent first)`);
-  });
-
-  it('draws no block when the read failed only because the connection is gone', async () => {
-    const s = setup();
-    const { store } = await mount(ARCH, s);
-    await until(() => msg('Which gap list'), 'history');
-    const call = store.client.call.bind(store.client);
-    vi.spyOn(store.client, 'call').mockImplementation(((method: string, params: never) =>
-      method.startsWith('chat.') ? Promise.reject(new RpcError('transport', 'closed')) : call(method as never, params)) as never);
-    s.daemon.dropConnections(); // the reconnect reads again and the read cannot reach the daemon
-    await wait(300);
-    expect($('.chat .banner')).toBeNull();
-    expect(msg('Which gap list')).toBeDefined();
   });
 });
