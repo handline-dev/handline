@@ -3,7 +3,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { keepPreviousData, useQueries, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { hashNumbers, reviewPictures, waitingCount } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
-import type { CallParams, InboxItem, Methods } from '@handline/client';
+import type { CallParams, InboxItem, Methods, Task } from '@handline/client';
 import { useData, useFeed, useServes } from '#src/provider.ts';
 import { keyOf, reads, type ReadMethod, type ReadSpec } from '#src/reads.ts';
 
@@ -146,20 +146,54 @@ export function useUnread(): InboxItem[] {
 }
 export const useInboxItem = (id: number) => useRead('inbox.get', { id });
 export const useTasks = (filter: CallParams<'tasks.list'> = {}) => useRead('tasks.list', filter);
-/** What an agent holds and what it opened: two reads (the daemon pages tasks.list and filters by owner or by opener), as one query. */
+/** How many tasks a list shows at first and each time "Show older" is pressed. */
+export const TASK_PAGE = 100;
+
+/** The newest page of a task list, kept current by the feed, and the older pages read with `before` when asked; an older row is not touched by the feed. */
+export function usePagedTasks(filter: CallParams<'tasks.list'>) {
+  const first = useTasks({ ...filter, limit: TASK_PAGE });
+  const store = useStore();
+  const key = JSON.stringify(filter);
+  const [older, setOlder] = useState<{ key: string; items: Task[]; more: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const mine = older?.key === key ? older : null; // a changed filter starts over
+  const head = first.data?.items;
+  const items = useMemo(() => {
+    const seen = new Set<number>();
+    return [...(head ?? []), ...(mine?.items ?? [])].filter((t) => !seen.has(t.id) && seen.add(t.id)).sort((a, b) => b.id - a.id);
+  }, [head, mine]);
+  const more = mine ? mine.more : (first.data?.more ?? false);
+  const loadOlder = useCallback(async () => {
+    const before = items.at(-1)?.id;
+    if (before === undefined || busy) return;
+    setBusy(true);
+    try {
+      const r = await store.client.call('tasks.list', { ...filter, limit: TASK_PAGE, before });
+      setOlder((o) => ({ key, items: [...(o?.key === key ? o.items : []), ...r.items], more: r.more }));
+    } finally {
+      setBusy(false);
+    }
+  }, [store, items, busy, filter, key]);
+  return { query: first, items, more, loadOlder, loadingOlder: busy };
+}
+/** What an agent holds and what it opened: two paged reads (the daemon pages tasks.list and filters by owner or by opener), as one list. */
 export function useAgentTasks(agent: string) {
-  const held = useTasks({ all: true, owner: agent, limit: 200 });
-  const opened = useTasks({ all: true, from: agent, limit: 200 });
+  const held = usePagedTasks({ all: true, owner: agent });
+  const opened = usePagedTasks({ all: true, from: agent });
   const query = {
-    isPending: held.isPending || opened.isPending,
-    isFetching: held.isFetching || opened.isFetching,
-    isError: held.isError || opened.isError,
-    data: held.data && opened.data ? [held.data, opened.data] : undefined,
-    error: held.error ?? opened.error,
-    refetch: () => Promise.all([held.refetch(), opened.refetch()]),
+    isPending: held.query.isPending || opened.query.isPending,
+    isFetching: held.query.isFetching || opened.query.isFetching,
+    isError: held.query.isError || opened.query.isError,
+    data: held.query.data && opened.query.data ? [held.query.data, opened.query.data] : undefined,
+    error: held.query.error ?? opened.query.error,
+    refetch: () => Promise.all([held.query.refetch(), opened.query.refetch()]),
   };
-  const items = useMemo(() => [...(held.data?.items ?? []), ...(opened.data?.items ?? [])], [held.data, opened.data]);
-  return { query, items, capped: !!(held.data?.more || opened.data?.more) };
+  const items = useMemo(() => [...held.items, ...opened.items], [held.items, opened.items]);
+  const more = held.more || opened.more;
+  const loadOlder = useCallback(async () => {
+    await Promise.all([held.more ? held.loadOlder() : null, opened.more ? opened.loadOlder() : null]);
+  }, [held, opened]);
+  return { query, items, more, loadOlder, loadingOlder: held.loadingOlder || opened.loadingOlder };
 }
 export const useAgentStrip = (agent: string) => useRead('agent.strip', { agent }, { enabled: agent !== '' });
 export const useTask = (task: number) => useRead('task.get', { task });

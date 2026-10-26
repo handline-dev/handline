@@ -347,6 +347,8 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await click($('button[aria-label="Add a tab"]')!);
     await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => text(b).includes('Tasks'))!);
     await until(() => $('.tasks-tab-row'), 'the agent tasks');
+    expect($('input[aria-label="Mark T1684"]')).toBeNull(); // local-ref-ok: the boxes wait for Select
+    await click($('button[aria-label="Select tasks"]')!);
     await click($('input[aria-label="Mark T1684"]')!); // local-ref-ok
     await click($$('button').find((b) => b.getAttribute('aria-label') === 'Actions on the marked tasks')!);
     await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => text(b).startsWith('Discard'))!);
