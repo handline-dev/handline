@@ -8,7 +8,20 @@ export { Check } from '#src/ui/Check.tsx';
 export { Switch } from '#src/ui/Switch.tsx';
 export { Segmented, type Choice } from '#src/ui/Segmented.tsx';
 export { Popup, PopupRow, PROW, PROW_NAME, PROW_HINT } from '#src/ui/Popup.tsx';
-export { Menu, type At, MenuButton, MenuCheckItem, MenuTrigger, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuSub, MenuSubTrigger, MenuSubContent } from '#src/ui/Menu.tsx';
+export {
+  Menu,
+  type At,
+  MenuButton,
+  MenuCheckItem,
+  MenuTrigger,
+  MenuContent,
+  MenuItem,
+  MenuLabel,
+  MenuSeparator,
+  MenuSub,
+  MenuSubTrigger,
+  MenuSubContent,
+} from '#src/ui/Menu.tsx';
 export { Dialog } from '#src/ui/Dialog.tsx';
 export { Empty } from '#src/ui/Empty.tsx';
 export { sendKey } from '#src/ui/sendKey.ts';
@@ -19,7 +32,7 @@ export { Sheet, SheetActions, FNote } from '#src/ui/Sheet.tsx';
 export { Toolbar } from '#src/ui/Toolbar.tsx';
 export { TabStrip, type TabItem } from '#src/ui/TabStrip.tsx';
 export { Card, ChartCard, ChartTitle, CardActions, CardWhat, CardCode, CodeBlock } from '#src/ui/Card.tsx';
-export { Chip } from '#src/ui/Chip.tsx';
+export { Chip, STRIP_ITEM } from '#src/ui/Chip.tsx';
 export { SectionHead } from '#src/ui/SectionHead.tsx';
 export { VisuallyHidden } from '#src/ui/VisuallyHidden.tsx';
 export { KeyValueRow, MetaLine, MetaItem, MetaGrid, MetaField } from '#src/ui/KeyValue.tsx';

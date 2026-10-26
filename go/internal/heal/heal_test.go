@@ -22,6 +22,7 @@ func openDB(t *testing.T) db.Q {
 // fakePorts records each step; onRestart, when set, is what a restart does to the agent's rows.
 type fakePorts struct {
 	person    bool
+	held      string
 	did       []string
 	cards     []string
 	fixes     []string
@@ -30,6 +31,7 @@ type fakePorts struct {
 
 func (f *fakePorts) Agents() []string        { return []string{"a"} }
 func (f *fakePorts) NeedsPerson(string) bool { return f.person }
+func (f *fakePorts) LoadHeld(string) string  { return f.held }
 func (f *fakePorts) Interrupt(agent string) (bool, string) {
 	f.did = append(f.did, "interrupt")
 	return true, ""
@@ -256,5 +258,30 @@ func TestPromptOnScreenIsLeftToThePerson(t *testing.T) {
 	sweepFor(t, inline(f), q, now, 20*StepWaitS)
 	if len(f.did) != 0 || len(f.cards) != 0 {
 		t.Fatalf("an agent at a prompt has its own card; nothing is done to it: %v %v", f.did, f.cards)
+	}
+}
+
+// handline.auditor (10-26): held by the machine's load, it was alerted as stuck, retried, restarted and relaunched for 19 minutes. A hold is
+// the reason a message waits, not trouble; the founder's message is still trouble, since the load never holds it.
+func TestAMessageTheLoadHoldsIsNotStuck(t *testing.T) {
+	q := openDB(t)
+	now := time.Now().Unix()
+	must(t, db.SetAgentState(q, "a", states.Idle, 0, ""))
+	msg, err := db.AddRequest(q, db.NewRequest{Requester: "b", Target: "a", Body: "hello", Kind: "say"})
+	must(t, err)
+	_, err = q.Exec("UPDATE requests SET ts = ? WHERE id = ?", now-30*60, msg)
+	must(t, err)
+	f := &fakePorts{held: "held: machine load - load 2.19 per core, limit 1.50"}
+	sweepFor(t, inline(f), q, now, 20*StepWaitS)
+	if len(f.did) != 0 || len(f.cards) != 0 {
+		t.Fatalf("a held agent was healed: %v %v", f.did, f.cards)
+	}
+	founder, err := db.AddRequest(q, db.NewRequest{Requester: db.Human, Target: "a", Body: "are you there?", Kind: "say"})
+	must(t, err)
+	_, err = q.Exec("UPDATE requests SET ts = ? WHERE id = ?", now-UndeliveredS, founder)
+	must(t, err)
+	must(t, inline(f).Sweep(q, now))
+	if strings.Join(f.did, ",") != "push" {
+		t.Fatalf("the founder's message waiting UndeliveredS is still pushed: %v", f.did)
 	}
 }
