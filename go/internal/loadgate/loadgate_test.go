@@ -76,11 +76,7 @@ func TestWorkHeldPastTheCeilingGoesOnceAndSaysWhy(t *testing.T) {
 	if g.ForWork("amy", ceiling) == "" {
 		t.Fatal("at the cap and not held")
 	}
-	for i := 0; i < 9; i++ { // asked each minute, as a tick asks about waiting work
-		now = now.Add(time.Minute)
-		g.ForWork("amy", ceiling)
-	}
-	now = now.Add(time.Minute - time.Second)
+	now = now.Add(Ceiling - time.Second)
 	if g.ForWork("amy", ceiling) == "" || len(said) != 0 {
 		t.Fatalf("let go before the ceiling: %v", said)
 	}
@@ -100,24 +96,25 @@ func TestWorkHeldPastTheCeilingGoesOnceAndSaysWhy(t *testing.T) {
 	}
 }
 
-func TestAClockNobodyAsksAboutIsForgotten(t *testing.T) {
+func TestWorkThatWentAwayLeavesNoClock(t *testing.T) {
 	now := time.Unix(1000, 0)
 	g := &Gate{Limits: func() Limits { return Limits{Agents: 1} }, Active: func() int { return 1 }, Now: func() time.Time { return now }}
 	g.ForWork("amy", nil)
-	now = now.Add(time.Hour) // amy's work went away while the load stayed high; new work comes an hour later
+	g.Forget("amy") // amy's work went away while the load stayed high; new work comes an hour later
+	now = now.Add(time.Hour)
 	if g.ForWork("amy", func(string) { t.Fatal("old clock let new work past") }) == "" {
 		t.Fatal("new work went past the hold at once")
 	}
+	var none *Gate
+	none.Forget("amy")
 }
 
 func TestTheCeilingIsSaidOutsideTheLock(t *testing.T) {
 	now := time.Unix(1000, 0)
 	g := &Gate{Limits: func() Limits { return Limits{Agents: 1} }, Active: func() int { return 1 }, Now: func() time.Time { return now }}
 	g.ForWork("amy", nil)
-	for i := 0; i < 10; i++ {
-		now = now.Add(time.Minute)
-		g.ForWork("amy", func(string) { g.Pass("bob") }) // would deadlock if called with g.mu held
-	}
+	now = now.Add(Ceiling)
+	g.ForWork("amy", func(string) { g.Pass("bob") }) // would deadlock if called with g.mu held
 	if g.Held("bob") != "" {
 		t.Fatal("onCeiling did not run")
 	}

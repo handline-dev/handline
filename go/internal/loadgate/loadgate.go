@@ -86,10 +86,8 @@ type Gate struct {
 
 	mu     sync.Mutex
 	passed map[string]time.Time
-	held   map[string]holdClock // the agents whose work ForWork found held
+	since  map[string]time.Time // when ForWork first found the agent's work held
 }
-
-type holdClock struct{ since, asked time.Time }
 
 func (g *Gate) now() time.Time {
 	if g.Now != nil {
@@ -119,10 +117,6 @@ func (g *Gate) Held(agent string) string {
 // Ceiling is the longest the load holds an agent's waiting work: past it the work goes once, as a force start would.
 const Ceiling = 10 * time.Minute
 
-// Unasked is how long a hold's clock lasts with nobody asking: work still waiting is asked about every tick, so a clock this quiet was
-// for work that went away, and the next work starts a clock of its own.
-const Unasked = 3 * time.Minute
-
 // ForWork is Held for an agent with work waiting, with Ceiling on it: the first ask held Ceiling ago lets the agent past once and calls
 // onCeiling with why it had been held. Only the start and delivery paths ask it, so an agent with nothing waiting starts no clock. A nil
 // gate holds nothing.
@@ -134,30 +128,39 @@ func (g *Gate) ForWork(agent string, onCeiling func(why string)) string {
 	now := g.now()
 	g.mu.Lock()
 	if why == "" {
-		delete(g.held, agent)
+		delete(g.since, agent)
 		g.mu.Unlock()
 		return ""
 	}
-	if g.held == nil {
-		g.held = map[string]holdClock{}
+	if g.since == nil {
+		g.since = map[string]time.Time{}
 	}
-	c, ok := g.held[agent]
-	if !ok || now.Sub(c.asked) >= Unasked {
-		c.since = now
+	since, ok := g.since[agent]
+	if !ok {
+		g.since[agent] = now
+		since = now
 	}
-	c.asked = now
-	if now.Sub(c.since) < Ceiling {
-		g.held[agent] = c
+	if now.Sub(since) < Ceiling {
 		g.mu.Unlock()
 		return why
 	}
-	delete(g.held, agent)
+	delete(g.since, agent)
 	g.pass(agent)
 	g.mu.Unlock()
 	if onCeiling != nil {
 		onCeiling(why)
 	}
 	return ""
+}
+
+// Forget drops agent's hold clock: its caller found nothing waiting for it, so the next work it gets starts a clock of its own.
+func (g *Gate) Forget(agent string) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	delete(g.since, agent)
+	g.mu.Unlock()
 }
 
 // Pass lets agent's next start past the limits (a person's force start).
