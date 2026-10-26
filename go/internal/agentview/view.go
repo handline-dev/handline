@@ -406,16 +406,18 @@ func (e *Env) Compute(agent string) (view map[string]any, err error) {
 	}, nil
 }
 
-// wallBanner is the chat's limit banner: shown only when no account can take the agent's work, nil while it moves to another account or
-// the limit holds nothing yet. why is the supervisor's wall, which still refuses typing either way.
+// wallBanner is the chat's limit banner: the wait the agent's wake is in, nil while it moves to another account or the limit holds nothing
+// yet. why is the supervisor's wall, which still refuses typing either way.
 func wallBanner(why string, st status.Status) any {
-	if why == "" || (st.Reason != status.Wall && st.Reason != status.Clock) {
+	switch {
+	case why == "":
 		return nil
+	case st.Reason == status.Wall: // the account its wake is tied to, in the launcher's words
+		return st.Text
+	case st.Reason == status.Clock:
+		return "waits for its account's usage window, back at " + timefmt.Stamp(st.Until, timefmt.Clock)
 	}
-	if st.Until == 0 {
-		return "every account is at its usage limit"
-	}
-	return "every account is at its usage limit, back at " + timefmt.Stamp(st.Until, timefmt.Clock)
+	return nil
 }
 
 func needsView(n *NeedsYou) any {

@@ -129,9 +129,10 @@ func TestAClosedAgentWithWorkWaitingIsQueuedAndSaysTheLoadHoldsIt(t *testing.T) 
 	check("harbor", "queued", "preparing", "work", "has work: starts at the next tick")
 }
 
-// The chat showed "handline is at its usage limit" while its row said it was moving to another account. The banner is for a limit no
-// account can take over from: moving, or a limit nothing has acted on yet, shows none.
-func TestTheLimitBannerShowsOnlyWhenNoAccountCanTakeOver(t *testing.T) {
+// The chat showed "handline is at its usage limit" while its row said it was moving to another account. The banner names the wait the
+// wake is in, never "every account": a wake may stay on its own account while another has room. Moving, or a limit nothing has acted
+// on yet, shows none.
+func TestTheLimitBannerNamesTheWaitAndNoneWhileMoving(t *testing.T) {
 	r := newRig(t, "move", "walled", "nap", "napper", "fresh", "free")
 	for a, why := range map[string]string{"move": "move is at its usage limit", "walled": "walled is at its usage limit",
 		"fresh": "fresh is at its usage limit"} {
@@ -153,15 +154,16 @@ func TestTheLimitBannerShowsOnlyWhenNoAccountCanTakeOver(t *testing.T) {
 	r.state(t, "free", states.Idle, "")
 	r.env.Walled = func(agent string, _ *db.AgentState) *Wall {
 		if agent == "walled" {
+			// its own account a is walled; b may be free, but the wake stays on a (the move was declined)
 			return &Wall{Text: "waiting for a's 5h window (100%, rolls over 02:00)", Reset: 7200}
 		}
 		return nil
 	}
 	for agent, want := range map[string]any{
 		"move":   nil,
-		"walled": "every account is at its usage limit, back at " + timefmt.Stamp(7200, timefmt.Clock),
+		"walled": "waiting for a's 5h window (100%, rolls over 02:00)",
 		"nap":    nil, // nothing waits for it: idle, nothing held
-		"napper": "every account is at its usage limit, back at " + timefmt.Stamp(9000, timefmt.Clock),
+		"napper": "waits for its account's usage window, back at " + timefmt.Stamp(9000, timefmt.Clock),
 		"fresh":  nil,
 		"free":   nil,
 	} {
