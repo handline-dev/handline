@@ -69,7 +69,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const chat = useChat(agent, 'mine');
   const act = useChatActions(agent);
   const [picked, setPicked] = useState<Ref | null>(null); // a message, or a request a # chose
-  const img = useChatImages(canSend);
+  const img = useChatImages(canSend, agent);
   const [item, setItem] = useState<TranscriptItem | null>(null); // one of the agent's replies; never together with a picked message
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);

@@ -224,6 +224,8 @@ def main(argv: list[str]) -> int:
     claude = []
     if rest[:1] == ["--claude"]:  # the daemon builds its agent side (the session methods, the supervisor) over this CLI
         claude, rest = ["-claude", rest[1]], rest[2:]
+    # the service's defaults run the tick and the hook-fed views, which this run does not start
+    claude += ["-terminal-tick=false", "-cutover=false", "-turns-from-hooks=false", "-notification-needs-you=false"]
     with tempfile.TemporaryDirectory(prefix="handlined.") as tmp:
         test_root = Path(tmp).resolve()
         home = test_root / "state"

@@ -1,8 +1,8 @@
 // The images being attached to the next text, for any app: each is uploaded as soon as it is added, a failed one keeps its place with Retry, and
 // the text waits while one is still going. The app brings the picture ready (picked, shrunk, a Blob and a preview address).
-import { useRef, useState } from 'react';
 import type { Attachment } from '@handline/client';
 import { classify, sentence } from '#src/errors.ts';
+import { keptState } from '#src/kept.ts';
 import { MAX_PER_MESSAGE, forgetAttachment, rememberAttachment, useUploadImage, whyNotImage } from '#src/attachments.ts';
 
 export interface ImageSource {
@@ -25,15 +25,24 @@ export interface ImageDraft {
 
 let nextKey = 1;
 
-export function useImageDrafts(max = MAX_PER_MESSAGE) {
+interface Held {
+  drafts: ImageDraft[];
+  problem: string | null;
+  live: Map<number, { aborted: boolean; src: ImageSource }>;
+}
+const useHeld = keptState<Held>(() => ({ drafts: [], problem: null, live: new Map() }));
+
+/** `agent`: the drafts are kept for that agent, so they are still there when the person returns to it; without it they go with the component. */
+export function useImageDrafts(max = MAX_PER_MESSAGE, agent?: string) {
   const upload = useUploadImage();
-  const [drafts, setDrafts] = useState<ImageDraft[]>([]);
-  const [problem, setProblem] = useState<string | null>(null);
-  const live = useRef(new Map<number, { aborted: boolean; src: ImageSource }>());
-  const patch = (key: number, p: Partial<ImageDraft>) => setDrafts((d) => d.map((x) => (x.key === key ? { ...x, ...p } : x)));
+  const held = useHeld(agent);
+  const { drafts, problem } = held.state;
+  const live = held.get().live;
+  const patch = (key: number, p: Partial<ImageDraft>) =>
+    held.set((s) => ({ drafts: s.drafts.map((x) => (x.key === key ? { ...x, ...p } : x)) }));
 
   const start = (key: number) => {
-    const l = live.current.get(key);
+    const l = live.get(key);
     if (!l) return;
     l.aborted = false;
     const { src } = l;
@@ -45,32 +54,31 @@ export function useImageDrafts(max = MAX_PER_MESSAGE) {
   };
 
   const add = (sources: ImageSource[]) => {
-    setProblem(null);
+    held.set({ problem: null });
     for (const src of sources) {
       const why = whyNotImage({ type: src.mime, size: src.blob.size, name: src.name });
-      if (why) return setProblem(why);
-      if (live.current.size >= max) return setProblem(`At most ${max} images to a message`);
+      if (why) return held.set({ problem: why });
+      if (live.size >= max) return held.set({ problem: `At most ${max} images to a message` });
       const key = nextKey++;
-      live.current.set(key, { aborted: false, src });
-      setDrafts((d) => [...d, { key, name: src.name, preview: src.preview, progress: 0 }]);
+      live.set(key, { aborted: false, src });
+      held.set((s) => ({ drafts: [...s.drafts, { key, name: src.name, preview: src.preview, progress: 0 }] }));
       start(key);
     }
   };
   const retry = (key: number) => start(key);
   const remove = (key: number) => {
-    const l = live.current.get(key);
+    const l = live.get(key);
     if (!l) return;
     l.aborted = true;
-    live.current.delete(key);
-    const gone = drafts.find((x) => x.key === key)?.attachment;
+    live.delete(key);
+    const gone = held.get().drafts.find((x) => x.key === key)?.attachment;
     if (gone) forgetAttachment(gone.id);
-    setDrafts((d) => d.filter((x) => x.key !== key));
+    held.set((s) => ({ drafts: s.drafts.filter((x) => x.key !== key) }));
   };
   const clear = () => {
-    for (const l of live.current.values()) l.aborted = true;
-    live.current.clear();
-    setDrafts([]);
-    setProblem(null);
+    for (const l of live.values()) l.aborted = true;
+    live.clear();
+    held.set({ drafts: [], problem: null });
   };
   return {
     drafts,
