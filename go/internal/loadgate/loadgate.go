@@ -5,6 +5,7 @@ package loadgate
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +49,12 @@ func setting(cfg usage.Config, key string, def int) int {
 	return def
 }
 
+// HeldPrefix starts every reason Held gives, so a caller can tell a load hold from any other refusal (IsHeld).
+const HeldPrefix = "Held: "
+
+// IsHeld is whether why is a reason Held gave.
+func IsHeld(why string) bool { return strings.HasPrefix(why, HeldPrefix) }
+
 // Held is why a new start must wait, "" when it may go. active is the agents mid-turn on the machine; m is the latest measure, nil
 // before the first, when only the agent cap is checked.
 func Held(l Limits, active int, m *sysres.Machine) string {
@@ -55,19 +62,21 @@ func Held(l Limits, active int, m *sysres.Machine) string {
 		return ""
 	}
 	if l.Agents > 0 && active >= l.Agents {
-		return fmt.Sprintf("held: machine load - %d of %d agents mid-turn", active, l.Agents)
+		return fmt.Sprintf(HeldPrefix+"%d of %d agents are working. It starts by itself when one finishes.", active, l.Agents)
 	}
 	if m == nil {
 		return ""
 	}
 	if l.LoadPct > 0 && m.Cores > 0 {
 		if pct := int(m.Load1 * 100 / float64(m.Cores)); pct > l.LoadPct {
-			return fmt.Sprintf("held: machine load - load %.2f per core, limit %.2f", float64(pct)/100, float64(l.LoadPct)/100)
+			return fmt.Sprintf(HeldPrefix+"the Mac is busy (%.1f per core, limit %.1f). It starts by itself when that drops.", float64(pct)/100,
+				float64(l.LoadPct)/100)
 		}
 	}
 	if l.RAMFreePct > 0 && m.RAMTotal > 0 {
 		if pct := int(m.RAMFree * 100 / m.RAMTotal); pct < l.RAMFreePct {
-			return fmt.Sprintf("held: machine load - %d%% of memory free, limit %d%%", pct, l.RAMFreePct)
+			return fmt.Sprintf(HeldPrefix+"the Mac is low on memory (%d%% free, limit %d%%). It starts by itself when memory frees up.", pct,
+				l.RAMFreePct)
 		}
 	}
 	return ""
