@@ -1,12 +1,8 @@
 // heavyslot runs a command once it holds one of the machine's heavy-run slots: heavyslot -- <command> [args...]
 //
-// A slot is an flock on <dir>/slot-<n>.lock (dir: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots; n up to HANDLINE_HEAVY_SLOTS,
-// default 2). The kernel lets go of the lock when its holder dies, so a killed run frees its slot by itself. Waiters are served in
-// the order they came: each takes a ticket file (<dir>/ticket-<nanoseconds>-<pid>, locked while it waits) and only the lowest live
-// ticket may take a free slot; a ticket whose lock is free belongs to a dead waiter and is removed. The holder writes
-// who it is into the lock file, and a waiter prints that whenever the holders change. The command runs with HANDLINE_HEAVY_SLOT
-// set, so a heavy script it starts runs in the same slot rather than waiting on itself. When the slots cannot be kept (no
-// writable directory), it says so and runs the command anyway: the slots spread load, they must never stop a check.
+// A slot is an flock on <dir>/slot-<n>.lock (dir: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots; n up to HANDLINE_HEAVY_SLOTS, default
+// 2), freed by the kernel when its holder dies; the holder writes who it is into the file. Waiters go in the order they came (a ticket
+// each). The command runs with HANDLINE_HEAVY_SLOT set, so a heavy script it starts shares the slot. With no writable directory it runs anyway.
 package main
 
 import (
@@ -102,7 +98,8 @@ func acquire() (*os.File, int, error) {
 	}
 }
 
-// A ticket is a waiter's place in line: a file named by when it came, which the waiter keeps locked until it has a slot or ends.
+// A ticket is a waiter's place in line: a file ticket-<nanoseconds>-<pid>, which the waiter keeps locked until it has a slot or ends.
+// It is locked under a name no waiter reads and renamed (the lock stays), so no waiter ever finds a ticket that is not yet locked.
 type ticket struct {
 	dir  string
 	name string
@@ -111,12 +108,17 @@ type ticket struct {
 
 func takeTicket(dir string) (*ticket, error) {
 	name := fmt.Sprintf("ticket-%020d-%d", time.Now().UnixNano(), os.Getpid())
-	f, err := os.OpenFile(filepath.Join(dir, name), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
+	pending := filepath.Join(dir, fmt.Sprintf("pending-%d", os.Getpid()))
+	f, err := os.OpenFile(pending, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err == nil {
+		err = os.Rename(pending, filepath.Join(dir, name))
+	}
+	if err != nil {
 		f.Close()
+		os.Remove(pending)
 		return nil, err
 	}
 	return &ticket{dir: dir, name: name, f: f}, nil
