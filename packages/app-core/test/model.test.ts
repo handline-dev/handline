@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AgentDetail, AgentView, Prompt } from '@handline/client';
+import type { AgentDetail, AgentView, Prompt, Status } from '@handline/client';
 import {
   promptChoices,
   whyOf,
@@ -348,7 +348,14 @@ test('workingUnder counts the running sub-agents at any depth, not the agent its
 });
 
 test('stuckUnder counts the sub-agents held for load, on a dialog or blocked, at any depth', () => {
-  const held = { state: 'waiting', reason: 'load', text: 'held: machine load - load 2.19 per core, limit 1.50', since: 0 } as const;
+  const held: Status = {
+    state: 'waiting',
+    reason: 'load',
+    text: 'held: machine load - load 2.19 per core, limit 1.50',
+    until: null,
+    since: '2026-10-26T12:00:00Z',
+    tasks: [],
+  };
   const list = [
     agent('lead', { state: 'running' }),
     agent('a', { parent: 'lead', state: 'idle', status: held }),
