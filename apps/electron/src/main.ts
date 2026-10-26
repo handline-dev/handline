@@ -117,7 +117,7 @@ function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote |
   const c = new Connection(origin, {
     mode: () => ({ mode, remote: remote?.host ?? null }),
     follow: () => (f ? { sha: f.sha, state: f.state, next: f.next?.sha ?? null } : null),
-    check: () => void f?.look(),
+    check: async () => void (await f?.look()),
     setMode: (m) => own.switchMode(m),
     pair: (i) => own.pair(i),
     phone: () => own.phone(),
