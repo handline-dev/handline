@@ -18,7 +18,7 @@ export function BranchChip({ branch }: { branch: string }) {
   return (
     <button
       type="button"
-      className={`group inline-flex ${STRIP_ITEM} min-w-0 items-center gap-1 rounded-ctl bg-transparent text-inherit hover:bg-raised focus-visible:bg-raised`}
+      className={`group inline-flex ${STRIP_ITEM} min-w-0 items-center gap-1 rounded-ctl bg-transparent text-inherit hover:bg-raised focus-visible:bg-raised focus:outline-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--focus)]`}
       title={`Branch ${branch}: click to copy`}
       aria-label={copied ? 'Copied' : `Copy branch ${branch}`}
       onClick={() => void navigator.clipboard?.writeText(branch).then(() => setCopied(true))}

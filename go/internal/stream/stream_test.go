@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/policy"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/store"
 )
@@ -268,7 +269,7 @@ func TestLiveEventsOfNoCursorAreNotDeduplicated(t *testing.T) {
 func TestPruneDropsWhatIsPastRetentionAndRemembersHowFar(t *testing.T) {
 	h, d := rig(t)
 	now := time.Now()
-	l := &Log{DB: d, Now: func() time.Time { return now.Add(-RetentionS*time.Second - time.Hour) }}
+	l := &Log{DB: d, Now: func() time.Time { return now.Add(-policy.StreamKeep - time.Hour) }}
 	old, _ := l.Append(Entry{Topic: "chat", Type: "chat.message", Data: map[string]any{}})
 	fresh := add(t, h, "chat", "chat.message", "")
 	if err := h.Log.Prune(); err != nil {
@@ -325,7 +326,7 @@ func TestAPruneByAnotherWriterInBetweenNeverMovesTheMarkBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { other.Close() })
-	old := &Log{DB: d, Now: func() time.Time { return time.Now().Add(-RetentionS*time.Second - time.Hour) }}
+	old := &Log{DB: d, Now: func() time.Time { return time.Now().Add(-policy.StreamKeep - time.Hour) }}
 	var last *Event
 	for i := 0; i < 3; i++ {
 		last, _ = old.Append(Entry{Topic: "chat", Type: "chat.message", Data: map[string]any{}})

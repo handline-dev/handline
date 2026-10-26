@@ -42,6 +42,11 @@ describe('memo files', () => {
     await until(() => box.querySelectorAll('.memo-files .attachments img').length === 2, 'both images in one picture row');
     await act(async () => void box.querySelector<HTMLElement>('button[aria-label="Open two.png"]')!.click());
     await until(() => document.querySelector('[role="dialog"] img'), 'the full-size image');
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain('2 / 2');
+    await act(async () => void document.querySelector<HTMLElement>('button[aria-label="Previous picture"]')!.click());
+    expect(document.querySelector('[role="dialog"] img')!.getAttribute('alt')).toBe('one.png');
+    await act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })));
+    expect(document.querySelector('[role="dialog"] img')!.getAttribute('alt')).toBe('two.png');
   });
 
   it('shows an image inline and renders a Markdown file', async () => {

@@ -65,14 +65,17 @@ export class FakeTasks {
   }
   /** Whether hello lists the method: every method that is not a task one, and the task ones this serves. */
   lists(method: string): boolean {
-    return !/^tasks?\./.test(method) || this.serves(method);
+    return !/^tasks?\./.test(method) || this.serves(method) || /^task\.(request|none)$/.test(method); // those two are the requests module's
   }
   private isAgent(name: string): boolean {
     return this.host.sessions.has(name);
   }
   /** Checks and claims the images a write's text names; an agent names only an image some task's text already shows. */
   private images(text: string, was: string, field: string, agent: boolean): void {
-    const shown = () => new Set(this.rows.flatMap((r) => [r.body, ...(r.memos ?? []).map((m) => m.text), ...(r.notes ?? []).map((n) => n.text)].flatMap(refs)));
+    const shown = () =>
+      new Set(
+        this.rows.flatMap((r) => [r.body, ...(r.memos ?? []).map((m) => m.text), ...(r.notes ?? []).map((n) => n.text)].flatMap(refs)),
+      );
     this.host.uploads.check(text, was, field, agent, shown);
   }
   private emit(t: Task): void {
@@ -170,7 +173,17 @@ export class FakeTasks {
       this.images(String(p.text), '', 'text', agent);
       const id = memos.reduce((n, m) => Math.max(n, m.id), 0) + 1;
       const files = Array.isArray(p.files) ? p.files.map((f) => this.host.uploads.memoFile(String(f))) : [];
-      memos.push({ id, task: t.id, author: person, at: this.now(), text: String(p.text), ...(files.length ? { files } : {}) });
+      if (p.reply !== undefined && !memos.some((m) => m.id === p.reply))
+        throw new TaskFailure('refused', `memo ${String(p.reply)} does not exist`);
+      memos.push({
+        id,
+        task: t.id,
+        author: person,
+        at: this.now(),
+        text: String(p.text),
+        ...(p.reply === undefined ? {} : { reply_to: Number(p.reply) }),
+        ...(files.length ? { files } : {}),
+      });
       (t.history ??= []).push({ at: this.now(), by: person, field: 'memo', was: '', now: String(p.text), memo: id });
       return id;
     }
@@ -229,14 +242,19 @@ export class FakeTasks {
       children: this.rows.filter((r) => r.parent === t.id).map((r) => r.id),
       handoffs: [],
       asker: t.from,
-      discarded: t.state === 'discarded' ? { by: t.from, reason: t.hold_reason ?? '', at: t.done ?? this.now(), withdrew: [], batch: null } : null,
+      discarded:
+        t.state === 'discarded' ? { by: t.from, reason: t.hold_reason ?? '', at: t.done ?? this.now(), withdrew: [], batch: null } : null,
       merged_into: null,
       time: t.state === 'done' || t.state === 'discarded' ? null : (t.clock ?? null),
       parent_title: this.rows.find((r) => r.id === t.parent)?.title ?? null,
       subtasks: this.rows.filter((r) => r.parent === t.id).map((r) => ({ id: r.id, title: r.title, owner: r.to, state: r.state })),
       timeline: [
-        ...(t.memos ?? []).map((m) => withParts({ at: m.at, who: m.author, kind: 'memo' as const, text: m.text, memo: m.id, edited_at: m.edited_at ?? null }, m.text)),
-        ...(t.notes ?? []).map((n) => withParts({ at: n.at, who: n.who, kind: 'reject' as const, text: n.text, memo: null, edited_at: null }, n.text)),
+        ...(t.memos ?? []).map((m) =>
+          withParts({ at: m.at, who: m.author, kind: 'memo' as const, text: m.text, memo: m.id, edited_at: m.edited_at ?? null }, m.text),
+        ),
+        ...(t.notes ?? []).map((n) =>
+          withParts({ at: n.at, who: n.who, kind: 'reject' as const, text: n.text, memo: null, edited_at: null }, n.text),
+        ),
       ].sort((a, b) => a.at.localeCompare(b.at)),
       people: { recent: [], team: [], others: [] },
     };
@@ -274,7 +292,9 @@ export class FakeTasks {
     if (p.body !== undefined) this.images(String(p.body), t.body, 'body', agent);
     const waitOn = typeof p.blocked_by === 'number' ? this.find(p.blocked_by).id : null;
     this.change(t, {
-      ...(waitOn !== null && !t.blockers.some((b) => b.task === waitOn) ? { blockers: [...t.blockers, { task: waitOn, reason: '', at: this.now() }] } : {}),
+      ...(waitOn !== null && !t.blockers.some((b) => b.task === waitOn)
+        ? { blockers: [...t.blockers, { task: waitOn, reason: '', at: this.now() }] }
+        : {}),
       ...(p.owner !== undefined ? { to: String(p.owner) } : {}),
       ...fieldsOf(p),
     });
@@ -302,7 +322,8 @@ export class FakeTasks {
   }
   reopen(p: Record<string, unknown>, person: string): void {
     const t = this.find(p.task);
-    if ((t.state !== 'done' && t.state !== 'discarded') || t.from !== person) throw new TaskFailure('refused', 'only a done or discarded task that you asked for can be reopened');
+    if ((t.state !== 'done' && t.state !== 'discarded') || t.from !== person)
+      throw new TaskFailure('refused', 'only a done or discarded task that you asked for can be reopened');
     this.change(t, { state: t.state === 'done' ? 'queued' : 'draft', done: null });
   }
   /** Queue or draft a list: the whole call is refused if any of them is in the wrong state. */
@@ -335,7 +356,18 @@ export class FakeTasks {
 }
 
 // The task methods the fake serves; the rest (handoff) are refused as `unsupported`.
-const BASIC = new Set(['tasks.list', 'task.get', 'task.comment.list', 'task.history', 'task.time', 'task.new', 'task.edit', 'task.withdraw', 'task.cancel', 'task.ask']);
+const BASIC = new Set([
+  'tasks.list',
+  'task.get',
+  'task.comment.list',
+  'task.history',
+  'task.time',
+  'task.new',
+  'task.edit',
+  'task.withdraw',
+  'task.cancel',
+  'task.ask',
+]);
 const VERBS = new Set([
   'task.done',
   'task.reopen',

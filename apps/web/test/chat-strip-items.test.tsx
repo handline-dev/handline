@@ -66,5 +66,8 @@ describe('the strip branch and context maximum', () => {
         .click(),
     );
     await until(() => s.daemon.sessions.get(ARCH)!.settings.context_k === '500', 'the maximum applied');
+    // The daemon sends no event for it: the header reads the new maximum because the strip is read again.
+    await act(async () => $('.chat-strip [aria-label="Context window details"]')!.click());
+    await until(() => document.body.textContent?.includes('500,000'), 'the header with the new maximum');
   });
 });

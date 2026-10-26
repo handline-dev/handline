@@ -5,8 +5,10 @@ package worktreeprune
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/gitrun"
@@ -134,12 +136,85 @@ func WhyKept(wt Worktree, agents map[string]bool, here string) string {
 		return "main"
 	}
 	if gitrun.Run(wt.Path, "merge-base", "--is-ancestor", wt.Branch, "main").RC != 0 {
-		return wt.Branch + " is not merged into main"
+		return wt.Branch + notMerged
 	}
 	if st := gitrun.Run(wt.Path, "status", "--porcelain"); st.RC != 0 || strings.TrimSpace(st.Stdout) != "" {
-		return "uncommitted or untracked files"
+		return uncommitted
 	}
 	return ""
+}
+
+// Tag marks the founder's task that asks what to do with a retired member's worktree that holds work.
+const Tag = "worktree-removal"
+
+const (
+	notMerged   = " is not merged into main"
+	uncommitted = "uncommitted or untracked files"
+)
+
+// HoldsWork is whether why (WhyKept's) says the worktree holds work nobody else has: commits not on main, or files not committed.
+func HoldsWork(why string) bool { return why == uncommitted || strings.HasSuffix(why, notMerged) }
+
+// Describe is what a person needs to judge a worktree that holds work: its branch's commits not on main (up to 5 subjects), its changed
+// and untracked files (up to 10) and when it last committed.
+func Describe(wt Worktree) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Path: %s\nBranch: %s\n", wt.Path, wt.Branch)
+	if r := gitrun.Run(wt.Path, "log", "main..HEAD", "--format=%s"); r.RC == 0 {
+		b.WriteString(lines("Commits not on main", r.Stdout, 5))
+	}
+	if r := gitrun.Run(wt.Path, "status", "--porcelain"); r.RC == 0 {
+		b.WriteString(lines("Changed or untracked files", r.Stdout, 10))
+	}
+	if r := gitrun.Run(wt.Path, "log", "-1", "--format=%cI"); r.RC == 0 {
+		fmt.Fprintf(&b, "Last commit: %s", strings.TrimSpace(r.Stdout))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func lines(title, out string, most int) string {
+	all := strings.Split(strings.TrimSpace(out), "\n")
+	if len(all) == 1 && all[0] == "" {
+		return ""
+	}
+	more := ""
+	if len(all) > most {
+		more = fmt.Sprintf("\n  ... and %d more", len(all)-most)
+		all = all[:most]
+	}
+	return fmt.Sprintf("%s:\n  %s%s\n", title, strings.Join(all, "\n  "), more)
+}
+
+// Rescue keeps what the worktree holds, then removes it: the files not committed go in one commit on a new branch rescue/<member>-<date>
+// (the branch the worktree was on stays as it is), so nothing is lost but what git ignores. It answers the branch.
+func Rescue(path, member string, now time.Time) (branch string, err error) {
+	branch = "rescue/" + member + "-" + now.Format("2006-01-02")
+	for i := 2; gitrun.Run(path, "rev-parse", "--verify", "-q", "refs/heads/"+branch).RC == 0; i++ {
+		branch = fmt.Sprintf("rescue/%s-%s-%d", member, now.Format("2006-01-02"), i)
+	}
+	steps := [][]string{
+		{"checkout", "-q", "-b", branch},
+		{"add", "-A"},
+		{"-c", "user.name=handline", "-c", "user.email=handline@localhost", "commit", "-q", "--allow-empty", "-m", "rescue: what " + member + "'s worktree held when it was removed"},
+	}
+	for _, args := range steps {
+		if r := gitrun.Run(path, args...); r.RC != 0 {
+			return "", fmt.Errorf("git %s: %s", args[0], strings.TrimSpace(r.Stderr))
+		}
+	}
+	if ok, why := Remove(path); !ok {
+		return branch, fmt.Errorf("the rescue branch %s is made, but the worktree stays: %s", branch, why)
+	}
+	return branch, nil
+}
+
+// RemoveForce removes the worktree with whatever it holds; the branch it was on stays.
+func RemoveForce(path string) (ok bool, why string) {
+	r := gitrun.Run(path, "worktree", "remove", "--force", path)
+	if r.RC != 0 {
+		return false, strings.TrimSpace(r.Stderr)
+	}
+	return true, ""
 }
 
 // Remove removes the worktree at path, never by force: git refuses one that became dirty since it was judged.

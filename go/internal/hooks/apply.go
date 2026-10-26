@@ -12,10 +12,11 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/handline/handline/go/internal/policy"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
-const hookKeep = 24 * time.Hour
+const hookKeep = policy.HookKeep
 
 // captured are the hook events that are recorded; PostToolUse is deliberately absent.
 var captured = set("SessionStart", "SessionEnd", "Stop", "StopFailure", "SubagentStop", "PostCompact", "UserPromptSubmit",
