@@ -3,6 +3,7 @@ package hrwrites
 import (
 	"slices"
 	"strings"
+	"time"
 )
 
 // A change that renames or retires an agent with a session running is not refused: the proposal is held (state applying, with the agents
@@ -17,7 +18,9 @@ type HeldPorts struct {
 	// Idle is whether the session is at its prompt: no turn running and no dialog open.
 	Idle  func(agent string) bool
 	Close func(agent string) (bool, string)
-	Start func(agent string) (bool, string)
+	// Interrupt ends the agent's running turn (Esc); the sweep calls it for a change the founder asked to apply now. Nil: not served.
+	Interrupt func(agent string) (bool, string)
+	Start     func(agent string) (bool, string)
 }
 
 // heldBy are the agents prop renames or retires that have a session running; none when the process table cannot be read, and the apply
@@ -42,6 +45,7 @@ func (e *Env) heldBy(prop *Prop) []string {
 func (e *Env) hold(prop *Prop, busy []string) error {
 	prop.set("state", applying)
 	prop.set("waiting_on", strings.Join(busy, ","))
+	prop.set("waiting_since", time.Now().Unix())
 	return e.save(prop)
 }
 
@@ -73,6 +77,13 @@ func (e *Env) carry(prop *Prop, p HeldPorts) error {
 		}
 		running = true
 		if !p.Idle(a) {
+			if prop.str("apply_now") != "" && p.Interrupt != nil {
+				if ok, said := p.Interrupt(a); ok {
+					e.logf("  %s: turn interrupted so proposal %s can be applied now", a, prop.id())
+				} else {
+					e.logf("  %s: not interrupted for proposal %s: %s", a, prop.id(), said)
+				}
+			}
 			continue
 		}
 		if ok, said := p.Close(a); ok {

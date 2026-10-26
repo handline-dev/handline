@@ -1,4 +1,4 @@
-// HR proposals and the team: hr.list, hr.decide, hr.withdraw, team.get. Tests put proposals in with `script.hr.raise`.
+// HR proposals and the team: hr.list, hr.decide, hr.apply_now, hr.withdraw, team.get. Tests put proposals in with `script.hr.raise`.
 import type { Proposal } from '@handline/contract';
 import { badRequest, Failure } from '#src/errors.ts';
 import type { Call } from '#src/handlers.ts';
@@ -80,6 +80,16 @@ export const HR_HANDLERS: Record<string, (h: Call) => unknown> = {
     const said = unsealed.length ? `sealed ${unsealed.length} files` : 'nothing needed sealing';
     unsealed.length = 0;
     return { ok: true, said };
+  },
+  // An applying proposal is applied at once: the turn it waited on is ended, so it settles approved and the wait is gone.
+  'hr.apply_now': (h) => {
+    const { p, script } = h;
+    const prop = script.hr.find(p.proposal);
+    if (prop.state !== 'applying') throw gate('proposal_settled', `the proposal is ${prop.state}, not waiting to be applied`, prop);
+    delete prop.waiting_on;
+    delete prop.waiting_since;
+    script.hr.settle(prop, 'approved');
+    return script.accepted('Applied.');
   },
   'hr.withdraw': (h) => {
     const { p, script } = h;

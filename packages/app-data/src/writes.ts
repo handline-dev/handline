@@ -346,6 +346,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'input.take': 'take control',
     'input.release': 'release',
     'hr.withdraw': 'withdraw',
+    'hr.apply_now': 'apply now',
     'account.login': 'log in',
     'account.login_code': 'send code',
     'account.login_cancel': 'cancel login',
