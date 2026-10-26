@@ -142,6 +142,31 @@ export const SEEDS: Record<string, Seed> = {
     };
   },
 
+  /** Two approved proposals whose change is applied but whose agent did not start: the architect's waits for the load, the auditor's failed. */
+  'hr-followup': (d) => {
+    const hr = d.script.hr;
+    hr.raise({
+      id: 906,
+      kind: 'settings',
+      agent: ARCH,
+      title: 'rename handline.architect',
+      diff: 'rename handline.architect -> handline.planner',
+      state: 'approved',
+      settled: new Date().toISOString(),
+      follow_up: { agent: ARCH, state: 'waiting', text: 'held: machine load - load 3.09 per core, limit 1.50' },
+    });
+    hr.raise({
+      id: 907,
+      kind: 'settings',
+      agent: AUD,
+      title: 'rename handline.auditor',
+      diff: 'rename handline.auditor -> handline.reviewer',
+      state: 'approved',
+      settled: new Date().toISOString(),
+      follow_up: { agent: AUD, state: 'failed', text: 'start failed: no free account' },
+    });
+  },
+
   /** Chat messages with one-tap actions: OK / No on an open task the founder owns. */
   'chat-actions': (d) => {
     task(d, 6902, { id: 6902, from: ARCH, to: ME, title: 'Open task the founder owns', state: 'doing' });

@@ -16,7 +16,7 @@ export function HeldCard({ detail }: { detail: AgentDetail }) {
   if (status?.reason !== 'load') return null;
   const verb = VERBS.force_start;
   return (
-    <Card variant="chat" className="card-held bg-surface" data-kind="held" data-reason="load">
+    <Card variant="event" tone="wait" className="card-held" data-kind="held" data-reason="load">
       <Icon name="blocked" label="Held" />
       <CardWhat stacked>
         <strong>{status.text || 'Held: machine load'}</strong>
