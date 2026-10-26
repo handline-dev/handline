@@ -401,6 +401,8 @@ export const NOT_FROM_UI = [
   'say',
   'hook.record',
   'task.wait', // hl task wait; no screen opens a gate yet
+  'task.request', // hl task request; the app's "make a request" (P1, T5985) moves it to the writes table
+  'task.none', // hl task none
   'hr.propose',
   'trust.propose',
   'task.begin',
