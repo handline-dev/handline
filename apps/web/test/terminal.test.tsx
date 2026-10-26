@@ -247,11 +247,11 @@ describe('the pane', () => {
     root = null;
     box?.remove();
   });
-  function Probe({ create }: { create: CreateTerm }) {
+  function Probe({ create, shell }: { create: CreateTerm; shell: boolean }) {
     const d = useAgentDetail(ARCH).data;
-    return d ? <BytesTab agent={ARCH} detail={d} create={create} /> : null;
+    return d ? <BytesTab agent={ARCH} detail={d} create={create} shell={shell} handle={shell ? d.terminal! : undefined} /> : null;
   }
-  async function mount(s = setup()) {
+  async function mount(s = setup(), shell = false) {
     let term!: Terminal;
     const marks: string[] = [];
     const made: Terminal[] = [];
@@ -281,7 +281,7 @@ describe('the pane', () => {
       root!.render(
         <DaemonProvider store={store}>
           <DataProvider daemonId="test" box={Box}>
-            <Probe create={create} />
+            <Probe create={create} shell={shell} />
           </DataProvider>
         </DaemonProvider>,
       );
@@ -442,6 +442,18 @@ describe('the pane', () => {
     await until(() => resize.mock.calls.length > 0, 'the size after the release');
     expect(resize.mock.calls[0]!.slice(1)).toEqual([100, 30]);
     other.close();
+  });
+
+  it('a shell takes keys and sizes the grid with no click and no hold', async () => {
+    const m = await mount(setup(), true);
+    await until(() => m.term() && rows(m.term()).some((l) => l.includes('Claude Code v2.1')), 'the screen');
+    expect(box.textContent).not.toContain('Click the terminal to type');
+    const take = vi.spyOn(m.client, 'call');
+    const input = vi.spyOn(m.client.bytes, 'input');
+    m.term().input('ls\r', true);
+    await until(() => input.mock.calls.length > 0, 'the input call');
+    expect(new TextDecoder().decode(input.mock.calls[0]![1])).toBe('ls\r');
+    expect(take.mock.calls.filter(([method]) => method === 'input.take')).toHaveLength(0);
   });
 
   it('takes the keyboard on a click, sends keys to the host, sizes the grid once per burst, and lets go on Ctrl+Shift+E', async () => {
