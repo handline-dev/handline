@@ -7,10 +7,7 @@ import { useServes, useTaskTitleReads, useTasks } from '@handline/app-data';
 const MAX = 50;
 
 /** What each card is about, as far as known: a card shows its number until its title arrives, and nothing waits for it. */
-export function useCardTitles(
-  items: readonly TranscriptItem[],
-  entries: readonly (TimelineEntry | TaskFold)[],
-): Map<number, string> {
+export function useCardTitles(items: readonly TranscriptItem[], entries: readonly (TimelineEntry | TaskFold)[]): Map<number, string> {
   const { served } = useServes('tasks.list');
   const tasks = useTasks({ all: true, limit: 200 }); // done tasks too: a card of a closed task keeps its title
   const listed = served && tasks.data ? new Map(tasks.data.items.map((t) => [t.id, t.title])) : null;

@@ -256,85 +256,89 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           onScroll={scroll.onScroll}
         >
           <div ref={content} className="flex min-h-full flex-col gap-2 px-3 pb-2 pt-3 [&>*]:flex-none [&>.skeleton]:self-stretch">
-          <Skeleton shape="chat" loading={loading} shown={skeleton} label="the conversation" />
-          {chat.status === 'error' && sentence(classify(chat.error)) ? (
-            <div className="banner" role="alert">
-              {sentence(classify(chat.error))} <Button variant="outline" size="sm" label="Retry" onClick={chat.refetch} />
-            </div>
-          ) : null}
-          {chat.hasOlder ? <div ref={top} aria-hidden className="h-px" /> : null}
-          {chat.hasOlder ? (
-            <button
-              className="icon older self-center"
-              disabled={chat.loadingOlder}
-              aria-label="Older messages"
-              title="Older messages"
-              onClick={chat.loadOlder}
-            >
-              <Icon name="less" label="Older messages" />
-            </button>
-          ) : null}
-          {chat.status === 'ready' && drawn && !entries.length ? <Empty icon="chat" name="No messages yet" hint={agent} /> : null}
-          {/* Keyed by the window: the rows of the live tail leave at once when a window opens, not after an exit animation above the target. */}
-          <AnimatedList key={win.target ?? 'live'}>
-            {(drawn ? entries : []).flatMap((e, i): ReactNode[] => {
-              const day = dayHeading(e.at, i === 0 ? null : entries[i - 1]!.at);
-              const body = (
-                <AnimatedItem
-                  key={keyOf(e)}
-                  instant={i <= tail || tail < 0}
-                  className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-stretch"
-                >
-                  {e.kind === 'fold' ? (
-                    <FoldLine f={e} folds={folds} titles={titles} agent={agent} />
-                  ) : e.kind === 'message' ? (
-                    <Message
-                      m={e.message}
-                      agent={agent}
-                      picked={e.id === picked}
-                      onPick={pick}
-                      byId={byId}
-                      group={groupOf(scope, entries[i - 1], e.message)}
-                    />
-                  ) : e.kind === 'proposal' ? (
-                    <DecidedCard p={e.proposal} />
-                  ) : e.kind === 'note' ? (
-                    <TaskNote m={e.message} task={e.task} titles={titles} />
-                  ) : (
-                    <Item
-                      i={e.item}
-                      titles={titles}
-                      agent={agent}
-                      onReply={canSend && canReplyItem ? pickItem : undefined}
-                      picked={pickedItem?.id === e.item.id}
-                    />
-                  )}
-                </AnimatedItem>
-              );
-              // A plain child of the list: never animated in or out.
-              return day
-                ? [
-                    <div
-                      key={`day ${day}`}
-                      role="separator"
-                      className="mt-3 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
-                    >
-                      {day}
-                    </div>,
-                    body,
-                  ]
-                : [body];
-            })}
-          </AnimatedList>
-          {windowed && win.hasNewer ? <div ref={lower} aria-hidden className="h-px" /> : null}
-          {drawn ? <HrCards agent={agent} /> : null}
-          {drawn ? <HandoffCard detail={detail} items={chat.items} /> : null}
-          {drawn && !detail.prompt ? <NeedsYouCard detail={detail} /> : null}
-          {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
-          <LiveLine working={chat.working} messages={chat.messages} items={chat.items} />
+            <Skeleton shape="chat" loading={loading} shown={skeleton} label="the conversation" />
+            {chat.status === 'error' && sentence(classify(chat.error)) ? (
+              <div className="banner" role="alert">
+                {sentence(classify(chat.error))} <Button variant="outline" size="sm" label="Retry" onClick={chat.refetch} />
+              </div>
+            ) : null}
+            {chat.hasOlder ? <div ref={top} aria-hidden className="h-px" /> : null}
+            {chat.hasOlder ? (
+              <button
+                className="icon older self-center"
+                disabled={chat.loadingOlder}
+                aria-label="Older messages"
+                title="Older messages"
+                onClick={chat.loadOlder}
+              >
+                <Icon name="less" label="Older messages" />
+              </button>
+            ) : null}
+            {chat.status === 'ready' && drawn && !entries.length ? <Empty icon="chat" name="No messages yet" hint={agent} /> : null}
+            {/* Keyed by the window: the rows of the live tail leave at once when a window opens, not after an exit animation above the target. */}
+            <AnimatedList key={win.target ?? 'live'}>
+              {(drawn ? entries : []).flatMap((e, i): ReactNode[] => {
+                const day = dayHeading(e.at, i === 0 ? null : entries[i - 1]!.at);
+                const body = (
+                  <AnimatedItem
+                    key={keyOf(e)}
+                    instant={i <= tail || tail < 0}
+                    className="max-w-full has-[>_.msg]:relative has-[>_.msg]:max-w-[80%] has-[>_.msg.person]:self-end has-[>_.msg:not(.person)]:self-start has-[>_.card-task]:self-stretch"
+                  >
+                    {e.kind === 'fold' ? (
+                      <FoldLine f={e} folds={folds} titles={titles} agent={agent} />
+                    ) : e.kind === 'message' ? (
+                      <Message
+                        m={e.message}
+                        agent={agent}
+                        picked={e.id === picked}
+                        onPick={pick}
+                        byId={byId}
+                        group={groupOf(scope, entries[i - 1], e.message)}
+                      />
+                    ) : e.kind === 'proposal' ? (
+                      <DecidedCard p={e.proposal} />
+                    ) : e.kind === 'note' ? (
+                      <TaskNote m={e.message} task={e.task} titles={titles} />
+                    ) : (
+                      <Item
+                        i={e.item}
+                        titles={titles}
+                        agent={agent}
+                        onReply={canSend && canReplyItem ? pickItem : undefined}
+                        picked={pickedItem?.id === e.item.id}
+                      />
+                    )}
+                  </AnimatedItem>
+                );
+                // A plain child of the list: never animated in or out.
+                return day
+                  ? [
+                      <div
+                        key={`day ${day}`}
+                        role="separator"
+                        className="mt-3 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
+                      >
+                        {day}
+                      </div>,
+                      body,
+                    ]
+                  : [body];
+              })}
+            </AnimatedList>
+            {windowed && win.hasNewer ? <div ref={lower} aria-hidden className="h-px" /> : null}
+            {drawn ? <HrCards agent={agent} /> : null}
+            {drawn ? <HandoffCard detail={detail} items={chat.items} /> : null}
+            {drawn && !detail.prompt ? <NeedsYouCard detail={detail} /> : null}
+            {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
+            <LiveLine working={chat.working} messages={chat.messages} items={chat.items} />
           </div>
         </div>
-        {windowed ? <LatestPill onClick={() => (win.close(), bottom())} /> : scroll.newer ? <NewerPill count={scroll.newer} onClick={bottom} /> : null}
+        {windowed ? (
+          <LatestPill onClick={() => (win.close(), bottom())} />
+        ) : scroll.newer ? (
+          <NewerPill count={scroll.newer} onClick={bottom} />
+        ) : null}
       </div>
       <div className="cards px-3">
         <PromptSlot agent={agent} prompt={detail.prompt} />

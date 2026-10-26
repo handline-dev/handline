@@ -4,8 +4,24 @@ import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { chatScroll, chatView, coverage, START, type Geometry } from '@handline/app-core';
 
 const g = (o: Partial<Geometry> = {}): Geometry => ({ lines: 1000, view: 300, sent: 900, ...o });
-const msg = (id: number, at: string, from = 'a'): ChatMessage => ({ id, at, from, to: 'b', body: 'x' }) as ChatMessage;
-const item = (id: number, at: string): TranscriptItem => ({ id, at, kind: 'text', text: 'y' }) as TranscriptItem;
+const msg = (id: number, at: string, from = 'a'): ChatMessage => ({
+  id,
+  at,
+  state_at: at,
+  from,
+  to: 'b',
+  state: 'delivered',
+  landing: 'delivered',
+  sending_reason: null,
+  body: 'x',
+  delivered_at: null,
+  typed_at: null,
+  landed_at: null,
+  parent: null,
+  kind: 'message',
+  tasks: [],
+});
+const item = (id: number, at: string): TranscriptItem => ({ id, at, kind: 'reply', text: 'y' });
 
 test('entering on the PC lands at the bottom, with no room under the lines', () => {
   const a = chatScroll(START, { type: 'enter' }, g(), 'bottom');
@@ -68,13 +84,21 @@ test('chatView draws only what both sources have read, and no head of system lin
   const s = { messages, items, moreMessages: false, moreItems: true };
   assert.equal(coverage(s), '2026-01-02T12:00:00Z');
   const v = chatView(s, 'mine', 'b', 'human');
-  assert.deepEqual(v.entries.map((e) => e.id), [10, 3, 11]);
+  assert.deepEqual(
+    v.entries.map((e) => e.id),
+    [10, 3, 11],
+  );
   assert.ok(v.entries.every((e) => e.at >= '2026-01-02T12:00:00Z'));
   assert.equal(v.older, true);
 });
 
 test('chatView draws everything when both sources reached the start', () => {
-  const v = chatView({ messages: [msg(1, '2026-01-01T10:00:00Z')], items: [item(2, '2026-01-02T10:00:00Z')], moreMessages: false, moreItems: false }, 'mine', 'b', 'human');
+  const v = chatView(
+    { messages: [msg(1, '2026-01-01T10:00:00Z')], items: [item(2, '2026-01-02T10:00:00Z')], moreMessages: false, moreItems: false },
+    'mine',
+    'b',
+    'human',
+  );
   assert.equal(v.entries.length, 2);
   assert.equal(v.floor, null);
 });

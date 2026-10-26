@@ -57,9 +57,7 @@ export function chatScroll(state: ScrollState, event: ScrollEvent, g: Geometry, 
   const stay = (s: ScrollState): ScrollAnswer => ({ state: s, to: null, smooth: false, room: 0 });
   const follow = (smooth: boolean): ScrollAnswer => ({ state: START, to: end(g), smooth, room: 0 });
   const hold = (smooth: boolean): ScrollAnswer =>
-    g.sent === null
-      ? follow(smooth)
-      : { state: { mode: 'hold', newer: 0 }, to: g.sent, smooth, room: roomFor(g, g.sent) };
+    g.sent === null ? follow(smooth) : { state: { mode: 'hold', newer: 0 }, to: g.sent, smooth, room: roomFor(g, g.sent) };
   switch (event.type) {
     case 'enter':
       // The held entry only when everything after the message fits under it; a longer tail would stop the view mid-chat.
