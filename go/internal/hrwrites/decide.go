@@ -28,6 +28,8 @@ type Env struct {
 	// Live is the agents with a running session; ok is false when the process table could not be read. A rename needs it, and without it is refused.
 	Live func() (sessions map[string]bool, ok bool)
 	Log  func(format string, args ...any)
+	// Ask opens a task for the founder with title, body and tags and answers its number; nil asks nothing.
+	Ask func(title, body string, tags ...string) (int64, error)
 }
 
 func (e *Env) logf(format string, args ...any) {
