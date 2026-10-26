@@ -10,12 +10,12 @@ Founder: terminals inside the IDE; the bridge keeps working until web, Electron 
 
 ## 1. What changes, what stays
 
-| Stays | Changes |
-|---|---|
-| `terminal.attach` / `history` / `resize` / `detach`, `input.take` / `release`, the `holder` and `marker` notices, `session.*`, `prompt.answer` | the pane renders **bytes** in xterm.js when the daemon offers them |
-| The text-grid pane (`web/ui/terminal-pane.ts`, later the same view in `apps/web`) | it becomes the **fallback**: a host or a daemon without `bytes`, the phone app (no xterm in React Native), and a setting "Terminal: text grid" |
-| Parsed facts drive banners, badges and cards (design §4.1) | the pane never reads dialogs or prompts out of the bytes |
-| The bridge's chat page and its terminal view | untouched; nothing here edits the bridge |
+| Stays                                                                                                                                          | Changes                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `terminal.attach` / `history` / `resize` / `detach`, `input.take` / `release`, the `holder` and `marker` notices, `session.*`, `prompt.answer` | the pane renders **bytes** in xterm.js when the daemon offers them                                                                             |
+| The text-grid pane (`web/ui/terminal-pane.ts`, later the same view in `apps/web`)                                                              | it becomes the **fallback**: a host or a daemon without `bytes`, the phone app (no xterm in React Native), and a setting "Terminal: text grid" |
+| Parsed facts drive banners, badges and cards (design §4.1)                                                                                     | the pane never reads dialogs or prompts out of the bytes                                                                                       |
+| The bridge's chat page and its terminal view                                                                                                   | untouched; nothing here edits the bridge                                                                                                       |
 
 The styled-rows decision of `web-ui-design.md` §9 ("colour is the founder's, pending") is answered for this path by the byte stream: colour comes from the host's own escape codes. The text-grid path gets colour from the `styled` format (spec: `contract/protocol.md` "Format styled"): the same rows and frames as text, each row with style runs (`spans`). It is for a host that has no byte stream and for the phone, which has no xterm. A host that lists neither `bytes` nor `styled` stays plain text.
 
@@ -23,13 +23,13 @@ The styled-rows decision of `web-ui-design.md` §9 ("colour is the founder's, pe
 
 xterm.js is the first dependency of a terminal view, and `packages/client`, `app-core` and `fake-daemon` stay dependency-free (turborepo-layout §7).
 
-| Piece | Package | Depends on |
-|---|---|---|
-| `ByteTerminalView`: attach state machine, seq checks, snapshot, reconnect, input queue, holder state. Emits `reset(snapshotBytes)`, `write(bytes)`, `resize(cols, rows)`, `marker`, `holders` | `packages/client` | nothing |
-| Bytes format in the fake daemon, replaying the bytes spec's fixtures | `packages/fake-daemon` | nothing |
-| xterm adapter: `Terminal` instance, fit, theme from `packages/tokens`, link handling, the safety handlers of §7 | `apps/web/src/terminal/` | `@xterm/xterm`, `@xterm/addon-fit`, `@xterm/addon-web-links` |
-| Terminal tab chrome: holder strip, badges, key chips | `apps/web` (screens are written per app); the holder state machine and badge derivation are pure code in `packages/app-core`, Node-tested | `app-core` |
-| Tests that run xterm without a DOM | `@xterm/headless` as a dev dependency of `apps/web` | |
+| Piece                                                                                                                                                                                         | Package                                                                                                                                   | Depends on                                                   |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `ByteTerminalView`: attach state machine, seq checks, snapshot, reconnect, input queue, holder state. Emits `reset(snapshotBytes)`, `write(bytes)`, `resize(cols, rows)`, `marker`, `holders` | `packages/client`                                                                                                                         | nothing                                                      |
+| Bytes format in the fake daemon, replaying the bytes spec's fixtures                                                                                                                          | `packages/fake-daemon`                                                                                                                    | nothing                                                      |
+| xterm adapter: `Terminal` instance, fit, theme from `packages/tokens`, link handling, the safety handlers of §7                                                                               | `apps/web/src/terminal/`                                                                                                                  | `@xterm/xterm`, `@xterm/addon-fit`, `@xterm/addon-web-links` |
+| Terminal tab chrome: holder strip, badges, key chips                                                                                                                                          | `apps/web` (screens are written per app); the holder state machine and badge derivation are pure code in `packages/app-core`, Node-tested | `app-core`                                                   |
+| Tests that run xterm without a DOM                                                                                                                                                            | `@xterm/headless` as a dev dependency of `apps/web`                                                                                       |                                                              |
 
 Not used: the WebGL addon in v1 (context loss, GPU variance; the DOM and canvas renderers are enough for ~5 panes); the serialize addon (the daemon's snapshot is the source of truth).
 
@@ -40,7 +40,7 @@ Not used: the WebGL addon in v1 (context loss, GPU variance; the DOM and canvas 
 1. **Attach** (tab rendered and visible): choose the format (§8), call `terminal.attach {agent, format: 'bytes', history}`. The reply is the snapshot: `data` (base64), `cols × rows`, `alt_screen`, `cursor`, `cursor_visible`, `seq`, `history`, `holders`. A host that cannot serve bytes refuses with gate `unsupported` and attaches nothing; the pane then asks again with `text` (§8).
 2. **Paint the snapshot.** `term.reset()`, `term.resize(cols, rows)`, write the decoded `data`, in one step. `data` is xterm-ready (spec): it starts with `ESC [ ? 1049 h` when `alt_screen`, paints the rows with CR LF, sets the modes (application cursor keys, bracketed paste, mouse), and ends by placing and showing or hiding the cursor, so the pane moves nothing itself. It is written in **one** `write` so a frame never renders between reset and paint. The same paint serves a `snapshot` notice (point 3).
 3. **Stream.** Notices are `output` (base64 bytes; one may end inside a character or an escape sequence, so they are written as bytes to xterm, which keeps the parser state), `snapshot`, `marker` and `holder`, all in one `seq` counter that goes up by 1 (spec). `seq ≤ last applied` is dropped, `seq = last+1` is applied, a hole means **re-attach and repaint**. The snapshot's `seq` is the last notice its screen includes, so the first notice after the reply is `seq+1` with nothing lost or repeated. **Slow client:** when 1 MiB of output is unsent the daemon drops it all and sends a `snapshot` notice, reason `slow_client`; the pane repaints from it (point 2) and does not re-attach. If the connection itself falls behind the event gap rule, it is closed and point 6 applies.
-4. **Client backpressure.** `term.write(data, cb)` counts bytes in flight; over 1 MB unprocessed, drop the queue and re-attach. 
+4. **Client backpressure.** `term.write(data, cb)` counts bytes in flight; over 1 MB unprocessed, drop the queue and re-attach.
 5. **Detach** (tab hidden, closed, agent not selected, browser tab hidden, page unload): `terminal.detach` at once, and it **releases the input if this device holds it** (§5), so the hold never outlives the attach. The xterm instance is kept 30 s (a quick switch back shows the last screen, then repaints from the new snapshot) and disposed after. Detach never stops the agent.
 6. **Reconnect.** The transport reconnects by itself (`packages/client`, cursor resume for events). The view goes `stale`: the screen stays, dimmed, with "Reconnecting…" and input off; on `open` it attaches again and **repaints from the new snapshot**, so nothing missed while offline is replayed or guessed. A snapshot that arrives is atomic (point 2); a failed attach (`not_found`: terminal closed, `refused`) shows the reason in place of the grid with a Retry.
 7. **Terminal gone while attached** (session closed, terminal closed): the daemon's state change reaches the pane through `agent.changed`; the pane shows the last screen dimmed with "No terminal" and does not retry until the agent has one.
@@ -63,12 +63,12 @@ The pane is **read-only until the person takes the keyboard** (design §4.3). On
 
 States of the terminal tab's strip (it carries these controls, web-main-view §2):
 
-| Holder | Strip shows | Pane |
-|---|---|---|
-| `daemon` | "Daemon types here" and **Take control** | read-only; a click or first key shows a one-line confirm "Take control? The daemon pauses delivering tasks and keys" |
-| this device | "input: YOU 3:12" (time since last key against `input_hold_idle_s`, from settings), **Release** | typing live; the idle clock restarts on each key |
-| another person or device | "held by <name> since <time>" | read-only |
-| unknown / stale | "Reconnecting" | read-only |
+| Holder                   | Strip shows                                                                                     | Pane                                                                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `daemon`                 | "Daemon types here" and **Take control**                                                        | read-only; a click or first key shows a one-line confirm "Take control? The daemon pauses delivering tasks and keys" |
+| this device              | "input: YOU 3:12" (time since last key against `input_hold_idle_s`, from settings), **Release** | typing live; the idle clock restarts on each key                                                                     |
+| another person or device | "held by <name> since <time>"                                                                   | read-only                                                                                                            |
+| unknown / stale          | "Reconnecting"                                                                                  | read-only                                                                                                            |
 
 - **Take** = `input.take` first, always (§4.3); the pane does not rely on a short hold. Keys typed before the reply are discarded, not queued.
 - **Release** = Release button, any detach (§3.5), or the idle timeout (the daemon's `holder` notice is the truth; the strip follows it, never its own timer alone). Taking back after an idle release asks again.
@@ -89,14 +89,14 @@ web-main-view fixes the layout: each agent has a **workspace** (sidebar picks it
 
 Badges come from the daemon's parsed facts (`AgentView`), never from the bytes, and appear on the tab label and the sidebar row:
 
-| Badge | When | Action |
-|---|---|---|
-| amber `!` **dialog** | `has_dialog` or an open prompt | click focuses the card in Chat; the pane shows a one-line bar with the dialog's title |
-| red **STALLED** / blocked | `state` is `stalled` or `blocked`, or `block` set (kind and since in the tooltip: no terminal, no session, host down) | click opens the Timeline tab at the cause |
-| blue **YOU** | this device holds the input | click selects the pane |
-| grey **held: <name>** | another holder | |
-| dashed **no terminal** | `AgentDetail.terminal` is null | Start / Resume are in the sidebar, not here |
-| unread dot | a hidden terminal tab whose agent just raised a dialog or stalled | clears when the tab is shown |
+| Badge                     | When                                                                                                                  | Action                                                                                |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| amber `!` **dialog**      | `has_dialog` or an open prompt                                                                                        | click focuses the card in Chat; the pane shows a one-line bar with the dialog's title |
+| red **STALLED** / blocked | `state` is `stalled` or `blocked`, or `block` set (kind and since in the tooltip: no terminal, no session, host down) | click opens the Timeline tab at the cause                                             |
+| blue **YOU**              | this device holds the input                                                                                           | click selects the pane                                                                |
+| grey **held: <name>**     | another holder                                                                                                        |                                                                                       |
+| dashed **no terminal**    | `AgentDetail.terminal` is null                                                                                        | Start / Resume are in the sidebar, not here                                           |
+| unread dot                | a hidden terminal tab whose agent just raised a dialog or stalled                                                     | clears when the tab is shown                                                          |
 
 States unknown to this client are shown as plain text on the tab's tooltip (open set).
 
@@ -119,19 +119,19 @@ Everything the host sends is the agent's output. xterm.js is configured for that
 
 Questions asked of orcapipe, answered in `contract/protocol.md` ("Terminal channel", "Format bytes").
 
-| # | Question | Answer | Where used |
-|---|---|---|---|
-| 1 | How a client asks for and learns `bytes` | `format` param on `terminal.attach` and `terminal.history`; `hello.capabilities.terminal_format` and `terminal_hosts`; refused with gate `unsupported` otherwise | §3.1, §8 |
-| 2 | Raw input method, dialog gate | `terminal.input`, base64 `data`; passes wall and dialog; refused while the daemon holds the input | §5 |
-| 3 | Snapshot and stream ordering, xterm-ready bytes | snapshot `seq` is the last notice included, next is `seq+1`; CR LF rows, modes and cursor in `data` | §3.2, §3.3 |
-| 4 | Wire encoding | base64 in JSON, no binary frames | §3.3 |
-| 5 | Slow reader | at 1 MiB unsent the daemon sends a `snapshot` notice, reason `slow_client`; no re-attach | §3.3 |
-| 6 | History under `bytes` | SGR-coded physical rows, default 100, at most 2000, page ≤ 1 MiB with `more` | §3 Scrollback |
-| 7 | Alternate screen, cursor | `alt_screen`, `cursor`, `cursor_visible` in the snapshot; no history on the alternate screen | §3 |
-| 8 | Size on attach, resize notices | snapshot carries `cols`, `rows`; a size change is a `snapshot` notice, reason `resize`; no `resize` notice | §4 |
-| 9 | `marker` | a notice in the one counter, before the output that echoes | §5 |
-| 10 | `input_hold_idle_s` | the holder who has not typed for it loses the hold; the `holder` notice says so | §5 |
-| 11 | Fixtures | to be checked against `contract/fixtures` when P1 starts: reconnect from a snapshot, a hole in `seq` | §10 |
+| #   | Question                                        | Answer                                                                                                                                                           | Where used    |
+| --- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| 1   | How a client asks for and learns `bytes`        | `format` param on `terminal.attach` and `terminal.history`; `hello.capabilities.terminal_format` and `terminal_hosts`; refused with gate `unsupported` otherwise | §3.1, §8      |
+| 2   | Raw input method, dialog gate                   | `terminal.input`, base64 `data`; passes wall and dialog; refused while the daemon holds the input                                                                | §5            |
+| 3   | Snapshot and stream ordering, xterm-ready bytes | snapshot `seq` is the last notice included, next is `seq+1`; CR LF rows, modes and cursor in `data`                                                              | §3.2, §3.3    |
+| 4   | Wire encoding                                   | base64 in JSON, no binary frames                                                                                                                                 | §3.3          |
+| 5   | Slow reader                                     | at 1 MiB unsent the daemon sends a `snapshot` notice, reason `slow_client`; no re-attach                                                                         | §3.3          |
+| 6   | History under `bytes`                           | SGR-coded physical rows, default 100, at most 2000, page ≤ 1 MiB with `more`                                                                                     | §3 Scrollback |
+| 7   | Alternate screen, cursor                        | `alt_screen`, `cursor`, `cursor_visible` in the snapshot; no history on the alternate screen                                                                     | §3            |
+| 8   | Size on attach, resize notices                  | snapshot carries `cols`, `rows`; a size change is a `snapshot` notice, reason `resize`; no `resize` notice                                                       | §4            |
+| 9   | `marker`                                        | a notice in the one counter, before the output that echoes                                                                                                       | §5            |
+| 10  | `input_hold_idle_s`                             | the holder who has not typed for it loses the hold; the `holder` notice says so                                                                                  | §5            |
+| 11  | Fixtures                                        | to be checked against `contract/fixtures` when P1 starts: reconnect from a snapshot, a hole in `seq`                                                             | §10           |
 
 ## 10. Tests
 
@@ -146,13 +146,13 @@ Questions asked of orcapipe, answered in `contract/protocol.md` ("Terminal chann
 
 Numbered **P1..P5** to keep clear of turborepo-layout's units. All come after unit 3 (`apps/web` shell with Chat and Terminal tabs on the text grid); P1 touches only `packages/` and may run beside 4a. The first column is a suggestion; the manager assigns. Each goes through the auditor, and its note gives the test count before and after.
 
-| # | Unit | Suggested owner | After | Done when |
-|---|---|---|---|---|
-| P1 | `ByteTerminalView` and the bytes format in `fake-daemon`, from the bytes fixtures | term-build (wrote the client) | unit 3 | the contract and screen-equality tests of §10 pass with no DOM; the text view's 17 client tests unchanged |
-| P2 | xterm pane, read-only: attach, detach, reconnect, scrollback, fallback to the text grid (§3, §8, §7), theme from tokens | pc-build | P1, unit 3; the phone-width rule and its screenshots land with 4a's responsive collapse | a live colour screen from the fake daemon in the browser; reconnect repaints; the adapter safety tests pass |
-| P3 | Input and holder: take / release / idle clock, send path, key chips, daemon markers, resize ownership (§4, §5) | pc-build | P2 | the holder table and send-path tests pass; resize verified at two pane sizes; typing reaches the fake daemon only while holding |
-| P4 | Badges and the tab per agent on the tab and the sidebar row (§6) | pc-build | P2 (parallel to P3) | the badge table test; the unread dot clears on show; screenshots with a dialog and a stalled agent |
-| P5 | Live check on the real tmux host and the notes it forces | term-design (this role) or pc-build | P3, P4, the Python daemon with `bytes` on main | screenshots and a recorded reconnect against a real session, Claude Code TUI usable (dialog answered by hand in the pane); notes the live check forces folded into this doc |
+| #   | Unit                                                                                                                    | Suggested owner                     | After                                                                                   | Done when                                                                                                                                                                   |
+| --- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | `ByteTerminalView` and the bytes format in `fake-daemon`, from the bytes fixtures                                       | term-build (wrote the client)       | unit 3                                                                                  | the contract and screen-equality tests of §10 pass with no DOM; the text view's 17 client tests unchanged                                                                   |
+| P2  | xterm pane, read-only: attach, detach, reconnect, scrollback, fallback to the text grid (§3, §8, §7), theme from tokens | pc-build                            | P1, unit 3; the phone-width rule and its screenshots land with 4a's responsive collapse | a live colour screen from the fake daemon in the browser; reconnect repaints; the adapter safety tests pass                                                                 |
+| P3  | Input and holder: take / release / idle clock, send path, key chips, daemon markers, resize ownership (§4, §5)          | pc-build                            | P2                                                                                      | the holder table and send-path tests pass; resize verified at two pane sizes; typing reaches the fake daemon only while holding                                             |
+| P4  | Badges and the tab per agent on the tab and the sidebar row (§6)                                                        | pc-build                            | P2 (parallel to P3)                                                                     | the badge table test; the unread dot clears on show; screenshots with a dialog and a stalled agent                                                                          |
+| P5  | Live check on the real tmux host and the notes it forces                                                                | term-design (this role) or pc-build | P3, P4, the Python daemon with `bytes` on main                                          | screenshots and a recorded reconnect against a real session, Claude Code TUI usable (dialog answered by hand in the pane); notes the live check forces folded into this doc |
 
 ## 12. Not in scope
 

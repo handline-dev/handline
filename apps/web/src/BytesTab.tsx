@@ -255,8 +255,23 @@ export function BytesTab({
         )}
         <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">
           {note}
-          {!hasTerminal && <Button variant="outline" size="sm" label="Start terminal" className="text-term-ink" disabled={startTerminal.isPending} onClick={() => startTerminal.mutate({ agent })}>Start terminal</Button>}
-          {state === 'live' && !holds && !heldBy && !takeInput.error && (watchOnly ? 'Watch only: no agent has this pane, so it takes no keys. ' : 'Click the terminal to type in it. ')}
+          {!hasTerminal && (
+            <Button
+              variant="outline"
+              size="sm"
+              label="Start terminal"
+              className="text-term-ink"
+              disabled={startTerminal.isPending}
+              onClick={() => startTerminal.mutate({ agent })}
+            >
+              Start terminal
+            </Button>
+          )}
+          {state === 'live' &&
+            !holds &&
+            !heldBy &&
+            !takeInput.error &&
+            (watchOnly ? 'Watch only: no agent has this pane, so it takes no keys. ' : 'Click the terminal to type in it. ')}
           {refused || (takeInput.error ? `Could not take the input: ${reasonOf(takeInput.error)}` : '')}
           {state === 'failed' && <Button variant="outline" size="sm" label="Retry" onClick={() => setAttempt((n) => n + 1)} />}
         </div>
