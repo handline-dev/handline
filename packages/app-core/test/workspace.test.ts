@@ -338,7 +338,10 @@ test('Split halves a pane with a new tab; choosing fills it, moving a tab alread
   assert.deepEqual(groupsOf(tasks.root)[1]!.tabs, ['tasks']);
   assert.equal(tasks.tabs['new:1'], undefined);
   const term = fillTab(splitPane(ws, 'g1')!, 'new:1', 'terminal', { handle: 'term:a' });
-  assert.deepEqual(groupsOf(term.root).map((g) => g.tabs), [[CHAT], ['terminal:term:a']]);
+  assert.deepEqual(
+    groupsOf(term.root).map((g) => g.tabs),
+    [[CHAT], ['terminal:term:a']],
+  );
   let many: Workspace = ws;
   for (let i = 0; i < 6; i++) many = splitPane(many, 'g1') ?? many;
   assert.equal(groupsOf(many.root).length, 7);
@@ -350,7 +353,10 @@ test('Split after a collapse still opens a new right half', () => {
   assert.equal(groupsOf(collapsed.root).length, 1);
   const again = splitPane(collapsed, groupsOf(collapsed.root)[0]!.id)!;
   assert.equal(groupsOf(again.root).length, 2);
-  assert.deepEqual(groupsOf(again.root).map((g) => g.tabs.length), [2, 1]);
+  assert.deepEqual(
+    groupsOf(again.root).map((g) => g.tabs.length),
+    [2, 1],
+  );
   assert.notEqual(groupsOf(again.root)[1]!.tabs[0], 'new:1');
 });
 
@@ -367,7 +373,9 @@ test('the view switch goes from the chat to Claude Code and back, opening the ta
   assert.equal(shown(toggleView(withTab, 'h1')), 'terminal:h1');
   assert.equal(shown(toggleView(toggleView(withTab, 'h1'), 'h1')), CHAT);
   assert.equal(shown(toggleView(defaultWorkspace(), 'h2')), 'terminal:h2');
-  assert.equal(shown(toggleView(defaultWorkspace())), CHAT, 'no terminal to switch to');
+  assert.equal(shown(toggleView(defaultWorkspace())), 'terminal:none', 'no terminal running: the tab that offers to start one');
+  const waiting = toggleView(defaultWorkspace());
+  assert.equal(shown(setTerminal(waiting, 'h3')), 'terminal:h3', 'the real terminal takes the tab over when it starts');
   assert.equal(shown(toggleView(defaultWorkspace(), undefined, true)), 'transcript');
 });
 

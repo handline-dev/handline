@@ -151,6 +151,7 @@ describe('the terminal view of a chat', () => {
     s.daemon.sessions.get(ARCH)!.open = false; // closed, so no terminal
     s.daemon.sessions.get(ARCH)!.hasTerminal = false;
     await mount(undefined, s);
+    await act(async () => flip('Claude Code')?.click());
     await until(() => $('.start-terminal'), 'the start button');
     expect(text($('.terminal-tab'))).not.toMatch(/no terminal/i);
     await act(async () => $('.start-terminal button')!.click());
