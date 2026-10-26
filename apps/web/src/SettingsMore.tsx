@@ -158,7 +158,7 @@ export function Connection() {
     ['Version', hello?.daemon.slice(0, 9)],
     [
       'App',
-      follow ? `main ${follow.sha.slice(0, 7)}${follow.next ? `, newer main ${follow.next.slice(0, 7)} is waiting` : ''}` : undefined,
+      follow?.sha ? `main ${follow.sha.slice(0, 7)}${follow.next ? `, newer main ${follow.next.slice(0, 7)} is waiting` : ''}` : undefined,
     ],
     ['Role', hello?.role],
     ['Transport', hello ? (hello.transport === 'tls' ? 'Encrypted network connection' : 'Local socket') : undefined],
