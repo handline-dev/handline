@@ -42,7 +42,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
   };
 
   return (
-    <Card variant="chat" className="prompt bg-surface" role="alert" ref={card} tabIndex={-1} onKeyDown={onKey} aria-busy={answering}>
+    <Card variant="chat" className="prompt !flex-col !items-stretch !gap-0 bg-surface" role="alert" ref={card} tabIndex={-1} onKeyDown={onKey} aria-busy={answering}>
       <div className="card-title mb-1.5 font-semibold">
         <Icon name="warn" size={13} aria-hidden className="mr-1 inline-block align-[-2px]" /> {promptTitle(p)}
         <span className="muted font-normal">
@@ -54,7 +54,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
           This prompt changed
         </p>
       ) : null}
-      {p.command ? <CodeBlock cmd scroll>{p.command}</CodeBlock> : <CodeBlock scroll>{p.lines.join('\n')}</CodeBlock>}
+      {p.command ? <Folded cmd text={p.command} /> : <CodeBlock scroll>{p.lines.join('\n')}</CodeBlock>}
       {p.reason ? <p className="muted">{p.reason}</p> : null}
       {question || multi ? (
         <ol className="opts m-0 mt-2 grid list-none gap-1.5 p-0">
@@ -136,6 +136,24 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
       ) : null}
       {answering ? <p className="muted">{slow ? 'still waiting' : 'answering…'}</p> : null}
     </Card>
+  );
+}
+
+const FOLD_LINES = 5;
+
+/** A command at full card width, folded to a few lines with a toggle when it runs long. */
+function Folded({ cmd, text }: { cmd?: boolean; text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.split('\n').length > FOLD_LINES || text.length > 400;
+  return (
+    <>
+      <CodeBlock cmd={cmd} scroll={open || !long} className={long && !open ? 'max-h-[calc(5lh+0.75rem)] overflow-hidden' : undefined}>
+        {text}
+      </CodeBlock>
+      {long ? (
+        <Button variant="ghost" size="sm" label={open ? 'Show less' : 'Show all'} aria-label={open ? 'Show less' : 'Show all'} className="mt-1 self-start" onClick={() => setOpen(!open)} />
+      ) : null}
+    </>
   );
 }
 
