@@ -46,6 +46,12 @@ func TestEachAgentIsItsPanesWholeProcessTree(t *testing.T) {
 	if _, ok := agents["gone"]; ok {
 		t.Fatal("a pane with no process is left out")
 	}
+	if all := got["agents_total"].(map[string]any); all["cpu_pct"] != 97.0 || all["rss_bytes"] != int64((1024+2048+204800+10240+512)*1024) {
+		t.Fatalf("the total is every agent's: %v", all)
+	}
+	if got["machine"].(map[string]any)["ram_free_pct"] != 25 {
+		t.Fatalf("a quarter of the memory is free: %v", got["machine"])
+	}
 	m := got["machine"].(map[string]any)
 	if m["ram_free_bytes"] != int64(4<<30) || m["load_1m"] != 3.5 || m["cores"] != runtime.NumCPU() || m["disk_free_bytes"] != int64(9<<30) ||
 		got["at"] != "2026-09-21T14:13:20Z" {
