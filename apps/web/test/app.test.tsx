@@ -43,6 +43,7 @@ const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const fire = (el: Element, type: string) =>
   act(async () => {
     el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+    if (type === 'dragstart') await new Promise((r) => setTimeout(r, 0)); // the drop cover mounts after the dragstart event
   });
 const rect = (l: number, t: number, w: number, h: number) =>
   ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h, x: l, y: t, toJSON() {} }) as DOMRect;
