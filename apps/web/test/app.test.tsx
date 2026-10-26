@@ -535,7 +535,9 @@ describe('the daemon-down notice', () => {
     m.net.down = true;
     m.daemon.dropConnections();
     await until(() => $('.daemon-down'), 'the notice');
-    expect(text($('.daemon-down'))).toContain('hl service install');
+    expect(text($('.daemon-down'))).toContain("Handline isn't running");
+    expect(text($('.daemon-down code'))).toBe('hl service install'); // visible without the clipboard (a page over plain http has none)
+    expect($$('.daemon-down button').some((b) => text(b) === 'Copy command')).toBe(true);
     m.net.down = false;
     await until(() => !$('.daemon-down'), 'the notice gone');
   });

@@ -103,8 +103,10 @@ export function useTimeline(agent: string) {
 export function usePullRequests(agent: string | undefined, text: string): { repo: string | null; isPr: (n: number) => boolean } {
   const numbers = agent ? hashNumbers(text).sort((a, b) => a - b) : [];
   const { data } = useRead('pr.exists', { agent: agent ?? '', numbers }, { enabled: numbers.length > 0 });
-  const found = new Set(data?.found ?? []);
-  return { repo: data?.repo ?? null, isPr: (n) => found.has(n) };
+  return useMemo(() => {
+    const found = new Set(data?.found ?? []);
+    return { repo: data?.repo ?? null, isPr: (n: number) => found.has(n) };
+  }, [data]);
 }
 export const useAgentOptions = () => useRead('agent.options', {});
 export const useTriggers = (agent?: string) => useRead('agent.triggers', { agent });

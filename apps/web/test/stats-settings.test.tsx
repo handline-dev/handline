@@ -251,8 +251,9 @@ describe('settings', () => {
 
   it('a switch saves on change', async () => {
     const s = await mount('#/settings');
-    await until(() => $('button[aria-expanded]'), 'the fields');
-    await click($$('button[aria-expanded]').find((b) => text(b).includes('Advanced'))!);
+    const advanced = () => $$('button[aria-expanded]').find((b) => text(b).includes('Advanced'));
+    await until(advanced, 'the Advanced fold');
+    await click(advanced());
     await until(() => toggle('Handoff note'), 'the Advanced rows');
     await click(toggle('Handoff note'));
     await until(() => s.daemon.admin.settings().values.handoff_note === false, 'handoff note');
@@ -370,7 +371,7 @@ describe('standing answers', () => {
     expect(text($('.toast'))).toContain('that folder does not exist');
     await until(() => $$('[data-answer]').length === 2, 'the row gone');
     await click($('[data-answer="trust"] button'));
-    expect($$('[data-answer]')).toHaveLength(1);
+    await until(() => $$('[data-answer]').length === 1, 'the row gone');
     await until(() => (s.daemon.admin.call('answers.list', {}, () => 0) as { answers: unknown[] }).answers.length === 1, 'the daemon');
   });
 });

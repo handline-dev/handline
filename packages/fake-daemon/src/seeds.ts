@@ -186,6 +186,20 @@ export const SEEDS: Record<string, Seed> = {
     };
   },
 
+  /** An approved proposal that did not apply, the daemon's error in its own words, and the daemon down notice's page. */
+  'hr-apply-failed': (d) => {
+    d.script.hr.raise({
+      id: 908,
+      kind: 'settings',
+      agent: ARCH,
+      title: 'settings handline.architect',
+      diff: 'effort: high',
+      state: 'apply_failed',
+      error:
+        'proposal p908 was not applied: agent.yaml is locked by another process. Retry when the lock clears (/Users/x/.handline/agents/handline.architect/agent.yaml).',
+    });
+  },
+
   /** Two approved proposals whose change is applied but whose agent did not start: the architect's waits for the load, the auditor's failed. */
   'hr-followup': (d) => {
     const hr = d.script.hr;

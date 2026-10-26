@@ -1,7 +1,7 @@
 // The data layer's root: the query client, which daemon the keys belong to, and the event bridge that keeps the cache current.
 import { createContext, createElement, useContext, useEffect, useState, type ComponentType, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useSelector, useStore } from '@handline/app-react';
+import { useSelected, useStore } from '@handline/app-react';
 import type { Topic } from '@handline/client';
 import { createBridge, resume, resync } from '#src/bridge.ts';
 import { readAway } from '#src/away.ts';
@@ -69,8 +69,8 @@ export function useData(): Data {
 /** Whether a view may read or write `method` now: the connection is open and the daemon lists the method for this caller. */
 export function useServes(method: string): { served: boolean; open: boolean } {
   // Until hello has told us what the daemon lists, a view is loading, not "not served".
-  const served = useSelector((s) => s.served.size === 0 || s.can(method));
-  const open = useSelector((s) => s.conn === 'open');
+  const served = useSelected((s) => s.served.size === 0 || s.can(method));
+  const open = useSelected((s) => s.conn === 'open');
   return { served, open };
 }
 
