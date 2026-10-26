@@ -36,6 +36,7 @@ import { CaptureHost } from '#src/Capture.tsx';
 import { TasksPage } from '#src/Tasks.tsx';
 import { AgentWorkspace } from '#src/Workspace.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
+import { typing } from '#src/typing.ts';
 
 const Box: BoxComponent = (p) => <div {...p} />;
 
@@ -75,7 +76,6 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const [keys, setKeys] = useState(false);
   const own = tasks !== null; // these pages answer `?` with their own keys
   useEffect(() => {
-    const typing = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable]');
     const onKey = (e: KeyboardEvent) => {
       if (terminalOwnsKey(e)) return; // a focused terminal gets every key
       const mod = e.metaKey || e.ctrlKey;
