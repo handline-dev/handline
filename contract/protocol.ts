@@ -10,8 +10,8 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. */
-export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr" | "transcript" | "prefs";
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. requests (member, which includes the founder): the founder's requests (RequestRow), so a Requests page is live. */
+export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr" | "transcript" | "prefs" | "requests";
 
 export type Caller = {
   kind: "person" | "device" | "agent" | "anonymous";
@@ -876,6 +876,8 @@ export type Memo = {
   parts?: (TextPart | ImagePart)[];
   /** The files the memo carries, in the order they were given; present only when it carries one. */
   files?: MemoFile[];
+  /** The comment this one answers; null for none. */
+  reply_to?: number | null;
 };
 
 export type TaskBoardRow = {
@@ -935,6 +937,10 @@ export type ChatMessage = {
   proposal?: number;
   /** One-tap buttons for a message to the founder that waits on a decision about a task it is tied to. Present only while that task is owned by the founder and open (OK, No). Never read from the words; gone once the task changes, so a client refetches when a task event arrives. A tap calls `verb` with `params` (the client adds request_id); an action with `needs` takes that param from the person first. No answer state: each is an ordinary task verb. */
   actions?: ChatAction[];
+  /** On a message of the founder's to an agent: the request task made from it (task.request); null for none. */
+  request_task?: number | null;
+  /** On a message of the founder's to an agent: why it needs no work (task.none); null for none. */
+  no_work?: string | null;
 };
 
 export type TranscriptItem = {
@@ -1768,6 +1774,40 @@ export type ReadCursor = {
   cursor: number;
 };
 
+/** One row of the founder's requests. */
+export type RequestRow = {
+  /** task: a request the founder opened (task.request, or a task of their own for a lead). message: a message of theirs that is not a task yet. */
+  kind: "task" | "message";
+  /** The request's task; null for a message. */
+  task: number | null;
+  /** The founder's message it was made from, or is; null for a task opened without one. */
+  ref: RequestRef | null;
+  title: string;
+  /** Read from the request's tree of tasks, never stored; the first that holds. waiting_on_you: a task assigned to the founder or a decision card waiting on them, anywhere in the tree. review: an open task has a PR. doing: some task in the tree is open. done: the request's own task is done (the agent that holds it judges and closes it; the founder does not). no_work: a message marked with task.none. not_yet: a message with neither a task nor a mark. */
+  status: "waiting_on_you" | "review" | "doing" | "done" | "no_work" | "not_yet";
+  /** Who holds the request, or the agent the message was sent to. */
+  agent: string;
+  /** The agent the message it was made from was sent to. Only on a task made from a message. */
+  origin?: string;
+  /** Agents holding an open task in the tree; empty once done. */
+  holders: string[];
+  /** Open tasks under the request's own. */
+  open: number;
+  /** Ended tasks under the request's own. */
+  done: number;
+  /** PRs of the open tasks in the tree. */
+  prs: number[];
+  /** Why a message needs no work (status no_work). */
+  reason: string | null;
+  /** Agents' comments on the request that the founder has not read: what its inbox line counts. */
+  unread_comments: number;
+  created: Timestamp;
+  last_activity: Timestamp;
+  /** Orders the list; pass the last row's as requests.list before. */
+  cursor: string;
+  [key: string]: unknown;
+};
+
 export interface Methods {
   "hello": { params: {
   /** name/version of the caller. */
@@ -2414,6 +2454,15 @@ export interface Methods {
       closures_reason: number;
     };
   } & ReadCursor };
+  "requests.list": { params: {
+  state?: "waiting_on_you" | "review" | "doing" | "done" | "no_work" | "not_yet";
+  /** A row's cursor: the rows after it. */
+  before?: string;
+  limit?: number;
+}; result: {
+    items: RequestRow[];
+    more: boolean;
+  } };
   "task.get": { params: {
   task: number;
 }; result: TaskDetail & ReadCursor };
@@ -2471,7 +2520,10 @@ export interface Methods {
   /** The brief, Markdown. It may name images (x-attachments, texts). */
   body?: string;
   time_box?: Duration;
+  /** Default: when the caller's current task is a request (made from a founder's message), that task, unless no_parent. */
   parent?: number;
+  /** Do not hang the task under the caller's current request. Refused with parent. */
+  no_parent?: boolean;
   /** Open the task even when an open task under the same parent, or the parent itself, has nearly its title (gate duplicate_title). */
   duplicate_ok?: boolean;
   /** Cannot be worked until this task closes. */
@@ -2573,6 +2625,8 @@ export interface Methods {
   text: string;
   /** Tell every reader at once, even mid-turn. */
   now?: boolean;
+  /** The comment on the same task this one answers (Memo.reply_to). Refused (not_found memo) when the task has no such comment. */
+  reply?: number;
   /** Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files). */
   files?: string[];
   request_id: RequestId;
@@ -3139,6 +3193,7 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "inbox.mark_read": { role: "agent", callers: null, write: true, since: 1 },
   "inbox.reply": { role: "agent", callers: null, write: true, since: 1 },
   "tasks.list": { role: "agent", callers: null, write: false, since: 1 },
+  "requests.list": { role: "member", callers: null, write: false, since: 1 },
   "task.get": { role: "agent", callers: null, write: false, since: 1 },
   "task.history": { role: "agent", callers: null, write: false, since: 1 },
   "task.time": { role: "agent", callers: null, write: false, since: 1 },
