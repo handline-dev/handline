@@ -13,6 +13,19 @@ export function groups(agents: TeamAgent[]): { parent: string | null; agents: Te
     .map(([parent, list]) => ({ parent, agents: list }));
 }
 
+/** An agent and the agents that report to it, each level sorted by name; an agent whose manager is not on the team is a root. */
+export interface TeamNode {
+  agent: TeamAgent;
+  children: TeamNode[];
+}
+
+export function teamTree(agents: TeamAgent[]): TeamNode[] {
+  const names = new Set(agents.map((a) => a.name));
+  const sorted = [...agents].sort((x, y) => x.name.localeCompare(y.name));
+  const build = (a: TeamAgent): TeamNode => ({ agent: a, children: sorted.filter((c) => c.parent === a.name).map(build) });
+  return sorted.filter((a) => a.parent === null || !names.has(a.parent)).map(build);
+}
+
 export function useTeamBoard() {
   const query = useTeam();
   const { served } = useServes('team.get');
@@ -25,6 +38,7 @@ export function useTeamBoard() {
     served,
     team,
     groups: groups(team?.agents ?? []),
+    tree: teamTree(team?.agents ?? []),
     edges: team?.edges ?? [],
     doing,
     isOpen: (name: string) => open === name,

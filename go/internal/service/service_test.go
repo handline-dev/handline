@@ -89,12 +89,12 @@ func TestABrokenUpgradeRollsBackToTheVersionThatRan(t *testing.T) {
 	if !strings.Contains(string(plist), filepath.Join(r.s.Bin, "current", "handlined")) || !strings.Contains(string(plist), "-home") || !r.loaded {
 		t.Fatalf("job: loaded %v\n%s", r.loaded, plist)
 	}
-	if _, err := r.s.Upgrade(r.build("v2", false)); err != nil {
+	if _, err := r.s.Upgrade(r.build("v2", false), false); err != nil {
 		t.Fatal(err)
 	}
 	r.want("v2", "v1", "v1", "v2")
 
-	_, err := r.s.Upgrade(r.build("v3", true))
+	_, err := r.s.Upgrade(r.build("v3", true), false)
 	if err == nil || !strings.Contains(err.Error(), "rolled back to v2") {
 		t.Fatalf("broken upgrade: %v", err)
 	}
@@ -110,17 +110,17 @@ func TestABrokenUpgradeRollsBackToTheVersionThatRan(t *testing.T) {
 	if msg, err := r.s.Rollback(); err != nil || msg != "rolled back v1 -> v2" {
 		t.Fatalf("second rollback: %q %v", msg, err)
 	}
-	if _, err := r.s.Upgrade(r.build("v4", false)); err != nil {
+	if _, err := r.s.Upgrade(r.build("v4", false), false); err != nil {
 		t.Fatal(err)
 	}
 	r.want("v4", "v2", "v2", "v4") // the last two: the one running and the one before it
-	if msg, _ := r.s.Upgrade(r.build("v4", false)); msg != "already on v4" {
+	if msg, _ := r.s.Upgrade(r.build("v4", false), false); msg != "already on v4" {
 		t.Error(msg)
 	}
 	running, _ := os.ReadFile(filepath.Join(r.s.Bin, "v4", "handlined"))
 	other := r.build("v4", false) // a dirty tree at the same commit: same version, other bytes
 	os.WriteFile(filepath.Join(other, "hl"), []byte("#!/bin/sh\necho other\n"), 0o755)
-	if _, err := r.s.Upgrade(other); err == nil || !strings.Contains(err.Error(), "different build") {
+	if _, err := r.s.Upgrade(other, false); err == nil || !strings.Contains(err.Error(), "different build") {
 		t.Fatalf("a different build of v4: %v", err)
 	}
 	if now, _ := os.ReadFile(filepath.Join(r.s.Bin, "v4", "handlined")); string(now) != string(running) {
@@ -137,7 +137,7 @@ func TestABrokenUpgradeRollsBackToTheVersionThatRan(t *testing.T) {
 
 func TestAnUpgradeWithoutAVersionChangesNothing(t *testing.T) {
 	r := newRig(t)
-	if _, err := r.s.Upgrade(r.build("v1", false)); err == nil || !strings.Contains(err.Error(), "not installed") {
+	if _, err := r.s.Upgrade(r.build("v1", false), false); err == nil || !strings.Contains(err.Error(), "not installed") {
 		t.Fatalf("before install: %v", err)
 	}
 	r.s.Install(r.build("v1", false), false)
@@ -146,15 +146,15 @@ func TestAnUpgradeWithoutAVersionChangesNothing(t *testing.T) {
 	}
 	bad := r.build("v2", false)
 	os.WriteFile(filepath.Join(bad, "handlined"), []byte("#!/bin/sh\nexit 1\n"), 0o755)
-	if _, err := r.s.Upgrade(bad); err == nil {
+	if _, err := r.s.Upgrade(bad, false); err == nil {
 		t.Fatal("a binary with no version was taken")
 	}
-	if _, err := r.s.Upgrade(r.build("unknown", false)); err == nil {
+	if _, err := r.s.Upgrade(r.build("unknown", false), false); err == nil {
 		t.Fatal("an unstamped build was taken")
 	}
 	missing := r.build("v3", false)
 	os.Remove(filepath.Join(missing, "hl"))
-	if _, err := r.s.Upgrade(missing); err == nil {
+	if _, err := r.s.Upgrade(missing, false); err == nil {
 		t.Fatal("a folder without hl was taken")
 	}
 	r.want("v1", "", "v1")
@@ -181,7 +181,7 @@ func TestARehearsalLabelKeepsItsOwnVersions(t *testing.T) {
 func TestAFailedUpgradeToTheKeptVersionKeepsIt(t *testing.T) {
 	r := newRig(t)
 	r.s.Install(r.build("v1", false), false)
-	r.s.Upgrade(r.build("v2", false))
+	r.s.Upgrade(r.build("v2", false), false)
 	probe := r.s.Probe
 	r.s.Probe = func() (string, error) { // v1 no longer starts, say on a schema v2 changed
 		if r.s.Current() == "v1" {
@@ -189,9 +189,64 @@ func TestAFailedUpgradeToTheKeptVersionKeepsIt(t *testing.T) {
 		}
 		return probe()
 	}
-	_, err := r.s.Upgrade(r.build("v1", false)) // the same bytes as the kept v1
+	_, err := r.s.Upgrade(r.build("v1", false), true) // the same bytes as the kept v1
 	if err == nil || !strings.Contains(err.Error(), "rolled back to v2") {
 		t.Fatalf("upgrade to the kept v1: %v", err)
 	}
 	r.want("v2", "v1", "v1", "v2") // v1's folder is the only copy to roll back to: it stays
+}
+
+func TestUpgradeRefusesAVersionThatIsNotNewer(t *testing.T) {
+	r := newRig(t)
+	r.s.Install(r.build("1.2.0+aaa", false), false)
+	for _, v := range []string{"1.1.9+bbb", "1.2.0+bbb", "1.2+ccc"} {
+		if _, err := r.s.Upgrade(r.build(v, false), false); err == nil || !strings.Contains(err.Error(), "not newer") {
+			t.Fatalf("%s: %v", v, err)
+		}
+	}
+	r.want("1.2.0+aaa", "", "1.2.0+aaa")
+	if _, err := r.s.Upgrade(r.build("1.10.0+ddd", false), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.s.Upgrade(r.build("1.9.0+eee", false), true); err != nil {
+		t.Fatalf("--force: %v", err)
+	}
+	r.want("1.9.0+eee", "1.10.0+ddd", "1.9.0+eee", "1.10.0+ddd")
+}
+
+func TestUpgradeTakesAHandlineApp(t *testing.T) {
+	r := newRig(t)
+	r.s.Install(r.build("1.0.0", false), false)
+	app := filepath.Join(r.root, "Handline.app")
+	os.MkdirAll(filepath.Join(app, "Contents", "Resources"), 0o755)
+	if err := os.Rename(r.build("1.1.0", false), filepath.Join(app, "Contents", "Resources", "bin")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.s.Upgrade(app, false); err != nil {
+		t.Fatal(err)
+	}
+	r.want("1.1.0", "1.0.0", "1.0.0", "1.1.0")
+}
+
+func TestStatusJSON(t *testing.T) {
+	r := newRig(t)
+	if got := r.s.StatusJSON(); got != `{"current":"","installed":false,"path":"` + filepath.Join(r.s.Bin, current) + `","pid":0,"previous":"","running":false}` {
+		t.Fatal(got)
+	}
+	r.s.Install(r.build("1.0.0", false), false)
+	r.s.Launchctl = func(args ...string) (string, error) { return "state = running\n\tpid = 4242\n", nil }
+	if got := r.s.StatusJSON(); got != `{"current":"1.0.0","installed":true,"path":"` + filepath.Join(r.s.Bin, current) + `","pid":4242,"previous":"","running":true}` {
+		t.Fatal(got)
+	}
+}
+
+func TestUpgradeBetweenUnstampedBuildsIsNotOrdered(t *testing.T) {
+	r := newRig(t)
+	r.s.Install(r.build("93c3e5b83", false), false)
+	if _, err := r.s.Upgrade(r.build("3f9a2b1", false), false); err != nil {
+		t.Fatalf("digit-leading sha: %v", err)
+	}
+	if _, err := r.s.Upgrade(r.build("1.0.0", false), false); err != nil {
+		t.Fatalf("sha to release: %v", err)
+	}
 }
