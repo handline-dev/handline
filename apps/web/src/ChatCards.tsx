@@ -170,7 +170,9 @@ function FollowUpCard({ p, follow }: { p: Proposal; follow: FollowUp }) {
       <CardWhat stacked>
         <strong>{p.title}</strong>
         <span className="outcome">Applied</span>
-        <span className="muted">{follow.state === 'failed' ? follow.text : `${follow.agent} starts when the load drops`}</span>
+        <span className="muted whitespace-normal">
+          {follow.state === 'failed' ? follow.text : `${follow.agent} starts when the load drops`}
+        </span>
         {refused ? <span role="alert">{refused}</span> : null}
       </CardWhat>
       {served(verb) ? (

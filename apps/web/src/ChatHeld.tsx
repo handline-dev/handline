@@ -24,7 +24,7 @@ export function BlockedCard({ detail }: { detail: AgentDetail }) {
     <Card variant="event" tone="wait" className="card-blocked" data-kind="blocked" data-reason={status.reason}>
       <Icon name="blocked" label="Blocked" />
       <CardWhat stacked>
-        <strong>{capital(status.text || (you ? 'Waiting on you' : 'Blocked'))}</strong>
+        <strong className="whitespace-normal">{capital(status.text || (you ? 'Waiting on you' : 'Blocked'))}</strong>
         {ids.map((id) => (
           <a key={id} className="muted underline" href={`#/tasks/${id}`} onClick={openTaskOnClick(apply, id)}>
             {taskRef(id)}
@@ -51,7 +51,7 @@ export function HeldCard({ detail }: { detail: AgentDetail }) {
     <Card variant="event" tone="wait" className="card-held" data-kind="held" data-reason={status.reason}>
       <Icon name="blocked" label="Held" />
       <CardWhat stacked>
-        <strong>{status.text || 'Held: machine load'}</strong>
+        <strong className="whitespace-normal">{status.text || 'Held: machine load'}</strong>
         {status.since ? <span className="muted">for {ago(status.since)}</span> : null}
         {refused ? <span role="alert">{refused}</span> : null}
       </CardWhat>
