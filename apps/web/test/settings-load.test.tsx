@@ -101,7 +101,11 @@ describe('settings: pacing', () => {
   it('a number out of range is not sent', async () => {
     const s = await mount();
     await until(() => field('Pace target'), 'the rows');
-    for (const [label, bad] of [['Pace target', '49'], ['Pace target', '101'], ['Pace burst', '51']] as const) {
+    for (const [label, bad] of [
+      ['Pace target', '49'],
+      ['Pace target', '101'],
+      ['Pace burst', '51'],
+    ] as const) {
       await setValue(field(label), bad);
       await blur(field(label));
       expect($(`[data-setting="${label}"] .ui-note`)?.textContent).toContain('whole number');

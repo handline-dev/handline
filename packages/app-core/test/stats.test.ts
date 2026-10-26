@@ -1,6 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { INVALID, agentTime, bandOf, minutesOf, parseCap, parseMinutes, parseLimit, limitFields, parseRange, paceFields } from '#src/index.ts';
+import {
+  INVALID,
+  agentTime,
+  bandOf,
+  minutesOf,
+  parseCap,
+  parseMinutes,
+  parseLimit,
+  limitFields,
+  parseRange,
+  paceFields,
+} from '#src/index.ts';
 
 test('the bars change colour at 60 and 85 percent, not before', () => {
   assert.deepEqual([59, 60, 84, 85].map(bandOf), ['ok', 'warn', 'warn', 'bad']);
@@ -50,6 +61,12 @@ test('a pace number is a whole number inside its range, empty clears it, anythin
 test('the pace rows are the target and the burst, and a daemon without the keys has none', () => {
   assert.deepEqual(paceFields({}), []);
   const rows = paceFields({ pacing: true, pace_target_pct: 98, pace_burst_pct: 10 });
-  assert.deepEqual(rows.map((r) => [r.label, r.current]), [['Pace target', '98'], ['Pace burst', '10']]);
+  assert.deepEqual(
+    rows.map((r) => [r.label, r.current]),
+    [
+      ['Pace target', '98'],
+      ['Pace burst', '10'],
+    ],
+  );
   assert.deepEqual(rows[1]!.change(20), { pace_burst_pct: 20 });
 });
