@@ -1,5 +1,15 @@
 // React bindings for the shared store. No JSX, so the package is plain .ts that Vite and Metro compile as it is.
-import { createContext, createElement, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import type { Store } from '@handline/app-core';
 import { RpcError } from '@handline/client';
 
@@ -75,10 +85,8 @@ export function useSelected<T extends string | number | boolean | null | undefin
   const store = useStore();
   const pick = useRef(select);
   pick.current = select;
-  return useSyncExternalStore(
-    (cb) => store.subscribe(cb),
-    () => pick.current(store),
-  );
+  const subscribe = useCallback((cb: () => void) => store.subscribe(cb), [store]);
+  return useSyncExternalStore(subscribe, () => pick.current(store));
 }
 
 export const useConnection = () => useSelector((s) => s.conn);
