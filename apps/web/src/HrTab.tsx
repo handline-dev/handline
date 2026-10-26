@@ -1,6 +1,6 @@
 // The HR tab: the proposals agents raised. Approve, reject and withdraw are decided writes (the card changes when the hr topic or a refetch
 // says so); only a paired person decides them, and a phone shows the cards read-only.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   askedLines,
   cutError,
@@ -32,6 +32,7 @@ import {
   Empty,
   FNote,
   Icon,
+  type IconName,
   Input,
   KeyValueRow,
   MetaItem,
@@ -58,6 +59,33 @@ const STATE_KIND: Record<string, StateKind> = {
   withdrawn: 'idle',
 };
 
+const DONE_SHOWN = 10;
+const DONE_ICON: Record<string, IconName> = { approved: 'done', rejected: 'failed' };
+
+/** A decided proposal in one line: the result (an icon, its word in the title), the kind, what it was, the agent and the day; a click opens its card. */
+function DoneRow({ p, open, onToggle, children }: { p: Proposal; open: boolean; onToggle: () => void; children: ReactNode }) {
+  const { word } = stateWord(p);
+  return (
+    <div className="hr-done" data-done={p.id}>
+      <button
+        type="button"
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-center gap-2 rounded-card border border-line bg-surface px-3 py-1.5 text-left text-body"
+        onClick={onToggle}
+      >
+        <Icon name={DONE_ICON[p.state] ?? 'idle'} size={14} label={word} />
+        {kindOf(p) ? <span className="hr-kind rounded-chip border border-line px-1.5 text-label text-ink-2">{kindOf(p)}</span> : null}
+        <span className="min-w-0 flex-1 truncate">{textSafe(p.title)}</span>
+        <span className="muted truncate">{textSafe(p.agent)}</span>
+        <span className="muted tabular-nums">{new Date(p.settled ?? p.created).toLocaleDateString()}</span>
+      </button>
+      <Reveal show={open}>
+        <div className="pt-2">{children}</div>
+      </Reveal>
+    </div>
+  );
+}
+
 export function HrTab({ focus }: { focus: number | null }) {
   const q = useHr();
   const can = useSelector((s) => s.can('hr.decide'));
@@ -68,6 +96,14 @@ export function HrTab({ focus }: { focus: number | null }) {
   const [results, setResults] = useState<{ verb: string; rows: DecideResult[] } | null>(null);
   const [why, setWhy] = useState('');
   const [going, once] = useOnce();
+  const [older, setOlder] = useState(false);
+  const [openDone, setOpenDone] = useState<ReadonlySet<number>>(new Set());
+  const toggleDone = (id: number) =>
+    setOpenDone((s) => {
+      const n = new Set(s);
+      if (!n.delete(id)) n.add(id);
+      return n;
+    });
   const list = q.data?.proposals ?? [];
   const { waiting, recent: settledAndHeld } = ordered(list);
   const recent = settledAndHeld.filter((p) => !isHeld(p));
@@ -197,10 +233,15 @@ export function HrTab({ focus }: { focus: number | null }) {
         ))}
         {stale.length ? <SectionHead variant="small">Stale · no answer for 14 days</SectionHead> : null}
         {stale.map(waitingCard)}
-        {recent.length ? <SectionHead variant="small">Recent</SectionHead> : null}
-        {recent.map((p) => (
-          <Card key={p.id} p={p} decider={false} narrow={narrow} focus={focus === p.id} refresh={() => void q.refetch()} />
+        {recent.length ? <SectionHead variant="small">Done</SectionHead> : null}
+        {(older ? recent : recent.slice(0, DONE_SHOWN)).map((p) => (
+          <DoneRow key={p.id} p={p} open={openDone.has(p.id)} onToggle={() => toggleDone(p.id)}>
+            <Card p={p} decider={false} narrow={narrow} focus={focus === p.id} refresh={() => void q.refetch()} />
+          </DoneRow>
         ))}
+        {!older && recent.length > DONE_SHOWN ? (
+          <Button variant="ghost" size="sm" label={`Show ${recent.length - DONE_SHOWN} older`} onClick={() => setOlder(true)} />
+        ) : null}
       </div>
     </View>
   );
