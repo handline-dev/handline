@@ -12,7 +12,8 @@
     "build": "vite build",
     "test": "../../tools/heavy-slot.sh vitest run",
     "typecheck": "tsc -p .",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "perf": "node scripts/perf/run.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

@@ -1,0 +1,25 @@
+{
+  "slack": 0.1,
+  "scenarios": {
+    "chat: type 30 characters": {
+      "commits": 30,
+      "renders": 420
+    },
+    "chat: 10 messages arrive in the open chat": {
+      "commits": 50,
+      "renders": 50862
+    },
+    "chat: 10 messages arrive for another agent": {
+      "commits": 11,
+      "renders": 19190
+    },
+    "switch agent 6 times": {
+      "commits": 36,
+      "renders": 39588
+    },
+    "tasks: type 10 characters in search": {
+      "commits": 19,
+      "renders": 8019
+    }
+  }
+}
