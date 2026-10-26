@@ -514,6 +514,15 @@ describe('the detail', () => {
     );
   });
 
+  it('the assign picker has a search that finds anyone', async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks/1688', s);
+    await until(() => button('Owner ·'), 'the owner button');
+    await click(button('Owner ·')!);
+    await typeInto($('input[aria-label="Find someone"]', sheet('Assign T1688 to…')!) as HTMLInputElement, 'architect'); // local-ref-ok
+    expect($('section[aria-label="Matches"]')).not.toBeNull();
+  });
+
   it('keeps the assign sheet open and says why when the daemon refuses the new owner', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
