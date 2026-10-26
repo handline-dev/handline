@@ -256,6 +256,7 @@ if (!app.requestSingleInstanceLock()) {
       settings,
       current,
       openWindow: () => void openWindow(),
+      openPage: (screen) => void openWindow().then(() => win?.webContents.send(CHANNELS.navigate, { screen, id: '', event: 'tray' })),
       follow:
         f &&
         (() => ({
@@ -317,6 +318,7 @@ if (!app.requestSingleInstanceLock()) {
 
     const desk = new Desk(client, {
       setBadge: (t) => {
+        own.setUnread(Number(t.replace('+', '')) || 0);
         if (app.dock) app.dock.setBadge(t);
         else app.setBadgeCount(Number(t.replace('+', '')) || 0);
       },

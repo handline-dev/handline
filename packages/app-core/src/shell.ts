@@ -118,6 +118,9 @@ export interface ShellApi {
  * emits for a task_done without a task, or a screen this does not know).
  */
 export function routeOfTarget(target: { screen: string; id: string } | null): string | null {
+  // Pages with no id: the tray's Inbox and Settings lines.
+  if (target?.screen === 'inbox') return '#/my-turn';
+  if (target?.screen === 'settings') return '#/settings';
   if (!target || !target.id || target.id === 'None') return null;
   const id = encodeURIComponent(target.id);
   switch (target.screen) {
