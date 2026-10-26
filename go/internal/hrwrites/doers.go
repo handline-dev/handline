@@ -229,6 +229,12 @@ func edgesTouching(t *team.Team, name string) map[string]bool {
 // doRename makes one identity another, taking its whole history with it: its folder and its rows. Not while it is running.
 func (e *Env) doRename(p step) (bool, string, error) {
 	old, new := p.str("agent"), p.str("to")
+	src, dest := paths.AgentDir(e.Home, old), paths.AgentDir(e.Home, new)
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		if _, err := os.Stat(dest); err == nil {
+			return true, fmt.Sprintf("%s was renamed to %s already", old, new), nil // approved again after it took effect: settled, not a failure
+		}
+	}
 	if e.Live == nil {
 		return false, fmt.Sprintf("could not confirm whether %s has a session running just now - try again in a moment.", old), nil
 	}
@@ -239,9 +245,8 @@ func (e *Env) doRename(p step) (bool, string, error) {
 	if live[old] {
 		return false, fmt.Sprintf("%s has a session running. Close it first (Close in its menu in the app) - an identity cannot change under a running session.", old), nil
 	}
-	src, dest := paths.AgentDir(e.Home, old), paths.AgentDir(e.Home, new)
 	if _, err := os.Stat(dest); err == nil {
-		return false, dest + " already exists", nil
+		return false, fmt.Sprintf("There is already an agent named %s; choose another name.", new), nil
 	}
 	before, err := team.LoadTeam(e.Home)
 	if err != nil {
