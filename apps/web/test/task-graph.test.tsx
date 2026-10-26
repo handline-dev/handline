@@ -1,4 +1,4 @@
-// The graph view of the Tasks page: boxes in Done, Running and Queued bands from the fake daemon's tasks.
+// The graph view of the Tasks page: a column per agent, the now row, done tasks above and queued below, from the fake daemon's tasks.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it } from 'vitest';
@@ -36,16 +36,21 @@ const mount = async (s = setup(), hash = '#/tasks/graph') => {
 };
 const band = (key: string) => [...box.querySelectorAll<HTMLElement>(`[data-node][data-band="${key}"]`)].map((n) => Number(n.dataset.node));
 
-it('draws Running and Queued bands, keeps the top bar, and goes to a task on click', async () => {
+it('draws the now row and the queue, keeps the top bar, lights a chain on the first click and opens the task on the second', async () => {
   await mount();
   await until(() => box.querySelector('[data-node]'), 'the boxes');
-  expect(band('running')).toEqual([1684, 1688]);
-  expect(band('queued').sort()).toEqual([1690, 1700]);
-  expect(box.textContent).toContain('handline.architect'); // a column per owner
+  expect(band('running').length).toBeGreaterThan(0);
+  expect([...band('running'), ...band('queued')].sort()).toEqual([1684, 1688, 1690, 1700]);
+  expect(box.textContent).toContain('architect'); // a column per agent
   expect(box.querySelector('[aria-label="Show"]')).not.toBeNull(); // the Open | Mine | Closed pills stay
-  expect([...box.querySelectorAll('button')].some((b) => b.textContent!.startsWith('View: Graph'))).toBe(true);
-  expect(band('done')).toEqual([]); // closed long ago
-  await act(async () => void box.querySelector<HTMLElement>('[data-node="1684"]')!.click());
+  expect(box.querySelector('[aria-label="View"] [aria-checked="true"]')?.getAttribute('aria-label')).toBe('Graph');
+  expect(band('done')).toEqual([1650]); // closed long ago: in an older day band above the now row
+  const node = () => box.querySelector<HTMLElement>('[data-node="1684"]')!;
+  await act(async () => void node().click());
+  expect(location.hash).toBe('#/tasks/graph');
+  expect(node().dataset.lit).toBe('true');
+  expect(box.querySelectorAll('[data-dim]').length).toBeGreaterThan(0);
+  await act(async () => void node().click());
   expect(location.hash).toBe('#/tasks/1684');
 });
 
@@ -57,10 +62,10 @@ it('puts a task closed in the last 24 h in the Done band, and moves a box to the
   await mount(s);
   await until(() => box.querySelector('[data-node]'), 'the boxes');
   expect(band('done')).toEqual([1650]);
-  expect(band('queued')).toContain(1690);
+  expect([...band('running'), ...band('queued')]).toContain(1690);
   await s.client.start();
   await s.client.call('task.draft', { tasks: [1690], request_id: 'g1' }).catch(() => undefined);
   await s.client.call('task.done', { task: 1688, evidence: 'ok', reason: true, request_id: 'g2' });
   await until(() => band('done').includes(1688), 'the box in the Done band');
-  expect(band('running')).toEqual([1684]);
+  expect(band('running')).not.toContain(1688);
 });

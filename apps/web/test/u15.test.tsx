@@ -107,6 +107,8 @@ describe('U15 HR', () => {
     raise(s, 4, { state: 'withdrawn' });
     raise(s, 5, { state: 'on_hold' });
     await open(s);
+    await until(() => $('[data-done="5"]'), 'the done rows');
+    for (const id of [3, 4, 5]) await click($(`[data-done="${id}"] button`)!);
     await until(() => $$('.hr-card').length === 5, 'five cards');
     expect(text(card(1))).toContain('waiting for you');
     expect(card(1).querySelector('.hr-state svg[data-icon="needs"]')).not.toBeNull(); // a shape, not only the word's colour
@@ -131,7 +133,11 @@ describe('U15 HR', () => {
     await until(() => $('.hr-card'), 'the card');
     await click(btn(card(1), 'Approve'));
     await until(() => p.state === 'approved', 'approved');
-    await until(() => text($('.hr')).includes('Recent') && text(card(1)).includes('approved and applied'), 'in Recent');
+    await until(() => $('[data-done="1"]'), 'a Done row');
+    expect(text($('.hr'))).toContain('Done');
+    expect(card(1)).toBeNull(); // one line until it is opened
+    await click($('[data-done="1"] button')!);
+    await until(() => card(1) && text(card(1)).includes('approved and applied'), 'the card');
     expect(card(1).querySelector('button')).toBeNull();
   });
 
@@ -169,8 +175,28 @@ describe('U15 HR', () => {
     await until(() => $('.hr-card'), 'the card');
     p.state = 'withdrawn'; // settled elsewhere, no event reached this tab
     await click(btn(card(1), 'Approve'));
-    await until(() => text(card(1)).includes('withdrawn'), 'the card follows the daemon');
+    await until(() => $('[data-done="1"]'), 'the card follows the daemon into Done');
+    await click($('[data-done="1"] button')!);
+    await until(() => card(1) && text(card(1)).includes('withdrawn'), 'the card');
     expect(btn(card(1), 'Approve')).toBeUndefined();
+  });
+
+  it('shows the first ten decided proposals as one-line rows and the rest behind a button', async () => {
+    const s = setup();
+    for (let id = 1; id <= 12; id++) raise(s, id, { state: id % 2 ? 'approved' : 'rejected' });
+    await open(s);
+    await until(() => $$('[data-done]').length === 10, 'ten rows');
+    expect($$('.hr-card')).toHaveLength(0);
+    await click(btn($('.hr')!, 'Show 2 older'));
+    await until(() => $$('[data-done]').length === 12, 'twelve rows');
+    expect(btn($('.hr')!, 'Show')).toBeUndefined();
+  });
+
+  it('a link to a decided proposal past the first ten shows the rest and opens its card', async () => {
+    const s = setup();
+    for (let id = 1; id <= 12; id++) raise(s, id, { state: 'approved', settled: new Date(Date.UTC(2026, 0, id)).toISOString() });
+    await open(s, '#/team/hr/1');
+    await until(() => $$('[data-done]').length === 12 && $('.hr-card[data-proposal="1"]'), 'the oldest card');
   });
 
   it('Approve all sends one decide per waiting proposal; one whose apply fails stays waiting', async () => {

@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	_ "modernc.org/sqlite"
@@ -20,8 +19,7 @@ func diskWorld(t *testing.T) (*DiskWatch, *int64, *[]string, *sql.DB) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { d.Close() })
-	if _, err := d.Exec("CREATE TABLE cursors(name TEXT PRIMARY KEY, row_id INTEGER, updated INTEGER); " +
-		"CREATE TABLE agent_state(agent TEXT PRIMARY KEY, extra_worktrees TEXT)"); err != nil {
+	if _, err := d.Exec("CREATE TABLE cursors(name TEXT PRIMARY KEY, row_id INTEGER, updated INTEGER)"); err != nil {
 		t.Fatal(err)
 	}
 	free, told := new(int64), &[]string{}
@@ -60,35 +58,6 @@ func TestOneCardUnderTenGBAndNoneAgainUntilItRecovers(t *testing.T) {
 	}
 }
 
-func TestTheCardNamesWhatCanBeCleared(t *testing.T) {
-	w, free, told, d := diskWorld(t)
-	tmp := t.TempDir()
-	t.Setenv("TMPDIR", tmp)
-	t.Setenv("PNPM_HOME", "/pnpm")
-	for _, name := range []string{"TestOld", "handline-old", "TestNew", "other"} {
-		os.Mkdir(filepath.Join(tmp, name), 0o755)
-	}
-	day := time.Now().Add(-25 * time.Hour)
-	os.Chtimes(filepath.Join(tmp, "TestOld"), day, day)
-	os.Chtimes(filepath.Join(tmp, "handline-old"), day, day)
-	os.Chtimes(filepath.Join(tmp, "other"), day, day)
-	wt := t.TempDir()
-	d.Exec("INSERT INTO agent_state(agent, extra_worktrees) VALUES('a', ?), ('b', '[]')", `["`+wt+`", "/no/such/worktree"]`)
-	*free = 5 * GB
-	if err := w.Check(d, time.Now().Unix()); err != nil || len(*told) != 1 {
-		t.Fatalf("%v %q", err, *told)
-	}
-	card := (*told)[0]
-	for _, want := range []string{"/pnpm/store", "2 test temp dirs older than a day", "past task: " + wt} {
-		if !strings.Contains(card, want) {
-			t.Errorf("no %q in %q", want, card)
-		}
-	}
-	if strings.Contains(card, "/no/such/worktree") {
-		t.Errorf("a worktree that is gone is not named: %q", card)
-	}
-}
-
 func TestTheDiskIsCheckedAtMostEveryTenMinutesAndAToldLevelOutlivesARestart(t *testing.T) {
 	w, free, told, d := diskWorld(t)
 	*free = 30 * GB
@@ -106,22 +75,16 @@ func TestTheDiskIsCheckedAtMostEveryTenMinutesAndAToldLevelOutlivesARestart(t *t
 	}
 }
 
-func TestTheWatchRemovesNothing(t *testing.T) {
+func TestTheCardIsOneLineAndTheWatchRemovesNothing(t *testing.T) {
 	w, free, told, d := diskWorld(t)
-	cache := t.TempDir()
-	t.Setenv("GOCACHE", cache)
-	files := []string{filepath.Join(w.Home, "agents", "x"), filepath.Join(cache, "00", "entry")}
-	for _, f := range files {
-		os.MkdirAll(filepath.Dir(f), 0o755)
-		os.WriteFile(f, []byte("x"), 0o644)
-	}
+	f := filepath.Join(w.Home, "agents", "x")
+	os.MkdirAll(filepath.Dir(f), 0o755)
+	os.WriteFile(f, []byte("x"), 0o644)
 	*free = 1 * GB
-	if err := w.Check(d, 1); err != nil || len(*told) != 1 || !strings.Contains((*told)[0], cache) {
+	if err := w.Check(d, 1); err != nil || len(*told) != 1 || strings.Contains((*told)[0], "\n") {
 		t.Fatalf("%v %q", err, *told)
 	}
-	for _, f := range files {
-		if _, err := os.Stat(f); err != nil {
-			t.Fatalf("%s went: %v", f, err)
-		}
+	if _, err := os.Stat(f); err != nil {
+		t.Fatalf("%s went: %v", f, err)
 	}
 }

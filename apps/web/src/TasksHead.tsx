@@ -1,7 +1,7 @@
 // The header of the Tasks page: Open / Mine / Closed, search, Filter, View (List or Graph) and + New task; and the floating bar that acts on the ticked rows.
 import type { ReactNode } from 'react';
 import { CLOSED, LISTED, TASK_STATES, type TaskColumn, type TaskFilter } from '@handline/app-core';
-import { BarInput, Button, Icon, MenuButton, MenuItem, PageHead, PageTitle, Popup, Segmented, Select, Check } from '#src/ui/index.ts';
+import { BarInput, Button, Icon, PageHead, PageTitle, Popup, Segmented, Select, Check } from '#src/ui/index.ts';
 import { STATE_GLYPH } from '#src/taskui.tsx';
 import { canCapture, requestCapture } from '#src/Capture.tsx';
 
@@ -95,22 +95,27 @@ export function TasksHead(props: {
           </div>
         </Popup>
       </span>
-      <MenuButton label="View" variant="outline" className="max-sm:min-h-[44px]" trigger={`View: ${props.view === 'graph' ? 'Graph' : 'List'} ▾`}>
-        <MenuItem onSelect={() => props.onView('list')}>List</MenuItem>
-        <MenuItem onSelect={() => props.onView('graph')}>Graph</MenuItem>
-      </MenuButton>
+      <Segmented
+        label="View"
+        value={props.view}
+        onChange={props.onView}
+        options={[
+          { value: 'list', label: 'List' },
+          { value: 'graph', label: 'Graph' },
+        ]}
+      />
       {canCapture() ? (
-        <Button label="Capture a window" title="Capture a window (⌘⇧C)" variant="outline" className="max-sm:min-h-[44px]" onClick={requestCapture}>
+        <Button
+          label="Capture a window"
+          title="Capture a window (⌘⇧C)"
+          variant="outline"
+          className="max-sm:min-h-[44px]"
+          onClick={requestCapture}
+        >
           Capture
         </Button>
       ) : null}
-      <Button
-        label="+ New task"
-        title="New task (n)"
-        variant="solid"
-        className="max-sm:min-h-[44px]"
-        onClick={() => props.onAct('new')}
-      />
+      <Button label="+ New task" title="New task (n)" variant="solid" className="max-sm:min-h-[44px]" onClick={() => props.onAct('new')} />
     </PageHead>
   );
 }
@@ -134,8 +139,20 @@ export function TasksBar(props: {
       className="tbar fixed bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-card border border-line-strong bg-raised px-3 py-2 shadow-lg"
     >
       <strong className="mr-1 whitespace-nowrap font-medium">{props.marked} selected</strong>
-      <Button label="Assign" title={can.edit.why ?? 'Assign (o)'} disabled={!can.edit.ok} className={btn} onClick={() => props.onAct('owner')} />
-      <Button label="Priority" title={can.edit.why ?? 'Priority (p)'} disabled={!can.edit.ok} className={btn} onClick={() => props.onAct('priority')} />
+      <Button
+        label="Assign"
+        title={can.edit.why ?? 'Assign (o)'}
+        disabled={!can.edit.ok}
+        className={btn}
+        onClick={() => props.onAct('owner')}
+      />
+      <Button
+        label="Priority"
+        title={can.edit.why ?? 'Priority (p)'}
+        disabled={!can.edit.ok}
+        className={btn}
+        onClick={() => props.onAct('priority')}
+      />
       <Button
         label="Merge"
         title={can.merge.why ?? 'Merge (m): tick tasks, put the cursor on the one to keep'}

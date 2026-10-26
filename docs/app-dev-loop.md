@@ -64,6 +64,12 @@ code into the page, as with a browser.
 To run the page and the shell against your team's own daemon and branch
 instead, use `pnpm dev:team <team>`: see [dev-instances](dev-instances.md).
 
+## One pnpm dev per checkout
+
+`pnpm dev` runs once per checkout: a second one says which pid already runs and stops. Ctrl-C or a TERM stops the vite watch,
+the shell's watch and its Electron together, and the shell's watch also stops once `pnpm dev` itself is gone. An agent's run stays
+in the background (apps/electron/README.md), with no menu bar icon and no update dialog either.
+
 ## Pairing and devices
 
 Every pairing is a device acting as the founder: `hl device list` shows them,

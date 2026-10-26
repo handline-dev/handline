@@ -6,7 +6,7 @@ import { isPerson } from '#src/chat.ts';
 import { waitReason } from '#src/task-graph.ts';
 
 export const CARD_W = 208;
-export const CARD_H = 72;
+export const CARD_H = 88;
 export const GAP_X = 24;
 export const GAP_Y = 16;
 /** Left strip for the band names, and the strip on top for the column names. */
@@ -68,7 +68,7 @@ export function columnGraph(tasks: readonly Task[], opts: { me: string; now: num
   const open = tasks.filter((t) => !CLOSED.includes(t.state));
   const openIds = new Set(open.map((t) => t.id));
   const keys = [...new Set([...open, ...shownDone].map(colOf))].filter((k) => k !== 'you').sort();
-  keys.unshift('you');
+  if ([...open, ...shownDone].some((t) => colOf(t) === 'you')) keys.unshift('you');
   const colX = (k: string) => GUTTER + keys.indexOf(k) * (CARD_W + GAP_X);
 
   const byPriority = (a: Task, b: Task) => (a.priority ?? 2) - (b.priority ?? 2) || a.id - b.id;

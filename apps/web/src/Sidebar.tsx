@@ -77,23 +77,26 @@ export function Sidebar({
       )
       .map((r) => r.agent.name);
   const drag = useRowDrag(tree, nav.order, siblingsOf, (order) => change({ order }));
-  const row = (agent: AgentView, depth: number, kids: number, team: string, key?: string) => (
-    <AgentRow
-      key={key}
-      agent={agent}
-      depth={depth}
-      kids={kids}
-      working={collapsed.has(agent.name) ? workingUnder(agents, agent.name) : 0}
-      team={team}
-      line={agentLine(agent)}
-      folded={collapsed.has(agent.name)}
-      onFold={() => change({ collapsed: toggleIn(nav.collapsed, agent.name) })}
-      selected={agent.name === selected}
-      pinned={nav.pins.includes(agent.name)}
-      onPin={() => togglePinAgent(agent.name)}
-      drag={key?.startsWith('pin-') ? undefined : { attrs: drag.attrs(agent), mark: drag.mark(agent.name) }}
-    />
-  );
+  const row = (agent: AgentView, depth: number, kids: number, team: string, key?: string) => {
+    const pin = !!key?.startsWith('pin-'); // a pinned row always counts the work under it, its tree open or not
+    return (
+      <AgentRow
+        key={key}
+        agent={agent}
+        depth={depth}
+        kids={kids}
+        working={pin || collapsed.has(agent.name) ? workingUnder(agents, agent.name) : 0}
+        team={team}
+        line={agentLine(agent)}
+        folded={collapsed.has(agent.name)}
+        onFold={() => change({ collapsed: toggleIn(nav.collapsed, agent.name) })}
+        selected={agent.name === selected}
+        pinned={nav.pins.includes(agent.name)}
+        onPin={() => togglePinAgent(agent.name)}
+        drag={pin ? undefined : { attrs: drag.attrs(agent), mark: drag.mark(agent.name) }}
+      />
+    );
+  };
   const counts = new Map<Dot, number>();
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const myTurn = useMyTurn().cards.length;
@@ -135,6 +138,13 @@ export function Sidebar({
         </button>
         <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           <Icon name="tasks" size={14} aria-hidden /> Tasks
+        </button>
+        <button
+          className={navOf(pageRoute === 'stats')}
+          aria-current={pageRoute === 'stats' ? 'page' : undefined}
+          onClick={() => void (location.hash = '#/stats')}
+        >
+          <Icon name="stats" size={14} aria-hidden /> Usage
         </button>
       </div>
       <div className="rail-read flex gap-0.5 px-2.5 py-1.5" role="group" aria-label="Show agents">

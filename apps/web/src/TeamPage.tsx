@@ -4,7 +4,6 @@ import { taskRef } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useServes, useTeamBoard, type TeamNode } from '@handline/app-data';
 import { HrTab } from '#src/HrTab.tsx';
-import { TeamSeal } from '#src/TeamSeal.tsx';
 import { Button, Dialog, Empty, Icon, Segmented, State, stateOfView } from '#src/ui/index.ts';
 import { SettingsSection, SettingsShell } from '#src/SettingsShell.tsx';
 import { goAgent, goSettings, useTeamRoute } from '#src/route.ts';
@@ -48,18 +47,15 @@ export function TeamPage() {
         <SettingsSection
           title="Team"
           action={
-            <span className="flex items-center gap-2">
-              <Segmented
-                label="Team view"
-                value={look}
-                onChange={setLook}
-                options={[
-                  { value: 'tree', label: 'Tree' },
-                  { value: 'chart', label: 'Chart' },
-                ]}
-              />
-              <TeamSeal />
-            </span>
+            <Segmented
+              label="Team view"
+              value={look}
+              onChange={setLook}
+              options={[
+                { value: 'tree', label: 'Tree' },
+                { value: 'chart', label: 'Chart' },
+              ]}
+            />
           }
         >
           <TeamBoard look={look} />
