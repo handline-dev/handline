@@ -43,6 +43,7 @@ import {
   type StateKind,
 } from '#src/ui/index.ts';
 import { goSettings } from '#src/route.ts';
+import { DoneList } from '#src/HrDone.tsx';
 import { View } from '#src/View.tsx';
 import { useNarrow } from '#src/useNarrow.ts';
 import { AnimatedList } from '#src/AnimatedList.tsx';
@@ -197,10 +198,9 @@ export function HrTab({ focus }: { focus: number | null }) {
         ))}
         {stale.length ? <SectionHead variant="small">Stale · no answer for 14 days</SectionHead> : null}
         {stale.map(waitingCard)}
-        {recent.length ? <SectionHead variant="small">Recent</SectionHead> : null}
-        {recent.map((p) => (
-          <Card key={p.id} p={p} decider={false} narrow={narrow} focus={focus === p.id} refresh={() => void q.refetch()} />
-        ))}
+        <DoneList recent={recent} focus={focus}>
+          {(p) => <Card p={p} decider={false} narrow={narrow} focus={focus === p.id} refresh={() => void q.refetch()} />}
+        </DoneList>
       </div>
     </View>
   );
