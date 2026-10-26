@@ -43,18 +43,22 @@ export function treeDistance(team: PeopleTeam, a: string, b: string): number {
   return meet < 0 ? Infinity : meet + pb.indexOf(pa[meet]!);
 }
 
-/** The assign picker: who acted on the task (latest first), then the agents nearest the holder in the tree, then the rest by name. */
+/** How many of the close agents the short list shows after those who worked on the task; the others wait with the other teams. */
+export const NEAR_SHOWN = 6;
+
+/** The assign picker: who acted on the task (latest first), then the few agents nearest the holder in the tree, then the rest by name as the other teams. */
 export function assignGroups(t: PeopleTask, team: PeopleTeam, known: readonly string[], me: string): AssignGroup[] {
   const all = [...new Set([...known, ...team.agents.map((a) => a.name)])].filter((n) => n !== me && !SYSTEM.has(n));
   const acted = involved(t).filter((n) => all.includes(n) && n !== t.to);
   const left = all.filter((n) => !acted.includes(n) && n !== t.to);
   const dist = new Map(left.map((n) => [n, Math.min(treeDistance(team, t.to, n), treeDistance(team, t.from, n))]));
-  const near = left.filter((n) => dist.get(n)! <= 2).sort((a, b) => dist.get(a)! - dist.get(b)! || a.localeCompare(b));
+  const close = left.filter((n) => dist.get(n)! <= 2).sort((a, b) => dist.get(a)! - dist.get(b)! || a.localeCompare(b));
+  const near = close.slice(0, NEAR_SHOWN);
   const rest = left.filter((n) => !near.includes(n)).sort((a, b) => a.localeCompare(b));
   return [
     { key: 'acted' as const, label: 'Worked on this task', names: acted },
-    { key: 'near' as const, label: 'Close in the team', names: near },
-    { key: 'rest' as const, label: 'Everyone else', names: rest },
+    { key: 'near' as const, label: 'Likely', names: near },
+    { key: 'rest' as const, label: 'Other teams', names: rest },
   ].filter((g) => g.names.length);
 }
 

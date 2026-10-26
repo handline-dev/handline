@@ -57,3 +57,17 @@ test('reply chips are the people the task names, latest first, without the viewe
   assert.deepEqual(involved(task), ['rev', 'mobile', 'human', 'pc', 'boss']);
   assert.deepEqual(replyTargets(task, 'boss'), ['rev', 'mobile', 'pc']);
 });
+
+test('the close list is short: only the nearest few, the rest wait with the other teams', () => {
+  const many = {
+    agents: [
+      { name: 'boss', parent: null },
+      ...Array.from({ length: 10 }, (_, i) => ({ name: `k${String(i).padStart(2, '0')}`, parent: 'boss' })),
+    ],
+  };
+  const t = { from: 'boss', to: 'boss', events: [] };
+  const g = assignGroups(t, many, [], 'me');
+  assert.equal(g.find((x) => x.key === 'near')!.names.length, 6);
+  assert.equal(g.find((x) => x.key === 'rest')!.label, 'Other teams');
+  assert.equal(g.find((x) => x.key === 'rest')!.names.length, 4);
+});

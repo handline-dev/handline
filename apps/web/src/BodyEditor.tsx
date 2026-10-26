@@ -8,7 +8,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import Image from '@tiptap/extension-image';
 import type { Attachment } from '@handline/client';
-import { imageRef, insertImageRef } from '@handline/app-core';
+import { imageRef, insertImageRef, mentionAt, mentionNames } from '@handline/app-core';
 import { classify, sentence, useUploadImage, whyNotImage } from '@handline/app-data';
 import { AttachmentImage } from '#src/AttachmentImage.tsx';
 import { forEditor, keepTyped } from '#src/bodyMarkdown.ts';
@@ -19,7 +19,11 @@ function ImageView({ node }: NodeViewProps) {
   const id = idOf(node.attrs.src);
   return (
     <NodeViewWrapper contentEditable={false}>
-      {id ? <AttachmentImage id={id} name={String(node.attrs.alt ?? '')} /> : <img src={String(node.attrs.src ?? '')} alt={String(node.attrs.alt ?? '')} />}
+      {id ? (
+        <AttachmentImage id={id} name={String(node.attrs.alt ?? '')} />
+      ) : (
+        <img src={String(node.attrs.src ?? '')} alt={String(node.attrs.alt ?? '')} />
+      )}
     </NodeViewWrapper>
   );
 }
@@ -35,8 +39,23 @@ const BOX = 'rounded-ctl border border-line bg-panel px-2 py-1.5 text-ink';
 const imagesOf = (list: FileList | null | undefined): File[] => Array.from(list ?? []).filter((f) => f.type.startsWith('image/'));
 
 /** The body field. `onBusy` tells the form an upload is running (Save waits). */
-export function BodyEditor(props: { value: string; onChange: (md: string) => void; onBusy?: (busy: boolean) => void; label?: string; id?: string }) {
+export function BodyEditor(props: {
+  value: string;
+  onChange: (md: string) => void;
+  onBusy?: (busy: boolean) => void;
+  label?: string;
+  id?: string;
+  /** ⌘↵ / Ctrl+↵ in the field. */
+  onSubmit?: () => void;
+  /** Typing `@` offers these agents, the ones near the task first. */
+  mentions?: { names: readonly string[]; near: readonly string[]; state?: (name: string) => string };
+}) {
   const { onBusy } = props;
+  const [pick, setPick] = useState<{ names: string[]; len: number; at: number } | null>(null);
+  const pickRef = useRef(pick);
+  pickRef.current = pick;
+  const live = useRef(props);
+  live.current = props;
   const upload = useUploadImage();
   const uploadRef = useRef(upload);
   uploadRef.current = upload;
@@ -93,6 +112,24 @@ export function BodyEditor(props: { value: string; onChange: (md: string) => voi
       }
     }
   };
+  const choose = (name: string) => {
+    const p = pickRef.current;
+    const e = ed.current;
+    if (!p || !e) return;
+    const to = e.state.selection.from;
+    e.chain()
+      .focus()
+      .deleteRange({ from: to - p.len, to })
+      .insertContent(`@${name} `)
+      .run();
+    setPick(null);
+  };
+  const sync = (e: Editor) => {
+    const { $from, empty } = e.state.selection;
+    const m = empty && live.current.mentions ? mentionAt($from.parent.textBetween(0, $from.parentOffset, '\n', '\ufffc')) : null;
+    const names = m ? mentionNames(m.query, live.current.mentions!.names, live.current.mentions!.near) : [];
+    setPick(m && names.length ? { names, len: m.length, at: 0 } : null);
+  };
   const takeRef = useRef(take);
   takeRef.current = take;
 
@@ -101,7 +138,26 @@ export function BodyEditor(props: { value: string; onChange: (md: string) => voi
     content: forEditor(props.value),
     contentType: 'markdown',
     editorProps: {
-      attributes: { class: `${BOX} body-editor min-h-24 focus-within:border-ink-3 outline-none`, ...(props.id ? { id: props.id } : {}), role: 'textbox', 'aria-multiline': 'true' },
+      attributes: {
+        class: `${BOX} body-editor min-h-24 focus-within:border-ink-3 outline-none`,
+        ...(props.id ? { id: props.id } : {}),
+        role: 'textbox',
+        'aria-multiline': 'true',
+      },
+      handleKeyDown: (_v, e) => {
+        const p = pickRef.current;
+        if (p && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+          setPick({ ...p, at: (p.at + (e.key === 'ArrowDown' ? 1 : p.names.length - 1)) % p.names.length });
+          return true;
+        }
+        if (p && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+          choose(p.names[p.at]!);
+          return true;
+        }
+        if (p && e.key === 'Escape') return (setPick(null), true);
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && live.current.onSubmit) return (live.current.onSubmit(), true);
+        return false;
+      },
       handlePaste: (_v, e) => {
         const files = imagesOf(e.clipboardData?.files);
         if (!files.length) return false;
@@ -120,7 +176,9 @@ export function BodyEditor(props: { value: string; onChange: (md: string) => voi
     onUpdate: ({ editor: e }) => {
       last.current = e.getMarkdown();
       change.current(last.current);
+      sync(e);
     },
+    onSelectionUpdate: ({ editor: e }) => sync(e),
   });
   ed.current = editor;
   useEffect(() => keepTyped(editor), [editor]);
@@ -133,7 +191,12 @@ export function BodyEditor(props: { value: string; onChange: (md: string) => voi
   return (
     <div className="body-field grid min-w-40 flex-1 gap-1">
       <div className="flex justify-end">
-        <button type="button" className="muted border-0 bg-transparent p-0 text-[12px] underline cursor-pointer" aria-pressed={source} onClick={() => toSource(!source)}>
+        <button
+          type="button"
+          className="muted border-0 bg-transparent p-0 text-[12px] underline cursor-pointer"
+          aria-pressed={source}
+          onClick={() => toSource(!source)}
+        >
           {source ? 'Rich view' : 'Source'}
         </button>
       </div>
@@ -147,6 +210,11 @@ export function BodyEditor(props: { value: string; onChange: (md: string) => voi
             last.current = e.target.value;
             change.current(e.target.value);
           }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || !props.onSubmit) return;
+            e.preventDefault();
+            props.onSubmit();
+          }}
           onPaste={(e) => {
             const files = imagesOf(e.clipboardData.files);
             if (!files.length) return;
@@ -157,6 +225,27 @@ export function BodyEditor(props: { value: string; onChange: (md: string) => voi
       ) : (
         <EditorContent editor={editor} />
       )}
+      {pick ? (
+        <ul
+          className="mention-list m-0 grid list-none gap-0 rounded-ctl border border-line bg-panel p-0.5"
+          role="listbox"
+          aria-label="Agents"
+        >
+          {pick.names.map((n, i) => (
+            <li key={n} role="option" aria-selected={i === pick.at}>
+              <button
+                type="button"
+                className={`w-full cursor-pointer border-0 px-2 py-1 text-left text-body text-ink ${i === pick.at ? 'bg-raised' : 'bg-transparent'}`}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => choose(n)}
+              >
+                @{n}
+                {live.current.mentions?.state ? <span className="ml-2 text-hint text-ink-3">{live.current.mentions.state(n)}</span> : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {problem ? <span className="muted">{problem}</span> : busy ? <span className="muted">Uploading image…</span> : null}
     </div>
   );
