@@ -146,6 +146,13 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		if err != nil {
 			return nil, err
 		}
+		noParent, err := optionalBool(p, "no_parent")
+		if err != nil {
+			return nil, err
+		}
+		if noParent && hasParent {
+			return nil, badParam("no_parent and parent together: choose one", "no_parent")
+		}
 		tags, err := TagList(p, "tags")
 		if err != nil {
 			return nil, err
@@ -174,6 +181,12 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 				return nil, err
 			}
 			var err error
+			if !hasParent && !noParent && owner != db.Gate {
+				if parent, err = requestHeld(tx, me); err != nil {
+					return nil, err
+				}
+				hasParent = parent != 0
+			}
 			tid, asked, err = OpenTask(tx, tell, me, NewIn{Owner: owner, Title: clean, Body: body, Secs: secs, Prio: prio, Estimate: points, Expects: expects,
 				Parent: parent, HasParent: hasParent, Blocker: blocker, HasBlocker: hasBlocker, Reporter: reporter, UI: ui, DuplicateOK: duplicateOK, Tags: tags,
 				Watch: watched})
@@ -220,6 +233,24 @@ func newMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, e
 		out["said"] = fmt.Sprintf("task T%d opened for %s (P%d%s): %s", tid, owner, prio, limit, msg)
 		return out, nil
 	}
+}
+
+// requestHeld is the request task an agent is working on, which a task it opens hangs under unless it says otherwise: its current task, when
+// that is the root of a request (made from a founder's message). 0 for none.
+func requestHeld(tx *sql.Tx, agent string) (int64, error) {
+	if agent == human {
+		return 0, nil
+	}
+	tid, held, err := db.CurrentTask(tx, agent)
+	if err != nil || !held {
+		return 0, err
+	}
+	var n int
+	err = tx.QueryRow("SELECT COUNT(*) FROM tasks WHERE id = ? AND from_request IS NOT NULL AND done_evidence IS NULL AND discarded_by IS NULL", tid).Scan(&n)
+	if n == 0 {
+		return 0, err
+	}
+	return tid, err
 }
 
 // NewIn is what OpenTask opens: the fields task.new has checked. Owner is an agent or the founder; Expects and Prio are set.

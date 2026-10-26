@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { DEBUG_HASH } from '#src/debug/paneFacts.ts';
 
-const read = () => location.hash.match(/^#\/agents\/(.+?)(\/settings)?(?:\?m=(\d+))?$/);
+const read = (h: string) => h.match(/^#\/agents\/(.+?)(\/settings)?(?:\?m=(\d+))?$/);
 const readTasks = () => location.hash.match(/^#\/tasks(?:\/(\d+|graph))?$/)?.[1] ?? (/^#\/tasks\/?$/.test(location.hash) ? '' : null);
 const subscribe = (cb: () => void) => {
   addEventListener('hashchange', cb);
@@ -10,15 +10,9 @@ const subscribe = (cb: () => void) => {
 const hash = () => location.hash;
 
 /** The agent the URL names (`#/agents/:name`, or `#/agents/:name/settings`), or ''. */
-export const useSelectedAgent = (): string => {
-  useSyncExternalStore(subscribe, hash);
-  return decodeURIComponent(read()?.[1] ?? '');
-};
+export const useSelectedAgent = (): string => decodeURIComponent(read(useSyncExternalStore(subscribe, hash))?.[1] ?? '');
 /** Whether the URL is the agent's settings page. */
-export const useSettingsOpen = (): boolean => {
-  useSyncExternalStore(subscribe, hash);
-  return !!read()?.[2];
-};
+export const useSettingsOpen = (): boolean => !!read(useSyncExternalStore(subscribe, hash))?.[2];
 export const goAgent = (name: string): void => {
   location.hash = `#/agents/${encodeURIComponent(name)}`;
 };
@@ -34,8 +28,7 @@ export const goMessage = (agent: string, id: number): void => {
 };
 /** The message number the URL asks this agent's chat to show; `done` takes it out of the URL once the chat has taken it. */
 export function useWantedMessage(agent: string): { id: number | null; done: () => void } {
-  useSyncExternalStore(subscribe, hash);
-  const m = read();
+  const m = read(useSyncExternalStore(subscribe, hash));
   return {
     id: m?.[3] && decodeURIComponent(m[1]!) === agent ? Number(m[3]) : null,
     done: () => {
@@ -57,11 +50,10 @@ export function useAccountsRoute(): { open: boolean; name: string | null } {
   return { open: !!m, name: m?.[1] ? decodeURIComponent(m[1]) : null };
 }
 
-const teamAt = () => location.hash.match(/^#\/team(?:\/(hr)(?:\/(\d+))?)?$/);
+const teamAt = (h: string) => h.match(/^#\/team(?:\/(hr)(?:\/(\d+))?)?$/);
 /** `#/team`, `#/team/hr` or `#/team/hr/:proposal`; null for any other page. */
 export const useTeamRoute = (): { tab: 'team' | 'hr'; proposal: number | null } | null => {
-  useSyncExternalStore(subscribe, hash);
-  const m = teamAt();
+  const m = teamAt(useSyncExternalStore(subscribe, hash));
   return m ? { tab: m[1] ? 'hr' : 'team', proposal: m[2] ? Number(m[2]) : null } : null;
 };
 export const goTeam = (tab: 'team' | 'hr' = 'team'): void => {
@@ -71,7 +63,15 @@ export const goTeam = (tab: 'team' | 'hr' = 'team'): void => {
 /** Which of the page routes the URL names: `#/stats`, `#/settings`, `#/my-turn` or `#/admin`, or '' for neither. */
 export function usePageRoute(): 'stats' | 'settings' | 'my-turn' | 'admin' | '' {
   const hash = useSyncExternalStore(subscribe, () => location.hash);
-  return hash === '#/stats' ? 'stats' : hash === '#/settings' ? 'settings' : hash === '#/my-turn' ? 'my-turn' : hash === '#/admin' ? 'admin' : '';
+  return hash === '#/stats'
+    ? 'stats'
+    : hash === '#/settings'
+      ? 'settings'
+      : hash === '#/my-turn'
+        ? 'my-turn'
+        : hash === '#/admin'
+          ? 'admin'
+          : '';
 }
 
 const NEW_AGENT = /^#\/new(?:\/(.+))?$/;
