@@ -134,6 +134,7 @@ A method marked write takes a required `request_id`.
 | `inbox.mark_read` | agent | yes | `ids`, `request_id` | `Accepted` | `not_found`, `refused`, `bad_request` |  |
 | `inbox.reply` | agent | yes | `id`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `tasks.list` | agent |  | `owner?`, `reporter?`, `from?`, `state?`, `tags?`, `parent?`, `under?`, `before?`, `limit?`, `all?`, `everyone?`, `my_turn?`, `reason_gaps?` | `{items, more, reason_gaps} & ReadCursor` |  |  |
+| `requests.list` | member |  | `state?`, `before?`, `limit?` | `{items, more}` | `bad_request` |  |
 | `task.get` | agent |  | `task` | `TaskDetail & ReadCursor` | `not_found` |  |
 | `task.history` | agent |  | `task` | `{task, rows}` | `not_found`, `bad_request` |  |
 | `task.time` | agent |  | `task` | `{task, start, end, segments, estimate, expected} & ReadCursor` | `not_found`, `bad_request` |  |
@@ -478,6 +479,10 @@ Reply to an item. A message to whoever sent the item, with the item as its paren
 ### `tasks.list`
 
 Task rows. Newest id first. To read every task, call with `all: true` and `limit: 200`, then again with `before` set to the smallest `id` of the page before, until `more` is false: nothing is skipped or repeated, because a page is the rows with an id below `before`. The caller's own scope still applies (itself and its reports for an agent, unless `everyone`).
+
+### `requests.list`
+
+The founder's requests, newest activity first: the tasks they opened and the messages of theirs that are not a task yet, each with a status read from its tree of tasks. Done requests stay listed 30 days.
 
 ### `task.get`
 
@@ -894,6 +899,7 @@ The plan's earlier `requests` topic is replaced by `chat` (messages and landing 
 | `hr` | `hr.raised` ({proposal}), `hr.settled` ({proposal}) | `hr.list` |
 | `transcript` | `transcript.event` (TranscriptEvent) | `transcript.events` |
 | `prefs` | `prefs.changed` (Prefs) | `prefs.get` |
+| `requests` | `request.changed` (RequestRow) | `requests.list` |
 
 ## State words
 

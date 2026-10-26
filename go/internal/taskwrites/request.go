@@ -97,7 +97,7 @@ func requestMethod(home string) func(*rpc.Conn, map[string]any) (any, error) {
 			if err := db.LinkRequest(tx, tid, rid); err != nil {
 				return nil, err
 			}
-			if _, err := tx.Exec("UPDATE requests SET no_work = NULL, no_work_by = NULL WHERE id = ?", rid); err != nil {
+			if _, err := tx.Exec("UPDATE requests SET no_work = NULL, no_work_by = NULL, state_at = ? WHERE id = ?", db.Now(), rid); err != nil {
 				return nil, err
 			}
 			if _, err := db.SetTaskQueued(tx, tid, human); err != nil { // the founder's own task needs no one's approval
@@ -160,7 +160,7 @@ func noneMethod(home string) func(*rpc.Conn, map[string]any) (any, error) {
 			} else if tid != 0 {
 				return nil, refusal(fmt.Sprintf("%s is already T%d: it is work", name, tid))
 			}
-			if _, err := tx.Exec("UPDATE requests SET no_work = ?, no_work_by = ? WHERE id = ?", reason, c.Caller.Actor(), rid); err != nil {
+			if _, err := tx.Exec("UPDATE requests SET no_work = ?, no_work_by = ?, state_at = ? WHERE id = ?", reason, c.Caller.Actor(), db.Now(), rid); err != nil {
 				return nil, err
 			}
 			if err := addEvent(tx, c.Caller.Actor(), "request_no_work", kv{"chat_request", rid}, kv{"reason", reason}); err != nil {
