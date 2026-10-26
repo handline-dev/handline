@@ -179,7 +179,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const stream = useRef<HTMLDivElement>(null);
   const pinned = useRef(true); // the person is at the bottom, so new entries scroll into view
   const { entries, ...folds } = useFolds(chat, scope, agent, me, useDecided(agent));
-  const titles = useCardTitles(chat.items, entries); // for the task cards: what each is about, without opening the task
+  const { titles, settled } = useCardTitles(chat.items, entries); // for the task cards: what each is about, without opening the task
   const history = sentBodies(chat.messages, agent);
   const last = entries.at(-1)?.id;
   const byId = new Map(chat.messages.map((m) => [m.id, m]));
@@ -242,7 +242,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   useLayoutEffect(repin, [last, entries.length, chat.working.turn_running, chat.items.length]);
 
   const held = windowed ? undefined : heldId(entries, (e) => e.kind === 'message' && sideOf(e.message, agent, me) === 'person' && e.message.landing !== 'withdrawn');
-  const { spacer, hold, release, start, scrolled, holding, free } = useHold({ stream, held, own, anchor, pinned, ready: chat.status === 'ready', agent });
+  const { spacer, hold, release, start, scrolled, holding, free } = useHold({ stream, held, own, anchor, pinned, ready: chat.status === 'ready' && settled, agent });
 
   // A reader above the bottom keeps the line they are on: whatever changes above or below it (steps folding, a line coming or going) does not move it.
   const place = useRef<{ id: string; off: number } | null>(null);
@@ -336,7 +336,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
             if (pinned.current) setNewer(0);
           }}
         >
-          <Skeleton shape="chat" loading={chat.status === 'loading'} label="the conversation" />
+          <Skeleton shape="chat" loading={chat.status === 'loading' || (chat.status === 'ready' && !settled)} label="the conversation" />
           {chat.status === 'error' && sentence(classify(chat.error)) ? (
             <div className="banner" role="alert">
               {sentence(classify(chat.error))} <Button variant="outline" size="sm" label="Retry" onClick={chat.refetch} />
@@ -354,10 +354,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
               <Icon name="less" label="Older messages" />
             </button>
           ) : null}
-          {chat.status === 'ready' && !entries.length ? <Empty icon="chat" name="No messages yet" hint={agent} /> : null}
+          {chat.status === 'ready' && settled && !entries.length ? <Empty icon="chat" name="No messages yet" hint={agent} /> : null}
           {/* Keyed by the window: the rows of the live tail leave at once when a window opens, not after an exit animation above the target. */}
           <AnimatedList key={win.target ?? 'live'}>
-            {entries.flatMap((e, i): ReactNode[] => {
+            {(settled ? entries : []).flatMap((e, i): ReactNode[] => {
               const day = dayHeading(e.at, i === 0 ? null : entries[i - 1]!.at);
               const body = (
                 <AnimatedItem
