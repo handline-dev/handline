@@ -15,12 +15,12 @@ export function followUpOf(p: Proposal): FollowUp | null {
   return p.state === 'approved' && f ? { agent: textSafe(f.agent), state: f.state, text: textSafe(f.text) } : null;
 }
 
-/** What a held proposal waits for, in words: "waits for handline.pc's turn to end", or for several "waits for a and b to end their turns". */
+/** What a held proposal waits for, in words: "Held until handline.pc finishes its turn.", or for several "Held until a and b finish their turns." */
 export function heldLine(p: Proposal): string {
   const who = (p.waiting_on ?? []).map(textSafe);
-  if (!who.length) return 'waits for a turn to end';
-  if (who.length === 1) return `waits for ${who[0]}'s turn to end`;
-  return `waits for ${who.slice(0, -1).join(', ')} and ${who.at(-1)} to end their turns`;
+  if (!who.length) return 'Held until a turn ends.';
+  if (who.length === 1) return `Held until ${who[0]} finishes its turn.`;
+  return `Held until ${who.slice(0, -1).join(', ')} and ${who.at(-1)} finish their turns.`;
 }
 
 const STATE_WORDS: Record<string, { word: string; tone: 'wait' | 'block' | 'run' | 'muted' }> = {

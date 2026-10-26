@@ -54,7 +54,7 @@ func (p *Parts) needsYou() func(agent string) *agentview.NeedsYou {
 		w := hooks.ReadWait(home, agent)
 		// Claude Code saying nobody answered comes first; a question is left to its own card.
 		if since, ok := hooks.Notified(home, agent); notified && ok && w["tool"] != "AskUserQuestion" {
-			return &agentview.NeedsYou{Kind: "permission", Source: "notification", Since: since, Text: "handle this in the terminal"}
+			return &agentview.NeedsYou{Kind: "permission", Source: "notification", Since: since}
 		}
 		if w != nil && row.State == states.Running && !movedOn(q, agent, w) {
 			since, _ := w["since"].(float64)

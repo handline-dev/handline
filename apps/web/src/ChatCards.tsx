@@ -300,7 +300,7 @@ export function HrCards({ agent }: { agent: string }) {
 const NEEDS: Record<string, string> = {
   permission: 'Waiting for a yes',
   question: 'Asked you a question',
-  usage: 'Hit the session limit',
+  usage: 'Out of usage',
   dialog: 'Waiting on a dialog',
 };
 

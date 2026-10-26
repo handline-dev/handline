@@ -186,6 +186,13 @@ export const SEEDS: Record<string, Seed> = {
     };
   },
 
+  /** The architect hit the session limit (needs_you kind usage): its chat shows the needs-you card. */
+  'agent-usage': (d) => {
+    const s = d.sessions.get(ARCH)!;
+    const since = new Date(Date.now() - 3 * 60_000).toISOString();
+    s.fx.view = { ...s.fx.view, needs_you: { kind: 'usage', since, text: null, source: 'hook' } };
+  },
+
   /** Two approved proposals whose change is applied but whose agent did not start: the architect's waits for the load, the auditor's failed. */
   'hr-followup': (d) => {
     const hr = d.script.hr;

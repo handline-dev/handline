@@ -50,7 +50,7 @@ describe('needs you', () => {
     };
     await mount(s);
     await until(() => card(), 'the card');
-    expect(card()!.textContent).toContain('Hit the session limit');
+    expect(card()!.textContent).toContain('Out of usage');
     expect(card()!.textContent).toContain('Weekly limit reached');
     expect(card()!.querySelector('button')!.getAttribute('aria-label')).toBe('Open terminal');
     expect(chip()?.textContent).toBe('usage');

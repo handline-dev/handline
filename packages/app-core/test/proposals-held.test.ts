@@ -30,8 +30,8 @@ test('an unknown state is neither waiting nor held, as before', () => {
 });
 
 test('heldLine names the agents whose turn it waits for', () => {
-  assert.equal(heldLine(p(1, { state: 'applying', waiting_on: ['handline.auditor'] })), "waits for handline.auditor's turn to end");
-  assert.equal(heldLine(p(1, { state: 'applying', waiting_on: ['a', 'b'] })), 'waits for a and b to end their turns');
-  assert.equal(heldLine(p(1, { state: 'applying', waiting_on: ['a', 'b', 'c'] })), 'waits for a, b and c to end their turns');
-  assert.equal(heldLine(p(1, { state: 'applying' })), 'waits for a turn to end');
+  assert.equal(heldLine(p(1, { state: 'applying', waiting_on: ['handline.auditor'] })), 'Held until handline.auditor finishes its turn.');
+  assert.equal(heldLine(p(1, { state: 'applying', waiting_on: ['a', 'b'] })), 'Held until a and b finish their turns.');
+  assert.equal(heldLine(p(1, { state: 'applying', waiting_on: ['a', 'b', 'c'] })), 'Held until a, b and c finish their turns.');
+  assert.equal(heldLine(p(1, { state: 'applying' })), 'Held until a turn ends.');
 });
