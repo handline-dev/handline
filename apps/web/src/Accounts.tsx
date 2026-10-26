@@ -21,7 +21,7 @@ const STATE_TONE =
   'data-[state=out]:border-bad data-[state=out]:text-bad data-[state=needs_login]:border-bad data-[state=needs_login]:text-bad data-[state=in_use]:border-ok data-[state=in_use]:text-ok';
 const FACT = 'acct-fact m-0 flex items-center gap-2 [&_svg]:text-ink-3';
 const ROW =
-  'acct-row grid min-h-11 grid-cols-[minmax(8em,1.2fr)_auto_minmax(13em,1fr)_minmax(13em,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-2 text-inherit no-underline hover:bg-raised max-[960px]:grid-cols-[minmax(8em,1fr)_auto_auto] max-[960px]:[&_.gauge]:col-span-full';
+  'acct-row grid min-h-11 grid-cols-[minmax(8em,1.2fr)_auto_minmax(12em,1fr)_minmax(12em,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-2 text-inherit no-underline hover:bg-raised max-[1200px]:grid-cols-[minmax(8em,1fr)_auto_auto] max-[1200px]:[&_.gauge]:col-span-full';
 const WRAP = '[&:not(:first-child)]:border-t [&:not(:first-child)]:border-line';
 
 const STATE_ICON: Record<ReturnType<typeof stateOf>, IconName> = {
@@ -37,7 +37,7 @@ export function StateChip({ account, now }: { account: Account; now: number }) {
   const state = stateOf(account);
   const until = state === 'out' ? outUntil(account) : null;
   return (
-    <span className="acct-state-wrap inline-flex items-center gap-1.5">
+    <span className="acct-state-wrap inline-flex whitespace-nowrap items-center gap-1.5">
       <Icon name={STATE_ICON[state]} size={14} label={STATE_WORD[state]} />
       <span
         className={`badge acct-state ${state} mr-1.5 inline-block rounded-card border border-line px-1.5 text-hint text-ink-2 ${STATE_TONE}`}
@@ -120,12 +120,12 @@ function Row({ account, now }: { account: Account; now: number }) {
         </span>
         <StateChip account={account} now={now} />
         <Gauge label="5 h" window={account.five_hour} now={now} />
-        <span className="acct-week flex min-w-0 flex-col gap-0.5 max-[960px]:col-span-full">
+        <span className="acct-week flex min-w-0 flex-col gap-0.5 max-[1200px]:col-span-full">
           <Gauge label="week" window={account.weekly} now={now} />
           <PaceLine account={account} short />
         </span>
         <span
-          className="acct-agents inline-flex items-center gap-1 font-mono text-label text-ink-2"
+          className="acct-agents inline-flex whitespace-nowrap items-center gap-1 font-mono text-label text-ink-2"
           title="Agents working on it now, and the most it takes at once"
         >
           <Icon name="agent" size={14} label="Agents" />
