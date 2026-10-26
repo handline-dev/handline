@@ -148,7 +148,7 @@ A method marked write takes a required `request_id`.
 | `task.start` | agent | yes | `task`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.comment.list` | agent |  | `task`, `before?`, `limit?` | `{memos, more}` | `not_found` |  |
 | `task.memo.list` | agent |  | `task`, `before?`, `limit?` | `{memos, more}` | `not_found` |  |
-| `task.comment.add` | agent | yes | `task`, `text`, `now?`, `files?`, `request_id` | `Accepted & {memo}` | `refused`, `not_found`, `bad_request` |  |
+| `task.comment.add` | agent | yes | `task`, `text`, `now?`, `reply?`, `files?`, `request_id` | `Accepted & {memo}` | `refused`, `not_found`, `bad_request` |  |
 | `task.memo.add` | agent | yes | `task`, `text`, `now?`, `files?`, `request_id` | `Accepted & {memo}` | `refused`, `not_found`, `bad_request` |  |
 | `task.comment.edit` | agent | yes | `task`, `memo`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `task.memo.edit` | agent | yes | `task`, `memo`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
@@ -537,7 +537,7 @@ The old name of task.comment.list: the same params, result and errors. Kept for 
 
 ### `task.comment.add`
 
-Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.
+Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer. The founder is told by one inbox line per request (a task made from their message, task.request) while it stays unread, counting the agents' new comments. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.
 
 ### `task.memo.add`
 

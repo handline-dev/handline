@@ -19,7 +19,7 @@ var usages = map[string][2]string{
 	"task handoff": {`hl task handoff T<n> <agent> "<note>" [--file PATH]`, `hl task handoff T12 auditor "Review fix@1a2b3c4"`},
 	"task edit": {`hl task edit T<n> [--assign <agent>] [--owner <agent>] [--title T] [--body B | --body-file PATH] [--priority 1-5] [--estimate N] [--blocked-by T<m>] [--unblock T<m>] [--timeout <span>] [--tag T] [--untag T] [--pr N]`,
 		`hl task edit T12 --blocked-by T13`},
-	"task comment":    {`hl task comment T<n> add "<text>" [--attach FILE] [--now]   |   list   |   edit <id> "<text>"   |   delete <id>`, `hl task comment T12 add "The fix also needs the phone"`},
+	"task comment":    {`hl task comment T<n> add "<text>" [--reply <id>] [--attach FILE] [--now]   |   list   |   edit <id> "<text>"   |   delete <id>`, `hl task comment T12 add "The fix also needs the phone"`},
 	"task memo":       {`hl task memo T<n> ... (the old name of hl task comment)`, `hl task comment T12 add "The fix also needs the phone"`},
 	"task begin":      {`hl task begin "<title>" --chat <msg> [--why W] [--priority 1-5] [--expects report|decision]`, `hl task begin "Answer the founder" --chat msg_1a2b3c4`},
 	"task start":      {`hl task start T<n>`, `hl task start T12`},

@@ -6088,7 +6088,7 @@
   },
   {
    "name": "task.comment.add",
-   "summary": "Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer or the founder. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
+   "summary": "Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer. The founder is told by one inbox line per request (a task made from their message, task.request) while it stays unread, counting the agents' new comments. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -6112,6 +6112,14 @@
      "schema": {
       "type": "boolean",
       "description": "Tell every reader at once, even mid-turn."
+     }
+    },
+    {
+     "name": "reply",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "The comment on the same task this one answers (Memo.reply_to). Refused (not_found memo) when the task has no such comment."
      }
     },
     {
@@ -13564,6 +13572,17 @@
        "$ref": "#/components/schemas/MemoFile"
       },
       "description": "The files the memo carries, in the order they were given; present only when it carries one."
+     },
+     "reply_to": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The comment this one answers; null for none."
      }
     },
     "required": [

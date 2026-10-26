@@ -361,7 +361,7 @@ func taskNote(c *hlclient.Client, args []string) (int, bool) {
 }
 
 func taskMemo(c *hlclient.Client, args []string) (int, bool) {
-	p, ok := parse(args, []string{"--file", "--attach"}, []string{"--now"}, nil)
+	p, ok := parse(args, []string{"--file", "--attach", "--reply"}, []string{"--now"}, nil)
 	if !ok || len(p.pos) < 2 {
 		return 0, false
 	}
@@ -386,6 +386,16 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 	}
 	if now && verb != "add" {
 		fmt.Println("--now goes with add")
+		return 1, true
+	}
+	replyText, hasReply := p.opt("--reply")
+	reply, okReply := integer(strings.TrimSpace(replyText))
+	if hasReply && !okReply {
+		fmt.Println("--reply wants the id of a comment")
+		return 1, true
+	}
+	if hasReply && verb != "add" {
+		fmt.Println("--reply goes with add")
 		return 1, true
 	}
 	attach := p.each["--attach"]
@@ -420,6 +430,9 @@ func taskMemo(c *hlclient.Client, args []string) (int, bool) {
 		params := map[string]any{"task": tid, "text": rest[0]}
 		if now {
 			params["now"] = true
+		}
+		if hasReply {
+			params["reply"] = reply
 		}
 		if len(attach) > 0 {
 			files := make([]string, len(attach))

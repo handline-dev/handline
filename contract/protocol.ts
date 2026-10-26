@@ -868,6 +868,8 @@ export type Memo = {
   parts?: (TextPart | ImagePart)[];
   /** The files the memo carries, in the order they were given; present only when it carries one. */
   files?: MemoFile[];
+  /** The comment this one answers; null for none. */
+  reply_to?: number | null;
 };
 
 export type TaskBoardRow = {
@@ -2564,6 +2566,8 @@ export interface Methods {
   text: string;
   /** Tell every reader at once, even mid-turn. */
   now?: boolean;
+  /** The comment on the same task this one answers (Memo.reply_to). Refused (not_found memo) when the task has no such comment. */
+  reply?: number;
   /** Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files). */
   files?: string[];
   request_id: RequestId;

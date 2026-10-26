@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
@@ -168,4 +169,40 @@ func noneMethod(home string) func(*rpc.Conn, map[string]any) (any, error) {
 			return accepted(fmt.Sprintf("%s marked as needing no work: %s", name, reason), nil), nil
 		})
 	}
+}
+
+// noteRequestComment tells the founder, in their inbox, of an agent's comment on a request: one line per request while it stays unread, which
+// counts the comments since. The founder's own comments, and comments on any other task, tell no one.
+func noteRequestComment(tx *sql.Tx, tid int64, by string) error {
+	if by == human {
+		return nil
+	}
+	var title string
+	err := tx.QueryRow("SELECT title FROM tasks WHERE id = ? AND from_request IS NOT NULL AND opened_by = ?", tid, human).Scan(&title)
+	if err == sql.ErrNoRows {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	var rid, n int64
+	err = tx.QueryRow("SELECT r.id, COALESCE(json_extract(e.payload, '$.count'), 0) FROM events e JOIN requests r ON "+
+		"r.id = CASE WHEN json_valid(e.payload) THEN json_extract(e.payload, '$.request_id') END "+
+		"WHERE e.kind = 'request_comment_told' AND CASE WHEN json_valid(e.payload) THEN json_extract(e.payload, '$.task_id') END = ? "+
+		"AND r.read_at IS NULL ORDER BY e.id DESC LIMIT 1", tid).Scan(&rid, &n)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	n++
+	body := fmt.Sprintf("Request T%d %q has %d new comment(s), the latest by %s: `hl task comment T%d list`", tid, title, n, by, tid)
+	if err == sql.ErrNoRows {
+		if rid, err = addSay(tx, noticeFrom, human, body, false); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("INSERT OR IGNORE INTO task_requests(task_id, request_id) VALUES(?, ?)", tid, rid); err != nil {
+			return err
+		}
+	} else if _, err := tx.Exec("UPDATE requests SET body = ?, ts = ? WHERE id = ?", body, time.Now().Unix(), rid); err != nil {
+		return err
+	}
+	return addEvent(tx, noticeFrom, "request_comment_told", kv{"task_id", tid}, kv{"request_id", rid}, kv{"count", n})
 }

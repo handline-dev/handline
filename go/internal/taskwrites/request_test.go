@@ -107,3 +107,37 @@ func TestATaskHangsUnderTheRequestItsOpenerIsWorkingOn(t *testing.T) {
 		t.Errorf("a task that is not a request is not a default parent: %v", r[0])
 	}
 }
+
+func TestACommentOnARequestRepliesAndTellsTheFounderInOneLine(t *testing.T) {
+	db, mk := discardEnv(t)
+	exec(t, db,
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at, from_request) VALUES(1, 'the request', 'manager', 'human', 1, 5), (2, 'plain', 'manager', 'gp', 1, NULL)",
+		"INSERT INTO task_memos(id, task_id, author, body, created_at) VALUES(1, 1, 'human', 'the ask', 1)")
+	add := func(id, task int, extra, rid string) string {
+		return fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"task.comment.add","params":{"task":%d,"text":"note %s",%s"request_id":%q}}`, id, task, rid, extra, rid)
+	}
+	r := call(t, mk("manager", &fakeTeller{}), add(2, 1, `"reply":1,`, "a"), add(3, 1, "", "b"), add(4, 1, `"reply":99,`, "c"), add(5, 2, "", "d"))
+	if r[0]["error"] != nil || r[1]["error"] != nil || r[2]["error"] == nil || r[3]["error"] != nil {
+		t.Fatalf("%v", r)
+	}
+	for q, want := range map[string]int{
+		"SELECT COUNT(*) FROM task_memos WHERE body = 'note a' AND reply_to = 1":                                                     1,
+		"SELECT COUNT(*) FROM task_memos WHERE body = 'note b' AND reply_to IS NULL":                                                 1,
+		"SELECT COUNT(*) FROM requests WHERE target = 'human' AND body LIKE 'Request T1 %has 2 new comment(s)%' AND read_at IS NULL": 1,
+		"SELECT COUNT(*) FROM requests WHERE target = 'human'":                                                                       1,
+		"SELECT COUNT(*) FROM task_requests WHERE task_id = 1 AND request_id IN (SELECT id FROM requests WHERE target = 'human')":    1,
+	} {
+		if got := count(t, db, q); got != want {
+			t.Errorf("%s: %d, want %d", q, got, want)
+		}
+	}
+	exec(t, db, "UPDATE requests SET read_at = 5 WHERE target = 'human'")
+	call(t, mk("manager", &fakeTeller{}), add(2, 1, "", "e"))
+	if count(t, db, "SELECT COUNT(*) FROM requests WHERE target = 'human' AND read_at IS NULL AND body LIKE '%has 1 new comment(s)%'") != 1 {
+		t.Errorf("once read, the next comment starts a new line")
+	}
+	call(t, mk("", &fakeTeller{}), add(2, 1, "", "f"))
+	if count(t, db, "SELECT COUNT(*) FROM requests WHERE target = 'human'") != 2 {
+		t.Errorf("the founder's own comment tells no one")
+	}
+}
