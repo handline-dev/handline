@@ -12700,7 +12700,7 @@
      },
      "state": {
       "type": "string",
-      "description": "open: waits for the founder. applying: approved by the founder and held until each agent in `waiting_on` ends its turn; the daemon then closes those sessions, applies the change and restarts each agent that stays; it turns approved once the change is applied and each agent that stays has a session again, or apply_failed; `settled` stays null and the founder is offered no action meanwhile. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states."
+      "description": "open: waits for the founder. applying: approved by the founder and held until each agent in `waiting_on` ends its turn; the daemon then closes those sessions, applies the change and restarts each agent that stays; it turns approved once the change is applied (an agent that stays and does not start at once is `follow_up`, not a failure), or apply_failed when the change itself fails; `settled` stays null and the founder is offered no action meanwhile. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states."
      },
      "waiting_on": {
       "type": "array",
@@ -12708,6 +12708,28 @@
        "$ref": "#/components/schemas/AgentName"
       },
       "description": "Set only while state is applying: the agents whose running turn the change waits on, by their names before the change. A card names them."
+     },
+     "follow_up": {
+      "type": "object",
+      "properties": {
+       "agent": {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       "state": {
+        "type": "string",
+        "description": "waiting: the start is put off for machine load and the daemon makes it by itself when the load drops; the card shows no retry. failed: the start failed for another reason and only the founder's Start now (agent.force_start) retries it. An open set: draw a word you do not know as text."
+       },
+       "text": {
+        "type": "string",
+        "description": "Why, from the daemon (the held limit or the failure), one line."
+       }
+      },
+      "required": [
+       "agent",
+       "state",
+       "text"
+      ],
+      "description": "Set on an approved proposal whose change is applied but an agent it renamed is not running yet. Absent when the change needs no start or the start went through; it is removed when the start succeeds. The change is applied either way: a client never draws it as not applied or offers approve again."
      },
      "created": {
       "$ref": "#/components/schemas/Timestamp"
