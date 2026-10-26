@@ -36,7 +36,7 @@ export function AgentRow({
   agent: AgentView;
   depth: number;
   kids: number;
-  /** Sub-agents working under a folded row; 0 when it is open or none work. */
+  /** Sub-agents working under a folded or a pinned row; 0 when it is open and not pinned, or none work. */
   working: number;
   team: string;
   line: string;
