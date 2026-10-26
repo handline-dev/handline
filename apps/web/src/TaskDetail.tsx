@@ -231,7 +231,7 @@ function Body({ t }: { t: Detail }) {
       {showTime ? <TimeSection id={t.id} /> : null}
       {showHistory ? <HistorySection id={t.id} /> : null}
 
-      {/* The scroll box pads 12 px at the bottom and a sticky box stops above its padding: -bottom-3 takes the bar to the true edge, pb refills it. */}
+      {/* A sticky bar stops above the scroll box's 12 px bottom padding; -bottom-3 takes it to the edge. */}
       <div className="task-footer sticky -bottom-3 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-canvas px-4 pb-[calc(var(--sp-3,12px)+0.5rem+env(safe-area-inset-bottom))] pt-2">
         <AskSheets t={t} me={me} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
 
