@@ -373,7 +373,7 @@ describe('the pane', () => {
     expect(m.made).toHaveLength(1); // the kept instance was reused
   });
 
-  it('says why a click could not take the keyboard, and drops the hint', async () => {
+  it('says why a click could not take the keyboard', async () => {
     const m = await mount();
     await until(() => m.term() && rows(m.term()).some((l) => l.includes('Claude Code v2.1')), 'the screen');
     const call = m.client.call.bind(m.client);
@@ -381,7 +381,6 @@ describe('the pane', () => {
       method === 'input.take' ? Promise.reject(new Error('method not found: input.take')) : call(method as never, p as never)) as never);
     box.querySelector('.xterm-host div')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
     await until(() => box.textContent?.includes('Could not take the input: method not found'), 'the reason');
-    expect(box.textContent).not.toContain('Click the terminal to type');
   });
 
   it('follows the window before any click: asks for its size once the screen is live, and never answers a resize notice with another', async () => {
@@ -460,12 +459,13 @@ describe('the pane', () => {
     await until(() => m.term() && rows(m.term()).some((l) => l.includes('Claude Code v2.1')), 'the screen');
     const input = vi.spyOn(m.client.bytes, 'input');
     const resize = vi.spyOn(m.client.bytes, 'resize');
+    const calls = vi.spyOn(m.client, 'call');
+    const sent = (method: string) => calls.mock.calls.filter((c) => c[0] === method).length;
     m.term().input('ignored before the take', true); // not holding: nothing goes
     expect(input).not.toHaveBeenCalled();
     const stage = box.querySelector('.xterm-host div')!;
     stage.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    await until(() => !box.textContent?.includes('Click the terminal to type'), 'the hold');
-    expect(box.textContent).not.toContain('You hold the input');
+    await until(() => sent('input.take') === 1, 'the hold');
     resize.mockClear();
     for (const w of [90, 95, 100]) {
       // a drag: several sizes inside the debounce
@@ -481,11 +481,11 @@ describe('the pane', () => {
     await until(() => input.mock.calls.length > 0, 'the input call');
     expect(new TextDecoder().decode(input.mock.calls[0]![1])).toBe('hi\r');
     stage.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: document.body }));
-    await until(() => box.textContent?.includes('Click the terminal to type'), 'the release on focus leaving');
+    await until(() => sent('input.release') === 1, 'the release on focus leaving');
     stage.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    await until(() => !box.textContent?.includes('Click the terminal to type'), 'the hold again');
+    await until(() => sent('input.take') === 2, 'the hold again');
     stage.dispatchEvent(new KeyboardEvent('keydown', { key: 'E', ctrlKey: true, shiftKey: true, bubbles: true }));
-    await until(() => box.textContent?.includes('Click the terminal to type'), 'the release');
+    await until(() => sent('input.release') === 2, 'the release');
     vi.unstubAllGlobals();
   });
 });

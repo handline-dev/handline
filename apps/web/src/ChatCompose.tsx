@@ -81,7 +81,7 @@ export function Compose(props: {
       set('');
       openTerminal();
     } else if (e.insert !== undefined) {
-      set(open?.kind === 'hash' ? text.replace(/#\w*$/, e.insert) : e.insert);
+      set(open?.kind === 'hash' ? text.replace(/#\w*$/, e.insert) : open?.kind === 'at' ? text.replace(/@[\w.-]*$/, e.insert) : e.insert);
     }
     box.current?.focus();
   };
