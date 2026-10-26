@@ -2,6 +2,7 @@
 // changes when the hr topic says it is approved; a refusal that it already settled needs no words, the refetch shows it.
 import { useState } from 'react';
 import type { Proposal } from '@handline/client';
+import { heldLine } from '@handline/app-core';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
 import { Button } from '#src/ui/index.ts';
@@ -35,5 +36,15 @@ export function ApplyNow({ p, refresh }: { p: Proposal; refresh?: () => void }) 
         </span>
       ) : null}
     </>
+  );
+}
+
+/** What a held proposal waits for and since when, with the button that ends the wait. */
+export function HeldLine({ p, refresh }: { p: Proposal; refresh?: () => void }) {
+  return (
+    <span className="muted hr-held flex flex-wrap items-center gap-2">
+      {heldLine(p)}
+      <ApplyNow p={p} refresh={refresh} />
+    </span>
   );
 }
