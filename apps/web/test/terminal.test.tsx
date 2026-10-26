@@ -247,7 +247,7 @@ describe('the pane', () => {
     root = null;
     box?.remove();
   });
-  function Probe({ create, shell }: { create: CreateTerm; shell: boolean }) {
+  function Probe({ create, shell = false }: { create: CreateTerm; shell?: boolean }) {
     const d = useAgentDetail(ARCH).data;
     return d ? <BytesTab agent={ARCH} detail={d} create={create} shell={shell} handle={shell ? d.terminal! : undefined} /> : null;
   }
