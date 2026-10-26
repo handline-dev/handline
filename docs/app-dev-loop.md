@@ -54,7 +54,7 @@ a second instance quits at once and focuses the running app instead.
 so the whole shell — tray, badge, notices — runs while the page hot-reloads.
 `HANDLINE_GATEWAY` pins the gateway address: the shell otherwise picks this
 machine's Tailscale address and advertises its `*.ts.net` name, which a phone's
-pairing link needs (`pnpm app:watch` leaves it unset for that). A gateway
+pairing link needs (`pnpm dev` leaves it unset for that). A gateway
 listening on loopback only is then unreachable and the page says so, retrying.
 
 **Common failure:** the window opens on the pairing screen — the instance
