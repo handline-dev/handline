@@ -109,9 +109,9 @@ export function HrTab({ focus }: { focus: number | null }) {
   );
   return (
     <View q={q} served shape="inbox" what="HR proposals" empty={false}>
-      <div className="hr mx-auto w-full max-w-[760px]">
+      <div className="hr">
         <div className="hr-head flex items-center justify-between py-2">
-          <strong>HR{waitingCount(list) ? ` · ${waitingCount(list)} waiting` : ''}</strong>
+          <strong>{waitingCount(list) ? `${waitingCount(list)} waiting` : 'Nothing waiting'}</strong>
           {decider && waiting.length > 1 && !all ? (
             <SheetActions>
               <Button
