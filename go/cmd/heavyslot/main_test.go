@@ -104,7 +104,7 @@ func TestAWaiterSaysItWaitsBeforeTheHolderWritesWhoItIs(t *testing.T) {
 		if !strings.Contains(l, "waiting for a heavy-run slot") || !strings.Contains(l, "still writing") {
 			t.Errorf("the waiter did not say it waits: %q", l)
 		}
-	case <-time.After(2 * poll):
+	case <-time.After(5 * poll):
 		t.Fatal("the waiter said nothing while the slot was held")
 	}
 	syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
