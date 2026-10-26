@@ -57,7 +57,12 @@ func (e *Env) sayingNow(rid int64) bool {
 	return e.saying[rid]
 }
 
-// founderText is what is typed for a founder's message: the words as written, then the paths of its pictures.
-func founderText(row *db.Request, images string) string {
-	return strings.TrimSpace(strings.TrimSpace(textsafe.Lines(row.Body)) + "\n" + images)
+// founderText is what is typed for a founder's message: the message it replies to, when it is a reply, then the words as written, then
+// the paths of its pictures.
+func founderText(q db.Q, row *db.Request, images string) string {
+	reply := inReplyTo(q, row)
+	if reply != "" {
+		reply = "(" + reply + ")\n"
+	}
+	return strings.TrimSpace(reply + strings.TrimSpace(textsafe.Lines(row.Body)) + "\n" + images)
 }

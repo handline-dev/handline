@@ -140,6 +140,14 @@ function Limit(props: {
   );
 }
 
+/** A whole number from `min` to `max`, or empty for the default. */
+const inRange = (min: number, max: number) => (t: string) => {
+  const n = parseSeconds(t);
+  return n === null || (n !== INVALID && n >= min && n <= max) ? n : INVALID;
+};
+const parseTarget = inRange(50, 100);
+const parseBurst = inRange(0, 50);
+
 /** The handoff prompt is one line; a break is not sent, and an empty line is the built-in prompt. */
 export const parsePrompt = (t: string) => (/[\r\n]/.test(t) ? INVALID : t.trim());
 
@@ -253,6 +261,37 @@ function Settings(props: { footer: React.ReactNode }) {
               current={v.ram_free_min_pct}
               name="ram_free_min_pct"
             />
+            {v.pacing === undefined ? null : (
+              <>
+                <Toggle
+                  id="pacing"
+                  label="Pacing"
+                  hint="Hold each account to its weekly pace line: one ahead of it starts fewer agents"
+                  on={v.pacing}
+                  change={(on) => ({ pacing: on })}
+                />
+                <Field
+                  id="pace-target"
+                  label="Pace target"
+                  hint="Weekly usage an account may reach by the end of its week. Empty is the default."
+                  unit="%"
+                  current={secondsOf(v.pace_target_pct)}
+                  parse={parseTarget}
+                  change={(n) => ({ pace_target_pct: n })}
+                  allowed="a whole number from 50 to 100, or empty for the default"
+                />
+                <Field
+                  id="pace-burst"
+                  label="Pace burst"
+                  hint="Points of the week an account may run ahead of its line before it starts nothing. Empty is the default."
+                  unit="points"
+                  current={secondsOf(v.pace_burst_pct)}
+                  parse={parseBurst}
+                  change={(n) => ({ pace_burst_pct: n })}
+                  allowed="a whole number from 0 to 50, or empty for the default"
+                />
+              </>
+            )}
             <Seconds
               id="bg-notice"
               label="Background notice"

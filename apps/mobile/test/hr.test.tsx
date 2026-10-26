@@ -355,3 +355,36 @@ describe('the HR list', () => {
     m.store.stop();
   });
 });
+
+describe('a held proposal and the founder’s own', () => {
+  it('sits with the waiting ones, names the turn it waits for, has no verbs and is not counted', async () => {
+    const m = await mount((s) => {
+      raise(s, 45, { title: 'link a -> b' });
+      raise(s, 46, { state: 'applying', waiting_on: [ARCH] });
+    });
+    await openHr();
+    await until(() => $('hr-46'), 'the held card');
+    expect($('hr-46')?.textContent).toContain(`waits for ${ARCH}'s turn to end`);
+    expect($('hr-approve-46')).toBeNull();
+    expect($('hr-reject-46')).toBeNull();
+    expect($('hr-withdraw-46')).toBeNull();
+    expect($('hr-approve-45')).not.toBeNull();
+    expect(text()).toContain('HR · 1 waiting');
+    expect(text().match(/Recent/g)).toBeNull(); // not again under Recent
+    m.store.stop();
+  });
+
+  it('reads "by you" when the founder asked, and the agent’s name when an agent did', async () => {
+    const m = await mount((s) => {
+      raise(s, 47, { requested_by: 'human' });
+      raise(s, 48, { requested_by: ARCH });
+    });
+    await openHr();
+    await until(() => $('hr-47'), 'the cards');
+    expect($('hr-47')?.textContent).toContain('by you');
+    expect($('hr-47')?.textContent).not.toContain('human');
+    expect($('hr-48')?.textContent).toContain(ARCH);
+    expect($('hr-48')?.textContent).not.toContain('by you');
+    m.store.stop();
+  });
+});

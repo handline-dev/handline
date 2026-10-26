@@ -46,6 +46,35 @@ describe('the settings rows the web has', () => {
     m.store.stop();
   });
 
+  it('sets pacing with one key per change and keeps the pace numbers in range', async () => {
+    const m = await settings();
+    const v = values(m);
+    expect(($('pace-target-input') as HTMLInputElement).value).toBe(String(v.pace_target_pct));
+    expect(($('pace-burst-input') as HTMLInputElement).value).toBe(String(v.pace_burst_pct));
+    await press($('pacing-switch'));
+    await until(() => values(m).pacing === false, 'pacing off');
+    for (const [id, bad] of [
+      ['pace-target', '40'],
+      ['pace-target', '101'],
+      ['pace-burst', '51'],
+      ['pace-burst', '1.5'],
+    ] as const) {
+      await type(`${id}-input`, bad);
+      await press($(`${id}-save`));
+      expect(text($(`${id}-note`))).toContain('a whole number from');
+    }
+    expect(values(m).pace_target_pct).toBe(v.pace_target_pct);
+    expect(values(m).pace_burst_pct).toBe(v.pace_burst_pct);
+    await type('pace-target-input', '90');
+    await press($('pace-target-save'));
+    await type('pace-burst-input', '0');
+    await press($('pace-burst-save'));
+    await until(() => values(m).pace_target_pct === 90 && values(m).pace_burst_pct === 0, 'both saves');
+    expect(values(m).pacing).toBe(false);
+    expect(values(m).active_cap).toBe(v.active_cap);
+    m.store.stop();
+  });
+
   it('does not send a bad number', async () => {
     const m = await settings();
     const before = values(m).load_per_core_pct;
