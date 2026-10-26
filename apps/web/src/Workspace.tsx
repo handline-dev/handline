@@ -22,7 +22,8 @@ import {
 } from '@handline/app-core';
 import type { AgentDetail } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
-import { classify, useAgentDetail, useAgents, useServes } from '@handline/app-data';
+import { classify, useAgentDetail, useAgents, useChat, useServes } from '@handline/app-data';
+import { useDecided } from '#src/ChatCards.tsx';
 import { recordHistoryValue, takeTerminalWish, useHistoryValue } from '#src/route.ts';
 import { View } from '#src/View.tsx';
 import { Pane } from '#src/Pane.tsx';
@@ -72,6 +73,13 @@ const parse = (s: string): Workspace | null => {
   }
 };
 
+/** The conversation is read while the agent's detail is still on its way, so the chat tab has it when it opens. */
+function ChatPrefetch({ agent }: { agent: string }) {
+  useChat(agent, 'mine');
+  useDecided(agent);
+  return null;
+}
+
 export function AgentWorkspace({ agent, daemon, storage }: { agent: string; daemon: string; storage: KV | null }) {
   const q = useAgentDetail(agent);
   const list = useAgents();
@@ -88,6 +96,7 @@ export function AgentWorkspace({ agent, daemon, storage }: { agent: string; daem
     return (
       <div className="workspace-loading min-w-0 flex-1 p-3">
         {conn === 'open' ? null : <p className="muted pad">Connecting…</p>}
+        <ChatPrefetch agent={agent} />
         <View q={q} served={served} shape="terminal" what={`${agent}'s workspace`}>
           {null}
         </View>
@@ -170,7 +179,9 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   useEffect(() => {
     const take = () => {
       if (!takeTerminalWish(agent)) return;
-      setWs((w) => (detail.structured ? openTab(w, 'transcript') : detail.terminal ? openTab(w, 'terminal', { handle: detail.terminal }) : w));
+      setWs((w) =>
+        detail.structured ? openTab(w, 'transcript') : detail.terminal ? openTab(w, 'terminal', { handle: detail.terminal }) : w,
+      );
     };
     take();
     addEventListener('handline-terminal', take);
@@ -205,7 +216,12 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   const active = groupsOf(ws.root).find((g) => g.id === ws.active) ?? groupsOf(ws.root)[0]!;
   return (
     <Ctx.Provider value={value}>
-      <div className="workspace relative flex min-h-0 min-w-0 flex-1" ref={root} data-panes={groupsOf(ws.root).length} data-merged={arr.merged}>
+      <div
+        className="workspace relative flex min-h-0 min-w-0 flex-1"
+        ref={root}
+        data-panes={groupsOf(ws.root).length}
+        data-merged={arr.merged}
+      >
         {arr.merged ? (
           <Pane group={{ type: 'group', id: active.id, tabs: arr.tabs, activeTab: arr.activeTab }} />
         ) : (

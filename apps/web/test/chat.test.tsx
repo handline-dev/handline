@@ -541,12 +541,14 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
 describe('loading and writes with latency and refusals', () => {
   it('draws the conversation skeleton after the delay and no spinner, then the conversation', async () => {
     const s = setup();
-    s.daemon.knobs.latency(400);
+    const release = s.daemon.knobs.hold('chat.messages');
     await mount(ARCH, s);
     await until(() => $('.chat .skeleton'), 'the chat skeleton');
     expect($('.chat .skeleton')!.getAttribute('aria-busy')).toBe('true');
     expect($('.spinner, [role=progressbar]')).toBeNull();
     expect($$('.chat .sk').length).toBeGreaterThan(3);
+    expect($$('.chat .msg, .chat [data-kind]')).toHaveLength(0); // nothing is drawn beside the skeleton
+    release();
     await until(() => msg('Which gap list'), 'the conversation', 600);
     await until(() => !$('.chat .skeleton'), 'the skeleton gone');
   });
