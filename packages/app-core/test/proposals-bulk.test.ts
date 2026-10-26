@@ -80,4 +80,6 @@ test('applyFailure: one line, the first sentence of the error, the rest behind D
   assert.equal(f('proposal p12 was not applied: no free slot').line, 'Approved, but not applied: no free slot.');
   assert.equal(f('proposal p12 was not applied: the change is applied').line, 'Approved, but not applied.');
   assert.deepEqual(f(), { line: 'Approved, but not applied.', details: null });
+  assert.equal(f('proposal p9 was not applied: agent.yaml is locked').line, 'Approved, but not applied: agent.yaml is locked.');
+  assert.equal(f('no free slot').line, 'Approved, but not applied: no free slot.'); // an error with no period
 });
