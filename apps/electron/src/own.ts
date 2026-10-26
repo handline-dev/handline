@@ -28,7 +28,6 @@ import { onTailnet } from '#src/tailnet.ts';
 import { singleWindow } from '#src/single-window.ts';
 import { trayIcon as iconFor, trayMenu, type TrayActions, type TrayFollow, type TrayIcon, type TrayMode } from '#src/tray.ts';
 
-/** The menu-bar icon. The plain one is a template image (trayTemplate@2x.png is picked up on a Retina screen), so macOS tints it for a light or a dark bar; one with a dot has a colour of its own, so it is drawn for the bar's brightness. */
 /** The menu bar icon; a hidden run gets one that draws nothing. */
 function makeTray(hidden?: boolean): Tray {
   if (hidden) return { setImage: () => {}, on: () => {}, popUpContextMenu: () => {} } as unknown as Tray;
@@ -37,6 +36,7 @@ function makeTray(hidden?: boolean): Tray {
   return tray;
 }
 
+/** The menu-bar icon. The plain one is a template image (trayTemplate@2x.png is picked up on a Retina screen), so macOS tints it for a light or a dark bar; one with a dot has a colour of its own, so it is drawn for the bar's brightness. */
 function trayImage(kind: TrayIcon): Electron.NativeImage {
   const dir = path.join(import.meta.dirname, '../assets');
   if (kind === 'plain') {

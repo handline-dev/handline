@@ -1,25 +1,27 @@
-// `pnpm dev`: the web bundle's `vite build --watch` and the shell's watch.ts, both children of this process and run directly, so a
-// signal reaches them. Ctrl-C, a TERM or HUP, or either child ending stops both; watch.ts also stops, with its Electron, once this
-// process is gone (HANDLINE_DEV_PARENT).
-import { spawn, type ChildProcess } from 'node:child_process';
+// `pnpm dev`: the web bundle's vite build --watch, run in this process, and the shell's watch.ts as a child on an IPC channel. Ctrl-C,
+// a TERM or HUP, or watch.ts ending stops both; watch.ts quits with its Electron the moment this process is gone, even by kill -9,
+// because its channel disconnects.
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import type * as Vite from 'vite';
 
 const root = path.resolve(import.meta.dirname, '../..');
-const bin = path.join(root, 'node_modules/.bin'); // vite and electron, as pnpm would put them on PATH
-const env = { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`, HANDLINE_DEV_PARENT: String(process.pid) };
-const kids: ChildProcess[] = [
-  spawn(path.join(bin, 'vite'), ['build', '--watch'], { cwd: path.join(root, 'apps/web'), stdio: 'inherit', env }),
-  spawn(process.execPath, ['watch.ts'], { cwd: import.meta.dirname, stdio: 'inherit', env }),
-];
-let code = 0;
-let left = kids.length;
-const stop = (c: number): void => {
-  code ||= c;
-  for (const k of kids) if (k.exitCode === null && k.signalCode === null) k.kill('SIGTERM');
+const web = path.join(root, 'apps/web');
+// vite is apps/web's own dependency, so it is loaded from there.
+const vite = (await import(pathToFileURL(createRequire(path.join(web, 'package.json')).resolve('vite')).href)) as typeof Vite;
+const bundle = await vite.build({ root: web, configFile: path.join(web, 'vite.config.ts'), build: { watch: {} } });
+const bin = path.join(root, 'node_modules/.bin'); // electron, as pnpm would put it on PATH
+const shell = spawn(process.execPath, ['watch.ts'], {
+  cwd: import.meta.dirname,
+  stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
+  env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}` },
+});
+const stop = async (code: number): Promise<never> => {
+  if (shell.exitCode === null && shell.signalCode === null) shell.kill('SIGTERM');
+  if ('close' in bundle) await bundle.close();
+  process.exit(code);
 };
-for (const k of kids)
-  k.once('exit', (c) => {
-    stop(c ?? 1);
-    if (--left === 0) process.exit(code);
-  });
-for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.once(s, () => stop(130));
+shell.once('exit', (c) => void stop(c ?? 1));
+for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.once(s, () => void stop(130));
