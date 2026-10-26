@@ -1290,7 +1290,6 @@ func TestApplyNowInterruptsTheBusyTurnAndAppliesTheChange(t *testing.T) {
 		t.Fatalf("no wait left: %v", v)
 	}
 }
-||||||| parent of 4aa76052e (hr: approving a rename already in effect settles it; a taken name says so plainly)
 
 // A rename approved a second time, after it already took effect (a card left approved-but-failed), settles as applied.
 func TestApprovingARenameThatIsAlreadyInEffectSettlesItAsApplied(t *testing.T) {
