@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RpcError } from '@handline/client';
-import { forgetKept } from '@handline/app-data';
 import { $, mount, press, until, pickTab } from '#test/harness.tsx';
 
 const AUD = 'handline.auditor';
@@ -25,8 +24,6 @@ const chipKey = () =>
   $('image-chips')?.querySelector('[data-testid^="image-chip-"]')?.getAttribute('data-testid')?.replace('image-chip-', '');
 
 describe('attaching an image in Chat', () => {
-  afterEach(forgetKept);
-
   it('uploads a picked image, waits for it, then sends it with no words', async () => {
     const m = await mount();
     await openChat();

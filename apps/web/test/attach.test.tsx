@@ -3,7 +3,6 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
-import { forgetKept } from '@handline/app-data';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
 
@@ -67,7 +66,6 @@ async function mount(s = setup()) {
 }
 
 afterEach(async () => {
-  forgetKept();
   await act(async () => root?.unmount());
   root = null;
   box?.remove();
