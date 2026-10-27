@@ -39,10 +39,14 @@ xcrun simctl io booted screenshot shot.png        # a screenshot without a windo
 emulator -avd <name> -no-window -no-audio &       # Android, the same way
 ```
 
-Start the emulator, the simulator and Metro for a check and stop them when it ends, also when it failed: a forgotten one keeps burning CPU for days. `scripts/sim-check.sh <command>` runs a check in a heavy slot and shuts the simulator and the emulator when the command ends, whatever its result.
+Start them for the check and stop them when it ends: a simulator or emulator left running costs a core (one sat idle for six days at 60-70% CPU), and the daemon holds new agent work while one runs. `tools/phone-sim.sh` does both and shows the state:
 
 ```
-adb emu kill                                      # the Android emulator
-xcrun simctl shutdown all                         # the iOS simulator
-pkill -f "expo start"                             # Metro, if the check started it
+tools/phone-sim.sh status                   # what is running now, "none" when nothing is
+tools/phone-sim.sh android start <name>     # no window, no sound; prints the serial it started, returns when booted (180s limit, PHONE_SIM_BOOT_TIMEOUT)
+tools/phone-sim.sh android stop <serial>      # only that emulator, the one start printed; also ends its qemu
+tools/phone-sim.sh ios start "iPhone 16"    # no Simulator.app window
+tools/phone-sim.sh ios stop "iPhone 16"
 ```
+
+`scripts/sim-check.sh <command>` runs a check in a heavy slot and, when it ends, whatever its result, stops only the simulators and emulators that the command started (through `tools/phone-sim.sh`) and the processes it left behind, such as Metro. What was already running stays.
