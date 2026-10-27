@@ -20,12 +20,15 @@ const WORD: Record<TimeLabel, string> = {
   starting: 'Starting',
 };
 
+/** Only a wait on a task or an agent keeps the daemon's line, because it names which; every other stretch says its own word. */
+const named = (s: Pick<TimeSegment, 'kind' | 'on'>): boolean => s.kind === 'waiting' && (s.on === 'task' || s.on === 'agent');
+
 export const labelOf = (s: Pick<TimeSegment, 'kind' | 'on'>): TimeLabel => (s.kind === 'waiting' ? (s.on ?? 'waiting') : s.kind);
 
 export interface TimeRow {
   kind: TimeKind;
   label: TimeLabel;
-  /** The reason as the daemon words it; `working` for a stretch with none. */
+  /** The stretch's word, or for a wait on a task or an agent the daemon's line naming it. */
   text: string;
   from: string;
   to: string;
@@ -53,7 +56,7 @@ export function timeView(segments: TimeSegment[]): TimeView {
   const rows = sorted.map((s) => ({
     kind: s.kind,
     label: labelOf(s),
-    text: !s.text || s.text === 'queued' ? WORD[labelOf(s)].toLowerCase() : s.text,
+    text: named(s) && s.text ? s.text : WORD[labelOf(s)].toLowerCase(),
     from: s.from,
     to: s.to,
     seconds: s.seconds,

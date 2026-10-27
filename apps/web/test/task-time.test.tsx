@@ -50,9 +50,15 @@ describe('task time', () => {
     await click(line()!);
     await until(() => box.querySelector('.ttime'), 'the time');
     const kinds = [...box.querySelectorAll<HTMLElement>('[data-segment]')].map((r) => r.dataset.segment);
-    expect(kinds).toEqual(['queued', 'working', 'founder', 'working']);
-    expect(box.querySelector('[data-segment="founder"]')!.textContent).toContain('waiting on you');
-    expect(box.querySelector('[data-total="working"]')!.textContent).toContain('3h 30m');
+    expect(kinds).toEqual(['queued', 'working', 'founder', 'working', 'task', 'working', 'agent', 'working', 'account', 'working']);
+    const row = (k: string) => box.querySelector(`[data-segment="${k}"]`)!.textContent;
+    expect(row('founder')).toContain('needs you');
+    expect(row('founder')).not.toContain('waiting on you');
+    expect(row('task')).toContain('blocked by T1688');
+    expect(row('agent')).toContain('waiting on handline.auditor');
+    expect(row('account')).toContain('at a usage limit');
+    expect(row('account')).not.toContain('wall');
+    expect(box.querySelector('[data-total="working"]')!.textContent).toContain('3h');
     expect(box.querySelector('[data-total="founder"]')!.textContent).toContain('30m');
     const t = await s.client.call('task.time', { task: 1684 });
     expect(t.segments[0]!.from).toBe(t.start);

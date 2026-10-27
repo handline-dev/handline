@@ -21,9 +21,12 @@ describe('task time', () => {
     expect($('task-time')).toBeNull();
     await press($('task-time-toggle'));
     await until(() => $('task-time'), 'the time');
-    expect(segments()).toEqual(['queued', 'working', 'founder', 'working']);
-    expect(text($('time-segment-founder'))).toContain('waiting on you');
-    expect(text($('time-total-working'))).toContain('3 h 30 m');
+    expect(segments()).toEqual(['queued', 'working', 'founder', 'working', 'task', 'working', 'agent', 'working', 'account', 'working']);
+    expect(text($('time-segment-founder'))).toContain('needs you');
+    expect(text($('time-segment-founder'))).not.toContain('waiting on you');
+    expect(text($('time-segment-task'))).toContain('blocked by T1688');
+    expect(text($('time-segment-account'))).toContain('at a usage limit');
+    expect(text($('time-total-working'))).toContain('3 h');
     expect(text($('time-total-founder'))).toContain('30 m');
     const t = await m.client.call('task.time', { task: TASK });
     expect($('task-time')!.getAttribute('aria-label')).toBe(

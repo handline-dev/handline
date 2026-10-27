@@ -59,6 +59,19 @@ test('a waiting stretch is worded by what it waits on, one total per kind of wai
     ['needs you', 'blocked', 'waiting on an agent', 'at a usage limit', 'waiting'],
   );
 });
+test('a wait says its own word; only a wait on a task or an agent keeps the daemon line that names it', () => {
+  const at = (n: number) => `2026-10-20T${String(10 + n).padStart(2, '0')}:00:00Z`;
+  const rows = timeView([
+    seg('waiting', at(0), at(1), 'waiting on you', 'founder'),
+    seg('waiting', at(1), at(2), 'blocked by T7', 'task'),
+    seg('waiting', at(2), at(3), 'waiting on handline.a', 'agent'),
+    seg('waiting', at(3), at(4), 'wall', 'account'),
+  ]).rows;
+  assert.deepEqual(
+    rows.map((r) => r.text),
+    ['needs you', 'blocked by T7', 'waiting on handline.a', 'at a usage limit'],
+  );
+});
 test('words a stretch with no reason by its kind, and an empty task has nothing', () => {
   assert.equal(timeView(segments).rows[1]!.text, 'working');
   assert.deepEqual(timeView([]), { rows: [], totals: [], seconds: 0 });
