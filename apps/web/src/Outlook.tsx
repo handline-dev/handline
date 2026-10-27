@@ -89,7 +89,7 @@ function Line({ o }: { o: Outlook }) {
         </svg>
         <p className="outlook-readout muted m-0 mt-1 h-5 text-hint" aria-live="polite">
           {near
-            ? `${new Date(near.at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · ${Math.round(near.left_pct!)}% left${near.guess ? ' (guess)' : ''}`
+            ? `${dateTime(near.at)} · ${Math.round(near.left_pct!)}% left${near.guess ? ' (guess)' : ''}`
             : ''}
         </p>
         <span className={OUTLOOK_END} style={{ top: `${((100 - (lastLeft ?? 0)) / 100) * 100}%` }}>
@@ -194,7 +194,7 @@ function Table({ o, view }: { o: Outlook; view: 'left' | 'cost' }) {
       <tbody>
         {[...o.past.map((p) => ({ ...p, guess: false })), ...o.future.map((p) => ({ ...p, guess: true }))].map((p) => (
           <tr key={p.at}>
-            <td>{dateTime(new Date(p.at).toISOString())}</td>
+            <td>{dateTime(p.at)}</td>
             <td>{p.left_pct === null ? 'no data' : `${Math.round(p.left_pct)}%`}</td>
             <td className="muted">{p.guess ? 'guess' : ''}</td>
           </tr>

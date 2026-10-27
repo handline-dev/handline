@@ -1,6 +1,6 @@
 // The status bar's usage item: the week left across the accounts and whether it lasts at the current pace; the hover lists each account.
 import { useEffect, useRef } from 'react';
-import { alertText, forecastWords, runsOutSoon, span, weekForecast, type WeekForecast } from '@handline/app-core';
+import { alertText, dateTime, forecastWords, runsOutSoon, span, weekForecast, type WeekForecast } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import { useAccounts, useOutlook, useServes } from '@handline/app-data';
 
@@ -17,7 +17,7 @@ export function weekAlertHours(): number {
   }
 }
 
-const day = (ms: number) => new Date(ms).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+const day = (ms: number) => dateTime(new Date(ms).toISOString());
 const pctOf = (f: WeekForecast) => (f.leftPct === null ? 'Week –' : `Week ${f.leftPct}% left`);
 
 export function UsageLink() {

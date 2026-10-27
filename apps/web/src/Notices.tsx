@@ -1,7 +1,7 @@
 // The notices (T5591 N2): the bell at the status bar's right end with the unread count, the list that opens upward from it (a link to what
 // needs the person, then what happened, newest first), and the short results stacked above it.
 import { useState } from 'react';
-import type { Notice } from '@handline/app-core';
+import { clockTime, type Notice } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
 import { useMyTurn } from '@handline/app-data';
 import { Icon, Popup } from '#src/ui/index.ts';
@@ -94,7 +94,7 @@ function Row({ n, fresh }: { n: Notice; fresh: boolean }) {
         {sub ? <span className="block truncate text-hint text-ink-3">{sub}</span> : null}
       </span>
       <time className="flex-none text-hint text-ink-3">
-        {new Date(n.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        {clockTime(new Date(n.at).toISOString())}
       </time>
     </div>
   );
