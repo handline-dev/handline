@@ -52,3 +52,18 @@ test('noteHead cuts by lines and by characters at a word, and leaves a short not
   assert.ok(head.length <= NOTE_LINES * 80 + 1 && head.endsWith('…') && !head.endsWith(' …'));
   assert.ok(para.startsWith(head.slice(0, -1)) && /^word\d+$/.test(head.slice(0, -1).split(' ').pop()!));
 });
+
+test('a request row from task-board is left out; one from an agent or the founder stays', () => {
+  const a = activityOf(
+    [],
+    [
+      e('request', 'task-board', 'T1 memo added by handline.mobile: ...', '2026-01-01T00:00:01Z'),
+      e('request', 'handline.pc', 'Please review', '2026-01-01T00:00:02Z'),
+      e('request', 'founder', 'Do it', '2026-01-01T00:00:03Z'),
+    ],
+  );
+  assert.deepEqual(
+    a.map((i) => i.who),
+    ['handline.pc', 'founder'],
+  );
+});

@@ -16,6 +16,9 @@ export interface ActivityItem {
   edited: boolean;
 }
 
+/** The daemon's own sender of notices about a task; its request rows are noise in the Activity. */
+const SYSTEM_SENDER = 'task-board';
+
 const STATE_WORD: Record<string, string> = {
   opened: 'opened it',
   doing: 'started it',
@@ -60,6 +63,8 @@ export function activityOf(memos: TaskDetail['memos'], timeline: readonly Entry[
       case 'reject':
         return [{ ...base, line: `${e.who} sent it back`, note: e.text }];
       case 'request':
+        // The task board's own notices (a memo added, a digest) repeat what the task already shows as a comment.
+        if (e.who === SYSTEM_SENDER) return [];
         return [{ ...base, line: `${e.who} sent a request`, note: e.text }];
     }
   });
