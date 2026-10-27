@@ -15,16 +15,20 @@ import (
 	"github.com/handline/handline/go/internal/textsafe"
 )
 
-// discardMethod is task.discard: anyone's call, with a one-line reason (the founder's is optional) its opener, assignee and asker are told. tasks in place of task is
-// a batch, one event and one chat card; reasons gives a task its own reason over reason.
+// discardMethod is task.discard: anyone's call, with a one-line reason its opener, assignee and asker are told; the founder's is optional.
+// tasks in place of task is a batch, one event and one chat card; reasons gives a task its own reason over reason.
 func discardMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
 		if _, batch := p["tasks"]; batch {
 			return discardBatch(c, p, home, tell)
 		}
-		reason, err := text(p, "reason")
-		if err != nil && (c.Caller.Actor() != human || p["reason"] != nil && !isText(p["reason"])) {
-			return nil, err // the founder may leave the reason out, not send something that is not text
+		reason, err := optionalReason(p)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(reason) == "" && c.Caller.Actor() != human {
+			_, err := text(p, "reason")
+			return nil, err
 		}
 		return discard(c, p, home, tell, reason, false, false)
 	}
@@ -64,6 +68,17 @@ func allLanded(live []linked) bool {
 	return len(live) > 0
 }
 
+// optionalReason is the reason param, "" when absent; one that is not text is refused. Who may leave it out is the caller's rule.
+func optionalReason(p map[string]any) (string, error) {
+	switch v := p["reason"].(type) {
+	case nil:
+		return "", nil
+	case string:
+		return v, nil
+	}
+	return "", badParam("reason is text", "reason")
+}
+
 // discard throws one task away (discardOne) and does its telling once that commits.
 func discard(c *rpc.Conn, p map[string]any, home string, tell Teller, reason string, stop, own bool) (any, error) {
 	tid, err := taskID(p)
@@ -92,7 +107,10 @@ func discardBatch(c *rpc.Conn, p map[string]any, home string, tell Teller) (any,
 	if err != nil {
 		return nil, err
 	}
-	reason, _ := p["reason"].(string)
+	reason, err := optionalReason(p)
+	if err != nil {
+		return nil, err
+	}
 	each := map[int64]string{}
 	if v, ok := p["reasons"]; ok && v != nil {
 		m, ok := v.(map[string]any)

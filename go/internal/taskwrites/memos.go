@@ -123,11 +123,6 @@ func text(p map[string]any, key string) (string, error) {
 	return s, nil
 }
 
-func isText(v any) bool {
-	_, ok := v.(string)
-	return ok
-}
-
 func accepted(said string, more map[string]any) map[string]any {
 	out := map[string]any{"accepted": true, "said": said}
 	for k, v := range more {
