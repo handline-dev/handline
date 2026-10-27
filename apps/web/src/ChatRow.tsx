@@ -15,6 +15,8 @@ type Props = {
   /** This line is the message or the reply being answered. */
   picked: boolean;
   group?: { name: string | null };
+  /** The person's newest message: it keeps its ticks in view. */
+  latest?: boolean;
   onPick: (m: ChatMessage) => void;
   onReply?: (i: TranscriptItem) => void;
   byId: Map<number, ChatMessage>;
@@ -37,6 +39,7 @@ function same(a: Props, b: Props) {
     a.agent === b.agent &&
     a.picked === b.picked &&
     a.group?.name === b.group?.name &&
+    a.latest === b.latest &&
     a.onPick === b.onPick &&
     !a.onReply === !b.onReply &&
     parentOf(a) === parentOf(b) &&
@@ -45,7 +48,20 @@ function same(a: Props, b: Props) {
   );
 }
 
-export const ChatRow = memo(function ChatRow({ e, instant, agent, picked, group, onPick, onReply, byId, actions, titles, folds }: Props) {
+export const ChatRow = memo(function ChatRow({
+  e,
+  instant,
+  agent,
+  picked,
+  group,
+  latest,
+  onPick,
+  onReply,
+  byId,
+  actions,
+  titles,
+  folds,
+}: Props) {
   return (
     <AnimatedItem
       instant={instant}
@@ -54,7 +70,7 @@ export const ChatRow = memo(function ChatRow({ e, instant, agent, picked, group,
       {e.kind === 'fold' ? (
         <FoldLine f={e} folds={folds} titles={titles} agent={agent} />
       ) : e.kind === 'message' ? (
-        <Message m={e.message} agent={agent} picked={picked} onPick={onPick} byId={byId} actions={actions} group={group} />
+        <Message m={e.message} agent={agent} picked={picked} onPick={onPick} byId={byId} actions={actions} group={group} latest={latest} />
       ) : e.kind === 'proposal' ? (
         <DecidedCard p={e.proposal} />
       ) : e.kind === 'note' ? (

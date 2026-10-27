@@ -1,9 +1,7 @@
 // One agent row of the list, always the same height: the name and its marks on the first line, one line under it (agentLine).
 import { useEffect, useRef, useState, type HTMLAttributes } from 'react';
-import { ago, dotOf, queuedBehind, waitingTasks, rowName, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
+import { ago, dotOf, queuedBehind, rowName, agentStateWord, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
-import { useMe } from '@handline/app-react';
-import { useOpenTasks, useVerbMark } from '@handline/app-data';
 import { DeleteSheet, VerbSheet } from '#src/AgentVerbs.tsx';
 import { Badges } from '#src/Badges.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
@@ -11,6 +9,7 @@ import { Icon, Menu, type At, MenuContent, MenuTrigger } from '#src/ui/index.ts'
 import { goAgent } from '#src/route.ts';
 import { AgentMenu, RowControls } from '#src/RowControls.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
+import { useAgentRowData, type AgentRowData } from '#src/AgentRowData.ts';
 
 // What a row's one line holds, in px: the state mark, the name's least width, a chip's icon and padding, a letter of it, and the gap between items.
 const MARK_W = 14;
@@ -21,21 +20,7 @@ const GAP = 8;
 const RESTART_W = 93; // the icon and "Restarting…"
 const TIME_W = 34;
 
-export function AgentRow({
-  agent: a,
-  depth,
-  kids,
-  working,
-  stuck,
-  team,
-  line,
-  folded,
-  onFold,
-  selected,
-  pinned,
-  onPin,
-  drag,
-}: {
+type RowProps = {
   agent: AgentView;
   depth: number;
   kids: number;
@@ -52,14 +37,39 @@ export function AgentRow({
   onPin: () => void;
   /** Dragging the row to reorder (tree layout): the handlers for the row, and the line where a drop would land. */
   drag?: { attrs: HTMLAttributes<HTMLDivElement>; mark: 'before' | 'after' | null };
-}) {
-  const me = useMe();
+};
+
+/** The row's data (who I am, a pending verb's mark, the tasks waiting behind the current one) is read here once; the view below holds none. */
+export function AgentRow(props: RowProps) {
+  const [hot, setHot] = useState(false); // the pointer or focus is on the row: its actions show, and only then do they cost a detail read
+  const data = useAgentRowData(props.agent, hot);
+  return <AgentRowView {...props} {...data} hot={hot} onHot={setHot} />;
+}
+
+function AgentRowView({
+  agent: a,
+  depth,
+  kids,
+  working,
+  stuck,
+  team,
+  line,
+  folded,
+  onFold,
+  selected,
+  pinned,
+  onPin,
+  drag,
+  me,
+  mark,
+  waiting,
+  hot,
+  onHot,
+}: RowProps & AgentRowData & { hot: boolean; onHot: (v: boolean) => void }) {
   const dot = dotOf(a);
   const [ask, setAsk] = useState<Verb | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [hot, setHot] = useState(false); // the pointer or focus is on the row: its actions show, and only then do they cost a detail read
   const [menuOpen, setMenuOpen] = useState(false);
-  const mark = useVerbMark(a.name);
   // The needs-you chip comes right after the name (the lesser chips drop first) and is the word when the word fits beside the name, else the icon.
   const main = useRef<HTMLButtonElement>(null);
   const [wide, setWide] = useState(true);
@@ -78,11 +88,10 @@ export function AgentRow({
     return () => ro.disconnect();
   }, [kindLen]);
   const queued = queuedBehind(a) || 0;
-  const waiting = waitingTasks(a, useOpenTasks(a.name, hot && queued > 0).data?.items ?? []);
   const queuedTip = [`${queued} waiting behind the current task`, ...waiting.map((t) => `${taskRef(t.id)} ${t.title}`)].join('\n');
   const stamp = a.founder_unread && a.last_to_founder ? a.last_to_founder.at : a.state_since; // when it last wrote to you, else since when it is in this state
   const badges = badgesOf(a, me).filter((b) => b.kind === 'dialog' || b.kind === 'stalled'); // only what the founder must act on
-  const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
+  const tip = [a.name, mark ?? agentStateWord(a.state), ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
     .filter(Boolean)
     .join(' · ');
   const showControls = hot || menuOpen || !!mark; // never just because the row is selected; a pending verb's mark is drawn in the button
@@ -98,10 +107,10 @@ export function AgentRow({
             data-agent={a.name}
             data-drop={drag?.mark ?? undefined}
             {...drag?.attrs}
-            onPointerEnter={() => setHot(true)}
-            onPointerLeave={() => setHot(false)}
-            onFocus={() => setHot(true)}
-            onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setHot(false)}
+            onPointerEnter={() => onHot(true)}
+            onPointerLeave={() => onHot(false)}
+            onFocus={() => onHot(true)}
+            onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && onHot(false)}
           >
             <div
               className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 h-11 py-[3px] tint`}

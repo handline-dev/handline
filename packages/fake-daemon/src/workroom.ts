@@ -180,8 +180,7 @@ export class FakeWork {
     });
   }
 
-  private wait = (): Promise<void> =>
-    new Promise((done) => (this.gates ? this.gates.push(done) : setTimeout(done, this.stepMs)));
+  private wait = (): Promise<void> => new Promise((done) => (this.gates ? this.gates.push(done) : setTimeout(done, this.stepMs)));
 }
 
 const notFound = (message: string, what: string) => new Failure('not_found', message, { what });

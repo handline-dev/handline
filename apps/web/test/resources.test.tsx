@@ -53,13 +53,15 @@ describe('system resources', () => {
     await until(() => text(box.querySelector('.resource-details')).includes('/ 3.0'), 'the new limit');
   });
 
-  it('the admin view lists agents heaviest first with a Stop button each and a totals line', async () => {
+  it('the admin view lists agents heaviest first with Stop behind a menu on each row and a totals line', async () => {
     await mount('#/admin');
     await until(() => box.querySelector('.admin-usage li[data-agent]'), 'the usage rows');
     const rows = [...box.querySelectorAll('.admin-usage li[data-agent]')];
     const cpu = rows.map((r) => Number(/CPU (\d+)%/.exec(text(r))![1]));
     expect(cpu).toEqual([...cpu].sort((a, b) => b - a));
-    expect(rows.every((r) => r.querySelector('button')?.textContent === 'Stop')).toBe(true);
+    expect(rows.some((r) => text(r).includes('parked'))).toBe(false);
+    expect(rows.every((r) => r.querySelector('button[aria-label^="More for"]'))).toBe(true);
+    expect(rows.some((r) => text(r).includes('Stop'))).toBe(false);
     expect(text(box.querySelector('.admin-usage-total'))).toMatch(/^\d+ agents · CPU \d+% · memory/);
   });
 });

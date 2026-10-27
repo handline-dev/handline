@@ -1,6 +1,6 @@
 // Every write method of the contract, once, with its kind and what it does to the cache (docs/turborepo-layout.md §8.5).
 // A method in none of the four lists fails the guard test, so a new write is decided by a person before it ships.
-import { navOf, taskAfter, type TaskEdit, type TaskVerb } from '@handline/app-core';
+import { navOf, taskAfter, type PageSettings, type TaskEdit, type TaskVerb } from '@handline/app-core';
 import type {
   Account,
   InboxItem,
@@ -165,6 +165,8 @@ const tasks: Record<string, WriteSpec> = {
       changeMemos(c, task, (l) => l.filter((m) => m.id !== memo));
     },
   },
+  // The tasks topic's event brings the task again; the params name no task, so the comment lists are read again here.
+  'task.comment.send_now': { ...decided('send now'), touches: (d) => [['d', d, 'memos']] },
   'file.write': decided('save file'), // the page keeps the new etag from the reply
   'task.view.save': { kind: 'decided', label: 'save view', touches: (d) => [qk.taskViews(d)] },
   'task.view.delete': { kind: 'decided', label: 'delete view', touches: (d) => [qk.taskViews(d)] },
@@ -209,10 +211,11 @@ const settings: Record<string, WriteSpec> = {
     kind: 'authored',
     label: 'save settings',
     touches: (d) => [['d', d, 'settings']],
-    // A per-agent override is not the shared value, so only the shared one is shown early.
+    // A per-agent override is not the shared value, so only the shared one is shown early; null is the default, which only the daemon knows.
     patch: (c, p) => {
-      const { agent, changes } = as<{ agent?: string; changes: object }>(p);
-      if (!agent) edit<Settings>(c.qc, ['d', c.d, 'settings'], (s) => ({ ...s, values: { ...s.values, ...changes } }));
+      const { agent, changes } = as<{ agent?: string; changes: PageSettings }>(p);
+      const set = Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== null));
+      if (!agent) edit<Settings>(c.qc, ['d', c.d, 'settings'], (s) => ({ ...s, values: { ...s.values, ...set } }));
     },
   },
   'prefs.set': {
@@ -428,7 +431,6 @@ export const NOT_FROM_UI = [
   'task.memo.delete',
   'task.progress',
   'task.handoff',
-  'task.comment.send_now', // the comment's reader state is read first; T6550 wires the button
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',

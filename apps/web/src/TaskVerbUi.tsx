@@ -113,7 +113,7 @@ export function VerbItems(props: { tasks: Task[]; me: string; cans: Cans; onPick
           </div>
         ))
       ) : (
-        <MenuItem disabled>Nothing to do here</MenuItem>
+        <MenuItem disabled>None of these tasks can do that.</MenuItem>
       )}
     </>
   );

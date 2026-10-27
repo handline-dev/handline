@@ -1255,6 +1255,13 @@
        }
       ],
       "description": "Null until the first measure, and on a daemon that does not measure."
+     },
+     "needs_you": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/MachineNeed"
+      },
+      "description": "The machine's own needs-you items, oldest first; absent when there are none, and on a daemon that does not serve it. A client draws each beside the agents' needs-you cards, in the text given."
      }
     },
     "required": [
@@ -2847,6 +2854,31 @@
     },
     "required": [
      "cursor"
+    ]
+   },
+   "MachineNeed": {
+    "type": "object",
+    "description": "Something the machine needs of the founder, which no agent has: not a task and not an inbox message.",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "disk"
+      ],
+      "description": "disk: free space is under the floor (config disk_free_min_gb, default 5), so builds and tests wait. It stays until space is back over the floor plus 2 GB."
+     },
+     "since": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "text": {
+      "type": "string",
+      "description": "The item in plain words, with the free space in it."
+     }
+    },
+    "required": [
+     "kind",
+     "since",
+     "text"
     ]
    }
   },

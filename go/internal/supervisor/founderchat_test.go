@@ -67,6 +67,23 @@ func TestTheFoundersReplyIsTypedWithTheMessageItAnswers(t *testing.T) {
 	eventually(t, func() bool { row, _ := db.GetRequest(r.DB, out.RID); return row.LandedAt.Valid })
 }
 
+// A message that starts with ! is typed exactly as written, even as a reply: the reference line would push the ! off the front.
+func TestABangMessageIsTypedAsWrittenEvenAsAReply(t *testing.T) {
+	r, _, typed := typedRig(t)
+	parent := r.ask("bob", "human", "#566 merge please", "say")
+	out, err := r.Ask(r.DB, AskIn{Target: "bob", Body: "!git status", Requester: "human", Kind: "say", ParentID: parent})
+	r.must(err)
+	out.Finish()
+	r.must(db.MarkFounderAuthored(r.DB, out.RID))
+	if got, err := r.TellNow(r.DB, out.RID); err != nil || got != "sent" {
+		t.Fatalf("%q %v", got, err)
+	}
+	eventually(t, func() bool { return len(*typed) == 1 })
+	if (*typed)[0] != "!git status" {
+		t.Fatalf("typed %q", (*typed)[0])
+	}
+}
+
 // A founder's message to an agent that cannot be typed at now is said through the inbox, as before, inside the send's own transaction.
 func TestTheFoundersMessageIsSaidThroughTheInboxWhenTheAgentCannotBeTypedAt(t *testing.T) {
 	r, in, typed := typedRig(t)

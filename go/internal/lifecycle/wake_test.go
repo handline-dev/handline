@@ -207,6 +207,22 @@ func TestARecentlyActiveResumeOntoAFullAccountMovesToWhereAnotherHasRoom(t *test
 	}
 }
 
+// The move is written when the launch on the new account has happened, not when it was decided: a launch that fails has moved nobody.
+func TestAMoveThatDoesNotLaunchIsNotRecorded(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, tm.launchOK = "Here is your request.", false
+	m.Launch = slowLaunch{}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", "Stop")
+	if ok, _, _ := m.WakeAgentLocked("a", WakeOpts{Force: true}); ok {
+		t.Fatal("the launch was meant to fail")
+	}
+	if _, _, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); moved {
+		t.Fatal("a move that never launched was recorded")
+	}
+}
+
 func TestARestartAskedToKeepTheConversationMovesOffAFullAccountWhereAnotherHasRoom(t *testing.T) {
 	m, d, tm := newManager(t)
 	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
@@ -1090,5 +1106,52 @@ func TestTheLoadDoesNotHoldTheWakeThatCompletesAHandoff(t *testing.T) {
 	db.SetAgentState(m.Q, "a", states.Parked, m.now(), "idle")
 	if said := wake(m); !strings.Contains(said, held) {
 		t.Fatalf("a park long after an old released handoff went past the load: %q", said)
+	}
+}
+
+// A session closed with its context at the agent's limit starts fresh with the handoff; under the limit it is resumed.
+func TestAWakeAfterACloseOverTheContextLimitStartsFresh(t *testing.T) {
+	for _, full := range []bool{true, false} {
+		m, d, tm := newManager(t)
+		d.waitingMsg, d.tookPrompt, tm.launchOK = "hi", true, true
+		m.Handoff = fakeHandoff{full: full}
+		db.SetTerminal(m.Q, "a", "t1", "/wt")
+		db.SetClosed(m.Q, "a", "sess-1")
+		if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+			t.Fatalf("%v %q %v", ok, said, err)
+		}
+		if len(tm.relaunched) != 1 || strings.Contains(tm.relaunched[0], "--resume") == full {
+			t.Fatalf("full=%v: wrong launch: %q", full, tm.relaunched)
+		}
+	}
+}
+
+// Nothing waiting for it: a full session is not woken to start fresh.
+func TestAClosedFullSessionIsNotWokenForNothing(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.tookPrompt, tm.launchOK = true, true
+	m.Handoff = fakeHandoff{full: true}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	if ok, _, _ := m.WakeAgentLocked("a", WakeOpts{}); ok || len(tm.relaunched) != 0 {
+		t.Fatalf("woke with nothing waiting: %q", tm.relaunched)
+	}
+}
+
+// A wake for a message is new work: the load holds it though its session was full. The held wake leaves the session as it was, so it
+// starts fresh once the load lets it go.
+func TestAWakeOfAFullSessionIsStillHeldByTheLoad(t *testing.T) {
+	m, d, tm := newManager(t)
+	m.LoadHeld = func(string) string { return "held: machine load" }
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "hi", true, true
+	m.Handoff = fakeHandoff{full: true}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	_, said, _ := m.WakeAgent("a", WakeOpts{})
+	if !strings.Contains(said, "held: machine load") || len(tm.relaunched) != 0 {
+		t.Fatalf("not held: %q %q", said, tm.relaunched)
+	}
+	if row, _ := db.GetAgentState(m.Q, "a"); row.ResumeSession.String != "sess-1" {
+		t.Fatalf("the held wake let go of the session: %q", row.ResumeSession.String)
 	}
 }
