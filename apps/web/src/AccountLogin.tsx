@@ -34,7 +34,13 @@ export function AccountLogin({ account }: { account: Account }) {
               <a className="acct-login-url mono" href={url} target="_blank" rel="noreferrer">
                 {url}
               </a>
-              <Button variant="outline" size="sm" label="Copy" title="Copy the link" onClick={() => void navigator.clipboard?.writeText(url)} />
+              <Button
+                variant="outline"
+                size="sm"
+                label="Copy"
+                title="Copy the link"
+                onClick={() => void navigator.clipboard?.writeText(url)}
+              />
               and bring the code back.
             </p>
             <div className="flex items-end gap-2">
@@ -45,8 +51,18 @@ export function AccountLogin({ account }: { account: Account }) {
                 onChange={(e) => setCode(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !!code.trim() && submit()}
               />
-              <Button variant="solid" label={sendCode.isPending ? '…' : 'Submit'} disabled={!code.trim() || sendCode.isPending} onClick={submit} />
-              <Button variant="ghost" label="Cancel" disabled={cancelLogin.isPending} onClick={() => cancelLogin.mutate({ login_id: loginId })} />
+              <Button
+                variant="solid"
+                label={sendCode.isPending ? '…' : 'Submit'}
+                disabled={!code.trim() || sendCode.isPending}
+                onClick={submit}
+              />
+              <Button
+                variant="ghost"
+                label="Cancel"
+                disabled={cancelLogin.isPending}
+                onClick={() => cancelLogin.mutate({ login_id: loginId })}
+              />
             </div>
             {why ? (
               <p className="muted m-0" role="alert">
@@ -57,8 +73,14 @@ export function AccountLogin({ account }: { account: Account }) {
         ) : run ? (
           // A login another client started (or one a reload took the URL away from) still runs: cancel it, then Log in again.
           <p className="muted m-0 flex items-center gap-2" role="status">
-            <Icon name="working" size={14} label="Logging in" className="animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none" />
-            <Button variant="ghost" size="sm" label="Cancel" disabled={cancelLogin.isPending} onClick={() => cancelLogin.mutate({ login_id: loginId })} />
+            <Icon name="working" size={14} label="Logging in" className="animate-spin motion-reduce:animate-none" />
+            <Button
+              variant="ghost"
+              size="sm"
+              label="Cancel"
+              disabled={cancelLogin.isPending}
+              onClick={() => cancelLogin.mutate({ login_id: loginId })}
+            />
           </p>
         ) : (
           <div className="flex items-center gap-2">

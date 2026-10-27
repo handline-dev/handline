@@ -65,7 +65,7 @@ export function StateChip({
         label={said}
         size={16}
         aria-hidden="true"
-        className={state === 'doing' && !foryou ? 'animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none' : undefined}
+        className={state === 'doing' && !foryou ? 'animate-spin motion-reduce:animate-none' : undefined}
       />
       {word ? <span className="ml-0.5">{said}</span> : <VisuallyHidden>{said}</VisuallyHidden>}
     </span>
