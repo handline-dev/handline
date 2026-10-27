@@ -1,9 +1,8 @@
 // My turn (#/my-turn, docs/story9-my-turn.md 9-1): everything that waits on the person as cards, most urgent first. A card has its primary
 // button(s) and a menu for the rest; a dialog the daemon does not know has only Open terminal.
-import { useMemo, useState, type KeyboardEvent } from 'react';
-import { APPROVED, ago, myTurn, type Card, type CardAction } from '@handline/app-core';
-import { useMe } from '@handline/app-react';
-import { classify, sentence, useAgents, useInbox, useTasks, useWrite } from '@handline/app-data';
+import { useState, type KeyboardEvent } from 'react';
+import { APPROVED, ago, type Card, type CardAction } from '@handline/app-core';
+import { classify, sentence, useMyTurn, useWrite } from '@handline/app-data';
 import { goTerminal } from '#src/route.ts';
 import { useWide } from '#src/taskui.tsx';
 import { AskChange, ReviewPictures } from '#src/ReviewCard.tsx';
@@ -11,24 +10,12 @@ import { TaskDetail } from '#src/TaskDetail.tsx';
 import { Button, Icon, Input, MenuButton, MenuItem, PageHead, PageTitle, ScrollPage } from '#src/ui/index.ts';
 import { useNow } from '#src/Gauge.tsx';
 
-/** The cards the person's turn holds: unread items, agents that need them. */
-export function useMyTurn(): { cards: Card[]; loading: boolean } {
-  const inbox = useInbox();
-  const agents = useAgents();
-  const tasks = useTasks({});
-  const me = useMe();
-  const items = inbox.data?.items;
-  const list = agents.data?.agents;
-  const rows = tasks.data?.items;
-  const cards = useMemo(() => myTurn({ items: items ?? [], agents: list ?? [], tasks: rows ?? [], me }), [items, list, rows, me]);
-  return { cards, loading: inbox.isPending && agents.isPending };
-}
-
 const KIND: Record<Card['kind'], string> = {
   decision: 'Decision',
   approval: 'Approve',
   dialog: 'Dialog',
   attention: 'Needs you',
+  task: 'Task',
 };
 
 function dueText(due: number, now: number): string {
@@ -51,6 +38,7 @@ function label(a: CardAction): string {
     case 'deny':
       return 'Deny';
     case 'done':
+    case 'done_task':
       return 'Done';
     case 'approve':
       return 'Approve';
@@ -84,8 +72,9 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
       case 'deny':
         return prompt.mutate({ agent: a.agent, prompt: a.prompt, choice: a.choice });
       case 'done':
-        return void (done.mutate({ task: a.item.task!, evidence: 'decided in the Inbox', reason: true }),
-        read.mutate({ ids: [a.item.id] }));
+        return void (done.mutate({ task: a.item.task!, evidence: 'decided in My turn', reason: true }), read.mutate({ ids: [a.item.id] }));
+      case 'done_task':
+        return done.mutate({ task: a.task, evidence: 'Done', reason: true });
       case 'approve':
         return void (done.mutate({ task: a.item.task!, evidence: APPROVED, reason: true }), read.mutate({ ids: [a.item.id] }));
       case 'ask_change':
@@ -210,10 +199,10 @@ export function MyTurnPage() {
   // Narrow: the task takes the page, with Back. Wide: it opens beside the list, as on the Tasks page.
   if (open !== null && !wide) return <TaskDetail id={open} onBack={() => setOpen(null)} />;
   const list = (
-    <ScrollPage beside={open !== null} className="my-turn" aria-label="Inbox">
+    <ScrollPage beside={open !== null} className="my-turn" aria-label="My turn">
       <PageHead>
         <PageTitle>
-          Inbox <span className="muted">{cards.length}</span>
+          My turn <span className="muted">{cards.length}</span>
         </PageTitle>
       </PageHead>
       {loading ? (
@@ -227,7 +216,7 @@ export function MyTurnPage() {
       ) : (
         <div className="empty">
           <strong>Nothing waits on you</strong>
-          <p>Decisions and approvals show here.</p>
+          <p>Messages for you and tasks given to you show here.</p>
         </div>
       )}
     </ScrollPage>
