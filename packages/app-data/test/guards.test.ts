@@ -9,7 +9,9 @@ const protocol = {
   methods: fs
     .readdirSync(specDir)
     .filter((f) => f.endsWith('.json'))
-    .flatMap((f) => (JSON.parse(fs.readFileSync(path.join(specDir, f), 'utf8')) as { methods: { name: string; 'x-write': boolean }[] }).methods),
+    .flatMap(
+      (f) => (JSON.parse(fs.readFileSync(path.join(specDir, f), 'utf8')) as { methods: { name: string; 'x-write': boolean }[] }).methods,
+    ),
 };
 const methods = (write: boolean) => protocol.methods.filter((m) => m['x-write'] === write).map((m) => m.name);
 

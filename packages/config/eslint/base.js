@@ -5,7 +5,15 @@ import { limits } from '#eslint/limits.js';
 
 const skip = { skipBlankLines: true, skipComments: true };
 export const ignores = {
-  ignores: ['**/dist/**', '**/.turbo/**', '**/node_modules/**', 'contract/protocol.ts', 'contract/gen/**', 'contract/fixtures/**', 'contract/prompts/**'],
+  ignores: [
+    '**/dist/**',
+    '**/.turbo/**',
+    '**/node_modules/**',
+    'contract/protocol.ts',
+    'contract/gen/**',
+    'contract/fixtures/**',
+    'contract/prompts/**',
+  ],
 };
 
 /** The shared rules for the package whose `eslint.config.js` passes its own directory. */

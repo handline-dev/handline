@@ -4,7 +4,7 @@
 # - nothing changed, or documentation only (docs/, design/, *.md, but not contract/ or skill/): nothing.
 # - anything else: the Go suite (tools/test-go.sh), and the contract's generated files being current.
 # Either of the last two first runs the app checks: `pnpm turbo test typecheck lint` (turbo caches it) when a JS workspace
-# file changed (apps/, packages/, the root JS files, contract/protocol.ts or contract/gen/), else only the packages/app-data tests
+# file changed (apps/, packages/, the root JS files, contract/protocol.ts), else only the packages/app-data tests
 # (6 s), whose guards fail on a contract method the apps' tables do not name.
 # CHECK_PLAN=1 prints `kind=<none|docs|go> apps=<no|app-data|turbo>` and runs nothing.
 # A failing step does not stop the ones after it, so one run shows every failure; the exit status is 1 if any failed.
