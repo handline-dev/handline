@@ -232,7 +232,7 @@ func (l *Load) AtCap() bool { return l.Active >= l.Cap }
 
 const activeSQL = "SELECT agent, state, closed_at, (SELECT w.account FROM events w WHERE w.agent = agent_state.agent " +
 	"AND w.kind = 'wake_reserved' AND w.ts > ? AND w.id > COALESCE((SELECT MAX(s.id) FROM events s " +
-	"WHERE s.agent = agent_state.agent AND s.kind IN ('Stop', 'wake_failed')), 0) " +
+	"WHERE s.agent = agent_state.agent AND s.kind IN ('Stop', 'wake_failed', 'wake_dropped')), 0) " +
 	"ORDER BY w.id DESC LIMIT 1) AS reserved FROM agent_state WHERE reserved IS NOT NULL OR " +
 	"(closed_at IS NULL AND (state = 'RUNNING' OR " +
 	"EXISTS (SELECT 1 FROM events m WHERE m.agent = agent_state.agent " +

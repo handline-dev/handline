@@ -207,6 +207,22 @@ func TestARecentlyActiveResumeOntoAFullAccountMovesToWhereAnotherHasRoom(t *test
 	}
 }
 
+// The move is written when the launch on the new account has happened, not when it was decided: a launch that fails has moved nobody.
+func TestAMoveThatDoesNotLaunchIsNotRecorded(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, tm.launchOK = "Here is your request.", false
+	m.Launch = slowLaunch{}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", "Stop")
+	if ok, _, _ := m.WakeAgentLocked("a", WakeOpts{Force: true}); ok {
+		t.Fatal("the launch was meant to fail")
+	}
+	if _, _, moved, _ := db.LastEvent(m.Q, "a", "moved_account"); moved {
+		t.Fatal("a move that never launched was recorded")
+	}
+}
+
 func TestARestartAskedToKeepTheConversationMovesOffAFullAccountWhereAnotherHasRoom(t *testing.T) {
 	m, d, tm := newManager(t)
 	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
