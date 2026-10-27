@@ -6,7 +6,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 )
 
-// Forecast is what an account's week will have left unused at its reset (T6330): left at the rate of the last 24 hours, and the part of
+// Forecast is what an account's week will have left unused at its reset: left at the rate of the last 24 hours, and the part of
 // it that even full 5h windows could not use. A nil figure is not known: nothing is guessed from a week or a ratio that cannot be read.
 type Forecast struct{ LeftAtReset, LostAnyway *float64 }
 

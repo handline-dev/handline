@@ -1018,7 +1018,7 @@
            "type": "null"
           }
          ],
-         "description": "A guess: the percent of this account's week still unused when it resets, if it goes on using the week at the rate of the last 24 hours (never below 0). Null when the week cannot be read (no fresh reading, no reset)."
+         "description": "A guess: the percent of this account's week still unused when it resets, if it goes on using the week at the rate of the last 24 hours (never below 0). Null when the week cannot be read or is over, or the last day has under 2 hours of readings to take a rate from."
         },
         "lost_anyway": {
          "oneOf": [
@@ -1029,7 +1029,7 @@
            "type": "null"
           }
          ],
-         "description": "The percent of this account's unused week that even full 5h windows from now to its reset could not use, at the account's measured ratio of weekly to 5h use (never below 0). Null when the week or the ratio cannot be read."
+         "description": "The percent of this account's unused week that even full 5h windows from now to its reset could not use, at the account's measured ratio of weekly to 5h use (never below 0). Null when left_at_reset is, or the ratio is unknown."
         },
         "resets": {
          "type": "array",
