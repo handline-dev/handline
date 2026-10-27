@@ -22,11 +22,13 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   merger marks it done with the merged commit sha (`hl task done T<n> <sha>`), or
   hands it back with `"not merged: <reason>"`. A wrong result is reopened by its
   asker (`hl task reopen T<n> "<why>"`).
-- Where work lands: each story has a branch `story/<n>`. Its tasks branch from
+- Where work lands: each story has a branch `story/<name>`. Its tasks branch from
   it and, after the PASS, the merger merges them into it, with no founder step.
   A story reaches main as one PR, which the founder checks by eye and merges.
   Only a fix for a red main, a daemon bug or a security fix goes straight to main,
-  as its own PR. Main is merged into every `story/<n>` at least once a day.
+  as its own PR. Main is merged into every `story/<name>` at least once a day.
+  A branch name says what the work is in words and carries no task number: GitHub shows it
+  (`tools/pr-open.sh` refuses one).
 - New work goes in Go. The Python package `handline/` is gone; Python stays only in `tools/` and `contract/` (dev and test harnesses).
 - Every PR to main shows, in its body, a screenshot of each screen it adds or
   changes, before and after, PC and phone where both change, so the founder can

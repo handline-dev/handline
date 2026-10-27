@@ -17,6 +17,11 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$title" ] && [ -f "$body" ] || { echo "tools/pr-open.sh: --title and an existing --body-file are needed" >&2; exit 2; }
 
+branch="$(git branch --show-current)"
+if [[ "$branch" =~ (^|[^A-Za-z0-9])[Tt][0-9]{2,} ]]; then
+    echo "tools/pr-open.sh: the branch $branch carries a task number, which GitHub shows; name it for the work (git branch -m <name>)" >&2
+    exit 1
+fi
 git fetch -q origin "$base" || exit 1
 from="$(git merge-base "origin/$base" HEAD)" || exit 1
 failed=0
