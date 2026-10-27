@@ -27,7 +27,6 @@ const memory = (): KV => {
 let root: Root | null = null;
 let box: HTMLElement;
 const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
-const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null | undefined) => el?.textContent ?? '';
 const open = (s: ReturnType<typeof setup>) => {
