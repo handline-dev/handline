@@ -45,7 +45,9 @@ export function TaskChips({ t, now, onAssign }: { t: Detail; now: number; onAssi
           <Inline
             can={can}
             label="Time box"
-            input={(close) => <TextInput value={t.time_box ?? ''} label="Time box" onSave={(time_box) => edit.save({ time_box })} onClose={close} />}
+            input={(close) => (
+              <TextInput value={t.time_box ?? ''} label="Time box" onSave={(time_box) => edit.save({ time_box })} onClose={close} />
+            )}
           >
             {box || 'none'}
           </Inline>
