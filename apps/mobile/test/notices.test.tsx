@@ -2,6 +2,7 @@
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import { RpcError } from '@handline/client';
+import { applySeeds } from '@handline/fake-daemon/seeds';
 import { $, box, mount, press, until } from '#test/harness.tsx';
 
 const text = (el: Element | null = box) => el?.textContent ?? '';
@@ -79,6 +80,17 @@ describe('the phone notices', () => {
     await press($('bell'));
     await until(() => $('notice'), 'the row again');
     expect($('notice-fresh')).toBeNull();
+    m.store.stop();
+  });
+  it('shows the weekly-loss notice with its first three tasks and a Start button; the X closes it', async () => {
+    const m = await mount((s) => ((s.daemon.tasks.verbs = true), applySeeds(s.daemon, 'spare-notice')));
+    await until(() => $('notice-spare'), 'the notice');
+    expect(text($('notice-spare'))).toContain("18% of theta's weekly use will be lost at 02:10.");
+    expect(text($('notice-spare'))).toContain('T7101 Tidy the gap list');
+    expect(text($('notice-spare'))).not.toContain('T7104');
+    expect(text($('notice-spare'))).toContain('Start 4 tasks');
+    await press($('spare-close'));
+    await until(() => !$('notice-spare'), 'the notice gone');
     m.store.stop();
   });
 });
