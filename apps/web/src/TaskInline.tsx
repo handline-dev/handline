@@ -97,7 +97,11 @@ export function TextInput({
       }
     },
   };
-  return bar ? <BarInput {...props} className="tinput w-full min-w-[min(24rem,60vw)]" /> : <Input {...props} dense className="tinput min-w-0" />;
+  return bar ? (
+    <BarInput {...props} className="tinput w-full min-w-[min(24rem,60vw)]" />
+  ) : (
+    <Input {...props} dense className="tinput min-w-0" />
+  );
 }
 
 /** The description, edited rich in place with Save and Cancel under it. */
