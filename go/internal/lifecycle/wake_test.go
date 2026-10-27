@@ -1009,3 +1009,21 @@ func TestAWakeDuringAHandoffStartsTheNewSessionNotTheOldOne(t *testing.T) {
 		t.Fatal("the handoff still waits after its new session started")
 	}
 }
+
+// handline.architect (10-27): closed while its context handoff waited for the note, woken 1h40m later, it resumed the 441k session
+// that had already hit the limit, three times. A close after the wait began is never resumed, however late the wake.
+func TestAWakeLongAfterACloseDuringAHandoffStillStartsFresh(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "테스트.", true, true
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	if err := db.MarkNoteWait(m.Q, "a", "context", m.now()-2*db.NoteWaitStaleS); err != nil {
+		t.Fatal(err)
+	}
+	db.SetClosed(m.Q, "a", "sess-1")
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Person: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if len(tm.relaunched) != 1 || strings.Contains(tm.relaunched[0], "--resume") {
+		t.Fatalf("the old session was resumed: %q", tm.relaunched)
+	}
+}

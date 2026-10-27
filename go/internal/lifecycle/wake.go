@@ -375,7 +375,13 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	// A handoff that asked for the agent's note and was closed before it went on (an idle close can come first) goes on here: this wake is
 	// its new session, given the record with the note in it, never a resume of the conversation that wrote the note. So nothing waiting
 	// reaches the old session; it is the new one's first prompt.
-	if kind, _, kept := must3(db.NoteWaitKept(m.Q, agent, m.now())); kept && movedTo == "" {
+	// A close that came after the wait began owes the handoff however long ago it was: the wake can be hours later, and the session it
+	// would resume is the one over its limit (handline.architect, 10-27: resumed 1h40m and 13m after the close, three times).
+	kind, since, waits := must3(db.NoteWait(m.Q, agent))
+	if waits && !(row.ClosedAt.Valid && row.ClosedAt.Int64 >= since) && m.now()-since > db.NoteWaitStaleS {
+		waits = false
+	}
+	if waits && movedTo == "" {
 		if row.ResumeSession.String != "" {
 			if gaps := must(m.Handoff.Record(m.Q, agent, row.ResumeSession.String)); len(gaps) > 0 {
 				m.Log("  %s: handoff with gaps (could not read %s)", agent, strings.Join(gaps, ", "))
