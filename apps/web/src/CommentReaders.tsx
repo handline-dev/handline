@@ -5,8 +5,11 @@ import { ago } from '@handline/app-core';
 import { classify, sentence, useOff, useWrite } from '@handline/app-data';
 import { Button, Icon, Popup } from '#src/ui/index.ts';
 
-const stateText = (r: MemoReader): string =>
-  r.state === 'read' ? `read${r.at ? ` ${ago(r.at)}` : ''}` : r.state === 'sent' ? 'sent, not read' : `held, about ${r.minutes ?? 1} min`;
+const STATE = {
+  read: { icon: 'answered', text: (r: MemoReader) => (r.at ? `${ago(r.at)} ago` : 'read') },
+  sent: { icon: 'delivered', text: () => 'sent, not read' },
+  held: { icon: 'waiting', text: (r: MemoReader) => `waits for the next pickup, in about ${r.minutes ?? 1} min` },
+} as const;
 
 /** Nothing for a comment every reader has read: the button goes when there is nothing left to learn. */
 export function CommentReaders({ memo, readers }: { memo: number; readers: MemoReader[] }) {
@@ -28,15 +31,18 @@ export function CommentReaders({ memo, readers }: { memo: number; readers: MemoR
         {held ? <Icon name="waiting" size={12} aria-hidden /> : null}
         {read}/{readers.length} read
       </button>
-      <Popup open={open} onClose={() => setOpen(false)} title="Who has read this" up>
-        <ul className="m-0 grid list-none gap-0.5 p-1">
+      <Popup open={open} onClose={() => setOpen(false)} title="Who has read this">
+        <ul className="m-0 grid min-w-[300px] list-none gap-0.5 p-1">
           {readers.map((r) => (
-            <li key={r.agent} className="flex h-7 items-center gap-2 px-1 text-hint" data-reader={r.agent}>
-              <span className="mono flex-1 truncate">{r.agent}</span>
-              <span className="text-ink-2">{stateText(r)}</span>
+            <li key={r.agent} className="flex min-h-7 items-center gap-2 px-1 text-hint" data-reader={r.agent}>
+              <Icon name={STATE[r.state].icon} size={14} className="shrink-0" aria-hidden />
+              <span className="shrink-0">{r.agent}</span>
+              <span className="flex-1" />
+              <span className="text-ink-2">{STATE[r.state].text(r)}</span>
               {r.state === 'held' ? (
                 <Button
                   size="sm"
+                  variant="solid"
                   label="Send now"
                   title={off}
                   disabled={!!off || send.isPending}

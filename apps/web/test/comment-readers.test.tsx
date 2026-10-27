@@ -49,8 +49,8 @@ describe('who has read a comment', () => {
     expect(btn.querySelector('[data-icon="waiting"]')).not.toBeNull(); // a clock while one is held
     await click(btn);
     const dialog = $('[role="dialog"][aria-label="Who has read this"]')!;
-    expect(dialog.querySelector('[data-reader="handline.pc"]')!.textContent).toContain('read');
-    expect(dialog.querySelector('[data-reader="handline.ux"]')!.textContent).toContain('held, about 4 min');
+    expect(dialog.querySelector('[data-reader="handline.pc"]')!.textContent).toContain('ago');
+    expect(dialog.querySelector('[data-reader="handline.ux"]')!.textContent).toContain('waits for the next pickup, in about 4 min');
     expect(dialog.querySelector('[data-reader="handline.mobile"]')!.textContent).toContain('sent, not read');
     const sendNow = [...dialog.querySelectorAll('button')].filter((b) => b.textContent === 'Send now');
     expect(sendNow).toHaveLength(1);
