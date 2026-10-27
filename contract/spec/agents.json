@@ -438,7 +438,7 @@
      "founder_unread": {
       "type": "integer",
       "minimum": 0,
-      "description": "How many of the agent's open requests to the founder they have not seen yet (past the for_you_seen cursor, founder_seen, as `hl inbox` counts them), less the asks its task comments raised, which have cards of their own. Absent from a daemon that does not serve it yet."
+      "description": "How many of the agent's open requests to the founder they have not seen yet (past the for_you_seen cursor, as `hl inbox` counts them; founder_seen is that cursor), less the asks its task comments raised, which have cards of their own. Absent from a daemon that does not serve it yet."
      },
      "founder_seen": {
       "type": "integer",
