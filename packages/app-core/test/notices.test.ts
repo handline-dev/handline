@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Event as WireEvent } from '@handline/client';
-import { MAX_LIST, Notices, eventText, isMyTurn } from '#src/index.ts';
+import { MAX_LIST, NEWS_MS, Notices, eventText, isMyTurn, targetOf } from '#src/index.ts';
 
 const ev = (cursor: number, topic: string, type: string, extra: Partial<WireEvent> = {}) =>
   ({ cursor, topic, type, at: '', actor: null, agent: null, title: null, target: null, data: {}, ...extra }) as WireEvent;
@@ -12,20 +12,23 @@ function clock() {
   return { now: () => t, tick: (ms: number) => (t += ms) };
 }
 
-test('a success stays 3 s and a failure 8 s, then both live on in the list', () => {
+test('news goes after 6 s; a need and a failure stay until opened or closed; all live on in the list', () => {
   const c = clock();
   const n = new Notices(c.now);
   n.push('ok', 'Applied');
   n.push('fail', 'Not applied: busy');
-  assert.equal(n.toasts().length, 2);
-  c.tick(3001);
+  n.push('need', 'a.b is blocked');
+  assert.equal(n.toasts().length, 3);
+  c.tick(NEWS_MS - 1);
+  assert.equal(n.toasts().length, 3);
+  c.tick(2);
   assert.deepEqual(
     n.toasts().map((x) => x.text),
-    ['Not applied: busy'],
+    ['a.b is blocked', 'Not applied: busy'],
   );
-  c.tick(5000);
-  assert.equal(n.toasts().length, 0);
-  assert.equal(n.list().length, 2);
+  c.tick(3_600_000);
+  assert.equal(n.toasts().length, 2);
+  assert.equal(n.list().length, 3);
 });
 
 test('the same notice within a minute is one line counted x2, and after a minute it is a new line', () => {
@@ -51,19 +54,67 @@ test('at most three toasts stack, the oldest dropped from the screen but not the
   assert.equal(n.list().length, 4);
 });
 
-test('a held toast does not run out and runs its time out again once released', () => {
+test('the pointer or the keyboard focus stops the clock of a toast, which runs on with what was left once both are gone', () => {
   const c = clock();
   const n = new Notices(c.now);
-  const a = n.push('fail', 'x');
-  c.tick(5000);
-  n.hold(a.id);
+  const a = n.push('ok', 'x');
+  c.tick(4000);
+  n.hold(a.id, 'pointer');
+  n.hold(a.id, 'focus');
   c.tick(60_000);
   assert.equal(n.toasts().length, 1);
-  n.release(a.id);
-  c.tick(2900);
+  n.release(a.id, 'pointer');
+  c.tick(60_000);
+  assert.equal(n.toasts().length, 1, 'focus still holds it');
+  n.release(a.id, 'focus');
+  c.tick(1900);
   assert.equal(n.toasts().length, 1);
   c.tick(200);
   assert.equal(n.toasts().length, 0);
+});
+
+test('while the window is hidden or not focused no news clock runs, and one that comes meanwhile waits too', () => {
+  const c = clock();
+  const n = new Notices(c.now);
+  n.push('ok', 'before');
+  c.tick(5000);
+  n.setAway(true);
+  n.push('ok', 'while away');
+  c.tick(600_000);
+  assert.equal(n.toasts().length, 2);
+  n.setAway(false);
+  c.tick(900);
+  assert.equal(n.toasts().length, 2);
+  c.tick(200);
+  assert.deepEqual(
+    n.toasts().map((x) => x.text),
+    ['while away'],
+  );
+  c.tick(NEWS_MS);
+  assert.equal(n.toasts().length, 0);
+});
+
+test('opening closes only that toast and reads that notice; closing leaves it unread; dismissing spares a need', () => {
+  const n = new Notices(clock().now);
+  const a = n.push('need', 'a.b is blocked');
+  const b = n.push('need', 'Account x is out');
+  const c = n.push('ok', 'Applied');
+  const f = n.push('fail', 'Not applied');
+  n.open(a.id);
+  assert.deepEqual(
+    n.toasts().map((x) => x.id),
+    [f.id, c.id, b.id],
+  );
+  assert.equal(n.unread(), 3);
+  n.close(b.id);
+  assert.equal(n.unread(), 3, 'closed, still unread');
+  assert.equal(n.list().length, 4);
+  const d = n.push('need', 'again');
+  n.dismissToasts();
+  assert.deepEqual(
+    n.toasts().map((x) => x.id),
+    [d.id],
+  );
 });
 
 test('the list keeps the last 100 and counts the unread until they are marked read', () => {
@@ -114,24 +165,36 @@ test('agent events are filed under team, results under system', () => {
   );
 });
 
-test('the listeners hear when a toast runs out, so a screen that draws on change takes it down', async () => {
-  const n = new Notices();
+test('the listeners hear when a toast runs out, so a screen that draws on change takes it down', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const c = clock();
+  const n = new Notices(c.now);
   let heard = 0;
   n.subscribe(() => heard++);
   n.push('ok', 'x');
   const after = heard;
-  await new Promise((r) => setTimeout(r, 3100));
+  c.tick(NEWS_MS + 1);
+  t.mock.timers.tick(NEWS_MS + 2);
   assert.ok(heard > after);
   assert.equal(n.toasts().length, 0);
 });
 
-test('a finished task keeps its closer, number, title and result; other events carry nothing extra', () => {
+test('an event carries what it is about, and that says the page it opens', () => {
   const n = new Notices();
   n.takeEvent(ev(1, 'notifications', 'task_done', { agent: 'a.b', data: { task: 7, task_title: 'Fix it', result: 'PASS' } }));
   n.takeEvent(ev(2, 'notifications', 'task_done', { agent: 'a.c', data: { task: 8 } }));
   n.takeEvent(ev(3, 'notifications', 'stall', { agent: 'a.b' }));
+  n.takeEvent(ev(4, 'notifications', 'account_out', { data: { account: 'alpha' } }));
+  n.takeEvent(ev(5, 'hr', 'hr.settled', { agent: 'a.d', data: { proposal: { id: 12 } } }));
   assert.deepEqual(
-    n.list().map((x) => x.about),
-    [undefined, { agent: 'a.c', task: 8 }, { agent: 'a.b', task: 7, title: 'Fix it', result: 'PASS' }],
+    n.list().map((x) => [x.level, x.about, targetOf(x)]),
+    [
+      ['info', { agent: 'a.d', proposal: 12 }, '#/team/hr/12'],
+      ['need', { account: 'alpha' }, '#/accounts/alpha'],
+      ['need', { agent: 'a.b' }, '#/agents/a.b'],
+      ['info', { agent: 'a.c', task: 8 }, '#/tasks/8'],
+      ['info', { agent: 'a.b', task: 7, title: 'Fix it', result: 'PASS' }, '#/tasks/7'],
+    ],
   );
+  assert.equal(targetOf(n.push('fail', 'Not applied')), null);
 });

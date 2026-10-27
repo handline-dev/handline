@@ -1,7 +1,7 @@
 // The notice bell in the status bar: the unread count, the list that opens upward, the short result above the bell.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
@@ -63,5 +63,58 @@ describe('the notice bell', () => {
     expect(row.textContent).toContain('Audit PR #536');
     expect(row.textContent).toContain('T5720 done · PASS, real Chrome checked');
     expect(row.querySelector('[aria-label="handline.pc.auditor"]')!.textContent).toBe('au');
+  });
+
+  it('a toast opens what it is about and closes only itself; the X closes one; a failure offers Try again and Details; a bell row opens the same page', async () => {
+    const s = setup();
+    const store = new Store(s.client);
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => root!.render(<App store={store} daemon="test" storage={null} />));
+    const ev = (cursor: number, type: string, extra: object) =>
+      ({ cursor, topic: 'notifications', type, agent: null, title: null, data: {}, ...extra }) as never;
+    let again = 0;
+    await act(async () => {
+      store.notices.takeEvent(ev(9101, 'stall', { agent: 'handline.pc' }));
+      store.notices.takeEvent(ev(9102, 'account_out', { data: { account: 'alpha' } }));
+      store.notices.push('fail', "Couldn't start: busy", 'system', undefined, 'busy, retry later', () => void again++);
+    });
+    const toast = (text: string) => [...box.querySelectorAll<HTMLElement>('.toast')].find((t) => t.textContent!.includes(text))!;
+    expect(box.querySelectorAll('.toast').length).toBe(3);
+    expect(box.querySelector('[title="Click to dismiss"]')).toBeNull();
+    expect(toast('busy').textContent).toContain('Details');
+    await act(async () => toast('busy').querySelector<HTMLButtonElement>('.toast-retry')!.click());
+    expect(again).toBe(1);
+    expect(box.querySelectorAll('.toast').length).toBe(2);
+    await act(async () => toast('alpha').querySelector<HTMLButtonElement>('.toast-close')!.click());
+    expect(box.querySelectorAll('.toast').length).toBe(1);
+    await act(async () => toast('blocked').querySelector<HTMLButtonElement>('.toast-open')!.click());
+    expect(location.hash).toBe('#/agents/handline.pc');
+    expect(box.querySelectorAll('.toast').length).toBe(0);
+    // The bell: unread is bold until opened, and a row opens the same page.
+    await act(async () => box.querySelector<HTMLButtonElement>('.notice-bell')!.click());
+    const row = (text: string) => [...box.querySelectorAll<HTMLElement>('[data-notice]')].find((r) => r.textContent!.includes(text))!;
+    expect(row('alpha').querySelector('.truncate.font-semibold')).not.toBeNull();
+    expect(row('blocked').querySelector('.truncate.font-semibold')).toBeNull();
+    await act(async () => row('alpha').click());
+    expect(location.hash).toBe('#/accounts/alpha');
+  });
+
+  it('keyboard focus in a toast stops its clock; a hidden window stops them all', async () => {
+    const s = setup();
+    const store = new Store(s.client);
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => root!.render(<App store={store} daemon="test" storage={null} />));
+    await act(async () => void store.notices.push('ok', 'Applied'));
+    const toast = box.querySelector<HTMLElement>('.toast')!;
+    const hold = vi.spyOn(store.notices, 'hold');
+    await act(async () => void toast.dispatchEvent(new FocusEvent('focusin', { bubbles: true })));
+    expect(hold).toHaveBeenCalledWith(expect.any(Number), 'focus');
+    const away = vi.spyOn(store.notices, 'setAway');
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    await act(async () => void document.dispatchEvent(new Event('visibilitychange')));
+    expect(away).toHaveBeenLastCalledWith(true);
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
   });
 });
