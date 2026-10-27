@@ -77,8 +77,8 @@ const TAB_KEYS: KeyRows = [
 export function Pane({ group }: { group: Group }) {
   useScreenKeys('On the tabs', TAB_KEYS);
   const { ws, detail, agent, storage, apply, show, canSplit, lead, dragging, setDragging } = useWorkspace();
-  const openShell = useWrite('shell.open', agent);
-  const closeShell = useWrite('shell.close', agent);
+  const { mutateAsync: openShell } = useWrite('shell.open', agent);
+  const { mutate: closeShell } = useWrite('shell.close', agent);
   const folded = useFoldedControls();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
@@ -99,7 +99,7 @@ export function Pane({ group }: { group: Group }) {
     let params = c.params;
     if (c.open) {
       try {
-        params = { handle: (await openShell.mutateAsync({ agent })).terminal };
+        params = { handle: (await openShell({ agent })).terminal };
       } catch {
         return; // useWrite has reported it
       }
@@ -192,7 +192,7 @@ export function Pane({ group }: { group: Group }) {
                       !confirm(`Close the Claude Code tab of ${agent}? The agent keeps running.`)
                     )
                       return;
-                    if (t.kind === 'shell') closeShell.mutate({ terminal: String(t.params.handle) }); // the shell ends with its tab
+                    if (t.kind === 'shell') closeShell({ terminal: String(t.params.handle) }); // the shell ends with its tab
                     apply((w) => closeTab(w, id));
                   }}
                 >
