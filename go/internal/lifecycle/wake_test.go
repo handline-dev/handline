@@ -121,6 +121,22 @@ func TestStartForWorkThatCannotTryTheStartIsNotCountedAgainstTheAgent(t *testing
 	}
 }
 
+func TestAWakeReservationCarriesItsAccountWhereTheLoadQueryReadsIt(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", "Stop")
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	// usage.activeSQL counts a reservation by events.account, not by the payload
+	var account string
+	if err := m.Q.QueryRow("SELECT COALESCE(account, '') FROM events WHERE agent = 'a' AND kind = 'wake_reserved'").Scan(&account); err != nil || account != "resume-acct" {
+		t.Fatalf("the reservation's account column: %q %v", account, err)
+	}
+}
+
 func TestAWakeHoldsItsSlotFromTheMomentItIsDecided(t *testing.T) {
 	m, d, tm := newManager(t)
 	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true

@@ -5,19 +5,28 @@ import type { Chat } from '#src/chat.ts';
 import { useInbox } from '#src/read.ts';
 import { useWrite } from '#src/write.ts';
 
-export function useChatReadMarks(agent: string, chat: Pick<Chat, 'status' | 'messages'>): void {
+/**
+ * Returns what to call with the newest message number that has been in view. With `byView` the agent's messages are marked only
+ * that way; without it the newest drawn counts (the phone's chat).
+ */
+export function useChatReadMarks(agent: string, chat: Pick<Chat, 'status' | 'messages'>, byView = false): (up_to: number) => void {
   const mark = useWrite('chat.seen', agent);
-  const seen = (up_to: number) => mark.mutate({ agent, up_to });
-  // The agent's messages now in front of the person leave the FOR YOU list (chat.seen); once per newest number.
-  const said = chat.messages.filter((m) => m.from === agent && m.id > 0).reduce((n, m) => Math.max(n, m.id), 0);
+  // The agent's messages in front of the person leave the FOR YOU list (chat.seen); once per newest number.
   const told = useRef(0);
+  const ready = useRef(false);
   useEffect(() => {
-    if (chat.status === 'ready' && said > told.current) {
-      told.current = said;
-      seen(said);
-    }
+    ready.current = chat.status === 'ready';
+  }, [chat.status]);
+  const seen = (up_to: number) => {
+    if (!ready.current || up_to <= told.current) return;
+    told.current = up_to;
+    mark.mutate({ agent, up_to });
+  };
+  const drawn = byView ? 0 : chat.messages.filter((m) => m.from === agent && m.id > 0).reduce((n, m) => Math.max(n, m.id), 0);
+  useEffect(() => {
+    seen(drawn);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [said, chat.status]);
+  }, [drawn, chat.status]);
 
   // Results and messages the agent sent to the Inbox are read once its chat is open, never a question that waits or a prompt.
   const inbox = useInbox();
@@ -33,4 +42,5 @@ export function useChatReadMarks(agent: string, chat: Pick<Chat, 'status' | 'mes
     read.mutate({ ids });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inbox.data, chat.status, agent]);
+  return seen;
 }
