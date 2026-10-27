@@ -149,3 +149,79 @@ describe('the notice bell', () => {
     expect(box.querySelectorAll('.toast').length).toBe(1);
   });
 });
+
+describe('the toast stack and the composer', () => {
+  it('lifts above a composer it would cover', async () => {
+    const s = setup();
+    const store = new Store(s.client);
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    const rect = (top: number, bottom: number, left = 600, right = 1000) =>
+      ({ top, bottom, left, right, width: right - left, height: bottom - top, x: left, y: top, toJSON() {} }) as DOMRect;
+    const row = document.body.appendChild(document.createElement('div'));
+    row.className = 'compose-row';
+    const orig = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      return this.classList.contains('toasts') ? rect(650, 740) : this === row ? rect(700, 760) : orig.call(this);
+    };
+    try {
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          observe() {}
+          disconnect() {}
+        },
+      );
+      await act(async () => root!.render(<App store={store} daemon="test" storage={null} />));
+      await act(async () => void store.notices.push('info', 'a: task T1 is done', 'team'));
+      expect((box.querySelector('.toasts') as HTMLElement).style.transform).toBe('translateY(-48px)');
+    } finally {
+      Element.prototype.getBoundingClientRect = orig;
+      vi.unstubAllGlobals();
+      row.remove();
+    }
+  });
+
+  it('lifts for a composer that mounts after the toast, and settles when it goes', async () => {
+    const s = setup();
+    const store = new Store(s.client);
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    const row = document.createElement('div');
+    row.className = 'compose-row';
+    const orig = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const rect = (top: number, bottom: number) =>
+        ({ top, bottom, left: 600, right: 1000, width: 400, height: bottom - top, x: 600, y: top, toJSON() {} }) as DOMRect;
+      return this.classList.contains('toasts') ? rect(650, 740) : this === row ? rect(700, 760) : orig.call(this);
+    };
+    try {
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          observe() {}
+          unobserve() {}
+          disconnect() {}
+        },
+      );
+      await act(async () => root!.render(<App store={store} daemon="test" storage={null} />));
+      await act(async () => void store.notices.push('info', 'a: task T1 is done', 'team'));
+      const toasts = box.querySelector('.toasts') as HTMLElement;
+      expect(toasts.style.transform).toBe('');
+      await act(async () => {
+        document.body.appendChild(row);
+        await new Promise((r) => setTimeout(r));
+      });
+      expect(toasts.style.transform).toBe('translateY(-48px)');
+      await act(async () => {
+        row.remove();
+        await new Promise((r) => setTimeout(r));
+      });
+      expect(toasts.style.transform).toBe('');
+    } finally {
+      Element.prototype.getBoundingClientRect = orig;
+      vi.unstubAllGlobals();
+      row.remove();
+    }
+  });
+});
