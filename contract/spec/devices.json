@@ -1,0 +1,257 @@
+{
+ "components": {
+  "schemas": {
+   "Device": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "role": {
+      "type": "string",
+      "description": "A paired device is the founder.",
+      "enum": [
+       "founder"
+      ]
+     },
+     "created": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "last_seen": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "connected": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "role",
+     "created",
+     "last_seen",
+     "connected"
+    ]
+   }
+  }
+ },
+ "methods": [
+  {
+   "name": "devices.list",
+   "summary": "Paired devices with last seen and whether each is connected.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "devices": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/Device"
+       }
+      }
+     },
+     "required": [
+      "devices"
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "device.pair",
+   "summary": "Make a one-time pairing code.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "name",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "ttl_s",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 600,
+      "description": "Seconds the code lives; default 300."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "code": {
+         "type": "string"
+        },
+        "expires_at": {
+         "$ref": "#/components/schemas/Timestamp"
+        },
+        "fingerprint": {
+         "type": "string",
+         "description": "Listener certificate fingerprint."
+        },
+        "uri": {
+         "type": "string",
+         "description": "What the QR carries."
+        }
+       },
+       "required": [
+        "code",
+        "expires_at",
+        "fingerprint",
+        "uri"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "description": "Founder only. The code is single use and expires: `ttl_s` seconds (default 300, at most 600). The reply carries the listener certificate fingerprint and the address in `uri`, which is what the QR holds; a client pins that fingerprint and refuses any other certificate. It is not replayed by request_id: a retry with the same request_id runs again and makes another code.",
+   "x-note": "The code is shown once and kept only as a hash; a second call makes a new code and leaves the first valid until it expires or is used."
+  },
+  {
+   "name": "device.redeem",
+   "summary": "Trade a pairing code for a device token.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "code",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "name",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "token": {
+         "type": "string"
+        },
+        "device": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "token",
+        "device"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "anonymous",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "x-gates": [
+    "pairing_code",
+    "attempt_limit"
+   ],
+   "description": "The only method an unpaired network caller may call. A code that is wrong, expired or already used is refused, gate `pairing_code`, without saying which; too many wrong tries are refused, gate `attempt_limit`. A code redeems once: the token is in this one reply and never again, and the daemon keeps only its hash. `name` is how the device is listed. It is not replayed by request_id either: a retry runs again, and a code that was redeemed stays used, so the retry is refused. The wrong-code count for a redeem over the local socket is kept under the host '' (the empty string), since it has no address."
+  },
+  {
+   "name": "device.revoke",
+   "summary": "Cancel a device and close its connections at once.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "device",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "description": "Cancels the device's token. Its open connections and terminal attaches are closed at once, its next call is refused (gate `unpaired`), and a device.revoked event is sent on the devices topic. Revoking a device that is not paired is not_found."
+  }
+ ]
+}

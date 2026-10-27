@@ -33,7 +33,7 @@ With no `-cert` and `-key` this is Tailscale mode (below): nothing to set up.
 - It serves natively `hello`, `whoami`, the device methods and the methods named by `-native` (default: the area-1 reads
   `daemon.status,agents.list,agent.get,agent.timeline,tasks.list,task.get,inbox.list`). Every other method is **relayed**: a method that
   moves from relay to Go is added to `-native` once its fixtures pass against this daemon.
-- **Relay.** A paired device's call for a method that is not native is checked here against `contract/protocol.json` (a generated
+- **Relay.** A paired device's call for a method that is not native is checked here against `contract/spec/` (a generated
   copy, `go/internal/rpc/contract.json`, kept current by `tools/go_contract.py`): a name the contract lacks is unknown, a method
   above member or whose callers leave members out is refused (`gate: role`), and neither is sent on. The rest goes to `relay.sock`
   (`-relay-socket`) on a connection of its own for each device connection: the first line is
