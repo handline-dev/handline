@@ -23,6 +23,20 @@ n="$(ls "$tmp/bin"/heavyslot-* | wc -l | tr -d ' ')"
 [ "$n" = 3 ] || { echo "FAIL: $n pinned helpers kept, want 3"; exit 1; }
 out="$(HANDLINE_HEAVY_LOCAL=1 timeout 20 "$copy/tools/heavy-slot.sh" echo ran 2>&1)"
 [ "$out" = "ran" ] && { echo "FAIL: HANDLINE_HEAVY_LOCAL=1 did not use the worktree helper"; exit 1; }
+# a TERM during the pinned build ends the wrapper non-zero, and the command never runs (the fallback must not run what was told to stop)
+mkdir "$tmp/stub"   # a go whose build takes 3 s and yields a helper that just runs the command, so a wrapper that goes on after the TERM would run it
+cat > "$tmp/stub/go" <<'GO'
+#!/bin/sh
+[ "$1" = env ] && { echo "$STUB_CACHE"; exit 0; }
+if [ "$1" = build ]; then sleep 3; printf '#!/bin/sh\nshift\nexec "$@"\n' > "$3"; chmod +x "$3"; fi
+exit 0
+GO
+chmod +x "$tmp/stub/go"; export STUB_CACHE="$tmp/gocache"
+git -C "$copy" -c user.name=t -c user.email=t@t commit -q --allow-empty -m third && git -C "$copy" update-ref refs/remotes/origin/main HEAD
+PATH="$tmp/stub:$PATH" "$copy/tools/heavy-slot.sh" touch "$tmp/ran" >/dev/null 2>&1 &
+wpid=$!; sleep 1; kill -TERM "$wpid"; wait "$wpid" 2>/dev/null; rc=$?
+[ "$rc" != 0 ] && [ ! -e "$tmp/ran" ] || { echo "FAIL: a TERM during the build exited $rc, command ran: $([ -e "$tmp/ran" ] && echo yes || echo no)"; exit 1; }
+ls -d "$tmp"/heavyslot-src.* >/dev/null 2>&1 && { echo "FAIL: the temp source was left after a TERM"; exit 1; }
 rm -rf "$copy/.git"
 out="$(timeout 20 "$copy/tools/heavy-slot.sh" echo ran 2>&1)"
 case "$out" in *"origin/main could not be read or built"*) ;; *) echo "FAIL: the fallback was silent: $out"; exit 1 ;; esac

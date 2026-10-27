@@ -16,7 +16,9 @@ if [ -z "${HANDLINE_HEAVY_LOCAL:-}" ]; then
         dir="${HANDLINE_HEAVY_BIN:-$HOME/.handline/heavy-bin}"
         pinned="$dir/heavyslot-$sha"
         if ! [ -x "$pinned" ]; then
-            src="$(mktemp -d "${TMPDIR:-/tmp}/heavyslot-src.XXXXXX")" && trap 'rm -rf "$src" "$pinned.$$"' EXIT INT TERM
+            src="$(mktemp -d "${TMPDIR:-/tmp}/heavyslot-src.XXXXXX")" &&
+                trap 'rm -rf "$src" "$pinned.$$"' EXIT &&
+                trap 'exit 130' INT && trap 'exit 143' TERM   # a killed build must end the run, not fall through to the fallback
             if git -C "$top" archive "$sha" go tools/go-env.sh | tar -x -C "$src" && mkdir -p "$dir" &&
                 (cd "$src/go" && . "$src/tools/go-env.sh" && CGO_ENABLED=0 go build -o "$pinned.$$" ./cmd/heavyslot) &&
                 mv "$pinned.$$" "$pinned"; then
