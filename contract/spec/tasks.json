@@ -2548,7 +2548,7 @@
   },
   {
    "name": "task.comment.add",
-   "summary": "Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer. The founder is told by one inbox line per request (a task made from their message, task.request) while it stays unread, counting the agents' new comments. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
+   "summary": "Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer. The founder is told by one inbox line per request (a task made from their message, task.request) while it stays unread, counting the agents' new comments. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. A comment by an agent that names @human asks the founder: it opens one ask to the founder, linked to the task (InboxItem kind ask, `task` and `memo` set), so the task reads waiting on the founder. The ask stays open until (1) the founder replies to it (inbox.reply), (2) the founder adds any comment to that task, (3) the founder marks it read (inbox.mark_read naming its id), (4) its comment is deleted or edited so it no longer names @human, or (5) the task is done or discarded. An edit that keeps @human keeps the one ask and updates its body; one that adds @human opens it. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2724,7 +2724,7 @@
   },
   {
    "name": "task.comment.edit",
-   "summary": "Edit a comment: its author or the founder. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.edit is its old name.",
+   "summary": "Edit a comment: its author or the founder. An edit that drops @human withdraws the ask it opened (task.comment.add); one that adds @human opens one. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.edit is its old name.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2836,7 +2836,7 @@
   },
   {
    "name": "task.comment.delete",
-   "summary": "Delete a comment: its author or the founder. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.delete is its old name.",
+   "summary": "Delete a comment: its author or the founder. Deleting a comment withdraws the ask it opened (task.comment.add). The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.delete is its old name.",
    "paramStructure": "by-name",
    "params": [
     {
