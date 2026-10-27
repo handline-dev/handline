@@ -599,4 +599,11 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     await until(() => msg('mine'), 'the message');
     expect(msg('mine')!.parentElement!.querySelector('.msg-hover')).toBeNull();
   });
+
+  it('a chat with messages is laid out from the bottom, so a short one sits next to the composer; an empty one is not', async () => {
+    const s = setup();
+    await mount(ARCH, s);
+    await until(() => msg('Which gap list'), 'history');
+    expect($('.stream > div')!.className).toContain('justify-end');
+  });
 });
