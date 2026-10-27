@@ -27,7 +27,7 @@ import { KeysSheet, MergeSheet, OwnerSheet, PrioritySheet } from '#src/TaskSheet
 import { Button, ScrollPage } from '#src/ui/index.ts';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { useBulk } from '#src/taskActions.ts';
-import { ReasonSheet, useCan, useNow, useWide } from '#src/taskui.tsx';
+import { ReasonSheet, useCan, useNow, useTableColumns, useWide } from '#src/taskui.tsx';
 import { useMarks } from '#src/useMarks.ts';
 import { VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from '#src/TaskVerbUi.tsx';
 import { View } from '#src/View.tsx';
@@ -58,7 +58,7 @@ export function TasksPage({ route }: { route: string }) {
   );
 }
 
-type RowProps = Omit<ComponentProps<typeof Row>, 'rows' | 't' | 'now' | 'markCell'>;
+type RowProps = Omit<ComponentProps<typeof Row>, 'rows' | 't' | 'now' | 'markCell' | 'columns'>;
 
 /** The table of tasks: a band of rows under each status heading. */
 function TaskTable({
@@ -78,11 +78,14 @@ function TaskTable({
   markCell: boolean;
   rowProps: (t: Task) => RowProps;
 }) {
+  const scroll = useRef<HTMLDivElement>(null);
+  const columns = useTableColumns(scroll);
+  const widths = ['w-8', 'w-8', 'w-16', '', ...(columns.owner ? ['w-28'] : []), ...(columns.pri ? ['w-14'] : []), 'w-36'];
   return (
-    <div className="tasks-scroll @container min-h-0 flex-1 overflow-auto max-sm:bg-transparent" aria-busy={busy}>
+    <div ref={scroll} className="tasks-scroll min-h-0 flex-1 overflow-auto max-sm:bg-transparent" aria-busy={busy}>
       <table className="ttable w-full table-fixed border-collapse max-sm:block" aria-label="Tasks">
         <colgroup className="max-sm:hidden">
-          {['w-8', 'w-8', 'w-16', '', 'w-28 @max-[600px]:min-sm:hidden', 'w-14 @max-[720px]:min-sm:hidden', 'w-28'].map((w, i) => (
+          {widths.map((w, i) => (
             <col key={i} className={w} />
           ))}
         </colgroup>
@@ -91,7 +94,7 @@ function TaskTable({
             <Fragment key={g.label}>
               <tr className="tgroup max-sm:block" data-group={g.key}>
                 <th
-                  colSpan={7}
+                  colSpan={widths.length}
                   className="px-2 pt-4 pb-1 text-left text-label font-semibold data-[group=needs]:text-wait data-[group=running]:text-working"
                   data-group={g.key}
                 >
@@ -111,7 +114,7 @@ function TaskTable({
               </tr>
               <AnimatedList>
                 {(g.folded ? [] : g.rows).map((t) => (
-                  <Row key={t.id} rows={total} t={t} now={now} markCell={markCell} {...rowProps(t)} />
+                  <Row key={t.id} columns={columns} rows={total} t={t} now={now} markCell={markCell} {...rowProps(t)} />
                 ))}
               </AnimatedList>
             </Fragment>

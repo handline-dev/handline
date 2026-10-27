@@ -36,19 +36,19 @@ export function TaskDetail({
   onBack?: () => void;
   /** A pane inside its host (the Tasks tab of an agent pane, the Tasks page's split). */
   embedded?: boolean;
-  /** The drawer over the Tasks table: absolute under the toolbar, only the Tasks page asks for it. */
+  /** The column beside the Tasks table, full height of the split: only the Tasks page asks for it. */
   drawer?: boolean;
 }) {
   const q = useTask(id);
   const gone = q.isError && classify(q.error).kind === 'not_found';
   return (
     <article
-      className={`tdetail flex min-h-0 min-w-0 flex-1 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-4 max-sm:py-3${
-        embedded ? ' pane relative bg-panel -outline-offset-1' : ' mx-auto w-full max-w-[var(--w-page)]'
-      }${
+      className={`tdetail flex min-h-0 min-w-0 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-4 max-sm:py-3${
         drawer
-          ? ' absolute top-[calc(var(--sp-3)+var(--h-btn)+var(--sp-2))] right-0 bottom-0 left-auto z-[5] w-[min(480px,100%)] border-l border-line bg-surface shadow-[var(--shadow-2)]'
-          : ''
+          ? ' w-[min(480px,45%)] flex-none border-l border-line bg-surface'
+          : embedded
+            ? ' pane relative flex-1 bg-panel -outline-offset-1'
+            : ' flex-1 mx-auto w-full max-w-[var(--w-page)]'
       }`}
       aria-label={`Task ${taskRef(id)}`}
     >
