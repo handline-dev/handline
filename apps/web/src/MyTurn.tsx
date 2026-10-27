@@ -1,10 +1,10 @@
 // My turn (#/my-turn, docs/story9-my-turn.md 9-1): everything that waits on the person as cards, most urgent first. A card has its primary
 // button(s) and a menu for the rest; a dialog the daemon does not know has only Open terminal.
 import { useState, type KeyboardEvent } from 'react';
-import { APPROVED, ago, noteIsLong, type Card, type CardAction } from '@handline/app-core';
+import { APPROVED, ago, changeAsked, noteIsLong, type Card, type CardAction, type MessageRow } from '@handline/app-core';
 import { classify, sentence, useMyTurn, useWrite } from '@handline/app-data';
 import { Fold } from '#src/Fold.tsx';
-import { goTerminal } from '#src/route.ts';
+import { goMessage, goTerminal } from '#src/route.ts';
 import { useWide } from '#src/taskui.tsx';
 import { AskChange, ReviewPictures } from '#src/ReviewCard.tsx';
 import { TaskDetail } from '#src/TaskDetail.tsx';
@@ -47,7 +47,10 @@ function label(a: CardAction): string {
     case 'approve':
       return 'Approve';
     case 'ask_change':
+    case 'change':
       return 'Ask for change';
+    case 'reply':
+      return a.label;
     case 'open':
       return 'Open';
     case 'terminal':
@@ -63,7 +66,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
   const prompt = useWrite('prompt.answer');
   const done = useWrite('task.done');
   const read = useWrite('inbox.mark_read');
-  const [box, setBox] = useState(false);
+  const [box, setBox] = useState<false | 'reply' | 'change'>(false);
   const [asking, setAsking] = useState(false);
   const [text, setText] = useState('');
   // The daemon's own words for a refused write; the buttons stay usable.
@@ -71,7 +74,11 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
   const run = (a: CardAction) => {
     switch (a.type) {
       case 'answer':
-        return setBox(true);
+        return setBox('reply');
+      case 'change':
+        return setBox('change');
+      case 'reply':
+        return answer.mutate({ id: a.id, text: a.text });
       case 'allow':
       case 'deny':
         return prompt.mutate({ agent: a.agent, prompt: a.prompt, choice: a.choice });
@@ -128,7 +135,9 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
               P{card.priority}
             </span>
           ) : null}
-          <span className={`text-hint ${card.review ? 'text-ok' : 'text-ink-2'}`}>{card.review ? 'Review' : KIND[card.kind]}</span>
+          <span className={`text-hint ${card.review ? 'text-ok' : 'text-ink-2'}`}>
+            {card.review ? 'Review' : card.memo != null ? 'Question for you' : KIND[card.kind]}
+          </span>
           <h3 className="m-0 min-w-0 flex-1 truncate text-[15px] font-medium">{card.title}</h3>
           <span
             className="flex items-center self-center opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
@@ -184,7 +193,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
           onSubmit={(e) => {
             e.preventDefault();
             if (!text.trim()) return;
-            answer.mutate({ id: answerId.id, text: text.trim() });
+            answer.mutate({ id: answerId.id, text: box === 'change' ? changeAsked(text) : text.trim() });
             setBox(false);
             setText('');
           }}
@@ -193,7 +202,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
             grow
             autoFocus
             aria-label="Your reply"
-            placeholder={card.from ? `Reply to ${card.from}` : 'Reply'}
+            placeholder={box === 'change' ? 'What to change' : card.from ? `Reply to ${card.from}` : 'Reply'}
             value={text}
             onChange={(e) => setText(e.target.value)}
           />
@@ -207,8 +216,27 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
   );
 }
 
+/** An agent with messages the person has not seen: its name, its newest line, when, and how many; a click opens the chat at the first unread. */
+function RowView({ row }: { row: MessageRow }) {
+  const now = useNow();
+  return (
+    <button
+      type="button"
+      className="my-turn-row flex w-full min-w-0 items-baseline gap-2 rounded-card border border-line bg-panel px-3 py-2 text-left"
+      data-row={row.agent}
+      aria-label={`Open the chat with ${row.agent}`}
+      onClick={() => (row.from === null ? (location.hash = `#/agents/${encodeURIComponent(row.agent)}`) : goMessage(row.agent, row.from))}
+    >
+      <span className="mono text-[15px] font-medium">{row.agent}</span>
+      <span className="min-w-0 flex-1 truncate text-ink-2">{row.line}</span>
+      {row.at ? <span className="muted text-hint">{ago(new Date(row.at).toISOString(), now)}</span> : null}
+      <span className="rounded-full bg-wait px-1.5 text-hint font-semibold text-canvas">{row.unread}</span>
+    </button>
+  );
+}
+
 export function MyTurnPage() {
-  const { cards, loading } = useMyTurn();
+  const { cards, rows, loading } = useMyTurn();
   const wide = useWide(1100);
   const [open, setOpen] = useState<number | null>(null);
   // Narrow: the task takes the page, with Back. Wide: it opens beside the list, as on the Tasks page.
@@ -222,11 +250,24 @@ export function MyTurnPage() {
       </PageHead>
       {loading ? (
         <p className="muted">Loading…</p>
-      ) : cards.length ? (
-        <div className="flex flex-col gap-2">
-          {cards.map((c) => (
-            <CardView key={c.key} card={c} selected={c.task != null && c.task === open} onOpen={setOpen} />
-          ))}
+      ) : cards.length || rows.length ? (
+        <div className="flex flex-col gap-4">
+          {cards.length ? (
+            <section aria-label="Needs you" className="flex flex-col gap-2">
+              {rows.length ? <h2 className="m-0 text-hint text-ink-2">Needs you</h2> : null}
+              {cards.map((c) => (
+                <CardView key={c.key} card={c} selected={c.task != null && c.task === open} onOpen={setOpen} />
+              ))}
+            </section>
+          ) : null}
+          {rows.length ? (
+            <section aria-label="Messages" className="flex flex-col gap-2">
+              {cards.length ? <h2 className="m-0 text-hint text-ink-2">Messages</h2> : null}
+              {rows.map((r) => (
+                <RowView key={r.agent} row={r} />
+              ))}
+            </section>
+          ) : null}
         </div>
       ) : (
         <div className="empty">

@@ -47,7 +47,7 @@ def session_line(pid: int) -> str | None:
     return f"{pid} {rest[19]}"  # starttime in ticks
 
 PAIRS = 512
-AGENT_PAIRS = 128
+AGENT_PAIRS = 160
 AGENT = "c.agent"  # the agent the role `agent` connects as
 LEAD = "c"  # its team's manager, who a done it files for review waits on
 # The words a view stores (the spec's x-state-words that fixtures pin): one agent each, as the Python daemon's tick would have left it.

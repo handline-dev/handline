@@ -155,7 +155,7 @@ func (e *Env) founderQueue(all bool) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		if m.id <= cr.i("row_id") {
+		if m.id <= cr.i("row_id") && m.memo == 0 {
 			continue
 		}
 		at, has := folded[m.from]

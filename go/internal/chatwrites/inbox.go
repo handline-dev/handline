@@ -20,6 +20,7 @@ type mailRow struct {
 	id   int64
 	from string
 	gate bool
+	memo bool // an ask a task comment raised (requests.memo_id): read away only by naming it
 }
 
 func mailbox(q db.Q) ([]mailRow, error) {
@@ -31,7 +32,7 @@ func mailbox(q db.Q) ([]mailRow, error) {
 	for _, g := range gates {
 		isGate[g] = true
 	}
-	rows, err := q.Query("SELECT id, requester FROM requests WHERE target = ? AND (state = 'queued' OR "+
+	rows, err := q.Query("SELECT id, requester, memo_id IS NOT NULL FROM requests WHERE target = ? AND (state = 'queued' OR "+
 		"(kind = 'say' AND state = 'landed' AND landed_at IS NOT NULL AND read_at IS NULL)) ORDER BY id", db.Human)
 	if err != nil {
 		return nil, err
@@ -41,10 +42,11 @@ func mailbox(q db.Q) ([]mailRow, error) {
 	for rows.Next() {
 		var id int64
 		var requester string
-		if err := rows.Scan(&id, &requester); err != nil {
+		var memo bool
+		if err := rows.Scan(&id, &requester, &memo); err != nil {
 			return nil, err
 		}
-		out = append(out, mailRow{id: id, from: requester, gate: isGate[id]})
+		out = append(out, mailRow{id: id, from: requester, gate: isGate[id], memo: memo})
 	}
 	return out, rows.Err()
 }
@@ -153,8 +155,14 @@ func (w *writes) markRead(c *rpc.Conn, p map[string]any) (any, error) {
 			}
 			named := map[string]bool{}
 			var inBox []int64
+			closed := 0
 			for _, i := range ids {
-				if m, in := box[i]; in {
+				if m, in := box[i]; in && m.memo {
+					if err := closeMemoAsk(tx, i); err != nil {
+						return nil, err
+					}
+					closed++
+				} else if in {
 					inBox = append(inBox, i)
 					named[m.from] = true
 				}
@@ -174,14 +182,14 @@ func (w *writes) markRead(c *rpc.Conn, p map[string]any) (any, error) {
 				}
 				owed := int64(0)
 				for _, m := range byAgent[a] {
-					if m.gate && (owed == 0 || m.id < owed) {
+					if (m.gate || m.memo) && (owed == 0 || m.id < owed) {
 						owed = m.id
 					}
 				}
 				var top int64
 				n := 0
 				for _, m := range byAgent[a] {
-					if m.id <= upto && !m.gate && (owed == 0 || m.id < owed) {
+					if m.id <= upto && !m.gate && !m.memo && (owed == 0 || m.id < owed) {
 						n++
 						if m.id > top {
 							top = m.id
@@ -193,14 +201,14 @@ func (w *writes) markRead(c *rpc.Conn, p map[string]any) (any, error) {
 					read += n
 				}
 			}
-			if read == 0 {
+			if read == 0 && closed == 0 {
 				for _, i := range inBox {
 					if _, in := unseen[i]; in {
 						return nil, rpc.Refused("a decision is closed with task.done, never read away", "state", "")
 					}
 				}
 			}
-			said = fmt.Sprintf("%d read", read)
+			said = fmt.Sprintf("%d read", read+closed)
 		}
 		if agent {
 			if _, err := db.MarkDelivered(tx, ids[0]); err != nil {
@@ -264,6 +272,35 @@ func (w *writes) inboxReply(c *rpc.Conn, p map[string]any) (any, error) {
 			return nil, nil, err
 		}
 		res, err := SayWrite(w.e, tx, me, target, body, rid, nil)
-		return res, nil, err
+		if err != nil || !res.OK || c.Caller.Role == "agent" {
+			return res, nil, err
+		}
+		var tid, memo sql.NullInt64
+		if err := tx.QueryRow("SELECT memo_id, (SELECT MIN(task_id) FROM task_requests WHERE request_id = id) FROM requests WHERE id = ?", rid).Scan(&memo, &tid); err != nil {
+			return nil, nil, err
+		}
+		if !memo.Valid || !tid.Valid {
+			return res, nil, nil
+		}
+		// An ask a task comment raised is answered on the task: the reply is the founder's comment there, a reply to the comment.
+		mid, err := db.AddMemo(tx, tid.Int64, me, body)
+		if err != nil {
+			return nil, nil, err
+		}
+		if _, err := tx.Exec("UPDATE task_memos SET reply_to = ? WHERE id = ?", memo.Int64, mid); err != nil {
+			return nil, nil, err
+		}
+		if err := closeMemoAsk(tx, rid); err != nil {
+			return nil, nil, err
+		}
+		tell := res.Tell
+		res.Tell = func() string {
+			out := tell()
+			if w.tell != nil && w.e.Wired() {
+				w.tell.MemoChanged(tid.Int64, mid, me, "added", body, true)
+			}
+			return out
+		}
+		return res, nil, nil
 	})
 }
