@@ -3,9 +3,8 @@
 import { useState } from 'react';
 import { ago, useRows, VERBS } from '@handline/app-core';
 import { useAgents, useMemory, useRecentEvents, useServes, useStatus, useTriggers } from '@handline/app-data';
-import { PageHead, PageTitle, RowTitle, ScrollPage, SectionHead, SettingsCard, SettingsRow } from '#src/ui/index.ts';
+import { MenuButton, MenuItem, PageHead, PageTitle, RowTitle, ScrollPage, SectionHead, SettingsCard, SettingsRow } from '#src/ui/index.ts';
 import { VerbSheet } from '#src/AgentVerbs.tsx';
-import { Button } from '#src/ui/index.ts';
 import { View } from '#src/View.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 
@@ -34,7 +33,10 @@ function Daemon() {
             </SettingsRow>
             <SettingsRow>
               <RowTitle plain>
-                {s.agents.total} agents: {Object.entries(s.agents.by_state).map(([k, n]) => `${n} ${k}`).join(', ') || 'none'}
+                {s.agents.total} agents:{' '}
+                {Object.entries(s.agents.by_state)
+                  .map(([k, n]) => `${n} ${stateWord(k)}`)
+                  .join(', ') || 'none'}
               </RowTitle>
             </SettingsRow>
           </SettingsCard>
@@ -65,10 +67,14 @@ function Usage() {
                 <RowTitle plain>
                   {r.agent}{' '}
                   <span className="muted">
-                    CPU {r.cpu} · memory {r.memory} · {a?.state ?? 'unknown'}
+                    CPU {r.cpu} · memory {r.memory} · {a ? stateWord(a.state) : 'unknown'}
                   </span>
                 </RowTitle>
-                {a ? <Button variant="outline" label="Stop" aria-label={`Stop ${r.agent}`} onClick={() => setStopping(r.agent)} /> : null}
+                {a ? (
+                  <MenuButton size="sm" icon="ellipsis" label={`More for ${r.agent}`}>
+                    <MenuItem onSelect={() => setStopping(r.agent)}>Stop</MenuItem>
+                  </MenuButton>
+                ) : null}
               </SettingsRow>
             );
           })}
@@ -157,6 +163,9 @@ function Recent() {
     </>
   );
 }
+
+/** The daemon's agent state as the app words it: a parked agent waits for a time (docs/copy.md 7). */
+const stateWord = (k: string): string => (k === 'parked' ? 'waiting' : k);
 
 export function AdminPage() {
   return (

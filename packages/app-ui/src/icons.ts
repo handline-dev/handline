@@ -67,7 +67,7 @@ export const ICON_SPEC = {
   needs: ['Bell', 'Needs you'],
   blocked: ['TriangleAlert', 'Blocked'],
   idle: ['Circle', 'Idle'],
-  asleep: ['Moon', 'Sleeping'],
+  asleep: ['Moon', 'Waiting'],
   context: ['Database', 'Context'],
   cache: ['Timer', 'Prompt cache'],
   noTerminal: ['Moon', 'Not started'],
