@@ -399,7 +399,7 @@ describe('the detail', () => {
     await until(() => $('article.tdetail') && text($('article.tdetail')).includes('Build the pane.'), 'the detail');
     expect(location.hash).toBe('#/tasks/1688');
     const d = $('article.tdetail')!;
-    expect(text(d)).toContain('Terminal pane on the bytes channel');
+    expect(text($('.page-bar')!)).toContain('Terminal pane on the bytes channel'); // the head is in the top bar
     expect(text(d)).toContain('Asked by');
     expect(text(d)).toContain('handline.architect');
     expect(text(d)).toContain('T1684'); // under, local-ref-ok
@@ -417,6 +417,15 @@ describe('the detail', () => {
     await until(() => text($('article.tdetail')).includes('Sub-tasks'), 'children');
     await act(async () => void (location.hash = '#/tasks/9999'));
     await until(() => text($('article.tdetail')).includes('This task no longer exists'), 'gone');
+  });
+
+  it('puts the head of a task page into the top bar, with a Back to Tasks', async () => {
+    await mount('#/tasks/1688');
+    await until(() => $('.page-bar .tdetail-head'), 'the head in the bar');
+    expect($('article.tdetail .tdetail-head')).toBeNull();
+    expect(text($('.page-bar .tdetail-head h2'))).toContain('T1688');
+    await click($('.page-bar button[title="Back to Tasks"]'));
+    await until(() => location.hash === '#/tasks', 'the list again');
   });
 
   it('draws the detail skeleton while it loads', async () => {

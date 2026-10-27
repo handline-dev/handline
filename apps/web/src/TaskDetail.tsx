@@ -1,12 +1,12 @@
 // One task: title, status and a History button, the Time line, why it waits, assignee, priority and time box as chips, the brief (folded), what it
 // waits on and what hangs under it, one Activity list, and along the bottom Done, Assign, Comment, Cancel and More. A verb that does not apply is
 // hidden; one the daemon does not serve yet is shown disabled.
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { dateTime, HELD, isPerson, taskRef, watchResult } from '@handline/app-core';
 import { useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
-import { Button, MenuButton, MenuItem, Popup } from '#src/ui/index.ts';
+import { Button, MenuButton, MenuItem, PageHead, Popup } from '#src/ui/index.ts';
 import { leave } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
 import { AskSheets, type Ask } from '#src/TaskAsk.tsx';
@@ -65,14 +65,25 @@ export function TaskDetail({
         </div>
       ) : (
         <View q={q} served shape="taskDetail" what={`task ${taskRef(id)}`}>
-          {q.data ? <Body t={q.data} /> : null}
+          {q.data ? <Body t={q.data} bar={!embedded && !drawer} /> : null}
         </View>
       )}
     </article>
   );
 }
 
-function Body({ t }: { t: Detail }) {
+/** `bar`: the task is a page of its own, so its head goes up into the top bar with a way back to the list. */
+function Head({ bar, children }: { bar?: boolean; children: ReactNode }) {
+  if (bar)
+    return (
+      <PageHead className="tdetail-head" back={{ label: 'Tasks', to: () => leave('#/tasks') }}>
+        {children}
+      </PageHead>
+    );
+  return <header className="tdetail-head flex flex-wrap items-baseline gap-2">{children}</header>;
+}
+
+function Body({ t, bar }: { t: Detail; bar?: boolean }) {
   const store = useStore();
   const now = useNow();
   const me = useMe();
@@ -158,7 +169,7 @@ function Body({ t }: { t: Detail }) {
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
   return (
     <div className="tbody flex min-h-full flex-col bg-inherit" ref={root} tabIndex={-1} onKeyDown={key}>
-      <header className="tdetail-head flex flex-wrap items-baseline gap-2">
+      <Head bar={bar}>
         <h2 className="m-0 min-w-0 text-title font-semibold">
           <span className="mono">{taskRef(t.id)}</span>{' '}
           <Inline
@@ -187,7 +198,7 @@ function Body({ t }: { t: Detail }) {
           <StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />
         )}
         <HistoryButton id={t.id} />
-      </header>
+      </Head>
       <p className="m-0 mt-1 text-hint text-ink-3">
         Asked by <AgentLink name={t.from} /> · created {dateTime(t.created)}
         {t.done ? ` · closed ${dateTime(t.done)}` : ''}
