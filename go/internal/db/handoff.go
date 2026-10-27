@@ -140,6 +140,17 @@ func LastBoundSessionStart(q Q, agent string) (int64, error) {
 	return ts, err
 }
 
+// RestartHeld is whether nothing more is typed at the agent now: a handoff note is being written, or a handoff of the agent is in flight
+// (decided, not yet released). A row left open counts only for NoteWaitStaleS since its last step, so one that stuck holds for that long
+// at most; the reconciler gives it up sooner, at its deadline.
+func RestartHeld(q Q, agent string, now int64) (bool, error) {
+	if _, _, kept, err := NoteWaitKept(q, agent, now); err != nil || kept {
+		return kept, err
+	}
+	h, err := InFlightFor(q, agent)
+	return h != nil && now-h.Updated <= NoteWaitStaleS, err
+}
+
 func noteWaitKey(agent string) string { return "handoff_note_wait:" + agent }
 
 // NoteWaitStaleS is how long a wait for the agent's note counts as one: a trigger that went away before it was acted on, or a session that
