@@ -210,3 +210,36 @@ func TestAnInterruptIsWhatAStopWouldHaveDone(t *testing.T) {
 		t.Fatalf("an interrupt moved a state the daemon owns: %s", state)
 	}
 }
+
+// The call that ran (or failed) after its permission question was answered at the agent's own dialog closes that question; a parallel
+// call to another tool or command leaves it open.
+func TestAToolCallThatRanClosesItsPermissionQuestion(t *testing.T) {
+	h := testRecorder(t)
+	now := time.Now().Unix()
+	open := func() int {
+		return count(t, h.DB, "SELECT COUNT(*) FROM prompt_blocks WHERE agent = 'w' AND gone_at IS NULL")
+	}
+	for i, c := range []struct {
+		event, tool, command string
+		closes               bool
+	}{
+		{"PostToolUse", "Bash", "other", false},
+		{"PostToolUse", "Read", "cd /x && make", false},
+		{"PostToolUse", "Bash", "cd /x && make", true},
+		{"PostToolUseFailure", "Bash", "cd /x && make", true},
+	} {
+		if _, err := h.DB.Exec("INSERT INTO prompt_blocks(agent, kind, fingerprint, title, panel, detail, answerable, first_seen, last_seen) "+
+			"VALUES('w','permission',?, 't','[]', ?, 1, ?, ?)", "fp"+strconv.Itoa(i),
+			`{"source":"hook","tool":"Bash","command":"cd /x && make"}`, now, now); err != nil {
+			t.Fatal(err)
+		}
+		in := map[string]any{"command": c.command}
+		if err := Apply(h.DB, h.Home, "w", c.event, map[string]any{"tool_name": c.tool, "tool_input": in}, "r"+strconv.Itoa(i), now+int64(i)); err != nil {
+			t.Fatal(err)
+		}
+		if got := open() == 0; got != c.closes {
+			t.Fatalf("%+v: closed %v", c, got)
+		}
+		h.DB.Exec("DELETE FROM prompt_blocks")
+	}
+}

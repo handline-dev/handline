@@ -48,3 +48,5 @@ tools/phone-sim.sh android stop <serial>      # only that emulator, the one star
 tools/phone-sim.sh ios start "iPhone 16"    # no Simulator.app window
 tools/phone-sim.sh ios stop "iPhone 16"
 ```
+
+`scripts/sim-check.sh <command>` runs a check in a heavy slot and, when it ends, whatever its result, stops the simulators and emulators the command booted with `tools/phone-sim.sh start` (it notes each in `PHONE_SIM_STARTED`) and the processes it left behind, such as Metro. A device booted by anyone else, or by a raw `simctl boot`, is left alone.

@@ -418,8 +418,8 @@ func (e *Env) queueSay(q db.Q, owner, body, why string) int64 {
 }
 
 // TellMemo tells a memo's change to each of its readers (memoReaders). The reader it was said to (to, "" for none), a reader the memo names
-// with @, and every reader when now are typed it at once like a say; any other reader gets it in its next digest (SweepDigests), and its
-// lead hears of it if it waits an hour (SweepHeldMemos).
+// with @, every reader when now, and every reader of a memo the founder wrote, are typed it at once like a say; any other reader gets it in
+// its next digest (SweepDigests), and its lead hears of it if it waits an hour (SweepHeldMemos).
 func (e *Env) TellMemo(q db.Q, tid int64, by, what, text, to string, now bool) error {
 	return e.TellMemoOf(q, tid, 0, by, what, text, to, now)
 }
@@ -434,7 +434,7 @@ func (e *Env) TellMemoOf(q db.Q, tid, mid int64, by, what, text, to string, now 
 	body := memoLine(tid, what, by, text)
 	named := e.mentioned(text)
 	for _, a := range e.memoReaders(row, by, named) {
-		if delivery.ClassOf(delivery.Memo, now || a == to || slices.Contains(named, a), false) == delivery.ClassNow {
+		if delivery.ClassOf(delivery.Memo, now || by == db.Human || a == to || slices.Contains(named, a), false) == delivery.ClassNow {
 			rid := e.typeSay(q, a, body, "task memo")
 			e.linkMemoTell(q, mid, a, rid)
 		} else {
