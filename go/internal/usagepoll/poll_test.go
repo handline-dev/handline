@@ -2,6 +2,7 @@ package usagepoll
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -205,5 +206,64 @@ func TestNotLoggedInIsLeftForTheLoginCheck(t *testing.T) {
 	}
 	if c, _ := db.Cursor(r.db, "usage-poll:a"); c != now+states.LoginCheckCooldownS {
 		t.Errorf("cursor %d", c)
+	}
+}
+
+// writeStatus writes an account's status file with the weekly window observed longAt and the 5-hour window shortAt, as a session's own
+// snapshot leaves it when the weekly figure is carried.
+func (r *rig) writeStatus(t *testing.T, acct string, collected, shortAt, longAt, longReset int64) {
+	t.Helper()
+	body := fmt.Sprintf(`{"collected_at":%d,"rl_source":"api","windows":[`+
+		`{"minutes":300,"used_percent":10,"resets_at":%d,"observed_at":%d,"carried":false,"lost":false},`+
+		`{"minutes":10080,"used_percent":40,"resets_at":%d,"observed_at":%d,"carried":true,"lost":false}]}`,
+		collected, now+3600, shortAt, longReset, longAt)
+	if err := os.WriteFile(paths.StatusFile(r.home, acct), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// T6701: an account whose weekly figure is old while its 5-hour one is fresh is not starved. The picker takes it on the weekly figure as
+// a floor, so it is picked and its next turn writes a fresh reading; the poller has nothing to ask about it that the turn does not answer.
+func TestAnOldWeeklyFigureBesideAFreshShortOneIsPickableAndNeedsNoPoll(t *testing.T) {
+	r := newRig(t, "a")
+	r.writeStatus(t, "a", now-30, now-30, now-5*states.UsageMaxAgeS, now+50000)
+	st := r.p.Env.Read("a")
+	if st.LongSource() != "carried_old" || st.LongTrusted() == nil {
+		t.Fatalf("the weekly figure: %s %v", st.LongSource(), st.LongTrusted())
+	}
+	if ok, why := st.TakesWork(0); !ok {
+		t.Fatalf("an old weekly figure shut the account out: %s", why)
+	}
+	if why := r.p.Due("a", st, now); why != "" {
+		t.Fatalf("due: %s", why)
+	}
+}
+
+// A weekly window that has ended leaves the account's figure unknown (it ranks last behind any account with a known week): the poll asks
+// at once, whatever the 5-hour reading's age, and a real turn follows when the fresh reading still shows the old week.
+func TestAnEndedWeeklyWindowIsDueAtOnceBesideAFreshShortOne(t *testing.T) {
+	r := newRig(t, "a")
+	r.writeStatus(t, "a", now-30, now-30, now-30, now-10)
+	st := r.p.Env.Read("a")
+	if st.LongTrusted() != nil {
+		t.Fatalf("an ended week is trusted: %v", st.LongSource())
+	}
+	if why := r.p.Due("a", st, now); why == "" {
+		t.Fatal("not due")
+	}
+}
+
+// A snapshot the picker calls stale (collected_at past StaleAfterS) is due on the same age: Short.At is the observation the snapshot
+// was collected from, so the poll's age and the picker's agree.
+func TestASnapshotThePickerCallsStaleIsDue(t *testing.T) {
+	r := newRig(t, "a")
+	old := int64(now - usage.StaleAfterS - 10)
+	r.writeStatus(t, "a", old, old, old, now+50000)
+	st := r.p.Env.Read("a")
+	if !st.Stale() {
+		t.Fatal("not stale")
+	}
+	if why := r.p.Due("a", st, now); why == "" {
+		t.Fatal("a stale account is not due")
 	}
 }
