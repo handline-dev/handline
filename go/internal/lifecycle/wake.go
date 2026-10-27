@@ -359,6 +359,14 @@ func (m *Manager) continuesWork(agent string, row *db.AgentState) bool {
 	return h != nil && h.Step == "released" && h.Updated+db.NoteWaitStaleS >= row.ClosedAt.Int64
 }
 
+// freshFrom takes the handoff record of the closed session and lets go of its id, so the wake starts a new session with the record.
+func (m *Manager) freshFrom(agent, session string) {
+	if gaps := must(m.Handoff.Record(m.Q, agent, session)); len(gaps) > 0 {
+		m.Log("  %s: handoff with gaps (could not read %s)", agent, strings.Join(gaps, ", "))
+	}
+	check(db.ForgetResume(m.Q, agent))
+}
+
 // wakeClosed brings a closed agent back: its shell is put back into the session, resuming the same one first (which is what makes
 // closing cheap) and a fresh start the fallback, not the plan.
 func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string, o WakeOpts) (bool, string) {
@@ -402,10 +410,7 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	}
 	if waits && movedTo == "" {
 		if row.ResumeSession.String != "" {
-			if gaps := must(m.Handoff.Record(m.Q, agent, row.ResumeSession.String)); len(gaps) > 0 {
-				m.Log("  %s: handoff with gaps (could not read %s)", agent, strings.Join(gaps, ", "))
-			}
-			check(db.ForgetResume(m.Q, agent))
+			m.freshFrom(agent, row.ResumeSession.String)
 		}
 		check(db.ClearNoteWait(m.Q, agent))
 		force, warm = true, false
@@ -425,6 +430,16 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	// message that arrives is what wakes it. A move is the exception: the agent was mid-work and its handoff is what it is started with.
 	if movedTo == "" && !force && !m.waitingFor(agent) {
 		return false, NothingWaiting
+	}
+	// A session closed with its context at the agent's limit (an idle close can come before the trigger was evaluated) would fire the
+	// context trigger at once if resumed: it starts fresh the way a close owing a handoff does.
+	if movedTo == "" && row.ResumeSession.String != "" && m.Handoff.ContextFull(m.Q, agent, row.ResumeSession.String) {
+		m.freshFrom(agent, row.ResumeSession.String)
+		warm = false
+		if cause == "" {
+			cause = "context_full"
+		}
+		row = must(db.GetAgentState(m.Q, agent))
 	}
 	if owed := m.moveOwed(agent, row); movedTo == "" && owed != nil {
 		// A person moved it while it was closed: the session goes with it (carried) and the handoff record is the fallback.

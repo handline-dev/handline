@@ -149,6 +149,7 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 		Observe: observer{p: p}, Typing: terminalLock{home: p.home}, TermRun: termRun{p}, Locks: p.Locks, OnLaunch: onLaunch,
 		LoadHeld: forWork, OnStartStall: tellLeadOfStall(home, lc.Env, cfg.Log)}
 	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho, Env: lc.Env, Gate: gate, usage: uenv, roster: roster, term: tm}
+	hp.limit = tickUsage{roster: roster}.ContextLimit
 	hp.mover = func() *lifecycle.Mover { return p.LC.Mover }
 	p.LC.Mover = p.newMover(m, uenv, lc.Env, func() int64 { return nowOf(cfg.Now)().Unix() })
 	return p.LC
@@ -331,6 +332,7 @@ type handoffPort struct {
 	q     db.Q
 	now   func() time.Time
 	mover func() *lifecycle.Mover
+	limit func(agent, modelID string) int // the agent's context limit
 }
 
 var _ lifecycle.HandoffPort = (*handoffPort)(nil)
@@ -406,6 +408,15 @@ func (h *handoffPort) CacheMargin(ttl int64) int64 { return int64(handoff.Margin
 func (h *handoffPort) ContextUsed(_ db.Q, _, session string) (int64, bool) {
 	used, _, ok := lastContext(h.env.FindTranscript(session, ""))
 	return used, ok
+}
+
+func (h *handoffPort) ContextFull(_ db.Q, agent, session string) bool {
+	used, model, ok := lastContext(h.env.FindTranscript(session, ""))
+	if !ok || h.limit == nil {
+		return false
+	}
+	limit := h.limit(agent, model)
+	return limit > 0 && used >= int64(limit)
 }
 
 func (h *handoffPort) ClearNote(_ db.Q, agent string) { _ = h.env.ClearNote(agent) }
