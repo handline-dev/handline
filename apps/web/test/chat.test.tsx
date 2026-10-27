@@ -564,4 +564,39 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     expect(text($('.chat-strip [aria-label$="in the worktree"]'))).toBe('1');
     expect($('.chat-strip [aria-label$="in the worktree"]')!.getAttribute('title')).toBe('1 changed file in the worktree');
   });
+
+  it('the ticks sit beside only the newest message of the person; an earlier one has them on hover', async () => {
+    const s = setup();
+    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'first words', landing: 'delivered' });
+    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'last words', landing: 'delivered' });
+    await mount(ARCH, s);
+    await until(() => msg('last words'), 'the messages');
+    const ticks = (body: string) => msg(body)!.parentElement!.querySelector('.landing');
+    expect(ticks('last words')?.closest('.hidden')).toBeNull();
+    expect(ticks('first words')?.closest('.hidden')).not.toBeNull();
+  });
+
+  it("an agent's message has Copy, which writes its words and says Copied, and Quote, which picks it", async () => {
+    const write = vi.fn(() => Promise.resolve());
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: write } });
+    const s = setup();
+    s.daemon.chat.seed(ARCH, { from: ARCH, to: 'human', body: 'Report: gaps listed.', landing: 'delivered' });
+    await mount(ARCH, s);
+    await until(() => msg('Report: gaps listed.'), 'the report');
+    const bar = msg('Report: gaps listed.')!.parentElement!.querySelector<HTMLElement>('.msg-hover')!;
+    const pressed = (label: string) => [...bar.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label)!;
+    await click(pressed('Copy'));
+    expect(write).toHaveBeenCalledWith('Report: gaps listed.');
+    await until(() => pressed('Copied'), 'Copied');
+    await click(pressed('Quote'));
+    expect(text($('.compose-ref'))).toContain('Replying to');
+  });
+
+  it("the person's own messages have no hover bar", async () => {
+    const s = setup();
+    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'mine', landing: 'delivered' });
+    await mount(ARCH, s);
+    await until(() => msg('mine'), 'the message');
+    expect(msg('mine')!.parentElement!.querySelector('.msg-hover')).toBeNull();
+  });
 });

@@ -50,6 +50,7 @@ describe('chat of an agent held for machine load', () => {
     await mount(true);
     await until(() => $('.card-held'), 'the held line');
     expect($('.card-held')!.textContent).toContain('the computer is under heavy memory load right now');
+    expect($('.card-held .card-what')!.className).not.toContain('whitespace-nowrap'); // the long sentence wraps, so the hover time after it is reachable
     let asked = 0;
     window.addEventListener(OPEN_RESOURCES, () => asked++);
     const see = [...box.querySelectorAll('.card-held button')].find((b) => b.textContent === 'See what uses the computer') as HTMLElement;

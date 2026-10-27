@@ -45,7 +45,9 @@ export function CardActions({ as: Tag = 'div', wrap, className, ...rest }: Compo
 }
 
 /** The one-line body of a chat card: it takes the room the icons leave and cuts with an ellipsis; `stacked` puts a title over its reason. */
-export function CardWhat({ stacked, className, ...rest }: ComponentProps<'span'> & { stacked?: boolean }) {
+export function CardWhat({ stacked, wrap, className, ...rest }: ComponentProps<'span'> & { stacked?: boolean; wrap?: boolean }) {
+  // `wrap` lays the words out inline and lets them run to more lines, so a time after them follows the last word.
+  if (wrap) return <span {...rest} className={join('card-what min-w-0 flex-1', className)} />;
   const dir = stacked ? 'flex-col items-start' : 'items-center gap-1.5';
   return (
     <span {...rest} className={join('card-what flex min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap', dir, className)} />
