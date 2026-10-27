@@ -3,11 +3,13 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -310,5 +312,112 @@ func TestADeadWaitersTicketIsDropped(t *testing.T) {
 	}
 	if m, _ := filepath.Glob(filepath.Join(slots, "ticket-*")); len(m) != 0 {
 		t.Errorf("tickets left behind: %v", m)
+	}
+}
+
+// stderrOf runs f with os.Stderr captured and returns what it wrote after f's goroutine is told to stop reading.
+func captureStderr(t *testing.T) (read func() string) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	var mu sync.Mutex
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		b := make([]byte, 4096)
+		for {
+			n, err := r.Read(b)
+			mu.Lock()
+			buf.Write(b[:n])
+			mu.Unlock()
+			if err != nil {
+				close(done)
+				return
+			}
+		}
+	}()
+	t.Cleanup(func() { os.Stderr = old; w.Close(); <-done })
+	return func() string { mu.Lock(); defer mu.Unlock(); return buf.String() }
+}
+
+func memoryEnv(t *testing.T, config string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HANDLINE_HOME", home)
+	t.Setenv("HANDLINE_HEAVY_DIR", filepath.Join(t.TempDir(), "slots"))
+	t.Setenv("HANDLINE_HEAVY_SLOTS", "1")
+	t.Setenv("OCP_AGENT", "tester")
+	if config != "" {
+		if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(config), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldPoll, oldMem := poll, freeMemory
+	poll = 10 * time.Millisecond
+	t.Cleanup(func() { poll, freeMemory = oldPoll, oldMem })
+}
+
+func TestAFreeSlotIsNotTakenWhileFreeMemoryIsLowAndIsOnceItIsBack(t *testing.T) {
+	memoryEnv(t, "")
+	var mu sync.Mutex
+	free := int64(2)
+	freeMemory = func() (int64, int64, error) { mu.Lock(); defer mu.Unlock(); return free, 100, nil }
+	said := captureStderr(t)
+	got := make(chan error, 1)
+	go func() {
+		f, _, err := acquire()
+		if f != nil {
+			f.Close()
+		}
+		got <- err
+	}()
+	for end := time.Now().Add(5 * time.Second); !strings.Contains(said(), "waiting: free memory 2% under 10%") && time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+	}
+	if !strings.Contains(said(), "heavyslot: waiting: free memory 2% under 10%") {
+		t.Fatalf("no waiter line naming the memory: %q", said())
+	}
+	select {
+	case <-got:
+		t.Fatal("took a free slot while memory was low")
+	case <-time.After(10 * poll):
+	}
+	mu.Lock()
+	free = 30
+	mu.Unlock()
+	select {
+	case err := <-got:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("still waiting after memory was back")
+	}
+	if n := strings.Count(said(), "waiting: free memory"); n != 1 {
+		t.Errorf("the line was said %d times, want once: %q", n, said())
+	}
+}
+
+func TestTheMemoryLimitIsTheLoadGatesKey(t *testing.T) {
+	memoryEnv(t, "ram_free_min_pct: 40\n")
+	freeMemory = func() (int64, int64, error) { return 30, 100, nil }
+	if got := lowMemory(); got != "free memory 30% under 40%" {
+		t.Errorf("lowMemory = %q", got)
+	}
+	memoryEnv(t, "ram_free_min_pct: 0\n")
+	freeMemory = func() (int64, int64, error) { return 1, 100, nil }
+	if got := lowMemory(); got != "" {
+		t.Errorf("a limit of 0 held the run: %q", got)
+	}
+}
+
+func TestAMemoryReadingThatFailsDoesNotHoldTheRun(t *testing.T) {
+	memoryEnv(t, "")
+	freeMemory = func() (int64, int64, error) { return 0, 0, errors.New("no vm_stat") }
+	if got := lowMemory(); got != "" {
+		t.Errorf("lowMemory = %q", got)
 	}
 }

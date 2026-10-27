@@ -38,6 +38,9 @@ type Snapshot struct {
 	Machine Machine
 }
 
+// Read measures this machine's RAM and load once.
+func Read() (Machine, error) { return thisMachine() }
+
 // Sampler measures and keeps the latest snapshot.
 type Sampler struct {
 	Home string
