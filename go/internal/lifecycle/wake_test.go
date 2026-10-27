@@ -310,23 +310,38 @@ func (olderLaunch) DescribeWakeWait(w *WakeWait) string                      { r
 func (olderLaunch) SlowestPaced(db.Q, string, *db.AgentState, string) string { return "" }
 
 // pacedLaunch: the agent's own account has a free slot that only its weekly pace holds.
-type pacedLaunch struct{ fakeLaunch }
+type pacedLaunch struct {
+	fakeLaunch
+	fiveHour bool // the hold is the 5-hour limit's, not the pace's
+}
 
-func (pacedLaunch) WakeWait(db.Q, string, *db.AgentState) *WakeWait {
+func (p pacedLaunch) WakeWait(db.Q, string, *db.AgentState) *WakeWait {
+	if p.fiveHour {
+		return &WakeWait{Account: "a", Window: "slot", Slot: true, Busy: 1, Unpaced: 2, FiveHour: true, Reset: time.Now().Add(time.Hour).Unix()}
+	}
 	return &WakeWait{Account: "a", Window: "slot", Slot: true, Full: 0, Busy: 1, Unpaced: 2, Pace: &usage.Pace{State: usage.PaceOver, Line: 40, Used: 60}}
 }
 func (pacedLaunch) DescribeWakeWait(w *WakeWait) string                      { return DescribeWakeWait(w) }
 func (pacedLaunch) SlowestPaced(db.Q, string, *db.AgentState, string) string { return "" }
 
-func TestTheDaemonsWakeWaitsForThePaceAndAPersonsStartDoesNot(t *testing.T) {
+func TestTheDaemonsWakeWaitsForThePaceOrTheFiveHourLimitAndAPersonsStartDoesNot(t *testing.T) {
+	for _, c := range []struct {
+		fiveHour bool
+		holds    string
+	}{{false, "weekly pace"}, {true, "5-hour limit is nearly used up"}} {
+		t.Run(c.holds, func(t *testing.T) { theDaemonsWakeWaits(t, pacedLaunch{fiveHour: c.fiveHour}, c.holds) })
+	}
+}
+
+func theDaemonsWakeWaits(t *testing.T, launch Launch, holds string) {
 	m, d, tm := newManager(t)
 	d.waitingMsg, d.tookPrompt, tm.launchOK = "Here is your request.", true, true
-	m.Launch = pacedLaunch{}
+	m.Launch = launch
 	db.SetTerminal(m.Q, "a", "t1", "/wt")
 	db.SetClosed(m.Q, "a", "sess-1")
 	d.head = &db.Request{Requester: "boss", Target: "a"}
-	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{}); err != nil || ok || !strings.Contains(said, "weekly pace") {
-		t.Fatalf("the daemon's wake for a peer's work waits for the pace: %v %q %v", ok, said, err)
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{}); err != nil || ok || !strings.Contains(said, holds) {
+		t.Fatalf("the daemon's wake for a peer's work waits for the hold: %v %q %v", ok, said, err)
 	}
 	d.head.Requester = db.Human
 	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{}); err != nil || !ok {

@@ -263,8 +263,8 @@ func stretchReason(st *AccountStatus, ld *Load, lasts float64, pct int, agent st
 		perMin(AgentBurn(ld, agent), 2), spanF(lasts))
 }
 
-// NoRoom is (why it cannot take one more agent, how long it would last): the cap, the week's stretch, then the shortest window's when
-// the fill pct is known. The one test Unfit and the pick share; agent prices the newcomer by its own kind.
+// NoRoom is (why it cannot take one more agent, how long it would last): the cap, the week's stretch, then the shortest window's: it must
+// last to its reset with the newcomer (FiveHourShare), or a while where the reset is unknown, when the fill pct is known. The one test Unfit and the pick share; agent prices the newcomer by its own kind.
 func NoRoom(st *AccountStatus, ld *Load, pct *int, agent string) (string, *float64) {
 	if ld != nil && ld.AtCap() {
 		return fmt.Sprintf("at its cap: %d of %d agents mid-turn", ld.Active, ld.Cap), nil
@@ -276,7 +276,12 @@ func NoRoom(st *AccountStatus, ld *Load, pct *int, agent string) (string, *float
 		return "", nil
 	}
 	lasts := StretchS(float64(ShortBlock-*pct), loadBurn(ld), AgentBurn(ld, agent))
-	if lasts < MinStretchS {
+	// With the reset known a start is worth it when the account lasts to it with the newcomer; without, when it lasts a while.
+	if share, ok := FiveHourShare(st, loadBurn(ld), AgentBurn(ld, agent), st.NowS()); ok {
+		if share < 1 {
+			return stretchReason(st, ld, lasts, *pct, agent) + " - short of its reset", &lasts
+		}
+	} else if lasts < MinStretchS {
 		return stretchReason(st, ld, lasts, *pct, agent) + fmt.Sprintf(" - under the %s a start is worth", spanF(MinStretchS)), &lasts
 	}
 	return "", &lasts
