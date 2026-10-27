@@ -33,7 +33,7 @@ export function StateChip({
   const me = useMe();
   const foryou = state === 'doing' && !!to && isPerson(to, me); // the task is the person's to do: the agent is not working on it
   const said = foryou
-    ? 'needs you'
+    ? 'waiting for you'
     : state === 'done' && (result === 'failed' || result === 'timed_out')
       ? result === 'failed'
         ? 'failed'

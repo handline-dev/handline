@@ -26,7 +26,7 @@ export function heldLine(p: Proposal, now = Date.now()): string {
 }
 
 const STATE_WORDS: Record<string, { word: string; tone: 'wait' | 'block' | 'run' | 'muted' }> = {
-  open: { word: 'needs you', tone: 'wait' },
+  open: { word: 'waiting for you', tone: 'wait' },
   apply_failed: { word: 'approved, not applied', tone: 'block' },
   approved: { word: 'approved and applied', tone: 'run' },
   rejected: { word: 'rejected', tone: 'block' },
