@@ -471,13 +471,14 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	// lives; past that a resume pays for its context in full on any account, so it moves rather than waits.
 	session := row.ResumeSession.String
 	rehomed := false
+	moveFrom := ""
 	if movedTo == "" && !warm && session != "" && m.cachePast(agent, session, m.now()) {
 		// Past its cache's life the agent is on no account: it goes to the one whose unused week runs out soonest that has room (a clear
 		// gain, else it stays), its own included, taking the session along (so ignore_cache_expiry, which only keeps the session, does not hold it).
 		if to, _ := m.Launch.RoomElsewhere(m.Q, agent, row, nil); to != "" && to != row.Account.String && m.Launch.WorthRepick(row.Account.String, to) {
 			var kept string
 			if kept, rehomed = m.moveElsewhere(agent, session, row.Account.String, to, "its prompt cache has expired"); rehomed {
-				session, movedTo = kept, to
+				session, movedTo, moveFrom = kept, to, row.Account.String
 			}
 		}
 	}
@@ -505,7 +506,7 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 			if !moved {
 				return false, m.Launch.DescribeWakeWait(wait) + "; not moved: " + why
 			}
-			session, movedTo, wait = kept, to, nil
+			session, movedTo, moveFrom, wait = kept, to, wait.Account, nil
 		}
 	}
 	if wait != nil && wait.Slot {
@@ -523,7 +524,7 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 		if !moved {
 			return false, m.Launch.DescribeWakeWait(wait)
 		}
-		session, movedTo, wait = kept, to, nil
+		session, movedTo, moveFrom, wait = kept, to, wait.Account, nil
 	}
 	if wait != nil {
 		// The resume account is at the wall. Unless it resets within the prompt cache's life (MovePlan), move where another account has
@@ -543,7 +544,7 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 		if elsewhere != "" {
 			why := fmt.Sprintf("pinned to %s at %d%% (%s)", acct, pct, wait.Window)
 			if kept, moved := m.moveElsewhere(agent, session, acct, elsewhere, why); moved {
-				session, movedTo, rescued = kept, elsewhere, true
+				session, movedTo, moveFrom, rescued = kept, elsewhere, acct, true
 			}
 		}
 		if !rescued {
@@ -556,7 +557,7 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 			return false, msg
 		}
 	}
-	c := closed2{force, warm, cause, restartedBy, movedTo, o.Applying}
+	c := closed2{force, warm, cause, restartedBy, movedTo, moveFrom, o.Applying}
 	return m.launchClosed(agent, row, wt, session, c)
 }
 
@@ -582,10 +583,14 @@ func (m *Manager) moveElsewhere(agent, session, from, to, why string) (kept stri
 	check(db.ResetCounter(m.Q, agent, "throttle_count"))
 	kept = m.carried(agent, session)
 	check(db.SetClosed(m.Q, agent, kept))
-	must(db.AddEvent(m.Q, agent, "moved_account", db.KV{K: "from", V: from}, db.KV{K: "to", V: to}, db.KV{K: "trigger", V: "pinned"}))
 	m.Log("  %s: %s - %s on %s", agent, why, ifTrue(kept != "", "resuming")+ifTrue(kept == "", "starting fresh"), to)
-	m.Agents.MeasureBegin(m.Q, agent, to)
 	return kept, true
+}
+
+// recordMove writes the move moveElsewhere decided, once the launch on `to` has happened: a wake that gives up before it has moved nobody.
+func (m *Manager) recordMove(agent, from, to string) {
+	must(db.AddEvent(m.Q, agent, "moved_account", db.KV{K: "from", V: from}, db.KV{K: "to", V: to}, db.KV{K: "trigger", V: "pinned"}))
+	m.Agents.MeasureBegin(m.Q, agent, to)
 }
 
 // ResumeMaxContext is the most context a resume the prompt cache cannot serve is worth: its first turn reads it all again once, still
@@ -612,6 +617,7 @@ type closed2 struct {
 	force, warm        bool
 	cause, restartedBy string
 	movedTo            string
+	movedFrom          string // set when moveElsewhere moved it: its moved_account is written at the launch
 	applying           []string
 }
 
@@ -735,8 +741,12 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 		// A fresh start is handed it too: told the ordinary way, it would wait behind a first turn spent on the handoff.
 		t, told, got := must3(m.Delivery.WaitingPrompt(m.Q, agent))
 		waiting.text, waiting.told, waiting.ok = t, told, got
-		if resume && !got && !c.force {
-			return false, "what was waiting for it is gone; nothing to resume it for"
+		// A task the agent holds has landed in the session that closed: nothing is left to type, and the resume is what brings the agent
+		// back to it. Giving up on it left the wake reserved, silent and the same on every tick.
+		if resume && !got && !c.force && !m.waitingFor(agent) {
+			why = "what was waiting for it is gone; nothing to resume it for"
+			m.wakeDropped(agent, why)
+			return false, why
 		}
 		restartNote := ""
 		if c.restartedBy != "" {
@@ -780,6 +790,9 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 	if !ok {
 		return false, m.wakeFailed(agent, session, why, took, foreign)
 	}
+	if c.movedFrom != "" {
+		m.recordMove(agent, c.movedFrom, c.movedTo)
+	}
 	// A relaunch is where claude shows its folder-trust screen - on a moved agent the new account has never trusted this folder - and the
 	// wake prompt waits behind it. Until it is past, the agent is not woken.
 	handle := must(db.Terminal(m.Q, agent))
@@ -818,6 +831,13 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 	}
 	m.Log("  %s: relaunched with its wake prompt%s", agent, how)
 	return true, "relaunched with the wake prompt"
+}
+
+// wakeDropped records a wake that gave up after its account was reserved, and with the event lets the reservation go (usage.activeSQL),
+// so the account does not count the agent as running until a Stop that will not come.
+func (m *Manager) wakeDropped(agent, why string) {
+	must(db.AddEvent(m.Q, agent, "wake_dropped", db.KV{K: "why", V: why}))
+	m.Log("  %s: wake dropped: %s", agent, why)
 }
 
 // wakeFailed records a wake that started nothing and returns what to say. foreign: a session it did not start is running, which is no
