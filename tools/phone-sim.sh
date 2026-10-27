@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
-# A phone simulator or emulator for a check, started when the check needs it and stopped when it ends: tools/phone-sim.sh <command>
-#   status                 what is running now (iOS simulators and Android emulators), "none" when nothing is
-#   android start NAME     boots the Android virtual device NAME without a window or sound and waits until it is ready
-#   android stop           shuts the running Android emulator down (and so its qemu)
-#   ios start NAME         boots the iOS simulator NAME with no Simulator.app window
-#   ios stop NAME          shuts the iOS simulator NAME down
-# An emulator left running costs a core for as long as it lives (one sat idle for six days at 60-70% CPU), and the daemon holds new work
-# while one runs (loadgate, host_simulator_hold). Stop what you started when the check ends; leave the ones you did not start.
+# A phone simulator or emulator for a check, stopped when it ends: tools/phone-sim.sh <command>
+#   status | android start NAME | android stop | ios start NAME | ios stop NAME
+# One left running costs a core (an emulator sat idle for six days at 60-70% CPU), and the daemon holds new work while one runs
+# (host_simulator_hold). Stop what you started; leave the ones you did not.
 set -uo pipefail
 
 running_android() { adb devices 2>/dev/null | awk '/^emulator-[0-9]+\tdevice/ {print $1}'; }
@@ -48,5 +44,5 @@ case "${1:-}:${2:-}" in
     android:stop) android_stop ;;
     ios:start) ios_start "${3:-}" ;;
     ios:stop) [ -n "${3:-}" ] || { echo "usage: tools/phone-sim.sh ios stop NAME" >&2; exit 2; }; xcrun simctl shutdown "$3"; status ;;
-    *) sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+    *) sed -n '2,3p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
 esac
