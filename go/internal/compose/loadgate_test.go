@@ -1,7 +1,6 @@
 package compose
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/handline/handline/go/internal/db"
@@ -18,18 +17,18 @@ func TestForceStartPassesOnlyWorkTheLoadHolds(t *testing.T) {
 	db.SetAgentState(p.db, "alice", states.Running, 0, "") // one mid-turn, so a start may be held
 	p.db.Exec("UPDATE agent_state SET account = 'a' WHERE agent = 'alice'")
 	db.AddPending(p.db, "bob", "job", 1)
-	if ok, said, _ := c.ForceStart("bob"); ok || !strings.Contains(said, "hold nothing") {
+	if ok, said, _ := c.ForceStart("bob"); ok || said != "Nothing holds bob back: it starts by itself." {
 		t.Fatalf("under the limits: %v %q", ok, said)
 	}
 	machine.Load1 = 8 // 2.00 per core
 	if lc.Gate.Held("bob") == "" {
 		t.Fatal("over the load limit and not held")
 	}
-	if ok, said, _ := c.ForceStart("carol"); ok || !strings.Contains(said, "hold nothing") {
+	if ok, said, _ := c.ForceStart("carol"); ok || said != "Nothing to start: carol has no work waiting." {
 		t.Fatalf("nothing waits for carol: %v %q", ok, said)
 	}
 	ok, said, err := c.ForceStart("bob")
-	if err != nil || !ok || !strings.Contains(said, "load 2.00 per core, limit 1.50") {
+	if err != nil || !ok || said != "Starting bob now, even though the Mac is busy." {
 		t.Fatalf("%v %q %v", ok, said, err)
 	}
 	if lc.Gate.Held("bob") != "" || lc.Gate.Held("carol") == "" {

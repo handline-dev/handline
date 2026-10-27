@@ -51,7 +51,7 @@ export function HeldCard({ detail }: { detail: AgentDetail }) {
     <Card variant="event" tone="wait" className="card-held" data-kind="held" data-reason={status.reason}>
       <Icon name="blocked" label="Held" />
       <CardWhat stacked>
-        <strong className="whitespace-normal">{status.text || 'Held: machine load'}</strong>
+        <strong className="whitespace-normal">{status.text || 'Held: the Mac is busy. It starts by itself when that drops.'}</strong>
         {status.since ? <span className="muted">for {ago(status.since)}</span> : null}
         {refused ? <span role="alert">{refused}</span> : null}
       </CardWhat>

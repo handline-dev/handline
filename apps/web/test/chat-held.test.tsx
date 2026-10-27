@@ -31,7 +31,7 @@ async function mount(held: boolean) {
       status: {
         state: 'waiting',
         reason: 'load',
-        text: 'held: machine load - load 5.40 per core, limit 1.50',
+        text: 'Held: the Mac is busy (5.4 per core, limit 1.5). It starts by itself when that drops.',
         since: new Date().toISOString(),
         until: null,
         tasks: [],
@@ -48,7 +48,7 @@ describe('chat of an agent held for machine load', () => {
   it('says why, and Start now starts it and removes the line', async () => {
     await mount(true);
     await until(() => $('.card-held'), 'the held line');
-    expect($('.card-held')!.textContent).toContain('machine load - load 5.40 per core');
+    expect($('.card-held')!.textContent).toContain('the Mac is busy (5.4 per core, limit 1.5)');
     const start = [...box.querySelectorAll('.card-held button')].find((b) => b.textContent === 'Start now') as HTMLElement;
     await act(async () => start.click());
     await until(() => !$('.card-held'), 'the line gone after the start');

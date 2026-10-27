@@ -7,7 +7,7 @@ import { useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, useOff, usePending, useTask, useTaskHistory, useTaskTime, useWrite } from '@handline/app-data';
 import { Button, MenuButton, MenuItem, MenuSeparator } from '#src/ui/index.ts';
-import { goTasks } from '#src/route.ts';
+import { leave } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
 import { AskSheets, type Ask } from '#src/TaskAsk.tsx';
 import { TaskChips, TaskWatch, TaskLinks } from '#src/TaskDetailParts.tsx';
@@ -18,9 +18,9 @@ import { Activity } from '#src/TaskActivity.tsx';
 import { Markdown } from '#src/Markdown.tsx';
 import { RichText } from '#src/RichText.tsx';
 import { View } from '#src/View.tsx';
+import { typing } from '#src/typing.ts';
 
 const CLOSED = ['done', 'discarded'];
-const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
 /** The bridge's own sentence for a key that does not apply. */
 const REOPEN_ONLY = 'only a done task that you asked for can be reopened';
 const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
@@ -128,7 +128,7 @@ function Body({ t }: { t: Detail }) {
   } as const;
   const key = (e: KeyboardEvent) => {
     if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === 'Escape') return ask ? setAsk(null) : goTasks();
+    if (e.key === 'Escape') return ask ? setAsk(null) : leave('#/tasks');
     const f = (verbs as Record<string, () => void>)[e.key];
     if (!f) return;
     e.preventDefault();
@@ -231,7 +231,8 @@ function Body({ t }: { t: Detail }) {
       {showTime ? <TimeSection id={t.id} /> : null}
       {showHistory ? <HistorySection id={t.id} /> : null}
 
-      <div className="sticky bottom-0 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-canvas px-4 py-2">
+      {/* A sticky bar stops above the scroll box's 12 px bottom padding; -bottom-3 takes it to the edge. */}
+      <div className="task-footer sticky -bottom-3 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-canvas px-4 pb-[calc(var(--sp-3,12px)+0.5rem+env(safe-area-inset-bottom))] pt-2">
         <AskSheets t={t} me={me} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
 
         <div className="tverbs flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Task actions">

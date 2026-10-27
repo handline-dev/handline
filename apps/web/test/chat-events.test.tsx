@@ -57,6 +57,10 @@ describe('event cards', () => {
     for (const el of [$('.card-held'), $('[data-proposal="910"]'), $('[data-proposal="911"]')])
       expect(el!.classList.contains('event')).toBe(true);
     expect($('.card-held')!.dataset.tone).toBe('wait');
+    const failed = $('[data-proposal="911"]')!;
+    expect(failed.textContent).toContain('Approved, but not applied: worktree is dirty.');
+    expect(failed.textContent?.match(/not applied/g)).toHaveLength(1); // said once: no banner beside the line
+    expect(failed.textContent).not.toContain('Not applied');
     expect($('[data-proposal="910"]')!.dataset.tone).toBe('wait');
     expect($('[data-proposal="911"]')!.dataset.tone).toBe('bad');
   });

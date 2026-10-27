@@ -1450,13 +1450,13 @@ export type TerminalOpening = {
 };
 
 export type NeedsYou = {
-  /** permission: a tool or a folder waits for a yes. question: the agent asked the person something. usage: the session limit's choice. dialog: any other, and any the daemon does not know: unknown is a person. */
-  kind: "permission" | "question" | "usage" | "dialog";
+  /** permission: a tool or a folder waits for a yes. question: the agent asked the person something. usage: the session limit's choice. dialog: any other (a start-up dialog the daemon will not answer included), and any the daemon does not know: unknown is a person. stuck: the daemon retried, restarted and relaunched the agent and it is still stuck: one card, gone when the trouble is. The same event is never two cards, and a load hold is never stuck. */
+  kind: "permission" | "question" | "usage" | "dialog" | "stuck";
   since: Timestamp;
   /** One line, from the hook or the session file; never read from the screen. */
   text: string | null;
-  /** hook: PermissionRequest or Notification. session: the session's own file (sessions/<pid>.json status waiting and waitingFor). */
-  source: "hook" | "session";
+  /** hook: PermissionRequest or Notification. session: the session's own file (sessions/<pid>.json status waiting and waitingFor). daemon: the daemon's own record (a start-up dialog stall, an agent it could not heal); never a task. */
+  source: "hook" | "session" | "daemon";
 };
 
 /** Chosen by the daemon when an upload completes. */
@@ -1795,6 +1795,15 @@ export type Headroom = {
 export type ReadCursor = {
   /** The newest stream cursor when this read began. An event above it may be in the answer already (applying it again changes nothing); none at or below it is missing. A client drops the events at or below it for this answer. */
   cursor: number;
+};
+
+export type ShellOpening = {
+  agent: AgentName;
+  /** The shell's handle, as terminal.attach takes it. */
+  terminal: string;
+  /** The directory the shell started in. */
+  cwd: string;
+  host: string;
 };
 
 /** One row of the founder's requests. */
@@ -2277,6 +2286,15 @@ export interface Methods {
   "terminal.open": { params: {
   agent: AgentName;
 }; result: TerminalOpening };
+  "shell.open": { params: {
+  agent: AgentName;
+  request_id: RequestId;
+}; result: ShellOpening };
+  "shell.close": { params: {
+  /** The handle shell.open answered. */
+  terminal: string;
+  request_id: RequestId;
+}; result: Accepted };
   "terminal.detach": { params: {
   terminal: string;
   /** With it, ends only that format's attach of the terminal on this connection; without it, every attach of that terminal on the connection. Neither is an error when there is nothing to end; any other word is bad_request naming `format`. */
@@ -3208,6 +3226,8 @@ export const METHODS: { [K in MethodName]: { role: Role; callers: Role[] | null;
   "terminal.input": { role: "member", callers: null, write: true, since: 1 },
   "terminal.close": { role: "member", callers: null, write: true, since: 1 },
   "terminal.open": { role: "member", callers: null, write: false, since: 1 },
+  "shell.open": { role: "member", callers: null, write: true, since: 1 },
+  "shell.close": { role: "member", callers: null, write: true, since: 1 },
   "terminal.detach": { role: "member", callers: null, write: false, since: 1 },
   "debug.terminals": { role: "member", callers: null, write: false, since: 1 },
   "inbox.list": { role: "agent", callers: null, write: false, since: 1 },

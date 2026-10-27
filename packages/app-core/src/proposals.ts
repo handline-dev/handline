@@ -1,5 +1,6 @@
 // HR proposals as the HR tab draws them: which wait on the founder, the words for each state, and the text an agent wrote made safe to show.
 import type { Proposal } from '@handline/client';
+import { ago } from '#src/time.ts';
 
 /** The states that wait for the founder; any other word is drawn as text, offers no action and is not counted. */
 export const isWaiting = (p: Proposal): boolean => p.state === 'open' || p.state === 'apply_failed';
@@ -15,17 +16,18 @@ export function followUpOf(p: Proposal): FollowUp | null {
   return p.state === 'approved' && f ? { agent: textSafe(f.agent), state: f.state, text: textSafe(f.text) } : null;
 }
 
-/** What a held proposal waits for, in words: "waits for handline.pc's turn to end", or for several "waits for a and b to end their turns". */
-export function heldLine(p: Proposal): string {
+/** What a held proposal waits for, in words: "waits for handline.pc's turn to end", or for several "waits for a and b to end their turns"; "since 5m" when the daemon says since when. */
+export function heldLine(p: Proposal, now = Date.now()): string {
   const who = (p.waiting_on ?? []).map(textSafe);
-  if (!who.length) return 'waits for a turn to end';
-  if (who.length === 1) return `waits for ${who[0]}'s turn to end`;
-  return `waits for ${who.slice(0, -1).join(', ')} and ${who.at(-1)} to end their turns`;
+  const since = p.waiting_since ? `, since ${ago(p.waiting_since, now)}` : '';
+  if (!who.length) return `waits for a turn to end${since}`;
+  if (who.length === 1) return `waits for ${who[0]}'s turn to end${since}`;
+  return `waits for ${who.slice(0, -1).join(', ')} and ${who.at(-1)} to end their turns${since}`;
 }
 
 const STATE_WORDS: Record<string, { word: string; tone: 'wait' | 'block' | 'run' | 'muted' }> = {
   open: { word: 'waiting for you', tone: 'wait' },
-  apply_failed: { word: 'approved, apply failed', tone: 'block' },
+  apply_failed: { word: 'approved, not applied', tone: 'block' },
   approved: { word: 'approved and applied', tone: 'run' },
   rejected: { word: 'rejected', tone: 'block' },
   withdrawn: { word: 'withdrawn', tone: 'muted' },
@@ -122,12 +124,21 @@ export async function decideMany(
   return out;
 }
 
-/** An accepted decision whose proposal now reads apply_failed did not apply: that row fails with the daemon's error. */
+/** An approved proposal that did not apply: one line the person reads, and the daemon's own words for Details. The line's reason is the
+ *  error's first sentence without a "not applied" lead of its own, and left out when it says "applied" (it would contradict the headline). */
+export function applyFailure(p: Proposal): { line: string; details: string | null } {
+  const raw = p.error ? textSafe(p.error).trim() : '';
+  const first = (raw.replace(/^(?:proposal\s+\S+\s+)?(?:was\s+)?not applied:?\s*/i, '').split(/\.\s|\n/)[0] ?? '')
+    .replace(/\.$/, '')
+    .trim();
+  const reason = /\bapplied\b/i.test(first) ? '' : first.length > 100 ? `${first.slice(0, 100)}…` : first;
+  return { line: `Approved, but not applied${reason ? `: ${reason}` : ''}.`, details: raw && raw !== reason ? cutError(raw) : null };
+}
+
+/** An accepted decision whose proposal now reads apply_failed did not apply: that row fails with the line above. */
 export function settled(rows: readonly DecideResult[], now: readonly Proposal[]): DecideResult[] {
   return rows.map((r) => {
     const p = now.find((x) => x.id === r.id);
-    return r.ok && p?.state === 'apply_failed'
-      ? { ...r, ok: false, error: p.error ? cutError(textSafe(p.error)) : 'the change was not applied' }
-      : r;
+    return r.ok && p?.state === 'apply_failed' ? { ...r, ok: false, error: applyFailure(p).line } : r;
   });
 }

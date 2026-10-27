@@ -126,6 +126,9 @@ func (e *Env) input(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if agent == "" && e.shellOf(handle) != "" {
+		return e.shellInput(handle, raw)
+	}
 	if agent == "" {
 		return nil, rpc.Refused("no agent has this terminal, so it has no input holder to take its keystrokes", "input_holder", "")
 	}
@@ -172,6 +175,9 @@ func (e *Env) resize(c *rpc.Conn, params map[string]any) (any, error) {
 	handle, agent, err := e.handleOf(map[string]any{"terminal": params["terminal"]})
 	if err != nil {
 		return nil, err
+	}
+	if agent == "" && e.shellOf(handle) != "" {
+		return e.shellResize(handle, cols, rows)
 	}
 	if agent == "" {
 		return nil, rpc.Refused("no agent has this terminal, so it has no input holder to resize it", "input_holder", "")

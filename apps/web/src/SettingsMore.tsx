@@ -7,6 +7,7 @@ import { Button, SectionHead, Segmented, SettingsCard } from '#src/ui/index.ts';
 import { applyTheme, themeOf, type Theme } from '#src/appearance.ts';
 import { setting } from '#src/daemon.ts';
 import { NumberRow, Row, SwitchRow } from '#src/SettingsRows.tsx';
+import { WEEK_ALERT_KEY, weekAlertHours } from '#src/UsageLink.tsx';
 import { CliRow } from '#src/SettingsCli.tsx';
 import { shell, useShellMode } from '#src/shell.ts';
 
@@ -132,6 +133,28 @@ export function TerminalRow({ storage }: { storage: KV | null }) {
         onChange={(v) => {
           setTerminal(v);
           setting(storage, 'terminal', 'auto').save(v);
+        }}
+      />
+    </Row>
+  );
+}
+
+/** How soon before the week runs out at the current pace the status bar warns; kept in this browser. */
+export function WeekAlertRow() {
+  const [hours, setHours] = useState(String(weekAlertHours()));
+  return (
+    <Row label="Week running out" hint="Warn when, at the current pace, the week runs out in less than this. This window only">
+      <Segmented
+        label="Week running out"
+        value={hours}
+        options={['0', '6', '12', '24', '48'].map((h) => ({ value: h, label: h === '0' ? 'Off' : `${h} h` }))}
+        onChange={(v) => {
+          setHours(v);
+          try {
+            localStorage.setItem(WEEK_ALERT_KEY, v);
+          } catch {
+            /* blocked */
+          }
         }}
       />
     </Row>
