@@ -85,8 +85,8 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
    file an id that is an argument of an `hl` command is the product's own syntax and passes.
    A commit's author and committer email must be a noreply address too
    (`git config user.email <id>+<name>@users.noreply.github.com`).
-   `tools/localrefs.py` enforces it in the git hooks
-   (`tools/install-git-hooks.sh`), and a review runs it too:
+   `tools/localrefs.py` enforces it, and refuses an @-mention outside code in a commit message, in the git hooks
+   (`tools/install-git-hooks.sh`), and CI (pr-rules) runs it on each PR:
    `tools/localrefs.py diff main...<sha>` and `tools/localrefs.py log main..<sha>`.
 
 Easy to get wrong:

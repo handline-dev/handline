@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Opens a pull request after the checks CI would refuse it for, run here first: the PR text (pr_checks.py body-file), the changed files
-# (pr_checks.py files), Prettier on the touched files, and ESLint (its size limits too) on each touched app or package.
+# (pr_checks.py files), the commit messages and added lines (localrefs.py), Prettier on the touched files, and ESLint (its size limits too) on each touched app or package.
 #   tools/pr-open.sh --title "..." --body-file FILE [--base main] [--check]     --check runs the checks and opens nothing
 set -uo pipefail
 top="$(git rev-parse --show-toplevel)" || exit 1
@@ -27,6 +27,10 @@ python3 tools/pr_checks.py body-file "$body" "$title" "$base" || failed=1
 
 step "the changed files"
 python3 tools/pr_checks.py files "$from" || failed=1
+
+step "the commit messages and added lines"
+python3 tools/localrefs.py log "origin/$base..HEAD" || failed=1
+python3 tools/localrefs.py diff "$from...HEAD" || failed=1
 
 touched="$(git diff --name-only --no-renames --diff-filter=AM "$from...HEAD")"
 step "Prettier"
