@@ -64,6 +64,8 @@ type HandoffPort interface {
 	CacheMargin(ttl int64) int64
 	// ContextUsed is how many tokens the session's context held at its last reply; ok false when its transcript gives none.
 	ContextUsed(q db.Q, agent, session string) (tokens int64, ok bool)
+	// ContextFull: the session's context is at or over the agent's context limit; false when it cannot be read.
+	ContextFull(q db.Q, agent, session string) bool
 	ClearNote(q db.Q, agent string)
 }
 

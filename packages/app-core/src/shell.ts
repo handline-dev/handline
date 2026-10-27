@@ -27,7 +27,7 @@ export const PAGE_SETTINGS = [
   'load_per_core_pct',
   'ram_free_min_pct',
   'heavy_slots',
-] as const;
+] as const satisfies readonly (keyof SettingsChanges)[];
 export type PageSettings = Pick<SettingsChanges, (typeof PAGE_SETTINGS)[number]>;
 
 /** What every call returns when it does not succeed: calls never throw across the window's edge. */
