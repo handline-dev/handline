@@ -503,6 +503,10 @@ describe('the top bar', () => {
     await until(() => $('.topbar [aria-label="Edit Title"]'), 'the title in the bar');
     await click($('.topbar [aria-label="Edit Title"]')!);
     expect($('.topbar input[aria-label="Title"]')!.className).toContain('h-8');
+    const input = $('.topbar input[aria-label="Title"]')!; // jsdom has no layout: the structure that kept the field visible at 820 and 1440
+    expect(input.className).not.toMatch(/min-w-\[/);
+    expect(input.closest('h2')!.className).not.toContain('truncate'); // a truncating heading turned the whole field into an ellipsis
+    expect(input.closest('h2')!.className).toContain('flex');
   });
   it('carries the sidebar button, Back and Forward while the sidebar is folded, and not while it is open', async () => {
     await mount(ARCH);
