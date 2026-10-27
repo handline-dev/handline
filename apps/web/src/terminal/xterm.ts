@@ -98,7 +98,7 @@ export const createXterm: CreateTerm = (host) => {
       const marker = term.registerMarker(0);
       const tick = marker && term.registerDecoration({ marker, x: 0, width: 1 });
       tick?.onRender((el) => {
-        el.classList.add('daemon-tick', 'border-l-2', 'border-l-primary', 'opacity-60');
+        el.classList.add('daemon-tick', 'opacity-60');
         el.title = label; // text only: the label comes from the stream's notices
       });
     },

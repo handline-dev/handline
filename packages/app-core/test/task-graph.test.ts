@@ -45,9 +45,9 @@ test('closed tasks are out unless asked for, and a closed holder no longer holds
   assert.equal(taskGraph(ts, { me: 'a', closed: true }).nodes.length, 2);
 });
 
-test('an open request to the founder reads "waiting on you"', () => {
+test('an open request to the founder reads "needs you"', () => {
   const t = task(3, { requests: [{ id: 9, from: 'a', to: 'human', state: 'landed', at: '2026-01-01T00:00:00Z' }] });
-  assert.equal(waitReason(t, 'human', new Set([3])), 'waiting on you');
+  assert.equal(waitReason(t, 'human', new Set([3])), 'needs you');
   assert.equal(waitReason(task(3), 'human', new Set([3])), null);
 });
 

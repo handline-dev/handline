@@ -78,7 +78,7 @@ describe("an agent's Tasks tab", () => {
     expect(items.length).toBeGreaterThan(0);
     expect(items.some((t) => t.startsWith('Reopen'))).toBe(false); // an open task has nothing to reopen
     const stop = items.findIndex((t) => /^(Withdraw|Cancel|Discard)/.test(t));
-    const edit = items.findIndex((t) => t.startsWith('Change owner'));
+    const edit = items.findIndex((t) => t.startsWith('Assign to'));
     expect(stop).toBeGreaterThan(edit);
   });
 });
@@ -103,7 +103,7 @@ describe('a narrow Tasks list (detail panel open)', () => {
     expect(cls('tr[data-task] .c-title')).toContain('min-w-0');
     expect($('tr[data-task] .ttitle')!.className).toContain('line-clamp-2');
     expect(cls('tr[data-task] .c-time')).toContain('whitespace-nowrap');
-    expect($('tr[data-task] .c-owner span')!.getAttribute('title')).toMatch(/^owner: /);
+    expect($('tr[data-task] .c-owner span')!.getAttribute('title')).toMatch(/^assigned to: /);
     expect($('.tgroup th')!.getAttribute('colspan')).toBe(String($('tr[data-task]')!.children.length));
   });
 

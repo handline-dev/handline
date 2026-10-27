@@ -10,7 +10,7 @@ export const LIST_KEYS: [string, string][] = [
   ['A', 'mark every row shown, or unmark them'],
   ['Enter', "open the task's detail"],
   ['d', 'discard, with a reason'],
-  ['o', 'change the owner to another agent'],
+  ['o', 'assign the task to another agent'],
   ['p', 'set the priority, 1 high to 3 low'],
   ['m', 'fold the marked tasks into the row under the cursor'],
   ['s / S', 'sort by the next column / reverse'],
@@ -24,8 +24,8 @@ export const LIST_KEYS: [string, string][] = [
 export function OwnerSheet({ agents, onCancel, onPick }: { agents: string[]; onCancel: () => void; onPick: (owner: string) => void }) {
   const [owner, setOwner] = useState('');
   return (
-    <Sheet label="new owner (agent name):" submit="Change owner" onCancel={onCancel} onSubmit={() => owner && onPick(owner)}>
-      <NativeSelect value={owner} aria-label="New owner" onChange={(e) => setOwner(e.target.value)}>
+    <Sheet label="assign to (agent name):" submit="Assign" onCancel={onCancel} onSubmit={() => owner && onPick(owner)}>
+      <NativeSelect value={owner} aria-label="Assign to" onChange={(e) => setOwner(e.target.value)}>
         <option value="">pick an agent</option>
         {agents.map((a) => (
           <option key={a}>{a}</option>

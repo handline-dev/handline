@@ -117,7 +117,7 @@ export const ICON_SPEC = {
   viewTree: ['ListTree', 'Tree'],
   closed: ['Archive', 'Closed'],
   select: ['SquareCheck', 'Select'],
-  owner: ['UserRound', 'Owner'],
+  owner: ['UserRound', 'Assigned to'],
   founder: ['UserRound', 'Founder'],
   priority: ['Flag', 'Priority'],
   merge: ['GitMerge', 'Merge'],

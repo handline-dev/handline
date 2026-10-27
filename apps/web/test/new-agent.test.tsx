@@ -102,7 +102,7 @@ describe('X3 New agent', () => {
     const spy = calls(s);
     await mount('#/new', s);
     await fill();
-    expect(findInput('Base')!.value).toBe('master');
+    expect(findInput('Base branch')!.value).toBe('master');
     const release = s.daemon.knobs.hold('agent.create');
     await click(create());
     await until(() => create().disabled, 'Create off while the call waits');
@@ -206,7 +206,7 @@ describe('X3 New agent', () => {
     const s = setup();
     await mount('#/new', s);
     await fill();
-    await type(findInput('Base'), 'nope');
+    await type(findInput('Base branch'), 'nope');
     await click(create());
     await until(() => text(dialog()).includes('no branch nope in docs-site'), 'the failure');
     expect(text(dialog())).toContain('fresh is registered, not started.');
@@ -214,7 +214,7 @@ describe('X3 New agent', () => {
     await until(() => findInput('Name'), 'the form');
     expect(findInput('Name')!.value).toBe('fresh');
     expect(findInput('Role')!.value).toBe('reviewer');
-    expect(findInput('Base')!.value).toBe('nope');
+    expect(findInput('Base branch')!.value).toBe('nope');
     expect(select('Repo').value).toBe('/work/docs-site');
   });
 

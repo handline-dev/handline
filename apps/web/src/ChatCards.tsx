@@ -1,8 +1,6 @@
 // What sits around the transcript of an agent's chat: the one-line strip of its state, the banner when it is stuck, and the HR proposals
 // that concern it, decided where they were discussed.
 import { useState } from 'react';
-import { useSelector } from '@handline/app-react';
-import { HeldLine } from '#src/ApplyNow.tsx';
 import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
 import {
   VERBS,
@@ -10,16 +8,14 @@ import {
   ago,
   clockTime,
   decidedProposals,
-  applyFailure,
   followUpOf,
-  isHeld,
   isWaiting,
   restartingLine,
   restartShown,
 } from '@handline/app-core';
-import { classify, sentence, useAgentStrip, useHr, useVerbMark, useVerbRun, useWorktrees, useWrite } from '@handline/app-data';
+import { classify, sentence, useAgentStrip, useHr, useVerbMark, useVerbRun, useWorktrees } from '@handline/app-data';
 import { useServed } from '#src/AgentVerbs.tsx';
-import { Button, Card, CardWhat, Chip, Dialog, Field, Icon } from '#src/ui/index.ts';
+import { Button, Card, CardWhat, Chip, Icon } from '#src/ui/index.ts';
 import { goTeam } from '#src/route.ts';
 import { openTaskOnClick } from '#src/ChatMessages.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
@@ -27,7 +23,6 @@ import { AgentGauges, GaugeLine, CACHE_MINUTES } from '#src/AgentGauges.tsx';
 import { AccountMenu, ModelMenu } from '#src/AgentPickers.tsx';
 import { ViewSwitch } from '#src/ViewSwitch.tsx';
 import { useOpenTerminal } from '#src/ChatMenus.tsx';
-import { AnimatedList } from '#src/AnimatedList.tsx';
 import { useNow } from '#src/Gauge.tsx';
 import { BranchChip, ContextMax } from '#src/ChatStripItems.tsx';
 
@@ -189,119 +184,28 @@ function FollowUpCard({ p, follow }: { p: Proposal; follow: FollowUp }) {
   );
 }
 
-/** The HR proposals that concern this agent and still wait: open ones with approve and reject as icons, a failed one with a retry. A decided one is
- *  a past event: it is in the timeline (DecidedCard), never down here. */
+/** The HR proposals that concern this agent and still wait are decided in My turn and in Team > HR; the chat says how many in one line. A decided
+ *  one is a past event: it is in the timeline (DecidedCard). */
 export function HrCards({ agent }: { agent: string }) {
   const q = useHr({});
-  const decide = useWrite('hr.decide');
-  const can = useSelector((s) => s.can('hr.decide'));
-  const [rejecting, setRejecting] = useState<{ id: number; subject: string } | null>(null);
-  const [note, setNote] = useState('');
-  // The button pressed on a card, while it waits and after a refusal: the card says how it went.
-  const [sent, setSent] = useState<Record<number, { choice: 'approve' | 'reject'; wait: boolean; error?: string }>>({});
-  const send = (p: { id: number; subject: string }, choice: 'approve' | 'reject', why?: string) => {
-    setSent((m) => ({ ...m, [p.id]: { choice, wait: true } }));
-    decide.mutateAsync({ proposal: p.id, decision: choice, subject: p.subject, ...(why ? { note: why } : {}) }).then(
-      () => setSent((m) => ({ ...m, [p.id]: { choice, wait: false } })),
-      (e) => setSent((m) => ({ ...m, [p.id]: { choice, wait: false, error: sentence(classify(e)) } })),
-    );
-  };
-  const reject = () => {
-    if (!rejecting || !note.trim()) return;
-    send(rejecting, 'reject', note.trim());
-    setRejecting(null);
-    setNote('');
-  };
-  const shown = proposalsOf(q.data?.proposals, agent).filter((p) => isWaiting(p) || isHeld(p) || followUpOf(p));
+  const all = proposalsOf(q.data?.proposals, agent).filter((p) => isWaiting(p) || followUpOf(p));
+  const follows = all.flatMap((p) => {
+    const follow = followUpOf(p);
+    return follow ? [{ p, follow }] : [];
+  });
+  const open = all.length - follows.length;
   return (
     <>
-      {shown.map((p) => {
-        const follow = followUpOf(p);
-        if (follow) return <FollowUpCard key={p.id} p={p} follow={follow} />;
-        const mine = sent[p.id];
-        const failed = mine?.error; // a refusal of this press; the not-applied line is the card's own, shown once
-        const apply = p.state === 'apply_failed' ? applyFailure(p) : null;
-        const pressed = (c: 'approve' | 'reject') => !!mine && mine.choice === c;
-        return (
-          <Card
-            variant="event"
-            tone={p.state === 'apply_failed' ? 'bad' : 'wait'}
-            key={p.id}
-            className="card-hr"
-            data-kind="hr"
-            data-proposal={p.id}
-            data-state={p.state}
-          >
-            <Icon name="team" label="Proposal" />
-            <CardWhat stacked>
-              <strong>{p.title}</strong>
-              {p.state === 'apply_failed' ? (
-                <>
-                  <span className="outcome whitespace-normal text-bad">{apply!.line} Approve to try again.</span>
-                  {apply!.details ? (
-                    <details className="muted whitespace-normal">
-                      <summary>Details</summary>
-                      {apply!.details}
-                    </details>
-                  ) : null}
-                </>
-              ) : isHeld(p) ? (
-                <HeldLine p={p} />
-              ) : p.reason ? (
-                <span className="muted">{p.reason}</span>
-              ) : null}
-              {failed ? (
-                <span className="banner" role="status">
-                  {failed}
-                </span>
-              ) : null}
-            </CardWhat>
-            {can && !isHeld(p) ? (
-              <>
-                <Button
-                  icon="markRead"
-                  label="Approve"
-                  size="sm"
-                  aria-pressed={pressed('approve')}
-                  aria-busy={mine?.wait && pressed('approve') ? true : undefined}
-                  disabled={!!mine && (mine.wait || !(failed || apply))}
-                  className={pressed('approve') ? 'bg-raised' : ''}
-                  onClick={() => send(p, 'approve')}
-                >
-                  {mine?.wait && pressed('approve') ? (
-                    <span className="hr-wait" aria-hidden>
-                      …
-                    </span>
-                  ) : undefined}
-                </Button>
-                <Button
-                  icon="dismiss"
-                  label="Reject"
-                  size="sm"
-                  aria-pressed={pressed('reject')}
-                  aria-busy={mine?.wait && pressed('reject') ? true : undefined}
-                  disabled={!!mine && (mine.wait || !(failed || apply))}
-                  className={pressed('reject') ? 'bg-raised' : ''}
-                  onClick={() => setRejecting({ id: p.id, subject: p.subject })}
-                />
-              </>
-            ) : null}
-            <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
-          </Card>
-        );
-      })}
-      <AnimatedList>
-        {rejecting ? (
-          <Dialog
-            key="reject"
-            title="Reject"
-            onClose={() => setRejecting(null)}
-            action={{ label: 'Reject', onClick: reject, disabled: !note.trim() }}
-          >
-            <Field label="Why" value={note} onChange={(e) => setNote(e.target.value)} />
-          </Dialog>
-        ) : null}
-      </AnimatedList>
+      {follows.map(({ p, follow }) => (
+        <FollowUpCard key={p.id} p={p} follow={follow} />
+      ))}
+      {open ? (
+        <Card variant="event" tone="wait" className="card-hr" data-kind="hr">
+          <Icon name="team" label="Proposal" />
+          <CardWhat>{open === 1 ? '1 HR proposal needs you' : `${open} HR proposals need you`}</CardWhat>
+          <Button icon="open" label="Open in HR" size="sm" onClick={() => goTeam('hr')} />
+        </Card>
+      ) : null}
     </>
   );
 }

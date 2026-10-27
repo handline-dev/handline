@@ -332,6 +332,9 @@
  "task.comment.list": {
   "role": "agent"
  },
+ "task.comment.send_now": {
+  "role": "member"
+ },
  "task.discard": {
   "role": "agent"
  },

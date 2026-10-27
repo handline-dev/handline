@@ -1,16 +1,34 @@
 // Where a task's time went, always one line above the body: a small bar and a sentence; a click opens one box with the full bar, the total per
 // kind and each stretch with its reason, start and length, scrolling inside a short height. Read from task.time when the task opens, for the sentence.
 import { useState } from 'react';
-import { clockTime, span, timeView, type TimeKind } from '@handline/app-core';
+import { clockTime, span, timeView, type TimeLabel } from '@handline/app-core';
 import type { TimeSegment } from '@handline/client';
 import { useOff, useTaskTime } from '@handline/app-data';
 import { Icon } from '#src/ui/index.ts';
 
-const TONE: Record<TimeKind, string> = { working: 'bg-ok', waiting: 'bg-bad', queued: 'bg-line-strong', starting: 'bg-ink-3' };
+const TONE: Record<TimeLabel, string> = {
+  working: 'bg-ok',
+  founder: 'bg-wait',
+  task: 'bg-bad',
+  agent: 'bg-ink-2',
+  account: 'bg-bad',
+  waiting: 'bg-ink-2',
+  queued: 'bg-line-strong',
+  starting: 'bg-ink-3',
+};
 /** 4m, 58m, 1h 40m: the short form the rest of the app writes. */
 const length = (seconds: number) => span(seconds * 1000).replace(/ ([dhm])\b/g, '$1');
 
-const SAID: Record<TimeKind, string> = { working: 'worked', waiting: 'needs you for', queued: 'waiting', starting: 'starting' };
+const SAID: Record<TimeLabel, string> = {
+  working: 'worked',
+  founder: 'needs you for',
+  task: 'blocked for',
+  agent: 'waiting on an agent for',
+  account: 'at a usage limit for',
+  waiting: 'waiting for',
+  queued: 'waiting to start for',
+  starting: 'starting for',
+};
 
 /** The one-line Time: it draws nothing for a daemon without task.time or a task with no stretches yet. */
 export function TimeLine({ id }: { id: number }) {
@@ -19,7 +37,7 @@ export function TimeLine({ id }: { id: number }) {
   const segments = useTaskTime(id).data?.segments ?? [];
   if (off || !segments.length) return null;
   const { rows, totals, seconds } = timeView(segments);
-  const said = [...totals.map((t) => `${SAID[t.kind]} ${length(t.seconds)}`), `${length(seconds)} in all`].join(' · ');
+  const said = [...totals.map((t) => `${SAID[t.label]} ${length(t.seconds)}`), `${length(seconds)} in all`].join(' · ');
   const sentence = said[0]!.toUpperCase() + said.slice(1);
   return (
     <section aria-label="Time" className="mt-2 rounded-card border border-line bg-surface px-2">
@@ -46,7 +64,7 @@ function MiniBar({ rows, className }: { rows: ReturnType<typeof timeView>['rows'
   return (
     <span className={`flex overflow-hidden rounded-full bg-raised ${className}`} role="img" aria-label="Time by stretch">
       {rows.map((r, i) => (
-        <span key={i} className={TONE[r.kind]} style={{ width: `${r.share * 100}%` }} title={`${r.text} · ${length(r.seconds)}`} />
+        <span key={i} className={TONE[r.label]} style={{ width: `${r.share * 100}%` }} title={`${r.text} · ${length(r.seconds)}`} />
       ))}
     </span>
   );
@@ -59,8 +77,8 @@ export function TaskTime({ segments }: { segments: TimeSegment[] }) {
       <MiniBar rows={rows} className="mb-2 h-2 w-full" />
       <p className="m-0 mb-2 flex flex-wrap gap-x-4 gap-y-1" aria-label="Total per kind">
         {totals.map((t) => (
-          <span key={t.kind} data-total={t.kind}>
-            <span className={`mr-1 inline-block size-2 rounded-full ${TONE[t.kind]}`} aria-hidden="true" />
+          <span key={t.label} data-total={t.label}>
+            <span className={`mr-1 inline-block size-2 rounded-full ${TONE[t.label]}`} aria-hidden="true" />
             {t.word} <strong>{length(t.seconds)}</strong>
           </span>
         ))}
@@ -69,7 +87,7 @@ export function TaskTime({ segments }: { segments: TimeSegment[] }) {
         </span>
       </p>
       {rows.map((r, i) => (
-        <div key={i} className="grid grid-cols-[5rem_minmax(0,1fr)_auto] gap-x-2 border-t border-line py-1.5" data-segment={r.kind}>
+        <div key={i} className="grid grid-cols-[5rem_minmax(0,1fr)_auto] gap-x-2 border-t border-line py-1.5" data-segment={r.label}>
           <span className="mono whitespace-nowrap text-ink-3">{clockTime(r.from)}</span>
           <span>{r.text}</span>
           <span className="mono text-ink-2">{length(r.seconds)}</span>

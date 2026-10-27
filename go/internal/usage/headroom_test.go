@@ -229,3 +229,28 @@ func TestBacktestAPacedAccountsGuessFollowsWhatItThenUsed(t *testing.T) {
 		}
 	}
 }
+
+func TestAWeeklyResetCarriesWhatTheWeekLeftUnused(t *testing.T) {
+	now := int64(1_800_000_000)
+	reset1, reset2 := now-2*86400, now+5*86400
+	rows := []sampleRow{
+		headroomRow("a", now-4*86400, 5, now-4*86400+3600, 30, reset1),
+		headroomRow("a", reset1-600, 5, reset1+3600, 62, reset1), // the last sample of the week that ended: 38 points unused
+		headroomRow("a", now-3600, 5, now+3600, 10, reset2),
+	}
+	h := HeadroomOver(rows, now, now-3*86400, now, 3600, nil)
+	var weekly []HeadroomReset
+	for _, r := range h.Accounts[0].Resets {
+		if r.Window == "7d" {
+			weekly = append(weekly, r)
+		}
+	}
+	if len(weekly) != 1 || weekly[0].At != reset1 || !weekly[0].HasUnused || weekly[0].Unused != 38 {
+		t.Fatalf("the week that ended left 38 points: %+v", weekly)
+	}
+	for _, r := range h.Accounts[0].Resets {
+		if r.Window == "5h" && r.HasUnused {
+			t.Errorf("a 5h reset has no unused figure: %+v", r)
+		}
+	}
+}
