@@ -3,10 +3,10 @@ package prompts
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/term"
 )
@@ -57,7 +57,7 @@ func (b *Block) IsHook() bool { return b.Detail["source"] == HookSource }
 func (e *Env) AskPermission(ctx context.Context, agent, tool string, input map[string]any) (d Decision, answered bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, HookWaitS*time.Second)
 	defer cancel()
-	command, reason := hookCommand(tool, input)
+	command, reason := hooks.ToolCommand(input)
 	title := agent + " wants to use " + tool
 	panel := []string{title}
 	if command != "" {
@@ -135,18 +135,6 @@ func (e *Env) answerHook(row *Block, c Choice) (bool, string) {
 		return e.record(row, true, row.Agent+": allowed")
 	}
 	return e.record(row, true, row.Agent+": denied")
-}
-
-// hookCommand is what the tool call does and why, from the hook's tool_input: a Bash command and its description, else the file or
-// URL it works on.
-func hookCommand(tool string, input map[string]any) (command, reason string) {
-	reason = str(input, "description")
-	for _, k := range []string{"command", "file_path", "notebook_path", "path", "url", "pattern"} {
-		if v := strings.TrimSpace(str(input, k)); v != "" {
-			return v, reason
-		}
-	}
-	return "", reason
 }
 
 // permissionAsk is permission.ask: the caller's own session asks, and the call returns the founder's decision, or no decision once the

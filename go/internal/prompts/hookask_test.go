@@ -2,6 +2,8 @@ package prompts
 
 import (
 	"context"
+	"io"
+	"net"
 	"testing"
 	"time"
 
@@ -204,4 +206,43 @@ func TestAQuestionTheAgentMovedOnFromIsClosed(t *testing.T) {
 			reply(t, call)
 		}
 	}
+}
+
+type sessionOf struct{ agent string }
+
+func (s sessionOf) AgentOf(int) string       { return s.agent }
+func (s sessionOf) SessionsReadable() error  { return nil }
+func (s sessionOf) FounderKeyOK(string) bool { return false }
+
+// The hook's client going away (its process killed by the agent) ends the waiting call within a refresh and closes its question.
+func TestAQuestionWhoseHookClientIsGoneIsClosed(t *testing.T) {
+	e, _ := testEnv(t)
+	register(e)
+	cl, sv := net.Pipe()
+	srv := rpc.NewServer(sessionOf{"backend"}, "abc1234", 7, "local", func(string, ...any) {})
+	Register(srv, e)
+	served := make(chan struct{})
+	go func() { srv.Serve(rpc.NewLineTransport(sv), 0); sv.Close(); close(served) }()
+	cl.SetDeadline(time.Now().Add(10 * time.Second))
+	go io.Copy(io.Discard, cl) // a pipe holds nothing: the replies are read as they come
+	for _, line := range []string{`{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"t/1","protocol":1}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"permission.ask","params":{"tool":"Bash","input":{"command":"cd /x"}}}`} {
+		if _, err := cl.Write([]byte(line + "\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitOpen(t, e, "cd /x")
+	cl.Close()
+	select {
+	case <-served:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the connection was not served out")
+	}
+	for i := 0; i < 100; i++ {
+		if open, _ := e.OpenOf("backend"); open == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("the question stays open after its client went")
 }
