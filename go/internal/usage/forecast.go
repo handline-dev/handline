@@ -10,10 +10,13 @@ import (
 // it that even full 5h windows could not use. A nil figure is not known: nothing is guessed from a week or a ratio that cannot be read.
 type Forecast struct{ LeftAtReset, LostAnyway *float64 }
 
-// ForecastOf is the forecast for a week with unused percent left and hoursLeft to its end. consumed24 is the week's points used in the
-// last 24 hours; ratio is the week's points per point of the 5h window (Costs.LongPerShort), haveRatio false when it is unknown.
-func ForecastOf(unused, hoursLeft, consumed24, ratio float64, haveRatio bool) Forecast {
-	left := math.Max(0, unused-consumed24/24*hoursLeft)
+// MinSpanS is the least time the samples must cover for their rate to be a rate: under it a rise is one reading's noise.
+const MinSpanS = 2 * 3600
+
+// ForecastOf is the forecast for a week with unused percent left and hoursLeft to its end. ratePerH is the week's points used per hour
+// lately; ratio is the week's points per point of the 5h window (Costs.LongPerShort), haveRatio false when it is unknown.
+func ForecastOf(unused, hoursLeft, ratePerH, ratio float64, haveRatio bool) Forecast {
+	left := math.Max(0, unused-ratePerH*hoursLeft)
 	f := Forecast{LeftAtReset: &left}
 	if haveRatio {
 		lost := math.Max(0, unused-hoursLeft/5*100*ratio)
@@ -23,7 +26,7 @@ func ForecastOf(unused, hoursLeft, consumed24, ratio float64, haveRatio bool) Fo
 }
 
 // ForecastFor reads the account's week and, from samples (rows covering the last 24 hours), forecasts it; ok false when the week is stale,
-// unread, over, or the samples say nothing of the account in the last day.
+// unread, over, or the account's samples in the last day are fewer than two or span under MinSpanS: a rate needs a span to be one.
 func (e *Env) ForecastFor(q db.Q, acct string, rows Samples) (Forecast, bool) {
 	now := e.now()
 	st := e.Read(acct)
@@ -35,8 +38,8 @@ func (e *Env) ForecastFor(q db.Q, acct string, rows Samples) (Forecast, bool) {
 	if left, ok = WeekEndsIn(st, now); !ok || left <= 0 {
 		return Forecast{}, false
 	}
-	consumed, seen := WeekConsumed(rows, int64(now)-86400, int64(now))[acct]
-	if !seen {
+	rate, ok := weekRatePerH(rows, acct, int64(now)-86400, int64(now))
+	if !ok {
 		return Forecast{}, false
 	}
 	var ratio float64
@@ -44,5 +47,26 @@ func (e *Env) ForecastFor(q db.Q, acct string, rows Samples) (Forecast, bool) {
 	if costs, err := e.LoadCosts(q); err == nil {
 		ratio, haveRatio = costs.LongPerShort(acct)
 	}
-	return ForecastOf(float64(max(0, LongBlock-*used)), left/3600, consumed, ratio, haveRatio), true
+	return ForecastOf(float64(max(0, LongBlock-*used)), left/3600, rate, ratio, haveRatio), true
+}
+
+// weekRatePerH is the account's weekly points used per hour over its samples in [lo, hi], divided by the time they cover, not by the whole
+// window; ok false with fewer than two or a span under MinSpanS.
+func weekRatePerH(rows []sampleRow, acct string, lo, hi int64) (float64, bool) {
+	var pts []weekPoint
+	for _, r := range rows {
+		if w, ok := weekOf(r); ok && w.TS >= lo && w.TS <= hi {
+			if a, _ := r["account"].(string); a == acct {
+				pts = append(pts, w)
+			}
+		}
+	}
+	if len(pts) < 2 || pts[len(pts)-1].TS-pts[0].TS < MinSpanS {
+		return 0, false
+	}
+	var used float64
+	for i := 1; i < len(pts); i++ {
+		used += rise(pts[i-1], pts[i])
+	}
+	return used / (float64(pts[len(pts)-1].TS-pts[0].TS) / 3600), true
 }
