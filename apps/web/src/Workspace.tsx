@@ -47,8 +47,6 @@ export interface WorkspaceCtx {
   canSplit: (group: string) => boolean;
   /** The groups render as one strip (a narrow window): a drop can only reorder or merge, never split. */
   merged: boolean;
-  /** The pane whose strip comes first (the folded sidebar's buttons sit there): the one shown when the groups render as one. */
-  lead: string;
   dragging: string | null;
   setDragging: (tab: string | null) => void;
 }
@@ -195,7 +193,6 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     agent,
     storage,
     merged: arrange(ws, size.w, size.h).merged,
-    lead: arrange(ws, size.w, size.h).merged ? ws.active : groupsOf(ws.root)[0]!.id,
     canSplit: (id) => {
       const next = splitPane(ws, id);
       return !!next && !arrange(next, size.w, size.h).merged;

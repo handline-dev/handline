@@ -1,12 +1,12 @@
 // One task: title, status and a History button, the Time line, why it waits, assignee, priority and time box as chips, the brief (folded), what it
 // waits on and what hangs under it, one Activity list, and along the bottom Done, Assign, Comment, Cancel and More. A verb that does not apply is
 // hidden; one the daemon does not serve yet is shown disabled.
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { dateTime, HELD, isPerson, taskRef, watchResult } from '@handline/app-core';
 import { useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
-import { Button, MenuButton, MenuItem, PageHead, Popup } from '#src/ui/index.ts';
+import { Button, MenuButton, MenuItem, PageHead, PageTitle, Popup } from '#src/ui/index.ts';
 import { leave } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
 import { AskSheets, type Ask } from '#src/TaskAsk.tsx';
@@ -41,49 +41,49 @@ export function TaskDetail({
 }) {
   const q = useTask(id);
   const gone = q.isError && classify(q.error).kind === 'not_found';
+  const page = !embedded && !drawer; // on a page of its own the top bar names the task, whatever the width
   return (
-    <article
-      className={`tdetail flex min-h-0 min-w-0 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-4 max-sm:py-3${
-        drawer
-          ? ' w-[min(480px,45%)] flex-none border-l border-line bg-surface'
-          : embedded
-            ? ' pane relative flex-1 bg-panel -outline-offset-1'
-            : ' flex-1 mx-auto w-full max-w-[var(--w-page)] bg-canvas'
-      }`}
-      aria-label={`Task ${taskRef(id)}`}
-    >
-      {onBack ? (
-        <div className="mb-4 flex items-center justify-end gap-2">
-          <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
-            Back
-          </Button>
-        </div>
+    <>
+      {page ? (
+        <PageHead back={{ label: 'Tasks', to: () => leave('#/tasks') }}>
+          <PageTitle className="min-w-0 truncate">
+            <span className="mono">{taskRef(id)}</span>
+            {q.data ? ` ${q.data.title}` : ''}
+          </PageTitle>
+        </PageHead>
       ) : null}
-      {gone ? (
-        <div className="empty">
-          <p>This task no longer exists.</p>
-        </div>
-      ) : (
-        <View q={q} served shape="taskDetail" what={`task ${taskRef(id)}`}>
-          {q.data ? <Body t={q.data} bar={!embedded && !drawer} /> : null}
-        </View>
-      )}
-    </article>
+      <article
+        className={`tdetail flex min-h-0 min-w-0 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-4 max-sm:py-3${
+          drawer
+            ? ' w-[min(480px,45%)] flex-none border-l border-line bg-surface'
+            : embedded
+              ? ' pane relative flex-1 bg-panel -outline-offset-1'
+              : ' flex-1 mx-auto w-full max-w-[var(--w-page)] bg-canvas'
+        }`}
+        aria-label={`Task ${taskRef(id)}`}
+      >
+        {onBack ? (
+          <div className="mb-4 flex items-center justify-end gap-2">
+            <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
+              Back
+            </Button>
+          </div>
+        ) : null}
+        {gone ? (
+          <div className="empty">
+            <p>This task no longer exists.</p>
+          </div>
+        ) : (
+          <View q={q} served shape="taskDetail" what={`task ${taskRef(id)}`}>
+            {q.data ? <Body t={q.data} /> : null}
+          </View>
+        )}
+      </article>
+    </>
   );
 }
 
-/** `bar`: the task is a page of its own, so its head goes up into the top bar with a way back to the list. */
-function Head({ bar, children }: { bar?: boolean; children: ReactNode }) {
-  if (bar)
-    return (
-      <PageHead className="tdetail-head" back={{ label: 'Tasks', to: () => leave('#/tasks') }}>
-        {children}
-      </PageHead>
-    );
-  return <header className="tdetail-head flex flex-wrap items-baseline gap-2">{children}</header>;
-}
-
-function Body({ t, bar }: { t: Detail; bar?: boolean }) {
+function Body({ t }: { t: Detail }) {
   const store = useStore();
   const now = useNow();
   const me = useMe();
@@ -169,7 +169,7 @@ function Body({ t, bar }: { t: Detail; bar?: boolean }) {
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
   return (
     <div className="tbody flex min-h-full flex-col bg-inherit" ref={root} tabIndex={-1} onKeyDown={key}>
-      <Head bar={bar}>
+      <header className="tdetail-head flex flex-wrap items-baseline gap-2">
         <h2 className="m-0 min-w-0 text-title font-semibold">
           <span className="mono">{taskRef(t.id)}</span>{' '}
           <Inline
@@ -198,7 +198,7 @@ function Body({ t, bar }: { t: Detail; bar?: boolean }) {
           <StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />
         )}
         <HistoryButton id={t.id} />
-      </Head>
+      </header>
       <p className="m-0 mt-1 text-hint text-ink-3">
         Asked by <AgentLink name={t.from} /> · created {dateTime(t.created)}
         {t.done ? ` · closed ${dateTime(t.done)}` : ''}

@@ -241,7 +241,7 @@ function Frame({ name, title, children }: { name: string | null; title: string |
     );
   return (
     <ScrollPage className="accounts" aria-label="Accounts">
-      <PageHead className="accounts-head" back={{ label: 'accounts', to: () => leave('#/accounts') }}>
+      <PageHead className="accounts-head" back={{ label: 'Accounts', to: () => leave('#/accounts') }}>
         <PageTitle>{title}</PageTitle>
       </PageHead>
       {children}
