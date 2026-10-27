@@ -1,6 +1,6 @@
 // Handing an open task to someone else: anyone may, from the assignee pill on the task. Same short list as the web popover.
 import { useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput } from 'react-native';
 import { assignGroups } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
