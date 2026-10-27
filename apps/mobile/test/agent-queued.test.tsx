@@ -24,7 +24,7 @@ describe('queued tasks on an agent row', () => {
   it('shows the tasks behind the current one, nothing at 0, and lists them on a tap', async () => {
     const m = await mount((s) => (tasks(s), queue({ [ARCH]: 4, 'handline.auditor': 0 })(s)), undefined, 'founder');
     await until(() => $(`queued-${ARCH}`), 'the chip');
-    expect($(`queued-${ARCH}`)!.textContent).toBe('+3'); // 4 owned, one of them current
+    expect($(`queued-${ARCH}`)!.textContent).toBe('3'); // 4 owned, one of them current
     expect($('queued-handline.auditor')).toBeNull();
     expect($('queued-handline.term-build')).toBeNull(); // no count served: no chip
     await press($(`queued-${ARCH}`));

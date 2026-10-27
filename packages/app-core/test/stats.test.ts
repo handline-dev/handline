@@ -43,12 +43,12 @@ test('idle close converts minutes to seconds and back; 0 is never; junk is refus
 });
 
 test('a machine limit takes a whole number, off as 0, empty as the default; a daemon without the keys has no rows', () => {
-  assert.deepEqual(['0', 'off', ' OFF ', '150', ''].map(parseLimit), [0, 0, 0, 150, null]);
+  assert.deepEqual(['0', 'off', ' OFF ', 'No limit', '150', ''].map(parseLimit), [0, 0, 0, 0, 150, null]);
   assert.equal(parseLimit('1.5'), INVALID);
   assert.equal(parseLimit('lots'), INVALID);
   assert.deepEqual(limitFields({}), []);
   const [agents, load] = limitFields({ host_active_cap: 0, load_per_core_pct: 150 });
-  assert.deepEqual([agents!.current, load!.current, load!.change(200)], ['off', '150', { load_per_core_pct: 200 }]);
+  assert.deepEqual([agents!.current, load!.current, load!.change(200)], ['no limit', '150', { load_per_core_pct: 200 }]);
 });
 
 test('a pace number is a whole number inside its range, empty clears it, anything else is not sent', () => {

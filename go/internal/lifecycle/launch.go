@@ -55,13 +55,16 @@ type UsagePort interface {
 	// Fit is whether nothing says the account is a bad place to start: a stale or missing reading is the account nobody has run on
 	// lately, and the session about to start is the only thing that writes a fresh one.
 	Fit(acct, agent string) bool
-	// CapOf is how many agents the account may have mid-turn at once: the configured cap, shrunk where its current burn would hit a
-	// window's block before that window resets and, with pacing on, where it runs ahead of its weekly pace line.
+	// CapOf is how many agents the account may have mid-turn at once: the configured cap, shrunk where its current burn would hit the
+	// week's block before it resets and, with pacing on, where it runs ahead of its weekly pace line.
 	CapOf(acct string) int
 	// CapUnpaced is CapOf without the pace: what a person's own start is held to.
 	CapUnpaced(acct string) int
 	// Pace is the account's weekly pace, nil when its week is not known.
 	Pace(acct string) *usage.Pace
+	// FiveHourShare is how many times over the account's 5-hour window lasts to its reset with agent started on it (1 or more: it lasts);
+	// ok false where that cannot be told, which holds nothing.
+	FiveHourShare(q db.Q, acct, agent string) (float64, bool)
 	// Headroom is what the account's weekly bucket still holds as a share of the week's quota, ok false when the pace cannot be read. The
 	// larger, the slower-paced.
 	Headroom(acct string) (float64, bool)
@@ -235,7 +238,17 @@ func (l *Launcher) FindRoom(agent string) string {
 			return a
 		}
 	}
-	return ""
+	// A start a person let past the hold (force start) goes where the week has the most room, though the 5-hour window will not last.
+	if !l.pacePassedFor(agent) {
+		return ""
+	}
+	best, most := "", math.Inf(-1)
+	for _, a := range candidates {
+		if h, _ := l.Ports.Usage.Headroom(a); !l.Ports.Usage.NotFor(a, vendor) && h > most {
+			best, most = a, h
+		}
+	}
+	return best
 }
 
 // ChooseAccount is which account this launch runs on, "" when there is none. The moment a session is made is the only moment its
@@ -266,6 +279,9 @@ type WakeWait struct {
 	Slot                       bool
 	Full, Busy, Older, Unpaced int
 	Pace                       *usage.Pace
+	// FiveHour: a slot is free but no account the agent may run on would last to its 5-hour reset with it. Reset is the earliest of
+	// those resets. The daemon's own starts wait for it; a person's and a force start go.
+	FiveHour bool
 }
 
 // wall is the window this account is walled behind, the shortest first: an account walled on both reports the shortest one's rollover,
@@ -288,6 +304,9 @@ func (l *Launcher) full(q db.Q, agent string, row *db.AgentState, acct string, a
 	cap, unpaced, others := l.Ports.Usage.CapOf(acct), l.Ports.Usage.CapUnpaced(acct), l.Ports.Usage.ActiveOn(q, acct, agent)
 	if !queue || l.pacePassedFor(agent) {
 		cap = unpaced
+	} else if share, ok := l.Ports.Usage.FiveHourShare(q, acct, agent); ok && share < 1 {
+		return &WakeWait{Account: acct, Assumed: assumed, Window: "slot", Slot: true, FiveHour: true, Reset: l.earliestFiveHourReset(agent, acct),
+			Busy: others, Unpaced: unpaced}, nil
 	}
 	var rows []*db.AgentState
 	if queue {
@@ -316,6 +335,40 @@ func (l *Launcher) full(q db.Q, agent string, row *db.AgentState, acct string, a
 		w.Pace = l.Ports.Usage.Pace(acct)
 	}
 	return w, nil
+}
+
+// earliestFiveHourReset is when the first 5-hour window rolls over among the accounts agent may run on, own when none says.
+func (l *Launcher) earliestFiveHourReset(agent, own string) int64 {
+	vendor, now := l.Ports.Vendors.AgentVendor(agent), l.now().Unix()
+	var first int64
+	for _, a := range l.mayStartAccounts() {
+		if r := l.Ports.Usage.Read(a).ShortReset; r > now && !l.Ports.Usage.NotFor(a, vendor) && (first == 0 || r < first) {
+			first = r
+		}
+	}
+	if first == 0 {
+		first = l.Ports.Usage.Read(own).ShortReset
+	}
+	return first
+}
+
+// fiveHourHold is the wait of a start with no session when no account would last to its reset with it: nil when some account's 5-hour
+// window is not what keeps it out.
+func (l *Launcher) fiveHourHold(q db.Q, agent string) *WakeWait {
+	vendor, short := l.Ports.Vendors.AgentVendor(agent), ""
+	for _, a := range l.mayStartAccounts() {
+		if l.Ports.Usage.NotFor(a, vendor) {
+			continue
+		}
+		if share, ok := l.Ports.Usage.FiveHourShare(q, a, agent); !ok || share >= 1 {
+			return nil
+		}
+		short = a
+	}
+	if short == "" {
+		return nil
+	}
+	return &WakeWait{Account: short, Window: "slot", Slot: true, FiveHour: true, Reset: l.earliestFiveHourReset(agent, short)}
 }
 
 // SlowestPaced is the account a closed agent moves to when its own (skip) is full: of the other accounts that may
@@ -458,7 +511,13 @@ func (l *Launcher) WakeWait(q db.Q, agent string, row *db.AgentState) *WakeWait 
 	if l.ChooseAccount(agent, false, "") != "" {
 		return nil
 	}
-	return l.FreesFirst(agent)
+	if w := l.FreesFirst(agent); w != nil {
+		return w
+	}
+	if l.pacePassedFor(agent) {
+		return nil
+	}
+	return l.fiveHourHold(q, agent)
 }
 
 // WakeWaitReason is the sentence ps, triggers and the daemon's own log line print for a walled wake: one wording, so a screen can
@@ -484,6 +543,9 @@ func WaitClock(w *WakeWait, unknown string) string {
 
 // DescribeWakeWait is the wording for a wait already computed, so a caller that holds one does not recompute it.
 func DescribeWakeWait(w *WakeWait) string {
+	if w.FiveHour {
+		return fmt.Sprintf("Held so Claude's 5-hour limit lasts until it starts over at %s. This starts then.", WaitClock(w, "a later time"))
+	}
 	if w.Pace != nil {
 		return fmt.Sprintf("waiting for %s's weekly pace: %d%% used, %.0f points ahead of its line (%.0f%%)", w.Account, w.Pace.Used,
 			float64(w.Pace.Used)-w.Pace.Line, w.Pace.Line)

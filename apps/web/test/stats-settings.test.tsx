@@ -1,7 +1,7 @@
 // U16: the Stats page (tiles, charts, outlook) and the Home settings page (fields, switches, standing answers) on the fake daemon.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
@@ -75,17 +75,15 @@ describe('stats', () => {
     expect(text($('.chart[aria-label="Agent time"]'))).toContain('1 idle agent');
   });
 
-  it('Stats is a section of the Usage page, under the account gauges; the Accounts tab holds the accounts to manage and no stats', async () => {
+  it('Stats is a section of the Usage page without the accounts; the Accounts tab of Settings holds the accounts with their gauges and no stats', async () => {
     await mount('#/stats');
     await until(() => $('[data-tile]'), 'the tiles');
     expect(text($('h2'))).toBe('Usage');
-    expect($('.acct-list [data-account] [role=progressbar], .acct-list [data-account] .gauge')).not.toBeNull();
-    expect($('.acct-list')!.compareDocumentPosition($('[data-tile]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect($('.acct-list')).toBeNull();
     await act(async () => void (location.hash = '#/accounts'));
     await until(() => text($('h2')) === 'Settings' && $('.acct-list [data-account]'), 'the Accounts tab');
     expect($('[data-tile]')).toBeNull();
-    expect($('.acct-list .gauge')).toBeNull();
-    expect(text($('.acct-list [data-account]'))).toMatch(/week \d+%.*cap \d+/);
+    expect($('.acct-list [data-account] .gauge')).not.toBeNull();
   });
 
   it('every tile has an icon', async () => {
@@ -108,27 +106,36 @@ describe('stats', () => {
 });
 
 describe('outlook', () => {
-  it('shows the week left with the guess apart, the runway in words, and the numbers behind Table', async () => {
+  beforeEach(() => localStorage.clear());
+
+  it('shows the week left with the guess apart, and the numbers behind Table', async () => {
     await mount('#/stats');
     await until(() => $('.outlook-svg'), 'the graph');
     expect($('.outlook-svg .line.future')!.getAttribute('stroke-dasharray')).toBeTruthy();
     expect(text($('.outlook-legend'))).toContain('guess');
     const end = $('.outlook-svg .line.past')!.getAttribute('d')!.split(' ').at(-1);
     expect($('.outlook-svg .line.future')!.getAttribute('d')!.split(' ')[0]).toBe(end!.replace('L', 'M')); // the guess starts where the recorded line ends
-    expect($('.outlook')!.compareDocumentPosition($('.acct-list')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // the graph comes before the accounts
+    expect($('.acct-list')).toBeNull(); // the accounts are in Settings
     expect($$('.outlook-legend li svg .line.future')[0]!.getAttribute('stroke-dasharray')).toBeTruthy();
-    expect(text($('[data-runway="beta"]'))).toContain('runs out in 2 h');
-    expect(text($('[data-runway="alpha"]'))).toContain('lasts until the week resets');
+    expect($('[data-runway]')).toBeNull(); // the account rows below say how long each lasts
     expect($('.data-table')).toBeNull();
     await click(button('Table'));
     expect($$('.data-table tbody tr').length).toBeGreaterThan(10);
     expect(text($('.data-table'))).toContain('guess');
   });
 
+  it('the range last chosen is the one it opens on next time', async () => {
+    await mount('#/stats');
+    await until(() => $('.outlook-svg'), 'the graph');
+    await setValue($('select[aria-label="Range"]') as HTMLSelectElement, '3d');
+    await until(() => $('.outlook-svg'), 'the graph');
+    expect(JSON.parse(localStorage.getItem('outlook-look')!)).toEqual({ view: 'left', range: '3d' });
+  });
+
   it('pointing at the graph reads the time and the percent, leaving clears it, and the week reset has a mark named in the legend', async () => {
     await mount('#/stats');
     await until(() => $('.outlook-svg'), 'the graph');
-    expect(text($('.outlook-readout'))).toContain('Point at the line');
+    expect(text($('.outlook-readout'))).toBe('');
     const plot = $('.outlook-plot')!;
     vi.spyOn($('.outlook-svg')!, 'getBoundingClientRect').mockReturnValue({
       left: 0,
@@ -144,13 +151,16 @@ describe('outlook', () => {
     await act(async () => void plot.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 100 })));
     expect(text($('.outlook-readout'))).toMatch(/\d+% left/);
     expect($('.outlook-svg .cursor')).not.toBeNull();
+    expect(($('select[aria-label="Range"]') as HTMLSelectElement).value).toBe('7d'); // the week is what it opens on
+    await setValue($('select[aria-label="Range"]') as HTMLSelectElement, '24h');
+    await until(() => !$('.outlook-svg [data-reset]'), 'the 24 h graph');
     expect($('.outlook-svg [data-reset]')).toBeNull(); // alpha's week resets after the 24 h shown
     await setValue($('select[aria-label="Range"]') as HTMLSelectElement, '7d');
     await until(() => $('.outlook-svg [data-reset]'), 'the reset mark');
     expect(text($('.outlook-legend'))).toContain('week resets');
     await act(async () => void plot.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })));
     await act(async () => void plot.dispatchEvent(new MouseEvent('pointerleave')));
-    expect(text($('.outlook-readout'))).toContain('Point at the line');
+    expect(text($('.outlook-readout'))).toBe('');
   });
 
   it('the cost view offers 7, 14 and 30 days and draws a bar per day with the values in the table', async () => {
@@ -327,7 +337,7 @@ describe('standing answers', () => {
   it('lists the rules, adds a folder at once, and an empty form sends nothing', async () => {
     const s = await mount('#/settings');
     await until(() => $$('[data-answer]').length === 2, 'the rules');
-    expect(text($('[data-answer="dialog"]'))).toContain('claude: Do you trust the files → Yes, I trust');
+    expect(text($('[data-answer="dialog"]'))).toContain('When claude asks "Do you trust the files", choose "Yes, I trust"');
     await click(button('Add'));
     await click(button('Add'));
     await wait(30);

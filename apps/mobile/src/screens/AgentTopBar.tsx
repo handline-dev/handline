@@ -45,7 +45,14 @@ export function AgentTopBar(props: {
         accessibilityRole="tab"
         accessibilityState={{ selected: on }}
         onPress={onPress}
-        style={{ height: 32, justifyContent: 'center', paddingLeft: space.md, paddingRight: close ? space.xs : space.md }}
+        style={({ pressed }) => ({
+          height: 32,
+          justifyContent: 'center',
+          paddingLeft: space.md,
+          paddingRight: close ? space.xs : space.md,
+          borderRadius: radius.pill,
+          backgroundColor: pressed ? c.press : undefined,
+        })}
       >
         <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: on ? '700' : '500', fontSize: font.size.body }}>
           {label}

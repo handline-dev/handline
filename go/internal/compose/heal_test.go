@@ -54,3 +54,25 @@ func TestHealAsksTheHooksBeforeTheScreenWhetherAPersonIsNeeded(t *testing.T) {
 		}
 	}
 }
+
+// Interrupt is a verb, not a message: with a handoff of the agent in flight it still sends Esc at once.
+func TestInterruptActsAtOnceWhileAHandoffIsInFlight(t *testing.T) {
+	p, home := rigWith(t, func(*Config) {})
+	ft := newFakeTerminals()
+	p.LC = &Lifecycle{term: ft.term(), Manager: &lifecycle.Manager{Q: p.db}}
+	h := healPorts{lc: p.LC, home: home}
+	dbpkg.SetTerminal(p.db, "alice", "%1", t.TempDir())
+	dbpkg.SetAgentState(p.db, "alice", states.Running, 0, "")
+	if err := dbpkg.StartHandoff(p.db, "h1", "alice", "s1", "context", time.Now().Unix()+90); err != nil {
+		t.Fatal(err)
+	}
+	if held, _ := dbpkg.RestartHeld(p.db, "alice", time.Now().Unix()); !held {
+		t.Fatal("the handoff holds nothing")
+	}
+	if ok, said := h.Interrupt("alice"); !ok {
+		t.Fatalf("interrupt held back: %q", said)
+	}
+	if len(ft.sent) != 1 {
+		t.Fatalf("sent %v", ft.sent)
+	}
+}

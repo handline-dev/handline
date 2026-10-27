@@ -290,7 +290,7 @@ export type TaskView = {
 
 /** One stretch of a task's time: one block of the bar under its title, sized by seconds. */
 export type TimeSegment = {
-  /** queued: not yet with its holder. waiting: held up, on says by what. starting: its holder's session is being launched, woken or handed off. working: its holder has it and nothing holds it up. */
+  /** queued: not yet with its holder. waiting: held up, on says by what. starting: its holder's session is being launched, woken or handed off. working: from when the task delivery landed in its holder session (or task_start, if earlier) until reported, released or done. */
   kind: "queued" | "waiting" | "starting" | "working";
   on: ("founder" | "task" | "agent" | "account") | null;
   /** The reason as shown: `waiting on you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working. */

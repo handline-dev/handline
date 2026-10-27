@@ -134,6 +134,13 @@ func (c *Costs) Describe(agent string) (float64, string, int) {
 // PerS is what one agent of agent's kind costs, percent per second.
 func (c *Costs) PerS(agent string) float64 { p, _, _ := c.Describe(agent); return p }
 
+// Measured is what one agent of agent's kind costs, percent per second, when that comes from samples; ok false for the starting value,
+// which is a guess and holds nothing back.
+func (c *Costs) Measured(agent string) (float64, bool) {
+	p, _, n := c.Describe(agent)
+	return p, n > 0
+}
+
 // LoadCosts reads the samples and the week ratios from the meta table.
 func (e *Env) LoadCosts(q db.Q) (*Costs, error) {
 	c := &Costs{planOf: e.planKey, kindOf: e.kindOf, longRatios: map[string]float64{}}

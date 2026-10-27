@@ -20,7 +20,7 @@ func (p *Parts) SessionRPC(cfg Config) *sessionrpc.Env {
 		ForceStart: c.ForceStart}
 }
 
-// ForceStart is agent.force_start: work the machine's load or its account's pace holds for the agent goes past them for its next start,
+// ForceStart is agent.force_start: work the machine's load, its account's pace or its 5-hour limit holds for the agent goes past them for its next start,
 // at the next tick. Refused when neither holds anything of the agent's: no work waits, or nothing holds it.
 func (c controls) ForceStart(agent string) (bool, string, error) {
 	m := c.lc.Manager
@@ -33,9 +33,12 @@ func (c controls) ForceStart(agent string) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
-	paced := ""
-	if w := c.lc.Launch.WakeWait(m.Q, agent, row); w != nil && w.Pace != nil {
+	paced, pacedWhat := "", "its account is ahead of its weekly pace"
+	if w := c.lc.Launch.WakeWait(m.Q, agent, row); w != nil && (w.Pace != nil || w.FiveHour) {
 		paced = lifecycle.DescribeWakeWait(w)
+		if w.FiveHour {
+			pacedWhat = "Claude's 5-hour limit would run out before it starts over"
+		}
 	}
 	if owed == "" && !c.lc.Launch.Ports.WaitingFor(m.Q, agent) {
 		return false, "Nothing to start: " + agent + " has no work waiting.", nil
@@ -47,7 +50,7 @@ func (c controls) ForceStart(agent string) (bool, string, error) {
 	for _, p := range []struct {
 		held, kind, what string
 		pass             func(string)
-	}{{why, "load_limit_passed", loadgate.Cause(why), c.lc.Gate.Pass}, {paced, "pace_passed", "its account is ahead of its weekly pace", c.lc.Launch.PassPace}} {
+	}{{why, "load_limit_passed", loadgate.Cause(why), c.lc.Gate.Pass}, {paced, "pace_passed", pacedWhat, c.lc.Launch.PassPace}} {
 		if p.held == "" {
 			continue
 		}

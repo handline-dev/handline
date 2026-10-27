@@ -1,13 +1,13 @@
 // Cards: `box` is the ground of a page or a chart; `chat` is the stream's quiet one-line row, tone on tone — a card that
 // waits for you (an open prompt) is told by the wait-tinted ground, the glyph beside it says it too. A surface carries a border
 // or a ground, never both. `event` is the one look of something that happened or waits (a held start, a proposal, a stall): a tinted
-// ground with a straight bar at its left edge in its tone (a border would curve with the corner), so it never reads as a chat message. Plus their parts.
+// ground in its tone and no bar or border, so it never reads as a chat message. Plus their parts.
 import type { ComponentProps, ElementType } from 'react';
 
 const join = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 const BOX = 'rounded-card bg-surface shadow-[var(--shadow-1)]';
 const EVENT =
-  'card event my-1 flex items-center gap-2 rounded-[3px] [background:linear-gradient(var(--tone),var(--tone))_left/3px_100%_no-repeat,color-mix(in_srgb,var(--tone)_12%,transparent)] px-2.5 py-1.5 text-hint [&_svg]:text-[var(--tone)] [&_a]:text-inherit data-[tone=wait]:[--tone:var(--s-wait)] data-[tone=ok]:[--tone:var(--s-ok)] data-[tone=bad]:[--tone:var(--s-bad)] data-[tone=none]:[--tone:var(--line)]';
+  'card event my-1 flex items-center gap-2 rounded-card bg-[color-mix(in_srgb,var(--tone)_12%,transparent)] px-2.5 py-1.5 text-hint [&_svg]:text-[var(--tone)] [&_a]:text-inherit data-[tone=wait]:[--tone:var(--s-wait)] data-[tone=ok]:[--tone:var(--s-ok)] data-[tone=bad]:[--tone:var(--s-bad)] data-[tone=none]:[--tone:var(--line)]';
 const CHAT = 'card my-1 flex items-center gap-2 rounded-card px-2.5 py-1.5 text-[13px] [&_svg]:align-middle [&_a]:text-inherit';
 
 export function Card({
@@ -59,7 +59,7 @@ export function CardCode({ className, ...rest }: ComponentProps<'code'>) {
 /** The terminal-dark block of a few lines (`lines`) or of a command (`cmd`); `scroll` cuts it at 12 lines and scrolls the rest. */
 export function CodeBlock({ cmd, scroll, className, ...rest }: ComponentProps<'pre'> & { cmd?: boolean; scroll?: boolean }) {
   const look =
-    'm-0 block rounded-ctl bg-term-bg px-2 py-1.5 font-mono text-[13px] whitespace-pre-wrap text-term-ink max-sm:whitespace-pre max-sm:overflow-x-auto';
+    'm-0 block rounded-ctl bg-code-bg px-2 py-1.5 font-mono text-[13px] whitespace-pre-wrap text-code-ink max-sm:whitespace-pre max-sm:overflow-x-auto';
   const cls = join(cmd ? 'cmd' : 'lines', scroll && 'max-h-[12lh] overflow-auto', look, className);
   return cmd ? <code {...rest} className={cls} /> : <pre {...rest} className={cls} />;
 }

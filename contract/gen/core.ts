@@ -286,6 +286,8 @@ export type SettingsValues = {
   load_per_core_pct?: number;
   /** Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. */
   ram_free_min_pct?: number;
+  /** 1 holds the daemon's new work while a phone simulator or emulator runs on this machine (a booted iOS simulator device, or the qemu an Android emulator runs on); 0 does not. Held the same way as a load limit (status reason load), by the same rules. */
+  host_simulator_hold?: number;
   /** Hold each account to its weekly pace line (Account.pace): an account ahead of the line starts fewer turns, and one ahead by more than pace_burst_pct starts none (status reason pace) until the line catches up or another account has room. A turn a person starts is never held, and a running turn is never stopped. Off: only the windows' walls hold work. */
   pacing?: boolean;
   /** Where each account's pace line ends: its weekly usage, in percent, at the end of its week (its weekly reset, or its subscription end when that comes first). Under 100 because a reading lags by minutes. */
@@ -296,6 +298,8 @@ export type SettingsValues = {
   heavy_slots?: number;
   /** Keep the machine from idle sleep: off; on (held while the daemon runs); working (held while an agent is mid-turn, released when the last one stops). The daemon holds macOS caffeinate -i; closing the lid still sleeps. Applied at the next tick, without a restart. */
   keep_awake?: "off" | "on" | "working";
+  /** What the daemon does with work its agents left running after its parent died (headless Chrome, vitest, vite, a go test binary, yes, Electron) that has run 30 minutes under a worktree: dry (the default) only logs and records an orphan_would_stop event every 10 minutes; on stops it and records orphan_stopped; off does nothing. Nothing outside a worktree is touched. */
+  reap_orphans?: "dry" | "on" | "off";
 };
 
 /** settings.set's changes: any of SettingsValues' keys; null removes one. */
@@ -338,6 +342,8 @@ export type SettingsChanges = {
   load_per_core_pct?: number | null;
   /** Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. null removes the key (back to the default). */
   ram_free_min_pct?: number | null;
+  /** 1 holds the daemon's new work while a phone simulator or emulator runs on this machine; 0 does not. null removes the key (back to the default). */
+  host_simulator_hold?: number | null;
   /** Hold each account to its weekly pace line (Account.pace): an account ahead of the line starts fewer turns, and one ahead by more than pace_burst_pct starts none (status reason pace) until the line catches up or another account has room. A turn a person starts is never held, and a running turn is never stopped. Off: only the windows' walls hold work. null removes the key (back to the default). */
   pacing?: boolean | null;
   /** Where each account's pace line ends: its weekly usage, in percent, at the end of its week (its weekly reset, or its subscription end when that comes first). Under 100 because a reading lags by minutes. null removes the key (back to the default). */
@@ -348,6 +354,8 @@ export type SettingsChanges = {
   heavy_slots?: number | null;
   /** Keep the machine from idle sleep: off; on (held while the daemon runs); working (held while an agent is mid-turn, released when the last one stops). The daemon holds macOS caffeinate -i; closing the lid still sleeps. Applied at the next tick, without a restart. null removes the key (back to the default). */
   keep_awake?: ("off" | "on" | "working") | null;
+  /** What the daemon does with work its agents left running after its parent died (headless Chrome, vitest, vite, a go test binary, yes, Electron) that has run 30 minutes under a worktree: dry (the default) only logs and records an orphan_would_stop event every 10 minutes; on stops it and records orphan_stopped; off does nothing. Nothing outside a worktree is touched. */
+  reap_orphans?: ("dry" | "on" | "off") | null;
 };
 
 /** One method as a daemon lists it: its role and whether this caller may call it. */
