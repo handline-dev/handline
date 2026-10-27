@@ -30,7 +30,6 @@ const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null | undefined) => el?.textContent ?? '';
-const msg = (body: string) => $$('.msg').find((m) => text(m).includes(body));
 const open = (s: ReturnType<typeof setup>) => {
   s.daemon.tasks.verbs = true;
   applySeeds(s.daemon, 'spare-notice');
