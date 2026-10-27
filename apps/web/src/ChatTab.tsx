@@ -184,6 +184,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const since = detail.handoff && restartShown(detail.handoff, chat.items) ? detail.handoff.since : null;
   const restartAt = since === null ? -1 : entries.findIndex((e) => e.at >= since);
   const last = entries.at(-1)?.id;
+  // The ticks stay on the person's newest message; the others show them on hover.
+  const lastMine = entries.filter((e) => e.kind === 'message' && sideOf(e.message, agent, me) === 'person').at(-1)?.id;
   const byId = new Map(chat.messages.map((m) => [m.id, m]));
   const target = picked != null ? (byId.get(picked) ?? null) : null;
   // A message or one of the agent's own replies is picked, never both.
@@ -304,6 +306,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                       agent={agent}
                       picked={e.kind === 'item' ? pickedItem?.id === e.item.id : e.kind === 'message' && e.id === picked}
                       group={e.kind === 'message' ? groupOf(scope, entries[i - 1], e.message) : undefined}
+                      latest={e.id === lastMine}
                       onPick={pick}
                       onReply={canSend && canReplyItem ? pickItem : undefined}
                       byId={byId}
