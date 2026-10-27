@@ -147,6 +147,8 @@ export function useUnread(): InboxItem[] {
   return useMemo(() => (items ?? []).filter((i) => !i.read), [items]);
 }
 export const useInboxItem = (id: number) => useRead('inbox.get', { id });
+/** The tasks an agent owns that are not done, read only when asked for (a row's list is opened). */
+export const useOpenTasks = (agent: string, enabled: boolean) => useRead('tasks.list', { owner: agent }, { enabled });
 /** The founder's requests, newest first, kept current by the requests topic; `state` keeps one status. */
 export const useRequests = (state?: CallParams<'requests.list'>['state']) => useRead('requests.list', state ? { state } : {});
 export const useTasks = (filter: CallParams<'tasks.list'> = {}) => useRead('tasks.list', filter);
