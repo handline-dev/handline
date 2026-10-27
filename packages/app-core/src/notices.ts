@@ -246,8 +246,7 @@ export class Notices {
   setAway(away: boolean): void {
     if (this.away === away) return;
     this.away = away;
-    this.sync();
-    this.emit();
+    this.sync(); // nothing on screen changes yet: a clock that stops leaves its toast up, so no screen needs to draw again
   }
   /** Hides the toasts that are news or a failure (the person went elsewhere); what needs them stays, and the list keeps all. */
   dismissToasts(): void {
