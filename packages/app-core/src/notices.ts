@@ -207,12 +207,22 @@ export class Notices {
     this.emit();
   }
 
-  /** The notices still on screen, newest first, at most three; the older ones live on in the list. */
+  /** The notices still on screen, newest first, at most three; the older ones live on in the list. When there are more, news gives way before what needs the person. */
   toasts(): Notice[] {
     const at = this.now();
-    return this.all
-      .filter((n) => this.onScreen.has(n.id) && (this.onScreen.get(n.id) === null || this.left.has(n.id) || this.onScreen.get(n.id)! > at))
-      .slice(0, MAX_TOASTS);
+    const live = this.all.filter(
+      (n) => this.onScreen.has(n.id) && (this.onScreen.get(n.id) === null || this.left.has(n.id) || this.onScreen.get(n.id)! > at),
+    );
+    const room = live.filter((n) => stays(n.level)).slice(0, MAX_TOASTS).length;
+    const news = live.filter((n) => !stays(n.level)).slice(0, MAX_TOASTS - room);
+    return live.filter(
+      (n) =>
+        news.includes(n) ||
+        live
+          .filter((x) => stays(x.level))
+          .slice(0, MAX_TOASTS)
+          .includes(n),
+    );
   }
   /** When the soonest news toast on screen runs out (ms since epoch), or null when none will: a screen draws again then. */
   nextExpiry(): number | null {

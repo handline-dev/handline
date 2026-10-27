@@ -198,3 +198,13 @@ test('an event carries what it is about, and that says the page it opens', () =>
   );
   assert.equal(targetOf(n.push('fail', 'Not applied')), null);
 });
+
+test('with more than three on screen, news gives way before what needs the person', () => {
+  const n = new Notices(clock().now);
+  n.push('need', 'blocked');
+  for (const t of ['a', 'b', 'c']) n.push('ok', t);
+  assert.deepEqual(
+    n.toasts().map((x) => x.text),
+    ['c', 'b', 'blocked'],
+  );
+});
