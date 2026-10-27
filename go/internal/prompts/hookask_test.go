@@ -246,3 +246,25 @@ func TestAQuestionWhoseHookClientIsGoneIsClosed(t *testing.T) {
 	}
 	t.Fatal("the question stays open after its client went")
 }
+
+// A turn event replayed from the spool after the question opened, but from before it, is not the agent moving on.
+func TestALateReplayedEventFromBeforeTheQuestionLeavesItOpen(t *testing.T) {
+	e, _ := testEnv(t)
+	register(e)
+	call, b := ask(t, e, "cd /x && make")
+	if _, err := db.AddEventAt(e.DB, time.Now().Unix()-3600, "backend", "Stop"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case a := <-call:
+		t.Fatalf("a replayed old Stop ended the call: %v %v", a.reply, a.err)
+	case <-time.After(2 * StaleS / 3 * time.Second * 2):
+	}
+	if open, _ := e.OpenOf("backend"); open == nil || open.ID != b.ID {
+		t.Fatal("the question was closed")
+	}
+	if _, err := answers(e, b.Fingerprint, "allow"); err != nil {
+		t.Fatal(err)
+	}
+	reply(t, call)
+}

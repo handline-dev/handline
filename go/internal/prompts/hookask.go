@@ -70,7 +70,7 @@ func (e *Env) AskPermission(ctx context.Context, agent, tool string, input map[s
 		"reason": reason, "title": title, "lines": panel}
 	var since int64 // the agent's latest event now: a turn event after it means the agent has moved on from this question
 	_ = e.DB.QueryRow("SELECT COALESCE(MAX(id), 0) FROM events WHERE agent = ?", agent).Scan(&since)
-	var id int64
+	var id, opened int64
 	for id == 0 {
 		now := e.now().Unix()
 		// The time is in the fingerprint: the same command asked again is another question, and an answer to the last one is stale.
@@ -82,6 +82,7 @@ func (e *Env) AskPermission(ctx context.Context, agent, tool string, input map[s
 		}
 		if n, _ := res.RowsAffected(); n == 1 {
 			id, _ = res.LastInsertId()
+			opened = now
 			break
 		}
 		select { // another prompt of this agent's is open: wait for it to go
@@ -113,10 +114,10 @@ func (e *Env) AskPermission(ctx context.Context, agent, tool string, input map[s
 				return d, false, nil
 			}
 			// An agent blocked on this call ends no turn and takes no prompt. One that has done either was answered at its own dialog, or
-			// stopped, so the question is nobody's now.
+			// stopped, so the question is nobody's now. The event's own time is checked too: a spooled hook replays late with a new id.
 			var moved int
 			_ = e.DB.QueryRow("SELECT COUNT(*) FROM events WHERE agent = ? AND id > ? AND kind IN "+
-				"('Stop', 'StopFailure', 'UserPromptSubmit', 'SessionEnd', 'SessionStart')", agent, since).Scan(&moved)
+				"('Stop', 'StopFailure', 'UserPromptSubmit', 'SessionEnd', 'SessionStart') AND ts >= ?", agent, since, opened).Scan(&moved)
 			if moved > 0 {
 				return d, false, nil
 			}
