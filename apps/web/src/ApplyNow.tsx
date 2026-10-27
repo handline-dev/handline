@@ -17,9 +17,9 @@ export function ApplyNow({ p, refresh }: { p: Proposal; refresh?: () => void }) 
       <Button
         variant="outline"
         icon="play"
+        busy={apply.isPending}
         label="Apply now"
         size="sm"
-        disabled={apply.isPending}
         onClick={() => {
           setProblem('');
           apply.mutateAsync({ proposal: p.id }).then(refresh, (e) => {
@@ -28,7 +28,7 @@ export function ApplyNow({ p, refresh }: { p: Proposal; refresh?: () => void }) 
           });
         }}
       >
-        {apply.isPending ? '…' : 'Apply now'}
+        Apply now
       </Button>
       {problem ? (
         <span className="text-bad text-label" role="status">
