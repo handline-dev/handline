@@ -25,7 +25,7 @@ describe('account usage lines', () => {
     expect(delta).toContain('plan — · runway ~10m to wall');
     expect(delta).toContain('cannot take another agent: 5h 97% at last reading');
     const alpha = (await m.store.client.call('accounts.list', { usage: true, roster: true })).accounts.find((a) => a.name === 'alpha')!;
-    expect(text($('account-alpha'))).toContain(`${alpha.agents_running} working / cap ${alpha.cap_effective}`);
+    expect(text($('account-alpha'))).toContain(`${alpha.agents_running} of ${alpha.cap_effective} working`);
     expect(text()).not.toMatch(/assigned|unplaced/);
     expect(text($('usage-alpha'))).toContain('plan pro');
     expect(text($('usage-alpha'))).toContain('can take another agent');
@@ -35,8 +35,8 @@ describe('account usage lines', () => {
   it('counts the agents working now over the cap on the list row', async () => {
     const m = await open();
     const alpha = (await m.store.client.call('accounts.list', { usage: true, roster: true })).accounts.find((a) => a.name === 'alpha')!;
-    await until(() => text($('account-alpha')).includes('working / cap'), 'the usage read');
-    expect(text($('account-alpha'))).toContain(`${alpha.agents_running} working / cap ${alpha.cap_effective}`);
+    await until(() => text($('account-alpha')).includes(' working'), 'the usage read');
+    expect(text($('account-alpha'))).toContain(`${alpha.agents_running} of ${alpha.cap_effective} working`);
     m.store.stop();
   }, 20000);
 
@@ -44,7 +44,7 @@ describe('account usage lines', () => {
     const m = await open();
     await until(() => $('pace-line-alpha'), 'the pace lines');
     expect(text($('pace-line-alpha'))).toContain('ahead of pace');
-    expect(text($('pace-line-beta'))).toBe('on pace');
+    expect(text($('pace-line-beta'))).toBe('on track');
     expect(text($('pace-line-gamma'))).toContain('over pace: no new turns');
     expect($('pace-line-delta')).toBeNull();
     await press($('account-alpha'));
@@ -58,7 +58,7 @@ describe('account usage lines', () => {
     await press($('account-delta'));
     await until(() => $('account-detail'), 'the account');
     expect(text($('account-detail'))).toContain('runway ~10m to wall');
-    expect(text($('usage-delta'))).toMatch(/\d+ working \/ cap \d+/);
+    expect(text($('usage-delta'))).toMatch(/\d+ of \d+ working/);
     expect(text($('account-detail'))).not.toMatch(/assigned|unplaced/);
     m.daemon.accounts.set({ account: 'delta', label: 'renamed' });
     await until(() => text($('account-detail')).includes('renamed'), 'the live label');

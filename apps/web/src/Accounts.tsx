@@ -218,7 +218,7 @@ function ManageRow({ account, now }: { account: Account; now: number }) {
       <span className="acct-week-pct tabular-nums text-ink-2">
         {account.weekly ? `week ${Math.round(account.weekly.used_pct)}%` : 'week –'}
       </span>
-      <span className="acct-cap font-mono text-label text-ink-2">cap {account.cap_effective}</span>
+      <span className="acct-cap font-mono text-label text-ink-2">up to {account.cap_effective} at once</span>
     </a>
   );
 }

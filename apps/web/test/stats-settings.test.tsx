@@ -85,7 +85,7 @@ describe('stats', () => {
     await until(() => text($('h2')) === 'Settings' && $('.acct-list [data-account]'), 'the Accounts tab');
     expect($('[data-tile]')).toBeNull();
     expect($('.acct-list .gauge')).toBeNull();
-    expect(text($('.acct-list [data-account]'))).toMatch(/week \d+%.*cap \d+/);
+    expect(text($('.acct-list [data-account]'))).toMatch(/week \d+%.*up to \d+ at once/);
   });
 
   it('every tile has an icon', async () => {

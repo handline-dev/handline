@@ -67,7 +67,7 @@ describe('the list', () => {
     expect(text(card('gamma').querySelector('.acct-state'))).toBe('login needed');
     expect(text(card('alpha').querySelector('[data-gauge="5 h"] .gauge-pct'))).toBe('41%');
     expect(card('alpha').querySelector('[data-gauge="5 h"]')!.getAttribute('title')).toMatch(/^resets in 2 h/);
-    expect(text(card('alpha').querySelector('.acct-agents'))).toContain('0 working / cap 4'); // its one agent is idle
+    expect(text(card('alpha').querySelector('.acct-agents'))).toContain('0 of 4 working'); // its one agent is idle
     expect(card('alpha').querySelector('.acct-agents')!.getAttribute('title')).toContain('working on it now');
     expect(text(card('gamma'))).toContain('no reading');
   });
@@ -80,7 +80,7 @@ describe('the list', () => {
     expect(card('delta').querySelector('.acct-pace')).toBeNull();
     expect(text(card('alpha').querySelector('.acct-pace'))).toBe('ahead');
     expect(card('alpha').querySelector('.acct-pace')?.getAttribute('title')).toBe('ahead of pace: fewer agents start');
-    expect(text(card('beta').querySelector('.acct-pace'))).toBe('on pace');
+    expect(text(card('beta').querySelector('.acct-pace'))).toBe('on track');
     expect(text(card('gamma').querySelector('.acct-pace'))).toMatch(/^over · until /);
     expect(card('gamma').querySelector('.acct-pace')?.getAttribute('title')).toMatch(/^over pace: no new turns/);
     expect(card('alpha').querySelector('.acct-week [data-gauge="week"]')).not.toBeNull();
@@ -93,7 +93,7 @@ describe('the list', () => {
     fx.state = 'running';
     try {
       await mount('#/stats', s);
-      await until(() => text(card('alpha').querySelector('.acct-agents')).includes('1 working / cap 4'), 'the running count');
+      await until(() => text(card('alpha').querySelector('.acct-agents')).includes('1 of 4 working'), 'the running count');
     } finally {
       fx.state = was;
     }
@@ -111,7 +111,7 @@ describe('the list', () => {
     const s = await mount('#/stats');
     await until(() => text(card('beta').querySelector('[data-usage]')).includes('cannot'), 'the usage line');
     await act(async () => void s.daemon.accounts.set({ account: 'beta', cap: 3 }));
-    await until(() => text(card('beta').querySelector('.acct-agents')).includes('/ cap 3'), 'the event');
+    await until(() => text(card('beta').querySelector('.acct-agents')).includes('of 3 working'), 'the event');
     expect(text(card('beta').querySelector('[data-usage]'))).toContain('cannot take another agent: 5h 88% at last reading');
   });
 
