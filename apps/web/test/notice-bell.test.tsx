@@ -62,7 +62,8 @@ describe('the notice bell', () => {
     const row = box.querySelector('[data-notice]')!;
     expect(row.textContent).toContain('Audit PR #536');
     expect(row.textContent).toContain('T5720 done · PASS, real Chrome checked');
-    expect(row.querySelector('[aria-label="handline.pc.auditor"]')!.textContent).toBe('au');
+    expect(row.textContent).toContain('handline.pc.auditor'); // who closed it, in words
+    expect(row.querySelector('svg')).not.toBeNull(); // the status as a shape, not only a colour
   });
 
   it('a toast opens what it is about and closes only itself; the X closes one; a failure offers Try again and Details; a bell row opens the same page', async () => {
@@ -83,13 +84,17 @@ describe('the notice bell', () => {
     expect(box.querySelectorAll('.toast').length).toBe(3);
     expect(box.querySelector('[title="Click to dismiss"]')).toBeNull();
     expect(toast('busy').textContent).toContain('Details');
+    expect(toast('blocked').textContent).toContain('Open its chat to see why.');
+    expect(toast('blocked').querySelector('.toast-open')!.textContent).toBe('Open chat');
+    expect(toast('alpha').querySelector('.toast-open')!.textContent).toBe('Open account');
     // Look A: a normal card on the neutral panel, a status icon first, its buttons below the text.
     for (const t of box.querySelectorAll<HTMLElement>('.toast')) {
       expect(t.className).toContain('bg-panel');
       expect(t.className).not.toMatch(/bg-ink|bg-bad/);
       expect(t.querySelector('svg')).not.toBeNull();
+      expect(t.querySelector('.font-semibold')).not.toBeNull(); // a bold title
     }
-    expect(toast('busy').querySelector('.toast-retry')!.parentElement!.previousElementSibling!.textContent).toContain("Couldn't start");
+    expect(toast('busy').textContent).toContain('busy, retry later'); // the second line is the daemon's first line
     await act(async () => toast('busy').querySelector<HTMLButtonElement>('.toast-retry')!.click());
     expect(again).toBe(1);
     expect(box.querySelectorAll('.toast').length).toBe(2);
@@ -123,5 +128,24 @@ describe('the notice bell', () => {
     await act(async () => void document.dispatchEvent(new Event('visibilitychange')));
     expect(away).toHaveBeenLastCalledWith(true);
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  });
+
+  it('Escape closes the newest toast, and the toasts hide while the bell is open', async () => {
+    const s = setup();
+    const store = new Store(s.client);
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => root!.render(<App store={store} daemon="test" storage={null} />));
+    await act(async () => {
+      store.notices.push('need', 'first');
+      store.notices.push('need', 'second');
+    });
+    expect(box.querySelectorAll('.toast').length).toBe(2);
+    await act(async () => void box.querySelector<HTMLButtonElement>('.notice-bell')!.click());
+    expect(box.querySelectorAll('.toast').length).toBe(0);
+    await act(async () => void box.querySelector<HTMLButtonElement>('.notice-bell')!.click());
+    expect(box.querySelectorAll('.toast').length).toBe(2);
+    await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(box.querySelectorAll('.toast').length).toBe(1);
   });
 });

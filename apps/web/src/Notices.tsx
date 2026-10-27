@@ -8,6 +8,25 @@ import { Button, Icon, Popup } from '#src/ui/index.ts';
 
 const lineOf = (n: Notice) => (n.count > 1 ? `${n.text} ×${n.count}` : n.text);
 
+/** What the main button of a notice says it opens. */
+function openWord(n: Notice): string {
+  const to = targetOf(n) ?? '';
+  return to.startsWith('#/tasks/')
+    ? 'Open task'
+    : to.startsWith('#/accounts/')
+      ? 'Open account'
+      : to.startsWith('#/team/')
+        ? 'Open proposal'
+        : 'Open chat';
+}
+const firstLine = (text: string) => text.split('\n')[0]!.trim();
+/** The short second line under a notice's title: what to do for what needs the person, the daemon's own first line for a failure, the agent for a finished task. */
+function secondLine(n: Notice): string | null {
+  if (n.level === 'fail') return n.details ? firstLine(n.details) : null;
+  if (n.level === 'need') return n.about?.account ? 'Open the account to see why.' : 'Open its chat to see why.';
+  return n.about?.agent ?? null;
+}
+
 export function NoticeBell() {
   const store = useStore();
   const unread = useSelector((s) => s.notices.unread());
@@ -16,7 +35,7 @@ export function NoticeBell() {
   const [open, setOpen] = useState(false);
   return (
     <span className="relative inline-flex">
-      <Toasts />
+      <Toasts hidden={open} />
       <button
         type="button"
         className="notice-bell inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-ink-2"
@@ -65,10 +84,6 @@ export function NoticeBell() {
   );
 }
 
-const hueOf = (name: string) => [...name].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
-/** The two letters after the team prefix: `handline.pc.auditor` is `au`, `handline.pc` is `pc`. */
-const markOf = (agent: string) => (agent.split('.').at(-1) ?? agent).slice(0, 2).toLowerCase();
-
 /** The page a notice points to opens and the notice is read; one that points nowhere only reads. */
 function openNotice(store: ReturnType<typeof useStore>, n: Notice) {
   const to = targetOf(n);
@@ -81,7 +96,15 @@ function Row({ n, onOpened }: { n: Notice; onOpened: () => void }) {
   const store = useStore();
   const { about } = n;
   const head = about?.title ?? lineOf(n);
-  const sub = about?.task != null ? [`T${about.task} done`, about.result].filter(Boolean).join(' · ') : null;
+  const sub =
+    n.level === 'fail'
+      ? n.details
+        ? firstLine(n.details)
+        : null
+      : about?.task != null
+        ? [about.agent, `T${about.task} done`, about.result].filter(Boolean).join(' · ')
+        : null;
+  const [icon, tone] = MARK[n.level];
   const go = targetOf(n) !== null;
   return (
     <button
@@ -90,18 +113,11 @@ function Row({ n, onOpened }: { n: Notice; onOpened: () => void }) {
       data-notice
       onClick={() => (openNotice(store, n), onOpened())}
     >
-      {about?.agent ? (
-        <span
-          className="grid size-4 flex-none place-items-center rounded-[4px] text-[10px] font-semibold text-white"
-          style={{ background: `hsl(${hueOf(about.agent)} 45% 45%)` }}
-          title={about.agent}
-          aria-label={about.agent}
-        >
-          {markOf(about.agent)}
-        </span>
-      ) : null}
+      <span className={`flex flex-none ${tone}`}>
+        <Icon name={icon} size={16} aria-hidden />
+      </span>
       <span className="min-w-0 flex-1">
-        <span className={`block truncate ${n.level === 'fail' ? 'text-bad' : ''} ${n.read ? '' : 'font-semibold'}`}>{head}</span>
+        <span className={`block truncate ${n.read ? '' : 'font-semibold'}`}>{head}</span>
         {sub ? <span className="block truncate text-hint text-ink-3">{sub}</span> : null}
       </span>
       <time className="flex-none text-hint text-ink-3">
@@ -132,13 +148,16 @@ function useAway(onChange: (away: boolean) => void) {
  * toast or the keyboard focus in it stops its clock, as does a hidden or unfocused window. A click opens what it is about and closes only it.
  */
 const MARK = { need: ['warn', 'text-wait'], fail: ['failed', 'text-bad'], ok: ['done', 'text-ok'], info: ['info', 'text-ink-3'] } as const;
+const CHIP = 'bg-raised! hover:enabled:brightness-95';
 
-/** One toast: a normal card on the neutral panel, the status icon (warning, failure, done), the short text, and its buttons below. */
+/** One toast: a normal card on the neutral panel, the status icon, a bold title and a short second line, then its buttons: the main one filled, the rest grey chips. */
 function Toast({ n }: { n: Notice }) {
   const store = useStore();
   const [more, setMore] = useState(false);
   const [icon, tone] = MARK[n.level];
   const go = targetOf(n) !== null;
+  const sub = secondLine(n);
+  const long = !!n.details;
   return (
     <div
       className="toast relative flex items-start gap-2 rounded-card border border-line bg-panel px-3 py-2 text-body text-ink shadow-[var(--shadow-2)]"
@@ -150,29 +169,31 @@ function Toast({ n }: { n: Notice }) {
       <span className={`mt-0.5 flex flex-none ${tone}`}>
         <Icon name={icon} size={16} aria-hidden />
       </span>
-      <div className="grid min-w-0 flex-1 gap-1.5">
-        <span>{lineOf(n)}</span>
-        {more && n.details ? <span className="text-hint text-ink-3">{n.details}</span> : null}
-        {go || n.retry || n.details ? (
-          <span className="flex flex-wrap gap-1.5">
+      <div className="grid min-w-0 flex-1 gap-1">
+        <span className="font-semibold">{lineOf(n)}</span>
+        {sub ? <span className="text-ink-2">{sub}</span> : null}
+        {more && n.details ? <span className="whitespace-pre-wrap text-hint text-ink-3">{n.details}</span> : null}
+        {go || n.retry || long ? (
+          <span className="mt-0.5 flex flex-wrap gap-1.5">
             {go ? (
-              <Button variant="outline" size="sm" label="Open" className="toast-open" onClick={() => openNotice(store, n)}>
-                Open
+              <Button variant="solid" size="sm" label={openWord(n)} className="toast-open" onClick={() => openNotice(store, n)}>
+                {openWord(n)}
               </Button>
             ) : null}
             {n.retry ? (
               <Button
                 variant="outline"
                 size="sm"
+                icon="retry"
                 label="Try again"
-                className="toast-retry"
+                className={`toast-retry ${CHIP}`}
                 onClick={() => (n.retry?.(), store.notices.close(n.id))}
               >
                 Try again
               </Button>
             ) : null}
-            {n.details ? (
-              <Button variant="ghost" size="sm" label="Details" aria-expanded={more} onClick={() => setMore(!more)}>
+            {long ? (
+              <Button variant="outline" size="sm" label="Details" className={CHIP} aria-expanded={more} onClick={() => setMore(!more)}>
                 Details
               </Button>
             ) : null}
@@ -191,11 +212,24 @@ function Toast({ n }: { n: Notice }) {
   );
 }
 
-function Toasts() {
+function Toasts({ hidden }: { hidden: boolean }) {
   const store = useStore();
   const toasts = useSelector((s) => s.notices.toasts());
   useAway((away) => store.notices.setAway(away));
-  if (!toasts.length) return null;
+  // Escape closes the toast the focus is in, else the newest one.
+  const first = toasts[0]?.id;
+  useEffect(() => {
+    if (first === undefined || hidden) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const held = document.activeElement?.closest('.toast');
+      const at = held ? [...document.querySelectorAll('.toasts .toast')].indexOf(held) : -1;
+      store.notices.close(store.notices.toasts()[at >= 0 ? at : 0]!.id);
+    };
+    addEventListener('keydown', key);
+    return () => removeEventListener('keydown', key);
+  }, [first, hidden, store]);
+  if (!toasts.length || hidden) return null;
   return (
     <div className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[360px] max-w-[90vw] flex-col-reverse gap-1.5" role="status">
       {toasts.map((n) => (
