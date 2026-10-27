@@ -125,9 +125,13 @@ describe('X5 phone New agent', () => {
     m.store.stop();
   });
 
-  it('draws the account note and never sends an account', async () => {
-    const m = await open(await mount());
-    await until(() => text($('new-agent')).includes('chosen when it starts'), 'the account note');
+  it('draws the account note while agent.options is still out', async () => {
+    const m = await mount();
+    const release = m.daemon.knobs.hold('agent.options'); // the note is the state before the answer; with it served it goes at once
+    await open(m);
+    expect(text($('new-agent'))).toContain('chosen when it starts');
+    release();
+    await until(() => !text($('new-agent')).includes('chosen when it starts'), 'the daemon account choice');
     m.store.stop();
   });
 
