@@ -1,5 +1,5 @@
 // The chat's cards for why an agent is not working: held for the machine's load (a button starts it now), blocked by another task, or
-// waiting on you. The sidebar row says the same line; here it is a card that goes when the cause does.
+// needs you. The sidebar row says the same line; here it is a card that goes when the cause does.
 import { useState } from 'react';
 import type { AgentDetail } from '@handline/client';
 import { ago, openTask, taskRef, VERBS } from '@handline/app-core';

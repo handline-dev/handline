@@ -23,7 +23,7 @@ describe('task time', () => {
     await until(() => $('task-time'), 'the time');
     expect(segments()).toEqual(['queued', 'working', 'founder', 'working', 'task', 'working', 'agent', 'working', 'account', 'working']);
     expect(text($('time-segment-founder'))).toContain('needs you');
-    expect(text($('time-segment-founder'))).not.toContain('needs you');
+    expect(text($('time-segment-founder'))).not.toContain('waiting on you');
     expect(text($('time-segment-task'))).toContain('blocked by T1688');
     expect(text($('time-segment-account'))).toContain('at a usage limit');
     expect(text($('time-total-working'))).toContain('3 h');

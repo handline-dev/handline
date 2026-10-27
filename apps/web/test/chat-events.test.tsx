@@ -104,7 +104,7 @@ describe('event cards', () => {
     await until(() => link.textContent!.length > 'T1684'.length, 'the task title');
   });
 
-  it('waiting on you with no dialog open shows the ask and an Open button; nothing when not blocked', async () => {
+  it('needs you with no dialog open shows the ask and an Open button; nothing when not blocked', async () => {
     const s = setup();
     s.daemon.sessions.get(ARCH)!.fx.view = {
       status: { state: 'waiting', reason: 'you', text: 'needs you', until: null, since: new Date().toISOString(), tasks: [] },
