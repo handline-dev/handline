@@ -148,9 +148,8 @@ type WakeCause struct{ Kind, What string }
 
 // ClosedWakeCause is the one list the tick wakes by and the screens read "the next tick wakes it" from. An undelivered request whose
 // task is blocked on record is no cause: the wake is refused for it every tick. Nor is one the holder rule keeps back (a task of the agent's
-// behind the one it holds), nor a request told before the close. The exception is a holder whose held task has already landed: it has
-// unfinished work to come back to, and the tasks behind it wait on it, so they wake it like any other waiting work. Not while it is parked,
-// throttled or degraded: the tick waits on its wake_at.
+// behind the one it holds), nor a request told before the close.
+// An exception: a holder with its task in hand (begun or sent) is woken for what waits behind it.
 func (m *Manager) ClosedWakeCause(agent string, row *db.AgentState) (c *WakeCause, err error) {
 	defer catch(&err)
 	if row == nil || !(row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) {
@@ -160,13 +159,12 @@ func (m *Manager) ClosedWakeCause(agent string, row *db.AgentState) (c *WakeCaus
 		return &WakeCause{"restart", "a restart that has not started it again"}, nil
 	}
 	waiting := 0
-	walled := row.State == states.Parked || row.State == states.Throttled || row.State == states.Degraded
-	landed := !walled && must(db.CurrentTaskStillAsking(m.Q, agent))
+	inHand := must(db.CurrentTaskStillAsking(m.Q, agent))
 	for _, r := range must(db.UndeliveredFor(m.Q, agent)) {
 		if must(m.Delivery.HeadTaskBlocked(m.Q, agent, r)) {
 			continue
 		}
-		if !must(db.HeldByHolder(m.Q, agent, r)) || landed {
+		if !must(db.HeldByHolder(m.Q, agent, r)) || inHand {
 			waiting++
 		}
 	}
