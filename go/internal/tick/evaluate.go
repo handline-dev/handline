@@ -209,7 +209,7 @@ func (t *Tick) supervise(agent string, now int64, samples map[string][]Sample, a
 			t.Delivery.NoteFailure(agent, "could not be woken - "+why)
 			// For an agent whose session was closed, the deadline is the only thing that makes the wake due again: clearing it on a wake
 			// that did not work is how a park slept through every later tick.
-			t.logf("  %s: stays %s, still due", agent, state)
+			t.logf("  %s: stays %s, still due - %s", agent, state, why)
 			return
 		}
 		// The prompt has been sent by now, so the agent may already have answered it: only write QUEUED if nothing has claimed it since.

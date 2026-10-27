@@ -339,12 +339,32 @@ func (m *Manager) personHead(agent string) *db.Request {
 	return nil
 }
 
+// continuesWork is whether a wake of the closed agent carries on a handoff, restart or move rather than starting new work, which the
+// load hold is for: one still owed, a close while a handoff's note wait counted, or the park a completed handoff left. The handoff
+// record is not a sign of it: every close keeps one.
+func (m *Manager) continuesWork(agent string, row *db.AgentState) bool {
+	if row == nil {
+		return false
+	}
+	if m.restartOwed(agent, row) != nil || m.moveOwed(agent, row) != nil {
+		return true
+	}
+	if _, ok := must2(db.CloseOwedHandoff(m.Q, agent, m.now(), row.ClosedAt.Int64)); ok {
+		return true
+	}
+	if row.State != states.Parked {
+		return false
+	}
+	h := must(db.LatestHandoff(m.Q, agent))
+	return h != nil && h.Step == "released" && h.Updated+db.NoteWaitStaleS >= row.ClosedAt.Int64
+}
+
 // wakeClosed brings a closed agent back: its shell is put back into the session, resuming the same one first (which is what makes
 // closing cheap) and a fresh start the fallback, not the plan.
 func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string, o WakeOpts) (bool, string) {
 	force, warm, cause, restartedBy, movedTo := o.Force, o.Warm, o.Cause, o.RestartedBy, o.MovedTo
-	// The load holds the daemon's own wakes; one a person asked for, or a restart, goes.
-	if !force && !o.Person {
+	// The load holds the daemon's own wakes; one a person asked for, a restart, or one that continues work already begun goes.
+	if !force && !o.Person && !m.continuesWork(agent, row) {
 		if why := m.loadHeld(agent); why != "" {
 			return false, why
 		}
