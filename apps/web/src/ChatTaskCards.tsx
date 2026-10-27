@@ -25,7 +25,7 @@ function TaskCard(props: { ev: string; label: string; task: number; title?: stri
   return (
     // The row opens the task for a pointer; its Open button is the keyboard's way.
     <div
-      className="card-task tint flex w-fit max-w-full cursor-pointer items-baseline gap-x-2 rounded-card px-1.5 py-1 text-body"
+      className="card-task group tint flex w-fit max-w-full cursor-pointer items-baseline gap-x-2 rounded-card px-1.5 py-1 text-body"
       data-kind="task_event"
       data-event={props.ev}
       title={`Open T${props.task} in the Tasks tab`}
@@ -36,7 +36,9 @@ function TaskCard(props: { ev: string; label: string; task: number; title?: stri
         <span className="max-w-[16rem] flex-none overflow-hidden text-ellipsis whitespace-nowrap font-medium">{props.title}</span>
       ) : null}
       <span className="muted min-w-0 truncate text-meta">{`T${props.task} · ${what}`}</span>
-      <span className="muted card-time flex-none whitespace-nowrap text-meta">{clockTime(props.at)}</span>
+      <span className="muted card-time hidden flex-none whitespace-nowrap text-meta group-hover:inline group-focus-within:inline">
+        {clockTime(props.at)}
+      </span>
       <button type="button" className={LINK} onClick={(e) => (e.stopPropagation(), open())}>
         Open
       </button>
@@ -85,11 +87,11 @@ export function BatchCard({ i }: { i: TranscriptItem }) {
   const b = i.task_batch;
   if (!b) return null;
   return (
-    <Card variant="chat" className="card-batch flex-col items-stretch" data-kind="task_batch">
+    <Card variant="chat" className="card-batch group flex-col items-stretch" data-kind="task_batch">
       <div className="flex items-baseline gap-x-2">
         <Icon name="withdrawn" size={14} label="Discarded" />
         <span className="card-event text-meta font-semibold uppercase tracking-wide">Discarded {b.tasks.length}</span>
-        <span className="muted card-time ml-auto">{clockTime(i.at)}</span>
+        <span className="muted card-time ml-auto hidden group-hover:inline group-focus-within:inline">{clockTime(i.at)}</span>
       </div>
       {b.tasks.map((t) => (
         <div key={t.task} className="flex items-baseline gap-x-2" data-task={t.task}>
