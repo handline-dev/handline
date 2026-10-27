@@ -1,4 +1,4 @@
-// Edit and delete a comment: the author and the founder get both, a member gets none on another agent's; an edit shows at once and rolls back with the reason; Delete asks first.
+// Edit and delete a comment: the author and the founder get both, a member gets none on another agent's; an edit shows at once and rolls back with the reason; Delete offers Undo before the daemon is asked.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -9,8 +9,8 @@ import { App } from '#src/App.tsx';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const wait = (ms = 10) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
-async function until(cond: () => unknown, what: string) {
-  for (let i = 0; i < 300; i++) {
+async function until(cond: () => unknown, what: string, tries = 300) {
+  for (let i = 0; i < tries; i++) {
     if (cond()) return;
     await wait();
   }
@@ -26,7 +26,14 @@ let box: HTMLElement;
 const section = () => box.querySelector<HTMLElement>('section[aria-label="Activity"]');
 const comments = () => [...section()!.querySelectorAll<HTMLElement>('.comment')];
 const button = (el: HTMLElement, label: string) =>
-  [...el.querySelectorAll('button')].find((b) => b.textContent === label) as HTMLButtonElement | undefined;
+  [...el.querySelectorAll('button')].find((b) => b.textContent === label || b.getAttribute('aria-label') === label) as
+    HTMLButtonElement | undefined;
+/** The item of a comment's three-dot menu: it opens the menu first. */
+const item = async (c: HTMLElement, label: string) => {
+  await act(async () => void document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  await act(async () => void button(c, 'More')?.click());
+  return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => i.textContent === label);
+};
 const sheet = (label: string) => section()!.querySelector<HTMLElement>(`[aria-label="${label}"]`);
 
 async function mount(role: 'founder' | 'member' = 'founder') {
@@ -56,8 +63,8 @@ describe('Edit and Delete on a comment', () => {
   it('gives the founder both on every comment', async () => {
     await mount();
     for (const c of comments()) {
-      expect(button(c, 'Edit')).toBeDefined();
-      expect(button(c, 'Delete')).toBeDefined();
+      expect(await item(c, 'Edit')).toBeDefined();
+      expect(await item(c, 'Delete')).toBeDefined();
     }
   });
 
@@ -65,14 +72,13 @@ describe('Edit and Delete on a comment', () => {
     await mount('member');
     const [mine, theirs] = comments();
     expect(mine!.textContent).toContain('mine');
-    expect(button(mine!, 'Edit')).toBeDefined();
-    expect(button(theirs!, 'Edit')).toBeUndefined();
-    expect(button(theirs!, 'Delete')).toBeUndefined();
+    expect(await item(mine!, 'Edit')).toBeDefined();
+    expect(button(theirs!, 'More')).toBeUndefined();
   });
 
   it('shows an edit at once and the daemon keeps it', async () => {
     const s = await mount();
-    await act(async () => void button(comments()[0]!, 'Edit')!.click());
+    await act(async () => void (await item(comments()[0]!, 'Edit'))!.click());
     const form = sheet('Edit comment')!;
     await act(async () => void [...form.querySelectorAll('button')].find((b) => b.textContent === 'Source')?.click());
     const el = form.querySelector('textarea')!;
@@ -89,7 +95,7 @@ describe('Edit and Delete on a comment', () => {
   it('rolls an edit back and says why when the daemon refuses', async () => {
     const s = await mount();
     s.daemon.knobs.refuse('task.comment.edit', 'state', 'the task is closed', undefined, 1);
-    await act(async () => void button(comments()[0]!, 'Edit')!.click());
+    await act(async () => void (await item(comments()[0]!, 'Edit'))!.click());
     const form = sheet('Edit comment')!;
     await act(async () => void [...form.querySelectorAll('button')].find((b) => b.textContent === 'Source')?.click());
     const el = form.querySelector('textarea')!;
@@ -104,31 +110,29 @@ describe('Edit and Delete on a comment', () => {
     expect(text(s)).toContain('mine');
   });
 
-  it('asks before Delete, and Cancel deletes nothing', async () => {
+  it('takes a deleted comment out at once and Undo keeps it', async () => {
     const s = await mount();
-    await act(async () => void button(comments()[0]!, 'Delete')!.click());
-    expect(sheet('Delete this comment?')).not.toBeNull();
+    await act(async () => void (await item(comments()[0]!, 'Delete'))!.click());
+    expect(section()!.textContent).toContain('Comment deleted');
     expect(text(s)).toContain('mine');
-    await act(async () => void button(sheet('Delete this comment?')!, 'Cancel')!.click());
-    expect(sheet('Delete this comment?')).toBeNull();
+    await act(async () => void button(section()!, 'Undo')!.click());
+    expect(section()!.textContent).not.toContain('Comment deleted');
+    await wait(50);
     expect(text(s)).toContain('mine');
   });
 
-  it('deletes after the ask', async () => {
+  it('asks the daemon once the Undo time is over', async () => {
     const s = await mount();
-    await act(async () => void button(comments()[0]!, 'Delete')!.click());
-    await act(async () => void button(sheet('Delete this comment?')!, 'Delete')!.click());
-    await until(() => comments().length === 1, 'the comment gone');
-    await until(() => !text(s).includes('mine'), 'the daemon dropped it');
-  });
+    await act(async () => void (await item(comments()[0]!, 'Delete'))!.click());
+    await until(() => !text(s).includes('mine'), 'the daemon dropped it', 900);
+  }, 15000);
 
   it('puts a refused Delete back and says why', async () => {
     const s = await mount();
     s.daemon.knobs.refuse('task.comment.delete', 'state', 'the task is closed', undefined, 1);
-    await act(async () => void button(comments()[0]!, 'Delete')!.click());
-    await act(async () => void button(sheet('Delete this comment?')!, 'Delete')!.click());
-    await until(() => sheet('Delete this comment?')?.textContent?.includes('the task is closed'), 'the refusal');
+    await act(async () => void (await item(comments()[0]!, 'Delete'))!.click());
+    await until(() => section()!.textContent?.includes('the task is closed'), 'the refusal', 900);
     expect(comments().length).toBe(2);
     expect(text(s)).toContain('mine');
-  });
+  }, 15000);
 });
