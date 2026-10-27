@@ -1,4 +1,4 @@
-// The phone's new-task and edit-task sheets: owner, title, body, time box and priority. The sheet stays open with the text when the daemon refuses.
+// The phone's new-task and edit-task sheets. A sheet stays open with the text when the daemon refuses.
 import { useState } from 'react';
 import { Text, View } from 'react-native';
 import { taskRef } from '@handline/app-core';
@@ -24,7 +24,7 @@ interface TaskDraft {
   priority: 1 | 2 | 3;
 }
 
-/** The fields a new task and an edited one share: owner, title, body, time box, priority. `id` prefixes the test ids. */
+/** The fields both sheets share; `id` prefixes the test ids. */
 function TaskFields(p: { id: 'nt' | 'et'; owners: string[]; draft: TaskDraft; change: (patch: Partial<TaskDraft>) => void }) {
   const c = usePalette();
   const { id, draft, change } = p;
@@ -55,7 +55,7 @@ function TaskFields(p: { id: 'nt' | 'et'; owners: string[]; draft: TaskDraft; ch
   );
 }
 
-/** New task: owner, title, body, time box, priority. The row shows in the list at once; a refusal leaves the text here with the reason. */
+/** The new row shows in the list at once. */
 export function NewTask({ onClose }: { onClose: () => void }) {
   const c = usePalette();
   const ask = useWrite('task.new');
@@ -90,7 +90,7 @@ export function NewTask({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Edit: only what changed is sent. The sheet stays open with the text when the daemon refuses. */
+/** Only what changed is sent. */
 export function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
   const edit = useWrite('task.edit');
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
