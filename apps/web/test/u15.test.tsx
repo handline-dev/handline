@@ -110,7 +110,7 @@ describe('U15 HR', () => {
     await until(() => $('[data-done="5"]'), 'the done rows');
     for (const id of [3, 4, 5]) await click($(`[data-done="${id}"] button`)!);
     await until(() => $$('.hr-card').length === 5, 'five cards');
-    expect(text(card(1))).toContain('waiting for you');
+    expect(text(card(1))).toContain('needs you');
     expect(card(1).querySelector('.hr-state svg[data-icon="needs"]')).not.toBeNull(); // a shape, not only the word's colour
     expect(card(2).querySelector('.hr-state svg[data-icon="blocked"]')).not.toBeNull();
     expect(card(3).querySelector('.hr-state svg[data-icon="dismissed"]')).not.toBeNull(); // rejected has a shape of its own

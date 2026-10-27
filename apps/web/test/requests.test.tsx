@@ -64,6 +64,8 @@ describe('the Requests page', () => {
     const first = $('[data-request="6020"]')!;
     expect(first.dataset.status).toBe('waiting_on_you');
     expect(text(first)).toContain('2 new comments');
+    expect(text(first)).toContain('Needs you');
+    expect(text($('.requests-page'))).not.toMatch(/waiting on you|Not yet/i);
     expect(text($('[data-request="6071"]'))).toContain('2 open · 1 done');
     expect(text($('[data-request="6071"]'))).toContain('#628');
     await click(button('Doing'));
