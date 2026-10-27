@@ -6,7 +6,7 @@ import { dateTime, HELD, isPerson, taskRef, watchResult } from '@handline/app-co
 import { useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
-import { Button, MenuButton, MenuItem, Popup } from '#src/ui/index.ts';
+import { Button, MenuButton, MenuItem, PageHead, PageTitle, Popup } from '#src/ui/index.ts';
 import { leave } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
 import { AskSheets, type Ask } from '#src/TaskAsk.tsx';
@@ -41,34 +41,45 @@ export function TaskDetail({
 }) {
   const q = useTask(id);
   const gone = q.isError && classify(q.error).kind === 'not_found';
+  const page = !embedded && !drawer; // on a page of its own the top bar names the task, whatever the width
   return (
-    <article
-      className={`tdetail flex min-h-0 min-w-0 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-4 max-sm:py-3${
-        drawer
-          ? ' w-[min(480px,45%)] flex-none border-l border-line bg-surface'
-          : embedded
-            ? ' pane relative flex-1 bg-panel -outline-offset-1'
-            : ' flex-1 mx-auto w-full max-w-[var(--w-page)] bg-canvas'
-      }`}
-      aria-label={`Task ${taskRef(id)}`}
-    >
-      {onBack ? (
-        <div className="mb-4 flex items-center justify-end gap-2">
-          <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
-            Back
-          </Button>
-        </div>
+    <>
+      {page ? (
+        <PageHead back={{ label: 'Tasks', to: () => leave('#/tasks') }}>
+          <PageTitle className="min-w-0 truncate">
+            <span className="mono">{taskRef(id)}</span>
+            {q.data ? ` ${q.data.title}` : ''}
+          </PageTitle>
+        </PageHead>
       ) : null}
-      {gone ? (
-        <div className="empty">
-          <p>This task no longer exists.</p>
-        </div>
-      ) : (
-        <View q={q} served shape="taskDetail" what={`task ${taskRef(id)}`}>
-          {q.data ? <Body t={q.data} /> : null}
-        </View>
-      )}
-    </article>
+      <article
+        className={`tdetail flex min-h-0 min-w-0 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-4 max-sm:py-3${
+          drawer
+            ? ' w-[min(480px,45%)] flex-none border-l border-line bg-surface'
+            : embedded
+              ? ' pane relative flex-1 bg-panel -outline-offset-1'
+              : ' flex-1 mx-auto w-full max-w-[var(--w-page)] bg-canvas'
+        }`}
+        aria-label={`Task ${taskRef(id)}`}
+      >
+        {onBack ? (
+          <div className="mb-4 flex items-center justify-end gap-2">
+            <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
+              Back
+            </Button>
+          </div>
+        ) : null}
+        {gone ? (
+          <div className="empty">
+            <p>This task no longer exists.</p>
+          </div>
+        ) : (
+          <View q={q} served shape="taskDetail" what={`task ${taskRef(id)}`}>
+            {q.data ? <Body t={q.data} /> : null}
+          </View>
+        )}
+      </article>
+    </>
   );
 }
 
