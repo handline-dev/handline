@@ -214,6 +214,10 @@ export type Headroom = {
       five_left: number | null;
       week_left: number | null;
     }[];
+    /** A guess: the percent of this account's week still unused when it resets, if it goes on using the week at the rate of the last 24 hours (never below 0). Null when the week cannot be read (no fresh reading, no reset). */
+    left_at_reset?: number | null;
+    /** The percent of this account's unused week that even full 5h windows from now to its reset could not use, at the account's measured ratio of weekly to 5h use (never below 0). Null when the week or the ratio cannot be read. */
+    lost_anyway?: number | null;
     /** Resets in the span, oldest first: those samples recorded, then those guessed (a 5h window opens again at its reset only while it is used). */
     resets: {
       at: Timestamp;
