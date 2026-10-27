@@ -34,7 +34,7 @@ describe('task card titles', () => {
   });
 
   const wait = (ms: number) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
-  const cards = () => [...box.querySelectorAll('[data-kind="task_event"]')].filter((c) => c.textContent?.includes('T1684')); // local-ref-ok
+  const cards = () => [...box.querySelectorAll('[data-kind="task_event"]')];
   const open = async (s: ReturnType<typeof setup>) => {
     location.hash = '#/agents/handline.architect';
     box = document.body.appendChild(document.createElement('div'));

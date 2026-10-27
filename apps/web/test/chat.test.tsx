@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store, defaultWorkspace, groupsOf, openTab, saveWorkspace, splitTab, storageKey, type KV } from '@handline/app-core';
 import { second, setup } from '@handline/fake-daemon/helpers';
+import { applySeeds } from '@handline/fake-daemon/seeds';
 import { App } from '#src/App.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -306,6 +307,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
   it('a task card has Open at its end, and Done only on an open task given to the person', async () => {
     const s = setup();
     s.daemon.tasks.verbs = true;
+    applySeeds(s.daemon, 'task-card');
     await mount(ARCH, s);
     await until(() => msg('Which gap list'), 'history');
     const card = (n: number) => $$('[data-kind="task_event"]').find((c) => text(c).includes(String(n)));
