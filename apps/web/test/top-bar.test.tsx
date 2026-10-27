@@ -90,6 +90,13 @@ describe('the top bar', () => {
     expect(input.closest('h2')!.className).not.toContain('truncate'); // a truncating heading turned the whole field into an ellipsis
     expect(input.closest('h2')!.className).toContain('flex-1'); // the title takes the bar's free width: a long saved title truncates on one row, the field fills the rest
   });
+  it("gives the agent's name the room it needs, capped by a share of the bar and not a fixed 160 px", async () => {
+    await mount(ARCH);
+    await until(() => $('.topbar h2'), 'the agent name in the bar');
+    expect($('.topbar h2')!.textContent).toBe(ARCH);
+    expect($('.topbar h2')!.className).not.toContain('max-w-40'); // jsdom has no layout: the cap that cut the name at 1440 is gone
+    expect($('.topbar h2')!.className).toContain('max-w-[45%]');
+  });
   it('carries the sidebar button, Back and Forward while the sidebar is folded, and not while it is open', async () => {
     await mount(ARCH);
     await until(() => $('.rail'), 'sidebar');

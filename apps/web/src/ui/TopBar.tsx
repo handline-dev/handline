@@ -42,7 +42,7 @@ export function PageBar({ title, tabs, tools }: { title: ReactNode; tabs?: React
   const bar = (
     <div className="flex min-h-8 min-w-0 flex-1 items-center gap-2">
       <h2
-        className="m-0 max-w-40 flex-none truncate text-page font-semibold text-ink"
+        className="m-0 min-w-0 max-w-[45%] flex-none truncate text-page font-semibold text-ink"
         title={typeof title === 'string' ? title : undefined}
       >
         {title}
