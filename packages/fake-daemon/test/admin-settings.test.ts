@@ -82,3 +82,18 @@ test('a member is refused connection.get, and a daemon without admin does not li
   );
   none.client.close();
 });
+
+test('settings.get shows the built-in handoff prompt and who sets their own; a short prompt is refused and line breaks are joined', async () => {
+  const { client } = setup();
+  await client.start();
+  const got = await client.call('settings.get', {});
+  assert.equal(got.handoff_prompt_default, got.values.handoff_prompt);
+  assert.deepEqual(got.handoff_prompt_own, []);
+  await assert.rejects(
+    client.call('settings.set', { changes: { handoff_prompt: ' too short ' }, request_id: 'h1-a' }),
+    (e: RpcError) => e.code === 'bad_request',
+  );
+  await client.call('settings.set', { changes: { handoff_prompt: 'Write {path}:\n what is next,\r\n and why.' }, request_id: 'h1-b' });
+  assert.equal((await client.call('settings.get', {})).values.handoff_prompt, 'Write {path}: what is next, and why.');
+  client.close();
+});
