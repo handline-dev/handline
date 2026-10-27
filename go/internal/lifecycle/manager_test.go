@@ -48,7 +48,8 @@ func (f *fakeDelivery) WaitForSession(string, int, string) bool { return f.tookP
 // fakeHandoff: ctx is the session's context size, 0 for none read.
 type fakeHandoff struct {
 	HandoffPort
-	ctx int64
+	ctx  int64
+	full bool
 }
 
 func (fakeHandoff) AnsweredTurn(db.Q, string) bool                 { return false }
@@ -59,6 +60,7 @@ func (fakeHandoff) CacheClock(db.Q, string, string) (int64, int64, bool, bool) {
 	return 0, 0, false, false
 }
 func (f fakeHandoff) ContextUsed(db.Q, string, string) (int64, bool)      { return f.ctx, f.ctx != 0 }
+func (f fakeHandoff) ContextFull(db.Q, string, string) bool               { return f.full }
 func (fakeHandoff) PreviousSession(db.Q, string, string) (string, string) { return "s0", "/t/s0.jsonl" }
 func (fakeHandoff) RequestLine(db.Q, string) string                       { return "Your request: none." }
 func (fakeHandoff) MemoryLine(string) string                              { return "" }
