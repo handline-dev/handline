@@ -1,15 +1,18 @@
 // What waits on the person, as one list of cards (docs/story9-my-turn.md 9-1): unread inbox items that need an answer, and agents that
-// say `needs_you`. Built only from fields the web client already reads; priority and deadline come from the item's task.
+// say `needs_you`, and open tasks given to the person. Built only from fields the web client already reads; priority and deadline come from the item's task.
 import type { AgentView, InboxItem, Task } from '@handline/client';
 import { isPerson } from '#src/chat.ts';
+import { CLOSED } from '#src/task-table.ts';
 
-export type CardKind = 'decision' | 'approval' | 'dialog' | 'attention';
+export type CardKind = 'decision' | 'approval' | 'dialog' | 'attention' | 'task';
 
 export type CardAction =
   /** A written reply to the item (inbox.reply). */
   | { type: 'answer'; id: number }
   | { type: 'allow' | 'deny'; agent: string; prompt: string; choice: string }
   | { type: 'done'; item: InboxItem }
+  /** A task given to the person with no inbox item: done 'Done'. */
+  | { type: 'done_task'; task: number }
   /** A review card: done 'Approved'. */
   | { type: 'approve'; item: InboxItem }
   /** A review card: the UI asks for text and a drawing, comments them, then closes the task 'Change asked: <text>'. */
@@ -56,7 +59,9 @@ export const APPROVED = 'Approved';
 export const changeAsked = (text: string) => `Change asked: ${text.trim()}`;
 
 /** The pictures of a review: the images the first comment names, as attachment ids with the name to show. */
-export function reviewPictures(memos: readonly { id: number; parts?: readonly object[]; files?: readonly { id: string; kind: string; name?: string }[] }[]) {
+export function reviewPictures(
+  memos: readonly { id: number; parts?: readonly object[]; files?: readonly { id: string; kind: string; name?: string }[] }[],
+) {
   const first = memos.reduce<(typeof memos)[number] | undefined>((a, m) => (!a || m.id < a.id ? m : a), undefined);
   const named = (first?.parts ?? []).flatMap((p) => {
     const { image, gone } = p as { image?: { id: string; name?: string }; gone?: boolean };
@@ -67,6 +72,9 @@ export function reviewPictures(memos: readonly { id: number; parts?: readonly ob
 }
 const ms = (iso: string | null | undefined) => (iso ? Date.parse(iso) : NaN);
 const at = (iso: string | null | undefined) => (Number.isFinite(ms(iso)) ? ms(iso) : 0);
+
+/** The agents that have a card in the person's turn: the filter that reads 'My turn'. */
+export const turnAgents = (cards: readonly Card[]): Set<string> => new Set(cards.flatMap((c) => (c.agent ? [c.agent] : [])));
 
 /** The cards, most urgent first: task priority, then the earliest deadline (none last), then the one waiting longest. */
 export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
@@ -127,7 +135,10 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
         i.kind !== 'decision' || i.task == null
           ? []
           : base.review
-            ? [{ type: 'approve', item: i }, { type: 'ask_change', item: i }]
+            ? [
+                { type: 'approve', item: i },
+                { type: 'ask_change', item: i },
+              ]
             : [{ type: 'done', item: i }];
       // A card the daemon raised after its own recovery failed: its fix is the first button.
       const fix = i.fix === 'open_terminal' && i.agent ? [{ type: 'terminal', agent: i.agent } as const] : [];
@@ -174,6 +185,29 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
             { type: 'open', to: `#/agents/${encodeURIComponent(a.name)}` },
             { type: 'terminal', agent: a.name },
           ],
+    });
+  }
+
+  // A task given to the person that no unread item already stands for; it leaves when it is done, discarded or handed on.
+  const shown = new Set(cards.flatMap((c) => (c.task == null ? [] : [c.task])));
+  for (const t of tasks) {
+    if (CLOSED.includes(t.state) || !isPerson(t.to, me) || shown.has(t.id)) continue;
+    cards.push({
+      key: `task:${t.id}`,
+      kind: 'task',
+      title: t.title,
+      detail: '',
+      agent: null,
+      from: other(t.from),
+      task: t.id,
+      review: !!t.tags?.includes(REVIEW_TAG),
+      ...when(t.id),
+      since: at(t.created),
+      primary: 1,
+      actions: [
+        { type: 'open', to: `#/tasks/${t.id}` },
+        { type: 'done_task', task: t.id },
+      ],
     });
   }
 

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import type { Notice } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
-import { useMyTurn } from '#src/MyTurn.tsx';
+import { useMyTurn } from '@handline/app-data';
 import { Icon, Popup } from '#src/ui/index.ts';
 
 const lineOf = (n: Notice) => (n.count > 1 ? `${n.text} ×${n.count}` : n.text);
@@ -30,7 +30,7 @@ export function NoticeBell() {
         onClick={() => (open ? setOpen(false) : show())}
       >
         <Icon name="alert" size={14} aria-hidden />
-        {unread ? <span className={open ? '' : 'font-bold text-ink'}>{unread}</span> : null}
+        {unread ? <span className="size-1.5 rounded-full bg-wait" aria-hidden /> : null}
       </button>
       <Popup open={open} onClose={() => setOpen(false)} title="Notices" align="right" up bare>
         <div className="max-h-[60vh] w-[360px] max-w-[90vw] overflow-y-auto">
@@ -41,9 +41,7 @@ export function NoticeBell() {
               onClick={() => void ((location.hash = '#/my-turn'), setOpen(false))}
             >
               <span className="size-2 flex-none rounded-full bg-wait" aria-hidden />
-              <span className="flex-1">
-                {waiting} {waiting === 1 ? 'needs' : 'need'} you
-              </span>
+              <span className="flex-1">My turn</span>
               <Icon name="chevronRight" size={14} label="Opens My turn" aria-hidden />
             </button>
           ) : null}

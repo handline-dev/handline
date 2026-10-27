@@ -5,11 +5,12 @@ import {
   chipChanges,
   chipCounts,
   chipOf,
+  turnAgents,
+  chipList,
   dotOf,
   stuckUnder,
   workingUnder,
   hiddenDots,
-  navList,
   teamOf,
   togglePin as toggleIn,
   RAIL_FILTERS,
@@ -20,9 +21,8 @@ import {
 } from '@handline/app-core';
 import type { AgentView, NavPrefsChanges } from '@handline/client';
 import { useConnection } from '@handline/app-react';
-import { useAgents, useHrCount, useNav, useServes } from '@handline/app-data';
+import { useAgents, useHrCount, useMyTurn, useNav, useServes } from '@handline/app-data';
 import { useRowDrag } from '#src/RowDrag.ts';
-import { useMyTurn } from '#src/MyTurn.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
 import { Button, Icon, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
 import { setting } from '#src/daemon.ts';
@@ -64,10 +64,11 @@ export function Sidebar({
     set(on);
   };
   const chip = chipOf(nav);
+  const turn = useMyTurn().cards;
   const chipN = chipCounts(agents);
   const names = agents.map((x) => x.name);
   const tree = nav.layout === 'tree';
-  const nl = navList(agents, nav);
+  const nl = chipList(agents, nav, turnAgents(turn));
   const rows = tree ? byTeam(nl.rows, grouped, names) : nl.rows;
   const heads = tree && grouped;
   // Beside an agent: the rows shown under the same parent (the top level within its team), in the order shown.
@@ -102,7 +103,7 @@ export function Sidebar({
   };
   const counts = new Map<Dot, number>();
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
-  const myTurn = useMyTurn().cards.length;
+  const myTurn = turn.length;
   const hr = useHrCount();
   const pageRoute = usePageRoute();
   const requests = useSelector((s) => s.can('requests.list'));
@@ -138,7 +139,8 @@ export function Sidebar({
           aria-current={pageRoute === 'my-turn' ? 'page' : undefined}
           onClick={() => void (location.hash = '#/my-turn')}
         >
-          <Icon name="inbox" size={14} aria-hidden /> Inbox{myTurn ? ` ${myTurn}` : ''}
+          <Icon name="inbox" size={14} aria-hidden /> My turn
+          {myTurn ? <span className="ml-auto rounded-full bg-wait px-1.5 text-hint font-semibold text-canvas">{myTurn}</span> : null}
         </button>
         <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           <Icon name="tasks" size={14} aria-hidden /> Tasks
@@ -165,7 +167,7 @@ export function Sidebar({
           [
             ['all', 'All'],
             ['unread', 'Unread'],
-            ['needs', 'Needs me'],
+            ['needs', 'My turn'],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -175,7 +177,7 @@ export function Sidebar({
             onClick={() => change(chipChanges(id))}
           >
             {label}
-            {id !== 'all' && chipN[id] ? <span className="ml-1 text-wait">{chipN[id]}</span> : null}
+            {id === 'unread' && chipN[id] ? <span className="ml-1 text-wait">{chipN[id]}</span> : null}
           </button>
         ))}
         <span className="rail-opts relative ml-auto inline-flex">
@@ -242,7 +244,7 @@ export function Sidebar({
         </View>
         {chip !== 'all' && conn === 'open' && agents.length > 0 && !rows.length && !nl.pinned.length ? (
           <p className="m-0 px-2.5 py-2 text-ink-2" data-testid="filter-empty">
-            {chip === 'unread' ? 'No unread messages' : 'Nothing needs you'}.{' '}
+            {chip === 'unread' ? 'No unread messages' : 'Nothing in My turn'}.{' '}
             <button className="border-0 bg-transparent p-0 text-link underline" onClick={() => change(chipChanges('all'))}>
               Show all
             </button>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import type { AgentView as Agent } from '@handline/client';
-import { useAgents, useHrCount, useNav, useOpenTasks, useServes } from '@handline/app-data';
+import { useAgents, useHrCount, useMyTurn, useNav, useOpenTasks, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { font, radius, rowHeight, space } from '@handline/tokens';
 import {
@@ -14,8 +14,9 @@ import {
   chipCounts,
   chipChanges,
   chipOf,
+  turnAgents,
+  chipList,
   moveInOrder,
-  navList,
   rowName,
   siblingsOf,
   teamOf,
@@ -34,7 +35,7 @@ type Item = { key: string; head: string } | { key: string; agent: Agent; depth: 
 const CHIPS: { id: NavChip; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'unread', label: 'Unread' },
-  { id: 'needs', label: 'Needs me' },
+  { id: 'needs', label: 'My turn' },
 ];
 
 export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') => void }) {
@@ -46,9 +47,10 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
   // An older daemon sets has_dialog without needs_you.
   const asks = (a: Agent) => !!a.needs_you || a.has_dialog;
   const { nav, ready, change, togglePin } = useNav();
-  const { pinned, rows } = navList(agents, nav);
-  const counts = chipCounts(agents);
+  const turn = useMyTurn().cards;
   const chip = chipOf(nav);
+  const { pinned, rows } = chipList(agents, nav, turnAgents(turn));
+  const counts = chipCounts(agents);
   const names = agents.map((a) => a.name);
   const tree = nav.layout !== 'flat';
   const items: Item[] = [];
@@ -168,7 +170,8 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
                     }}
                   >
                     <Text style={{ color: on ? c.accent : c.muted, fontSize: font.size.body, fontWeight: on ? '700' : '500' }}>
-                      {x.label} {counts[x.id]}
+                      {x.label}
+                      {x.id === 'unread' ? ` ${counts[x.id]}` : ''}
                     </Text>
                   </Pressable>
                 );

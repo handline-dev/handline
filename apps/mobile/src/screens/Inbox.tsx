@@ -1,11 +1,11 @@
-// The Inbox tab: what waits on the person, newest first. Reads and writes go through @handline/app-data like the web Inbox: a read item leaves
+// The My turn tab: what waits on the person, newest first. Reads and writes go through @handline/app-data like the web Inbox: a read item leaves
 // the list at once. A decision ends its task with Done. Tap a card for its detail and verbs; a verb the daemon does not serve is disabled.
 import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { ago, NOTICE_SENDER, REVIEW_TAG } from '@handline/app-core';
 import type { InboxItem } from '@handline/client';
 import { useStore } from '@handline/app-react';
-import { useInbox, useOff, usePending, useServes, useTask, useUnread, useWrite } from '@handline/app-data';
+import { useInbox, useMyTurn, useOff, usePending, useServes, useTask, useUnread, useWrite } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
@@ -23,7 +23,15 @@ const KIND: Record<string, string> = {
   block: 'Block',
   prompt: 'Prompt',
 };
-const KIND_ICON: Record<string, IconName> = { decision: 'decision', ask: 'ask', say: 'say', report: 'result', result: 'result', block: 'block', prompt: 'prompt' };
+const KIND_ICON: Record<string, IconName> = {
+  decision: 'decision',
+  ask: 'ask',
+  say: 'say',
+  report: 'result',
+  result: 'result',
+  block: 'block',
+  prompt: 'prompt',
+};
 /** A decision is the person's task: the card ends it with task.done. */
 const decidable = (i: InboxItem) => i.kind === 'decision' && i.task != null;
 const waits = (i: InboxItem, readPending: boolean) => !i.read && !readPending;
@@ -110,7 +118,9 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
           {i.prompt && i.agent ? (
             <PromptCard agent={i.agent} prompt={i.prompt} />
           ) : i.prompt ? (
-            <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: font.size.hint }}>{i.prompt.command ?? i.prompt.lines.join('\n')}</Text>
+            <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: font.size.hint }}>
+              {i.prompt.command ?? i.prompt.lines.join('\n')}
+            </Text>
           ) : null}
           {props.pending && (
             <Text testID="inbox-sending" style={{ color: c.muted }}>
@@ -198,8 +208,10 @@ function Group(props: { id: 'digest' | 'read'; label: string; open: boolean; onT
   );
 }
 
-export function Inbox() {
+export function Inbox(props: { onTask: (id: number) => void }) {
   const c = usePalette();
+  const turn = useMyTurn().cards;
+  const tasks = turn.filter((t) => t.kind === 'task');
   const query = useInbox();
   const { served } = useServes('inbox.list');
   const unread = useUnread();
@@ -212,7 +224,10 @@ export function Inbox() {
   const pendingReply = usePending('inbox.reply').map((p) => p.id);
   const all = query.data?.items ?? [];
   const items = all.filter((i) => waits(i, pendingRead.includes(i.id)));
-  const rows = entries(items, all.filter((i) => !items.includes(i)));
+  const rows = entries(
+    items,
+    all.filter((i) => !items.includes(i)),
+  );
   const card = (item: InboxItem) => (
     <Card
       key={item.id}
@@ -226,11 +241,11 @@ export function Inbox() {
   return (
     <View style={{ flex: 1 }}>
       <PageHeader
-        title="Inbox"
+        title="My turn"
         actions={
           <>
             <Text testID="unread-count" style={{ color: c.muted, fontSize: font.size.body }}>
-              {unread.length}
+              {turn.length}
             </Text>
             <Button
               testID="mark-all-read"
@@ -244,12 +259,12 @@ export function Inbox() {
       <Loadable
         query={query}
         served={served}
-        isEmpty={all.length === 0}
+        isEmpty={all.length === 0 && tasks.length === 0}
         skeleton="inbox"
         label="the inbox"
         empty="Nothing waits on you."
       >
-        {items.length === 0 && (
+        {items.length === 0 && tasks.length === 0 && (
           <Text testID="inbox-clear" style={{ color: c.muted, padding: space.lg }}>
             Nothing waits on you.
           </Text>
@@ -257,6 +272,23 @@ export function Inbox() {
         <FlatList
           keyboardShouldPersistTaps="handled"
           data={rows}
+          ListHeaderComponent={
+            <>
+              {tasks.map((t) => (
+                <Pressable
+                  key={t.key}
+                  testID={`turn-task-${t.task}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open T${t.task}`}
+                  onPress={() => props.onTask(t.task!)}
+                  style={{ padding: space.lg, minHeight: 48, borderTopWidth: 1, borderTopColor: c.line }}
+                >
+                  <Text style={{ color: c.muted, fontSize: font.size.hint }}>Task{t.from ? ` · from ${t.from}` : ''}</Text>
+                  <Text style={{ color: c.ink, fontWeight: '600' }}>{`T${t.task} ${t.title}`}</Text>
+                </Pressable>
+              ))}
+            </>
+          }
           keyExtractor={(e) => e.key}
           renderItem={({ item: e }) =>
             'item' in e ? (
