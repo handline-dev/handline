@@ -200,3 +200,41 @@ func TestStartMakesATaskTheOwnersCurrentOneAndPutsItsRequestFirst(t *testing.T) 
 }
 
 func (a auth) SessionsReadable() error { return nil }
+
+func TestSendNowTypesAHeldCommentTellOnlyWhileItIsHeld(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, q := range []string{
+		"INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 't', 'worker', 'human', 1)",
+		"INSERT INTO task_memos(id, task_id, author, body, created_at) VALUES(1, 1, 'human', 'hi', 1)",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, notice, landed_at) VALUES(5, 1, 'notices', 'worker', 'b', 'landed', 'say', 2, 1)",
+		"INSERT INTO requests(id, ts, requester, target, body, state, kind, notice, landed_at, read_at) VALUES(6, 1, 'notices', 'amy', 'b', 'landed', 'say', 2, 1, 2)",
+		"INSERT INTO memo_tells(memo_id, reader, request_id) VALUES(1, 'worker', 5), (1, 'amy', 6)",
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tell := &fakeTeller{}
+	s := rpc.NewServer(auth{""}, "x", store.LatestVersion(), "local", func(string, ...any) {})
+	s.DB = db
+	Register(s, t.TempDir(), tell, nil)
+	send := func(id, agent string) map[string]any {
+		return call(t, s, fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.comment.send_now","params":{"memo":1,"agent":%q,"request_id":%q}}`, agent, id))[0]
+	}
+	if r := send("s1", "worker"); r["result"] == nil || fmt.Sprint(tell.sentMemo) != "[5]" {
+		t.Fatalf("a held tell goes now: %v %v", r, tell.sentMemo)
+	}
+	db.Exec("UPDATE requests SET delivered_at = 9 WHERE id = 5") // what the digest does
+	for i, agent := range []string{"worker", "amy", "nobody"} {  // already sent, already read, never told
+		if r := send(fmt.Sprintf("s%d", i+2), agent); r["error"] == nil {
+			t.Errorf("%s: only a held tell is sent now: %v", agent, r)
+		}
+	}
+	if len(tell.sentMemo) != 1 {
+		t.Fatalf("%v", tell.sentMemo)
+	}
+}
