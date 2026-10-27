@@ -1082,4 +1082,13 @@ func TestTheLoadDoesNotHoldTheWakeThatCompletesAHandoff(t *testing.T) {
 	if said := wake(m); strings.Contains(said, held) {
 		t.Fatalf("the park a completed handoff left was held: %q", said)
 	}
+	m, _ = setup()
+	db.StartHandoff(m.Q, "h1", "a", "sess-1", "context", m.now()+60)
+	db.AdvanceHandoff(m.Q, "h1", "released", "done", "")
+	m.Q.Exec("UPDATE handoff SET updated = ? WHERE id = 'h1'", m.now()-3*86400)
+	m.CloseAgent("a", SessionStatus{SessionID: "sess-1"}, CloseOpts{Idle: true})
+	db.SetAgentState(m.Q, "a", states.Parked, m.now(), "idle")
+	if said := wake(m); !strings.Contains(said, held) {
+		t.Fatalf("a park long after an old released handoff went past the load: %q", said)
+	}
 }
