@@ -58,6 +58,7 @@ export function Compose(props: {
   const back = useRef(-1);
   const box = useRef<HTMLTextAreaElement>(null);
   const openTerminal = useOpenTerminal(detail);
+  const cmd = text.startsWith('!'); // command mode: the box shows it with the colour and the type alone
   const set = (v: string) => {
     setText(v);
     draft.save(v);
@@ -110,7 +111,9 @@ export function Compose(props: {
     const attachments = att.ids;
     // A dropped file or folder reaches the agent as its absolute path, one to a line after the words.
     const body = [text, ...att.refs.map((r) => r.path)].filter(Boolean).join('\n');
-    if (target) act.send(body, { parent: target.id, delivery, attachments });
+    // A command is sent as typed: the reply selection is dropped, so nothing is put before the `!`.
+    if (cmd) act.send(body, { delivery, attachments });
+    else if (target) act.send(body, { parent: target.id, delivery, attachments });
     else if (item) act.send(body, { parent_item: item.id, delivery, attachments });
     else act.send(body, { delivery, attachments });
     att.clear();
@@ -195,7 +198,7 @@ export function Compose(props: {
         onRetry={att.retry}
         onUnref={att.unrefer}
       />
-      <ComposeRow>
+      <ComposeRow className={cmd ? 'shadow-[inset_0_0_0_1px_var(--cmd)]' : undefined}>
         {menu ? (
           <ul
             className="compose-menu absolute inset-x-0 bottom-full z-10 m-0 mb-1 max-h-60 list-none overflow-auto rounded-card border border-line-strong bg-panel px-0 py-1 shadow-[var(--shadow-2)]"
@@ -220,7 +223,7 @@ export function Compose(props: {
         ) : null}
         <Textarea
           ref={box}
-          className="compose flex-1 resize-none border-0 bg-transparent px-1.5 focus-visible:outline-none"
+          className={`compose flex-1 resize-none border-0 bg-transparent px-1.5 focus-visible:outline-none${cmd ? ' font-mono text-[var(--cmd)]' : ''}`}
           rows={2}
           value={text}
           disabled={!canSend}
@@ -235,7 +238,7 @@ export function Compose(props: {
           }}
           onKeyDown={onKey}
         />
-        <PickButton onPick={att.add} disabled={!canSend || !canAttach.ok} />
+        {cmd ? null : <PickButton onPick={att.add} disabled={!canSend || !canAttach.ok} />}
         {clearing ? (
           <span className="compose-clear self-center text-wait" role="status" title="Esc again clears the draft">
             <Icon name="warn" size={14} label="Esc again clears the draft" />
@@ -247,7 +250,7 @@ export function Compose(props: {
           </label>
         ) : null}
         <Button
-          className="compose-send self-center rounded-pill"
+          className={`compose-send self-center rounded-pill${cmd ? ' !bg-[var(--cmd)]' : ''}`}
           variant="solid"
           icon="send"
           label="Send"
