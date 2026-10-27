@@ -116,6 +116,7 @@ describe('the chat scroll on the phone', () => {
   it('keeps the room when the reader comes back to the bottom of the lines, so the last send can sit at the top again', async () => {
     const m = await mount({ ready: true, sent: SENT });
     await entered(m);
+    const room = m.a().room;
     await m.run(() => m.a().drag());
     expect(m.a().scrolled(scrollEvent(100))).toBe(false); // up in the history
     expect(m.a().room).toBe(room);
