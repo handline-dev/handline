@@ -1,7 +1,7 @@
 // Where a task's time went on the phone (docs/pc-app-gaps.md K5): a bar of its segments by length, the total per kind, then each segment.
 import { useState } from 'react';
 import { Text, View } from 'react-native';
-import { clockTime, span, timeView, type TimeKind } from '@handline/app-core';
+import { clockTime, span, timeView, type TimeLabel } from '@handline/app-core';
 import type { TimeSegment } from '@handline/client';
 import { useServes, useTaskTime } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
@@ -12,19 +12,28 @@ const length = (seconds: number) => span(seconds * 1000);
 
 export function TaskTime({ segments }: { segments: TimeSegment[] }) {
   const c = usePalette();
-  const tone: Record<TimeKind, string> = { working: c.run, waiting: c.block, queued: c.muted, starting: c.accent };
+  const tone: Record<TimeLabel, string> = {
+    working: c.run,
+    founder: c.wait,
+    task: c.block,
+    agent: c.muted,
+    account: c.block,
+    waiting: c.muted,
+    queued: c.muted,
+    starting: c.accent,
+  };
   const { rows, totals, seconds } = timeView(segments);
   return (
     <View testID="task-time" accessibilityLabel={`${seconds} seconds in all`} style={{ gap: space.sm }}>
       <View style={{ flexDirection: 'row', height: space.sm, borderRadius: space.sm, overflow: 'hidden', backgroundColor: c.panel }}>
         {rows.map((r, i) => (
-          <View key={i} style={{ width: `${r.share * 100}%`, backgroundColor: tone[r.kind] }} />
+          <View key={i} style={{ width: `${r.share * 100}%`, backgroundColor: tone[r.label] }} />
         ))}
       </View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md }}>
         {totals.map((t) => (
-          <Text key={t.kind} testID={`time-total-${t.kind}`} style={{ color: c.ink }}>
-            <Text style={{ color: tone[t.kind] }}>● </Text>
+          <Text key={t.label} testID={`time-total-${t.label}`} style={{ color: c.ink }}>
+            <Text style={{ color: tone[t.label] }}>● </Text>
             {t.word} <Text style={{ fontWeight: '700' }}>{length(t.seconds)}</Text>
           </Text>
         ))}
@@ -33,7 +42,7 @@ export function TaskTime({ segments }: { segments: TimeSegment[] }) {
         </Text>
       </View>
       {rows.map((r, i) => (
-        <View key={i} testID={`time-segment-${r.kind}`} style={{ flexDirection: 'row', gap: space.sm }}>
+        <View key={i} testID={`time-segment-${r.label}`} style={{ flexDirection: 'row', gap: space.sm }}>
           <Text style={{ color: c.muted, fontSize: font.size.label }}>{clockTime(r.from)}</Text>
           <Text style={{ color: c.ink, flex: 1 }}>{r.text}</Text>
           <Text style={{ color: c.muted }}>{length(r.seconds)}</Text>
