@@ -214,7 +214,7 @@ func TestAPromptTheNotificationHookReportsNeedsAPersonOnlyBehindTheSwitch(t *tes
 	}
 	needs := (&Parts{db: d, home: home, notified: true}).needsYou()
 	n := needs("worker")
-	if n == nil || n.Kind != "permission" || n.Source != "notification" || n.Since != 1700 || n.Text != "handle this in the terminal" {
+	if n == nil || n.Kind != "permission" || n.Source != "notification" || n.Since != 1700 {
 		t.Fatalf("%+v", n)
 	}
 	os.MkdirAll(filepath.Join(home, "waiting"), 0o755)

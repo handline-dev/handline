@@ -146,7 +146,7 @@ function Recent() {
     <>
       <SectionHead>Just happened</SectionHead>
       {events === null ? (
-        <p className="muted">{served ? 'Loading…' : 'This daemon does not serve its event feed.'}</p>
+        <p className="muted">{served ? 'Loading…' : 'This needs a newer Handline.'}</p>
       ) : (
         <SettingsCard as="ul" className="admin-events">
           {events.map((e) => (

@@ -48,7 +48,7 @@ export function sentence(f: Failure): string {
     case 'other':
       return f.message;
     case 'busy':
-      return 'The daemon is busy; trying again.';
+      return 'Handline is busy. Try again in a moment.';
     case 'not_served':
       return 'This needs a newer Handline.';
     case 'transport':
