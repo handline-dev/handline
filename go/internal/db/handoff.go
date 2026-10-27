@@ -189,6 +189,16 @@ func MarkNoteWait(q Q, agent, kind string, now int64) error {
 	return SetMeta(q, noteWaitKey(agent), fmt.Sprintf("%d:%s", now, kind))
 }
 
+// CloseOwedHandoff is NoteWaitKept for a wake: the wait counts while it is within NoteWaitStaleS, and for a session closed while it
+// counted (closedAt, 0 for not closed), however late the wake. A mark left behind by a handoff that never went on owes nothing to a later close.
+func CloseOwedHandoff(q Q, agent string, now, closedAt int64) (kind string, ok bool, err error) {
+	kind, since, ok, err := NoteWait(q, agent)
+	if err != nil || !ok {
+		return "", false, err
+	}
+	return kind, now-since <= NoteWaitStaleS || (closedAt >= since && closedAt <= since+NoteWaitStaleS), nil
+}
+
 // ClearNoteWait ends the wait MarkNoteWait kept.
 func ClearNoteWait(q Q, agent string) error { return SetMeta(q, noteWaitKey(agent), "") }
 

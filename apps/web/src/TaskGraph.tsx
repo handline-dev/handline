@@ -36,7 +36,7 @@ function Card({ c, lit, dim, onPick }: { c: ColumnCard; lit: boolean; dim: boole
       {c.waitsOn || c.onYou ? (
         <span className={`flex items-center gap-1 truncate text-hint ${c.onYou ? 'text-wait' : 'text-ink-3'}`}>
           {c.onYou ? <Icon name="waiting" size={12} aria-hidden="true" /> : null}
-          {c.waitsOn ?? 'waiting on you'}
+          {c.waitsOn ?? 'needs you'}
         </span>
       ) : null}
     </button>

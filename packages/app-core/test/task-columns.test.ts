@@ -85,7 +85,7 @@ test('a task that waits on the person says so, and a click lights the whole chai
   const ask = { id: 9, from: 'team.a', to: 'human', state: 'landed', at: '2026-06-10T00:00:00Z' };
   const gr = g([task(1, { state: 'doing', requests: [ask] }), task(2, { blocked_by: [1] }), task(3, { blocked_by: [2] }), task(4)]);
   assert.equal(card(gr, 1).onYou, true);
-  assert.equal(card(gr, 1).waitsOn, 'waiting on you');
+  assert.equal(card(gr, 1).waitsOn, 'needs you');
   assert.deepEqual([...chainOf(gr.edges, 2)].sort(), [1, 2, 3]);
   assert.deepEqual([...chainOf(gr.edges, 4)], [4]);
 });

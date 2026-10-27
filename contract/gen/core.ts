@@ -156,6 +156,8 @@ export type DaemonStatus = {
   };
   /** Null until the first measure, and on a daemon that does not measure. */
   resources?: Resources | null;
+  /** The machine's own needs-you items, oldest first; absent when there are none, and on a daemon that does not serve it. A client draws each beside the agents' needs-you cards, in the text given. */
+  needs_you?: MachineNeed[];
 };
 
 export type Repo = {
@@ -556,6 +558,15 @@ export type Prefs = {
 export type ReadCursor = {
   /** The newest stream cursor when this read began. An event above it may be in the answer already (applying it again changes nothing); none at or below it is missing. A client drops the events at or below it for this answer. */
   cursor: number;
+};
+
+/** Something the machine needs of the founder, which no agent has: not a task and not an inbox message. */
+export type MachineNeed = {
+  /** disk: free space is under the floor (config disk_free_min_gb, default 5), so builds and tests wait. It stays until space is back over the floor plus 2 GB. */
+  kind: "disk";
+  since: Timestamp;
+  /** The item in plain words, with the free space in it. */
+  text: string;
 };
 
 export interface CoreMethods {

@@ -1,5 +1,6 @@
 // `useWrite`: the one door every UI write goes through (docs/turborepo-layout.md §8.5). An authored write edits the cache first and puts
 // it back if the daemon refuses; a decided write leaves the cache alone and is shown by its pending mark.
+import { useRef } from 'react';
 import { useIsMutating, useMutation, useMutationState, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView, CallParams, MethodName, Methods } from '@handline/client';
@@ -30,7 +31,8 @@ export function useWrite<M extends WriteMethod>(method: M, target?: string) {
   const { daemon } = useData();
   const spec = writes[method] as WriteSpec;
   const ctx = (): Parameters<NonNullable<WriteSpec['patch']>>[0] => ({ qc, d: daemon, me: store.me, now: new Date().toISOString() });
-  return useMutation<Methods[M]['result'], unknown, CallParams<M>, { snapshot: Snapshot }>({
+  const again = useRef<(p: CallParams<M>) => void>(() => {});
+  const mutation = useMutation<Methods[M]['result'], unknown, CallParams<M>, { snapshot: Snapshot }>({
     mutationKey: writeKey(daemon, method),
     scope: target ? { id: `${daemon}:${target}` } : undefined,
     mutationFn: async (p) => {
@@ -48,7 +50,7 @@ export function useWrite<M extends WriteMethod>(method: M, target?: string) {
     onError: (e, p, mine) => {
       const handled = spec.fail?.(ctx(), p as never, e) ?? false;
       if (!handled) restore(qc, mine?.snapshot ?? []);
-      store.reportError(spec.label, e);
+      store.reportError(spec.label, e, () => again.current(p));
     },
     onSuccess: (r, p) => {
       spec.reconcile?.(ctx(), p as never, r as never);
@@ -56,6 +58,8 @@ export function useWrite<M extends WriteMethod>(method: M, target?: string) {
     },
     onSettled: (_r, _e, p) => settle(qc, daemon, spec, p as never),
   });
+  again.current = mutation.mutate;
+  return mutation;
 }
 
 /** A structured agent has no terminal and no input to hold: a write that needs one never leaves the app. */
@@ -95,7 +99,10 @@ export function usePending<M extends WriteMethod>(method: M): CallParams<M>[] {
 export function usePendingAny(methods: readonly WriteMethod[]): Record<string, unknown>[] {
   const { daemon } = useData();
   return useMutationState({
-    filters: { status: 'pending', predicate: (m) => m.options.mutationKey?.[1] === daemon && methods.includes(m.options.mutationKey?.[2] as WriteMethod) },
+    filters: {
+      status: 'pending',
+      predicate: (m) => m.options.mutationKey?.[1] === daemon && methods.includes(m.options.mutationKey?.[2] as WriteMethod),
+    },
     select: (m) => m.state.variables as Record<string, unknown>,
   });
 }
