@@ -52,7 +52,13 @@ export function AssignTask({ t, onClose }: { t: TaskDetail; onClose: () => void 
           testID={`assign-${n}`}
           accessibilityRole="button"
           onPress={() => pick(n)}
-          style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 44, paddingHorizontal: space.sm }}
+          style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            minHeight: 44,
+            paddingHorizontal: space.sm,
+          }}
         >
           <Text numberOfLines={1} style={{ color: c.ink, flexShrink: 1 }}>
             {n === me ? 'Me' : n}

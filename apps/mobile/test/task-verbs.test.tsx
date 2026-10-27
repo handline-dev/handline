@@ -223,19 +223,23 @@ describe('the task verbs', () => {
     expect($(`memo-${id}`)?.textContent).not.toContain('**');
   });
 
-  it('shows a memo\'s image inline (a tap opens it full size) and its Markdown rendered, and says so for a file no longer kept', async () => {
+  it("shows a memo's image inline (a tap opens it full size) and its Markdown rendered, and says so for a file no longer kept", async () => {
     const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
     let ids: { img: string; md: string; gone: string } | undefined;
-    const m = await mount((s) => {
-      s.daemon.tasks.verbs = true;
-      const up = s.daemon.uploads;
-      const img = up.addMemoFile('shot.png', 'image/png', Buffer.from(PNG, 'base64'));
-      const md = up.addMemoFile('plan.md', 'text/markdown', Buffer.from('# Plan\n\nA **bold** step and `code`.\n\n- first\n- second\n'));
-      const gone = up.addMemoFile('old.md', 'text/markdown', Buffer.from('# Old'));
-      up.expire(gone.id);
-      s.daemon.tasks.memoWithFiles(MINE_DOING, 'handline.mobile', 'the mock', [img, md, { ...gone, gone: true }]);
-      ids = { img: img.id, md: md.id, gone: gone.id };
-    }, undefined, 'founder');
+    const m = await mount(
+      (s) => {
+        s.daemon.tasks.verbs = true;
+        const up = s.daemon.uploads;
+        const img = up.addMemoFile('shot.png', 'image/png', Buffer.from(PNG, 'base64'));
+        const md = up.addMemoFile('plan.md', 'text/markdown', Buffer.from('# Plan\n\nA **bold** step and `code`.\n\n- first\n- second\n'));
+        const gone = up.addMemoFile('old.md', 'text/markdown', Buffer.from('# Old'));
+        up.expire(gone.id);
+        s.daemon.tasks.memoWithFiles(MINE_DOING, 'handline.mobile', 'the mock', [img, md, { ...gone, gone: true }]);
+        ids = { img: img.id, md: md.id, gone: gone.id };
+      },
+      undefined,
+      'founder',
+    );
     await openTask(MINE_DOING);
     await until(() => $('memo-files')?.querySelector('div[aria-label="shot.png"]'), 'the image');
     await until(() => $(`memo-markdown-${ids!.md}`), 'the Markdown');
@@ -296,4 +300,3 @@ describe('the task verbs', () => {
     m.store.stop();
   });
 });
-
