@@ -47,7 +47,7 @@ export function TaskDetail({
       {page ? (
         <PageHead back={onBack ? { label: 'My turn', to: onBack } : { label: 'Tasks', to: () => leave('#/tasks') }}>
           <PageTitle className="min-w-0 truncate">
-            <span className="mono">{taskRef(id)}</span> {q.data ? <TitleEdit t={q.data} /> : null}
+            <span className="mono">{taskRef(id)}</span> {q.data ? <TitleEdit bar t={q.data} /> : null}
           </PageTitle>
         </PageHead>
       ) : null}
@@ -83,13 +83,13 @@ export function TaskDetail({
 }
 
 /** The task's title, where the person edits it: in the top bar on a page of its own, in the body's heading elsewhere. */
-function TitleEdit({ t }: { t: Detail }) {
+function TitleEdit({ t, bar }: { t: Detail; bar?: boolean }) {
   const edit = useEditTask(t);
   return (
     <Inline
       can={edit.can.ok && !CLOSED.includes(t.state)}
       label="Title"
-      input={(close) => <TextInput value={t.title} label="Title" onSave={(title) => edit.save({ title })} onClose={close} />}
+      input={(close) => <TextInput bar={bar} value={t.title} label="Title" onSave={(title) => edit.save({ title })} onClose={close} />}
     >
       {t.title}
     </Inline>
