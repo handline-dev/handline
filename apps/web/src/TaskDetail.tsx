@@ -32,7 +32,7 @@ export function TaskDetail({
   drawer,
 }: {
   id: number;
-  /** A close for a detail the window's own Back cannot return from; left out, the header is not drawn. */
+  /** Where Back goes for a detail the window's own Back cannot return from (My turn): on a page the top bar carries it; left out, it goes to Tasks. */
   onBack?: () => void;
   /** A pane inside its host (the Tasks tab of an agent pane, the Tasks page's split). */
   embedded?: boolean;
@@ -45,7 +45,7 @@ export function TaskDetail({
   return (
     <>
       {page ? (
-        <PageHead back={{ label: 'Tasks', to: () => leave('#/tasks') }}>
+        <PageHead back={onBack ? { label: 'My turn', to: onBack } : { label: 'Tasks', to: () => leave('#/tasks') }}>
           <PageTitle className="min-w-0 truncate">
             <span className="mono">{taskRef(id)}</span>
             {q.data ? ` ${q.data.title}` : ''}
@@ -62,7 +62,7 @@ export function TaskDetail({
         }`}
         aria-label={`Task ${taskRef(id)}`}
       >
-        {onBack ? (
+        {onBack && !page ? (
           <div className="mb-4 flex items-center justify-end gap-2">
             <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
               Back
