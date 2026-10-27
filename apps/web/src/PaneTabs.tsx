@@ -115,8 +115,7 @@ function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneD
     const el = run.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => setWidth(el.clientWidth));
-    setWidth(el.clientWidth);
-    ro.observe(el);
+    ro.observe(el); // observing delivers the first size too
     return () => ro.disconnect();
   }, []);
 
@@ -131,9 +130,7 @@ function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneD
     if (attention && !wasAttention.current && termId !== undefined && !termShown) setUnread(true);
     wasAttention.current = attention;
   }, [attention, termId, termShown]);
-  useEffect(() => {
-    if (termShown) setUnread(false);
-  }, [termShown]);
+  if (termShown && unread) setUnread(false); // showing the terminal clears the dot: state adjusted while rendering, not in an effect
 
   // Claude Code is reached by the switch (Cmd/Ctrl+J, /terminal, the icon in the bottom bar), not by a tab, while the chat is in the group.
   const viaSwitch = (id: string) => (ws.tabs[id]?.kind === 'terminal' || ws.tabs[id]?.kind === 'transcript') && group.tabs.includes(CHAT);
