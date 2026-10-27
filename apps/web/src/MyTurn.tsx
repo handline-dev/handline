@@ -16,6 +16,7 @@ const KIND: Record<Card['kind'], string> = {
   approval: 'Approve',
   dialog: 'Dialog',
   attention: 'Needs you',
+  machine: 'Machine',
   task: 'Task',
 };
 

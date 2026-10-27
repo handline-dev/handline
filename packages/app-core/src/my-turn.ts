@@ -1,10 +1,10 @@
 // What waits on the person, as one list of cards (docs/story9-my-turn.md 9-1): unread inbox items that need an answer, and agents that
 // say `needs_you`, and open tasks given to the person. Built only from fields the web client already reads; priority and deadline come from the item's task.
-import type { AgentView, InboxItem, Task } from '@handline/client';
+import type { AgentView, InboxItem, MachineNeed, Task } from '@handline/client';
 import { isPerson } from '#src/chat.ts';
 import { CLOSED } from '#src/task-table.ts';
 
-export type CardKind = 'decision' | 'approval' | 'dialog' | 'attention' | 'task';
+export type CardKind = 'decision' | 'approval' | 'dialog' | 'attention' | 'machine' | 'task';
 
 export type CardAction =
   /** A written reply to the item (inbox.reply). */
@@ -47,6 +47,8 @@ export interface MyTurnInput {
   items: readonly InboxItem[];
   agents: readonly AgentView[];
   tasks: readonly Task[];
+  /** The machine's own needs (daemon.status needs_you): a card with no action, gone when the daemon drops it. */
+  machine?: readonly MachineNeed[];
   /** The caller's own name: a report is accepted by whoever it answers to, the founder (`human`) or this name. */
   me?: string;
 }
@@ -105,7 +107,7 @@ function taskCards(
 }
 
 /** The cards, most urgent first: task priority, then the earliest deadline (none last), then the one waiting longest. */
-export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
+export function myTurn({ items, agents, tasks, machine = [], me = '' }: MyTurnInput): Card[] {
   const byTask = new Map(tasks.map((t) => [t.id, t]));
   const when = (task: number | null) => {
     const t = task == null ? undefined : byTask.get(task);
@@ -213,6 +215,24 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
             { type: 'open', to: `#/agents/${encodeURIComponent(a.name)}` },
             { type: 'terminal', agent: a.name },
           ],
+    });
+  }
+
+  for (const n of machine) {
+    cards.push({
+      key: `machine:${n.kind}`,
+      kind: 'machine',
+      title: 'Free disk space',
+      detail: n.text,
+      agent: null,
+      from: null,
+      task: null,
+      review: false,
+      priority: 1,
+      due: null,
+      since: at(n.since),
+      primary: 0,
+      actions: [],
     });
   }
 
