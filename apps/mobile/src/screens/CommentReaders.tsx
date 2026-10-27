@@ -45,7 +45,11 @@ export function CommentReaders({ memo, readers }: { memo: number; readers: MemoR
           error={send.isError ? sentence(classify(send.error)) : undefined}
         >
           {readers.map((r) => (
-            <View key={r.agent} testID={`reader-${r.agent}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 44 }}>
+            <View
+              key={r.agent}
+              testID={`reader-${r.agent}`}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, minHeight: 44 }}
+            >
               <Icon name={STATE[r.state].icon} color={c.muted} size={16} decorative />
               <Text style={{ color: c.ink }}>{r.agent}</Text>
               <Text style={{ color: c.muted, flex: 1, textAlign: 'right' }}>{STATE[r.state].text(r)}</Text>
