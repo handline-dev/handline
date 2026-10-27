@@ -150,7 +150,7 @@ export type TaskDetail = Task & {
     at: Timestamp;
     /** The author, or `from → to` for a handoff. */
     who: string;
-    /** memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note), from before a review was a handoff. */
+    /** memo; handoff; a request linked to the task, except a memo's tell, which repeats its memo; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note), from before a review was a handoff. */
     kind: "memo" | "handoff" | "request" | "edit" | "state" | "reject";
     /** Already stripped of control characters: a client draws it as it is. */
     text: string;
