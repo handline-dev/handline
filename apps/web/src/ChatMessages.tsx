@@ -92,8 +92,8 @@ function Ticks({ level, label, receipt }: { level: 0 | 1 | 2; label: string; rec
   );
 }
 
-/** Under a message of the person's: the request made from it (a link to its task), or why it needs no work; a picked one with neither offers Make a request. */
-function RequestChip({ m, picked }: { m: ChatMessage; picked: boolean }) {
+/** Under a message of the person's: the task the team took it as (a link), or why it needs none. Turning a message into a request is the lead's job, not the person's. */
+function RequestChip({ m }: { m: ChatMessage }) {
   if (m.request_task != null)
     return (
       <a
@@ -101,20 +101,11 @@ function RequestChip({ m, picked }: { m: ChatMessage; picked: boolean }) {
         href={`#/tasks/${m.request_task}`}
         data-request={m.request_task}
       >
-        Request T{m.request_task}
+        Taken as T{m.request_task}
       </a>
     );
-  if (m.no_work) return <span className="msg-request mt-0.5 w-fit self-end text-label text-ink-3">No work: {m.no_work}</span>;
-  return picked ? <MakeRequest id={m.id} /> : null;
-}
-
-function MakeRequest({ id }: { id: number }) {
-  const make = useWrite('task.request');
-  return (
-    <span className="msg-request mt-0.5 w-fit self-end">
-      <Button variant="outline" label="Make a request" disabled={make.isPending} onClick={() => make.mutate({ request: id })} />
-    </span>
-  );
+  if (m.no_work) return <span className="msg-request mt-0.5 w-fit self-end text-label text-ink-3">Nothing to do: {m.no_work}</span>;
+  return null;
 }
 
 export const Message = memo(MessageRow, sameMessage);
@@ -245,7 +236,7 @@ function MessageRow(props: MessageProps) {
           </div>
         ) : null}
       </div>
-      {side === 'person' && !unnumbered && !failed ? <RequestChip m={m} picked={!!props.picked} /> : null}
+      {side === 'person' && !unnumbered && !failed ? <RequestChip m={m} /> : null}
       <Stamp
         left={side !== 'agent'}
         time={clockTime(m.at)}
@@ -392,8 +383,8 @@ export function Item({
           {p?.kind === 'permission' ? <span className="mono">{p.tool}</span> : <span className="muted">{p?.kind}</span>}
           {p?.command ? <CardCode>{p.command}</CardCode> : null}
         </CardWhat>
-        <span className="card-state" title={i.open ? 'Waiting for you' : 'Answered'}>
-          <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Waiting for you' : 'Answered'} />
+        <span className="card-state" title={i.open ? 'Needs you' : 'Answered'}>
+          <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Needs you' : 'Answered'} />
         </span>
         <span className="muted card-time">{clockTime(i.at)}</span>
       </Card>

@@ -23,6 +23,8 @@ import sys
 import time
 from pathlib import Path
 
+import generate  # this folder's: load() joins contract/spec/
+
 HERE = Path(__file__).resolve().parent
 FIXTURES = HERE / "fixtures"
 TIMEOUT_S = 5.0
@@ -285,9 +287,9 @@ def saved_names(node) -> set:
     return set()
 
 
-@functools.cache     # asked once per fixture; the spec is the biggest file here
+@functools.cache     # asked once per fixture; the spec is the biggest read here
 def spec_methods() -> frozenset:
-    return frozenset(m["name"] for m in json.loads((HERE / "protocol.json").read_text())["methods"])
+    return frozenset(m["name"] for m in generate.load()["methods"])
 
 
 def listed_methods(target) -> set | None:
@@ -401,7 +403,7 @@ def expand(node, method: str):
 
 
 def load(paths: list[Path]) -> list[dict]:
-    """Fixtures from the files. A fixture with `for_each: "method"` has its steps repeated for every method of protocol.json
+    """Fixtures from the files. A fixture with `for_each: "method"` has its steps repeated for every method of the spec
     (less `except`) and for one name it does not have, "@method" standing for the name, so a new method cannot escape it."""
     out = []
     for p in paths:

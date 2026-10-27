@@ -41,7 +41,9 @@ export function NoticeBell() {
               onClick={() => void ((location.hash = '#/my-turn'), setOpen(false))}
             >
               <span className="size-2 flex-none rounded-full bg-wait" aria-hidden />
-              <span className="flex-1">{waiting} waiting on you</span>
+              <span className="flex-1">
+                {waiting} {waiting === 1 ? 'needs' : 'need'} you
+              </span>
               <Icon name="chevronRight" size={14} label="Opens My turn" aria-hidden />
             </button>
           ) : null}
@@ -118,6 +120,12 @@ function Toasts() {
           onPointerLeave={() => store.notices.release(n.id)}
         >
           {lineOf(n)}
+          {n.details ? (
+            <details className="mt-1 text-hint" onClick={(e) => e.stopPropagation()}>
+              <summary className="cursor-pointer">Details</summary>
+              {n.details}
+            </details>
+          ) : null}
         </div>
       ))}
     </div>

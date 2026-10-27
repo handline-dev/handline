@@ -1,0 +1,3851 @@
+{
+ "components": {
+  "schemas": {
+   "TaskClock": {
+    "type": "object",
+    "properties": {
+     "length_s": {
+      "type": "integer",
+      "description": "The time box in seconds."
+     },
+     "default": {
+      "type": "boolean",
+      "description": "True when the length is the daemon's default, none was set."
+     },
+     "start": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp",
+        "description": "`end` less the length, so a clock that paused and resumed reads as begun later than it was; null until the task is doing and while the clock is paused."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "end": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp",
+        "description": "Its deadline; null until the task is doing and while the clock is paused."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "overdue_since": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp",
+        "description": "The first deadline that was missed, which is not `end` once notices moved it; null while in time. A client derives time left and time over from `end`, `overdue_since` and its own clock."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "told": {
+      "type": "integer",
+      "description": "How many overrun notices the opener has had."
+     },
+     "left_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "description": "The seconds the clock had left when it paused: the task waits on a blocker or an open child, or is no longer doing. It resumes from this. Null while the clock runs or never ran."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "length_s",
+     "default",
+     "start",
+     "end",
+     "overdue_since",
+     "told",
+     "left_s"
+    ],
+    "description": "The task's clock."
+   },
+   "Task": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "from": {
+      "type": "string"
+     },
+     "to": {
+      "type": "string"
+     },
+     "title": {
+      "type": "string"
+     },
+     "state": {
+      "type": "string",
+      "description": "draft, queued, doing, done or discarded. doing is its owner's current, unblocked task (one per agent)."
+     },
+     "time_box": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Duration"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "parent": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "created": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "delivered": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "done": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "hold_reason": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "block_reason": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "evidence": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "priority": {
+      "type": "integer",
+      "enum": [
+       1,
+       2,
+       3
+      ],
+      "description": "1 high, 2 default, 3 low (written P1-P3)."
+     },
+     "tags": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Its tags, in order."
+     },
+     "last_activity": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "The newest of the task's creation, edit, done and discard and of any request linked to it: what a list sorts a person's tasks by. Absent from a daemon that does not send it."
+     },
+     "edited_by": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Who last changed the task's owner, title, priority or brief; null when never."
+     },
+     "asker": {
+      "type": "string",
+      "description": "Who the task answers to when it closes: its reporter when one was set; else the founder (`human`) if any request linked to it came from the founder, else whoever opened it."
+     },
+     "discarded": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "by": {
+          "type": "string"
+         },
+         "reason": {
+          "type": "string"
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp"
+         },
+         "withdrew": {
+          "type": "array",
+          "items": {
+           "type": "integer"
+          },
+          "description": "The requests the discard withdrew with it (a lead's or the founder's), as request ids."
+         },
+         "batch": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "description": "The batch it was discarded in, null for a discard of its own."
+         }
+        },
+        "required": [
+         "by",
+         "reason",
+         "at"
+        ],
+        "description": "Who threw the task away, why and when."
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Null when the task was not discarded."
+     },
+     "mismatch": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Where the task's state and its delivery disagree (a draft with work out, an approved task nothing is out for), in words; null when they agree."
+     },
+     "requests": {
+      "type": "array",
+      "description": "The requests linked to the task, oldest first.",
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "integer"
+        },
+        "ref": {
+         "$ref": "#/components/schemas/RequestRef"
+        },
+        "from": {
+         "type": "string"
+        },
+        "to": {
+         "type": "string"
+        },
+        "state": {
+         "type": "string"
+        },
+        "at": {
+         "$ref": "#/components/schemas/Timestamp"
+        }
+       },
+       "required": [
+        "id",
+        "from",
+        "to",
+        "state",
+        "at"
+       ]
+      }
+     },
+     "blocked_by": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "description": "The ids of the open tasks that hold this one (block_reason names them as text); empty when nothing does. Absent from a daemon that does not send it."
+     },
+     "waits": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        },
+        "open": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "task",
+        "open"
+       ]
+      },
+      "description": "Every task this one has waited on, oldest first, with whether it is still open: blocked_by keeps only the open ones, this keeps a done one too (a discarded blocker's wait ends with it and drops out). A child task is one its parent waits on. Absent from a daemon that does not send it."
+     },
+     "waiting": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/TaskWaiting"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Why the open task waits, as one field every view shows the same way; null when nothing waits, and for a task that is not queued or doing. hold_reason and block_reason stay until the apps read this. Absent from a daemon that does not send it."
+     },
+     "time": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/TaskClock"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The task's clock, the same object task.get gives; null once it is done or discarded. Absent from a daemon that does not send it."
+     },
+     "pr": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The pull request its work merges in (task.edit pr), as a link. Absent from a daemon that does not send it."
+     },
+     "watch": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/TaskWatch"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What the task watches when its owner is gate; null for any other. Absent from a daemon that does not send it."
+     },
+     "status": {
+      "$ref": "#/components/schemas/Status",
+      "description": "What it is doing and why (x-status). Absent from a daemon that does not send it."
+     }
+    },
+    "required": [
+     "id",
+     "from",
+     "to",
+     "title",
+     "state",
+     "time_box",
+     "parent",
+     "created",
+     "delivered",
+     "done",
+     "hold_reason",
+     "block_reason",
+     "evidence"
+    ],
+    "description": "A task row without its body."
+   },
+   "TaskWaiting": {
+    "type": "object",
+    "properties": {
+     "on": {
+      "type": "string",
+      "description": "The cause, one word of an open set (a client shows text for a word it does not know): task (behind its open blockers, tasks names them), founder (an open request to the founder on the task), cap (the owner's account has no free slot), wall (the owner's account is at a usage limit), owner (the owner is busy: mid-turn, a dialog, closed, another task ahead), host (reserved: the host is full; not sent until the host cap exists)."
+     },
+     "text": {
+      "type": "string",
+      "description": "The line every view shows for it: `blocked by T<n>`, `waiting on you`, else the daemon's own reason."
+     },
+     "tasks": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "description": "The tasks it waits on, for on task (by id, also one outside the caller's scope); empty otherwise."
+     },
+     "since": {
+      "$ref": "#/components/schemas/Timestamp"
+     }
+    },
+    "required": [
+     "on",
+     "text",
+     "tasks",
+     "since"
+    ],
+    "description": "Why a task waits (Task.waiting)."
+   },
+   "TaskDetail": {
+    "allOf": [
+     {
+      "$ref": "#/components/schemas/Task"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "body": {
+        "type": "string"
+       },
+       "body_parts": {
+        "type": "array",
+        "items": {
+         "oneOf": [
+          {
+           "$ref": "#/components/schemas/TextPart"
+          },
+          {
+           "$ref": "#/components/schemas/ImagePart"
+          }
+         ]
+        },
+        "description": "`body` cut at the images it names, in order; present only when it names one. The text parts joined give `body` with each reference left out."
+       },
+       "deliveries": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "at": {
+           "$ref": "#/components/schemas/Timestamp"
+          },
+          "how": {
+           "type": "string"
+          },
+          "outcome": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "at",
+          "how",
+          "outcome"
+         ]
+        }
+       },
+       "events": {
+        "type": "array",
+        "items": {
+         "$ref": "#/components/schemas/TaskEvent"
+        }
+       },
+       "memos": {
+        "type": "array",
+        "items": {
+         "$ref": "#/components/schemas/Memo"
+        }
+       },
+       "blockers": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "task": {
+           "type": "integer"
+          },
+          "reason": {
+           "type": "string"
+          },
+          "owner": {
+           "type": "string"
+          },
+          "title": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "task",
+          "reason",
+          "owner",
+          "title"
+         ]
+        }
+       },
+       "children": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       },
+       "handoffs": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "at": {
+           "$ref": "#/components/schemas/Timestamp"
+          },
+          "from": {
+           "type": "string"
+          },
+          "to": {
+           "type": "string"
+          },
+          "note": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "at",
+          "from",
+          "to",
+          "note"
+         ]
+        }
+       },
+       "assignments": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "at": {
+           "$ref": "#/components/schemas/Timestamp"
+          },
+          "by": {
+           "type": "string",
+           "description": "Who made the change."
+          },
+          "what": {
+           "type": "string",
+           "enum": [
+            "assignee",
+            "owner"
+           ],
+           "description": "assignee: who works the task (its owner column); owner: who it answers to (its reporter)."
+          },
+          "from": {
+           "type": "string"
+          },
+          "to": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "at",
+          "by",
+          "what",
+          "from",
+          "to"
+         ]
+        },
+        "description": "Every change of the assignee or the owner made by an edit, oldest first; anyone may make one. Handoffs are listed in handoffs."
+       },
+       "asker": {
+        "type": "string",
+        "description": "Who the task answers to when it closes: its reporter when one was set; else the founder (`human`) if any request linked to it came from the founder, else whoever opened it. A client lets the founder reopen a done task only when this is the founder."
+       },
+       "discarded": {
+        "oneOf": [
+         {
+          "type": "object",
+          "properties": {
+           "by": {
+            "type": "string"
+           },
+           "reason": {
+            "type": "string"
+           },
+           "at": {
+            "$ref": "#/components/schemas/Timestamp"
+           }
+          },
+          "required": [
+           "by",
+           "reason",
+           "at"
+          ],
+          "description": "Who threw the task away, why and when; null when it was not discarded."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "merged_into": {
+        "oneOf": [
+         {
+          "type": "integer",
+          "description": "The task this one was folded into (task.merge); null otherwise."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "time": {
+        "oneOf": [
+         {
+          "$ref": "#/components/schemas/TaskClock"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "description": "The task's clock; null once it is done or discarded."
+       },
+       "parent_title": {
+        "oneOf": [
+         {
+          "type": "string",
+          "description": "The title of `parent`."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "subtasks": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "id": {
+           "type": "integer"
+          },
+          "title": {
+           "type": "string"
+          },
+          "owner": {
+           "type": "string"
+          },
+          "state": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "id",
+          "title",
+          "owner",
+          "state"
+         ]
+        },
+        "description": "The sub-tasks by number: `children` with their titles, owners and states."
+       },
+       "timeline": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "at": {
+           "$ref": "#/components/schemas/Timestamp"
+          },
+          "who": {
+           "type": "string",
+           "description": "The author, or `from → to` for a handoff."
+          },
+          "kind": {
+           "type": "string",
+           "enum": [
+            "memo",
+            "handoff",
+            "request",
+            "edit",
+            "state",
+            "reject"
+           ],
+           "description": "memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note), from before a review was a handoff."
+          },
+          "text": {
+           "type": "string",
+           "description": "Already stripped of control characters: a client draws it as it is."
+          },
+          "memo": {
+           "oneOf": [
+            {
+             "type": "integer",
+             "description": "A memo's id, for editing or deleting it; null for the others."
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "edited_at": {
+           "oneOf": [
+            {
+             "$ref": "#/components/schemas/Timestamp"
+            },
+            {
+             "type": "null"
+            }
+           ]
+          },
+          "parts": {
+           "type": "array",
+           "items": {
+            "oneOf": [
+             {
+              "$ref": "#/components/schemas/TextPart"
+             },
+             {
+              "$ref": "#/components/schemas/ImagePart"
+             }
+            ]
+           },
+           "description": "`text` cut at the images it names, for a memo, a handoff, an edit or a reject; present only when it names one."
+          }
+         },
+         "required": [
+          "at",
+          "who",
+          "kind",
+          "text",
+          "memo",
+          "edited_at"
+         ]
+        },
+        "description": "What happened on the task as one list, oldest first: its memos, its handoffs (a handoff's note is its entry, not a second one), the requests linked to it, the edits of its brief, its marks done and each time it was sent back. Overlaps `events`, `memos`, `handoffs` and `deliveries`, which stay."
+       },
+       "people": {
+        "type": "object",
+        "properties": {
+         "recent": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "Who the founder last chatted with, latest first."
+         },
+         "team": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "description": "The rest of the holder's team, in team.yaml order."
+         },
+         "others": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         }
+        },
+        "required": [
+         "recent",
+         "team",
+         "others"
+        ],
+        "description": "Whom the founder can ask about the task (task.ask), each agent once."
+       },
+       "ui": {
+        "type": "boolean",
+        "description": "The task was opened as a ui task. Absent when it was not."
+       },
+       "result": {
+        "type": "object",
+        "description": "What the task's end kept beyond its evidence. Absent for a task without any.",
+        "properties": {
+         "commit": {
+          "type": "string",
+          "description": "The full sha it was done at."
+         },
+         "on_main": {
+          "type": "boolean",
+          "description": "Whether main reaches commit."
+         },
+         "shots": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "properties": {
+            "n": {
+             "type": "integer"
+            },
+            "bytes": {
+             "type": "integer"
+            }
+           },
+           "required": [
+            "n",
+            "bytes"
+           ]
+          },
+          "description": "Fetch each with task.shot."
+         }
+        },
+        "required": [
+         "shots"
+        ]
+       }
+      },
+      "required": [
+       "body",
+       "deliveries",
+       "events",
+       "memos",
+       "blockers",
+       "children",
+       "handoffs",
+       "asker",
+       "discarded",
+       "merged_into",
+       "time",
+       "parent_title",
+       "subtasks",
+       "timeline",
+       "people"
+      ]
+     }
+    ]
+   },
+   "TaskEvent": {
+    "type": "object",
+    "properties": {
+     "topic": {
+      "$ref": "#/components/schemas/Topic"
+     },
+     "type": {
+      "type": "string",
+      "description": "See x-topics for each topic's types."
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "actor": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Actor"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "agent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "title": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "target": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "screen": {
+          "type": "string"
+         },
+         "id": {
+          "type": "string",
+          "description": "Agent name, task or item id."
+         }
+        },
+        "required": [
+         "screen",
+         "id"
+        ],
+        "description": "Deep link."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "data": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    },
+    "required": [
+     "topic",
+     "type",
+     "at",
+     "actor",
+     "agent",
+     "title",
+     "target",
+     "data"
+    ],
+    "description": "An event as task.get lists it: the fields of Event but no cursor, because task events are not on the stream and have no position in it."
+   },
+   "Memo": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "task": {
+      "type": "integer"
+     },
+     "author": {
+      "type": "string"
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "text": {
+      "type": "string"
+     },
+     "edited_at": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "When the memo's text was last changed; null if never."
+     },
+     "parts": {
+      "type": "array",
+      "items": {
+       "oneOf": [
+        {
+         "$ref": "#/components/schemas/TextPart"
+        },
+        {
+         "$ref": "#/components/schemas/ImagePart"
+        }
+       ]
+      },
+      "description": "`text` cut at the images it names, as TaskDetail.body_parts; present only when it names one."
+     },
+     "files": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/MemoFile"
+      },
+      "description": "The files the memo carries, in the order they were given; present only when it carries one."
+     },
+     "reply_to": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The comment this one answers; null for none."
+     }
+    },
+    "required": [
+     "id",
+     "task",
+     "author",
+     "at",
+     "text"
+    ]
+   },
+   "TaskBoardRow": {
+    "type": "object",
+    "properties": {
+     "task": {
+      "$ref": "#/components/schemas/Task"
+     },
+     "holder": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "now": {
+      "type": "object",
+      "description": "Who has the task now, read from its linked requests: `waiting` on open blocker tasks (`tasks`); `held` by the agents a request is with (`agents`); `sub_task` when an open child task's request is with them (`agents`); `held_as_sub_task` while an open child shares a request with it (`tasks`, `agents` their owners); `result_in` when the last request came back done from someone other than the caller or the founder; else `nobody`.",
+      "properties": {
+       "kind": {
+        "type": "string",
+        "enum": [
+         "waiting",
+         "held",
+         "sub_task",
+         "held_as_sub_task",
+         "result_in",
+         "nobody"
+        ]
+       },
+       "agents": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "tasks": {
+        "type": "array",
+        "items": {
+         "type": "integer"
+        }
+       }
+      },
+      "required": [
+       "kind",
+       "agents",
+       "tasks"
+      ]
+     }
+    },
+    "required": [
+     "task",
+     "holder"
+    ]
+   },
+   "Expects": {
+    "type": "string",
+    "enum": [
+     "sha",
+     "verdict",
+     "decision",
+     "report"
+    ],
+    "description": "What task.done must be given: sha, verdict, decision or report (default; decision when the owner is human)."
+   },
+   "MemoFile": {
+    "type": "object",
+    "description": "A file a memo carries (task.memo.add files): an image or a Markdown text, kept on the daemon's machine like an attached image and read with attachment.get by its id.",
+    "properties": {
+     "id": {
+      "$ref": "#/components/schemas/AttachmentId"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "image",
+       "markdown"
+      ]
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "The file's name as its writer gave it, with no folder. Shown to the person; never used as a path."
+     },
+     "mime": {
+      "type": "string",
+      "enum": [
+       "image/png",
+       "image/jpeg",
+       "image/gif",
+       "image/webp",
+       "text/markdown"
+      ]
+     },
+     "bytes": {
+      "type": "integer"
+     },
+     "path": {
+      "type": "string",
+      "description": "Where the daemon keeps it; only in an agent's reads, which read it with their own file tool."
+     },
+     "gone": {
+      "type": "boolean",
+      "description": "True when it is no longer kept: attachment.get then answers not_found."
+     }
+    },
+    "required": [
+     "id",
+     "kind",
+     "name",
+     "mime",
+     "bytes"
+    ]
+   },
+   "HistoryRow": {
+    "type": "object",
+    "description": "One change to a task: who changed which field from what to what, and when. A field's change is one row; an edit of several fields is several rows with the same at.",
+    "properties": {
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "by": {
+      "type": "string",
+      "description": "Who made the change: an agent, or human."
+     },
+     "field": {
+      "type": "string",
+      "enum": [
+       "title",
+       "assignee",
+       "owner",
+       "body",
+       "priority",
+       "estimate",
+       "timeout",
+       "state",
+       "tag",
+       "blocked_by",
+       "merged_into",
+       "memo"
+      ],
+      "description": "assignee is who works the task, owner who it answers to. state is opened, draft, queued, doing, done, discarded, closed, released or merged. blocked_by is a task it waits on, as T<n>. tag is a tag added (was empty) or removed (now empty)."
+     },
+     "was": {
+      "type": "string",
+      "description": "The value before; empty when there was none (a task just opened, a wait just added, a memo just added)."
+     },
+     "now": {
+      "type": "string",
+      "description": "The value after; empty when it is gone (a wait removed, a memo deleted)."
+     },
+     "note": {
+      "type": "string",
+      "description": "With a state row: the done evidence, the report, or the reason or note given. Absent when none was."
+     },
+     "memo": {
+      "type": "integer",
+      "description": "With a memo row: the memo's id."
+     },
+     "withdrew": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "description": "With a discarded state row: the requests withdrawn with it. Absent when none were."
+     }
+    },
+    "required": [
+     "at",
+     "by",
+     "field",
+     "was",
+     "now"
+    ]
+   },
+   "Tag": {
+    "type": "string",
+    "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$",
+    "description": "A free label on a task, such as fe or be: lowercase letters, digits, '.', '_' or '-', up to 32. A writer lowercases what it is given; a task carries at most 20."
+   },
+   "TaskFilter": {
+    "type": "object",
+    "description": "What tasks.list narrows to: every key given must hold (AND). It is tasks.list's own params, so a saved view's filter is passed to tasks.list as it is.",
+    "properties": {
+     "tags": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Tasks that carry every one of these tags."
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "draft",
+       "queued",
+       "doing",
+       "done",
+       "discarded"
+      ]
+     },
+     "owner": {
+      "type": "string",
+      "description": "Who works the task (its assignee)."
+     },
+     "reporter": {
+      "type": "string",
+      "description": "Who the task answers to (its asker: hl's --owner)."
+     },
+     "from": {
+      "type": "string",
+      "description": "Who opened it."
+     }
+    },
+    "additionalProperties": false
+   },
+   "TaskView": {
+    "type": "object",
+    "description": "A saved view: a filter kept under a name, so it is picked, not typed again. One set for the founder's devices.",
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "filter": {
+      "$ref": "#/components/schemas/TaskFilter"
+     },
+     "by": {
+      "type": "string",
+      "description": "Who saved it last."
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     }
+    },
+    "required": [
+     "name",
+     "filter",
+     "by",
+     "at"
+    ]
+   },
+   "TimeSegment": {
+    "type": "object",
+    "description": "One stretch of a task's time: one block of the bar under its title, sized by seconds.",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "queued",
+       "waiting",
+       "starting",
+       "working"
+      ],
+      "description": "queued: not yet with its holder. waiting: held up, on says by what. starting: its holder's session is being launched, woken or handed off. working: its holder has it and nothing holds it up."
+     },
+     "on": {
+      "oneOf": [
+       {
+        "type": "string",
+        "enum": [
+         "founder",
+         "task",
+         "agent",
+         "account"
+        ],
+        "description": "What a waiting segment waits on: the founder's answer or acceptance, another task, another agent's acceptance of a report (on a task answered before done always closed), an account's plan or usage limit."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "text": {
+      "type": "string",
+      "description": "The reason as shown: `waiting on you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working."
+     },
+     "task": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "description": "The task it is blocked by."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "from": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "to": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "seconds": {
+      "type": "integer",
+      "description": "to less from."
+     }
+    },
+    "required": [
+     "kind",
+     "on",
+     "text",
+     "task",
+     "from",
+     "to",
+     "seconds"
+    ]
+   },
+   "Watch": {
+    "type": "object",
+    "description": "What a gate watches: target of vendor, until what it waits for. The vendor answers waiting, passed or failed with a line of evidence. Vendors: github (target owner/name#N; until ci: a pull request's checks have all finished, or none started 10 minutes after its head commit; closed: the pull request merged (passed) or closed unmerged (failed); done: the issue closed as completed (passed) or for another reason (failed)). The github vendor reads through the gh CLI's own login. docs/watch-vendors.md has each vendor.",
+    "properties": {
+     "vendor": {
+      "type": "string",
+      "description": "The outside tool: github."
+     },
+     "target": {
+      "type": "string",
+      "description": "The thing, written the way the vendor writes it: owner/name#N for github."
+     },
+     "until": {
+      "type": "string",
+      "enum": [
+       "ci",
+       "closed",
+       "done"
+      ],
+      "description": "What is waited for; each vendor takes some. Absent: the vendor's first (github: ci)."
+     }
+    },
+    "required": [
+     "vendor",
+     "target"
+    ]
+   },
+   "TaskWatch": {
+    "type": "object",
+    "description": "A gate's watch as the task carries it, with its label and what it opened with.",
+    "properties": {
+     "vendor": {
+      "type": "string"
+     },
+     "target": {
+      "type": "string"
+     },
+     "until": {
+      "type": "string",
+      "enum": [
+       "ci",
+       "closed",
+       "done"
+      ]
+     },
+     "label": {
+      "type": "string",
+      "description": "The watch in words (\"PR #418 CI\")."
+     },
+     "result": {
+      "oneOf": [
+       {
+        "type": "string",
+        "enum": [
+         "passed",
+         "failed",
+         "timed_out"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What it opened with; null while it watches. A target that reads as gone (deleted, or no longer visible) three times in a row is failed."
+     }
+    },
+    "required": [
+     "vendor",
+     "target",
+     "until",
+     "label",
+     "result"
+    ]
+   }
+  }
+ },
+ "methods": [
+  {
+   "name": "tasks.list",
+   "summary": "Task rows.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "owner",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "reporter",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Who the task answers to (Task.asker)."
+     }
+    },
+    {
+     "name": "from",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "state",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "tags",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "Tasks that carry every one of these tags (lowercased first). With the other filters, every one given must hold."
+     }
+    },
+    {
+     "name": "parent",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "under",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "That task and every task below it, at any depth, done and discarded included (all is implied); still within the caller's scope, newest first and paged as without it."
+     }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "Return rows older than this id."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "Default 50, at most 200."
+     }
+    },
+    {
+     "name": "all",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Done and discarded tasks too."
+     }
+    },
+    {
+     "name": "everyone",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Every team's tasks, not only the caller's and its reports'."
+     }
+    },
+    {
+     "name": "my_turn",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Only the tasks the caller holds that wait on it: queued or doing, never draft or ended; the founder's are the ones assigned to human. One row per task. It takes no owner."
+     }
+    },
+    {
+     "name": "reason_gaps",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Also count, over the last 30 days, the requests that ended with no reason and how tasks were closed (the `reason_gaps` of the result). It costs seconds on a large database: a screen that polls never asks."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "items": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Task"
+         }
+        },
+        "more": {
+         "type": "boolean"
+        },
+        "reason_gaps": {
+         "type": "object",
+         "description": "Present only when asked for (`reason_gaps`: true). How many requests ended in the last 30 days with no reason, and how tasks were closed in that time (by sha, by request, by reason): what hl task list prints under the list.",
+         "properties": {
+          "retirements": {
+           "type": "integer"
+          },
+          "retirements_blank": {
+           "type": "integer"
+          },
+          "closures_sha": {
+           "type": "integer"
+          },
+          "closures_request": {
+           "type": "integer"
+          },
+          "closures_reason": {
+           "type": "integer"
+          }
+         },
+         "required": [
+          "retirements",
+          "retirements_blank",
+          "closures_sha",
+          "closures_request",
+          "closures_reason"
+         ]
+        }
+       },
+       "required": [
+        "items",
+        "more"
+       ]
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "description": "Newest id first. To read every task, call with `all: true` and `limit: 200`, then again with `before` set to the smallest `id` of the page before, until `more` is false: nothing is skipped or repeated, because a page is the rows with an id below `before`. The caller's own scope still applies (itself and its reports for an agent, unless `everyone`)."
+  },
+  {
+   "name": "task.get",
+   "summary": "One task with body, delivery history and linked events.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/TaskDetail"
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.history",
+   "summary": "Every change to a task, newest first: one row per field changed, with who made it, the value before and after, and when. It is read from the events each task write keeps in its own transaction, so it is never edited or deleted; a fix is a later row. A deleted memo's words stay in it. Anyone may edit a task (task.edit); this history is what makes that safe to undo by hand.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "task": {
+       "type": "integer"
+      },
+      "rows": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/HistoryRow"
+       }
+      }
+     },
+     "required": [
+      "task",
+      "rows"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.time",
+   "summary": "Where a task's time went, from its opening to its end (or now): segments in order that cover it with no gap or overlap. Read from what the daemon already records (the task's state events, its blockers, its asks of the founder, its holder's parks and starts); nothing is timed twice. Where two causes overlap, the stretch shows one, in this order: waiting on the founder, blocked by a task, waiting on another agent, queued, at an account's wall, starting, working.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        },
+        "start": {
+         "$ref": "#/components/schemas/Timestamp"
+        },
+        "end": {
+         "oneOf": [
+          {
+           "$ref": "#/components/schemas/Timestamp",
+           "description": "When it was done, discarded or closed."
+          },
+          {
+           "type": "null",
+           "description": "Still open: the last segment runs to now."
+          }
+         ]
+        },
+        "segments": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/TimeSegment"
+         }
+        },
+        "estimate": {
+         "oneOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "Its story points; null when it has none."
+        },
+        "expected": {
+         "oneOf": [
+          {
+           "type": "object",
+           "properties": {
+            "start": {
+             "oneOf": [
+              {
+               "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "description": "When it is expected to start: when it started for one being worked on; after the owner's current task and every task ahead of it in the order they are handed out, and no earlier than the reset of a limit the owner's account is at. Null when a task ahead has no expected duration."
+            },
+            "end": {
+             "oneOf": [
+              {
+               "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "description": "start plus duration_s, and the wait for a reset when the account runs out at its current burn before then. Null when the duration is unknown."
+            },
+            "duration_s": {
+             "oneOf": [
+              {
+               "type": "integer"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "description": "How long it is expected to take (for one being worked on, what is left); null when unknown."
+            },
+            "basis": {
+             "oneOf": [
+              {
+               "type": "string",
+               "enum": [
+                "history",
+                "points",
+                "time_box"
+               ]
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "description": "What the duration rests on: the median working time of the last 20 done tasks of its estimate (history), else their median time per point times its points (points), else its time box (time_box); null for none."
+            },
+            "ahead": {
+             "type": "array",
+             "items": {
+              "type": "integer"
+             },
+             "description": "The tasks its owner does first, by number."
+            },
+            "wall_until": {
+             "oneOf": [
+              {
+               "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+               "type": "null"
+              }
+             ],
+             "description": "The reset of the account limit that holds it back; null when none does."
+            }
+           },
+           "required": [
+            "start",
+            "end",
+            "duration_s",
+            "basis",
+            "ahead",
+            "wall_until"
+           ]
+          },
+          {
+           "type": "null",
+           "description": "An ended task, or one the founder holds."
+          }
+         ],
+         "description": "When it is expected to start and end, deterministic from its queue, its owner's account and the history of done tasks by estimate; computed on each read, so it moves as they do."
+        }
+       },
+       "required": [
+        "task",
+        "start",
+        "end",
+        "segments",
+        "estimate",
+        "expected"
+       ]
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.shot",
+   "summary": "A screenshot kept with a finished task.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "n",
+     "required": true,
+     "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The screenshot's number in the task's result, from 1."
+     }
+    },
+    {
+     "name": "offset",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Where the chunk starts in the file; 0 when omitted."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "mime": {
+       "type": "string",
+       "enum": [
+        "image/png"
+       ]
+      },
+      "bytes": {
+       "type": "integer"
+      },
+      "offset": {
+       "type": "integer"
+      },
+      "data": {
+       "type": "string",
+       "description": "The chunk, in base64: at most 512 KiB of file."
+      },
+      "done": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "mime",
+      "bytes",
+      "offset",
+      "data",
+      "done"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "One screenshot of a task whose end recorded it, in chunks. A task or number the result does not hold is not_found."
+  },
+  {
+   "name": "task.new",
+   "summary": "Create a task. The founder or a member device opens one for an agent only, and it opens queued.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "owner",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "An agent, human, or gate: a task the daemon holds that watches outside state (watch) and closes when it changes."
+     }
+    },
+    {
+     "name": "reporter",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Who the task answers to: told when it ends, and may edit or reassign it. Default: the caller."
+     }
+    },
+    {
+     "name": "title",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "body",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The brief, Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "time_box",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/Duration"
+     }
+    },
+    {
+     "name": "parent",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "Default: when the caller's current task is a request (made from a founder's message), that task, unless no_parent."
+     }
+    },
+    {
+     "name": "no_parent",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Do not hang the task under the caller's current request. Refused with parent."
+     }
+    },
+    {
+     "name": "duplicate_ok",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Open the task even when an open task under the same parent, or the parent itself, has nearly its title (gate duplicate_title)."
+     }
+    },
+    {
+     "name": "blocked_by",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "Cannot be worked until this task closes."
+     }
+    },
+    {
+     "name": "watch",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/Watch",
+      "description": "With owner gate, required, and refused with any other owner; a watch its vendor cannot take, or a vendor not set up, is refused. The gate is doing from the start; its time box (default 24h) is its deadline. The daemon marks it done with the vendor's evidence when the vendor answers passed or failed (\"ci passed\", \"ci failed: <check names>\", \"merged <sha>\", \"closed unmerged\", \"no CI on this PR\"), or \"timed out\" past its deadline. A task blocked by it (blocked_by) then comes back to its holder, who decides what follows. task.wait opens one and blocks a task on it in one write."
+     }
+    },
+    {
+     "name": "priority",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "enum": [
+       1,
+       2,
+       3
+      ],
+      "description": "1 high, 2 default, 3 low (written P1-P3). Absent means 2."
+     }
+    },
+    {
+     "name": "estimate",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "enum": [
+       1,
+       2,
+       3,
+       5,
+       8,
+       13
+      ],
+      "description": "Story points: what the task is expected to take, for its expected start and end (task.time). None when absent."
+     }
+    },
+    {
+     "name": "tags",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Its tags; each is kept as a history row of the task."
+     }
+    },
+    {
+     "name": "expects",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/Expects"
+     }
+    },
+    {
+     "name": "ui",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "The task shows something on a screen. A label only: task.done takes a screenshot (shots) but never requires one."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "task"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "description": "The owner may not be the caller: a task an agent takes on itself is begun from the founder's message (task.begin).",
+   "x-gates": [
+    "duplicate_title"
+   ]
+  },
+  {
+   "name": "task.handoff",
+   "summary": "Hand a task to another agent.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "to",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "note",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts); they are the task's while it is open."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "description": "Anyone may hand an open task on, not only its owner (the asker takes a task back so). A review is a handoff: the holder hands the task to its reviewer, who hands it back with findings or on, or marks it done. task.history's row names who made the move (by)."
+  },
+  {
+   "name": "task.done",
+   "summary": "Finish a task with evidence.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "evidence",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "A merge sha on main, or a reason in words."
+     }
+    },
+    {
+     "name": "request",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/RequestName",
+      "description": "A request where the result was already reported."
+     }
+    },
+    {
+     "name": "repo",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The repo whose main a sha is checked against."
+     }
+    },
+    {
+     "name": "reason",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Record evidence as words even if it looks like hex."
+     }
+    },
+    {
+     "name": "commit",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The sha the work was done at; it must be a commit in repo (it need not be on main). The result says whether main reaches it. A sha given as evidence is a commit on main already."
+     }
+    },
+    {
+     "name": "shots",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "minItems": 1,
+      "maxItems": 6,
+      "description": "Absolute paths of PNG files, at most 10 MiB each. An agent names files under its worktree, its folder in the daemon's home or the scratch folder; the founder any file. The daemon copies them under its home (shots/T<n>/<k>.png, outside any repo) once the task's end has committed, and serves them with task.shot."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "x-gates": [
+    "open_children"
+   ],
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "Exactly one of evidence, request or reason-with-evidence; none or two is bad_request. A commit and shots are optional, for any task; when given they are kept with the task (task.get result). A done by the owner or the founder closes the task: nothing waits on an accept. The founder's done with evidence words on a task they own whose card still waits on them decides that card with the words, so the asker is told and what waits on the answer (a trust proposal) is applied; it says `T<n> decided`."
+  },
+  {
+   "name": "task.reopen",
+   "summary": "Reopen a done task: anyone may, with a reason the opener and assignee are told. A discarded task comes back as a draft, to be queued again.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "note",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.progress",
+   "summary": "Record progress (hl progress): on a task, or with no task on the caller's request in progress, else the task it holds, else the agent, even when it holds no task.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "note",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "not_self"
+   ],
+   "x-callers": [
+    "agent"
+   ]
+  },
+  {
+   "name": "task.begin",
+   "summary": "Start a task the founder told the caller to do, without approval: opened for the caller, linked to the founder's message.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "title",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "body",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "message",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestName",
+      "description": "The founder's message it answers."
+     }
+    },
+    {
+     "name": "priority",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "enum": [
+       1,
+       2,
+       3
+      ]
+     }
+    },
+    {
+     "name": "expects",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/Expects"
+     }
+    },
+    {
+     "name": "why",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "What led to this, in a line; optional, since the linked message is the reason."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "task"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ]
+  },
+  {
+   "name": "task.start",
+   "summary": "Pick up a task as the caller's current one.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.comment.list",
+   "summary": "Comments beside a task. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.list is its old name.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "With limit: the page just older than this memo id."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "1 to 200. The newest limit memos, or the limit just older than before; absent: every memo."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "memos": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/Memo"
+       }
+      },
+      "more": {
+       "type": "boolean",
+       "description": "There are older memos than the page."
+      }
+     },
+     "required": [
+      "memos",
+      "more"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.memo.list",
+   "summary": "The old name of task.comment.list: the same params, result and errors. Kept for clients that call it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "With limit: the page just older than this memo id."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "1 to 200. The newest limit memos, or the limit just older than before; absent: every memo."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "memos": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/Memo"
+       }
+      },
+      "more": {
+       "type": "boolean",
+       "description": "There are older memos than the page."
+      }
+     },
+     "required": [
+      "memos",
+      "more"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.comment.add",
+   "summary": "Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer. The founder is told by one inbox line per request (a task made from their message, task.request) while it stays unread, counting the agents' new comments. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "now",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Tell every reader at once, even mid-turn."
+     }
+    },
+    {
+     "name": "reply",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "The comment on the same task this one answers (Memo.reply_to). Refused (not_found memo) when the task has no such comment."
+     }
+    },
+    {
+     "name": "files",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+       "type": "string"
+      },
+      "description": "Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files)."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "memo": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "memo"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.memo.add",
+   "summary": "The old name of task.comment.add: the same params, result and errors. Kept for clients that call it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "now",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Tell every reader at once, even mid-turn."
+     }
+    },
+    {
+     "name": "files",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+       "type": "string"
+      },
+      "description": "Absolute paths of files the memo carries (Memo.files): PNG, JPEG, GIF or WebP images and .md Markdown, at most 10 MiB each. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file of another type, an image whose first bytes do not match its ending, or a .md that is not text is bad_request (field files)."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "memo": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "memo"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.comment.edit",
+   "summary": "Edit a comment: its author or the founder. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.edit is its old name.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "memo",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.memo.edit",
+   "summary": "The old name of task.comment.edit: the same params, result and errors. Kept for clients that call it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "memo",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.comment.delete",
+   "summary": "Delete a comment: its author or the founder. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.delete is its old name.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "memo",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.memo.delete",
+   "summary": "The old name of task.comment.delete: the same params, result and errors. Kept for clients that call it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "memo",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.view.list",
+   "summary": "The saved views of the task board, by name.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "views": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/TaskView"
+       }
+      }
+     },
+     "required": [
+      "views"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-since": 1,
+   "errors": [],
+   "x-write": false
+  },
+  {
+   "name": "task.view.save",
+   "summary": "Keep a filter of the task board under a name, replacing a view already kept under it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "name",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "One line, 1 to 60 characters."
+     }
+    },
+    {
+     "name": "filter",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/TaskFilter"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.view.delete",
+   "summary": "Delete a saved view.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "name",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.queue",
+   "summary": "Approve draft tasks to run: anyone may; each task's opener and assignee are told.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "tasks",
+     "required": true,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      }
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.draft",
+   "summary": "Send queued or doing tasks back to draft: anyone may; each task's opener and assignee are told. A holder working the task is told to stop and moved on to its next task, and commits or changes it left in its worktree are kept in a memo on the task.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "tasks",
+     "required": true,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      }
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.merge",
+   "summary": "Fold tasks into one: the kept task takes their titles, requests and sub-tasks; anyone may, and the opener and assignee of each are told.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "into",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "tasks",
+     "required": true,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      }
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.release",
+   "summary": "Take a doing task back to queued or draft: anyone may, with a reason the opener and assignee are told (and the founder, for a task begun on their message).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "to",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "queued",
+       "draft"
+      ]
+     }
+    },
+    {
+     "name": "reason",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.request",
+   "summary": "Make a founder's chat message a request: a task the founder opened (opened_by human), owned by the lead the message was sent to. The message becomes its first comment, images included. A message converts once; a second call returns the task already made from it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestName",
+      "description": "The founder's message. Refused when it was not sent by the founder to an agent."
+     }
+    },
+    {
+     "name": "title",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Default: the message's first line."
+     }
+    },
+    {
+     "name": "owner",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The agent who holds the request. Default: the agent the message was sent to."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        },
+        "existing": {
+         "type": "boolean",
+         "description": "True when the message had already been made a request."
+        }
+       },
+       "required": [
+        "task"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "The founder, or the agent the message was sent to, may call it. Clears a no-work mark on the message."
+  },
+  {
+   "name": "task.none",
+   "summary": "Mark a founder's chat message as needing no work, with a reason in one line, so it is not chased as unanswered. Refused for a message already made a request.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "request",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestName",
+      "description": "The founder's message."
+     }
+    },
+    {
+     "name": "reason",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "The founder, or the agent the message was sent to, may call it."
+  },
+  {
+   "name": "task.wait",
+   "summary": "Make a task wait on outside state: a gate on watch (as task.new with owner gate), the task blocked by it and, when doing, released, all in one write, so the task never waits on a gate that blocks nothing. The task comes back to its holder's queue when the gate opens.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "watch",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/Watch"
+     }
+    },
+    {
+     "name": "time_box",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The gate's deadline, a span like 4h; default 24h."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "gate": {
+         "type": "integer",
+         "description": "The gate task opened."
+        }
+       },
+       "required": [
+        "gate"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.discard",
+   "summary": "Throw away a task that is not done: anyone may, with a reason the opener, assignee and asker are told. A request still open on it refuses, unless the caller leads a team whose tree holds the task (its owner or opener is the lead or reports to it): then each open request is withdrawn and its target told. tasks in place of task discards a batch in one call, all or none, with one discard_batch event: the one task_batch card in the caller's chat.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     },
+     "description": "One task. Give this or tasks."
+    },
+    {
+     "name": "tasks",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      }
+     },
+     "description": "A batch: these tasks, discarded together or not at all."
+    },
+    {
+     "name": "reason",
+     "required": false,
+     "schema": {
+      "type": "string"
+     },
+     "description": "Required with task. With tasks, the reason of each task reasons does not name."
+    },
+    {
+     "name": "reasons",
+     "required": false,
+     "schema": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      }
+     },
+     "description": "With tasks: a reason of its own per task, keyed by task number (\"2\" or \"T2\")."
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "A request that already landed in its agent's session does not refuse the task's asker or the founder: the task is discarded, that request closes with it and its holder is told why; anyone else is refused."
+  },
+  {
+   "name": "task.board",
+   "summary": "The caller's open tasks and its reports', and who holds each now. The founder's board is the tasks the founder owns.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "everyone",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Every team's open tasks, not only the caller's and its reports'."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "mine": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/TaskBoardRow"
+       }
+      },
+      "reports": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/TaskBoardRow"
+       }
+      }
+     },
+     "required": [
+      "mine",
+      "reports"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "task.withdraw",
+   "summary": "Withdraw a task the caller asked for; anyone else discards it with a reason.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.cancel",
+   "summary": "Cancel a task.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "reason",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.edit",
+   "summary": "Change a task: owner, reporter, title, priority, body and time box, by anyone (body and time box until it is delivered). Waiting on other tasks is added (blocked_by) or removed (unblock) with it. Never silent: the opener and assignee are told, and the edit is kept with who made it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "owner",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "reporter",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "A new reporter (who the task answers to); by its opener, its reporter or the founder."
+     }
+    },
+    {
+     "name": "title",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "body",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The new brief, Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "time_box",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/Duration"
+     }
+    },
+    {
+     "name": "priority",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "enum": [
+       1,
+       2,
+       3
+      ],
+      "description": "1 high, 2 default, 3 low (written P1-P3)."
+     }
+    },
+    {
+     "name": "estimate",
+     "required": false,
+     "schema": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "enum": [
+         1,
+         2,
+         3,
+         5,
+         8,
+         13
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Story points (as task.new); null clears it."
+     }
+    },
+    {
+     "name": "blocked_by",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "A task number this one waits on, added in the same transaction as the other parts; a refusal of any part undoes all of them. A doing task goes back to queued."
+     }
+    },
+    {
+     "name": "unblock",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "A task number this one no longer waits on; clearing the last one lets its owner's current task advance."
+     }
+    },
+    {
+     "name": "add_tags",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Tags to add; one it has already is left as it is. Each change is a history row. Nobody is told of a tag change."
+     }
+    },
+    {
+     "name": "remove_tags",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "description": "Tags to remove; one it has not got is left as it is."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    },
+    {
+     "name": "pr",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "The pull request the task's work merges in (`hl task edit T<n> --pr <n>`), on an open task. A link only: nothing waits on it."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "task.ask",
+   "summary": "The founder asks an agent a question about a task: a message linked to the task, whose holder does not change. The agent's reply joins the task.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "task",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "to",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The question; not empty."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  }
+ ]
+}

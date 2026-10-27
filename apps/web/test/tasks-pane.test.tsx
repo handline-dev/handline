@@ -1,7 +1,7 @@
 // The Tasks views page by 100 on a button, the agent's Tasks tab marks only in Select mode, and a row's menu lists only what can run now.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { applySeeds } from '@handline/fake-daemon/seeds';
@@ -15,6 +15,7 @@ afterEach(async () => {
   await act(async () => root?.unmount());
   root = null;
   box?.remove();
+  vi.restoreAllMocks();
 });
 
 const wait = (ms: number) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
@@ -95,16 +96,29 @@ describe("the graph in an agent's Tasks tab", () => {
 });
 
 describe('a narrow Tasks list (detail panel open)', () => {
-  it('lets the title take the free width and hides priority, then owner, as the list narrows', async () => {
+  it('lets the title take the free width and the group headings span exactly the columns shown', async () => {
     await open('#/tasks', 'tasks-200');
     await until(() => $('tr[data-task]'), 'a row');
     const cls = (sel: string) => $(sel)!.className;
-    expect(cls('.tasks-scroll')).toContain('@container');
     expect(cls('tr[data-task] .c-title')).toContain('min-w-0');
     expect($('tr[data-task] .ttitle')!.className).toContain('line-clamp-2');
-    expect(cls('tr[data-task] .c-pri')).toContain('@max-[720px]:min-sm:hidden');
-    expect(cls('tr[data-task] .c-owner')).toContain('@max-[600px]:min-sm:hidden');
     expect(cls('tr[data-task] .c-time')).toContain('whitespace-nowrap');
     expect($('tr[data-task] .c-owner span')!.getAttribute('title')).toMatch(/^owner: /);
+    expect($('.tgroup th')!.getAttribute('colspan')).toBe(String($('tr[data-task]')!.children.length));
+  });
+
+  it.each([
+    [500, 5],
+    [650, 6],
+    [800, 7],
+  ])('at a list %ipx wide the table has %i columns, the colgroup, the rows and the headings alike', async (width, cols) => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains('tasks-scroll') ? width : 0;
+    });
+    await open('#/tasks', 'tasks-200');
+    await until(() => $('tr[data-task]'), 'a row');
+    await until(() => $$('.ttable col').length === cols, 'the columns');
+    expect($('tr[data-task]')!.children.length).toBe(cols);
+    expect($('.tgroup th')!.getAttribute('colspan')).toBe(String(cols));
   });
 });

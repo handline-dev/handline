@@ -10,8 +10,15 @@ import (
 	"github.com/handline/handline/go/internal/db"
 )
 
+// carolLeadsBob makes carol the lead of bob's team.
+func (r *rig) carolLeadsBob() {
+	r.register("carol")
+	r.must(os.WriteFile(filepath.Join(r.home, "team.yaml"), []byte(strings.Replace(strings.Replace(teamYAML, "teams:\n", "teams:\n  carol: [carol, bob]\n", 1), "agents:\n", "agents:\n  carol: {}\n", 1)), 0o644))
+}
+
 func TestSweepHoldsRecordsWhyEachTaskWaitsAndWarnsOnceWhenNothingIsInTheWay(t *testing.T) {
 	r := newRig(t)
+	r.carolLeadsBob()
 	r.agentUp("bob")
 	a := r.newTask("bob", "alice", "first")
 	b := r.newTask("bob", "alice", "second")
@@ -34,17 +41,18 @@ func TestSweepHoldsRecordsWhyEachTaskWaitsAndWarnsOnceWhenNothingIsInTheWay(t *t
 	if raw != `{"why": "blocked by T3 (alice)", "on": "task", "able": false, "since": 100010}` {
 		t.Fatalf("%s", raw)
 	}
-	// able for five minutes: the founder is told once
+	// able for five minutes: the owner's lead is told once, the founder never
 	r.clock += AbleWarnS
 	r.must(r.SweepHolds(r.clock))
 	r.must(r.SweepHolds(r.clock + 1))
-	var warned int
-	r.DB.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'report'").Scan(&warned)
-	if warned != 2 || !r.logged("T1: waited 5 min for an owner that looks able - founder told") { // T1 and T3 are both able
+	var warned, toFounder int
+	r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'carol' AND body LIKE '%missed delivery%'").Scan(&warned)
+	r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'human' AND body LIKE '%missed delivery%'").Scan(&toFounder)
+	if warned != 1 || toFounder != 0 || !r.logged("T1: waited 5 min for an owner that looks able - its lead told") { // T1 and T3 are both able, only bob has a lead
 		t.Fatalf("%d %v", warned, r.logs)
 	}
 	var body string
-	r.DB.QueryRow("SELECT body FROM requests WHERE target = 'human' AND kind = 'say' AND requester = 'bob'").Scan(&body)
+	r.DB.QueryRow("SELECT body FROM requests WHERE target = 'carol' AND kind = 'say' AND notice >= 1").Scan(&body)
 	if !strings.HasPrefix(body, "T1 has waited 5 min for bob, which looks able to take it (nothing is in the way") {
 		t.Fatalf("%q", body)
 	}
@@ -85,13 +93,14 @@ func TestTheMissedDeliveryAlarmSkipsTasksThatWaitOnPurpose(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r := newRig(t)
+			r.carolLeadsBob()
 			r.agentUp("bob")
 			tid := r.newTask("bob", "alice", "job")
 			c.wait(r, tid)
 			r.must(r.SweepHolds(r.clock))
 			r.must(r.SweepHolds(r.clock + AbleWarnS))
 			var warned int
-			r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'human' AND body LIKE ?", fmt.Sprintf("T%d has waited %%", tid)).Scan(&warned)
+			r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'carol' AND body LIKE ?", fmt.Sprintf("T%d has waited %%", tid)).Scan(&warned)
 			if (warned == 1) != c.alarm || warned > 1 {
 				t.Fatalf("alarm %v, %d told", c.alarm, warned)
 			}

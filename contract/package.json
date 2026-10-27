@@ -2,6 +2,6 @@
   "name": "@handline/contract",
   "private": true,
   "type": "module",
-  "description": "The daemon protocol: protocol.json is the spec, protocol.ts is generated from it by generate.py",
+  "description": "The daemon protocol: spec/*.json is the spec, protocol.ts and gen/ are generated from it by generate.py",
   "exports": { ".": "./protocol.ts" }
 }

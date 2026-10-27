@@ -12,7 +12,7 @@ const GLYPH: Record<StateKind, { icon: IconName; label: string }> = {
   needs: { icon: 'needs', label: 'Needs you' },
   blocked: { icon: 'blocked', label: 'Blocked' },
   idle: { icon: 'idle', label: 'Idle' },
-  parked: { icon: 'asleep', label: 'Sleeping' },
+  parked: { icon: 'asleep', label: 'Waiting' },
   done: { icon: 'done', label: 'Done' },
   rejected: { icon: 'dismissed', label: 'Rejected' },
   noTerminal: { icon: 'noTerminal', label: 'Idle' },
@@ -75,11 +75,7 @@ export function State({ kind, label, word, size = 16 }: { kind: StateKind; label
   const text = label ?? g.label;
   const hue = HUE[kind];
   return (
-    <span
-      className={`ui-state inline-flex items-center gap-1.5 align-middle${hue ? ` ${hue}` : ''}`}
-      data-state={kind}
-      title={text}
-    >
+    <span className={`ui-state inline-flex items-center gap-1.5 align-middle${hue ? ` ${hue}` : ''}`} data-state={kind} title={text}>
       <Icon name={g.icon} size={size} label={text} />
       {word ? <span className="ui-state-word text-hint text-ink-2">{g.label}</span> : null}
     </span>

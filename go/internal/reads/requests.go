@@ -106,10 +106,7 @@ func (e *Env) RequestRows(now int64) ([]map[string]any, error) {
 		}
 		out = append(out, row)
 	}
-	msgs, err := query(e.DB, "SELECT id, ref, ts, target, body, no_work FROM requests r WHERE requester = ? AND target != ? AND parent_id IS NULL "+
-		"AND state NOT IN ('denied', 'withdrawn') AND ts >= ? "+
-		"AND NOT EXISTS (SELECT 1 FROM task_requests l WHERE l.request_id = r.id) AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.from_request = r.id) "+
-		"ORDER BY id", human, human, since)
+	msgs, err := query(e.DB, plainMessagesSQL, human, human, since)
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +127,13 @@ func (e *Env) RequestRows(now int64) ([]map[string]any, error) {
 func cursorOf(last int64, kind string, id int64) string {
 	return fmt.Sprintf("%012d:%s%012d", last, kind, id)
 }
+
+// plainMessagesSQL is the founder's messages that opened no task and are linked to none. Both NOT EXISTS probes need an index (tasks_from_request,
+// task_requests_request): without one each ran a scan per message, seconds of CPU at every change.
+const plainMessagesSQL = "SELECT id, ref, ts, target, body, no_work FROM requests r WHERE requester = ? AND target != ? AND parent_id IS NULL " +
+	"AND state NOT IN ('denied', 'withdrawn') AND ts >= ? " +
+	"AND NOT EXISTS (SELECT 1 FROM task_requests l WHERE l.request_id = r.id) AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.from_request = r.id) " +
+	"ORDER BY id"
 
 // requestNodes is the tasks of every request's tree, by the root's number: the root and every task under it, kept or ended since.
 func (e *Env) requestNodes(since int64) (map[int64][]requestNode, error) {

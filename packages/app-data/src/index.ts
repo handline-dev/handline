@@ -21,6 +21,7 @@ export * from '#src/image-drafts.ts';
 export * from '#src/kept.ts';
 export * from '#src/file-editor.ts';
 export * from '#src/chat-read.ts';
+export * from '#src/task-actions.ts';
 export * from '#src/team-board.ts';
 export * from '#src/schedule-editor.ts';
 export * from '#src/field-row.ts';

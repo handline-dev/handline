@@ -4,11 +4,11 @@ import { State, type StateKind } from '#src/ui/index.ts';
 
 export const MARKS: Record<Dot, { label: string }> = {
   running: { label: 'working' },
-  waking: { label: 'waking: starts at the next tick' },
-  waiting: { label: 'a person must answer' },
-  blocked: { label: 'blocked or stalled' },
+  waking: { label: 'starting in a moment' },
+  waiting: { label: 'needs you' },
+  blocked: { label: 'blocked' },
   idle: { label: 'idle' },
-  parked: { label: 'parked: waits for a time' },
+  parked: { label: 'waiting for a time' },
   none: { label: 'idle' },
 };
 export const DOT_ORDER: Dot[] = ['waiting', 'blocked', 'running', 'waking', 'idle', 'parked', 'none'];
@@ -36,7 +36,9 @@ const TONE: Record<Dot, string> = {
 /** An agent's state as the shared glyph (ui/State): its own shape per state, the hue only repeats it. */
 export function Mark({ dot, title }: { dot: Dot; title?: string }) {
   return (
-    <span className={`mark ${dot} inline-flex w-3.5 flex-none items-center justify-center text-center text-hint leading-[1.4] ${TONE[dot]}`}>
+    <span
+      className={`mark ${dot} inline-flex w-3.5 flex-none items-center justify-center text-center text-hint leading-[1.4] ${TONE[dot]}`}
+    >
       <State kind={KIND[dot]} label={title ?? MARKS[dot].label} size={14} />
     </span>
   );
