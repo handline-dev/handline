@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import type { AgentView as Agent } from '@handline/client';
-import { useAgents, useHrCount, useNav, useOpenTasks, useServes } from '@handline/app-data';
+import { useAgents, useHrCount, useMyTurn, useNav, useOpenTasks, useServes } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { font, radius, rowHeight, space } from '@handline/tokens';
 import {
@@ -14,8 +14,9 @@ import {
   chipCounts,
   chipChanges,
   chipOf,
+  turnAgents,
+  chipList,
   moveInOrder,
-  navList,
   rowName,
   siblingsOf,
   teamOf,
@@ -34,7 +35,7 @@ type Item = { key: string; head: string } | { key: string; agent: Agent; depth: 
 const CHIPS: { id: NavChip; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'unread', label: 'Unread' },
-  { id: 'needs', label: 'Needs me' },
+  { id: 'needs', label: 'My turn' },
 ];
 
 export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') => void }) {
@@ -46,9 +47,10 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
   // An older daemon sets has_dialog without needs_you.
   const asks = (a: Agent) => !!a.needs_you || a.has_dialog;
   const { nav, ready, change, togglePin } = useNav();
-  const { pinned, rows } = navList(agents, nav);
-  const counts = chipCounts(agents);
+  const turn = useMyTurn().cards;
   const chip = chipOf(nav);
+  const { pinned, rows } = chipList(agents, nav, turnAgents(turn));
+  const counts = chipCounts(agents);
   const names = agents.map((a) => a.name);
   const tree = nav.layout !== 'flat';
   const items: Item[] = [];
@@ -168,7 +170,8 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
                     }}
                   >
                     <Text style={{ color: on ? c.accent : c.muted, fontSize: font.size.body, fontWeight: on ? '700' : '500' }}>
-                      {x.label} {counts[x.id]}
+                      {x.label}
+                      {x.id === 'unread' ? ` ${counts[x.id]}` : ''}
                     </Text>
                   </Pressable>
                 );
@@ -214,7 +217,8 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
                 testID={`agent-${a.name}`}
                 onPress={() => void store.openAgent(a.name)}
                 onLongPress={() => setTarget(a)}
-                style={{
+                style={({ pressed }) => ({
+                  backgroundColor: pressed ? c.press : undefined,
                   flexDirection: 'row',
                   alignItems: 'center',
                   gap: space.md,
@@ -224,12 +228,14 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
                   paddingRight: space.lg,
                   borderTopWidth: 1,
                   borderTopColor: c.line,
-                }}
+                })}
               >
                 <StateMark agent={a} />
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-                    <Text style={{ color: c.ink, fontWeight: '600' }}>{item.label}</Text>
+                    <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '600', flexShrink: 1 }}>
+                      {item.label}
+                    </Text>
                     {queued ? (
                       <Pressable
                         testID={`queued-${a.name}`}
@@ -237,9 +243,10 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
                         accessibilityLabel={`${queued} waiting behind the current task`}
                         onPress={() => setQueueOf(a)}
                         hitSlop={8}
-                        style={{ borderWidth: 1, borderColor: c.line, borderRadius: radius.chip, paddingHorizontal: 6 }}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
                       >
-                        <Text style={{ color: c.muted, fontSize: font.size.hint }}>+{queued}</Text>
+                        <Icon name="tasks" size={11} color={c.muted} decorative />
+                        <Text style={{ color: c.muted, fontSize: font.size.hint }}>{queued}</Text>
                       </Pressable>
                     ) : null}
                   </View>

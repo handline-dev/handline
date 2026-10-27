@@ -68,7 +68,7 @@ if (process.argv.includes('--held-by')) {
   daemon.sessions.get('handline.architect')!.holder = { kind: 'device', name: arg('held-by', 'pc-app'), since: new Date().toISOString() };
 }
 if (process.argv.includes('--held-load')) {
-  // handline.architect waits on the machine load limit, as the daemon reports it: the phone shows the text and Force start.
+  // handline.architect waits on the machine load limit, as the daemon reports it: the phone shows the text and Start now.
   const s = daemon.sessions.get('handline.architect')!;
   s.state = 'waiting';
   s.fx.view = {

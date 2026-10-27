@@ -5,7 +5,7 @@ import path from 'node:path';
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Notification, session, shell, type WebContents } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
-import { inBackground } from '#src/background.ts';
+import { drawsTray, inBackground } from '#src/background.ts';
 import { isDebugWindow } from '#src/debug-window.ts';
 import { Desk } from '#src/desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from '#src/editor.ts';
@@ -266,7 +266,7 @@ if (!app.requestSingleInstanceLock({ background })) {
       loginPath: async () => (await editorEnv()).PATH,
       home,
       root,
-      background,
+      tray: drawsTray(process.env, app.isPackaged),
       socket,
       gatewaySocket,
       gateway,
@@ -343,10 +343,10 @@ if (!app.requestSingleInstanceLock({ background })) {
     app.on('quit', () => clearInterval(checking));
 
     const desk = new Desk(client, {
-      setBadge: (t) => {
-        own.setUnread(Number(t.replace('+', '')) || 0);
+      setBadge: (t, n) => {
+        own.setUnread(n);
         if (app.dock) app.dock.setBadge(t);
-        else app.setBadgeCount(Number(t.replace('+', '')) || 0);
+        else app.setBadgeCount(n);
       },
       notify: (n, onClick) => {
         if (background) return;

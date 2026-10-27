@@ -34,24 +34,30 @@ func Headroom(st *AccountStatus, now int64) (float64, bool) {
 	return most, true
 }
 
-// CutoffShare is the share of its current burn (percent of the shortest window per second) the account can keep up until each window
-// resets without reaching that window's block: 1 or more is no risk of an agent being cut off mid-work. A fast pace alone is no risk.
-// longPerShort converts the burn to the longest window, ok false when it is unknown and only the shortest is judged. 1 with no burn.
+// FiveHourShare is how many times over the account's shortest window lasts to its reset at its burn (percent of that window per second)
+// plus extra, one more agent's: 1 or more outlasts the reset, less hits the wall first. ok false where nothing trusted says so (a stale or
+// unread figure, no reset), which holds and moves nothing: a start is never held on a guess.
+func FiveHourShare(st *AccountStatus, burn, extra, now float64) (share float64, ok bool) {
+	used, resetIn := st.ShortTrusted(), float64(st.Short.Reset)-now
+	if used == nil || st.Short.Reset == 0 || resetIn <= 0 {
+		return 1, false
+	}
+	if rate := burn + extra; rate > 0 {
+		return float64(max(0, ShortBlock-*used)) / rate / resetIn, true
+	}
+	return 1, true
+}
+
+// CutoffShare is the share of its current burn (percent of the shortest window per second, converted by longPerShort) the account can keep
+// up until the week resets without reaching its block: 1 or more is no risk of an agent being cut off mid-work. The shortest window is
+// not judged here: a start is held on it (FiveHourShare). 1 with no burn or no ratio.
 func CutoffShare(st *AccountStatus, burn, longPerShort float64, haveRatio bool, now float64) float64 {
-	share := 1.0
-	project := func(used *int, block int, rate, resetIn float64) {
-		if used == nil || rate <= 0 || resetIn <= 0 {
-			return
-		}
-		share = math.Min(share, float64(max(0, block-*used))/rate/resetIn)
+	left, ok := WeekEndsIn(st, now)
+	used, rate := st.LongTrusted(), burn*longPerShort
+	if !ok || !haveRatio || used == nil || rate <= 0 || left <= 0 {
+		return 1
 	}
-	if st.Short.Reset != 0 {
-		project(st.ShortTrusted(), ShortBlock, burn, float64(st.Short.Reset)-now)
-	}
-	if left, ok := WeekEndsIn(st, now); ok && haveRatio {
-		project(st.LongTrusted(), LongBlock, burn*longPerShort, left)
-	}
-	return share
+	return math.Min(1, float64(max(0, LongBlock-*used))/rate/left)
 }
 
 // CutoffCap is the cap shrunk to the share of the burn the account can keep up: all of it with no risk, none with nothing left, and in
@@ -205,6 +211,24 @@ func (p *Pace) Cap(base int, ps PaceSettings) int {
 		return 0
 	}
 	return base
+}
+
+// FiveHourShareWith is the account's FiveHourShare with agent started on it: its recorded burn plus that agent's measured cost
+// (Costs.Measured). ok false where there is no burn reading or the cost is only the starting value, so nothing is held on a guess.
+func (e *Env) FiveHourShareWith(q db.Q, acct, agent string) (float64, bool) {
+	burn, ok := e.ReadBurn(acct)
+	if !ok {
+		return 1, false
+	}
+	costs, err := e.LoadCosts(q)
+	if err != nil {
+		return 1, false
+	}
+	per, measured := costs.Measured(agent)
+	if !measured {
+		return 1, false
+	}
+	return FiveHourShare(e.Read(acct), burn, per, e.now())
 }
 
 // PaceNow is the account's pace now under config's settings.

@@ -51,6 +51,7 @@ type fakeUsage struct {
 	others  int
 	exclude *string // the agent ActiveOn was asked to leave out
 	head    map[string]float64
+	share   map[string]float64 // FiveHourShare by account; unlisted is unknown
 }
 
 func (u fakeUsage) CapOf(string) int { return u.cap }
@@ -61,6 +62,10 @@ func (u fakeUsage) CapUnpaced(string) int {
 	return u.cap
 }
 func (u fakeUsage) Pace(string) *usage.Pace { return u.pace }
+func (u fakeUsage) FiveHourShare(_ db.Q, acct, _ string) (float64, bool) {
+	share, ok := u.share[acct]
+	return share, ok
+}
 func (u fakeUsage) Headroom(acct string) (float64, bool) {
 	h, ok := u.head[acct]
 	return h, ok
@@ -84,6 +89,9 @@ func (u fakeUsage) PickAccount([]string, string) string { return u.pick }
 func (fakeUsage) NotFor(string, string) bool            { return false }
 func (u fakeUsage) Fit(acct, _ string) bool {
 	st := u.Read(acct)
+	if share, ok := u.share[acct]; ok && share < 1 {
+		return false
+	}
 	return st.ShortTrusted == nil || *st.ShortTrusted < u.ShortBlock()
 }
 
@@ -844,5 +852,58 @@ func TestAFreshStartIsToldWhereItWas(t *testing.T) {
 		if !strings.Contains(text, "# Where you were (the daemon's record)") || !strings.Contains(text, "- the held task") {
 			t.Errorf("record %q:\n%s", record, text)
 		}
+	}
+}
+
+func TestAStartIsHeldOnlyWhenNoAccountLastsToItsFiveHourReset(t *testing.T) {
+	r := newLaunchRig(t)
+	for _, a := range []string{"a", "b"} {
+		if err := os.MkdirAll(filepath.Join(r.l.Home, "accounts", a), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.l.Ports.AccountReading = func(db.Q, string) (string, string, bool) { return "a", "recorded", true }
+	r.l.Ports.CurrentAccount = func(db.Q, string) string { return "a" }
+	r.l.Now = func() time.Time { return time.Unix(1000, 0) }
+	q := r.l.Q
+	db.SetAgentState(q, "ann", states.Idle, 0, "")
+	db.SetClosed(q, "ann", "s-ann")
+	row, _ := db.GetAgentState(q, "ann")
+	resets := map[string]AccountStatus{"a": {Exists: true, ShortReset: 5000}, "b": {Exists: true, ShortReset: 3000}}
+	for _, c := range []struct {
+		name  string
+		share map[string]float64
+		held  bool
+	}{
+		{"every account short of its reset", map[string]float64{"a": 0.5, "b": 0.9}, true},
+		{"the other account lasts", map[string]float64{"a": 0.5, "b": 1.2}, false},
+		{"its own account lasts", map[string]float64{"a": 1, "b": 0.5}, false},
+		{"nothing is known", nil, false},
+	} {
+		r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true}, by: resets, cap: 2, share: c.share}
+		for _, resume := range []bool{true, false} {
+			row.ResumeSession.String = map[bool]string{true: "s-ann"}[resume]
+			w := r.l.WakeWait(q, "ann", row)
+			// A resume is held on its own account's share even when the other lasts (the wake then moves it); a start only when none does.
+			want := c.held || (resume && c.share["a"] != 0 && c.share["a"] < 1)
+			if (w != nil && w.FiveHour) != want {
+				t.Errorf("%s, resume %v: %+v, held want %v", c.name, resume, w, want)
+			}
+			if w != nil && w.FiveHour && w.Reset != 3000 {
+				t.Errorf("%s: until %d, want the earliest reset among the accounts, 3000", c.name, w.Reset)
+			}
+		}
+	}
+	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true}, by: resets, cap: 2, share: map[string]float64{"a": 0.5, "b": 0.9}}
+	r.l.PassPace("ann")
+	row.ResumeSession.String = ""
+	if w := r.l.WakeWait(q, "ann", row); w != nil {
+		t.Errorf("a start let past the hold is not held: %+v", w)
+	}
+	if got := r.l.FindRoom("ann"); got == "" {
+		t.Error("and it still has an account to go to")
+	}
+	if got := DescribeWakeWait(&WakeWait{FiveHour: true, Reset: 3000}); !strings.HasPrefix(got, "Held so Claude's 5-hour limit lasts until it starts over at ") || !strings.HasSuffix(got, ". This starts then.") {
+		t.Errorf("the card says what is held and when: %q", got)
 	}
 }

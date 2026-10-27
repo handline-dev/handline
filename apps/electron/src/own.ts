@@ -28,9 +28,9 @@ import { onTailnet } from '#src/tailnet.ts';
 import { singleWindow } from '#src/single-window.ts';
 import { trayIcon as iconFor, trayMenu, type TrayActions, type TrayFollow, type TrayIcon, type TrayMode } from '#src/tray.ts';
 
-/** The menu bar icon; a background run gets one that draws nothing. */
-function makeTray(background?: boolean): Tray {
-  if (background) return { setImage: () => {}, on: () => {}, popUpContextMenu: () => {} } as unknown as Tray;
+/** The menu bar icon; a run that does not draw one gets a stand-in that draws nothing. */
+function makeTray(draws: boolean): Tray {
+  if (!draws) return { setImage: () => {}, on: () => {}, popUpContextMenu: () => {} } as unknown as Tray;
   const tray = new Tray(trayImage('plain'));
   tray.setToolTip('Handline');
   return tray;
@@ -149,7 +149,7 @@ function relaunchWith(file: SettingsFile, next: Settings): void {
 export interface Own {
   /** Draws the tray menu again, after something it shows changed. */
   redraw(): void;
-  /** The inbox's unread count: the tray's dot and line. */
+  /** The My turn count: the tray's dot and line. */
   setUnread(n: number): void;
   /** Starts what is missing and pairs; resolves when the window can open (with or without a token), with the address the gateway ended up on. */
   ready(): Promise<string | undefined>;
@@ -207,8 +207,8 @@ export function ownDaemon(o: {
   loginPath: () => Promise<string | undefined>;
   /** Follow-main mode adds its items to the tray. */
   follow?: () => TrayFollow;
-  /** A background run (background.ts): no tray icon in the menu bar. */
-  background?: boolean;
+  /** Whether this run draws a menu bar icon (drawsTray in background.ts). */
+  tray: boolean;
 }): Own {
   const log = fs.openSync(path.join(app.getPath('userData'), 'daemon.log'), 'a');
   const owner = new Owner({
@@ -220,7 +220,7 @@ export function ownDaemon(o: {
     wait: sleep,
   });
   app.on('quit', () => owner.stop());
-  const tray = makeTray(o.background);
+  const tray = makeTray(o.tray);
   const link = new Link();
   link.set('connecting', { address: o.gateway ?? null });
   const relaunchAs = (next: Settings) => relaunchWith(o.settings, next);

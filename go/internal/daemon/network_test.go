@@ -13,6 +13,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/handline/handline/go/internal/contracttest"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -82,10 +83,7 @@ func pair(t *testing.T, d *Daemon, name string) (token, id string) {
 }
 
 func TestAnUnpairedConnectionReadsNothingForAnyMethodOfTheSpec(t *testing.T) {
-	raw, err := os.ReadFile("../../../contract/protocol.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := contracttest.Spec(t)
 	var spec struct {
 		Methods []struct{ Name string } `json:"methods"`
 	}

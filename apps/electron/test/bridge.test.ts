@@ -252,3 +252,14 @@ test('the page sees and links the carried hl only from the window, and a refusal
   assert.equal(cli.link(evil).ok, false);
   assert.equal(linked, 2);
 });
+
+test('settings: the status bar resource area keys reach the daemon', async () => {
+  const sent: unknown[] = [];
+  const s = new Settings(ORIGIN, { get: async () => ({}) as never, set: async (c) => (sent.push(c), { accepted: true } as never) });
+  const changes = { keep_awake: 'on', load_per_core_pct: 200, ram_free_min_pct: 5, heavy_slots: 3 };
+  for (const [k, v] of Object.entries(changes)) assert.equal((await s.set(top, { changes: { [k]: v } })).ok, true, k);
+  assert.deepEqual(
+    sent,
+    Object.entries(changes).map(([k, v]) => ({ [k]: v })),
+  );
+});

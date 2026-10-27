@@ -66,3 +66,15 @@ func TestRecreateMakesAGoneWorktreeAgainFromItsBranch(t *testing.T) {
 		t.Fatalf("a relative path: %q %q", path, why)
 	}
 }
+
+func TestWorktreesDirIsNoindexAndTheOldNameIsStillOurs(t *testing.T) {
+	repo := "/w/proj"
+	if got := WorktreesDir(repo); got != "/w/proj.worktrees.noindex" {
+		t.Fatalf("%q", got)
+	}
+	for dir, want := range map[string]bool{"/w/proj.worktrees.noindex": true, "/w/proj.worktrees": true, "/w/other.worktrees.noindex": false, "/w/proj": false} {
+		if inWorktreesDir(dir, repo) != want {
+			t.Fatalf("%s: want %v", dir, want)
+		}
+	}
+}

@@ -147,7 +147,10 @@ func TestProposalDiffIsOneChangePerLineInTheSpecsWords(t *testing.T) {
 		{"team", "kind: team\nagent: eng\nrepo: r\nmembers: \"a,b\"\n", "create team eng (working in r) with members a, b"},
 		{"context", "kind: context\nagent: w\nset.ROLE.md: \"\\\"x\\\"\"\n", "replace ROLE.md of w"},
 		{"rename", "kind: rename\nagent: a\nto: b\n", "rename a to b"},
-		{"schedule", "kind: schedule\nagent: old\nset.action: add\n", "schedule old"},
+		{"schedule add", "kind: schedule\nagent: old\nset.action: add\nset.cron: \"0 9 * * 1\"\nset.message: review\n", "schedule 0 9 * * 1: review for old"},
+		{"schedule edit", "kind: schedule\nagent: old\nset.action: edit\nset.cron: \"0 8 * * 1\"\nset.message: review\nset.cron_was: \"0 9 * * 1\"\nset.message_was: look\n",
+			"change old's schedule 0 9 * * 1: look\n  to 0 8 * * 1: review"},
+		{"schedule remove", "kind: schedule\nagent: old\nset.action: remove\nset.cron_was: \"0 9 * * 1\"\nset.message_was: look\n", "stop old's schedule 0 9 * * 1: look"},
 		{"global", "kind: global\nagent: dev-mode\nset.value: \"on\"\n", "global dev-mode"},
 		{"bundle, in the order it is applied", "kind: bundle\nagent: x\ni1.kind: retire\ni1.agent: old\ni2.kind: add\ni2.agent: new\ni3.kind: rename\ni3.agent: a\ni3.to: b\n",
 			"register new\nrename a to b\nretire old"},
@@ -220,7 +223,7 @@ func TestHrListServesAScheduleAndAGlobalProposalWithTheirWords(t *testing.T) {
 	if len(list) != 2 {
 		t.Fatalf("both are listed: %v", list)
 	}
-	if d := list[0].(map[string]any)["diff"]; d != "schedule old" {
+	if d := list[0].(map[string]any)["diff"]; d != "schedule 30 9 * * 1-5: morning for old" {
 		t.Fatalf("%q", d)
 	}
 	if d := list[1].(map[string]any)["diff"].(string); d != "global dev-mode" {

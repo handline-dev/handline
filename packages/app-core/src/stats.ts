@@ -33,14 +33,14 @@ export function parseSeconds(text: string): number | null | typeof INVALID {
   if (t === '') return null;
   return /^\d+$/.test(t) ? Number(t) : INVALID;
 }
-/** A machine limit: a whole number, `off` or 0 for no limit, empty for the default. */
+/** A machine limit: a whole number, `no limit` (or `off`, or 0) for none, empty for the default. */
 export function parseLimit(text: string): number | null | typeof INVALID {
   const t = text.trim().toLowerCase();
   if (t === '') return null;
-  if (t === 'off') return 0;
+  if (t === 'off' || t === 'no limit') return 0;
   return /^\d+$/.test(t) ? Number(t) : INVALID;
 }
-const limitOf = (n: number | undefined): string => (n === undefined ? '' : n === 0 ? 'off' : String(n));
+const limitOf = (n: number | undefined): string => (n === undefined ? '' : n === 0 ? 'no limit' : String(n));
 export const minutesOf = (seconds: number | undefined): string => (seconds === undefined ? '' : String(Math.round(seconds / 60)));
 
 /** The default cap field of the Settings page, on the PC and the phone: everything but the words around it and the layout. */
@@ -65,35 +65,46 @@ export const idleField = (parkTimeoutS: number | undefined) => ({
 
 /** The machine load limits of the Settings page, on the PC and the phone: the daemon starts no new work over any of them; 0 is off. */
 export const limitFields = (v: { host_active_cap?: number; load_per_core_pct?: number; ram_free_min_pct?: number }) => {
-  const allowed = 'a whole number, 0 or off for no limit, or empty for the default';
+  const allowed = 'a whole number, no limit or 0 for none, or empty for the default';
   const field = (
     label: string,
     hint: string,
     unit: string,
     n: number | undefined,
     key: 'host_active_cap' | 'load_per_core_pct' | 'ram_free_min_pct',
+    change: (x: number | null) => PageSettings,
   ) => ({
     setting: key,
     label,
     hint,
-    unit,
+    unit: n === 0 ? '' : unit,
     current: limitOf(n),
     parse: parseLimit,
-    change: (x: number | null): PageSettings => ({ [key]: x }),
+    change,
     allowed,
   });
   // A daemon that has none of the keys does not know the limits: no rows.
   if (v.host_active_cap === undefined && v.load_per_core_pct === undefined && v.ram_free_min_pct === undefined) return [];
   return [
-    field('Agents at once', 'Agents working at once on this machine, over every account', 'agents', v.host_active_cap, 'host_active_cap'),
+    field(
+      'Agents at once',
+      'Agents working at once on this machine, over every account',
+      'agents',
+      v.host_active_cap,
+      'host_active_cap',
+      (x) => ({ host_active_cap: x }),
+    ),
     field(
       'Load per core',
       'Most 1-minute load per core; over it no new work starts (150 is 1.5)',
       '%',
       v.load_per_core_pct,
       'load_per_core_pct',
+      (x) => ({ load_per_core_pct: x }),
     ),
-    field('Least free memory', 'Under this share of memory free, no new work starts', '%', v.ram_free_min_pct, 'ram_free_min_pct'),
+    field('Least free memory', 'Under this share of memory free, no new work starts', '%', v.ram_free_min_pct, 'ram_free_min_pct', (x) => ({
+      ram_free_min_pct: x,
+    })),
   ];
 };
 

@@ -62,7 +62,7 @@ func (h termHost) OpenTerminal(cmd, cwd, title, agent string) (string, string) {
 	return h.t.CreateTerminal(cmd, cwd, title, agent)
 }
 
-// CreateWorktree is a sibling directory `<repo>.worktrees/<name>` on a new branch `<name>`; a name already taken becomes `<name>-2`,
+// CreateWorktree is a sibling directory `<repo>.worktrees.noindex/<name>` (lifecycle.WorktreesDir) on a new branch `<name>`; a name already taken becomes `<name>-2`,
 // as Orca did, rather than touching the first.
 func (termHost) CreateWorktree(repo, name, baseRef string) (string, string) {
 	root, err := filepath.EvalSymlinks(repo)
@@ -70,7 +70,7 @@ func (termHost) CreateWorktree(repo, name, baseRef string) (string, string) {
 		root = repo
 	}
 	root, _ = filepath.Abs(root)
-	parent := filepath.Join(filepath.Dir(root), filepath.Base(root)+".worktrees")
+	parent := lifecycle.WorktreesDir(root)
 	for n := 1; n < 10; n++ {
 		leaf := name
 		if n > 1 {

@@ -17,6 +17,7 @@ export * from '#src/settings.ts';
 export * from '#src/handoff-prompt.ts';
 export * from '#src/accounts.ts';
 export * from '#src/proposals.ts';
+export * from '#src/answers.ts';
 export * from '#src/stats.ts';
 export * from '#src/links.ts';
 export * from '#src/paths.ts';

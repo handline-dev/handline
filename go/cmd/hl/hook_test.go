@@ -2,14 +2,18 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/protected"
+	"github.com/handline/handline/go/internal/rpc"
+	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/store"
 )
 
@@ -254,5 +258,91 @@ func TestAQuestionIsLeftToTheTerminal(t *testing.T) {
 		if m["method"] == "permission.ask" {
 			t.Errorf("asked the founder: %v", m["params"])
 		}
+	}
+}
+
+// A founder's message typed into the agent's terminal and left unanswered holds its Stop once: never again for that message, again for
+// a new one, not for one answered with a say or a Stop the hook already held, and an error lets the Stop through.
+func TestAFoundersUnansweredMessageHoldsTheStopOncePerMessage(t *testing.T) {
+	r := hookRig(t, false)
+	r.daemon(nil)
+	d, err := store.Open(paths.DBFile(r.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := d.Exec(q, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	typed := func(landed int64) int64 { // the founder's message, typed into a.one's terminal and landed at landed
+		t.Helper()
+		rid, err := db.AddRequest(d, db.NewRequest{Requester: db.Human, Target: "a.one", Kind: "say", Body: "how is it going?"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec("UPDATE requests SET founder_auth = 1, landed_at = ?, state = 'landed' WHERE id = ?", landed, rid)
+		return rid
+	}
+	stopped := func(at int64) { exec("INSERT INTO events(ts, agent, kind) VALUES(?, 'a.one', 'Stop')", at) } // as the daemon records it
+	stop := func(active bool) string {
+		t.Helper()
+		out, _, code := r.runIn(fmt.Sprintf(`{"hook_event_name": "Stop", "session_id": "s1", "stop_hook_active": %v}`, active), asAgent, "hook", "Stop")
+		if code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+		return strings.TrimSpace(out)
+	}
+	held := func(rid int64) string {
+		return rpc.PyJSON(map[string]any{"decision": "block", "reason": session.FounderNudgeText(db.MsgName(d, rid))}, true, true)
+	}
+
+	first := typed(100)
+	if out := stop(false); out != held(first) {
+		t.Fatalf("an unanswered message holds the stop: %s", out)
+	}
+	stopped(101)
+	if out := stop(false); out != "{}" {
+		t.Fatalf("the same message is never nudged again: %s", out)
+	}
+	typed(90)
+	if out := stop(false); out != "{}" {
+		t.Fatalf("a message that landed before the last stop is not this turn's: %s", out)
+	}
+	second := typed(102)
+	if out := stop(false); out != held(second) {
+		t.Fatalf("a new message is nudged again: %s", out)
+	}
+	stopped(103)
+	typed(104)
+	answer, err := db.AddRequest(d, db.NewRequest{Requester: "a.one", Target: db.Human, Kind: "say", Body: "going well"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec("UPDATE requests SET ts = 105 WHERE id = ?", answer)
+	if out := stop(false); out != "{}" {
+		t.Fatalf("an answered message is not nudged: %s", out)
+	}
+	stopped(106)
+	exec("UPDATE requests SET no_work = 'thanks' WHERE id = ?", typed(107))
+	exec("INSERT INTO tasks(id, title, owner, opened_by, created_at, from_request) VALUES(8, 'asked', 'a.one', 'human', 1, ?)", typed(108))
+	exec("INSERT INTO task_requests(task_id, request_id) VALUES(8, ?)", typed(109))
+	exec("UPDATE requests SET founder_auth = 0 WHERE id = ?", typed(109))
+	if out := stop(false); out != "{}" {
+		t.Fatalf("a no-work mark, a task made from it or linked to it, or a message not typed by the founder is no nudge: %s", out)
+	}
+	third := typed(110)
+	if out := stop(true); out != "{}" {
+		t.Fatalf("a stop the hook already held passes: %s", out)
+	}
+	if out := stop(false); out != held(third) {
+		t.Fatalf("the held stop left the message unanswered: %s", out)
+	}
+	typed(111)
+	exec("DROP TABLE task_requests")
+	if out := stop(false); out != "{}" {
+		t.Fatalf("an error lets the stop through: %s", out)
 	}
 }
