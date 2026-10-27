@@ -14,7 +14,7 @@ export const TASK_VERBS: readonly { verb: RowVerb; label: string; method: string
   { verb: 'draft', label: 'Back to draft', method: 'task.draft' },
   { verb: 'release', label: 'Release', method: 'task.release' },
   { verb: 'reopen', label: 'Reopen', method: 'task.reopen' },
-  { verb: 'owner', label: 'Change owner', method: 'task.edit' },
+  { verb: 'owner', label: 'Assign to…', method: 'task.edit' },
   { verb: 'priority', label: 'Set priority', method: 'task.edit' },
   { verb: 'timebox', label: 'Set time box', method: 'task.edit' },
   { verb: 'withdraw', label: 'Withdraw', method: 'task.withdraw' },

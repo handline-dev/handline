@@ -50,7 +50,7 @@ describe('the task page', () => {
     await mount('#/tasks/1690', s);
     await until(() => $('.twhy'), 'the waiting line');
     expect(text($('.twhy'))).toContain('blocked by T1688');
-    expect(text($('.tchips'))).toMatch(/Owner · handline.auditor ▾.*Priority · P3 ▾.*Time box/);
+    expect(text($('.tchips'))).toMatch(/Assigned to · handline.auditor ▾.*Priority · P3 ▾.*Time box/);
     expect($('.line-clamp-4', $('article.tdetail')!)).not.toBeNull();
     await click(button('Show more', $('article.tdetail')!)!);
     expect($('.line-clamp-4', $('article.tdetail')!)).toBeNull();
