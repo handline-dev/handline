@@ -20,6 +20,7 @@ import {
   useSettingsOpen,
   useTasksRoute,
   useTeamRoute,
+  leave,
 } from '#src/route.ts';
 import { useShell } from '#src/shell.ts';
 import { SettingsView } from '#src/SettingsView.tsx';
@@ -169,7 +170,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
               </div>
             )}
           </main>
-          <AnimatedList>{newAgent.open ? <NewAgent key="NewAgent" onClose={() => void (location.hash = '')} /> : null}</AnimatedList>
+          <AnimatedList>{newAgent.open ? <NewAgent key="NewAgent" onClose={() => leave('')} /> : null}</AnimatedList>
         </div>
         <StatusBar />
         <AnimatedList>{palette ? <Palette key="Palette" onClose={() => setPalette(false)} /> : null}</AnimatedList>
