@@ -1,21 +1,29 @@
 #!/usr/bin/env bash
 # Run a phone check in a heavy slot and, when it ends (also when it fails), stop what it started and nothing else:
 #   apps/mobile/scripts/sim-check.sh <command> [args...]     e.g. a script that boots the simulator, drives it and takes screenshots
-# The simulators and emulators that were up before the command stay up; the ones that appeared are stopped through tools/phone-sim.sh,
-# and the processes the command left behind (Metro, a fake daemon) are ended with its process group.
+# The command boots its simulator or emulator with tools/phone-sim.sh, which writes the UDID or serial it booted into the file named by
+# PHONE_SIM_STARTED; those are stopped here. A device somebody else booted is never listed, so it is never stopped. What the command left
+# behind (Metro, a fake daemon) is ended with its process group, which is made inside the slot because heavyslot gives its command a group of its own.
 top="$(cd "$(dirname "$0")/../../.." && pwd)" || exit 1
 sim="$top/tools/phone-sim.sh"
-booted_ios() { xcrun simctl list devices booted 2>/dev/null | grep -oE '[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}' | sort; }
-booted_android() { adb devices 2>/dev/null | awk '/^emulator-[0-9]+\tdevice/ {print $1}' | sort; }
-ios_before="$(booted_ios)" android_before="$(booted_android)"
-set -m # the command runs as its own process group, so what it leaves behind can be ended with it
-"$top/tools/heavy-slot.sh" "$@" &
-pid=$!
-trap 'kill -- -"$pid" 2>/dev/null' INT TERM
-wait "$pid"
+PHONE_SIM_STARTED="$(mktemp)" || exit 1
+export PHONE_SIM_STARTED
+"$top/tools/heavy-slot.sh" bash -c '
+    set -m
+    "$@" &
+    pid=$!
+    trap "kill -- -$pid 2>/dev/null" INT TERM
+    wait "$pid"
+    status=$?
+    kill -- -"$pid" 2>/dev/null
+    exit "$status"
+' _ "$@"
 status=$?
-trap - INT TERM
-kill -- -"$pid" 2>/dev/null
-for u in $(comm -13 <(echo "$ios_before") <(booted_ios)); do "$sim" ios stop "$u" >/dev/null; done
-for s in $(comm -13 <(echo "$android_before") <(booted_android)); do "$sim" android stop "$s" >/dev/null; done
+while read -r kind id; do
+    case "$kind" in
+        ios) "$sim" ios stop "$id" >/dev/null ;;
+        android) "$sim" android stop "$id" >/dev/null ;;
+    esac
+done < "$PHONE_SIM_STARTED"
+rm -f "$PHONE_SIM_STARTED"
 exit "$status"

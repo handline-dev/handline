@@ -6,7 +6,10 @@
 set -uo pipefail
 
 running_android() { adb devices 2>/dev/null | awk '/^emulator-[0-9]+\tdevice/ {print $1}'; }
+booted_ios_udids() { xcrun simctl list devices booted 2>/dev/null | grep -oE '[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}' | sort; }
 running_ios() { xcrun simctl list devices booted 2>/dev/null | grep -E 'Booted' | sed -E 's/^ *//; s/ \([0-9A-F-]{36}\).*//'; }
+# A check that sets PHONE_SIM_STARTED gets one line per device this script booted ("android SERIAL", "ios UDID"), to stop exactly those.
+note_started() { [ -z "${PHONE_SIM_STARTED:-}" ] || echo "$1 $2" >> "$PHONE_SIM_STARTED"; }
 labelled() { [ -n "$2" ] && echo "$2" | sed "s/^/$1: /"; return 0; }
 
 status() {
@@ -40,6 +43,7 @@ android_start() {
         [ "$SECONDS" -lt "$deadline" ] || { echo "the emulator $1 did not boot in time" >&2; adb -s "$serial" emu kill >/dev/null 2>&1; kill "$pid" 2>/dev/null; return 1; }
         sleep 2
     done
+    note_started android "$serial"
     echo "started $serial"
     status
 }
@@ -51,8 +55,12 @@ android_stop() {
 }
 
 ios_start() {
+    local before u
     [ -n "${1:-}" ] || { echo "usage: tools/phone-sim.sh ios start NAME" >&2; return 2; }
-    xcrun simctl boot "$1" && status   # never `open -a Simulator`: its window takes the person's focus
+    before="$(booted_ios_udids)"
+    xcrun simctl boot "$1" || return 1   # never `open -a Simulator`: its window takes the person's focus
+    for u in $(comm -13 <(echo "$before") <(booted_ios_udids)); do note_started ios "$u"; done
+    status
 }
 
 case "${1:-}:${2:-}" in
