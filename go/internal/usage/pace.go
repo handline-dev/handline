@@ -213,16 +213,20 @@ func (p *Pace) Cap(base int, ps PaceSettings) int {
 	return base
 }
 
-// FiveHourShareWith is the account's FiveHourShare with agent started on it: its recorded burn plus that agent's own cost. ok false where
-// no burn is recorded or nothing trusted says (a start is not held on a guess), or the account is unreadable.
+// FiveHourShareWith is the account's FiveHourShare with agent started on it: its recorded burn plus that agent's measured cost
+// (Costs.Measured). ok false where there is no burn reading or the cost is only the starting value, so nothing is held on a guess.
 func (e *Env) FiveHourShareWith(q db.Q, acct, agent string) (float64, bool) {
 	burn, ok := e.ReadBurn(acct)
 	if !ok {
 		return 1, false
 	}
-	per := TypicalAgentBurnPerS
-	if costs, err := e.LoadCosts(q); err == nil && costs != nil {
-		per = costs.PerS(agent)
+	costs, err := e.LoadCosts(q)
+	if err != nil {
+		return 1, false
+	}
+	per, measured := costs.Measured(agent)
+	if !measured {
+		return 1, false
 	}
 	return FiveHourShare(e.Read(acct), burn, per, e.now())
 }
