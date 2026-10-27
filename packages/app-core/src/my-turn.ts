@@ -111,6 +111,27 @@ function taskCards(
     }));
 }
 
+/** An ask an agent raised by naming @human in a task comment: the founder's answer is a reply comment on that task, and the task stays open. */
+function commentAsk(
+  i: InboxItem,
+  base: Omit<Card, 'key' | 'kind' | 'title' | 'primary' | 'actions'>,
+  title: string,
+  open: readonly CardAction[],
+): Card {
+  const answer = { type: 'answer', id: i.id } as const;
+  const verbs: CardAction[] = base.review
+    ? [{ type: 'reply', id: i.id, text: APPROVED, label: 'Approve' }, { type: 'change', id: i.id }, answer]
+    : [{ type: 'reply', id: i.id, text: 'OK', label: 'OK' }, answer];
+  return {
+    ...base,
+    key: `item:${i.id}`,
+    kind: 'decision',
+    title,
+    primary: verbs.length - (base.review ? 1 : 0),
+    actions: [...verbs, ...open],
+  };
+}
+
 /** The cards, most urgent first: task priority, then the earliest deadline (none last), then the one waiting longest. */
 export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
   const byTask = new Map(tasks.map((t) => [t.id, t]));
@@ -167,19 +188,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
         ],
       });
     } else if (i.kind === 'ask' && i.memo != null && i.task != null) {
-      // An agent named @human in a task comment: the founder's answer is a reply comment on that task, and the task stays open.
-      const answer = { type: 'answer', id: i.id } as const;
-      const verbs: CardAction[] = base.review
-        ? [{ type: 'reply', id: i.id, text: APPROVED, label: 'Approve' }, { type: 'change', id: i.id }, answer]
-        : [{ type: 'reply', id: i.id, text: 'OK', label: 'OK' }, answer];
-      cards.push({
-        ...base,
-        key: `item:${i.id}`,
-        kind: 'decision',
-        title,
-        primary: verbs.length - (base.review ? 1 : 0),
-        actions: [...verbs, ...open],
-      });
+      cards.push(commentAsk(i, base, title, open));
     } else if (KINDS[i.kind]) {
       const decide: CardAction[] =
         i.kind !== 'decision' || i.task == null
