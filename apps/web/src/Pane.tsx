@@ -124,9 +124,6 @@ export function Pane({ group }: { group: Group }) {
             <RailControls show={folded.show} row />
           </div>
         ) : null}
-        <span className="agent-name mr-2 max-w-[180px] flex-none self-center truncate pl-1 text-body font-semibold text-ink" title={agent}>
-          {agent}
-        </span>
         {group.tabs.map((id) => {
           const t = ws.tabs[id]!;
           // Claude Code is reached by the switch (Cmd/Ctrl+J, /terminal, the icon in the bottom bar), not by a tab, while the chat is in the group.
@@ -143,7 +140,8 @@ export function Pane({ group }: { group: Group }) {
               draggable={id !== CHAT}
               onDragStart={(e) => {
                 e.dataTransfer?.setData('text/plain', id);
-                setDragging(id);
+                // The drop cover appears over the tab being dragged; mounting it inside dragstart makes Chromium cancel the drag.
+                setTimeout(() => setDragging(id), 0);
               }}
               onDragEnd={() => setDragging(null)}
               onClick={() => show(id)}
