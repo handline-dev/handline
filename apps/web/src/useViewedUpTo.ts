@@ -11,7 +11,9 @@ export function useViewedUpTo(
 ): void {
   const { messages, status } = chat;
   const tell = useRef(onView);
-  tell.current = onView;
+  useEffect(() => {
+    tell.current = onView;
+  });
   useEffect(() => {
     const root = stream.current;
     const measure = () => {

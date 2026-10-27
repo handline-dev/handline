@@ -14,7 +14,9 @@ export function useChatReadMarks(agent: string, chat: Pick<Chat, 'status' | 'mes
   // The agent's messages in front of the person leave the FOR YOU list (chat.seen); once per newest number.
   const told = useRef(0);
   const ready = useRef(false);
-  ready.current = chat.status === 'ready';
+  useEffect(() => {
+    ready.current = chat.status === 'ready';
+  }, [chat.status]);
   const seen = (up_to: number) => {
     if (!ready.current || up_to <= told.current) return;
     told.current = up_to;
