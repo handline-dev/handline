@@ -35,6 +35,9 @@ export const BodyImage = Image.extend({
   addNodeView: () => ReactNodeViewRenderer(ImageView),
 });
 
+/** Compact: one or two lines. The picture nodes, and the empty paragraph after them, sit inline so the thumbnails make one row. */
+const COMPACT =
+  'min-h-9 [&_p]:m-0 [&>div]:mr-1.5 [&>div]:inline-block [&>div]:align-top [&>p:has(>br:only-child)]:inline-block [&>p:has(>br:only-child)]:min-w-4';
 const BOX = 'rounded-ctl border border-line bg-panel px-2 py-1.5 text-ink';
 
 const imagesOf = (list: FileList | null | undefined): File[] => Array.from(list ?? []).filter((f) => f.type.startsWith('image/'));
@@ -144,7 +147,7 @@ export function BodyEditor(props: {
     contentType: 'markdown',
     editorProps: {
       attributes: {
-        class: `${BOX} body-editor ${props.compact ? 'min-h-9 [&_p]:m-0' : 'min-h-24'} focus-within:border-ink-3 outline-none`,
+        class: `${BOX} body-editor ${props.compact ? COMPACT : 'min-h-24'} focus-within:border-ink-3 outline-none`,
         ...(props.id ? { id: props.id } : {}),
         role: 'textbox',
         'aria-multiline': 'true',
