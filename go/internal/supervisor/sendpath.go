@@ -111,6 +111,9 @@ func (e *Env) sendOnce(q db.Q, agent, op, text string, d delivery.Delivery) (Sen
 		check(db.ClearCursor(q, key))
 		return NotSent, err.Error()
 	}
+	for _, o := range append([]string{op}, singleOps(op)...) {
+		check(db.ClearCursor(q, arrivedKey(agent, o)))
+	}
 	if rcpt.State == delivery.Withdrawn { // its sender took it back: nothing was or will be written
 		check(db.ClearCursor(q, key))
 		return NotSent, "withdrawn"
@@ -129,15 +132,35 @@ func (e *Env) sendOnce(q db.Q, agent, op, text string, d delivery.Delivery) (Sen
 	return stateOfLedger(v), ""
 }
 
-// handingOff is why nothing more is typed at agent's session: it was asked for its handoff note and is closed after it, so what arrives
-// meanwhile goes to the session that follows; "" when no such wait is kept.
-func (e *Env) handingOff(q db.Q, agent string) string {
-	_, _, kept, err := db.NoteWaitKept(q, agent, e.now())
+// arrivedDuringRestart is the line that heads a message held while its agent restarted, so the new session knows why it comes first.
+const arrivedDuringRestart = "(This arrived while you were restarting for a handoff.)\n"
+
+// handingOff is why nothing more is typed at agent's session: from the moment a handoff is decided (its row, or the wait for its note)
+// until the session is closed, what arrives goes to the session that follows. ops are the operations held back; each is marked, and
+// arrivalLine heads its text when it is told. "" when nothing is held.
+func (e *Env) handingOff(q db.Q, agent string, ops ...string) string {
+	held, err := db.RestartHeld(q, agent, e.now())
 	check(err)
-	if kept {
-		return "held: it is writing its handoff note, and the next session is told"
+	if !held {
+		return ""
 	}
-	return ""
+	for _, op := range ops {
+		check(db.SetCursor(q, arrivedKey(agent, op), 1))
+	}
+	return "held while it restarts; the new session gets it"
+}
+
+func arrivedKey(agent, op string) string { return "restart-arrived:" + agent + ":" + op }
+
+// arrivalLine heads text with arrivedDuringRestart when any of ops was held by handingOff; sendOnce forgets the mark once text is written.
+func (e *Env) arrivalLine(q db.Q, agent, text string, ops ...string) string {
+	line := ""
+	for _, op := range ops {
+		if must(db.Cursor(q, arrivedKey(agent, op))) != 0 {
+			line = arrivedDuringRestart
+		}
+	}
+	return line + text
 }
 
 // moveLedger sets a ledger row to to if it is still from, in one statement.
@@ -306,7 +329,7 @@ func (e *Env) tellStructured(q db.Q, row *db.Request, d delivery.Delivery) (what
 	if !e.Agents.Live(agent) {
 		return "queued - no live session; told when it is up", NotSent, nil
 	}
-	if why := e.handingOff(q, agent); why != "" {
+	if why := e.handingOff(q, agent, requestOp(rid)); why != "" {
 		return "queued - " + why, NotSent, nil
 	}
 	if !must(db.MarkDelivered(q, rid)) {
@@ -322,6 +345,7 @@ func (e *Env) tellStructured(q db.Q, row *db.Request, d delivery.Delivery) (what
 			folded, text = nil, founderText(q, row, e.imageLines(q, row))
 		}
 	}
+	text = e.arrivalLine(q, agent, text, requestOp(rid))
 	state, why := e.sendOnce(q, agent, requestOp(rid), text, d)
 	switch state {
 	case NotSent:
@@ -343,4 +367,22 @@ func (e *Env) tellStructured(q db.Q, row *db.Request, d delivery.Delivery) (what
 	}
 	e.log("  %s: told about request %d at once", agent, rid)
 	return "sent", state, nil
+}
+
+// batchOps are the operations of the requests in a batch, one each.
+func batchOps(batch []*db.Request) []string {
+	var ops []string
+	for _, r := range batch {
+		ops = append(ops, requestOp(r.ID))
+	}
+	return ops
+}
+
+// singleOps splits a batch's operation into one per request, the way handingOff marks them.
+func singleOps(op string) []string {
+	var ops []string
+	for _, rid := range ridsOfOp(op) {
+		ops = append(ops, requestOp(rid))
+	}
+	return ops
 }

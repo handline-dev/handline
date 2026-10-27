@@ -420,6 +420,9 @@ func (t *Tick) supervise(agent string, now int64, samples map[string][]Sample, a
 	if kind, _, kept := must3(db.NoteWaitKept(q, agent, now)); !trig.Fired && kept && !t.Handoff.NoteHold(q, agent, now) {
 		trig = Trigger{true, kind, "its handoff note is written"}
 	}
+	if !trig.Fired && must(db.Cursor(q, "handoff_deferred:"+agent)) != 0 {
+		check(db.ClearDeferred(q, agent)) // a trigger deferred behind a turn that no longer fires holds nothing
+	}
 	if trig.Fired {
 		ok := t.Handoff.PerformHandoff(q, agent, trig, "")
 		suffix := ""
