@@ -126,18 +126,22 @@ export const paceFields = (v: { pacing?: boolean; pace_target_pct?: number; pace
     n: number | undefined,
     min: number,
     max: number,
-    key: 'pace_target_pct' | 'pace_burst_pct',
+    change: (x: number | null) => PageSettings,
   ) => ({
     label,
     hint,
     unit: '%',
     current: n === undefined ? '' : String(n),
     parse: parseRange(min, max),
-    change: (x: number | null): PageSettings => ({ [key]: x }),
+    change,
     allowed: `a whole number from ${min} to ${max}, or empty for the default`,
   });
   return [
-    field('Pace target', "The share of its week an account may have used by the week's end", v.pace_target_pct, 50, 100, 'pace_target_pct'),
-    field('Pace burst', 'Points over the pace line before an account starts no new turn', v.pace_burst_pct, 0, 50, 'pace_burst_pct'),
+    field('Pace target', "The share of its week an account may have used by the week's end", v.pace_target_pct, 50, 100, (x) => ({
+      pace_target_pct: x,
+    })),
+    field('Pace burst', 'Points over the pace line before an account starts no new turn', v.pace_burst_pct, 0, 50, (x) => ({
+      pace_burst_pct: x,
+    })),
   ];
 };
