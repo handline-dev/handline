@@ -5,6 +5,7 @@ package loadgate
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +49,21 @@ func setting(cfg usage.Config, key string, def int) int {
 	return def
 }
 
+// HeldPrefix starts every reason Held gives, so a caller can tell a load hold from any other refusal (IsHeld).
+const HeldPrefix = "Held: "
+
+// IsHeld is whether why is a reason Held gave.
+func IsHeld(why string) bool { return strings.HasPrefix(why, HeldPrefix) }
+
+// Cause is the clause of a Held reason that names what holds it: "the Mac is busy", "3 of 3 agents are working".
+func Cause(why string) string {
+	s := strings.TrimPrefix(why, HeldPrefix)
+	if i := strings.IndexAny(s, "(."); i > 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}
+
 // Held is why a new start must wait, "" when it may go. active is the agents mid-turn on the machine; m is the latest measure, nil
 // before the first, when only the agent cap is checked.
 func Held(l Limits, active int, m *sysres.Machine) string {
@@ -55,22 +71,33 @@ func Held(l Limits, active int, m *sysres.Machine) string {
 		return ""
 	}
 	if l.Agents > 0 && active >= l.Agents {
-		return fmt.Sprintf("held: machine load - %d of %d agents mid-turn", active, l.Agents)
+		return fmt.Sprintf(HeldPrefix+"%d of %d agents are working. It starts by itself when one finishes.", active, l.Agents)
 	}
 	if m == nil {
 		return ""
 	}
 	if l.LoadPct > 0 && m.Cores > 0 {
 		if pct := int(m.Load1 * 100 / float64(m.Cores)); pct > l.LoadPct {
-			return fmt.Sprintf("held: machine load - load %.2f per core, limit %.2f", float64(pct)/100, float64(l.LoadPct)/100)
+			load, limit := perCore(pct, l.LoadPct)
+			return HeldPrefix + "the Mac is busy (" + load + " per core, limit " + limit + "). It starts by itself when that drops."
 		}
 	}
 	if l.RAMFreePct > 0 && m.RAMTotal > 0 {
 		if pct := int(m.RAMFree * 100 / m.RAMTotal); pct < l.RAMFreePct {
-			return fmt.Sprintf("held: machine load - %d%% of memory free, limit %d%%", pct, l.RAMFreePct)
+			return fmt.Sprintf(HeldPrefix+"the Mac is low on memory (%d%% free, limit %d%%). It starts by itself when memory frees up.", pct,
+				l.RAMFreePct)
 		}
 	}
 	return ""
+}
+
+// perCore writes a load and its limit (percent of a core) with one decimal, or two when one would show them equal (1.51 over 1.50).
+func perCore(load, limit int) (string, string) {
+	a, b := fmt.Sprintf("%.1f", float64(load)/100), fmt.Sprintf("%.1f", float64(limit)/100)
+	if a == b {
+		a, b = fmt.Sprintf("%.2f", float64(load)/100), fmt.Sprintf("%.2f", float64(limit)/100)
+	}
+	return a, b
 }
 
 // PassFor is how long a force start lets an agent past the limits: long enough for the start it asked for, after which the agent counts

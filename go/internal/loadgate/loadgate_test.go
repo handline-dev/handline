@@ -31,11 +31,12 @@ func TestEachLimitHoldsAStartAndNoneHoldsTheFirst(t *testing.T) {
 		held   string
 	}{
 		{"calm", l, 2, calm, ""},
-		{"agents at the cap", l, 3, calm, "3 of 3 agents mid-turn"},
+		{"agents at the cap", l, 3, calm, "Held: 3 of 3 agents are working. It starts by itself when one finishes."},
 		{"agent cap off", Limits{LoadPct: 150}, 9, calm, ""},
-		{"load over", l, 1, &sysres.Machine{Cores: 8, Load1: 12.8, RAMTotal: 100, RAMFree: 50}, "load 1.60 per core, limit 1.50"},
+		{"load over", l, 1, &sysres.Machine{Cores: 8, Load1: 12.8, RAMTotal: 100, RAMFree: 50}, "Held: the Mac is busy (1.6 per core, limit 1.5). It starts by itself when that drops."},
+		{"load just over", l, 1, &sysres.Machine{Cores: 8, Load1: 12.08, RAMTotal: 100, RAMFree: 50}, "the Mac is busy (1.51 per core, limit 1.50)"},
 		{"load at the limit", l, 1, &sysres.Machine{Cores: 8, Load1: 12, RAMTotal: 100, RAMFree: 50}, ""},
-		{"memory short", l, 1, &sysres.Machine{Cores: 8, Load1: 1, RAMTotal: 100, RAMFree: 9}, "9% of memory free, limit 10%"},
+		{"memory short", l, 1, &sysres.Machine{Cores: 8, Load1: 1, RAMTotal: 100, RAMFree: 9}, "Held: the Mac is low on memory (9% free, limit 10%). It starts by itself when memory frees up."},
 		{"limits off", Limits{}, 1, busy, ""},
 		{"no measure yet", l, 1, nil, ""},
 		{"nothing mid-turn goes under any load", l, 0, busy, ""},
@@ -81,7 +82,7 @@ func TestWorkHeldPastTheCeilingGoesOnceAndSaysWhy(t *testing.T) {
 		t.Fatalf("let go before the ceiling: %v", said)
 	}
 	now = now.Add(time.Second)
-	if g.ForWork("amy", ceiling) != "" || len(said) != 1 || !strings.Contains(said[0], "held: machine load") {
+	if g.ForWork("amy", ceiling) != "" || len(said) != 1 || !IsHeld(said[0]) {
 		t.Fatalf("at the ceiling: still held, or not said once: %v", said)
 	}
 	if g.ForWork("amy", ceiling) != "" || len(said) != 1 {
@@ -121,5 +122,22 @@ func TestTheCeilingIsSaidOutsideTheLock(t *testing.T) {
 	var none *Gate
 	if none.ForWork("amy", nil) != "" {
 		t.Fatal("a nil gate held work")
+	}
+}
+
+func TestTheCauseOfAHoldIsItsFirstClause(t *testing.T) {
+	l := Limits{Agents: 3, LoadPct: 150, RAMFreePct: 10}
+	for m, want := range map[*sysres.Machine]string{
+		{Cores: 8, Load1: 1, RAMTotal: 100, RAMFree: 50}:  "3 of 3 agents are working",
+		{Cores: 8, Load1: 16, RAMTotal: 100, RAMFree: 50}: "the Mac is busy",
+		{Cores: 8, Load1: 1, RAMTotal: 100, RAMFree: 5}:   "the Mac is low on memory",
+	} {
+		active := 1
+		if want == "3 of 3 agents are working" {
+			active = 3
+		}
+		if got := Cause(Held(l, active, m)); got != want {
+			t.Errorf("cause %q, want %q", got, want)
+		}
 	}
 }
