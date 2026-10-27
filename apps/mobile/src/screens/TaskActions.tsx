@@ -6,7 +6,7 @@ import { isGate, isPerson, taskRef } from '@handline/app-core';
 import { Text, TextInput, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
-import { classify, sentence, useAgents, useOff, usePendingAny, useWrite } from '@handline/app-data';
+import { classify, sentence, useAgents, useOff, usePendingAny, useTaskActions, useWrite } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { ImageBodyInput } from '#src/screens/ImageBodyInput.tsx';
@@ -139,13 +139,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   const me = useStore().me;
   const [ask, setAsk] = useState<Ask>(null);
   const [menu, setMenu] = useState<null | 'status' | 'more'>(null);
-  const done = useWrite('task.done');
-  const reopen = useWrite('task.reopen');
-  const withdraw = useWrite('task.withdraw');
-  const cancel = useWrite('task.cancel');
-  const queue = useWrite('task.queue');
-  const draft = useWrite('task.draft');
-  const discard = useWrite('task.discard');
+  const { done, reopen, withdraw, cancel, queue, draft, discard } = useTaskActions();
   const off = {
     done: useOff('task.done'),
     reopen: useOff('task.reopen'),
