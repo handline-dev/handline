@@ -3,7 +3,7 @@
 // to reply to (the reference the composer shows).
 import { memo, useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { ago, clockTime, ellipsis, landingLabel, openTask, restartCause, sideOf, tickLevel } from '@handline/app-core';
+import { ago, clockTime, ellipsis, isTaskDelivery, landingLabel, openTask, restartCause, sideOf, tickLevel } from '@handline/app-core';
 import { useWrite } from '@handline/app-data';
 import { useMe } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
@@ -197,7 +197,13 @@ function MessageRow(props: MessageProps) {
           ) : null
         ) : side === 'other' ? (
           <div className={`${MSG_FROM} muted`}>
-            {m.from} <Icon name="forward" size={11} aria-hidden className="inline-block align-[-1px]" /> {m.to}
+            {isTaskDelivery(m) ? (
+              `Task T${m.tasks[0]!.id} handed to ${m.to}`
+            ) : (
+              <>
+                {m.from} <Icon name="forward" size={11} aria-hidden className="inline-block align-[-1px]" /> {m.to}
+              </>
+            )}
           </div>
         ) : side === 'person' && m.to !== agent ? (
           <div className={`${MSG_FROM} muted`}>to {m.to}</div>
