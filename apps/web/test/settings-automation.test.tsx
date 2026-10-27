@@ -54,7 +54,10 @@ afterEach(async () => {
 
 const prompt = () => $('textarea[aria-label="What the agent is asked"]') as HTMLTextAreaElement;
 const card = () => $('[data-setting="What the agent is asked"]')!;
-const reads = () => $('[data-reads]')!.textContent;
+const reads = async () => {
+  if (!$('[data-reads]')) await click($('[data-setting] button[aria-expanded]')!);
+  return $('[data-reads]')!.textContent;
+};
 const button = (label: string) =>
   [...card().querySelectorAll('button')].find(
     (b) => b.getAttribute('aria-label') === label || b.textContent === label,
@@ -68,10 +71,11 @@ describe('settings: handoff prompt and cache expiry', () => {
     expect(prompt().value).toBe(values(s).handoff_prompt);
     expect(card().textContent).toContain('Built-in');
     expect(button('Reset to built-in').disabled).toBe(true);
-    expect(card().textContent).toContain('The agent reads:');
-    expect(reads()).toContain("(the note's file)");
-    expect(reads()).toContain('3000');
-    expect(reads()).not.toContain('{');
+    expect($('[data-reads]')).toBeNull();
+    const text = await reads();
+    expect(text).toContain("(the note's file)");
+    expect(text).toContain('3000');
+    expect(text).not.toContain('{');
   });
 
   it('an edit sends handoff_prompt only, line breaks joined; Reset sends blank and goes grey again', async () => {
@@ -95,8 +99,19 @@ describe('settings: handoff prompt and cache expiry', () => {
     const before = values(s).handoff_prompt;
     await setValue(prompt(), 'too short');
     await blur(prompt());
-    expect(card().textContent).toContain('Too short to guide a note. Leave it blank for the built-in.');
+    const refusal = card().querySelector('[role="alert"]')!;
+    expect(refusal.textContent).toContain('Not saved, the old text stays. Too short to guide a note. Leave it blank for the built-in.');
+    expect(refusal.previousElementSibling).toBe(prompt());
+    expect(prompt().getAttribute('aria-invalid')).toBe('true');
+    expect(card().textContent).not.toContain('Built-in');
+    expect(button('Reset to built-in').disabled).toBe(false);
     expect(values(s).handoff_prompt).toBe(before);
+    await click(button('Reset to built-in'));
+    expect(prompt().value).toBe(before);
+    expect(card().querySelector('[role="alert"]')).toBeNull();
+    expect(values(s).handoff_prompt).toBe(before);
+    await setValue(prompt(), 'too short');
+    await blur(prompt());
     await setValue(prompt(), 'A different text that is long enough.');
     await blur(prompt());
     await until(() => values(s).handoff_prompt === 'A different text that is long enough.', 'the save');
@@ -109,7 +124,7 @@ describe('settings: handoff prompt and cache expiry', () => {
     await mount();
     await until(() => prompt(), 'the box');
     await setValue(prompt(), 'Write your handoff note now.');
-    expect(reads()).toBe("Write your handoff note now.\n(the note's file)");
+    expect(await reads()).toBe("Write your handoff note now.\n(the note's file)");
   });
 
   it('warns when agents set their own text, and Show names them', async () => {
@@ -141,6 +156,8 @@ describe('settings: handoff prompt and cache expiry', () => {
 /** The Advanced and About sections start folded: open them once the page has drawn them. */
 async function openFolds() {
   await until(() => document.querySelector('.settings-shell button[aria-expanded="false"]'), 'the folds');
-  const folds = [...document.querySelectorAll<HTMLElement>('.settings-shell button[aria-expanded="false"]')];
+  const folds = [...document.querySelectorAll<HTMLElement>('.settings-shell button[aria-expanded="false"]')].filter(
+    (b) => !b.closest('[data-setting]'),
+  );
   await act(async () => folds.forEach((b) => b.click()));
 }
