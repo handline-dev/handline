@@ -85,8 +85,6 @@ export function AgentRow({
   const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
     .filter(Boolean)
     .join(' · ');
-  // The left edge: the waiting hue outranks the selection.
-  const edge = dot === 'waiting' ? 'border-l-wait' : selected ? 'border-l-primary' : 'border-l-transparent';
   const showControls = hot || menuOpen || !!mark; // never just because the row is selected; a pending verb's mark is drawn in the button
   // The ⋯ button asks the row for its own context menu, at the button.
   const opener = useRef<((at: At) => void) | null>(null);
@@ -106,7 +104,7 @@ export function AgentRow({
             onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setHot(false)}
           >
             <div
-              className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 h-11 py-[3px] border-l-[3px] tint ${edge}`}
+              className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 h-11 py-[3px] tint`}
               style={{ paddingLeft: 10 + depth * 14 }}
             >
               {kids ? (

@@ -258,7 +258,7 @@ export function Sidebar({
           {hr ? (
             <span
               className="rail-hr pointer-events-none absolute right-0.5 top-0.5 size-2 rounded-full bg-bad"
-              title={`${hr} HR proposals wait for you`}
+              title={`${hr} HR proposals need you`}
             />
           ) : null}
         </span>
