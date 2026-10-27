@@ -1,13 +1,12 @@
-// What a pane reads from the data layer, in one memoized object so the pane's view draws again only when one of these changes.
-import { useMemo } from 'react';
+// What a pane reads from the data layer, in one place, so the pane's view holds no data hook.
 import { useHello, useMe } from '@handline/app-react';
 import { useWrite } from '@handline/app-data';
 
 export interface PaneData {
   me: string;
   hello: ReturnType<typeof useHello>;
-  openShell: (p: { agent: string }) => Promise<{ terminal: string }>;
-  closeShell: (p: { terminal: string }) => void;
+  openShell: ReturnType<typeof useWrite<'shell.open'>>['mutateAsync'];
+  closeShell: ReturnType<typeof useWrite<'shell.close'>>['mutate'];
 }
 
 export function usePaneData(agent: string): PaneData {
@@ -15,5 +14,5 @@ export function usePaneData(agent: string): PaneData {
   const hello = useHello();
   const { mutateAsync: openShell } = useWrite('shell.open', agent);
   const { mutate: closeShell } = useWrite('shell.close', agent);
-  return useMemo(() => ({ me, hello, openShell, closeShell }), [me, hello, openShell, closeShell]);
+  return { me, hello, openShell, closeShell };
 }
