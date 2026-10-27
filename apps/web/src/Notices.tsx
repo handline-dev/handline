@@ -107,7 +107,7 @@ function Row({ n, onOpened }: { n: Notice; onOpened: () => void }) {
   return (
     <button
       type="button"
-      className={`notice-row flex w-full items-center gap-2 border-0 bg-transparent px-3 py-1.5 text-left text-body text-ink ${go ? 'cursor-pointer hover:bg-panel' : 'cursor-default'}`}
+      className={`notice-row flex w-full items-center gap-2 border-0 bg-transparent px-3 py-1.5 text-left text-body text-ink ${go ? 'cursor-pointer tint' : 'cursor-default'}`}
       data-notice
       onClick={() => (openNotice(store, n), onOpened())}
     >
@@ -146,7 +146,7 @@ function useAway(onChange: (away: boolean) => void) {
  * toast or the keyboard focus in it stops its clock, as does a hidden or unfocused window. A click opens what it is about and closes only it.
  */
 const MARK = { need: ['warn', 'text-wait'], fail: ['failed', 'text-bad'], ok: ['done', 'text-ok'], info: ['info', 'text-ink-3'] } as const;
-const CHIP = 'bg-raised! hover:enabled:brightness-95';
+const CHIP = 'bg-raised! tint';
 
 /** One toast: a normal card on the neutral panel, the status icon, a bold title and a short second line, then its buttons: the main one filled, the rest grey chips. */
 function Toast({ n }: { n: Notice }) {
@@ -200,7 +200,7 @@ function Toast({ n }: { n: Notice }) {
       </div>
       <button
         type="button"
-        className="toast-close flex-none cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-ink"
+        className="toast-close flex-none cursor-pointer border-0 bg-transparent p-0 text-ink-3 tint"
         aria-label="Close"
         onClick={() => store.notices.close(n.id)}
       >
