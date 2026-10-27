@@ -132,7 +132,15 @@ function EditInPlace(props: {
       onSubmit={(e) => (e.preventDefault(), props.onSave())}
       onKeyDown={(e) => e.key === 'Escape' && !e.defaultPrevented && (e.stopPropagation(), props.onCancel())}
     >
-      <BodyEditor plain compact value={props.text} onChange={props.setText} onBusy={props.setBusy} label="Comment" onSubmit={props.onSave} />
+      <BodyEditor
+        plain
+        compact
+        value={props.text}
+        onChange={props.setText}
+        onBusy={props.setBusy}
+        label="Comment"
+        onSubmit={props.onSave}
+      />
       {props.problem ? <span role="alert">{props.problem}</span> : null}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" size="sm" label="Cancel" onClick={props.onCancel}>
