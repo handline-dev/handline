@@ -469,7 +469,7 @@ func (e *Env) waitingOf(t row, state string, waits []row, rec map[string]any) (m
 		return nil, 0, err
 	}
 	if asked.set("since") {
-		return map[string]any{"on": "founder", "text": "waiting on you", "tasks": []int64{}, "since": ts(asked.i("since"))}, asked.i("since"), nil
+		return map[string]any{"on": "founder", "text": "needs you", "tasks": []int64{}, "since": ts(asked.i("since"))}, asked.i("since"), nil
 	}
 	if len(rec) == 0 {
 		return nil, 0, nil

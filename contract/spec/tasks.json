@@ -391,7 +391,7 @@
      },
      "text": {
       "type": "string",
-      "description": "The line every view shows for it: `blocked by T<n>`, `waiting on you`, else the daemon's own reason."
+      "description": "The line every view shows for it: `blocked by T<n>`, `needs you`, else the daemon's own reason."
      },
      "tasks": {
       "type": "array",
@@ -1253,7 +1253,7 @@
      },
      "text": {
       "type": "string",
-      "description": "The reason as shown: `waiting on you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working."
+      "description": "The reason as shown: `needs you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working."
      },
      "task": {
       "oneOf": [
