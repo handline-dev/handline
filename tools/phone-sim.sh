@@ -6,7 +6,6 @@
 set -uo pipefail
 
 running_android() { adb devices 2>/dev/null | awk '/^emulator-[0-9]+\tdevice/ {print $1}'; }
-booted_ios_udids() { xcrun simctl list devices booted 2>/dev/null | grep -oE '[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}' | sort; }
 running_ios() { xcrun simctl list devices booted 2>/dev/null | grep -E 'Booted' | sed -E 's/^ *//; s/ \([0-9A-F-]{36}\).*//'; }
 # A check that sets PHONE_SIM_STARTED gets one line per device this script booted ("android SERIAL", "ios UDID"), to stop exactly those.
 note_started() { [ -z "${PHONE_SIM_STARTED:-}" ] || echo "$1 $2" >> "$PHONE_SIM_STARTED"; }
@@ -54,12 +53,21 @@ android_stop() {
     status
 }
 
+# The UDID of a simulator given by name (or the UDID itself), so only that one is booted and noted.
+ios_udid() {
+    case "$1" in
+        *-*-*-*-*) echo "$1" ;;
+        *) xcrun simctl list devices available 2>/dev/null | awk -v n="$1" '{ sub(/^ +/, "") } index($0, n " (") == 1 { if (match($0, /[0-9A-F]{8}(-[0-9A-F]{4}){3}-[0-9A-F]{12}/)) { print substr($0, RSTART, RLENGTH); exit } }' ;;
+    esac
+}
+
 ios_start() {
-    local before u
+    local udid
     [ -n "${1:-}" ] || { echo "usage: tools/phone-sim.sh ios start NAME" >&2; return 2; }
-    before="$(booted_ios_udids)"
-    xcrun simctl boot "$1" || return 1   # never `open -a Simulator`: its window takes the person's focus
-    for u in $(comm -13 <(echo "$before") <(booted_ios_udids)); do note_started ios "$u"; done
+    udid="$(ios_udid "$1")"
+    [ -n "$udid" ] || { echo "no simulator named $1" >&2; return 1; }
+    xcrun simctl boot "$udid" || return 1   # never `open -a Simulator`: its window takes the person's focus
+    note_started ios "$udid"
     status
 }
 

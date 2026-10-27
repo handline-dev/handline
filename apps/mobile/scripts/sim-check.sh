@@ -8,6 +8,21 @@ top="$(cd "$(dirname "$0")/../../.." && pwd)" || exit 1
 sim="$top/tools/phone-sim.sh"
 PHONE_SIM_STARTED="$(mktemp)" || exit 1
 export PHONE_SIM_STARTED
+hs=""
+# Runs when the script ends for any reason, a signal included: stops what phone-sim.sh booted, and only that.
+cleanup() {
+    local kind id
+    while read -r kind id; do
+        case "$kind" in
+            ios) "$sim" ios stop "$id" >/dev/null ;;
+            android) "$sim" android stop "$id" >/dev/null ;;
+        esac
+    done < "$PHONE_SIM_STARTED"
+    rm -f "$PHONE_SIM_STARTED"
+}
+trap cleanup EXIT
+# A signal is passed to the slot, which ends its command; wait for that, then exit so the cleanup above runs.
+trap '[ -z "$hs" ] || kill -TERM "$hs" 2>/dev/null; [ -z "$hs" ] || wait "$hs"; exit 143' INT TERM
 "$top/tools/heavy-slot.sh" bash -c '
     set -m
     "$@" &
@@ -17,13 +32,7 @@ export PHONE_SIM_STARTED
     status=$?
     kill -- -"$pid" 2>/dev/null
     exit "$status"
-' _ "$@"
-status=$?
-while read -r kind id; do
-    case "$kind" in
-        ios) "$sim" ios stop "$id" >/dev/null ;;
-        android) "$sim" android stop "$id" >/dev/null ;;
-    esac
-done < "$PHONE_SIM_STARTED"
-rm -f "$PHONE_SIM_STARTED"
-exit "$status"
+' _ "$@" &
+hs=$!
+wait "$hs"
+exit $?
