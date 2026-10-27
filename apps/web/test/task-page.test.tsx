@@ -56,6 +56,17 @@ describe('the task page', () => {
     expect($('.line-clamp-4', $('article.tdetail')!)).toBeNull();
   });
 
+  it('does not say again, under the state chip, that a task waits on the founder', async () => {
+    const s = setup();
+    const row = (s.daemon.tasks as unknown as { rows: { id: number; to: string; state: string; blockers: unknown[] }[] }).rows.find(
+      (r) => r.id === 1688,
+    )!;
+    Object.assign(row, { to: 'human', state: 'queued', blockers: [] });
+    await mount('#/tasks/1688', s);
+    await until(() => $('article.tdetail .tchips'), 'the chips');
+    expect($('.twhy')).toBeNull();
+  });
+
   it('lists comments and events as one Activity: the last three events, older ones folded, a note opened on "Read note"', async () => {
     const s = setup();
     const row = (s.daemon.tasks as unknown as { rows: { id: number; notes?: { at: string; who: string; text: string }[] }[] }).rows.find(

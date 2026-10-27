@@ -26,8 +26,10 @@ const KEYS = [
   'host_active_cap',
   'load_per_core_pct',
   'ram_free_min_pct',
+  'host_simulator_hold',
   'heavy_slots',
   'keep_awake',
+  'reap_orphans',
 ];
 
 test('settings.get serves every SettingsValues key, a load limit reads back, and null restores the default', async () => {

@@ -72,7 +72,7 @@ export function TaskLinks({ icon, label, items }: { icon: IconName; label: strin
       <ul className="tlinks m-0 list-none p-0">
         {items.map((b) => (
           <li key={b.task} className={LI}>
-            <a href={`#/tasks/${b.task}`} className="mono text-inherit no-underline hover:underline">
+            <a href={`#/tasks/${b.task}`} className="mono text-inherit no-underline">
               {taskRef(b.task)}
             </a>{' '}
             {b.reason !== undefined ? <span className="muted">{b.reason}</span> : null}

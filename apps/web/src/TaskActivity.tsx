@@ -1,20 +1,29 @@
 // The Activity of a task, one list: its comments and its events in words (the last three; older ones fold), and the composer under them.
 // `@agent` in a comment tells that agent; the assignee is told by default (the daemon's routing). Images go in as in the description.
-import { useState, type RefObject } from 'react';
-import { activityOf, ago, dateTime, foldEvents, involved, mentionState, type ActivityItem } from '@handline/app-core';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { activityOf, ago, dateTime, foldEvents, involved, isPerson, mentionState, type ActivityItem } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useAgents, useOff, useWrite } from '@handline/app-data';
 import { useHello, useMe } from '@handline/app-react';
 import { BodyEditor } from '#src/BodyEditor.tsx';
 import { CommentPicture } from '#src/CommentPicture.tsx';
+import { Thumbs } from '#src/AttachmentImage.tsx';
 import { MemoFiles } from '#src/MemoFiles.tsx';
 import { Markdown } from '#src/Markdown.tsx';
 import { AgentLink } from '#src/TaskInline.tsx';
 import { Sheet, useCan } from '#src/taskui.tsx';
-import { Button } from '#src/ui/index.ts';
+import { Button, MenuButton, MenuItem } from '#src/ui/index.ts';
 import { Reveal } from '#src/ui/Reveal.tsx';
 
-/** One comment. Its author, and the founder for any, can Edit and Delete: both show at once and roll back with the daemon's reason; Delete asks first. */
+export const UNDO_MS = 6000;
+/** The icons of a card show on hover and keyboard focus, and always on a touch screen. */
+const ON_HOVER =
+  'flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100';
+
+/**
+ * One comment. Its author, and the founder for any, can Edit and Delete from the three-dot menu: both show at once and roll back with the daemon's
+ * reason. Delete takes the card out at once and offers Undo for a few seconds before the daemon is asked.
+ */
 function Comment({ t, item, onReply }: { t: Detail; item: ActivityItem; onReply?: (memo: number) => void }) {
   const m = t.memos.find((x) => x.id === item.memo);
   const of = m?.reply_to != null ? t.memos.find((x) => x.id === m.reply_to) : undefined; // the comment this one answers
@@ -24,36 +33,66 @@ function Comment({ t, item, onReply }: { t: Detail; item: ActivityItem; onReply?
   const del = useWrite('task.comment.delete', String(t.id));
   const offEdit = useOff('task.comment.edit');
   const offDelete = useOff('task.comment.delete');
-  const [ask, setAsk] = useState<null | 'edit' | 'delete'>(null);
+  const [ask, setAsk] = useState<null | 'edit'>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [undoing, setUndoing] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const mine = !!m && (m.author === me || hello?.role === 'founder');
   const close = () => (setAsk(null), edit.reset(), del.reset());
+  const send = () => m && del.mutate({ task: t.id, memo: m.id }, { onError: () => setUndoing(false) });
+  // A pending delete is sent when the card goes away, or the page is closed, before Undo is pressed.
+  const sendRef = useRef(send);
+  useEffect(() => void (sendRef.current = send));
+  useEffect(() => {
+    const flush = () => timer.current && (clearTimeout(timer.current), (timer.current = undefined), sendRef.current());
+    addEventListener('pagehide', flush);
+    return () => (removeEventListener('pagehide', flush), flush());
+  }, []);
+  const remove = () => {
+    setUndoing(true);
+    timer.current = setTimeout(() => ((timer.current = undefined), send()), UNDO_MS);
+  };
+  const undo = () => (clearTimeout(timer.current), (timer.current = undefined), setUndoing(false));
+  if (undoing)
+    return (
+      <li className="comment flex items-center gap-2 rounded-card border border-line px-3 py-1 text-hint text-ink-3">
+        Comment deleted
+        <Button variant="ghost" size="sm" icon="undo" label="Undo" onClick={undo}>
+          Undo
+        </Button>
+      </li>
+    );
   return (
-    <li className="comment grid min-w-0 gap-0.5 rounded-card border border-line px-3 py-2">
-      <span className="text-hint text-ink-3">
-        <strong className="font-medium text-ink-2">
-          <AgentLink name={item.who} />
-        </strong>{' '}
-        {ago(item.at)}
-        {item.edited ? ' · edited' : ''}
+    <li className="comment group grid min-w-0 gap-0.5 rounded-card border border-line px-3 py-1.5">
+      <span className="flex items-center gap-1 text-hint text-ink-3">
+        <span className="min-w-0 flex-1 truncate">
+          <strong className="font-medium text-ink-2">{isPerson(item.who, me) ? 'You' : <AgentLink name={item.who} />}</strong>{' '}
+          {ago(item.at)}
+          {item.edited ? ' · edited' : ''}
+        </span>
+        <span className={ON_HOVER}>
+          {m && onReply && m.id > 0 ? <Button size="sm" icon="reply" label="Reply" onClick={() => onReply(m.id)} /> : null}
+          {mine && ask === null ? (
+            <MenuButton size="sm" icon="ellipsis" label="More" title={offEdit || offDelete}>
+              <MenuItem disabled={m.id < 0 || !!offEdit} onSelect={() => (setText(m.text), setAsk('edit'))}>
+                Edit
+              </MenuItem>
+              <MenuItem disabled={m.id < 0 || !!offDelete} onSelect={remove}>
+                Delete
+              </MenuItem>
+            </MenuButton>
+          ) : null}
+        </span>
       </span>
       {of ? <span className="truncate text-hint text-ink-3" data-reply-to={of.id}>{`↩ ${of.author}: ${firstLine(of.text)}`}</span> : null}
       <div className="min-w-0">
-        <Markdown text={item.note} />
+        <Thumbs.Provider value>
+          <Markdown text={item.note} />
+        </Thumbs.Provider>
       </div>
       {m?.files?.length ? <MemoFiles files={m.files} /> : null}
-      {m && onReply && m.id > 0 ? (
-        <div className="flex">
-          <Button variant="outline" label="Reply" onClick={() => onReply(m.id)} />
-        </div>
-      ) : null}
-      {mine && ask === null ? (
-        <div className="flex flex-wrap items-center gap-2" title={offEdit || offDelete}>
-          <Button variant="outline" label="Edit" disabled={m.id < 0 || !!offEdit} onClick={() => (setText(m.text), setAsk('edit'))} />
-          <Button variant="outline" label="Delete" disabled={m.id < 0 || !!offDelete} onClick={() => setAsk('delete')} />
-        </div>
-      ) : null}
+      {del.isError ? <span role="alert">{sentence(classify(del.error))}</span> : null}
       {m && ask === 'edit' ? (
         <Sheet
           label="Edit comment"
@@ -68,17 +107,6 @@ function Comment({ t, item, onReply }: { t: Detail; item: ActivityItem; onReply?
           ) : edit.isError ? (
             <span role="alert">{sentence(classify(edit.error))}</span>
           ) : null}
-        </Sheet>
-      ) : null}
-      {m && ask === 'delete' ? (
-        <Sheet
-          label="Delete this comment?"
-          submit="Delete"
-          busy={del.isPending}
-          onCancel={close}
-          onSubmit={() => del.mutate({ task: t.id, memo: m.id }, { onSuccess: close })}
-        >
-          {del.isError ? <span role="alert">{sentence(classify(del.error))}</span> : null}
         </Sheet>
       ) : null}
     </li>

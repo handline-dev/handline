@@ -12,7 +12,7 @@ describe('the agent list on the shared nav model', () => {
     m.store.stop();
   });
 
-  it('the Needs me chip keeps agents that ask, and All brings the rest back', async () => {
+  it('the My turn chip keeps agents that ask, and All brings the rest back', async () => {
     const m = await mount(() => {}, undefined, 'founder');
     await until(() => $(`agent-${ARCH}`), 'the rows');
     const rows = () => document.body.querySelectorAll('[data-testid^="agent-"]').length;
