@@ -307,24 +307,40 @@ func TestAFoundersUnansweredMessageHoldsTheStopOncePerMessage(t *testing.T) {
 	if out := stop(false); out != "{}" {
 		t.Fatalf("the same message is never nudged again: %s", out)
 	}
+	typed(90)
+	if out := stop(false); out != "{}" {
+		t.Fatalf("a message that landed before the last stop is not this turn's: %s", out)
+	}
 	second := typed(102)
 	if out := stop(false); out != held(second) {
 		t.Fatalf("a new message is nudged again: %s", out)
 	}
 	stopped(103)
 	typed(104)
-	if _, err := db.AddRequest(d, db.NewRequest{Requester: "a.one", Target: db.Human, Kind: "say", Body: "going well"}); err != nil {
+	answer, err := db.AddRequest(d, db.NewRequest{Requester: "a.one", Target: db.Human, Kind: "say", Body: "going well"})
+	if err != nil {
 		t.Fatal(err)
 	}
+	exec("UPDATE requests SET ts = 105 WHERE id = ?", answer)
 	if out := stop(false); out != "{}" {
 		t.Fatalf("an answered message is not nudged: %s", out)
 	}
-	stopped(105)
-	typed(106)
+	stopped(106)
+	exec("UPDATE requests SET no_work = 'thanks' WHERE id = ?", typed(107))
+	exec("INSERT INTO tasks(id, title, owner, opened_by, created_at, from_request) VALUES(8, 'asked', 'a.one', 'human', 1, ?)", typed(108))
+	exec("INSERT INTO task_requests(task_id, request_id) VALUES(8, ?)", typed(109))
+	exec("UPDATE requests SET founder_auth = 0 WHERE id = ?", typed(109))
+	if out := stop(false); out != "{}" {
+		t.Fatalf("a no-work mark, a task made from it or linked to it, or a message not typed by the founder is no nudge: %s", out)
+	}
+	third := typed(110)
 	if out := stop(true); out != "{}" {
 		t.Fatalf("a stop the hook already held passes: %s", out)
 	}
-	typed(107)
+	if out := stop(false); out != held(third) {
+		t.Fatalf("the held stop left the message unanswered: %s", out)
+	}
+	typed(111)
 	exec("DROP TABLE task_requests")
 	if out := stop(false); out != "{}" {
 		t.Fatalf("an error lets the stop through: %s", out)
