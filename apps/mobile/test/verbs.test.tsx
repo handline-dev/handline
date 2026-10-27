@@ -82,7 +82,11 @@ describe('the agent verbs menu', () => {
 
 describe('an agent held for machine load', () => {
   it('says so, offers Start now beside the menu, asks first, and starts it', async () => {
-    const m = await mount((s) => void (s.daemon.sessions.get(ARCH)!.fx.view = { status: { state: 'waiting', reason: 'load' } }), undefined, 'founder');
+    const m = await mount(
+      (s) => void (s.daemon.sessions.get(ARCH)!.fx.view = { status: { state: 'waiting', reason: 'load' } }),
+      undefined,
+      'founder',
+    );
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
     await until(() => $('force-start'), 'the Start now button');
