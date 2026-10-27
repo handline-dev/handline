@@ -238,7 +238,7 @@ function Body({ t }: { t: Detail }) {
 
       {/* A sticky bar stops above the scroll box's 12 px bottom padding; -bottom-3 takes it to the edge. */}
       <div className="task-footer sticky -bottom-3 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-inherit px-4 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-1.5">
-        <AskSheets t={t} me={me} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
+        <AskSheets t={t} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
 
         <div className="tverbs flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Task actions">
           {main ? (

@@ -10,14 +10,12 @@ export type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' |
 
 export function AskSheets({
   t,
-  me,
   ask,
   running,
   cancel,
   onClose,
 }: {
   t: Detail;
-  me: string;
   ask: Ask;
   running: boolean;
   cancel: ReturnType<typeof useWrite<'task.cancel'>>;
