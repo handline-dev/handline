@@ -8,7 +8,6 @@ import (
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/states"
-	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/term"
 )
 
@@ -66,13 +65,4 @@ func (h healPorts) Restart(agent string, fresh bool) (bool, string, error) {
 		return m.RestartHung(agent, st, fresh, by, cause)
 	}
 	return m.RestartAgent(agent, st, lifecycle.RestartOpts{Fresh: fresh, By: by, Cause: cause})
-}
-
-func (h healPorts) RaiseCard(q db.Q, agent, text, fix string) error {
-	var after supervisor.After
-	if _, err := h.lc.Env.RaiseDecision(q, &after, agent, text, "heal", "", "", 0, 0, db.KV{K: "fix", V: fix}); err != nil {
-		return err
-	}
-	after.Run()
-	return nil
 }
