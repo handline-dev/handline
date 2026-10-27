@@ -43,8 +43,8 @@ Start them for the check and stop them when it ends: a simulator or emulator lef
 
 ```
 tools/phone-sim.sh status                   # what is running now, "none" when nothing is
-tools/phone-sim.sh android start <name>     # no window, no sound; returns when the device has booted
-tools/phone-sim.sh android stop             # also ends its qemu
+tools/phone-sim.sh android start <name>     # no window, no sound; prints the serial it started, returns when booted (180s limit, PHONE_SIM_BOOT_TIMEOUT)
+tools/phone-sim.sh android stop <serial>      # only that emulator, the one start printed; also ends its qemu
 tools/phone-sim.sh ios start "iPhone 16"    # no Simulator.app window
 tools/phone-sim.sh ios stop "iPhone 16"
 ```
