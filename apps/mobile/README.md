@@ -39,7 +39,7 @@ xcrun simctl io booted screenshot shot.png        # a screenshot without a windo
 emulator -avd <name> -no-window -no-audio &       # Android, the same way
 ```
 
-Start the emulator, the simulator and Metro for a check and stop them when it ends, also when it failed: a forgotten one keeps burning CPU for days.
+Start the emulator, the simulator and Metro for a check and stop them when it ends, also when it failed: a forgotten one keeps burning CPU for days. `scripts/sim-check.sh <command>` runs a check in a heavy slot and shuts the simulator and the emulator when the command ends, whatever its result.
 
 ```
 adb emu kill                                      # the Android emulator
