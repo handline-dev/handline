@@ -7,7 +7,7 @@ import (
 )
 
 func TestTheForecastLeavesWhatTheWeekDoesNotUseAtItsCurrentRate(t *testing.T) {
-	// The architect's accounts (T6330): unused percent, hours to the reset, week points per hour over the last 24 h, and the most 5h windows
+	// The architect's accounts: unused percent, hours to the reset, week points per hour over the last 24 h, and the most 5h windows
 	// could still use (hours/5 x 100 x ratio) as a ratio of 0.1368 would give for gamma.
 	for _, c := range []struct {
 		name                string

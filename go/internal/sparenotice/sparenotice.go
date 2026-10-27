@@ -1,4 +1,4 @@
-// Package sparenotice tells the founder when an account will lose weekly use at its reset and lists the spare tasks that could use it (T6335).
+// Package sparenotice tells the founder when an account will lose weekly use at its reset and lists the spare tasks that could use it.
 // A spare task is a draft tagged "spare". The notice is a task for the founder tagged "spare-notice"; answering it with "start" queues the
 // listed tasks, which then wait for the 5-hour and load holds like any task.
 package sparenotice
