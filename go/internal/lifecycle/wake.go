@@ -445,8 +445,8 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	if rehomed {
 		wait = nil // the account it moved to was picked for having room
 	}
-	if wait != nil && wait.Pace != nil && (force || m.personWaiting(agent)) {
-		// The pace holds only the daemon's own work: a person's start or message, and a restart, go.
+	if wait != nil && (wait.Pace != nil || wait.FiveHour) && (force || m.personWaiting(agent)) {
+		// The pace and the 5-hour limit hold only the daemon's own work: a person's start or message, and a restart, go.
 		wait = nil
 	}
 	if o.Person && wait != nil && movedTo == "" {

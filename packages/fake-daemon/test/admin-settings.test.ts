@@ -26,6 +26,7 @@ const KEYS = [
   'host_active_cap',
   'load_per_core_pct',
   'ram_free_min_pct',
+  'host_simulator_hold',
   'heavy_slots',
   'keep_awake',
   'reap_orphans',

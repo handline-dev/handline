@@ -57,7 +57,7 @@ export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to
         <Chip
           as="a"
           href={`#/tasks/${detail.task.id}`}
-          className="hover:bg-raised"
+          className="tint"
           title={detail.task.title}
           onClick={openTaskOnClick(apply, detail.task.id)}
         >

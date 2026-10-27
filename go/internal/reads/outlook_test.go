@@ -128,7 +128,7 @@ func TestOutlookRefusesARangeItDoesNotList(t *testing.T) {
 	}
 }
 
-func TestAccountsListShowsTheCapShrunkByTheCutoffRiskAndThePace(t *testing.T) {
+func TestAccountsListShowsTheCapShrunkByThePaceAndNotByTheFiveHourBurn(t *testing.T) {
 	e := testEnv(t)
 	now := time.Now().Unix()
 	for acct, used := range map[string]int{"fast": 95, "hot": 5} {
@@ -139,7 +139,7 @@ func TestAccountsListShowsTheCapShrunkByTheCutoffRiskAndThePace(t *testing.T) {
 			now, now+3600, now, used, now+6*86400, now)
 		os.WriteFile(p, []byte(body), 0o644)
 	}
-	// 99 points left of the 5h window, an hour to its reset: 10%/min runs out in under ten minutes.
+	// 99 points left of the 5h window, an hour to its reset: 10%/min runs out in under ten minutes, which holds a start but not the cap.
 	if err := usage.WriteBurn(e.Home, "hot", 10.0/60, now); err != nil {
 		t.Fatal(err)
 	}
@@ -155,8 +155,8 @@ func TestAccountsListShowsTheCapShrunkByTheCutoffRiskAndThePace(t *testing.T) {
 		}
 	}
 	json.Unmarshal(b, &out)
-	if len(out.Accounts) != 2 || out.Accounts[0].Name != "fast" || out.Accounts[0].Cap_effective != 0 || out.Accounts[1].Cap_effective != 1 {
-		t.Fatalf("an account far past its pace line takes none; one that would be cut off before its reset takes fewer: %s", b)
+	if len(out.Accounts) != 2 || out.Accounts[0].Name != "fast" || out.Accounts[0].Cap_effective != 0 || out.Accounts[1].Cap_effective != 2 {
+		t.Fatalf("an account far past its pace line takes none; a 5-hour burn leaves the cap whole: %s", b)
 	}
 }
 

@@ -18,18 +18,21 @@ a {
   color: var(--link);
   text-decoration: none;
 }
-/* The underline is a hover reply, not a permanent label: a link that is always underlined reads as a web page, not a control. */
+/* A link answers a hover with the one tint, not an underline or another colour. */
 a:hover {
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  background-image: linear-gradient(var(--hover-bg), var(--hover-bg));
+  border-radius: var(--r-chip);
 }
-/* A row's number is not a web link: it keeps the row's ink and only underlines on hover. Unlayered, or the `a` rule above beats any utility. */
-.tnum {
+/* A row's number and a status cell are not web links: they keep the surrounding ink. Unlayered, or the `a` rule above beats any utility. */
+.tnum,
+a.status-cell,
+a.chip-ico {
   color: inherit;
   text-decoration: none;
 }
-.tnum:hover {
-  text-decoration: underline;
+/* The number inside a hovered row adds no second tint: the row has its own. */
+.trow .tnum:hover {
+  background-image: none;
 }
 kbd {
   color: var(--ink-2);

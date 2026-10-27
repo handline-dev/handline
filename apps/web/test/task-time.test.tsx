@@ -1,4 +1,4 @@
-// Where a task's time went: opened from More, a bar and totals and a row per segment from task.time; a daemon without it has no item.
+// Where a task's time went: one line above the body, opened to a bar and totals and a row per segment from task.time; a daemon without it has no line.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -19,7 +19,7 @@ async function until(cond: () => unknown, what: string, tries = 400) {
 let root: Root | null = null;
 let box: HTMLElement;
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
-const menu = () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+const line = () => box.querySelector<HTMLElement>('section[aria-label="Time"] > button');
 
 async function mount(s = setup()) {
   location.hash = '#/tasks/1684';
@@ -29,7 +29,6 @@ async function mount(s = setup()) {
     root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />);
   });
   await until(() => box.querySelector('.tverbs'), 'the actions');
-  await click([...box.querySelectorAll<HTMLElement>('.tverbs button')].find((b) => b.textContent!.startsWith('More'))!);
   return s;
 }
 afterEach(async () => {
@@ -40,16 +39,19 @@ afterEach(async () => {
 });
 
 describe('task time', () => {
-  it('is folded away until Show time, then draws the segments in order, adding up to the whole', async () => {
+  it('is one line until clicked, then draws the segments in order, adding up to the whole', async () => {
     const s = await mount();
+    await until(line, 'the time line');
+    expect(line()!.textContent).toMatch(/^Worked .* in all/);
+    expect(line()!.textContent).not.toMatch(/up next|queued| [hm]\b/);
     expect(box.querySelector('.ttime')).toBeNull();
-    await click(menu().find((i) => i.textContent === 'Show time')!);
+    await click(line()!);
     await until(() => box.querySelector('.ttime'), 'the time');
     const kinds = [...box.querySelectorAll<HTMLElement>('[data-segment]')].map((r) => r.dataset.segment);
     expect(kinds).toEqual(['queued', 'working', 'waiting', 'working']);
     expect(box.querySelector('[data-segment="waiting"]')!.textContent).toContain('waiting on you');
-    expect(box.querySelector('[data-total="working"]')!.textContent).toContain('3 h 30 m');
-    expect(box.querySelector('[data-total="waiting"]')!.textContent).toContain('30 m');
+    expect(box.querySelector('[data-total="working"]')!.textContent).toContain('3h 30m');
+    expect(box.querySelector('[data-total="waiting"]')!.textContent).toContain('30m');
     const t = await s.client.call('task.time', { task: 1684 });
     expect(t.segments[0]!.from).toBe(t.start);
     t.segments.slice(1).forEach((x, i) => expect(x.from).toBe(t.segments[i]!.to));
@@ -58,20 +60,19 @@ describe('task time', () => {
     );
   });
 
-  it('hides it again with Hide time', async () => {
+  it('folds back to the line when clicked again', async () => {
     await mount();
-    await click(menu().find((i) => i.textContent === 'Show time')!);
+    await until(line, 'the time line');
+    await click(line()!);
     await until(() => box.querySelector('.ttime'), 'the time');
-    await click([...box.querySelectorAll<HTMLElement>('.tverbs button')].find((b) => b.textContent!.startsWith('More'))!);
-    await click(menu().find((i) => i.textContent === 'Hide time')!);
+    await click(line()!);
     await until(() => !box.querySelector('.ttime'), 'the time to go');
   });
 
-  it('has no item on a daemon that does not serve task.time', async () => {
+  it('has no line on a daemon that does not serve task.time', async () => {
     const s = setup();
     s.daemon.knobs.unserve('task.time');
     await mount(s);
-    expect(menu().some((i) => i.textContent === 'Show history')).toBe(true);
-    expect(menu().some((i) => /time/.test(i.textContent!))).toBe(false);
+    expect(line()).toBeNull();
   });
 });
