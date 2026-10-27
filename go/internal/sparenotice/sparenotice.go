@@ -22,6 +22,8 @@ const (
 	Every = 12 * time.Hour
 	// MostListed is how many spare tasks a notice names.
 	MostListed = 6
+	// CheckEvery is how often the sweep looks: it reads a day of usage samples, which the 30-second tick need not.
+	CheckEvery = 10 * time.Minute
 )
 
 // Env is what the sweep reads and does.
@@ -39,6 +41,8 @@ type Env struct {
 	Tell func(text string) error
 	Now  func() time.Time
 	Log  func(format string, a ...any)
+
+	checked time.Time
 }
 
 type told struct {
@@ -50,6 +54,11 @@ func metaKey(acct string) string { return "spare_notice:" + acct }
 
 // Sweep sends the notice for each account that will lose a tenth of its week or more within two days with nothing queued for it.
 func (e *Env) Sweep(int64) error {
+	now := e.Now()
+	if !e.checked.IsZero() && now.Sub(e.checked) < CheckEvery {
+		return nil
+	}
+	e.checked = now
 	for _, acct := range e.Accounts() {
 		f, ok := e.Forecast(acct)
 		if !ok || f.LeftAtReset == nil || *f.LeftAtReset < MinLeft || f.HoursLeft > HorizonH || f.HoursLeft <= 0 || e.Waiting(acct) {

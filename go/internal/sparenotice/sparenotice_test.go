@@ -70,13 +70,15 @@ func TestALossComingNamesTheSpareDraftsToTheFounderAndHandlineOnce(t *testing.T)
 	if len(r.asked) != 1 || r.asked[0] != want+"|"+NoticeTag || len(r.told) != 1 || r.told[0] != want {
 		t.Fatalf("asked %v told %v", r.asked, r.told)
 	}
+	r.Sweep(0)
 	r.now = r.now.Add(11 * time.Hour)
 	r.Sweep(0)
 	if len(r.asked) != 1 {
-		t.Fatalf("once per 12 hours: %v", r.asked)
+		t.Fatalf("looked at no more than every 10 minutes, told once per 12 hours: %v", r.asked)
 	}
 	left := 37.0
 	r.forecast.LeftAtReset = &left
+	r.now = r.now.Add(11 * time.Minute)
 	r.Sweep(0)
 	if len(r.asked) != 2 {
 		t.Fatalf("told again when the loss doubled: %v", r.asked)

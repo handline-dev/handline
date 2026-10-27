@@ -69,7 +69,7 @@ func TestTheRateIsDividedByTheTimeTheSamplesCoverAndNeedsTwoOfThem(t *testing.T)
 	}
 	// no use at all in 6 hours leaves all 60.
 	f, ok = e.ForecastFor(q, "a", Samples{row(7, 40), row(1, 40)})
-	if !ok || *f.LeftAtReset != 60 {
+	if !ok || *f.LeftAtReset != 60 || f.HoursLeft < 83.9 || f.HoursLeft > 84.1 {
 		t.Errorf("no use in 6 hours leaves it all: %+v %v", f, ok)
 	}
 }

@@ -331,3 +331,27 @@ func QueueDrafts(tx *sql.Tx, home, by string, tids []int64) (queued []int64, ski
 	}
 	return queued, skipped, nil
 }
+
+// AskFounder opens a task for the founder, owned by them, that expects a decision; it answers the task's number. The founder's answer
+// is the task's close (tasks.decide).
+func AskFounder(d *sql.DB, tell Teller, title, body string, tags ...string) (int64, error) {
+	tx, err := d.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	tid, asked, err := OpenTask(tx, tell, db.Human, NewIn{Owner: db.Human, Title: title, Body: body, Tags: tags, Prio: db.DefaultPriority, Expects: "decision"})
+	if err != nil {
+		return 0, err
+	}
+	if !asked.OK {
+		return 0, fmt.Errorf("the founder's task was refused: %s", asked.Msg)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	if asked.After != nil {
+		asked.After()
+	}
+	return tid, nil
+}
