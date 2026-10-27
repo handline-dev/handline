@@ -3,7 +3,18 @@
 // to reply to (the reference the composer shows).
 import { memo, useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { ago, clockTime, dateTime, ellipsis, isTaskDelivery, landingLabel, openTask, restartCause, sideOf, tickLevel } from '@handline/app-core';
+import {
+  ago,
+  clockTime,
+  dateTime,
+  ellipsis,
+  isTaskDelivery,
+  landingLabel,
+  openTask,
+  restartCause,
+  sideOf,
+  tickLevel,
+} from '@handline/app-core';
 import { useWrite } from '@handline/app-data';
 import { useMe } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
