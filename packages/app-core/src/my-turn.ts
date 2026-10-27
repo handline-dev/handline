@@ -53,6 +53,8 @@ export interface MyTurnInput {
   items: readonly InboxItem[];
   agents: readonly AgentView[];
   tasks: readonly Task[];
+  /** Titles of tasks the list above does not hold (an ask can be on a task older than its newest page), by task id. */
+  titles?: ReadonlyMap<number, string>;
   /** The caller's own name: a report is accepted by whoever it answers to, the founder (`human`) or this name. */
   me?: string;
 }
@@ -111,6 +113,14 @@ function taskCards(
     }));
 }
 
+/** The text without the mention of the founder: a leading one goes with its punctuation, one inside a sentence leaves the sentence's own colon or comma. */
+export const withoutTag = (text: string) =>
+  text
+    .replace(/^\s*@human\b[,:]?\s*/, '')
+    .replace(/\s*@human\b([,:]?)\s*/g, '$1 ')
+    .replace(/\s+([.,:;!?])/g, '$1')
+    .trim();
+
 /** An ask an agent raised by naming `@human` in a task comment: the founder's answer is a reply comment on that task, and the task stays open. */
 function commentAsk(
   i: InboxItem,
@@ -125,7 +135,7 @@ function commentAsk(
   return {
     ...base,
     // The card says whom it asks; the mention in the text is noise.
-    detail: base.detail.replace(/\s*@human\b[,:]?\s*/g, ' ').trim(),
+    detail: withoutTag(base.detail),
     key: `item:${i.id}`,
     kind: 'decision',
     title,
@@ -135,7 +145,7 @@ function commentAsk(
 }
 
 /** The cards, most urgent first: task priority, then the earliest deadline (none last), then the one waiting longest. */
-export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
+export function myTurn({ items, agents, tasks, titles, me = '' }: MyTurnInput): Card[] {
   const byTask = new Map(tasks.map((t) => [t.id, t]));
   const when = (task: number | null) => {
     const t = task == null ? undefined : byTask.get(task);
@@ -151,7 +161,10 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
     if (i.read) continue;
     const t = i.task == null ? undefined : byTask.get(i.task);
     // The daemon titles an item with the first line of its body; a card about a task is titled with the task, and the body is its text.
-    const title = t?.title ?? i.title;
+    const known = t?.title ?? (i.task == null ? undefined : titles?.get(i.task));
+    const asked = i.kind === 'ask' && i.memo != null && i.task != null;
+    // An ask whose task is not known yet is headed by its comment's first line; the whole comment stays as the text.
+    const title = known ?? (asked ? withoutTag(i.title) : i.title);
     const base = {
       agent: i.agent,
       from: other(t?.from) ?? other(i.agent),
@@ -160,7 +173,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
       review: !!t?.tags?.includes(REVIEW_TAG),
       since: at(i.created),
       ...when(i.task),
-      detail: i.body && i.body !== title ? i.body : '',
+      detail: i.body && (i.body !== title || (asked && !known)) ? i.body : '',
     };
     const open: CardAction[] = [
       ...(i.task != null

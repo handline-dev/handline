@@ -237,3 +237,37 @@ test('a task with an open `@human` ask is shown once, by the ask, and its text d
     ['item:9'],
   );
 });
+
+test('an ask on a task outside the list is titled with the task read by its id, and keeps its comment as the text', () => {
+  const ask = item({
+    id: 9,
+    kind: 'ask',
+    task: 1684,
+    memo: 77,
+    title: '@human should the tab strip wrap?',
+    body: '@human should the tab strip wrap or scroll?',
+  }); // local-ref-ok
+  const [c] = myTurn({ items: [ask], agents: [], tasks: [], titles: new Map([[1684, 'Tab strip']]), me: 'human' }); // local-ref-ok
+  assert.equal(c!.title, 'Tab strip');
+  assert.equal(c!.detail, 'should the tab strip wrap or scroll?');
+});
+
+test('an ask whose task is not known yet drops the mention from its title and keeps the comment as the text', () => {
+  const ask = item({
+    id: 9,
+    kind: 'ask',
+    task: 1684,
+    memo: 77,
+    title: '@human should the tab strip wrap?',
+    body: '@human should the tab strip wrap?',
+  }); // local-ref-ok
+  const [c] = myTurn({ items: [ask], agents: [], tasks: [], me: 'human' });
+  assert.equal(c!.title, 'should the tab strip wrap?');
+  assert.equal(c!.detail, 'should the tab strip wrap?');
+});
+
+test('a mention in the middle of a sentence leaves the sentence its colon', () => {
+  const ask = item({ id: 9, kind: 'ask', task: 5, memo: 77, body: 'Second look please @human: the margin is now 24 px.' });
+  const [c] = myTurn({ items: [ask], agents: [], tasks: [task({ id: 5, to: 'human' })], me: 'human' });
+  assert.equal(c!.detail, 'Second look please: the margin is now 24 px.');
+});
