@@ -1,7 +1,8 @@
 // My turn (#/my-turn, docs/story9-my-turn.md 9-1): everything that waits on the person as cards, most urgent first. A card has its primary
 // button(s) and a menu for the rest; a dialog the daemon does not know has only Open terminal.
 import { useState, type KeyboardEvent } from 'react';
-import { APPROVED, ago, type Card, type CardAction } from '@handline/app-core';
+import { APPROVED, ago, noteIsLong, type Card, type CardAction } from '@handline/app-core';
+import { Fold } from '#src/Fold.tsx';
 import { classify, sentence, useMyTurn, useWrite } from '@handline/app-data';
 import { goTerminal } from '#src/route.ts';
 import { useWide } from '#src/taskui.tsx';
@@ -154,9 +155,11 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
           {card.since ? <span>waiting {ago(new Date(card.since).toISOString(), now)}</span> : null}
         </p>
         {card.detail ? (
-          <p className={`m-0 mt-1 text-ink-2 [overflow-wrap:anywhere]${card.task != null ? ' line-clamp-3' : ' whitespace-pre-wrap'}`}>
-            {card.detail}
-          </p>
+          <div className="mt-1 text-ink-2 [overflow-wrap:anywhere]">
+            <Fold long={card.task != null && noteIsLong(card.detail)}>
+              <p className={`m-0${card.task != null ? '' : ' whitespace-pre-wrap'}`}>{card.detail}</p>
+            </Fold>
+          </div>
         ) : null}
         {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
       </div>

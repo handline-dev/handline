@@ -72,3 +72,8 @@ export function foldEvents(items: readonly ActivityItem[], open: boolean, keep =
   const hide = new Set(open ? [] : events.slice(0, Math.max(0, events.length - keep)));
   return { items: items.filter((i) => !hide.has(i)), hidden: hide.size };
 }
+
+/** A note is shown open; one longer than this many lines folds to its first lines with a Show more. */
+export const NOTE_LINES = 8;
+/** A note long enough to fold: more than `NOTE_LINES` lines, or enough characters to wrap past them. */
+export const noteIsLong = (note: string): boolean => note.split('\n').length > NOTE_LINES || note.length > NOTE_LINES * 80;
