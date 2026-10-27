@@ -3,7 +3,7 @@
   {
    "name": "task.comment.add.naming_human_opens_an_ask_the_founders_reply_answers",
    "spec": "task.comment.add",
-   "about": "An agent's comment that names @human opens one ask to the founder; the founder's inbox.reply adds a reply comment to the task and closes the ask.",
+   "about": "An agent's comment that names `@human` opens one ask to the founder; the founder's inbox.reply adds a reply comment to the task and closes the ask.",
    "as": "agent",
    "with": {
     "boss": "founder"
@@ -166,7 +166,7 @@
   {
    "name": "task.comment.add.a_comment_not_naming_human_opens_no_ask",
    "spec": "task.comment.add",
-   "about": "A comment that does not name @human raises no ask.",
+   "about": "A comment that does not name `@human` raises no ask.",
    "as": "agent",
    "with": {
     "boss": "founder"
@@ -269,7 +269,7 @@
   {
    "name": "task.comment.edit.dropping_human_withdraws_the_ask",
    "spec": "task.comment.edit",
-   "about": "An edit that drops @human withdraws the ask the comment opened.",
+   "about": "An edit that drops `@human` withdraws the ask the comment opened.",
    "as": "agent",
    "with": {
     "boss": "founder"

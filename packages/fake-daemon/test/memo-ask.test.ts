@@ -4,7 +4,7 @@ import { second, setup } from '#src/helpers.ts';
 
 const AGENT = 'handline.architect';
 
-test('an agent comment naming @human opens an ask; edits, the reply and done close it', async () => {
+test('an agent comment naming `@human` opens an ask; edits, the reply and done close it', async () => {
   const s = setup({ client: 'boss' });
   s.daemon.tasks.verbs = true;
   await s.client.start();

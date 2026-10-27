@@ -35,7 +35,7 @@ func TestACommentNamingHumanOpensOneAskAndEachClosingEndsIt(t *testing.T) {
 		return s
 	}
 	if mid := add("worker", "no one named here, email a@human.com"); state(mid) != "" {
-		t.Fatalf("a comment that does not name @human opened an ask: %q", state(mid))
+		t.Fatalf("a comment that does not name `@human` opened an ask: %q", state(mid))
 	}
 	m1 := add("worker", "@human which one?")
 	var target, requester string
@@ -53,11 +53,11 @@ func TestACommentNamingHumanOpensOneAskAndEachClosingEndsIt(t *testing.T) {
 	db.QueryRow("SELECT body FROM requests WHERE memo_id = ?", m1).Scan(&body)
 	db.QueryRow("SELECT COUNT(*) FROM requests WHERE memo_id = ?", m1).Scan(&cnt)
 	if cnt != 1 || body != "@human which one, A or B?" {
-		t.Fatalf("an edit that keeps @human keeps the one ask: %d %q", cnt, body)
+		t.Fatalf("an edit that keeps `@human` keeps the one ask: %d %q", cnt, body)
 	}
 	edit(m1, "never mind")
 	if state(m1) != "withdrawn" {
-		t.Fatalf("an edit that drops @human: %q", state(m1))
+		t.Fatalf("an edit that drops `@human`: %q", state(m1))
 	}
 	m2 := add("worker", "@human again")
 	call(t, mk("worker"), fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.comment.delete","params":{"task":1,"memo":%d,"request_id":%q}}`, m2, rid()))

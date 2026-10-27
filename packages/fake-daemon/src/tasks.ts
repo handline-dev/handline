@@ -35,7 +35,7 @@ type Row = Task & {
   history?: HistoryRow[];
 };
 
-/** @human in a comment: at the start or after a character that is not part of a name. */
+/** `@human` in a comment: at the start or after a character that is not part of a name. */
 const NAMES_HUMAN = /(?:^|[^A-Za-z0-9._@-])@human(?:[^A-Za-z0-9_-]|$)/;
 
 export class FakeTasks {
@@ -207,7 +207,7 @@ export class FakeTasks {
   }
 
   /**
-   * The ask to the founder that comment `m` raised, kept as the comment reads now: an agent's comment that names @human has one open ask.
+   * The ask to the founder that comment `m` raised, kept as the comment reads now: an agent's comment that names `@human` has one open ask.
    * The founder writing on the task answers it.
    */
   private askFor(t: Row, m: Memo, adding: boolean, gone = false): void {

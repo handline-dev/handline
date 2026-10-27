@@ -74,7 +74,7 @@
      },
      "memo": {
       "type": "integer",
-      "description": "Only on an ask an agent's task comment raised by naming @human (task.comment.add): that comment's id on `task`. A client opens the comment itself. Absent on any other item."
+      "description": "Only on an ask an agent's task comment raised by naming `@human` (task.comment.add): that comment's id on `task`. A client opens the comment itself. Absent on any other item."
      }
     },
     "required": [

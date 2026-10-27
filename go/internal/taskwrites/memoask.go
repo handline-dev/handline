@@ -7,11 +7,11 @@ import (
 	"github.com/handline/handline/go/internal/db"
 )
 
-// humanMention is @human in a comment: at the start or after a character that is not part of a name, as the supervisor reads @name.
+// humanMention is `@human` in a comment: at the start or after a character that is not part of a name, as the supervisor reads @name.
 var humanMention = regexp.MustCompile(`(?:^|[^A-Za-z0-9._@-])@human(?:[^A-Za-z0-9_-]|$)`)
 
 // syncMemoAsk makes the ask to the founder that comment mid on task tid raised match the comment as it reads now: an agent's comment that
-// names @human has one open ask (its body the comment), and one that does not has none.
+// names `@human` has one open ask (its body the comment), and one that does not has none.
 func syncMemoAsk(tx *sql.Tx, tid, mid int64, author, body string) error {
 	var rid int64
 	err := tx.QueryRow("SELECT id FROM requests WHERE memo_id = ? AND state = 'queued'", mid).Scan(&rid)

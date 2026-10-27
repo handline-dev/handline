@@ -111,7 +111,7 @@ function taskCards(
     }));
 }
 
-/** An ask an agent raised by naming @human in a task comment: the founder's answer is a reply comment on that task, and the task stays open. */
+/** An ask an agent raised by naming `@human` in a task comment: the founder's answer is a reply comment on that task, and the task stays open. */
 function commentAsk(
   i: InboxItem,
   base: Omit<Card, 'key' | 'kind' | 'title' | 'primary' | 'actions'>,
@@ -252,7 +252,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
 
   cards.push(...taskCards(tasks, new Set(cards.flatMap((c) => (c.task == null ? [] : [c.task]))), me, when));
 
-  // Until the founder's tasks are migrated, a task with an open @human ask is shown once: by the ask, not by its task or decision card.
+  // Until the founder's tasks are migrated, a task with an open `@human` ask is shown once: by the ask, not by its task or decision card.
   const asked = new Set(cards.flatMap((c) => (c.memo != null && c.task != null ? [c.task] : [])));
   const once = cards.filter((c) => c.memo != null || c.task == null || !asked.has(c.task) || (c.kind !== 'decision' && c.kind !== 'task'));
 

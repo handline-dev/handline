@@ -223,7 +223,7 @@ test('one message row per agent with unread messages, newest first, opening at t
   );
 });
 
-test('a task with an open @human ask is shown once, by the ask, and its text drops the mention', () => {
+test('a task with an open `@human` ask is shown once, by the ask, and its text drops the mention', () => {
   const ask = item({ id: 9, kind: 'ask', task: 5, memo: 77, body: '@human is 16 px fine?' });
   const old = item({ id: 8, kind: 'decision', task: 5 });
   const cards = myTurn({ items: [old, ask], agents: [], tasks: [task({ id: 5, to: 'human', tags: ['review'] })], me: 'human' });
