@@ -3,7 +3,7 @@
 // to reply to (the reference the composer shows).
 import { memo, useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { ago, clockTime, ellipsis, isTaskDelivery, landingLabel, openTask, restartCause, sideOf, tickLevel } from '@handline/app-core';
+import { ago, clockTime, dateTime, ellipsis, isTaskDelivery, landingLabel, openTask, restartCause, sideOf, tickLevel } from '@handline/app-core';
 import { useWrite } from '@handline/app-data';
 import { useMe } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
@@ -35,7 +35,7 @@ export function jumpTo(id: number): boolean {
 
 const full = (at: string) => {
   const d = new Date(at);
-  return Number.isNaN(+d) ? undefined : d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  return Number.isNaN(+d) ? undefined : dateTime(at);
 };
 
 // A message to a structured agent says how far into the CLI it is; `unknown` is never resent, so the person is told it may have run.

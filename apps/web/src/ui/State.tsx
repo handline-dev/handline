@@ -56,6 +56,11 @@ const WORDS: Record<string, StateKind> = {
 /** The daemon's state word (an agent's or a task's) as a state glyph; a word it does not know is idle. */
 export const stateOf = (word: string): StateKind => WORDS[word.toLowerCase()] ?? 'idle';
 
+const MOTION: Partial<Record<StateKind, string>> = {
+  working: 'animate-spin motion-reduce:animate-none',
+  booting: 'animate-pulse motion-reduce:animate-none',
+};
+
 const DOT: Record<Dot, StateKind> = {
   running: 'working',
   waking: 'booting',
@@ -76,7 +81,7 @@ export function State({ kind, label, word, size = 16 }: { kind: StateKind; label
   const hue = HUE[kind];
   return (
     <span className={`ui-state inline-flex items-center gap-1.5 align-middle${hue ? ` ${hue}` : ''}`} data-state={kind} title={text}>
-      <Icon name={g.icon} size={size} label={text} />
+      <Icon name={g.icon} size={size} label={text} className={MOTION[kind]} />
       {word ? <span className="ui-state-word text-hint text-ink-2">{g.label}</span> : null}
     </span>
   );

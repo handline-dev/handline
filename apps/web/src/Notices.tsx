@@ -1,7 +1,7 @@
 // The notices (T5591 N2): the bell at the status bar's right end with the unread count, the list that opens upward from it (a link to what
 // needs the person, then what happened, newest first), and the short results stacked above it.
 import { useEffect, useState } from 'react';
-import { SPARE_SHOWN, spareNotice, targetOf, type Notice, type SpareNotice } from '@handline/app-core';
+import { clockTime, SPARE_SHOWN, spareNotice, targetOf, type Notice, type SpareNotice } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
 import { useMyTurn, useTasks, useWrite } from '@handline/app-data';
 import { Button, Icon, Popup } from '#src/ui/index.ts';
@@ -124,9 +124,7 @@ function Row({ n, onOpened }: { n: Notice; onOpened: () => void }) {
         <span className={`block truncate ${n.read ? '' : 'font-semibold'}`}>{head}</span>
         {sub ? <span className="block truncate text-hint text-ink-3">{sub}</span> : null}
       </span>
-      <time className="flex-none text-hint text-ink-3">
-        {new Date(n.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-      </time>
+      <time className="flex-none text-hint text-ink-3">{clockTime(new Date(n.at).toISOString())}</time>
     </button>
   );
 }
