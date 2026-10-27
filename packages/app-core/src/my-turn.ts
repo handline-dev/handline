@@ -96,10 +96,10 @@ function taskCards(
       review: !!t.tags?.includes(REVIEW_TAG),
       ...when(t.id),
       since: at(t.created),
-      primary: 1,
+      primary: 2,
       actions: [
-        { type: 'open', to: `#/tasks/${t.id}` },
         { type: 'done_task', task: t.id },
+        { type: 'open', to: `#/tasks/${t.id}` },
       ],
     }));
 }

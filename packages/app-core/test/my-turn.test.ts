@@ -178,7 +178,7 @@ test('an open task given to the person is a card; one an unread item already sta
   ]);
   assert.deepEqual(
     cards.find((c) => c.key === 'task:1')!.actions.map((a) => a.type),
-    ['open', 'done_task'],
+    ['done_task', 'open'],
   );
 });
 

@@ -257,11 +257,9 @@ export function Sidebar({
           <Button icon="settings" label="Settings" onClick={() => void (location.hash = '#/settings')} />
           {hr ? (
             <span
-              className="rail-hr pointer-events-none absolute -right-1 -top-0.5 rounded-full bg-bad px-1 text-hint text-canvas"
+              className="rail-hr pointer-events-none absolute right-0.5 top-0.5 size-2 rounded-full bg-bad"
               title={`${hr} HR proposals wait for you`}
-            >
-              {hr}
-            </span>
+            />
           ) : null}
         </span>
         <Button icon="help" label="Keys (?)" onClick={() => dispatchEvent(new KeyboardEvent('keydown', { key: '?' }))} />
