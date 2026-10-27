@@ -1,4 +1,4 @@
-// Package stream is the event stream (contract/protocol.md: subscribe, unsubscribe, event, gap). Every change a client may watch is a row
+// Package stream is the event stream (contract/gen/core.md: subscribe, unsubscribe, event, gap). Every change a client may watch is a row
 // in stream_log, whose id is the cursor, so a client that reconnects with its last cursor gets exactly what it missed.
 //
 // Rows come from any writer: this daemon's Append, and the Python daemon's watcher until it stops. One poll of MAX(id) (no detectors)

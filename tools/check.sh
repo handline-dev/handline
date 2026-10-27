@@ -4,7 +4,7 @@
 # - nothing changed, or documentation only (docs/, design/, *.md, but not contract/ or skill/): nothing.
 # - anything else: the Go suite (tools/test-go.sh), and the contract's generated files being current.
 # Either of the last two first runs the app checks: `pnpm turbo test typecheck lint` (turbo caches it) when a JS workspace
-# file changed (apps/, packages/, the root JS files, contract/protocol.ts), else only the packages/app-data tests
+# file changed (apps/, packages/, the root JS files, contract/protocol.ts or contract/gen/), else only the packages/app-data tests
 # (6 s), whose guards fail on a contract method the apps' tables do not name.
 # CHECK_PLAN=1 prints `kind=<none|docs|go> apps=<no|app-data|turbo>` and runs nothing.
 # A failing step does not stop the ones after it, so one run shows every failure; the exit status is 1 if any failed.
@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.." || exit 1
 base="${1:-main}"
 apps() {
     [ -d node_modules ] || { echo "tools/check.sh: no node_modules for the app checks: run  pnpm install --frozen-lockfile" >&2; return 1; }
-    if grep -qE '^(apps|packages)/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|contract/package\.json|contract/protocol\.ts)$' <<< "$changed"; then
+    if grep -qE '^(apps|packages)/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|contract/package\.json|contract/protocol\.ts|contract/gen/.*\.ts)$' <<< "$changed"; then
         local r=0
         pnpm turbo test typecheck lint --continue || r=1
         tools/dupes.sh || r=1
@@ -37,7 +37,7 @@ done <<< "$changed"
 # CHECK_PLAN=1: say what would run and stop (CI reads this to pick its jobs): kind is none, docs or go; apps is yes or no.
 if [ -n "${CHECK_PLAN:-}" ]; then
     apps=no
-    case "$kind" in go) grep -qE '^(apps|web|packages)/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|contract/package\.json|contract/protocol\.ts)$' <<< "$changed" && apps=turbo || apps=app-data ;; esac
+    case "$kind" in go) grep -qE '^(apps|web|packages)/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|contract/package\.json|contract/protocol\.ts|contract/gen/.*\.ts)$' <<< "$changed" && apps=turbo || apps=app-data ;; esac
     echo "kind=$kind apps=$apps"
     exit 0
 fi
