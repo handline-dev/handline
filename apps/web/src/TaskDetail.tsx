@@ -75,7 +75,7 @@ export function TaskDetail({
           </div>
         ) : (
           <View q={q} served shape="taskDetail" what={`task ${taskRef(id)}`}>
-            {q.data ? <Body t={q.data} /> : null}
+            {q.data ? <Body t={q.data} barNamed={page} /> : null}
           </View>
         )}
       </article>
@@ -83,7 +83,7 @@ export function TaskDetail({
   );
 }
 
-function Body({ t }: { t: Detail }) {
+function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   const store = useStore();
   const now = useNow();
   const me = useMe();
@@ -170,7 +170,7 @@ function Body({ t }: { t: Detail }) {
   return (
     <div className="tbody flex min-h-full flex-col bg-inherit" ref={root} tabIndex={-1} onKeyDown={key}>
       <header className="tdetail-head flex flex-wrap items-baseline gap-2">
-        <h2 className="m-0 min-w-0 text-title font-semibold">
+        <h2 className={`m-0 min-w-0 text-title font-semibold${barNamed ? ' sr-only' : ''}`}>
           <span className="mono">{taskRef(t.id)}</span>{' '}
           <Inline
             can={edit.can.ok && open}
