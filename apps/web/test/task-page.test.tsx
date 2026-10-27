@@ -116,10 +116,11 @@ describe('the task page', () => {
     await mount('#/tasks/1688', s);
     await until(() => $('.tnote'), 'the note');
     const note = $('.tnote')!;
-    expect(note.querySelector('.line-clamp-8')).not.toBeNull();
+    expect(text(note)).toContain('line 4');
+    expect(text(note)).not.toContain('line 12');
     expect(text(note)).toContain('Show more');
     await click(button('Show more', note)!);
-    expect(note.querySelector('.line-clamp-8')).toBeNull();
+    expect(text(note)).toContain('line 12');
     expect(text(note)).toContain('Show less');
   });
 
