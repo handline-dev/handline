@@ -1,4 +1,4 @@
-// The Usage page (#/stats), in the rail under Tasks and what the status bar's usage item opens: the usage outlook (when the daemon serves it), then each account's gauges, then the Stats section.
+// The Usage page (#/stats): the outlook, each account's gauges, then Stats.
 import { useSelector } from '@handline/app-react';
 import { OutlookSection } from '#src/Outlook.tsx';
 import { PageHead, PageTitle, ScrollPage, SectionHead, SettingsCard } from '#src/ui/index.ts';
