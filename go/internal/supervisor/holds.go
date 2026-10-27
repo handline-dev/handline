@@ -7,9 +7,10 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
+	"github.com/handline/handline/go/internal/team"
 )
 
-// A task waiting for its owner always says why, and a wait with no cause is told to the founder (daemon/taskholds.py).
+// A task waiting for its owner always says why, and a wait with no cause is told to the owner's lead (daemon/taskholds.py).
 //
 // The daemon retries every path that can land a task each tick (SweepTaskQueue moves the next task to a free owner, DeliverQueued types it).
 // What those paths said when they declined was logged or held in memory, so `hl task list` showed a queued task with nothing beside it. This reads
@@ -17,7 +18,7 @@ import (
 //
 // A reason is either a cause (behind another task, blocked, the owner mid-turn, closed, at its usage limit, a dialog, no terminal) or "the owner
 // can take it" - nothing is in the way and the daemon is about to type it. A task that stays in that second state past AbleWarnS has a cause
-// nobody named, and the founder is told once.
+// nobody named, and the owner's lead is told once.
 
 const (
 	// HoldPrefix names the meta rows.
@@ -205,7 +206,7 @@ func pyStr(v any) string {
 	return fmt.Sprint(v)
 }
 
-// SweepHolds records why each waiting task waits, drops what no longer waits, and tells the founder once of a task whose owner could take it
+// SweepHolds records why each waiting task waits, drops what no longer waits, and tells the owner's lead once of a task whose owner could take it
 // and does not.
 func (e *Env) SweepHolds(now int64) (err error) {
 	defer Catch(&err)
@@ -238,13 +239,13 @@ func (e *Env) SweepHolds(now int64) (err error) {
 			ableSince = *rec.AbleSince
 		}
 		if able && rec.Warned == nil && now-ableSince >= AbleWarnS {
-			after := &After{}
-			e.report(q, after, t.Owner, fmt.Sprintf("T%d has waited %d min for %s, which looks able to take it (%s). Delivery should have landed it - this is a missed delivery, not a queue.",
-				tid, (now-ableSince)/60, t.Owner, why), "queued task not landing")
-			after.Run()
+			if lead := must(team.LoadTeam(e.Home)).LeadOf(t.Owner); lead != "" && lead != db.Human && e.registered(lead) {
+				must(e.Notice(q, lead, fmt.Sprintf("T%d has waited %d min for %s, which looks able to take it (%s). Delivery should have landed it - this is a missed delivery, not a queue.",
+					tid, (now-ableSince)/60, t.Owner, why), "queued task not landing"))
+			}
 			rec.Warned = &now
 			changed = true
-			e.log("  T%d: waited %d min for an owner that looks able - founder told", tid, AbleWarnS/60)
+			e.log("  T%d: waited %d min for an owner that looks able - its lead told", tid, AbleWarnS/60)
 		}
 		if changed {
 			rec.write(q, tid)
