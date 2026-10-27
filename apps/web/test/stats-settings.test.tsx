@@ -75,17 +75,15 @@ describe('stats', () => {
     expect(text($('.chart[aria-label="Agent time"]'))).toContain('1 idle agent');
   });
 
-  it('Stats is a section of the Usage page, under the account gauges; the Accounts tab holds the accounts to manage and no stats', async () => {
+  it('Stats is a section of the Usage page without the accounts; the Accounts tab of Settings holds the accounts with their gauges and no stats', async () => {
     await mount('#/stats');
     await until(() => $('[data-tile]'), 'the tiles');
     expect(text($('h2'))).toBe('Usage');
-    expect($('.acct-list [data-account] [role=progressbar], .acct-list [data-account] .gauge')).not.toBeNull();
-    expect($('.acct-list')!.compareDocumentPosition($('[data-tile]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect($('.acct-list')).toBeNull();
     await act(async () => void (location.hash = '#/accounts'));
     await until(() => text($('h2')) === 'Settings' && $('.acct-list [data-account]'), 'the Accounts tab');
     expect($('[data-tile]')).toBeNull();
-    expect($('.acct-list .gauge')).toBeNull();
-    expect(text($('.acct-list [data-account]'))).toMatch(/week \d+%.*cap \d+/);
+    expect($('.acct-list [data-account] .gauge')).not.toBeNull();
   });
 
   it('every tile has an icon', async () => {
@@ -117,7 +115,7 @@ describe('outlook', () => {
     expect(text($('.outlook-legend'))).toContain('guess');
     const end = $('.outlook-svg .line.past')!.getAttribute('d')!.split(' ').at(-1);
     expect($('.outlook-svg .line.future')!.getAttribute('d')!.split(' ')[0]).toBe(end!.replace('L', 'M')); // the guess starts where the recorded line ends
-    expect($('.outlook')!.compareDocumentPosition($('.acct-list')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // the graph comes before the accounts
+    expect($('.acct-list')).toBeNull(); // the accounts are in Settings
     expect($$('.outlook-legend li svg .line.future')[0]!.getAttribute('stroke-dasharray')).toBeTruthy();
     expect($('[data-runway]')).toBeNull(); // the account rows below say how long each lasts
     expect($('.data-table')).toBeNull();
