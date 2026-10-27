@@ -35,19 +35,21 @@ func (t *Tick) timed(name string, f func()) {
 	t.spans = append(t.spans, span{name, took})
 }
 
-// logSlow names the slowest stages when the tick took long, longest first.
+// logSlow names the slowest stages when the tick took long, longest first, and clears them for the next tick (their room is kept).
 func (t *Tick) logSlow(total time.Duration) {
-	spans := t.spans
-	t.spans = nil
+	defer func() { t.spans = t.spans[:0] }()
 	if total < SlowTickMs*time.Millisecond {
 		return
 	}
-	sort.SliceStable(spans, func(i, j int) bool { return spans[i].took > spans[j].took })
+	sort.SliceStable(t.spans, func(i, j int) bool { return t.spans[i].took > t.spans[j].took })
 	var parts []string
-	for _, s := range spans {
+	for _, s := range t.spans {
 		if s.took >= SlowStageMs*time.Millisecond {
 			parts = append(parts, fmt.Sprintf("%s %dms", s.name, s.took.Milliseconds()))
 		}
+	}
+	if len(parts) == 0 {
+		parts = append(parts, fmt.Sprintf("no stage over %dms", SlowStageMs))
 	}
 	t.logf("  slow tick: %dms (%s)", total.Milliseconds(), strings.Join(parts, ", "))
 }
