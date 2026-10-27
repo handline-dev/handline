@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it } from 'vitest';
 import { Store } from '@handline/app-core';
-import { setup } from '@handline/fake-daemon/helpers';
+import { setMachineNeeds, setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -28,9 +28,13 @@ const machine = () => box.querySelector<HTMLElement>('.my-turn-card[data-kind="m
 
 it('shows a full disk as a card with its text and age and no button, and drops it when the daemon does', async () => {
   const s = setup();
-  s.daemon.setMachineNeeds([
-    { kind: 'disk', since: new Date(Date.now() - 12 * 60_000).toISOString(), text: 'Free disk is 3.1 GB, under the 5 GB floor: builds and tests wait.' },
-  ]);
+  s.daemon.admin.machineNeeds = [
+    {
+      kind: 'disk',
+      since: new Date(Date.now() - 12 * 60_000).toISOString(),
+      text: 'Free disk is 3.1 GB, under the 5 GB floor: builds and tests wait.',
+    },
+  ];
   location.hash = '#/my-turn';
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
@@ -41,6 +45,6 @@ it('shows a full disk as a card with its text and age and no button, and drops i
   expect(machine()!.textContent).toContain('Free disk is 3.1 GB, under the 5 GB floor');
   expect(machine()!.textContent).toMatch(/waiting 12m/);
   expect(machine()!.querySelectorAll('button')).toHaveLength(0);
-  await act(async () => s.daemon.setMachineNeeds([]));
+  await setMachineNeeds(s, []);
   await until(() => !machine(), 'the card to go');
 });

@@ -15,6 +15,9 @@ export function useMyTurn(): { cards: Card[]; loading: boolean } {
   const list = agents.data?.agents;
   const rows = tasks.data?.items;
   const machine = status.data?.needs_you;
-  const cards = useMemo(() => myTurn({ items: items ?? [], agents: list ?? [], tasks: rows ?? [], machine, me }), [items, list, rows, machine, me]);
+  const cards = useMemo(
+    () => myTurn({ items: items ?? [], agents: list ?? [], tasks: rows ?? [], machine, me }),
+    [items, list, rows, machine, me],
+  );
   return { cards, loading: inbox.isPending && agents.isPending };
 }

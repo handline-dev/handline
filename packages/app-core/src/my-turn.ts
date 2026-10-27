@@ -106,6 +106,24 @@ function taskCards(
     }));
 }
 
+/** One action-less card for each need of the machine itself. */
+const machineCards = (machine: readonly MachineNeed[]): Card[] =>
+  machine.map((n) => ({
+    key: `machine:${n.kind}`,
+    kind: 'machine',
+    title: 'Free disk space',
+    detail: n.text,
+    agent: null,
+    from: null,
+    task: null,
+    review: false,
+    priority: 1,
+    due: null,
+    since: at(n.since),
+    primary: 0,
+    actions: [],
+  }));
+
 /** The cards, most urgent first: task priority, then the earliest deadline (none last), then the one waiting longest. */
 export function myTurn({ items, agents, tasks, machine = [], me = '' }: MyTurnInput): Card[] {
   const byTask = new Map(tasks.map((t) => [t.id, t]));
@@ -218,23 +236,7 @@ export function myTurn({ items, agents, tasks, machine = [], me = '' }: MyTurnIn
     });
   }
 
-  for (const n of machine) {
-    cards.push({
-      key: `machine:${n.kind}`,
-      kind: 'machine',
-      title: 'Free disk space',
-      detail: n.text,
-      agent: null,
-      from: null,
-      task: null,
-      review: false,
-      priority: 1,
-      due: null,
-      since: at(n.since),
-      primary: 0,
-      actions: [],
-    });
-  }
+  cards.push(...machineCards(machine));
 
   cards.push(...taskCards(tasks, new Set(cards.flatMap((c) => (c.task == null ? [] : [c.task]))), me, when));
 

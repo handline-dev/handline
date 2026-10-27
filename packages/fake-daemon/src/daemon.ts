@@ -10,7 +10,6 @@ import {
   type MethodName,
   type Notifications,
   type Role,
-  type MachineNeed,
   type Timestamp,
   type Topic,
 } from '@handline/contract';
@@ -211,13 +210,6 @@ export class FakeDaemon {
   }
   // ---- events ----
 
-  private machineNeeds: MachineNeed[] = [];
-  /** The machine's own needs-you items (a full disk); the daemon pushes the whole status when they change. */
-  setMachineNeeds(needs: MachineNeed[]) {
-    this.machineNeeds = needs;
-    this.emit('status', 'status.changed', { data: statusReply(this.sessions, this.inbox.unread(), this.iso(), needs) });
-  }
-
   /** Public so a test can make changes while no client is connected. */
   emit(topic: Topic, type: string, f: { agent?: string; actor?: Actor; title?: string; data?: Record<string, unknown> } = {}) {
     const e: WireEvent = {
@@ -381,7 +373,7 @@ export class FakeDaemon {
             .map(([n]) => n),
         };
       case 'daemon.status':
-        return statusReply(this.sessions, this.inbox.unread(), this.iso(), this.machineNeeds);
+        return statusReply(this.sessions, this.inbox.unread(), this.iso(), this.admin.machineNeeds);
       case 'agents.list':
         return { agents: [...this.sessions.values()].map((s) => view(s)) };
       case 'agent.get':
