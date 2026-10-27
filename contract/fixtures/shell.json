@@ -1,0 +1,194 @@
+{
+ "fixtures": [
+  {
+   "name": "shell.open.agent_is_required",
+   "spec": "shell.open",
+   "about": "No agent is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "shell.open",
+      "params": {
+       "request_id": "s1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "agent"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "shell.close.terminal_is_required",
+   "spec": "shell.close",
+   "about": "No handle is bad_request naming it.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "shell.close",
+      "params": {
+       "request_id": "s2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "terminal"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "shell.close.not_a_shell_is_not_found",
+   "spec": "shell.close",
+   "about": "A handle that is no shell (any other pane) is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "shell.close",
+      "params": {
+       "terminal": "%999999",
+       "request_id": "s3"
+      }
+     },
+     "error": {
+      "data": {
+       "code": "not_found"
+      },
+      "code": -32001
+     }
+    }
+   ]
+  },
+  {
+   "name": "shell.open.unknown_agent_is_not_found",
+   "spec": "shell.open",
+   "about": "An agent nobody registered is not_found.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "shell.open",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "s4"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "shell.open.is_refused_to_an_agent_session",
+   "spec": "shell.open",
+   "about": "An agent session may not open a shell: refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "shell.open",
+      "params": {
+       "agent": "nobody.here",
+       "request_id": "s5"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -38,7 +38,7 @@ func (e *Env) status(agent string, row *db.AgentState, state, detail string, han
 		}
 		return at(status.Running, status.Turn, "working")
 	case "starting":
-		return at(status.Starting, status.Launch, "its terminal is starting")
+		return at(status.Starting, status.Launch, "Starting")
 	case "waiting":
 		return at(status.Waiting, status.You, with("needs you", detail))
 	case "stalled":
@@ -81,12 +81,12 @@ func (e *Env) status(agent string, row *db.AgentState, state, detail string, han
 			return at(status.Preparing, status.Retry, note)
 		}
 		if h, ok := handoff.(map[string]any); ok && h["phase"] == "starting" {
-			return at(status.Preparing, status.Restart, "restarting: the new session begins at the next tick")
+			return at(status.Preparing, status.Restart, "Restarting in a moment")
 		}
 		if why := loadHeld(); why != "" {
 			return at(status.Waiting, status.Load, why)
 		}
-		return at(status.Preparing, status.Work, "has work: starts at the next tick")
+		return at(status.Preparing, status.Work, "Starting in a moment")
 	case "no_terminal":
 		return at(status.Off, status.None, "no terminal")
 	}

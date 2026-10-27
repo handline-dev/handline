@@ -70,7 +70,7 @@ func TestEachAgentIsServedWithItsStateAndReason(t *testing.T) {
 		{"crash", "stopped", "stalled", "stalled until someone unstalls it: the session exited", nil, nil},
 		{"idle", "idle", "none", "idle", nil, nil},
 		{"gone", "off", "none", "no terminal", nil, nil},
-		{"work", "preparing", "work", "has work: starts at the next tick", nil, nil},
+		{"work", "preparing", "work", "Starting in a moment", nil, nil},
 		{"nap", "waiting", "clock", "wakes at " + timefmt.Stamp(9000, timefmt.Clock), "1970-01-01T02:30:00Z", nil},
 		{"move", "waiting", "move", "moving to another account", nil, nil},
 		{"walled", "stopped", "wall", "waiting for a's 5h window (100%, rolls over 04:00)", "1970-01-01T02:00:00Z", nil},
@@ -126,5 +126,57 @@ func TestAClosedAgentWithWorkWaitingIsQueuedAndSaysTheLoadHoldsIt(t *testing.T) 
 	load = ""
 	check("harbor", "queued", "stopped", "cap", "waiting for a slot on beta (3 of 3 mid-turn)")
 	r.env.Walled = func(string, *db.AgentState) *Wall { return nil }
-	check("harbor", "queued", "preparing", "work", "has work: starts at the next tick")
+	check("harbor", "queued", "preparing", "work", "Starting in a moment")
+}
+
+// The chat showed "handline is at its usage limit" while its row said it was moving to another account. The banner names the wait the
+// wake is in, never "every account": a wake may stay on its own account while another has room. Moving, or a limit nothing has acted
+// on yet, shows none.
+func TestTheLimitBannerNamesTheWaitAndNoneWhileMoving(t *testing.T) {
+	r := newRig(t, "move", "walled", "nap", "napper", "sleeper", "fresh", "free")
+	for a, why := range map[string]string{"move": "move is at its usage limit", "walled": "walled is at its usage limit",
+		"fresh": "fresh is at its usage limit"} {
+		r.bg.wall[a] = why
+	}
+	r.state(t, "move", states.Queued, states.MovingMark+" to b")
+	r.state(t, "walled", states.Queued, "")
+	for _, a := range []string{"nap", "napper"} { // parked for the window; a message waits for napper only
+		r.bg.wall[a] = a + " is parked until its usage window rolls over"
+		if err := db.SetAgentState(r.env.Q, a, states.Parked, 9000, "5h limit; wakes at "+timefmt.Stamp(9000, timefmt.Clock)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// sleeper is parked with a message waiting too, but by no limit: the supervisor finds no wall
+	if err := db.SetAgentState(r.env.Q, "sleeper", states.Parked, 9000, "wakes at "+timefmt.Stamp(9000, timefmt.Clock)); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range []string{"napper", "sleeper"} {
+		if _, err := db.AddRequest(r.env.Q, db.NewRequest{Requester: "human", Target: a, Body: "hi", Kind: "say"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.state(t, "fresh", states.Idle, "")
+	r.sess.alive["fresh"] = true
+	r.state(t, "free", states.Idle, "")
+	r.env.Walled = func(agent string, _ *db.AgentState) *Wall {
+		if agent == "walled" {
+			// its own account a is walled; b may be free, but the wake stays on a (the move was declined)
+			return &Wall{Text: "waiting for a's 5h window (100%, rolls over 02:00)", Reset: 7200}
+		}
+		return nil
+	}
+	for agent, want := range map[string]any{
+		"move":    nil,
+		"walled":  "waiting for a's 5h window (100%, rolls over 02:00)",
+		"nap":     nil, // nothing waits for it: idle, nothing held
+		"napper":  "waits for its account's usage window, back at " + timefmt.Stamp(9000, timefmt.Clock),
+		"sleeper": nil,
+		"fresh":   nil,
+		"free":    nil,
+	} {
+		r.env.RefreshOne(agent)
+		if got := r.stored(t, agent)["wall_reason"]; got != want {
+			t.Errorf("%s: banner %v, want %v", agent, got, want)
+		}
+	}
 }

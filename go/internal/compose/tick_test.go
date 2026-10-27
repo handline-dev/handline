@@ -76,7 +76,7 @@ func TestShutdownWaitsForTheTickInHandBeforeTheDatabaseCloses(t *testing.T) {
 func TestTheTickRunsItsPassesWithoutHarmingAnAgent(t *testing.T) {
 	p, _, _, _ := wired(t)
 	tk := p.Tick(cfgOf(p), TickConfig{})
-	if len(tk.Tick.Passes) != 12 {
+	if len(tk.Tick.Passes) != 13 {
 		t.Fatalf("passes: %d", len(tk.Tick.Passes))
 	}
 	var logs []string
@@ -353,38 +353,31 @@ func TestTheDiskWatchEntryRaisesOneCardFromTheTaskBoard(t *testing.T) {
 	if watch == nil {
 		t.Fatal("the loop has no disk watch")
 	}
-	told := func() []string {
-		rows, err := p.db.Query("SELECT requester, body FROM requests WHERE target = ?", dbpkg.Human)
-		if err != nil {
+	told := func() int {
+		var n int
+		if err := p.db.QueryRow("SELECT COUNT(*) FROM events WHERE kind = 'disk_low'").Scan(&n); err != nil {
 			t.Fatal(err)
 		}
-		defer rows.Close()
-		var out []string
-		for rows.Next() {
-			var from, body string
-			rows.Scan(&from, &body)
-			out = append(out, from+": "+body)
-		}
-		return out
+		return n
 	}
 	now := time.Now().Unix()
 	if err := watch.Run(p.db, now); err != nil {
 		t.Fatal(err)
 	}
-	got := told()
-	if len(got) != 1 || !strings.HasPrefix(got[0], dbpkg.NoticeRequester+": disk 9 GB left (of 500 GB") {
-		t.Fatalf("the founder's inbox after a low volume: %q", got)
+	if told() != 1 {
+		t.Fatalf("one disk_low event after a low volume: %d", told())
 	}
-	var cards int
-	p.db.QueryRow("SELECT COUNT(*) FROM tasks WHERE owner = ? AND expects = 'decision'", dbpkg.Human).Scan(&cards)
-	if cards != 1 {
-		t.Fatalf("the card is a decision of the founder's: %d", cards)
+	var inbox, tasks int
+	p.db.QueryRow("SELECT COUNT(*) FROM requests WHERE target = ?", dbpkg.Human).Scan(&inbox)
+	p.db.QueryRow("SELECT COUNT(*) FROM tasks WHERE owner = ?", dbpkg.Human).Scan(&tasks)
+	if inbox != 0 || tasks != 0 {
+		t.Fatalf("a low volume is a notification, not a message (%d) or a task (%d)", inbox, tasks)
 	}
 	if err := watch.Run(p.db, now+601); err != nil {
 		t.Fatal(err)
 	}
-	if again := told(); len(again) != 1 {
-		t.Fatalf("a second check at the same level told again: %q", again)
+	if told() != 1 {
+		t.Fatalf("a second check at the same level told again: %d", told())
 	}
 }
 

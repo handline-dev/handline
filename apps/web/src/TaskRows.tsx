@@ -19,6 +19,8 @@ export function Row(props: {
   mark: 'authored' | 'decided' | null;
   failed: boolean;
   rows: number;
+  /** Which of the columns the table has room for (see `useTableColumns`). */
+  columns: { owner: boolean; pri: boolean };
   /** Boxes show always once a row is marked, else on hover. */
   markCell: boolean;
   onCursor: () => void;
@@ -80,19 +82,20 @@ export function Row(props: {
               {t.title}
             </span>
           </AnimatedCell>
-          <AnimatedCell className={`c-owner w-28 text-right @max-[600px]:min-sm:hidden ${TD} max-sm:[grid-area:owner] max-sm:text-left`}>
-            <span className={CHIP} title={`owner: ${t.to}`}>
-              {isPerson(t.to, me) ? 'you' : t.to.slice(t.to.lastIndexOf('.') + 1)}
-            </span>
-          </AnimatedCell>
+          {props.columns.owner ? (
+            <AnimatedCell className={`c-owner w-28 text-right ${TD} max-sm:[grid-area:owner] max-sm:text-left`}>
+              <span className={CHIP} title={`owner: ${t.to}`}>
+                {isPerson(t.to, me) ? 'you' : t.to.slice(t.to.lastIndexOf('.') + 1)}
+              </span>
+            </AnimatedCell>
+          ) : null}
+          {props.columns.pri ? (
+            <AnimatedCell className={`c-pri mono w-14 ${TD} max-sm:[grid-area:pri] max-sm:text-right`} title="priority, 1 high to 3 low">
+              <span className={CHIP}>P{t.priority ?? 2}</span>
+            </AnimatedCell>
+          ) : null}
           <AnimatedCell
-            className={`c-pri mono w-14 @max-[720px]:min-sm:hidden ${TD} max-sm:[grid-area:pri] max-sm:text-right`}
-            title="priority, 1 high to 3 low"
-          >
-            <span className={CHIP}>P{t.priority ?? 2}</span>
-          </AnimatedCell>
-          <AnimatedCell
-            className={`c-time mono w-28 whitespace-nowrap text-right ${TD} max-sm:[grid-area:time] max-sm:text-ink-2${over ? ' text-bad font-semibold' : ''}`}
+            className={`c-time mono w-36 whitespace-nowrap text-right ${TD} max-sm:[grid-area:time] max-sm:text-ink-2${over ? ' text-bad font-semibold' : ''}`}
           >
             <span className="inline-flex items-center gap-1">
               <span

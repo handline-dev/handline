@@ -204,7 +204,8 @@
     "task_done": "{task, task_title?, result?}",
     "prompt_asked": "Prompt",
     "stall": "{agent}",
-    "account_out": "{account}"
+    "account_out": "{account}",
+    "disk_low": "{free_bytes, total_bytes}"
    }
   },
   "chat": {
@@ -3918,7 +3919,7 @@
     "input_holder",
     "unsupported"
    ],
-   "description": "For a client that is a terminal (xterm.js), as session.type is for a person typing: the same gates, and it passes the wall and an open dialog as session.type and session.keys do (the person sees the screen; session.input keeps both gates). Unlike them it is refused while the daemon holds the input, since a stream of keystrokes beside the daemon's own typing would corrupt both: take the input first. A terminal with no holder, a login terminal, refuses it too. A pane showing a shell prompt takes it, as with session.type. Calls on one connection are applied in the order they were read, however many are waiting. It is recorded as an event of the agent (kind type) whose actor is the caller, a paired device by its id, with the byte count and never the bytes. Terminal hosts that cannot send keys refuse with gate unsupported."
+   "description": "For a client that is a terminal (xterm.js), as session.type is for a person typing: the same gates, and it passes the wall and an open dialog as session.type and session.keys do (the person sees the screen; session.input keeps both gates). Unlike them it is refused while the daemon holds the input, since a stream of keystrokes beside the daemon's own typing would corrupt both: take the input first. A terminal with no holder, a login terminal, refuses it too. A shell shell.open started has no holder and takes it from any caller. A pane showing a shell prompt takes it, as with session.type. Calls on one connection are applied in the order they were read, however many are waiting. It is recorded as an event of the agent (kind type) whose actor is the caller, a paired device by its id, with the byte count and never the bytes. Terminal hosts that cannot send keys refuse with gate unsupported."
   },
   {
    "name": "terminal.close",
@@ -4002,6 +4003,99 @@
     "unsupported"
    ],
    "description": "Answers where the agent's own terminal is: the host (`tmux`), its handle, and `attach`, the command a client on the daemon's machine runs to see and answer it (`argv`, null when the host has no command; the client then uses `host` and `terminal`). It types nothing and answers nothing; the person at the terminal answers the dialog, which is the point (see x-dialogs). `focused` is true when the host was also asked to bring the terminal to the front (tmux select-window; best effort, false when it could not). Callers: the founder and a paired device (member); an agent is refused, gate role. An agent that is not registered is not_found (agent); one with no terminal, a structured agent among them, a closed one (it keeps the handle it had) and one whose terminal the host no longer lists are not_found (terminal). A device on another machine than the daemon's gets the same answer; `attach` names a local socket, so it is useful only where the daemon runs, and `local` says whether the caller is there (true for the unix socket, false over the network)."
+  },
+  {
+   "name": "shell.open",
+   "summary": "Open a new plain shell in an agent's worktree (the New tab menu's Terminal).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/ShellOpening"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
+    "unsupported",
+    "state"
+   ],
+   "description": "Starts the user's login shell in a new window of the terminal host, in the agent's worktree, and answers its handle; attach it with terminal.attach (terminal), type at it with terminal.input and size it with terminal.resize. It is not the agent's terminal and touches nothing of the agent's: no input holder and no terminal lock stand between a person and it, terminal.resize has no 80 by 24 floor for it, and the daemon never reads its screen. Several may be open beside one agent, at most 8 (refused, gate `state`). It lives until shell.close, the shell exits, or the host's server ends; the daemon does not close it when the agent's session ends. Not_found names the agent, or the worktree when the agent has none on disk. Refused with gate `unsupported` on a host that cannot open one."
+  },
+  {
+   "name": "shell.close",
+   "summary": "Close a shell shell.open started.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "terminal",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The handle shell.open answered."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
+    "unsupported",
+    "state"
+   ],
+   "description": "Closes the shell's window. A handle that is not a shell (an agent's own terminal included) is not_found, so this cannot end an agent's session."
   },
   {
    "name": "terminal.detach",
@@ -16010,9 +16104,10 @@
        "permission",
        "question",
        "usage",
-       "dialog"
+       "dialog",
+       "stuck"
       ],
-      "description": "permission: a tool or a folder waits for a yes. question: the agent asked the person something. usage: the session limit's choice. dialog: any other, and any the daemon does not know: unknown is a person."
+      "description": "permission: a tool or a folder waits for a yes. question: the agent asked the person something. usage: the session limit's choice. dialog: any other (a start-up dialog the daemon will not answer included), and any the daemon does not know: unknown is a person. stuck: the daemon retried, restarted and relaunched the agent and it is still stuck: one card, gone when the trouble is. The same event is never two cards, and a load hold is never stuck."
      },
      "since": {
       "$ref": "#/components/schemas/Timestamp"
@@ -16032,9 +16127,10 @@
       "type": "string",
       "enum": [
        "hook",
-       "session"
+       "session",
+       "daemon"
       ],
-      "description": "hook: PermissionRequest or Notification. session: the session's own file (sessions/<pid>.json status waiting and waitingFor)."
+      "description": "hook: PermissionRequest or Notification. session: the session's own file (sessions/<pid>.json status waiting and waitingFor). daemon: the daemon's own record (a start-up dialog stall, an agent it could not heal); never a task."
      }
     },
     "required": [
@@ -17337,6 +17433,31 @@
     },
     "required": [
      "cursor"
+    ]
+   },
+   "ShellOpening": {
+    "type": "object",
+    "properties": {
+     "agent": {
+      "$ref": "#/components/schemas/AgentName"
+     },
+     "terminal": {
+      "type": "string",
+      "description": "The shell's handle, as terminal.attach takes it."
+     },
+     "cwd": {
+      "type": "string",
+      "description": "The directory the shell started in."
+     },
+     "host": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "agent",
+     "terminal",
+     "cwd",
+     "host"
     ]
    },
    "RequestRow": {

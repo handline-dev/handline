@@ -23,7 +23,9 @@ export function StatusBar() {
         <span className={up ? undefined : 'text-bad'}>{(DAEMON as Record<string, string>)[conn] ?? `daemon ${conn}`}</span>
       </Chip>
       <Chip variant="cell" as="a" href="#/my-turn" title="Items waiting on you">
-        <span className={waiting ? 'text-wait' : undefined}>{waiting} waiting on you</span>
+        <span className={waiting ? 'text-wait' : undefined}>
+          {waiting} {waiting === 1 ? 'needs' : 'need'} you
+        </span>
       </Chip>
       <Chip variant="cell" as="a" href="#/tasks" title="Tasks that are blocked">
         <span className={blocked ? 'text-wait' : undefined}>{blocked} blocked</span>

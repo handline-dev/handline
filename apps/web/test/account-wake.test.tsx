@@ -1,4 +1,4 @@
-// A stalled account: the Usage list and the account's page show STALLED and its reason; the founder's Wake ends it, a refusal says why,
+// A stalled account: the Usage list and the account's page show blocked and its reason; the founder's Wake ends it, a refusal says why,
 // and a member or a daemon without account.wake shows no Wake.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -47,10 +47,10 @@ afterEach(async () => {
 });
 
 describe('a stalled account', () => {
-  it('shows STALLED and its reason in the list, only on the stalled account', async () => {
+  it('shows blocked and its reason in the list, only on the stalled account', async () => {
     await mount('#/stats');
     await until(() => $('[data-stall="beta"]'), 'the stall');
-    expect($('[data-stall="beta"]')!.textContent).toContain('STALLED');
+    expect($('[data-stall="beta"]')!.textContent).toContain('blocked');
     expect($('[data-stall="beta"]')!.textContent).toContain('billing_error');
     expect($('[data-stall="alpha"]')).toBeNull();
   });

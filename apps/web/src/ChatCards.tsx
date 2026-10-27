@@ -2,6 +2,7 @@
 // that concern it, decided where they were discussed.
 import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
+import { HeldLine } from '#src/ApplyNow.tsx';
 import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
 import {
   VERBS,
@@ -9,8 +10,8 @@ import {
   ago,
   clockTime,
   decidedProposals,
+  applyFailure,
   followUpOf,
-  heldLine,
   isHeld,
   isWaiting,
   restartingLine,
@@ -109,7 +110,7 @@ export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to
 /** A banner with an icon and the reason when the session is blocked or stalled. */
 export function ChatBanner({ detail }: { detail: AgentDetail }) {
   const why =
-    detail.blocker || detail.wall_reason || (detail.state === 'stalled' ? detail.state_detail || 'The session has stalled' : null);
+    detail.blocker || detail.wall_reason || (detail.state === 'stalled' ? detail.state_detail || 'The session stopped answering' : null);
   if (!why) return null;
   return (
     <Card variant="event" tone="bad" className="chat-banner" role="status">
@@ -218,8 +219,8 @@ export function HrCards({ agent }: { agent: string }) {
         const follow = followUpOf(p);
         if (follow) return <FollowUpCard key={p.id} p={p} follow={follow} />;
         const mine = sent[p.id];
-        const failed =
-          mine?.error ?? (mine && !mine.wait && p.state === 'apply_failed' ? `Not applied${p.error ? `: ${p.error}` : ''}` : undefined);
+        const failed = mine?.error; // a refusal of this press; the not-applied line is the card's own, shown once
+        const apply = p.state === 'apply_failed' ? applyFailure(p) : null;
         const pressed = (c: 'approve' | 'reject') => !!mine && mine.choice === c;
         return (
           <Card
@@ -235,9 +236,17 @@ export function HrCards({ agent }: { agent: string }) {
             <CardWhat stacked>
               <strong>{p.title}</strong>
               {p.state === 'apply_failed' ? (
-                <span className="outcome text-bad">Not applied{p.error ? `: ${p.error}` : ''}. Approve to try again.</span>
+                <>
+                  <span className="outcome whitespace-normal text-bad">{apply!.line} Approve to try again.</span>
+                  {apply!.details ? (
+                    <details className="muted whitespace-normal">
+                      <summary>Details</summary>
+                      {apply!.details}
+                    </details>
+                  ) : null}
+                </>
               ) : isHeld(p) ? (
-                <span className="muted hr-held">{heldLine(p)}</span>
+                <HeldLine p={p} />
               ) : p.reason ? (
                 <span className="muted">{p.reason}</span>
               ) : null}
@@ -255,7 +264,7 @@ export function HrCards({ agent }: { agent: string }) {
                   size="sm"
                   aria-pressed={pressed('approve')}
                   aria-busy={mine?.wait && pressed('approve') ? true : undefined}
-                  disabled={!!mine && (mine.wait || !failed)}
+                  disabled={!!mine && (mine.wait || !(failed || apply))}
                   className={pressed('approve') ? 'bg-raised' : ''}
                   onClick={() => send(p, 'approve')}
                 >
@@ -271,7 +280,7 @@ export function HrCards({ agent }: { agent: string }) {
                   size="sm"
                   aria-pressed={pressed('reject')}
                   aria-busy={mine?.wait && pressed('reject') ? true : undefined}
-                  disabled={!!mine && (mine.wait || !failed)}
+                  disabled={!!mine && (mine.wait || !(failed || apply))}
                   className={pressed('reject') ? 'bg-raised' : ''}
                   onClick={() => setRejecting({ id: p.id, subject: p.subject })}
                 />
@@ -298,7 +307,7 @@ export function HrCards({ agent }: { agent: string }) {
 }
 
 const NEEDS: Record<string, string> = {
-  permission: 'Waiting for a yes',
+  permission: 'Needs you',
   question: 'Asked you a question',
   usage: 'Hit the session limit',
   dialog: 'Waiting on a dialog',

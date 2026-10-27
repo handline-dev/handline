@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/handline/handline/go/internal/loadgate"
 )
 
 // A change that renames or retires an agent with a session running is not refused: the proposal is held (state applying, with the agents
@@ -134,7 +136,7 @@ func (e *Env) carry(prop *Prop, p HeldPorts) error {
 
 // startState is "held" for a start the machine load put off, which the sweep retries by itself, and "failed" for any other reason.
 func startState(why string) string {
-	if strings.HasPrefix(why, "held:") {
+	if loadgate.IsHeld(why) {
 		return "held"
 	}
 	return "failed"

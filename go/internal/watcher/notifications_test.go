@@ -200,3 +200,22 @@ func TestATaskDoneCarriesTheTasksTitleAndTheFirstLineOfItsEvidence(t *testing.T)
 		}
 	}
 }
+
+func TestADiskLowEventIsOneNotificationWithTheFreeSpace(t *testing.T) {
+	d, l := rig(t)
+	emit := func(e stream.Entry) (*stream.Event, error) { return l.Append(e) }
+	n := &Notifications{Reads: &reads.Env{DB: d}}
+	if err := n.Scan(d, emit); err != nil {
+		t.Fatal(err)
+	}
+	exec(t, d, "INSERT INTO events(ts, agent, kind, payload) VALUES(1, '', 'disk_low', '{\"free_bytes\": 9663676416, \"total_bytes\": 494384795648}')")
+	for range 2 {
+		if err := n.Scan(d, emit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := notes(t, l)
+	if len(got) != 1 || string(got[0].Data) != `{"free_bytes":9663676416,"total_bytes":494384795648}` || *got[0].Title != "disk low: 9 GB left" {
+		t.Fatalf("%+v", got)
+	}
+}

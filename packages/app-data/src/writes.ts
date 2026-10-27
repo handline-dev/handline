@@ -403,6 +403,8 @@ export const writes: Record<string, WriteSpec> = {
   'session.type': uncached('type'),
   'terminal.input': uncached('key'),
   'terminal.resize': uncached('resize'),
+  'shell.open': uncached('open shell'),
+  'shell.close': uncached('close shell'),
 };
 
 /** What a structured agent has no terminal for: a write of these to one is a bug in the view, not a refusal to wait for. */

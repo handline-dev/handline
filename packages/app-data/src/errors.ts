@@ -22,7 +22,15 @@ export function classify(e: unknown): Failure {
     case 'daemon_busy':
       return { kind: 'busy', retryAfterMs: Number(e.data?.retry_after_ms ?? 1000) };
     case 'refused':
-      return e.gate === 'unsupported' ? { kind: 'not_served' } : { kind: 'refused', reason: e.reason ?? e.message, hint: e.hint, gate: e.gate, task: typeof e.data?.task === 'number' ? e.data.task : undefined };
+      return e.gate === 'unsupported'
+        ? { kind: 'not_served' }
+        : {
+            kind: 'refused',
+            reason: e.reason ?? e.message,
+            hint: e.hint,
+            gate: e.gate,
+            task: typeof e.data?.task === 'number' ? e.data.task : undefined,
+          };
     case 'bad_request':
       return e.data?.method ? { kind: 'not_served' } : { kind: 'other', message: e.message };
     default:
@@ -42,7 +50,7 @@ export function sentence(f: Failure): string {
     case 'busy':
       return 'The daemon is busy; trying again.';
     case 'not_served':
-      return 'This daemon does not serve that.';
+      return 'This needs a newer Handline.';
     case 'transport':
       return '';
   }

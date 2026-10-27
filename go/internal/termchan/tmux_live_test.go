@@ -3,6 +3,7 @@ package termchan
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ func TestLiveTmux(t *testing.T) {
 
 func liveTmux(t *testing.T, sock string, file *string) {
 	t.Setenv("HANDLINE_TMUX_SOCKET", sock)
+	t.Setenv("SHELL", "/bin/sh") // the server and its windows start with this one: no user rc files to wait for
 	run := func(args ...string) string {
 		out, err := exec.Command("tmux", append([]string{"-L", sock}, args...)...).CombinedOutput()
 		if err != nil {
@@ -74,5 +76,32 @@ func liveTmux(t *testing.T, sock string, file *string) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("no snapshot")
+	}
+
+	// A shell: the user's login shell in the given directory, stamped as a shell of the agent, closed on its own.
+	dir := t.TempDir()
+	sh, why := tm.CreateShell(dir, "ann-sh", "ann")
+	if sh == "" {
+		t.Fatal(why)
+	}
+	if a, known := tm.PaneShell(sh); a != "ann" || !known {
+		t.Fatalf("shell stamp %q %v", a, known)
+	}
+	if a, _ := tm.PaneShell(pane); a != "" {
+		t.Fatalf("another pane is no shell: %q", a)
+	}
+	if ok, why := tm.SendBytes(sh, []byte("pwd -P\r")); !ok {
+		t.Fatal(why)
+	}
+	want, _ := filepath.EvalSymlinks(dir)
+	deadline := time.Now().Add(15 * time.Second)
+	for !strings.Contains(strings.Join(tm.ReadScreen(sh, 10).Tail, ""), want) {
+		if time.Now().After(deadline) {
+			t.Fatalf("no %s in the shell's screen: %q", want, tm.ReadScreen(sh, 10).Tail)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if ok, why := tm.CloseTerminal(sh, true); !ok || tm.ListTerminals()[sh] {
+		t.Fatalf("shell not closed: %v %s", ok, why)
 	}
 }

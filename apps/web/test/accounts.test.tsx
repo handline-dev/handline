@@ -148,10 +148,11 @@ describe('the list', () => {
 describe('the usage link', () => {
   it('the status bar item shows the busiest account and opens the Usage page', async () => {
     await mount('#/agents/handline.architect', setup(), '1');
-    await until(() => $('.usage-btn') && ($('.usage-btn')?.getAttribute('title') ?? '').includes('alpha 41%'), 'the item');
-    expect($('.usage-btn')?.getAttribute('title') ?? '').toBe('Account usage (5 h): alpha 41% · review 88% · gamma –');
-    expect(text($('.usage-btn'))).toBe('5h 88%'); // the busiest account, in short words
-    expect($('.usage-btn .count')!.className).toContain('text-wait'); // 80% and over
+    await until(() => $('.usage-btn') && ($('.usage-btn')?.getAttribute('title') ?? '').includes('alpha: week'), 'the item');
+    const title = $('.usage-btn')?.getAttribute('title') ?? '';
+    expect(title).toContain('Week across all accounts: Week ');
+    expect(title).toContain('5-hour window, review: 88% used'); // the busiest account's five hours, as a detail
+    expect(text($('.usage-btn'))).toMatch(/^Week \d+% left/);
     expect($('.usage-pop')).toBeNull();
     await click($('.usage-btn'));
     expect(location.hash).toBe('#/stats');
@@ -159,9 +160,9 @@ describe('the usage link', () => {
 
   it('follows the accounts topic', async () => {
     const s = await mount('#/agents/handline.architect', setup(), '1');
-    await until(() => ($('.usage-btn')?.getAttribute('title') ?? '').includes('alpha 41%'), 'the item');
+    await until(() => ($('.usage-btn')?.getAttribute('title') ?? '').includes('alpha: week'), 'the item');
     await act(async () => void s.daemon.accounts.set({ account: 'alpha', label: 'main' }));
-    await until(() => ($('.usage-btn')?.getAttribute('title') ?? '').includes('main 41%'), 'the new alias');
+    await until(() => ($('.usage-btn')?.getAttribute('title') ?? '').includes('main: week'), 'the new alias');
   });
 });
 
@@ -249,7 +250,7 @@ describe('one account', () => {
       await click(button('Submit'));
       await until(() => s.daemon.accounts.list().accounts.find((a) => a.name === 'gamma')?.login_state === 'ok', 'the login to finish');
       expect(spy.mock.calls.filter(([m]) => m === 'account.login_code')).toHaveLength(1);
-      expect(button('Log in again')).toBeTruthy();
+      await until(() => button('Log in again'), 'the page to show the login ended');
       expect($('.acct-login input')).toBeNull();
     });
 
@@ -274,7 +275,8 @@ describe('one account', () => {
       const s = await started();
       await click(button('Cancel'));
       await until(() => s.daemon.accounts.list().accounts.find((a) => a.name === 'gamma')?.login?.state === 'cancelled', 'the cancel');
-      expect((button('Log in') as HTMLButtonElement)!.disabled).toBe(false);
+      await until(() => button('Log in'), 'the page to offer Log in');
+      expect((button('Log in') as HTMLButtonElement).disabled).toBe(false);
     });
 
     it('a login another client started shows no URL, offers Cancel, and then Log in again', async () => {
