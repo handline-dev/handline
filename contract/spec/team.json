@@ -1,0 +1,1143 @@
+{
+ "components": {
+  "schemas": {
+   "TeamAgent": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "$ref": "#/components/schemas/AgentName"
+     },
+     "role": {
+      "type": "string"
+     },
+     "parent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "role_file": {
+      "type": "object",
+      "properties": {
+       "path": {
+        "type": "string"
+       },
+       "updated": {
+        "oneOf": [
+         {
+          "$ref": "#/components/schemas/Timestamp"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       }
+      },
+      "required": [
+       "path",
+       "updated"
+      ]
+     },
+     "base_file": {
+      "type": "object",
+      "properties": {
+       "path": {
+        "type": "string"
+       },
+       "updated": {
+        "oneOf": [
+         {
+          "$ref": "#/components/schemas/Timestamp"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       }
+      },
+      "required": [
+       "path",
+       "updated"
+      ]
+     }
+    },
+    "required": [
+     "name",
+     "role",
+     "parent",
+     "role_file",
+     "base_file"
+    ]
+   },
+   "Proposal": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "agent": {
+      "type": "string",
+      "description": "The agent the proposal is about, as the card heads it `<kind> <agent>`. For a bundle: `<N> changes`, not an agent's name."
+     },
+     "title": {
+      "type": "string",
+      "description": "One line, the card's head: `<kind> <agent>`, with ` -> <to>` after it for link and unlink; a bundle's is `bundle <N> changes`. Text from agents' names; draw as text."
+     },
+     "diff": {
+      "type": "string",
+      "description": "What approving does, in words, one change per line. Not a unified diff."
+     },
+     "state": {
+      "type": "string",
+      "description": "open: waits for the founder. applying: approved by the founder and held until each agent in `waiting_on` ends its turn; the daemon then closes those sessions, applies the change and restarts each agent that stays; it turns approved once the change is applied (an agent that stays and does not start at once is `follow_up`, not a failure), or apply_failed when the change itself fails; `settled` stays null and the founder is offered no action meanwhile. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states."
+     },
+     "waiting_on": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "Set only while state is applying: the agents whose running turn the change waits on, by their names before the change. A card names them."
+     },
+     "waiting_since": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "Set only while state is applying: when the proposal turned applying. With `waiting_on` it tells the card since when and why it waits (those agents' turns are running); hr.apply_now ends the wait."
+     },
+     "follow_up": {
+      "type": "object",
+      "properties": {
+       "agent": {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       "state": {
+        "type": "string",
+        "description": "waiting: the start is put off for machine load and the daemon makes it by itself when the load drops; the card shows no retry. failed: the start failed for another reason and only the founder's Start now (agent.force_start) retries it. An open set: draw a word you do not know as text."
+       },
+       "text": {
+        "type": "string",
+        "description": "Why, from the daemon (the held limit or the failure), one line."
+       }
+      },
+      "required": [
+       "agent",
+       "state",
+       "text"
+      ],
+      "description": "Set on an approved proposal whose change is applied but an agent it renamed is not running yet. Absent when the change needs no start or the start went through; it is removed when the start succeeds. The change is applied either way: a client never draws it as not applied or offers approve again."
+     },
+     "created": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "subject": {
+      "type": "string",
+      "description": "Digest of what the proposal changes as drawn; hr.decide's approve hands it back."
+     },
+     "requested_by": {
+      "type": "string",
+      "description": "Who asked: an agent's name, or `human` for the founder's own change (a retire held for a running session, say); a client draws `human` as the founder, never as an agent. Text from the daemon's record; optional."
+     },
+     "reason": {
+      "type": "string",
+      "description": "Why it asks, as the agent wrote it. Text only, from an agent: a client draws it as plain text, never as markup, and drops control characters. Optional."
+     },
+     "note": {
+      "type": "string",
+      "description": "The founder's note on the decision (why it was rejected, say), as hr.decide took it. Absent when the founder gave none or it is still open."
+     },
+     "asked": {
+      "type": "object",
+      "description": "The fields the proposal asks for (vendor, model, effort, team, repo, to, then each `set <key>`). Every value is text from an agent (same rule as `reason`); optional, and a key it did not ask for is absent. Absent for kind bundle: its `diff` carries the changes. members, repos, relation, response and context texts are in `diff` only.",
+      "properties": {
+       "vendor": {
+        "type": "string"
+       },
+       "model": {
+        "type": "string"
+       },
+       "team": {
+        "type": "string"
+       },
+       "repo": {
+        "type": "string"
+       },
+       "to": {
+        "type": "string",
+        "description": "rename: the new name; link, unlink: the other end."
+       },
+       "sets": {
+        "type": "object",
+        "additionalProperties": {
+         "type": "string"
+        },
+        "description": "`set <key>`: each agent setting asked for, key to value."
+       },
+       "effort": {
+        "type": "string"
+       }
+      }
+     },
+     "error": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "Why the change did not go through; set when state is apply_failed and an apply ran and failed, else null. Text only; the daemon cuts it at 400 characters. Optional."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "settled": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp",
+        "description": "When it was decided, withdrawn or its apply failed; null while open. Optional."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "kind": {
+      "type": "string",
+      "description": "What the proposal does: add, retire, rename, link, unlink, team, settings, context, schedule or bundle (several changes decided once). An open set: a client draws a word it does not know as text. Optional until the Python hr.list sends it; a client then reads the first word of `title`."
+     }
+    },
+    "required": [
+     "id",
+     "agent",
+     "title",
+     "diff",
+     "subject",
+     "state",
+     "created"
+    ]
+   },
+   "Schedule": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "target": {
+      "$ref": "#/components/schemas/AgentName"
+     },
+     "cron": {
+      "type": "string"
+     },
+     "message": {
+      "type": "string"
+     },
+     "next_run": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "last_run": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "set_by": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "target",
+     "cron",
+     "message",
+     "next_run",
+     "last_run",
+     "set_by"
+    ]
+   },
+   "HrArgs": {
+    "type": "object",
+    "required": [
+     "name"
+    ],
+    "additionalProperties": false,
+    "description": "What the proposal changes, by kind (hl hr). Every kind needs name.",
+    "properties": {
+     "name": {
+      "type": "string",
+      "description": "The agent the proposal is about (the new agent's name for add; a team's manager for team)."
+     },
+     "team": {
+      "type": "string"
+     },
+     "repo": {
+      "type": "string"
+     },
+     "model": {
+      "type": "string"
+     },
+     "effort": {
+      "type": "string"
+     },
+     "vendor": {
+      "type": "string"
+     },
+     "to": {
+      "type": "string",
+      "description": "rename: the new name; link, unlink: the other end."
+     },
+     "members": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "team: each a suffix (`sea` is `name.sea`) or a full name."
+     },
+     "repos": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      },
+      "description": "team: repo by member."
+     },
+     "sets": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      },
+      "description": "settings: agent setting keys as AgentSettingValues names them. context: whole new file texts keyed `ROLE.md` or `base.md`; empty text or control characters other than tab and newline is bad_request."
+     },
+     "changes": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "description": "A step: kind (add, retire, rename, link, unlink, team, context) and the other fields of this type, name included."
+      },
+      "description": "bundle: the steps, at most 40, each judged against the roster the earlier ones leave. name is then ignored (send the count, `3 changes`)."
+     },
+     "action": {
+      "type": "string",
+      "enum": [
+       "add",
+       "edit",
+       "remove"
+      ],
+      "description": "schedule: add a schedule to `name`, edit one of its (give was_cron for which; cron and message are then the new ones, a missing one stays), or remove one (was_cron)."
+     },
+     "cron": {
+      "type": "string",
+      "description": "schedule add, edit: five cron fields; it may not fire more than once an hour (bad_request)."
+     },
+     "message": {
+      "type": "string",
+      "description": "schedule add, edit: the text typed at the agent each time, at most 1000 characters."
+     },
+     "was_cron": {
+      "type": "string",
+      "description": "schedule edit, remove: the cron of the existing schedule."
+     },
+     "was_message": {
+      "type": "string",
+      "description": "schedule edit, remove: its message, when two of the agent's schedules share the cron."
+     }
+    }
+   },
+   "ScheduleError": {
+    "type": "object",
+    "properties": {
+     "target": {
+      "$ref": "#/components/schemas/AgentName"
+     },
+     "error": {
+      "type": "string",
+      "description": "Why the agent's `schedules` value cannot be read, as `hl schedule list` says it."
+     }
+    },
+    "required": [
+     "target",
+     "error"
+    ]
+   }
+  }
+ },
+ "methods": [
+  {
+   "name": "team.seal",
+   "summary": "The founder seals team.yaml and every agent.yaml as they are now (the Team page of the app); dry_run names what would be sealed.",
+   "description": "Seals are what lets the daemon tell a file the founder approved from one changed behind their back. The call without `dry_run` is the go-ahead and seals every file that is not sealed as it is, and marks the seals as begun; a file already matching its seal is left. A dry run lists each file it would take on, `new` (no seal before) or `changed` (it did not match its seal), with the digest it would be sealed with, and writes nothing and records nothing. Nothing to seal is `ok` true with that said. An agent's session is refused by role.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "dry_run",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Change nothing: answer `plan`."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "required": [
+      "ok"
+     ],
+     "properties": {
+      "ok": {
+       "type": "boolean",
+       "description": "Always true: a refusal is an error."
+      },
+      "plan": {
+       "type": "string",
+       "description": "Dry run only: one line per file that would be sealed (its label, why, its digest), or that nothing needs sealing."
+      },
+      "said": {
+       "type": "string",
+       "description": "Without dry_run: one line per file sealed, or that nothing needed sealing."
+      }
+     }
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "hr.propose",
+   "summary": "Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, settings, context, schedule, and diff, which is kind bundle: args.changes lists several changes decided once and applied together or not at all).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "kind",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "add",
+       "retire",
+       "rename",
+       "link",
+       "unlink",
+       "team",
+       "settings",
+       "context",
+       "schedule",
+       "bundle"
+      ]
+     }
+    },
+    {
+     "name": "args",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/HrArgs"
+     }
+    },
+    {
+     "name": "why",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "proposal": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "proposal"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "hr.withdraw",
+   "summary": "Take back an undecided proposal: its author's own, or any for the founder; another agent is refused (gate role).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "proposal",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "proposal_settled"
+   ]
+  },
+  {
+   "name": "trust.propose",
+   "summary": "Propose declaring a folder ocp may answer Claude's trust prompt in (hl trust add); the founder's own call declares it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "root",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "why",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "proposal": {
+         "type": "string"
+        }
+       },
+       "required": []
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "description": "Called by an agent it raises a decision for the founder, `why` required, and answers the proposal's id; called by the founder it declares the root directly, `why` optional (default `added by the founder`), and answers no proposal. A root already inside a declared one, a missing why or a decision that could not be raised is refused with the store's words. A paired device is refused, gate role. `root` must be an absolute path (bad_request, field `root`): the daemon would read a relative one, or `~`, against its own folder and home, so the client resolves it against its own."
+  },
+  {
+   "name": "trust.list",
+   "summary": "Declared trust roots, and with proposals the proposals (hl trust list, hl trust proposals).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "proposals",
+     "required": false,
+     "schema": {
+      "type": "boolean"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "roots": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "proposals": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string"
+         },
+         "root": {
+          "type": "string"
+         },
+         "state": {
+          "type": "string"
+         },
+         "request": {
+          "type": "integer",
+          "description": "The decision request that asked the founder."
+         },
+         "requested_by": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "id",
+         "root",
+         "state"
+        ]
+       },
+       "description": "Empty unless `proposals` is true. State is the store's word (proposed, applied, rejected...)."
+      },
+      "declared": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "required": [
+         "root",
+         "why",
+         "added_by"
+        ],
+        "properties": {
+         "root": {
+          "type": "string"
+         },
+         "why": {
+          "type": "string"
+         },
+         "added_by": {
+          "type": "string",
+          "description": "An agent's name, or human."
+         }
+        }
+       },
+       "description": "The same roots as `roots`, in the same order, with why and who added each."
+      }
+     },
+     "required": [
+      "roots",
+      "declared",
+      "proposals"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "trust.remove",
+   "summary": "Drop a declared root (hl trust remove); needs no approval.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "root",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "description": "The founder's: the declared roots live in the protected store, which an agent session cannot write, so an agent calling `hl trust remove` is refused today and by this method (gate role). A root that is not declared is not_found. `root` must be an absolute path, as for trust.propose (bad_request, field `root`)."
+  },
+  {
+   "name": "team.get",
+   "summary": "Agents, roles, allowed edges, role and base file metadata.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "agents": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/TeamAgent"
+       }
+      },
+      "edges": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "from": {
+          "type": "string"
+         },
+         "to": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "from",
+         "to"
+        ]
+       }
+      }
+     },
+     "required": [
+      "agents",
+      "edges"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "hr.list",
+   "summary": "HR proposals with their diff: what waits for the founder, and what settled recently.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "state",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Only the proposals in that state; without it, the list below."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "proposals": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Proposal"
+         }
+        }
+       },
+       "required": [
+        "proposals"
+       ]
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "description": "Without `state`: every proposal that waits (open, applying, and apply_failed until it is decided again) and every settled one (approved, rejected, withdrawn) from the last 7 days, at most 50 of those. Order: the waiting ones first, oldest `created` first; then the settled ones, newest `settled` first. A client counts the dot from `open` and `apply_failed`, never from `applying`. With `state`, only that state, in the same order, and no 7-day or 50 bound. A proposal whose requested_by is human (the founder's own change) is listed as any other, so a held one shows while it waits. The Python store's states map as: proposed = open; approved = apply_failed (it holds the founder's approval and the change is not applied: `error` is set when an apply ran and failed, null when it never ran, e.g. a crash between the two); applied = approved; rejected = rejected; withdrawn = withdrawn; enacting and failed are never listed.",
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "hr.decide",
+   "summary": "Approve or reject a proposal; approving an apply_failed one applies it again. Approving a change to an agent with a session running is accepted, not refused: the proposal turns applying, `said` names the agents whose turn it waits on, and the change is applied when those turns end. Refused with gate proposal_changed or proposal_settled, carrying the proposal as it is; an applying proposal is refused proposal_settled.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "proposal",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "decision",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "approve",
+       "reject"
+      ]
+     }
+    },
+    {
+     "name": "note",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "subject",
+     "required": false,
+     "schema": {
+      "type": "string"
+     },
+     "description": "Required for approve: the proposal's `subject` from hr.list. Refused if the proposal changed since."
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
+    "proposal_changed",
+    "proposal_settled"
+   ]
+  },
+  {
+   "name": "hr.apply_now",
+   "summary": "Apply a waiting HR change now: for an applying proposal, interrupt the turn of each agent in `waiting_on` (as session.interrupt does), then close the session, apply the change and restart the renamed agent at the next tick, without waiting for the turn to end. Returns at once with `said` naming the agents; the proposal stays applying until the change is applied (watch the hr topic). Refused with gate proposal_settled, carrying the proposal as it is, unless the proposal is applying. Works for every kind a running session can hold: rename, retire, context, link, settings.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "proposal",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "proposal_settled"
+   ]
+  },
+  {
+   "name": "schedules.list",
+   "summary": "Schedules.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "schedules": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/Schedule"
+       }
+      },
+      "errors": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/ScheduleError"
+       },
+       "description": "Present only when an agent's `schedules` value cannot be read: that agent, and why."
+      }
+     },
+     "required": [
+      "schedules"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "description": "An agent whose `schedules` value is bad is listed in `errors` (target and the error text), not shown as an agent with no schedules."
+  },
+  {
+   "name": "schedule.add",
+   "summary": "Add a schedule.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "target",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "cron",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "message",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "schedule": {
+         "type": "integer"
+        }
+       },
+       "required": [
+        "schedule"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "schedule.edit",
+   "summary": "Edit a schedule.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "schedule",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "target",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "cron",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "message",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "schedule.remove",
+   "summary": "Remove a schedule.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "schedule",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  }
+ ]
+}

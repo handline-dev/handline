@@ -217,7 +217,7 @@ func TestNothingIsTypedAtASessionWritingItsHandoffNote(t *testing.T) {
 	r.agentUp("bob")
 	r.must(db.MarkNoteWait(r.DB, "bob", "context", r.now()))
 	rid := r.ask("alice", "bob", "a new ask", "ask")
-	if got, _ := r.TellNow(r.DB, rid); !strings.Contains(got, "handoff note") {
+	if got, _ := r.TellNow(r.DB, rid); !strings.Contains(got, "restarts") {
 		t.Fatalf("told at once: %q", got)
 	}
 	r.task("bob", "alice", "a task")

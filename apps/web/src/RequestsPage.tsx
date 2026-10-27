@@ -1,13 +1,13 @@
 // The Requests page (#/requests): every request the founder made, newest first, each with its status, who holds it and what is open under it. A
-// request opens its task; a message of theirs that is not a task yet offers Make a request and No work. New request asks an agent for something.
+// request opens its task; the lead turns a message of theirs into one. New request asks an agent for something.
 import { useMemo, useState } from 'react';
 import { ago } from '@handline/app-core';
 import type { RequestRow } from '@handline/client';
-import { classify, sentence, useAgents, useRequests, useWrite } from '@handline/app-data';
+import { useAgents, useRequests } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
 import { NewTask } from '#src/NewTask.tsx';
 import { goTasks } from '#src/route.ts';
-import { Button, Empty, Input, PageHead, PageTitle, ScrollPage, Segmented, State, type StateKind } from '#src/ui/index.ts';
+import { Button, Empty, PageHead, PageTitle, ScrollPage, Segmented, State, type StateKind } from '#src/ui/index.ts';
 import { View } from '#src/View.tsx';
 
 type Status = RequestRow['status'];
@@ -16,7 +16,7 @@ const WORDS: Record<Status, { label: string; glyph: StateKind }> = {
   review: { label: 'In review', glyph: 'working' },
   doing: { label: 'Doing', glyph: 'working' },
   done: { label: 'Done', glyph: 'done' },
-  no_work: { label: 'No work', glyph: 'idle' },
+  no_work: { label: 'Nothing to do', glyph: 'idle' },
   not_yet: { label: 'Not a task yet', glyph: 'idle' },
 };
 const FILTERS: { value: 'all' | Status; label: string }[] = [
@@ -37,38 +37,6 @@ const meta = (r: RequestRow): string =>
   ]
     .filter(Boolean)
     .join(' · ');
-
-/** A message that is not a task yet: turn it into a request, or say why it needs no work. */
-function Undecided({ row }: { row: RequestRow }) {
-  const make = useWrite('task.request');
-  const none = useWrite('task.none');
-  const [why, setWhy] = useState<string | null>(null);
-  const failed = [make, none].find((w) => w.isError)?.error;
-  return (
-    <div className="mt-2 flex flex-wrap items-center gap-2">
-      <Button label="Make a request" disabled={make.isPending} onClick={() => make.mutate({ request: row.ref! })} />
-      {why === null ? (
-        <Button label="No work" variant="outline" onClick={() => setWhy('')} />
-      ) : (
-        <form
-          className="flex items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (why.trim()) none.mutate({ request: row.ref!, reason: why.trim() });
-          }}
-        >
-          <Input aria-label="Why no work" placeholder="why no work is needed" value={why} onChange={(e) => setWhy(e.target.value)} />
-          <Button type="submit" label="Mark no work" disabled={none.isPending || !why.trim()} />
-        </form>
-      )}
-      {failed ? (
-        <span role="alert" className="text-hint text-bad">
-          {sentence(classify(failed))}
-        </span>
-      ) : null}
-    </div>
-  );
-}
 
 function Row({ row }: { row: RequestRow }) {
   const w = WORDS[row.status];
@@ -104,7 +72,6 @@ function Row({ row }: { row: RequestRow }) {
           {row.status === 'no_work' && row.reason ? <span>{row.reason}</span> : null}
         </p>
       </div>
-      {row.kind === 'message' && row.status === 'not_yet' && row.ref ? <Undecided row={row} /> : null}
     </li>
   );
 }

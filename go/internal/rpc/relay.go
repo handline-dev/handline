@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// contract.json is the method table of contract/protocol.json (tools/go_contract.py writes it): the lowest role of
+// contract.json is the method table of contract/spec/ (tools/go_contract.py writes it): the lowest role of
 // each method, and the only roles that may call it when the contract lists them.
 //
 //go:embed contract.json

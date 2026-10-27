@@ -23,6 +23,8 @@ func hr(c *hlclient.Client, args []string) (int, bool) {
 	switch sub, rest := args[0], args[1:]; sub {
 	case "add", "retire", "rename", "link", "unlink", "team", "context":
 		return hrPropose(c, sub, rest)
+	case "schedule":
+		return hrSchedule(c, rest)
 	case "bundle":
 		return hrBundle(c, rest)
 	case "withdraw":
@@ -132,6 +134,53 @@ func hrPropose(c *hlclient.Client, kind string, args []string) (int, bool) {
 		hargs["sets"] = sets
 	}
 	return said(c.Write("hr.propose", params)), true
+}
+
+// hrSchedule raises a recurring message for an agent for the founder to decide: a new schedule, an edit of one (--was names it) or its removal.
+func hrSchedule(c *hlclient.Client, args []string) (int, bool) {
+	p, ok := parse(args, []string{"--why", "--cron", "--message", "--was", "--was-message"}, []string{"--remove"}, nil)
+	if !ok || len(p.pos) != 1 {
+		return 0, false
+	}
+	why, problem := hrWhy(p)
+	if problem != "" {
+		return wrongArgs("%s", problem)
+	}
+	cron, _ := p.opt("--cron")
+	message, _ := p.opt("--message")
+	was, edits := p.opt("--was")
+	wasMessage, _ := p.opt("--was-message")
+	action := "add"
+	switch {
+	case p.flags["--remove"]:
+		action = "remove"
+		if cron != "" || message != "" || !edits {
+			return wrongArgs("--remove takes only --was (the cron of the schedule to stop), and --was-message if two share it")
+		}
+	case edits:
+		action = "edit"
+		if cron == "" && message == "" {
+			return wrongArgs("--was edits a schedule: give the new --cron, the new --message, or both")
+		}
+	case cron == "" || message == "":
+		return wrongArgs("a new schedule needs --cron and --message")
+	}
+	if wasMessage != "" && !edits {
+		return wrongArgs("--was-message goes with --was")
+	}
+	me := c.AskingAgent()
+	if me == "" {
+		fmt.Println(hlclient.WhoRefusal("propos"))
+		return 1, true
+	}
+	c.NoteVerbChain([]string{"hr", "schedule"})
+	hargs := map[string]any{"name": p.pos[0], "action": action}
+	for k, v := range map[string]string{"cron": cron, "message": message, "was_cron": was, "was_message": wasMessage} {
+		if v != "" {
+			hargs[k] = v
+		}
+	}
+	return said(c.Write("hr.propose", map[string]any{"kind": "schedule", "why": why, "args": hargs})), true
 }
 
 // hrBundle raises several changes as one proposal, decided once: --file is a JSON list of changes, each {"kind", "name", ...} as hr.propose takes them.

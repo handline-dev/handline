@@ -2,16 +2,14 @@ package dialogs
 
 import (
 	"encoding/json"
-	"os"
 	"testing"
+
+	"github.com/handline/handline/go/internal/contracttest"
 )
 
 // The table is the contract's x-dialogs: same dialogs, same class, same kind.
 func TestTheTableIsTheContractsTable(t *testing.T) {
-	raw, err := os.ReadFile("../../../contract/protocol.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := contracttest.Spec(t)
 	var spec struct {
 		X struct {
 			Dialogs map[string]struct {

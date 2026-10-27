@@ -3,9 +3,15 @@ import { test } from 'node:test';
 import type { TimeSegment } from '@handline/client';
 import { timeView } from '#src/index.ts';
 
-const seg = (kind: TimeSegment['kind'], from: string, to: string, text = ''): TimeSegment => ({
+const seg = (
+  kind: TimeSegment['kind'],
+  from: string,
+  to: string,
+  text = '',
+  on: TimeSegment['on'] = kind === 'waiting' ? 'founder' : null,
+): TimeSegment => ({
   kind,
-  on: kind === 'waiting' ? 'founder' : null,
+  on,
   text,
   task: null,
   from,
@@ -30,10 +36,41 @@ test('orders the segments by time and adds them up with their shares', () => {
 });
 test('totals the kinds the task spent time in, working first', () => {
   assert.deepEqual(timeView(segments).totals, [
-    { kind: 'working', word: 'Working', seconds: 3 * 3600 },
-    { kind: 'waiting', word: 'Waiting', seconds: 1800 },
-    { kind: 'queued', word: 'Up next', seconds: 3600 },
+    { label: 'working', word: 'Working', seconds: 3 * 3600 },
+    { label: 'founder', word: 'Needs you', seconds: 1800 },
+    { label: 'queued', word: 'Waiting to start', seconds: 3600 },
   ]);
+});
+test('a waiting stretch is worded by what it waits on, one total per kind of wait', () => {
+  const at = (n: number) => `2026-10-20T${String(10 + n).padStart(2, '0')}:00:00Z`;
+  const waits = (['founder', 'task', 'agent', 'account', null] as const).map((on, i) => seg('waiting', at(i), at(i + 1), '', on));
+  assert.deepEqual(
+    timeView(waits).totals.map((t) => [t.label, t.word]),
+    [
+      ['founder', 'Needs you'],
+      ['task', 'Blocked'],
+      ['agent', 'Waiting on an agent'],
+      ['account', 'At a usage limit'],
+      ['waiting', 'Waiting'],
+    ],
+  );
+  assert.deepEqual(
+    timeView(waits).rows.map((r) => r.text),
+    ['needs you', 'blocked', 'waiting on an agent', 'at a usage limit', 'waiting'],
+  );
+});
+test('a wait says its own word; only a wait on a task or an agent keeps the daemon line that names it', () => {
+  const at = (n: number) => `2026-10-20T${String(10 + n).padStart(2, '0')}:00:00Z`;
+  const rows = timeView([
+    seg('waiting', at(0), at(1), 'waiting on you', 'founder'),
+    seg('waiting', at(1), at(2), 'blocked by T7', 'task'),
+    seg('waiting', at(2), at(3), 'waiting on handline.a', 'agent'),
+    seg('waiting', at(3), at(4), 'wall', 'account'),
+  ]).rows;
+  assert.deepEqual(
+    rows.map((r) => r.text),
+    ['needs you', 'blocked by T7', 'waiting on handline.a', 'at a usage limit'],
+  );
 });
 test('words a stretch with no reason by its kind, and an empty task has nothing', () => {
   assert.equal(timeView(segments).rows[1]!.text, 'working');

@@ -1958,7 +1958,7 @@
      "minutes": 10080,
      "pct": 30,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 70,
     "long_pace": "inf",
@@ -2013,7 +2013,7 @@
       "effective": 30,
       "minutes": 10080,
       "pct": 30,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -2249,7 +2249,7 @@
      "minutes": 300,
      "pct": 1,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5000.0,
     "short_headroom": 99,
@@ -2275,7 +2275,7 @@
       "effective": 1,
       "minutes": 300,
       "pct": 1,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "5h"
      }
@@ -2371,7 +2371,7 @@
      "minutes": 300,
      "pct": 1,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 400.0,
     "short_headroom": null,
@@ -2397,7 +2397,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 1,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      }
@@ -2867,7 +2867,7 @@
      "minutes": 300,
      "pct": 30,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 400.0,
     "short_headroom": null,
@@ -2893,7 +2893,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 30,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -3847,7 +3847,7 @@
      "minutes": 300,
      "pct": null,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 1000.0,
     "short_headroom": null,
@@ -3873,7 +3873,7 @@
       "effective": null,
       "minutes": 300,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -4221,7 +4221,7 @@
      "minutes": 300,
      "pct": 1,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5.0,
     "short_headroom": 99,
@@ -4247,7 +4247,7 @@
       "effective": 1,
       "minutes": 300,
       "pct": 1,
-      "reset": 0,
+      "reset": null,
       "source": "live",
       "window": "5h"
      },
@@ -4830,7 +4830,7 @@
      "minutes": 10080,
      "pct": null,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": null,
     "long_pace": "inf",
@@ -4885,7 +4885,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -5245,7 +5245,7 @@
      "minutes": 300,
      "pct": 69,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5000.0,
     "short_headroom": null,
@@ -5271,7 +5271,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 69,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -5507,7 +5507,7 @@
      "minutes": 300,
      "pct": 71,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": null,
@@ -5533,7 +5533,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 71,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -5994,7 +5994,7 @@
      "minutes": 300,
      "pct": 50,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5.0,
     "short_headroom": 50,
@@ -6020,7 +6020,7 @@
       "effective": 50,
       "minutes": 300,
       "pct": 50,
-      "reset": 0,
+      "reset": null,
       "source": "live",
       "window": "5h"
      },
@@ -6590,7 +6590,7 @@
      "minutes": 10080,
      "pct": null,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": null,
     "long_pace": "inf",
@@ -6645,7 +6645,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -6742,7 +6742,7 @@
      "minutes": 300,
      "pct": 90,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5.0,
     "short_headroom": null,
@@ -6768,7 +6768,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 90,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -7084,7 +7084,7 @@
      "minutes": 300,
      "pct": 71,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 400.0,
     "short_headroom": null,
@@ -7110,7 +7110,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 71,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -7310,7 +7310,7 @@
      "minutes": 10080,
      "pct": 70,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 30,
     "long_pace": "inf",
@@ -7365,7 +7365,7 @@
       "effective": 70,
       "minutes": 10080,
       "pct": 70,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -8054,7 +8054,7 @@
      "minutes": 300,
      "pct": 90,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5.0,
     "short_headroom": null,
@@ -8080,7 +8080,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 90,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -8406,7 +8406,7 @@
      "minutes": 10080,
      "pct": 101,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 0,
     "long_pace": "inf",
@@ -8461,7 +8461,7 @@
       "effective": 101,
       "minutes": 10080,
       "pct": 101,
-      "reset": 0,
+      "reset": null,
       "source": "carried",
       "window": "7d"
      }
@@ -8570,8 +8570,8 @@
     ],
     "trusted_ctx_pct": null,
     "trusted_ctx_used": null,
-    "unfit": "5h 50%, fill 0.5%/min, 0/2 agents, one more agent (1.20%/min) lasts ~29m - under the 30m a start is worth",
-    "unfit_agent": "5h 50%, fill 0.5%/min, 0/2 agents, one more agent (1.20%/min) lasts ~29m - under the 30m a start is worth",
+    "unfit": "5h 50%, fill 0.5%/min, 0/2 agents, one more agent (1.20%/min) lasts ~29m - short of its reset",
+    "unfit_agent": "5h 50%, fill 0.5%/min, 0/2 agents, one more agent (1.20%/min) lasts ~29m - short of its reset",
     "unmetered": false,
     "window_report": [
      {
@@ -9084,7 +9084,7 @@
      "minutes": 300,
      "pct": 71,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5000.0,
     "short_headroom": null,
@@ -9110,7 +9110,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 71,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -9938,7 +9938,7 @@
      "minutes": 10080,
      "pct": null,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": null,
     "long_pace": "inf",
@@ -9993,7 +9993,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -11241,8 +11241,8 @@
     ],
     "trusted_ctx_pct": null,
     "trusted_ctx_used": null,
-    "unfit": null,
-    "unfit_agent": null,
+    "unfit": "5h 50%, fill 0.0%/min, 2/3 agents, one more agent (1.20%/min) lasts ~41m - short of its reset",
+    "unfit_agent": "5h 50%, fill 0.0%/min, 2/3 agents, one more agent (1.20%/min) lasts ~41m - short of its reset",
     "unmetered": false,
     "window_report": [
      {
@@ -11726,7 +11726,7 @@
      "minutes": 300,
      "pct": null,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": null,
@@ -11752,7 +11752,7 @@
       "effective": null,
       "minutes": 300,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      }
@@ -12221,7 +12221,7 @@
      "minutes": 300,
      "pct": 99,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": null,
@@ -12247,7 +12247,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 99,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -12575,7 +12575,7 @@
      "minutes": 300,
      "pct": 50,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": null,
@@ -12601,7 +12601,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 50,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      }
@@ -12673,7 +12673,7 @@
      "minutes": 10080,
      "pct": 0,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 100,
     "long_pace": "inf",
@@ -12728,7 +12728,7 @@
       "effective": 0,
       "minutes": 10080,
       "pct": 0,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -14373,7 +14373,7 @@
      "minutes": 10080,
      "pct": 29,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": null,
     "long_pace": "inf",
@@ -14428,7 +14428,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": 29,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -15233,7 +15233,7 @@
      "minutes": 10080,
      "pct": 71,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 29,
     "long_pace": "inf",
@@ -15288,7 +15288,7 @@
       "effective": 71,
       "minutes": 10080,
       "pct": 71,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -16597,7 +16597,7 @@
      "minutes": 10080,
      "pct": null,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": null,
     "long_pace": "inf",
@@ -16652,7 +16652,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -18021,7 +18021,7 @@
      "minutes": 10080,
      "pct": 90,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 400.0,
     "short_headroom": 10,
@@ -18047,7 +18047,7 @@
       "effective": 90,
       "minutes": 10080,
       "pct": 90,
-      "reset": 0,
+      "reset": null,
       "source": "live",
       "window": "7d"
      }
@@ -18510,7 +18510,7 @@
      "minutes": 300,
      "pct": null,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5.0,
     "short_headroom": null,
@@ -18536,7 +18536,7 @@
       "effective": null,
       "minutes": 300,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -19784,7 +19784,7 @@
      "minutes": 300,
      "pct": null,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 1000.0,
     "short_headroom": null,
@@ -19810,7 +19810,7 @@
       "effective": null,
       "minutes": 300,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -20873,7 +20873,7 @@
      "minutes": 10080,
      "pct": 69,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 31,
     "long_pace": "inf",
@@ -20928,7 +20928,7 @@
       "effective": 69,
       "minutes": 10080,
       "pct": 69,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -21506,7 +21506,7 @@
      "minutes": 10080,
      "pct": 29,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 71,
     "long_pace": "inf",
@@ -21561,7 +21561,7 @@
       "effective": 29,
       "minutes": 10080,
       "pct": 29,
-      "reset": 0,
+      "reset": null,
       "source": "carried",
       "window": "7d"
      }
@@ -21743,7 +21743,7 @@
      "minutes": 10080,
      "pct": null,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": null,
     "long_pace": "inf",
@@ -21798,7 +21798,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -22121,7 +22121,7 @@
      "minutes": 10080,
      "pct": 101,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 0,
     "long_pace": "inf",
@@ -22176,7 +22176,7 @@
       "effective": 101,
       "minutes": 10080,
       "pct": 101,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -22246,7 +22246,7 @@
      "minutes": 10080,
      "pct": 99,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 1,
     "long_pace": "inf",
@@ -22301,7 +22301,7 @@
       "effective": 99,
       "minutes": 10080,
       "pct": 99,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -23545,7 +23545,7 @@
      "minutes": 300,
      "pct": null,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5000.0,
     "short_headroom": null,
@@ -23571,7 +23571,7 @@
       "effective": null,
       "minutes": 300,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -24137,7 +24137,7 @@
      "minutes": 10080,
      "pct": null,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": null,
     "long_pace": "inf",
@@ -24192,7 +24192,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -24288,7 +24288,7 @@
      "minutes": 300,
      "pct": 69,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 1000.0,
     "short_headroom": null,
@@ -24314,7 +24314,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 69,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -24561,7 +24561,7 @@
      "minutes": 300,
      "pct": 100,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": null,
@@ -24587,7 +24587,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 100,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -24810,7 +24810,7 @@
      "minutes": 300,
      "pct": 90,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": null,
@@ -24836,7 +24836,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 90,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      }
@@ -25196,7 +25196,7 @@
      "minutes": 300,
      "pct": 70,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5.0,
     "short_headroom": null,
@@ -25222,7 +25222,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 70,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -26145,7 +26145,7 @@
      "minutes": 300,
      "pct": 50,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5.0,
     "short_headroom": 50,
@@ -26171,7 +26171,7 @@
       "effective": 50,
       "minutes": 300,
       "pct": 50,
-      "reset": 0,
+      "reset": null,
       "source": "live",
       "window": "5h"
      }
@@ -26936,7 +26936,7 @@
      "minutes": 10080,
      "pct": 90,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": null,
     "long_pace": "inf",
@@ -26957,7 +26957,7 @@
      "minutes": 300,
      "pct": null,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 400.0,
     "short_headroom": null,
@@ -26983,7 +26983,7 @@
       "effective": null,
       "minutes": 300,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -26991,7 +26991,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": 90,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -27082,7 +27082,7 @@
      "minutes": 300,
      "pct": null,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 400.0,
     "short_headroom": null,
@@ -27108,7 +27108,7 @@
       "effective": null,
       "minutes": 300,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      }
@@ -27331,7 +27331,7 @@
      "minutes": 300,
      "pct": 70,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 400.0,
     "short_headroom": null,
@@ -27357,7 +27357,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 70,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      }
@@ -27429,7 +27429,7 @@
      "minutes": 10080,
      "pct": 1,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 99,
     "long_pace": "inf",
@@ -27484,7 +27484,7 @@
       "effective": 1,
       "minutes": 10080,
       "pct": 1,
-      "reset": 0,
+      "reset": null,
       "source": "carried",
       "window": "7d"
      }
@@ -27705,7 +27705,7 @@
      "minutes": 10080,
      "pct": 1,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 1000.0,
     "short_headroom": null,
@@ -27731,7 +27731,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": 1,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -27803,7 +27803,7 @@
      "minutes": 10080,
      "pct": 69,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 31,
     "long_pace": "inf",
@@ -27858,7 +27858,7 @@
       "effective": 69,
       "minutes": 10080,
       "pct": 69,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -28208,7 +28208,7 @@
      "minutes": 300,
      "pct": 30,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5000.0,
     "short_headroom": 70,
@@ -28234,7 +28234,7 @@
       "effective": 30,
       "minutes": 300,
       "pct": 30,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "5h"
      },
@@ -28441,7 +28441,7 @@
      "minutes": 10080,
      "pct": 29,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5000.0,
     "short_headroom": null,
@@ -28467,7 +28467,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": 29,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -28914,7 +28914,7 @@
      "minutes": 300,
      "pct": 1,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": null,
@@ -28940,7 +28940,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 1,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -29174,8 +29174,8 @@
     ],
     "trusted_ctx_pct": null,
     "trusted_ctx_used": null,
-    "unfit": "5h 69%, fill 0.0%/min, 0/3 agents, one more agent (1.20%/min) lasts ~25m - under the 30m a start is worth",
-    "unfit_agent": "5h 69%, fill 0.0%/min, 0/3 agents, one more agent (1.20%/min) lasts ~25m - under the 30m a start is worth",
+    "unfit": "5h 69%, fill 0.0%/min, 0/3 agents, one more agent (1.20%/min) lasts ~25m - short of its reset",
+    "unfit_agent": "5h 69%, fill 0.0%/min, 0/3 agents, one more agent (1.20%/min) lasts ~25m - short of its reset",
     "unmetered": false,
     "window_report": [
      {
@@ -29768,7 +29768,7 @@
      "minutes": 300,
      "pct": 30,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5000.0,
     "short_headroom": null,
@@ -29794,7 +29794,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 30,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -30512,7 +30512,7 @@
      "minutes": 300,
      "pct": 101,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": 0,
@@ -30538,7 +30538,7 @@
       "effective": 101,
       "minutes": 300,
       "pct": 101,
-      "reset": 0,
+      "reset": null,
       "source": "live",
       "window": "5h"
      },
@@ -31663,7 +31663,7 @@
      "minutes": 300,
      "pct": 71,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": null,
@@ -31689,7 +31689,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 71,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -31999,7 +31999,7 @@
      "minutes": 10080,
      "pct": 99,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 1,
     "long_pace": "inf",
@@ -32054,7 +32054,7 @@
       "effective": 99,
       "minutes": 10080,
       "pct": 99,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -32551,7 +32551,7 @@
      "minutes": 300,
      "pct": 99,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 400.0,
     "short_headroom": null,
@@ -32577,7 +32577,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 99,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -32926,7 +32926,7 @@
      "minutes": 300,
      "pct": 30,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": null,
@@ -32952,7 +32952,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 30,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -33673,7 +33673,7 @@
      "minutes": 10080,
      "pct": 29,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": null,
     "long_pace": "inf",
@@ -33728,7 +33728,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": 29,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -33847,8 +33847,8 @@
     ],
     "trusted_ctx_pct": null,
     "trusted_ctx_used": null,
-    "unfit": null,
-    "unfit_agent": null,
+    "unfit": "5h 30%, fill 0.0%/min, 0/2 agents, one more agent (0.30%/min) lasts ~3h53m - short of its reset",
+    "unfit_agent": "5h 30%, fill 0.0%/min, 0/2 agents, one more agent (0.30%/min) lasts ~3h53m - short of its reset",
     "unmetered": false,
     "window_report": [
      {
@@ -34850,7 +34850,7 @@
      "minutes": 10080,
      "pct": 101,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 0,
     "long_pace": "inf",
@@ -34905,7 +34905,7 @@
       "effective": 101,
       "minutes": 10080,
       "pct": 101,
-      "reset": 0,
+      "reset": null,
       "source": "carried",
       "window": "7d"
      }
@@ -35647,8 +35647,8 @@
     ],
     "trusted_ctx_pct": null,
     "trusted_ctx_used": null,
-    "unfit": "5h 99%, fill 0.5%/min, 0/3 agents, one more agent (0.30%/min) lasts ~1m - under the 30m a start is worth",
-    "unfit_agent": "5h 99%, fill 0.5%/min, 0/3 agents, one more agent (0.30%/min) lasts ~1m - under the 30m a start is worth",
+    "unfit": "5h 99%, fill 0.5%/min, 0/3 agents, one more agent (0.30%/min) lasts ~1m - short of its reset",
+    "unfit_agent": "5h 99%, fill 0.5%/min, 0/3 agents, one more agent (0.30%/min) lasts ~1m - short of its reset",
     "unmetered": false,
     "window_report": [
      {
@@ -35760,7 +35760,7 @@
      "minutes": 300,
      "pct": null,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5000.0,
     "short_headroom": 100,
@@ -35786,7 +35786,7 @@
       "effective": 0,
       "minutes": 300,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "quiet",
       "window": "5h"
      }
@@ -36635,7 +36635,7 @@
      "minutes": 10080,
      "pct": 90,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 10,
     "long_pace": "inf",
@@ -36656,7 +36656,7 @@
      "minutes": 300,
      "pct": 69,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5.0,
     "short_headroom": null,
@@ -36682,7 +36682,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 69,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -36690,7 +36690,7 @@
       "effective": 90,
       "minutes": 10080,
       "pct": 90,
-      "reset": 0,
+      "reset": null,
       "source": "carried",
       "window": "7d"
      }
@@ -37290,7 +37290,7 @@
      "minutes": 300,
      "pct": 99,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 400.0,
     "short_headroom": 1,
@@ -37316,7 +37316,7 @@
       "effective": 99,
       "minutes": 300,
       "pct": 99,
-      "reset": 0,
+      "reset": null,
       "source": "live",
       "window": "5h"
      },
@@ -37534,8 +37534,8 @@
     ],
     "trusted_ctx_pct": null,
     "trusted_ctx_used": 3,
-    "unfit": null,
-    "unfit_agent": null,
+    "unfit": "5h 69%, fill 0.0%/min, 1/2 agents, one more agent (0.30%/min) lasts ~1h43m - short of its reset",
+    "unfit_agent": "5h 69%, fill 0.0%/min, 1/2 agents, one more agent (0.30%/min) lasts ~1h43m - short of its reset",
     "unmetered": false,
     "window_report": [
      {
@@ -38781,7 +38781,7 @@
      "minutes": 10080,
      "pct": 99,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 1,
     "long_pace": "inf",
@@ -38836,7 +38836,7 @@
       "effective": 99,
       "minutes": 10080,
       "pct": 99,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -39138,7 +39138,7 @@
      "minutes": 10080,
      "pct": 50,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 50,
     "long_pace": "inf",
@@ -39193,7 +39193,7 @@
       "effective": 50,
       "minutes": 10080,
       "pct": 50,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -39552,7 +39552,7 @@
      "minutes": 300,
      "pct": 50,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": 50,
@@ -39578,7 +39578,7 @@
       "effective": 50,
       "minutes": 300,
       "pct": 50,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "5h"
      }
@@ -40651,7 +40651,7 @@
      "minutes": 10080,
      "pct": 100,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 0,
     "long_pace": "inf",
@@ -40706,7 +40706,7 @@
       "effective": 100,
       "minutes": 10080,
       "pct": 100,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -41295,7 +41295,7 @@
      "minutes": 300,
      "pct": 50,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": null,
@@ -41321,7 +41321,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 50,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -41407,7 +41407,7 @@
      "minutes": 10080,
      "pct": 71,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 29,
     "long_pace": "inf",
@@ -41462,7 +41462,7 @@
       "effective": 71,
       "minutes": 10080,
       "pct": 71,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -41778,7 +41778,7 @@
      "minutes": 10080,
      "pct": 0,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 100,
     "long_pace": "inf",
@@ -41833,7 +41833,7 @@
       "effective": 0,
       "minutes": 10080,
       "pct": 0,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -42170,7 +42170,7 @@
      "minutes": 300,
      "pct": null,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 400.0,
     "short_headroom": 100,
@@ -42196,7 +42196,7 @@
       "effective": 0,
       "minutes": 300,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "quiet",
       "window": "5h"
      },
@@ -42323,8 +42323,8 @@
     ],
     "trusted_ctx_pct": null,
     "trusted_ctx_used": null,
-    "unfit": "5h 90%, fill 0.1%/min, 0/2 agents, one more agent (0.30%/min) lasts ~25m - under the 30m a start is worth",
-    "unfit_agent": "5h 90%, fill 0.1%/min, 0/2 agents, one more agent (0.30%/min) lasts ~25m - under the 30m a start is worth",
+    "unfit": "5h 90%, fill 0.1%/min, 0/2 agents, one more agent (0.30%/min) lasts ~25m - short of its reset",
+    "unfit_agent": "5h 90%, fill 0.1%/min, 0/2 agents, one more agent (0.30%/min) lasts ~25m - short of its reset",
     "unmetered": false,
     "window_report": [
      {
@@ -42919,7 +42919,7 @@
      "minutes": 300,
      "pct": 99,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": 1,
@@ -42945,7 +42945,7 @@
       "effective": 99,
       "minutes": 300,
       "pct": 99,
-      "reset": 0,
+      "reset": null,
       "source": "live",
       "window": "5h"
      }
@@ -43304,7 +43304,7 @@
      "minutes": 10080,
      "pct": null,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 1000.0,
     "short_headroom": null,
@@ -43330,7 +43330,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -43797,7 +43797,7 @@
      "minutes": 10080,
      "pct": 0,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 100,
     "long_pace": "inf",
@@ -43852,7 +43852,7 @@
       "effective": 0,
       "minutes": 10080,
       "pct": 0,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -43961,8 +43961,8 @@
     ],
     "trusted_ctx_pct": null,
     "trusted_ctx_used": null,
-    "unfit": "5h 50%, fill 0.5%/min, 1/3 agents, one more agent (1.20%/min) lasts ~29m - under the 30m a start is worth",
-    "unfit_agent": "5h 50%, fill 0.5%/min, 1/3 agents, one more agent (1.20%/min) lasts ~29m - under the 30m a start is worth",
+    "unfit": "5h 50%, fill 0.5%/min, 1/3 agents, one more agent (1.20%/min) lasts ~29m - short of its reset",
+    "unfit_agent": "5h 50%, fill 0.5%/min, 1/3 agents, one more agent (1.20%/min) lasts ~29m - short of its reset",
     "unmetered": false,
     "window_report": [
      {
@@ -44396,7 +44396,7 @@
      "minutes": 10080,
      "pct": 1,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 99,
     "long_pace": "inf",
@@ -44451,7 +44451,7 @@
       "effective": 1,
       "minutes": 10080,
       "pct": 1,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -44534,7 +44534,7 @@
      "minutes": 10080,
      "pct": 29,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 71,
     "long_pace": "inf",
@@ -44589,7 +44589,7 @@
       "effective": 29,
       "minutes": 10080,
       "pct": 29,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -44804,7 +44804,7 @@
      "minutes": 300,
      "pct": 1,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": null,
@@ -44830,7 +44830,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 1,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -45046,7 +45046,7 @@
      "minutes": 10080,
      "pct": 69,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 31,
     "long_pace": "inf",
@@ -45101,7 +45101,7 @@
       "effective": 69,
       "minutes": 10080,
       "pct": 69,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -45608,8 +45608,8 @@
     ],
     "trusted_ctx_pct": null,
     "trusted_ctx_used": null,
-    "unfit": "5h 69%, fill 0.1%/min, 0/2 agents, one more agent (1.20%/min) lasts ~23m - under the 30m a start is worth",
-    "unfit_agent": "5h 69%, fill 0.1%/min, 0/2 agents, one more agent (1.20%/min) lasts ~23m - under the 30m a start is worth",
+    "unfit": null,
+    "unfit_agent": null,
     "unmetered": false,
     "window_report": [
      {
@@ -45810,7 +45810,7 @@
      "minutes": 10080,
      "pct": 100,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 0,
     "long_pace": "inf",
@@ -45865,7 +45865,7 @@
       "effective": 100,
       "minutes": 10080,
       "pct": 100,
-      "reset": 0,
+      "reset": null,
       "source": "live",
       "window": "7d"
      }
@@ -46466,7 +46466,7 @@
      "minutes": 300,
      "pct": 1,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5000.0,
     "short_headroom": 99,
@@ -46492,7 +46492,7 @@
       "effective": 1,
       "minutes": 300,
       "pct": 1,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "5h"
      },
@@ -46704,7 +46704,7 @@
      "minutes": 300,
      "pct": 0,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 1000.0,
     "short_headroom": 100,
@@ -46730,7 +46730,7 @@
       "effective": 0,
       "minutes": 300,
       "pct": 0,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "5h"
      },
@@ -46827,7 +46827,7 @@
      "minutes": 300,
      "pct": 100,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5000.0,
     "short_headroom": 0,
@@ -46853,7 +46853,7 @@
       "effective": 100,
       "minutes": 300,
       "pct": 100,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "5h"
      },
@@ -47483,7 +47483,7 @@
      "minutes": 300,
      "pct": 70,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5000.0,
     "short_headroom": 30,
@@ -47509,7 +47509,7 @@
       "effective": 70,
       "minutes": 300,
       "pct": 70,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "5h"
      },
@@ -47991,7 +47991,7 @@
      "minutes": 300,
      "pct": 0,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5000.0,
     "short_headroom": 100,
@@ -48017,7 +48017,7 @@
       "effective": 0,
       "minutes": 300,
       "pct": 0,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "5h"
      }
@@ -48337,7 +48337,7 @@
      "minutes": 10080,
      "pct": 90,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 10,
     "long_pace": "inf",
@@ -48392,7 +48392,7 @@
       "effective": 90,
       "minutes": 10080,
       "pct": 90,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -48617,7 +48617,7 @@
      "minutes": 300,
      "pct": 29,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 5.0,
     "short_headroom": null,
@@ -48643,7 +48643,7 @@
       "effective": null,
       "minutes": 300,
       "pct": 29,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -49448,7 +49448,7 @@
      "minutes": 300,
      "pct": null,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": 1000.0,
     "short_headroom": null,
@@ -49474,7 +49474,7 @@
       "effective": null,
       "minutes": 300,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "5h"
      },
@@ -49695,7 +49695,7 @@
      "minutes": 10080,
      "pct": null,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": null,
     "long_pace": "inf",
@@ -49750,7 +49750,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": null,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -49940,7 +49940,7 @@
      "minutes": 10080,
      "pct": 99,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 1,
     "long_pace": "inf",
@@ -49995,7 +49995,7 @@
       "effective": 99,
       "minutes": 10080,
       "pct": 99,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -50297,7 +50297,7 @@
      "minutes": 10080,
      "pct": 70,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 30,
     "long_pace": "inf",
@@ -50352,7 +50352,7 @@
       "effective": 70,
       "minutes": 10080,
       "pct": 70,
-      "reset": 0,
+      "reset": null,
       "source": "carried_old",
       "window": "7d"
      }
@@ -50429,7 +50429,7 @@
      "minutes": 10080,
      "pct": 29,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": 71,
     "long_pace": "inf",
@@ -50484,7 +50484,7 @@
       "effective": 29,
       "minutes": 10080,
       "pct": 29,
-      "reset": 0,
+      "reset": null,
       "source": "live",
       "window": "7d"
      }
@@ -51091,7 +51091,7 @@
      "minutes": 10080,
      "pct": 70,
      "readable": false,
-     "reset": 0
+     "reset": null
     },
     "long_headroom": null,
     "long_pace": "inf",
@@ -51112,7 +51112,7 @@
      "minutes": 300,
      "pct": 29,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": 71,
@@ -51138,7 +51138,7 @@
       "effective": 29,
       "minutes": 300,
       "pct": 29,
-      "reset": 0,
+      "reset": null,
       "source": "live",
       "window": "5h"
      },
@@ -51146,7 +51146,7 @@
       "effective": null,
       "minutes": 10080,
       "pct": 70,
-      "reset": 0,
+      "reset": null,
       "source": "unknown",
       "window": "7d"
      }
@@ -51368,7 +51368,7 @@
      "minutes": 10080,
      "pct": 1,
      "readable": true,
-     "reset": 0
+     "reset": null
     },
     "short_age_s": null,
     "short_headroom": 99,
@@ -51394,7 +51394,7 @@
       "effective": 1,
       "minutes": 10080,
       "pct": 1,
-      "reset": 0,
+      "reset": null,
       "source": "live",
       "window": "7d"
      }
@@ -54516,7 +54516,7 @@
      ],
      [
       "c",
-      "5h 80%, fill 0.8%/min, 0/3 agents, one more agent (0.60%/min) lasts ~14m - under the 30m a start is worth"
+      "5h 80%, fill 0.8%/min, 0/3 agents, one more agent (0.60%/min) lasts ~14m - short of its reset"
      ]
     ]
    },
@@ -57056,7 +57056,7 @@
      ],
      [
       "d",
-      "5h 95%, fill 0.0%/min, 1/2 agents, one more agent (0.60%/min) lasts ~8m - under the 30m a start is worth"
+      "5h 95%, fill 0.0%/min, 1/2 agents, one more agent (0.60%/min) lasts ~8m - short of its reset"
      ]
     ]
    },
@@ -57850,7 +57850,7 @@
     "reasons": [
      [
       "a",
-      "5h 80%, fill 0.8%/min, 1/3 agents, one more agent (0.60%/min) lasts ~14m - under the 30m a start is worth"
+      "5h 80%, fill 0.8%/min, 1/3 agents, one more agent (0.60%/min) lasts ~14m - short of its reset"
      ],
      [
       "b",
@@ -58022,7 +58022,7 @@
      ],
      [
       "b",
-      "5h 95%, fill 0.1%/min, 1/2 agents, one more agent (0.60%/min) lasts ~7m - under the 30m a start is worth"
+      "5h 95%, fill 0.1%/min, 1/2 agents, one more agent (0.60%/min) lasts ~7m - short of its reset"
      ],
      [
       "c",
@@ -58504,7 +58504,7 @@
    ],
    "config": {},
    "expect": {
-    "picked": "c",
+    "picked": "",
     "reasons": [
      [
       "a",
@@ -58516,7 +58516,7 @@
      ],
      [
       "c",
-      "5h 80%, fill 0.0%/min, 0/3 agents, one more agent (0.60%/min) lasts ~33m; 7d 60% (resets in 1d1h, 0.70x its weekly pace) <- picked"
+      "5h 80%, fill 0.0%/min, 0/3 agents, one more agent (0.60%/min) lasts ~33m - short of its reset"
      ]
     ]
    },
@@ -58792,7 +58792,7 @@
      ],
      [
       "c",
-      "5h 95%, fill 0.1%/min, 1/3 agents, one more agent (0.60%/min) lasts ~7m - under the 30m a start is worth"
+      "5h 95%, fill 0.1%/min, 1/3 agents, one more agent (0.60%/min) lasts ~7m - short of its reset"
      ],
      [
       "d",
@@ -59705,7 +59705,7 @@
      ],
      [
       "b",
-      "5h 80%, fill 0.0%/min, 1/2 agents, one more agent (0.60%/min) lasts ~33m; 7d unknown (resets in 83m, unknown pace)"
+      "5h 80%, fill 0.0%/min, 1/2 agents, one more agent (0.60%/min) lasts ~33m - short of its reset"
      ]
     ]
    },

@@ -336,3 +336,13 @@ func TestAHandoffWaitingOnItsNoteGoesOnOnceTheNoteIsInWhateverTheReadingSays(t *
 		t.Fatalf("%v", w.calls)
 	}
 }
+
+// A trigger deferred behind a running turn holds messages only while it still fires.
+func TestADeferredTriggerThatNoLongerFiresIsForgotten(t *testing.T) {
+	tk, _ := newWorld(t)
+	db.MarkDeferred(tk.Q, "a", 9_990)
+	supervise(tk, "a")
+	if v, _ := db.Cursor(tk.Q, "handoff_deferred:a"); v != 0 {
+		t.Fatal("the deferred mark is kept with no trigger firing")
+	}
+}

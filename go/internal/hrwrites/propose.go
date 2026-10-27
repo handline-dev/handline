@@ -18,8 +18,8 @@ import (
 	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
-// proposable are the kinds `hl hr` raises from a session: the roster changes that need no settings, schedule or global checks.
-var proposable = []string{"add", "retire", "rename", "link", "unlink", "team", "context"}
+// proposable are the kinds `hl hr` raises from a session: the roster changes, and an agent's schedule, that need no settings or global checks.
+var proposable = []string{"add", "retire", "rename", "link", "unlink", "team", "context", "schedule"}
 
 // maxSteps bounds a team diff (MAX_STEPS in handline/team/hr.py).
 const maxSteps = 40
@@ -221,9 +221,21 @@ func (e *Env) draft(actor, kind string, args map[string]any, why string, registe
 			}
 		}
 	}
+	var sched map[string]string
+	if kind == "schedule" {
+		var msg string
+		if sched, msg = e.scheduleChange(name, args); msg != "" {
+			return nil, msg
+		}
+	}
 	prop, err := newProp(kind, name, actor, why)
 	if err != nil {
 		return nil, err.Error()
+	}
+	for _, k := range []string{"action", "cron", "cron_was", "message", "message_was", "sid"} {
+		if v, ok := sched[k]; ok {
+			prop.set("set."+k, v)
+		}
 	}
 	for _, kv := range [][2]string{{"team", teamName}, {"repo", repo}, {"model", str("model")}, {"effort", str("effort")}, {"to", to}, {"vendor", str("vendor")}} {
 		if kv[1] != "" {

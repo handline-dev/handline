@@ -45,7 +45,9 @@ export function TaskChips({ t, now, onAssign }: { t: Detail; now: number; onAssi
           <Inline
             can={can}
             label="Time box"
-            input={(close) => <TextInput value={t.time_box ?? ''} label="Time box" onSave={(time_box) => edit.save({ time_box })} onClose={close} />}
+            input={(close) => (
+              <TextInput value={t.time_box ?? ''} label="Time box" onSave={(time_box) => edit.save({ time_box })} onClose={close} />
+            )}
           >
             {box || 'none'}
           </Inline>
@@ -70,7 +72,7 @@ export function TaskLinks({ icon, label, items }: { icon: IconName; label: strin
       <ul className="tlinks m-0 list-none p-0">
         {items.map((b) => (
           <li key={b.task} className={LI}>
-            <a href={`#/tasks/${b.task}`} className="mono text-inherit no-underline hover:underline">
+            <a href={`#/tasks/${b.task}`} className="mono text-inherit no-underline">
               {taskRef(b.task)}
             </a>{' '}
             {b.reason !== undefined ? <span className="muted">{b.reason}</span> : null}

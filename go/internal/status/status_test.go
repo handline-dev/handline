@@ -2,17 +2,15 @@ package status
 
 import (
 	"encoding/json"
-	"os"
 	"reflect"
 	"sort"
 	"testing"
+
+	"github.com/handline/handline/go/internal/contracttest"
 )
 
 func TestTheWordsAreTheContracts(t *testing.T) {
-	raw, err := os.ReadFile("../../../contract/protocol.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := contracttest.Spec(t)
 	var spec struct {
 		Status struct {
 			States  map[string]string `json:"states"`

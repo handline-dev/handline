@@ -147,7 +147,7 @@ export const taskAgents = (tasks: readonly Task[]): string[] => [...new Set(task
 
 export type TaskGroupKey = 'needs' | 'running' | 'queued' | 'done';
 export const TASK_GROUPS: readonly { key: TaskGroupKey; label: string }[] = [
-  { key: 'needs', label: 'Needs you' },
+  { key: 'needs', label: 'My turn' },
   { key: 'running', label: 'Running' },
   { key: 'queued', label: 'Up next' },
   { key: 'done', label: 'Done' },

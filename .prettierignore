@@ -4,6 +4,7 @@ node_modules
 .pnpm-store
 pnpm-lock.yaml
 contract/protocol.ts
+contract/gen/
 contract/fixtures
 contract/prompts
 *.py

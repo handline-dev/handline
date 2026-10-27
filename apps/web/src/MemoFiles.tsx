@@ -13,7 +13,7 @@ export function MemoFiles({ files }: { files: MemoFile[] }) {
   const pictures = files.filter((f) => f.kind === 'image');
   return (
     <div className="memo-files grid gap-2">
-      {pictures.length ? <Pictures items={pictures} /> : null}
+      {pictures.length ? <Pictures items={pictures} thumb /> : null}
       {files
         .filter((f) => f.kind !== 'image')
         .map((f) => (

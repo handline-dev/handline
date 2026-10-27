@@ -1,0 +1,427 @@
+{
+ "components": {
+  "schemas": {
+   "ChangedFile": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "description": "M, A, D, R or ?."
+     },
+     "added": {
+      "type": "integer"
+     },
+     "deleted": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "path",
+     "status",
+     "added",
+     "deleted"
+    ]
+   },
+   "Worktree": {
+    "type": "object",
+    "properties": {
+     "path": {
+      "type": "string"
+     },
+     "repo": {
+      "type": "string"
+     },
+     "branch": {
+      "type": "string"
+     },
+     "owner": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "parent": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "children": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "status": {
+      "type": "string"
+     },
+     "changed": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/ChangedFile"
+      }
+     }
+    },
+    "required": [
+     "path",
+     "repo",
+     "branch",
+     "owner",
+     "parent",
+     "children",
+     "status",
+     "changed"
+    ]
+   }
+  }
+ },
+ "methods": [
+  {
+   "name": "repos.list",
+   "summary": "Repos.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "repos": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/Repo"
+       }
+      }
+     },
+     "required": [
+      "repos"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "worktrees.list",
+   "summary": "Worktrees with status and changed files.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "repo",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "owner",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "worktrees": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/Worktree"
+       }
+      }
+     },
+     "required": [
+      "worktrees"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "worktree.diff",
+   "summary": "Read-only git diff run by the daemon. Without `file`: the changes to tracked files against HEAD, then a new-file diff of each untracked file that .gitignore does not ignore (at most 200; one too big for what is left of the size cap is listed as `(new file, N bytes: not shown)`, not diffed). With `file`: that file alone, untracked or not.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "path",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "file",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "path": {
+       "type": "string"
+      },
+      "file": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "diff": {
+       "type": "string",
+       "description": "Unified diff."
+      },
+      "truncated": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "path",
+      "file",
+      "diff",
+      "truncated"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "file.read",
+   "summary": "The founder reads a text file in an agent's worktree.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "path",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "text": {
+       "type": "string",
+       "description": "UTF-8 text; the first 1 MiB when the file is longer (truncated)."
+      },
+      "size": {
+       "type": "integer",
+       "minimum": 0,
+       "description": "The file's size in bytes."
+      },
+      "truncated": {
+       "type": "boolean",
+       "description": "The file is over 1 MiB and text is its first 1 MiB. Do not write it back."
+      },
+      "mtime": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "etag": {
+       "type": "string",
+       "description": "SHA-256 of the whole file, hex: file.write takes it back."
+      }
+     },
+     "required": [
+      "text",
+      "size",
+      "truncated",
+      "mtime",
+      "etag"
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ]
+  },
+  {
+   "name": "file.write",
+   "summary": "The founder replaces or creates a .md or .json file in an agent's worktree, if it is still what the etag says.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "path",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise."
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The whole new content: UTF-8 text without NUL, at most 1 MiB; for a .json file, valid JSON."
+     }
+    },
+    {
+     "name": "etag",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The etag file.read gave; empty to create a file that must not exist (its folder must)."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "size": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "mtime": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "etag": {
+       "type": "string",
+       "description": "The new file's etag."
+      }
+     },
+     "required": [
+      "size",
+      "mtime",
+      "etag"
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "x-gates": [
+    "denied",
+    "stale",
+    "too_big"
+   ],
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ]
+  },
+  {
+   "name": "worktree.set_status",
+   "summary": "Set the status label of a worktree. The status is a free string (Worktree.status), 1 to 40 characters; the label changes nothing on disk, and worktrees.list shows it in place of the daemon's own word (dirty or clean). A path that is not a worktree an agent works in is not_found, what worktree, as for worktree.diff.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "path",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "status",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  }
+ ]
+}

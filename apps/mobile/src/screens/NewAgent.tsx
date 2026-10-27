@@ -154,7 +154,7 @@ export function NewAgent({ pending, onClose, onAgent }: { pending: Pending; onCl
         </Text>
       ) : null}
       <Input id="name" label={prefix ? `Name (after ${prefix})` : 'Name'} value={f.name} onChange={(v) => set('name', v)} />
-      <Label text="Plain text: no /, no leading ." />
+      <Label text="No slashes, and it cannot start with a dot." />
       {choices.freeNames.length ? (
         <Choice
           id="free"
@@ -183,7 +183,7 @@ export function NewAgent({ pending, onClose, onAgent }: { pending: Pending; onCl
         note={list.length ? undefined : 'The daemon knows no repo.'}
         onChange={(v) => setF((was) => ({ ...was, repo: v, base: list.find((r) => r.path === v)?.default_branch ?? '' }))}
       />
-      <Input id="base" label="Base" value={f.base} onChange={(v) => set('base', v)} />
+      <Input id="base" label="Base branch" value={f.base} onChange={(v) => set('base', v)} />
       {choices.models ? (
         <Choice
           id="model"
