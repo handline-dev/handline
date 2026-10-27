@@ -19,6 +19,9 @@ export interface Colors {
   ok: string;
   termBg: string;
   termInk: string;
+  /** Code and diff blocks in text (a proposal's change, a card's code): the terminal's colours in dark, a soft gray in light. */
+  codeBg: string;
+  codeInk: string;
   shadowAlpha: string;
   scrim: string;
   /** The one tint over a hovered item, and the step darker over a pressed one: light on dark, dark on light, over any ground. */
@@ -41,6 +44,8 @@ const dark: Colors = {
   ok: '#3fbf9b',
   termBg: '#0a0a0b',
   termInk: '#e8e6df',
+  codeBg: '#0a0a0b',
+  codeInk: '#e8e6df',
   shadowAlpha: '#0006',
   scrim: '#0008',
   hover: '#ffffff0f',
@@ -51,7 +56,7 @@ const light: Colors = {
   surface: ['#ffffff', '#f7f7f8', '#efeff1', '#e4e4e8'],
   line: '#e4e4e7',
   lineStrong: '#c9c9d0',
-  ink: ['#18181b', '#52525b', '#8a8a94'],
+  ink: ['#2b2b30', '#52525b', '#8a8a94'],
   primary: '#3d62b5',
   onPrimary: '#ffffff',
   accent: '#3d62b5',
@@ -62,6 +67,8 @@ const light: Colors = {
   ok: '#00875f',
   termBg: '#16150f',
   termInk: '#e8e6df',
+  codeBg: '#f3f2ee',
+  codeInk: '#2b2b30',
   shadowAlpha: '#0002',
   scrim: '#00000059',
   hover: '#0000000d',
@@ -111,6 +118,8 @@ export interface Palette {
   block: string;
   termBg: string;
   termInk: string;
+  codeBg: string;
+  codeInk: string;
   scrim: string;
   /** The press feedback of a tapped row (a tint over the row). */
   press: string;
@@ -134,6 +143,8 @@ const flat = (c: Colors): Palette => ({
   block: c.bad,
   termBg: c.termBg,
   termInk: c.termInk,
+  codeBg: c.codeBg,
+  codeInk: c.codeInk,
   scrim: c.scrim,
   press: c.press,
   onFill,
