@@ -22,6 +22,14 @@ def git(*args: str, cwd: str = ".") -> subprocess.CompletedProcess:
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
 
 
+def abandon(start: str, detached: bool, cwd: str = ".") -> None:
+    """Goes back to where the run began (a branch, or a detached sha) and removes bundle-wip."""
+    back = git("switch", "-q", *(["--detach"] if detached else []), start, cwd=cwd)
+    if back.returncode:
+        raise RuntimeError(f"cannot go back to {start}: {back.stderr.strip()}")
+    git("branch", "-D", "bundle-wip", cwd=cwd)
+
+
 def ready_prs(without: set[int]) -> tuple[dict[int, str], dict[int, str]]:
     """({PR: head} of the open PRs on main that may be merged, {PR: first reason} of those that may not)."""
     required = merge_ready.required_checks()
@@ -96,7 +104,9 @@ def main(argv: list[str]) -> int:
             return 0
         if git("status", "--porcelain", "--untracked-files=no").stdout.strip():
             raise RuntimeError("the work tree has uncommitted changes")
-        start = git("branch", "--show-current").stdout.strip() or git("rev-parse", "HEAD").stdout.strip()
+        start = git("branch", "--show-current").stdout.strip()
+        detached = not start
+        start = start or git("rev-parse", "HEAD").stdout.strip()
         if git("fetch", "-q", "origin", "main").returncode or git("switch", "-q", "-C", "bundle-wip", "origin/main").returncode:
             raise RuntimeError("cannot start a branch from origin/main")
         try:
@@ -105,8 +115,7 @@ def main(argv: list[str]) -> int:
             left_out.update(conflicted)
         except RuntimeError:
             git("merge", "--abort")
-            git("switch", "-q", start)
-            git("branch", "-D", "bundle-wip")
+            abandon(start, detached)
             raise
     except (RuntimeError, ValueError, KeyError) as e:
         print(f"bundle: nothing built: {e}", file=sys.stderr)
@@ -115,8 +124,7 @@ def main(argv: list[str]) -> int:
         print(f"bundle: #{n} left out: {why}")
     if len(merged) < 2:
         print("bundle: fewer than 2 parts are left, so there is no bundle")
-        git("switch", "-q", start)
-        git("branch", "-D", "bundle-wip")
+        abandon(start, detached)
         return 0
     branch = "bundle-" + "-".join(str(n) for n in merged)
     git("branch", "-M", branch)

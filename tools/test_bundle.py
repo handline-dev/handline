@@ -82,6 +82,28 @@ class Building(Repo):
         with self.assertRaises(RuntimeError):
             bundle.merge_parts({1: "0" * 40}, self.work)
 
+    def test_abandoning_a_bundle_returns_to_a_detached_head_and_to_a_branch(self):
+        for detached in (True, False):
+            git(self.work, "switch", "-q", "--detach", self.mainsha) if detached else git(self.work, "switch", "-q", "-C", "feature", self.mainsha)
+            start = self.mainsha if detached else "feature"
+            self.start()
+            bundle.abandon(start, detached, self.work)
+            self.assertEqual(git(self.work, "branch", "--show-current"), "" if detached else "feature")
+            self.assertEqual(git(self.work, "rev-parse", "HEAD"), self.mainsha)
+            self.assertNotIn("bundle-wip", git(self.work, "branch"))
+
+    def test_main_with_under_two_parts_left_goes_back_to_the_detached_head(self):
+        parts = {n: self.add(n, "shared.txt", f"{n}\n") for n in (1, 2, 3)}  # all conflict: only #1 merges
+        git(self.work, "switch", "-q", "--detach", self.mainsha)
+        before = os.getcwd()
+        os.chdir(self.work)
+        self.addCleanup(os.chdir, before)
+        with mock.patch.object(bundle, "ready_prs", lambda w: (parts, {})), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bundle.main(["bundle.py"]), 0)
+        self.assertEqual(git(self.work, "branch", "--show-current"), "")
+        self.assertEqual(git(self.work, "rev-parse", "HEAD"), self.mainsha)
+        self.assertNotIn("bundle-wip", git(self.work, "branch"))
+
     def test_a_head_that_moved_after_the_check_is_dropped(self):
         parts = {1: self.add(1, "a.txt", "a\n"), 2: self.add(2, "b.txt", "b\n")}
         stale = {**parts, 2: "0" * 40}
