@@ -58,3 +58,31 @@ func nums(p map[string]any) map[string]any {
 	}
 	return out
 }
+
+func TestAFounderCommentShowsWhereItsTellStandsForEachReader(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'a', 'bob', 'human', 1)")
+	run(t, e, "INSERT INTO task_memos(id, task_id, author, body, created_at) VALUES(1, 1, 'human', 'hi', 1), (2, 1, 'amy', 'mine', 2)")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, notice, landed_at, delivered_at, read_at) VALUES"+
+		"(1, 1, 'n', 'a', 'b', 'landed', 'say', 2, 100, NULL, NULL),"+ // held for a digest
+		"(2, 1, 'n', 'b', 'b', 'landed', 'say', 2, 100, 200, NULL),"+ // sent in a digest
+		"(3, 1, 'n', 'c', 'b', 'landed', 'say', 2, 100, 200, 300),"+ // opened
+		"(4, 1, 'n', 'd', 'b', 'landed', 'say', 0, 400, NULL, NULL)") // typed at once
+	run(t, e, "INSERT INTO memo_tells(memo_id, reader, request_id) VALUES(1, 'a', 1), (1, 'b', 2), (1, 'c', 3), (1, 'd', 4), (2, 'a', 1)")
+	got, err := e.taskMemoList(nil, nums(map[string]any{"task": 1}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	memos := got.(map[string]any)["memos"].([]any)
+	var states []string
+	for _, r := range memos[0].(map[string]any)["readers"].([]any) {
+		states = append(states, r.(map[string]any)["agent"].(string)+":"+r.(map[string]any)["state"].(string))
+	}
+	if fmt.Sprint(states) != "[a:held b:sent c:read d:read]" {
+		t.Fatalf("%v", states)
+	}
+	if _, ok := memos[1].(map[string]any)["readers"]; ok {
+		t.Fatal("only the founder's comments show readers")
+	}
+}

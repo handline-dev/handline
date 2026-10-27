@@ -23,7 +23,7 @@ const CancelVerdict = "withdrawn by the founder"
 type Teller interface {
 	// MemoChanged tells whom a memo concerns (the holder of a doing task, who the task answers to, the agents it names with @) that it was
 	// added, edited or deleted (what), with the memo's text: at once when now, else a reader mid-turn hears at the end of its turn.
-	MemoChanged(tid int64, by, what, text string, now bool)
+	MemoChanged(tid, mid int64, by, what, text string, now bool)
 	// QueueDelivered sends a queued task to its free owner, or raises the founder's card, and answers what happened.
 	QueueDelivered(tid int64, by string, queued bool) string
 	// Discarded types the says a discard wrote, moves the owner on to its next task, advances the owners it freed, and removes the inbox
@@ -56,6 +56,8 @@ type Teller interface {
 	Edited(ed Edited)
 	// Notified delivers the notices a write left for the people a task's change concerns (tellTask).
 	Notified(told []db.Notice)
+	// MemoTellSent sends request rid, a comment's tell that was held for its reader's digest, to the reader now in a digest of its own.
+	MemoTellSent(rid int64)
 }
 
 func Register(s *rpc.Server, home string, tell Teller, decide CardDecider) {
@@ -84,6 +86,7 @@ func Register(s *rpc.Server, home string, tell Teller, decide CardDecider) {
 		s.Register(verb+"edit", rpc.Method{Role: "agent", Write: true, Handler: memoEdit(home, tell)})
 		s.Register(verb+"delete", rpc.Method{Role: "agent", Write: true, Handler: memoDelete(tell)})
 	}
+	s.Register("task.comment.send_now", rpc.Method{Role: "member", Write: true, Handler: memoSendNow(tell)})
 	s.Register("task.view.save", rpc.Method{Role: "member", Write: true, Handler: viewSave})
 	s.Register("task.view.delete", rpc.Method{Role: "member", Write: true, Handler: viewDelete})
 }
@@ -230,7 +233,8 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 			if lines := store.FileLines(files); lines != "" {
 				told += "\n" + lines
 			}
-			tell.MemoChanged(tid, c.Caller.Actor(), "added", told, now)
+			added, _ := out["memo"].(int64)
+			tell.MemoChanged(tid, added, c.Caller.Actor(), "added", told, now)
 		}
 		return out, err
 	}
@@ -276,7 +280,7 @@ func memoEdit(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, er
 			return accepted(fmt.Sprintf("memo %d on T%d edited", mid, tid), nil), nil
 		})
 		if err == nil && tell != nil {
-			tell.MemoChanged(tid, c.Caller.Actor(), "edited", body, false)
+			tell.MemoChanged(tid, mid, c.Caller.Actor(), "edited", body, false)
 		}
 		return out, err
 	}
@@ -315,7 +319,38 @@ func memoDelete(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 			return accepted(fmt.Sprintf("memo %d deleted from T%d", mid, tid), nil), nil
 		})
 		if err == nil && tell != nil {
-			tell.MemoChanged(tid, c.Caller.Actor(), "deleted", "", false)
+			tell.MemoChanged(tid, mid, c.Caller.Actor(), "deleted", "", false)
+		}
+		return out, err
+	}
+}
+
+// memoSendNow is task.comment.send_now: the tell of the founder's comment memo to one reader that waits for the reader's digest goes now.
+func memoSendNow(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
+	return func(c *rpc.Conn, p map[string]any) (any, error) {
+		mid, err := memoID(p)
+		if err != nil {
+			return nil, err
+		}
+		agent, err := text(p, "agent")
+		if err != nil {
+			return nil, err
+		}
+		var rid int64
+		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+			err := tx.QueryRow("SELECT r.id FROM memo_tells t JOIN requests r ON r.id = t.request_id "+
+				"WHERE t.memo_id = ? AND t.reader = ? AND r.notice = 2 AND r.read_at IS NULL AND r.delivered_at IS NULL",
+				mid, agent).Scan(&rid)
+			if err == sql.ErrNoRows {
+				return nil, refusal(fmt.Sprintf("memo %d is not held for %s", mid, agent))
+			}
+			if err != nil {
+				return nil, err
+			}
+			return accepted(fmt.Sprintf("memo %d goes to %s now", mid, agent), nil), nil
+		})
+		if err == nil && tell != nil {
+			tell.MemoTellSent(rid)
 		}
 		return out, err
 	}

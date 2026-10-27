@@ -1,6 +1,7 @@
 package reads
 
 import (
+	"database/sql"
 	"fmt"
 	"github.com/handline/handline/go/internal/taskresult"
 	"sort"
@@ -763,6 +764,15 @@ func memoJSON(q db.Q, m row, parts func(string) []any, store *attachments.Store,
 	if p := parts(m.str("body")); p != nil {
 		memo["parts"] = p
 	}
+	if d, ok := q.(*sql.DB); ok && m.str("author") == db.Human {
+		readers, err := memoReaders(d, m.i("id"))
+		if err != nil {
+			return nil, err
+		}
+		if len(readers) > 0 {
+			memo["readers"] = readers
+		}
+	}
 	infos, err := attachments.MemoFiles(q, m.i("id"))
 	if err != nil {
 		return nil, err
@@ -775,6 +785,39 @@ func memoJSON(q db.Q, m row, parts func(string) []any, store *attachments.Store,
 		memo["files"] = files
 	}
 	return memo, nil
+}
+
+// memoReaders is where the tell of memo mid stands for each reader it was told to: read (with when), held for the reader's next digest
+// (since when), or sent and not yet read (when it was sent). A tell typed at once counts as read when it landed in the agent's session;
+// a held one when the agent opens it with hl read (MarkReadBy).
+func memoReaders(q *sql.DB, mid int64) ([]any, error) {
+	rows, err := query(q, "SELECT t.reader, t.request_id, r.read_at, r.delivered_at, r.typed_at, r.landed_at, r.send_now, r.notice "+
+		"FROM memo_tells t JOIN requests r ON r.id = t.request_id WHERE t.memo_id = ? ORDER BY t.rowid", mid)
+	if err != nil {
+		return nil, err
+	}
+	var out []any
+	for _, r := range rows {
+		one := map[string]any{"agent": r.str("reader"), "request": r.i("request_id"), "at": nil}
+		switch {
+		case r.set("read_at"):
+			one["state"], one["at"] = "read", ts(r["read_at"])
+		case r.i("notice") == 2 && !r.set("delivered_at") && !r.set("send_now"):
+			one["state"], one["at"] = "held", ts(r["landed_at"])
+		case r.i("notice") != 2 && r.set("landed_at"): // a tell typed at once: its text is in the agent's session
+			one["state"], one["at"] = "read", ts(r["landed_at"])
+		default:
+			one["state"] = "sent"
+			for _, k := range []string{"delivered_at", "typed_at", "landed_at"} {
+				if r.set(k) {
+					one["at"] = ts(r[k])
+					break
+				}
+			}
+		}
+		out = append(out, one)
+	}
+	return out, nil
 }
 
 // task.memo.list: a task's memos, oldest first. With limit, the newest limit memos, or the limit just older than before.

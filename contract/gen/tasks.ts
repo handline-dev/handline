@@ -214,6 +214,8 @@ export type Memo = {
   files?: MemoFile[];
   /** The comment this one answers; null for none. */
   reply_to?: number | null;
+  /** Where the tell of a founder's comment stands for each agent it was told to, in the order told; present only on a founder comment that told someone. */
+  readers?: MemoReader[];
 };
 
 export type TaskBoardRow = {
@@ -321,6 +323,17 @@ export type TaskWatch = {
   label: string;
   /** What it opened with; null while it watches. A target that reads as gone (deleted, or no longer visible) three times in a row is failed. */
   result: ("passed" | "failed" | "timed_out") | null;
+};
+
+/** One reader of a founder's comment and where its tell stands. */
+export type MemoReader = {
+  agent: string;
+  /** The request that told the comment to this agent. */
+  request: number;
+  /** held: waits for the agent's next digest (send it now with task.comment.send_now). sent: sent in a digest, not opened yet. read: typed to the agent at once and landed in its session, or opened with hl read. */
+  state: "held" | "sent" | "read";
+  /** held: when the tell began to wait. sent: when it was sent. read: when it was read. */
+  at: Timestamp | null;
 };
 
 export interface TasksMethods {
@@ -556,6 +569,11 @@ export interface TasksMethods {
   memo: number;
   request_id: RequestId;
 }; result: Accepted };
+  "task.comment.send_now": { params: {
+  memo: number;
+  agent: string;
+  request_id: RequestId;
+}; result: Accepted };
   "task.memo.delete": { params: {
   task: number;
   memo: number;
@@ -699,6 +717,7 @@ export const TASKS_METHODS: { [K in keyof TasksMethods]: { role: Role; callers: 
   "task.comment.edit": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.edit": { role: "agent", callers: null, write: true, since: 1 },
   "task.comment.delete": { role: "agent", callers: null, write: true, since: 1 },
+  "task.comment.send_now": { role: "member", callers: null, write: true, since: 1 },
   "task.memo.delete": { role: "agent", callers: null, write: true, since: 1 },
   "task.view.list": { role: "member", callers: null, write: false, since: 1 },
   "task.view.save": { role: "member", callers: null, write: true, since: 1 },
