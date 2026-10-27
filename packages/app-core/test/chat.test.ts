@@ -452,7 +452,7 @@ test("heldId: the first of the last run of the person's messages", () => {
   assert.equal(heldId([e(1, false)], mine), undefined);
 });
 
-test('a task handed to an agent is drawn as the board\'s delivery, never as the person\'s own message', () => {
+test("a task handed to an agent is drawn as the board's delivery, never as the person's own message", () => {
   const task = pm({ id: 5, from: 'human', to: A, kind: 'task', tasks: [{ id: 6477, title: 'Founder decisions' }] }); // local-ref-ok
   assert.equal(isTaskDelivery(task), true);
   assert.equal(sideOf(task, A, 'Handline desktop'), 'other');
