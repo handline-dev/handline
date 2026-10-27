@@ -1,7 +1,7 @@
 // The Activity of a task, one list: its comments and its events in words (the last three; older ones fold), and the composer under them.
 // `@agent` in a comment tells that agent; the assignee is told by default (the daemon's routing). Images go in as in the description.
 import { useEffect, useRef, useState, type RefObject } from 'react';
-import { activityOf, ago, dateTime, foldEvents, involved, isPerson, mentionState, type ActivityItem } from '@handline/app-core';
+import { activityOf, ago, dateTime, foldEvents, involved, isPerson, mentionState, noteIsLong, type ActivityItem } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useAgents, useOff, useWrite } from '@handline/app-data';
 import { useHello, useMe } from '@handline/app-react';
@@ -13,7 +13,7 @@ import { Markdown } from '#src/Markdown.tsx';
 import { AgentLink } from '#src/TaskInline.tsx';
 import { useCan } from '#src/taskui.tsx';
 import { Button, MenuButton, MenuItem } from '#src/ui/index.ts';
-import { Reveal } from '#src/ui/Reveal.tsx';
+import { Fold } from '#src/Fold.tsx';
 
 export const UNDO_MS = 6000;
 /** The icons of a card show on hover and keyboard focus, and always on a touch screen. */
@@ -178,23 +178,16 @@ const firstLine = (text: string): string =>
     .slice(0, 90) ?? '';
 
 function Event({ item }: { item: ActivityItem }) {
-  const [open, setOpen] = useState(false);
   return (
     <li className="tevent min-w-0 text-ink-2">
       <span className="mr-2 inline-block h-2 w-2 rounded-pill bg-ink-3 align-middle" aria-hidden="true" />
       {item.line} <span className="text-hint text-ink-3">· {dateTime(item.at)}</span>
       {item.note ? (
-        <>
-          {' '}
-          <button type="button" className="border-0 bg-transparent p-0 text-link" aria-expanded={open} onClick={() => setOpen(!open)}>
-            {open ? 'Hide note' : 'Read note'}
-          </button>
-          <Reveal show={open}>
-            <div className="mt-1 min-w-0 rounded-card bg-raised p-2 text-ink">
-              <Markdown text={item.note} />
-            </div>
-          </Reveal>
-        </>
+        <div className="tnote mt-1 min-w-0 rounded-card border border-line px-3 py-1.5 text-ink">
+          <Fold note={item.note} long={noteIsLong(item.note)}>
+            {(text) => <Markdown text={text} />}
+          </Fold>
+        </div>
       ) : null}
     </li>
   );

@@ -39,6 +39,7 @@ import { TaskHistorySection } from '#src/screens/TaskHistory.tsx';
 import { TaskTimeSection } from '#src/screens/TaskTime.tsx';
 import { TaskGraph } from '#src/screens/TaskGraph.tsx';
 import { PrBody } from '#src/screens/PrBody.tsx';
+import { EventNote } from '#src/screens/EventNote.tsx';
 import { TaskBatch } from '#src/screens/TaskBatch.tsx';
 
 type Scope = 'open' | 'mine' | 'closed';
@@ -396,7 +397,10 @@ function Activity({ t }: { t: TaskDetail }) {
         return m ? (
           <CommentRow key={`${n}-${m.id}`} task={t.id} agent={t.to} memo={m} when={ago(m.at)} />
         ) : (
-          <Text key={`${n}-${i.line}`} style={{ color: c.muted }}>{`${i.line} · ${ago(i.at)}`}</Text>
+          <View key={`${n}-${i.line}`} style={{ gap: space.xs }}>
+            <Text style={{ color: c.muted }}>{`${i.line} · ${ago(i.at)}`}</Text>
+            {i.note ? <EventNote id={`${n}`} agent={t.to} note={i.note} /> : null}
+          </View>
         );
       })}
       <CommentBox id={t.id} />

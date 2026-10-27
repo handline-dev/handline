@@ -159,7 +159,7 @@ var byHand = map[int]func(*sql.Tx) error{
 	23: addFounderAuth,    // requests_founder_auth
 	24: addTaskWatch,      // task_watch
 	26: addRequestThreads, // request_threads
-	28: addRequestMemo,    // request_memo
+	29: addRequestMemo,    // request_memo
 }
 
 // addExtraWorktrees is _agent_extra_worktrees in schema.py: a database made before the column has none.
