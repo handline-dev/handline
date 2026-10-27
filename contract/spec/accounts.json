@@ -821,6 +821,10 @@
              "5h",
              "7d"
             ]
+           },
+           "unused_pct": {
+            "type": "number",
+            "description": "Only on a weekly (7d) reset the samples recorded: the percent of that week left unused at the last sample before it. Absent for a 5h reset, a guessed one, or a week with no sample."
            }
           },
           "required": [
@@ -1045,6 +1049,10 @@
              "5h",
              "7d"
             ]
+           },
+           "unused_pct": {
+            "type": "number",
+            "description": "Only on a weekly (7d) reset the samples recorded: the percent of that week left unused at the last sample before it. Absent for a 5h reset, a guessed one, or a week with no sample."
            }
           },
           "required": [

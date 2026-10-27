@@ -105,6 +105,7 @@ func (fakeLaunch) ChooseAccount(db.Q, string) bool                 { return true
 func (fakeLaunch) RoomElsewhere(db.Q, string, *db.AgentState, map[string]string) (string, string) {
 	return "", "no account can take one more agent"
 }
+func (fakeLaunch) WorthRepick(string, string) bool { return true }
 func (fakeLaunch) AccountFor(_ db.Q, _ string, resuming bool) string {
 	if resuming {
 		return "resume-acct"

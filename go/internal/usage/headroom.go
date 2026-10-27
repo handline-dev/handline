@@ -31,6 +31,10 @@ func (p HeadroomPoint) Left() *float64 {
 type HeadroomReset struct {
 	At     int64
 	Window string
+	// Unused is, for a weekly reset the samples recorded, the share of that week left at the last sample before it (HasUnused false for a
+	// 5h reset, a guessed one, or a week with no sample): what the week left on the table.
+	Unused    float64
+	HasUnused bool
 }
 
 // AccountHeadroom is one account's points, past then future, and its resets in the span, in time order.
@@ -152,7 +156,7 @@ func resetsAhead(last windowPoint, pace float64, now, to, period int64, window s
 	var out []HeadroomReset
 	for r := last.Reset; r != 0 && r <= to; r += period {
 		if r > now {
-			out = append(out, HeadroomReset{r, window})
+			out = append(out, HeadroomReset{At: r, Window: window})
 		}
 		if pace == 0 {
 			break
@@ -221,8 +225,13 @@ func headroomOver(rows []sampleRow, now, from, to, step int64, ends map[string]f
 		end, ended := ends[a]
 		h := AccountHeadroom{Account: a}
 		seen := map[HeadroomReset]bool{}
+		lastUsed := map[int64]float64{} // a week's last recorded use, by its reset
+		for _, p := range w {
+			lastUsed[p.Reset] = p.Used
+		}
 		for i := range f {
-			for _, r := range []HeadroomReset{{f[i].Reset, "5h"}, {w[i].Reset, "7d"}} {
+			unused, has := lastUsed[w[i].Reset]
+			for _, r := range []HeadroomReset{{At: f[i].Reset, Window: "5h"}, {At: w[i].Reset, Window: "7d", Unused: max(0, 100-unused), HasUnused: has}} {
 				if r.At != 0 && r.At >= from && r.At <= min(now, to) && !seen[r] {
 					seen[r] = true
 					h.Resets = append(h.Resets, r)

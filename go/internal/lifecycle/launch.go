@@ -62,6 +62,8 @@ type UsagePort interface {
 	CapUnpaced(acct string) int
 	// Pace is the account's weekly pace, nil when its week is not known.
 	Pace(acct string) *usage.Pace
+	// Urgency is the account's unused weekly use per hour left (usage.Urgency); ok false where its week cannot be read.
+	Urgency(acct string) (float64, bool)
 	// FiveHourShare is how many times over the account's 5-hour window lasts to its reset with agent started on it (1 or more: it lasts);
 	// ok false where that cannot be told, which holds nothing.
 	FiveHourShare(q db.Q, acct, agent string) (float64, bool)
@@ -396,6 +398,14 @@ func (l *Launcher) RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclu
 	return l.roomElsewhere(q, agent, row, exclude, true)
 }
 
+// WorthRepick is whether a cold wake on own is better put on to: the week that runs out faster, by usage.RepickGain points per hour; with
+// either week unreadable the pick stands, as it did before the weekly ranking.
+func (l *Launcher) WorthRepick(own, to string) bool {
+	a, okA := l.Ports.Usage.Urgency(own)
+	b, okB := l.Ports.Usage.Urgency(to)
+	return !okA || !okB || b-a >= usage.RepickGain
+}
+
 // RoomNow is a person's start off skip, where it does not wait its turn: the account with the most headroom on both its 5h and weekly
 // window, with no older closed agent counted ahead of it.
 func (l *Launcher) RoomNow(q db.Q, agent string, row *db.AgentState, skip string) (string, string) {
@@ -407,6 +417,7 @@ func (l *Launcher) roomElsewhere(q db.Q, agent string, row *db.AgentState, exclu
 	vendor := l.Ports.Vendors.AgentVendor(agent)
 	best, most := "", math.Inf(-1)
 	var passed []string
+	var ranked []usage.Ranked
 	for _, a := range l.mayStartAccounts() {
 		if _, skip := exclude[a]; skip {
 			continue
@@ -426,6 +437,12 @@ func (l *Launcher) roomElsewhere(q db.Q, agent string, row *db.AgentState, exclu
 		if h > most {
 			best, most = a, h
 		}
+		u, known := l.Ports.Usage.Urgency(a)
+		ranked = append(ranked, usage.Ranked{Name: a, Urgency: u, Known: known, Active: l.Ports.Usage.ActiveOn(q, a, agent)})
+	}
+	// The week that runs out soonest first, similar ones spread by agents mid-turn; the most headroom only where no week can be read.
+	if b, ok := usage.BestByUrgency(ranked); ok {
+		best = b.Name
 	}
 	if best == "" {
 		return "", "no account can take one more agent (" + strings.Join(passed, "; ") + ")"
@@ -1116,6 +1133,8 @@ func (p LaunchPort) RoomElsewhere(q db.Q, agent string, row *db.AgentState, excl
 func (p LaunchPort) RoomOn(q db.Q, agent string, row *db.AgentState, acct string) string {
 	return p.L.RoomOn(q, agent, row, acct)
 }
+
+func (p LaunchPort) WorthRepick(own, to string) bool { return p.L.WorthRepick(own, to) }
 
 func (p LaunchPort) RoomNow(q db.Q, agent string, row *db.AgentState, skip string) (string, string) {
 	return p.L.RoomNow(q, agent, row, skip)

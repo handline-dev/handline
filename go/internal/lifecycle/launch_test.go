@@ -52,6 +52,7 @@ type fakeUsage struct {
 	exclude *string // the agent ActiveOn was asked to leave out
 	head    map[string]float64
 	share   map[string]float64 // FiveHourShare by account; unlisted is unknown
+	urgent  map[string]float64 // Urgency by account; unlisted is unknown
 }
 
 func (u fakeUsage) CapOf(string) int { return u.cap }
@@ -62,6 +63,10 @@ func (u fakeUsage) CapUnpaced(string) int {
 	return u.cap
 }
 func (u fakeUsage) Pace(string) *usage.Pace { return u.pace }
+func (u fakeUsage) Urgency(acct string) (float64, bool) {
+	v, ok := u.urgent[acct]
+	return v, ok
+}
 func (u fakeUsage) FiveHourShare(_ db.Q, acct, _ string) (float64, bool) {
 	share, ok := u.share[acct]
 	return share, ok
@@ -905,5 +910,37 @@ func TestAStartIsHeldOnlyWhenNoAccountLastsToItsFiveHourReset(t *testing.T) {
 	}
 	if got := DescribeWakeWait(&WakeWait{FiveHour: true, Reset: 3000}); !strings.HasPrefix(got, "Held so Claude's 5-hour limit lasts until it starts over at ") || !strings.HasSuffix(got, ". This starts then.") {
 		t.Errorf("the card says what is held and when: %q", got)
+	}
+}
+
+func TestAMoveGoesWhereTheWeekRunsOutFirstAndAColdRepickNeedsAClearGain(t *testing.T) {
+	r := newLaunchRig(t)
+	for _, a := range []string{"a", "b", "c"} {
+		if err := os.MkdirAll(filepath.Join(r.l.Home, "accounts", a), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q := r.l.Q
+	db.SetAgentState(q, "ann", states.Idle, 0, "")
+	db.SetClosed(q, "ann", "s-ann")
+	row, _ := db.GetAgentState(q, "ann")
+	// a has the most headroom against its pace line but its week lasts longest; c's week runs out first.
+	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true}, cap: 2, head: map[string]float64{"a": 0.3, "b": 0.1, "c": 0.05},
+		urgent: map[string]float64{"a": 0.8, "b": 1.5, "c": 2.4}}
+	if got, why := r.l.RoomElsewhere(q, "ann", row, map[string]string{"x": "not here"}); got != "c" {
+		t.Errorf("the account whose unused week runs out first: %q %q", got, why)
+	}
+	if got, _ := r.l.RoomElsewhere(q, "ann", row, map[string]string{"c": "full"}); got != "b" {
+		t.Errorf("then the next: %q", got)
+	}
+	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true}, cap: 2, head: map[string]float64{"a": 0.3, "b": 0.1}}
+	if got, _ := r.l.RoomElsewhere(q, "ann", row, nil); got != "a" {
+		t.Errorf("with no week readable, the most headroom as before: %q", got)
+	}
+	r.l.Ports.Usage = fakeUsage{st: AccountStatus{Exists: true}, urgent: map[string]float64{"a": 1.0, "b": 1.4, "c": 1.6}}
+	for to, want := range map[string]bool{"b": false, "c": true, "x": true} {
+		if got := r.l.WorthRepick("a", to); got != want {
+			t.Errorf("a cold wake on a, offered %s: %v, want %v", to, got, want)
+		}
 	}
 }
