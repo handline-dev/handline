@@ -464,7 +464,7 @@ describe('the detail', () => {
     };
     const release = s.daemon.knobs.hold('task.edit');
     await edit('Title', 'Pair the web UI');
-    await until(() => text($('.tdetail-head')).includes('Pair the web UI'), 'the new title at once');
+    await until(() => text(document.body).includes('Pair the web UI'), 'the new title at once');
     expect(s.daemon.tasks.get({ task: 1700 }).title).toContain('Draft'); // not yet at the daemon
     release();
     await until(() => s.daemon.tasks.get({ task: 1700 }).title === 'Pair the web UI', 'saved');
@@ -476,7 +476,7 @@ describe('the detail', () => {
     s.daemon.knobs.refuse('task.edit', 'state', 'locked');
     await edit('Title', 'Nope');
     await until(() => text($('.toast')).includes('locked'), 'the refusal');
-    await until(() => text($('.tdetail-head')).includes('Pair the web UI'), 'the title back');
+    await until(() => text(document.body).includes('Pair the web UI'), 'the title back');
   });
 
   it('withdraws a task I asked for after a confirmation, with "…" until the daemon answers; a started task can only be cancelled', async () => {
@@ -551,7 +551,7 @@ describe('the detail', () => {
     expect(s.daemon.tasks.get({ task: 1688 }).evidence).toBe('landed as abc123');
     // the founder's own done task: the key says why it cannot be reopened
     await act(async () => void (location.hash = '#/tasks/1650'));
-    await until(() => text($('.tdetail-head')).includes('T1650'), 'task 1650'); // local-ref-ok
+    await until(() => text(document.body).includes('T1650'), 'task 1650'); // local-ref-ok
     expect(button('Reopen', $('.tverbs')!)).toBeUndefined(); // asked by 'founder', not by me
     await press('r', {}, $('.tbody')!);
     await until(() => text($('.toast')).includes('only a done task that you asked for can be reopened'), 'the bridge sentence');

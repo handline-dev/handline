@@ -47,8 +47,7 @@ export function TaskDetail({
       {page ? (
         <PageHead back={onBack ? { label: 'My turn', to: onBack } : { label: 'Tasks', to: () => leave('#/tasks') }}>
           <PageTitle className="min-w-0 truncate">
-            <span className="mono">{taskRef(id)}</span>
-            {q.data ? ` ${q.data.title}` : ''}
+            <span className="mono">{taskRef(id)}</span> {q.data ? <TitleEdit t={q.data} /> : null}
           </PageTitle>
         </PageHead>
       ) : null}
@@ -80,6 +79,20 @@ export function TaskDetail({
         )}
       </article>
     </>
+  );
+}
+
+/** The task's title, where the person edits it: in the top bar on a page of its own, in the body's heading elsewhere. */
+function TitleEdit({ t }: { t: Detail }) {
+  const edit = useEditTask(t);
+  return (
+    <Inline
+      can={edit.can.ok && !CLOSED.includes(t.state)}
+      label="Title"
+      input={(close) => <TextInput value={t.title} label="Title" onSave={(title) => edit.save({ title })} onClose={close} />}
+    >
+      {t.title}
+    </Inline>
   );
 }
 
@@ -170,16 +183,11 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   return (
     <div className="tbody flex min-h-full flex-col bg-inherit" ref={root} tabIndex={-1} onKeyDown={key}>
       <header className="tdetail-head flex flex-wrap items-baseline gap-2">
-        <h2 className={`m-0 min-w-0 text-title font-semibold${barNamed ? ' sr-only' : ''}`}>
-          <span className="mono">{taskRef(t.id)}</span>{' '}
-          <Inline
-            can={edit.can.ok && open}
-            label="Title"
-            input={(close) => <TextInput value={t.title} label="Title" onSave={(title) => edit.save({ title })} onClose={close} />}
-          >
-            {t.title}
-          </Inline>
-        </h2>
+        {barNamed ? null : (
+          <h2 className={`m-0 min-w-0 text-title font-semibold`}>
+            <span className="mono">{taskRef(t.id)}</span> <TitleEdit t={t} />
+          </h2>
+        )}
         {status.length ? (
           <MenuButton
             label="Status"
