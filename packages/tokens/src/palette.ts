@@ -21,6 +21,9 @@ export interface Colors {
   termInk: string;
   shadowAlpha: string;
   scrim: string;
+  /** The one tint over a hovered item, and the step darker over a pressed one: light on dark, dark on light, over any ground. */
+  hover: string;
+  press: string;
 }
 
 const dark: Colors = {
@@ -40,6 +43,8 @@ const dark: Colors = {
   termInk: '#e8e6df',
   shadowAlpha: '#0006',
   scrim: '#0008',
+  hover: '#ffffff0f',
+  press: '#ffffff1a',
 };
 
 const light: Colors = {
@@ -59,6 +64,8 @@ const light: Colors = {
   termInk: '#e8e6df',
   shadowAlpha: '#0002',
   scrim: '#00000059',
+  hover: '#0000000d',
+  press: '#00000017',
 };
 
 export const scheme: Record<Scheme, Colors> = { light, dark };
@@ -105,6 +112,8 @@ export interface Palette {
   termBg: string;
   termInk: string;
   scrim: string;
+  /** The press feedback of a tapped row (a tint over the row). */
+  press: string;
   onFill: string;
 }
 
@@ -126,6 +135,7 @@ const flat = (c: Colors): Palette => ({
   termBg: c.termBg,
   termInk: c.termInk,
   scrim: c.scrim,
+  press: c.press,
   onFill,
 });
 

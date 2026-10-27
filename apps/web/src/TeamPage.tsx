@@ -118,7 +118,7 @@ function TeamTree({ nodes, doing, edges }: { nodes: TeamNode[]; doing: Doing; ed
         return (
           <div key={a.name} className="[&:not(:first-child)]:border-t [&:not(:first-child)]:border-line">
             <div
-              className="team-row grid min-h-9 cursor-pointer grid-cols-[minmax(0,1.3fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,0.8fr)] items-center gap-x-3 px-3 py-1.5 hover:bg-raised"
+              className="team-row grid min-h-9 cursor-pointer grid-cols-[minmax(0,1.3fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,0.8fr)] items-center gap-x-3 px-3 py-1.5 tint"
               role="treeitem"
               aria-level={depth + 1}
               aria-expanded={kids ? !folded.has(a.name) : undefined}
@@ -224,7 +224,7 @@ function ChartNode({ node, doing, pick }: { node: TeamNode; doing: Doing; pick: 
     <div className="flex items-center gap-4">
       <button
         type="button"
-        className="team-box flex min-w-0 max-w-56 flex-none cursor-pointer items-center gap-1.5 rounded-card border border-line bg-panel px-2.5 py-1.5 text-left hover:bg-raised"
+        className="team-box flex min-w-0 max-w-56 flex-none cursor-pointer items-center gap-1.5 rounded-card border border-line bg-panel px-2.5 py-1.5 text-left tint"
         data-agent={a.name}
         onClick={() => pick(a.name)}
       >

@@ -77,7 +77,7 @@ export function ResourceArea() {
         <span className="relative inline-flex">
           <button
             type="button"
-            className="resource-cell inline-flex cursor-pointer items-center border-0 bg-transparent p-0 text-hint text-ink-2"
+            className="resource-cell tint -mx-1 inline-flex cursor-pointer items-center rounded-chip border-0 bg-transparent px-1 py-0 text-hint text-ink-2"
             aria-expanded={open}
             title="What the machine and the agents use"
             onClick={() => setOpen(!open)}
@@ -111,7 +111,7 @@ function Details({ r, limits }: { r: Resources; limits: Limits }) {
   const full = loadFull(r, limits.load_per_core_pct);
   const low = memoryLow(r, limits.ram_free_min_pct);
   const row =
-    'flex w-full cursor-pointer items-center gap-2 rounded-chip border-0 bg-transparent px-1 py-1 -mx-1 text-left text-body text-ink hover:bg-raised';
+    'flex w-full cursor-pointer items-center gap-2 rounded-chip border-0 bg-transparent px-1 py-1 -mx-1 text-left text-body text-ink tint';
   const mark = (which: 'load' | 'memory') => (
     <Icon
       name="chevronRight"

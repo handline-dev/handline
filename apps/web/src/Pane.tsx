@@ -145,7 +145,7 @@ export function Pane({ group }: { group: Group }) {
               role="tab"
               tabIndex={0}
               aria-selected={id === group.activeTab || asleep}
-              className={`tab group ${viaSwitch ? 'hidden' : 'inline-flex'} my-1 max-w-[200px] cursor-default select-none items-center gap-1.5 whitespace-nowrap rounded-ctl px-2.5 font-sans text-body font-medium hover:bg-raised ${id === group.activeTab ? 'on bg-raised text-ink' : asleep ? 'text-ink-2 bg-raised/50' : 'text-ink-2'}`}
+              className={`tab group ${viaSwitch ? 'hidden' : 'inline-flex'} my-1 max-w-[200px] cursor-default select-none items-center gap-1.5 whitespace-nowrap rounded-ctl px-2.5 font-sans text-body font-medium tint ${id === group.activeTab ? 'on bg-raised text-ink' : asleep ? 'text-ink-2 bg-raised/50' : 'text-ink-2'}`}
               data-tab={id}
               draggable={id !== CHAT}
               onDragStart={(e) => {
@@ -236,7 +236,7 @@ export function Pane({ group }: { group: Group }) {
                 <button
                   key={c.label}
                   type="button"
-                  className="tile flex aspect-square flex-col items-center justify-center gap-2 rounded-card border-0 bg-transparent text-body text-ink hover:enabled:bg-raised disabled:opacity-50"
+                  className="tile flex aspect-square flex-col items-center justify-center gap-2 rounded-card border-0 bg-transparent text-body text-ink tint disabled:opacity-50"
                   disabled={c.disabled}
                   onClick={() => void choose(c, (w, kind, params) => fillTab(w, tab.id, kind, params))}
                 >

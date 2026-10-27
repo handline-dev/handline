@@ -74,7 +74,8 @@ export function Button(props: {
 }) {
   const c = usePalette();
   const bg = props.kind === 'yes' ? c.run : props.kind === 'no' ? c.block : c.panel;
-  const ink = props.kind === 'yes' || props.kind === 'no' ? c.onFill : c.ink;
+  const solid = props.kind === 'yes' || props.kind === 'no';
+  const ink = solid ? c.onFill : c.ink;
   return (
     <Pressable
       testID={props.testID}
@@ -82,20 +83,20 @@ export function Button(props: {
       onPress={props.onPress}
       accessibilityRole="button"
       accessibilityLabel={props.accessibilityLabel}
-      style={{
-        backgroundColor: bg,
+      style={({ pressed }) => ({
+        backgroundColor: pressed && solid ? bg : pressed ? c.raised : bg,
         borderColor: c.line,
         borderWidth: 1,
         borderRadius: radius.card,
         paddingVertical: space.md,
         paddingHorizontal: space.lg,
-        opacity: props.disabled ? 0.4 : 1,
+        opacity: props.disabled ? 0.4 : pressed && solid ? 0.85 : 1,
         alignItems: 'center',
         flexDirection: 'row',
         justifyContent: 'center',
         gap: space.sm,
         ...props.style,
-      }}
+      })}
     >
       {props.icon ? <Icon name={props.icon} decorative size={18} color={ink} /> : null}
       {props.label ? <Text style={{ color: ink, fontWeight: '600' }}>{props.label}</Text> : null}
@@ -163,14 +164,15 @@ export function Pill(props: { on: boolean; label: string; testID: string; onPres
       accessibilityRole={props.role ?? 'button'}
       accessibilityState={{ selected: props.on }}
       onPress={props.onPress}
-      style={{
+      style={({ pressed }) => ({
         minHeight: 36,
         justifyContent: 'center',
         borderWidth: props.on ? 2 : 1,
         borderColor: props.on ? c.ink : c.line,
         borderRadius: radius.pill,
         paddingHorizontal: space.md,
-      }}
+        backgroundColor: pressed ? c.press : undefined,
+      })}
     >
       <Text style={{ color: c.ink, fontWeight: props.on ? '700' : '400' }}>{props.on ? `✓ ${props.label}` : props.label}</Text>
     </Pressable>
@@ -197,9 +199,9 @@ export function ListRow(props: {
       onPress={props.onPress}
       onLongPress={props.onLongPress}
       accessibilityState={props.selected === undefined ? undefined : { selected: props.selected }}
-      style={{
+      style={({ pressed }) => ({
         minHeight: 48,
-        backgroundColor: props.selected ? c.panel : undefined,
+        backgroundColor: pressed ? c.press : props.selected ? c.panel : undefined,
         justifyContent: 'center',
         paddingHorizontal: space.lg,
         paddingVertical: space.sm,
@@ -209,7 +211,7 @@ export function ListRow(props: {
         alignItems: 'center',
         gap: space.md,
         ...props.style,
-      }}
+      })}
     >
       {props.lead}
       <View style={{ flex: 1 }}>

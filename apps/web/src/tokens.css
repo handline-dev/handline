@@ -25,6 +25,8 @@
   --shadow-2: 0 8px 24px #0006;
   --shadow-3: 0 16px 48px #0006;
   --scrim: #0008;
+  --hover-bg: #ffffff0f;
+  --press-bg: #ffffff1a;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) {
@@ -52,6 +54,8 @@
     --shadow-2: 0 8px 24px #0002;
     --shadow-3: 0 16px 48px #0002;
     --scrim: #00000059;
+    --hover-bg: #0000000d;
+    --press-bg: #00000017;
     color-scheme: light;
   }
 }
@@ -79,6 +83,8 @@
   --shadow-2: 0 8px 24px #0002;
   --shadow-3: 0 16px 48px #0002;
   --scrim: #00000059;
+  --hover-bg: #0000000d;
+  --press-bg: #00000017;
   color-scheme: light;
 }
 

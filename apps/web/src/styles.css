@@ -8,6 +8,16 @@
 @import './styles/ui.css';
 @import './styles/themes.css';
 
+/* The one hover and press look: a light tint over the item's own ground, so a selected or raised item keeps its colour. Plain text has none. */
+@utility tint {
+  &:hover:not(:disabled, [aria-disabled='true']) {
+    background-image: linear-gradient(var(--hover-bg), var(--hover-bg));
+  }
+  &:active:not(:disabled, [aria-disabled='true']) {
+    background-image: linear-gradient(var(--press-bg), var(--press-bg));
+  }
+}
+
 /* `shell:` — the page runs in the desktop shell (main.tsx marks <html data-shell>). */
 @custom-variant shell (:root[data-shell='desktop'] &);
 
@@ -17,6 +27,8 @@
   --color-surface: var(--bg-1);
   --color-panel: var(--bg-2);
   --color-raised: var(--bg-3);
+  --color-hover: var(--hover-bg);
+  --color-press: var(--press-bg);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-ink: var(--ink);
