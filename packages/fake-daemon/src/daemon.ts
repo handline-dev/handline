@@ -360,7 +360,7 @@ export class FakeDaemon {
         script: this.script,
         transcript: this.transcript,
         agent,
-        byTerminal: (id) => byTerminal(this.sessions, id),
+        byTerminal: (id) => byTerminal(new Map([...this.sessions, ...this.script.shells]), id),
         iso: () => this.iso(),
       });
     switch (method as MethodName) {

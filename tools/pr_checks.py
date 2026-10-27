@@ -22,7 +22,7 @@ MAX_BINARY_BYTES = 1 << 20
 ASSET_PATHS = ("apps/mobile/shots/", "apps/mobile/assets/", "apps/web/public/", "apps/electron/assets/", "docs/tui-catalog/img/")
 MEDIA = re.compile(r"\.(png|jpe?g|gif|webp|bmp|tiff?|heic|ico|icns|svg|mp4|mov|webm|ttf|otf|woff2?)$", re.I)
 SCRATCH = re.compile(r"(^|/)(scratch|tmp|\.claude)/|(^|/)\.DS_Store$|\.(orig|rej|bak|swp|log)$|~$")
-GENERATED = ("contract/protocol.ts", "contract/protocol.md")
+GENERATED = ("contract/protocol.ts", "contract/protocol.md", "contract/gen/")
 CODE = {".ts": "//", ".tsx": "//", ".js": "//", ".mjs": "//", ".go": "//", ".py": "#", ".sh": "#"}
 SECTIONS = ("Why", "What changed", "Evidence", "Risk")
 HANGUL = re.compile(r"[ᄀ-ᇿ㄰-㆏가-힣]")
@@ -71,7 +71,7 @@ def file_problems(base: str, head: str = "HEAD") -> list[str]:
             if not allowed or size > MAX_BINARY_BYTES:
                 out.append(f"{path}: a binary file ({size} bytes)")
         ext = os.path.splitext(path)[1]
-        if ext in CODE and path not in GENERATED and added != "-":
+        if ext in CODE and not path.startswith(GENERATED) and added != "-":
             lines = git("show", f"{head}:{path}").split("\n")
             new = added_lines(base, head, path)
             for first, last in comment_blocks(lines, CODE[ext]):

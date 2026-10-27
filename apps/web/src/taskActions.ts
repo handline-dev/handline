@@ -2,23 +2,14 @@
 // hollow dot, a decided one shows "…" where the state is, and a refused row says "not changed" for six seconds.
 import { useState } from 'react';
 import { useStore } from '@handline/app-react';
-import { usePending, useWrite } from '@handline/app-data';
+import { usePending, useTaskActions } from '@handline/app-data';
 import { applyEach, type Outcome, type RowVerb } from '@handline/app-core';
 
 const idsOf = (v: { task?: number; tasks?: number[] }): number[] => [...(v.task === undefined ? [] : [v.task]), ...(v.tasks ?? [])];
 
 export function useBulk(afterwards: () => void) {
   const store = useStore();
-  const edit = useWrite('task.edit');
-  const discard = useWrite('task.discard');
-  const merge = useWrite('task.merge');
-  const done = useWrite('task.done');
-  const reopen = useWrite('task.reopen');
-  const queue = useWrite('task.queue');
-  const draft = useWrite('task.draft');
-  const release = useWrite('task.release');
-  const withdraw = useWrite('task.withdraw');
-  const cancel = useWrite('task.cancel');
+  const { edit, discard, merge, verbs } = useTaskActions();
   const [result, setResult] = useState<{ what: string; outcomes: Outcome[] } | null>(null);
   const [failed, setFailed] = useState<ReadonlySet<number>>(new Set());
   const authored = new Set(
@@ -46,20 +37,6 @@ export function useBulk(afterwards: () => void) {
     afterwards();
     return outcomes;
   }
-  /** `arg` is the sentence, owner, priority or time box the verb asks for; the verbs without one ignore it. */
-  const verbs: Record<RowVerb, (task: number, arg: string) => Promise<unknown>> = {
-    done: (task, evidence) => done.mutateAsync({ task, evidence, reason: true }),
-    reopen: (task, note) => reopen.mutateAsync({ task, ...(note ? { note } : {}) }),
-    queue: (task) => queue.mutateAsync({ tasks: [task] }),
-    draft: (task) => draft.mutateAsync({ tasks: [task] }),
-    release: (task, reason) => release.mutateAsync({ task, reason }),
-    withdraw: (task) => withdraw.mutateAsync({ task }),
-    cancel: (task, reason) => cancel.mutateAsync({ task, ...(reason ? { reason } : {}) }),
-    discard: (task, reason) => discard.mutateAsync({ task, reason }),
-    owner: (task, owner) => edit.mutateAsync({ task, owner }),
-    priority: (task, p) => edit.mutateAsync({ task, priority: Number(p) as 1 | 2 | 3 }),
-    timebox: (task, time_box) => edit.mutateAsync({ task, time_box }),
-  };
   return {
     failed,
     result,

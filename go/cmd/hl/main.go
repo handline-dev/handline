@@ -17,6 +17,7 @@ var commands = map[string]command{
 	"chat":            chat,
 	"dev":             dev,
 	"device":          device,
+	"handoff":         handoffCmd,
 	"hook":            hook,
 	"idle-background": idleBackground,
 	"hr":              hr,

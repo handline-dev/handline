@@ -6,16 +6,14 @@ import { isGate, isPerson, taskRef } from '@handline/app-core';
 import { Text, TextInput, View } from 'react-native';
 import { useStore } from '@handline/app-react';
 import type { TaskDetail } from '@handline/client';
-import { useOff, usePendingAny, useWrite } from '@handline/app-data';
+import { useOff, usePendingAny, useTaskActions } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { BottomSheet, Button, MenuItem, MenuSheet, Pill } from '#src/screens/parts.tsx';
 import { AskAbout } from '#src/screens/TaskAsk.tsx';
 import { AssignTask } from '#src/screens/TaskAssign.tsx';
-import { EditTask, NewTask } from '#src/screens/TaskForms.tsx';
+import { EditTask } from '#src/screens/TaskForm.tsx';
 import { MergeTasks, ReleaseTask } from '#src/screens/TaskReleaseMerge.tsx';
-
-export { NewTask };
 
 const CLOSED = ['done', 'discarded'];
 
@@ -147,13 +145,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   const me = useStore().me;
   const [ask, setAsk] = useState<Ask>(null);
   const [menu, setMenu] = useState<null | 'status' | 'more'>(null);
-  const done = useWrite('task.done');
-  const reopen = useWrite('task.reopen');
-  const withdraw = useWrite('task.withdraw');
-  const cancel = useWrite('task.cancel');
-  const queue = useWrite('task.queue');
-  const draft = useWrite('task.draft');
-  const discard = useWrite('task.discard');
+  const { done, reopen, withdraw, cancel, queue, draft, discard } = useTaskActions();
   const off = {
     done: useOff('task.done'),
     reopen: useOff('task.reopen'),

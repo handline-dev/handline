@@ -1,7 +1,7 @@
-// The phone's new-task and edit forms: the fields they share (who it is assigned to, title, body, time box, priority) and the two sheets that send them.
+// The phone's new-task and edit-task sheets: owner, title, body, time box and priority. The sheet stays open with the text when the daemon refuses.
 import { useState } from 'react';
-import { taskRef } from '@handline/app-core';
 import { Text, View } from 'react-native';
+import { taskRef } from '@handline/app-core';
 import type { TaskDetail } from '@handline/client';
 import { classify, sentence, useAgents, useOff, useWrite } from '@handline/app-data';
 import { space } from '@handline/tokens';
@@ -30,7 +30,7 @@ function TaskFields(p: { id: 'nt' | 'et'; owners: string[]; draft: TaskDraft; ch
   const { id, draft, change } = p;
   return (
     <>
-      <Text style={{ color: c.muted, fontWeight: '600' }}>Assigned to</Text>
+      <Text style={{ color: c.muted, fontWeight: '600' }}>Owner</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
         {p.owners.map((a) => (
           <Pill role="radio" key={a} on={draft.owner === a} label={a} onPress={() => change({ owner: a })} testID={`${id}-owner-${a}`} />

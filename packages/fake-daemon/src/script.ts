@@ -27,8 +27,9 @@ const KEYS = new Set(['esc', 'enter', 'up', 'down', 'tab', 'shift-tab', 'ctrl-c'
 export class Script {
   readonly timeline = new Timeline();
   readonly schedules: Schedule[] = [];
-  /** Handles of the shells shell.open started and shell.close has not ended. */
-  readonly shells = new Set<string>();
+  /** The shells shell.open started and shell.close has not ended, by handle. */
+  readonly shells = new Map<string, Session>();
+  shellCount = 0;
   scheduleId = 0;
   readonly hr: FakeHr;
   private host: Host;
@@ -264,6 +265,7 @@ export class Script {
   rawInput(s: Session, p: Record<string, unknown>, c: Who, actor: Actor) {
     const bytes = typeof p.data === 'string' ? Buffer.from(p.data, 'base64') : Buffer.alloc(0);
     if (!bytes.length || bytes.length > 16384) throw badRequest('data is 1 to 16384 bytes of base64', 'data');
+    if (s.handle) return this.shellInput(s, bytes.toString('utf8'));
     if (s.holder.kind === 'daemon') throw refused('input_holder', 'take the input first: the daemon holds it');
     this.gate(s, c);
     this.control(s, actor, 'input', `${actor.name} typed`);
@@ -275,6 +277,17 @@ export class Script {
         this.setComposeLine(s);
       }
     }
+    return this.accepted('Typed.');
+  }
+
+  /** A shell has no holder and no agent: what is typed shows after its prompt, Enter starts a new prompt line. */
+  private shellInput(s: Session, text: string) {
+    this.edit(s, () => {
+      for (const ch of text) {
+        if (ch === '\r') s.lines.push('$ ');
+        else s.lines[s.lines.length - 1] += ch;
+      }
+    });
     return this.accepted('Typed.');
   }
 

@@ -34,7 +34,7 @@ func (e *Env) roleLine(name string) string {
 	return ""
 }
 
-// noView is the state word of an agent the tick has stored no view for (x-state-words in protocol.json).
+// noView is the state word of an agent the tick has stored no view for (x-state-words in contract/spec/core.json).
 const noView = "no_terminal"
 
 // viewOf is the stored view of an agent (the Python daemon's tick keeps it in agent_view) with the fields read beside it when x is given (agents.list, agent.get). An agent with no
