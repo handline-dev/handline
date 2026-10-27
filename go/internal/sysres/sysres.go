@@ -86,9 +86,9 @@ func parsePS(out string) map[int]proc {
 	return procs
 }
 
-// deviceSimulator names a running phone simulator or emulator, "" for none, by the command's name alone: the iOS Simulator app, a booted
-// simulated device (launchd_sim), the Android emulator, or the qemu it runs on. Look-alikes (CoreSimulatorService, an editor open on
-// an "emulator" file) are other names and do not match.
+// deviceSimulator names a running phone simulator or emulator, "" for none, by the command's name alone: a booted simulated device
+// (launchd_sim, one per device) or the qemu an Android emulator runs on. The Simulator app and the emulator launcher are only a window
+// and a starter, so an idle one is not heavy; look-alikes (CoreSimulatorService, an editor open on an "emulator" file) do not match either.
 func deviceSimulator(procs map[int]proc) string {
 	for _, p := range procs {
 		name := p.comm
@@ -96,9 +96,9 @@ func deviceSimulator(procs map[int]proc) string {
 			name = name[i+1:]
 		}
 		switch {
-		case name == "Simulator" || name == "launchd_sim":
+		case name == "launchd_sim":
 			return "iOS simulator"
-		case name == "emulator" || strings.HasPrefix(name, "qemu-system-"):
+		case strings.HasPrefix(name, "qemu-system-"):
 			return "Android emulator"
 		}
 	}
