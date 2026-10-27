@@ -21,6 +21,12 @@ func TestHeavyGuardRefusesEachFormOutsideASlot(t *testing.T) {
 		"headless Chrome":   "'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --headless=new --screenshot=x.png http://localhost",
 		"after an allowed":  "tools/check.sh && go test ./...",
 		"time go test":      "time go test ./...",
+		"timeout go test":   "timeout 600 go test ./x",
+		"timeout -k":        "timeout -k 5 600 go test ./x",
+		"bash -c":           `bash -c "go test ./x"`,
+		"sh -c":             `sh -c 'cd go; go test ./x'`,
+		"in a subshell":     "(cd go && go test ./x)",
+		"in a substitution": "echo $(go test ./x)",
 	} {
 		why := Guard("Bash", bash(c))
 		if !strings.HasPrefix(why, "Refused: ") || !strings.Contains(why, "tools/heavy-slot.sh") {
@@ -31,19 +37,27 @@ func TestHeavyGuardRefusesEachFormOutsideASlot(t *testing.T) {
 
 func TestHeavyGuardLetsTheWrappersAndOtherCommandsThrough(t *testing.T) {
 	for name, c := range map[string]string{
-		"heavy-slot":         "tools/heavy-slot.sh vitest run a.test.ts",
-		"heavy-slot go":      "./tools/heavy-slot.sh go test ./cmd/hl",
-		"check.sh":           "tools/check.sh",
-		"test-go.sh":         "tools/test-go.sh ./cmd/hl",
-		"pnpm test":          "pnpm --filter @handline/web test",
-		"root pnpm test":     "pnpm test",
-		"env then wrapper":   "HANDLINE_X=1 tools/heavy-slot.sh pnpm perf",
-		"grep for vitest":    "grep -rn vitest apps/web/package.json",
-		"commit message":     `git commit -m "run vitest and go test"`,
-		"go build":           "go build ./... && go vet ./...",
-		"simctl shutdown":    "xcrun simctl shutdown all",
-		"chrome no headless": "open -a 'Google Chrome'",
-		"empty":              "",
+		"heavy-slot":          "tools/heavy-slot.sh vitest run a.test.ts",
+		"heavy-slot go":       "./tools/heavy-slot.sh go test ./cmd/hl",
+		"check.sh":            "tools/check.sh",
+		"test-go.sh":          "tools/test-go.sh ./cmd/hl",
+		"pnpm test":           "pnpm --filter @handline/web test",
+		"root pnpm test":      "pnpm test",
+		"env then wrapper":    "HANDLINE_X=1 tools/heavy-slot.sh pnpm perf",
+		"grep for vitest":     "grep -rn vitest apps/web/package.json",
+		"commit message":      `git commit -m "run vitest and go test"`,
+		"go build":            "go build ./... && go vet ./...",
+		"simctl shutdown":     "xcrun simctl shutdown all",
+		"chrome no headless":  "open -a 'Google Chrome'",
+		"report with go test": `hl task done T1 "go vet ok; go test -race for cmd/hl ok"`,
+		"commit heredoc":      "git commit -m \"$(cat <<'EOF'\nFix it\n\ngo test now needs the slot\nEOF\n)\"",
+		"slot bash -c":        `tools/heavy-slot.sh bash -c "cd go && go test ./x"`,
+		"slot sh -c":          `tools/heavy-slot.sh sh -c 'cd go; go test ./x'`,
+		"check then wrapper":  "tools/check.sh --fast && echo done",
+		"heredoc body":        "cat <<EOF\ngo test ./x\nEOF",
+		"nested bash -c":      `bash -c "bash -c 'go test ./x'"`,
+		"unparsable":          "go test ./x 'unterminated",
+		"empty":               "",
 	} {
 		if why := Guard("Bash", bash(c)); why != "" {
 			t.Errorf("%s: %q refused: %q", name, c, why)

@@ -421,3 +421,48 @@ func TestAMemoryReadingThatFailsDoesNotHoldTheRun(t *testing.T) {
 		t.Errorf("lowMemory = %q", got)
 	}
 }
+
+func TestOnlyTheFirstInLineLooksAtMemory(t *testing.T) {
+	memoryEnv(t, "")
+	dir := os.Getenv("HANDLINE_HEAVY_DIR")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	front, err := os.OpenFile(filepath.Join(dir, "ticket-00000000000000000001-1"), os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer front.Close()
+	if err := syscall.Flock(int(front.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	reads := 0
+	freeMemory = func() (int64, int64, error) { mu.Lock(); defer mu.Unlock(); reads++; return 50, 100, nil }
+	captureStderr(t)
+	done := make(chan struct{})
+	go func() {
+		if f, _, err := acquire(); err == nil {
+			f.Close()
+		}
+		close(done)
+	}()
+	time.Sleep(10 * poll)
+	mu.Lock()
+	n := reads
+	mu.Unlock()
+	if n != 0 {
+		t.Errorf("a waiter with a run ahead of it read memory %d times", n)
+	}
+	front.Close() // the run ahead ends: this one is first, reads memory and takes the slot
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("never took the slot once first in line")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if reads == 0 {
+		t.Error("the first in line did not read memory")
+	}
+}
