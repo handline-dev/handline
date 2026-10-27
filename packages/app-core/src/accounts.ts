@@ -61,6 +61,17 @@ export const STATE_WORD: Record<AccountState, string> = {
   unknown: 'unknown',
 };
 
+/** A plain word for each error that stalls an account; one the daemon does not name shows as it is. */
+const STALL_WORD: Record<string, string> = {
+  authentication_failed: 'login expired',
+  oauth_org_not_allowed: 'organization not allowed',
+  account_on_hold: 'account on hold',
+  verification_required: 'verification needed',
+  billing_error: 'billing problem',
+  cloud_credential_error: 'cloud credentials problem',
+};
+export const stallWord = (s: { reason: string; error: string }): string => STALL_WORD[s.error] ?? STALL_WORD[s.reason] ?? s.reason;
+
 /** The state chip: login first, then a full window (out until it resets), then whether agents sit on it. */
 export function stateOf(a: Account): AccountState {
   if (a.login_state === 'needs_login') return 'needs_login';
@@ -99,8 +110,8 @@ export const loginRunning = (a: Account): boolean => a.login?.state === 'waiting
 /** Agents working on the account now over the most it takes at once; before the usage read arrives only the cap is known. */
 export const agentsLine = (account: Pick<Account, 'agents_running' | 'cap_effective'>): string =>
   account.agents_running === undefined
-    ? `cap ${account.cap_effective}`
-    : `${account.agents_running} working / cap ${account.cap_effective}`;
+    ? `up to ${account.cap_effective} at once`
+    : `${account.agents_running} of ${account.cap_effective} working`;
 
 /** What an account's pace means for starting agents, in words (`short` for a one-word row form); null for pacing off or an account with no pace. */
 export function paceLine(account: Pick<Account, 'pace'>, short = false): string | null {
@@ -108,7 +119,7 @@ export function paceLine(account: Pick<Account, 'pace'>, short = false): string 
   if (!pace) return null;
   switch (pace.state) {
     case 'behind':
-      return 'on pace';
+      return 'on track';
     case 'ahead':
       return short ? 'ahead' : 'ahead of pace: fewer agents start';
     case 'over': {
