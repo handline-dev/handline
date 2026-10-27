@@ -40,7 +40,13 @@ export function AskSheets({
         />
       ) : null}
       {ask === 'reopen' ? (
-        <ReasonSheet key="reopen" label="reopen: why?" submit="Reopen" onCancel={onClose} onSubmit={(note) => then(reopen, { task: t.id, note })} />
+        <ReasonSheet
+          key="reopen"
+          label="reopen: why?"
+          submit="Reopen"
+          onCancel={onClose}
+          onSubmit={(note) => then(reopen, { task: t.id, note })}
+        />
       ) : null}
       {ask === 'discard' ? (
         <ReasonSheet
@@ -63,7 +69,13 @@ export function AskSheets({
         </Sheet>
       ) : null}
       {ask === 'cancel' ? (
-        <CancelSheet key="cancel" running={running} id={t.id} onCancel={onClose} onSubmit={(reason) => then(cancel, { task: t.id, reason })} />
+        <CancelSheet
+          key="cancel"
+          running={running}
+          id={t.id}
+          onCancel={onClose}
+          onSubmit={(reason) => then(cancel, { task: t.id, reason })}
+        />
       ) : null}
       {ask === 'release' ? (
         <ReasonSheet

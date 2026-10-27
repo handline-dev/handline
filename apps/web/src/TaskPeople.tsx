@@ -27,10 +27,9 @@ function AssignList({ t, me, onClose }: { t: Detail; me: string; onClose: () => 
   const edit = useWrite('task.edit');
   const known = useAgents().data?.agents.map((a) => a.name) ?? [];
   const team = useTeam().data ?? { agents: [] };
-  const likely = assignGroups(t, team, known, me)
-    .filter((g) => g.key !== 'rest')
-    .flatMap((g) => g.names);
-  const everyone = [...new Set([...assignGroups(t, team, known, me).flatMap((g) => g.names), me, t.to])];
+  const groups = assignGroups(t, team, known, me);
+  const likely = groups.filter((g) => g.key !== 'rest').flatMap((g) => g.names);
+  const everyone = [...new Set([...groups.flatMap((g) => g.names), me, t.to])];
   const [find, setFind] = useState('');
   const [at, setAt] = useState(0);
   const q = find.trim().toLowerCase();
