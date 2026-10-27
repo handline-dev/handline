@@ -180,6 +180,8 @@ export type Outlook = {
     resets: {
       at: Timestamp;
       window: "5h" | "7d";
+      /** Only on a weekly (7d) reset the samples recorded: the percent of that week left unused at the last sample before it. Absent for a 5h reset, a guessed one, or a week with no sample. */
+      unused_pct?: number;
     }[];
   }[];
 };
@@ -218,6 +220,8 @@ export type Headroom = {
     resets: {
       at: Timestamp;
       window: "5h" | "7d";
+      /** Only on a weekly (7d) reset the samples recorded: the percent of that week left unused at the last sample before it. Absent for a 5h reset, a guessed one, or a week with no sample. */
+      unused_pct?: number;
     }[];
   }[];
   runs_out_at: Timestamp | null;

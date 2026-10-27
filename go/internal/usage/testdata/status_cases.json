@@ -51961,15 +51961,15 @@
    ],
    "config": {},
    "expect": {
-    "picked": "safe",
+    "picked": "close_to_wall",
     "reasons": [
      [
       "close_to_wall",
-      "5h 5%, fill 0.0%/min, 0/2 agents, one more agent (0.75%/min) lasts ~2h06m; 7d 92% (resets in 60m, 0.93x its weekly pace)"
+      "5h 5%, fill 0.0%/min, 0/2 agents, one more agent (0.75%/min) lasts ~2h06m; 7d 92% (resets in 60m, 0.93x its weekly pace) <- picked"
      ],
      [
       "safe",
-      "5h 5%, fill 0.0%/min, 0/2 agents, one more agent (0.75%/min) lasts ~2h06m; 7d 50% (resets in 1d1h, 0.59x its weekly pace) <- picked"
+      "5h 5%, fill 0.0%/min, 0/2 agents, one more agent (0.75%/min) lasts ~2h06m; 7d 50% (resets in 1d1h, 0.59x its weekly pace)"
      ]
     ]
    },
@@ -52034,15 +52034,15 @@
    ],
    "config": {},
    "expect": {
-    "picked": "wall_a",
+    "picked": "wall_b",
     "reasons": [
      [
       "wall_a",
-      "5h 5%, fill 0.0%/min, 0/2 agents, one more agent (0.75%/min) lasts ~2h06m; 7d 91% (resets in 16m, 0.91x its weekly pace) <- picked"
+      "5h 5%, fill 0.0%/min, 0/2 agents, one more agent (0.75%/min) lasts ~2h06m; 7d 91% (resets in 16m, 0.91x its weekly pace)"
      ],
      [
       "wall_b",
-      "5h 5%, fill 0.0%/min, 0/2 agents, one more agent (0.75%/min) lasts ~2h06m; 7d 93% (resets in 50s, 0.93x its weekly pace)"
+      "5h 5%, fill 0.0%/min, 0/2 agents, one more agent (0.75%/min) lasts ~2h06m; 7d 93% (resets in 50s, 0.93x its weekly pace) <- picked"
      ]
     ]
    },
@@ -52180,15 +52180,15 @@
    ],
    "config": {},
    "expect": {
-    "picked": "b",
+    "picked": "a",
     "reasons": [
      [
       "a",
-      "5h 10%, fill 0.0%/min, 0/2 agents, one more agent (0.75%/min) lasts ~2h00m; 7d 40% (resets in 1d1h, 0.47x its weekly pace)"
+      "5h 10%, fill 0.0%/min, 0/2 agents, one more agent (0.75%/min) lasts ~2h00m; 7d 40% (resets in 1d1h, 0.47x its weekly pace) <- picked"
      ],
      [
       "b",
-      "5h 10%, fill 0.0%/min, 0/2 agents, one more agent (0.75%/min) lasts ~2h00m; 7d 41% (resets in 1d1h, 0.48x its weekly pace) <- picked"
+      "5h 10%, fill 0.0%/min, 0/2 agents, one more agent (0.75%/min) lasts ~2h00m; 7d 41% (resets in 1d1h, 0.48x its weekly pace)"
      ]
     ]
    },
@@ -56039,7 +56039,7 @@
    ],
    "config": {},
    "expect": {
-    "picked": "b",
+    "picked": "c",
     "reasons": [
      [
       "a",
@@ -56047,11 +56047,11 @@
      ],
      [
       "b",
-      "5h 100% (8h old, reset since), 7d 30% - stale, window rolled over <- picked"
+      "5h 100% (8h old, reset since), 7d 30% - stale, window rolled over"
      ],
      [
       "c",
-      "5h 0%, fill 0.0%/min, 2/3 agents, one more agent (0.60%/min) lasts ~2h46m; 7d 92% (resets in 83m, 0.93x its weekly pace)"
+      "5h 0%, fill 0.0%/min, 2/3 agents, one more agent (0.60%/min) lasts ~2h46m; 7d 92% (resets in 83m, 0.93x its weekly pace) <- picked"
      ],
      [
       "d",
@@ -57710,15 +57710,15 @@
    ],
    "config": {},
    "expect": {
-    "picked": "a",
+    "picked": "b",
     "reasons": [
      [
       "a",
-      "5h 0%, fill 0.1%/min, 0/3 agents, one more agent (0.60%/min) lasts ~2h22m; 7d 30% (resets in 1d1h, 0.35x its weekly pace) <- picked"
+      "5h 0%, fill 0.1%/min, 0/3 agents, one more agent (0.60%/min) lasts ~2h22m; 7d 30% (resets in 1d1h, 0.35x its weekly pace)"
      ],
      [
       "b",
-      "5h 95% (25m old, reset since), 7d 60% - stale, window rolled over"
+      "5h 95% (25m old, reset since), 7d 60% - stale, window rolled over <- picked"
      ],
      [
       "c",
@@ -60502,15 +60502,15 @@
    ],
    "config": {},
    "expect": {
-    "picked": "b",
+    "picked": "a",
     "reasons": [
      [
       "a",
-      "5h 0% (25m old), 7d 30% - stale but idle"
+      "5h 0% (25m old), 7d 30% - stale but idle <- picked"
      ],
      [
       "b",
-      "5h 0%, fill 0.0%/min, 1/2 agents, one more agent (0.75%/min) lasts ~2h13m; 7d 5% (resets in 4d15h, 0.15x its weekly pace) <- picked"
+      "5h 0%, fill 0.0%/min, 1/2 agents, one more agent (0.75%/min) lasts ~2h13m; 7d 5% (resets in 4d15h, 0.15x its weekly pace)"
      ]
     ]
    },
