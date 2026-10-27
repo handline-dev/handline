@@ -177,7 +177,7 @@ func (e *Env) DeliverQueued(q db.Q, agent string) (sent bool, err error) {
 	if !e.batchDue(q, agent, batch, fresh) {
 		return false, nil // collected; goes out when the minute is up
 	}
-	if why := e.handingOff(q, agent); why != "" {
+	if why := e.handingOff(q, agent, batchOps(batch)...); why != "" {
 		return e.holdBack(agent, head, why, false), nil
 	}
 	// Only a structured or peer session takes a write; nothing is typed at a terminal.

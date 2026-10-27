@@ -35,8 +35,7 @@ async function mount() {
   });
   await until(() => box.querySelector('.tverbs'), 'the actions');
   expect(box.querySelector('.thistory')).toBeNull(); // folded away until asked for
-  await click([...box.querySelectorAll<HTMLElement>('.tverbs button')].find((b) => b.textContent!.startsWith('More'))!);
-  await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => i.textContent === 'Show history')!);
+  await click(box.querySelector('button[aria-label="History"]')!);
   await until(() => box.querySelector('.thistory'), 'the history');
   return s;
 }
@@ -51,7 +50,7 @@ afterEach(async () => {
 describe('task history', () => {
   it('shows a row per field with its before struck and its after bold, memo changes folded', async () => {
     await mount();
-    expect([...box.querySelectorAll('h3')].find((h) => h.textContent!.includes('History'))?.textContent).toMatch(/History.*11 changes/);
+    expect(box.querySelector('.thistory [aria-pressed="true"]')?.textContent).toMatch(/All.*11/);
     const priority = rows().find((r) => r.dataset.field === 'priority')!;
     expect(priority.textContent).toContain('founder');
     expect(priority.querySelector('.line-through')?.textContent).toBe('P2');

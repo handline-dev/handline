@@ -157,7 +157,13 @@ function List(props: { onSelect: (name: string) => void; footer?: ReactNode }) {
             <Pressable
               testID={`account-${a.name}`}
               onPress={() => props.onSelect(a.name)}
-              style={{ padding: space.lg, gap: space.xs, borderTopWidth: 1, borderTopColor: c.line }}
+              style={({ pressed }) => ({
+                padding: space.lg,
+                gap: space.xs,
+                borderTopWidth: 1,
+                borderTopColor: c.line,
+                backgroundColor: pressed ? c.press : undefined,
+              })}
             >
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
                 <Text style={{ color: c.ink, fontWeight: '600' }}>{a.label}</Text>

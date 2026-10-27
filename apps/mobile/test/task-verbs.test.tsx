@@ -157,7 +157,10 @@ describe('the task verbs', () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DRAFT);
     await press($('assignee-menu'));
-    await until(() => $(`assign-${ARCH}`), 'the picker');
+    await until(() => $('assign-find'), 'the picker');
+    expect(text()).toContain('now');
+    await fill('assign-find', 'archi');
+    await until(() => $(`assign-${ARCH}`), 'the match');
     await press($(`assign-${ARCH}`));
     await until(() => $('sheet') === null, 'the picker to close');
     await until(() => m.daemon.tasks.get({ task: MINE_DRAFT }).to === ARCH, 'the daemon');
@@ -220,19 +223,23 @@ describe('the task verbs', () => {
     expect($(`memo-${id}`)?.textContent).not.toContain('**');
   });
 
-  it('shows a memo\'s image inline (a tap opens it full size) and its Markdown rendered, and says so for a file no longer kept', async () => {
+  it("shows a memo's image inline (a tap opens it full size) and its Markdown rendered, and says so for a file no longer kept", async () => {
     const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
     let ids: { img: string; md: string; gone: string } | undefined;
-    const m = await mount((s) => {
-      s.daemon.tasks.verbs = true;
-      const up = s.daemon.uploads;
-      const img = up.addMemoFile('shot.png', 'image/png', Buffer.from(PNG, 'base64'));
-      const md = up.addMemoFile('plan.md', 'text/markdown', Buffer.from('# Plan\n\nA **bold** step and `code`.\n\n- first\n- second\n'));
-      const gone = up.addMemoFile('old.md', 'text/markdown', Buffer.from('# Old'));
-      up.expire(gone.id);
-      s.daemon.tasks.memoWithFiles(MINE_DOING, 'handline.mobile', 'the mock', [img, md, { ...gone, gone: true }]);
-      ids = { img: img.id, md: md.id, gone: gone.id };
-    }, undefined, 'founder');
+    const m = await mount(
+      (s) => {
+        s.daemon.tasks.verbs = true;
+        const up = s.daemon.uploads;
+        const img = up.addMemoFile('shot.png', 'image/png', Buffer.from(PNG, 'base64'));
+        const md = up.addMemoFile('plan.md', 'text/markdown', Buffer.from('# Plan\n\nA **bold** step and `code`.\n\n- first\n- second\n'));
+        const gone = up.addMemoFile('old.md', 'text/markdown', Buffer.from('# Old'));
+        up.expire(gone.id);
+        s.daemon.tasks.memoWithFiles(MINE_DOING, 'handline.mobile', 'the mock', [img, md, { ...gone, gone: true }]);
+        ids = { img: img.id, md: md.id, gone: gone.id };
+      },
+      undefined,
+      'founder',
+    );
     await openTask(MINE_DOING);
     await until(() => $('memo-files')?.querySelector('div[aria-label="shot.png"]'), 'the image');
     await until(() => $(`memo-markdown-${ids!.md}`), 'the Markdown');
@@ -258,13 +265,13 @@ describe('the task verbs', () => {
     await press($(`memo-edit-${id}`));
     await fill('memo-edit-text', 'second note');
     m.daemon.knobs.refuse('task.comment.edit', 'state', 'that task is being merged');
-    await press($('sheet-submit'));
+    await press($('memo-edit-save'));
     await until(() => text().includes('that task is being merged'), 'the reason', 3000);
-    expect($('sheet')).not.toBeNull();
+    expect($('memo-edit-text')).not.toBeNull();
     expect(m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.text).toBe('first note');
     m.daemon.knobs.clear();
-    await press($('sheet-submit'));
-    await until(() => $('sheet') === null, 'the sheet to close');
+    await press($('memo-edit-save'));
+    await until(() => $('memo-edit-text') === null, 'the box to close');
     expect(m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.text).toBe('second note');
     expect($(`memo-${id}`)?.textContent).toContain('second note');
     await press($(`memo-delete-${id}`));
@@ -293,4 +300,3 @@ describe('the task verbs', () => {
     m.store.stop();
   });
 });
-

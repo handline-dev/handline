@@ -294,6 +294,15 @@ func changeLines(it flat) []string {
 			out[i] = fmt.Sprintf("replace %s of %s", k, agent)
 		}
 		return out
+	case "schedule":
+		_, v := it.sets()
+		switch v["action"] {
+		case "remove":
+			return []string{fmt.Sprintf("stop %s's schedule %s: %s", agent, v["cron_was"], v["message_was"])}
+		case "edit":
+			return []string{fmt.Sprintf("change %s's schedule %s: %s\n  to %s: %s", agent, v["cron_was"], v["message_was"], v["cron"], v["message"])}
+		}
+		return []string{fmt.Sprintf("schedule %s: %s for %s", v["cron"], v["message"], agent)}
 	case "rename":
 		return []string{fmt.Sprintf("rename %s to %s", agent, to)}
 	case "retire":

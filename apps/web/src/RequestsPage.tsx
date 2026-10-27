@@ -12,26 +12,27 @@ import { View } from '#src/View.tsx';
 
 type Status = RequestRow['status'];
 const WORDS: Record<Status, { label: string; glyph: StateKind }> = {
-  waiting_on_you: { label: 'Waiting on you', glyph: 'needs' },
+  waiting_on_you: { label: 'Needs you', glyph: 'needs' },
   review: { label: 'In review', glyph: 'working' },
   doing: { label: 'Doing', glyph: 'working' },
   done: { label: 'Done', glyph: 'done' },
   no_work: { label: 'Nothing to do', glyph: 'idle' },
-  not_yet: { label: 'Not a task yet', glyph: 'idle' },
+  not_yet: { label: 'No task yet', glyph: 'idle' },
 };
 const FILTERS: { value: 'all' | Status; label: string }[] = [
   { value: 'all', label: 'All' },
-  { value: 'waiting_on_you', label: 'Waiting on you' },
+  { value: 'waiting_on_you', label: 'Needs you' },
   { value: 'doing', label: 'Doing' },
   { value: 'review', label: 'Review' },
   { value: 'done', label: 'Done' },
-  { value: 'not_yet', label: 'Not yet' },
+  { value: 'not_yet', label: 'No task yet' },
 ];
 
 /** What is under a request: open and ended tasks, its pull requests and the comments the founder has not read. */
 const meta = (r: RequestRow): string =>
   [
-    r.open || r.done ? `${r.open} open · ${r.done} done` : '',
+    r.open ? `${r.open} open` : '',
+    r.done ? `${r.done} done` : '',
     r.prs.length ? r.prs.map((n) => `#${n}`).join(' ') : '',
     r.unread_comments ? `${r.unread_comments} new ${r.unread_comments === 1 ? 'comment' : 'comments'}` : '',
   ]

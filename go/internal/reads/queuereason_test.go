@@ -59,6 +59,16 @@ func TestQueueReasonSaysWhyALineWaits(t *testing.T) {
 		{"stalled", func(e *Env) { addAgent(t, e, "bob", ""); state(t, e, "STALLED", nil) }, nil, "stalled"},
 		{"a turn running", func(e *Env) { addAgent(t, e, "bob", ""); state(t, e, "RUNNING", nil) }, nil, "mid-turn"},
 		{"mid-handoff", func(e *Env) { addAgent(t, e, "bob", ""); state(t, e, "HANDOFF", nil) }, nil, "mid-handoff"},
+		{"a handoff in flight", func(e *Env) {
+			addAgent(t, e, "bob", "")
+			state(t, e, "IDLE", nil)
+			run(t, e, "INSERT INTO handoff(id, agent, trigger_kind, step, deadline, state, updated) VALUES('h1', 'bob', 'context', 'requested', ?, 'in_flight', ?)", db.Now()+90, db.Now())
+		}, nil, "held while it restarts; the new session gets it"},
+		{"a handoff given up", func(e *Env) {
+			addAgent(t, e, "bob", "")
+			state(t, e, "IDLE", nil)
+			run(t, e, "INSERT INTO handoff(id, agent, trigger_kind, step, deadline, state, updated) VALUES('h1', 'bob', 'context', 'requested', 0, 'degraded', ?)", db.Now())
+		}, nil, "waiting for the agent"},
 		{"usage wall", func(e *Env) { addAgent(t, e, "bob", ""); state(t, e, "IDLE", nil) }, fakeDelivery{wall: "bob is at its usage limit"}, "account at the wall"},
 		{"nothing holds it", func(e *Env) { addAgent(t, e, "bob", ""); state(t, e, "IDLE", nil) }, nil, "waiting for the agent"},
 		{"closed, account full", func(e *Env) { addAgent(t, e, "bob", ""); state(t, e, "IDLE", 5) }, fakeDelivery{full: true}, "closed, account full"},

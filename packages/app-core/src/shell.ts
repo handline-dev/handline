@@ -3,7 +3,7 @@
 
 import type { Methods, SettingsChanges } from '@handline/client';
 
-/** The settings the Settings page edits, the only keys the shell sets on its behalf (the other daemon settings are not the page's to change). */
+/** The settings the Settings page and the status bar's resource area edit, the only keys the shell sets on its behalf (the other daemon settings are not the page's to change). */
 export const PAGE_SETTINGS = [
   'active_cap',
   'park_timeout_s',
@@ -21,7 +21,13 @@ export const PAGE_SETTINGS = [
   'pacing',
   'pace_target_pct',
   'pace_burst_pct',
-] as const;
+  // the status bar's resource area
+  'host_active_cap',
+  'keep_awake',
+  'load_per_core_pct',
+  'ram_free_min_pct',
+  'heavy_slots',
+] as const satisfies readonly (keyof SettingsChanges)[];
 export type PageSettings = Pick<SettingsChanges, (typeof PAGE_SETTINGS)[number]>;
 
 /** What every call returns when it does not succeed: calls never throw across the window's edge. */

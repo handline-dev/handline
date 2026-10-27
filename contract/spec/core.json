@@ -308,7 +308,7 @@
    "clock": "Waits for a time: until says when.",
    "move": "An account move is settling.",
    "load": "The machine is over a load limit (host_active_cap, load_per_core_pct, ram_free_min_pct): the daemon starts none of its work until it is under, by itself; text names the limit that tripped. agent.force_start lets it go once. A message the person sends (the founder's or a paired device's) is never held by it: its agent wakes at once, and load_limit_passed is recorded in agent.timeline within 10 s of the send; the limit holds only agents' work and the daemon's own, and for at most 10 minutes: work held that long goes once, and load_limit_passed (by: ceiling) is recorded. A message held by the load is not a stuck delivery: no heal step or stuck card is made for it.",
-   "pace": "Every account it may run on has no free slot only because of its weekly pace (Account.pace; without pacing one would have room): the daemon starts it when a slot frees or a line catches up, by itself, and a start goes to the account furthest behind its line. text names the account and how far ahead it is; until is the earliest back_at, null when not known. A turn a person starts (a message a person sends, a person's own start or wake) and a restart are never held. agent.force_start lets it go once.",
+   "pace": "Every account it may run on has no free slot only because of its weekly pace (Account.pace; without pacing one would have room), or none would last to its 5-hour reset with one more agent on it: the daemon starts it when a slot frees, a line catches up or a 5-hour window starts over, by itself, and a start goes to the account furthest behind its line. text names the account and how far ahead it is for the pace, and names no account for the 5-hour limit; until is the earliest back_at, or the earliest 5-hour reset, null when not known. A turn a person starts (a message a person sends, a person's own start or wake) and a restart are never held. agent.force_start lets it go once.",
    "wall": "The account it would run on is at a usage limit; until is when the window rolls over, null when not known.",
    "cap": "No account has a free slot; it starts when a running turn ends.",
    "stalled": "Stopped until a person unstalls it; text says why it stopped.",
@@ -686,6 +686,7 @@
   "crash": "If the daemon or the CLI ends with an operation sent and not confirmed, the daemon does not write it again: the operation is unknown, the sender is told (the chat event), and it stays unknown. A queued operation survives and is written after the restart. A person who sees unknown may chat.send the text again under a NEW request_id (their call: the CLI may have run it); chat.cancel keeps its meaning for a delivered message. Nothing else changes an unknown operation.",
   "queued": "chat.send_now writes a queued operation now, with priority now (receipt sent). chat.cancel withdraws it without confirm. Both are refused (gate state) for any other receipt; there is no chat.withdraw.",
   "view": "ChatMessage.receipt carries the receipt, and landing follows it: queued is queued, sent and unknown are typed (sending_reason says unknown), confirmed is delivered. Each change sends the usual chat.message event. A terminal agent's message has no receipt.",
+  "restart": "From the moment a handoff, move or restart of an agent is decided (a trigger deferred behind a running turn included) until its session is closed (a clear owed included), no message is typed at the old session, a person's included: it is held (queued, sending_reason \"held while it restarts; the new session gets it\") and told to the new session first, headed by the line \"(This arrived while you were restarting for a handoff.)\". A handoff left open holds for 10 minutes at most. interrupt and the start verbs are not messages and act at once.",
   "terminal": "An agent whose AgentView.structured is not true accepts `delivery` and ignores it, and its result and messages have no receipt."
  },
  "x-structured-controls": {
@@ -1254,6 +1255,13 @@
        }
       ],
       "description": "Null until the first measure, and on a daemon that does not measure."
+     },
+     "needs_you": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/MachineNeed"
+      },
+      "description": "The machine's own needs-you items, oldest first; absent when there are none, and on a daemon that does not serve it. A client draws each beside the agents' needs-you cards, in the text given."
      }
     },
     "required": [
@@ -1748,6 +1756,12 @@
       "default": 10,
       "description": "Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work."
      },
+     "host_simulator_hold": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 1,
+      "description": "1 holds the daemon's new work while a phone simulator or emulator runs on this machine (a booted iOS simulator device, or the qemu an Android emulator runs on); 0 does not. Held the same way as a load limit (status reason load), by the same rules."
+     },
      "pacing": {
       "type": "boolean",
       "default": true,
@@ -1782,6 +1796,16 @@
       ],
       "default": "off",
       "description": "Keep the machine from idle sleep: off; on (held while the daemon runs); working (held while an agent is mid-turn, released when the last one stops). The daemon holds macOS caffeinate -i; closing the lid still sleeps. Applied at the next tick, without a restart."
+     },
+     "reap_orphans": {
+      "type": "string",
+      "enum": [
+       "dry",
+       "on",
+       "off"
+      ],
+      "default": "dry",
+      "description": "What the daemon does with work its agents left running after its parent died (headless Chrome, vitest, vite, a go test binary, yes, Electron) that has run 30 minutes under a worktree: dry (the default) only logs and records an orphan_would_stop event every 10 minutes; on stops it and records orphan_stopped; off does nothing. Nothing outside a worktree is touched."
      }
     },
     "description": "Every global setting by its config.yaml name, with its default; every one is the founder's to set. Per-account keys (label, cap, usage recovery, cycle) are account.set; per-agent keys are agent.set and schedule.*; a key marked Per agent also takes `agent` in settings.set."
@@ -2015,6 +2039,18 @@
       ],
       "description": "Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. null removes the key (back to the default)."
      },
+     "host_simulator_hold": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "1 holds the daemon's new work while a phone simulator or emulator runs on this machine; 0 does not. null removes the key (back to the default)."
+     },
      "pacing": {
       "oneOf": [
        {
@@ -2079,6 +2115,22 @@
        }
       ],
       "description": "Keep the machine from idle sleep: off; on (held while the daemon runs); working (held while an agent is mid-turn, released when the last one stops). The daemon holds macOS caffeinate -i; closing the lid still sleeps. Applied at the next tick, without a restart. null removes the key (back to the default)."
+     },
+     "reap_orphans": {
+      "oneOf": [
+       {
+        "type": "string",
+        "enum": [
+         "dry",
+         "on",
+         "off"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What the daemon does with work its agents left running after its parent died (headless Chrome, vitest, vite, a go test binary, yes, Electron) that has run 30 minutes under a worktree: dry (the default) only logs and records an orphan_would_stop event every 10 minutes; on stops it and records orphan_stopped; off does nothing. Nothing outside a worktree is touched."
      }
     },
     "description": "settings.set's changes: any of SettingsValues' keys; null removes one."
@@ -2802,6 +2854,31 @@
     },
     "required": [
      "cursor"
+    ]
+   },
+   "MachineNeed": {
+    "type": "object",
+    "description": "Something the machine needs of the founder, which no agent has: not a task and not an inbox message.",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "disk"
+      ],
+      "description": "disk: free space is under the floor (config disk_free_min_gb, default 5), so builds and tests wait. It stays until space is back over the floor plus 2 GB."
+     },
+     "since": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "text": {
+      "type": "string",
+      "description": "The item in plain words, with the free space in it."
+     }
+    },
+    "required": [
+     "kind",
+     "since",
+     "text"
     ]
    }
   },

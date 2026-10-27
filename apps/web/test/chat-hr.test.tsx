@@ -28,11 +28,6 @@ const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null | undefined) => el?.textContent ?? '';
-const typeInto = (el: HTMLInputElement, value: string) =>
-  act(async () => {
-    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')!.set!.call(el, value);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  });
 const msg = (body: string) => $$('.msg').find((m) => text(m).includes(body));
 const hrOf = (t: { daemon: unknown }) => (t.daemon as { script: { hr: { raise: (p: object) => unknown } } }).script.hr;
 const labelled = (within: Element | null | undefined, label: string) =>
@@ -53,32 +48,18 @@ afterEach(async () => {
 });
 
 describe('HR proposals in the chat', () => {
-  it('an open HR proposal about the agent is a card in the chat with approve and reject as icons', async () => {
+  it('open HR proposals about the agent are one line in the chat that opens My turn, with no buttons to decide there', async () => {
     const s = setup();
     hrOf(s).raise({ id: 41, title: 'link handline.architect -> handline.auditor', diff: 'link', agent: ARCH });
+    hrOf(s).raise({ id: 42, title: 'settings handline.architect', diff: 'effort', agent: ARCH });
     await mount(ARCH, s);
-    await until(() => $('.card-hr'), 'the HR card');
-    expect(text($('.card-hr'))).toContain('link handline.architect');
-    expect(labelled($('.card-hr'), 'Approve')).toBeDefined();
-    expect(labelled($('.card-hr'), 'Reject')).toBeDefined();
-    await click(labelled($('.card-hr'), 'Reject')!);
-    await typeInto($('.ui-dialog input') as HTMLInputElement, 'not now');
-    await click($('.ui-dialog .ui-btn.solid')!);
-    await until(() => $('.card-hr')?.getAttribute('data-state') === 'rejected', 'the card decided');
-    expect(text($('.card-hr'))).toContain('Rejected by you');
-    expect(labelled($('.card-hr'), 'Approve')).toBeUndefined(); // a decided one is a line, not a card with buttons
-  });
-
-  it('an approved HR proposal becomes one compact line saying Applied by you, and the app posts nothing in the chat', async () => {
-    const s = setup();
-    hrOf(s).raise({ id: 42, title: 'link handline.architect -> handline.auditor', diff: 'link architect to auditor', agent: ARCH });
-    await mount(ARCH, s);
-    await until(() => $('.card-hr'), 'the HR card');
-    await click(labelled($('.card-hr'), 'Approve')!);
-    await until(() => $('.card-hr')?.getAttribute('data-state') === 'approved', 'the line');
-    expect(text($('.card-hr'))).toContain('Applied by you');
+    await until(() => $('.card-hr'), 'the HR line');
     expect($$('.card-hr')).toHaveLength(1);
-    expect($$('.msg').some((m) => /applied/i.test(text(m)))).toBe(false);
+    expect(text($('.card-hr'))).toContain('2 HR proposals need you');
+    expect(labelled($('.card-hr'), 'Approve')).toBeUndefined();
+    expect(labelled($('.card-hr'), 'Reject')).toBeUndefined();
+    await click(labelled($('.card-hr'), 'Open in HR')!);
+    expect(location.hash).toBe('#/team/hr');
   });
 
   it('a proposal already decided keeps its place in the timeline, by the time it was settled, and is not pinned after the newest message', async () => {
@@ -96,7 +77,7 @@ describe('HR proposals in the chat', () => {
     const all = [...document.querySelectorAll('.stream *')];
     expect(all.indexOf(line)).toBeLessThan(all.indexOf(msg('Which gap list')!));
   });
-  it('a held proposal is a card in the chat that names the agent it waits for and has no buttons', async () => {
+  it('a held proposal (approved, applying when the turn ends) is not the founder turn: no line in the chat', async () => {
     const s = setup();
     hrOf(s).raise({
       id: 44,
@@ -106,11 +87,11 @@ describe('HR proposals in the chat', () => {
       state: 'applying',
       waiting_on: [ARCH],
     });
+    hrOf(s).raise({ id: 47, title: 'link a -> b', diff: 'link', agent: ARCH });
     await mount(ARCH, s);
-    await until(() => $('.card-hr'), 'the held card');
-    expect(text($('.card-hr'))).toContain(`Held until ${ARCH} finishes its turn.`);
-    expect(labelled($('.card-hr'), 'Approve')).toBeUndefined();
-    expect(labelled($('.card-hr'), 'Reject')).toBeUndefined();
+    await until(() => $('.card-hr'), 'the line');
+    expect($$('.card-hr')).toHaveLength(1);
+    expect(text($('.card-hr'))).toContain('1 HR proposal needs you');
   });
 
   it('in the HR tab a held card sits with the waiting ones, has no decide buttons and is not in the count', async () => {

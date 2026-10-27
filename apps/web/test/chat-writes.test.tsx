@@ -95,8 +95,11 @@ describe('loading and writes with latency and refusals', () => {
     expect(icon(msg('right now')?.parentElement ?? undefined, 'Sending')).not.toBeNull();
     expect(compose().value).toBe('');
     await until(() => sent(s, 'right now'), 'the daemon got it', 600);
-    await until(() => $$('.msg').filter((m) => text(m).includes('right now')).length === 1, 'the real message replaced the temporary one');
-    await until(() => msg('right now')?.getAttribute('data-pending') === null, 'the pending mark to go');
+    // The temporary row is one row too: the real one has replaced it only when no row is pending.
+    await until(() => {
+      const rows = $$('.msg').filter((m) => text(m).includes('right now'));
+      return rows.length === 1 && rows[0]!.getAttribute('data-pending') === null;
+    }, 'the real message replaced the temporary one');
   });
 
   it('keeps a refused message as a failed row with its words and the reason; Retry sends it again', async () => {

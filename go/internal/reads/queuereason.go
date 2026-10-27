@@ -78,6 +78,11 @@ func (e *Env) deliveryState(agent, none string) (string, error) {
 	if row.State == states.Stalled {
 		return "stalled", nil
 	}
+	if held, err := db.RestartHeld(e.DB, agent, db.Now()); err != nil {
+		return "", err
+	} else if held {
+		return "held while it restarts; the new session gets it", nil
+	}
 	closed := row.ClosedAt.Valid && row.ClosedAt.Int64 != 0
 	if closed {
 		return e.closedState(agent, row)

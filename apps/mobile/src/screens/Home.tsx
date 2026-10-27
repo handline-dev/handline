@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { BackHandler, Dimensions, PanResponder, Platform, Pressable, Text, View } from 'react-native';
 import type { Store } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
-import { useUnread } from '@handline/app-data';
+import { useMyTurn } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { History, HistoryProvider, useHistoryValue } from '#src/history.tsx';
@@ -12,6 +12,7 @@ import { AgentPage } from '#src/screens/AgentPage.tsx';
 import { Inbox } from '#src/screens/Inbox.tsx';
 import { NewAgent, type Pending } from '#src/screens/NewAgent.tsx';
 import { SettingsPage } from '#src/screens/Settings.tsx';
+import { RequestsPage } from '#src/screens/Requests.tsx';
 import { TeamPage } from '#src/screens/TeamEntry.tsx';
 import { Stats } from '#src/screens/Stats.tsx';
 import { Tasks } from '#src/screens/Tasks.tsx';
@@ -23,7 +24,7 @@ const TABS = ['agents', 'inbox', 'tasks', 'usage'] as const;
 type Tab = (typeof TABS)[number];
 const NAV_ICON: Record<Tab, IconName> = { agents: 'agent', inbox: 'inbox', tasks: 'tasks', usage: 'stats' };
 
-type Page = 'new' | 'settings' | 'team' | 'notices' | null;
+type Page = 'new' | 'settings' | 'team' | 'requests' | 'notices' | null;
 
 /** `pending` is where New agent was left: with an operation in it, the app starts on that page. */
 export function Home(props: { store: Store; onUnpair: () => void; pending?: Pending }) {
@@ -94,7 +95,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   const swipe = useBack(props.history);
   useAgentEntry(props.store);
   const open = useSelector((s) => s.page?.agent ?? null);
-  const unread = useUnread().length;
+  const turn = useMyTurn().cards.length;
   const [tab, setTab] = useHistoryValue<Tab>('home.tab', 'agents');
   const [task, setTask] = useHistoryValue<number | null>('home.task', null);
   const [account, setAccount] = useHistoryValue<string | null>('home.account', null);
@@ -117,6 +118,8 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
           <AgentPage />
         ) : page === 'team' ? (
           <TeamPage onClose={() => setPage(null)} />
+        ) : page === 'requests' ? (
+          <RequestsPage onClose={() => setPage(null)} onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))} />
         ) : page === 'notices' ? (
           <NoticesPage store={props.store} onClose={() => setPage(null)} onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))} />
         ) : page === 'settings' ? (
@@ -124,7 +127,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
         ) : page === 'new' ? (
           <NewAgent pending={pending} onClose={() => setPage(null)} onAgent={toAgent} />
         ) : tab === 'inbox' ? (
-          <Inbox />
+          <Inbox onTask={(id) => (setTab('tasks'), setTask(id))} />
         ) : tab === 'tasks' ? (
           <Tasks selected={task} onSelect={setTask} />
         ) : tab === 'usage' ? (
@@ -159,7 +162,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
                 adjustsFontSizeToFit
                 style={{ color: tab === t ? c.ink : c.muted, fontWeight: tab === t ? '700' : '400', fontSize: font.size.label }}
               >
-                {t === 'agents' ? 'Agents' : t === 'inbox' ? `Inbox${unread ? ` (${unread})` : ''}` : t === 'tasks' ? 'Tasks' : 'Usage'}
+                {t === 'agents' ? 'Agents' : t === 'inbox' ? `My turn${turn ? ` (${turn})` : ''}` : t === 'tasks' ? 'Tasks' : 'Usage'}
               </Text>
             </Pressable>
           ))}

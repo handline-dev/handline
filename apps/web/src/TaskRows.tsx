@@ -35,7 +35,7 @@ export function Row(props: {
   const time = timeLeft(timeoutText(t, now) || idleText(t, now));
   // An open row keeps its raised ground when hovered; a cursor row carries the inset bar. On a phone the row is a card.
   const row = `trow group/trow cursor-default max-sm:mt-0 max-sm:mb-2 max-sm:grid max-sm:grid-cols-[auto_1fr_auto] max-sm:gap-x-2 max-sm:py-2 max-sm:px-3 max-sm:bg-panel max-sm:border max-sm:border-line max-sm:rounded-card max-sm:[grid-template-areas:'state_num_time'_'title_title_title'_'owner_pri_pri'] ${
-    props.open ? 'open bg-raised hover:bg-raised' : 'hover:bg-panel'
+    props.open ? 'open bg-raised tint' : 'tint'
   }${props.cursor ? ` cursor shadow-[inset_2px_0_0_var(--ink)]${props.open ? '' : ' bg-panel'}` : ''}${authored ? ' pending' : ''}`;
   const TD = 'max-sm:block max-sm:h-auto max-sm:p-0 max-sm:border-0 max-sm:w-auto';
   return (
@@ -68,7 +68,7 @@ export function Row(props: {
             {props.failed ? <span className="not-changed text-bad text-hint"> not changed</span> : null}
           </AnimatedCell>
           <AnimatedCell className={`c-num mono w-16 ${TD} max-sm:[grid-area:num]`}>
-            <a href={`#/tasks/${t.id}`} className="tnum text-inherit no-underline hover:underline" onClick={(e) => e.stopPropagation()}>
+            <a href={`#/tasks/${t.id}`} className="tnum text-inherit no-underline" onClick={(e) => e.stopPropagation()}>
               {t.id < 0 ? 'new' : taskRef(t.id)}
             </a>
           </AnimatedCell>
@@ -84,7 +84,7 @@ export function Row(props: {
           </AnimatedCell>
           {props.columns.owner ? (
             <AnimatedCell className={`c-owner w-28 text-right ${TD} max-sm:[grid-area:owner] max-sm:text-left`}>
-              <span className={CHIP} title={`owner: ${t.to}`}>
+              <span className={CHIP} title={`assigned to: ${t.to}`}>
                 {isPerson(t.to, me) ? 'you' : t.to.slice(t.to.lastIndexOf('.') + 1)}
               </span>
             </AnimatedCell>

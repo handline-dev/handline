@@ -59,6 +59,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
       title="New agent"
       onClose={onClose}
       action={{ label: 'Create', keys: '⌘↵', form: 'newagent-form', disabled: !ready || create.isPending }}
+      bar={<Button label="Cancel" onClick={onClose} />}
     >
       <form
         id="newagent-form"
@@ -84,7 +85,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
               value={f.name}
               onChange={(e) => set('name', e.target.value)}
               list={choices.freeNames.length ? 'na-names' : undefined}
-              note="Plain text: no /, no leading ."
+              note="No slashes, and it cannot start with a dot."
             />
             <datalist id="na-names">
               {choices.freeNames.map((n) => (
@@ -118,7 +119,7 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
               ]}
             />
           </div>
-          <Field label="Base" value={f.base} onChange={(e) => set('base', e.target.value)} />
+          <Field label="Base branch" value={f.base} onChange={(e) => set('base', e.target.value)} />
         </div>
         <div className="tform-row grid grid-cols-2 gap-3 max-sm:grid-cols-1">
           {choices.models ? (
@@ -189,7 +190,6 @@ export function NewAgent({ onClose }: { onClose: () => void }) {
           />
         </div>
         {f.task.trim() ? <Field label="Time box" value={f.box} onChange={(e) => set('box', e.target.value)} /> : null}
-        <Button label="Cancel" onClick={onClose} />
       </form>
     </Dialog>
   );

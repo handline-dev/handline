@@ -49,7 +49,7 @@ export function Toasts(props: { store: Store }) {
   return (
     <View testID="toasts">
       {toasts.map((n) => (
-        <Banner key={n.id} text={lineOf(n)} error={n.level === 'fail'} onPress={() => props.store.notices.dismissToasts()} />
+        <Banner key={n.id} text={lineOf(n)} error={n.level === 'fail'} onPress={() => props.store.notices.close(n.id)} />
       ))}
     </View>
   );

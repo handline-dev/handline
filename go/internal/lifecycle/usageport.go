@@ -56,6 +56,14 @@ func (u *UsageAdapter) CapOf(acct string) int { return u.Env.CapNow(u.Q, acct) }
 // CapUnpaced is CapOf without the pace.
 func (u *UsageAdapter) CapUnpaced(acct string) int { return u.Env.CapUnpaced(u.Q, acct) }
 
+// Urgency is usage.Urgency of the account.
+func (u *UsageAdapter) Urgency(acct string) (float64, bool) { return usage.Urgency(u.Env.Read(acct)) }
+
+// FiveHourShare is how many times over the account's 5-hour window lasts to its reset with agent started on it; ok false when unknown.
+func (u *UsageAdapter) FiveHourShare(q db.Q, acct, agent string) (float64, bool) {
+	return u.Env.FiveHourShareWith(q, acct, agent)
+}
+
 // Pace is the account's weekly pace now.
 func (u *UsageAdapter) Pace(acct string) *usage.Pace { return u.Env.PaceNow(acct) }
 

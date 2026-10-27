@@ -10,7 +10,7 @@ import type { FakeTranscript } from '#src/transcript.ts';
 import { HR_HANDLERS, teamOf } from '#src/hr.ts';
 import { STRIP_HANDLERS } from '#src/strip.ts';
 import { DEBUG_HANDLERS } from '#src/debug.ts';
-import { DAEMON_HOLDER, row, scrolledOff, styledRow, tid, visible, type Attach, type Session } from '#src/session.ts';
+import { DAEMON_HOLDER, newSession, row, scrolledOff, styledRow, tid, visible, type Attach, type Session } from '#src/session.ts';
 
 export interface Who {
   caller: Caller;
@@ -200,11 +200,11 @@ const BASE: Record<string, (h: Call) => unknown> = {
     if (!s.hasTerminal) throw new Failure('not_found', `${s.fx.name} has no terminal`, { field: 'terminal' });
     return { agent: s.fx.name, terminal: tid(s), host: 'fake', attach: { argv: ['fake-attach', tid(s)] }, focused: false, local: true };
   },
-  'shell.open': ({ p, script, agent }) => {
+  'shell.open': ({ p, script, agent, iso }) => {
     if (typeof p.agent !== 'string') throw invalidParams('agent is required', 'agent');
     const s = agent();
-    const terminal = `%sh${script.shells.size + 1}`;
-    script.shells.add(terminal);
+    const terminal = `%sh${++script.shellCount}`;
+    script.shells.set(terminal, { ...newSession(s.fx, iso()), handle: terminal, lines: ['$ '], hasTerminal: true, open: false });
     return { agent: s.fx.name, terminal, cwd: `/fake/worktrees/${s.fx.name}`, host: 'fake' };
   },
   'shell.close': ({ p, script }) => {
@@ -244,7 +244,7 @@ const BASE: Record<string, (h: Call) => unknown> = {
     const free = s.holder.kind === 'daemon';
     if (free ? !c.attached.has(tid(s)) : s.holder.name !== c.caller.name)
       throw refused('input_holder', free ? 'attach the terminal to resize it' : 'only the input holder may resize');
-    if (Number(p.cols) < 80 || Number(p.rows) < 24) throw refused('input_holder', 'never resized under 80 by 24');
+    if (!s.handle && (Number(p.cols) < 80 || Number(p.rows) < 24)) throw refused('input_holder', 'never resized under 80 by 24');
     if (free) s.unheld ??= [s.cols, s.rows];
     s.cols = Number(p.cols);
     s.rows = Number(p.rows);

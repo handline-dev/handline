@@ -158,10 +158,14 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		{Name: "fd check", Run: func(db.Q, int64) error { fds.Check(); return nil }},
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
 		{Name: "attachment sweep", Run: func(q db.Q, _ int64) error { return attachments.New(home).Sweep(q) }},
+		{Name: "handoff archive", Run: func(_ db.Q, now int64) error { return handoff.SweepArchive(home, time.Unix(now, 0)) }},
 		{Name: "worktree locks", Run: func(q db.Q, _ int64) error { return releaseWorktreeLocks(q, home) }},
 		{Name: "unanswered founder messages", Run: (&housekeeping.Unanswered{Lead: leadCheck(home), Log: logLine,
 			Notice: func(q db.Q, to, text, reason string) error { _, err := env.Notice(q, to, text, reason); return err }}).Check},
-		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Free: cfg.DiskFree}).Check},
+		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Free: cfg.DiskFree,
+			Floor: func() int64 { return int64(loadgate.LimitsOf(usage.LoadConfig(home)).DiskFreeGB) * housekeeping.GB }}).Check},
+		{Name: "orphans", Run: (&housekeeping.Orphans{Log: logLine, Scratch: housekeeping.ScratchRoot(),
+			Mode: func() string { return housekeeping.OrphansModeOf(usage.LoadConfig(home)) }}).Check},
 	}, Signalled: func() bool {
 		select {
 		case <-tc.Stop:

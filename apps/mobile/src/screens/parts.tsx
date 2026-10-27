@@ -44,6 +44,14 @@ export function EmptyState(props: { text: string; icon?: IconName; testID?: stri
   );
 }
 
+/** The one press look: the palette's press tint over a row or a button, whatever ground it has. */
+export function PressTint(props: { on: boolean }) {
+  const c = usePalette();
+  return props.on ? (
+    <View pointerEvents="none" style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: c.press }} />
+  ) : null;
+}
+
 export function Banner(props: { text: string; error?: boolean; action?: string; onPress?: () => void }) {
   const c = usePalette();
   return (
@@ -74,7 +82,8 @@ export function Button(props: {
 }) {
   const c = usePalette();
   const bg = props.kind === 'yes' ? c.run : props.kind === 'no' ? c.block : c.panel;
-  const ink = props.kind === 'yes' || props.kind === 'no' ? c.onFill : c.ink;
+  const solid = props.kind === 'yes' || props.kind === 'no';
+  const ink = solid ? c.onFill : c.ink;
   return (
     <Pressable
       testID={props.testID}
@@ -84,6 +93,7 @@ export function Button(props: {
       accessibilityLabel={props.accessibilityLabel}
       style={{
         backgroundColor: bg,
+        overflow: 'hidden',
         borderColor: c.line,
         borderWidth: 1,
         borderRadius: radius.card,
@@ -97,8 +107,13 @@ export function Button(props: {
         ...props.style,
       }}
     >
-      {props.icon ? <Icon name={props.icon} decorative size={18} color={ink} /> : null}
-      {props.label ? <Text style={{ color: ink, fontWeight: '600' }}>{props.label}</Text> : null}
+      {({ pressed }) => (
+        <>
+          {props.icon ? <Icon name={props.icon} decorative size={18} color={ink} /> : null}
+          {props.label ? <Text style={{ color: ink, fontWeight: '600' }}>{props.label}</Text> : null}
+          <PressTint on={pressed} />
+        </>
+      )}
     </Pressable>
   );
 }
@@ -170,9 +185,15 @@ export function Pill(props: { on: boolean; label: string; testID: string; onPres
         borderColor: props.on ? c.ink : c.line,
         borderRadius: radius.pill,
         paddingHorizontal: space.md,
+        overflow: 'hidden',
       }}
     >
-      <Text style={{ color: c.ink, fontWeight: props.on ? '700' : '400' }}>{props.on ? `✓ ${props.label}` : props.label}</Text>
+      {({ pressed }) => (
+        <>
+          <Text style={{ color: c.ink, fontWeight: props.on ? '700' : '400' }}>{props.on ? `✓ ${props.label}` : props.label}</Text>
+          <PressTint on={pressed} />
+        </>
+      )}
     </Pressable>
   );
 }
@@ -211,14 +232,19 @@ export function ListRow(props: {
         ...props.style,
       }}
     >
-      {props.lead}
-      <View style={{ flex: 1 }}>
-        <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '600' }}>
-          {props.title}
-        </Text>
-        <Text style={{ color: props.metaColor ?? c.muted, fontSize: font.size.label }}>{props.meta}</Text>
-      </View>
-      {props.trail}
+      {({ pressed }) => (
+        <>
+          {props.lead}
+          <View style={{ flex: 1 }}>
+            <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '600' }}>
+              {props.title}
+            </Text>
+            <Text style={{ color: props.metaColor ?? c.muted, fontSize: font.size.label }}>{props.meta}</Text>
+          </View>
+          {props.trail}
+          <PressTint on={pressed} />
+        </>
+      )}
     </Pressable>
   );
 }
