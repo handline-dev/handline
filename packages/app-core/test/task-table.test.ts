@@ -122,8 +122,8 @@ test('the time box is one meaning: what is left of it, why it stands still, or h
   assert.equal(timeBoxText(t({ time: clock({ end: '2026-10-17T12:10:00Z' }) }), now), '2h10m left of 4h');
   assert.equal(timeBoxText(t({ time: clock({ end: '2026-10-17T09:00:00Z' }) }), now), 'over by 1h');
   assert.equal(
-    timeBoxText(t({ time: clock({ left_s: 7000 }), waiting: { on: 'founder', text: 'waiting on you', tasks: [], since: '' } }), now),
-    'paused: waiting on you',
+    timeBoxText(t({ time: clock({ left_s: 7000 }), waiting: { on: 'founder', text: 'needs you', tasks: [], since: '' } }), now),
+    'paused: needs you',
   );
   assert.equal(timeBoxText(t({ state: 'queued', time: clock({}) }), now), '4h');
   assert.equal(timeBoxText(t({ state: 'done', time: null }), now), '4h');

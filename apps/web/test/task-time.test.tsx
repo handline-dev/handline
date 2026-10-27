@@ -53,7 +53,7 @@ describe('task time', () => {
     expect(kinds).toEqual(['queued', 'working', 'founder', 'working', 'task', 'working', 'agent', 'working', 'account', 'working']);
     const row = (k: string) => box.querySelector(`[data-segment="${k}"]`)!.textContent;
     expect(row('founder')).toContain('needs you');
-    expect(row('founder')).not.toContain('waiting on you');
+    expect(row('founder')).not.toContain('needs you');
     expect(row('task')).toContain('blocked by T1688');
     expect(row('agent')).toContain('waiting on handline.auditor');
     expect(row('account')).toContain('at a usage limit');

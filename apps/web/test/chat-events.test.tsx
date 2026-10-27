@@ -107,11 +107,11 @@ describe('event cards', () => {
   it('waiting on you with no dialog open shows the ask and an Open button; nothing when not blocked', async () => {
     const s = setup();
     s.daemon.sessions.get(ARCH)!.fx.view = {
-      status: { state: 'waiting', reason: 'you', text: 'waiting on you', until: null, since: new Date().toISOString(), tasks: [] },
+      status: { state: 'waiting', reason: 'you', text: 'needs you', until: null, since: new Date().toISOString(), tasks: [] },
     } as never;
     await mount(s);
     await until(() => $('.card-blocked'), 'the card');
-    expect($('.card-blocked')!.textContent).toContain('Waiting on you');
+    expect($('.card-blocked')!.textContent).toContain('Needs you');
     expect([...$('.card-blocked')!.querySelectorAll('button')].some((b) => b.textContent === 'Open')).toBe(true);
   });
 });
