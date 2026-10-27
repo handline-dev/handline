@@ -16,6 +16,8 @@ export interface Notice {
   lane: NoticeLane;
   /** What a finished task adds to the line: who closed it, which task, its title and the first line of its evidence. */
   about?: NoticeAbout;
+  /** The daemon's own words behind a failure line, shown only behind "Details". */
+  details?: string;
 }
 export interface NoticeAbout {
   agent?: string;
@@ -49,14 +51,16 @@ export const isMyTurn = (e: Pick<WireEvent, 'topic' | 'type'>): boolean =>
 /** The line for an event worth knowing about, or null for one that is not (a decision, or a topic the list does not carry). */
 export function eventText(e: Pick<WireEvent, 'topic' | 'type' | 'agent' | 'title' | 'data'>): string | null {
   if (isMyTurn(e)) return null;
-  const d = e.data as { task?: unknown; account?: unknown };
+  const d = e.data as { task?: unknown; task_title?: unknown; account?: unknown };
   switch (e.type) {
     case 'task_done':
-      return e.title ?? `${e.agent ? `${e.agent}: ` : ''}task ${d.task ?? ''} is done`.trim();
+      return typeof d.task === 'number'
+        ? `T${d.task} done${typeof d.task_title === 'string' ? ` · ${d.task_title}` : ''}`
+        : (e.title ?? 'A task is done');
     case 'stall':
-      return e.title ?? `${e.agent ?? 'An agent'} stalled`;
+      return e.title ?? `${e.agent ?? 'An agent'} is blocked`;
     case 'account_out':
-      return e.title ?? `Account ${d.account ?? ''} is out`.trim();
+      return e.title ?? `Account ${d.account ?? ''} is out of usage`.replace('  ', ' ');
     case 'hr.settled':
       return e.title ?? 'A proposal was settled';
     default:
@@ -87,10 +91,20 @@ export class Notices {
   }
 
   /** Adds a notice, or counts it again when the same text came within a minute. It is shown at once. */
-  push(level: NoticeLevel, text: string, lane: NoticeLane = 'system', about?: NoticeAbout): Notice {
+  push(level: NoticeLevel, text: string, lane: NoticeLane = 'system', about?: NoticeAbout, details?: string): Notice {
     const at = this.now();
     const same = this.all.find((n) => n.level === level && n.text === text && n.lane === lane && at - n.at < MERGE_MS);
-    const n = same ?? { id: this.nextId++, level, text, at, count: 0, read: false, lane, ...(about ? { about } : {}) };
+    const n = same ?? {
+      id: this.nextId++,
+      level,
+      text,
+      at,
+      count: 0,
+      read: false,
+      lane,
+      ...(about ? { about } : {}),
+      ...(details ? { details } : {}),
+    };
     n.count++;
     n.at = at;
     n.read = false;

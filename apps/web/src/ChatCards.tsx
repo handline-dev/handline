@@ -110,7 +110,7 @@ export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to
 /** A banner with an icon and the reason when the session is blocked or stalled. */
 export function ChatBanner({ detail }: { detail: AgentDetail }) {
   const why =
-    detail.blocker || detail.wall_reason || (detail.state === 'stalled' ? detail.state_detail || 'The session has stalled' : null);
+    detail.blocker || detail.wall_reason || (detail.state === 'stalled' ? detail.state_detail || 'The session stopped answering' : null);
   if (!why) return null;
   return (
     <Card variant="event" tone="bad" className="chat-banner" role="status">
@@ -307,7 +307,7 @@ export function HrCards({ agent }: { agent: string }) {
 }
 
 const NEEDS: Record<string, string> = {
-  permission: 'Waiting for a yes',
+  permission: 'Needs you',
   question: 'Asked you a question',
   usage: 'Hit the session limit',
   dialog: 'Waiting on a dialog',
