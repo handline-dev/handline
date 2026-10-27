@@ -176,9 +176,12 @@ export function teamActivityOf(messages: ChatMessage[], items: TranscriptItem[],
 
 /** The name the daemon records for the person's own words: the CLI's `human`, or the device they typed on (`me`, e.g. "Handline desktop"). */
 export const isPerson = (name: string, me: string) => name === 'human' || (!!me && name === me);
+/** A task handed to an agent: the board sends it in the asker's name, when the agent reaches it, so it is the task's delivery and not words the person wrote then. */
+export const isTaskDelivery = (m: ChatMessage) => m.kind === 'task' && !!m.tasks?.length;
 /** Who a message is from, for the agent whose chat this is: the person, the agent, or someone else (another agent, the task board: the *all* tab, notices). Only the person's own words sit on the person's side. */
 export function sideOf(m: ChatMessage, agent: string, me: string): 'person' | 'agent' | 'other' {
   if (m.from === agent) return 'agent';
+  if (isTaskDelivery(m)) return 'other';
   return isPerson(m.from, me) ? 'person' : 'other';
 }
 /** A message of the person's can be taken back while it is not written or delivered; `confirm` when the agent already has it (it is told to stop). Null when it cannot. */
