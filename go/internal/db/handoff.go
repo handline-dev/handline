@@ -163,9 +163,10 @@ func RestartHeld(q Q, agent string, now int64) (bool, error) {
 
 func deferredKey(agent string) string { return "handoff_deferred:" + agent }
 
-// MarkDeferred keeps that a handoff trigger waits for the agent's running turn to end, since now; a call within the wait keeps its time.
+// MarkDeferred keeps that a handoff trigger waits for the agent's running turn to end, since now. The first time is kept until
+// ClearDeferred: the tick fires the trigger again every pass, and a later call must not start the hold over.
 func MarkDeferred(q Q, agent string, now int64) error {
-	if since, err := Cursor(q, deferredKey(agent)); err != nil || (since != 0 && now-since <= NoteWaitStaleS) {
+	if since, err := Cursor(q, deferredKey(agent)); err != nil || since != 0 {
 		return err
 	}
 	return SetCursor(q, deferredKey(agent), now)

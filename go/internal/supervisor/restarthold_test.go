@@ -157,15 +157,20 @@ func TestABatchClearsTheMarksOfEachRequestItTold(t *testing.T) {
 	}
 }
 
-// A deferral nobody acted on for longer than the ceiling is over; a new one starts its own time.
-func TestAStaleDeferralIsRestartedByTheNextOne(t *testing.T) {
+// A deferral kept past the ceiling holds nothing, and the tick firing the trigger again does not start the hold over.
+func TestADeferralPastTheCeilingIsNotReArmedByTheNextTick(t *testing.T) {
 	r := newRig(t)
 	r.must(db.MarkDeferred(r.DB, "bob", r.now()-db.NoteWaitStaleS-1))
 	if held, _ := db.RestartHeld(r.DB, "bob", r.now()); held {
-		t.Fatal("a stale deferral holds")
+		t.Fatal("a deferral past the ceiling holds")
 	}
-	r.must(db.MarkDeferred(r.DB, "bob", r.now()))
+	r.must(db.MarkDeferred(r.DB, "bob", r.now())) // the next tick defers the same trigger again
+	if held, _ := db.RestartHeld(r.DB, "bob", r.now()); held {
+		t.Fatal("the next tick re-armed the hold")
+	}
+	r.must(db.ClearDeferred(r.DB, "bob"))
+	r.must(db.MarkDeferred(r.DB, "bob", r.now())) // a new deferral after the mark was cleared holds again
 	if held, _ := db.RestartHeld(r.DB, "bob", r.now()); !held {
-		t.Fatal("a fresh deferral does not hold")
+		t.Fatal("a new deferral does not hold")
 	}
 }
