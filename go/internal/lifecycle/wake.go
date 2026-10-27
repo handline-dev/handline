@@ -701,7 +701,7 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 		slot = m.Launch.AccountFor(m.Q, agent, session != "" && !cold)
 	}
 	if slot != "" {
-		must(db.AddEvent(m.Q, agent, "wake_reserved", db.KV{K: "account", V: slot}))
+		must(db.AddEventFor(m.Q, agent, slot, "wake_reserved", db.KV{K: "account", V: slot}))
 	}
 	took := false
 	if cold && must(db.GetHandoff(m.Q, agent)) == "" {
