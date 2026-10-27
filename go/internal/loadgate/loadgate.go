@@ -15,12 +15,15 @@ import (
 
 // The limits' config.yaml keys and their defaults. The agent cap is off by default; the load and memory limits and the simulator hold are on.
 const (
-	AgentCapKey       = "host_active_cap"
-	LoadPctKey        = "load_per_core_pct"
-	RAMFreePctKey     = "ram_free_min_pct"
-	SimulatorKey      = "host_simulator_hold"
-	DefaultLoadPct    = 150
-	DefaultRAMFreePct = 10
+	AgentCapKey = "host_active_cap"
+	// DiskFreeMinKey is the free space in GB under which builds and tests wait (the heavy-slot floor) and the founder is told.
+	DiskFreeMinKey       = "disk_free_min_gb"
+	DefaultDiskFreeMinGB = 5
+	LoadPctKey           = "load_per_core_pct"
+	RAMFreePctKey        = "ram_free_min_pct"
+	SimulatorKey         = "host_simulator_hold"
+	DefaultLoadPct       = 150
+	DefaultRAMFreePct    = 10
 )
 
 // Limits are the machine's limits; 0 turns one off.
@@ -36,6 +39,9 @@ func LimitsOf(cfg usage.Config) Limits {
 	return Limits{Agents: setting(cfg, AgentCapKey, 0), LoadPct: setting(cfg, LoadPctKey, DefaultLoadPct),
 		RAMFreePct: setting(cfg, RAMFreePctKey, DefaultRAMFreePct), Simulator: setting(cfg, SimulatorKey, 1)}
 }
+
+// DiskFreeMinGB is the configured floor of free disk, in GB.
+func DiskFreeMinGB(cfg usage.Config) int { return setting(cfg, DiskFreeMinKey, DefaultDiskFreeMinGB) }
 
 func setting(cfg usage.Config, key string, def int) int {
 	switch n := cfg[key].(type) {
