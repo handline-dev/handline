@@ -96,7 +96,7 @@ describe('loading and writes with latency and refusals', () => {
     expect(compose().value).toBe('');
     await until(() => sent(s, 'right now'), 'the daemon got it', 600);
     await until(() => $$('.msg').filter((m) => text(m).includes('right now')).length === 1, 'the real message replaced the temporary one');
-    expect(msg('right now')!.getAttribute('data-pending')).toBeNull();
+    await until(() => msg('right now')?.getAttribute('data-pending') === null, 'the pending mark to go');
   });
 
   it('keeps a refused message as a failed row with its words and the reason; Retry sends it again', async () => {
