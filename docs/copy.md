@@ -3,8 +3,8 @@
 Every string in the PC and phone apps is read by a busy person. The rules below apply to it, whether the app writes it or the
 daemon sends it for the app to show.
 
-1. **Say what happened, then what to do next.** "Held: the Mac is busy. It starts by itself when the load drops, or Start
-   now." A string that names a problem and no next step is unfinished. When there is nothing to do, say that it fixes
+1. **Say what happened, then what to do next.** "Waiting: the computer is busy right now. It starts by itself when it calms down, or
+   Start now." A string that names a problem and no next step is unfinished. When there is nothing to do, say that it fixes
    itself.
 2. **One sentence where one works.** Cut the clause that repeats the title, the icon or the state word beside it.
 3. **Plain words.** No hook names, state codes or internal nouns (`UserPromptSubmit`, `apply_failed`, `PARKED`, rpc, gate,

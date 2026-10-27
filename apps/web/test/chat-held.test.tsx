@@ -52,7 +52,7 @@ describe('chat of an agent held for machine load', () => {
     expect($('.card-held')!.textContent).toContain('the computer is under heavy memory load right now');
     let asked = 0;
     window.addEventListener(OPEN_RESOURCES, () => asked++);
-    const see = [...box.querySelectorAll('.card-held button')].find((b) => b.textContent === 'See what uses memory') as HTMLElement;
+    const see = [...box.querySelectorAll('.card-held button')].find((b) => b.textContent === 'See what uses the computer') as HTMLElement;
     await act(async () => see.click());
     expect(asked).toBe(1);
     const start = [...box.querySelectorAll('.card-held button')].find((b) => b.textContent === 'Start now') as HTMLElement;

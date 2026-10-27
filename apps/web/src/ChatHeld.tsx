@@ -58,7 +58,7 @@ export function HeldCard({ detail }: { detail: AgentDetail }) {
         {status.since ? <span className="muted">for {ago(status.since)}</span> : null}
         {refused ? <span role="alert">{refused}</span> : null}
       </CardWhat>
-      <Button label="See what uses memory" size="sm" onClick={() => window.dispatchEvent(new Event(OPEN_RESOURCES))} />
+      <Button label="See what uses the computer" size="sm" onClick={() => window.dispatchEvent(new Event(OPEN_RESOURCES))} />
       {served(verb) ? (
         <Button
           label="Start now"
