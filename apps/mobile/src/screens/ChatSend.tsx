@@ -13,7 +13,7 @@ type Delivery = 'now' | 'queue';
 export const LONG_PRESS_MS = 500;
 
 /** A tap sends; while a turn runs it queues, and a long press offers Send now or Queue. */
-export function SendButton(props: { disabled: boolean; choose: boolean; onSend: (delivery?: Delivery) => void }) {
+export function SendButton(props: { disabled: boolean; choose: boolean; color?: string; onSend: (delivery?: Delivery) => void }) {
   const c = usePalette();
   const [asking, setAsking] = useState(false);
   const pick = (d: Delivery) => {
@@ -37,7 +37,7 @@ export function SendButton(props: { disabled: boolean; choose: boolean; onSend: 
           borderRadius: radius.pill,
           alignItems: 'center',
           justifyContent: 'center',
-          backgroundColor: c.accent,
+          backgroundColor: props.color ?? c.accent,
           opacity: props.disabled ? 0.35 : 1,
         }}
       >

@@ -79,30 +79,47 @@ function Inline({ text, plain }: { text: string; plain?: Plain }) {
   );
 }
 
-/** `breaks` keeps a line break inside a paragraph (a chat message); `plain` draws the plain words. */
-export function Markdown({ text, testID, breaks, plain }: { text: string; testID?: string; breaks?: boolean; plain?: Plain }) {
+/** `breaks` keeps a line break inside a paragraph (a chat message); `plain` draws the plain words; `selectable` lets a long press select and copy them. */
+export function Markdown({
+  text,
+  testID,
+  breaks,
+  plain,
+  selectable,
+}: {
+  text: string;
+  testID?: string;
+  breaks?: boolean;
+  plain?: Plain;
+  selectable?: boolean;
+}) {
   const c = usePalette();
   return (
     <View testID={testID} style={{ gap: space.sm }}>
       {blocks(text, breaks).map((b, i) =>
         b.kind === 'code' ? (
           <View key={i} style={{ backgroundColor: c.line, borderRadius: radius.card, padding: space.sm }}>
-            <Text style={{ color: c.ink, fontFamily: 'monospace', fontSize: font.size.label }}>{b.text}</Text>
+            <Text selectable={selectable} style={{ color: c.ink, fontFamily: 'monospace', fontSize: font.size.label }}>
+              {b.text}
+            </Text>
           </View>
         ) : b.kind === 'item' ? (
           <View key={i} style={{ flexDirection: 'row', gap: space.xs }}>
             <Text style={{ color: c.ink }}>{b.mark}</Text>
-            <Text style={{ color: c.ink, flexShrink: 1 }}>
+            <Text selectable={selectable} style={{ color: c.ink, flexShrink: 1 }}>
               <Inline text={b.text} plain={plain} />
             </Text>
           </View>
         ) : (
           <Text
             key={i}
+            selectable={selectable}
             accessibilityRole={b.kind === 'heading' ? 'header' : undefined}
             style={{
               color: b.kind === 'quote' ? c.muted : c.ink,
-              ...(b.kind === 'heading' ? { fontWeight: '700', fontSize: b.level === 1 ? font.size.page : b.level === 2 ? font.size.title : font.size.body } : {}),
+              ...(b.kind === 'heading'
+                ? { fontWeight: '700', fontSize: b.level === 1 ? font.size.page : b.level === 2 ? font.size.title : font.size.body }
+                : {}),
               ...(b.kind === 'quote' ? { borderLeftWidth: 2, borderLeftColor: c.line, paddingLeft: space.sm } : {}),
             }}
           >
