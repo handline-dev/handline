@@ -89,11 +89,15 @@ describe('the settings rows the web has', () => {
     expect(($('prompt-input') as HTMLInputElement).value).toBe(values(m).handoff_prompt);
     expect($('prompt-builtin')).not.toBeNull();
     expect(($('prompt-reset') as HTMLButtonElement).disabled ?? $('prompt-reset').getAttribute('aria-disabled')).toBeTruthy();
+    expect($('prompt-preview')).toBeNull();
+    await press($('prompt-reads'));
     expect(text($('prompt-preview'))).toContain("(the note's file)");
     expect(text($('prompt-own'))).toContain('1 agent sets its own text, so it ignores this one.');
     await type('prompt-input', 'too short');
     await press($('prompt-save'));
-    expect(text($('prompt-note'))).toContain('Too short to guide a note.');
+    expect(text($('prompt-refusal'))).toContain('Not saved, the old text stays. Too short to guide a note.');
+    expect($('prompt-builtin')).toBeNull();
+    expect(($('prompt-reset') as HTMLButtonElement).disabled ?? $('prompt-reset').getAttribute('aria-disabled')).toBeFalsy();
     await type('prompt-input', 'Write your note now\nand keep it short');
     await press($('prompt-save'));
     await until(() => values(m).handoff_prompt === 'Write your note now and keep it short', 'the save, line break joined');
