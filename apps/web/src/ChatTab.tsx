@@ -132,7 +132,7 @@ function useWindowedChat(agent: string, scope: ChatScope) {
 
 /** Marks what the chat shows as read. It draws nothing and owns the writes, so their pending and done states do not draw the chat. */
 function ReadMarks({ agent, chat, stream }: { agent: string; chat: Chat; stream: RefObject<HTMLElement | null> }) {
-  useChatReadMarks(agent, chat, useViewedUpTo(stream, agent, chat));
+  useViewedUpTo(stream, agent, chat, useChatReadMarks(agent, chat, true));
   return null;
 }
 
