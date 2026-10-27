@@ -73,7 +73,7 @@ func TestTheFoundersDoneAndDiscardNeedNoReasonAnAgentsDo(t *testing.T) {
 	}
 	said(batch("", "[8,9]", ``))
 	said(batch("", "[10,11]", `,"reason":"  "`))
-	said(batch("", "[12]", `,"reason":"dup","reasons":{"T13":"mine"}`))
+	said(batch("", "[12]", `,"reason":"dup","reasons":{"T13":"mine"}`)) // local-ref-ok
 	for task, want := range map[int]string{8: "Discarded", 9: "Discarded", 10: "Discarded", 11: "Discarded", 12: "dup"} {
 		if got := reasonOf(task); got != want {
 			t.Errorf("batch: T%d reason %q, want %q", task, got, want)
