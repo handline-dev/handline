@@ -159,7 +159,7 @@ describe('my turn', () => {
     await until(() => box.querySelector('[data-card="item:3"]'), 'the decision card');
     const c = box.querySelector('[data-card="item:3"]')!;
     expect(c.querySelector('[role=button]')).toBeNull(); // no task to open, and no clamped text to unfold
-    expect(c.querySelector('.line-clamp-3')).toBeNull();
+    expect(c.textContent).not.toContain('Show more');
     await click(button(c, 'Reply'));
     await type(c.querySelector('input')!, 'Yes, relay it.');
     await click(button(c, 'Send reply'));

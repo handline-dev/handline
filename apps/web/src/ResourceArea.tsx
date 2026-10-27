@@ -1,7 +1,7 @@
 // The status bar's right-hand resource area: the keep-awake choice and the one text cell of what the agents use, which opens a popover of the
 // machine's load, CPU, memory, why starts are held and each agent's use. Everything shown is read-only; a limit's editor opens only on a click
 // on its row and closes with the popover.
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   bytesText,
   memoryFree,
@@ -39,6 +39,9 @@ function useLimits(): Limits & { awake: Awake } {
   };
 }
 
+/** The window event that opens the resources popover from elsewhere, such as the held card's button. */
+export const OPEN_RESOURCES = 'handline:open-resources';
+
 export function ResourceArea() {
   const data = useStatus().data;
   const r = data?.resources;
@@ -47,6 +50,11 @@ export function ResourceArea() {
   const working = (data?.agents.by_state as Record<string, number> | undefined)?.running ?? 0;
   const line = resourceLine(r, limits);
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const show = () => setOpen(true);
+    window.addEventListener(OPEN_RESOURCES, show);
+    return () => window.removeEventListener(OPEN_RESOURCES, show);
+  }, []);
   const label = AWAKE.find((a) => a.value === limits.awake)!.label;
   return (
     <>

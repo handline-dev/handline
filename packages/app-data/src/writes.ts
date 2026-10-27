@@ -428,6 +428,7 @@ export const NOT_FROM_UI = [
   'task.memo.delete',
   'task.progress',
   'task.handoff',
+  'task.comment.send_now', // the comment's reader state is read first; T6550 wires the button
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',

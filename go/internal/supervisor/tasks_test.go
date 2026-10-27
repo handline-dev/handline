@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -678,5 +679,41 @@ func TestTheFoundersMemoReachesTheTaskOwnerAtOnceWhileAnAgentsMemoDigests(t *tes
 	}
 	if left, _ := db.PendingNotices(r.DB, "bob"); len(left) != 1 {
 		t.Fatalf("an agent's memo no longer digests: %v", left)
+	}
+}
+
+// A memo keeps which request told each reader, held for a digest or typed at once, so the memo can show who has read it.
+func TestAMemoKeepsTheTellItSentToEachReader(t *testing.T) {
+	r := newRig(t)
+	r.register("carol")
+	r.agentUp("carol")
+	r.agentUp("bob")
+	tid := r.newTask("bob", "carol", "job")
+	r.AdvanceCurrentTask(r.DB, "bob")
+	r.must(r.TellMemoOf(r.DB, tid, 7, "dave", "added", "plain", "", false))
+	r.must(r.TellMemoOf(r.DB, tid, 8, "dave", "added", "@bob look", "", false))
+	count := func(mid int64) int {
+		var n int
+		r.must(r.DB.QueryRow("SELECT COUNT(*) FROM memo_tells WHERE memo_id = ?", mid).Scan(&n))
+		return n
+	}
+	if count(7) == 0 || count(8) == 0 {
+		t.Fatalf("a held tell and a typed tell are both kept: %d %d", count(7), count(8))
+	}
+	var held int64
+	r.must(r.DB.QueryRow("SELECT request_id FROM memo_tells WHERE memo_id = 7 AND reader = 'carol'").Scan(&held))
+	r.MemoTellSent(held)
+	var sent sql.NullInt64
+	var digests int
+	r.must(r.DB.QueryRow("SELECT delivered_at FROM requests WHERE id = ?", held).Scan(&sent))
+	r.must(r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'carol' AND body LIKE ?", db.DigestHead+"%").Scan(&digests))
+	if !sent.Valid || digests != 1 {
+		t.Fatalf("send now writes a digest of the held tell and marks it sent: %v %d", sent, digests)
+	}
+	r.must(r.TellMemoOf(r.DB, tid, 0, "dave", "added", "unlinked", "", false))
+	var n int
+	r.must(r.DB.QueryRow("SELECT COUNT(*) FROM memo_tells WHERE memo_id = 0").Scan(&n))
+	if n != 0 {
+		t.Fatal("memo 0 keeps nothing")
 	}
 }

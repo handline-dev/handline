@@ -6,7 +6,8 @@ import { dateTime, HELD, isPerson, taskRef, watchResult } from '@handline/app-co
 import { useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
-import { Button, MenuButton, MenuItem, Popup } from '#src/ui/index.ts';
+import { Button, Icon, MenuButton, MenuItem, Popup } from '#src/ui/index.ts';
+import { AssignPopover } from '#src/TaskPeople.tsx';
 import { leave } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
 import { AskSheets, type Ask } from '#src/TaskAsk.tsx';
@@ -24,6 +25,9 @@ const CLOSED = ['done', 'discarded'];
 /** The bridge's own sentence for a key that does not apply. */
 const REOPEN_ONLY = 'only a done task that you asked for can be reopened';
 const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
+
+/** The daemon's reason for a task it has not yet looked at: not something the person can act on, so it reads as a quiet line. */
+const NOT_PICKED = /has not looked at it yet/;
 
 export function TaskDetail({
   id,
@@ -203,13 +207,18 @@ function Body({ t }: { t: Detail }) {
       </p>
       <TimeLine id={t.id} />
       <TaskWatch t={t} />
-      {why ? (
+      {why && NOT_PICKED.test(why) ? (
+        <p className="twhy m-0 mt-2 flex items-center gap-1.5 text-hint text-ink-3" role="status">
+          <Icon name="queued" size={14} aria-hidden />
+          Not picked up yet
+        </p>
+      ) : why ? (
         <p className="twhy m-0 mt-3 rounded-card border border-wait px-3 py-2 text-wait" role="status">
           <RichText text={why} />
         </p>
       ) : null}
       <div className="mt-3">
-        <TaskChips t={t} now={now} onAssign={() => setAsk('assign')} />
+        <TaskChips t={t} now={now} me={me} />
       </div>
       <Brief t={t} can={edit.can.ok && open} />
 
@@ -229,7 +238,7 @@ function Body({ t }: { t: Detail }) {
 
       {/* A sticky bar stops above the scroll box's 12 px bottom padding; -bottom-3 takes it to the edge. */}
       <div className="task-footer sticky -bottom-3 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-inherit px-4 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-1.5">
-        <AskSheets t={t} me={me} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
+        <AskSheets t={t} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
 
         <div className="tverbs flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Task actions">
           {main ? (
@@ -245,16 +254,19 @@ function Body({ t }: { t: Detail }) {
             </Button>
           ) : null}
           {open ? (
-            <Button
-              variant="outline"
-              label="Assign"
-              title={edit.can.why ?? 'Assign (o)'}
-              disabled={!edit.can.ok}
-              className="max-sm:min-h-[44px]"
-              onClick={verbs.o}
-            >
-              Assign
-            </Button>
+            <span className="relative inline-flex">
+              <Button
+                variant="outline"
+                label="Assign"
+                title={edit.can.why ?? 'Assign (o)'}
+                disabled={!edit.can.ok}
+                className="max-sm:min-h-[44px]"
+                onClick={() => setAsk(ask === 'assign' ? null : 'assign')}
+              >
+                Assign
+              </Button>
+              <AssignPopover t={t} me={me} open={ask === 'assign'} onClose={() => setAsk(null)} up />
+            </span>
           ) : null}
           <Button variant="outline" label="Comment" title="Comment (a)" className="max-sm:min-h-[44px]" onClick={verbs.a}>
             Comment
