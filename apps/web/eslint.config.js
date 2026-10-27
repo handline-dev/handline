@@ -7,7 +7,7 @@ const compiler = Object.fromEntries(
     .filter((r) => r !== 'react-hooks/rules-of-hooks' && r !== 'react-hooks/exhaustive-deps')
     .map((r) => [r, 'warn']),
 );
-// Layering: a view holds no data hook and no label table. Screens are listed here as they are split into a hook and a view (T6245); the list only grows.
+// Layering: a view holds no data hook and no label table (the rule sees only a literal Record<string, string>). Screens are listed here as they are split into a hook and a view (T6245); the list only grows.
 const views = [
   {
     files: ['src/AgentRow.tsx', 'src/Pane.tsx'],
