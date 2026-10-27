@@ -13,12 +13,13 @@ import (
 
 func openDB(t *testing.T) db.Q {
 	t.Helper()
-	d, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
-	if err != nil {
-		t.Fatal(err)
+	d, err := store.Open(filepath.Join(t.TempDir(), "spare.sqlite"))
+	if err == nil {
+		t.Cleanup(func() { d.Close() })
+		return d
 	}
-	t.Cleanup(func() { d.Close() })
-	return d
+	t.Fatal(err)
+	return nil
 }
 
 type rig struct {
