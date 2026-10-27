@@ -1020,10 +1020,29 @@ func TestAWakeLongAfterACloseDuringAHandoffStillStartsFresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.SetClosed(m.Q, "a", "sess-1")
+	m.Q.Exec("UPDATE agent_state SET closed_at = ? WHERE agent = 'a'", m.now()-2*db.NoteWaitStaleS+60) // closed a minute into the wait
 	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Person: true}); err != nil || !ok {
 		t.Fatalf("%v %q %v", ok, said, err)
 	}
 	if len(tm.relaunched) != 1 || strings.Contains(tm.relaunched[0], "--resume") {
 		t.Fatalf("the old session was resumed: %q", tm.relaunched)
+	}
+}
+
+// A note-wait mark left behind by a handoff that never went on is not owed by an ordinary close long after it: that wake resumes.
+func TestAWakeAfterAnOrdinaryCloseResumesPastAStaleNoteWaitMark(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "테스트.", true, true
+	m.Handoff = fakeHandoff{}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	if err := db.MarkNoteWait(m.Q, "a", "context", m.now()-3*86400); err != nil {
+		t.Fatal(err)
+	}
+	db.SetClosed(m.Q, "a", "sess-1")
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if len(tm.relaunched) != 1 || !strings.HasSuffix(tm.relaunched[0], "-- --resume sess-1") {
+		t.Fatalf("the conversation was not resumed: %q", tm.relaunched)
 	}
 }
