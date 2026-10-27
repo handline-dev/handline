@@ -139,6 +139,19 @@ func handoffPrompt(set string) string {
 	return set
 }
 
+// ownHandoffPrompts is the agents whose agent.yaml sets a handoff prompt of their own, which the global one does not reach.
+func (e *Env) ownHandoffPrompts() []string {
+	roster := team.NewRoster(e.Home)
+	own := []string{}
+	for _, a := range paths.ListAgents(e.Home) {
+		cfg, _ := roster.Read(a)
+		if s, _ := cfg[handoff.PromptKey].(string); strings.TrimSpace(s) != "" {
+			own = append(own, a)
+		}
+	}
+	return own
+}
+
 // settingsGet is settings.get: timings, terminal host, listener, trust folders, hooks and every value.
 func (e *Env) settingsGet(_ *rpc.Conn, params map[string]any) (any, error) {
 	agent, err := e.chatAgent(params, false)
@@ -184,6 +197,9 @@ func (e *Env) settingsGet(_ *rpc.Conn, params map[string]any) (any, error) {
 			}
 		}
 		out["overrides"] = over
+	} else {
+		out["handoff_prompt_default"] = handoff.AskTemplate
+		out["handoff_prompt_own"] = e.ownHandoffPrompts()
 	}
 	return out, nil
 }
