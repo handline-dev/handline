@@ -429,4 +429,6 @@ export const NOT_FROM_UI = [
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',
+  'shell.open', // the shell pane arrives with the UI that follows (T5924)
+  'shell.close',
 ] as const;
