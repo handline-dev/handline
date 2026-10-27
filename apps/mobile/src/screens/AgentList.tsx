@@ -37,7 +37,7 @@ const CHIPS: { id: NavChip; label: string }[] = [
   { id: 'needs', label: 'Needs me' },
 ];
 
-export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') => void }) {
+export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team' | 'requests') => void }) {
   const c = usePalette();
   const store = useStore();
   const query = useAgents();
@@ -74,8 +74,9 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
   const founder = store.client.hello?.role === 'founder';
   const create = useServes('agent.create').served;
   const hr = useHrCount();
+  const requests = useServes('requests.list').served;
   const [menu, setMenu] = useState(false);
-  const go = (page: 'settings' | 'team') => (setMenu(false), props.onPage(page));
+  const go = (page: 'settings' | 'team' | 'requests') => (setMenu(false), props.onPage(page));
   return (
     <View style={{ flex: 1 }}>
       <PageHeader
@@ -106,6 +107,7 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
       {menu && (
         <MenuSheet testID="agents-menu-list" onClose={() => setMenu(false)}>
           <TeamButton onPress={() => go('team')} />
+          {requests ? <MenuItem testID="requests-open" label="Requests" icon="tasks" onPress={() => go('requests')} /> : null}
           <MenuItem testID="settings-open" label="Settings" icon="settings" onPress={() => go('settings')} />
         </MenuSheet>
       )}

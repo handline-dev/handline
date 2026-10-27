@@ -203,6 +203,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
                 anchor.row(e.id, y);
               }}
               working={working}
+              onTask={setOpenTask}
               onPick={(m) => {
                 setItem(null);
                 setPicked((p) => (p?.id === m.id ? null : m));
@@ -277,6 +278,7 @@ function Bubble(props: {
   onRow: (y: number) => void;
   working: boolean;
   onPick: (m: ChatMessage) => void;
+  onTask: (id: number) => void;
 }) {
   const c = usePalette();
   const bubble = useBubbleWidth();
@@ -344,6 +346,15 @@ function Bubble(props: {
         {m.body ? <PrBody id={m.id} agent={agent} body={m.body} /> : null}
         {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
         {m.actions?.length ? <ChatActions id={m.id} actions={m.actions} /> : null}
+        {side === 'person' && m.request_task != null ? (
+          <Pressable testID={`request-chip-${m.id}`} accessibilityRole="link" hitSlop={8} onPress={() => props.onTask(m.request_task!)}>
+            <Text style={{ color: c.accent, fontSize: font.size.label }}>Taken as T{m.request_task}</Text>
+          </Pressable>
+        ) : side === 'person' && m.no_work ? (
+          <Text testID={`request-chip-${m.id}`} style={{ color: c.muted, fontSize: font.size.label }}>
+            Nothing to do: {m.no_work}
+          </Text>
+        ) : null}
         {failed && (
           <View accessibilityRole="alert" style={{ gap: space.xs }}>
             <Row>
