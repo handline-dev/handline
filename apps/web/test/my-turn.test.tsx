@@ -154,6 +154,25 @@ describe('my turn', () => {
     expect(box.querySelector('.tdetail')).toBeNull();
   });
 
+  it('on a narrow window the task takes the page: one Back, to My turn, in the head', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    keep = () => void vi.unstubAllGlobals();
+    const s = setup();
+    decision(s, 9002);
+    await open(s);
+    const card = () => cards().find((c) => c.textContent?.includes('Task 9002'));
+    await until(card, 'the decision card');
+    await click(card()!.querySelector('[role=button]') ?? undefined);
+    await until(() => box.querySelector('.tdetail .tbody'), 'the task body');
+    expect(box.querySelector('.my-turn-split')).toBeNull(); // instead of the list, not beside it
+    const backs = [...box.querySelectorAll('.back')];
+    expect(backs.map((b) => b.getAttribute('title'))).toEqual(['Back to My turn']); // one Back, not a second one in the article
+    expect(box.querySelector('.tdetail .back')).toBeNull();
+    await click(backs[0]);
+    expect(box.querySelector('.tdetail')).toBeNull();
+    expect(cards().length).toBeGreaterThan(0);
+  });
+
   it('Reply sends the written answer of a decision', async () => {
     const s = await open();
     await until(() => box.querySelector('[data-card="item:3"]'), 'the decision card');

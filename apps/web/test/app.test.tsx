@@ -462,6 +462,21 @@ describe('the top bar', () => {
     await act(async () => void (location.hash = '#/my-turn'));
     await until(() => $('.topbar .page-bar header'), 'the My turn head in the bar');
   });
+  it('keeps the bar one 44 px row by structure (jsdom has no layout; the height itself was measured in Chrome): no wrap on Tasks, dense tabs on Settings, a 32 px title field', async () => {
+    await mount(ARCH);
+    await until(() => $('.rail'), 'sidebar');
+    await act(async () => void (location.hash = '#/tasks'));
+    await until(() => $('.topbar .tasks-head'), 'the Tasks head in the bar');
+    expect($('.topbar .tasks-head')!.className).toContain('flex-nowrap');
+    await act(async () => void (location.hash = '#/settings'));
+    await until(() => $('.topbar [role=tablist]'), 'the Settings tabs in the bar');
+    expect($('.topbar [role=tablist]')!.className).not.toContain('py-2'); // the dense row, no padding of its own
+    expect($('.topbar [role=tablist]')!.closest('.basis-full')).toBeNull(); // on the title's line, not under it
+    await act(async () => void (location.hash = '#/tasks/1700'));
+    await until(() => $('.topbar [aria-label="Edit Title"]'), 'the title in the bar');
+    await click($('.topbar [aria-label="Edit Title"]')!);
+    expect($('.topbar input[aria-label="Title"]')!.className).toContain('h-8');
+  });
   it('carries the sidebar button, Back and Forward while the sidebar is folded, and not while it is open', async () => {
     await mount(ARCH);
     await until(() => $('.rail'), 'sidebar');
