@@ -49,6 +49,8 @@ export function BodyEditor(props: {
   onSubmit?: () => void;
   /** No Source/Rich toggle: the field is only the text (a comment edited in place). */
   plain?: boolean;
+  /** One or two lines at rest, small padding, growing with the text (comments); the default stays a few lines tall. */
+  compact?: boolean;
   /** Typing `@` offers these agents, the ones near the task first. */
   mentions?: { names: readonly string[]; near: readonly string[]; state?: (name: string) => string };
 }) {
@@ -141,7 +143,7 @@ export function BodyEditor(props: {
     contentType: 'markdown',
     editorProps: {
       attributes: {
-        class: `${BOX} body-editor min-h-24 focus-within:border-ink-3 outline-none`,
+        class: `${BOX} body-editor ${props.compact ? 'min-h-9 [&_p]:m-0' : 'min-h-24'} focus-within:border-ink-3 outline-none`,
         ...(props.id ? { id: props.id } : {}),
         role: 'textbox',
         'aria-multiline': 'true',

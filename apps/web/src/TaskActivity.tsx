@@ -132,7 +132,7 @@ function EditInPlace(props: {
       onSubmit={(e) => (e.preventDefault(), props.onSave())}
       onKeyDown={(e) => e.key === 'Escape' && !e.defaultPrevented && (e.stopPropagation(), props.onCancel())}
     >
-      <BodyEditor plain value={props.text} onChange={props.setText} onBusy={props.setBusy} label="Comment" onSubmit={props.onSave} />
+      <BodyEditor plain compact value={props.text} onChange={props.setText} onBusy={props.setBusy} label="Comment" onSubmit={props.onSave} />
       {props.problem ? <span role="alert">{props.problem}</span> : null}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" size="sm" label="Cancel" onClick={props.onCancel}>
@@ -216,7 +216,7 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
           )}
         </ul>
       ) : null}
-      <div ref={box} className="grid gap-2" title={can.why}>
+      <div ref={box} className="grid gap-1.5" title={can.why}>
         {can.ok ? (
           <>
             {answering ? (
@@ -226,6 +226,7 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
               </p>
             ) : null}
             <BodyEditor
+              compact
               key={fresh}
               value={text}
               onChange={setText}
@@ -239,7 +240,7 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
                 {add.isPending ? 'Sending…' : 'Comment'}
               </Button>
               <CommentPicture onAttach={(md) => (setText((v) => [v.trim(), md].filter(Boolean).join('\n')), setFresh((n) => n + 1))} />
-              <span className="text-hint text-ink-3">@agent asks that agent. The assignee is told either way.</span>
+              <span className="text-[12px] leading-4 text-ink-3">@agent asks that agent. The assignee is told either way.</span>
             </div>
           </>
         ) : null}
