@@ -2,7 +2,7 @@
 // Authored: a line shows at once and goes back with the daemon's reason when refused. Remove asks on the line before it sends.
 import { useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
-import { cronWords, ellipsis } from '@handline/app-core';
+import { cronWords, dateTime, ellipsis } from '@handline/app-core';
 import type { Schedule } from '@handline/client';
 import { useSelector } from '@handline/app-react';
 import { useOff, useScheduleEditor, useSchedules, useServes } from '@handline/app-data';
@@ -50,7 +50,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
                 {cronWords(s.cron) ?? s.cron}
               </Text>
               {cronWords(s.cron) ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{s.cron}</Text> : null}
-              {s.next_run ? <Text style={{ color: c.muted, fontSize: font.size.label }}>next {new Date(s.next_run).toLocaleString()}</Text> : null}
+              {s.next_run ? <Text style={{ color: c.muted, fontSize: font.size.label }}>next {dateTime(s.next_run)}</Text> : null}
               <Text style={{ color: c.ink }}>{ellipsis(s.message, 80)}</Text>
               {write ? (
                 <View style={{ flexDirection: 'row', gap: space.sm }}>
@@ -91,7 +91,13 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
         <Button testID="schedule-new" label="Add schedule" disabled={!!whyNot} onPress={() => setForm({ cron: '', message: '' })} />
       ) : null}
       {form ? (
-        <Sheet id="schedule" label={form.id === undefined ? 'Add a schedule' : 'Edit the schedule'} submit="Save" onCancel={() => setForm(null)} onSubmit={save}>
+        <Sheet
+          id="schedule"
+          label={form.id === undefined ? 'Add a schedule' : 'Edit the schedule'}
+          submit="Save"
+          onCancel={() => setForm(null)}
+          onSubmit={save}
+        >
           <TextInput
             testID="schedule-cron"
             accessibilityLabel="When (cron)"
