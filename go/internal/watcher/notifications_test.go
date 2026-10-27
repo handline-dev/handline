@@ -184,10 +184,10 @@ func TestATaskDoneCarriesTheTasksTitleAndTheFirstLineOfItsEvidence(t *testing.T)
 		t.Fatal(err)
 	}
 	want := []string{
-		`{"result":"built and tested","task":7,"task_title":"task 7"}`,
-		`{"task":8,"task_title":"task 8"}`,
-		`{"result":"` + long[:2*resultCap] + `","task":9,"task_title":"task 9"}`,
-		`{"result":"first","task":10}`,
+		`{"from_founder":true,"reporter":"human","result":"built and tested","task":7,"task_title":"task 7"}`,
+		`{"from_founder":true,"reporter":"human","task":8,"task_title":"task 8"}`,
+		`{"from_founder":true,"reporter":"human","result":"` + long[:2*resultCap] + `","task":9,"task_title":"task 9"}`,
+		`{"from_founder":true,"reporter":"human","result":"first","task":10}`,
 		`{"task":99}`,
 	}
 	got := notes(t, l)
@@ -217,5 +217,41 @@ func TestADiskLowEventIsOneNotificationWithTheFreeSpace(t *testing.T) {
 	got := notes(t, l)
 	if len(got) != 1 || string(got[0].Data) != `{"free_bytes":9663676416,"total_bytes":494384795648}` || *got[0].Title != "disk low: 9 GB left" {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestATaskDoneSaysWhoTheTaskAnswersToAndWhetherTheFounderGaveIt(t *testing.T) {
+	d, l := rig(t)
+	emit := func(e stream.Entry) (*stream.Event, error) { return l.Append(e) }
+	n := &Notifications{Reads: &reads.Env{DB: d}}
+	if err := n.Scan(d, emit); err != nil {
+		t.Fatal(err)
+	}
+	for i, q := range []string{
+		"(1, 't', 'bob', 'amy', NULL)",    // an agent's task: it answers to its opener
+		"(2, 't', 'bob', 'amy', 'human')", // an agent opened it for the founder, who answers for it
+		"(3, 't', 'bob', 'human', 'amy')", // the founder opened it and an agent answers for it
+		"(4, 't', 'bob', 'human', NULL)",
+	} {
+		exec(t, d, "INSERT INTO tasks(id, title, owner, opened_by, reporter, created_at) VALUES"+q[:len(q)-1]+", 1)")
+		exec(t, d, "INSERT INTO events(ts, agent, kind, payload) VALUES(?, 'bob', 'mark_task_done', ?)", 10+i, fmt.Sprintf(`{"task_id": %d}`, i+1))
+	}
+	if err := n.Scan(d, emit); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		`{"from_founder":false,"reporter":"amy","task":1,"task_title":"t"}`,
+		`{"from_founder":true,"reporter":"human","task":2,"task_title":"t"}`,
+		`{"from_founder":true,"reporter":"amy","task":3,"task_title":"t"}`,
+		`{"from_founder":true,"reporter":"human","task":4,"task_title":"t"}`,
+	}
+	got := notes(t, l)
+	if len(got) != len(want) {
+		t.Fatalf("%d notices", len(got))
+	}
+	for i, e := range got {
+		if string(e.Data) != want[i] {
+			t.Errorf("notice %d: %s, want %s", i, e.Data, want[i])
+		}
 	}
 }
