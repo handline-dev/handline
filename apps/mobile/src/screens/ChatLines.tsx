@@ -69,21 +69,35 @@ export function Line(props: {
     const p = i.prompt;
     return (
       <Text style={small} numberOfLines={2}>
-        <Icon name={i.open ? 'waiting' : 'delivered'} label={i.open ? 'Open' : 'Answered'} size={12} color={c.muted} /> {p?.kind === 'permission' ? `Asked permission: ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`}
+        <Icon name={i.open ? 'waiting' : 'delivered'} label={i.open ? 'Open' : 'Answered'} size={12} color={c.muted} />{' '}
+        {p?.kind === 'permission' ? `Asked permission: ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`}
         {p?.command ? ` ${p.command}` : ''} · {clockTime(i.at)}
       </Text>
     );
   }
   if (i.kind === 'session') return <SessionMark i={i} />;
   if (i.kind === 'task_batch' && i.task_batch) return <BatchCard i={i} onTask={onTask} />;
-  if (i.kind === 'task_event' && i.task_event) return <TaskCard i={i} agent={agent} me={props.me ?? ''} titles={props.titles} onTask={onTask} />;
+  if (i.kind === 'task_event' && i.task_event)
+    return <TaskCard i={i} agent={agent} me={props.me ?? ''} titles={props.titles} onTask={onTask} />;
   return null;
 }
 
 const TASK_ICON: Record<string, IconName> = { opened: 'opened', changed: 'changed', done: 'done', withdrawn: 'withdrawn' };
 
 /** A task opened, changed, done or withdrawn as one card: who, what happened, the task and its title; a tap opens the task. */
-export function TaskCard({ i, agent, me, titles, onTask }: { i: TranscriptItem; agent: string; me: string; titles?: Map<number, string>; onTask?: (task: number) => void }) {
+export function TaskCard({
+  i,
+  agent,
+  me,
+  titles,
+  onTask,
+}: {
+  i: TranscriptItem;
+  agent: string;
+  me: string;
+  titles?: Map<number, string>;
+  onTask?: (task: number) => void;
+}) {
   const c = usePalette();
   const ev = i.task_event?.event ?? 'changed';
   const row = taskRow(i, titles);
