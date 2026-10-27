@@ -403,6 +403,8 @@ export const writes: Record<string, WriteSpec> = {
   'session.type': uncached('type'),
   'terminal.input': uncached('key'),
   'terminal.resize': uncached('resize'),
+  'shell.open': uncached('open a terminal'),
+  'shell.close': uncached('close a terminal'),
 };
 
 /** What a structured agent has no terminal for: a write of these to one is a bug in the view, not a refusal to wait for. */
@@ -429,6 +431,4 @@ export const NOT_FROM_UI = [
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',
-  'shell.open', // the shell pane arrives with the UI that follows (T5924)
-  'shell.close',
 ] as const;
