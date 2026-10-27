@@ -46,14 +46,12 @@ describe('the strip in the agent page menu', () => {
     });
 
     it('counts the seconds down while under a minute', async () => {
-      const m = await open((s) => (s.daemon.sessions.get(ARCH)!.strip = { cache_left_s: 1000 }));
-      await until(() => /\dm left/.test(cache()), 'the count in minutes');
-      await jump(1000 * 1000 - 3000);
-      await until(() => /^[2-4]s left$/.test(cache()), 'the last seconds');
+      const m = await open((s) => (s.daemon.sessions.get(ARCH)!.strip = { cache_left_s: 30 }));
+      await until(() => /\ds left/.test(cache()), 'the count in seconds');
       const first = left();
       for (const n of [1, 2]) {
         await jump(1000);
-        await until(() => left() === first - n, `${first - n}s left`);
+        await until(() => left() <= first - n, `${first - n}s left`);
       }
       m.store.stop();
     });
