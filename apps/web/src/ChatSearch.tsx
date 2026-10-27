@@ -9,7 +9,7 @@ function Hit({ m, query, onGo }: { m: ChatMessage; query: string; onGo: (id: num
   return (
     <button
       type="button"
-      className="hit flex w-full flex-col items-start gap-0.5 border-0 bg-transparent px-2 py-1.5 text-left hover:bg-surface"
+      className="hit flex w-full flex-col items-start gap-0.5 border-0 bg-transparent px-2 py-1.5 text-left tint"
       onClick={() => onGo(m.id)}
     >
       <span className="flex w-full items-baseline gap-2 text-label text-ink-2">
@@ -21,7 +21,17 @@ function Hit({ m, query, onGo }: { m: ChatMessage; query: string; onGo: (id: num
   );
 }
 
-export function ChatSearch({ agent, scope, onGo, onClose }: { agent: string; scope: ChatScope; onGo: (id: number) => void; onClose: () => void }) {
+export function ChatSearch({
+  agent,
+  scope,
+  onGo,
+  onClose,
+}: {
+  agent: string;
+  scope: ChatScope;
+  onGo: (id: number) => void;
+  onClose: () => void;
+}) {
   const { served } = useServes('chat.search');
   const [text, setText] = useState('');
   const [query, setQuery] = useState(''); // the text once the person stops typing

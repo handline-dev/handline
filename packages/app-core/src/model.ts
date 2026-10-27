@@ -129,7 +129,7 @@ export function visibleRows<R extends { agent: AgentView; depth: number }>(rows:
 
 /** The filter menu's choices: what a person asks of the list, each over the rail dots it covers. A dot no choice names is always shown. */
 export const RAIL_FILTERS: { id: string; label: string; dots: Dot[] }[] = [
-  { id: 'needs', label: 'Needs me', dots: ['waiting', 'blocked'] },
+  { id: 'needs', label: 'Waiting or blocked', dots: ['waiting', 'blocked'] },
   { id: 'working', label: 'Working', dots: ['running'] },
   { id: 'waking', label: 'Waking', dots: ['waking'] },
   { id: 'idle', label: 'Idle', dots: ['idle'] },

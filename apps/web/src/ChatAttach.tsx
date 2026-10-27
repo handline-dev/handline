@@ -311,11 +311,11 @@ export function PickButton(props: { onPick: (files: File[]) => void; disabled?: 
 }
 
 /** The pictures of a sent message, in the order they were attached. */
-export function Pictures({ items }: { items: Pick<Attachment, 'id' | 'name'>[] }) {
+export function Pictures({ items, thumb }: { items: Pick<Attachment, 'id' | 'name'>[]; thumb?: boolean }) {
   return (
     <div className="attachments mt-1 flex flex-wrap gap-1.5">
       {items.map((a, i) => (
-        <AttachmentImage key={a.id} id={a.id} name={a.name} group={items} at={i} />
+        <AttachmentImage key={a.id} id={a.id} name={a.name} group={items} at={i} thumb={thumb} />
       ))}
     </div>
   );

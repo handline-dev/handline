@@ -133,6 +133,9 @@ func Substitutes(command string) bool {
 
 // Guard is the reason to refuse this tool call, or "" to let it through.
 func Guard(tool string, toolInput any) string {
+	if why := safely(heavyGuard, tool, toolInput); why != "" {
+		return why
+	}
 	in, _ := toolInput.(map[string]any)
 	command, ok := in["command"].(string)
 	if tool != "Bash" || !ok || !ocpRE.MatchString(command) {

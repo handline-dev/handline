@@ -22,8 +22,7 @@ export function useEditTask(t: Detail) {
   };
 }
 
-const LOOK =
-  'cursor-text rounded-ctl border-0 bg-transparent p-0 text-left text-inherit hover:bg-raised hover:outline hover:outline-1 hover:outline-line';
+const LOOK = 'cursor-text rounded-ctl border-0 bg-transparent p-0 text-left text-inherit tint';
 
 /** The value as it reads; a click opens `input(done)`, which draws the field and calls `done` when it is over. Without the right to edit it is only the value. */
 export function Inline({
@@ -135,7 +134,7 @@ export function AgentLink({ name, className = '' }: { name: string; className?: 
   return (
     <a
       href={`#/agents/${encodeURIComponent(name)}`}
-      className={`text-inherit no-underline hover:underline ${className}`}
+      className={`text-inherit no-underline ${className}`}
       onClick={(e) => e.stopPropagation()}
     >
       {name}
