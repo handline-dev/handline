@@ -5,6 +5,7 @@ import { setup } from '@handline/fake-daemon/helpers';
 import {
   heldId,
   Store,
+  isTaskDelivery,
   noticeOf,
   takeBack,
   landingLabel,
@@ -449,4 +450,12 @@ test("heldId: the first of the last run of the person's messages", () => {
   assert.equal(heldId([e(1, true), e(2, false), e(3, true), e(4, true)], mine), 3); // sent twice before a reply: the first holds
   assert.equal(heldId([e(1, true), e(2, true), e(3, false)], mine), 1); // a reply lands below it
   assert.equal(heldId([e(1, false)], mine), undefined);
+});
+
+test("a task handed to an agent is drawn as the board's delivery, never as the person's own message", () => {
+  const task = pm({ id: 5, from: 'human', to: A, kind: 'task', tasks: [{ id: 6477, title: 'Founder decisions' }] }); // local-ref-ok
+  assert.equal(isTaskDelivery(task), true);
+  assert.equal(sideOf(task, A, 'Handline desktop'), 'other');
+  assert.equal(isTaskDelivery(pm({ from: 'human', to: A, kind: 'say' })), false);
+  assert.equal(sideOf(pm({ from: 'human', to: A, kind: 'say' }), A, 'Handline desktop'), 'person');
 });

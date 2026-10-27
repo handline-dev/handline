@@ -4,7 +4,7 @@
 // lost after it was written, never sent again); while a turn runs the person picks Send now or Queue. A search hit lands on its message. A daemon that does not serve chat gets an empty state.
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { chatEntries, clockTime, decidedProposals, ellipsis, sideOf, tickLevel } from '@handline/app-core';
+import { chatEntries, clockTime, decidedProposals, ellipsis, isTaskDelivery, sideOf, tickLevel } from '@handline/app-core';
 import { classify, sentence, useChat, useChatActions, useChatReadMarks, useHr, useServes, useTasks } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
@@ -334,7 +334,7 @@ function Bubble(props: {
         )}
         {side === 'other' && (
           <Text style={{ color: c.muted, fontSize: font.size.hint }}>
-            {m.from} → {m.to}
+            {isTaskDelivery(m) ? `Task T${m.tasks[0]!.id} handed to ${m.to}` : `${m.from} → ${m.to}`}
           </Text>
         )}
         {m.parent != null && <Text style={{ color: c.muted, fontSize: font.size.hint }}>↩ reply</Text>}
