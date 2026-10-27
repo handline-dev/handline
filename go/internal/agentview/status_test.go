@@ -70,7 +70,7 @@ func TestEachAgentIsServedWithItsStateAndReason(t *testing.T) {
 		{"crash", "stopped", "stalled", "stalled until someone unstalls it: the session exited", nil, nil},
 		{"idle", "idle", "none", "idle", nil, nil},
 		{"gone", "off", "none", "no terminal", nil, nil},
-		{"work", "preparing", "work", "has work: starts at the next tick", nil, nil},
+		{"work", "preparing", "work", "Starting in a moment", nil, nil},
 		{"nap", "waiting", "clock", "wakes at " + timefmt.Stamp(9000, timefmt.Clock), "1970-01-01T02:30:00Z", nil},
 		{"move", "waiting", "move", "moving to another account", nil, nil},
 		{"walled", "stopped", "wall", "waiting for a's 5h window (100%, rolls over 04:00)", "1970-01-01T02:00:00Z", nil},
@@ -126,7 +126,7 @@ func TestAClosedAgentWithWorkWaitingIsQueuedAndSaysTheLoadHoldsIt(t *testing.T) 
 	load = ""
 	check("harbor", "queued", "stopped", "cap", "waiting for a slot on beta (3 of 3 mid-turn)")
 	r.env.Walled = func(string, *db.AgentState) *Wall { return nil }
-	check("harbor", "queued", "preparing", "work", "has work: starts at the next tick")
+	check("harbor", "queued", "preparing", "work", "Starting in a moment")
 }
 
 // The chat showed "handline is at its usage limit" while its row said it was moving to another account. The banner names the wait the

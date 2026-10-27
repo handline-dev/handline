@@ -16,6 +16,7 @@ import (
 	"time"
 
 	dbpkg "github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/loadgate"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/sealed"
 	"github.com/handline/handline/go/internal/store"
@@ -1127,18 +1128,22 @@ func TestAHeldRenameWhoseStartIsHeldIsAppliedAndStartsByItself(t *testing.T) {
 	p, id := r.propose("aaaa000b", "kind", "rename", "agent", "bob", "to", "robert")
 	r.live["bob"] = true
 	r.decide(id, "approve", p.subject(), "h2")
-	r.sweepEnded(func(string) (bool, string) { return false, "held: machine load - load 3.09 per core, limit 1.50" })
+	r.sweepEnded(func(string) (bool, string) {
+		return false, loadgate.HeldPrefix + "the Mac is busy (3.1 per core, limit 1.5)."
+	})
 	if v := r.e.reader().HRView("aaaa000b"); v["state"] != "approved" || v["error"] != nil {
 		t.Fatalf("applied, no error: %v", v)
 	}
 	f := r.followUp("aaaa000b")
-	if f["agent"] != "robert" || f["state"] != "waiting" || !strings.Contains(f["text"].(string), "machine load") {
+	if f["agent"] != "robert" || f["state"] != "waiting" || !strings.Contains(f["text"].(string), "the Mac is busy") {
 		t.Fatalf("follow-up waits: %v", f)
 	}
 	if !strings.Contains(r.file("team.yaml"), "  robert: {}") {
 		t.Fatal("the rename itself stands")
 	}
-	still := func(string) (bool, string) { return false, "held: machine load - load 3.00 per core, limit 1.50" }
+	still := func(string) (bool, string) {
+		return false, loadgate.HeldPrefix + "the Mac is busy (3.0 per core, limit 1.5)."
+	}
 	r.sweepEnded(still)
 	if r.followUp("aaaa000b")["state"] != "waiting" {
 		t.Fatal("still waiting while held")

@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/hooks"
+	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/team"
 )
@@ -233,5 +235,50 @@ func TestAPromptTheNotificationHookReportsNeedsAPersonOnlyBehindTheSwitch(t *tes
 	}
 	if n := needs("worker"); n != nil {
 		t.Fatalf("the tool ran, and the card is still up: %+v", n)
+	}
+}
+
+// A dialog stall or an agent the healer gave up on is one waiting-agent card from the daemon's own record, and it goes with its cause.
+func TestADialogStallAndAnUnhealedAgentAreOneCardEachAndGoWhenTheirCauseDoes(t *testing.T) {
+	home := t.TempDir()
+	d, err := store.Open(filepath.Join(home, "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	needs := (&Parts{db: d, home: home}).needsYou()
+	if _, err := d.Exec("INSERT INTO agent_state(agent, state, detail, updated) VALUES('worker', 'IDLE', '', 1)"); err != nil {
+		t.Fatal(err)
+	}
+	if needs("worker") != nil {
+		t.Fatal("nothing waits")
+	}
+	set := func(state, detail string) {
+		if _, err := d.Exec("UPDATE agent_state SET state = ?, detail = ?, updated = 1700 WHERE agent = 'worker'", state, detail); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set("STALLED", "worker's terminal is showing a "+lifecycle.DialogStall+" only a person answers")
+	if n := needs("worker"); n == nil || n.Kind != "dialog" || n.Source != "daemon" || n.Since != 1700 {
+		t.Fatalf("a dialog stall is a dialog card: %+v", n)
+	}
+	set("IDLE", "the dialog is answered; the stall is lifted")
+	if needs("worker") != nil {
+		t.Fatal("the card goes when the dialog closes")
+	}
+	// The healer's ladder at its last rung, then the trouble ending.
+	for k, v := range map[string]int64{"heal:worker": 4, "heal_at:worker": 1800} {
+		if err := db.SetCursor(d, k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := needs("worker"); n == nil || n.Kind != "stuck" || n.Since != 1800 {
+		t.Fatalf("stuck past every step: %+v", n)
+	}
+	if err := db.SetCursor(d, "heal_quiet:worker", 1900); err != nil {
+		t.Fatal(err)
+	}
+	if needs("worker") != nil {
+		t.Fatal("the card goes when the trouble does")
 	}
 }

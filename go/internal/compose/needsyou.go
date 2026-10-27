@@ -5,7 +5,9 @@ import (
 
 	"github.com/handline/handline/go/internal/agentview"
 	"github.com/handline/handline/go/internal/db"
+	"github.com/handline/handline/go/internal/heal"
 	"github.com/handline/handline/go/internal/hooks"
+	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/peerinbox"
 	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/states"
@@ -43,6 +45,14 @@ func (p *Parts) needsYou() func(agent string) *agentview.NeedsYou {
 		row, err := db.GetAgentState(q, agent)
 		if err != nil || row == nil || (row.ClosedAt.Valid && row.ClosedAt.Int64 != 0) {
 			return nil
+		}
+		// The daemon's own record of an agent waiting on a person: a start-up dialog it will not answer, an agent it could not heal. One card
+		// for the event, and it goes when the dialog closes or the trouble does.
+		if row.State == states.Stalled && strings.Contains(row.Detail.String, lifecycle.DialogStall) {
+			return &agentview.NeedsYou{Kind: "dialog", Source: "daemon", Since: row.Updated, Text: row.Detail.String}
+		}
+		if since, up := heal.CardUp(q, agent); up {
+			return &agentview.NeedsYou{Kind: "stuck", Source: "daemon", Since: since, Text: heal.CardText}
 		}
 		var sess *sessionRec
 		if rec, _, found := p.terminalSession(agent, p.liveTerminals()); found == sessionFound {

@@ -161,7 +161,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		{Name: "worktree locks", Run: func(q db.Q, _ int64) error { return releaseWorktreeLocks(q, home) }},
 		{Name: "unanswered founder messages", Run: (&housekeeping.Unanswered{Lead: leadCheck(home), Log: logLine,
 			Notice: func(q db.Q, to, text, reason string) error { _, err := env.Notice(q, to, text, reason); return err }}).Check},
-		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Raise: raiseFromTaskBoard(env), Free: cfg.DiskFree}).Check},
+		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Free: cfg.DiskFree}).Check},
 	}, Signalled: func() bool {
 		select {
 		case <-tc.Stop:
@@ -188,18 +188,6 @@ func leadCheck(home string) func(string) bool {
 	return func(agent string) bool {
 		tm, err := team.LoadTeam(home)
 		return err == nil && tm.LeadOf(agent) == ""
-	}
-}
-
-// raiseFromTaskBoard puts a decision from the task board in front of the founder: a My turn card.
-func raiseFromTaskBoard(env *supervisor.Env) func(q db.Q, text string) error {
-	return func(q db.Q, text string) error {
-		var after supervisor.After
-		if _, err := env.RaiseDecision(q, &after, db.NoticeRequester, text, "disk", "", "", 0, 0); err != nil {
-			return err
-		}
-		after.Run()
-		return nil
 	}
 }
 

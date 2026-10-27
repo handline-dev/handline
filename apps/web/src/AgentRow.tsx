@@ -1,9 +1,9 @@
 // One agent row of the list, always the same height: the name and its marks on the first line, one line under it (agentLine).
 import { useEffect, useRef, useState, type HTMLAttributes } from 'react';
-import { ago, dotOf, rowName, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
+import { ago, dotOf, queuedBehind, waitingTasks, rowName, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useMe } from '@handline/app-react';
-import { useVerbMark } from '@handline/app-data';
+import { useOpenTasks, useVerbMark } from '@handline/app-data';
 import { DeleteSheet, VerbSheet } from '#src/AgentVerbs.tsx';
 import { Badges } from '#src/Badges.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
@@ -71,6 +71,9 @@ export function AgentRow({
     ro.observe(el);
     return () => ro.disconnect();
   }, [kindLen]);
+  const queued = queuedBehind(a) || 0;
+  const waiting = waitingTasks(a, useOpenTasks(a.name, hot && queued > 0).data?.items ?? []);
+  const queuedTip = [`${queued} waiting behind the current task`, ...waiting.map((t) => `${taskRef(t.id)} ${t.title}`)].join('\n');
   const stamp = a.founder_unread && a.last_to_founder ? a.last_to_founder.at : a.state_since; // when it last wrote to you, else since when it is in this state
   const badges = badgesOf(a, me).filter((b) => b.kind === 'dialog' || b.kind === 'stalled'); // only what the founder must act on
   const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
@@ -176,6 +179,14 @@ export function AgentRow({
                     >
                       <Icon name="working" size={11} aria-hidden />
                       {working}
+                    </span>
+                  ) : null}
+                  {queued ? (
+                    <span
+                      className="row-queued inline-flex flex-none items-center whitespace-nowrap rounded-pill px-1.5 text-hint text-ink-2 ring-1 ring-line"
+                      title={queuedTip}
+                    >
+                      +{queued}
                     </span>
                   ) : null}
                   <span className="row-time flex-none whitespace-nowrap text-hint text-ink-3">{ago(stamp)}</span>

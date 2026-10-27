@@ -35,3 +35,9 @@ test('heldLine names the agents whose turn it waits for', () => {
   assert.equal(heldLine(p(1, { state: 'applying', waiting_on: ['a', 'b', 'c'] })), 'Held until a, b and c finish their turns.');
   assert.equal(heldLine(p(1, { state: 'applying' })), 'Held until a turn ends.');
 });
+
+test('heldLine says since when it waits', () => {
+  const now = Date.parse('2026-10-26T12:10:00Z');
+  const held = p(1, { state: 'applying', waiting_on: ['a'], waiting_since: '2026-10-26T12:00:00Z' });
+  assert.equal(heldLine(held, now), "Held until a finishes its turn, since 10m.");
+});

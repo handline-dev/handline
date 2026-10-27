@@ -94,7 +94,7 @@ func (n *Notifications) Scan(q *sql.DB, emit Emit) error {
 	if err != nil {
 		return err
 	}
-	rows, err := q.Query("SELECT id, agent, account, kind, payload FROM events WHERE id > ? AND kind IN ('mark_task_done', 'login_expired') ORDER BY id", last)
+	rows, err := q.Query("SELECT id, agent, account, kind, payload FROM events WHERE id > ? AND kind IN ('mark_task_done', 'login_expired', 'disk_low') ORDER BY id", last)
 	if err != nil {
 		return err
 	}
@@ -131,6 +131,13 @@ func (n *Notifications) Scan(q *sql.DB, emit Emit) error {
 					Title: "task " + id + " done", Target: map[string]any{"screen": "task", "id": id}}); err != nil {
 					return err
 				}
+			}
+		} else if e.kind == "disk_low" {
+			free, _ := payload["free_bytes"].(json.Number).Int64()
+			total, _ := payload["total_bytes"].(json.Number).Int64()
+			if _, err := emit(stream.Entry{Topic: "notifications", Type: "disk_low", Data: map[string]any{"free_bytes": free, "total_bytes": total},
+				Title: fmt.Sprintf("disk low: %d GB left", free>>30)}); err != nil {
+				return err
 			}
 		} else {
 			acct, _ := payload["account"].(string)

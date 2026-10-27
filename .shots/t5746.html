@@ -1,0 +1,36 @@
+<!doctype html><meta charset=utf-8><style>
+body{margin:0;background:#eceae6;font:14px -apple-system,system-ui,sans-serif;color:#1c1c1c;display:flex;gap:36px;padding:24px;align-items:flex-start}
+h4{margin:0 0 8px;font:600 12px system-ui;color:#777}
+.col{width:520px}
+.crop{width:520px;height:330px;overflow:hidden;background:#fff;border:1px solid #d8d6d0;border-radius:8px;position:relative}
+.crop img{position:absolute;left:-330px;top:-110px;width:1280px}
+.panel{background:#fff;border:1px solid #d8d6d0;border-radius:8px;padding:12px 14px;height:304px}
+.c{display:flex;align-items:baseline;gap:8px;padding:6px 0;border-bottom:1px solid #f0eeea}
+.c:last-child{border:0}
+.d{width:8px;height:8px;border-radius:50%;flex:none;align-self:center}
+.ok{background:#2f9e5e}.wt{background:#d98a1f}.bd{background:#d9480f}
+.t{font-weight:500;flex:none;max-width:210px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m{color:#777;font-size:13px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tm{color:#999;font-size:12px;flex:none;width:58px;text-align:right}
+.msg{background:#e7e5e0;border-radius:14px;padding:6px 12px;display:inline-block;margin:6px 0}
+ol{margin:10px 0 0;padding-left:18px;font-size:12.5px;color:#444;line-height:1.55}
+</style>
+<div class=col><h4>Before (today's card, single, not folded)</h4><div class=crop><img src=t5724-before.png></div>
+<ol><li><b>Shouting:</b> bold uppercase 'TASK DONE / TASK CHANGED' says what the icon and edge colour already say.</li>
+<li><b>Three signals for one fact:</b> coloured left bar + icon + pill background.</li>
+<li><b>Same name eight times:</b> 'T1684 Web UI design' repeats on every card of a run; the number and the title both shout.</li>
+<li><b>The point is buried:</b> 'priority 2→1' and 'auditor PASS' are small grey tail text; what happened comes last.</li>
+<li><b>Ragged:</b> every pill has its own width, so the times never line up.</li></ol></div>
+<div class=col><h4>After</h4><div class=panel>
+<div class=c><i class="d ok"></i><span class=t>Web UI design</span><span class=m>T1684 · done · auditor PASS</span><span class=tm>10:21</span></div>
+<div class=c><i class="d wt"></i><span class=t>Web UI design</span><span class=m>T1684 · assigned to alice, priority 2 → 1</span><span class=tm>10:26</span></div>
+<div class=c><i class="d bd"></i><span class=t>Web UI design</span><span class=m>T1684 · deleted by you · duplicate of T3</span><span class=tm>10:36</span></div>
+<div class=c><i class="d ok"></i><span class=t>Web UI design</span><span class=m>T1684 · added</span><span class=tm>10:42</span></div>
+<div class=c><i class="d ok"></i><span class=t>Refactor the notice store</span><span class=m>T5738 · done · 14 files, tests pass</span><span class=tm>10:43</span></div>
+<div class=c><i class="d wt"></i><span class=t>Refactor the notice store</span><span class=m>T5738 · priority 2 → 1</span><span class=tm>10:44</span></div>
+</div>
+<ol><li>Title first, medium weight; no uppercase word, no pill, no left bar.</li>
+<li>One small colour dot is the only state signal (green done/added, amber changed, red deleted).</li>
+<li>Grey line: T-number · what happened in words · the result or the change, as one sentence.</li>
+<li>Times sit in one right-hand column.</li>
+<li>Still one line, still a click to open the task; a run of 3+ still folds into the fold line.</li></ol></div>

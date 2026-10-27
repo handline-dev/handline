@@ -168,7 +168,7 @@ export const SEEDS: Record<string, Seed> = {
       status: {
         state: 'waiting',
         reason: 'load',
-        text: 'held: machine load - load 5.40 per core, limit 1.50',
+        text: 'Held: the Mac is busy (5.4 per core, limit 1.5). It starts by itself when that drops.',
         until: null,
         since,
         tasks: [],
@@ -191,6 +191,20 @@ export const SEEDS: Record<string, Seed> = {
     const s = d.sessions.get(ARCH)!;
     const since = new Date(Date.now() - 3 * 60_000).toISOString();
     s.fx.view = { ...s.fx.view, needs_you: { kind: 'usage', since, text: null, source: 'hook' } };
+  },
+
+  /** An approved proposal that did not apply, the daemon's error in its own words, and the daemon down notice's page. */
+  'hr-apply-failed': (d) => {
+    d.script.hr.raise({
+      id: 908,
+      kind: 'settings',
+      agent: ARCH,
+      title: 'settings handline.architect',
+      diff: 'effort: high',
+      state: 'apply_failed',
+      error:
+        'proposal p908 was not applied: agent.yaml is locked by another process. Retry when the lock clears (/Users/x/.handline/agents/handline.architect/agent.yaml).',
+    });
   },
 
   /** Two approved proposals whose change is applied but whose agent did not start: the architect's waits for the load, the auditor's failed. */

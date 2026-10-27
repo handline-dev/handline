@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   askedLines,
-  cutError,
   decideMany,
   type DecideResult,
   changesToggle,
@@ -11,7 +10,6 @@ import {
   isBundle,
   plainText,
   kindOf,
-  heldLine,
   isHeld,
   isWaiting,
   ordered,
@@ -21,6 +19,7 @@ import {
   textSafe,
   waitingCount,
 } from '@handline/app-core';
+import { HeldLine } from '#src/ApplyNow.tsx';
 import type { Proposal } from '@handline/client';
 import { useOnce, useSelector } from '@handline/app-react';
 import { classify, sentence, useAgents, useHr, usePending, useWrite } from '@handline/app-data';
@@ -30,7 +29,6 @@ import {
   CardActions,
   CodeBlock,
   Empty,
-  FNote,
   Icon,
   Input,
   KeyValueRow,
@@ -48,6 +46,7 @@ import { View } from '#src/View.tsx';
 import { useNarrow } from '#src/useNarrow.ts';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { Reveal } from '#src/ui/Reveal.tsx';
+import { ApplyNote } from '#src/ApplyNote.tsx';
 
 /** A proposal's state as the shared state glyph: a shape per state, so the word's colour is never the only sign. */
 const STATE_KIND: Record<string, StateKind> = {
@@ -327,7 +326,7 @@ function Card({
           ))}
         </CodeBlock>
       </Reveal>
-      {p.state === 'apply_failed' ? <FNote tone="bad">{p.error ? cutError(textSafe(p.error)) : 'the change was not applied'}</FNote> : null}
+      {p.state === 'apply_failed' ? <ApplyNote p={p} /> : null}
       {note === 'settled' ? (
         <p className="muted">already {p.state}</p>
       ) : note ? (
@@ -335,7 +334,7 @@ function Card({
           {note}
         </p>
       ) : null}
-      {isHeld(p) ? <p className="muted hr-held">{heldLine(p)}</p> : null}
+      {isHeld(p) ? <HeldLine p={p} refresh={refresh} /> : null}
       {waiting && narrow ? <p className="muted">Decide on a computer.</p> : null}
       {waiting && decider ? (
         <CardActions wrap>

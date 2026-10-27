@@ -9,6 +9,31 @@ const subscribe = (cb: () => void) => {
 };
 const hash = () => location.hash;
 
+/**
+ * Navigation history: every entry gets the number of moves since the window opened, whoever made the move (a `goX`, a link, the palette).
+ * An entry the browser just created has no number yet; it is one more than the entry the person left. Back and Forward bring the entry's own.
+ */
+let at = 0;
+const stamp = (n: number) => history.replaceState({ ...(history.state as object | null), depth: n }, '');
+const numberOf = () => (history.state as { depth?: number } | null)?.depth;
+if (typeof window !== 'undefined') {
+  if (numberOf() === undefined) stamp(0);
+  at = numberOf()!;
+  const track = () => {
+    const n = numberOf();
+    if (n === undefined) stamp(++at);
+    else at = n;
+  };
+  addEventListener('hashchange', track);
+  addEventListener('popstate', track);
+}
+/** Esc or a close mark on a page opened from another: returns to the entry the person came from (chat, Inbox, list, ...); with none, replaces this one with `parent`. */
+export function leave(parent: string): void {
+  if (at > 0) return history.back();
+  history.replaceState(history.state as object | null, '', parent || location.pathname + location.search);
+  dispatchEvent(new Event('hashchange'));
+}
+
 /** The agent the URL names (`#/agents/:name`, or `#/agents/:name/settings`), or ''. */
 export const useSelectedAgent = (): string => decodeURIComponent(read(useSyncExternalStore(subscribe, hash))?.[1] ?? '');
 /** Whether the URL is the agent's settings page. */
@@ -127,7 +152,7 @@ export function useHistoryValue(key: string): [string | undefined, (v: string) =
     v,
     (next) => {
       if (next === v) return;
-      history.pushState({ ...(history.state as object | null), [key]: next }, '');
+      history.pushState({ ...(history.state as object | null), [key]: next, depth: ++at }, '');
       dispatchEvent(new Event(PUSHED));
     },
   ];
