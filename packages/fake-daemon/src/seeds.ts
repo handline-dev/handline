@@ -168,7 +168,7 @@ export const SEEDS: Record<string, Seed> = {
       status: {
         state: 'waiting',
         reason: 'load',
-        text: 'Held: the Mac is busy (5.4 per core, limit 1.5). It starts by itself when that drops.',
+        text: 'Waiting: the computer is under heavy memory load right now. It starts by itself when the load drops.',
         until: null,
         since,
         tasks: [],

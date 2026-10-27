@@ -7,6 +7,7 @@ import { classify, sentence, useTaskTitles, useVerbMark, useVerbRun } from '@han
 import { useServed } from '#src/AgentVerbs.tsx';
 import { openTaskOnClick } from '#src/ChatMessages.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
+import { OPEN_RESOURCES } from '#src/ResourceArea.tsx';
 import { Button, Card, CardWhat, Icon } from '#src/ui/index.ts';
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -51,10 +52,13 @@ export function HeldCard({ detail }: { detail: AgentDetail }) {
     <Card variant="event" tone="wait" className="card-held" data-kind="held" data-reason={status.reason}>
       <Icon name="blocked" label="Held" />
       <CardWhat stacked>
-        <strong className="whitespace-normal">{status.text || 'Held: the Mac is busy. It starts by itself when that drops.'}</strong>
+        <strong className="whitespace-normal">
+          {status.text || 'Waiting: the computer is busy right now. It starts by itself when it calms down.'}
+        </strong>
         {status.since ? <span className="muted">for {ago(status.since)}</span> : null}
         {refused ? <span role="alert">{refused}</span> : null}
       </CardWhat>
+      <Button label="See what uses memory" size="sm" onClick={() => window.dispatchEvent(new Event(OPEN_RESOURCES))} />
       {served(verb) ? (
         <Button
           label="Start now"

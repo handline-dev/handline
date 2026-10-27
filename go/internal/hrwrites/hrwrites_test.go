@@ -1129,20 +1129,20 @@ func TestAHeldRenameWhoseStartIsHeldIsAppliedAndStartsByItself(t *testing.T) {
 	r.live["bob"] = true
 	r.decide(id, "approve", p.subject(), "h2")
 	r.sweepEnded(func(string) (bool, string) {
-		return false, loadgate.HeldPrefix + "the Mac is busy (3.1 per core, limit 1.5)."
+		return false, loadgate.HeldPrefix + "the computer is busy right now."
 	})
 	if v := r.e.reader().HRView("aaaa000b"); v["state"] != "approved" || v["error"] != nil {
 		t.Fatalf("applied, no error: %v", v)
 	}
 	f := r.followUp("aaaa000b")
-	if f["agent"] != "robert" || f["state"] != "waiting" || !strings.Contains(f["text"].(string), "the Mac is busy") {
+	if f["agent"] != "robert" || f["state"] != "waiting" || !strings.Contains(f["text"].(string), "the computer is busy right now") {
 		t.Fatalf("follow-up waits: %v", f)
 	}
 	if !strings.Contains(r.file("team.yaml"), "  robert: {}") {
 		t.Fatal("the rename itself stands")
 	}
 	still := func(string) (bool, string) {
-		return false, loadgate.HeldPrefix + "the Mac is busy (3.0 per core, limit 1.5)."
+		return false, loadgate.HeldPrefix + "the computer is busy right now."
 	}
 	r.sweepEnded(still)
 	if r.followUp("aaaa000b")["state"] != "waiting" {
