@@ -339,7 +339,7 @@ describe('standing answers', () => {
   it('lists the rules, adds a folder at once, and an empty form sends nothing', async () => {
     const s = await mount('#/settings');
     await until(() => $$('[data-answer]').length === 2, 'the rules');
-    expect(text($('[data-answer="dialog"]'))).toContain('claude: when asked "Do you trust the files", choose "Yes, I trust"');
+    expect(text($('[data-answer="dialog"]'))).toContain('When claude asks "Do you trust the files", choose "Yes, I trust"');
     await click(button('Add'));
     await click(button('Add'));
     await wait(30);

@@ -10,7 +10,7 @@ test('a standing answer reads as a sentence, not as its key', () => {
       key: ['claude', 'Do you trust the files', 'Yes, I trust'],
       text: 'claude: Do you trust the files → Yes, I trust',
     }),
-    'claude: when asked "Do you trust the files", choose "Yes, I trust"',
+    'When claude asks "Do you trust the files", choose "Yes, I trust"',
   );
   assert.equal(answerLine({ kind: 'dialog', key: ['x'], text: 'x: raw' }), 'x: raw');
 });
