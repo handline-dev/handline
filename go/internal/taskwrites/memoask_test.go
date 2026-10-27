@@ -34,7 +34,7 @@ func TestACommentNamingHumanOpensOneAskAndEachClosingEndsIt(t *testing.T) {
 		db.QueryRow("SELECT state FROM requests WHERE memo_id = ?", mid).Scan(&s)
 		return s
 	}
-	if mid := add("worker", "no one named here, email a@human.com"); state(mid) != "" {
+	if mid := add("worker", "no one named here, email a@human.com"); state(mid) != "" { // local-ref-ok: an address, not a mention
 		t.Fatalf("a comment that does not name `@human` opened an ask: %q", state(mid))
 	}
 	m1 := add("worker", "@human which one?")
