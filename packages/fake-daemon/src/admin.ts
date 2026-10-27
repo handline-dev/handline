@@ -340,6 +340,8 @@ export class FakeAdmin {
   handoffOwn: string[] = [];
 
   set(changes: SettingsChanges): void {
+    // As the real daemon does: a key the contract does not list is refused, so an app writing a key nobody listed fails its test.
+    for (const key of Object.keys(changes)) if (!(key in DEFAULTS)) throw badRequest(`${key} is not a setting`, key);
     for (const [key, given] of Object.entries(changes)) {
       let value = given;
       if (key === 'handoff_prompt' && typeof value === 'string') {

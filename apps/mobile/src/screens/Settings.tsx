@@ -2,8 +2,7 @@
 // answers with Add and Remove. All of it is authored: a change shows at once and goes back with the daemon's reason when refused.
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { INVALID, capField, idleField, parseSeconds } from '@handline/app-core';
-import type { SettingsChanges } from '@handline/client';
+import { INVALID, capField, idleField, parseSeconds, type PageSettings } from '@handline/app-core';
 import { classify, sentence, useOff, useServes, useSettings, useWrite } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { useSelector } from '@handline/app-react';
@@ -38,7 +37,7 @@ function Field<T extends number | string>(props: {
   unit?: string;
   current: string;
   parse: (t: string) => T | null | typeof INVALID;
-  change: (v: T | null) => SettingsChanges;
+  change: (v: T | null) => PageSettings;
   allowed: string;
   text?: boolean;
 }) {
@@ -149,7 +148,7 @@ const inRange = (min: number, max: number) => (t: string) => {
 const parseTarget = inRange(50, 100);
 const parseBurst = inRange(0, 50);
 
-function Toggle(props: { id: string; label: string; hint: string; on: boolean; change: (on: boolean) => SettingsChanges }) {
+function Toggle(props: { id: string; label: string; hint: string; on: boolean; change: (on: boolean) => PageSettings }) {
   const c = usePalette();
   const save = useWrite('settings.set');
   const why = useOff('settings.set');
