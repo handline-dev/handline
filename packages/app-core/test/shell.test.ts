@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { routeOfTarget } from '#src/shell.ts';
+import { PAGE_SETTINGS, routeOfTarget } from '#src/shell.ts';
+import { DEFAULT_LIMITS } from '#src/resources.ts';
 
 test('a target lands on the route its screen names, with the id encoded', () => {
   assert.equal(routeOfTarget({ screen: 'agent', id: 'handline.architect' }), '#/agents/handline.architect');
@@ -19,4 +20,8 @@ test('no target, an empty id, the id "None" or a screen it does not know is no r
   assert.equal(routeOfTarget({ screen: 'agent', id: '' }), null);
   assert.equal(routeOfTarget({ screen: 'task', id: 'None' }), null);
   assert.equal(routeOfTarget({ screen: 'galaxy', id: 'x' }), null);
+});
+
+test('the shell forwards every limit the status bar resource area writes', () => {
+  for (const key of [...Object.keys(DEFAULT_LIMITS), 'keep_awake']) assert.ok((PAGE_SETTINGS as readonly string[]).includes(key), key);
 });

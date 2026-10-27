@@ -15,6 +15,7 @@ import {
   resourceLine,
   useRows,
   type Limits,
+  type PageSettings,
 } from '@handline/app-core';
 import type { Resources } from '@handline/client';
 import { sentence, classify, useSettings, useStatus, useWrite } from '@handline/app-data';
@@ -65,7 +66,7 @@ export function ResourceArea() {
           <MenuCheckItem
             key={a.value}
             checked={limits.awake === a.value}
-            onCheckedChange={() => save.mutate({ changes: { keep_awake: a.value } })}
+            onCheckedChange={() => save.mutate({ changes: { keep_awake: a.value } satisfies PageSettings })}
           >
             {a.label}
             {a.value === 'working' ? ` · ${working} working` : ''}
@@ -176,7 +177,7 @@ function Details({ r, limits }: { r: Resources; limits: Limits }) {
 function useChange() {
   const save = useWrite('settings.set');
   return {
-    set: (changes: Partial<Limits>) => save.mutate({ changes }),
+    set: (changes: Partial<Limits> & PageSettings) => save.mutate({ changes }),
     error: save.error ? sentence(classify(save.error)) : null,
   };
 }
