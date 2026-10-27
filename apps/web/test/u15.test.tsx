@@ -30,7 +30,7 @@ const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null) => el?.textContent ?? '';
 // A dot sits on the Settings button of the sidebar; its title carries the count.
-const teamRow = () => $('.rail-foot .rail-hr')?.getAttribute('title')?.match(/^\d+/)?.[0] ?? '';
+const teamRow = () => $('.rail-foot .rail-hr')?.getAttribute('title')?.match(/\d+/)?.[0] ?? '';
 const card = (id: number) => $(`[data-proposal="${id}"]`)!;
 const btn = (within: Element, label: string) => [...within.querySelectorAll('button')].find((b) => text(b).trim().startsWith(label))!;
 const hrOf = (s: ReturnType<typeof setup>) => (s.daemon as unknown as { script: { hr: FakeHr } }).script.hr;
