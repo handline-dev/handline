@@ -44,7 +44,7 @@ const rename = (id: number, agent: string, follow_up: { agent: string; state: st
 });
 
 describe('event cards', () => {
-  it('one look for every kind, tinted: waiting amber, failed red', async () => {
+  it('one look for every kind, tinted, with no bar: waiting amber; the proposals are one line', async () => {
     const s = setup();
     const hr = s.daemon.script.hr;
     hr.raise({ id: 910, title: 'settings handline.auditor', diff: 'effort: high', state: 'open' });
@@ -53,16 +53,12 @@ describe('event cards', () => {
       status: { state: 'waiting', reason: 'load', text: 'held: machine load', since: new Date().toISOString(), until: null, tasks: [] },
     };
     await mount(s);
-    await until(() => $('.card-held') && $('[data-proposal="910"]') && $('[data-proposal="911"]'), 'the cards');
-    for (const el of [$('.card-held'), $('[data-proposal="910"]'), $('[data-proposal="911"]')])
-      expect(el!.classList.contains('event')).toBe(true);
+    await until(() => $('.card-held') && $('.card-hr'), 'the cards');
+    for (const el of [$('.card-held'), $('.card-hr')]) expect(el!.classList.contains('event')).toBe(true);
     expect($('.card-held')!.dataset.tone).toBe('wait');
-    const failed = $('[data-proposal="911"]')!;
-    expect(failed.textContent).toContain('Approved, but not applied: worktree is dirty.');
-    expect(failed.textContent?.match(/not applied/g)).toHaveLength(1); // said once: no banner beside the line
-    expect(failed.textContent).not.toContain('Not applied');
-    expect($('[data-proposal="910"]')!.dataset.tone).toBe('wait');
-    expect($('[data-proposal="911"]')!.dataset.tone).toBe('bad');
+    expect($('.card-hr')!.dataset.tone).toBe('wait');
+    expect($('.card-hr')!.textContent).toContain('2 HR proposals wait for you');
+    expect(document.querySelector('[data-proposal="911"]')).toBeNull(); // the detail is in My turn and HR
   });
 
   it('an applied change whose start waits for the load says Applied, never Not applied, and Start now starts it', async () => {

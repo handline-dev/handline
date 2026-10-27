@@ -87,13 +87,12 @@ export function TaskCard({ i, agent, me, titles, onTask }: { i: TranscriptItem; 
   const c = usePalette();
   const ev = i.task_event?.event ?? 'changed';
   const row = taskRow(i, titles);
-  const accent = ev === 'withdrawn' ? c.block : ev === 'changed' ? c.wait : c.run;
   return (
     <Pressable
       testID={`task-event-${i.id}`}
       accessibilityRole="button"
       accessibilityLabel={`Open T${row.task}`}
-      style={{ minHeight: 44, borderWidth: 1, borderLeftWidth: 4, borderColor: c.line, borderLeftColor: accent, borderRadius: 8, padding: space.md, gap: 2 }}
+      style={{ minHeight: 44, borderWidth: 1, borderColor: c.line, borderRadius: 8, padding: space.md, gap: 2 }}
       onPress={() => onTask?.(row.task)}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
