@@ -1,5 +1,5 @@
 // The task cards of the conversation: a task event from the transcript and the task board's news of a task, each as one quiet line:
-// a colour dot for how it went, the task's title, a grey line for what happened, and the time in a column on the right.
+// a colour dot for how it went, the task's title, a grey line for what happened, and the time. The card takes its natural width, like an agent's bubble.
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { clockTime, isPerson, openTask, type TaskChange, taskRow } from '@handline/app-core';
 import { useMe } from '@handline/app-react';
@@ -15,7 +15,7 @@ function TaskCard(props: { ev: string; label: string; task: number; title?: stri
   return (
     <button
       type="button"
-      className="card-task flex w-full cursor-pointer items-baseline gap-x-2 rounded-card border-0 bg-transparent px-1.5 py-1 text-left text-body tint"
+      className="card-task flex w-fit max-w-full cursor-pointer items-baseline gap-x-2 rounded-card border-0 bg-transparent px-1.5 py-1 text-left text-body tint"
       data-kind="task_event"
       data-event={props.ev}
       title={`Open T${props.task} in the Tasks tab`}
@@ -25,8 +25,8 @@ function TaskCard(props: { ev: string; label: string; task: number; title?: stri
       {props.title ? (
         <span className="max-w-[16rem] flex-none overflow-hidden text-ellipsis whitespace-nowrap font-medium">{props.title}</span>
       ) : null}
-      <span className="muted min-w-0 flex-1 truncate text-meta">{`T${props.task} · ${what}`}</span>
-      <span className="muted card-time w-20 flex-none whitespace-nowrap text-right text-meta">{clockTime(props.at)}</span>
+      <span className="muted min-w-0 truncate text-meta">{`T${props.task} · ${what}`}</span>
+      <span className="muted card-time flex-none whitespace-nowrap text-meta">{clockTime(props.at)}</span>
     </button>
   );
 }

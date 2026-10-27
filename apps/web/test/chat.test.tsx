@@ -300,7 +300,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     const changed = events.find((c) => c.getAttribute('data-event') === 'changed')!;
     expect(text(changed)).toContain('assigned to alice');
     expect(text(changed)).toContain('priority 2 → 1');
-    expect(changed.querySelector('.card-time')).not.toBeNull(); // the time has its own column on the right
+    expect(changed.querySelector('.card-time')).not.toBeNull(); // the time is its own span at the card's end
     expect(text(events[0])).not.toMatch(/TASK|task added/); // no shouted label: the dot says it
   });
 
