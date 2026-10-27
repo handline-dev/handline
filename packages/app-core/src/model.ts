@@ -128,7 +128,7 @@ export function visibleRows<R extends { agent: AgentView; depth: number }>(rows:
 }
 
 /** The daemon's agent state as the app words it: a parked agent waits for a time (docs/copy.md 7). */
-export const stateWord = (k: string): string => (k === 'parked' ? 'waiting' : k);
+export const agentStateWord = (k: string): string => (k === 'parked' ? 'waiting' : k);
 
 /** The filter menu's choices: what a person asks of the list, each over the rail dots it covers. A dot no choice names is always shown. */
 export const RAIL_FILTERS: { id: string; label: string; dots: Dot[] }[] = [

@@ -1,7 +1,7 @@
 // The quiet admin page (#/admin, linked from the foot of Settings): what the daemon is doing, why agents wake, how full their memory is, and what just happened.
 // Read-only: it shows what `hl` printed for a person, in words.
 import { useState } from 'react';
-import { ago, stateWord, useRows, VERBS } from '@handline/app-core';
+import { ago, agentStateWord, useRows, VERBS } from '@handline/app-core';
 import { useAgents, useMemory, useRecentEvents, useServes, useStatus, useTriggers } from '@handline/app-data';
 import { MenuButton, MenuItem, PageHead, PageTitle, RowTitle, ScrollPage, SectionHead, SettingsCard, SettingsRow } from '#src/ui/index.ts';
 import { VerbSheet } from '#src/AgentVerbs.tsx';
@@ -35,7 +35,7 @@ function Daemon() {
               <RowTitle plain>
                 {s.agents.total} agents:{' '}
                 {Object.entries(s.agents.by_state)
-                  .map(([k, n]) => `${n} ${stateWord(k)}`)
+                  .map(([k, n]) => `${n} ${agentStateWord(k)}`)
                   .join(', ') || 'none'}
               </RowTitle>
             </SettingsRow>
@@ -67,7 +67,7 @@ function Usage() {
                 <RowTitle plain>
                   {r.agent}{' '}
                   <span className="muted">
-                    CPU {r.cpu} · memory {r.memory} · {a ? stateWord(a.state) : 'unknown'}
+                    CPU {r.cpu} · memory {r.memory} · {a ? agentStateWord(a.state) : 'unknown'}
                   </span>
                 </RowTitle>
                 {a ? (
