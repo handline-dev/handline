@@ -433,7 +433,7 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	}
 	// A session closed with its context at the agent's limit (an idle close can come before the trigger was evaluated) would fire the
 	// context trigger at once if resumed: it starts fresh the way a close owing a handoff does.
-	if movedTo == "" && row.ResumeSession.String != "" && !waits && m.Handoff.ContextFull(m.Q, agent, row.ResumeSession.String) {
+	if movedTo == "" && row.ResumeSession.String != "" && m.Handoff.ContextFull(m.Q, agent, row.ResumeSession.String) {
 		m.freshFrom(agent, row.ResumeSession.String)
 		warm = false
 		if cause == "" {
