@@ -216,7 +216,7 @@ export function seedTasks(tasks: FakeTasks, at: string): void {
     segments: [
       { kind: 'queued', on: null, text: 'queued', task: null, from: ago(300), to: ago(240), seconds: 3600 },
       { kind: 'working', on: null, text: '', task: null, from: ago(240), to: ago(180), seconds: 3600 },
-      { kind: 'waiting', on: 'founder', text: 'waiting on you', task: null, from: ago(180), to: ago(150), seconds: 1800 },
+      { kind: 'waiting', on: 'founder', text: 'needs you', task: null, from: ago(180), to: ago(150), seconds: 1800 },
       { kind: 'working', on: null, text: '', task: null, from: ago(150), to: ago(135), seconds: 900 },
       { kind: 'waiting', on: 'task', text: 'blocked by T1688', task: 1688, from: ago(135), to: ago(125), seconds: 600 },
       { kind: 'working', on: null, text: '', task: null, from: ago(125), to: ago(105), seconds: 1200 },

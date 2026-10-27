@@ -369,7 +369,7 @@
         "waits": [],
         "waiting": {
          "on": "founder",
-         "text": "waiting on you",
+         "text": "needs you",
          "tasks": [],
          "since": {
           "$type": "timestamp"
