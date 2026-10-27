@@ -1,5 +1,5 @@
 import { PROTOCOL } from '@handline/contract';
-import type { AgentDetail, AgentView, InputHolder, Methods, Notifications, Prompt, Row, Timestamp } from '@handline/contract';
+import type { AgentDetail, AgentView, InputHolder, MachineNeed, Methods, Notifications, Prompt, Row, Timestamp } from '@handline/contract';
 import { BANNER, type AgentFixture } from '#src/fixtures.ts';
 import { Failure, refused } from '#src/errors.ts';
 import { defaultSettings } from '#src/settings.ts';
@@ -163,7 +163,7 @@ export function accountsReply(names: string[] | null, sessions: Session[]) {
   return { accounts };
 }
 
-export function statusReply(sessions: Map<string, Session>, unread: number, startedAt: Timestamp) {
+export function statusReply(sessions: Map<string, Session>, unread: number, startedAt: Timestamp, needs: readonly MachineNeed[] = []) {
   const by_state: Record<string, number> = {};
   for (const s of sessions.values()) by_state[s.state] = (by_state[s.state] ?? 0) + 1;
   return {
@@ -176,6 +176,7 @@ export function statusReply(sessions: Map<string, Session>, unread: number, star
     agents: { total: sessions.size, by_state },
     inbox: { unread },
     resources: fakeResources(sessions, startedAt),
+    ...(needs.length ? { needs_you: [...needs] } : {}),
   };
 }
 

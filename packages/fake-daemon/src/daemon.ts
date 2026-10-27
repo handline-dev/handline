@@ -373,7 +373,7 @@ export class FakeDaemon {
             .map(([n]) => n),
         };
       case 'daemon.status':
-        return statusReply(this.sessions, this.inbox.unread(), this.iso());
+        return statusReply(this.sessions, this.inbox.unread(), this.iso(), this.admin.machineNeeds);
       case 'agents.list':
         return { agents: [...this.sessions.values()].map((s) => view(s)) };
       case 'agent.get':

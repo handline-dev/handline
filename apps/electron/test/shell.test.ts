@@ -209,6 +209,20 @@ test('the badge follows the My turn count on start, on inbox events and on recon
   assert.deepEqual(log.badge, ['3', '5', '']);
 });
 
+test("the badge counts the machine's own need, as the rail does", async () => {
+  const need = { kind: 'disk', since: '2026-10-15T00:00:00Z', text: 'Free disk is 3 GB' };
+  const feed = {
+    onEvent: () => () => {},
+    onGap: () => () => {},
+    onState: () => () => {},
+    subscribe: async () => {},
+    call: async (m: string) => (m === 'daemon.status' ? { needs_you: [need] } : lists(1, m)),
+  } as unknown as Feed;
+  const { log, p } = ports();
+  await new Desk(feed, p).start();
+  assert.deepEqual(log.badge, ['2']);
+});
+
 test('a desk whose subscribe failed once subscribes on the next start, with its handlers added once', async () => {
   let fails = 1,
     listeners = 0;

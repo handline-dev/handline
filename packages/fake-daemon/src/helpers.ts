@@ -1,6 +1,6 @@
 import { DaemonClient, memoryPair, type ClientOptions } from '@handline/client';
 import { FakeDaemon, type FakeDaemonOptions } from '#src/daemon.ts';
-import type { Role } from '@handline/contract';
+import type { MachineNeed, Role } from '@handline/contract';
 
 export function setup(opts: { daemon?: FakeDaemonOptions; role?: Role; client?: string; reconnect?: ClientOptions['reconnect'] } = {}) {
   const daemon = new FakeDaemon(opts.daemon);
@@ -24,6 +24,12 @@ export function second(
       return a;
     },
   });
+}
+
+/** The machine's needs-you items change, and the daemon pushes the whole status as it does. */
+export async function setMachineNeeds(s: ReturnType<typeof setup>, needs: MachineNeed[]) {
+  s.daemon.admin.machineNeeds = needs;
+  s.daemon.emit('status', 'status.changed', { data: await s.client.call('daemon.status', {}) });
 }
 
 export const until = async (cond: () => boolean, what = 'condition') => {

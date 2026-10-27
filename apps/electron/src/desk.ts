@@ -77,13 +77,14 @@ export class Desk {
 
   async refresh(): Promise<void> {
     try {
-      const [inbox, agents, tasks] = await Promise.all([
+      const [inbox, agents, tasks, status] = await Promise.all([
         this.client.call('inbox.list', {}),
         this.client.call('agents.list', {}),
         this.client.call('tasks.list', {}),
+        this.client.call('daemon.status', {}).catch(() => null), // the machine's needs are not worth losing the count for
       ]);
       // The same list the My turn page draws; the person's own app is the founder.
-      const n = myTurn({ items: inbox.items, agents: agents.agents, tasks: tasks.items, me: 'human' }).length;
+      const n = myTurn({ items: inbox.items, agents: agents.agents, tasks: tasks.items, machine: status?.needs_you, me: 'human' }).length;
       this.ports.setBadge(badgeText(n), n);
     } catch {
       /* offline: the badge keeps the last count */
