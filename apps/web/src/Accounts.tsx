@@ -8,7 +8,7 @@ import { AccountLogin } from '#src/AccountLogin.tsx';
 import { AccountSettings } from '#src/AccountSettings.tsx';
 import { Gauge, useNow } from '#src/Gauge.tsx';
 import { SettingsSection, SettingsShell } from '#src/SettingsShell.tsx';
-import { goAgent, useHistoryValue } from '#src/route.ts';
+import { goAgent, leave, useHistoryValue } from '#src/route.ts';
 import {
   Button,
   Dialog,
@@ -262,7 +262,7 @@ function Frame({ name, title, children }: { name: string | null; title: string |
     );
   return (
     <ScrollPage className="accounts" aria-label="Accounts">
-      <PageHead className="accounts-head" back={{ label: 'accounts', to: () => (location.hash = '#/accounts') }}>
+      <PageHead className="accounts-head" back={{ label: 'accounts', to: () => leave('#/accounts') }}>
         <PageTitle>{title}</PageTitle>
       </PageHead>
       {children}

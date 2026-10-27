@@ -16,6 +16,8 @@ import {
   workingUnder,
   visibleRows,
   queueOf,
+  queuedBehind,
+  waitingTasks,
   RAIL_FILTERS,
   stopModesOf,
   shortName,
@@ -132,6 +134,22 @@ test('queue counts are null when the view does not carry them, never a made-up 0
   assert.deepEqual(queueOf(agent('x')), { tasks: null, messages: null });
   assert.deepEqual(queueOf(agent('x', { task_count: 0, unreached: 3 })), { tasks: 0, messages: 3 });
   assert.deepEqual(queueOf(agent('x'), 2), { tasks: null, messages: 2 });
+});
+
+test('queued behind is the owned tasks less the current one, never negative, null with no count', () => {
+  assert.equal(queuedBehind(agent('x')), null);
+  assert.equal(queuedBehind(agent('x', { task_count: 4, task: { id: 7, title: 't' } })), 3);
+  assert.equal(queuedBehind(agent('x', { task_count: 2 })), 2); // no current task: all wait
+  assert.equal(queuedBehind(agent('x', { task_count: 0, task: { id: 7, title: 't' } })), 0);
+});
+
+test('the waiting tasks are the ones the count adds up: not the current one, not a draft', () => {
+  const a = agent('x', { task_count: 3, task: { id: 7, title: 't' } });
+  const open = [7, 8, 9, 10].map((id, i) => ({ id, state: i === 3 ? 'draft' : i === 1 ? 'queued' : 'doing' }));
+  assert.deepEqual(
+    waitingTasks(a, open).map((t) => t.id),
+    [8, 9],
+  );
 });
 
 test('keydown maps to named keys only; printable text and IME composition are left to the textarea', () => {
