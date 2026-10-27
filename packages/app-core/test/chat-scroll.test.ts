@@ -102,3 +102,16 @@ test('chatView draws everything when both sources reached the start', () => {
   assert.equal(v.entries.length, 2);
   assert.equal(v.floor, null);
 });
+
+test('on the phone the room under the lines follows the geometry in every mode, so the last send can always reach the top', () => {
+  for (const state of [START, { mode: 'hold' as const, newer: 0 }, { mode: 'free' as const, newer: 0 }]) {
+    for (const event of [{ type: 'grew' }, { type: 'scrolled', atBottom: true }, { type: 'scrolled', atBottom: false }] as const) {
+      assert.equal(chatScroll(state, event, g({ lines: 1000, sent: 900 }), 'lastSent').room, 200, `${state.mode} ${event.type}`);
+    }
+  }
+  assert.equal(chatScroll(START, { type: 'grew' }, g({ lines: 1300, sent: 900 }), 'lastSent').room, 0);
+});
+
+test('on the PC there is never any room', () => {
+  assert.equal(chatScroll({ mode: 'free', newer: 0 }, { type: 'grew' }, g(), 'bottom').room, 0);
+});

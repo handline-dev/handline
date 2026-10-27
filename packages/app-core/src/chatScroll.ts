@@ -42,7 +42,7 @@ export interface ScrollAnswer {
   to: number | null;
   /** Glide there instead of jumping. */
   smooth: boolean;
-  /** The empty room to keep under the lines so a held message can reach the top. */
+  /** The empty room to keep under the lines so the last send can reach the top, in every mode (the phone's entry; zero on the PC). */
   room: number;
 }
 
@@ -57,10 +57,12 @@ const end = (g: Geometry) => Math.max(0, g.lines - g.view);
 
 /** One step: the state and the event give the next state and where the view goes. */
 export function chatScroll(state: ScrollState, event: ScrollEvent, g: Geometry, entry: ChatEntry): ScrollAnswer {
-  const stay = (s: ScrollState): ScrollAnswer => ({ state: s, to: null, smooth: false, room: 0 });
-  const follow = (smooth: boolean): ScrollAnswer => ({ state: START, to: end(g), smooth, room: 0 });
+  // The room is a function of the geometry alone, whatever the mode: the last send can always be scrolled to the top (phone entry only).
+  const room = entry === 'lastSent' && g.sent !== null ? roomFor(g, g.sent) : 0;
+  const stay = (s: ScrollState): ScrollAnswer => ({ state: s, to: null, smooth: false, room });
+  const follow = (smooth: boolean): ScrollAnswer => ({ state: START, to: end(g), smooth, room });
   const hold = (smooth: boolean): ScrollAnswer =>
-    g.sent === null ? follow(smooth) : { state: { mode: 'hold', newer: 0 }, to: g.sent, smooth, room: roomFor(g, g.sent) };
+    g.sent === null ? follow(smooth) : { state: { mode: 'hold', newer: 0 }, to: g.sent, smooth, room };
   switch (event.type) {
     case 'enter':
       // The held entry only when everything after the message fits under it; a longer tail would stop the view mid-chat.
@@ -72,7 +74,7 @@ export function chatScroll(state: ScrollState, event: ScrollEvent, g: Geometry, 
     case 'grew':
       if (state.mode === 'follow') return follow(false);
       // The held message stays where it was put; only the room under it changes.
-      if (state.mode === 'hold' && g.sent !== null) return { state, to: g.sent, smooth: false, room: roomFor(g, g.sent) };
+      if (state.mode === 'hold' && g.sent !== null) return { state, to: g.sent, smooth: false, room };
       return stay(state);
     case 'added':
       return stay(state.mode === 'free' ? { ...state, newer: state.newer + event.count } : state);
