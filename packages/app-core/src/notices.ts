@@ -29,12 +29,21 @@ export interface NoticeAbout {
   task?: number;
   title?: string;
   result?: string;
+  /** A finished task the founder gave or answers for; absent when the daemon did not say. */
+  fromFounder?: boolean;
 }
 export type NoticeLane = 'team' | 'system';
 
 /** What an event is about, from the event alone: the task of a task_done, the blocked agent, the account that is out, the settled proposal; null for any other event. */
 export function aboutOf(e: Pick<WireEvent, 'type' | 'agent' | 'data'>): NoticeAbout | null {
-  const d = (e.data ?? {}) as { task?: unknown; task_title?: unknown; result?: unknown; account?: unknown; proposal?: { id?: unknown } };
+  const d = (e.data ?? {}) as {
+    task?: unknown;
+    task_title?: unknown;
+    result?: unknown;
+    from_founder?: unknown;
+    account?: unknown;
+    proposal?: { id?: unknown };
+  };
   const agent = e.agent ? { agent: e.agent } : {};
   switch (e.type) {
     case 'task_done':
@@ -43,6 +52,7 @@ export function aboutOf(e: Pick<WireEvent, 'type' | 'agent' | 'data'>): NoticeAb
         ...(typeof d.task === 'number' ? { task: d.task } : {}),
         ...(typeof d.task_title === 'string' && d.task_title ? { title: d.task_title } : {}),
         ...(typeof d.result === 'string' && d.result ? { result: d.result } : {}),
+        ...(typeof d.from_founder === 'boolean' ? { fromFounder: d.from_founder } : {}),
       };
     case 'stall':
       return agent;

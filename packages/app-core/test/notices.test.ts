@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Event as WireEvent } from '@handline/client';
-import { MAX_LIST, NEWS_MS, Notices, eventText, isMyTurn, targetOf } from '#src/index.ts';
+import { MAX_LIST, NEWS_MS, Notices, aboutOf, eventText, isMyTurn, targetOf } from '#src/index.ts';
 
 const ev = (cursor: number, topic: string, type: string, extra: Partial<WireEvent> = {}) =>
   ({ cursor, topic, type, at: '', actor: null, agent: null, title: null, target: null, data: {}, ...extra }) as WireEvent;
@@ -207,4 +207,13 @@ test('with more than three on screen, news gives way before what needs the perso
     n.toasts().map((x) => x.text),
     ['c', 'b', 'blocked'],
   );
+});
+
+test('a finished task says whether the founder gave it, and says nothing when the daemon did not', () => {
+  const done = (data: Record<string, unknown>) =>
+    aboutOf(ev(1, 'notifications', 'task_done', { agent: 'a.b', data: { task: 7, ...data } }));
+  assert.equal(done({ from_founder: true })?.fromFounder, true);
+  assert.equal(done({ from_founder: false })?.fromFounder, false);
+  assert.equal('fromFounder' in done({})!, false);
+  assert.equal('fromFounder' in done({ from_founder: 'yes' })!, false);
 });

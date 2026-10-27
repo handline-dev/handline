@@ -3,7 +3,7 @@ import { act } from 'react';
 import { describe, expect, it } from 'vitest';
 import { RpcError } from '@handline/client';
 import { applySeeds } from '@handline/fake-daemon/seeds';
-import { $, box, mount, press, until } from '#test/harness.tsx';
+import { $, ARCH, box, mount, press, until } from '#test/harness.tsx';
 
 const text = (el: Element | null = box) => el?.textContent ?? '';
 
@@ -94,5 +94,55 @@ describe('the phone notices', () => {
     await press($('spare-close'));
     await until(() => !$('notice-spare'), 'the notice gone');
     m.store.stop();
+  });
+
+  describe('a finished task as a floating card', () => {
+    const done = (m: Awaited<ReturnType<typeof mount>>, cursor: number, agent: string, extra: Record<string, unknown>) =>
+      act(() =>
+        m.store.notices.takeEvent({
+          cursor,
+          topic: 'notifications',
+          type: 'task_done',
+          agent,
+          title: 'done',
+          data: { task: cursor, task_title: `Task ${cursor}`, ...extra },
+        } as never),
+      );
+
+    it('shows for a task the founder gave, opens it on a tap, and the top strip stays empty', async () => {
+      const m = await mount();
+      done(m, 7001, 'handline.pc.auditor', { from_founder: true });
+      await until(() => $('done-card'), 'the card');
+      expect(text($('done-card'))).toContain('Task 7001');
+      expect(text($('done-card'))).toContain('T7001 done · auditor');
+      expect(text($('toasts'))).toBe('');
+      await press($('done-card')!.firstElementChild as HTMLElement);
+      await until(() => $('task-back') && !$('done-card'), 'the task');
+      m.store.stop();
+    });
+
+    it('does not show for a task between agents or when the daemon says nothing, but both reach the list', async () => {
+      const m = await mount();
+      done(m, 7002, 'handline.pc.auditor', { from_founder: false });
+      done(m, 7003, 'handline.pc.auditor', {});
+      await until(() => text($('bell-count')) === '2', 'both in the list');
+      expect($('done-card')).toBeNull();
+      expect(text($('toasts'))).toBe('');
+      m.store.stop();
+    });
+
+    it("does not show for the agent whose page is open, and several at once are one 'N tasks done' card", async () => {
+      const m = await mount();
+      await until(() => $(`agent-${ARCH}`), 'the rows');
+      await press($(`agent-${ARCH}`));
+      await until(() => $('chat-input'), 'the chat');
+      done(m, 7004, ARCH, { from_founder: true });
+      done(m, 7005, 'handline.pc.auditor', { from_founder: true });
+      await until(() => $('done-card'), 'the card');
+      expect(text($('done-card'))).toContain('Task 7005');
+      done(m, 7006, 'handline.pc.auditor', { from_founder: true });
+      await until(() => text($('done-card')).includes('2 tasks done'), 'one card for both');
+      m.store.stop();
+    });
   });
 });
