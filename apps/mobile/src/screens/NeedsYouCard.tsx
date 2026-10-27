@@ -8,7 +8,7 @@ import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { PromptSlot } from '#src/screens/PromptCard.tsx';
 
-export const KIND = { permission: 'Permission', question: 'Question', usage: 'Usage limit', dialog: 'Dialog' } as const;
+export const KIND = { permission: 'Permission', question: 'Question', usage: 'Usage limit', dialog: 'Dialog', stuck: 'Blocked' } as const;
 
 export function NeedsYouCard(props: { agent: string; needs: NeedsYou | null; prompt: Prompt | null }) {
   const c = usePalette();
