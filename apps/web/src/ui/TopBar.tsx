@@ -1,6 +1,7 @@
 // The one top bar: always there, 44px, over the page area. It carries the rail's buttons while the rail is folded, then a slot
 // (the PageBar) that each page fills with its title and tools by rendering a PageHead.
 import { createContext, useContext, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 /** `undefined`: no shell around (a page on its own renders its head inline); `null`: the bar is there but its slot is not mounted yet. */
 export const PageBarSlot = createContext<HTMLElement | null | undefined>(undefined);
@@ -29,4 +30,26 @@ function TopBar({ lead, slot }: { lead?: ReactNode; slot: (el: HTMLElement | nul
       <div className="page-bar flex min-w-0 flex-1 items-center" ref={slot} />
     </div>
   );
+}
+
+/**
+ * The bar of a page that has more than a title: the name, then `tabs` taking the free width, then `tools`. It lands in the bar's slot; with no
+ * shell around it stays where it is rendered.
+ */
+export function PageBar({ title, tabs, tools }: { title: ReactNode; tabs?: ReactNode; tools?: ReactNode }) {
+  const slot = usePageBarSlot();
+  if (slot === null) return null;
+  const bar = (
+    <div className="flex min-h-8 min-w-0 flex-1 items-center gap-2">
+      <h2
+        className="m-0 min-w-0 max-w-[45%] flex-none truncate text-page font-semibold text-ink"
+        title={typeof title === 'string' ? title : undefined}
+      >
+        {title}
+      </h2>
+      <div className="flex min-w-0 flex-1 items-center">{tabs}</div>
+      <div className="flex flex-none items-center gap-0.5">{tools}</div>
+    </div>
+  );
+  return slot ? createPortal(bar, slot) : bar;
 }

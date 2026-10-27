@@ -39,4 +39,4 @@ export { KeyValueRow, MetaLine, MetaItem, MetaGrid, MetaField } from '#src/ui/Ke
 export { SettingsCard, SettingsRow, RowText, RowTitle, RowHint, RowControl } from '#src/ui/SettingsRows.tsx';
 export { ScrollPage, PageHead, PageTitle } from '#src/ui/ScrollPage.tsx';
 export { Backdrop } from '#src/ui/Backdrop.tsx';
-export { Shell } from '#src/ui/TopBar.tsx';
+export { Shell, PageBar } from '#src/ui/TopBar.tsx';
