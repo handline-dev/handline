@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/handline/handline/go/internal/attachments"
 )
@@ -102,9 +101,9 @@ func TestAMemosFileIsHeldWhileItsTaskIsOpenAndNotOnceTheMemoIsDeleted(t *testing
 	}
 }
 
-// a memo naming no one waits for the holder's digest, which cuts its text but keeps each file line whole on its own line
-func TestAnUnaimedMemoKeepsALinePerFileInTheHoldersDigest(t *testing.T) {
-	d, agents := tellDaemon(t, true)
+// the founder's memo is typed at once to the holder, which cuts its text but keeps each file line whole on its own line
+func TestTheFoundersMemoKeepsALinePerFileWhenTypedToTheHolder(t *testing.T) {
+	d, _ := tellDaemon(t, true)
 	doing(t, d, "bob")
 	src := t.TempDir()
 	png, md := filepath.Join(src, "mock.png"), filepath.Join(src, "plan.md")
@@ -113,25 +112,22 @@ func TestAnUnaimedMemoKeepsALinePerFileInTheHoldersDigest(t *testing.T) {
 	f := pipeTo(t, d, "k")
 	files, _ := json.Marshal([]string{png, md})
 	result(t, f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.memo.add","params":{"task":1,"text":"the proposal `+strings.Repeat("x", 500)+`","files":`+string(files)+`,"request_id":"m1"}}`))
-	if said := agents.said("bob"); strings.Contains(said, "the proposal") {
-		t.Fatalf("a memo naming no one was typed at once: %q", said)
-	}
-	if err := d.env().SweepDigests(time.Now().Unix() + 900); err != nil {
-		t.Fatal(err)
-	}
 	kept, _ := filepath.Glob(filepath.Join(d.cfg.Home, "attachments", "*.*"))
 	if len(kept) != 2 {
 		t.Fatalf("%v", kept)
 	}
-	said := agents.said("bob")
-	for _, want := range []string{"T1 memo added by human: the proposal xx", "\n  [file 1: ", "\n  [file 2: "} {
+	var said string // a long body is typed cut, with `hl read` for the whole, which the request keeps
+	if err := d.db.QueryRow("SELECT body FROM requests WHERE target = 'bob' AND body LIKE 'T1 memo added%'").Scan(&said); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"T1 memo added by human: the proposal xx", "\n[file 1: ", "\n[file 2: "} {
 		if !strings.Contains(said, want) {
-			t.Fatalf("no %q in the digest: %q", want, said)
+			t.Fatalf("no %q in the told memo: %q", want, said)
 		}
 	}
 	for _, p := range kept {
 		if !strings.Contains(said, p+" (") {
-			t.Fatalf("%s is not whole in the digest: %q", p, said)
+			t.Fatalf("%s is not whole in the told memo: %q", p, said)
 		}
 	}
 }
