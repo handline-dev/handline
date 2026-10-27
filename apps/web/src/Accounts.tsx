@@ -1,4 +1,4 @@
-// The Accounts tab of Settings (#/accounts): one line per account to manage; #/accounts/:name is one account in three tabs. The gauges are the Usage page's (UsagePage.tsx).
+// The Accounts tab of Settings (#/accounts): one row per account with its state and gauges; #/accounts/:name is one account in three tabs.
 import { useState, type ReactNode } from 'react';
 import { STATE_WORD, agentsLine, outUntil, paceLine, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';
@@ -32,7 +32,7 @@ const STATE_TONE =
   'data-[state=out]:border-bad data-[state=out]:text-bad data-[state=needs_login]:border-bad data-[state=needs_login]:text-bad data-[state=in_use]:border-ok data-[state=in_use]:text-ok';
 const FACT = 'acct-fact m-0 flex items-center gap-2 [&_svg]:text-ink-3';
 const ROW =
-  'acct-row grid min-h-11 grid-cols-[minmax(8em,1.2fr)_auto_minmax(12em,1fr)_minmax(12em,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-2 text-inherit no-underline hover:bg-raised max-[1200px]:grid-cols-[minmax(8em,1fr)_auto_auto] max-[1200px]:[&_.gauge]:col-span-full';
+  'acct-row grid min-h-11 grid-cols-[minmax(8em,1.2fr)_auto_minmax(12em,1fr)_minmax(12em,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-2 text-inherit no-underline tint max-[1200px]:grid-cols-[minmax(8em,1fr)_auto_auto] max-[1200px]:[&_.gauge]:col-span-full';
 const WRAP = '[&:not(:first-child)]:border-t [&:not(:first-child)]:border-line';
 
 const STATE_ICON: Record<ReturnType<typeof stateOf>, IconName> = {
@@ -202,27 +202,6 @@ export function useAccountList() {
   return { q, served, now, list };
 }
 
-/** One account to manage: its name, state, how much of the week is used and its cap; the row opens the account's own page. */
-function ManageRow({ account, now }: { account: Account; now: number }) {
-  return (
-    <a
-      className="acct-row flex min-h-11 items-center gap-x-4 px-4 py-2 text-inherit no-underline hover:bg-raised [&:not(:first-child)]:border-t [&:not(:first-child)]:border-line"
-      href={`#/accounts/${encodeURIComponent(account.name)}`}
-      data-account={account.name}
-    >
-      <span className="acct-name flex min-w-0 flex-1 items-baseline gap-2">
-        <strong>{account.label}</strong>
-        {account.label !== account.name ? <span className="muted mono">{account.name}</span> : null}
-      </span>
-      <StateChip account={account} now={now} />
-      <span className="acct-week-pct tabular-nums text-ink-2">
-        {account.weekly ? `week ${Math.round(account.weekly.used_pct)}%` : 'week –'}
-      </span>
-      <span className="acct-cap font-mono text-label text-ink-2">cap {account.cap_effective}</span>
-    </a>
-  );
-}
-
 export function AccountsPage({ name }: { name: string | null }) {
   const { q, served, now, list } = useAccountList();
   const one = name === null ? null : list.find((account) => account.name === name);
@@ -232,7 +211,7 @@ export function AccountsPage({ name }: { name: string | null }) {
         {name === null ? (
           <SettingsCard className="acct-list flex flex-col">
             {list.map((account) => (
-              <ManageRow key={account.name} account={account} now={now} />
+              <UsageRow key={account.name} account={account} now={now} />
             ))}
           </SettingsCard>
         ) : one ? (

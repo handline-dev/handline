@@ -41,7 +41,7 @@ export const VERBS: Record<VerbId, Verb> = Object.fromEntries([
   V('park', 'Park', 'session.park', 'parking…', 'Its session ends; it wakes on the next task.'),
   V('fold', 'Fold into handoff', 'agent.fold', 'folding…'),
   V('move', 'Move account', 'agent.move', 'moving…'),
-  V('force_start', 'Force start', 'agent.force_start', 'starting…', 'The machine is over its load limit; this starts the work now, once.'),
+  V('force_start', 'Start now', 'agent.force_start', 'starting…', 'Starts this work now, once, even though it is being held.'),
   V('clear_stall', 'Wake it', 'agent.unstall', 'waking…', 'The stall is cleared and the agent is woken.'),
 ] as [VerbId, Verb][]) as Record<VerbId, Verb>;
 

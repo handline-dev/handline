@@ -339,12 +339,32 @@ func (m *Manager) personHead(agent string) *db.Request {
 	return nil
 }
 
+// continuesWork is whether a wake of the closed agent carries on a handoff, restart or move rather than starting new work, which the
+// load hold is for: one still owed, a close while a handoff's note wait counted, or the park a completed handoff left. The handoff
+// record is not a sign of it: every close keeps one.
+func (m *Manager) continuesWork(agent string, row *db.AgentState) bool {
+	if row == nil {
+		return false
+	}
+	if m.restartOwed(agent, row) != nil || m.moveOwed(agent, row) != nil {
+		return true
+	}
+	if _, ok := must2(db.CloseOwedHandoff(m.Q, agent, m.now(), row.ClosedAt.Int64)); ok {
+		return true
+	}
+	if row.State != states.Parked {
+		return false
+	}
+	h := must(db.LatestHandoff(m.Q, agent))
+	return h != nil && h.Step == "released" && h.Updated+db.NoteWaitStaleS >= row.ClosedAt.Int64
+}
+
 // wakeClosed brings a closed agent back: its shell is put back into the session, resuming the same one first (which is what makes
 // closing cheap) and a fresh start the fallback, not the plan.
 func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string, o WakeOpts) (bool, string) {
 	force, warm, cause, restartedBy, movedTo := o.Force, o.Warm, o.Cause, o.RestartedBy, o.MovedTo
-	// The load holds the daemon's own wakes; one a person asked for, or a restart, goes.
-	if !force && !o.Person {
+	// The load holds the daemon's own wakes; one a person asked for, a restart, or one that continues work already begun goes.
+	if !force && !o.Person && !m.continuesWork(agent, row) {
 		if why := m.loadHeld(agent); why != "" {
 			return false, why
 		}
@@ -375,7 +395,12 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	// A handoff that asked for the agent's note and was closed before it went on (an idle close can come first) goes on here: this wake is
 	// its new session, given the record with the note in it, never a resume of the conversation that wrote the note. So nothing waiting
 	// reaches the old session; it is the new one's first prompt.
-	if kind, _, kept := must3(db.NoteWaitKept(m.Q, agent, m.now())); kept && movedTo == "" {
+	// A close while the note wait counted owes the handoff, however late the wake.
+	kind, waits := must2(db.CloseOwedHandoff(m.Q, agent, m.now(), row.ClosedAt.Int64))
+	if movedTo != "" {
+		check(db.ClearNoteWait(m.Q, agent))
+	}
+	if waits && movedTo == "" {
 		if row.ResumeSession.String != "" {
 			if gaps := must(m.Handoff.Record(m.Q, agent, row.ResumeSession.String)); len(gaps) > 0 {
 				m.Log("  %s: handoff with gaps (could not read %s)", agent, strings.Join(gaps, ", "))
@@ -432,9 +457,9 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	session := row.ResumeSession.String
 	rehomed := false
 	if movedTo == "" && !warm && session != "" && m.cachePast(agent, session, m.now()) {
-		// Past its cache's life the agent is on no account: it goes to the one with the most weekly headroom that has room, its own
-		// included, taking the session along (so ignore_cache_expiry, which only keeps the session, does not hold it).
-		if to, _ := m.Launch.RoomElsewhere(m.Q, agent, row, nil); to != "" && to != row.Account.String {
+		// Past its cache's life the agent is on no account: it goes to the one whose unused week runs out soonest that has room (a clear
+		// gain, else it stays), its own included, taking the session along (so ignore_cache_expiry, which only keeps the session, does not hold it).
+		if to, _ := m.Launch.RoomElsewhere(m.Q, agent, row, nil); to != "" && to != row.Account.String && m.Launch.WorthRepick(row.Account.String, to) {
 			var kept string
 			if kept, rehomed = m.moveElsewhere(agent, session, row.Account.String, to, "its prompt cache has expired"); rehomed {
 				session, movedTo = kept, to
@@ -445,8 +470,8 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	if rehomed {
 		wait = nil // the account it moved to was picked for having room
 	}
-	if wait != nil && wait.Pace != nil && (force || m.personWaiting(agent)) {
-		// The pace holds only the daemon's own work: a person's start or message, and a restart, go.
+	if wait != nil && (wait.Pace != nil || wait.FiveHour) && (force || m.personWaiting(agent)) {
+		// The pace and the 5-hour limit hold only the daemon's own work: a person's start or message, and a restart, go.
 		wait = nil
 	}
 	if o.Person && wait != nil && movedTo == "" {

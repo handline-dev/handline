@@ -47,6 +47,7 @@ test('normally the menu is Open, Pair a phone, Settings and Quit, with no status
 test('items waiting on the person add one line that opens the Inbox, and a red dot', () => {
   const l = labels('running', '', undefined, mode(), view(3));
   assert.ok(l.includes('3 waiting on you'));
+  assert.ok(trayMenu('running', '', actions, undefined, mode(), view(250)).some((i) => i.label === '99+ waiting on you'));
   trayMenu('running', '', actions, undefined, mode(), view(3)).find((i) => i.label === '3 waiting on you')!.click!();
   assert.equal(calls.pop(), 'inbox');
   assert.equal(trayIcon('running', '', actions, view(3), follow(), mode()), 'turn');

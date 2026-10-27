@@ -13,11 +13,12 @@ import (
 	"github.com/handline/handline/go/internal/usage"
 )
 
-// The limits' config.yaml keys and their defaults. The agent cap is off by default; the load and memory limits are on.
+// The limits' config.yaml keys and their defaults. The agent cap is off by default; the load and memory limits and the simulator hold are on.
 const (
 	AgentCapKey       = "host_active_cap"
 	LoadPctKey        = "load_per_core_pct"
 	RAMFreePctKey     = "ram_free_min_pct"
+	SimulatorKey      = "host_simulator_hold"
 	DefaultLoadPct    = 150
 	DefaultRAMFreePct = 10
 )
@@ -27,12 +28,13 @@ type Limits struct {
 	Agents     int // most agents mid-turn on the machine
 	LoadPct    int // most 1-minute load per core, in percent
 	RAMFreePct int // least free memory, in percent of all
+	Simulator  int // 1: a running phone simulator or emulator holds new starts, 0: it does not
 }
 
 // LimitsOf reads the limits from config, each at its default when it is not set to a whole number of at least 0.
 func LimitsOf(cfg usage.Config) Limits {
 	return Limits{Agents: setting(cfg, AgentCapKey, 0), LoadPct: setting(cfg, LoadPctKey, DefaultLoadPct),
-		RAMFreePct: setting(cfg, RAMFreePctKey, DefaultRAMFreePct)}
+		RAMFreePct: setting(cfg, RAMFreePctKey, DefaultRAMFreePct), Simulator: setting(cfg, SimulatorKey, 1)}
 }
 
 func setting(cfg usage.Config, key string, def int) int {
@@ -50,12 +52,12 @@ func setting(cfg usage.Config, key string, def int) int {
 }
 
 // HeldPrefix starts every reason Held gives, so a caller can tell a load hold from any other refusal (IsHeld).
-const HeldPrefix = "Held: "
+const HeldPrefix = "Waiting: "
 
 // IsHeld is whether why is a reason Held gave.
 func IsHeld(why string) bool { return strings.HasPrefix(why, HeldPrefix) }
 
-// Cause is the clause of a Held reason that names what holds it: "the Mac is busy", "3 of 3 agents are working".
+// Cause is the clause of a Held reason that names what holds it: "the computer is busy right now", "3 of 3 agents are working".
 func Cause(why string) string {
 	s := strings.TrimPrefix(why, HeldPrefix)
 	if i := strings.IndexAny(s, "(."); i > 0 {
@@ -63,6 +65,9 @@ func Cause(why string) string {
 	}
 	return strings.TrimSpace(s)
 }
+
+// memoryLoad is the reason given for a low-memory hold and for a running simulator or emulator, in the words the founder reads.
+const memoryLoad = "the computer is under heavy memory load right now. It starts by itself when the load drops."
 
 // Held is why a new start must wait, "" when it may go. active is the agents mid-turn on the machine; m is the latest measure, nil
 // before the first, when only the agent cap is checked.
@@ -76,28 +81,20 @@ func Held(l Limits, active int, m *sysres.Machine) string {
 	if m == nil {
 		return ""
 	}
+	if l.Simulator > 0 && m.Simulator != "" {
+		return HeldPrefix + memoryLoad // a running simulator is held for the memory it takes, and said that way
+	}
 	if l.LoadPct > 0 && m.Cores > 0 {
 		if pct := int(m.Load1 * 100 / float64(m.Cores)); pct > l.LoadPct {
-			load, limit := perCore(pct, l.LoadPct)
-			return HeldPrefix + "the Mac is busy (" + load + " per core, limit " + limit + "). It starts by itself when that drops."
+			return HeldPrefix + "the computer is busy right now. It starts by itself when it calms down."
 		}
 	}
 	if l.RAMFreePct > 0 && m.RAMTotal > 0 {
 		if pct := int(m.RAMFree * 100 / m.RAMTotal); pct < l.RAMFreePct {
-			return fmt.Sprintf(HeldPrefix+"the Mac is low on memory (%d%% free, limit %d%%). It starts by itself when memory frees up.", pct,
-				l.RAMFreePct)
+			return HeldPrefix + memoryLoad
 		}
 	}
 	return ""
-}
-
-// perCore writes a load and its limit (percent of a core) with one decimal, or two when one would show them equal (1.51 over 1.50).
-func perCore(load, limit int) (string, string) {
-	a, b := fmt.Sprintf("%.1f", float64(load)/100), fmt.Sprintf("%.1f", float64(limit)/100)
-	if a == b {
-		a, b = fmt.Sprintf("%.2f", float64(load)/100), fmt.Sprintf("%.2f", float64(limit)/100)
-	}
-	return a, b
 }
 
 // PassFor is how long a force start lets an agent past the limits: long enough for the start it asked for, after which the agent counts

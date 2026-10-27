@@ -109,7 +109,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
                         />
                       ) : null}
                       <button
-                        className={`tasks-tab-row grid ${COLS} w-full min-w-0 cursor-pointer items-center gap-2 rounded-card border bg-panel px-2.5 py-1.5 text-left${due?.over ? ' overdue border-bad border-l-4' : ' border-line'}${CLOSED.includes(t.state) ? ' closed opacity-60' : ''}`}
+                        className={`tasks-tab-row grid ${COLS} w-full min-w-0 cursor-pointer items-center gap-2 rounded-card border bg-panel px-2.5 py-1.5 text-left${due?.over ? ' overdue border-bad' : ' border-line'}${CLOSED.includes(t.state) ? ' closed opacity-60' : ''}`}
                         data-task={t.id}
                         onClick={() => setOpen(t.id)}
                       >

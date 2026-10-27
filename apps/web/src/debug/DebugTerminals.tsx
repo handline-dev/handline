@@ -18,7 +18,7 @@ function PaneRow({ p, now, on, pick }: { p: DebugPane; now: number; on: boolean;
         type="button"
         data-pane={p.terminal}
         aria-current={on ? 'true' : undefined}
-        className="flex w-full flex-col gap-0.5 rounded-ctl border-0 bg-transparent px-2 py-1.5 text-left hover:bg-raised aria-[current=true]:bg-raised"
+        className="flex w-full flex-col gap-0.5 rounded-ctl border-0 bg-transparent px-2 py-1.5 text-left tint aria-[current=true]:bg-raised"
         onClick={pick}
       >
         <span className="flex items-center gap-2 text-body text-ink">

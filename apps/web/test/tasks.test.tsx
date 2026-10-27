@@ -264,8 +264,8 @@ describe('writes', () => {
     await mark(1700);
     s.daemon.knobs.refuse('task.edit', 'state', 'cannot move', undefined, 1);
     await press('o');
-    await choose($('select[aria-label="New owner"]') as HTMLSelectElement, 'handline.auditor');
-    await click(button('Change owner')!);
+    await choose($('select[aria-label="Assign to"]') as HTMLSelectElement, 'handline.auditor');
+    await click(button('Assign')!);
     await until(() => text($('.toast')).includes('1 of 2 changed'), 'the partial toast');
     expect($$('.not-changed')).toHaveLength(1);
     const owners = [1684, 1700].map((id) => s.daemon.tasks.get({ task: id }).to);
@@ -315,13 +315,13 @@ describe('writes', () => {
     expect($('.ui-dialog')).toBeNull(); // the form closed on success
   });
 
-  it('puts what waits on the person under Needs you, with owner and priority chips on the row', async () => {
+  it('puts what waits on the person under My turn, with owner and priority chips on the row', async () => {
     const s = setup();
     (s.daemon.tasks as unknown as { rows: { id: number; to: string }[] }).rows.find((r) => r.id === 1690)!.to = 'human';
     await mount('#/tasks', s);
     await loaded();
-    await until(() => $('tr.tgroup[data-group="needs"]'), 'the Needs you group');
-    expect(text($('tr.tgroup[data-group="needs"]')).trim()).toBe('Needs you 1');
+    await until(() => $('tr.tgroup[data-group="needs"]'), 'the My turn group');
+    expect(text($('tr.tgroup[data-group="needs"]')).trim()).toBe('My turn 1');
     expect(text($('.c-owner', row(1690)!))).toBe('you');
     expect(text($('.c-pri', row(1690)!))).toBe('P3');
   });
@@ -497,24 +497,26 @@ describe('the detail', () => {
   it('assigns the task from a short list: a click hands it over at once, with no note box', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    await until(() => button('Owner ·'), 'the owner button');
-    await click(button('Owner ·')!);
-    const ask = sheet('Assign T1688 to…')!; // local-ref-ok
+    await until(() => button('Assigned to ·'), 'the assignee button');
+    await click(button('Assigned to ·')!);
+    const ask = $('[role="dialog"][aria-label="Assign T1688 to"]')!; // local-ref-ok
     expect($('[role="listbox"][aria-label="Likely"]', ask)).not.toBeNull();
     expect($$('[role="option"]', ask).length).toBeLessThanOrEqual(4);
     expect($('textarea', ask)).toBeNull();
+    expect(text(ask)).not.toMatch(/Cancel|Assign to /); // no label row, no confirm and Cancel: picking is the only step
+    expect(text(ask)).toMatch(/Type to find more · \d+ in all|now/);
     await typeInto($('input[aria-label="Find someone"]', ask) as HTMLInputElement, 'architect');
     expect($('[role="listbox"][aria-label="Matches"]', ask)).not.toBeNull();
     await click(button('handline.architect', ask)!);
     await until(() => s.daemon.tasks.get({ task: 1688 }).to === 'handline.architect', 'the new owner');
   });
 
-  it('keeps the assign sheet open and says why when the daemon refuses the new owner', async () => {
+  it('keeps the assign popover open and says why when the daemon refuses the new owner', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    await until(() => button('Owner ·'), 'the owner button');
-    await click(button('Owner ·')!);
-    const ask = sheet('Assign T1688 to…')!; // local-ref-ok
+    await until(() => button('Assigned to ·'), 'the assignee button');
+    await click(button('Assigned to ·')!);
+    const ask = $('[role="dialog"][aria-label="Assign T1688 to"]')!; // local-ref-ok
     await typeInto($('input[aria-label="Find someone"]', ask) as HTMLInputElement, 'architect');
     s.daemon.knobs.refuse('task.edit', 'state', 'cannot move it now');
     await click(button('handline.architect', ask)!);
@@ -527,7 +529,7 @@ describe('the detail', () => {
     await until(() => $('.tverbs'), 'the verbs');
     for (const b of $$('button', $('.tverbs')!)) expect(text(b).trim()).not.toBe('');
     expect(text($('.tdetail-head'))).toContain('doing');
-    expect(text($('.tchips'))).toContain('Owner');
+    expect(text($('.tchips'))).toContain('Assigned to');
   });
 
   it('serves the verbs of the daemon plan once it lists them: done needs a result, reopen only for a done task I asked for', async () => {

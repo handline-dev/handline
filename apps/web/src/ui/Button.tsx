@@ -34,10 +34,10 @@ export function Button({
   const fit = iconOnly ? (size === 'sm' ? 'w-7 p-0' : size === 'md' ? 'w-8 p-0' : 'w-9 p-0') : PAD[size];
   const look =
     variant === 'solid'
-      ? 'bg-primary font-medium text-on-primary hover:enabled:brightness-110'
+      ? 'bg-primary font-medium text-on-primary active:enabled:brightness-90'
       : variant === 'outline'
-        ? 'bg-panel font-medium hover:enabled:bg-raised'
-        : 'bg-transparent font-normal hover:enabled:bg-raised';
+        ? 'bg-panel font-medium tint'
+        : 'bg-transparent font-normal tint';
   return (
     <button
       {...rest}

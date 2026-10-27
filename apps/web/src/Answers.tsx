@@ -1,6 +1,7 @@
 // The standing answers: what the daemon answers by itself (a trusted folder, a vendor's dialog and the option to choose). One row each with a trash
 // icon and an Add row at the end (docs/design-gaps.md G82). Add and remove are authored: the row changes at once and comes back if the daemon refuses.
 import { useState } from 'react';
+import { answerLine } from '@handline/app-core';
 import { useAnswers, useOff, useServes, useWrite } from '@handline/app-data';
 import { Button, Field, Icon, RowTitle, SectionHead, Select, SettingsCard, SettingsRow } from '#src/ui/index.ts';
 import { View } from '#src/View.tsx';
@@ -69,10 +70,12 @@ export function Answers() {
                 size={16}
                 label={a.kind === 'trust' ? 'Trusted folder' : 'Dialog'}
               />
-              <RowTitle plain className="answer-text [overflow-wrap:anywhere]">{a.text}</RowTitle>
+              <RowTitle plain className="answer-text [overflow-wrap:anywhere]">
+                {answerLine(a)}
+              </RowTitle>
               <Button
                 icon="dismiss"
-                label={`Remove ${a.text}`}
+                label={`Remove ${answerLine(a)}`}
                 disabled={!!offRemove}
                 title={offRemove}
                 onClick={() => remove.mutate({ kind: a.kind, key: a.key })}

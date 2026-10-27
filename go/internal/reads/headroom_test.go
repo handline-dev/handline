@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -112,5 +113,44 @@ func TestHeadroomRefusesASpanItCannotDraw(t *testing.T) {
 	}
 	if m := got.(map[string]any); m["step_s"] != int64(900) {
 		t.Errorf("default step: %v", m["step_s"])
+	}
+}
+
+func TestHeadroomForecastsWhatTheWeekLeavesAtItsResetAndNullWhereItCannotRead(t *testing.T) {
+	e := testEnv(t)
+	clock := time.Date(2026, 10, 8, 15, 0, 0, 0, time.UTC)
+	now := clock.Unix()
+	week := func(used int) string {
+		return fmt.Sprintf(`[{"minutes":300,"used_percent":5,"resets_at":%d},{"minutes":10080,"used_percent":%d,"resets_at":%d}]`, now+3600, used, now+50*3600)
+	}
+	// a read now at 50% used with the week resetting in 50 h; it was 26% a day ago: 24 points a day, 1 a hour, 50 more by the reset.
+	for _, r := range []struct {
+		ts   int64
+		used int
+	}{{now - 23*3600, 26}, {now - 12*3600, 38}, {now - 60, 50}} {
+		if _, err := e.DB.Exec("INSERT INTO usage_samples(account, ts, exists_, windows) VALUES('a',?,1,?)", r.ts, week(r.used)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := paths.StatusFile(e.Home, "a")
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	body := fmt.Sprintf(`{"collected_at": %d, "windows": [{"minutes": 300, "used_percent": 5, "resets_at": %d, "observed_at": %d},`+
+		`{"minutes": 10080, "used_percent": 50, "resets_at": %d, "observed_at": %d}]}`, now, now+3600, now, now+50*3600, now)
+	os.WriteFile(p, []byte(body), 0o644)
+	got, err := e.headroomAt(clock, now-3600, now+3600, 1800)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	var out struct {
+		Accounts []struct {
+			Account    string
+			LeftAtRest *float64 `json:"left_at_reset"`
+			LostAnyway *float64 `json:"lost_anyway"`
+		}
+	}
+	json.Unmarshal(b, &out)
+	if len(out.Accounts) != 1 || out.Accounts[0].LeftAtRest == nil || *out.Accounts[0].LeftAtRest != 0 || out.Accounts[0].LostAnyway != nil {
+		t.Fatalf("50 unused, 24 points a day for 50 h uses it all (0 left); no ratio, no lost_anyway: %s", b)
 	}
 }

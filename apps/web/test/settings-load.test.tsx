@@ -55,7 +55,11 @@ describe('settings: machine load limits', () => {
   it('shows the fake values, with 0 as off, and a change sends that key only', async () => {
     const s = await mount();
     await until(() => field('Load per core'), 'the rows');
-    expect([field('Agents at once').value, field('Load per core').value, field('Least free memory').value]).toEqual(['off', '150', '10']);
+    expect([field('Agents at once').value, field('Load per core').value, field('Least free memory').value]).toEqual([
+      'no limit',
+      '150',
+      '10',
+    ]);
     const before = { ...values(s) };
     await setValue(field('Load per core'), '200');
     await blur(field('Load per core'));

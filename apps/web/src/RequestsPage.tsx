@@ -12,7 +12,7 @@ import { View } from '#src/View.tsx';
 
 type Status = RequestRow['status'];
 const WORDS: Record<Status, { label: string; glyph: StateKind }> = {
-  waiting_on_you: { label: 'Waiting on you', glyph: 'needs' },
+  waiting_on_you: { label: 'Needs you', glyph: 'needs' },
   review: { label: 'In review', glyph: 'working' },
   doing: { label: 'Doing', glyph: 'working' },
   done: { label: 'Done', glyph: 'done' },
@@ -21,7 +21,7 @@ const WORDS: Record<Status, { label: string; glyph: StateKind }> = {
 };
 const FILTERS: { value: 'all' | Status; label: string }[] = [
   { value: 'all', label: 'All' },
-  { value: 'waiting_on_you', label: 'Waiting on you' },
+  { value: 'waiting_on_you', label: 'Needs you' },
   { value: 'doing', label: 'Doing' },
   { value: 'review', label: 'Review' },
   { value: 'done', label: 'Done' },

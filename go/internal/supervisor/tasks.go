@@ -401,8 +401,10 @@ func (e *Env) releaseOne(tid int64, how string) (waiting []int64, err error) {
 // ---------------------------------------------------------------- memos
 
 // TypeSay writes a say from the task board to owner, typed at once.
-func (e *Env) typeSay(q db.Q, owner, body, why string) {
-	e.Push(q, owner, e.queueSay(q, owner, body, why))
+func (e *Env) typeSay(q db.Q, owner, body, why string) int64 {
+	rid := e.queueSay(q, owner, body, why)
+	e.Push(q, owner, rid)
+	return rid
 }
 
 // queueSay writes the say and its inbox file, and does not tell the owner: that is Push's, which a caller in a transaction runs after the commit.
@@ -418,7 +420,12 @@ func (e *Env) queueSay(q db.Q, owner, body, why string) int64 {
 // TellMemo tells a memo's change to each of its readers (memoReaders). The reader it was said to (to, "" for none), a reader the memo names
 // with @, and every reader when now are typed it at once like a say; any other reader gets it in its next digest (SweepDigests), and its
 // lead hears of it if it waits an hour (SweepHeldMemos).
-func (e *Env) TellMemo(q db.Q, tid int64, by, what, text, to string, now bool) (err error) {
+func (e *Env) TellMemo(q db.Q, tid int64, by, what, text, to string, now bool) error {
+	return e.TellMemoOf(q, tid, 0, by, what, text, to, now)
+}
+
+// TellMemoOf is TellMemo for memo mid, whose tell to each reader is kept (db.LinkMemoTell) so the memo can show who has read it; mid 0 keeps none.
+func (e *Env) TellMemoOf(q db.Q, tid, mid int64, by, what, text, to string, now bool) (err error) {
 	defer Catch(&err)
 	row := must(db.GetTask(q, tid))
 	if row == nil {
@@ -428,14 +435,26 @@ func (e *Env) TellMemo(q db.Q, tid int64, by, what, text, to string, now bool) (
 	named := e.mentioned(text)
 	for _, a := range e.memoReaders(row, by, named) {
 		if delivery.ClassOf(delivery.Memo, now || a == to || slices.Contains(named, a), false) == delivery.ClassNow {
-			e.typeSay(q, a, body, "task memo")
+			rid := e.typeSay(q, a, body, "task memo")
+			e.linkMemoTell(q, mid, a, rid)
 		} else {
 			rid := must(db.AddRequest(q, db.NewRequest{Requester: db.NoticeRequester, Target: a, Body: body, Kind: "say", Memo: true}))
 			check(db.LinkRequest(q, tid, rid))
+			e.linkMemoTell(q, mid, a, rid)
 			e.log("  %s: T%d memo held for its next digest (request %d)", a, tid, rid)
 		}
 	}
 	return nil
+}
+
+// linkMemoTell keeps that request rid told reader of memo mid; a failure is logged, since the tell itself went out.
+func (e *Env) linkMemoTell(q db.Q, mid int64, reader string, rid int64) {
+	if mid == 0 {
+		return
+	}
+	if err := db.LinkMemoTell(q, mid, reader, rid); err != nil {
+		e.log("  memo %d: its tell to %s was not kept: %v", mid, reader, err)
+	}
 }
 
 // memoReaders is whom a memo on row concerns, each once: who the task answers to (its reporter), its assignee whatever the task's state, and
