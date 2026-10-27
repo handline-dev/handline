@@ -272,7 +272,18 @@ func recordedPath(recorded string) string {
 	return path
 }
 
-// Recreate is Spawner.Recreate: a spawn makes <repo>.worktrees/<branch>, the branch the agent's name or <name>-<n>, so a recorded one of
+// WorktreesDir is where a spawn puts repo's worktrees: a sibling named <repo>.worktrees.noindex, because macOS Spotlight skips everything under
+// a folder with the .noindex suffix (a .metadata_never_index marker in a subfolder it ignores) and would otherwise index every node_modules and
+// build output the agents churn. Worktrees made before that live in <repo>.worktrees and stay there.
+func WorktreesDir(repo string) string { return repo + ".worktrees.noindex" }
+
+// inWorktreesDir is whether dir is one of repo's worktree folders, the current one or the one before the rename.
+func inWorktreesDir(dir, repo string) bool {
+	base := filepath.Base(repo)
+	return filepath.Base(dir) == base+".worktrees.noindex" || filepath.Base(dir) == base+".worktrees"
+}
+
+// Recreate is Spawner.Recreate: a spawn makes <repo>.worktrees.noindex/<branch>, the branch the agent's name or <name>-<n>, so a recorded one of
 // that shape that is gone is added again at its path on that branch, when the branch is still in repo. Any other is refused, saying why:
 // never a new worktree in its place, which would leave the branch's work behind, and never another agent's branch.
 func (s *Spawns) Recreate(agent, repo, recorded string) (string, string) {
@@ -281,8 +292,8 @@ func (s *Spawns) Recreate(agent, repo, recorded string) (string, string) {
 		return "", fmt.Sprintf("%s: its recorded worktree %q is not an absolute path", agent, recorded)
 	}
 	branch := filepath.Base(path)
-	if filepath.Base(filepath.Dir(path)) != filepath.Base(repo)+".worktrees" || !spawnBranch(agent, branch) {
-		return "", fmt.Sprintf("%s: its worktree %s is gone and is not one a spawn made for it (%s.worktrees/%s) - not made again", agent,
+	if !inWorktreesDir(filepath.Dir(path), repo) || !spawnBranch(agent, branch) {
+		return "", fmt.Sprintf("%s: its worktree %s is gone and is not one a spawn made for it (%s.worktrees.noindex/%s) - not made again", agent,
 			path, filepath.Base(repo), agent)
 	}
 	// A lock left by a session that is gone outlives the folder and would refuse the prune and the add.
