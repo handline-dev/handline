@@ -7,7 +7,7 @@ import type { ComponentProps, ElementType } from 'react';
 const join = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 const BOX = 'rounded-card bg-surface shadow-[var(--shadow-1)]';
 const EVENT =
-  'card event my-1 flex items-center gap-2 rounded-card bg-[color-mix(in_srgb,var(--tone)_12%,transparent)] px-2.5 py-1.5 text-hint [&_svg]:text-[var(--tone)] [&_a]:text-inherit data-[tone=wait]:[--tone:var(--s-wait)] data-[tone=ok]:[--tone:var(--s-ok)] data-[tone=bad]:[--tone:var(--s-bad)] data-[tone=none]:[--tone:var(--line)]';
+  'card event my-1 flex w-fit max-w-full items-center gap-2 rounded-card bg-[color-mix(in_srgb,var(--tone)_12%,transparent)] px-2.5 py-1.5 text-hint [&_svg]:text-[var(--tone)] [&_a]:text-inherit data-[tone=wait]:[--tone:var(--s-wait)] data-[tone=ok]:[--tone:var(--s-ok)] data-[tone=bad]:[--tone:var(--s-bad)] data-[tone=none]:[--tone:var(--line)]';
 const CHAT = 'card my-1 flex items-center gap-2 rounded-card px-2.5 py-1.5 text-[13px] [&_svg]:align-middle [&_a]:text-inherit';
 
 export function Card({

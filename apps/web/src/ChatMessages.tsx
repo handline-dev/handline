@@ -3,7 +3,7 @@
 // to reply to (the reference the composer shows).
 import { memo, useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { clockTime, ellipsis, landingLabel, openTask, restartCause, sideOf, tickLevel } from '@handline/app-core';
+import { ago, clockTime, ellipsis, landingLabel, openTask, restartCause, sideOf, tickLevel } from '@handline/app-core';
 import { useWrite } from '@handline/app-data';
 import { useMe } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
@@ -59,6 +59,28 @@ function Stamp({ left, time, always }: { left?: boolean; time: ReactNode; always
     >
       <span className="hidden [.peer:hover~*_&]:inline [.peer[aria-current]~*_&]:inline">{time}</span>
       {always}
+    </div>
+  );
+}
+
+/** Under an agent's message, shown on hover: copy, quote, and how long ago. Nothing is drawn at rest, but the room stays so the list does not jump. */
+function HoverBar({ m, onPick }: { m: ChatMessage; onPick?: (m: ChatMessage) => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(m.body).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div
+      className={`msg-hover -mt-1 flex h-6 items-center gap-1 text-ink-3 opacity-0 transition-opacity focus-within:opacity-100 hover:opacity-100 [.peer:hover+&]:opacity-100 ${MSG_META}`}
+    >
+      <Button variant="ghost" size="sm" icon={copied ? 'done' : 'copy'} label={copied ? 'Copied' : 'Copy'} onClick={copy} />
+      {onPick && m.id >= 0 ? <Button variant="ghost" size="sm" icon="reply" label="Quote" onClick={() => onPick(m)} /> : null}
+      <time dateTime={m.at} title={full(m.at)}>
+        {ago(m.at)} ago
+      </time>
     </div>
   );
 }
@@ -237,11 +259,15 @@ function MessageRow(props: MessageProps) {
         ) : null}
       </div>
       {side === 'person' && !unnumbered && !failed ? <RequestChip m={m} /> : null}
-      <Stamp
-        left={side !== 'agent'}
-        time={clockTime(m.at)}
-        always={side === 'person' && !failed ? <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} /> : null}
-      />
+      {side === 'person' ? (
+        <Stamp
+          left
+          time={clockTime(m.at)}
+          always={!failed ? <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} /> : null}
+        />
+      ) : unnumbered || failed ? null : (
+        <HoverBar m={m} onPick={props.onPick} />
+      )}
     </>
   );
 }
