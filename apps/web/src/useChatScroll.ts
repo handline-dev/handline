@@ -25,6 +25,12 @@ function putBack(box: HTMLElement, a: { id: string; off: number }) {
   if (drift) box.scrollTop += drift;
 }
 
+/** Moves `box` to `top`; the DOM write lives here, outside the hook, so the compiler sees no mutation of the ref's element. */
+function scrollTo(box: HTMLElement, top: number, smooth: boolean) {
+  if (smooth) box.scrollTo({ top, behavior: 'smooth' });
+  else box.scrollTop = top;
+}
+
 export function useChatScroll({
   stream,
   content,
@@ -64,10 +70,10 @@ export function useChatScroll({
       if (a.smooth && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
         glide.current = performance.now() + GLIDE_MS;
         intent.current = false;
-        box.scrollTo({ top: a.to, behavior: 'smooth' });
+        scrollTo(box, a.to, true);
       } else {
         glide.current = 0;
-        box.scrollTop = a.to;
+        scrollTo(box, a.to, false);
       }
     },
     [stream, entry],

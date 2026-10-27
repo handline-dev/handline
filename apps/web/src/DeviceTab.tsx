@@ -2,7 +2,7 @@
 // the devices of its kind (adb, booted simulators); a click on the picture is a tap on the picked one, a drag a swipe, and typing on the
 // picture is typed on the device. A simulator is driven through idb: without it the tab says how to install it and stays view-only.
 // Needs the desktop shell, which runs adb, simctl and idb.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, MenuButton, MenuItem, Select } from '#src/ui/index.ts';
 import { PreviewAsk } from '#src/PreviewAsk.tsx';
 import { shell } from '#src/shell.ts';
@@ -43,7 +43,6 @@ export function DeviceTab({
   const [said, setSaid] = useState('');
   const [marking, setMarking] = useState<Blob | null>(null);
   const [now, setNow] = useState(0);
-  const latest = useRef<Blob | null>(null);
   const down = useRef<{ x: number; y: number } | null>(null);
   const swiped = useRef(false);
   const typed = useRef({ text: '', timer: 0 });
@@ -58,21 +57,20 @@ export function DeviceTab({
       setIdb(r.idb);
     });
   }, [list, hidden, now]);
-  const look = useCallback(async (): Promise<boolean> => {
-    const r = await api!.deviceShot!({ kind, id });
-    if (!r.ok) {
-      setWhy(r.message);
-      return false;
-    }
-    setWhy('');
-    latest.current = blobOf(r.png);
-    setShot(latest.current);
-    return true;
-  }, [api, kind, id]);
   useEffect(() => {
     if (!api || hidden) return;
     let stopped = false;
     let timer = 0;
+    const look = async (): Promise<boolean> => {
+      const r = await api!.deviceShot!({ kind, id });
+      if (!r.ok) {
+        setWhy(r.message);
+        return false;
+      }
+      setWhy('');
+      setShot(blobOf(r.png));
+      return true;
+    };
     const loop = async () => {
       const ok = await look();
       if (!stopped) timer = window.setTimeout(() => void loop(), ok ? EVERY[kind] : RETRY);
@@ -82,7 +80,7 @@ export function DeviceTab({
       stopped = true;
       clearTimeout(timer);
     };
-  }, [api, kind, hidden, look, now]);
+  }, [api, kind, id, hidden, now]);
   useEffect(() => {
     if (!shot) return setSrc('');
     const u = URL.createObjectURL(shot);
@@ -118,7 +116,7 @@ export function DeviceTab({
         <span className="min-w-0 flex-1 text-body text-ink-2">{kind === 'ios' && !idb && !why ? IDB_HOW : ''}</span>
         <Button size="sm" icon="refresh" label="Refresh" onClick={() => setNow((n) => n + 1)} />
         {shot ? (
-          <Button size="sm" variant="outline" label="Mark an area to ask" onClick={() => setMarking(latest.current)}>
+          <Button size="sm" variant="outline" label="Mark an area to ask" onClick={() => setMarking(shot)}>
             Mark an area
           </Button>
         ) : null}
