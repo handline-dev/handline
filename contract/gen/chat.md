@@ -73,7 +73,7 @@ Take back a message the person sent, delivered or not. The person's own undo. A 
 
 ### `chat.seen`
 
-Record that the person has an agent's messages in front of them, up to a message number. What it moves: the agent's messages to the person up to up_to leave the FOR YOU list as new (the mailbox's unseen count). Only that list forgets; decisions still count in the summary.
+Record that the person has an agent's messages in front of them, up to a message number. What it moves: the agent's messages to the person up to up_to leave the FOR YOU list as new (the mailbox's unseen count). Only that list forgets; decisions still count in the summary. An ask raised by a task comment stays open past up_to (task.comment.add says what closes it). A client sends the newest of the agent's messages that has been in view, never merely loaded, so opening a chat clears only what it showed.
 
 ### `attachment.put`
 
@@ -109,11 +109,11 @@ The founder takes any request out of an agent's queue, as hl cancel does; dry_ru
 
 ### `inbox.mark_read`
 
-Mark items read; an id that is not yours is not_found. For the founder, every message of an agent up to the newest id named is read; a decision or a reply owed is never read away, so such an id, and what lies past it, stays unread (refused, gate state, when nothing could be read). For an agent only the head of its own queue can be read, as `hl inbox` does; another id of its own is refused, gate state.
+Mark items read; an id that is not yours is not_found. For the founder, every message of an agent up to the newest id named is read; a decision or a reply owed is never read away, so such an id, and what lies past it, stays unread (refused, gate state, when nothing could be read). For an agent only the head of its own queue can be read, as `hl inbox` does; another id of its own is refused, gate state. An ask raised by a task comment (InboxItem.memo) is read only by naming its own id: reading an agent's messages past it leaves it open.
 
 ### `inbox.reply`
 
-Reply to an item. A message to whoever sent the item, with the item as its parent link (`hl say --parent`); it settles nothing. An agent replies to its own incoming items; the founder to a mailbox item that is not a decision (a decision is a task, closed with task.done: refused, gate state).
+Reply to an item. A message to whoever sent the item, with the item as its parent link (`hl say --parent`); it settles nothing. An agent replies to its own incoming items; the founder to a mailbox item that is not a decision (a decision is a task, closed with task.done: refused, gate state). A reply to an ask raised by a task comment (InboxItem.memo) is also added to that task as the founder's comment, a reply to that comment, which closes the ask and is told to the task's readers at once.
 
 ### `requests.list`
 
