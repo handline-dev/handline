@@ -28,7 +28,7 @@ func TestForceStartPassesOnlyWorkTheLoadHolds(t *testing.T) {
 		t.Fatalf("nothing waits for carol: %v %q", ok, said)
 	}
 	ok, said, err := c.ForceStart("bob")
-	if err != nil || !ok || said != "Starting bob now, even though the Mac is busy." {
+	if err != nil || !ok || said != "Starting bob now, even though the computer is busy right now." {
 		t.Fatalf("%v %q %v", ok, said, err)
 	}
 	if lc.Gate.Held("bob") != "" || lc.Gate.Held("carol") == "" {
