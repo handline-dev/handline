@@ -55,7 +55,9 @@ export function timeOf(id: unknown, tasks: Tasks): TaskTime {
     to,
     seconds: Math.round((Date.parse(to) - Date.parse(from)) / 1000),
   });
-  const made = t.segments ?? (t.delivered ? [seg('queued', t.created, t.delivered), seg('working', t.delivered, end)] : [seg('queued', t.created, end)]);
+  const made =
+    t.segments ??
+    (t.delivered ? [seg('queued', t.created, t.delivered), seg('working', t.delivered, end)] : [seg('queued', t.created, end)]);
   const expected = t.done
     ? null
     : { start: t.delivered ?? tasks.now(), end: null, duration_s: null, basis: null, ahead: [], wall_until: null };
