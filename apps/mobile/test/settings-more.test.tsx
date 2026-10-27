@@ -1,15 +1,14 @@
 // The phone's Settings rows the web has: the machine load limits, the Background rows, the notice batch and the handoff prompt.
 import { act } from 'react';
 import { describe, expect, it } from 'vitest';
-import { INVALID } from '@handline/app-core';
-import { parsePrompt } from '#src/screens/Settings.tsx';
 import { $, box, mount, press, until } from '#test/harness.tsx';
 
 const text = (el: Element | null = box) => el?.textContent ?? '';
 const type = (id: string, value: string) =>
   act(async () => {
-    const el = $(id) as HTMLInputElement;
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, value);
+    const el = $(id) as HTMLInputElement | HTMLTextAreaElement;
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
@@ -85,16 +84,22 @@ describe('the settings rows the web has', () => {
     m.store.stop();
   });
 
-  it('sends the handoff prompt, not a line break, and says when {path} is missing', async () => {
-    const m = await settings();
+  it('shows the built-in prompt tagged, guards a save, resets, and warns about agents with their own text', async () => {
+    const m = await settings((s) => s.daemon.admin.handoffOwn.push('handline.auditor'));
     expect(($('prompt-input') as HTMLInputElement).value).toBe(values(m).handoff_prompt);
-    expect(text($('setting-prompt'))).not.toContain('Without {path}');
-    expect(parsePrompt('one\ntwo')).toBe(INVALID); // the input drops a break itself; a paste on a phone may not
-    expect(parsePrompt(' one ')).toBe('one');
-    await type('prompt-input', 'Write your note now');
+    expect($('prompt-builtin')).not.toBeNull();
+    expect(($('prompt-reset') as HTMLButtonElement).disabled ?? $('prompt-reset').getAttribute('aria-disabled')).toBeTruthy();
+    expect(text($('prompt-preview'))).toContain("(the note's file)");
+    expect(text($('prompt-own'))).toContain('1 agent sets its own text, so it ignores this one.');
+    await type('prompt-input', 'too short');
     await press($('prompt-save'));
-    await until(() => values(m).handoff_prompt === 'Write your note now', 'the save');
-    await until(() => text($('setting-prompt')).includes('Without {path}'), 'the path note');
+    expect(text($('prompt-note'))).toContain('Too short to guide a note.');
+    await type('prompt-input', 'Write your note now\nand keep it short');
+    await press($('prompt-save'));
+    await until(() => values(m).handoff_prompt === 'Write your note now and keep it short', 'the save, line break joined');
+    await until(() => $('prompt-builtin') === null, 'the tag gone');
+    await press($('prompt-reset'));
+    await until(() => $('prompt-builtin'), 'back to the built-in');
     m.store.stop();
   });
 

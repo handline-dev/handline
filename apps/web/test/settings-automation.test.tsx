@@ -2,10 +2,9 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
-import { INVALID, Store, type KV } from '@handline/app-core';
+import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
-import { parsePrompt } from '#src/Settings.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -25,9 +24,10 @@ const memory = (): KV => {
 let root: Root | null = null;
 let box: HTMLElement;
 const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
-const setValue = (el: HTMLInputElement, value: string) =>
+const setValue = (el: HTMLInputElement | HTMLTextAreaElement, value: string) =>
   act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, value);
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
 const blur = (el: HTMLElement) => act(async () => void el.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
@@ -52,34 +52,75 @@ afterEach(async () => {
   Element.prototype.scrollIntoView = scrollIntoView;
 });
 
-const prompt = () => field('Handoff prompt');
+const prompt = () => $('textarea[aria-label="What the agent is asked"]') as HTMLTextAreaElement;
+const card = () => $('[data-setting="What the agent is asked"]')!;
+const reads = () => $('[data-reads]')!.textContent;
+const button = (label: string) =>
+  [...card().querySelectorAll('button')].find(
+    (b) => b.getAttribute('aria-label') === label || b.textContent === label,
+  ) as HTMLButtonElement;
 const click = (el: HTMLElement) => act(async () => void el.click());
 
 describe('settings: handoff prompt and cache expiry', () => {
-  it('shows the daemon prompt, and an edit sends handoff_prompt only', async () => {
+  it('shows the built-in text tagged Built-in, with Reset grey and what the agent reads', async () => {
     const s = await mount();
-    await until(() => prompt(), 'the row');
+    await until(() => prompt(), 'the box');
     expect(prompt().value).toBe(values(s).handoff_prompt);
-    const before = { ...values(s) };
-    await setValue(prompt(), ' Write it to {path}. ');
-    await blur(prompt());
-    await until(() => values(s).handoff_prompt === 'Write it to {path}.', 'the save');
-    expect({ ...values(s), handoff_prompt: before.handoff_prompt }).toEqual(before);
+    expect(card().textContent).toContain('Built-in');
+    expect(button('Reset to built-in').disabled).toBe(true);
+    expect(card().textContent).toContain('The agent reads:');
+    expect(reads()).toContain("(the note's file)");
+    expect(reads()).toContain('3000');
+    expect(reads()).not.toContain('{');
   });
 
-  it('does not accept a line break', () => {
-    expect(parsePrompt('one\ntwo')).toBe(INVALID); // a text input drops a break itself; this guards what it did not
-    expect(parsePrompt(' one ')).toBe('one');
-  });
-
-  it('says the path is added on its own line when the prompt has no {path}', async () => {
+  it('an edit sends handoff_prompt only, line breaks joined; Reset sends blank and goes grey again', async () => {
     const s = await mount();
-    await until(() => prompt(), 'the row');
-    expect($('[data-setting="Handoff prompt"]')?.textContent).not.toContain('added on a line of its own');
-    await setValue(prompt(), 'Write your handoff.');
+    await until(() => prompt(), 'the box');
+    const before = { ...values(s) };
+    await setValue(prompt(), 'Write it to {path}.\nShort and plain.');
     await blur(prompt());
-    await until(() => values(s).handoff_prompt === 'Write your handoff.', 'the save');
-    await until(() => $('[data-setting="Handoff prompt"]')?.textContent?.includes('added on a line of its own'), 'the hint');
+    await until(() => values(s).handoff_prompt === 'Write it to {path}. Short and plain.', 'the save');
+    expect({ ...values(s), handoff_prompt: before.handoff_prompt }).toEqual(before);
+    await until(() => !button('Reset to built-in').disabled, 'Reset on');
+    expect(card().textContent).not.toContain('Built-in');
+    await click(button('Reset to built-in'));
+    await until(() => values(s).handoff_prompt === before.handoff_prompt, 'back to the built-in');
+    await until(() => button('Reset to built-in').disabled, 'Reset grey');
+  });
+
+  it('refuses under 20 characters with the way out, and blank is the built-in', async () => {
+    const s = await mount();
+    await until(() => prompt(), 'the box');
+    const before = values(s).handoff_prompt;
+    await setValue(prompt(), 'too short');
+    await blur(prompt());
+    expect(card().textContent).toContain('Too short to guide a note. Leave it blank for the built-in.');
+    expect(values(s).handoff_prompt).toBe(before);
+    await setValue(prompt(), 'A different text that is long enough.');
+    await blur(prompt());
+    await until(() => values(s).handoff_prompt === 'A different text that is long enough.', 'the save');
+    await setValue(prompt(), '  ');
+    await blur(prompt());
+    await until(() => values(s).handoff_prompt === before, 'blank is the built-in');
+  });
+
+  it('shows the path on its own line in the preview when the text has no {path}', async () => {
+    await mount();
+    await until(() => prompt(), 'the box');
+    await setValue(prompt(), 'Write your handoff note now.');
+    expect(reads()).toBe("Write your handoff note now.\n(the note's file)");
+  });
+
+  it('warns when agents set their own text, and Show names them', async () => {
+    const s = setup();
+    s.daemon.admin.handoffOwn.push('handline.auditor', 'handline.term-build');
+    await mount(s);
+    await until(() => prompt(), 'the box');
+    expect(card().textContent).toContain('2 agents set their own text, so they ignore this one.');
+    expect(card().textContent).not.toContain('handline.auditor');
+    await click(button('Show'));
+    expect(card().textContent).toContain('handline.auditor, handline.term-build');
   });
 
   it('the switch sends ignore_cache_expiry', async () => {

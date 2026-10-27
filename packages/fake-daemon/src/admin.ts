@@ -13,6 +13,9 @@ const AGENTS = ['handline.architect', 'handline.auditor', 'handline.term-build']
 
 /** The methods this answers. */
 const ADMIN = /^(stats\.|connection\.get|settings\.|answers?\.|devices?\.(list|revoke)|agent\.triggers|memory\.status|events\.feed)/;
+/** The built-in handoff prompt (go/internal/handoff/note.go AskTemplate). */
+const BUILTIN_HANDOFF =
+  "Write your handoff to {path} now, while your prompt cache is warm, with one Write (replace what is there), then stop and run nothing else. The next session of you, if it starts fresh, reads it first: copy yourself into it. At most {max} characters, about 30 lines, only what `hl` and your memory cannot tell it: (1) what you were deciding and why; (2) what you meant to do next; (3) promises or doubts not yet on any task; (4) the founder's preferences and the pitfalls you learned this session; (5) who you wait on, as T<n>/#<n> numbers only. Do not restate what a task or message holds; cite its T or # number. A lasting lesson or preference goes to your memory first, not here. If there is nothing, write the single word: nothing.";
 /** Every settings value at the Go daemon's default (go/internal/reads/settings.go), except active_cap: the fake keeps 4. */
 const DEFAULTS: Settings['values'] = {
   active_cap: 4,
@@ -26,8 +29,7 @@ const DEFAULTS: Settings['values'] = {
   notice_digest_s: 300,
   token_prices: {},
   input_hold_idle_s: 600,
-  handoff_prompt:
-    "Write your handoff to {path} now, while your prompt cache is warm, with one Write (replace what is there), then stop and run nothing else. The next session of you, if it starts fresh, reads it first: copy yourself into it. At most {max} characters, about 30 lines, only what `hl` and your memory cannot tell it: (1) what you were deciding and why; (2) what you meant to do next; (3) promises or doubts not yet on any task; (4) the founder's preferences and the pitfalls you learned this session; (5) who you wait on, as T<n>/#<n> numbers only. Do not restate what a task or message holds; cite its T or # number. A lasting lesson or preference goes to your memory first, not here. If there is nothing, write the single word: nothing.",
+  handoff_prompt: BUILTIN_HANDOFF,
   push_prompt_asked: true,
   push_task_done: true,
   push_stall: true,
@@ -327,11 +329,21 @@ export class FakeAdmin {
       trust_folders: [],
       hooks: { installed: true, accounts: [] },
       values,
+      handoff_prompt_default: BUILTIN_HANDOFF,
+      handoff_prompt_own: [...this.handoffOwn],
     } as unknown as Settings;
   }
 
+  /** Agents whose own agent.yaml sets a handoff prompt, which wins over this one. */
+  handoffOwn: string[] = [];
+
   set(changes: SettingsChanges): void {
-    for (const [key, value] of Object.entries(changes)) {
+    for (let [key, value] of Object.entries(changes)) {
+      if (key === 'handoff_prompt' && typeof value === 'string') {
+        value = value.replace(/\s*[\r\n]+\s*/g, ' ').trim();
+        if (value && value.length < 20) throw badRequest('Too short to guide a note. Leave it blank for the built-in.', 'handoff_prompt');
+        if (!value) value = null;
+      }
       if (key === 'active_cap' && value !== null && (!Number.isInteger(value) || (value as number) < 1))
         throw badRequest('active_cap is a whole number from 1', 'active_cap');
       if (key === 'park_timeout_s' && value !== null && (!Number.isInteger(value) || (value as number) < 0))
