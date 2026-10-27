@@ -3,6 +3,7 @@ package reads
 import (
 	"database/sql"
 	"fmt"
+	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/taskresult"
 	"sort"
 	"strings"
@@ -804,6 +805,14 @@ func memoReaders(q *sql.DB, mid int64) ([]any, error) {
 			one["state"], one["at"] = "read", ts(r["read_at"])
 		case r.i("notice") == 2 && !r.set("delivered_at") && !r.set("send_now"):
 			one["state"], one["at"] = "held", ts(r["landed_at"])
+			// The digest goes a window after the agent's oldest waiting notice, which may be older than this one.
+			var first sql.NullInt64
+			if err := q.QueryRow("SELECT MIN(landed_at) FROM requests WHERE target = ? AND notice = 2 AND delivered_at IS NULL", r.str("reader")).Scan(&first); err != nil {
+				return nil, err
+			}
+			if first.Valid {
+				one["minutes"] = max(1, (first.Int64+lifecycle.NoticeDigestS-time.Now().Unix()+59)/60)
+			}
 		case r.i("notice") != 2 && r.set("landed_at"): // a tell typed at once: its text is in the agent's session
 			one["state"], one["at"] = "read", ts(r["landed_at"])
 		default:

@@ -82,6 +82,9 @@ func TestAFounderCommentShowsWhereItsTellStandsForEachReader(t *testing.T) {
 	if fmt.Sprint(states) != "[a:held b:sent c:read d:read]" {
 		t.Fatalf("%v", states)
 	}
+	if m, ok := memos[0].(map[string]any)["readers"].([]any)[0].(map[string]any)["minutes"].(int64); !ok || m < 1 {
+		t.Fatalf("a held reader says how long until its digest: %v", memos[0])
+	}
 	if _, ok := memos[1].(map[string]any)["readers"]; ok {
 		t.Fatal("only the founder's comments show readers")
 	}

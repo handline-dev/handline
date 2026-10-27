@@ -334,6 +334,8 @@ export type MemoReader = {
   state: "held" | "sent" | "read";
   /** held: when the tell began to wait. sent: when it was sent. read: when it was read. */
   at: Timestamp | null;
+  /** Only when held: about how many minutes until the agent's next digest (at least 1), at the default window. */
+  minutes?: number;
 };
 
 export interface TasksMethods {

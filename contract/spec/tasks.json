@@ -1397,6 +1397,10 @@
        }
       ],
       "description": "held: when the tell began to wait. sent: when it was sent. read: when it was read."
+     },
+     "minutes": {
+      "type": "integer",
+      "description": "Only when held: about how many minutes until the agent's next digest (at least 1), at the default window."
      }
     },
     "required": [

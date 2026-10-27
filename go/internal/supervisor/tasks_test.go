@@ -677,12 +677,12 @@ func TestAMemoKeepsTheTellItSentToEachReader(t *testing.T) {
 		t.Fatalf("a held tell and a typed tell are both kept: %d %d", count(7), count(8))
 	}
 	var held int64
-	r.must(r.DB.QueryRow("SELECT request_id FROM memo_tells WHERE memo_id = 7 AND reader = 'bob'").Scan(&held))
+	r.must(r.DB.QueryRow("SELECT request_id FROM memo_tells WHERE memo_id = 7 AND reader = 'carol'").Scan(&held))
 	r.MemoTellSent(held)
 	var sent sql.NullInt64
 	var digests int
 	r.must(r.DB.QueryRow("SELECT delivered_at FROM requests WHERE id = ?", held).Scan(&sent))
-	r.must(r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'bob' AND body LIKE ?", db.DigestHead+"%").Scan(&digests))
+	r.must(r.DB.QueryRow("SELECT COUNT(*) FROM requests WHERE target = 'carol' AND body LIKE ?", db.DigestHead+"%").Scan(&digests))
 	if !sent.Valid || digests != 1 {
 		t.Fatalf("send now writes a digest of the held tell and marks it sent: %v %d", sent, digests)
 	}
