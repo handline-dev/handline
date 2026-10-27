@@ -113,7 +113,7 @@ function Toasts() {
       {toasts.map((n) => (
         <div
           key={n.id}
-          className={`toast cursor-pointer rounded-[8px] px-3 py-2 text-body shadow-[var(--shadow-2)] ${n.level === 'fail' ? 'bg-bad text-canvas' : 'bg-ink text-canvas'}`}
+          className={`toast cursor-pointer rounded-[8px] px-3 py-2 text-body shadow-[var(--shadow-2)] ${n.level === 'fail' ? 'bg-bad text-canvas' : 'bg-raised text-ink'}`}
           title="Click to dismiss"
           onClick={() => store.notices.dismissToasts()}
           onPointerEnter={() => store.notices.hold(n.id)}

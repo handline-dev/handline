@@ -59,7 +59,7 @@ export function CardCode({ className, ...rest }: ComponentProps<'code'>) {
 /** The terminal-dark block of a few lines (`lines`) or of a command (`cmd`); `scroll` cuts it at 12 lines and scrolls the rest. */
 export function CodeBlock({ cmd, scroll, className, ...rest }: ComponentProps<'pre'> & { cmd?: boolean; scroll?: boolean }) {
   const look =
-    'm-0 block rounded-ctl bg-term-bg px-2 py-1.5 font-mono text-[13px] whitespace-pre-wrap text-term-ink max-sm:whitespace-pre max-sm:overflow-x-auto';
+    'm-0 block rounded-ctl bg-code-bg px-2 py-1.5 font-mono text-[13px] whitespace-pre-wrap text-code-ink max-sm:whitespace-pre max-sm:overflow-x-auto';
   const cls = join(cmd ? 'cmd' : 'lines', scroll && 'max-h-[12lh] overflow-auto', look, className);
   return cmd ? <code {...rest} className={cls} /> : <pre {...rest} className={cls} />;
 }

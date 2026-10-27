@@ -32,6 +32,8 @@
   --color-ok: var(--s-ok);
   --color-term-bg: var(--term-bg);
   --color-term-ink: var(--term-ink);
+  --color-code-bg: var(--code-bg);
+  --color-code-ink: var(--code-ink);
   --font-sans: var(--sans);
   --font-mono: var(--mono);
   --text-hint: var(--fs-hint);
