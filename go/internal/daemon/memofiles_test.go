@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/attachments"
+	"github.com/handline/handline/go/internal/paths"
 )
 
 // onePNG is a 1x1 PNG.
@@ -101,9 +103,9 @@ func TestAMemosFileIsHeldWhileItsTaskIsOpenAndNotOnceTheMemoIsDeleted(t *testing
 	}
 }
 
-// the founder's memo is typed at once to the task's readers (PR 710), and keeps each file line whole on its own line
-func TestAFoundersMemoKeepsALinePerFileWhenItIsTypedAtOnce(t *testing.T) {
-	d, agents := tellDaemon(t, true)
+// the founder's memo is typed at once to the holder, which cuts its text but keeps each file line whole on its own line
+func TestTheFoundersMemoKeepsALinePerFileWhenTypedToTheHolder(t *testing.T) {
+	d, _ := tellDaemon(t, true)
 	doing(t, d, "bob")
 	src := t.TempDir()
 	png, md := filepath.Join(src, "mock.png"), filepath.Join(src, "plan.md")
@@ -116,22 +118,53 @@ func TestAFoundersMemoKeepsALinePerFileWhenItIsTypedAtOnce(t *testing.T) {
 	if len(kept) != 2 {
 		t.Fatalf("%v", kept)
 	}
-	if said := agents.said("bob"); !strings.Contains(said, "T1 memo added by human: the proposal xx") {
-		t.Fatalf("the memo was not typed at once: %q", said)
-	}
-	// what bob reads with hl read is the whole message, a line per file
-	var said string
-	if err := d.db.QueryRow("SELECT body FROM requests WHERE body LIKE 'T1 memo added by human%' AND target = 'bob'").Scan(&said); err != nil {
+	var said string // a long body is typed cut, with `hl read` for the whole, which the request keeps
+	if err := d.db.QueryRow("SELECT body FROM requests WHERE target = 'bob' AND body LIKE 'T1 memo added%'").Scan(&said); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"\n[file 1: ", "\n[file 2: "} {
+	for _, want := range []string{"T1 memo added by human: the proposal xx", "\n[file 1: ", "\n[file 2: "} {
 		if !strings.Contains(said, want) {
-			t.Fatalf("no %q in the message: %q", want, said)
+			t.Fatalf("no %q in the told memo: %q", want, said)
 		}
 	}
 	for _, p := range kept {
 		if !strings.Contains(said, p+" (") {
-			t.Fatalf("%s is not whole in the message: %q", p, said)
+			t.Fatalf("%s is not whole in the told memo: %q", p, said)
+		}
+	}
+}
+
+// an agent's memo naming no one waits for the holder's digest, which cuts its text but keeps each file line whole on its own indented line
+func TestAnAgentsUnaimedMemoKeepsALinePerFileInTheHoldersDigest(t *testing.T) {
+	d, agents := tellDaemon(t, true)
+	doing(t, d, "bob")
+	dir := paths.AgentDir(d.cfg.Home, "a")
+	os.MkdirAll(dir, 0o755)
+	png, md := filepath.Join(dir, "mock.png"), filepath.Join(dir, "plan.md")
+	os.WriteFile(png, onePNG, 0o644)
+	os.WriteFile(md, []byte("# Plan\n\nthree steps\n"), 0o644)
+	f := pipeTo(t, d, "")
+	files, _ := json.Marshal([]string{png, md})
+	result(t, f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.memo.add","params":{"task":1,"text":"the proposal `+strings.Repeat("x", 500)+`","files":`+string(files)+`,"request_id":"m1"}}`))
+	if said := agents.said("bob"); strings.Contains(said, "the proposal") {
+		t.Fatalf("a memo naming no one was typed at once: %q", said)
+	}
+	if err := d.env().SweepDigests(time.Now().Unix() + 900); err != nil {
+		t.Fatal(err)
+	}
+	kept, _ := filepath.Glob(filepath.Join(d.cfg.Home, "attachments", "*.*"))
+	if len(kept) != 2 {
+		t.Fatalf("%v", kept)
+	}
+	said := agents.said("bob")
+	for _, want := range []string{"T1 memo added by a: the proposal xx", "\n  [file 1: ", "\n  [file 2: "} {
+		if !strings.Contains(said, want) {
+			t.Fatalf("no %q in the digest: %q", want, said)
+		}
+	}
+	for _, p := range kept {
+		if !strings.Contains(said, p+" (") {
+			t.Fatalf("%s is not whole in the digest: %q", p, said)
 		}
 	}
 }

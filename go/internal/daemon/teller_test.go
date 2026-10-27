@@ -144,7 +144,7 @@ func wiredDaemon(t *testing.T, ports bool, proposals func(*sql.DB, string) super
 func TestAMemoOnADoingTaskIsTypedAtItsHolderWhenThePortsAreWired(t *testing.T) {
 	d, agents := tellDaemon(t, true)
 	doing(t, d, "bob")
-	f := pipeTo(t, d, "k")
+	f := pipeTo(t, d, "")
 	r := f.ask(`{"jsonrpc":"2.0","id":2,"method":"task.memo.add","params":{"task":1,"text":"@bob mind the cache","request_id":"m1"}}`)
 	if r["result"] == nil {
 		t.Fatalf("%v", r)
@@ -153,13 +153,17 @@ func TestAMemoOnADoingTaskIsTypedAtItsHolderWhenThePortsAreWired(t *testing.T) {
 		t.Fatalf("the holder was not told: %q", got)
 	}
 	result(t, f.ask(`{"jsonrpc":"2.0","id":3,"method":"task.memo.edit","params":{"task":1,"memo":1,"text":"@bob mind the disk","request_id":"m2"}}`))
-	if got := agents.said("bob"); !strings.Contains(got, "memo edited by human: @bob mind the disk") {
+	if got := agents.said("bob"); !strings.Contains(got, "memo edited by a: @bob mind the disk") {
 		t.Fatalf("the edit was not typed: %q", got)
 	}
-	// the founder's delete is typed at once too, as every founder comment is
+	// a delete names no reader, so it waits in the holder's digest
 	result(t, f.ask(`{"jsonrpc":"2.0","id":4,"method":"task.memo.delete","params":{"task":1,"memo":1,"request_id":"m3"}}`))
-	if got := agents.said("bob"); !strings.Contains(got, "memo deleted by human") {
-		t.Fatalf("the delete was not typed: %q", got)
+	held, err := db.PendingNotices(d.db, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(held) == 0 || !strings.Contains(held[len(held)-1].Body, "memo deleted by a") {
+		t.Fatalf("the delete is not in the holder's digest: %v", held)
 	}
 }
 
