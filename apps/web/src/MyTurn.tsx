@@ -98,10 +98,11 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
         return read.mutate({ ids: [a.id] });
     }
   };
-  // Reply is an icon and the rarer verbs a three-dot menu, both at the card's top-right; the main verbs stay in the row below.
-  const main = card.actions.slice(0, card.primary).filter((a) => a.type !== 'answer');
+  // The rarer verbs are a three-dot menu at the card's top-right, and so is Reply unless it is the card's main verb: then it stays a button.
+  const main = card.actions.slice(0, card.primary);
   const rest = card.actions.slice(card.primary).filter((a) => a.type !== 'answer');
   const answerId = card.actions.find((a) => a.type === 'answer');
+  const replyIcon = answerId && !main.includes(answerId) ? answerId : undefined;
   const askId = card.actions.find((a) => a.type === 'ask_change')?.item.id;
   return (
     <article
@@ -141,7 +142,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
           >
-            {answerId ? <Button size="sm" icon="reply" label="Reply" onClick={() => run(answerId)} /> : null}
+            {replyIcon ? <Button size="sm" icon="reply" label="Reply" onClick={() => run(replyIcon)} /> : null}
             {rest.length ? (
               <MenuButton size="sm" icon="more" label="More">
                 {rest.map((a, i) => (

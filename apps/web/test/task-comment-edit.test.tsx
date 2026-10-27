@@ -1,7 +1,8 @@
 // Edit and delete a comment: the author and the founder get both, a member gets none on another agent's; an edit shows at once and rolls back with the reason; Delete offers Undo before the daemon is asked.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { UNDO_MS } from '#src/TaskActivity.tsx';
 import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
@@ -123,16 +124,24 @@ describe('Edit and Delete on a comment', () => {
 
   it('asks the daemon once the Undo time is over', async () => {
     const s = await mount();
-    await act(async () => void (await item(comments()[0]!, 'Delete'))!.click());
-    await until(() => !text(s).includes('mine'), 'the daemon dropped it', 900);
-  }, 15000);
+    const del = await item(comments()[0]!, 'Delete');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await act(async () => void del!.click());
+    await act(async () => void vi.advanceTimersByTime(UNDO_MS));
+    vi.useRealTimers();
+    await until(() => !text(s).includes('mine'), 'the daemon dropped it');
+  });
 
   it('puts a refused Delete back and says why', async () => {
     const s = await mount();
     s.daemon.knobs.refuse('task.comment.delete', 'state', 'the task is closed', undefined, 1);
-    await act(async () => void (await item(comments()[0]!, 'Delete'))!.click());
-    await until(() => section()!.textContent?.includes('the task is closed'), 'the refusal', 900);
+    const del = await item(comments()[0]!, 'Delete');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await act(async () => void del!.click());
+    await act(async () => void vi.advanceTimersByTime(UNDO_MS));
+    vi.useRealTimers();
+    await until(() => section()!.textContent?.includes('the task is closed'), 'the refusal');
     expect(comments().length).toBe(2);
     expect(text(s)).toContain('mine');
-  }, 15000);
+  });
 });

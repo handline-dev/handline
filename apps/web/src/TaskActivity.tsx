@@ -14,7 +14,7 @@ import { Sheet, useCan } from '#src/taskui.tsx';
 import { Button, MenuButton, MenuItem } from '#src/ui/index.ts';
 import { Reveal } from '#src/ui/Reveal.tsx';
 
-const UNDO_MS = 6000;
+export const UNDO_MS = 6000;
 /** The icons of a card show on hover and keyboard focus, and always on a touch screen. */
 const ON_HOVER =
   'flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100';
@@ -40,10 +40,14 @@ function Comment({ t, item, onReply }: { t: Detail; item: ActivityItem; onReply?
   const mine = !!m && (m.author === me || hello?.role === 'founder');
   const close = () => (setAsk(null), edit.reset(), del.reset());
   const send = () => m && del.mutate({ task: t.id, memo: m.id }, { onError: () => setUndoing(false) });
-  // A pending delete is sent when the card goes away before Undo is pressed.
+  // A pending delete is sent when the card goes away, or the page is closed, before Undo is pressed.
   const sendRef = useRef(send);
-  sendRef.current = send;
-  useEffect(() => () => (timer.current ? (clearTimeout(timer.current), sendRef.current()) : undefined), []);
+  useEffect(() => void (sendRef.current = send));
+  useEffect(() => {
+    const flush = () => timer.current && (clearTimeout(timer.current), (timer.current = undefined), sendRef.current());
+    addEventListener('pagehide', flush);
+    return () => (removeEventListener('pagehide', flush), flush());
+  }, []);
   const remove = () => {
     setUndoing(true);
     timer.current = setTimeout(() => ((timer.current = undefined), send()), UNDO_MS);

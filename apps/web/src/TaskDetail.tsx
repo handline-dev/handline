@@ -310,15 +310,19 @@ function Brief({ t, can }: { t: Detail; can: boolean }) {
 /** The History button in the header: every field changed, from task.history, in a popover with its filters; read only once opened. */
 function HistoryButton({ id }: { id: number }) {
   const [open, setOpen] = useState(false);
-  const rows = useTaskHistory(id).data?.rows ?? [];
   return (
     <span className="relative ml-auto">
       <Button icon="history" label="History" title="History" aria-expanded={open} onClick={() => setOpen(!open)} />
       <Popup open={open} onClose={() => setOpen(false)} title="History" align="right" bare>
         <div className="max-h-[60vh] w-[min(420px,90vw)] overflow-auto p-2">
-          {rows.length ? <TaskHistory rows={rows} /> : <p className="m-0 text-ink-3">No changes yet.</p>}
+          <HistoryRows id={id} />
         </div>
       </Popup>
     </span>
   );
+}
+
+function HistoryRows({ id }: { id: number }) {
+  const rows = useTaskHistory(id).data?.rows ?? [];
+  return rows.length ? <TaskHistory rows={rows} /> : <p className="m-0 text-ink-3">No changes yet.</p>;
 }
