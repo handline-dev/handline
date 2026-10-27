@@ -163,13 +163,14 @@ function FollowUpCard({ p, follow }: { p: Proposal; follow: FollowUp }) {
       data-follow-up={follow.state}
     >
       <Icon name="team" label="Proposal" />
-      <CardWhat stacked>
+      <CardWhat>
         <strong>{p.title}</strong>
-        <span className="outcome">Applied</span>
-        <span className="muted whitespace-normal">
-          {follow.state === 'failed' ? follow.text : `${follow.agent} starts when the load drops`}
+        <span className="muted">
+          {' · '}
+          <span className="outcome">Applied</span>
+          {` · ${follow.state === 'failed' ? follow.text : `${follow.agent} starts when the load drops`}`}
         </span>
-        {refused ? <span role="alert">{refused}</span> : null}
+        {refused ? <span role="alert"> · {refused}</span> : null}
       </CardWhat>
       {served(verb) ? (
         <Button
@@ -178,8 +179,9 @@ function FollowUpCard({ p, follow }: { p: Proposal; follow: FollowUp }) {
           disabled={busy}
           onClick={() => (setRefused(null), run(verb, undefined, { onError: (e) => setRefused(sentence(classify(e))) }))}
         />
-      ) : null}
-      <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
+      ) : (
+        <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
+      )}
     </Card>
   );
 }

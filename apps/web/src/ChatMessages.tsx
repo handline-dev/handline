@@ -50,14 +50,17 @@ const receiptLabel = (state: string) => RECEIPT[state] ?? '';
 const onControl = (e: MouseEvent) => !!(e.target as HTMLElement).closest('button, a, input, textarea, form');
 
 /** The stamp hangs in the gutter beside the bubble, out of the flow: an agent's to its right, the person's to its left — the bubble never resizes for it. The time shows on hover; the ticks (`always`) show all the time. */
-function Stamp({ left, time, always }: { left?: boolean; time: ReactNode; always?: ReactNode }) {
+function Stamp({ left, time, always, hovered }: { left?: boolean; time: ReactNode; always?: ReactNode; hovered?: ReactNode }) {
   return (
     <div
       className={`${MSG_META} absolute bottom-0 flex items-center justify-end whitespace-nowrap gap-1.5 text-ink-3 ${
         left ? 'right-full mr-1.5' : 'left-full ml-1.5'
       }`}
     >
-      <span className="hidden [.peer:hover~*_&]:inline [.peer[aria-current]~*_&]:inline">{time}</span>
+      <span className="hidden items-center gap-1.5 [.peer:hover~*_&]:inline-flex [.peer[aria-current]~*_&]:inline-flex">
+        {time}
+        {hovered}
+      </span>
       {always}
     </div>
   );
@@ -145,6 +148,8 @@ type MessageProps = {
   /** A message number in the text was clicked. */
   /** In the all-messages room: the sender's name over a message that is not the person's (null when the one before is from the same sender), never `from -> to`. */
   group?: { name: string | null };
+  /** The person's newest message: its ticks stay in view, the others' show on hover. */
+  latest?: boolean;
 };
 
 /** A row draws again only when its own message, its sender line or the message it replies to changed: the chat hands every row the same maps and actions. */
@@ -157,6 +162,7 @@ function sameMessage(a: MessageProps, b: MessageProps) {
     a.onPick === b.onPick &&
     a.actions === b.actions &&
     a.group?.name === b.group?.name &&
+    a.latest === b.latest &&
     parentOf(a) === parentOf(b)
   );
 }
@@ -165,6 +171,7 @@ function MessageRow(props: MessageProps) {
   const { m, agent } = props;
   const act = props.actions;
   const side = sideOf(m, agent, useMe());
+  const ticks = <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} />;
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
@@ -227,7 +234,7 @@ function MessageRow(props: MessageProps) {
                 {p.caption || p.image.name || 'image'} - no longer kept
               </span>
             ) : (
-              <Pictures key={n} items={[{ id: p.image.id, name: p.image.name ?? p.caption }]} />
+              <Pictures key={n} items={[{ id: p.image.id, name: p.image.name ?? p.caption }]} thumb={side !== 'person'} />
             ),
           )
         ) : (
@@ -237,7 +244,7 @@ function MessageRow(props: MessageProps) {
                 <Markdown text={m.body} agent={agent} />
               </div>
             ) : null}
-            {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
+            {m.attachments?.length ? <Pictures items={m.attachments} thumb={side !== 'person'} /> : null}
           </>
         )}
         {m.receipt?.state === 'unknown' ? (
@@ -263,7 +270,8 @@ function MessageRow(props: MessageProps) {
         <Stamp
           left
           time={clockTime(m.at)}
-          always={!failed ? <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} /> : null}
+          always={props.latest && !failed ? ticks : null}
+          hovered={props.latest || failed ? null : ticks}
         />
       ) : unnumbered || failed ? null : (
         <HoverBar m={m} onPick={props.onPick} />
@@ -304,10 +312,10 @@ function SessionCard({ i }: { i: TranscriptItem }) {
   const cause = restartCause(i);
   const handoff = i.session?.handoff || null;
   return (
-    <div className="card-session flex items-center gap-3 text-meta text-muted" data-kind="session">
+    <div className="card-session group flex items-center gap-3 text-meta text-muted" data-kind="session">
       <hr className="m-0 h-px flex-1 border-0 bg-line" />
       <span>
-        New session at <span className="card-time">{clockTime(i.at)}</span>
+        New session<span className="card-time hidden group-hover:inline"> at {clockTime(i.at)}</span>
         {cause ? `: ${cause}` : ''}
       </span>
       {handoff ? (
