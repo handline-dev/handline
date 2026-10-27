@@ -439,7 +439,17 @@ describe('the workspace', () => {
 });
 
 describe('the top bar', () => {
-  const ROUTES = ['#/my-turn', '#/tasks', '#/requests', '#/stats', '#/settings', '#/team', '#/admin', `#/agents/${ARCH}`, `#/agents/${ARCH}/settings`];
+  const ROUTES = [
+    '#/my-turn',
+    '#/tasks',
+    '#/requests',
+    '#/stats',
+    '#/settings',
+    '#/team',
+    '#/admin',
+    `#/agents/${ARCH}`,
+    `#/agents/${ARCH}/settings`,
+  ];
   it('is there on every page, once, and a page head is drawn inside it, not in the page', async () => {
     await mount(ARCH);
     await until(() => $('.rail'), 'sidebar');
@@ -459,9 +469,10 @@ describe('the top bar', () => {
     await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'b', metaKey: true })));
     for (const hash of ['#/tasks', `#/agents/${ARCH}`]) {
       await act(async () => void (location.hash = hash));
-      expect($$('.topbar [aria-label]').map((b) => b.getAttribute('aria-label')), hash).toEqual(
-        expect.arrayContaining(['Show the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']),
-      );
+      expect(
+        $$('.topbar [aria-label]').map((b) => b.getAttribute('aria-label')),
+        hash,
+      ).toEqual(expect.arrayContaining(['Show the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']));
     }
     expect($('.rail-handle')).toBeNull();
   });

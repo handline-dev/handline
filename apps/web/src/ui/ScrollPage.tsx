@@ -20,7 +20,14 @@ export function PageHead({ className, back, children, ...rest }: ComponentProps<
   const slot = usePageBarSlot();
   if (slot === null) return null;
   const head = (
-    <header {...rest} className={join('flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1', slot ? '' : 'sticky top-0 z-1 bg-canvas pt-4 pb-3', className)}>
+    <header
+      {...rest}
+      className={join(
+        'flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1',
+        slot ? '' : 'sticky top-0 z-1 bg-canvas pt-4 pb-3',
+        className,
+      )}
+    >
       {back ? (
         <Button className="back -ml-2 text-ink-2" size="sm" icon="back" label={`Back to ${back.label}`} onClick={back.to}>
           {back.label}

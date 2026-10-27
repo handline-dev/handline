@@ -116,25 +116,25 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   }, [unread]);
   // Everything but the workspace lives in the sidebar; the top bar carries the rail's buttons while the sidebar is folded.
   return (
-      <div className="frame flex h-screen flex-col">
-        <CaptureHost />
-        <div id="app" data-rail={railOpen ? 'open' : 'closed'} style={{ '--rail-w': `${railW}px` } as React.CSSProperties}>
-          {railOpen ? (
-            <>
-              <Sidebar selected={agent} onTasks={tasks !== null} storage={storage} onToggle={toggle} />
-              <div
-                className="rail-divider z-[1] -ml-0.75 w-[5px] flex-none cursor-col-resize touch-none hover:bg-primary max-[760px]:hidden"
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize the sidebar"
-                title="Drag to resize; double-click to reset"
-                onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
-                onPointerMove={(e) => e.buttons & 1 && sizeRail(e.clientX)}
-                onDoubleClick={() => sizeRail(RAIL_W)}
-              />
-            </>
-          ) : null}
-          <Shell lead={railOpen ? undefined : <RailControls show={toggle} row />}>
+    <div className="frame flex h-screen flex-col">
+      <CaptureHost />
+      <div id="app" data-rail={railOpen ? 'open' : 'closed'} style={{ '--rail-w': `${railW}px` } as React.CSSProperties}>
+        {railOpen ? (
+          <>
+            <Sidebar selected={agent} onTasks={tasks !== null} storage={storage} onToggle={toggle} />
+            <div
+              className="rail-divider z-[1] -ml-0.75 w-[5px] flex-none cursor-col-resize touch-none hover:bg-primary max-[760px]:hidden"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize the sidebar"
+              title="Drag to resize; double-click to reset"
+              onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+              onPointerMove={(e) => e.buttons & 1 && sizeRail(e.clientX)}
+              onDoubleClick={() => sizeRail(RAIL_W)}
+            />
+          </>
+        ) : null}
+        <Shell lead={railOpen ? undefined : <RailControls show={toggle} row />}>
           <main className={`main flex min-h-0 min-w-0 flex-1 bg-canvas${railOpen ? ' max-[900px]:ml-0' : ''}`} aria-label="Agent workspace">
             <DaemonDown />
             {team ? (
@@ -164,12 +164,12 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
               </div>
             )}
           </main>
-          </Shell>
-          <AnimatedList>{newAgent.open ? <NewAgent key="NewAgent" onClose={() => leave('')} /> : null}</AnimatedList>
-        </div>
-        <StatusBar />
-        <AnimatedList>{palette ? <Palette key="Palette" onClose={() => setPalette(false)} /> : null}</AnimatedList>
-        <AnimatedList>{keys ? <KeysSheet key="KeysSheet" onClose={() => setKeys(false)} /> : null}</AnimatedList>
+        </Shell>
+        <AnimatedList>{newAgent.open ? <NewAgent key="NewAgent" onClose={() => leave('')} /> : null}</AnimatedList>
       </div>
+      <StatusBar />
+      <AnimatedList>{palette ? <Palette key="Palette" onClose={() => setPalette(false)} /> : null}</AnimatedList>
+      <AnimatedList>{keys ? <KeysSheet key="KeysSheet" onClose={() => setKeys(false)} /> : null}</AnimatedList>
+    </div>
   );
 }
