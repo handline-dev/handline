@@ -57,6 +57,7 @@ export const chrome = {
   'h-row': 36,
   'h-row-2': 52,
   'h-tabs': 40,
+  'h-top': 44,
   'h-bar': 28,
   'h-btn': 32,
   'h-btn-sm': 28,
