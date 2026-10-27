@@ -33,7 +33,7 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 	offMain := git("rev-parse", "HEAD")
 	for _, q := range []string{
 		"INSERT INTO tasks(id, title, owner, opened_by, created_at, expects) VALUES(1, 'a', 'w', 'w', 1, 'report'), (2, 'parent', 'w', 'boss', 1, 'report'), (3, 'kid', 'w', 'boss', 1, 'report'), " +
-			"(4, 'waits', 'w', 'boss', 1, 'report'), (5, 'blocker', 'boss', 'boss', 1, 'report'), (6, 'sha', 'w', 'w', 1, 'sha'), (7, 'ans', 'w', 'w', 1, 'report'), (8, 'left', 'w', 'boss', 1, 'report')",
+			"(4, 'waits', 'w', 'boss', 1, 'report'), (5, 'blocker', 'boss', 'boss', 1, 'report'), (6, 'sha', 'w', 'w', 1, 'sha'), (7, 'ans', 'w', 'w', 1, 'report'), (8, 'left', 'w', 'boss', 1, 'report'), (9, 'asked', 'w', 'boss', 1, 'report')",
 		"UPDATE tasks SET parent_task = 2 WHERE id = 3",
 		"INSERT INTO task_blocks(task_id, blocks_on, created_at) VALUES(4, 5, 1)",
 		"INSERT INTO requests(id, requester, target, kind, state, ts, body) VALUES(10, 'boss', 'w', 'task', 'queued', 1, 'x'), (11, 'boss', 'w', 'say', 'landed', 1, 'x'), (12, 'boss', 'w', 'task', 'queued', 1, 'x')",
@@ -61,7 +61,7 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 		}
 	}
 	refused("unknown", done("w", "a1", 99, `,"evidence":"x"`), fmt.Sprintf("no task T%d", 99))
-	refused("not the owner", done("else", "a2", 1, `,"evidence":"x"`), "task T1 can only be marked done by its owner (w) or the founder")
+	refused("not the owner", done("else", "a2", 1, `,"evidence":"x"`), "task T1 can only be marked done by its assignee (w), owner (w) or the founder")
 	refused("both", done("w", "a3", 1, `,"evidence":"x","request":11`), "done takes exactly one of evidence or request")
 	refused("neither", done("w", "a4", 1, ``), "done takes exactly one of evidence or request")
 	refused("a queued request", done("w", "a5", 1, `,"request":10`), "request #10 is still queued - not answered yet")
@@ -71,7 +71,7 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 	refused("an open blocker", done("w", "a8", 4, `,"evidence":"x"`), "task T4 is waiting on T5 - it is done only once they are")
 	refused("a sha off main", done("w", "a9", 1, fmt.Sprintf(`,"evidence":%q,"repo":%q`, offMain, repo)), offMain+" is not an ancestor of main")
 	refused("a sha needs a repo", done("w", "b1", 1, `,"evidence":"abcd1234"`), "a sha is checked against a repo: name one")
-	refused("the opener is not the owner", done("boss", "b2", 6, `,"evidence":"it never merged"`), "task T6 can only be marked done by its owner (w) or the founder")
+	refused("a third agent is neither", done("else", "b2", 9, `,"evidence":"x"`), "task T9 can only be marked done by its assignee (w), owner (boss) or the founder")
 
 	r := done("w", "ok", 1, `,"evidence":"  all\n  done  "`)
 	if r["error"] != nil || r["result"].(map[string]any)["said"] != "task T1 done (  all\n  done  )" {
@@ -86,6 +86,9 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 	if count("SELECT COUNT(*) FROM requests WHERE body LIKE 'T1 done%'") != 0 ||
 		count("SELECT COUNT(*) FROM events WHERE kind = 'mark_task_done'") != 1 || len(f.done) != 1 || f.done[0] != "T1 w w 0 true" {
 		t.Fatalf("an owner closing its own task tells nobody, and the teller follows: %v", f.done)
+	}
+	if r := done("boss", "b3", 9, `,"evidence":"checked"`); r["error"] != nil {
+		t.Fatalf("the opener, whom the task answers to, could not close it: %v", r)
 	}
 
 	r = done("w", "c2", 6, `,"evidence":"it never merged"`)
