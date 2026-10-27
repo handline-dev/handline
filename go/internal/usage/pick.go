@@ -176,6 +176,14 @@ func AgentBurn(ld *Load, agent string) float64 {
 	return TypicalAgentBurnPerS
 }
 
+// measuredBurn is what one more agent costs when samples say so (Costs.Measured); ok false for the starting value or no costs.
+func measuredBurn(ld *Load, agent string) (float64, bool) {
+	if ld == nil || ld.Costs == nil {
+		return TypicalAgentBurnPerS, false
+	}
+	return ld.Costs.Measured(agent)
+}
+
 func loadBurn(ld *Load) float64 {
 	if ld != nil && ld.Burn != nil {
 		return *ld.Burn
@@ -276,8 +284,10 @@ func NoRoom(st *AccountStatus, ld *Load, pct *int, agent string) (string, *float
 		return "", nil
 	}
 	lasts := StretchS(float64(ShortBlock-*pct), loadBurn(ld), AgentBurn(ld, agent))
-	// With the reset known a start is worth it when the account lasts to it with the newcomer; without, when it lasts a while.
-	if share, ok := FiveHourShare(st, loadBurn(ld), AgentBurn(ld, agent), st.NowS()); ok {
+	// With the reset known and the newcomer's cost measured, a start is worth it when the account lasts to the reset with it; without,
+	// when it lasts a while.
+	per, measured := measuredBurn(ld, agent)
+	if share, ok := FiveHourShare(st, loadBurn(ld), per, st.NowS()); ok && measured {
 		if share < 1 {
 			return stretchReason(st, ld, lasts, *pct, agent) + " - short of its reset", &lasts
 		}
