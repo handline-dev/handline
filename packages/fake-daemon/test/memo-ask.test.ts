@@ -11,7 +11,10 @@ test('an agent comment naming @human opens an ask; edits, the reply and done clo
   const worker = second(s.daemon, s.net, { client: AGENT });
   await worker.start();
   const task = (await s.client.call('task.new', { owner: AGENT, title: 'a task', body: 'build it', request_id: 'a1' })).task as number;
-  const asks = async () => ((await s.client.call('inbox.list', { unread: true })).items as { kind: string; task: number; memo?: number }[]).filter((i) => i.memo !== undefined);
+  const asks = async () =>
+    ((await s.client.call('inbox.list', { unread: true })).items as { kind: string; task: number; memo?: number }[]).filter(
+      (i) => i.memo !== undefined,
+    );
   const none = (await worker.call('task.comment.add', { task, text: 'no one named', request_id: 'a2' })).memo as number;
   assert.deepEqual(await asks(), []);
   const memo = (await worker.call('task.comment.add', { task, text: '@human which one?', request_id: 'a3' })).memo as number;

@@ -289,9 +289,4 @@ func ForYouSeen(q db.Q, agent string, upto int64) error {
 }
 
 // closeMemoAsk closes the ask a task comment raised, as answered: the founder read it by name, or replied.
-func closeMemoAsk(q db.Q, rid int64) error {
-	now := db.Now()
-	_, err := q.Exec("UPDATE requests SET state = 'landed', state_at = ?1, landed_at = ?1, read_at = COALESCE(read_at, ?1), queue_order = NULL "+
-		"WHERE id = ? AND memo_id IS NOT NULL AND state = 'queued'", now, rid)
-	return err
-}
+func closeMemoAsk(q db.Q, rid int64) error { return db.CloseMemoAsks(q, "landed", "id = ?", rid) }

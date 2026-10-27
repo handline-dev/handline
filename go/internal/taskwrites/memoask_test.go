@@ -18,12 +18,7 @@ func TestACommentNamingHumanOpensOneAskAndEachClosingEndsIt(t *testing.T) {
 	if _, err := db.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 't', 'worker', 'manager', 1)"); err != nil {
 		t.Fatal(err)
 	}
-	mk := func(agent string) *rpc.Server {
-		s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
-		s.DB = db
-		Register(s, t.TempDir(), nil, nil)
-		return s
-	}
+	mk := func(agent string) *rpc.Server { return serverFor(t, db, agent) }
 	n := 0
 	rid := func() string { n++; return fmt.Sprintf("r%d", n) }
 	add := func(as, text string) int64 {

@@ -32,19 +32,12 @@ func syncMemoAsk(tx *sql.Tx, tid, mid int64, author, body string) error {
 		_, err = tx.Exec("UPDATE requests SET body = ? WHERE id = ?", body, rid)
 		return err
 	case open:
-		return closeMemoAsks(tx, "withdrawn", "memo_id = ?", mid)
+		return db.CloseMemoAsks(tx, "withdrawn", "memo_id = ?", mid)
 	}
 	return nil
 }
 
-// closeMemoAsks closes the open asks that comments raised and that match where: withdrawn, or landed (answered).
-func closeMemoAsks(tx *sql.Tx, state, where string, arg any) error {
-	_, err := tx.Exec("UPDATE requests SET state = ?1, state_at = ?2, landed_at = CASE WHEN ?1 = 'landed' THEN ?2 END, queue_order = NULL "+
-		"WHERE memo_id IS NOT NULL AND state = 'queued' AND "+where, state, db.Now(), arg)
-	return err
-}
-
 // answerMemoAsks closes the asks to the founder that comments on task tid raised: the founder has now written on the task.
 func answerMemoAsks(tx *sql.Tx, tid int64) error {
-	return closeMemoAsks(tx, "landed", "id IN (SELECT request_id FROM task_requests WHERE task_id = ?)", tid)
+	return db.CloseMemoAsks(tx, "landed", "id IN (SELECT request_id FROM task_requests WHERE task_id = ?)", tid)
 }

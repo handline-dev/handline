@@ -6,8 +6,8 @@ import { seedInbox } from '#src/fixtures.ts';
 /** What the inbox needs of the daemon that hosts it: to emit on its topic. */
 interface Host {
   emit(topic: 'inbox', type: string, f: { agent?: string; title?: string; data: Record<string, unknown> }): void;
-  /** The founder's reply to an ask a task comment raised is a comment on that task, a reply to the comment. */
-  answerAsk(task: number, memo: number, text: string): void;
+  /** The tasks, where the founder's reply to an ask a comment raised goes: a comment on that task, a reply to the comment. */
+  tasks: { memo(p: Record<string, unknown>, op: 'add', person: string): number };
 }
 
 export class FakeInbox {
@@ -44,7 +44,8 @@ export class FakeInbox {
       case 'inbox.reply': {
         const item = this.find(p.id);
         this.reply(p);
-        if (item.memo !== undefined && item.task !== null) this.host.answerAsk(item.task, item.memo, String(p.text));
+        if (item.memo !== undefined && item.task !== null)
+          this.host.tasks.memo({ task: item.task, text: String(p.text), reply: item.memo }, 'add', 'human');
         return accepted('Sent.');
       }
       default:
@@ -111,7 +112,8 @@ export class FakeInbox {
 
   /** Closes the open asks that comments raised: of one task, or of every task (`task` undefined). */
   closeAsks(task?: number): void {
-    for (const i of this.items) if (i.memo !== undefined && !i.read && (task === undefined || i.task === task)) this.change(i, { read: true });
+    for (const i of this.items)
+      if (i.memo !== undefined && !i.read && (task === undefined || i.task === task)) this.change(i, { read: true });
   }
 
   /** Closes one ask. */

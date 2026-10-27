@@ -325,7 +325,7 @@ func memoDelete(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 			if err := db.DeleteMemo(tx, mid, c.Caller.Actor()); err != nil {
 				return nil, err
 			}
-			if err := closeMemoAsks(tx, "withdrawn", "memo_id = ?", mid); err != nil {
+			if err := db.CloseMemoAsks(tx, "withdrawn", "memo_id = ?", mid); err != nil {
 				return nil, err
 			}
 			if err := attachments.UnlinkMemo(tx, mid); err != nil {

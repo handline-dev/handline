@@ -96,11 +96,6 @@ export class FakeDaemon {
     watched: (s) => [...this.conns].some((c) => c.attached.has(tid(s))),
   });
 
-  /** The founder's reply to an ask a comment raised: a comment on its task, a reply to that comment. */
-  answerAsk(task: number, memo: number, text: string): void {
-    this.tasks.memo({ task, text, reply: memo }, 'add', 'human');
-  }
-
   constructor(opts: FakeDaemonOptions = {}) {
     this.retention = opts.retention ?? 1000;
     this.now = opts.now ?? (() => new Date());
