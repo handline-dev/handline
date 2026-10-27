@@ -1,11 +1,12 @@
 module github.com/handline/handline/go
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/gorilla/websocket v1.5.3
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.54.0
+	mvdan.cc/sh/v3 v3.14.1
 )
 
 require (
