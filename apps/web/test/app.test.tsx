@@ -362,6 +362,20 @@ describe('the workspace', () => {
     expect($$('[data-tab^="terminal:"]')).toHaveLength(1);
   });
 
+  it("the + menu's Terminal opens a new shell of the agent, beside its Claude Code tab, and closing the tab ends the shell", async () => {
+    const s = setup();
+    await mount(ARCH, textGrid(), s);
+    await until(() => $(termTab), 'the Claude Code tab');
+    await click($('[aria-label="Add a tab"]')!);
+    await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => text(b).trim() === 'Terminal')!);
+    await until(() => $('[data-tab^="shell:"]'), 'the shell tab');
+    expect([...s.daemon.script.shells]).toHaveLength(1);
+    expect($(termTab)).not.toBeNull(); // the agent's own terminal is untouched
+    await click($('[data-tab^="shell:"] .x')!);
+    await until(() => s.daemon.script.shells.size === 0, 'the shell closed');
+    expect($('[data-tab^="shell:"]')).toBeNull();
+  });
+
   it('allows four panes, and a lone tab dragged to another pane edge frees its own pane so the count holds', async () => {
     const storage = memory();
     let ws = closeTab(defaultWorkspace({ terminal: `term:${ARCH}` }), 'activity');
