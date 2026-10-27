@@ -1,4 +1,4 @@
-// The My turn tab: what waits on the person, newest first. Reads and writes go through @handline/app-data like the web Inbox: a read item leaves
+// The My turn tab: what waits on the person, newest first. Reads and writes go through @handline/app-data like the web My turn page: a read item leaves
 // the list at once. A decision ends its task with Done. Tap a card for its detail and verbs; a verb the daemon does not serve is disabled.
 import { useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
@@ -54,7 +54,7 @@ function Decide(props: { item: InboxItem; off: string | undefined; markRead: () 
       disabled={!!props.off}
       onPress={() => {
         // The decision ends its task, and only then is the card read: a refusal leaves it listed.
-        done.mutateAsync({ task: i.task!, evidence: 'decided in the Inbox', reason: true }).then(
+        done.mutateAsync({ task: i.task!, evidence: 'decided in My turn', reason: true }).then(
           props.markRead,
           () => {}, // the refusal is reported by the write itself
         );
@@ -218,6 +218,8 @@ export function Inbox(props: { onTask: (id: number) => void }) {
   const [ui, setUi] = useState<Record<number, Ui>>({});
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const markAll = useWrite('inbox.mark_read');
+  const done = useWrite('task.done');
+  const offDone = useOff('task.done');
   const offRead = useOff('inbox.mark_read');
   const pendingRead = usePending('inbox.mark_read').flatMap((p) => p.ids);
   const pendingDone = usePending('task.done').map((p) => ('task' in p ? p.task : 0));
@@ -245,7 +247,7 @@ export function Inbox(props: { onTask: (id: number) => void }) {
         actions={
           <>
             <Text testID="unread-count" style={{ color: c.muted, fontSize: font.size.body }}>
-              {turn.length}
+              {unread.length}
             </Text>
             <Button
               testID="mark-all-read"
@@ -275,17 +277,34 @@ export function Inbox(props: { onTask: (id: number) => void }) {
           ListHeaderComponent={
             <>
               {tasks.map((t) => (
-                <Pressable
+                <View
                   key={t.key}
-                  testID={`turn-task-${t.task}`}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open T${t.task}`}
-                  onPress={() => props.onTask(t.task!)}
-                  style={{ padding: space.lg, minHeight: 48, borderTopWidth: 1, borderTopColor: c.line }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: space.sm,
+                    padding: space.lg,
+                    borderTopWidth: 1,
+                    borderTopColor: c.line,
+                  }}
                 >
-                  <Text style={{ color: c.muted, fontSize: font.size.hint }}>Task{t.from ? ` · from ${t.from}` : ''}</Text>
-                  <Text style={{ color: c.ink, fontWeight: '600' }}>{`T${t.task} ${t.title}`}</Text>
-                </Pressable>
+                  <Pressable
+                    testID={`turn-task-${t.task}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open T${t.task}`}
+                    onPress={() => props.onTask(t.task!)}
+                    style={{ flex: 1, minHeight: 48, justifyContent: 'center' }}
+                  >
+                    <Text style={{ color: c.muted, fontSize: font.size.hint }}>Task{t.from ? ` · from ${t.from}` : ''}</Text>
+                    <Text style={{ color: c.ink, fontWeight: '600' }}>{`T${t.task} ${t.title}`}</Text>
+                  </Pressable>
+                  <Button
+                    testID={`turn-task-done-${t.task}`}
+                    label="Done"
+                    disabled={!!offDone}
+                    onPress={() => done.mutate({ task: t.task!, evidence: 'Done', reason: true })}
+                  />
+                </View>
               ))}
             </>
           }
