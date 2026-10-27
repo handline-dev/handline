@@ -81,11 +81,13 @@ export function HandoffPrompt({ settings }: { settings: HandoffSettings }) {
             className="flex w-full min-w-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-left text-hint text-ink-2"
             onClick={() => setShowReads(!showReads)}
           >
-            <Icon
-              name={showReads ? 'less' : 'more'}
-              size={14}
-              label={showReads ? 'Hide what the agent reads' : 'Show what the agent reads'}
-            />
+            <span className="flex shrink-0">
+              <Icon
+                name={showReads ? 'less' : 'more'}
+                size={14}
+                label={showReads ? 'Hide what the agent reads' : 'Show what the agent reads'}
+              />
+            </span>
             <span className="shrink-0 font-medium text-ink">What the agent reads</span>
             {showReads ? null : <span className="truncate">{reads.split('\n')[0]}</span>}
           </button>
