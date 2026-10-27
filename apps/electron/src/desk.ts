@@ -1,3 +1,4 @@
+import { myTurn } from '@handline/app-core';
 import { RpcError, type DaemonClient, type Event } from '@handline/client';
 import { badgeText, noticeFor, suppressed, type Notice } from '#src/notices.ts';
 
@@ -6,7 +7,8 @@ export type Feed = Pick<DaemonClient, 'onEvent' | 'onGap' | 'onState' | 'subscri
 
 /** What the shell does with the daemon's news; Electron's side is injected so this runs under node. */
 export interface Ports {
-  setBadge(text: string): void;
+  /** `text` is the badge ('99+' past two digits), `count` the exact number the tray line shows. */
+  setBadge(text: string, count: number): void;
   notify(n: Notice, onClick: () => void): void;
   screen(): { focused: boolean; agent: string | null };
   /** A notice was clicked: show the window, and take the page to the notice's target if it has one. */
@@ -21,7 +23,7 @@ const PUSH_KEY = {
   account_out: 'push_account_out',
 } as const;
 
-/** Keeps the badge on the daemon's unread count and raises one native notice per notifications event. */
+/** Keeps the badge on the My turn count and raises one native notice per notifications event. */
 export class Desk {
   private client: Feed;
   private ports: Ports;
@@ -66,7 +68,14 @@ export class Desk {
 
   async refresh(): Promise<void> {
     try {
-      this.ports.setBadge(badgeText((await this.client.call('daemon.status', {})).inbox.unread));
+      const [inbox, agents, tasks] = await Promise.all([
+        this.client.call('inbox.list', {}),
+        this.client.call('agents.list', {}),
+        this.client.call('tasks.list', {}),
+      ]);
+      // The same list the My turn page draws; the person's own app is the founder.
+      const n = myTurn({ items: inbox.items, agents: agents.agents, tasks: tasks.items, me: 'human' }).length;
+      this.ports.setBadge(badgeText(n), n);
     } catch {
       /* offline: the badge keeps the last count */
     }

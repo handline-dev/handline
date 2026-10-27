@@ -343,10 +343,10 @@ if (!app.requestSingleInstanceLock({ background })) {
     app.on('quit', () => clearInterval(checking));
 
     const desk = new Desk(client, {
-      setBadge: (t) => {
-        own.setUnread(Number(t.replace('+', '')) || 0);
+      setBadge: (t, n) => {
+        own.setUnread(n);
         if (app.dock) app.dock.setBadge(t);
-        else app.setBadgeCount(Number(t.replace('+', '')) || 0);
+        else app.setBadgeCount(n);
       },
       notify: (n, onClick) => {
         if (background) return;

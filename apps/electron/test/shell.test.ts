@@ -22,7 +22,26 @@ const ev = (over: Partial<Event>): Event => ({
   ...over,
 });
 
-test('the badge shows the unread count, nothing for none, and 99+ past two digits', () => {
+/** The daemon's answers to the three lists My turn is built from, with `n` unread decisions waiting. */
+const lists = (n: number, m: string) =>
+  m === 'inbox.list'
+    ? {
+        items: Array.from({ length: n }, (_, i) => ({
+          id: i + 1,
+          kind: 'decision',
+          agent: 'a',
+          title: 't',
+          body: '',
+          task: null,
+          read: false,
+          created: '2026-10-15T00:00:00Z',
+        })),
+      }
+    : m === 'agents.list'
+      ? { agents: [] }
+      : { items: [] };
+
+test('the badge shows the My turn count, nothing for none, and 99+ past two digits', () => {
   assert.deepEqual([0, 1, 12, 99, 100, -1].map(badgeText), ['', '1', '12', '99', '99+', '']);
 });
 
@@ -75,7 +94,7 @@ test('the desk subscribes to hr and raises a notice for hr.raised only', async (
     onGap: () => () => {},
     onState: () => () => {},
     subscribe: async (t: string[]) => void asked.push(t),
-    call: async () => ({ inbox: { unread: 0 } }),
+    call: async (m: string) => lists(0, m),
   } as unknown as Feed;
   const { log, p } = ports();
   await new Desk(feed, p).start();
@@ -100,7 +119,7 @@ test('a daemon that refuses the hr topic still gives the badge and the other not
   await desk.start();
   daemon.emit('notifications', 'stall', { agent: 'handline.architect' });
   await until(() => log.notices.length === 1, 'a notice');
-  assert.equal(log.badge.length, 1); // the badge was set from the inbox count
+  assert.equal(log.badge.length, 1); // the badge was set from the My turn count
   // The refused topic is not kept: a later subscribe or a reconnect would send it again and be refused whole.
   await client.subscribe(['agents']);
   desk.stop();
@@ -129,7 +148,7 @@ function ports() {
     screen: { focused: false, agent: null as string | null },
   };
   const p: Ports = {
-    setBadge: (t) => log.badge.push(t),
+    setBadge: (t, n) => log.badge.push(n === 0 || t === String(n) ? t : `${t}/${n}`),
     notify: (n, click) => {
       log.notices.push(n.title);
       log.clicks.push(click);
@@ -162,7 +181,7 @@ test('the desk raises one notice per event, none on screen, and a click opens th
   client.close();
 });
 
-test('the badge follows the daemon status count on start, on inbox events and on reconnect', async () => {
+test('the badge follows the My turn count on start, on inbox events and on reconnect', async () => {
   let unread = 3;
   const handlers: { event?: (e: Event) => void; state?: (s: string) => void } = {};
   const feed = {
@@ -176,7 +195,7 @@ test('the badge follows the daemon status count on start, on inbox events and on
       return () => {};
     },
     subscribe: async () => {},
-    call: async () => ({ inbox: { unread } }),
+    call: async (m: string) => lists(unread, m),
   } as unknown as Feed;
   const { log, p } = ports();
   await new Desk(feed, p).start();
@@ -203,7 +222,7 @@ test('a desk whose subscribe failed once subscribes on the next start, with its 
     subscribe: async () => {
       if (fails-- > 0) throw new Error('refused');
     },
-    call: async () => ({ inbox: { unread: 2 } }),
+    call: async (m: string) => lists(2, m),
   } as unknown as Feed;
   const { log, p } = ports();
   const desk = new Desk(feed, p);
@@ -292,11 +311,24 @@ test('a daemon that refuses settings.get raises every notice', async () => {
     subscribe: async () => undefined,
     call: async (m: string) => {
       if (m === 'settings.get') throw new Error('refused');
-      return { inbox: { unread: 0 } };
+      return lists(0, m);
     },
   } as unknown as Feed;
   const { log, p } = ports();
   await new Desk(feed, p).start();
   handlers.event!(ev({ cursor: 9, type: 'task_done', data: { task: 4 } }));
   await until(() => log.notices.length === 1, 'the notice');
+});
+
+test('past 99 the badge and the tray line say 99+ while the exact count goes to the tray', async () => {
+  const feed = {
+    onEvent: () => () => {},
+    onGap: () => () => {},
+    onState: () => () => {},
+    subscribe: async () => undefined,
+    call: async (m: string) => lists(120, m),
+  } as unknown as Feed;
+  const { log, p } = ports();
+  await new Desk(feed, p).start();
+  assert.deepEqual(log.badge, ['99+/120']);
 });
