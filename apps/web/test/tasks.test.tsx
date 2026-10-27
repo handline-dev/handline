@@ -499,22 +499,24 @@ describe('the detail', () => {
     await mount('#/tasks/1688', s);
     await until(() => button('Assigned to ·'), 'the assignee button');
     await click(button('Assigned to ·')!);
-    const ask = sheet('Assign T1688 to…')!; // local-ref-ok
+    const ask = $('[role="dialog"][aria-label="Assign T1688 to"]')!; // local-ref-ok
     expect($('[role="listbox"][aria-label="Likely"]', ask)).not.toBeNull();
     expect($$('[role="option"]', ask).length).toBeLessThanOrEqual(4);
     expect($('textarea', ask)).toBeNull();
+    expect(text(ask)).not.toMatch(/Cancel|Assign to /); // no label row, no confirm and Cancel: picking is the only step
+    expect(text(ask)).toMatch(/Type to find more · \d+ in all|now/);
     await typeInto($('input[aria-label="Find someone"]', ask) as HTMLInputElement, 'architect');
     expect($('[role="listbox"][aria-label="Matches"]', ask)).not.toBeNull();
     await click(button('handline.architect', ask)!);
     await until(() => s.daemon.tasks.get({ task: 1688 }).to === 'handline.architect', 'the new owner');
   });
 
-  it('keeps the assign sheet open and says why when the daemon refuses the new owner', async () => {
+  it('keeps the assign popover open and says why when the daemon refuses the new owner', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
     await until(() => button('Assigned to ·'), 'the assignee button');
     await click(button('Assigned to ·')!);
-    const ask = sheet('Assign T1688 to…')!; // local-ref-ok
+    const ask = $('[role="dialog"][aria-label="Assign T1688 to"]')!; // local-ref-ok
     await typeInto($('input[aria-label="Find someone"]', ask) as HTMLInputElement, 'architect');
     s.daemon.knobs.refuse('task.edit', 'state', 'cannot move it now');
     await click(button('handline.architect', ask)!);

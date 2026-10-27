@@ -8,7 +8,10 @@ import (
 
 // Forecast is what an account's week will have left unused at its reset: left at the rate of the last 24 hours, and the part of
 // it that even full 5h windows could not use. A nil figure is not known: nothing is guessed from a week or a ratio that cannot be read.
-type Forecast struct{ LeftAtReset, LostAnyway *float64 }
+type Forecast struct {
+	LeftAtReset, LostAnyway *float64
+	HoursLeft               float64 // to the week's end, set by ForecastFor
+}
 
 // MinSpanS is the least time the samples must cover for their rate to be a rate: under it a rise is one reading's noise.
 const MinSpanS = 2 * 3600
@@ -47,7 +50,9 @@ func (e *Env) ForecastFor(q db.Q, acct string, rows Samples) (Forecast, bool) {
 	if costs, err := e.LoadCosts(q); err == nil {
 		ratio, haveRatio = costs.LongPerShort(acct)
 	}
-	return ForecastOf(float64(max(0, LongBlock-*used)), left/3600, rate, ratio, haveRatio), true
+	f := ForecastOf(float64(max(0, LongBlock-*used)), left/3600, rate, ratio, haveRatio)
+	f.HoursLeft = left / 3600
+	return f, true
 }
 
 // weekRatePerH is the account's weekly points used per hour over its samples in [lo, hi], divided by the time they cover, not by the whole

@@ -6,6 +6,8 @@ import { seedInbox } from '#src/fixtures.ts';
 /** What the inbox needs of the daemon that hosts it: to emit on its topic. */
 interface Host {
   emit(topic: 'inbox', type: string, f: { agent?: string; title?: string; data: Record<string, unknown> }): void;
+  /** The founder's reply to an ask a task comment raised is a comment on that task, a reply to the comment. */
+  answerAsk(task: number, memo: number, text: string): void;
 }
 
 export class FakeInbox {
@@ -39,8 +41,12 @@ export class FakeInbox {
         return this.get(p.id);
       case 'inbox.mark_read':
         return (this.markRead(p), accepted('Marked read.'));
-      case 'inbox.reply':
-        return (this.reply(p), accepted('Sent.'));
+      case 'inbox.reply': {
+        const item = this.find(p.id);
+        this.reply(p);
+        if (item.memo !== undefined && item.task !== null) this.host.answerAsk(item.task, item.memo, String(p.text));
+        return accepted('Sent.');
+      }
       default:
         throw refused('unsupported', `the fake daemon does not serve ${method}`);
     }
@@ -91,6 +97,26 @@ export class FakeInbox {
 
   reply(p: Record<string, unknown>): void {
     this.change(this.find(p.id), { read: true });
+  }
+
+  /** The open ask the comment `memo` of `task` raised. */
+  askOf(task: number, memo: number): InboxItem | undefined {
+    return this.items.find((i) => i.task === task && i.memo === memo && !i.read);
+  }
+
+  /** Changes an item's text, as an edit of the comment it came from does. */
+  retext(item: InboxItem, text: string): void {
+    this.change(item, { title: text, body: text });
+  }
+
+  /** Closes the open asks that comments raised: of one task, or of every task (`task` undefined). */
+  closeAsks(task?: number): void {
+    for (const i of this.items) if (i.memo !== undefined && !i.read && (task === undefined || i.task === task)) this.change(i, { read: true });
+  }
+
+  /** Closes one ask. */
+  close(item: InboxItem): void {
+    this.change(item, { read: true });
   }
 
   private find(id: unknown): InboxItem {

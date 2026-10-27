@@ -75,3 +75,41 @@ func TestACommentNamingHumanOpensOneAskAndEachClosingEndsIt(t *testing.T) {
 		t.Fatalf("a founder comment on the task closes it: %q", state(m3))
 	}
 }
+
+// An ask a comment raised does not outlive its task: done or discarded closes it (rule 5 of task.comment.add).
+func TestTheAskOfACommentEndsWithItsTask(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at, expects) VALUES(1, 'a', 'worker', 'manager', 1, 'report'), (2, 'b', 'worker', 'manager', 1, 'report')"); err != nil {
+		t.Fatal(err)
+	}
+	srv := rpc.NewServer(auth{"worker"}, "x", store.LatestVersion(), "local", t.Logf)
+	srv.DB = db
+	Register(srv, t.TempDir(), &fakeTeller{}, nil)
+	for i, c := range []struct {
+		task           int
+		method, params string
+	}{
+		{1, "task.done", `"evidence":"shipped"`},
+		{2, "task.discard", `"reason":"not needed"`},
+	} {
+		r := call(t, srv, fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"task.comment.add","params":{"task":%d,"text":"@human which?","request_id":"a%d"}}`, c.task, i))
+		mid := int64(r[0]["result"].(map[string]any)["memo"].(float64))
+		var state string
+		db.QueryRow("SELECT state FROM requests WHERE memo_id = ?", mid).Scan(&state)
+		if state != "queued" {
+			t.Fatalf("%s: the ask is %q before", c.method, state)
+		}
+		r = call(t, srv, fmt.Sprintf(`{"jsonrpc":"2.0","id":3,"method":"%s","params":{"task":%d,%s,"request_id":"e%d"}}`, c.method, c.task, c.params, i))
+		if r[0]["error"] != nil {
+			t.Fatalf("%s: %v", c.method, r[0])
+		}
+		db.QueryRow("SELECT state FROM requests WHERE memo_id = ?", mid).Scan(&state)
+		if state == "queued" {
+			t.Fatalf("%s left the ask open", c.method)
+		}
+	}
+}

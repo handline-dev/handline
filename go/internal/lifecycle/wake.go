@@ -457,9 +457,9 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 	session := row.ResumeSession.String
 	rehomed := false
 	if movedTo == "" && !warm && session != "" && m.cachePast(agent, session, m.now()) {
-		// Past its cache's life the agent is on no account: it goes to the one with the most weekly headroom that has room, its own
-		// included, taking the session along (so ignore_cache_expiry, which only keeps the session, does not hold it).
-		if to, _ := m.Launch.RoomElsewhere(m.Q, agent, row, nil); to != "" && to != row.Account.String {
+		// Past its cache's life the agent is on no account: it goes to the one whose unused week runs out soonest that has room (a clear
+		// gain, else it stays), its own included, taking the session along (so ignore_cache_expiry, which only keeps the session, does not hold it).
+		if to, _ := m.Launch.RoomElsewhere(m.Q, agent, row, nil); to != "" && to != row.Account.String && m.Launch.WorthRepick(row.Account.String, to) {
 			var kept string
 			if kept, rehomed = m.moveElsewhere(agent, session, row.Account.String, to, "its prompt cache has expired"); rehomed {
 				session, movedTo = kept, to
