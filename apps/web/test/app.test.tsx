@@ -506,7 +506,7 @@ describe('the top bar', () => {
     const input = $('.topbar input[aria-label="Title"]')!; // jsdom has no layout: the structure that kept the field visible at 820 and 1440
     expect(input.className).not.toMatch(/min-w-\[/);
     expect(input.closest('h2')!.className).not.toContain('truncate'); // a truncating heading turned the whole field into an ellipsis
-    expect(input.closest('h2')!.className).toContain('flex');
+    expect(input.closest('h2')!.className).toContain('flex-1'); // the title takes the bar's free width: a long saved title truncates on one row, the field fills the rest
   });
   it('carries the sidebar button, Back and Forward while the sidebar is folded, and not while it is open', async () => {
     await mount(ARCH);
