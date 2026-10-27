@@ -196,7 +196,7 @@ test('an ask from a task comment is answered by a reply, OK or Approve, and neve
   const [plain] = myTurn({ items: [ask], agents: [], tasks: [task({ id: 5 })] });
   assert.equal(plain!.memo, 77);
   assert.deepEqual(plain!.actions.slice(0, plain!.primary), [
-    { type: 'reply', id: 9, text: 'OK', label: 'OK' },
+    { type: 'reply', id: 9, text: 'OK', label: 'Go ahead' },
     { type: 'answer', id: 9 },
   ]);
   const [review] = myTurn({ items: [ask], agents: [], tasks: [task({ id: 5, tags: ['review'] })] });
@@ -220,5 +220,20 @@ test('one message row per agent with unread messages, newest first, opening at t
       ['b', 'new', 1, null],
       ['a', 'old', 2, 11],
     ],
+  );
+});
+
+test('a task with an open @human ask is shown once, by the ask, and its text drops the mention', () => {
+  const ask = item({ id: 9, kind: 'ask', task: 5, memo: 77, body: '@human is 16 px fine?' });
+  const old = item({ id: 8, kind: 'decision', task: 5 });
+  const cards = myTurn({ items: [old, ask], agents: [], tasks: [task({ id: 5, to: 'human', tags: ['review'] })], me: 'human' });
+  assert.deepEqual(
+    cards.map((c) => c.key),
+    ['item:9'],
+  );
+  assert.equal(cards[0]!.detail, 'is 16 px fine?');
+  assert.deepEqual(
+    myTurn({ items: [ask], agents: [], tasks: [task({ id: 5, to: 'human' })], me: 'human' }).map((c) => c.key),
+    ['item:9'],
   );
 });

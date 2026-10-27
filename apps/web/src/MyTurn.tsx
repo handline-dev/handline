@@ -132,7 +132,9 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
               P{card.priority}
             </span>
           ) : null}
-          <span className={`text-hint ${card.review ? 'text-ok' : 'text-ink-2'}`}>{card.review ? 'Review' : KIND[card.kind]}</span>
+          <span className={`text-hint ${card.review ? 'text-ok' : 'text-ink-2'}`}>
+            {card.review ? 'Review' : card.memo != null ? 'Question for you' : KIND[card.kind]}
+          </span>
           <h3 className="m-0 min-w-0 flex-1 truncate text-[15px] font-medium">{card.title}</h3>
           <span
             className="flex items-center self-center opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"

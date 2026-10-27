@@ -121,9 +121,11 @@ function commentAsk(
   const answer = { type: 'answer', id: i.id } as const;
   const verbs: CardAction[] = base.review
     ? [{ type: 'reply', id: i.id, text: APPROVED, label: 'Approve' }, { type: 'change', id: i.id }, answer]
-    : [{ type: 'reply', id: i.id, text: 'OK', label: 'OK' }, answer];
+    : [{ type: 'reply', id: i.id, text: 'OK', label: 'Go ahead' }, answer];
   return {
     ...base,
+    // The card says whom it asks; the mention in the text is noise.
+    detail: base.detail.replace(/\s*@human\b[,:]?\s*/g, ' ').trim(),
     key: `item:${i.id}`,
     kind: 'decision',
     title,
@@ -250,7 +252,11 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
 
   cards.push(...taskCards(tasks, new Set(cards.flatMap((c) => (c.task == null ? [] : [c.task]))), me, when));
 
-  return cards.sort(
+  // Until the founder's tasks are migrated, a task with an open @human ask is shown once: by the ask, not by its task or decision card.
+  const asked = new Set(cards.flatMap((c) => (c.memo != null && c.task != null ? [c.task] : [])));
+  const once = cards.filter((c) => c.memo != null || c.task == null || !asked.has(c.task) || (c.kind !== 'decision' && c.kind !== 'task'));
+
+  return once.sort(
     (x, y) =>
       x.priority - y.priority ||
       (x.due === y.due ? 0 : x.due == null ? 1 : y.due == null ? -1 : x.due - y.due) ||
