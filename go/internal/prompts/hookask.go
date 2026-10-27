@@ -68,6 +68,8 @@ func (e *Env) AskPermission(ctx context.Context, agent, tool string, input map[s
 	}
 	detail := map[string]any{"agent": agent, "vendor": e.vendorOf(agent), "source": HookSource, "tool": tool, "command": command,
 		"reason": reason, "title": title, "lines": panel}
+	var since int64 // the agent's latest event now: a turn event after it means the agent has moved on from this question
+	_ = e.DB.QueryRow("SELECT COALESCE(MAX(id), 0) FROM events WHERE agent = ?", agent).Scan(&since)
 	var id int64
 	for id == 0 {
 		now := e.now().Unix()
@@ -108,6 +110,14 @@ func (e *Env) AskPermission(ctx context.Context, agent, tool string, input map[s
 			}
 			// Closed under it, as stale after a sleep or a slow pass: nobody can answer it now, so the agent's own dialog shows instead.
 			if n, _ := res.RowsAffected(); n == 0 {
+				return d, false, nil
+			}
+			// An agent blocked on this call ends no turn and takes no prompt. One that has done either was answered at its own dialog, or
+			// stopped, so the question is nobody's now.
+			var moved int
+			_ = e.DB.QueryRow("SELECT COUNT(*) FROM events WHERE agent = ? AND id > ? AND kind IN "+
+				"('Stop', 'StopFailure', 'UserPromptSubmit', 'SessionEnd', 'SessionStart')", agent, since).Scan(&moved)
+			if moved > 0 {
 				return d, false, nil
 			}
 		}

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -162,5 +163,45 @@ func TestAQuestionClosedUnderItsCallEndsTheCallUnanswered(t *testing.T) {
 		}
 	case <-time.After(2 * StaleS * time.Second):
 		t.Fatal("the call still waits on a question nobody sees")
+	}
+}
+
+// An agent that stops or takes a new prompt while its question waits has moved on (answered at its own dialog, or ended): the call ends
+// unanswered at its next refresh and closes the question, instead of showing a dialog for an hour. Other events do not end it.
+func TestAQuestionTheAgentMovedOnFromIsClosed(t *testing.T) {
+	for _, c := range []struct {
+		kind string
+		ends bool
+	}{{"Stop", true}, {"UserPromptSubmit", true}, {"Notification", false}, {"PostToolUse", false}} {
+		e, _ := testEnv(t)
+		register(e)
+		call, b := ask(t, e, "cd /x && make")
+		wait := 2 * StaleS * time.Second
+		if !c.ends {
+			wait = 2 * StaleS / 3 * time.Second * 2 // two refreshes
+		}
+		if _, err := db.AddEvent(e.DB, "backend", c.kind); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case a := <-call:
+			if !c.ends || a.err != nil || a.reply["behavior"] != nil {
+				t.Fatalf("%s: returned %v %v", c.kind, a.reply, a.err)
+			}
+			if open, _ := e.OpenOf("backend"); open != nil {
+				t.Fatalf("%s: the question stays open", c.kind)
+			}
+		case <-time.After(wait):
+			if c.ends {
+				t.Fatalf("%s: the call still waits on a question nobody sees", c.kind)
+			}
+			if open, _ := e.OpenOf("backend"); open == nil || open.ID != b.ID {
+				t.Fatalf("%s: the question was closed", c.kind)
+			}
+			if _, err := answers(e, b.Fingerprint, "allow"); err != nil {
+				t.Fatal(err)
+			}
+			reply(t, call)
+		}
 	}
 }
