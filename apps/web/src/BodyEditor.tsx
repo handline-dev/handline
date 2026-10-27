@@ -47,6 +47,8 @@ export function BodyEditor(props: {
   id?: string;
   /** ⌘↵ / Ctrl+↵ in the field. */
   onSubmit?: () => void;
+  /** No Source/Rich toggle: the field is only the text (a comment edited in place). */
+  plain?: boolean;
   /** Typing `@` offers these agents, the ones near the task first. */
   mentions?: { names: readonly string[]; near: readonly string[]; state?: (name: string) => string };
 }) {
@@ -190,16 +192,18 @@ export function BodyEditor(props: {
 
   return (
     <div className="body-field grid min-w-40 flex-1 gap-1">
-      <div className="flex justify-end">
-        <button
-          type="button"
-          className="muted border-0 bg-transparent p-0 text-[12px] underline cursor-pointer"
-          aria-pressed={source}
-          onClick={() => toSource(!source)}
-        >
-          {source ? 'Rich view' : 'Source'}
-        </button>
-      </div>
+      {props.plain ? null : (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            className="muted border-0 bg-transparent p-0 text-[12px] underline cursor-pointer"
+            aria-pressed={source}
+            onClick={() => toSource(!source)}
+          >
+            {source ? 'Rich view' : 'Source'}
+          </button>
+        </div>
+      )}
       {source ? (
         <textarea
           className={`${BOX} font-mono`}

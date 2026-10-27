@@ -35,6 +35,12 @@ const item = async (c: HTMLElement, label: string) => {
   await act(async () => void button(c, 'More')?.click());
   return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => i.textContent === label);
 };
+/** Replaces the text of the in-place editor, as typing would. */
+const typeIn = async (form: HTMLElement, value: string) => {
+  await until(() => form.querySelector('.ProseMirror'), 'the editor');
+  await act(async () => void (form.querySelector('.ProseMirror')!.textContent = value));
+  await wait(50);
+};
 const sheet = (label: string) => section()!.querySelector<HTMLElement>(`[aria-label="${label}"]`);
 
 async function mount(role: 'founder' | 'member' = 'founder') {
@@ -81,12 +87,7 @@ describe('Edit and Delete on a comment', () => {
     const s = await mount();
     await act(async () => void (await item(comments()[0]!, 'Edit'))!.click());
     const form = sheet('Edit comment')!;
-    await act(async () => void [...form.querySelectorAll('button')].find((b) => b.textContent === 'Source')?.click());
-    const el = form.querySelector('textarea')!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, 'mine, changed');
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    await typeIn(form, 'mine, changed');
     await act(async () => void button(form, 'Save')!.click());
     await until(() => comments()[0]!.textContent!.includes('mine, changed'), 'the edit in the list');
     await until(() => text(s).includes('mine, changed'), 'the daemon has it');
@@ -98,16 +99,13 @@ describe('Edit and Delete on a comment', () => {
     s.daemon.knobs.refuse('task.comment.edit', 'state', 'the task is closed', undefined, 1);
     await act(async () => void (await item(comments()[0]!, 'Edit'))!.click());
     const form = sheet('Edit comment')!;
-    await act(async () => void [...form.querySelectorAll('button')].find((b) => b.textContent === 'Source')?.click());
-    const el = form.querySelector('textarea')!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, 'never kept');
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    await typeIn(form, 'never kept');
     await act(async () => void button(form, 'Save')!.click());
     await until(() => sheet('Edit comment')?.textContent?.includes('the task is closed'), 'the refusal');
+    expect(form.textContent).toContain('never kept'); // the box keeps what was typed, so it can be fixed or cancelled
+    await act(async () => void button(form, 'Cancel')!.click());
     expect(comments()[0]!.textContent).toContain('mine');
-    expect(comments()[0]!.querySelector('.md, div.min-w-0')!.textContent).not.toContain('never kept');
+    expect(comments()[0]!.textContent).not.toContain('never kept');
     expect(text(s)).toContain('mine');
   });
 
@@ -142,6 +140,32 @@ describe('Edit and Delete on a comment', () => {
     vi.useRealTimers();
     await until(() => section()!.textContent?.includes('the task is closed'), 'the refusal');
     expect(comments().length).toBe(2);
+    expect(text(s)).toContain('mine');
+  });
+
+  it('edits in place: one box where the text was, no Source link, no second copy, Save and Cancel under it', async () => {
+    await mount();
+    const c = comments()[0]!;
+    await act(async () => void (await item(c, 'Edit'))!.click());
+    const form = sheet('Edit comment')!;
+    expect(c.contains(form)).toBe(true);
+    expect(form.textContent).not.toContain('Edit comment');
+    expect(button(form, 'Source')).toBeUndefined();
+    expect(c.querySelectorAll('.ProseMirror').length).toBe(1);
+    expect(c.querySelector('.md')).toBeNull();
+    const buttons = [...form.querySelectorAll('button')].map((b) => b.textContent);
+    expect(buttons).toEqual(['Cancel', 'Save']);
+  });
+
+  it('Escape cancels and keeps the text', async () => {
+    const s = await mount();
+    await act(async () => void (await item(comments()[0]!, 'Edit'))!.click());
+    const form = sheet('Edit comment')!;
+    await typeIn(form, 'dropped');
+    await act(
+      async () => void form.querySelector('.ProseMirror')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })),
+    );
+    expect(sheet('Edit comment')).toBeNull();
     expect(text(s)).toContain('mine');
   });
 });

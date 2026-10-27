@@ -11,7 +11,7 @@ import { Thumbs } from '#src/AttachmentImage.tsx';
 import { MemoFiles } from '#src/MemoFiles.tsx';
 import { Markdown } from '#src/Markdown.tsx';
 import { AgentLink } from '#src/TaskInline.tsx';
-import { Sheet, useCan } from '#src/taskui.tsx';
+import { useCan } from '#src/taskui.tsx';
 import { Button, MenuButton, MenuItem } from '#src/ui/index.ts';
 import { Reveal } from '#src/ui/Reveal.tsx';
 
@@ -86,30 +86,63 @@ function Comment({ t, item, onReply }: { t: Detail; item: ActivityItem; onReply?
         </span>
       </span>
       {of ? <span className="truncate text-hint text-ink-3" data-reply-to={of.id}>{`↩ ${of.author}: ${firstLine(of.text)}`}</span> : null}
-      <div className="min-w-0">
-        <Thumbs.Provider value>
-          <Markdown text={item.note} />
-        </Thumbs.Provider>
-      </div>
+      {m && ask === 'edit' ? (
+        <EditInPlace
+          text={text}
+          setText={setText}
+          busy={busy}
+          setBusy={setBusy}
+          pending={edit.isPending}
+          problem={!text.trim() ? 'A comment needs text.' : edit.isError ? sentence(classify(edit.error)) : undefined}
+          onCancel={close}
+          onSave={() => text.trim() && !busy && edit.mutate({ task: t.id, memo: m.id, text: text.trim() }, { onSuccess: close })}
+        />
+      ) : (
+        <div className="min-w-0">
+          <Thumbs.Provider value>
+            <Markdown text={item.note} />
+          </Thumbs.Provider>
+        </div>
+      )}
       {m?.files?.length ? <MemoFiles files={m.files} /> : null}
       {del.isError ? <span role="alert">{sentence(classify(del.error))}</span> : null}
-      {m && ask === 'edit' ? (
-        <Sheet
-          label="Edit comment"
-          submit="Save"
-          busy={edit.isPending}
-          onCancel={close}
-          onSubmit={() => text.trim() && !busy && edit.mutate({ task: t.id, memo: m.id, text: text.trim() }, { onSuccess: close })}
-        >
-          <BodyEditor value={text} onChange={setText} onBusy={setBusy} label="Comment" />
-          {!text.trim() ? (
-            <span role="alert">A comment needs text.</span>
-          ) : edit.isError ? (
-            <span role="alert">{sentence(classify(edit.error))}</span>
-          ) : null}
-        </Sheet>
-      ) : null}
     </li>
+  );
+}
+
+/** The comment's body turned into one box, as wide as the composer, with Save and Cancel under it. Escape cancels, ⌘↵ saves. */
+function EditInPlace(props: {
+  text: string;
+  setText: (v: string) => void;
+  busy: boolean;
+  setBusy: (b: boolean) => void;
+  pending: boolean;
+  problem?: string;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const ref = useRef<HTMLFormElement>(null);
+  useEffect(() => ref.current?.querySelector<HTMLElement>('.ProseMirror')?.focus(), []);
+  return (
+    <form
+      ref={ref}
+      role="group"
+      aria-label="Edit comment"
+      className="grid min-w-0 gap-1.5"
+      onSubmit={(e) => (e.preventDefault(), props.onSave())}
+      onKeyDown={(e) => e.key === 'Escape' && !e.defaultPrevented && (e.stopPropagation(), props.onCancel())}
+    >
+      <BodyEditor plain value={props.text} onChange={props.setText} onBusy={props.setBusy} label="Comment" onSubmit={props.onSave} />
+      {props.problem ? <span role="alert">{props.problem}</span> : null}
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" size="sm" label="Cancel" onClick={props.onCancel}>
+          Cancel
+        </Button>
+        <Button variant="solid" size="sm" type="submit" label="Save" disabled={props.pending || props.busy}>
+          {props.pending ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
+    </form>
   );
 }
 
