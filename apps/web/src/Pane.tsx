@@ -17,7 +17,8 @@ import {
   type TabParams,
   type Workspace,
 } from '@handline/app-core';
-import { useHello, useMe, useStore } from '@handline/app-react';
+import { useHello, useMe } from '@handline/app-react';
+import { useWrite } from '@handline/app-data';
 import { ChatTab } from '#src/ChatTab.tsx';
 import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
 import { TasksTab } from '#src/TasksTab.tsx';
@@ -76,7 +77,8 @@ const TAB_KEYS: KeyRows = [
 export function Pane({ group }: { group: Group }) {
   useScreenKeys('On the tabs', TAB_KEYS);
   const { ws, detail, agent, storage, apply, show, canSplit, lead, dragging, setDragging } = useWorkspace();
-  const store = useStore();
+  const { mutateAsync: openShell } = useWrite('shell.open', agent);
+  const { mutate: closeShell } = useWrite('shell.close', agent);
   const folded = useFoldedControls();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
@@ -97,9 +99,9 @@ export function Pane({ group }: { group: Group }) {
     let params = c.params;
     if (c.open) {
       try {
-        params = { handle: (await store.client.call('shell.open', { agent })).terminal };
-      } catch (e) {
-        return store.reportError('open a terminal', e);
+        params = { handle: (await openShell({ agent })).terminal };
+      } catch {
+        return; // useWrite has reported it
       }
     }
     apply((w) => place(w, c.kind, params));
@@ -190,7 +192,7 @@ export function Pane({ group }: { group: Group }) {
                       !confirm(`Close the Claude Code tab of ${agent}? The agent keeps running.`)
                     )
                       return;
-                    if (t.kind === 'shell') void store.client.call('shell.close', { terminal: String(t.params.handle) }).catch(() => {}); // the shell ends with its tab
+                    if (t.kind === 'shell') closeShell({ terminal: String(t.params.handle) }); // the shell ends with its tab
                     apply((w) => closeTab(w, id));
                   }}
                 >
