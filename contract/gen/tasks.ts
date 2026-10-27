@@ -86,7 +86,7 @@ export type Task = {
 export type TaskWaiting = {
   /** The cause, one word of an open set (a client shows text for a word it does not know): task (behind its open blockers, tasks names them), founder (an open request to the founder on the task), cap (the owner's account has no free slot), wall (the owner's account is at a usage limit), owner (the owner is busy: mid-turn, a dialog, closed, another task ahead), host (reserved: the host is full; not sent until the host cap exists). */
   on: string;
-  /** The line every view shows for it: `blocked by T<n>`, `waiting on you`, else the daemon's own reason. */
+  /** The line every view shows for it: `blocked by T<n>`, `needs you`, else the daemon's own reason. */
   text: string;
   /** The tasks it waits on, for on task (by id, also one outside the caller's scope); empty otherwise. */
   tasks: number[];
@@ -293,7 +293,7 @@ export type TimeSegment = {
   /** queued: not yet with its holder. waiting: held up, on says by what. starting: its holder's session is being launched, woken or handed off. working: from when the task delivery landed in its holder session (or task_start, if earlier) until reported, released or done. */
   kind: "queued" | "waiting" | "starting" | "working";
   on: ("founder" | "task" | "agent" | "account") | null;
-  /** The reason as shown: `waiting on you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working. */
+  /** The reason as shown: `needs you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working. */
   text: string;
   task: number | null;
   from: Timestamp;

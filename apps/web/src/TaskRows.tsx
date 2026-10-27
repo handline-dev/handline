@@ -84,7 +84,7 @@ export function Row(props: {
           </AnimatedCell>
           {props.columns.owner ? (
             <AnimatedCell className={`c-owner w-28 text-right ${TD} max-sm:[grid-area:owner] max-sm:text-left`}>
-              <span className={CHIP} title={`owner: ${t.to}`}>
+              <span className={CHIP} title={`assigned to: ${t.to}`}>
                 {isPerson(t.to, me) ? 'you' : t.to.slice(t.to.lastIndexOf('.') + 1)}
               </span>
             </AnimatedCell>

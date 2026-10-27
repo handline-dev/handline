@@ -11,7 +11,7 @@ import (
 // The waiting reasons a segment names, in the words of docs/story1-research.md ("One picture of what waits and why"). They live here alone so
 // the shared state and reason list can replace them in one place.
 const (
-	waitFounder = "waiting on you"
+	waitFounder = "needs you"
 	waitTask    = "blocked by T%d"
 	waitAgent   = "waiting on %s"
 	waitWall    = "wall"
