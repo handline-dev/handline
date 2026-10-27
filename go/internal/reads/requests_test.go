@@ -2,6 +2,7 @@ package reads
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -99,5 +100,24 @@ func TestAFoundersChatMessageSaysWhatBecameOfIt(t *testing.T) {
 	req, _ := pass.Get(3)
 	if _, has := req.Message["request_task"]; has {
 		t.Errorf("an agent's message carries neither field")
+	}
+}
+
+func TestThePlainMessagesReadScansNoTable(t *testing.T) {
+	e := testEnv(t)
+	rows, err := e.DB.Query("EXPLAIN QUERY PLAN "+plainMessagesSQL, human, human, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasPrefix(detail, "SCAN ") {
+			t.Errorf("the read scans a whole table per message: %s", detail)
+		}
 	}
 }
