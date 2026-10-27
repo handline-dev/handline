@@ -90,7 +90,7 @@ describe('an agent held for machine load', () => {
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
     await until(() => $('force-start'), 'the Start now button');
-    expect(text()).toContain('over its load limit');
+    expect(text()).toContain('Waiting: the computer is busy right now.');
     await press($('force-start'));
     expect(text()).toContain(`Start now ${ARCH}?`);
     await press($('sheet-submit'));
