@@ -8,7 +8,7 @@ import { usePalette } from '#src/theme.ts';
 import { ImageBodyInput } from '#src/screens/ImageBodyInput.tsx';
 import { Button } from '#src/screens/parts.tsx';
 import { MemoFiles } from '#src/screens/MemoFiles.tsx';
-import { Input, Sheet } from '#src/screens/TaskActions.tsx';
+import { Sheet } from '#src/screens/TaskActions.tsx';
 import { PrBody } from '#src/screens/PrBody.tsx';
 
 const small = { paddingVertical: space.sm, paddingHorizontal: space.md } as const;
