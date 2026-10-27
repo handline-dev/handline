@@ -58,7 +58,7 @@ CODE_SPAN = re.compile(r"(`+).+?\1")
 FENCE = re.compile(r"^\s*(```|~~~)")
 # The subject git writes for a merge names the branch, which the author did not choose in the message.
 GIT_MERGE = re.compile(r"^Merge (?:branch|remote-tracking branch|pull request #\d+ from|commit) ")
-COMMENT_MARKS = {".ts": "//", ".tsx": "//", ".js": "//", ".mjs": "//", ".go": "//", ".py": "#", ".sh": "#", ".yml": "#", ".yaml": "#"}
+COMMENT_MARKS = {".ts": "//", ".tsx": "//", ".js": "//", ".mjs": "//", ".go": "//", ".py": "#", ".sh": "#"}
 
 # A mail domain or a user directory name that is a placeholder, not a person.
 SAFE_EMAIL_DOMAINS = {"example.com", "example.org", "example.net"}
