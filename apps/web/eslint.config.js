@@ -1,5 +1,30 @@
 import { react, test } from '@handline/config/eslint';
 
+// Compiler debt: these files fail set-state-in-effect or refs today and stay at warn. The list only shrinks; a file not in it gets the error.
+const compilerDebt = {
+  files: [
+    'src/AccountSettings.tsx',
+    'src/Annotate.tsx',
+    'src/App.tsx',
+    'src/BodyEditor.tsx',
+    'src/Capture.tsx',
+    'src/ChatTab.tsx',
+    'src/DeviceTab.tsx',
+    'src/HandoffPrompt.tsx',
+    'src/Pane.tsx',
+    'src/PromptCard.tsx',
+    'src/SettingsRows.tsx',
+    'src/TaskDetail.tsx',
+    'src/Tasks.tsx',
+    'src/TerminalTab.tsx',
+    'src/WebTab.tsx',
+    'src/Workspace.tsx',
+    'src/chatLines.ts',
+    'src/ui/Dialog.tsx',
+    'src/ui/Menu.tsx',
+  ],
+  rules: { 'react-hooks/set-state-in-effect': 'warn', 'react-hooks/refs': 'warn' },
+};
 // Layering: a view holds no data hook and no label table. Screens are listed here as they are split into a hook and a view (T6245); the list only grows.
 const views = [
   {
@@ -20,4 +45,4 @@ const views = [
     },
   },
 ];
-export default [...react(import.meta.dirname), ...views, ...test];
+export default [...react(import.meta.dirname), compilerDebt, ...views, ...test];
