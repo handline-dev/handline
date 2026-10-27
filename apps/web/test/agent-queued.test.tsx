@@ -49,6 +49,11 @@ describe('queued tasks on a sidebar row', () => {
     expect(chip(ARCH)!.textContent).toBe('3');
     expect(chip(ARCH)!.querySelector('[data-icon="tasks"]')).toBeTruthy(); // the Tasks icon, no ring
     expect(chip(ARCH)!.className).not.toMatch(/ring|rounded/);
+    // The first line never wraps; the chips drop whole from the last one and the time sits outside them, so it keeps its place.
+    const main = box.querySelector(`[data-agent="${ARCH}"] .row-main`)!;
+    expect(main.className).not.toMatch(/flex-wrap/);
+    expect(main.querySelector('.row-chips .row-queued')).toBeTruthy();
+    expect(main.querySelector('.row-time')!.parentElement).toBe(main); // not among the chips
     await act(
       async () => void box.querySelector(`[data-agent="${ARCH}"]`)!.dispatchEvent(new MouseEvent('pointerover', { bubbles: true })),
     );

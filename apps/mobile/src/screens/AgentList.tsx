@@ -229,7 +229,9 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
                 <StateMark agent={a} />
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-                    <Text style={{ color: c.ink, fontWeight: '600' }}>{item.label}</Text>
+                    <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '600', flexShrink: 1 }}>
+                      {item.label}
+                    </Text>
                     {queued ? (
                       <Pressable
                         testID={`queued-${a.name}`}
