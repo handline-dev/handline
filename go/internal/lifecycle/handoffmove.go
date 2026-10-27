@@ -263,6 +263,7 @@ func (v *Mover) PerformHandoff(agent string, t HandoffTrigger, dest string) (ok 
 	if !settled && m.sessionBusy(agent) {
 		if t.Kind != "forced" {
 			v.log("  %s: %s fired but the agent is mid-turn - deferring", agent, t.Kind)
+			check(db.MarkDeferred(m.Q, agent, now))
 			return true, nil
 		}
 		return false, fmt.Errorf("%s: the forced move did not happen: a terminal's turn cannot be interrupted without typing", agent)
@@ -281,6 +282,7 @@ func (v *Mover) perform(agent string, t HandoffTrigger, dest string) bool {
 	m := v.M
 	hid := newHandoffID()
 	check(db.ClearNoteWait(m.Q, agent))
+	check(db.ClearDeferred(m.Q, agent))
 	acct := m.Agents.CurrentAccount(m.Q, agent)
 	st := m.Status.ReadForAgent(agent, acct)
 	check(db.StartHandoff(m.Q, hid, agent, st.SessionID, t.Kind, m.now()+states.HandoffDeadlineS))

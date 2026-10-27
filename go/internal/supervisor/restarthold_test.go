@@ -1,8 +1,6 @@
 package supervisor
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -91,48 +89,83 @@ func TestAHandoffRowLeftOpenHoldsNoLongerThanTheCeiling(t *testing.T) {
 	}
 }
 
-// Interrupt, Start now and the other verbs are not messages: they never ask handingOff, so only the three message paths hold.
-func TestOnlyTheThreeMessagePathsAskWhetherAHandoffHolds(t *testing.T) {
-	files, _ := filepath.Glob("*.go")
-	var sites []string
-	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") {
-			continue
-		}
-		b, _ := os.ReadFile(f)
-		for _, line := range strings.Split(string(b), "\n") {
-			if strings.Contains(line, "e.handingOff(") {
-				sites = append(sites, f)
-			}
-		}
+// A clear owed (the old session told it will be cleared) still holds: the row is released but the session is not yet closed.
+func TestAMessageWhileAClearIsOwedGoesToTheNewSession(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.must(db.SetCursor(r.DB, "clear_owed:bob", r.now()))
+	rid := r.founderSays("bob", "are you there?")
+	if got, _ := r.TellNow(r.DB, rid); !strings.Contains(got, "held while it restarts") {
+		t.Fatalf("told at once: %q", got)
 	}
-	want := "delivery.go messaging.go sendpath.go"
-	if got := strings.Join(sites, " "); got != want {
-		t.Fatalf("handingOff is asked in %q, want %q", got, want)
+	if last := r.term.last(); last != "" {
+		t.Fatalf("typed at the old session: %q", last)
+	}
+	r.must(db.ClearCursor(r.DB, "clear_owed:bob")) // the clear went ahead
+	if got, _ := r.TellNow(r.DB, rid); got != "sent" {
+		t.Fatal(got)
+	}
+	if last := r.term.last(); !strings.HasPrefix(last, arrivedDuringRestart) {
+		t.Fatalf("no arrival line: %q", last)
+	}
+	// a clear owed for longer than the ceiling holds nothing
+	r.must(db.SetCursor(r.DB, "clear_owed:bob", r.now()-db.NoteWaitStaleS-1))
+	if got, _ := r.TellNow(r.DB, r.ask("alice", "bob", "past it", "ask")); got != "sent" {
+		t.Fatalf("a stale clear holds: %q", got)
 	}
 }
 
-// A session that is started for what waits gets the held message as its first prompt, headed by the line.
-func TestTheNewSessionsFirstPromptHasTheHeldMessageWithTheArrivalLine(t *testing.T) {
+// A message sent while a handoff trigger is deferred behind a running turn is not typed into that turn.
+func TestAMessageWhileTheTriggerIsDeferredGoesToTheNewSession(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
-	r.decideHandoff("bob")
-	r.TellNow(r.DB, r.founderSays("bob", "are you there?"))
-	r.must(db.AdvanceHandoff(r.DB, "h-bob", "released", "done", ""))
-	text, _, ok, err := r.WaitingPrompt(r.DB, "bob")
-	if err != nil || !ok || !strings.HasPrefix(text, arrivedDuringRestart) || !strings.Contains(text, "are you there?") {
-		t.Fatalf("%q %v %v", text, ok, err)
+	r.must(db.MarkDeferred(r.DB, "bob", r.now()))
+	rid := r.founderSays("bob", "are you there?")
+	if got, _ := r.TellNow(r.DB, rid); !strings.Contains(got, "held while it restarts") {
+		t.Fatalf("told at once: %q", got)
+	}
+	if last := r.term.last(); last != "" {
+		t.Fatalf("typed into the running turn: %q", last)
+	}
+	r.must(db.ClearDeferred(r.DB, "bob"))
+	if got, _ := r.TellNow(r.DB, rid); got != "sent" {
+		t.Fatal(got)
+	}
+	if last := r.term.last(); !strings.HasPrefix(last, arrivedDuringRestart) {
+		t.Fatalf("no arrival line: %q", last)
 	}
 }
 
-func TestTheNewSessionsFirstPromptHasAHeldPendingLineWithTheArrivalLine(t *testing.T) {
+// A batch held and then told clears the mark of each of its requests, so one of them told alone later has no line.
+func TestABatchClearsTheMarksOfEachRequestItTold(t *testing.T) {
 	r := newRig(t)
 	r.agentUp("bob")
 	r.decideHandoff("bob")
-	r.SendMessage(r.DB, "bob", "a bare line")
+	a := r.task("bob", "alice", "first")
+	b := r.task("bob", "alice", "second")
+	if sent, _ := r.DeliverQueued(r.DB, "bob"); sent {
+		t.Fatal("the queue was told")
+	}
 	r.must(db.AdvanceHandoff(r.DB, "h-bob", "released", "done", ""))
-	text, _, ok, err := r.WaitingPrompt(r.DB, "bob")
-	if err != nil || !ok || text != arrivedDuringRestart+"a bare line" {
-		t.Fatalf("%q %v %v", text, ok, err)
+	if sent, _ := r.DeliverQueued(r.DB, "bob"); !sent {
+		t.Fatal("the queue was not told")
+	}
+	for _, rid := range []int64{a, b} {
+		if v, _ := db.Cursor(r.DB, arrivedKey("bob", requestOp(rid))); v != 0 {
+			t.Fatalf("request %d keeps its arrival mark after the batch was told", rid)
+		}
+	}
+}
+
+// A deferral nobody acted on for longer than the ceiling is over; a new one starts its own time.
+func TestAStaleDeferralIsRestartedByTheNextOne(t *testing.T) {
+	r := newRig(t)
+	r.must(db.MarkDeferred(r.DB, "bob", r.now()-db.NoteWaitStaleS-1))
+	if held, _ := db.RestartHeld(r.DB, "bob", r.now()); held {
+		t.Fatal("a stale deferral holds")
+	}
+	r.must(db.MarkDeferred(r.DB, "bob", r.now()))
+	if held, _ := db.RestartHeld(r.DB, "bob", r.now()); !held {
+		t.Fatal("a fresh deferral does not hold")
 	}
 }

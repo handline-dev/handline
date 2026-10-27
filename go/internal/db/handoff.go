@@ -140,16 +140,39 @@ func LastBoundSessionStart(q Q, agent string) (int64, error) {
 	return ts, err
 }
 
-// RestartHeld is whether nothing more is typed at the agent now: a handoff note is being written, or a handoff of the agent is in flight
-// (decided, not yet released). A row left open counts only for NoteWaitStaleS since its last step, so one that stuck holds for that long
-// at most; the reconciler gives it up sooner, at its deadline.
+// RestartHeld is whether nothing more is typed at the agent now: a handoff note is being written, a handoff trigger is deferred behind a
+// running turn, a clear is owed, or a handoff of the agent is in flight (decided, not yet released). Each counts only for NoteWaitStaleS
+// since it began, or since the row's last step, so one that stuck holds for that long at most; the reconciler gives a row up sooner, at
+// its deadline.
 func RestartHeld(q Q, agent string, now int64) (bool, error) {
 	if _, _, kept, err := NoteWaitKept(q, agent, now); err != nil || kept {
 		return kept, err
 	}
+	for _, key := range []string{deferredKey(agent), "clear_owed:" + agent} {
+		since, err := Cursor(q, key)
+		if err != nil {
+			return false, err
+		}
+		if since != 0 && now-since <= NoteWaitStaleS {
+			return true, nil
+		}
+	}
 	h, err := InFlightFor(q, agent)
 	return h != nil && now-h.Updated <= NoteWaitStaleS, err
 }
+
+func deferredKey(agent string) string { return "handoff_deferred:" + agent }
+
+// MarkDeferred keeps that a handoff trigger waits for the agent's running turn to end, since now; a call within the wait keeps its time.
+func MarkDeferred(q Q, agent string, now int64) error {
+	if since, err := Cursor(q, deferredKey(agent)); err != nil || (since != 0 && now-since <= NoteWaitStaleS) {
+		return err
+	}
+	return SetCursor(q, deferredKey(agent), now)
+}
+
+// ClearDeferred ends the wait MarkDeferred kept: the handoff opened its row, or its trigger no longer fires.
+func ClearDeferred(q Q, agent string) error { return ClearCursor(q, deferredKey(agent)) }
 
 func noteWaitKey(agent string) string { return "handoff_note_wait:" + agent }
 
