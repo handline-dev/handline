@@ -48,8 +48,7 @@ function wrap(sock: Duplex): Transport {
           t.onmessage?.(Buffer.concat(parts).toString());
           parts = [];
         }
-      }
-      else if (op === 8) {
+      } else if (op === 8) {
         sock.end();
         return;
       } else if (op === 9) sock.write(Buffer.concat([Buffer.from([0x8a, payload.length]), payload]));

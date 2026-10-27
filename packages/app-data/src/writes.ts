@@ -165,6 +165,8 @@ const tasks: Record<string, WriteSpec> = {
       changeMemos(c, task, (l) => l.filter((m) => m.id !== memo));
     },
   },
+  // The tasks topic's event brings the task again; the params name no task, so the comment lists are read again here.
+  'task.comment.send_now': { ...decided('send now'), touches: (d) => [['d', d, 'memos']] },
   'file.write': decided('save file'), // the page keeps the new etag from the reply
   'task.view.save': { kind: 'decided', label: 'save view', touches: (d) => [qk.taskViews(d)] },
   'task.view.delete': { kind: 'decided', label: 'delete view', touches: (d) => [qk.taskViews(d)] },
@@ -429,7 +431,6 @@ export const NOT_FROM_UI = [
   'task.memo.delete',
   'task.progress',
   'task.handoff',
-  'task.comment.send_now', // the comment's reader state is read first; T6550 wires the button
   // `hl withdraw` and `hl cancel`: the app takes a message back through chat.cancel.
   'request.withdraw',
   'request.cancel',

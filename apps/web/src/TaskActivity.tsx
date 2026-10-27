@@ -6,6 +6,7 @@ import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useAgents, useOff, useWrite } from '@handline/app-data';
 import { useHello, useMe } from '@handline/app-react';
 import { BodyEditor } from '#src/BodyEditor.tsx';
+import { CommentReaders } from '#src/CommentReaders.tsx';
 import { CommentPicture } from '#src/CommentPicture.tsx';
 import { Thumbs } from '#src/AttachmentImage.tsx';
 import { MemoFiles } from '#src/MemoFiles.tsx';
@@ -121,6 +122,7 @@ function Comment({
         </div>
       )}
       {m?.files?.length ? <MemoFiles files={m.files} /> : null}
+      {m?.readers?.length ? <CommentReaders memo={m.id} readers={m.readers} /> : null}
       {del.isError ? <span role="alert">{sentence(classify(del.error))}</span> : null}
     </li>
   );
