@@ -78,11 +78,12 @@ const withDecisionTask = (s: Parameters<Parameters<typeof mount>[0] & {}>[0]) =>
 
 describe('the inbox tab', () => {
   it('shows its skeleton while slow, then the waiting items, and a decision done leaves the list and ends its task at the daemon', async () => {
-    const m = await mount((s) => (withDecisionTask(s), s.daemon.knobs.latency(600)));
+    let release = () => {};
+    const m = await mount((s) => (withDecisionTask(s), (release = s.daemon.knobs.hold('inbox.list'))));
     await tab('inbox');
     await until(() => $('skeleton-inbox'), 'the skeleton');
-    await until(() => item(DECISION), 'the decision', 5000);
-    m.daemon.knobs.latency(0);
+    release();
+    await until(() => item(DECISION), 'the decision');
     expect($('unread-count')?.textContent).toMatch(/^[1-9]/);
     await press($(`inbox-open-${DECISION}`));
     await press(done(DECISION));

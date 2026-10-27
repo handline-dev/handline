@@ -29,15 +29,18 @@ describe('the strip in the agent page menu', () => {
   });
 
   it('redraws when the cache runs out', async () => {
-    const m = await open((s) => (s.daemon.sessions.get(ARCH)!.strip = { cache_left_s: 1 }));
-    await until(() => text($('strip-cache')).includes('1s left'), 'the count');
-    await until(() => text($('strip-cache')).includes('lapsed'), 'the lapse', 3000);
+    const m = await open((s) => (s.daemon.sessions.get(ARCH)!.strip = { cache_left_s: 6 }));
+    await until(() => /\ds left/.test(text($('strip-cache'))), 'the count'); // the clock runs while the page opens, so only that it is counting is waited for
+    await until(() => text($('strip-cache')).includes('lapsed'), 'the lapse', 8000);
     m.store.stop();
   });
 
   it('counts the seconds down while under a minute', async () => {
-    const m = await open((s) => (s.daemon.sessions.get(ARCH)!.strip = { cache_left_s: 4 }));
-    for (const n of [3, 2, 1]) await until(() => text($('strip-cache')).includes(`${n}s left`), `${n}s left`, 2500);
+    const m = await open((s) => (s.daemon.sessions.get(ARCH)!.strip = { cache_left_s: 30 }));
+    const left = () => Number(/(\d+)s left/.exec(text($('strip-cache')))?.[1] ?? NaN);
+    await until(() => left() < 30, 'the count');
+    const first = left();
+    for (const n of [1, 2, 3]) await until(() => left() <= first - n, `${n}s fewer`, 2500);
     m.store.stop();
   });
 
