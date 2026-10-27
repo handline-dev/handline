@@ -268,9 +268,17 @@ func ForYouSeen(q db.Q, agent string, upto int64) error {
 	if err := db.SetCursor(q, key, upto); err != nil {
 		return err
 	}
-	ids, err := db.IDs(q, "SELECT id FROM requests WHERE target = ? AND requester = ? AND id <= ? AND read_at IS NULL", db.Human, agent, upto)
+	ids, err := db.IDs(q, "SELECT id FROM requests WHERE target = ? AND requester = ? AND id <= ? AND read_at IS NULL AND memo_id IS NULL", db.Human, agent, upto)
 	if err != nil {
 		return err
 	}
 	return db.MarkRead(q, ids)
+}
+
+// closeMemoAsk closes the ask a task comment raised, as answered: the founder read it by name, or replied.
+func closeMemoAsk(q db.Q, rid int64) error {
+	now := db.Now()
+	_, err := q.Exec("UPDATE requests SET state = 'landed', state_at = ?1, landed_at = ?1, read_at = COALESCE(read_at, ?1), queue_order = NULL "+
+		"WHERE id = ? AND memo_id IS NOT NULL AND state = 'queued'", now, rid)
+	return err
 }

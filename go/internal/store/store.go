@@ -159,6 +159,7 @@ var byHand = map[int]func(*sql.Tx) error{
 	23: addFounderAuth,    // requests_founder_auth
 	24: addTaskWatch,      // task_watch
 	26: addRequestThreads, // request_threads
+	28: addRequestMemo,    // request_memo
 }
 
 // addExtraWorktrees is _agent_extra_worktrees in schema.py: a database made before the column has none.
@@ -204,6 +205,9 @@ func addRequestThreads(tx *sql.Tx) error {
 	}
 	return nil
 }
+
+// addRequestMemo is the comment an ask to the founder was raised by (requests.memo_id).
+func addRequestMemo(tx *sql.Tx) error { return addColumn(tx, "requests", "memo_id", "INTEGER") }
 
 // addTaskColumns adds each (name, type) column the tasks table does not have yet.
 func addTaskColumns(tx *sql.Tx, cols [][2]string) error {
