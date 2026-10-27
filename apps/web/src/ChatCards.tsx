@@ -9,7 +9,6 @@ import {
   clockTime,
   decidedProposals,
   followUpOf,
-  isHeld,
   isWaiting,
   restartingLine,
   restartShown,
@@ -189,7 +188,7 @@ function FollowUpCard({ p, follow }: { p: Proposal; follow: FollowUp }) {
  *  one is a past event: it is in the timeline (DecidedCard). */
 export function HrCards({ agent }: { agent: string }) {
   const q = useHr({});
-  const all = proposalsOf(q.data?.proposals, agent).filter((p) => isWaiting(p) || isHeld(p) || followUpOf(p));
+  const all = proposalsOf(q.data?.proposals, agent).filter((p) => isWaiting(p) || followUpOf(p));
   const follows = all.flatMap((p) => {
     const follow = followUpOf(p);
     return follow ? [{ p, follow }] : [];

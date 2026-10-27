@@ -77,7 +77,7 @@ describe('HR proposals in the chat', () => {
     const all = [...document.querySelectorAll('.stream *')];
     expect(all.indexOf(line)).toBeLessThan(all.indexOf(msg('Which gap list')!));
   });
-  it('a held proposal is counted in the same one line and has no buttons', async () => {
+  it('a held proposal (approved, applying when the turn ends) is not the founder turn: no line in the chat', async () => {
     const s = setup();
     hrOf(s).raise({
       id: 44,
@@ -87,10 +87,11 @@ describe('HR proposals in the chat', () => {
       state: 'applying',
       waiting_on: [ARCH],
     });
+    hrOf(s).raise({ id: 47, title: 'link a -> b', diff: 'link', agent: ARCH });
     await mount(ARCH, s);
-    await until(() => $('.card-hr'), 'the held line');
+    await until(() => $('.card-hr'), 'the line');
+    expect($$('.card-hr')).toHaveLength(1);
     expect(text($('.card-hr'))).toContain('1 HR proposal needs you');
-    expect(labelled($('.card-hr'), 'Approve')).toBeUndefined();
   });
 
   it('in the HR tab a held card sits with the waiting ones, has no decide buttons and is not in the count', async () => {
