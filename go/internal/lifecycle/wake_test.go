@@ -1009,3 +1009,20 @@ func TestAWakeDuringAHandoffStartsTheNewSessionNotTheOldOne(t *testing.T) {
 		t.Fatal("the handoff still waits after its new session started")
 	}
 }
+
+// handline.architect (10-27): closed for a handoff, the relaunch that completes it waited out the machine's load twice. The load holds new
+// work; a wake that carries on a handoff goes, and an ordinary wake of the same closed agent is still held.
+func TestTheLoadDoesNotHoldTheWakeThatCompletesAHandoff(t *testing.T) {
+	m, d, tm := newManager(t)
+	m.LoadHeld = func(string) string { return "held: machine load - load 2.00 per core, limit 1.50" }
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "hi", true, true
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	if _, said, _ := m.WakeAgent("a", WakeOpts{}); !strings.Contains(said, "held: machine load") {
+		t.Fatalf("an ordinary wake went past the load: %q", said)
+	}
+	db.SetHandoff(m.Q, "a", "the record")
+	if _, said, _ := m.WakeAgent("a", WakeOpts{}); strings.Contains(said, "held: machine load") {
+		t.Fatalf("the wake that completes a handoff was held: %q", said)
+	}
+}

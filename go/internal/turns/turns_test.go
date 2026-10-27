@@ -483,3 +483,33 @@ func TestTheRunningTurnsNewestToolCallIsShownAtMostSoOftenAndGoneWhenItEnds(t *t
 		t.Fatalf("got %+v", d)
 	}
 }
+
+// handline.architect (10-27): the hook named the transcript a second before the session created it, and the watch gave up.
+func TestATranscriptThatAppearsAfterThePromptIsWatchedOnceItIsThere(t *testing.T) {
+	old := transcriptRetry
+	transcriptRetry = 10 * time.Millisecond
+	defer func() { transcriptRetry = old }()
+	esc := `{"type":"user","message":{"role":"user","content":"[Request interrupted by user]"}}`
+	for _, stopped := range []bool{false, true} {
+		tr, interrupted := tracker(t)
+		path := filepath.Join(t.TempDir(), "late.jsonl")
+		tr.Hook("amy", "UserPromptSubmit", map[string]any{"transcript_path": path}, 10)
+		if stopped {
+			tr.Hook("amy", "Stop", nil, 11)
+			tr.Hook("amy", "UserPromptSubmit", nil, 12)
+		}
+		write(t, path)
+		time.Sleep(200 * time.Millisecond)
+		write(t, path, esc)
+		select {
+		case <-interrupted:
+			if stopped {
+				t.Fatal("a watch that was stopped before the file appeared still saw it")
+			}
+		case <-time.After(time.Second):
+			if !stopped {
+				t.Fatal("the transcript that appeared later was never watched")
+			}
+		}
+	}
+}
