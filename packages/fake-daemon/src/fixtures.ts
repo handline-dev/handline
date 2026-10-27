@@ -140,6 +140,11 @@ export function seedChat(chat: FakeChat, at: string): void {
     kind: 'task_event',
     task_event: { event: 'withdrawn', task: 1684, request: null, evidence: 'duplicate of T3', who: 'human' },
   });
+  chat.seedItem(A, {
+    at: ago(5),
+    kind: 'task_event',
+    task_event: { event: 'opened', task: 1695, request: null, evidence: null, who: A },
+  });
 }
 
 /** What waits on the founder at first: one of each kind, two of them read, so a UI draws every card and both marks. */
@@ -203,6 +208,7 @@ export function seedTasks(tasks: FakeTasks, at: string): void {
   const base = Date.parse(at);
   const ago = (min: number) => new Date(base - min * 60_000).toISOString();
   const me = 'founder';
+  tasks.seed({ id: 1695, from: 'handline.architect', to: 'human', title: 'Confirm the chat plan', state: 'doing', created: ago(20) });
   tasks.seed({
     id: 1684,
     from: me,

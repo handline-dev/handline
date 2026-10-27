@@ -1,25 +1,34 @@
 // The task cards of the conversation: a task event from the transcript and the task board's news of a task, each as one quiet line:
 // a colour dot for how it went, the task's title, a grey line for what happened, and the time. The card takes its natural width, like an agent's bubble.
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { clockTime, isPerson, openTask, type TaskChange, taskRow } from '@handline/app-core';
+import { CLOSED, clockTime, isPerson, openTask, type TaskChange, taskRow } from '@handline/app-core';
 import { useMe } from '@handline/app-react';
+import { useServes, useTask, useWrite } from '@handline/app-data';
 import { useWorkspace } from '#src/Workspace.tsx';
 
 const DOT: Record<string, string> = { opened: 'bg-ok', changed: 'bg-wait', done: 'bg-ok', withdrawn: 'bg-bad' };
 const VERB: Record<string, string> = { opened: 'added', changed: 'changed', done: 'done', withdrawn: 'deleted' };
 
-/** One card: a click opens the task in the Tasks tab. */
+const LINK = 'cursor-pointer border-0 bg-transparent p-0 text-hint text-ink-2 underline disabled:opacity-50';
+
+/** One card: a click opens the task in the Tasks tab; Open and, on an open task the person may close, Done are at the line's end. */
 function TaskCard(props: { ev: string; label: string; task: number; title?: string | null; what: string[]; at: string }) {
   const { apply } = useWorkspace();
+  const me = useMe();
+  const t = useTask(props.task).data;
+  const done = useWrite('task.done');
+  const { served } = useServes('task.done');
   const what = props.what.filter(Boolean).join(' · ');
+  const open = () => apply((w) => openTask(w, props.task));
+  const canDone = served && !!t && !CLOSED.includes(t.state) && isPerson(t.to, me);
   return (
-    <button
-      type="button"
-      className="card-task flex w-fit max-w-full cursor-pointer items-baseline gap-x-2 rounded-card border-0 bg-transparent px-1.5 py-1 text-left text-body tint"
+    // The row opens the task for a pointer; its Open button is the keyboard's way.
+    <div
+      className="card-task tint flex w-fit max-w-full cursor-pointer items-baseline gap-x-2 rounded-card px-1.5 py-1 text-body"
       data-kind="task_event"
       data-event={props.ev}
       title={`Open T${props.task} in the Tasks tab`}
-      onClick={() => apply((w) => openTask(w, props.task))}
+      onClick={open}
     >
       <span role="img" aria-label={props.label} className={`size-2 flex-none self-center rounded-full ${DOT[props.ev] ?? 'bg-wait'}`} />
       {props.title ? (
@@ -27,7 +36,20 @@ function TaskCard(props: { ev: string; label: string; task: number; title?: stri
       ) : null}
       <span className="muted min-w-0 truncate text-meta">{`T${props.task} · ${what}`}</span>
       <span className="muted card-time flex-none whitespace-nowrap text-meta">{clockTime(props.at)}</span>
-    </button>
+      <button type="button" className={LINK} onClick={(e) => (e.stopPropagation(), open())}>
+        Open
+      </button>
+      {canDone ? (
+        <button
+          type="button"
+          className={LINK}
+          disabled={done.isPending}
+          onClick={(e) => (e.stopPropagation(), done.mutate({ task: props.task, evidence: 'Done', reason: true }))}
+        >
+          Done
+        </button>
+      ) : null}
+    </div>
   );
 }
 
