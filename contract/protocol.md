@@ -76,6 +76,7 @@ One file per group, generated from `spec/<group>.json`; field types are in `prot
 - [tasks](gen/tasks.md): 36 methods
 - [team](gen/team.md): 14 methods
 - [terminal](gen/terminal.md): 9 methods
+
 ## Who the caller is
 
 x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).

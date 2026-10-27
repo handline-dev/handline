@@ -123,8 +123,6 @@ def params_type(m: dict) -> str:
                "required": [p["name"] for p in m["params"] if p["required"]]})
 
 
-
-
 METHOD_INFO = "{ role: Role; callers: Role[] | null; write: boolean; since: number }"
 
 
@@ -196,8 +194,6 @@ def cell(t: str) -> str:
     return t.replace("|", "\\|").replace("\n", " ")
 
 
-
-
 def gen_md(spec: dict, groups: dict[str, dict]) -> str:
     """protocol.md: everything but the methods, which each group's file lists."""
     fr = spec["x-framing"]
@@ -211,7 +207,7 @@ def gen_md(spec: dict, groups: dict[str, dict]) -> str:
     o += [f"| `{c}` | {e['code'] if e['code'] is not None else 'none (client side)'} | {cell(e['data'])} |" for c, e in spec["components"]["errors"].items()]
     o += ["", "## Gates", "", "| Gate | Refuses when |", "|---|---|"] + [f"| `{g}` | {cell(t)} |" for g, t in spec["x-gates"].items()]
     o += ["", "## Methods", "", "One file per group, generated from `spec/<group>.json`; field types are in `protocol.ts`.", ""]
-    o += [f"- [{g}](gen/{g}.md): {len(p.get('methods', []))} methods" for g, p in groups.items()]
+    o += [f"- [{g}](gen/{g}.md): {len(p.get('methods', []))} methods" for g, p in groups.items()] + [""]
     ident = spec["x-identity"]
     o += ["## Who the caller is", "", ident["rule"], "", "- **Sender:** " + ident["sender"], "- **Ownership:** " + ident["ownership"], "",
           "## Agent commands", "", "Every `hl` command an agent runs today and the method that serves it.", "", "| Command | Method |", "|---|---|"]
