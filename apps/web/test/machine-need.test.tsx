@@ -45,6 +45,12 @@ it('shows a full disk as a card with its text and age and no button, and drops i
   expect(machine()!.textContent).toContain('Free disk is 3.1 GB, under the 5 GB floor');
   expect(machine()!.textContent).toMatch(/waiting 12m/);
   expect(machine()!.querySelectorAll('button')).toHaveLength(0);
+  expect(machine()!.querySelector('h3')!.textContent).toBe('Free disk space');
+  expect(machine()!.querySelector('[title="Priority"]')!.textContent).toBe('P1');
+  const rail = () => box.querySelector('.rail-nav')!.textContent;
+  const before = Number(/My turn(\d+)/.exec(rail())![1]);
+  expect(before).toBeGreaterThan(0);
   await setMachineNeeds(s, []);
   await until(() => !machine(), 'the card to go');
+  expect(Number(/My turn(\d+)/.exec(rail())![1])).toBe(before - 1);
 });
