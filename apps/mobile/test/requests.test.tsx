@@ -27,7 +27,7 @@ describe('the phone Requests page', () => {
     m.daemon.requests.add({ title: 'Which build is live?', task: 6020, status: 'waiting_on_you', agent: 'handline', unread_comments: 2 });
     await open(m);
     await until(() => $('request-6020') && $('request-6071'), 'both requests');
-    expect(text($('request-6020'))).toContain('Waiting on you');
+    expect(text($('request-6020'))).toContain('Needs you');
     expect(text($('request-6020'))).toContain('2 new comments');
     expect(text($('request-6071'))).toContain('2 open · 1 done');
     expect(text($('request-6071'))).toContain('#628');

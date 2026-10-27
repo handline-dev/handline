@@ -11,27 +11,28 @@ import { ListRow, PageHeader, Pill } from '#src/screens/parts.tsx';
 
 type Status = RequestRow['status'];
 const WORDS: Record<Status, string> = {
-  waiting_on_you: 'Waiting on you',
+  waiting_on_you: 'Needs you',
   review: 'In review',
   doing: 'Doing',
   done: 'Done',
   no_work: 'Nothing to do',
-  not_yet: 'Not a task yet',
+  not_yet: 'No task yet',
 };
 const FILTERS: { id: 'all' | Status; label: string }[] = [
   { id: 'all', label: 'All' },
-  { id: 'waiting_on_you', label: 'Waiting on you' },
+  { id: 'waiting_on_you', label: 'Needs you' },
   { id: 'doing', label: 'Doing' },
   { id: 'review', label: 'Review' },
   { id: 'done', label: 'Done' },
-  { id: 'not_yet', label: 'Not yet' },
+  { id: 'not_yet', label: 'No task yet' },
 ];
 
 /** What is under a request: open and ended tasks, its pull requests and the comments not read yet. */
 const metaOf = (r: RequestRow): string =>
   [
     r.holders.length ? r.holders.join(', ') : r.agent,
-    r.open || r.done ? `${r.open} open · ${r.done} done` : '',
+    r.open ? `${r.open} open` : '',
+    r.done ? `${r.done} done` : '',
     r.prs.length ? r.prs.map((n) => `#${n}`).join(' ') : '',
     r.unread_comments ? `${r.unread_comments} new ${r.unread_comments === 1 ? 'comment' : 'comments'}` : '',
     r.status === 'no_work' && r.reason ? r.reason : '',
