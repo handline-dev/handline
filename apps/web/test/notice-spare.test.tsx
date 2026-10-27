@@ -58,8 +58,11 @@ describe('the weekly-loss notice', () => {
     await mount(ARCH, s);
     await until(spare, 'the notice');
     expect(text(spare())).toContain("18% of theta's weekly use will be lost at 02:10. These spare tasks can use it:");
-    expect(text(spare())).toContain('T7101 Tidy the gap list');
+    expect(text(spare())).toContain('Tidy the gap list');
     expect(text(spare())).not.toContain('T7104');
+    expect(text(spare())).toContain('and 1 more');
+    expect(text(spare())).toContain('architect');
+    expect(text(spare())).not.toContain('handline.architect');
     expect(button('Start 4 tasks')).toBeDefined();
   });
 

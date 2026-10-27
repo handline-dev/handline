@@ -168,35 +168,37 @@ function SpareCard(props: { n: SpareNotice; onTask: (id: number) => void }) {
   const rows = new Map((useTasks({}).data?.items ?? []).map((t) => [t.id, t]));
   const answer = useWrite('task.done');
   const reply = (evidence: string) => answer.mutate({ task: n.task, evidence, reason: true });
+  const small = { color: c.muted, fontSize: font.size.label } as const;
   return (
     <View testID="notice-spare" style={{ flexDirection: 'row', gap: space.sm, padding: space.md, backgroundColor: c.raised }}>
-      <Icon name="waiting" decorative size={16} color={c.muted} />
-      <View style={{ flex: 1, gap: space.xs }}>
+      <Icon name="waiting" decorative size={16} color={c.wait} />
+      <View style={{ flex: 1, gap: space.sm }}>
         <Pressable accessibilityRole="button" onPress={() => props.onTask(n.task)}>
           <Text style={{ color: c.ink }}>{n.text}</Text>
         </Pressable>
-        {n.ids.slice(0, SPARE_SHOWN).map((id) => (
-          <Text key={id} numberOfLines={1} style={{ color: c.muted, fontSize: font.size.label }}>
-            {`T${id}${rows.get(id) ? ` ${rows.get(id)!.title} · ${rows.get(id)!.to}` : ''}`}
-          </Text>
-        ))}
+        <View style={{ gap: 2 }}>
+          {n.ids.slice(0, SPARE_SHOWN).map((id) => (
+            <View key={id} style={{ flexDirection: 'row', gap: space.xs }}>
+              <Text style={{ ...small, color: c.ink, fontFamily: font.mono, fontWeight: '700' }}>{`T${id}`}</Text>
+              <Text numberOfLines={1} style={{ ...small, flex: 1 }}>
+                {rows.get(id)?.title ?? ''}
+              </Text>
+              {rows.get(id) ? <Text style={small}>{rows.get(id)!.to.split('.').at(-1)}</Text> : null}
+            </View>
+          ))}
+          {n.ids.length > SPARE_SHOWN ? <Text style={small}>{`and ${n.ids.length - SPARE_SHOWN} more`}</Text> : null}
+        </View>
         {n.ids.length ? (
           <Button
+            kind="yes"
+            icon="play"
             label={n.ids.length === 1 ? 'Start 1 task' : `Start ${n.ids.length} tasks`}
             disabled={answer.isPending}
             onPress={() => reply('start')}
           />
         ) : null}
       </View>
-      <Pressable
-        testID="spare-close"
-        accessibilityRole="button"
-        accessibilityLabel="Close this notice"
-        hitSlop={8}
-        onPress={() => reply('dismiss')}
-      >
-        <Icon name="close" decorative size={16} color={c.muted} />
-      </Pressable>
+      <Button testID="spare-close" icon="close" label="" accessibilityLabel="Close this notice" onPress={() => reply('dismiss')} />
     </View>
   );
 }

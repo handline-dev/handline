@@ -86,8 +86,10 @@ describe('the phone notices', () => {
     const m = await mount((s) => ((s.daemon.tasks.verbs = true), applySeeds(s.daemon, 'spare-notice')));
     await until(() => $('notice-spare'), 'the notice');
     expect(text($('notice-spare'))).toContain("18% of theta's weekly use will be lost at 02:10.");
-    expect(text($('notice-spare'))).toContain('T7101 Tidy the gap list');
+    expect(text($('notice-spare'))).toContain('Tidy the gap list');
     expect(text($('notice-spare'))).not.toContain('T7104');
+    expect(text($('notice-spare'))).toContain('and 1 more');
+    expect(text($('notice-spare'))).not.toContain('handline.architect');
     expect(text($('notice-spare'))).toContain('Start 4 tasks');
     await press($('spare-close'));
     await until(() => !$('notice-spare'), 'the notice gone');

@@ -255,6 +255,9 @@ function useSpareNotices(): SpareNotice[] {
   return (items ?? []).flatMap((t) => spareNotice(t) ?? []);
 }
 
+/** The agent's own name: `handline.architect` is `architect`. */
+const shortName = (agent: string) => agent.split('.').at(-1) ?? agent;
+
 /** The notice that an account will lose weekly use: its sentence, the first spare tasks, and a button that starts them all. It stays until Start or the X. */
 function SpareCard({ n }: { n: SpareNotice }) {
   const rows = new Map((useTasks({}).data?.items ?? []).map((t) => [t.id, t]));
@@ -267,35 +270,40 @@ function SpareCard({ n }: { n: SpareNotice }) {
       data-notice="spare"
       onClick={open}
     >
-      <Icon name="waiting" size={14} className="mt-0.5 flex-none text-ink-2" aria-hidden />
+      <Icon name="waiting" size={14} className="mt-0.5 flex-none text-wait" aria-hidden />
       <div className="min-w-0 flex-1">
         <p className="m-0">{n.text}</p>
-        {n.ids.slice(0, SPARE_SHOWN).map((id) => (
-          <span key={id} className="block truncate text-hint text-ink-2">
-            {`T${id}`}
-            {rows.get(id) ? ` ${rows.get(id)!.title} · ${rows.get(id)!.to}` : ''}
-          </span>
-        ))}
+        <div className="mt-1.5 flex flex-col gap-0.5">
+          {n.ids.slice(0, SPARE_SHOWN).map((id) => (
+            <span key={id} className="flex min-w-0 gap-1.5 text-hint text-ink-2">
+              <b className="flex-none font-mono font-semibold text-ink">{`T${id}`}</b>
+              <span className="min-w-0 flex-1 truncate">{rows.get(id)?.title ?? ''}</span>
+              {rows.get(id) ? <span className="flex-none text-ink-3">{shortName(rows.get(id)!.to)}</span> : null}
+            </span>
+          ))}
+          {n.ids.length > SPARE_SHOWN ? <span className="text-hint text-ink-3">{`and ${n.ids.length - SPARE_SHOWN} more`}</span> : null}
+        </div>
         {n.ids.length ? (
-          <button
-            type="button"
-            className="mt-1.5 cursor-pointer rounded-ctl border border-line-strong bg-transparent px-2 py-0.5 text-body text-ink disabled:opacity-50"
+          <Button
+            variant="solid"
+            size="sm"
+            icon="play"
+            label="Start the spare tasks"
+            className="mt-2"
             disabled={answer.isPending}
             onClick={(e) => (e.stopPropagation(), reply('start'))}
           >
             {n.ids.length === 1 ? 'Start 1 task' : `Start ${n.ids.length} tasks`}
-          </button>
+          </Button>
         ) : null}
       </div>
-      <button
-        type="button"
-        className="cursor-pointer border-0 bg-transparent p-0 text-ink-3"
-        aria-label="Close this notice"
+      <Button
+        size="sm"
+        icon="close"
+        label="Close this notice"
         disabled={answer.isPending}
         onClick={(e) => (e.stopPropagation(), reply('dismiss'))}
-      >
-        <Icon name="close" size={14} aria-hidden />
-      </button>
+      />
     </div>
   );
 }
