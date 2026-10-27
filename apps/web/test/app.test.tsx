@@ -47,11 +47,12 @@ const fire = (el: Element, type: string) =>
   });
 const rect = (l: number, t: number, w: number, h: number) =>
   ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h, x: l, y: t, toJSON() {} }) as DOMRect;
-/** jsdom has no layout: every pane is 800 x 600 with a 32 px strip of 100 px tabs. */
+/** jsdom has no layout: every pane is 800 x 600 with a 22 px handle, the bar's tab run is 800 x 32 with 100 px tabs. */
 const stubRects = () =>
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
     if (this.matches('.pane, .drop-overlay')) return rect(0, 0, 800, 600);
     if (this.matches('.strip')) return rect(0, 0, 800, 32);
+    if (this.matches('.pane-handle')) return rect(0, 0, 800, 22);
     if (this.matches('[role=tab]')) return rect([...this.parentElement!.querySelectorAll('[role=tab]')].indexOf(this) * 100, 0, 100, 32);
     return rect(0, 0, 0, 0);
   });
@@ -70,6 +71,12 @@ const click = (el: Element) =>
     (el as HTMLElement).click();
   });
 const text = (el: Element | null) => el?.textContent ?? '';
+/** Focuses the pane whose handle names `word`: the bar then holds that pane's tabs. */
+const focusPane = (word: string) =>
+  fire(
+    $$('.pane').find((p) => text(p.querySelector('.pane-handle')).includes(word))!,
+    'pointerdown',
+  );
 // The row's context menu is Radix's, in a portal: it opens on the row's contextmenu event.
 const menuItems = () => [...document.querySelectorAll('[role=menuitem]')].map((b) => text(b));
 const termTab = `[data-tab="terminal:term:${ARCH}"]`;
@@ -129,20 +136,27 @@ afterEach(async () => {
 });
 
 describe('the workspace', () => {
-  it('has no agent header and no per-agent tab row; every pane has its own strip, Chat first and unclosable', async () => {
+  it("has no agent header and no per-agent tab row; the bar holds the focused pane's tabs, a split pane has a handle, Chat first and unclosable", async () => {
     await mount(ARCH);
     await until(() => $$('.pane').length === 2, 'two panes');
     expect($('.agent-head')).toBeNull();
     expect($('.tabstrip')).toBeNull();
-    expect($$('.topbar')).toHaveLength(1); // one bar over the page; the tab strip joins it in a later step
+    expect($$('.topbar')).toHaveLength(1); // one bar over the page, and the tabs are in it
+    expect($$('.topbar .strip')).toHaveLength(1);
+    expect($$('.pane .strip')).toHaveLength(0); // a pane keeps no strip of its own
     for (const p of $$('.pane')) {
-      expect(p.querySelectorAll('.strip')).toHaveLength(1);
-      expect(p.firstElementChild!.classList.contains('strip')).toBe(true);
+      expect(p.querySelectorAll('.pane-handle')).toHaveLength(1); // two panes: each has its thin handle, first in the pane
+      expect(p.firstElementChild!.classList.contains('pane-handle')).toBe(true);
     }
+    expect(text($('.topbar h2'))).toBe(ARCH); // the agent's name leads the bar
+    await focusPane('Chat');
     expect($$('[data-tab="chat"]')).toHaveLength(1);
     expect($('[data-tab="chat"] .x')).toBeNull();
     expect(text($('[data-tab="chat"]'))).toBe('Chat');
+    expect($(termTab)).toBeNull(); // the other pane's tabs are not in the bar
+    await focusPane('Claude Code');
     expect($(`${termTab} .x`)).not.toBeNull();
+    expect($('[data-tab="chat"]')).toBeNull();
     expect($('.chat .compose')).not.toBeNull(); // the Chat tab: its own tests are in chat.test.tsx
     await until(() => text($('.grid')).includes('Claude Code v2.1'), 'terminal text');
   });
@@ -242,7 +256,7 @@ describe('the workspace', () => {
   it('opens with Chat alone in view and the Claude Code tab second, behind it; closing a running one asks first', async () => {
     const { daemon } = await mount(ARCH, textGrid(), setup(), true);
     await until(() => $$('.pane').length === 1 && $(termTab), 'one pane with the terminal tab');
-    expect($$('.pane [data-tab]').map((t) => t.getAttribute('data-tab'))).toEqual(['chat', `terminal:term:${ARCH}`]);
+    expect($$('.topbar [data-tab]').map((t) => t.getAttribute('data-tab'))).toEqual(['chat', `terminal:term:${ARCH}`]);
     expect($('[data-tab="chat"]')!.getAttribute('aria-selected')).toBe('true');
     expect($('.terminal-tab')).toBeNull(); // not shown
     expect($('[data-tab="chat"] .x')).toBeNull(); // Chat is pinned: it has no close
@@ -356,7 +370,7 @@ describe('the workspace', () => {
     expect($('.split-col')).not.toBeNull();
     expect($$('.pane')).toHaveLength(2);
     expect($('.drop-overlay')).toBeNull(); // the drag ended
-    await click($('.pane[data-group="g1"] [aria-label="Add a tab"]')!);
+    await click($('.topbar [aria-label="Add a tab"]')!);
     expect([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((b) => text(b).trim())).not.toContain('Claude Code');
     expect($$('[data-tab^="terminal:"]')).toHaveLength(1);
   });
@@ -382,10 +396,11 @@ describe('the workspace', () => {
     saveWorkspace(storage, storageKey('test', ARCH), ws);
     await mount(ARCH, storage);
     await until(() => $$('.pane').length === 4, 'four panes');
-    expect(text($('[data-tab="markdown:a.md"]'))).toContain('markdown');
+    expect($$('.pane-handle').map(text).join('|')).toContain('markdown'); // its tab is in another pane: the handle names it
     expect(box.textContent).toMatch(/does not serve markdown tabs/); // a kind this daemon lacks stays visible, closable
 
     const rects = stubRects();
+    await focusPane('Claude Code');
     await fire($(termTab)!, 'dragstart');
     await dragAt($('.pane[data-group="g1"]')!, 'drop', 790, 300); // the terminal is alone in its pane: it frees one, so this is allowed
     rects.mockRestore();
@@ -393,7 +408,7 @@ describe('the workspace', () => {
     expect($('.toast')).toBeNull();
   });
 
-  it('a drop on the centre merges into the pane, a drop on a strip inserts at the line, and the Chat tab cannot be dragged', async () => {
+  it('a drop on the centre merges into the pane, a drop on a handle takes the tab, a drop on the bar inserts at the line, and the Chat tab cannot be dragged', async () => {
     const storage = memory();
     let ws = defaultWorkspace({ terminal: `term:${ARCH}` });
     ws = applyPreset(openTab(openTab(ws, 'markdown', { path: 'a.md' }), 'web', { port: 3000 }), 'grid');
@@ -408,11 +423,24 @@ describe('the workspace', () => {
     await dragAt(last, 'dragover', 400, 300);
     expect(last.querySelector<HTMLElement>('.drop-preview')!.dataset.zone).toBe('center');
     await dragAt(last, 'dragover', 50, 10);
-    expect(last.querySelector('.drop-line')).not.toBeNull(); // the insert line between tabs
+    expect(last.querySelector<HTMLElement>('.drop-preview')!.dataset.zone).toBe('strip'); // the handle lights up
     await dragAt(last, 'drop', 50, 10);
-    rects.mockRestore();
     expect($$('.pane')).toHaveLength(4);
-    expect(last.querySelector('[data-tab="shell:1"]')).not.toBeNull();
+    expect(text(last.querySelector('.pane-handle'))).toContain('Terminal'); // the pane's handle names the tab it took
+    // The pane that took the tab is the focused one: its tabs are in the bar, where the insert line shows and a drop reorders.
+    await fire($('.topbar [data-tab^="shell:"]')!, 'dragstart');
+    const overBar = (type: 'dragover' | 'drop') =>
+      act(async () => {
+        $('.topbar .strip')!.dispatchEvent(
+          Object.assign(new Event(type, { bubbles: true, cancelable: true }), { clientX: 10, dataTransfer: { dropEffect: '' } }),
+        );
+      });
+    await overBar('dragover');
+    expect($('.topbar .drop-line')).not.toBeNull();
+    await overBar('drop');
+    expect($$('.topbar [data-tab]')[0]!.getAttribute('data-tab')).toBe('shell:1');
+    expect($('.topbar .drop-line')).toBeNull();
+    rects.mockRestore();
   });
 
   it('restores the layout after a reload, and a closed tab stays closed', async () => {

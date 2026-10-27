@@ -1,5 +1,5 @@
 // An agent's workspace: tab groups in a split tree (app-core's workspace model), saved in the browser per daemon and agent.
-// Nothing sits above the panes: each pane has its own tab strip.
+// The top bar carries the agent's name and the tabs of the focused pane; a pane has a thin handle only when the window is split.
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   activate,
@@ -24,9 +24,11 @@ import type { AgentDetail } from '@handline/client';
 import { useConnection, useStore } from '@handline/app-react';
 import { classify, useAgentDetail, useAgents, useChat, useServes } from '@handline/app-data';
 import { useDecided } from '#src/ChatCards.tsx';
-import { recordHistoryValue, takeTerminalWish, useHistoryValue } from '#src/route.ts';
+import { goSettings, recordHistoryValue, takeTerminalWish, useHistoryValue } from '#src/route.ts';
 import { View } from '#src/View.tsx';
 import { Pane } from '#src/Pane.tsx';
+import { PaneActions, PaneTabs } from '#src/PaneTabs.tsx';
+import { Button, PageBar } from '#src/ui/index.ts';
 import { isSwitchChord, isTerminalSwitch } from '#src/terminal/core.ts';
 
 const CELL = 'cell flex min-h-0 min-w-0 [&>*]:min-h-0 [&>*]:min-w-0 [&>*]:flex-1';
@@ -211,19 +213,33 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   };
   const arr = arrange(ws, size.w, size.h);
   const active = groupsOf(ws.root).find((g) => g.id === ws.active) ?? groupsOf(ws.root)[0]!;
+  // The bar shows the focused pane's tabs; in a narrow window the panes are one, and the bar shows its tabs.
+  const barGroup = arr.merged ? { type: 'group' as const, id: active.id, tabs: arr.tabs, activeTab: arr.activeTab } : active;
   return (
     <Ctx.Provider value={value}>
+      <PageBar
+        title={agent}
+        tabs={<PaneTabs group={barGroup} />}
+        tools={
+          <>
+            <PaneActions group={barGroup} />
+            <Button
+              icon="settings"
+              size="sm"
+              label={`${agent} settings`}
+              className="shell:[-webkit-app-region:no-drag]"
+              onClick={() => goSettings(agent)}
+            />
+          </>
+        }
+      />
       <div
         className="workspace relative flex min-h-0 min-w-0 flex-1"
         ref={root}
         data-panes={groupsOf(ws.root).length}
         data-merged={arr.merged}
       >
-        {arr.merged ? (
-          <Pane group={{ type: 'group', id: active.id, tabs: arr.tabs, activeTab: arr.activeTab }} />
-        ) : (
-          <Tree node={ws.root} path={[]} />
-        )}
+        {arr.merged ? <Pane group={barGroup} /> : <Tree node={ws.root} path={[]} />}
       </div>
     </Ctx.Provider>
   );
