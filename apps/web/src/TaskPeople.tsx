@@ -8,7 +8,7 @@ import { Sheet } from '#src/taskui.tsx';
 
 export const CHIP = 'rounded-full border px-2 py-0.5 text-label';
 export const chipLook = (on: boolean) =>
-  on ? 'border-primary bg-primary text-on-primary' : 'border-line-strong bg-transparent text-ink hover:bg-raised';
+  on ? 'border-primary bg-primary text-on-primary' : 'border-line-strong bg-transparent text-ink tint';
 
 /** The few who are likely (who worked on it, who is near in the team), a search over everyone; Enter or a click hands the task over at once. */
 export function AssignSheet({ t, me, onClose }: { t: Detail; me: string; onClose: () => void }) {

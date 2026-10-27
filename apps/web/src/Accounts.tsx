@@ -32,7 +32,7 @@ const STATE_TONE =
   'data-[state=out]:border-bad data-[state=out]:text-bad data-[state=needs_login]:border-bad data-[state=needs_login]:text-bad data-[state=in_use]:border-ok data-[state=in_use]:text-ok';
 const FACT = 'acct-fact m-0 flex items-center gap-2 [&_svg]:text-ink-3';
 const ROW =
-  'acct-row grid min-h-11 grid-cols-[minmax(8em,1.2fr)_auto_minmax(12em,1fr)_minmax(12em,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-2 text-inherit no-underline hover:bg-raised max-[1200px]:grid-cols-[minmax(8em,1fr)_auto_auto] max-[1200px]:[&_.gauge]:col-span-full';
+  'acct-row grid min-h-11 grid-cols-[minmax(8em,1.2fr)_auto_minmax(12em,1fr)_minmax(12em,1fr)_auto] items-center gap-x-4 gap-y-2 px-4 py-2 text-inherit no-underline tint max-[1200px]:grid-cols-[minmax(8em,1fr)_auto_auto] max-[1200px]:[&_.gauge]:col-span-full';
 const WRAP = '[&:not(:first-child)]:border-t [&:not(:first-child)]:border-line';
 
 const STATE_ICON: Record<ReturnType<typeof stateOf>, IconName> = {
@@ -206,7 +206,7 @@ export function useAccountList() {
 function ManageRow({ account, now }: { account: Account; now: number }) {
   return (
     <a
-      className="acct-row flex min-h-11 items-center gap-x-4 px-4 py-2 text-inherit no-underline hover:bg-raised [&:not(:first-child)]:border-t [&:not(:first-child)]:border-line"
+      className="acct-row flex min-h-11 items-center gap-x-4 px-4 py-2 text-inherit no-underline tint [&:not(:first-child)]:border-t [&:not(:first-child)]:border-line"
       href={`#/accounts/${encodeURIComponent(account.name)}`}
       data-account={account.name}
     >

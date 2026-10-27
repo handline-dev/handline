@@ -26,6 +26,8 @@ const colorVars = (c: Colors, indent: string): string[] => {
     ['shadow-2', `0 ${shadow[2].y}px ${shadow[2].blur}px ${c.shadowAlpha}`],
     ['shadow-3', `0 ${shadow[3].y}px ${shadow[3].blur}px ${c.shadowAlpha}`],
     ['scrim', c.scrim],
+    ['hover-bg', c.hover],
+    ['press-bg', c.press],
   ];
   return v.map(([k, x]) => `${indent}--${k}: ${x};`);
 };

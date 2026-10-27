@@ -106,7 +106,7 @@ export function AgentRow({
             onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setHot(false)}
           >
             <div
-              className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 h-11 py-[3px] border-l-[3px] hover:bg-canvas ${edge}`}
+              className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 h-11 py-[3px] border-l-[3px] tint ${edge}`}
               style={{ paddingLeft: 10 + depth * 14 }}
             >
               {kids ? (

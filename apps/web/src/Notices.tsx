@@ -24,7 +24,7 @@ export function NoticeBell() {
       <Toasts />
       <button
         type="button"
-        className="notice-bell inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-ink-2"
+        className="notice-bell tint -mx-1 inline-flex cursor-pointer items-center gap-1 rounded-chip border-0 bg-transparent px-1 py-0 text-ink-2"
         aria-label={unread ? `Notices, ${unread} unread` : 'Notices'}
         aria-expanded={open}
         onClick={() => (open ? setOpen(false) : show())}
