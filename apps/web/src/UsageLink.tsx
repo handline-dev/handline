@@ -2,6 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { alertText, dateTime, forecastWords, runsOutSoon, span, weekForecast, type WeekForecast } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
+import { useNow } from '#src/Gauge.tsx';
 import { useAccounts, useOutlook, useServes } from '@handline/app-data';
 
 export const WEEK_ALERT_KEY = 'week_alert_hours';
@@ -26,7 +27,7 @@ export function UsageLink() {
   const { data: outlook } = useOutlook('7d');
   const { served } = useServes('accounts.list');
   const list = data?.accounts ?? [];
-  const now = Date.now();
+  const now = useNow();
   const f = weekForecast(list, outlook, now);
   const soon = runsOutSoon(f, weekAlertHours());
   const said = soon ? alertText(f) : '';
