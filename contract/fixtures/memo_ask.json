@@ -1,0 +1,557 @@
+{
+ "fixtures": [
+  {
+   "name": "task.comment.add.naming_human_opens_an_ask_the_founders_reply_answers",
+   "spec": "task.comment.add",
+   "about": "An agent's comment that names @human opens one ask to the founder; the founder's inbox.reply adds a reply comment to the task and closes the ask.",
+   "as": "agent",
+   "with": {
+    "boss": "founder"
+   },
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "caller": {
+       "name": {
+        "$save": "me"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "{{me}}",
+       "title": "a task with an ask",
+       "body": "build it; done is it built and tested",
+       "time_box": "1h",
+       "request_id": "conf-ma-1"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.comment.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "@human which one, A or B?",
+       "request_id": "conf-ma-2"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "memo": {
+       "$save": "mid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "inbox.list",
+      "params": {
+       "agent": "{{me}}",
+       "unread": true
+      }
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "kind": "ask",
+        "task": "{{tid}}",
+        "memo": "{{mid}}",
+        "read": false,
+        "id": {
+         "$save": "aid"
+        }
+       }
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "inbox.reply",
+      "params": {
+       "id": "{{aid}}",
+       "text": "A",
+       "request_id": "conf-ma-3"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "task.comment.list",
+      "params": {
+       "task": "{{tid}}"
+      }
+     },
+     "result": {
+      "memos": {
+       "$contains": {
+        "author": "human",
+        "text": "A",
+        "reply_to": "{{mid}}"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "inbox.list",
+      "params": {
+       "agent": "{{me}}",
+       "unread": true
+      }
+     },
+     "result": {
+      "items": {
+       "$each": {
+        "memo": {
+         "$absent": true
+        }
+       }
+      }
+     },
+     "on": "boss"
+    }
+   ]
+  },
+  {
+   "name": "task.comment.add.a_comment_not_naming_human_opens_no_ask",
+   "spec": "task.comment.add",
+   "about": "A comment that does not name @human raises no ask.",
+   "as": "agent",
+   "with": {
+    "boss": "founder"
+   },
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "caller": {
+       "name": {
+        "$save": "me"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "{{me}}",
+       "title": "a task with no ask",
+       "body": "build it; done is it built and tested",
+       "time_box": "1h",
+       "request_id": "conf-ma-4"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.comment.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "nothing for the founder here",
+       "request_id": "conf-ma-5"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "memo": {
+       "$save": "mid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "inbox.list",
+      "params": {
+       "agent": "{{me}}",
+       "unread": true
+      }
+     },
+     "result": {
+      "items": {
+       "$each": {
+        "memo": {
+         "$absent": true
+        }
+       }
+      }
+     },
+     "on": "boss"
+    }
+   ]
+  },
+  {
+   "name": "task.comment.edit.dropping_human_withdraws_the_ask",
+   "spec": "task.comment.edit",
+   "about": "An edit that drops @human withdraws the ask the comment opened.",
+   "as": "agent",
+   "with": {
+    "boss": "founder"
+   },
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "caller": {
+       "name": {
+        "$save": "me"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "{{me}}",
+       "title": "a task whose ask is withdrawn",
+       "body": "build it; done is it built and tested",
+       "time_box": "1h",
+       "request_id": "conf-ma-6"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.comment.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "@human which one?",
+       "request_id": "conf-ma-7"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "memo": {
+       "$save": "mid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "inbox.list",
+      "params": {
+       "agent": "{{me}}",
+       "unread": true
+      }
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "kind": "ask",
+        "task": "{{tid}}",
+        "memo": "{{mid}}",
+        "read": false,
+        "id": {
+         "$save": "aid"
+        }
+       }
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.comment.edit",
+      "params": {
+       "task": "{{tid}}",
+       "memo": "{{mid}}",
+       "text": "never mind",
+       "request_id": "conf-ma-8"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "inbox.list",
+      "params": {
+       "agent": "{{me}}",
+       "unread": true
+      }
+     },
+     "result": {
+      "items": {
+       "$each": {
+        "memo": {
+         "$absent": true
+        }
+       }
+      }
+     },
+     "on": "boss"
+    }
+   ]
+  },
+  {
+   "name": "task.done.withdraws_the_ask_of_a_comment",
+   "spec": "task.comment.add",
+   "about": "An ask a comment raised does not outlive its task: done closes it.",
+   "as": "agent",
+   "with": {
+    "boss": "founder"
+   },
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {
+      "caller": {
+       "name": {
+        "$save": "me"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {},
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "{{me}}",
+       "title": "a task done with an ask open",
+       "body": "build it; done is it built and tested",
+       "time_box": "1h",
+       "request_id": "conf-ma-9"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "tid"
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.comment.add",
+      "params": {
+       "task": "{{tid}}",
+       "text": "@human which one?",
+       "request_id": "conf-ma-10"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "memo": {
+       "$save": "mid"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "inbox.list",
+      "params": {
+       "agent": "{{me}}",
+       "unread": true
+      }
+     },
+     "result": {
+      "items": {
+       "$contains": {
+        "kind": "ask",
+        "task": "{{tid}}",
+        "memo": "{{mid}}",
+        "read": false,
+        "id": {
+         "$save": "aid"
+        }
+       }
+      }
+     },
+     "on": "boss"
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.done",
+      "params": {
+       "task": "{{tid}}",
+       "evidence": "built and tested",
+       "request_id": "conf-ma-11"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "inbox.list",
+      "params": {
+       "agent": "{{me}}",
+       "unread": true
+      }
+     },
+     "result": {
+      "items": {
+       "$each": {
+        "memo": {
+         "$absent": true
+        }
+       }
+      }
+     },
+     "on": "boss"
+    }
+   ]
+  }
+ ]
+}

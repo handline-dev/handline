@@ -14,10 +14,25 @@ import (
 // here is raised to the caller, whose write is done: a failure is logged and the tick is the net.
 
 // MemoChanged tells whom a memo concerns that it was added, edited or deleted (what), now or in each reader's digest (TellMemo).
-func (e *Env) MemoChanged(tid int64, by, what, text string, now bool) {
-	if err := e.TellMemo(e.DB, tid, by, what, text, "", now); err != nil {
+func (e *Env) MemoChanged(tid, mid int64, by, what, text string, now bool) {
+	if err := e.TellMemoOf(e.DB, tid, mid, by, what, text, "", now); err != nil {
 		e.log("  telling about the memo on T%d failed: %v", tid, err)
 	}
+}
+
+// MemoTellSent sends the held tell of a comment, request rid, to its reader at once as a digest of that one notice.
+func (e *Env) MemoTellSent(rid int64) {
+	var out string
+	defer e.guard("sending a held memo tell", &out)
+	q := db.Q(e.DB)
+	req := must(db.GetRequest(q, rid))
+	if req == nil || req.DeliveredAt.Valid {
+		return
+	}
+	said := e.say(q, req.Target, DigestText(q, []*db.Request{req}), "notice digest")
+	check(db.MarkNoticesDigested(q, []int64{rid}))
+	must(db.AddEvent(q, db.NoticeRequester, "notices_digested", db.KV{K: "request_id", V: said}, db.KV{K: "to", V: req.Target}, db.KV{K: "notices", V: []int64{rid}}))
+	must(e.TellNow(q, said))
 }
 
 // QueueDelivered is what queuing does after its write commits: the task goes out now if its owner is free. It answers the sentence the reply

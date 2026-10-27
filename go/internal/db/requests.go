@@ -355,6 +355,12 @@ func MarkRead(q Q, rids []int64) error {
 	return nil
 }
 
+// MarkReadBy marks request rid read by target, the agent it was told to, once.
+func MarkReadBy(q Q, rid int64, target string) error {
+	_, err := q.Exec("UPDATE requests SET read_at = COALESCE(read_at, ?) WHERE id = ? AND target = ?", Now(), rid, target)
+	return err
+}
+
 // PendingNotices is db.pending_notices: the notices the target has not been shown, oldest first.
 func PendingNotices(q Q, target string) ([]*Request, error) {
 	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE target = ? AND notice >= 1 AND state = 'landed' AND delivered_at IS NULL ORDER BY id", target)
