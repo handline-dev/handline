@@ -5,6 +5,7 @@ import { clockTime, SPARE_SHOWN, spareNotice, targetOf, type Notice, type SpareN
 import { useSelector, useStore } from '@handline/app-react';
 import { useMyTurn, useTasks, useWrite } from '@handline/app-data';
 import { Button, Icon, Popup } from '#src/ui/index.ts';
+import { composers } from '#src/ui/composers.ts';
 
 const lineOf = (n: Notice) => (n.count > 1 ? `${n.text} ×${n.count}` : n.text);
 
@@ -236,20 +237,19 @@ function useClearOfComposers(count: number) {
     resize.observe(el);
     // A composer that mounts or unmounts later (navigation, a closed split pane) is not a resize of anything watched.
     const sync = () => {
-      const now = [...document.querySelectorAll('.compose-row')];
+      const now = composers.list();
       if (now.length === rows.length && now.every((r, i) => r === rows[i])) return;
       for (const r of rows) resize.unobserve(r);
       rows = now;
       for (const r of rows) resize.observe(r);
       fit();
     };
-    const mounts = new MutationObserver(sync);
-    mounts.observe(document.body, { childList: true, subtree: true });
+    const unsubscribe = composers.subscribe(sync);
     sync();
     fit();
     return () => {
       resize.disconnect();
-      mounts.disconnect();
+      unsubscribe();
     };
   }, [count]);
   return ref;
