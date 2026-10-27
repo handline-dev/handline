@@ -15,17 +15,16 @@ import {
   sideOf,
   tickLevel,
 } from '@handline/app-core';
-import { useWrite } from '@handline/app-data';
 import { useMe } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from '#src/msgClass.ts';
 import { Pictures } from '#src/ChatAttach.tsx';
 import { Markdown } from '#src/Markdown.tsx';
 import { RichText } from '#src/RichText.tsx';
-import { useWorkspace } from '#src/Workspace.tsx';
+import type { useWorkspace } from '#src/Workspace.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { Reveal } from '#src/ui/Reveal.tsx';
-import { TaskLine } from '#src/ChatTaskCards.tsx';
+import { BatchCard, TaskLine } from '#src/ChatTaskCards.tsx';
 
 /** A plain click on a task link opens the task in the workspace; a modified or middle click keeps the browser's own. */
 export const openTaskOnClick = (apply: ReturnType<typeof useWorkspace>['apply'], task: number) => (e: MouseEvent) => {
@@ -349,40 +348,6 @@ function SessionCard({ i }: { i: TranscriptItem }) {
         ) : null}
       </AnimatedList>
     </div>
-  );
-}
-
-/** A batch discard as one card: a line per task with its title and reason; the line opens the task, Reopen brings it back as a draft. */
-function BatchCard({ i }: { i: TranscriptItem }) {
-  const { apply } = useWorkspace();
-  const reopen = useWrite('task.reopen');
-  const b = i.task_batch;
-  if (!b) return null;
-  return (
-    <Card variant="chat" className="card-batch flex-col items-stretch" data-kind="task_batch">
-      <div className="flex items-baseline gap-x-2">
-        <Icon name="withdrawn" size={14} label="Discarded" />
-        <span className="card-event text-meta font-semibold uppercase tracking-wide">Discarded {b.tasks.length}</span>
-        <span className="muted card-time ml-auto">{clockTime(i.at)}</span>
-      </div>
-      {b.tasks.map((t) => (
-        <div key={t.task} className="flex items-baseline gap-x-2" data-task={t.task}>
-          <button
-            type="button"
-            className="flex min-w-0 flex-1 cursor-pointer flex-wrap items-baseline gap-x-2 border-0 bg-transparent p-0 text-left text-body"
-            title={`Open T${t.task} in the Tasks tab`}
-            onClick={() => apply((w) => openTask(w, t.task))}
-          >
-            <span className="mono">T{t.task}</span>
-            <span className="max-w-[28ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{t.title}</span>
-            <span className="muted min-w-0 break-words">{t.reason}</span>
-          </button>
-          <Button label={`Reopen T${t.task}`} onClick={() => reopen.mutate({ task: t.task, note: 'reopened from the batch card' })}>
-            Reopen
-          </Button>
-        </div>
-      ))}
-    </Card>
   );
 }
 
