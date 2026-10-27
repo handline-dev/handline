@@ -97,12 +97,12 @@ func (e *Env) scheduleChange(agent string, args map[string]any) (map[string]stri
 		if why := cronGapProblem(cron); why != "" {
 			return nil, why
 		}
-		if action == "add" {
-			for _, it := range have {
-				if it.Cron == cron && it.Message == message {
-					return nil, agent + " has this schedule already"
-				}
+		for _, it := range have {
+			if it.Cron == cron && it.Message == message && (was == nil || reads.ScheduleSID(it) != reads.ScheduleSID(*was)) {
+				return nil, agent + " has this schedule already"
 			}
+		}
+		if action == "add" {
 			sets["sid"] = reads.ScheduleSID(reads.Schedule{Cron: cron, Message: message})
 		}
 		sets["cron"], sets["message"] = cron, message

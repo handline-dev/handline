@@ -1415,6 +1415,16 @@ func TestAnAgentProposesAScheduleAndItIsAppliedOnlyOnApproval(t *testing.T) {
 	if m := r.callAs("alice", "hr.withdraw", fmt.Sprintf(`{"proposal":%d,"request_id":"w1"}`, int64(wd["proposal"].(float64)))); m["error"] != nil {
 		t.Fatalf("%v", m)
 	}
+	// neither an add nor an edit may leave two identical entries
+	if msg := refusal(propose("s6", `{"name":"bob","action":"add","cron":"0 8 * * 1","message":"review the open PRs"}`)); !strings.Contains(msg, "has this schedule already") {
+		t.Fatalf("add: %q", msg)
+	}
+	other := propose("s7", `{"name":"bob","action":"add","cron":"0 7 * * 1","message":"review the open PRs"}`)["result"].(map[string]any)
+	op, _ := r.e.load(fmt.Sprintf("%08x", int64(other["proposal"].(float64))))
+	r.decide(int64(other["proposal"].(float64)), "approve", op.subject(), "d4")
+	if msg := refusal(propose("s8", `{"name":"bob","action":"edit","was_cron":"0 7 * * 1","cron":"0 8 * * 1"}`)); !strings.Contains(msg, "has this schedule already") {
+		t.Fatalf("edit: %q", msg)
+	}
 }
 
 func TestAScheduleProposalIsRefusedWhenItIsTooOftenTooLongOrNamesNothing(t *testing.T) {
