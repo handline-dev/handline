@@ -15,7 +15,7 @@ export function Select({
       <select
         aria-label={label}
         title={label}
-        className="h-9 min-w-0 max-w-full appearance-none truncate rounded-ctl border-0 bg-panel py-0 pl-3 pr-8 text-ink hover:bg-raised"
+        className="h-9 min-w-0 max-w-full appearance-none truncate rounded-ctl border-0 bg-panel py-0 pl-3 pr-8 text-ink tint"
         {...rest}
       >
         {options.map((o) => (

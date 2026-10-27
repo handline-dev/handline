@@ -127,13 +127,16 @@ export function visibleRows<R extends { agent: AgentView; depth: number }>(rows:
   return out;
 }
 
+/** The daemon's agent state as the app words it: a parked agent waits for a time (docs/copy.md 7). */
+export const agentStateWord = (k: string): string => (k === 'parked' ? 'waiting' : k);
+
 /** The filter menu's choices: what a person asks of the list, each over the rail dots it covers. A dot no choice names is always shown. */
 export const RAIL_FILTERS: { id: string; label: string; dots: Dot[] }[] = [
-  { id: 'needs', label: 'Needs me', dots: ['waiting', 'blocked'] },
+  { id: 'needs', label: 'Needs you or blocked', dots: ['waiting', 'blocked'] },
   { id: 'working', label: 'Working', dots: ['running'] },
   { id: 'waking', label: 'Waking', dots: ['waking'] },
   { id: 'idle', label: 'Idle', dots: ['idle'] },
-  { id: 'sleeping', label: 'Sleeping', dots: ['parked', 'none'] },
+  { id: 'sleeping', label: 'Waiting or stopped', dots: ['parked', 'none'] },
 ];
 
 /** What is piled up for an agent: tasks it owns that are not done (`task_count`) and messages owed to it that have not reached it (`unreached`, which the daemon sends only for agents.list `status: true`). A count the view does not carry is null, never 0. */

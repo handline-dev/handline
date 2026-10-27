@@ -27,7 +27,7 @@ const STATE_TONE: Record<string, Tone> = {
 export const toneOf = (state: string): Tone => STATE_TONE[state] ?? 'idle';
 /** The one vocabulary of waiting (docs/story1-research.md section 3). */
 export const WAIT_WORDS = {
-  founder: 'waiting on you',
+  founder: 'needs you',
 } as const;
 export const blockedBy = (ids: readonly number[]): string => `blocked by ${ids.map((n) => `T${n}`).join(', ')}`;
 export * from '#src/icons.ts';

@@ -38,3 +38,13 @@ xcrun simctl install booted ios/build/Build/Products/Debug-iphonesimulator/Handl
 xcrun simctl io booted screenshot shot.png        # a screenshot without a window
 emulator -avd <name> -no-window -no-audio &       # Android, the same way
 ```
+
+Start them for the check and stop them when it ends: a simulator or emulator left running costs a core (one sat idle for six days at 60-70% CPU), and the daemon holds new agent work while one runs. `tools/phone-sim.sh` does both and shows the state:
+
+```
+tools/phone-sim.sh status                   # what is running now, "none" when nothing is
+tools/phone-sim.sh android start <name>     # no window, no sound; prints the serial it started, returns when booted (180s limit, PHONE_SIM_BOOT_TIMEOUT)
+tools/phone-sim.sh android stop <serial>      # only that emulator, the one start printed; also ends its qemu
+tools/phone-sim.sh ios start "iPhone 16"    # no Simulator.app window
+tools/phone-sim.sh ios stop "iPhone 16"
+```

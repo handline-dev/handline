@@ -83,7 +83,7 @@ describe('capture', () => {
     await until(() => $('[data-testid="capture-preview"]'), 'the preview');
     await typeInto($('#capture-note') as HTMLTextAreaElement, 'The header overlaps the title');
     await click(button('New task'));
-    await choose($('select[aria-label="Owner"]') as HTMLSelectElement, 'handline.auditor');
+    await choose($('select[aria-label="Assigned to"]') as HTMLSelectElement, 'handline.auditor');
     await click(button('Send'));
     await until(() => !$('[data-testid="capture-preview"]'), 'the dialog to close', 600);
     const list = (await s.client.call('tasks.list', {} as never)) as { items: { id: number; title: string }[] };
@@ -126,7 +126,7 @@ describe('capture', () => {
     await typeInto($('textarea[aria-label="Comment"]') as HTMLTextAreaElement, 'Tab label is cut off');
     await typeInto($('#capture-note') as HTMLTextAreaElement, 'Two problems');
     await click(button('New task'));
-    await choose($('select[aria-label="Owner"]') as HTMLSelectElement, 'handline.auditor');
+    await choose($('select[aria-label="Assigned to"]') as HTMLSelectElement, 'handline.auditor');
     await click(button('Send'));
     await until(() => !$('[data-testid="capture-preview"]'), 'the dialog to close', 600);
     const list = (await s.client.call('tasks.list', {} as never)) as { items: { id: number; title: string }[] };

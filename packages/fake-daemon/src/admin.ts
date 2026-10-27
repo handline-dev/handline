@@ -13,6 +13,9 @@ const AGENTS = ['handline.architect', 'handline.auditor', 'handline.term-build']
 
 /** The methods this answers. */
 const ADMIN = /^(stats\.|connection\.get|settings\.|answers?\.|devices?\.(list|revoke)|agent\.triggers|memory\.status|events\.feed)/;
+/** The built-in handoff prompt (go/internal/handoff/note.go AskTemplate). */
+const BUILTIN_HANDOFF =
+  "Write your handoff to {path} now, while your prompt cache is warm, with one Write (replace what is there), then stop and run nothing else. The next session of you, if it starts fresh, reads it first: copy yourself into it. At most {max} characters, about 30 lines, only what `hl` and your memory cannot tell it: (1) what you were deciding and why; (2) what you meant to do next; (3) promises or doubts not yet on any task; (4) the founder's preferences and the pitfalls you learned this session; (5) who you wait on, as T<n>/#<n> numbers only; (6) what slowed you down: one line each, starting with 'Slowed:', naming the command, tool, rule or T number and what it cost (retries, a wait, a refusal), or 'Slowed: none' if nothing did. Do not restate what a task or message holds; cite its T or # number. A lasting lesson or preference goes to your memory first, not here. If there is nothing, write the single word: nothing.";
 /** Every settings value at the Go daemon's default (go/internal/reads/settings.go), except active_cap: the fake keeps 4. */
 const DEFAULTS: Settings['values'] = {
   active_cap: 4,
@@ -26,8 +29,7 @@ const DEFAULTS: Settings['values'] = {
   notice_digest_s: 300,
   token_prices: {},
   input_hold_idle_s: 600,
-  handoff_prompt:
-    "Write your handoff to {path} now, while your prompt cache is warm, with one Write (replace what is there), then stop and run nothing else. The next session of you, if it starts fresh, reads it first: copy yourself into it. At most {max} characters, about 30 lines, only what `hl` and your memory cannot tell it: (1) what you were deciding and why; (2) what you meant to do next; (3) promises or doubts not yet on any task; (4) the founder's preferences and the pitfalls you learned this session; (5) who you wait on, as T<n>/#<n> numbers only; (6) what slowed you down: one line each, starting with 'Slowed:', naming the command, tool, rule or T number and what it cost (retries, a wait, a refusal), or 'Slowed: none' if nothing did. Do not restate what a task or message holds; cite its T or # number. A lasting lesson or preference goes to your memory first, not here. If there is nothing, write the single word: nothing.",
+  handoff_prompt: BUILTIN_HANDOFF,
   push_prompt_asked: true,
   push_task_done: true,
   push_stall: true,
@@ -38,8 +40,10 @@ const DEFAULTS: Settings['values'] = {
   host_active_cap: 0,
   load_per_core_pct: 150,
   ram_free_min_pct: 10,
+  host_simulator_hold: 1,
   heavy_slots: 2,
   keep_awake: 'off',
+  reap_orphans: 'dry',
 };
 
 /** What the outlook_agent_use fixtures name (--var outlook_agent=grp.one outlook_group=grp): two agents of the group grp. */
@@ -327,11 +331,24 @@ export class FakeAdmin {
       trust_folders: [],
       hooks: { installed: true, accounts: [] },
       values,
+      handoff_prompt_default: BUILTIN_HANDOFF,
+      handoff_prompt_own: [...this.handoffOwn],
     } as unknown as Settings;
   }
 
+  /** Agents whose own agent.yaml sets a handoff prompt, which wins over this one. */
+  handoffOwn: string[] = [];
+
   set(changes: SettingsChanges): void {
-    for (const [key, value] of Object.entries(changes)) {
+    // As the real daemon does: a key the contract does not list is refused, so an app writing a key nobody listed fails its test.
+    for (const key of Object.keys(changes)) if (!(key in DEFAULTS)) throw badRequest(`${key} is not a setting`, key);
+    for (const [key, given] of Object.entries(changes)) {
+      let value = given;
+      if (key === 'handoff_prompt' && typeof value === 'string') {
+        value = value.replace(/\s*[\r\n]+\s*/g, ' ').trim();
+        if (value && value.length < 20) throw badRequest('Too short to guide a note. Leave it blank for the built-in.', 'handoff_prompt');
+        if (!value) value = null;
+      }
       if (key === 'active_cap' && value !== null && (!Number.isInteger(value) || (value as number) < 1))
         throw badRequest('active_cap is a whole number from 1', 'active_cap');
       if (key === 'park_timeout_s' && value !== null && (!Number.isInteger(value) || (value as number) < 0))
@@ -340,6 +357,8 @@ export class FakeAdmin {
         throw badRequest('heavy_slots is a whole number, at least 1', 'heavy_slots');
       if (key === 'keep_awake' && value !== null && value !== 'off' && value !== 'on' && value !== 'working')
         throw badRequest('keep_awake is off, on or working', 'keep_awake');
+      if (key === 'reap_orphans' && value !== null && value !== 'dry' && value !== 'on' && value !== 'off')
+        throw badRequest('reap_orphans is dry, on or off', 'reap_orphans');
       const values = this.values as Record<string, unknown>;
       if (value === null) {
         values[key] = structuredClone(DEFAULTS[key as keyof typeof DEFAULTS]);

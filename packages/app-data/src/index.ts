@@ -5,6 +5,7 @@ export * from '#src/chat.ts';
 export * from '#src/chat-events.ts';
 export * from '#src/errors.ts';
 export * from '#src/provider.ts';
+export * from '#src/my-turn.ts';
 export * from '#src/read.ts';
 export * from '#src/reads.ts';
 export * from '#src/send-ops.ts';

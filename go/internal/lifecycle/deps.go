@@ -64,6 +64,8 @@ type HandoffPort interface {
 	CacheMargin(ttl int64) int64
 	// ContextUsed is how many tokens the session's context held at its last reply; ok false when its transcript gives none.
 	ContextUsed(q db.Q, agent, session string) (tokens int64, ok bool)
+	// ContextFull: the session's context is at or over the agent's context limit; false when it cannot be read.
+	ContextFull(q db.Q, agent, session string) bool
 	ClearNote(q db.Q, agent string)
 }
 
@@ -111,6 +113,9 @@ type Launch interface {
 	RoomElsewhere(q db.Q, agent string, row *db.AgentState, exclude map[string]string) (account, why string)
 	// RoomOn is why acct cannot take the agent, "" when it can.
 	RoomOn(q db.Q, agent string, row *db.AgentState, acct string) string
+	// WorthRepick is whether a closed agent's cold wake should land on to instead of its own account: to's unused week runs out faster by
+	// usage.RepickGain, or one of them cannot be read.
+	WorthRepick(own, to string) bool
 	// RoomNow is a person's start off skip: the account with the most headroom, no older waiter ahead of it.
 	RoomNow(q db.Q, agent string, row *db.AgentState, skip string) (account, why string)
 }

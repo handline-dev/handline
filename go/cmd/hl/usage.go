@@ -43,6 +43,7 @@ var usages = map[string][2]string{
 	"hr unlink":       {`hl hr unlink <from> <to> --why "<why>"`, `hl hr unlink reviewer backend --why "no longer needed"`},
 	"hr team":         {`hl hr team <manager> --member <name>[=REPO] ... --repo PATH --why "<why>"`, `hl hr team shop --member sea=/code/sea --member shore --repo /code/shop --why "a storefront team"`},
 	"hr context":      {`hl hr context <agent> [--role-file PATH] [--base-file PATH] --why "<why>"`, `hl hr context shop.sea --role-file role.md --why "its role grew"`},
+	"hr schedule":     {`hl hr schedule <agent> --cron "<expr>" --message "<text>" [--was "<old cron>" [--was-message "<old text>"]] | --remove --was "<cron>" --why "<why>"`, `hl hr schedule shop.sea --cron "0 9 * * 1" --message "Review last week's open PRs" --why "a weekly review nobody remembers"`},
 	"hr list":         {`hl hr list [--json] [--all]`, `hl hr list`},
 	"hr withdraw":     {`hl hr withdraw <proposal id>`, `hl hr withdraw 1a2b3c4d`},
 	"init":            {`hl init`, `hl init`},

@@ -176,6 +176,14 @@ func AgentBurn(ld *Load, agent string) float64 {
 	return TypicalAgentBurnPerS
 }
 
+// measuredBurn is what one more agent costs when samples say so (Costs.Measured); ok false for the starting value or no costs.
+func measuredBurn(ld *Load, agent string) (float64, bool) {
+	if ld == nil || ld.Costs == nil {
+		return TypicalAgentBurnPerS, false
+	}
+	return ld.Costs.Measured(agent)
+}
+
 func loadBurn(ld *Load) float64 {
 	if ld != nil && ld.Burn != nil {
 		return *ld.Burn
@@ -263,8 +271,8 @@ func stretchReason(st *AccountStatus, ld *Load, lasts float64, pct int, agent st
 		perMin(AgentBurn(ld, agent), 2), spanF(lasts))
 }
 
-// NoRoom is (why it cannot take one more agent, how long it would last): the cap, the week's stretch, then the shortest window's when
-// the fill pct is known. The one test Unfit and the pick share; agent prices the newcomer by its own kind.
+// NoRoom is (why it cannot take one more agent, how long it would last): the cap, the week's stretch, then the shortest window's: it must
+// last to its reset with the newcomer (FiveHourShare), or a while where the reset is unknown, when the fill pct is known. The one test Unfit and the pick share; agent prices the newcomer by its own kind.
 func NoRoom(st *AccountStatus, ld *Load, pct *int, agent string) (string, *float64) {
 	if ld != nil && ld.AtCap() {
 		return fmt.Sprintf("at its cap: %d of %d agents mid-turn", ld.Active, ld.Cap), nil
@@ -276,7 +284,14 @@ func NoRoom(st *AccountStatus, ld *Load, pct *int, agent string) (string, *float
 		return "", nil
 	}
 	lasts := StretchS(float64(ShortBlock-*pct), loadBurn(ld), AgentBurn(ld, agent))
-	if lasts < MinStretchS {
+	// With the reset known and the newcomer's cost measured, a start is worth it when the account lasts to the reset with it; without,
+	// when it lasts a while.
+	per, measured := measuredBurn(ld, agent)
+	if share, ok := FiveHourShare(st, loadBurn(ld), per, st.NowS()); ok && measured {
+		if share < 1 {
+			return stretchReason(st, ld, lasts, *pct, agent) + " - short of its reset", &lasts
+		}
+	} else if lasts < MinStretchS {
 		return stretchReason(st, ld, lasts, *pct, agent) + fmt.Sprintf(" - under the %s a start is worth", spanF(MinStretchS)), &lasts
 	}
 	return "", &lasts
@@ -556,6 +571,19 @@ func (e *Env) Pick(q db.Q, o PickOpts) (string, []Reason, error) {
 		}
 		return a.name < b.name
 	})
+	// The week that runs out soonest is spent first; the older key above orders what has no readable week.
+	ranked := make([]Ranked, len(keys))
+	for i, k := range keys {
+		active := 0
+		if k.ld != nil {
+			active = k.ld.Active
+		}
+		u, known := Urgency(k.st)
+		ranked[i] = Ranked{Name: k.name, Urgency: u, Known: known, Active: active}
+	}
+	if best, ok := BestByUrgency(ranked); ok {
+		sort.SliceStable(keys, func(i, j int) bool { return keys[i].name == best.Name && keys[j].name != best.Name })
+	}
 	picked := keys[0].name
 	for _, k := range keys {
 		reasons = append(reasons, Reason{k.name, pickReason(k.st, k.ld, k.lasts, k.name == picked, o.Agent)})

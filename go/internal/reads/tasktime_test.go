@@ -50,7 +50,7 @@ func TestATasksTimeIsItsWaitsAndItsWorkInOrderWithNoGap(t *testing.T) {
 		run(t, e, "INSERT INTO events(ts, agent, kind, payload) VALUES(?, ?, ?, ?)", ev.ts, ev.who, ev.kind, ev.payload)
 	}
 	run(t, e, "INSERT INTO session_starts(agent, ts, cause, resumed, text, prompt) VALUES('bob', 350, 'wake', 1, '', '')")
-	wantSegments(t, e, 1, 1000, "queued queued 100-110", "waiting waiting on you 110-200", "waiting blocked by T2 200-300", "working  300-320",
+	wantSegments(t, e, 1, 1000, "queued queued 100-110", "waiting needs you 110-200", "waiting blocked by T2 200-300", "working  300-320",
 		"waiting wall 320-340", "starting agent starting 340-350", "working  350-400")
 }
 
@@ -69,7 +69,7 @@ func TestAFounderAskOverABlockerShowsAsTheFounderWait(t *testing.T) {
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, state_at, kind) VALUES(1, 160, 'bob', 'human', 'which one?', 'answered', 200, 'ask')")
 	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 1)")
 	run(t, e, `INSERT INTO events(ts, agent, kind, payload) VALUES(100, 'bob', 'task_start', '{"task_id": 1}'), (150, 'bob', 'block_task', '{"task_id": 1, "blocks_on": 2}')`)
-	wantSegments(t, e, 1, 300, "working  100-150", "waiting blocked by T2 150-160", "waiting waiting on you 160-200", "waiting blocked by T2 200-300")
+	wantSegments(t, e, 1, 300, "working  100-150", "waiting blocked by T2 150-160", "waiting needs you 160-200", "waiting blocked by T2 200-300")
 }
 
 // Two stretches that touch and read the same are one segment, not two blocks side by side.
@@ -80,7 +80,7 @@ func TestTouchingStretchesThatReadTheSameAreOneSegment(t *testing.T) {
 		"(2, 150, 'bob', 'human', 'two?', 'answered', 200, 'ask')")
 	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 1), (1, 2)")
 	run(t, e, `INSERT INTO events(ts, agent, kind, payload) VALUES(100, 'bob', 'task_start', '{"task_id": 1}')`)
-	wantSegments(t, e, 1, 250, "working  100-110", "waiting waiting on you 110-200", "working  200-250")
+	wantSegments(t, e, 1, 250, "working  100-110", "waiting needs you 110-200", "working  200-250")
 }
 
 // Blocked twice on the same task with no unblock between: one wait, not a first span left open to the end.
@@ -100,5 +100,16 @@ func TestAClosedFounderAskWithNoTimeEndsByTheNextEvent(t *testing.T) {
 	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(1, 120, 'bob', 'human', 'which one?', 'answered', 'ask')")
 	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 1)")
 	run(t, e, `INSERT INTO events(ts, agent, kind, payload) VALUES(100, 'bob', 'task_start', '{"task_id": 1}'), (180, 'bob', 'edit_task', '{"task_id": 1}')`)
-	wantSegments(t, e, 1, 1000, "working  100-120", "waiting waiting on you 120-180", "working  180-400")
+	wantSegments(t, e, 1, 1000, "working  100-120", "waiting needs you 120-180", "working  180-400")
+}
+
+// A delivery that landed in the holder's session is the work begun, with no task_start; a delivery to someone else is not.
+func TestADeliveredTaskWithNoStartShowsWorking(t *testing.T) {
+	e := testEnv(t)
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, done_at) VALUES(1, 'a', 'bob', 'amy', 100, 400)")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, landed_at) VALUES(1, 100, 'amy', 'bob', 'T1', 'landed', 150)")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, landed_at) VALUES(2, 100, 'amy', 'cy', 'T1', 'landed', 120)")
+	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 1)")
+	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 2)")
+	wantSegments(t, e, 1, 1000, "queued queued 100-150", "working  150-400")
 }

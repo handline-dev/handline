@@ -149,7 +149,7 @@ function relaunchWith(file: SettingsFile, next: Settings): void {
 export interface Own {
   /** Draws the tray menu again, after something it shows changed. */
   redraw(): void;
-  /** The inbox's unread count: the tray's dot and line. */
+  /** The My turn count: the tray's dot and line. */
   setUnread(n: number): void;
   /** Starts what is missing and pairs; resolves when the window can open (with or without a token), with the address the gateway ended up on. */
   ready(): Promise<string | undefined>;

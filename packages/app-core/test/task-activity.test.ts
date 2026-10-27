@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activityOf, foldEvents } from '#src/task-activity.ts';
+import { activityOf, foldEvents, noteHead, noteIsLong, NOTE_LINES } from '#src/task-activity.ts';
 
 const e = (kind: string, who: string, text: string, at: string, memo: number | null = null) =>
   ({ at, who, kind, text, memo, edited_at: null }) as Parameters<typeof activityOf>[1][number];
@@ -40,4 +40,15 @@ test('only the last three events show until the rest are asked for, comments alw
   assert.equal(shut.items.length, 4);
   assert.equal(shut.items.filter((i) => i.kind === 'comment').length, 1);
   assert.deepEqual([foldEvents(a, true).hidden, foldEvents(a, true).items.length], [0, 6]);
+});
+
+test('noteHead cuts by lines and by characters at a word, and leaves a short note whole', () => {
+  assert.equal(noteHead('short\nnote'), 'short\nnote');
+  const lines = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join('\n');
+  assert.equal(noteHead(lines).split('\n').length, NOTE_LINES);
+  const para = Array.from({ length: 140 }, (_, i) => `word${i}`).join(' ');
+  assert.ok(noteIsLong(para));
+  const head = noteHead(para);
+  assert.ok(head.length <= NOTE_LINES * 80 + 1 && head.endsWith('…') && !head.endsWith(' …'));
+  assert.ok(para.startsWith(head.slice(0, -1)) && /^word\d+$/.test(head.slice(0, -1).split(' ').pop()!));
 });

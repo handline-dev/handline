@@ -22,10 +22,14 @@ const colorVars = (c: Colors, indent: string): string[] => {
     ['s-ok', c.ok],
     ['term-bg', c.termBg],
     ['term-ink', c.termInk],
+    ['code-bg', c.codeBg],
+    ['code-ink', c.codeInk],
     ['shadow-1', `0 ${shadow[1].y}px ${shadow[1].blur}px ${c.shadowAlpha}`],
     ['shadow-2', `0 ${shadow[2].y}px ${shadow[2].blur}px ${c.shadowAlpha}`],
     ['shadow-3', `0 ${shadow[3].y}px ${shadow[3].blur}px ${c.shadowAlpha}`],
     ['scrim', c.scrim],
+    ['hover-bg', c.hover],
+    ['press-bg', c.press],
   ];
   return v.map(([k, x]) => `${indent}--${k}: ${x};`);
 };
