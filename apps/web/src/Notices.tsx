@@ -1,9 +1,9 @@
 // The notices (T5591 N2): the bell at the status bar's right end with the unread count, the list that opens upward from it (a link to what
 // needs the person, then what happened, newest first), and the short results stacked above it.
 import { useEffect, useState } from 'react';
-import { targetOf, type Notice } from '@handline/app-core';
+import { SPARE_SHOWN, spareNotice, targetOf, type Notice, type SpareNotice } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
-import { useMyTurn } from '@handline/app-data';
+import { useMyTurn, useTasks, useWrite } from '@handline/app-data';
 import { Button, Icon, Popup } from '#src/ui/index.ts';
 
 const lineOf = (n: Notice) => (n.count > 1 ? `${n.text} ×${n.count}` : n.text);
@@ -32,6 +32,7 @@ export function NoticeBell() {
   const unread = useSelector((s) => s.notices.unread());
   const list = useSelector((s) => s.notices.list());
   const waiting = useMyTurn().cards.length;
+  const spare = useSpareNotices();
   const [open, setOpen] = useState(false);
   return (
     <span className="relative inline-flex">
@@ -59,7 +60,12 @@ export function NoticeBell() {
               <Icon name="chevronRight" size={14} label="Opens My turn" aria-hidden />
             </button>
           ) : null}
-          {list.length === 0 && !waiting ? <p className="m-0 px-3 py-2 text-hint text-ink-3">Nothing new.</p> : null}
+          {spare.map((n) => (
+            <div key={n.task} className="border-b border-line">
+              <SpareCard n={n} />
+            </div>
+          ))}
+          {list.length === 0 && !waiting && !spare.length ? <p className="m-0 px-3 py-2 text-hint text-ink-3">Nothing new.</p> : null}
           {list.map((n) => (
             <Row key={n.id} n={n} onOpened={() => setOpen(false)} />
           ))}
@@ -213,6 +219,7 @@ function Toast({ n }: { n: Notice }) {
 function Toasts({ hidden }: { hidden: boolean }) {
   const store = useStore();
   const toasts = useSelector((s) => s.notices.toasts());
+  const spare = useSpareNotices();
   useAway((away) => store.notices.setAway(away));
   // Escape closes the toast the focus is in, else the newest one.
   const first = toasts[0]?.id;
@@ -227,12 +234,68 @@ function Toasts({ hidden }: { hidden: boolean }) {
     addEventListener('keydown', key);
     return () => removeEventListener('keydown', key);
   }, [first, hidden, store]);
-  if (!toasts.length || hidden) return null;
+  if ((!toasts.length && !spare.length) || hidden) return null;
   return (
     <div className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[360px] max-w-[90vw] flex-col-reverse gap-1.5" role="status">
+      {spare.map((n) => (
+        <div key={n.task} className="rounded-[8px] bg-raised shadow-[var(--shadow-2)]">
+          <SpareCard n={n} />
+        </div>
+      ))}
       {toasts.map((n) => (
         <Toast key={n.id} n={n} />
       ))}
+    </div>
+  );
+}
+
+/** The weekly-loss notices the daemon has open for the person, as task rows. */
+function useSpareNotices(): SpareNotice[] {
+  const items = useTasks({}).data?.items;
+  return (items ?? []).flatMap((t) => spareNotice(t) ?? []);
+}
+
+/** The notice that an account will lose weekly use: its sentence, the first spare tasks, and a button that starts them all. It stays until Start or the X. */
+function SpareCard({ n }: { n: SpareNotice }) {
+  const rows = new Map((useTasks({}).data?.items ?? []).map((t) => [t.id, t]));
+  const answer = useWrite('task.done');
+  const reply = (evidence: string) => answer.mutate({ task: n.task, evidence, reason: true });
+  const open = () => void (location.hash = `#/tasks/${n.task}`);
+  return (
+    <div
+      className="notice-spare tint flex cursor-pointer items-start gap-2 px-3 py-2 text-body text-ink"
+      data-notice="spare"
+      onClick={open}
+    >
+      <Icon name="waiting" size={14} className="mt-0.5 flex-none text-ink-2" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="m-0">{n.text}</p>
+        {n.ids.slice(0, SPARE_SHOWN).map((id) => (
+          <span key={id} className="block truncate text-hint text-ink-2">
+            {`T${id}`}
+            {rows.get(id) ? ` ${rows.get(id)!.title} · ${rows.get(id)!.to}` : ''}
+          </span>
+        ))}
+        {n.ids.length ? (
+          <button
+            type="button"
+            className="mt-1.5 cursor-pointer rounded-ctl border border-line-strong bg-transparent px-2 py-0.5 text-body text-ink disabled:opacity-50"
+            disabled={answer.isPending}
+            onClick={(e) => (e.stopPropagation(), reply('start'))}
+          >
+            {n.ids.length === 1 ? 'Start 1 task' : `Start ${n.ids.length} tasks`}
+          </button>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        className="cursor-pointer border-0 bg-transparent p-0 text-ink-3"
+        aria-label="Close this notice"
+        disabled={answer.isPending}
+        onClick={(e) => (e.stopPropagation(), reply('dismiss'))}
+      >
+        <Icon name="close" size={14} aria-hidden />
+      </button>
     </div>
   );
 }
