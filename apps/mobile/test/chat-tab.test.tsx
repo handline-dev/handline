@@ -163,4 +163,19 @@ describe('the chat tab', () => {
     expect($('chat-input')).toBeNull();
     m.store.stop();
   });
+
+  it('lays the messages out from the bottom, so a short chat sits next to the box; an empty one still draws', async () => {
+    const m = await mount(() => {}, undefined, 'founder');
+    await openChat();
+    await until(() => $('chat'), 'the chat');
+    const content = $('chat')!.firstElementChild as HTMLElement;
+    expect(content.style.justifyContent).toBe('flex-end');
+    expect(content.style.flexGrow).toBe('1');
+    await press($('back'));
+    await until(() => $('agent-handline.term-build'), 'the rows again');
+    await press($('agent-handline.term-build')); // an agent nobody has written to
+    await until(() => $('chat-input'), 'the empty chat');
+    expect(($('chat')!.firstElementChild as HTMLElement).style.justifyContent).toBe('flex-end');
+    m.store.stop();
+  });
 });
