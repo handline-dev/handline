@@ -1,5 +1,5 @@
 // The fake daemon as the paired-device listener: wss with a fresh self-signed certificate, paired devices only.
-// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture] [--held-load] [--queue] [--held-by <device>] [--review]`
+// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture] [--held-load] [--queue] [--held-by <device>] [--review] [--readers]`
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -94,6 +94,16 @@ if (process.argv.includes('--picture')) {
     'founder',
     daemon.uploads.message,
   );
+}
+if (process.argv.includes('--readers')) {
+  // A founder comment on task 1684 that three agents were told about: one read it, one holds it for the next pickup, one has it unread.
+  const memo = daemon.tasks.memo({ task: 1684, text: 'Please use 16 px for the margin' }, 'add', 'human');
+  const at = new Date(Date.now() - 5 * 60_000).toISOString();
+  daemon.tasks.setReaders(1684, memo, [
+    { agent: 'handline.pc', request: 1, state: 'read', at },
+    { agent: 'handline.ux', request: 2, state: 'held', at, minutes: 4 },
+    { agent: 'handline.mobile', request: 3, state: 'sent', at },
+  ]);
 }
 if (process.argv.includes('--review')) {
   // A review card: a task tagged review whose first comment names two 640x400 pictures, and the decision asking for a look.
