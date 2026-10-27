@@ -52,7 +52,7 @@ export function AgentTasks({ agent }: { agent: string }) {
               meta={meta.join(' · ')}
               metaColor={due?.over ? c.block : undefined}
               onPress={() => (tabs ? tabs.open(taskTab(t.id)) : setOpen(t.id))}
-              style={{ borderLeftWidth: due?.over ? 4 : 0, borderLeftColor: c.block, opacity: closed ? 0.6 : 1 }}
+              style={{ opacity: closed ? 0.6 : 1 }}
             />
           );
         }}

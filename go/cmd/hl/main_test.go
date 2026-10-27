@@ -248,7 +248,7 @@ func TestEveryVerbHasAUsage(t *testing.T) {
 			t.Errorf("no usage for %s", verb)
 		}
 	}
-	subs := []string{"add", "retire", "rename", "link", "unlink", "team", "context", "list", "withdraw"}
+	subs := []string{"add", "retire", "rename", "link", "unlink", "team", "context", "schedule", "list", "withdraw"}
 	for sub := range taskCmds {
 		subs = append(subs, "task "+sub)
 	}

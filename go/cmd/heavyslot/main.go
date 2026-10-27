@@ -20,9 +20,33 @@ import (
 
 	"github.com/handline/handline/go/internal/heavyslots"
 	"github.com/handline/handline/go/internal/hlclient"
+	"github.com/handline/handline/go/internal/loadgate"
+	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/sysres"
+	"github.com/handline/handline/go/internal/usage"
 )
 
 var poll = 2 * time.Second
+
+// freeMemory is the machine's free and total memory; a test stubs it.
+var freeMemory = func() (free, total int64, err error) {
+	m, err := sysres.Read()
+	return m.RAMFree, m.RAMTotal, err
+}
+
+// lowMemory is why a free slot is not taken now, "" when free memory is at least ram_free_min_pct (the load gate's key and default) or
+// cannot be read: a run is never held on a reading it did not get.
+func lowMemory() string {
+	limit := loadgate.LimitsOf(usage.LoadConfig(paths.Home())).RAMFreePct
+	free, total, err := freeMemory()
+	if limit <= 0 || err != nil || total <= 0 {
+		return ""
+	}
+	if pct := int(free * 100 / total); pct < limit {
+		return fmt.Sprintf("free memory %d%% under %d%%", pct, limit)
+	}
+	return ""
+}
 
 func main() {
 	args := os.Args[1:]
@@ -62,7 +86,12 @@ func acquire() (*os.File, int, error) {
 	for {
 		ahead := ticket.ahead()
 		var held, said []string
-		for n := 1; n <= heavyslots.Slots(); n++ {
+		// Only the first in line looks at memory; it keeps its place while it waits for it.
+		low := ""
+		if ahead == 0 {
+			low = lowMemory()
+		}
+		for n := 1; low == "" && n <= heavyslots.Slots(); n++ {
 			f, err := os.OpenFile(filepath.Join(d, fmt.Sprintf("slot-%d.lock", n)), os.O_RDWR|os.O_CREATE, 0o644)
 			if err != nil {
 				return nil, 0, err
@@ -85,12 +114,19 @@ func acquire() (*os.File, int, error) {
 			held = append(held, string(who))
 			said = append(said, describe(strings.TrimSpace(string(who))))
 		}
-		if now := strings.Join(held, "\x00") + fmt.Sprint(ahead); !spoke || now != last {
+		if now := strings.Join(held, "\x00") + fmt.Sprint(ahead) + low; !spoke || now != last {
 			line := strings.Join(said, "; ")
+			if low != "" {
+				line = "waiting: " + low
+			}
 			if ahead > 0 {
 				line += fmt.Sprintf("; %d waiting before this run", ahead)
 			}
-			fmt.Fprintf(os.Stderr, "heavyslot: waiting for a heavy-run slot (HANDLINE_HEAVY_SLOTS=%d): %s\n", heavyslots.Slots(), line)
+			if low != "" {
+				fmt.Fprintf(os.Stderr, "heavyslot: %s\n", line)
+			} else {
+				fmt.Fprintf(os.Stderr, "heavyslot: waiting for a heavy-run slot (HANDLINE_HEAVY_SLOTS=%d): %s\n", heavyslots.Slots(), line)
+			}
 			last = now
 			spoke = true
 		}

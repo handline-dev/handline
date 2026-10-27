@@ -56,7 +56,7 @@ func TestEachTaskIsServedWithItsStateAndReason(t *testing.T) {
 		{6, "done", "done", "done", nil, ts(int64(4)), nil},
 		{7, "done", "discarded", "discarded: dup", nil, ts(int64(4)), nil},
 		{8, "waiting", "task", "blocked by T3", nil, since, []int64{3}},
-		{9, "waiting", "you", "waiting on you", nil, since, nil},
+		{9, "waiting", "you", "needs you", nil, since, nil},
 		{10, "stopped", "cap", "waiting for a slot on a (2 of 2 mid-turn)", nil, since, nil},
 		{11, "stopped", "wall", "waiting for a's 5h window (100%, rolls over 04:00)", ts(int64(1700)), since, nil},
 		{12, "waiting", "owner", "bob is mid-turn", nil, since, nil},

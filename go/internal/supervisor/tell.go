@@ -68,6 +68,7 @@ func (e *Env) tellBatch(q db.Q, agent string, batch []*db.Request, depth int, ah
 	} else {
 		text = batchText(q, live, folded, aheadOf)
 	}
+	text = e.arrivalLine(q, agent, text, batchOps(live)...)
 	// Held behind a running turn: a task batch does not interrupt it. The ledger holds the operation, so a retry writes nothing.
 	state, _ := e.sendOnce(q, agent, requestOp(requestIDs(live)...), text, delivery.Queue)
 	if state == NotSent {
@@ -116,7 +117,7 @@ func (e *Env) WaitingPrompt(q db.Q, agent string) (text string, told func(sessio
 	if head := e.untoldHead(q, agent); head != nil {
 		depth := must(db.QueueDepth(q, agent))
 		folded := foldedNotices(q, agent)
-		return tellText(q, head, depth, nil, false, folded, e.imageLines(q, head)), func(session string) (err error) {
+		return e.arrivalLine(q, agent, tellText(q, head, depth, nil, false, folded, e.imageLines(q, head)), requestOp(head.ID)), func(session string) (err error) {
 			defer Catch(&err)
 			if session == "" { // a fresh start: its id is the live session's
 				session = e.liveSession(q, agent)
@@ -132,7 +133,7 @@ func (e *Env) WaitingPrompt(q db.Q, agent string) (text string, told func(sessio
 	// A pending message is the same kind of "owed" as a head. Typed as-is, not wrapped like a request's tell.
 	if pending := must(db.ListPending(q, agent)); len(pending) > 0 {
 		row := pending[0]
-		return row.Text, func(string) (err error) { defer Catch(&err); return db.DeletePending(q, row.ID) }, true, nil
+		return e.arrivalLine(q, agent, row.Text, fmt.Sprintf("pending:%d", row.ID)), func(string) (err error) { defer Catch(&err); return db.DeletePending(q, row.ID) }, true, nil
 	}
 	return "", nil, false, nil
 }

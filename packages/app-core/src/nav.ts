@@ -43,6 +43,24 @@ export function chipCounts(agents: readonly AgentView[]): Record<NavChip, number
   return { all: count('all'), unread: count('unread'), needs: count('needs') };
 }
 
+/** The list under the My turn chip: the agents that have a card there, none pinned apart; any other chip is `navList`. */
+export function chipList(
+  agents: AgentView[],
+  nav: NavPrefs,
+  turn: ReadonlySet<string>,
+  search = '',
+): { pinned: AgentView[]; rows: RailRow[] } {
+  if (chipOf(nav) !== 'needs') return navList(agents, nav, search);
+  return {
+    pinned: [],
+    rows: navList(
+      agents.filter((a) => turn.has(a.name)),
+      { ...nav, hidden: [] },
+      search,
+    ).rows,
+  };
+}
+
 /** The pinned agents in the person's order; a pin naming an agent that is gone is skipped. */
 export function pinnedOf(agents: readonly AgentView[], pins: readonly string[]): AgentView[] {
   const byName = new Map(agents.map((a) => [a.name, a]));

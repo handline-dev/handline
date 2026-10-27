@@ -2,10 +2,9 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
-import { INVALID, Store, type KV } from '@handline/app-core';
+import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
-import { parsePrompt } from '#src/Settings.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -25,13 +24,13 @@ const memory = (): KV => {
 let root: Root | null = null;
 let box: HTMLElement;
 const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
-const setValue = (el: HTMLInputElement, value: string) =>
+const setValue = (el: HTMLInputElement | HTMLTextAreaElement, value: string) =>
   act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, value);
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
 const blur = (el: HTMLElement) => act(async () => void el.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
-const field = (label: string) => $(`[data-setting="${label}"] input`) as HTMLInputElement;
 const values = (s: ReturnType<typeof setup>) => s.daemon.admin.settings().values as Record<string, unknown>;
 
 async function mount(s = setup(), folds = true) {
@@ -52,34 +51,90 @@ afterEach(async () => {
   Element.prototype.scrollIntoView = scrollIntoView;
 });
 
-const prompt = () => field('Handoff prompt');
+const prompt = () => $('textarea[aria-label="What the agent is asked"]') as HTMLTextAreaElement;
+const card = () => $('[data-setting="What the agent is asked"]')!;
+const reads = async () => {
+  if (!$('[data-reads]')) await click($('[data-setting] button[aria-expanded]')!);
+  return $('[data-reads]')!.textContent;
+};
+const button = (label: string) =>
+  [...card().querySelectorAll('button')].find(
+    (b) => b.getAttribute('aria-label') === label || b.textContent === label,
+  ) as HTMLButtonElement;
 const click = (el: HTMLElement) => act(async () => void el.click());
 
 describe('settings: handoff prompt and cache expiry', () => {
-  it('shows the daemon prompt, and an edit sends handoff_prompt only', async () => {
+  it('shows the built-in text tagged Built-in, with Reset grey and what the agent reads', async () => {
     const s = await mount();
-    await until(() => prompt(), 'the row');
+    await until(() => prompt(), 'the box');
     expect(prompt().value).toBe(values(s).handoff_prompt);
-    const before = { ...values(s) };
-    await setValue(prompt(), ' Write it to {path}. ');
-    await blur(prompt());
-    await until(() => values(s).handoff_prompt === 'Write it to {path}.', 'the save');
-    expect({ ...values(s), handoff_prompt: before.handoff_prompt }).toEqual(before);
+    expect(card().textContent).toContain('Built-in');
+    expect(button('Reset to built-in').disabled).toBe(true);
+    expect($('[data-reads]')).toBeNull();
+    const text = await reads();
+    expect(text).toContain("(the note's file)");
+    expect(text).toContain('3000');
+    expect(text).not.toContain('{');
   });
 
-  it('does not accept a line break', () => {
-    expect(parsePrompt('one\ntwo')).toBe(INVALID); // a text input drops a break itself; this guards what it did not
-    expect(parsePrompt(' one ')).toBe('one');
-  });
-
-  it('says the path is added on its own line when the prompt has no {path}', async () => {
+  it('an edit sends handoff_prompt only, line breaks joined; Reset sends blank and goes grey again', async () => {
     const s = await mount();
-    await until(() => prompt(), 'the row');
-    expect($('[data-setting="Handoff prompt"]')?.textContent).not.toContain('added on a line of its own');
-    await setValue(prompt(), 'Write your handoff.');
+    await until(() => prompt(), 'the box');
+    const before = { ...values(s) };
+    await setValue(prompt(), 'Write it to {path}.\nShort and plain.');
     await blur(prompt());
-    await until(() => values(s).handoff_prompt === 'Write your handoff.', 'the save');
-    await until(() => $('[data-setting="Handoff prompt"]')?.textContent?.includes('added on a line of its own'), 'the hint');
+    await until(() => values(s).handoff_prompt === 'Write it to {path}. Short and plain.', 'the save');
+    expect({ ...values(s), handoff_prompt: before.handoff_prompt }).toEqual(before);
+    await until(() => !button('Reset to built-in').disabled, 'Reset on');
+    expect(card().textContent).not.toContain('Built-in');
+    await click(button('Reset to built-in'));
+    await until(() => values(s).handoff_prompt === before.handoff_prompt, 'back to the built-in');
+    await until(() => button('Reset to built-in').disabled, 'Reset grey');
+  });
+
+  it('refuses under 20 characters with the way out, and blank is the built-in', async () => {
+    const s = await mount();
+    await until(() => prompt(), 'the box');
+    const before = values(s).handoff_prompt;
+    await setValue(prompt(), 'too short');
+    await blur(prompt());
+    const refusal = card().querySelector('[role="alert"]')!;
+    expect(refusal.textContent).toContain('Not saved, the old text stays. Too short to guide a note. Leave it blank for the built-in.');
+    expect(refusal.previousElementSibling).toBe(prompt());
+    expect(prompt().getAttribute('aria-invalid')).toBe('true');
+    expect(card().textContent).not.toContain('Built-in');
+    expect(button('Reset to built-in').disabled).toBe(false);
+    expect(values(s).handoff_prompt).toBe(before);
+    await click(button('Reset to built-in'));
+    expect(prompt().value).toBe(before);
+    expect(card().querySelector('[role="alert"]')).toBeNull();
+    expect(values(s).handoff_prompt).toBe(before);
+    await setValue(prompt(), 'too short');
+    await blur(prompt());
+    await setValue(prompt(), 'A different text that is long enough.');
+    await blur(prompt());
+    await until(() => values(s).handoff_prompt === 'A different text that is long enough.', 'the save');
+    await setValue(prompt(), '  ');
+    await blur(prompt());
+    await until(() => values(s).handoff_prompt === before, 'blank is the built-in');
+  });
+
+  it('shows the path on its own line in the preview when the text has no {path}', async () => {
+    await mount();
+    await until(() => prompt(), 'the box');
+    await setValue(prompt(), 'Write your handoff note now.');
+    expect(await reads()).toBe("Write your handoff note now.\n(the note's file)");
+  });
+
+  it('warns when agents set their own text, and Show names them', async () => {
+    const s = setup();
+    s.daemon.admin.handoffOwn.push('handline.auditor', 'handline.term-build');
+    await mount(s);
+    await until(() => prompt(), 'the box');
+    expect(card().textContent).toContain('2 agents set their own text, so they ignore this one.');
+    expect(card().textContent).not.toContain('handline.auditor');
+    await click(button('Show'));
+    expect(card().textContent).toContain('handline.auditor, handline.term-build');
   });
 
   it('the switch sends ignore_cache_expiry', async () => {
@@ -100,6 +155,8 @@ describe('settings: handoff prompt and cache expiry', () => {
 /** The Advanced and About sections start folded: open them once the page has drawn them. */
 async function openFolds() {
   await until(() => document.querySelector('.settings-shell button[aria-expanded="false"]'), 'the folds');
-  const folds = [...document.querySelectorAll<HTMLElement>('.settings-shell button[aria-expanded="false"]')];
+  const folds = [...document.querySelectorAll<HTMLElement>('.settings-shell button[aria-expanded="false"]')].filter(
+    (b) => !b.closest('[data-setting]'),
+  );
   await act(async () => folds.forEach((b) => b.click()));
 }

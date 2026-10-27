@@ -78,8 +78,12 @@ func (e *Env) headroomAt(clock time.Time, from, to, step int64) (any, error) {
 				nextAt, next = r.At, map[string]any{"at": ts(r.At), "account": a.Account, "window": r.Window}
 			}
 		}
+		var left, lost any
+		if f, ok := ue.ForecastFor(e.DB, a.Account, rows); ok {
+			left, lost = rounded(f.LeftAtReset), rounded(f.LostAnyway)
+		}
 		accounts = append(accounts, map[string]any{"account": a.Account, "past": headroomWindows(a.Past, false), "future": headroomWindows(a.Future, false),
-			"resets": resets})
+			"resets": resets, "left_at_reset": left, "lost_anyway": lost})
 	}
 	var runsOut any
 	for _, p := range h.Future {
@@ -109,4 +113,12 @@ func headroomWindows(ps []usage.HeadroomPoint, line bool) []any {
 		out = append(out, m)
 	}
 	return out
+}
+
+// rounded is v to one decimal, nil for an unknown figure.
+func rounded(v *float64) any {
+	if v == nil {
+		return nil
+	}
+	return round(*v, 1)
 }

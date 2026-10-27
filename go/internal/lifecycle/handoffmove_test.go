@@ -238,3 +238,25 @@ func TestAForcedMoveOfAClosedAgentIsOwedToItsNextWake(t *testing.T) {
 		t.Fatalf("owed %v opened %v", found, g.sp.startedIn)
 	}
 }
+
+// A trigger deferred behind a running turn holds messages from that moment; the row opening ends the hold's mark.
+func TestADeferredTriggerHoldsMessagesFromTheMomentItIsDeferredUntilItsRowOpens(t *testing.T) {
+	g := newTermMoveRig(t)
+	g.run.status = "busy"
+	if ok, err := g.v.PerformHandoff("a", HandoffTrigger{"usage", "wall"}, ""); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	if held, _ := db.RestartHeld(g.m.Q, "a", g.m.now()); !held {
+		t.Fatal("not held while the trigger is deferred")
+	}
+	if held, _ := db.RestartHeld(g.m.Q, "a", g.m.now()+db.NoteWaitStaleS+1); held {
+		t.Fatal("a deferral held past the ceiling")
+	}
+	g.run.status = "idle"
+	if ok, err := g.v.PerformHandoff("a", HandoffTrigger{"usage", "wall"}, ""); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	if v, _ := db.Cursor(g.m.Q, "handoff_deferred:a"); v != 0 {
+		t.Fatal("the deferred mark is kept after the row opened")
+	}
+}

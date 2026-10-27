@@ -1009,6 +1009,28 @@
          },
          "description": "A guess: each window keeps its pace (the 5h one over the last day, the weekly one over this week) and starts again from nothing at its reset, so the 5h line is a saw. Null when the account's last reading is stale; 0 after an account ends."
         },
+        "left_at_reset": {
+         "oneOf": [
+          {
+           "type": "number"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "A guess: the percent of this account's week still unused when it resets, if it goes on using the week at the rate of the last 24 hours (never below 0). Null when the week cannot be read or is over, or the last day has under 2 hours of readings to take a rate from."
+        },
+        "lost_anyway": {
+         "oneOf": [
+          {
+           "type": "number"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "The percent of this account's unused week that even full 5h windows from now to its reset could not use, at the account's measured ratio of weekly to 5h use (never below 0). Null when left_at_reset is, or the ratio is unknown."
+        },
         "resets": {
          "type": "array",
          "items": {

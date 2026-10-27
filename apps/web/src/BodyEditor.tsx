@@ -1,6 +1,6 @@
 // The task description editor: Markdown stored, shown and edited rich (Tiptap), with a source view for the raw text. A pasted or dropped image is
 // uploaded and goes in at the cursor as `![name](attachment:ID)`; an image node draws with the same AttachmentImage as chat and memos.
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { mergeAttributes, type Editor } from '@tiptap/core';
 import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor, type NodeViewProps } from '@tiptap/react';
 import { NodeSelection } from '@tiptap/pm/state';
@@ -10,15 +10,16 @@ import Image from '@tiptap/extension-image';
 import type { Attachment } from '@handline/client';
 import { imageRef, insertImageRef, mentionAt, mentionNames } from '@handline/app-core';
 import { classify, sentence, useUploadImage, whyNotImage } from '@handline/app-data';
-import { AttachmentImage } from '#src/AttachmentImage.tsx';
+import { AttachmentImage, Thumbs } from '#src/AttachmentImage.tsx';
 import { forEditor, keepTyped } from '#src/bodyMarkdown.ts';
 
 const idOf = (src: unknown) => /^attachment:(.+)$/.exec(String(src ?? ''))?.[1];
 
 function ImageView({ node }: NodeViewProps) {
   const id = idOf(node.attrs.src);
+  const thumbs = useContext(Thumbs); // a compact editor draws its pictures as the small thumbnails of the view, side by side
   return (
-    <NodeViewWrapper contentEditable={false}>
+    <NodeViewWrapper contentEditable={false} className={thumbs ? 'inline-block align-top' : undefined}>
       {id ? (
         <AttachmentImage id={id} name={String(node.attrs.alt ?? '')} />
       ) : (
@@ -34,6 +35,9 @@ export const BodyImage = Image.extend({
   addNodeView: () => ReactNodeViewRenderer(ImageView),
 });
 
+/** Compact: one or two lines. The picture nodes, and the empty paragraph after them, sit inline so the thumbnails make one row. */
+const COMPACT =
+  'min-h-9 [&_p]:m-0 [&>div]:mr-1.5 [&>div]:inline-block [&>div]:align-top [&>p:has(>br:only-child)]:inline-block [&>p:has(>br:only-child)]:min-w-4';
 const BOX = 'rounded-ctl border border-line bg-panel px-2 py-1.5 text-ink';
 
 const imagesOf = (list: FileList | null | undefined): File[] => Array.from(list ?? []).filter((f) => f.type.startsWith('image/'));
@@ -47,6 +51,10 @@ export function BodyEditor(props: {
   id?: string;
   /** ⌘↵ / Ctrl+↵ in the field. */
   onSubmit?: () => void;
+  /** No Source/Rich toggle: the field is only the text (a comment edited in place). */
+  plain?: boolean;
+  /** One or two lines at rest, small padding, growing with the text (comments); the default stays a few lines tall. */
+  compact?: boolean;
   /** Typing `@` offers these agents, the ones near the task first. */
   mentions?: { names: readonly string[]; near: readonly string[]; state?: (name: string) => string };
 }) {
@@ -139,7 +147,7 @@ export function BodyEditor(props: {
     contentType: 'markdown',
     editorProps: {
       attributes: {
-        class: `${BOX} body-editor min-h-24 focus-within:border-ink-3 outline-none`,
+        class: `${BOX} body-editor ${props.compact ? COMPACT : 'min-h-24'} focus-within:border-ink-3 outline-none`,
         ...(props.id ? { id: props.id } : {}),
         role: 'textbox',
         'aria-multiline': 'true',
@@ -190,16 +198,18 @@ export function BodyEditor(props: {
 
   return (
     <div className="body-field grid min-w-40 flex-1 gap-1">
-      <div className="flex justify-end">
-        <button
-          type="button"
-          className="muted border-0 bg-transparent p-0 text-[12px] underline cursor-pointer"
-          aria-pressed={source}
-          onClick={() => toSource(!source)}
-        >
-          {source ? 'Rich view' : 'Source'}
-        </button>
-      </div>
+      {props.plain ? null : (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            className="muted border-0 bg-transparent p-0 text-[12px] underline cursor-pointer"
+            aria-pressed={source}
+            onClick={() => toSource(!source)}
+          >
+            {source ? 'Rich view' : 'Source'}
+          </button>
+        </div>
+      )}
       {source ? (
         <textarea
           className={`${BOX} font-mono`}
@@ -223,7 +233,9 @@ export function BodyEditor(props: {
           }}
         />
       ) : (
-        <EditorContent editor={editor} />
+        <Thumbs.Provider value={!!props.compact}>
+          <EditorContent editor={editor} />
+        </Thumbs.Provider>
       )}
       {pick ? (
         <ul

@@ -2,7 +2,7 @@
 // a table of each agent's cost and share under it and a click on an agent to draw that one alone. A series has a shape (a dash, a pattern and a
 // letter), not only a hue. The numbers are always in a table behind a toggle, so the picture is never the only way to read them.
 import { useState } from 'react';
-import { costByAgent, guessLine, runwayWords } from '@handline/app-core';
+import { costByAgent, guessLine } from '@handline/app-core';
 import type { Outlook } from '@handline/client';
 import { useOutlook } from '@handline/app-data';
 import {
@@ -90,7 +90,7 @@ function Line({ o }: { o: Outlook }) {
         <p className="outlook-readout muted m-0 mt-1 h-5 text-hint" aria-live="polite">
           {near
             ? `${new Date(near.at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · ${Math.round(near.left_pct!)}% left${near.guess ? ' (guess)' : ''}`
-            : 'Point at the line to read it'}
+            : ''}
         </p>
         <span className={OUTLOOK_END} style={{ top: `${((100 - (lastLeft ?? 0)) / 100) * 100}%` }}>
           {o.accounts === 1 ? 'the account' : `all ${o.accounts} accounts`}
@@ -225,9 +225,36 @@ function Table({ o, view }: { o: Outlook; view: 'left' | 'cost' }) {
   );
 }
 
+const LOOK_KEY = 'outlook-look';
+
+/** The view and range last used are remembered by this window only; a browser that refuses storage starts on the week left over 7 days. */
+function useLook(): [{ view: 'left' | 'cost'; range: Range }, (l: { view: 'left' | 'cost'; range: Range }) => void] {
+  const [look, set] = useState<{ view: 'left' | 'cost'; range: Range }>(() => {
+    try {
+      const l = JSON.parse(localStorage.getItem(LOOK_KEY) ?? '{}');
+      const view = l.view === 'cost' ? 'cost' : 'left';
+      return { view, range: (view === 'left' ? HEADROOM : COST).includes(l.range) ? l.range : '7d' };
+    } catch {
+      return { view: 'left', range: '7d' };
+    }
+  });
+  return [
+    look,
+    (l) => {
+      set(l);
+      try {
+        localStorage.setItem(LOOK_KEY, JSON.stringify(l));
+      } catch {
+        /* not remembered */
+      }
+    },
+  ];
+}
+
 export function OutlookSection() {
-  const [view, setView] = useState<'left' | 'cost'>('left');
-  const [range, setRange] = useState<Range>('24h');
+  const [{ view, range }, setLook] = useLook();
+  const setView = (v: 'left' | 'cost') => setLook({ view: v, range });
+  const setRange = (r: Range) => setLook({ view, range: r });
   const [table, setTable] = useState(false);
   const [only, setOnly] = useState<string | null>(null);
   const ranges = view === 'left' ? HEADROOM : COST;
@@ -264,15 +291,6 @@ export function OutlookSection() {
         {o ? (
           <>
             {view === 'left' ? <Line o={o} /> : <Cost o={o} only={only} pick={setOnly} />}
-            {view === 'left' ? (
-              <ul className="runway mx-0 mt-2 mb-0 list-none p-0">
-                {o.runway.map((r) => (
-                  <li key={r.account} data-runway={r.account}>
-                    <strong>{r.account}</strong> <span className="muted">{runwayWords(r)}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
             {table ? <Table o={o} view={view} /> : null}
           </>
         ) : null}

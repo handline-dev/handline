@@ -51,7 +51,7 @@ describe('my turn', () => {
     const dialog = cards().find((c) => c.dataset.kind === 'dialog')!;
     expect(dialog.textContent).toContain('Trust this folder?');
     expect([...dialog.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Open terminal']);
-    expect(box.querySelector('.rail-nav')!.textContent).toMatch(/Inbox \d+/);
+    expect(box.querySelector('.rail-nav')!.textContent).toMatch(/My turn\d+/);
   });
   async function open(s = setup()) {
     s.daemon.tasks.verbs = true;
@@ -74,13 +74,29 @@ describe('my turn', () => {
   /** A decision about a task, so its card has a task to open. */
   const decision = (s: ReturnType<typeof setup>, id: number) => {
     s.daemon.tasks.seed({ id, from: ME, to: ARCH, title: `Task ${id}`, state: 'doing' });
-    s.daemon.inbox.add({ kind: 'decision', agent: ARCH, title: `Decide ${id}`, body: 'Pick A or B.', task: id, created: new Date().toISOString(), read: false });
+    s.daemon.inbox.add({
+      kind: 'decision',
+      agent: ARCH,
+      title: `Decide ${id}`,
+      body: 'Pick A or B.',
+      task: id,
+      created: new Date().toISOString(),
+      read: false,
+    });
   };
 
   /** A decision about a task tagged review, so its card offers Approve and Ask for change. */
   const review = (s: ReturnType<typeof setup>, id: number) => {
     s.daemon.tasks.seed({ id, from: ME, to: ARCH, title: `Review ${id}`, state: 'doing', tags: ['review'] });
-    s.daemon.inbox.add({ kind: 'decision', agent: ARCH, title: `Look ${id}`, body: 'Is this right?', task: id, created: new Date().toISOString(), read: false });
+    s.daemon.inbox.add({
+      kind: 'decision',
+      agent: ARCH,
+      title: `Look ${id}`,
+      body: 'Is this right?',
+      task: id,
+      created: new Date().toISOString(),
+      read: false,
+    });
   };
   const reviewCard = (id: number) => cards().find((c) => c.textContent?.includes(`Review ${id}`));
 
@@ -143,7 +159,7 @@ describe('my turn', () => {
     await until(() => box.querySelector('[data-card="item:3"]'), 'the decision card');
     const c = box.querySelector('[data-card="item:3"]')!;
     expect(c.querySelector('[role=button]')).toBeNull(); // no task to open, and no clamped text to unfold
-    expect(c.querySelector('.line-clamp-3')).toBeNull();
+    expect(c.textContent).not.toContain('Show more');
     await click(button(c, 'Reply'));
     await type(c.querySelector('input')!, 'Yes, relay it.');
     await click(button(c, 'Send reply'));

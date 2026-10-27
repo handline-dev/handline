@@ -122,8 +122,8 @@ test('the time box is one meaning: what is left of it, why it stands still, or h
   assert.equal(timeBoxText(t({ time: clock({ end: '2026-10-17T12:10:00Z' }) }), now), '2h10m left of 4h');
   assert.equal(timeBoxText(t({ time: clock({ end: '2026-10-17T09:00:00Z' }) }), now), 'over by 1h');
   assert.equal(
-    timeBoxText(t({ time: clock({ left_s: 7000 }), waiting: { on: 'founder', text: 'waiting on you', tasks: [], since: '' } }), now),
-    'paused: waiting on you',
+    timeBoxText(t({ time: clock({ left_s: 7000 }), waiting: { on: 'founder', text: 'needs you', tasks: [], since: '' } }), now),
+    'paused: needs you',
   );
   assert.equal(timeBoxText(t({ state: 'queued', time: clock({}) }), now), '4h');
   assert.equal(timeBoxText(t({ state: 'done', time: null }), now), '4h');
@@ -139,13 +139,13 @@ test('a time box just edited shows at once, before the clock has caught up', () 
   assert.equal(timeBoxText(t, 0), '3h');
 });
 
-test('tasks group as Needs you, Running, Up next and Done, each keeping its order', () => {
+test('tasks group as My turn, Running, Up next and Done, each keeping its order', () => {
   const all = [task(1), task(2, { state: 'doing' }), task(3, { to: 'human' }), task(4, { state: 'done' }), task(6, { state: 'doing' })];
   const g = groupTasks(all, 'me');
   assert.deepEqual(
     g.map((x) => [x.label, ids(x.rows)]),
     [
-      ['Needs you', [3]],
+      ['My turn', [3]],
       ['Running', [2, 6]],
       ['Up next', [1]],
       ['Done', [4]],
