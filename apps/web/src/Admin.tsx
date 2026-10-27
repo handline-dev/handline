@@ -1,7 +1,7 @@
 // The quiet admin page (#/admin, linked from the foot of Settings): what the daemon is doing, why agents wake, how full their memory is, and what just happened.
 // Read-only: it shows what `hl` printed for a person, in words.
 import { useState } from 'react';
-import { ago, useRows, VERBS } from '@handline/app-core';
+import { ago, stateWord, useRows, VERBS } from '@handline/app-core';
 import { useAgents, useMemory, useRecentEvents, useServes, useStatus, useTriggers } from '@handline/app-data';
 import { MenuButton, MenuItem, PageHead, PageTitle, RowTitle, ScrollPage, SectionHead, SettingsCard, SettingsRow } from '#src/ui/index.ts';
 import { VerbSheet } from '#src/AgentVerbs.tsx';
@@ -163,9 +163,6 @@ function Recent() {
     </>
   );
 }
-
-/** The daemon's agent state as the app words it: a parked agent waits for a time (docs/copy.md 7). */
-const stateWord = (k: string): string => (k === 'parked' ? 'waiting' : k);
 
 export function AdminPage() {
   return (
