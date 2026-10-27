@@ -57,9 +57,12 @@ def merge_parts(parts: dict[int, str], cwd: str = ".") -> tuple[list[int], dict[
     """Merges each head (--no-ff, by PR number) into the current branch; a head that conflicts is left out."""
     merged, dropped = [], {}
     for n, sha in sorted(parts.items()):
-        if git("merge", "--no-ff", "-m", f"Merge PR #{n} ({sha[:9]}) into the bundle", sha, cwd=cwd).returncode:
+        r = git("merge", "--no-ff", "-m", f"Merge PR #{n} ({sha[:9]}) into the bundle", sha, cwd=cwd)
+        if r.returncode and git("diff", "--name-only", "--diff-filter=U", cwd=cwd).stdout.strip():
             git("merge", "--abort", cwd=cwd)
             dropped[n] = "it conflicts with main or an earlier part"
+        elif r.returncode:
+            raise RuntimeError(f"git merge of #{n} failed, not for a conflict: {(r.stderr or r.stdout).strip()}")
         else:
             merged.append(n)
     return merged, dropped
@@ -91,11 +94,20 @@ def main(argv: list[str]) -> int:
         if len(ready) < MIN_PARTS:
             print(f"bundle: {len(ready)} ready ({', '.join('#' + str(n) for n in ready) or 'none'}); a bundle needs {MIN_PARTS}")
             return 0
+        if git("status", "--porcelain", "--untracked-files=no").stdout.strip():
+            raise RuntimeError("the work tree has uncommitted changes")
+        start = git("branch", "--show-current").stdout.strip() or git("rev-parse", "HEAD").stdout.strip()
         if git("fetch", "-q", "origin", "main").returncode or git("switch", "-q", "-C", "bundle-wip", "origin/main").returncode:
-            raise RuntimeError("cannot start a branch from origin/main (is the work tree clean?)")
-        kept, left_out = fetch_heads(ready)
-        merged, conflicted = merge_parts(kept)
-        left_out.update(conflicted)
+            raise RuntimeError("cannot start a branch from origin/main")
+        try:
+            kept, left_out = fetch_heads(ready)
+            merged, conflicted = merge_parts(kept)
+            left_out.update(conflicted)
+        except RuntimeError:
+            git("merge", "--abort")
+            git("switch", "-q", start)
+            git("branch", "-D", "bundle-wip")
+            raise
     except (RuntimeError, ValueError, KeyError) as e:
         print(f"bundle: nothing built: {e}", file=sys.stderr)
         return 1
@@ -103,6 +115,8 @@ def main(argv: list[str]) -> int:
         print(f"bundle: #{n} left out: {why}")
     if len(merged) < 2:
         print("bundle: fewer than 2 parts are left, so there is no bundle")
+        git("switch", "-q", start)
+        git("branch", "-D", "bundle-wip")
         return 0
     branch = "bundle-" + "-".join(str(n) for n in merged)
     git("branch", "-M", branch)

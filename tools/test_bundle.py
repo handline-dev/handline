@@ -77,6 +77,11 @@ class Building(Repo):
         with open(os.path.join(self.work, "shared.txt")) as f:
             self.assertEqual(f.read(), "one\n")
 
+    def test_a_merge_that_fails_for_another_reason_is_an_error_not_a_conflict(self):
+        self.start()
+        with self.assertRaises(RuntimeError):
+            bundle.merge_parts({1: "0" * 40}, self.work)
+
     def test_a_head_that_moved_after_the_check_is_dropped(self):
         parts = {1: self.add(1, "a.txt", "a\n"), 2: self.add(2, "b.txt", "b\n")}
         stale = {**parts, 2: "0" * 40}

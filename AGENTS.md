@@ -133,8 +133,8 @@ agent (ROLE.md, base.md); this file does not repeat them.
   files; Prettier; ESLint with its size limits), and opens nothing until they pass. After editing a body, run it with `--check`.
 - Landing: `tools/merge-ready.sh N` merges PR N only when it is ready (green required checks, no conflict, auditor PASS for its
   head, ux live PASS for an app change). With 3 or more ready PRs, `tools/bundle.sh` builds one `bundle-<numbers>` branch of their
-  heads (a head that moved or conflicts is left out); `--push` opens its PR, one CI run covers all, and one merge lands them (GitHub
-  closes each part). If the bundle's CI is red, rebuild with `--without <PR>` for the part that broke it. It never merges.
+  heads (a head that moved or conflicts is left out); `--push` opens its PR, one CI run covers all, and one merge commit (not a squash) lands them,
+  and GitHub closes each part. If the bundle's CI is red, rebuild with `--without <PR>` for the part that broke it. It never merges.
 - UI: don't design a screen alone. Agree on its shape with the human first,
   and after you build it, the human checks it by eye. Passing tests do not
   finish UI work.
