@@ -327,6 +327,8 @@ export class FakeAdmin {
       trust_folders: [],
       hooks: { installed: true, accounts: [] },
       values,
+      handoff_prompt_default: DEFAULTS.handoff_prompt,
+      handoff_prompt_own: [],
     } as unknown as Settings;
   }
 
@@ -340,10 +342,16 @@ export class FakeAdmin {
         throw badRequest('heavy_slots is a whole number, at least 1', 'heavy_slots');
       if (key === 'keep_awake' && value !== null && value !== 'off' && value !== 'on' && value !== 'working')
         throw badRequest('keep_awake is off, on or working', 'keep_awake');
+      let kept = value;
+      if (key === 'handoff_prompt' && typeof value === 'string') {
+        kept = value.split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean).join(' ');
+        if (kept !== '' && [...(kept as string)].length < 20)
+          throw badRequest('Too short to guide a note. Leave it blank for the built-in.', 'handoff_prompt');
+      }
       const values = this.values as Record<string, unknown>;
       if (value === null) {
         values[key] = structuredClone(DEFAULTS[key as keyof typeof DEFAULTS]);
-      } else values[key] = value;
+      } else values[key] = kept;
     }
   }
 
