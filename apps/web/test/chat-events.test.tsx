@@ -57,7 +57,7 @@ describe('event cards', () => {
     for (const el of [$('.card-held'), $('.card-hr')]) expect(el!.classList.contains('event')).toBe(true);
     expect($('.card-held')!.dataset.tone).toBe('wait');
     expect($('.card-hr')!.dataset.tone).toBe('wait');
-    expect($('.card-hr')!.textContent).toContain('2 HR proposals need you');
+    expect($('.card-hr')!.textContent).toContain('HR proposals: 2 · needs you');
     expect(document.querySelector('[data-proposal="911"]')).toBeNull(); // the detail is in My turn and HR
   });
 

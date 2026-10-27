@@ -204,7 +204,7 @@ export function HrCards({ agent }: { agent: string }) {
       {open ? (
         <Card variant="event" tone="wait" className="card-hr" data-kind="hr">
           <Icon name="team" label="Proposal" />
-          <CardWhat>{open === 1 ? '1 HR proposal needs you' : `${open} HR proposals need you`}</CardWhat>
+          <CardWhat>HR proposals: {open} · needs you</CardWhat>
           <Button icon="open" label="Open in HR" size="sm" onClick={() => goTeam('hr')} />
         </Card>
       ) : null}

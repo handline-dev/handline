@@ -55,7 +55,7 @@ describe('HR proposals in the chat', () => {
     await mount(ARCH, s);
     await until(() => $('.card-hr'), 'the HR line');
     expect($$('.card-hr')).toHaveLength(1);
-    expect(text($('.card-hr'))).toContain('2 HR proposals need you');
+    expect(text($('.card-hr'))).toContain('HR proposals: 2 · needs you');
     expect(labelled($('.card-hr'), 'Approve')).toBeUndefined();
     expect(labelled($('.card-hr'), 'Reject')).toBeUndefined();
     await click(labelled($('.card-hr'), 'Open in HR')!);
@@ -91,7 +91,7 @@ describe('HR proposals in the chat', () => {
     await mount(ARCH, s);
     await until(() => $('.card-hr'), 'the line');
     expect($$('.card-hr')).toHaveLength(1);
-    expect(text($('.card-hr'))).toContain('1 HR proposal needs you');
+    expect(text($('.card-hr'))).toContain('HR proposals: 1 · needs you');
   });
 
   it('in the HR tab a held card sits with the waiting ones, has no decide buttons and is not in the count', async () => {
