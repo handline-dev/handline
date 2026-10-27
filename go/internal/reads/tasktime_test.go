@@ -102,3 +102,14 @@ func TestAClosedFounderAskWithNoTimeEndsByTheNextEvent(t *testing.T) {
 	run(t, e, `INSERT INTO events(ts, agent, kind, payload) VALUES(100, 'bob', 'task_start', '{"task_id": 1}'), (180, 'bob', 'edit_task', '{"task_id": 1}')`)
 	wantSegments(t, e, 1, 1000, "working  100-120", "waiting waiting on you 120-180", "working  180-400")
 }
+
+// A delivery that landed in the holder's session is the work begun, with no task_start; a delivery to someone else is not.
+func TestADeliveredTaskWithNoStartShowsWorking(t *testing.T) {
+	e := testEnv(t)
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at, done_at) VALUES(1, 'a', 'bob', 'amy', 100, 400)")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, landed_at) VALUES(1, 100, 'amy', 'bob', 'T1', 'landed', 150)")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, landed_at) VALUES(2, 100, 'amy', 'cy', 'T1', 'landed', 120)")
+	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 1)")
+	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 2)")
+	wantSegments(t, e, 1, 1000, "queued queued 100-150", "working  150-400")
+}

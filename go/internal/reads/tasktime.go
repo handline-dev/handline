@@ -114,6 +114,19 @@ func (e *Env) taskSpans(t row, start, end int64) ([]stretch, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A delivery that landed in its holder's session counts as the work begun, like a task_start; it is read as one more event in time order.
+	landed, err := query(e.DB, "SELECT r.landed_at AS ts, r.target FROM requests r JOIN task_requests l ON l.request_id = r.id "+
+		"WHERE l.task_id = ? AND r.landed_at IS NOT NULL AND r.target != 'human' ORDER BY r.landed_at, r.id", tid)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range landed {
+		d["kind"] = "delivered"
+		i := sort.Search(len(events), func(i int) bool { return events[i].i("ts") > d.i("ts") })
+		events = append(events, nil)
+		copy(events[i+1:], events[i:])
+		events[i] = d
+	}
 	var spans []stretch
 	open := func(from int64, rank int, text string, task int64) int {
 		spans = append(spans, stretch{from: from, to: end, rank: rank, text: text, task: task})
@@ -123,6 +136,7 @@ func (e *Env) taskSpans(t row, start, end int64) ([]stretch, error) {
 	state := open(start, segQueued, waitQueued, 0)
 	var doing [][2]int64
 	holder := t.str("owner")
+	current := holder
 	holders := map[int64]string{}
 	blocks := map[int64]int{}
 	for _, ev := range events {
@@ -137,6 +151,11 @@ func (e *Env) taskSpans(t row, start, end int64) ([]stretch, error) {
 		case "queue_task", "draft_task", "reopen_task", "reject_task", "release_task":
 			cut()
 			state = open(at, segQueued, waitQueued, 0)
+		case "delivered":
+			if spans[state].rank == segQueued && ev.str("target") == current {
+				cut()
+				state = open(at, segWorking, "", 0)
+			}
 		case "task_begin", "task_start":
 			if spans[state].rank != segWorking {
 				cut()
@@ -153,11 +172,11 @@ func (e *Env) taskSpans(t row, start, end int64) ([]stretch, error) {
 			cut()
 		case "task_handoff":
 			if to := text(p["to"]); to != "" {
-				holders[at] = to
+				holders[at], current = to, to
 			}
 		case "edit_task":
 			if o, ok := p["owner"].(map[string]any); ok {
-				holders[at] = text(o["new"])
+				holders[at], current = text(o["new"]), text(o["new"])
 			}
 		case "block_task":
 			on, _ := recInt(p["blocks_on"])
