@@ -253,7 +253,7 @@ func TestAWeekPastItsResetOrItsSubscriptionsEndIsPacedAsSuch(t *testing.T) {
 	}
 }
 
-// The 5-hour gate prices the newcomer at its measured cost (T6341): 0.159 %/min, never the starting value.
+// The 5-hour gate prices the newcomer at its measured cost: 0.159 %/min, never the starting value.
 func TestAStartIsHeldOnTheFiveHourWindowOnlyWhenTheMeasuredCostWouldRunItOut(t *testing.T) {
 	home := t.TempDir()
 	e := testEnv(home, clock)
