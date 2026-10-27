@@ -143,11 +143,15 @@ describe('Comments on a task', () => {
     await mount((s) => {
       const id = s.daemon.uploads.put({ name: 'dot.png', mime: 'image/png', bytes: png.length, data: btoa(String.fromCharCode(...png)) })
         .attachment!.id;
-      s.daemon.tasks.memo({ task: 1688, text: `See ![shot](attachment:${id}) here` }, 'add', 'web-test');
+      s.daemon.tasks.memo({ task: 1688, text: `![a](attachment:${id})\n![b](attachment:${id})` }, 'add', 'web-test');
     });
     await until(() => section()!.querySelector('.comment .attachment'), 'the picture');
     const pic = section()!.querySelector('.comment .attachment')!;
     expect(pic.className).toContain('h-11');
     expect(pic.className).not.toContain('h-40');
+    // blank space between pictures would break their row: the two sit side by side with a gap and nothing between them
+    const [a, b] = section()!.querySelectorAll('.comment .attachment');
+    expect(a!.nextSibling).toBe(b);
+    expect(a!.className).toContain('mr-1.5');
   });
 });
