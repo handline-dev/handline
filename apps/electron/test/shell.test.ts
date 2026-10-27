@@ -349,7 +349,7 @@ test('a burst of agents and tasks events refreshes the badge once, after the bur
   const { log, p } = ports();
   const desk = new Desk(feed, p);
   await desk.start();
-  for (const topic of ['agents', 'tasks', 'agents']) handlers.event!(ev({ topic, type: `${topic}.changed`, cursor: 9 }));
+  for (const topic of ['agents', 'tasks', 'agents'] as const) handlers.event!(ev({ topic, type: `${topic}.changed`, cursor: 9 }));
   assert.equal(calls, 1);
   await until(() => calls === 2);
   await new Promise((r) => setTimeout(r, 450));
