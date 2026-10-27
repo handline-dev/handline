@@ -84,9 +84,21 @@ export function Sheet(props: {
       ) : null}
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         {onSubmit && (
-          <Button testID={id ? `${id}-go` : 'sheet-submit'} kind={kind ?? 'yes'} label={submit ?? 'Submit'} disabled={busy} onPress={onSubmit} style={GROW} />
+          <Button
+            testID={id ? `${id}-go` : 'sheet-submit'}
+            kind={kind ?? 'yes'}
+            label={submit ?? 'Submit'}
+            disabled={busy}
+            onPress={onSubmit}
+            style={GROW}
+          />
         )}
-        <Button testID={id ? `${id}-cancel` : 'sheet-cancel'} label={onSubmit ? 'Cancel' : 'Close'} onPress={onCancel} style={onSubmit ? undefined : GROW} />
+        <Button
+          testID={id ? `${id}-cancel` : 'sheet-cancel'}
+          label={onSubmit ? 'Cancel' : 'Close'}
+          onPress={onCancel}
+          style={onSubmit ? undefined : GROW}
+        />
       </View>
     </BottomSheet>
   );
@@ -163,8 +175,18 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       () => setAsk(null),
       () => {},
     );
-  const reasons: Partial<Record<Exclude<Ask, null>, Omit<Parameters<typeof ReasonSheet>[0], 'onCancel' | 'onSubmit'> & { send: (text: string) => Promise<unknown> }>> = {
-    done: { label: 'done: what came of it?', submit: 'Done', required: true, send: (evidence) => done.mutateAsync({ task: t.id, evidence, reason: true }) },
+  const reasons: Partial<
+    Record<
+      Exclude<Ask, null>,
+      Omit<Parameters<typeof ReasonSheet>[0], 'onCancel' | 'onSubmit'> & { send: (text: string) => Promise<unknown> }
+    >
+  > = {
+    done: {
+      label: 'done: what came of it?',
+      submit: 'Done',
+      required: true,
+      send: (evidence) => done.mutateAsync({ task: t.id, evidence, reason: true }),
+    },
     reopen: { label: 'reopen: why?', submit: 'Reopen', required: true, send: (note) => reopen.mutateAsync({ task: t.id, note }) },
     cancel: {
       label: running ? `stop ${taskRef(t.id)}? why (optional):` : `cancel ${taskRef(t.id)}? why (optional):`,
@@ -184,20 +206,43 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   const reason = ask ? reasons[ask] : undefined;
   const Panel = ask ? PANELS[ask as keyof typeof PANELS] : undefined;
   const verb = (id: string, label: string, why: string | undefined, to: Ask) => (
-    <MenuItem key={id} testID={`verb-${id}`} label={label} disabled={!!why || ask !== null} onPress={() => {
-      setMenu(null);
-      setAsk(to);
-    }} />
+    <MenuItem
+      key={id}
+      testID={`verb-${id}`}
+      label={label}
+      disabled={!!why || ask !== null}
+      onPress={() => {
+        setMenu(null);
+        setAsk(to);
+      }}
+    />
   );
   return (
     <View style={{ gap: space.md }}>
       <View accessibilityRole="toolbar" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
-        <Pill testID="status-menu" on={menu === 'status'} label={`${t.state} ▾`} onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'status' ? null : 'status'))} />
-        {open && !isGate(t) && <Pill testID="assignee-menu" on={ask === 'assign'} label={`→ ${t.to} ▾`} onPress={() => {
-            setMenu(null);
-            setAsk(ask === 'assign' ? null : 'assign');
-          }} />}
-        <Pill testID="more-menu" on={menu === 'more'} label="More ▾" onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'more' ? null : 'more'))} />
+        <Pill
+          testID="status-menu"
+          on={menu === 'status'}
+          label={`${t.state} ▾`}
+          onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'status' ? null : 'status'))}
+        />
+        {open && !isGate(t) && (
+          <Pill
+            testID="assignee-menu"
+            on={ask === 'assign'}
+            label={`→ ${t.to} ▾`}
+            onPress={() => {
+              setMenu(null);
+              setAsk(ask === 'assign' ? null : 'assign');
+            }}
+          />
+        )}
+        <Pill
+          testID="more-menu"
+          on={menu === 'more'}
+          label="More ▾"
+          onPress={() => (setAsk(ask === 'assign' ? null : ask), setMenu(menu === 'more' ? null : 'more'))}
+        />
       </View>
       {menu !== null && (
         <MenuSheet testID={`${menu}-sheet`} onClose={() => setMenu(null)}>
@@ -241,7 +286,9 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
           )}
         </MenuSheet>
       )}
-      {Object.values(off).some(Boolean) && <Text style={{ color: c.muted, fontSize: font.size.label }}>{Object.values(off).find(Boolean)}</Text>}
+      {Object.values(off).some(Boolean) && (
+        <Text style={{ color: c.muted, fontSize: font.size.label }}>{Object.values(off).find(Boolean)}</Text>
+      )}
       {reason && <ReasonSheet {...reason} onCancel={() => setAsk(null)} onSubmit={(text) => settle(reason.send(text))} />}
       {ask === 'withdraw' && (
         <Sheet
@@ -260,8 +307,20 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
 }
 
 const TASK_WRITES = [
-  'task.done', 'task.reopen', 'task.withdraw', 'task.cancel', 'task.queue', 'task.draft', 'task.discard', 'task.edit', 'task.ask', 'task.release', 'task.merge',
-  'task.comment.add', 'task.comment.edit', 'task.comment.delete',
+  'task.done',
+  'task.reopen',
+  'task.withdraw',
+  'task.cancel',
+  'task.queue',
+  'task.draft',
+  'task.discard',
+  'task.edit',
+  'task.ask',
+  'task.release',
+  'task.merge',
+  'task.comment.add',
+  'task.comment.edit',
+  'task.comment.delete',
 ] as const;
 
 /** Whether a write for this task is on its way: the detail shows a quiet mark until the daemon settles it. */
@@ -295,7 +354,14 @@ function TaskFields(p: { id: 'nt' | 'et'; owners: string[]; draft: TaskDraft; ch
       <Input testID={`${id}-box`} label="Time box" value={draft.box} onChange={(box) => change({ box })} />
       <View style={{ flexDirection: 'row', gap: space.sm }}>
         {PRIORITIES.map(([n, l]) => (
-          <Pill role="radio" key={n} on={draft.priority === n} label={l} onPress={() => change({ priority: n })} testID={`${id}-priority-${n}`} />
+          <Pill
+            role="radio"
+            key={n}
+            on={draft.priority === n}
+            label={l}
+            onPress={() => change({ priority: n })}
+            testID={`${id}-priority-${n}`}
+          />
         ))}
       </View>
     </>
@@ -341,7 +407,13 @@ export function NewTask({ onClose }: { onClose: () => void }) {
 function EditTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
   const edit = useWrite('task.edit');
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
-  const [draft, setDraft] = useState<TaskDraft>({ owner: t.to, title: t.title, body: t.body ?? '', box: t.time_box ?? '', priority: t.priority ?? 2 });
+  const [draft, setDraft] = useState<TaskDraft>({
+    owner: t.to,
+    title: t.title,
+    body: t.body ?? '',
+    box: t.time_box ?? '',
+    priority: t.priority ?? 2,
+  });
   const change = (patch: Partial<TaskDraft>) => setDraft((d) => ({ ...d, ...patch }));
   const [missing, setMissing] = useState('');
   const save = () => {

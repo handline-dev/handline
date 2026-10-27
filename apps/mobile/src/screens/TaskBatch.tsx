@@ -113,9 +113,23 @@ export function TaskBatch(props: { tasks: Task[]; onClose: () => void; onDone: (
       error={missing ? 'This needs an answer.' : undefined}
     >
       {kind === 'reason' || kind === 'reasonOptional' ? (
-        <Input testID="batch-text" label={kind === 'reason' ? 'Reason' : 'Reason (optional)'} value={arg} invalid={missing} onChange={(v) => (setArg(v), setMissing(false))} />
+        <Input
+          testID="batch-text"
+          label={kind === 'reason' ? 'Reason' : 'Reason (optional)'}
+          value={arg}
+          invalid={missing}
+          onChange={(v) => (setArg(v), setMissing(false))}
+        />
       ) : null}
-      {kind === 'timebox' ? <Input testID="batch-text" label="Time box, like 2h" value={arg} invalid={missing} onChange={(v) => (setArg(v), setMissing(false))} /> : null}
+      {kind === 'timebox' ? (
+        <Input
+          testID="batch-text"
+          label="Time box, like 2h"
+          value={arg}
+          invalid={missing}
+          onChange={(v) => (setArg(v), setMissing(false))}
+        />
+      ) : null}
       {kind === 'priority' ? (
         <View style={{ flexDirection: 'row', gap: space.sm }}>
           {(['1', '2', '3'] as const).map((x) => (
@@ -130,7 +144,11 @@ export function TaskBatch(props: { tasks: Task[]; onClose: () => void; onDone: (
           ))}
         </View>
       ) : null}
-      {p.skip.length ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{`Skipped: ${p.skip.map((s) => `${taskRef(s.task.id)} (${s.why})`).join('; ')}`}</Text> : null}
+      {p.skip.length ? (
+        <Text
+          style={{ color: c.muted, fontSize: font.size.label }}
+        >{`Skipped: ${p.skip.map((s) => `${taskRef(s.task.id)} (${s.why})`).join('; ')}`}</Text>
+      ) : null}
     </Sheet>
   );
 }
