@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentView, InboxItem, Task } from '@handline/client';
-import { inboxGroup, myTurn, reviewPictures, changeAsked, turnAgents } from '#src/my-turn.ts';
+import { inboxGroup, messageRows, myTurn, reviewPictures, changeAsked, turnAgents } from '#src/my-turn.ts';
 
 const item = (o: Partial<InboxItem>): InboxItem =>
   ({
@@ -189,4 +189,36 @@ test('the agents of My turn are the ones its cards name', () => {
     tasks: [task({ id: 5, to: 'human', from: 'c' })],
   });
   assert.deepEqual([...turnAgents(cards)], ['b']);
+});
+
+test('an ask from a task comment is answered by a reply, OK or Approve, and never closes the task', () => {
+  const ask = item({ id: 9, kind: 'ask', task: 5, memo: 77, agent: 'a', body: 'Ship it?' });
+  const [plain] = myTurn({ items: [ask], agents: [], tasks: [task({ id: 5 })] });
+  assert.equal(plain!.memo, 77);
+  assert.deepEqual(plain!.actions.slice(0, plain!.primary), [
+    { type: 'reply', id: 9, text: 'OK', label: 'OK' },
+    { type: 'answer', id: 9 },
+  ]);
+  const [review] = myTurn({ items: [ask], agents: [], tasks: [task({ id: 5, tags: ['review'] })] });
+  assert.deepEqual(review!.actions.slice(0, review!.primary), [
+    { type: 'reply', id: 9, text: 'Approved', label: 'Approve' },
+    { type: 'change', id: 9 },
+  ]);
+  assert.ok(![...plain!.actions, ...review!.actions].some((a) => a.type === 'done' || a.type === 'approve' || a.type === 'ask_change'));
+});
+
+test('one message row per agent with unread messages, newest first, opening at the first above the cursor', () => {
+  const rows = messageRows([
+    agent({ name: 'a', founder_unread: 2, founder_seen: 10, last_to_founder: { text: 'old', at: '2026-10-15T00:00:00Z' } }),
+    agent({ name: 'b', founder_unread: 1, last_to_founder: { text: 'new', at: '2026-10-16T00:00:00Z' } }),
+    agent({ name: 'c', founder_unread: 0 }),
+    agent({ name: 'd' }),
+  ]);
+  assert.deepEqual(
+    rows.map((r) => [r.agent, r.line, r.unread, r.from]),
+    [
+      ['b', 'new', 1, null],
+      ['a', 'old', 2, 11],
+    ],
+  );
 });

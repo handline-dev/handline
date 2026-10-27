@@ -53,6 +53,25 @@ describe('my turn', () => {
     expect([...dialog.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Open terminal']);
     expect(box.querySelector('.rail-nav')!.textContent).toMatch(/My turn\d+/);
   });
+  it('lists an agent with unread messages as a row under Messages, and a click opens its chat at the first unread', async () => {
+    const s = setup();
+    const fx = s.daemon.sessions.get(ARCH)!.fx;
+    keep = () => void (fx.view = undefined);
+    fx.view = { founder_unread: 3, founder_seen: 4, last_to_founder: { text: 'The build is green', at: new Date().toISOString() } };
+    location.hash = '#/my-turn';
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />);
+    });
+    await until(() => box.querySelector(`[data-row="${ARCH}"]`), 'the message row');
+    const row = box.querySelector<HTMLElement>(`[data-row="${ARCH}"]`)!;
+    expect(row.textContent).toContain('The build is green');
+    expect(row.textContent).toContain('3');
+    expect(box.querySelector('[aria-label="Messages"]')!.contains(row)).toBe(true);
+    await act(async () => void row.click());
+    expect(location.hash).toBe(`#/agents/${encodeURIComponent(ARCH)}?m=5`);
+  });
   async function open(s = setup()) {
     s.daemon.tasks.verbs = true;
     location.hash = '#/my-turn';

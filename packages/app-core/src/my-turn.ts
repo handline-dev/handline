@@ -17,6 +17,10 @@ export type CardAction =
   | { type: 'approve'; item: InboxItem }
   /** A review card: the UI asks for text and a drawing, comments them, then closes the task 'Change asked: <text>'. */
   | { type: 'ask_change'; item: InboxItem }
+  /** An ask raised by a task comment: a fixed reply (OK, Approved) answers it as a comment on the task, not task.done. */
+  | { type: 'reply'; id: number; text: string; label: string }
+  /** The same ask on a review: the UI asks for text and replies `Change asked: <text>`. */
+  | { type: 'change'; id: number }
   | { type: 'open'; to: string }
   | { type: 'terminal'; agent: string }
   | { type: 'read'; id: number };
@@ -30,6 +34,8 @@ export interface Card {
   /** Who is asking, never the person themselves. */
   from: string | null;
   task: number | null;
+  /** The task comment an ask answers (InboxItem.memo); null for every other card. */
+  memo: number | null;
   /** The task is tagged `review`: its first comment's pictures are the thing to look at (Memo.parts), and Approve and Ask for change stand in for Done. */
   review: boolean;
   /** 1 is the most urgent; 4 for a card with no task. */
@@ -93,6 +99,7 @@ function taskCards(
       agent: null,
       from: t.from && !isPerson(t.from, me) ? t.from : null,
       task: t.id,
+      memo: null,
       review: !!t.tags?.includes(REVIEW_TAG),
       ...when(t.id),
       since: at(t.created),
@@ -126,6 +133,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
       agent: i.agent,
       from: other(t?.from) ?? other(i.agent),
       task: i.task,
+      memo: i.memo ?? null,
       review: !!t?.tags?.includes(REVIEW_TAG),
       since: at(i.created),
       ...when(i.task),
@@ -157,6 +165,20 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
           ...(i.agent ? [{ type: 'terminal', agent: i.agent } as const] : []),
           ...open,
         ],
+      });
+    } else if (i.kind === 'ask' && i.memo != null && i.task != null) {
+      // An agent named @human in a task comment: the founder's answer is a reply comment on that task, and the task stays open.
+      const answer = { type: 'answer', id: i.id } as const;
+      const verbs: CardAction[] = base.review
+        ? [{ type: 'reply', id: i.id, text: APPROVED, label: 'Approve' }, { type: 'change', id: i.id }, answer]
+        : [{ type: 'reply', id: i.id, text: 'OK', label: 'OK' }, answer];
+      cards.push({
+        ...base,
+        key: `item:${i.id}`,
+        kind: 'decision',
+        title,
+        primary: verbs.length - (base.review ? 1 : 0),
+        actions: [...verbs, ...open],
       });
     } else if (KINDS[i.kind]) {
       const decide: CardAction[] =
@@ -202,6 +224,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
       agent: a.name,
       from: a.name,
       task: a.task?.id ?? null,
+      memo: null,
       review: false,
       ...w,
       since: at(n.since),
@@ -225,6 +248,32 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
       x.since - y.since ||
       x.key.localeCompare(y.key),
   );
+}
+
+/** An agent with messages for the person they have not seen: the Messages section of My turn, one row each. */
+export interface MessageRow {
+  agent: string;
+  /** The whole body of its newest request to the founder. */
+  line: string;
+  /** When it was written (ms). */
+  at: number;
+  unread: number;
+  /** The message to open the chat at (the first above the founder's cursor), absent from a daemon without founder_seen. */
+  from: number | null;
+}
+
+/** One row per agent with unread messages, newest first. */
+export function messageRows(agents: readonly AgentView[]): MessageRow[] {
+  return agents
+    .filter((a) => (a.founder_unread ?? 0) > 0)
+    .map((a) => ({
+      agent: a.name,
+      line: a.last_to_founder?.text ?? '',
+      at: at(a.last_to_founder?.at),
+      unread: a.founder_unread!,
+      from: a.founder_seen === undefined ? null : a.founder_seen + 1,
+    }))
+    .sort((x, y) => y.at - x.at || x.agent.localeCompare(y.agent));
 }
 
 export type InboxGroup = 'decisions' | 'approvals' | 'fyi';
