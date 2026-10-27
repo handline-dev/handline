@@ -28,12 +28,12 @@ const valid = (iso: string): Date | null => {
   return Number.isNaN(+d) ? null : d;
 };
 
-/** The time of day, "09:42 PM" in the person's locale; empty for a string that is not a date. */
+/** The time of day, "21:42" (24 hours); empty for a string that is not a date. */
 export function clockTime(iso: string): string {
-  return valid(iso)?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) ?? '';
+  return valid(iso)?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) ?? '';
 }
 
-/** Month, day and time, "Oct 15, 09:42 PM"; empty for a string that is not a date. */
+/** Month, day and time, "Oct 15, 21:42"; empty for a string that is not a date. */
 export function dateTime(iso: string): string {
-  return valid(iso)?.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) ?? '';
+  return valid(iso)?.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) ?? '';
 }

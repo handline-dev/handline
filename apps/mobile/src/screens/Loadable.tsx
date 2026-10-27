@@ -38,13 +38,13 @@ export function Loadable(props: {
       {text}
     </Text>
   );
-  if (state === 'not_served') return note('not-served', `This daemon does not serve ${props.label}.`);
+  if (state === 'not_served') return note('not-served', 'This needs a newer Handline.');
   if (state === 'loading') return <Skeleton shape={props.skeleton} loading label={props.label} />;
   if (state === 'error' && failure) {
     // A lost connection says nothing here (the banner does) and a missing thing is just empty.
     if (failure.kind === 'transport') return q.data === undefined ? null : <>{props.children}</>;
     if (failure.kind === 'not_found') return props.empty ? <EmptyState text={props.empty} /> : null;
-    if (failure.kind === 'not_served' && !props.retryRefused) return note('not-served', `This daemon does not serve ${props.label}.`);
+    if (failure.kind === 'not_served' && !props.retryRefused) return note('not-served', 'This needs a newer Handline.');
     return (
       <View style={{ flex: 1 }}>
         <View testID="error" accessibilityRole="alert" style={{ padding: space.lg, gap: space.sm }}>

@@ -571,6 +571,19 @@ func (e *Env) Pick(q db.Q, o PickOpts) (string, []Reason, error) {
 		}
 		return a.name < b.name
 	})
+	// The week that runs out soonest is spent first; the older key above orders what has no readable week.
+	ranked := make([]Ranked, len(keys))
+	for i, k := range keys {
+		active := 0
+		if k.ld != nil {
+			active = k.ld.Active
+		}
+		u, known := Urgency(k.st)
+		ranked[i] = Ranked{Name: k.name, Urgency: u, Known: known, Active: active}
+	}
+	if best, ok := BestByUrgency(ranked); ok {
+		sort.SliceStable(keys, func(i, j int) bool { return keys[i].name == best.Name && keys[j].name != best.Name })
+	}
 	picked := keys[0].name
 	for _, k := range keys {
 		reasons = append(reasons, Reason{k.name, pickReason(k.st, k.ld, k.lasts, k.name == picked, o.Agent)})

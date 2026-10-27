@@ -13,6 +13,9 @@ Only added lines are read, so old text never blocks a new change. `log` reads ea
 and committer email as well as its message, so a personal address cannot ride in the metadata.
 In a Markdown file, an id that is an argument of an `ocp ...` command on its line is the product's
 own syntax, not a local id, and passes.
+A commit message may not @-mention anyone outside code spans and fences but HANDLES: GitHub notifies
+whoever owns the name. In a diff, an @-mention of a NOTIFIED_NAMES word is refused in prose (a Markdown
+line, a JSON description, a code comment); a literal token in code passes.
 """
 from __future__ import annotations
 
@@ -46,6 +49,17 @@ PATTERNS: list[tuple[str, re.Pattern]] = [
                          r"|-----BEGIN [A-Z ]*PRIVATE KEY-----")),
 ]
 
+# The GitHub accounts we mean when we @-mention: the repo's owner and the account that opens our PRs.
+HANDLES = {"handline-dev", "nightee99"}
+# Words the product says with an @ that are also someone's GitHub login.
+NOTIFIED_NAMES = {"human"}
+MENTION = re.compile(r"(?<![A-Za-z0-9_.@/`\\-])@([A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38})(?![A-Za-z0-9_])")
+CODE_SPAN = re.compile(r"(`+).+?\1")
+FENCE = re.compile(r"^\s*(```|~~~)")
+# The subject git writes for a merge names the branch, which the author did not choose in the message.
+GIT_MERGE = re.compile(r"^Merge (?:branch|remote-tracking branch|pull request #\d+ from|commit) ")
+COMMENT_MARKS = {".ts": "//", ".tsx": "//", ".js": "//", ".mjs": "//", ".go": "//", ".py": "#", ".sh": "#"}
+
 # A mail domain or a user directory name that is a placeholder, not a person.
 SAFE_EMAIL_DOMAINS = {"example.com", "example.org", "example.net"}
 SAFE_EMAIL_LOCALS = {"noreply", "no-reply", "git"}
@@ -53,6 +67,7 @@ SAFE_USERS = {"user", "you", "me", "name", "username", "runner", "shared", "gues
 GENERIC_LOGINS = {"root", "admin", "user", "dev", "runner", "ubuntu", "ec2-user", "git", "nobody"}
 
 HINT = ("say what changed and why in words; task and chat ids stay on the task board. "
+        "An @name notifies that GitHub account: write `@name` in backticks or reword. "
         "An email, name or home path goes as a "
         "placeholder (<user>, user@example.com). A personal author or committer email: "
         "`git config user.email <id>+<name>@users.noreply.github.com`. Real need (a fixture): "
@@ -100,6 +115,26 @@ def find(text: str, words: tuple[str, ...] = (), doc: bool = False) -> list[tupl
     return out
 
 
+def mentions(line: str) -> list[str]:
+    """The names a line @-mentions outside its code spans, as GitHub would notify them."""
+    return [m.group(1) for m in MENTION.finditer(CODE_SPAN.sub("", line))]
+
+
+def prose(path: str, line: str) -> str:
+    """The part of an added line that a reader takes as prose: a Markdown line, a JSON description or summary, the
+    comment of a code line (from its comment mark, or the whole line inside a block comment), else nothing."""
+    ext = Path(path).suffix
+    if ext == ".md" or ext == ".json" and re.match(r'\s*"(?:description|summary)"\s*:', line):
+        return line
+    mark, s = COMMENT_MARKS.get(ext), line.strip()
+    if not mark:
+        return ""
+    if s.startswith(("*", "/*")) and mark == "//":
+        return s
+    at = re.search(r"(?:^|\s)" + re.escape(mark), line)
+    return line[at.end():] if at else ""
+
+
 def own_words() -> tuple[str, ...]:
     """The login of whoever runs this, minus anything generic. Not the git user name: that can be a
     word the product itself uses (the repo's identity is named for it), and a personal address in an
@@ -136,6 +171,10 @@ def scan_diff(diff: str, allow: list[str], words: tuple[str, ...] = ()) -> list[
                 if path and not is_allowed(path, allow):
                     for kind, s in find(raw[1:], words, doc=path.endswith(".md")):
                         out.append(f"{path}:{lineno}: {kind}: {s}")
+                    if MARKER not in raw:
+                        for name in mentions(prose(path, raw[1:])):
+                            if name.lower() in NOTIFIED_NAMES:
+                                out.append(f"{path}:{lineno}: mention in prose: @{name}")
                 lineno += 1
                 continue
             if raw.startswith("-") and dels:
@@ -153,13 +192,19 @@ def scan_diff(diff: str, allow: list[str], words: tuple[str, ...] = ()) -> list[
 
 
 def scan_message(text: str, where: str, words: tuple[str, ...] = (), comments: bool = True) -> list[str]:
-    """Findings for a commit message. With `comments`, a line starting with # is git's own and skipped."""
+    """Findings for a commit message or a PR's text. With `comments`, a line starting with # is git's own and
+    skipped, as is the subject git writes for a merge."""
     out: list[str] = []
+    fenced = False
     for i, line in enumerate(text.splitlines(), 1):
-        if comments and line.startswith("#"):
+        if comments and line.startswith("#") or i == 1 and GIT_MERGE.match(line):
             continue
         for kind, s in find(line, words):
             out.append(f"{where}:{i}: {kind}: {s}")
+        if FENCE.match(line):
+            fenced = not fenced
+        elif not fenced and MARKER not in line:
+            out += [f"{where}:{i}: mention: @{n}" for n in mentions(line) if n.lower() not in HANDLES]
     return out
 
 

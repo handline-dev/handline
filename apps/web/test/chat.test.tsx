@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store, defaultWorkspace, groupsOf, openTab, saveWorkspace, splitTab, storageKey, type KV } from '@handline/app-core';
 import { second, setup } from '@handline/fake-daemon/helpers';
+import { applySeeds } from '@handline/fake-daemon/seeds';
 import { App } from '#src/App.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -51,8 +52,6 @@ const landing = (body: string) => msg(body)?.getAttribute('data-landing');
 const link = (label: string, within: Element) =>
   [...within.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label)!;
 const icon = (m: Element | undefined, label: string) => m?.querySelector(`[aria-label="${label}"]`) ?? null;
-const idOfBody = (t: { daemon: unknown }, body: string) =>
-  (t.daemon as { chat: { messages: { id: number; body: string }[] } }).chat.messages.find((m) => m.body === body)!.id;
 const other = async (t: ReturnType<typeof setup>, body: string) => {
   const c = second(t.daemon, t.net, { client: 'web-other' });
   await c.start();
@@ -228,6 +227,20 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(text(msg('and the transcripts')!.querySelector('.msg-ref'))).toContain('Use the contract fixtures.');
   });
 
+  it('a message starting with ! is sent as typed: the picked reply is dropped and the box shows command mode', async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Use the contract fixtures.'), 'history');
+    await click(msg('Use the contract fixtures.')!.querySelector('.msg-body')!);
+    await typeInto(compose(), '!git status');
+    expect(compose().className).toContain('font-mono');
+    expect($('.compose-cmd')?.textContent).toBe('Sent as typed to the agent');
+    expect($('.compose-attach')).not.toBeNull(); // the slot stays, so the box does not move
+    await press(compose(), 'Enter');
+    await until(() => sentMsgs(t).some((m) => m.body === '!git status'), 'the daemon got it');
+    expect(sentMsgs(t).find((x) => x.body === '!git status')!.parent).toBeNull();
+    expect($('.compose-ref')).toBeNull();
+  });
+
   it('a message of the person offers no request buttons; what the team made of it shows under it in plain words', async () => {
     const t = await mount(ARCH);
     await until(() => msg('Use the contract fixtures.'), 'history');
@@ -296,12 +309,27 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     const events = $$('[data-kind="task_event"]');
     expect(icon(events[0], 'Task added')).not.toBeNull();
     expect(text(events[0])).toContain('1684');
-    expect(events[0]!.tagName).toBe('BUTTON');
     const changed = events.find((c) => c.getAttribute('data-event') === 'changed')!;
     expect(text(changed)).toContain('assigned to alice');
     expect(text(changed)).toContain('priority 2 → 1');
-    expect(changed.querySelector('.card-time')).not.toBeNull(); // the time has its own column on the right
+    expect(changed.querySelector('.card-time')).not.toBeNull(); // the time is its own span at the card's end
     expect(text(events[0])).not.toMatch(/TASK|task added/); // no shouted label: the dot says it
+  });
+
+  it('a task card has Open at its end, and Done only on an open task given to the person', async () => {
+    const s = setup();
+    s.daemon.tasks.verbs = true;
+    applySeeds(s.daemon, 'task-card');
+    await mount(ARCH, s);
+    await until(() => msg('Which gap list'), 'history');
+    const card = (n: number) => $$('[data-kind="task_event"]').find((c) => text(c).includes(String(n)));
+    const button = (n: number, word: string) => [...(card(n)?.querySelectorAll('button') ?? [])].find((b) => text(b) === word);
+    await until(() => button(1695, 'Done'), 'Done on the open task');
+    expect(button(1695, 'Open')).toBeDefined();
+    expect(button(1684, 'Open')).toBeDefined();
+    expect(button(1684, 'Done')).toBeUndefined(); // T1684 is the architect's, not the person's
+    await click(button(1695, 'Done')!);
+    await until(() => !button(1695, 'Done'), 'the card without Done');
   });
 
   it('a batch discard is one card with a line per task: the line opens the task, Reopen brings it back', async () => {
@@ -392,9 +420,6 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
 });
 
 describe('the bridge items: message numbers, new, menus, seen, strip', () => {
-  const chatOf = (t: { daemon: unknown }) =>
-    (t.daemon as { chat: { messages: { id: number; body: string; landing: string }[]; seenUpTo: Map<string, number> } }).chat;
-
   it("nothing the task board sent is in the agent's own chat", async () => {
     const s = setup();
     s.daemon.chat.seed(ARCH, { from: 'task-board', to: ARCH, body: 'T3492 done by handline.pair: -' }); // local-ref-ok
@@ -485,12 +510,6 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     }
   });
 
-  it("the agent's messages leave FOR YOU once they are drawn: chat.seen goes up to the newest", async () => {
-    const t = await mount(ARCH);
-    await until(() => msg('Which gap list'), 'history');
-    await until(() => (chatOf(t).seenUpTo.get(ARCH) ?? 0) === idOfBody(t, 'Which gap list should come first?'), 'chat.seen');
-  });
-
   it('/ lists the terminal, and no verb the daemon does by itself, # a task or message number to refer to, Esc closes a menu', async () => {
     await mount(ARCH);
     await until(() => msg('Which gap list'), 'history');
@@ -547,5 +566,47 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     await until(() => $('.chat-strip [aria-label$="in the worktree"]'), 'the count');
     expect(text($('.chat-strip [aria-label$="in the worktree"]'))).toBe('1');
     expect($('.chat-strip [aria-label$="in the worktree"]')!.getAttribute('title')).toBe('1 changed file in the worktree');
+  });
+
+  it('the ticks sit beside only the newest message of the person; an earlier one has them on hover', async () => {
+    const s = setup();
+    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'first words', landing: 'delivered' });
+    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'last words', landing: 'delivered' });
+    await mount(ARCH, s);
+    await until(() => msg('last words'), 'the messages');
+    const ticks = (body: string) => msg(body)!.parentElement!.querySelector('.landing');
+    expect(ticks('last words')?.closest('.hidden')).toBeNull();
+    expect(ticks('first words')?.closest('.hidden')).not.toBeNull();
+  });
+
+  it("an agent's message has Copy, which writes its words and says Copied, and Quote, which picks it", async () => {
+    const write = vi.fn(() => Promise.resolve());
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText: write } });
+    const s = setup();
+    s.daemon.chat.seed(ARCH, { from: ARCH, to: 'human', body: 'Report: gaps listed.', landing: 'delivered' });
+    await mount(ARCH, s);
+    await until(() => msg('Report: gaps listed.'), 'the report');
+    const bar = msg('Report: gaps listed.')!.parentElement!.querySelector<HTMLElement>('.msg-hover')!;
+    const pressed = (label: string) => [...bar.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label)!;
+    await click(pressed('Copy'));
+    expect(write).toHaveBeenCalledWith('Report: gaps listed.');
+    await until(() => pressed('Copied'), 'Copied');
+    await click(pressed('Quote'));
+    expect(text($('.compose-ref'))).toContain('Replying to');
+  });
+
+  it("the person's own messages have no hover bar", async () => {
+    const s = setup();
+    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: 'mine', landing: 'delivered' });
+    await mount(ARCH, s);
+    await until(() => msg('mine'), 'the message');
+    expect(msg('mine')!.parentElement!.querySelector('.msg-hover')).toBeNull();
+  });
+
+  it('a chat with messages is laid out from the bottom, so a short one sits next to the composer; an empty one is not', async () => {
+    const s = setup();
+    await mount(ARCH, s);
+    await until(() => msg('Which gap list'), 'history');
+    expect($('.stream > div')!.className).toContain('justify-end');
   });
 });

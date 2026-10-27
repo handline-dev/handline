@@ -1,5 +1,6 @@
 # The rules a pull request's text and base follow (tools/pr_checks.py body): sections Why, What changed, Evidence and Risk,
-# no Korean or message ids, base main or story/*. Before/after shots go to the founder, not the body. It reruns when the body is edited.
+# no Korean, task or message ids, or @-mentions outside code, base main or story/*. Before/after shots go to the founder, not the body.
+# Its commit messages and added lines pass tools/localrefs.py. It reruns when the body is edited.
 name: pr-rules
 
 on:
@@ -21,6 +22,16 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - run: python3 -m unittest tools/test_pr_checks.py tools/test_merge_ready.py tools/test_bundle.py
+      - run: python3 -m unittest tools/test_pr_checks.py tools/test_localrefs.py tools/test_merge_ready.py tools/test_bundle.py
       - run: python3 tools/pr_checks.py body
+      - name: commit messages and added lines (tools/localrefs.py)
+        if: ${{ !cancelled() }}
+        env:
+          BASE: origin/${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          status=0
+          python3 tools/localrefs.py log "$BASE..$HEAD_SHA" || status=1
+          python3 tools/localrefs.py diff "$BASE...$HEAD_SHA" || status=1
+          exit $status
 

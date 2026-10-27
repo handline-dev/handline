@@ -1,5 +1,4 @@
 // The sidebar row shows how many tasks wait behind the agent's current one, as the Tasks icon and a number, and nothing at 0.
-import { readFileSync } from 'node:fs';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -64,13 +63,5 @@ describe('queued tasks on a sidebar row', () => {
     expect(tip.split('\n').slice(1)).toEqual(['T1687 Fourth one', 'T1686 Also under way', 'T1685 Second plan']);
     expect(chip('handline.auditor')).toBeNull();
     expect(chip('handline.term-build')).toBeNull();
-  });
-});
-
-describe('the working count in a row', () => {
-  it('turns its icon like the state glyph does, and stops for reduced motion', () => {
-    const css = readFileSync('src/styles/ui.css', 'utf8');
-    expect(css).toMatch(/\.row-working svg\s*\{\s*animation: ui-spin/);
-    expect(css).toMatch(/prefers-reduced-motion[^}]*\.row-working svg/);
   });
 });

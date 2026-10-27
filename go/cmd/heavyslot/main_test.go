@@ -356,9 +356,10 @@ func memoryEnv(t *testing.T, config string) {
 			t.Fatal(err)
 		}
 	}
-	oldPoll, oldMem := poll, freeMemory
+	oldPoll, oldMem, oldDisk := poll, freeMemory, freeDisk
 	poll = 10 * time.Millisecond
-	t.Cleanup(func() { poll, freeMemory = oldPoll, oldMem })
+	freeDisk = func(string) (int64, int64, error) { return 500 * gb, 1000 * gb, nil }
+	t.Cleanup(func() { poll, freeMemory, freeDisk = oldPoll, oldMem, oldDisk })
 }
 
 func TestAFreeSlotIsNotTakenWhileFreeMemoryIsLowAndIsOnceItIsBack(t *testing.T) {
@@ -464,5 +465,68 @@ func TestOnlyTheFirstInLineLooksAtMemory(t *testing.T) {
 	defer mu.Unlock()
 	if reads == 0 {
 		t.Error("the first in line did not read memory")
+	}
+}
+
+func TestTheDiskFloorIsAConfigKeyAndAReadingThatFailsOrIsOffDoesNotHold(t *testing.T) {
+	memoryEnv(t, "")
+	freeDisk = func(string) (int64, int64, error) { return 3 * gb, 100 * gb, nil }
+	if got := lowDisk(); got != "free disk 3 GB under 5 GB" {
+		t.Errorf("the default floor is 5 GB: %q", got)
+	}
+	freeDisk = func(string) (int64, int64, error) { return 5 * gb, 100 * gb, nil }
+	if got := lowDisk(); got != "" {
+		t.Errorf("at the floor holds: %q", got)
+	}
+	memoryEnv(t, "disk_free_min_gb: 20\n")
+	freeDisk = func(string) (int64, int64, error) { return 15 * gb, 100 * gb, nil }
+	if got := lowDisk(); got != "free disk 15 GB under 20 GB" {
+		t.Errorf("the key sets the floor: %q", got)
+	}
+	memoryEnv(t, "disk_free_min_gb: 0\n")
+	freeDisk = func(string) (int64, int64, error) { return 0, 100 * gb, nil }
+	if got := lowDisk(); got != "" {
+		t.Errorf("0 is off: %q", got)
+	}
+	memoryEnv(t, "")
+	freeDisk = func(string) (int64, int64, error) { return 0, 0, errors.New("statfs") }
+	if got := lowDisk(); got != "" {
+		t.Errorf("an error held the run: %q", got)
+	}
+}
+
+func TestAFreeSlotWaitsWhileFreeDiskIsLowAndGoesOnceItIsBack(t *testing.T) {
+	memoryEnv(t, "")
+	freeMemory = func() (int64, int64, error) { return 90, 100, nil }
+	var mu sync.Mutex
+	free := int64(1) * gb
+	freeDisk = func(string) (int64, int64, error) { mu.Lock(); defer mu.Unlock(); return free, 100 * gb, nil }
+	said := captureStderr(t)
+	got := make(chan error, 1)
+	go func() {
+		f, _, err := acquire()
+		if f != nil {
+			f.Close()
+		}
+		got <- err
+	}()
+	select {
+	case <-got:
+		t.Fatal("took a slot with the disk under the floor")
+	case <-time.After(200 * time.Millisecond):
+	}
+	if !strings.Contains(said(), "waiting: free disk 1 GB under 5 GB") {
+		t.Errorf("it did not say why: %q", said())
+	}
+	mu.Lock()
+	free = 50 * gb
+	mu.Unlock()
+	select {
+	case err := <-got:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("still waiting after the disk was back")
 	}
 }

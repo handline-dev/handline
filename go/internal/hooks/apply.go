@@ -145,6 +145,9 @@ func apply(tx *sql.Tx, home, agent, event string, raw map[string]any, at int64, 
 		if err := noteToolUse(tx, agent); err != nil {
 			return err
 		}
+		if err := closeHookQuestion(tx, agent, raw, at); err != nil {
+			return err
+		}
 	}
 	if !captured[event] {
 		return nil
@@ -309,4 +312,31 @@ func noteToolUse(tx *sql.Tx, agent string) error {
 		return err
 	}
 	return setState(tx, agent, "RUNNING", "working")
+}
+
+// ToolCommand is what a tool call does and why, from a hook's tool_input: a Bash command and its description, else the file or URL it
+// works on.
+func ToolCommand(input map[string]any) (command, reason string) {
+	reason, _ = input["description"].(string)
+	for _, k := range []string{"command", "file_path", "notebook_path", "path", "url", "pattern"} {
+		if v, _ := input[k].(string); strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v), reason
+		}
+	}
+	return "", reason
+}
+
+// closeHookQuestion ends the permission question of the call that has now run (or failed): it was answered at the agent's own dialog, so
+// nobody can answer it here. The call waiting on it sees its row closed at its next refresh. The PermissionRequest payload carries no
+// tool_use_id, so the call is matched by tool and command; a parallel call to another tool or command leaves it be.
+func closeHookQuestion(tx *sql.Tx, agent string, raw map[string]any, at int64) error {
+	tool, _ := raw["tool_name"].(string)
+	input, _ := raw["tool_input"].(map[string]any)
+	if tool == "" || input == nil {
+		return nil
+	}
+	command, _ := ToolCommand(input)
+	_, err := tx.Exec("UPDATE prompt_blocks SET gone_at = ? WHERE agent = ? AND gone_at IS NULL AND json_extract(detail, '$.source') = 'hook' "+
+		"AND json_extract(detail, '$.tool') = ? AND json_extract(detail, '$.command') = ?", at, agent, tool, command)
+	return err
 }

@@ -63,7 +63,7 @@ export function AgentVerbs(props: {
       {held && (
         <Row style={{ flexWrap: 'wrap', paddingHorizontal: space.lg, paddingVertical: space.sm }}>
           <Text testID="held-load" style={{ color: c.wait, flex: 1 }}>
-            {row?.status?.text || 'Held: the machine is over its load limit.'}
+            {row?.status?.text || 'Waiting: the computer is busy right now.'}
           </Text>
           <Button testID="force-start" label={held.label} icon={VERB_ICON.force_start} onPress={() => pick(held)} />
         </Row>
@@ -134,7 +134,16 @@ function Advanced(props: { children: ReactNode }) {
 
 function VerbItem(props: { v: Verb; onPress: () => void }) {
   const why = useOff(props.v.method);
-  return <MenuItem testID={`verb-${props.v.id}`} label={props.v.label} icon={VERB_ICON[props.v.id]} disabled={!!why} note={why} onPress={props.onPress} />;
+  return (
+    <MenuItem
+      testID={`verb-${props.v.id}`}
+      label={props.v.label}
+      icon={VERB_ICON[props.v.id]}
+      disabled={!!why}
+      note={why}
+      onPress={props.onPress}
+    />
+  );
 }
 
 function VerbSheet(props: {
@@ -206,9 +215,18 @@ function DeleteSheet(props: { name: string; onClose: () => void; onDeleted?: () 
     });
   };
   return (
-    <Sheet label={`Delete ${props.name}?`} submit="Delete" kind="no" busy={busy} onCancel={props.onClose} onSubmit={go} error={why || undefined}>
+    <Sheet
+      label={`Delete ${props.name}?`}
+      submit="Delete"
+      kind="no"
+      busy={busy}
+      onCancel={props.onClose}
+      onSubmit={go}
+      error={why || undefined}
+    >
       <Text style={{ color: c.muted }}>
-        Its team entry, schedule and keys go, and its folder is moved to the archive. Past messages, tasks, events and the git worktree stay.
+        Its team entry, schedule and keys go, and its folder is moved to the archive. Past messages, tasks, events and the git worktree
+        stay.
       </Text>
     </Sheet>
   );

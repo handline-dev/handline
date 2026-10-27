@@ -20,6 +20,7 @@ const colorVars = (c: Colors, indent: string): string[] => {
     ['s-wait', c.wait],
     ['s-bad', c.bad],
     ['s-ok', c.ok],
+    ['cmd', c.cmd],
     ['term-bg', c.termBg],
     ['term-ink', c.termInk],
     ['code-bg', c.codeBg],

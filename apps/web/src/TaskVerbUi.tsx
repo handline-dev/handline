@@ -113,7 +113,7 @@ export function VerbItems(props: { tasks: Task[]; me: string; cans: Cans; onPick
           </div>
         ))
       ) : (
-        <MenuItem disabled>Nothing to do here</MenuItem>
+        <MenuItem disabled>None of these tasks can do that.</MenuItem>
       )}
     </>
   );
@@ -260,7 +260,7 @@ export function VerbSheet(props: {
         </p>
       ) : null}
       {need === 'owner' ? (
-        <NativeSelect value={arg} aria-label="New owner" onChange={(e) => (setArg(e.target.value), setEmpty(false))}>
+        <NativeSelect value={arg} aria-label="Assign to" onChange={(e) => (setArg(e.target.value), setEmpty(false))}>
           <option value="">pick an agent</option>
           {props.agents.map((a) => (
             <option key={a}>{a}</option>

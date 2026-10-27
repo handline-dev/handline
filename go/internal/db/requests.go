@@ -355,6 +355,12 @@ func MarkRead(q Q, rids []int64) error {
 	return nil
 }
 
+// MarkReadBy marks request rid read by target, the agent it was told to, once.
+func MarkReadBy(q Q, rid int64, target string) error {
+	_, err := q.Exec("UPDATE requests SET read_at = COALESCE(read_at, ?) WHERE id = ? AND target = ?", Now(), rid, target)
+	return err
+}
+
 // PendingNotices is db.pending_notices: the notices the target has not been shown, oldest first.
 func PendingNotices(q Q, target string) ([]*Request, error) {
 	return requestRows(q, "SELECT "+requestCols+" FROM requests WHERE target = ? AND notice >= 1 AND state = 'landed' AND delivered_at IS NULL ORDER BY id", target)
@@ -658,4 +664,13 @@ func ReopenLanded(q Q, rid int64) (bool, error) {
 	}
 	n, _ := res.RowsAffected()
 	return n > 0, nil
+}
+
+// CloseMemoAsks closes the open asks that task comments raised (requests.memo_id) and that match where, with arg: state "landed" is
+// answered (read as well), "withdrawn" is taken back.
+func CloseMemoAsks(q Q, state, where string, arg any) error {
+	_, err := q.Exec("UPDATE requests SET state = ?1, state_at = ?2, landed_at = CASE WHEN ?1 = 'landed' THEN ?2 END, "+
+		"read_at = CASE WHEN ?1 = 'landed' THEN COALESCE(read_at, ?2) ELSE read_at END, queue_order = NULL "+
+		"WHERE memo_id IS NOT NULL AND state = 'queued' AND "+where, state, Now(), arg)
+	return err
 }

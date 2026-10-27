@@ -6,7 +6,8 @@ import { dateTime, HELD, isPerson, taskRef, watchResult } from '@handline/app-co
 import { useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
-import { Button, MenuButton, MenuItem, Popup } from '#src/ui/index.ts';
+import { Button, Icon, MenuButton, MenuItem, PageHead, PageTitle, Popup } from '#src/ui/index.ts';
+import { AssignPopover } from '#src/TaskPeople.tsx';
 import { leave } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
 import { AskSheets, type Ask } from '#src/TaskAsk.tsx';
@@ -25,6 +26,9 @@ const CLOSED = ['done', 'discarded'];
 const REOPEN_ONLY = 'only a done task that you asked for can be reopened';
 const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
 
+/** The daemon's reason for a task it has not yet looked at: not something the person can act on, so it reads as a quiet line. */
+const NOT_PICKED = /has not looked at it yet/;
+
 export function TaskDetail({
   id,
   onBack,
@@ -32,7 +36,7 @@ export function TaskDetail({
   drawer,
 }: {
   id: number;
-  /** A close for a detail the window's own Back cannot return from; left out, the header is not drawn. */
+  /** Where Back goes for a detail the window's own Back cannot return from (My turn): on a page the top bar carries it; left out, it goes to Tasks. */
   onBack?: () => void;
   /** A pane inside its host (the Tasks tab of an agent pane, the Tasks page's split). */
   embedded?: boolean;
@@ -41,38 +45,68 @@ export function TaskDetail({
 }) {
   const q = useTask(id);
   const gone = q.isError && classify(q.error).kind === 'not_found';
+  const page = !embedded && !drawer; // on a page of its own the top bar names the task, whatever the width
   return (
-    <article
-      className={`tdetail flex min-h-0 min-w-0 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-4 max-sm:py-3${
-        drawer
-          ? ' w-[min(480px,45%)] flex-none border-l border-line bg-surface'
-          : embedded
-            ? ' pane relative flex-1 bg-panel -outline-offset-1'
-            : ' flex-1 mx-auto w-full max-w-[var(--w-page)] bg-canvas'
-      }`}
-      aria-label={`Task ${taskRef(id)}`}
-    >
-      {onBack ? (
-        <div className="mb-4 flex items-center justify-end gap-2">
-          <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
-            Back
-          </Button>
-        </div>
+    <>
+      {page ? (
+        <PageHead back={onBack ? { label: 'My turn', to: onBack } : { label: 'Tasks', to: () => leave('#/tasks') }}>
+          {/* A flex-1 row, not a truncating heading: the title takes the bar's free width (a long one truncates), the field what the ref leaves and its focus ring is not clipped. */}
+          <PageTitle className="flex min-w-0 flex-1 items-center gap-1.5">
+            <span className="mono flex-none">{taskRef(id)}</span>
+            {q.data ? (
+              <span className="title-slot min-w-0 flex-1 [&>[role=button]]:truncate">
+                <TitleEdit bar t={q.data} />
+              </span>
+            ) : null}
+          </PageTitle>
+        </PageHead>
       ) : null}
-      {gone ? (
-        <div className="empty">
-          <p>This task no longer exists.</p>
-        </div>
-      ) : (
-        <View q={q} served shape="taskDetail" what={`task ${taskRef(id)}`}>
-          {q.data ? <Body t={q.data} /> : null}
-        </View>
-      )}
-    </article>
+      <article
+        className={`tdetail flex min-h-0 min-w-0 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-4 max-sm:py-3${
+          drawer
+            ? ' w-[min(480px,45%)] flex-none border-l border-line bg-surface'
+            : embedded
+              ? ' pane relative flex-1 bg-panel -outline-offset-1'
+              : ' flex-1 mx-auto w-full max-w-[var(--w-page)] bg-canvas'
+        }`}
+        aria-label={`Task ${taskRef(id)}`}
+      >
+        {onBack && !page ? (
+          <div className="mb-4 flex items-center justify-end gap-2">
+            <Button icon="close" label="Back" title="Back (Esc)" className="back" onClick={onBack}>
+              Back
+            </Button>
+          </div>
+        ) : null}
+        {gone ? (
+          <div className="empty">
+            <p>This task no longer exists.</p>
+          </div>
+        ) : (
+          <View q={q} served shape="taskDetail" what={`task ${taskRef(id)}`}>
+            {q.data ? <Body t={q.data} barNamed={page} /> : null}
+          </View>
+        )}
+      </article>
+    </>
   );
 }
 
-function Body({ t }: { t: Detail }) {
+/** The task's title, where the person edits it: in the top bar on a page of its own, in the body's heading elsewhere. */
+function TitleEdit({ t, bar }: { t: Detail; bar?: boolean }) {
+  const edit = useEditTask(t);
+  return (
+    <Inline
+      can={edit.can.ok && !CLOSED.includes(t.state)}
+      label="Title"
+      input={(close) => <TextInput bar={bar} value={t.title} label="Title" onSave={(title) => edit.save({ title })} onClose={close} />}
+    >
+      {t.title}
+    </Inline>
+  );
+}
+
+function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   const store = useStore();
   const now = useNow();
   const me = useMe();
@@ -159,16 +193,11 @@ function Body({ t }: { t: Detail }) {
   return (
     <div className="tbody flex min-h-full flex-col bg-inherit" ref={root} tabIndex={-1} onKeyDown={key}>
       <header className="tdetail-head flex flex-wrap items-baseline gap-2">
-        <h2 className="m-0 min-w-0 text-title font-semibold">
-          <span className="mono">{taskRef(t.id)}</span>{' '}
-          <Inline
-            can={edit.can.ok && open}
-            label="Title"
-            input={(close) => <TextInput value={t.title} label="Title" onSave={(title) => edit.save({ title })} onClose={close} />}
-          >
-            {t.title}
-          </Inline>
-        </h2>
+        {barNamed ? null : (
+          <h2 className={`m-0 min-w-0 text-title font-semibold`}>
+            <span className="mono">{taskRef(t.id)}</span> <TitleEdit t={t} />
+          </h2>
+        )}
         {status.length ? (
           <MenuButton
             label="Status"
@@ -203,13 +232,18 @@ function Body({ t }: { t: Detail }) {
       </p>
       <TimeLine id={t.id} />
       <TaskWatch t={t} />
-      {why ? (
+      {why && NOT_PICKED.test(why) ? (
+        <p className="twhy m-0 mt-2 flex items-center gap-1.5 text-hint text-ink-3" role="status">
+          <Icon name="queued" size={14} aria-hidden />
+          Not picked up yet
+        </p>
+      ) : why ? (
         <p className="twhy m-0 mt-3 rounded-card border border-wait px-3 py-2 text-wait" role="status">
           <RichText text={why} />
         </p>
       ) : null}
       <div className="mt-3">
-        <TaskChips t={t} now={now} onAssign={() => setAsk('assign')} />
+        <TaskChips t={t} now={now} me={me} />
       </div>
       <Brief t={t} can={edit.can.ok && open} />
 
@@ -229,7 +263,7 @@ function Body({ t }: { t: Detail }) {
 
       {/* A sticky bar stops above the scroll box's 12 px bottom padding; -bottom-3 takes it to the edge. */}
       <div className="task-footer sticky -bottom-3 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-inherit px-4 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-1.5">
-        <AskSheets t={t} me={me} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
+        <AskSheets t={t} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
 
         <div className="tverbs flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Task actions">
           {main ? (
@@ -245,16 +279,19 @@ function Body({ t }: { t: Detail }) {
             </Button>
           ) : null}
           {open ? (
-            <Button
-              variant="outline"
-              label="Assign"
-              title={edit.can.why ?? 'Assign (o)'}
-              disabled={!edit.can.ok}
-              className="max-sm:min-h-[44px]"
-              onClick={verbs.o}
-            >
-              Assign
-            </Button>
+            <span className="relative inline-flex">
+              <Button
+                variant="outline"
+                label="Assign"
+                title={edit.can.why ?? 'Assign (o)'}
+                disabled={!edit.can.ok}
+                className="max-sm:min-h-[44px]"
+                onClick={() => setAsk(ask === 'assign' ? null : 'assign')}
+              >
+                Assign
+              </Button>
+              <AssignPopover t={t} me={me} open={ask === 'assign'} onClose={() => setAsk(null)} up />
+            </span>
           ) : null}
           <Button variant="outline" label="Comment" title="Comment (a)" className="max-sm:min-h-[44px]" onClick={verbs.a}>
             Comment

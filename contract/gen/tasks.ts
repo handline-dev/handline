@@ -86,7 +86,7 @@ export type Task = {
 export type TaskWaiting = {
   /** The cause, one word of an open set (a client shows text for a word it does not know): task (behind its open blockers, tasks names them), founder (an open request to the founder on the task), cap (the owner's account has no free slot), wall (the owner's account is at a usage limit), owner (the owner is busy: mid-turn, a dialog, closed, another task ahead), host (reserved: the host is full; not sent until the host cap exists). */
   on: string;
-  /** The line every view shows for it: `blocked by T<n>`, `waiting on you`, else the daemon's own reason. */
+  /** The line every view shows for it: `blocked by T<n>`, `needs you`, else the daemon's own reason. */
   text: string;
   /** The tasks it waits on, for on task (by id, also one outside the caller's scope); empty otherwise. */
   tasks: number[];
@@ -150,7 +150,7 @@ export type TaskDetail = Task & {
     at: Timestamp;
     /** The author, or `from → to` for a handoff. */
     who: string;
-    /** memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note), from before a review was a handoff. */
+    /** memo; handoff; a request linked to the task, except a memo's tell, which repeats its memo; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note), from before a review was a handoff. */
     kind: "memo" | "handoff" | "request" | "edit" | "state" | "reject";
     /** Already stripped of control characters: a client draws it as it is. */
     text: string;
@@ -214,6 +214,8 @@ export type Memo = {
   files?: MemoFile[];
   /** The comment this one answers; null for none. */
   reply_to?: number | null;
+  /** Where the tell of a founder's comment stands for each agent it was told to, in the order told; present only on a founder comment that told someone. */
+  readers?: MemoReader[];
 };
 
 export type TaskBoardRow = {
@@ -293,7 +295,7 @@ export type TimeSegment = {
   /** queued: not yet with its holder. waiting: held up, on says by what. starting: its holder's session is being launched, woken or handed off. working: from when the task delivery landed in its holder session (or task_start, if earlier) until reported, released or done. */
   kind: "queued" | "waiting" | "starting" | "working";
   on: ("founder" | "task" | "agent" | "account") | null;
-  /** The reason as shown: `waiting on you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working. */
+  /** The reason as shown: `needs you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working. */
   text: string;
   task: number | null;
   from: Timestamp;
@@ -321,6 +323,19 @@ export type TaskWatch = {
   label: string;
   /** What it opened with; null while it watches. A target that reads as gone (deleted, or no longer visible) three times in a row is failed. */
   result: ("passed" | "failed" | "timed_out") | null;
+};
+
+/** One reader of a founder's comment and where its tell stands. */
+export type MemoReader = {
+  agent: string;
+  /** The request that told the comment to this agent. */
+  request: number;
+  /** held: waits for the agent's next digest (send it now with task.comment.send_now). sent: sent in a digest, not opened yet. read: typed to the agent at once and landed in its session, or opened with hl read. */
+  state: "held" | "sent" | "read";
+  /** held: when the tell began to wait. sent: when it was sent. read: when it was read. */
+  at: Timestamp | null;
+  /** Only when held: about how many minutes until the agent's next digest (at least 1), at the default window. */
+  minutes?: number;
 };
 
 export interface TasksMethods {
@@ -556,6 +571,11 @@ export interface TasksMethods {
   memo: number;
   request_id: RequestId;
 }; result: Accepted };
+  "task.comment.send_now": { params: {
+  memo: number;
+  agent: string;
+  request_id: RequestId;
+}; result: Accepted };
   "task.memo.delete": { params: {
   task: number;
   memo: number;
@@ -699,6 +719,7 @@ export const TASKS_METHODS: { [K in keyof TasksMethods]: { role: Role; callers: 
   "task.comment.edit": { role: "agent", callers: null, write: true, since: 1 },
   "task.memo.edit": { role: "agent", callers: null, write: true, since: 1 },
   "task.comment.delete": { role: "agent", callers: null, write: true, since: 1 },
+  "task.comment.send_now": { role: "member", callers: null, write: true, since: 1 },
   "task.memo.delete": { role: "agent", callers: null, write: true, since: 1 },
   "task.view.list": { role: "member", callers: null, write: false, since: 1 },
   "task.view.save": { role: "member", callers: null, write: true, since: 1 },

@@ -1,12 +1,12 @@
 // Fields of the task detail that are edited where they are: a click turns the value into its input, Enter or leaving it saves, Escape puts it back.
-import { useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { isPerson } from '@handline/app-core';
 import { useMe } from '@handline/app-react';
 import { classify, sentence, useWrite } from '@handline/app-data';
 import { BodyEditor } from '#src/BodyEditor.tsx';
 import { useCan } from '#src/taskui.tsx';
-import { Button, Input } from '#src/ui/index.ts';
+import { BarInput, Button, Input } from '#src/ui/index.ts';
 
 export type Change = { title?: string; body?: string; owner?: string; time_box?: string; priority?: 1 | 2 | 3 };
 
@@ -66,11 +66,14 @@ export function TextInput({
   label,
   onSave,
   onClose,
+  bar,
 }: {
   value: string;
   label: string;
   onSave: (v: string) => void;
   onClose: () => void;
+  /** The field sits in the top bar: the 32 px bar height, not the form field's. */
+  bar?: boolean;
 }) {
   const [text, setText] = useState(value);
   const left = useRef(false); // Escape closes first; the blur that follows must not save
@@ -80,24 +83,21 @@ export function TextInput({
     if (keep && text.trim() && text.trim() !== value) onSave(text.trim());
     onClose();
   };
-  return (
-    <Input
-      autoFocus
-      dense
-      className="tinput min-w-0"
-      value={text}
-      aria-label={label}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={() => finish(true)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') finish(true);
-        else if (e.key === 'Escape') {
-          e.stopPropagation();
-          finish(false);
-        }
-      }}
-    />
-  );
+  const props = {
+    autoFocus: true,
+    value: text,
+    'aria-label': label,
+    onChange: (e: ChangeEvent<HTMLInputElement>) => setText(e.target.value),
+    onBlur: () => finish(true),
+    onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') finish(true);
+      else if (e.key === 'Escape') {
+        e.stopPropagation();
+        finish(false);
+      }
+    },
+  };
+  return bar ? <BarInput {...props} className="tinput w-full min-w-0" /> : <Input {...props} dense className="tinput min-w-0" />;
 }
 
 /** The description, edited rich in place with Save and Cancel under it. */

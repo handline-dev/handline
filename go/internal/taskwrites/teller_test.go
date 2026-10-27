@@ -12,6 +12,7 @@ import (
 
 // fakeTeller records what the writes leave for the telling layer.
 type fakeTeller struct {
+	sentMemo  []int64
 	memos     []string
 	queued    []string
 	discarded []string
@@ -30,7 +31,7 @@ type fakeTeller struct {
 	notified  []db.Notice
 }
 
-func (f *fakeTeller) MemoChanged(tid int64, by, what, text string, now bool) {
+func (f *fakeTeller) MemoChanged(tid, mid int64, by, what, text string, now bool) {
 	f.memos = append(f.memos, fmt.Sprintf("T%d %s %s %q%s", tid, by, what, text, map[bool]string{true: " now"}[now]))
 }
 func (f *fakeTeller) QueueDelivered(tid int64, by string, queued bool) string {
@@ -186,3 +187,5 @@ func (f *fakeTeller) TaskSay(tx *sql.Tx, to, body string, within func(rid int64,
 	}
 	return &Asked{OK: true, Msg: note, RID: rid}, nil
 }
+
+func (f *fakeTeller) MemoTellSent(rid int64) { f.sentMemo = append(f.sentMemo, rid) }

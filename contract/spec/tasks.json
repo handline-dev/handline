@@ -391,7 +391,7 @@
      },
      "text": {
       "type": "string",
-      "description": "The line every view shows for it: `blocked by T<n>`, `waiting on you`, else the daemon's own reason."
+      "description": "The line every view shows for it: `blocked by T<n>`, `needs you`, else the daemon's own reason."
      },
      "tasks": {
       "type": "array",
@@ -679,7 +679,7 @@
             "state",
             "reject"
            ],
-           "description": "memo; handoff; a request linked to the task; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note), from before a review was a handoff."
+           "description": "memo; handoff; a request linked to the task, except a memo's tell, which repeats its memo; edit, the brief changed (text is the new brief); state, a change of state (text is `from -> done`); reject, the task sent back (text is the note), from before a review was a handoff."
           },
           "text": {
            "type": "string",
@@ -968,6 +968,13 @@
        }
       ],
       "description": "The comment this one answers; null for none."
+     },
+     "readers": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/MemoReader"
+      },
+      "description": "Where the tell of a founder's comment stands for each agent it was told to, in the order told; present only on a founder comment that told someone."
      }
     },
     "required": [
@@ -1253,7 +1260,7 @@
      },
      "text": {
       "type": "string",
-      "description": "The reason as shown: `waiting on you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working."
+      "description": "The reason as shown: `needs you`, `blocked by T<n>`, `waiting on <agent>`, `wall`, `queued`, `agent starting`; empty for working."
      },
      "task": {
       "oneOf": [
@@ -1360,6 +1367,49 @@
      "label",
      "result"
     ]
+   },
+   "MemoReader": {
+    "type": "object",
+    "properties": {
+     "agent": {
+      "type": "string"
+     },
+     "request": {
+      "type": "integer",
+      "description": "The request that told the comment to this agent."
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "held",
+       "sent",
+       "read"
+      ],
+      "description": "held: waits for the agent's next digest (send it now with task.comment.send_now). sent: sent in a digest, not opened yet. read: typed to the agent at once and landed in its session, or opened with hl read."
+     },
+     "at": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "held: when the tell began to wait. sent: when it was sent. read: when it was read."
+     },
+     "minutes": {
+      "type": "integer",
+      "description": "Only when held: about how many minutes until the agent's next digest (at least 1), at the default window."
+     }
+    },
+    "required": [
+     "agent",
+     "request",
+     "state",
+     "at"
+    ],
+    "description": "One reader of a founder's comment and where its tell stands."
    }
   }
  },
@@ -2097,7 +2147,7 @@
      "$ref": "#/components/errors/not_found"
     }
    ],
-   "description": "Anyone may hand an open task on, not only its owner (the asker takes a task back so). A review is a handoff: the holder hands the task to its reviewer, who hands it back with findings or on, or marks it done. task.history's row names who made the move (by)."
+   "description": "Anyone may hand an open task on, not only its owner (the asker takes a task back so). A review is a handoff: the holder hands the task to its reviewer, who hands it back with findings or on, or marks it done. task.history's row names who made the move (by). A handoff to `human` will be refused (gate state: keep the task and ask with `@human` in a comment, task.comment.add); that refusal is switched on later, once the founder's open tasks are migrated, and until then it is accepted as before."
   },
   {
    "name": "task.done",
@@ -2548,7 +2598,8 @@
   },
   {
    "name": "task.comment.add",
-   "summary": "Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer. The founder is told by one inbox line per request (a task made from their message, task.request) while it stays unread, counting the agents' new comments. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
+   "summary": "Add a comment; anyone may. It is told to whom the task answers (its reporter, else its opener), to its assignee whatever the task's state, and to each agent it names as @name; never to its writer. The founder is told by one inbox line per request (a task made from their message, task.request) while it stays unread, counting the agents' new comments. The holder of a doing task and a reader at its prompt are told at once; a reader mid-turn is told at the end of its turn, with all else then waiting for it in one message, and its lead is told if it is still unread an hour on. comment.edit and comment.delete are told the same way. A comment by an agent that names `@human` asks the founder, as the description says. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.add is its old name.",
+   "description": "A comment by an agent that names `@human` asks the founder: it opens one ask to the founder, linked to the task (InboxItem kind ask, `task` and `memo` set), so the task reads waiting on the founder. The ask stays open until (1) the founder replies to it (inbox.reply), (2) the founder adds any comment to that task, (3) the founder marks it read (inbox.mark_read naming its id), (4) its comment is deleted or edited so it no longer names `@human`, or (5) the task is done or discarded. An edit that keeps `@human` keeps the one ask and updates its body; one that adds `@human` opens it.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2724,7 +2775,7 @@
   },
   {
    "name": "task.comment.edit",
-   "summary": "Edit a comment: its author or the founder. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.edit is its old name.",
+   "summary": "Edit a comment: its author or the founder. An edit that drops `@human` withdraws the ask it opened (task.comment.add); one that adds `@human` opens one. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.edit is its old name.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2836,7 +2887,7 @@
   },
   {
    "name": "task.comment.delete",
-   "summary": "Delete a comment: its author or the founder. The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.delete is its old name.",
+   "summary": "Delete a comment: its author or the founder. Deleting a comment withdraws the ask it opened (task.comment.add). The wire still calls a comment a memo (Memo, `memo`, `memos`); task.memo.delete is its old name.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -2868,6 +2919,54 @@
     }
    },
    "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "task.comment.send_now",
+   "summary": "Send a founder's comment now to a reader whose tell waits for the reader's next digest. Refused when the tell is not held (already sent, read or never told).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "memo",
+     "required": true,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
    "x-write": true,
    "x-since": 1,
    "errors": [

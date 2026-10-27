@@ -2,3 +2,4 @@
 tests/fixtures/hook_guards.json  # what the Python hook says, its task ids included
 packages/app-core/test/refs.test.ts   # T-number strings are the feature under test
 apps/web/test/task-links.test.tsx   # same
+tools/test_localrefs.py   # the ids and mentions it must refuse

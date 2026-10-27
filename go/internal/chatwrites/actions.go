@@ -95,6 +95,16 @@ func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text s
 	} else if handled {
 		text = verdict // what was done is the task's answer
 	}
+	var queued []int64
+	if handled, verdict, ids, err := answerSpare(q, e.Home, tid, text); err != nil {
+		var re *rpc.Error
+		if errors.As(err, &re) {
+			return refusal(re.Message), nil
+		}
+		return nil, err
+	} else if handled {
+		text, queued = verdict, ids
+	}
 	card, err := cardOf(q, tid)
 	if err != nil {
 		return nil, err
@@ -131,6 +141,9 @@ func decide(e *supervisor.Env, tell taskwrites.Teller, q db.Q, tid int64, text s
 		}
 		guarded(e, fmt.Sprintf("telling after T%d was decided", tid), func() (string, error) {
 			tell.Done(tid, db.Human, done.Owner, done.Told, done.Forget, done.Finished)
+			for _, id := range queued { // queuing also delivers: each goes out now if its owner is free
+				tell.QueueDelivered(id, db.Human, true)
+			}
 			return "", nil
 		})
 		return decided
@@ -268,9 +281,12 @@ func ForYouSeen(q db.Q, agent string, upto int64) error {
 	if err := db.SetCursor(q, key, upto); err != nil {
 		return err
 	}
-	ids, err := db.IDs(q, "SELECT id FROM requests WHERE target = ? AND requester = ? AND id <= ? AND read_at IS NULL", db.Human, agent, upto)
+	ids, err := db.IDs(q, "SELECT id FROM requests WHERE target = ? AND requester = ? AND id <= ? AND read_at IS NULL AND memo_id IS NULL", db.Human, agent, upto)
 	if err != nil {
 		return err
 	}
 	return db.MarkRead(q, ids)
 }
+
+// closeMemoAsk closes the ask a task comment raised, as answered: the founder read it by name, or replied.
+func closeMemoAsk(q db.Q, rid int64) error { return db.CloseMemoAsks(q, "landed", "id = ?", rid) }

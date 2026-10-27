@@ -21,13 +21,20 @@ type fakeDelivery struct {
 	tookPrompt bool
 	told       []string // the session each waiting message was recorded as told to
 	head       *db.Request
+	headOnce   bool // the head is gone after it has been read once: what was waiting is answered mid-wake
 }
 
-func (f *fakeDelivery) BgHolds(db.Q, string, int64) (bool, error)       { return false, nil }
-func (f *fakeDelivery) BgOwesNothing(db.Q, string) (bool, error)        { return false, nil }
-func (f *fakeDelivery) BgMayStop(db.Q, string, int64) (bool, error)     { return false, nil }
-func (f *fakeDelivery) IdleSince(db.Q, string) (int64, bool, error)     { return f.idle, f.idle != 0, nil }
-func (f *fakeDelivery) EffectiveHead(db.Q, string) (*db.Request, error) { return f.head, nil }
+func (f *fakeDelivery) BgHolds(db.Q, string, int64) (bool, error)   { return false, nil }
+func (f *fakeDelivery) BgOwesNothing(db.Q, string) (bool, error)    { return false, nil }
+func (f *fakeDelivery) BgMayStop(db.Q, string, int64) (bool, error) { return false, nil }
+func (f *fakeDelivery) IdleSince(db.Q, string) (int64, bool, error) { return f.idle, f.idle != 0, nil }
+func (f *fakeDelivery) EffectiveHead(db.Q, string) (*db.Request, error) {
+	h := f.head
+	if f.headOnce {
+		f.head = nil
+	}
+	return h, nil
+}
 func (f *fakeDelivery) HeadTaskBlocked(q db.Q, agent string, head *db.Request) (bool, error) {
 	return db.HeadTaskBlocked(q, agent, head)
 }
@@ -48,7 +55,8 @@ func (f *fakeDelivery) WaitForSession(string, int, string) bool { return f.tookP
 // fakeHandoff: ctx is the session's context size, 0 for none read.
 type fakeHandoff struct {
 	HandoffPort
-	ctx int64
+	ctx  int64
+	full bool
 }
 
 func (fakeHandoff) AnsweredTurn(db.Q, string) bool                 { return false }
@@ -59,6 +67,7 @@ func (fakeHandoff) CacheClock(db.Q, string, string) (int64, int64, bool, bool) {
 	return 0, 0, false, false
 }
 func (f fakeHandoff) ContextUsed(db.Q, string, string) (int64, bool)      { return f.ctx, f.ctx != 0 }
+func (f fakeHandoff) ContextFull(db.Q, string, string) bool               { return f.full }
 func (fakeHandoff) PreviousSession(db.Q, string, string) (string, string) { return "s0", "/t/s0.jsonl" }
 func (fakeHandoff) RequestLine(db.Q, string) string                       { return "Your request: none." }
 func (fakeHandoff) MemoryLine(string) string                              { return "" }
@@ -105,6 +114,7 @@ func (fakeLaunch) ChooseAccount(db.Q, string) bool                 { return true
 func (fakeLaunch) RoomElsewhere(db.Q, string, *db.AgentState, map[string]string) (string, string) {
 	return "", "no account can take one more agent"
 }
+func (fakeLaunch) WorthRepick(string, string) bool { return true }
 func (fakeLaunch) AccountFor(_ db.Q, _ string, resuming bool) string {
 	if resuming {
 		return "resume-acct"
@@ -272,6 +282,42 @@ func TestAClosedAgentIsWokenByResumingItsSessionAndTheStreakResets(t *testing.T)
 	}
 	if _, err := os.Stat(filepath.Join(m.Home, "wake", "a.txt")); err != nil {
 		t.Fatalf("the wake prompt file was not written: %v", err)
+	}
+}
+
+// A task the agent holds has landed in the session that closed: nothing is left to type, and the resume is what brings the agent back to
+// it, not a silent give-up each tick (handline.pc-chat, T6740).
+func TestAWakeForAHeadAlreadyToldToTheClosedSessionStillResumesIt(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.head = &db.Request{ID: 47823, Requester: "human"}
+	d.tookPrompt = true
+	tm.launchOK = true
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", "Stop")
+	ok, said, err := m.WakeAgent("a", WakeOpts{})
+	if err != nil || !ok || len(tm.relaunched) != 1 || !strings.HasSuffix(tm.relaunched[0], "-- --resume sess-1") {
+		t.Fatalf("%v %q %v %v", ok, said, err, tm.relaunched)
+	}
+}
+
+// A wake that gives up after its account was reserved says why, once, and has moved nobody.
+func TestAWakeThatGivesUpAfterReservingRecordsWhyOnce(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.head, d.headOnce = &db.Request{ID: 1, Requester: "human"}, true
+	tm.launchOK = true
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.AddEvent(m.Q, "a", "Stop")
+	if ok, said, _ := m.WakeAgent("a", WakeOpts{}); ok || !strings.Contains(said, "nothing to resume it for") || len(tm.relaunched) != 0 {
+		t.Fatalf("%v %q %v", ok, said, tm.relaunched)
+	}
+	count := func(kind string) (n int) {
+		m.Q.QueryRow("SELECT COUNT(*) FROM events WHERE agent = 'a' AND kind = ?", kind).Scan(&n)
+		return n
+	}
+	if count("wake_dropped") != 1 || count("moved_account") != 0 {
+		t.Fatalf("dropped %d, moved %d", count("wake_dropped"), count("moved_account"))
 	}
 }
 

@@ -44,6 +44,12 @@ class Body(unittest.TestCase):
         made_up = GOOD + "\nFrom msg_0123abc.\n"  # local-ref-ok: a made-up id the check must refuse
         self.assertEqual(len(pr_checks.body_problems(pr(made_up), [])), 1)
 
+    def test_no_task_ids_and_no_bare_mentions(self):
+        got = pr_checks.body_problems(pr(GOOD + "\nAsk @human, not `@human`; thanks @nightee99.\n", title="Ask cards (T6721)"), [])  # local-ref-ok: made-up ids the check must refuse
+        self.assertEqual(len(got), 2)
+        self.assertIn("task id: T6721", got[0])  # local-ref-ok
+        self.assertIn("mention: @human; write it in backticks", got[1])
+
     def test_a_body_from_a_file(self):
         with tempfile.NamedTemporaryFile("w", suffix=".md") as f:
             f.write(GOOD.replace("## Risk\nNone.\n", ""))

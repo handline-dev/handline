@@ -16,6 +16,8 @@ export type InboxItem = {
   prompt: Prompt | null;
   /** Only on a card the daemon raised after its own recovery failed: the action to offer as a button. open_terminal opens the item's agent's terminal, since every step the daemon could take was taken. */
   fix?: "open_terminal";
+  /** Only on an ask an agent's task comment raised by naming `@human` (task.comment.add): that comment's id on `task`. A client opens the comment itself. Absent on any other item. */
+  memo?: number;
 };
 
 /** Landing state of a message; open set. */
@@ -443,7 +445,7 @@ export interface ChatMethods {
 }; result: Accepted };
   "chat.seen": { params: {
   agent: AgentName;
-  /** The highest message number seen. A lower number than before changes nothing: what arrives later has a higher one, so nothing unseen is hidden. */
+  /** The highest message number that has been in view. A lower number than before changes nothing: what arrives later has a higher one, so nothing unseen is hidden. */
   up_to: number;
   request_id: RequestId;
 }; result: Accepted };

@@ -13,6 +13,28 @@ now), so it runs only by hand, by any agent, and never from `tools/test.sh` or `
 
 `tools/prune_worktrees.py` lists the worktrees that are merged into main, clean and no agent's; `--remove` removes them.
 
+## React Compiler
+
+The web and phone apps build with the React Compiler, and lint holds the Rules of React it relies on (`packages/config/eslint/react.js`, the
+`react-hooks` compiler rules as errors). They are rules of React, so they hold with or without the compiler.
+
+Do:
+
+- Read changing values from a hook's return.
+- Derive during render instead of setting state in an effect.
+- Keep refs for event handlers and effects.
+
+Do not:
+
+- Mutate props, state or a hook's return during render.
+- Read or write `ref.current` in render.
+- Call `Date.now()` or `Math.random()` in render (take the time from `useNow`).
+- Define a component inside a component.
+- Disable a `react-hooks` rule. `'use no memo'` only with a comment saying why.
+
+The debt is the `compilerDebt` block in `apps/web/eslint.config.js` and `apps/mobile/eslint.config.js`: files that still break a rule sit at
+`warn` there. The list only shrinks; a file that is not in it gets the error.
+
 Design notes are in `design/` and `docs/`.
 
 Working on the desktop app itself — the page with hot reload, a dev Electron

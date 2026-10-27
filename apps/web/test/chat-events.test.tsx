@@ -57,7 +57,7 @@ describe('event cards', () => {
     for (const el of [$('.card-held'), $('.card-hr')]) expect(el!.classList.contains('event')).toBe(true);
     expect($('.card-held')!.dataset.tone).toBe('wait');
     expect($('.card-hr')!.dataset.tone).toBe('wait');
-    expect($('.card-hr')!.textContent).toContain('2 HR proposals need you');
+    expect($('.card-hr')!.textContent).toContain('HR proposals: 2 · needs you');
     expect(document.querySelector('[data-proposal="911"]')).toBeNull(); // the detail is in My turn and HR
   });
 
@@ -104,14 +104,14 @@ describe('event cards', () => {
     await until(() => link.textContent!.length > 'T1684'.length, 'the task title');
   });
 
-  it('waiting on you with no dialog open shows the ask and an Open button; nothing when not blocked', async () => {
+  it('needs you with no dialog open shows the ask and an Open button; nothing when not blocked', async () => {
     const s = setup();
     s.daemon.sessions.get(ARCH)!.fx.view = {
-      status: { state: 'waiting', reason: 'you', text: 'waiting on you', until: null, since: new Date().toISOString(), tasks: [] },
+      status: { state: 'waiting', reason: 'you', text: 'needs you', until: null, since: new Date().toISOString(), tasks: [] },
     } as never;
     await mount(s);
     await until(() => $('.card-blocked'), 'the card');
-    expect($('.card-blocked')!.textContent).toContain('Waiting on you');
+    expect($('.card-blocked')!.textContent).toContain('Needs you');
     expect([...$('.card-blocked')!.querySelectorAll('button')].some((b) => b.textContent === 'Open')).toBe(true);
   });
 });

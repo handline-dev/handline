@@ -1,18 +1,31 @@
 // A task's comments on the phone (docs/pc-app-gaps.md U11): add, edit and delete, each a `useWrite` that shows at once and rolls back with the daemon's reason.
 import { useState } from 'react';
-import { Text, View } from 'react-native';
-import type { MemoFile } from '@handline/client';
+import { Text, TextInput, View } from 'react-native';
+import type { MemoFile, MemoReader } from '@handline/client';
 import { classify, sentence, useOff, useWrite } from '@handline/app-data';
-import { font, space } from '@handline/tokens';
+import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { ImageBodyInput } from '#src/screens/ImageBodyInput.tsx';
 import { Button } from '#src/screens/parts.tsx';
+import { CommentReaders } from '#src/screens/CommentReaders.tsx';
 import { MemoFiles } from '#src/screens/MemoFiles.tsx';
-import { Input, Sheet } from '#src/screens/TaskActions.tsx';
+import { Sheet } from '#src/screens/TaskActions.tsx';
 import { PrBody } from '#src/screens/PrBody.tsx';
 
+const small = { paddingVertical: space.sm, paddingHorizontal: space.md } as const;
+
 /** One comment with Edit and Delete (as the web's MemoRow). Both show at once and roll back with the reason on a refusal; Delete asks first. */
-export function CommentRow({ task, agent, memo, when }: { task: number; agent: string; memo: { id: number; author: string; text: string; files?: MemoFile[] }; when: string }) {
+export function CommentRow({
+  task,
+  agent,
+  memo,
+  when,
+}: {
+  task: number;
+  agent: string;
+  memo: { id: number; author: string; text: string; files?: MemoFile[]; readers?: MemoReader[] };
+  when: string;
+}) {
   const c = usePalette();
   const edit = useWrite('task.comment.edit', String(task));
   const del = useWrite('task.comment.delete', String(task));
@@ -25,8 +38,9 @@ export function CommentRow({ task, agent, memo, when }: { task: number; agent: s
   return (
     <View testID={`memo-${memo.id}`} style={{ gap: space.sm }}>
       <Text style={{ color: c.muted, fontSize: font.size.label }}>{`${memo.author} ${when}`}</Text>
-      <PrBody id={`memo-${memo.id}`} agent={agent} body={memo.text} />
+      {ask === 'edit' ? null : <PrBody id={`memo-${memo.id}`} agent={agent} body={memo.text} />}
       {memo.files?.length ? <MemoFiles files={memo.files} /> : null}
+      {memo.readers?.length ? <CommentReaders memo={memo.id} readers={memo.readers} /> : null}
       {ask === null && (
         <View style={{ flexDirection: 'row', gap: space.sm }}>
           <Button
@@ -40,16 +54,41 @@ export function CommentRow({ task, agent, memo, when }: { task: number; agent: s
       )}
       {ask === null && (offEdit || offDelete) && <Text style={{ color: c.muted, fontSize: font.size.label }}>{offEdit || offDelete}</Text>}
       {ask === 'edit' && (
-        <Sheet
-          label="edit comment"
-          submit="Save"
-          busy={edit.isPending}
-          onCancel={close}
-          onSubmit={() => void (text.trim() && edit.mutateAsync({ task, memo: memo.id, text: text.trim() }).then(close, () => {}))}
-          error={!text.trim() ? 'A comment needs text.' : edit.isError ? sentence(classify(edit.error)) : undefined}
-        >
-          <Input testID="memo-edit-text" label="Comment" value={text} onChange={setText} multiline />
-        </Sheet>
+        <View style={{ gap: space.sm }}>
+          <TextInput
+            testID="memo-edit-text"
+            accessibilityLabel="Comment"
+            value={text}
+            onChangeText={setText}
+            multiline
+            autoFocus
+            style={{
+              color: c.ink,
+              borderWidth: 1,
+              borderColor: !text.trim() || edit.isError ? c.block : c.line,
+              borderRadius: radius.card,
+              padding: space.md,
+              minHeight: 72,
+              textAlignVertical: 'top',
+            }}
+          />
+          {!text.trim() || edit.isError ? (
+            <Text testID="memo-edit-error" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
+              {!text.trim() ? 'A comment needs text.' : sentence(classify(edit.error))}
+            </Text>
+          ) : null}
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: space.sm }}>
+            <Button testID="memo-edit-cancel" label="Cancel" onPress={close} style={small} />
+            <Button
+              testID="memo-edit-save"
+              kind="yes"
+              label="Save"
+              disabled={edit.isPending}
+              onPress={() => void (text.trim() && edit.mutateAsync({ task, memo: memo.id, text: text.trim() }).then(close, () => {}))}
+              style={small}
+            />
+          </View>
+        </View>
       )}
       {ask === 'delete' && (
         <Sheet

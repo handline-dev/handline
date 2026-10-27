@@ -44,9 +44,9 @@ export function NewTask({ agents, onClose, request = false }: { agents: string[]
         }}
       >
         <div className={FIELD}>
-          <span className={FIELD_LABEL}>Owner</span>
+          <span className={FIELD_LABEL}>Assigned to</span>
           <Select
-            label="Owner"
+            label="Assigned to"
             value={owner}
             onChange={(e) => setOwner(e.target.value)}
             options={[{ value: '', label: 'pick an agent' }, ...agents.map((a) => ({ value: a, label: a }))]}

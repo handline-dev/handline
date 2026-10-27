@@ -1255,6 +1255,13 @@
        }
       ],
       "description": "Null until the first measure, and on a daemon that does not measure."
+     },
+     "needs_you": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/MachineNeed"
+      },
+      "description": "The machine's own needs-you items, oldest first; absent when there are none, and on a daemon that does not serve it. A client draws each beside the agents' needs-you cards, in the text given."
      }
     },
     "required": [
@@ -1476,6 +1483,17 @@
       "type": "object",
       "additionalProperties": true,
       "description": "With settings.get `agent`: only that agent's own values for the Per agent keys."
+     },
+     "handoff_prompt_default": {
+      "type": "string",
+      "description": "Without settings.get `agent`: the built-in handoff prompt, what `values.handoff_prompt` shows while none is set, so a client can tell the two apart."
+     },
+     "handoff_prompt_own": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "Without settings.get `agent`: the agents whose agent.yaml sets a handoff prompt of their own, which the global one does not reach."
      }
     },
     "required": [
@@ -1708,7 +1726,7 @@
      "handoff_prompt": {
       "type": "string",
       "maxLength": 4000,
-      "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent."
+      "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. Line breaks are joined into one space; under 20 characters after trimming is bad_request (blank means the built-in). settings.get shows the built-in prompt when none is set. Per agent."
      },
      "push_prompt_asked": {
       "type": "boolean",
@@ -2847,6 +2865,31 @@
     },
     "required": [
      "cursor"
+    ]
+   },
+   "MachineNeed": {
+    "type": "object",
+    "description": "Something the machine needs of the founder, which no agent has: not a task and not an inbox message.",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "disk"
+      ],
+      "description": "disk: free space is under the floor (config disk_free_min_gb, default 5), so builds and tests wait. It stays until space is back over the floor plus 2 GB."
+     },
+     "since": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "text": {
+      "type": "string",
+      "description": "The item in plain words, with the free space in it."
+     }
+    },
+    "required": [
+     "kind",
+     "since",
+     "text"
     ]
    }
   },

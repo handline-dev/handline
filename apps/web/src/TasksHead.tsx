@@ -29,8 +29,8 @@ export function TasksHead(props: {
 }) {
   const { filter } = props;
   return (
-    <PageHead className="tasks-head">
-      <PageTitle className="mr-auto">Tasks</PageTitle>
+    <PageHead className="tasks-head flex-nowrap">
+      <PageTitle className="mr-auto shrink-0">Tasks</PageTitle>
       <label className="tsearch relative inline-flex items-center" title="Search by number, title or agent">
         <Icon name="search" label="Search" size={14} aria-hidden="true" className="pointer-events-none absolute left-1.5 text-ink-3" />
         <BarInput
@@ -38,7 +38,7 @@ export function TasksHead(props: {
           value={props.query}
           placeholder="Search"
           aria-label="Search tasks"
-          className="w-[200px] pl-6 max-sm:w-full"
+          className="w-[200px] min-w-0 pl-6 max-[1100px]:w-[120px] max-sm:w-full"
           onChange={(e) => props.onQuery(e.target.value)}
         />
       </label>
@@ -115,7 +115,18 @@ export function TasksHead(props: {
           Capture
         </Button>
       ) : null}
-      <Button label="+ New task" title="New task (n)" variant="solid" className="max-sm:min-h-[44px]" onClick={() => props.onAct('new')} />
+      <Button
+        label="+ New task"
+        title="New task (n)"
+        variant="solid"
+        className="flex-none max-sm:min-h-[44px]"
+        onClick={() => props.onAct('new')}
+      >
+        <span className="max-[1100px]:hidden">+ New task</span>
+        <span className="hidden max-[1100px]:inline" aria-hidden="true">
+          +
+        </span>
+      </Button>
     </PageHead>
   );
 }

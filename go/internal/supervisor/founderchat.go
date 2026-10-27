@@ -58,9 +58,12 @@ func (e *Env) sayingNow(rid int64) bool {
 }
 
 // founderText is what is typed for a founder's message: the message it replies to, when it is a reply, then the words as written, then
-// the paths of its pictures.
+// the paths of its pictures. A message that starts with `!` is a command typed as written: no reference line, so the `!` stays first.
 func founderText(q db.Q, row *db.Request, images string) string {
 	reply := inReplyTo(q, row)
+	if strings.HasPrefix(row.Body, "!") {
+		reply = ""
+	}
 	if reply != "" {
 		reply = "(" + reply + ")\n"
 	}

@@ -22,7 +22,7 @@ const seg = (
 const segments = [
   seg('working', '2026-10-20T11:00:00Z', '2026-10-20T12:00:00Z'),
   seg('queued', '2026-10-20T10:00:00Z', '2026-10-20T11:00:00Z', 'queued'),
-  seg('waiting', '2026-10-20T12:00:00Z', '2026-10-20T12:30:00Z', 'waiting on you'),
+  seg('waiting', '2026-10-20T12:00:00Z', '2026-10-20T12:30:00Z', 'needs you'),
   seg('working', '2026-10-20T12:30:00Z', '2026-10-20T14:30:00Z'),
 ];
 test('orders the segments by time and adds them up with their shares', () => {
@@ -62,7 +62,7 @@ test('a waiting stretch is worded by what it waits on, one total per kind of wai
 test('a wait says its own word; only a wait on a task or an agent keeps the daemon line that names it', () => {
   const at = (n: number) => `2026-10-20T${String(10 + n).padStart(2, '0')}:00:00Z`;
   const rows = timeView([
-    seg('waiting', at(0), at(1), 'waiting on you', 'founder'),
+    seg('waiting', at(0), at(1), 'needs you', 'founder'),
     seg('waiting', at(1), at(2), 'blocked by T7', 'task'),
     seg('waiting', at(2), at(3), 'waiting on handline.a', 'agent'),
     seg('waiting', at(3), at(4), 'wall', 'account'),

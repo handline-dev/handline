@@ -35,6 +35,9 @@ const (
 // LineMax is how long a one-line text setting may be, in characters.
 const LineMax = 4000
 
+// PromptMin is the shortest handoff prompt kept, in characters; a blank one means the built-in.
+const PromptMin = 20
+
 var settingKinds = map[string]string{"active_cap": int1, "park_timeout_s": int0, "handoff_note": flag_,
 	"ignore_cache_expiry": flag_, "dev_mode": flag_, "bg_notice_s": int1, "bg_grace_s": int1, "bg_check_s": int1, "notice_digest_s": int1,
 	"input_hold_idle_s": int1, handoff.PromptKey: line,
@@ -46,8 +49,26 @@ var settingKinds = map[string]string{"active_cap": int1, "park_timeout_s": int0,
 var perAgent = map[string]bool{"park_timeout_s": true, "ignore_cache_expiry": true, "bg_notice_s": true, "bg_grace_s": true, "bg_check_s": true,
 	"notice_digest_s": true, handoff.PromptKey: true}
 
+// joinLines is a handoff prompt as one line: the line breaks typed in the box become one space, and the ends are trimmed.
+func joinLines(s string) string {
+	var parts []string
+	for _, l := range strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == '\r' }) {
+		if l = strings.TrimSpace(l); l != "" {
+			parts = append(parts, l)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 // settingValue is v if it is what key takes, as the value to write.
 func settingValue(key string, v any) (any, error) {
+	if s, ok := v.(string); ok && key == handoff.PromptKey {
+		s = joinLines(s)
+		if n := utf8.RuneCountInString(s); n > 0 && n < PromptMin {
+			return nil, badParam("Too short to guide a note. Leave it blank for the built-in.", key)
+		}
+		v = s
+	}
 	kind := settingKinds[key]
 	switch kind {
 	case flag_:

@@ -12,7 +12,7 @@ const MARKS: Record<Dot, { icon: IconName; label: string }> = {
   waiting: { icon: 'needs', label: 'Needs you' },
   blocked: { icon: 'blocked', label: 'Blocked' },
   idle: { icon: 'idle', label: 'Idle' },
-  parked: { icon: 'asleep', label: 'Parked' },
+  parked: { icon: 'asleep', label: 'Waiting' },
   none: { icon: 'noTerminal', label: 'Stopped' },
 };
 

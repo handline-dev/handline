@@ -126,7 +126,8 @@ export class FakeAttachments {
       throw badRequest('attachments is 1 to 6 attachment ids, and not with a task.', 'attachments');
     const named = refs(body);
     const extra = [...new Set(((ids ?? []) as unknown[]).map(String))].filter((id) => !named.includes(id));
-    if (extra.length && new Set([...named, ...extra]).size > MAX_PER_MESSAGE) throw badRequest('At most 6 images to a message.', 'attachments');
+    if (extra.length && new Set([...named, ...extra]).size > MAX_PER_MESSAGE)
+      throw badRequest('At most 6 images to a message.', 'attachments');
     this.check(body, '', 'body', false, () => new Set());
     for (const id of extra) this.checkId(id, 'attachments');
     for (const id of extra) this.files.get(id)!.sent = true;
@@ -134,7 +135,10 @@ export class FakeAttachments {
       const { data: _d, sent: _s, ...a } = this.files.get(id)!;
       return a;
     };
-    const attachments = [...new Set(named)].filter((id) => this.files.has(id)).map(image).concat(extra.map(image));
+    const attachments = [...new Set(named)]
+      .filter((id) => this.files.has(id))
+      .map(image)
+      .concat(extra.map(image));
     let parts = this.parts(body, false);
     if (extra.length) parts = [...(parts ?? (body ? [{ text: body }] : [])), ...extra.map((id) => ({ image: image(id), caption: '' }))];
     return { attachments, ...(parts ? { parts } : {}) };
@@ -151,7 +155,8 @@ export class FakeAttachments {
     const named = ids.filter((id) => !kept.has(id));
     for (const id of named) {
       this.checkId(id, field);
-      if (agent && !shown().has(id)) throw refused('role', `attachment:${id} is named by no task: an agent names only an image a task shows`);
+      if (agent && !shown().has(id))
+        throw refused('role', `attachment:${id} is named by no task: an agent names only an image a task shows`);
     }
     for (const id of named) this.files.get(id)!.sent = true;
   }

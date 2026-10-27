@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/sysres"
 	"github.com/handline/handline/go/internal/team"
@@ -109,7 +110,7 @@ func Register(s *rpc.Server, env Env) {
 // row is one result row by column name, the way sqlite3.Row reads in the Python daemon.
 type row map[string]any
 
-func query(db *sql.DB, q string, args ...any) ([]row, error) {
+func query(db db.Q, q string, args ...any) ([]row, error) {
 	rs, err := db.Query(q, args...)
 	if err != nil {
 		return nil, err

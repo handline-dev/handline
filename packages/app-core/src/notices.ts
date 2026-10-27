@@ -2,7 +2,8 @@
 // with an unread count, and the result of what the person just did shows briefly (a toast) and stays in the list. Pure but for `now`.
 import type { Event as WireEvent } from '@handline/client';
 
-export type NoticeLevel = 'ok' | 'fail' | 'info';
+/** `need` is what waits for the person (a stall, an account out), `fail` a call of theirs that failed; `ok` and `info` are news. */
+export type NoticeLevel = 'need' | 'fail' | 'ok' | 'info';
 export interface Notice {
   id: number;
   level: NoticeLevel;
@@ -18,29 +19,56 @@ export interface Notice {
   about?: NoticeAbout;
   /** The daemon's own words behind a failure line, shown only behind "Details". */
   details?: string;
+  /** Asks again what failed (a failure line's "Try again"). */
+  retry?: () => void;
 }
 export interface NoticeAbout {
   agent?: string;
+  account?: string;
+  proposal?: number;
   task?: number;
   title?: string;
   result?: string;
 }
 export type NoticeLane = 'team' | 'system';
 
-/** The task a task_done event is about, from the event alone; null for any other event. */
+/** What an event is about, from the event alone: the task of a task_done, the blocked agent, the account that is out, the settled proposal; null for any other event. */
 export function aboutOf(e: Pick<WireEvent, 'type' | 'agent' | 'data'>): NoticeAbout | null {
-  if (e.type !== 'task_done') return null;
-  const d = (e.data ?? {}) as { task?: unknown; task_title?: unknown; result?: unknown };
-  return {
-    ...(e.agent ? { agent: e.agent } : {}),
-    ...(typeof d.task === 'number' ? { task: d.task } : {}),
-    ...(typeof d.task_title === 'string' && d.task_title ? { title: d.task_title } : {}),
-    ...(typeof d.result === 'string' && d.result ? { result: d.result } : {}),
-  };
+  const d = (e.data ?? {}) as { task?: unknown; task_title?: unknown; result?: unknown; account?: unknown; proposal?: { id?: unknown } };
+  const agent = e.agent ? { agent: e.agent } : {};
+  switch (e.type) {
+    case 'task_done':
+      return {
+        ...agent,
+        ...(typeof d.task === 'number' ? { task: d.task } : {}),
+        ...(typeof d.task_title === 'string' && d.task_title ? { title: d.task_title } : {}),
+        ...(typeof d.result === 'string' && d.result ? { result: d.result } : {}),
+      };
+    case 'stall':
+      return agent;
+    case 'account_out':
+      return typeof d.account === 'string' && d.account ? { account: d.account } : null;
+    case 'hr.settled':
+      return typeof d.proposal?.id === 'number' ? { ...agent, proposal: d.proposal.id } : null;
+    default:
+      return null;
+  }
+}
+
+/** The page a notice opens: its proposal, its account, its task, else the agent's chat; null for one that points nowhere (a failure). */
+export function targetOf(n: Pick<Notice, 'about'>): string | null {
+  const a = n.about;
+  if (!a) return null;
+  if (a.proposal != null) return `#/team/hr/${a.proposal}`;
+  if (a.account) return `#/accounts/${encodeURIComponent(a.account)}`;
+  if (a.task != null) return `#/tasks/${a.task}`;
+  return a.agent ? `#/agents/${encodeURIComponent(a.agent)}` : null;
 }
 
 export const MERGE_MS = 60_000;
-export const TOAST_MS = { ok: 3000, fail: 8000, info: 3000 } as const;
+/** News goes by itself after this long; a need and a failure stay until the person opens or closes them. */
+export const NEWS_MS = 6000;
+export const stays = (level: NoticeLevel): boolean => level === 'need' || level === 'fail';
 export const MAX_TOASTS = 3;
 export const MAX_LIST = 100;
 
@@ -69,11 +97,16 @@ export function eventText(e: Pick<WireEvent, 'topic' | 'type' | 'agent' | 'title
 }
 
 const TEAM_EVENTS = new Set(['task_done', 'stall', 'hr.settled']);
+/** Events that wait for the person: they stay on screen until opened or closed. */
+const NEEDS_YOU = new Set(['stall', 'account_out']);
 
 export class Notices {
   private all: Notice[] = []; // newest first
-  private shownUntil = new Map<number, number>();
-  private paused = new Map<number, number>(); // id -> ms left when the pointer came
+  /** The toasts on screen: when a news toast runs out (ms since epoch), or null for one that stays until opened or closed. */
+  private onScreen = new Map<number, number | null>();
+  private left = new Map<number, number>(); // id -> ms left while its clock is stopped
+  private holds = new Map<number, Set<Hold>>(); // who keeps a toast's clock stopped: the pointer over it, the keyboard focus in it
+  private away = false; // the window is hidden or not focused: no clock runs
   private seen = new Set<number>(); // wire cursors already taken, so a feed read and a live event do not count twice
   private nextId = 1;
   private listeners = new Set<() => void>();
@@ -91,7 +124,7 @@ export class Notices {
   }
 
   /** Adds a notice, or counts it again when the same text came within a minute. It is shown at once. */
-  push(level: NoticeLevel, text: string, lane: NoticeLane = 'system', about?: NoticeAbout, details?: string): Notice {
+  push(level: NoticeLevel, text: string, lane: NoticeLane = 'system', about?: NoticeAbout, details?: string, retry?: () => void): Notice {
     const at = this.now();
     const same = this.all.find((n) => n.level === level && n.text === text && n.lane === lane && at - n.at < MERGE_MS);
     const n = same ?? {
@@ -105,15 +138,32 @@ export class Notices {
       ...(about ? { about } : {}),
       ...(details ? { details } : {}),
     };
+    if (retry) n.retry = retry;
     n.count++;
     n.at = at;
     n.read = false;
     this.all = [n, ...this.all.filter((x) => x !== n)].slice(0, MAX_LIST);
-    this.shownUntil.set(n.id, at + TOAST_MS[level]);
-    this.paused.delete(n.id);
+    this.left.delete(n.id);
+    this.onScreen.set(n.id, stays(level) ? null : at + NEWS_MS);
+    this.sync();
     this.emit();
-    this.expireAt(this.shownUntil.get(n.id)!);
     return n;
+  }
+
+  /** Stops or starts each news clock by who holds it; a stopped one remembers what it had left. */
+  private sync(): void {
+    const at = this.now();
+    for (const [id, until] of this.onScreen) {
+      if (until === null) continue;
+      const stopped = this.away || (this.holds.get(id)?.size ?? 0) > 0;
+      if (stopped && !this.left.has(id)) this.left.set(id, Math.max(until - at, 0));
+      else if (!stopped && this.left.has(id)) {
+        this.onScreen.set(id, at + this.left.get(id)!);
+        this.left.delete(id);
+      }
+      const next = this.onScreen.get(id)!;
+      if (!stopped) this.expireAt(next);
+    }
   }
 
   /** Tells the listeners once the toast that runs out at `when` has: what is on screen depends on the clock, and nothing else would draw again. */
@@ -128,7 +178,8 @@ export class Notices {
     if (this.seen.has(e.cursor)) return;
     this.seen.add(e.cursor);
     const text = eventText(e);
-    if (text) this.push('info', text, TEAM_EVENTS.has(e.type) ? 'team' : 'system', aboutOf(e) ?? undefined);
+    if (text)
+      this.push(NEEDS_YOU.has(e.type) ? 'need' : 'info', text, TEAM_EVENTS.has(e.type) ? 'team' : 'system', aboutOf(e) ?? undefined);
   }
 
   /** The list, newest first. */
@@ -142,39 +193,69 @@ export class Notices {
     for (const n of this.all) n.read = true;
     this.emit();
   }
+  /** The person opened what the notice points to: it is read and its toast is gone. */
+  open(id: number): void {
+    const n = this.all.find((x) => x.id === id);
+    if (n) n.read = true;
+    this.close(id);
+  }
+  /** Closes one toast (the X); the list keeps it, still unread. */
+  close(id: number): void {
+    this.onScreen.delete(id);
+    this.left.delete(id);
+    this.holds.delete(id);
+    this.emit();
+  }
 
-  /** The notices still on screen, newest first, at most three; the older ones live on in the list. A notice a pointer holds does not run out. */
+  /** The notices still on screen, newest first, at most three; the older ones live on in the list. When there are more, news gives way before what needs the person. */
   toasts(): Notice[] {
     const at = this.now();
-    return this.all.filter((n) => this.paused.has(n.id) || (this.shownUntil.get(n.id) ?? 0) > at).slice(0, MAX_TOASTS);
+    const live = this.all.filter(
+      (n) => this.onScreen.has(n.id) && (this.onScreen.get(n.id) === null || this.left.has(n.id) || this.onScreen.get(n.id)! > at),
+    );
+    const room = live.filter((n) => stays(n.level)).slice(0, MAX_TOASTS).length;
+    const news = live.filter((n) => !stays(n.level)).slice(0, MAX_TOASTS - room);
+    return live.filter(
+      (n) =>
+        news.includes(n) ||
+        live
+          .filter((x) => stays(x.level))
+          .slice(0, MAX_TOASTS)
+          .includes(n),
+    );
   }
-  /** When the soonest toast on screen runs out (ms since epoch), or null when none will: a screen draws again then. */
+  /** When the soonest news toast on screen runs out (ms since epoch), or null when none will: a screen draws again then. */
   nextExpiry(): number | null {
     const times = this.toasts()
-      .filter((n) => !this.paused.has(n.id))
-      .map((n) => this.shownUntil.get(n.id) ?? 0);
+      .filter((n) => this.onScreen.get(n.id) !== null && !this.left.has(n.id))
+      .map((n) => this.onScreen.get(n.id)!);
     return times.length ? Math.min(...times) : null;
   }
-  /** The pointer is over a toast: it stays until the pointer leaves, then runs its time out again. */
-  hold(id: number): void {
-    const left = (this.shownUntil.get(id) ?? 0) - this.now();
-    if (!this.paused.has(id)) this.paused.set(id, Math.max(left, 0));
+  /** The pointer is over a toast, or the keyboard focus is in it: its clock stops until both are gone. */
+  hold(id: number, by: Hold = 'pointer'): void {
+    const set = this.holds.get(id) ?? new Set<Hold>();
+    set.add(by);
+    this.holds.set(id, set);
+    this.sync();
   }
-  release(id: number): void {
-    const left = this.paused.get(id);
-    if (left === undefined) return;
-    this.paused.delete(id);
-    this.shownUntil.set(id, this.now() + left);
-    this.expireAt(this.shownUntil.get(id)!);
+  release(id: number, by: Hold = 'pointer'): void {
+    this.holds.get(id)?.delete(by);
+    this.sync();
   }
-  /** Hides every toast (the person closed them); the list keeps them. */
+  /** The window is hidden or not focused: no clock runs, so nothing goes unseen. */
+  setAway(away: boolean): void {
+    if (this.away === away) return;
+    this.away = away;
+    this.sync(); // nothing on screen changes yet: a clock that stops leaves its toast up, so no screen needs to draw again
+  }
+  /** Hides the toasts that are news or a failure (the person went elsewhere); what needs them stays, and the list keeps all. */
   dismissToasts(): void {
-    for (const n of this.all) this.shownUntil.delete(n.id);
-    this.paused.clear();
-    this.emit();
+    for (const n of this.all) if (n.level !== 'need') this.close(n.id);
   }
   /** The newest failure still on screen, for a screen that shows one line. */
   latestFailure(): string | null {
     return this.toasts().find((n) => n.level === 'fail')?.text ?? null;
   }
 }
+
+type Hold = 'pointer' | 'focus';

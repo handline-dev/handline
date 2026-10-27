@@ -77,10 +77,10 @@ input {
   background: transparent;
 }
 /* The desktop shell: the tab strip drags the window, its controls stay clickable (rail-top's shell styles live in Sidebar.tsx). */
-:root[data-shell='desktop'] .strip {
+:root[data-shell='desktop'] :is(.strip, .topbar) {
   -webkit-app-region: drag;
 }
-:root[data-shell='desktop'] .strip :is(button, [role='tab'], input, select) {
+:root[data-shell='desktop'] :is(.strip, .topbar) :is(button, [role='tab'], input, select) {
   -webkit-app-region: no-drag;
 }
 button:disabled {
