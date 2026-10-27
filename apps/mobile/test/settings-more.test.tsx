@@ -91,9 +91,9 @@ describe('the settings rows the web has', () => {
     expect(text($('setting-prompt'))).not.toContain('Without {path}');
     expect(parsePrompt('one\ntwo')).toBe(INVALID); // the input drops a break itself; a paste on a phone may not
     expect(parsePrompt(' one ')).toBe('one');
-    await type('prompt-input', 'Write your note now');
+    await type('prompt-input', 'Write your note now, please');
     await press($('prompt-save'));
-    await until(() => values(m).handoff_prompt === 'Write your note now', 'the save');
+    await until(() => values(m).handoff_prompt === 'Write your note now, please', 'the save');
     await until(() => text($('setting-prompt')).includes('Without {path}'), 'the path note');
     m.store.stop();
   });

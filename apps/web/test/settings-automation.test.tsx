@@ -61,9 +61,9 @@ describe('settings: handoff prompt and cache expiry', () => {
     await until(() => prompt(), 'the row');
     expect(prompt().value).toBe(values(s).handoff_prompt);
     const before = { ...values(s) };
-    await setValue(prompt(), ' Write it to {path}. ');
+    await setValue(prompt(), ' Write it to {path}, now. ');
     await blur(prompt());
-    await until(() => values(s).handoff_prompt === 'Write it to {path}.', 'the save');
+    await until(() => values(s).handoff_prompt === 'Write it to {path}, now.', 'the save');
     expect({ ...values(s), handoff_prompt: before.handoff_prompt }).toEqual(before);
   });
 
@@ -76,9 +76,9 @@ describe('settings: handoff prompt and cache expiry', () => {
     const s = await mount();
     await until(() => prompt(), 'the row');
     expect($('[data-setting="Handoff prompt"]')?.textContent).not.toContain('added on a line of its own');
-    await setValue(prompt(), 'Write your handoff.');
+    await setValue(prompt(), 'Write your handoff now.');
     await blur(prompt());
-    await until(() => values(s).handoff_prompt === 'Write your handoff.', 'the save');
+    await until(() => values(s).handoff_prompt === 'Write your handoff now.', 'the save');
     await until(() => $('[data-setting="Handoff prompt"]')?.textContent?.includes('added on a line of its own'), 'the hint');
   });
 
