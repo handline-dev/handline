@@ -1483,6 +1483,17 @@
       "type": "object",
       "additionalProperties": true,
       "description": "With settings.get `agent`: only that agent's own values for the Per agent keys."
+     },
+     "handoff_prompt_default": {
+      "type": "string",
+      "description": "Without settings.get `agent`: the built-in handoff prompt, what `values.handoff_prompt` shows while none is set, so a client can tell the two apart."
+     },
+     "handoff_prompt_own": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "Without settings.get `agent`: the agents whose agent.yaml sets a handoff prompt of their own, which the global one does not reach."
      }
     },
     "required": [
@@ -1715,7 +1726,7 @@
      "handoff_prompt": {
       "type": "string",
       "maxLength": 4000,
-      "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent."
+      "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. Line breaks are joined into one space; under 20 characters after trimming is bad_request (blank means the built-in). settings.get shows the built-in prompt when none is set. Per agent."
      },
      "push_prompt_asked": {
       "type": "boolean",

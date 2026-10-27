@@ -16,17 +16,17 @@ export function followUpOf(p: Proposal): FollowUp | null {
   return p.state === 'approved' && f ? { agent: textSafe(f.agent), state: f.state, text: textSafe(f.text) } : null;
 }
 
-/** What a held proposal waits for, in words: "waits for handline.pc's turn to end", or for several "waits for a and b to end their turns"; "since 5m" when the daemon says since when. */
+/** What a held proposal waits for, in words: "Held until handline.pc finishes its turn.", or for several "Held until a and b finish their turns."; "since 5m" when the daemon says since when. */
 export function heldLine(p: Proposal, now = Date.now()): string {
   const who = (p.waiting_on ?? []).map(textSafe);
   const since = p.waiting_since ? `, since ${ago(p.waiting_since, now)}` : '';
-  if (!who.length) return `waits for a turn to end${since}`;
-  if (who.length === 1) return `waits for ${who[0]}'s turn to end${since}`;
-  return `waits for ${who.slice(0, -1).join(', ')} and ${who.at(-1)} to end their turns${since}`;
+  if (!who.length) return `Held until a turn ends${since}.`;
+  if (who.length === 1) return `Held until ${who[0]} finishes its turn${since}.`;
+  return `Held until ${who.slice(0, -1).join(', ')} and ${who.at(-1)} finish their turns${since}.`;
 }
 
 const STATE_WORDS: Record<string, { word: string; tone: 'wait' | 'block' | 'run' | 'muted' }> = {
-  open: { word: 'waiting for you', tone: 'wait' },
+  open: { word: 'needs you', tone: 'wait' },
   apply_failed: { word: 'approved, not applied', tone: 'block' },
   approved: { word: 'approved and applied', tone: 'run' },
   rejected: { word: 'rejected', tone: 'block' },

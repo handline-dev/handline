@@ -4,6 +4,7 @@ import (
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/team"
+	"strings"
 )
 
 // Wall is what holds back a wake that is due: the account that would wake the agent.
@@ -24,6 +25,8 @@ type viewFields struct {
 	// not yet seen (past the for_you_seen cursor, as `hl inbox` counts them).
 	lastToFounder map[string]map[string]any
 	founderUnread map[string]int
+	// founderSeen is each agent's for_you_seen cursor.
+	founderSeen map[string]int64
 }
 
 // viewFields reads the board once for every agent.
@@ -46,7 +49,7 @@ func (e *Env) viewFields() (*viewFields, error) {
 		blocked[r.i("task_id")] = true
 	}
 	f := &viewFields{taskCount: map[string]int{}, ready: map[string]bool{}, lastToFounder: map[string]map[string]any{},
-		founderUnread: map[string]int{}}
+		founderUnread: map[string]int{}, founderSeen: map[string]int64{}}
 	if err := e.founderFields(f); err != nil {
 		return nil, err
 	}
@@ -89,9 +92,16 @@ func (e *Env) founderFields(f *viewFields) error {
 			cur = cr.i("row_id")
 			seen[m.from] = cur
 		}
-		if m.id > cur {
+		if m.id > cur && m.memo == 0 { // an ask a comment raised has a card of its own
 			f.founderUnread[m.from]++
 		}
+	}
+	cursors, err := query(e.DB, "SELECT name, row_id FROM cursors WHERE name LIKE 'for_you_seen:%'")
+	if err != nil {
+		return err
+	}
+	for _, c := range cursors {
+		f.founderSeen[strings.TrimPrefix(c.str("name"), "for_you_seen:")] = c.i("row_id")
 	}
 	return nil
 }
@@ -118,7 +128,7 @@ func (e *Env) addFields(name string, view map[string]any, x *viewCtx) error {
 	}
 	view["cache_ignored"] = (&lifecycle.Settings{Home: e.Home, Roster: x.roster}).IgnoreCacheExpiry(name)
 	view["task_count"] = x.taskCount[name]
-	view["last_to_founder"], view["founder_unread"] = nil, x.founderUnread[name]
+	view["last_to_founder"], view["founder_unread"], view["founder_seen"] = nil, x.founderUnread[name], x.founderSeen[name]
 	if m := x.lastToFounder[name]; m != nil {
 		view["last_to_founder"] = m
 	}

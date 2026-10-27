@@ -33,6 +33,7 @@ type mailbox struct {
 	kind string
 	body string
 	gate bool
+	memo int64 // the comment that raised this ask (requests.memo_id); 0 for any other
 	// kept is a say already read, still listed for readSayKeepS.
 	kept bool
 }
@@ -61,14 +62,14 @@ func (e *Env) mailboxRowsKept(kept bool) ([]mailbox, error) {
 		where = "(" + founderOpen + " OR (kind = 'say' AND state = 'landed' AND read_at IS NOT NULL AND read_at >= ?))"
 		args = append(args, time.Now().Unix()-readSayKeepS)
 	}
-	rows, err := query(e.DB, "SELECT id, ref, ts, requester, kind, body, read_at FROM requests WHERE target = ? AND "+where+" ORDER BY id", args...)
+	rows, err := query(e.DB, "SELECT id, ref, ts, requester, kind, body, read_at, COALESCE(memo_id, 0) AS memo FROM requests WHERE target = ? AND "+where+" ORDER BY id", args...)
 	if err != nil {
 		return nil, err
 	}
 	var out []mailbox
 	for _, r := range rows {
 		out = append(out, mailbox{id: r.i("id"), ref: r.str("ref"), ts: r.i("ts"), from: r.str("requester"), kind: r.str("kind"),
-			body: r.str("body"), gate: gates[r.i("id")], kept: kept && r.str("kind") == "say" && r.i("read_at") != 0})
+			body: r.str("body"), gate: gates[r.i("id")], memo: r.i("memo"), kept: kept && r.str("kind") == "say" && r.i("read_at") != 0})
 	}
 	return out, nil
 }
@@ -141,9 +142,12 @@ func (e *Env) founderItemsKept(since int64, kept bool) ([]map[string]any, error)
 		} else if kind == "" {
 			kind = "ask"
 		}
-		it, err := e.item(m.id, m.ref, kind, m.from, m.body, m.ts, m.id <= cursor || (m.kept && !m.gate))
+		it, err := e.item(m.id, m.ref, kind, m.from, m.body, m.ts, (m.id <= cursor && m.memo == 0) || (m.kept && !m.gate))
 		if err != nil {
 			return nil, err
+		}
+		if m.memo != 0 {
+			it["memo"] = m.memo
 		}
 		out = append(out, it)
 	}

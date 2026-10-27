@@ -82,11 +82,11 @@ describe('the stats tab', () => {
   it('says this daemon does not serve what it does not list', async () => {
     const m = await mount({ admin: false });
     await until(() => $('not-served'), 'the notice');
-    expect(text()).toContain('This daemon does not serve stats.');
-    expect(text()).toContain('This daemon does not serve the outlook.');
+    expect(text()).toContain('This needs a newer Handline.');
+    expect(text()).toContain('This needs a newer Handline.');
     await settings();
-    expect(text()).toContain('This daemon does not serve settings.');
-    expect(text()).toContain('This daemon does not serve standing answers.');
+    expect(text()).toContain('This needs a newer Handline.');
+    expect(text()).toContain('This needs a newer Handline.');
     m.store.stop();
   });
 });

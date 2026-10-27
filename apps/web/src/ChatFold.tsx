@@ -65,12 +65,12 @@ export function FoldLine(props: {
       <button
         type="button"
         aria-expanded={open}
-        className="flex w-fit max-w-full cursor-pointer flex-wrap items-baseline gap-x-2 rounded-card border border-line bg-panel px-2.5 py-1 text-left text-body"
+        className="group flex w-fit max-w-full cursor-pointer flex-wrap items-baseline gap-x-2 rounded-card border border-line bg-panel px-2.5 py-1 text-left text-body"
         onClick={() => folds.toggle(f)}
       >
         <Icon name={open ? 'less' : 'more'} size={14} label={open ? 'Fold the task cards' : 'Show the task cards'} />
         <span className="font-medium">{parts.join(' · ')}</span>
-        <span className="muted card-time">{range}</span>
+        <span className="muted card-time hidden group-hover:inline group-focus-within:inline">{range}</span>
         {!open && fresh > 0 ? <span className="card-new text-meta font-semibold text-accent">{fresh} new</span> : null}
       </button>
       {open ? props.f.rows.map((r) => <TaskLine key={r.id} i={r.item} titles={props.titles} agent={props.agent} />) : null}

@@ -53,6 +53,30 @@ describe('my turn', () => {
     expect([...dialog.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Open terminal']);
     expect(box.querySelector('.rail-nav')!.textContent).toMatch(/My turn\d+/);
   });
+  it('lists an agent with unread messages as a row under Messages, and a click opens its chat at the first unread', async () => {
+    const s = setup();
+    const fx = s.daemon.sessions.get(ARCH)!.fx;
+    keep = () => void (fx.view = undefined);
+    fx.view = { founder_unread: 3, founder_seen: 4, last_to_founder: { text: 'The build is green', at: new Date().toISOString() } };
+    location.hash = '#/my-turn';
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />);
+    });
+    await until(() => box.querySelector(`[data-row="${ARCH}"]`), 'the message row');
+    const row = box.querySelector<HTMLElement>(`[data-row="${ARCH}"]`)!;
+    expect(row.textContent).toContain('The build is green');
+    expect(row.textContent).toContain('3');
+    expect(box.querySelector('[aria-label="Messages"]')!.contains(row)).toBe(true);
+    // The Chat tab drops `?m=` once it has scrolled to the message, so the link is read as the click sets it, not after.
+    const seen: string[] = [];
+    const note = () => void seen.push(location.hash);
+    addEventListener('hashchange', note);
+    await act(async () => void row.click());
+    removeEventListener('hashchange', note);
+    expect(seen).toContain(`#/agents/${encodeURIComponent(ARCH)}?m=5`);
+  });
   async function open(s = setup()) {
     s.daemon.tasks.verbs = true;
     location.hash = '#/my-turn';
@@ -152,6 +176,25 @@ describe('my turn', () => {
     expect(box.querySelector('.tdetail .tbody')).not.toBeNull();
     await click(box.querySelector('.tdetail .back') ?? undefined);
     expect(box.querySelector('.tdetail')).toBeNull();
+  });
+
+  it('on a narrow window the task takes the page: one Back, to My turn, in the head', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    keep = () => void vi.unstubAllGlobals();
+    const s = setup();
+    decision(s, 9002);
+    await open(s);
+    const card = () => cards().find((c) => c.textContent?.includes('Task 9002'));
+    await until(card, 'the decision card');
+    await click(card()!.querySelector('[role=button]') ?? undefined);
+    await until(() => box.querySelector('.tdetail .tbody'), 'the task body');
+    expect(box.querySelector('.my-turn-split')).toBeNull(); // instead of the list, not beside it
+    const backs = [...box.querySelectorAll('.back')];
+    expect(backs.map((b) => b.getAttribute('title'))).toEqual(['Back to My turn']); // one Back, not a second one in the article
+    expect(box.querySelector('.tdetail .back')).toBeNull();
+    await click(backs[0]);
+    expect(box.querySelector('.tdetail')).toBeNull();
+    expect(cards().length).toBeGreaterThan(0);
   });
 
   it('Reply sends the written answer of a decision', async () => {

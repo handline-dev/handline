@@ -1,31 +1,13 @@
-// What a dragged tab shows over a pane: one cover for the whole pane (strip included) that picks one zone from the pointer. The tab strip shows an
-// insert line between tabs, the centre lights the whole pane, an edge lights the exact half the split will take (app-core drop.ts).
-import { useRef, useState, type DragEvent, type RefObject } from 'react';
-import { CHAT, dropPreview, dropZone, groupOf, moveTab, splitTab, type Box, type DropZone, type Group } from '@handline/app-core';
+// What a dragged tab shows over a pane: one cover for the whole pane (handle included) that picks one zone from the pointer. The handle lights up
+// and takes the tab at the end of the pane, the centre lights the whole pane, an edge lights the exact half the split will take (app-core drop.ts).
+import { useState, type DragEvent, type RefObject } from 'react';
+import { dropPreview, dropZone, groupOf, moveTab, splitTab, type Box, type DropZone, type Group } from '@handline/app-core';
 import { useWorkspace } from '#src/Workspace.tsx';
 
-/** The index a tab dropped at `x` takes among the tabs of `group` (all of them, the ones a switch hides included), or -1 for the end; Chat stays first. */
-function slotAt(strip: HTMLElement, group: Group, x: number): number {
-  const mids = [...strip.querySelectorAll<HTMLElement>('[role=tab]')].map((el) => {
-    const r = el.getBoundingClientRect();
-    return r.left + r.width / 2;
-  });
-  const at = mids.findIndex((m) => x < m);
-  return at >= 0 && group.tabs[0] === CHAT ? Math.max(at, 1) : at;
-}
-
-/** Where the insert line stands (px from the pane's left): before the tab at `at`, or after the last shown tab. */
-function lineAt(strip: HTMLElement, at: number, from: number): number {
-  const shown = [...strip.querySelectorAll<HTMLElement>('[role=tab]')].map((el) => el.getBoundingClientRect()).map((r, i) => ({ r, i })).filter(({ r }) => r.width > 0);
-  const next = shown.find(({ i }) => at >= 0 && i >= at);
-  const last = shown[shown.length - 1];
-  return (next ? next.r.left : last ? last.r.right : strip.getBoundingClientRect().left) - from;
-}
-
-export function DropOverlay({ group, strip }: { group: Group; strip: RefObject<HTMLDivElement | null> }) {
+/** `handle` is the pane's thin handle while the window is split, null when the pane has none (its tabs are all in the bar). */
+export function DropOverlay({ group, handle }: { group: Group; handle: RefObject<HTMLDivElement | null> | null }) {
   const { ws, dragging, apply, drop, setDragging, merged } = useWorkspace();
-  const [shown, setShown] = useState<{ zone: DropZone; box: Box | null; line: number | null; size: { w: number; h: number } } | null>(null);
-  const at = useRef(-1);
+  const [shown, setShown] = useState<{ zone: DropZone; box: Box | null; size: { w: number; h: number } } | null>(null);
   if (!dragging) return null;
   const from = groupOf(ws, dragging);
   if (!from) return null;
@@ -37,18 +19,20 @@ export function DropOverlay({ group, strip }: { group: Group; strip: RefObject<H
   const pick = (e: DragEvent): NonNullable<typeof shown> | null => {
     const el = e.currentTarget as HTMLElement;
     const r = el.getBoundingClientRect();
-    const bar = strip.current;
+    const bar = handle?.current;
     const size = { w: r.width, h: r.height };
-    const zone = dropZone({ ...size, strip: bar?.getBoundingClientRect().height ?? 0 }, { x: e.clientX - r.left, y: e.clientY - r.top }, edgesOk);
-    if (zone.kind === 'strip' && bar) {
-      const i = slotAt(bar, group, e.clientX);
-      const where = i < 0 ? group.tabs.length : i;
-      at.current = i;
-      const stays = same && (where === group.tabs.indexOf(dragging) || where === group.tabs.indexOf(dragging) + 1);
-      return stays ? null : { zone, box: null, line: lineAt(bar, i, r.left), size };
+    const zone = dropZone(
+      { ...size, strip: bar?.getBoundingClientRect().height ?? 0 },
+      { x: e.clientX - r.left, y: e.clientY - r.top },
+      edgesOk,
+    );
+    if (zone.kind === 'strip') {
+      const last = group.tabs.length - 1;
+      const stays = same && group.tabs.indexOf(dragging) === last; // already the last tab: dropping on the handle changes nothing
+      return stays ? null : { zone, box: { x: 0, y: 0, w: size.w, h: bar?.getBoundingClientRect().height ?? 0 }, size };
     }
     if (zone.kind === 'center' && same) return null;
-    return { zone, box: dropPreview(size, zone), line: null, size };
+    return { zone, box: dropPreview(size, zone), size };
   };
 
   return (
@@ -70,7 +54,7 @@ export function DropOverlay({ group, strip }: { group: Group; strip: RefObject<H
         e.stopPropagation();
         if (next.zone.kind === 'edge') drop(splitTab(ws, dragging, group.id, next.zone.edge));
         else {
-          apply((w) => moveTab(w, dragging, group.id, next.zone.kind === 'strip' && at.current >= 0 ? at.current : undefined));
+          apply((w) => moveTab(w, dragging, group.id));
           setDragging(null);
         }
       }}
@@ -81,9 +65,6 @@ export function DropOverlay({ group, strip }: { group: Group; strip: RefObject<H
           data-zone={shown.zone.kind === 'edge' ? shown.zone.edge : shown.zone.kind}
           style={{ left: shown.box.x, top: shown.box.y, width: shown.box.w, height: shown.box.h }}
         />
-      ) : null}
-      {shown?.line != null ? (
-        <div className="drop-line pointer-events-none absolute top-1 w-0.5 rounded-full bg-primary" style={{ left: shown.line - 1, height: (strip.current?.getBoundingClientRect().height ?? 32) - 8 }} />
       ) : null}
     </div>
   );

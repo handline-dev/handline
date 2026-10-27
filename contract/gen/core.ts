@@ -201,6 +201,10 @@ export type Settings = {
   values: SettingsValues;
   /** With settings.get `agent`: only that agent's own values for the Per agent keys. */
   overrides?: { [key: string]: unknown };
+  /** Without settings.get `agent`: the built-in handoff prompt, what `values.handoff_prompt` shows while none is set, so a client can tell the two apart. */
+  handoff_prompt_default?: string;
+  /** Without settings.get `agent`: the agents whose agent.yaml sets a handoff prompt of their own, which the global one does not reach. */
+  handoff_prompt_own?: AgentName[];
 };
 
 /** One terminal row: plain text, no escapes; in format `styled` also its style runs. */
@@ -272,7 +276,7 @@ export type SettingsValues = {
   token_prices?: { [key: string]: number };
   /** NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). */
   input_hold_idle_s?: number;
-  /** The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. */
+  /** The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. Line breaks are joined into one space; under 20 characters after trimming is bad_request (blank means the built-in). settings.get shows the built-in prompt when none is set. Per agent. */
   handoff_prompt?: string;
   /** Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. */
   push_prompt_asked?: boolean;

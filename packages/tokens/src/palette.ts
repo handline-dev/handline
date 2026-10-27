@@ -17,6 +17,8 @@ export interface Colors {
   wait: string;
   bad: string;
   ok: string;
+  /** Command mode in the chat box: a message that starts with ! is sent as typed. */
+  cmd: string;
   termBg: string;
   termInk: string;
   /** Code and diff blocks in text (a proposal's change, a card's code): the terminal's colours in dark, a soft gray in light. */
@@ -42,6 +44,7 @@ const dark: Colors = {
   wait: '#f0b429',
   bad: '#e8743b',
   ok: '#3fbf9b',
+  cmd: '#f06fb0',
   termBg: '#0a0a0b',
   termInk: '#e8e6df',
   codeBg: '#0a0a0b',
@@ -65,6 +68,7 @@ const light: Colors = {
   wait: '#b87900',
   bad: '#c2410c',
   ok: '#00875f',
+  cmd: '#c2377f',
   termBg: '#16150f',
   termInk: '#e8e6df',
   codeBg: '#f3f2ee',

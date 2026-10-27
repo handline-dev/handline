@@ -81,7 +81,7 @@ def title_of(merged: list[int]) -> str:
 
 
 def body_of(merged: list[int], heads: dict[int, str], left_out: dict[int, str]) -> str:
-    parts = "\n".join(f"- #{n} @{heads[n][:9]}" for n in merged)
+    parts = "\n".join(f"- #{n} at `{heads[n][:9]}`" for n in merged)
     out = "\n".join(f"- #{n}: {why}" for n, why in sorted(left_out.items())) or "- none"
     return (f"## Why\n\nThese PRs were each ready (green required checks, no conflict, auditor PASS for the head) and merge as one, with one CI run.\n\n"
             f"## What changed\n\nOne merge of each part's head, in PR number order:\n\n{parts}\n\nLeft out of the bundle:\n\n{out}\n\n"

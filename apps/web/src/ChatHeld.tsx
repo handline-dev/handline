@@ -22,17 +22,17 @@ export function BlockedCard({ detail }: { detail: AgentDetail }) {
   const you = status.reason === 'you' && !detail.needs_you && !detail.has_dialog;
   if (status.reason !== 'task' && !you) return null;
   return (
-    <Card variant="event" tone="wait" className="card-blocked" data-kind="blocked" data-reason={status.reason}>
+    <Card variant="event" tone="wait" className="card-blocked group" data-kind="blocked" data-reason={status.reason}>
       <Icon name="blocked" label="Blocked" />
-      <CardWhat stacked>
-        <strong className="whitespace-normal">{capital(status.text || (you ? 'Needs you' : 'Blocked'))}</strong>
+      <CardWhat wrap>
+        <strong>{capital(status.text || (you ? 'Needs you' : 'Blocked'))}</strong>
         {ids.map((id) => (
-          <a key={id} className="muted underline" href={`#/tasks/${id}`} onClick={openTaskOnClick(apply, id)}>
+          <a key={id} className="muted ml-1.5 underline" href={`#/tasks/${id}`} onClick={openTaskOnClick(apply, id)}>
             {taskRef(id)}
             {titles.get(id) ? ` ${titles.get(id)}` : ''}
           </a>
         ))}
-        {status.since ? <span className="muted">for {ago(status.since)}</span> : null}
+        {status.since ? <span className="muted ml-1.5 hidden group-hover:inline">for {ago(status.since)}</span> : null}
       </CardWhat>
       {you && detail.task ? <Button label="Open" size="sm" onClick={() => apply((w) => openTask(w, detail.task!.id))} /> : null}
     </Card>
@@ -49,13 +49,11 @@ export function HeldCard({ detail }: { detail: AgentDetail }) {
   if (status?.reason !== 'load' && status?.reason !== 'pace') return null;
   const verb = VERBS.force_start;
   return (
-    <Card variant="event" tone="wait" className="card-held" data-kind="held" data-reason={status.reason}>
+    <Card variant="event" tone="wait" className="card-held group" data-kind="held" data-reason={status.reason}>
       <Icon name="blocked" label="Held" />
-      <CardWhat stacked>
-        <strong className="whitespace-normal">
-          {status.text || 'Waiting: the computer is busy right now. It starts by itself when it calms down.'}
-        </strong>
-        {status.since ? <span className="muted">for {ago(status.since)}</span> : null}
+      <CardWhat wrap>
+        <strong>{status.text || 'Waiting: the computer is busy right now. It starts by itself when it calms down.'}</strong>
+        {status.since ? <span className="muted hidden group-hover:inline"> · for {ago(status.since)}</span> : null}
         {refused ? <span role="alert">{refused}</span> : null}
       </CardWhat>
       <Button label="See what uses the computer" size="sm" onClick={() => window.dispatchEvent(new Event(OPEN_RESOURCES))} />

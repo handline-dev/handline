@@ -11,6 +11,7 @@ export function SettingsTabs({ value }: { value: Tab }) {
   return (
     <TabStrip
       label="Settings pages"
+      dense
       value={value}
       onChange={(t: Tab) =>
         t === 'settings' ? void (location.hash = '#/settings') : t === 'accounts' ? void (location.hash = '#/accounts') : goTeam(t)

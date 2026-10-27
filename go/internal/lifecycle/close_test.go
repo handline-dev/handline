@@ -212,6 +212,31 @@ func TestATaskTheHolderRuleHoldsWakesNobody(t *testing.T) {
 	}
 }
 
+func TestAHolderWithItsTaskLandedIsWokenForTheTasksBehindIt(t *testing.T) {
+	m, _, _ := newManager(t)
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	db.SetAgentState(m.Q, "a", states.Idle, 0, "")
+	held, _ := db.NewTask(m.Q, "held", "a", "boss", 0, 2, "", 0, "")
+	other, _ := db.NewTask(m.Q, "other", "a", "boss", 0, 2, "", 0, "")
+	// held was delivered and landed and is unfinished; other's delivery is queued behind it
+	hr, _ := db.AddRequest(m.Q, db.NewRequest{Requester: "boss", Target: "a", Body: "held", Kind: "task"})
+	db.LinkRequest(m.Q, held, hr)
+	db.MarkDelivered(m.Q, hr)
+	if err := db.MarkLanded(m.Q, hr); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetCurrentTask(m.Q, "a", held, true); err != nil {
+		t.Fatal(err)
+	}
+	rid, _ := db.AddRequest(m.Q, db.NewRequest{Requester: "boss", Target: "a", Body: "other", Kind: "task"})
+	db.LinkRequest(m.Q, other, rid)
+	row, _ := db.GetAgentState(m.Q, "a")
+	if c, err := m.ClosedWakeCause("a", row); err != nil || c == nil || c.Kind != "work" {
+		t.Fatalf("a closed holder with its task landed and work behind it is not woken: %+v %v", c, err)
+	}
+}
+
 func TestRestartHungEndsABusyTurnWithoutWaitingAndWakesItInANewTerminal(t *testing.T) {
 	m, d, tm := newManager(t)
 	tm.launchOK = true

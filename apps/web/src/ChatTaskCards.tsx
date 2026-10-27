@@ -5,6 +5,7 @@ import { CLOSED, clockTime, isPerson, openTask, type TaskChange, taskRow } from 
 import { useMe } from '@handline/app-react';
 import { useServes, useTask, useWrite } from '@handline/app-data';
 import { useWorkspace } from '#src/Workspace.tsx';
+import { Button, Card, Icon } from '#src/ui/index.ts';
 
 const DOT: Record<string, string> = { opened: 'bg-ok', changed: 'bg-wait', done: 'bg-ok', withdrawn: 'bg-bad' };
 const VERB: Record<string, string> = { opened: 'added', changed: 'changed', done: 'done', withdrawn: 'deleted' };
@@ -24,7 +25,7 @@ function TaskCard(props: { ev: string; label: string; task: number; title?: stri
   return (
     // The row opens the task for a pointer; its Open button is the keyboard's way.
     <div
-      className="card-task tint flex w-fit max-w-full cursor-pointer items-baseline gap-x-2 rounded-card px-1.5 py-1 text-body"
+      className="card-task group tint flex w-fit max-w-full cursor-pointer items-baseline gap-x-2 rounded-card px-1.5 py-1 text-body"
       data-kind="task_event"
       data-event={props.ev}
       title={`Open T${props.task} in the Tasks tab`}
@@ -35,7 +36,9 @@ function TaskCard(props: { ev: string; label: string; task: number; title?: stri
         <span className="max-w-[16rem] flex-none overflow-hidden text-ellipsis whitespace-nowrap font-medium">{props.title}</span>
       ) : null}
       <span className="muted min-w-0 truncate text-meta">{`T${props.task} · ${what}`}</span>
-      <span className="muted card-time flex-none whitespace-nowrap text-meta">{clockTime(props.at)}</span>
+      <span className="muted card-time hidden flex-none whitespace-nowrap text-meta group-hover:inline group-focus-within:inline">
+        {clockTime(props.at)}
+      </span>
       <button type="button" className={LINK} onClick={(e) => (e.stopPropagation(), open())}>
         Open
       </button>
@@ -74,5 +77,39 @@ export function TaskNote({ m, task, titles }: { m: ChatMessage; task: number; ti
   const ev = verb === 'done' ? 'done' : verb === 'opened' ? 'opened' : 'changed';
   return (
     <TaskCard ev={ev} label={`Task ${verb ?? 'changed'}`} task={task} title={titles?.get(task)} what={[verb ?? '', rest ?? '']} at={m.at} />
+  );
+}
+
+/** A batch discard as one card: a line per task with its title and reason; the line opens the task, Reopen brings it back as a draft. */
+export function BatchCard({ i }: { i: TranscriptItem }) {
+  const { apply } = useWorkspace();
+  const reopen = useWrite('task.reopen');
+  const b = i.task_batch;
+  if (!b) return null;
+  return (
+    <Card variant="chat" className="card-batch group flex-col items-stretch" data-kind="task_batch">
+      <div className="flex items-baseline gap-x-2">
+        <Icon name="withdrawn" size={14} label="Discarded" />
+        <span className="card-event text-meta font-semibold uppercase tracking-wide">Discarded {b.tasks.length}</span>
+        <span className="muted card-time ml-auto hidden group-hover:inline group-focus-within:inline">{clockTime(i.at)}</span>
+      </div>
+      {b.tasks.map((t) => (
+        <div key={t.task} className="flex items-baseline gap-x-2" data-task={t.task}>
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 cursor-pointer flex-wrap items-baseline gap-x-2 border-0 bg-transparent p-0 text-left text-body"
+            title={`Open T${t.task} in the Tasks tab`}
+            onClick={() => apply((w) => openTask(w, t.task))}
+          >
+            <span className="mono">T{t.task}</span>
+            <span className="max-w-[28ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{t.title}</span>
+            <span className="muted min-w-0 break-words">{t.reason}</span>
+          </button>
+          <Button label={`Reopen T${t.task}`} onClick={() => reopen.mutate({ task: t.task, note: 'reopened from the batch card' })}>
+            Reopen
+          </Button>
+        </div>
+      ))}
+    </Card>
   );
 }

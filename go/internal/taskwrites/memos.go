@@ -222,6 +222,14 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 			if err := noteRequestComment(tx, tid, c.Caller.Actor()); err != nil {
 				return nil, err
 			}
+			if c.Caller.Actor() == human {
+				err = answerMemoAsks(tx, tid)
+			} else {
+				err = syncMemoAsk(tx, tid, mid, c.Caller.Actor(), body)
+			}
+			if err != nil {
+				return nil, err
+			}
 			if files, err = store.AddFiles(tx, home, c.Caller.Actor(), c.Caller.Actor() == human, paths); err != nil {
 				return nil, err
 			}
@@ -278,6 +286,9 @@ func memoEdit(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, er
 			if err := db.EditMemo(tx, mid, c.Caller.Actor(), body); err != nil {
 				return nil, err
 			}
+			if err := syncMemoAsk(tx, tid, mid, author, body); err != nil {
+				return nil, err
+			}
 			return accepted(fmt.Sprintf("memo %d on T%d edited", mid, tid), nil), nil
 		})
 		if err == nil && tell != nil {
@@ -312,6 +323,9 @@ func memoDelete(tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 				return nil, err
 			}
 			if err := db.DeleteMemo(tx, mid, c.Caller.Actor()); err != nil {
+				return nil, err
+			}
+			if err := db.CloseMemoAsks(tx, "withdrawn", "memo_id = ?", mid); err != nil {
 				return nil, err
 			}
 			if err := attachments.UnlinkMemo(tx, mid); err != nil {

@@ -49,7 +49,10 @@ async function mount(agent: string, s = setup()) {
   return { store, ...s };
 }
 
-beforeEach(() => void vi.stubGlobal('confirm', () => true));
+beforeEach(() => {
+  history.replaceState(null, ''); // the layout rides in the history entry: each test starts clean
+  vi.stubGlobal('confirm', () => true);
+});
 afterEach(async () => {
   await act(async () => root?.unmount());
   root = null;
@@ -75,14 +78,14 @@ describe('loading', () => {
   it('the workspace shows the terminal skeleton while the agent detail loads, then its tabs', async () => {
     const s = setup();
     await mount(ARCH, s);
-    await until(() => $('[data-tab="chat"]'), 'workspace');
+    await until(() => $('.topbar [data-tab]'), 'workspace');
     s.daemon.knobs.latency(500);
     await act(async () => {
       location.hash = `#/agents/${TB}`;
       dispatchEvent(new Event('hashchange'));
     });
     await until(() => $('.workspace-loading .skeleton'), 'the workspace skeleton');
-    await until(() => $('[data-tab="chat"]'), 'the workspace after load', 600);
+    await until(() => $('.topbar [data-tab="chat"]'), 'the workspace after load', 600);
     expect($('.workspace-loading')).toBeNull();
   });
 

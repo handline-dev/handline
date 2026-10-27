@@ -163,13 +163,14 @@ function FollowUpCard({ p, follow }: { p: Proposal; follow: FollowUp }) {
       data-follow-up={follow.state}
     >
       <Icon name="team" label="Proposal" />
-      <CardWhat stacked>
+      <CardWhat>
         <strong>{p.title}</strong>
-        <span className="outcome">Applied</span>
-        <span className="muted whitespace-normal">
-          {follow.state === 'failed' ? follow.text : `${follow.agent} starts when the load drops`}
+        <span className="muted">
+          {' · '}
+          <span className="outcome">Applied</span>
+          {` · ${follow.state === 'failed' ? follow.text : `${follow.agent} starts when the load drops`}`}
         </span>
-        {refused ? <span role="alert">{refused}</span> : null}
+        {refused ? <span role="alert"> · {refused}</span> : null}
       </CardWhat>
       {served(verb) ? (
         <Button
@@ -178,8 +179,9 @@ function FollowUpCard({ p, follow }: { p: Proposal; follow: FollowUp }) {
           disabled={busy}
           onClick={() => (setRefused(null), run(verb, undefined, { onError: (e) => setRefused(sentence(classify(e))) }))}
         />
-      ) : null}
-      <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
+      ) : (
+        <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
+      )}
     </Card>
   );
 }
@@ -202,7 +204,7 @@ export function HrCards({ agent }: { agent: string }) {
       {open ? (
         <Card variant="event" tone="wait" className="card-hr" data-kind="hr">
           <Icon name="team" label="Proposal" />
-          <CardWhat>{open === 1 ? '1 HR proposal needs you' : `${open} HR proposals need you`}</CardWhat>
+          <CardWhat>HR proposals: {open} · needs you</CardWhat>
           <Button icon="open" label="Open in HR" size="sm" onClick={() => goTeam('hr')} />
         </Card>
       ) : null}
@@ -213,7 +215,7 @@ export function HrCards({ agent }: { agent: string }) {
 const NEEDS: Record<string, string> = {
   permission: 'Needs you',
   question: 'Asked you a question',
-  usage: 'Hit the session limit',
+  usage: 'Out of usage',
   dialog: 'Waiting on a dialog',
 };
 
@@ -247,7 +249,7 @@ export function HandoffCard({ detail, items }: { detail: AgentDetail; items: Tra
     <div className="card-handoff flex items-center gap-3 text-meta text-primary" data-kind="handoff" data-phase={h.phase} role="status">
       <hr className="m-0 h-px flex-1 border-0 bg-line" />
       <span className="inline-flex items-center gap-1.5">
-        <Icon name="refresh" size={14} aria-hidden className="animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none" />
+        <Icon name="refresh" size={14} aria-hidden className="animate-spin motion-reduce:animate-none" />
         {restartingLine(h)}
       </span>
       <hr className="m-0 h-px flex-1 border-0 bg-line" />

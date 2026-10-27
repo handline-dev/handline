@@ -65,6 +65,25 @@ export const SEEDS: Record<string, Seed> = {
     });
   },
 
+  /** The daemon's weekly-loss notice: a task for the person tagged spare-notice, listing four spare drafts. */
+  'spare-notice': (d) => {
+    const spare = [
+      [7101, 'Tidy the gap list'],
+      [7102, 'Add tests for the fold'],
+      [7103, 'Check the phone card'],
+      [7104, 'Rename the helpers'],
+    ] as const;
+    for (const [id, title] of spare) d.tasks.seed({ id, from: ME, to: ARCH, title, state: 'draft', tags: ['spare'] });
+    d.tasks.seed({
+      id: 7100,
+      from: ARCH,
+      to: ME,
+      title: "18% of theta's weekly use will be lost at 02:10. These spare tasks can use it: T7101, T7102, T7103, T7104.",
+      state: 'doing',
+      tags: ['spare-notice'],
+    });
+  },
+
   /** Three HR proposals: a new agent (team, model), a setting change old -> new, and one to reject. */
   hr: (d) => {
     const hr = d.script.hr;
@@ -199,6 +218,13 @@ export const SEEDS: Record<string, Seed> = {
       ...s.fx.view,
       status: { state: 'waiting', reason: 'task', text: 'blocked by T1684 (human)', until: null, since, tasks: [1684] },
     };
+  },
+
+  /** The architect hit the session limit (needs_you kind usage): its chat shows the needs-you card. */
+  'agent-usage': (d) => {
+    const s = d.sessions.get(ARCH)!;
+    const since = new Date(Date.now() - 3 * 60_000).toISOString();
+    s.fx.view = { ...s.fx.view, needs_you: { kind: 'usage', since, text: null, source: 'hook' } };
   },
 
   /** An approved proposal that did not apply, the daemon's error in its own words, and the daemon down notice's page. */

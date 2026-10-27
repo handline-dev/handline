@@ -105,8 +105,10 @@ export type AgentView = {
     text: string;
     at: Timestamp;
   } | null;
-  /** How many of the agent's open requests to the founder they have not seen yet (past the for_you_seen cursor, as `hl inbox` counts them). Absent from a daemon that does not serve it yet. */
+  /** How many of the agent's open requests to the founder they have not seen yet (past the for_you_seen cursor, as `hl inbox` counts them; founder_seen is that cursor), less the asks its task comments raised, which have cards of their own. Absent from a daemon that does not serve it yet. */
   founder_unread?: number;
+  /** The highest message number of this agent the founder has had in view (the for_you_seen cursor chat.seen moves); 0 when none. A chat opens at the first of the agent's messages above it, under an unread divider. Absent from a daemon that does not serve it yet: no divider. */
+  founder_seen?: number;
   /** What it is doing and why (x-status). Absent from a daemon that does not send it. */
   status?: Status;
 };

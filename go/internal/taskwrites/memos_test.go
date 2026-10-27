@@ -50,6 +50,14 @@ func callHello(t *testing.T, srv *rpc.Server, hello string, calls ...string) []m
 	return out[1:]
 }
 
+// serverFor serves the task methods over db to the agent named (the founder for "").
+func serverFor(t *testing.T, db *sql.DB, agent string) *rpc.Server {
+	s := rpc.NewServer(auth{agent}, "x", store.LatestVersion(), "local", func(string, ...any) {})
+	s.DB = db
+	Register(s, t.TempDir(), nil, nil)
+	return s
+}
+
 func TestMemosAreAddedEditedAndDeletedByTheirAuthorOrTheFounder(t *testing.T) {
 	db, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
 	if err != nil {

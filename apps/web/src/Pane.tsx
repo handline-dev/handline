@@ -1,26 +1,9 @@
-// One pane: its own tab strip, the active tab, and while a tab is dragged, the edges it can be dropped on.
-import { useEffect, useRef, useState } from 'react';
-import { useScreenKeys, type KeyRows } from '#src/screenKeys.ts';
-import {
-  badgesOf,
-  needsAttention,
-  closeTab,
-  fillTab,
-  splitPane,
-  CHAT,
-  moveTabBy,
-  openTab,
-  taskRef,
-  type Group,
-  type Tab,
-  type TabKind,
-  type TabParams,
-  type Workspace,
-} from '@handline/app-core';
+// One pane: the active tab of its group, a thin handle when the window is split (its tabs are in the top bar, PaneTabs), and while a tab is dragged, the edges it can be dropped on.
+import { useRef } from 'react';
+import { fillTab, groupsOf, moveTab, CHAT, type Group } from '@handline/app-core';
 import { ChatTab } from '#src/ChatTab.tsx';
-import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
+import { Icon } from '#src/ui/index.ts';
 import { TasksTab } from '#src/TasksTab.tsx';
-import { Badges } from '#src/Badges.tsx';
 import { DropOverlay } from '#src/DropOverlay.tsx';
 import { DeviceTab } from '#src/DeviceTab.tsx';
 import { WebTab } from '#src/WebTab.tsx';
@@ -30,48 +13,8 @@ import { Watch } from '#src/TranscriptTab.tsx';
 import { TerminalTab } from '#src/TerminalTab.tsx';
 import { ChatStrip } from '#src/ChatCards.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
-import { goSettings } from '#src/route.ts';
-import { RailControls, useFoldedControls } from '#src/RailControls.tsx';
 import { usePaneData, type PaneData } from '#src/PaneData.ts';
-
-const label = (t: Tab, structured = false): string =>
-  t.kind === 'chat'
-    ? 'Chat'
-    : t.kind === 'new'
-      ? 'New tab'
-      : t.kind === 'tasks'
-        ? t.params.pinned
-          ? taskRef(Number(t.params.task))
-          : 'Tasks'
-        : t.kind === 'android'
-          ? 'Android'
-          : t.kind === 'ios'
-            ? 'iOS'
-            : t.kind === 'web'
-              ? String(t.params.url ?? 'Preview').replace(/^https?:\/\//, '')
-              : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
-                ? 'Transcript'
-                : t.kind === 'terminal'
-                  ? 'Claude Code'
-                  : t.kind === 'shell'
-                    ? 'Terminal'
-                    : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
-const TAB_ICON: Record<string, IconName> = {
-  chat: 'chat',
-  tasks: 'tasks',
-  terminal: 'terminal',
-  transcript: 'terminal',
-  shell: 'terminal',
-  web: 'web',
-  android: 'device',
-  ios: 'device',
-  new: 'plus',
-};
-
-const TAB_KEYS: KeyRows = [
-  ['Alt+Left Alt+Right', 'move the focused tab along the strip'],
-  ['Enter Space', 'show the focused tab'],
-];
+import { tabLabel, TAB_ICON, useChoices } from '#src/PaneTabs.tsx';
 
 /** The pane's data (who I am, what the daemon serves, the shell writes) is read once here; the view below holds none. */
 export function Pane({ group }: { group: Group }) {
@@ -79,153 +22,48 @@ export function Pane({ group }: { group: Group }) {
   return <PaneView group={group} data={usePaneData(agent)} />;
 }
 
-function PaneView({ group, data: { me, hello, openShell, closeShell } }: { group: Group; data: PaneData }) {
-  useScreenKeys('On the tabs', TAB_KEYS);
-  const { ws, detail, agent, storage, apply, show, canSplit, lead, dragging, setDragging } = useWorkspace();
-  const folded = useFoldedControls();
-  const strip = useRef<HTMLDivElement>(null);
+function PaneView({ group, data: { openShell, hello } }: { group: Group; data: PaneData }) {
+  const { ws, detail, agent, storage, apply, merged, dragging } = useWorkspace();
+  const handle = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
-  const badges = badgesOf(detail, me);
   const structured = detail.structured === true;
-  // What a new tab can show: the same flat list for the + menu and for the picker in a freshly split pane.
-  const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; disabled?: boolean; open?: boolean }[] = [
-    // A new plain shell in the agent's worktree, not its Claude Code terminal (that one is its own tab); several may be open.
-    { kind: 'shell', params: {}, label: 'Terminal', icon: 'terminal', open: true },
-    { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
-    { kind: 'android', params: {}, label: 'Android', icon: 'device' },
-    { kind: 'ios', params: {}, label: 'iOS', icon: 'device' },
-  ];
-  /** Opens what a choice shows; a new shell is first asked of the daemon and then shown by its handle. */
-  const choose = async (c: (typeof choices)[number], place: (w: Workspace, kind: TabKind, params: TabParams) => Workspace) => {
-    let params = c.params;
-    if (c.open) {
-      try {
-        params = { handle: (await openShell({ agent })).terminal };
-      } catch {
-        return; // useWrite has reported it
-      }
-    }
-    apply((w) => place(w, c.kind, params));
-  };
-  // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.
-  // The first terminal tab of the group: a group holds one terminal tab per agent, so the unread dot follows that one.
-  const termId = group.tabs.find((id) => ws.tabs[id]?.kind === 'terminal' || ws.tabs[id]?.kind === 'transcript');
-  const termShown = termId !== undefined && termId === group.activeTab;
-  const attention = needsAttention(badges);
-  const wasAttention = useRef(attention);
-  const [unread, setUnread] = useState(false);
-  useEffect(() => {
-    if (attention && !wasAttention.current && termId !== undefined && !termShown) setUnread(true);
-    wasAttention.current = attention;
-  }, [attention, termId, termShown]);
-  useEffect(() => {
-    if (termShown) setUnread(false);
-  }, [termShown]);
+  const { choices, choose } = useChoices(openShell);
+  const split = !merged && groupsOf(ws.root).length > 1;
+  const focused = ws.active === group.id;
+  // Closing a pane keeps its tabs: they move to the next pane, Chat back to its first place.
+  const closePane = () =>
+    apply((w) => {
+      const into = groupsOf(w.root).find((g) => g.id !== group.id);
+      return into ? group.tabs.reduce((acc, id) => moveTab(acc, id, into.id, id === CHAT ? 0 : undefined), w) : w;
+    });
 
-  const hiddenActive = group.tabs.includes(CHAT) && ['terminal', 'transcript'].includes(ws.tabs[group.activeTab]?.kind ?? '');
   return (
     <section
       className={`pane relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas -outline-offset-1${ws.active === group.id ? ' focus outline-1 outline-[color-mix(in_srgb,var(--primary)_40%,transparent)]' : ''}`}
       data-group={group.id}
       onPointerDownCapture={() => ws.active !== group.id && apply((w) => ({ ...w, active: group.id }))}
     >
-      <div className="strip flex h-[var(--h-tabs)] items-stretch border-b border-line bg-surface px-2" role="tablist" ref={strip}>
-        {folded && lead === group.id ? (
-          <div className="mr-1 flex flex-none items-center shell:pl-[var(--lights-w,86px)]">
-            <RailControls show={folded.show} row />
-          </div>
-        ) : null}
-        {group.tabs.map((id) => {
-          const t = ws.tabs[id]!;
-          // Claude Code is reached by the switch (Cmd/Ctrl+J, /terminal, the icon in the bottom bar), not by a tab, while the chat is in the group.
-          const asleep = id === CHAT && hiddenActive; // Claude Code is showing: the Chat tab stays the strip's one tab, quiet
-          const viaSwitch = (t.kind === 'terminal' || t.kind === 'transcript') && group.tabs.includes(CHAT);
-          return (
-            <div
-              key={id}
-              role="tab"
-              tabIndex={0}
-              aria-selected={id === group.activeTab || asleep}
-              className={`tab group ${viaSwitch ? 'hidden' : 'inline-flex'} my-1 max-w-[200px] cursor-default select-none items-center gap-1.5 whitespace-nowrap rounded-ctl px-2.5 font-sans text-body font-medium tint ${id === group.activeTab ? 'on bg-raised text-ink' : asleep ? 'text-ink-2 bg-raised/50' : 'text-ink-2'}`}
-              data-tab={id}
-              draggable={id !== CHAT}
-              onDragStart={(e) => {
-                e.dataTransfer?.setData('text/plain', id);
-                // The drop cover appears over the tab being dragged; mounting it inside dragstart makes Chromium cancel the drag.
-                setTimeout(() => setDragging(id), 0);
-              }}
-              onDragEnd={() => setDragging(null)}
-              onClick={() => show(id)}
-              onKeyDown={(e) => {
-                if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-                  e.preventDefault();
-                  apply((w) => moveTabBy(w, id, e.key === 'ArrowLeft' ? -1 : 1));
-                } else if (e.key === 'Enter' || e.key === ' ') show(id);
-              }}
-            >
-              <Icon name={TAB_ICON[t.kind] ?? 'tasks'} size={14} label={label(t, structured)} aria-hidden />
-              <span className="tab-label overflow-hidden text-ellipsis">{label(t, structured)}</span>
-              {t.kind === 'terminal' || t.kind === 'transcript' ? (
-                <>
-                  <Badges badges={badges} onClick={{ dialog: () => show(CHAT) }} />
-                  {unread && id !== group.activeTab ? (
-                    <span className="unread-dot ml-1 inline-block h-[7px] w-[7px] rounded-full bg-wait" title="Needs you" />
-                  ) : null}
-                </>
-              ) : null}
-              {id === CHAT ? null : (
-                <button
-                  className="x inline-flex border-0 bg-transparent p-0.5 text-ink-3 opacity-0 focus-visible:opacity-100 group-hover:opacity-100 group-aria-selected:opacity-100"
-                  aria-label={`Close ${label(t, structured)}`}
-                  title={
-                    t.kind === 'terminal' || t.kind === 'transcript'
-                      ? 'Close the tab; the agent keeps running'
-                      : t.kind === 'shell'
-                        ? 'Close the terminal'
-                        : 'Close the tab'
-                  }
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (
-                      t.kind === 'terminal' &&
-                      !structured &&
-                      detail.session_open &&
-                      !confirm(`Close the Claude Code tab of ${agent}? The agent keeps running.`)
-                    )
-                      return;
-                    if (t.kind === 'shell') closeShell({ terminal: String(t.params.handle) }); // the shell ends with its tab
-                    apply((w) => closeTab(w, id));
-                  }}
-                >
-                  <Icon name="close" size={12} label="Close" aria-hidden />
-                </button>
-              )}
-            </div>
-          );
-        })}
-        <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="ml-0.5 self-center">
-          {choices.map((c) => (
-            <MenuItem
-              key={c.label}
-              icon={c.icon}
-              disabled={c.disabled}
-              onSelect={() => void choose(c, (w, kind, params) => openTab(w, kind, params, group.id))}
-            >
-              {c.label}
-            </MenuItem>
-          ))}
-        </MenuButton>
-        <Button
-          icon="split"
-          size="sm"
-          label="Split this pane"
-          title={canSplit(group.id) ? undefined : 'The window is too narrow for another pane'}
-          disabled={!canSplit(group.id)}
-          className="ml-auto self-center"
-          onClick={() => apply((w) => splitPane(w, group.id) ?? w)}
-        />
-        <Button icon="settings" size="sm" label={`${agent} settings`} className="self-center" onClick={() => goSettings(agent)} />
-      </div>
+      {split ? (
+        <div
+          className={`pane-handle flex h-[22px] flex-none items-center gap-1.5 border-b border-line px-2 text-hint ${focused ? 'bg-raised text-ink' : 'bg-surface text-ink-2'}`}
+          data-handle={group.id}
+          ref={handle}
+        >
+          <Icon name={TAB_ICON[tab?.kind ?? 'tasks'] ?? 'tasks'} size={12} aria-hidden />
+          <span className="min-w-0 flex-1 truncate">{tab ? tabLabel(tab, structured) : ''}</span>
+          <button
+            className="pane-close tint inline-flex border-0 bg-transparent p-0.5 text-ink-3"
+            aria-label="Close this pane"
+            title="Close this pane; its tabs move to the next pane"
+            onClick={(e) => {
+              e.stopPropagation();
+              closePane();
+            }}
+          >
+            <Icon name="close" size={12} label="Close this pane" aria-hidden />
+          </button>
+        </div>
+      ) : null}
       <div className="pane-body relative flex min-h-0 flex-1 flex-col [&>*]:min-h-0 [&>*]:flex-1" role="tabpanel">
         {!tab ? null : tab.kind === 'chat' ? (
           <ChatTab agent={agent} detail={detail} />
@@ -285,12 +123,12 @@ function PaneView({ group, data: { me, hello, openShell, closeShell } }: { group
           />
         ) : (
           <div className="empty big">
-            <strong>{label(tab, structured)}</strong>
+            <strong>{tabLabel(tab, structured)}</strong>
             <p>This daemon does not serve {tab.kind} tabs. Close this tab.</p>
           </div>
         )}
       </div>
-      {dragging ? <DropOverlay group={group} strip={strip} /> : null}
+      {dragging ? <DropOverlay group={group} handle={split ? handle : null} /> : null}
     </section>
   );
 }
