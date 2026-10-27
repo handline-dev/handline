@@ -36,25 +36,27 @@ const blank = (terminal: string, window: number): Pane => ({
 export const DEBUG_HANDLERS: Record<string, (h: Call) => unknown> = {
   'debug.terminals': ({ script, iso }): Methods['debug.terminals']['result'] => {
     const agents = [...script.sessions.values()].filter((s) => s.hasTerminal && !s.structured);
-    const panes = agents.map(
-      (s, i): Pane => ({
-        ...blank(tid(s), i),
-        window_name: s.fx.name,
-        pid: 1000 + i,
-        command: s.open ? 'claude' : 'zsh',
-        path: s.fx.worktree,
-        last_activity: s.since,
-        idle_s: 0,
-        process: s.open ? 'agent' : 'shell',
-        agent_process: s.open ? { pid: 2000 + i, name: 'claude' } : null,
-        agent: s.fx.name,
-        orphan: false,
-        state: s.state,
-        account: s.fx.account,
-        session_id: s.sessionId,
-        worktree: s.fx.worktree,
-      }),
-    );
-    return { host: 'fake', now: iso(), panes: [...panes, { ...blank(STRAY_PANE, panes.length), recorded_agent: agents[0]?.fx.name ?? null }] };
+    const panes = agents.map((s, i): Pane => ({
+      ...blank(tid(s), i),
+      window_name: s.fx.name,
+      pid: 1000 + i,
+      command: s.open ? 'claude' : 'zsh',
+      path: s.fx.worktree,
+      last_activity: s.since,
+      idle_s: 0,
+      process: s.open ? 'agent' : 'shell',
+      agent_process: s.open ? { pid: 2000 + i, name: 'claude' } : null,
+      agent: s.fx.name,
+      orphan: false,
+      state: s.state,
+      account: s.fx.account,
+      session_id: s.sessionId,
+      worktree: s.fx.worktree,
+    }));
+    return {
+      host: 'fake',
+      now: iso(),
+      panes: [...panes, { ...blank(STRAY_PANE, panes.length), recorded_agent: agents[0]?.fx.name ?? null }],
+    };
   },
 };

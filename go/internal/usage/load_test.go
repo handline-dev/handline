@@ -57,6 +57,9 @@ func TestActiveCountsRunningMovedAndReservedAgentsPerAccount(t *testing.T) {
 	setAgent(t, q, "failed", "IDLE", "a")
 	event(t, q, clock-100, "failed", "wake_reserved", "c")
 	event(t, q, clock-90, "failed", "wake_failed", "")
+	setAgent(t, q, "dropped", "IDLE", "a")
+	event(t, q, clock-100, "dropped", "wake_reserved", "c")
+	event(t, q, clock-90, "dropped", "wake_dropped", "") // the wake gave up: the reservation is let go
 	setAgent(t, q, "closed", "RUNNING", "a")
 	db.SetClosed(q, "closed", "s")
 	by, err := e.ActiveByAccount(q)
