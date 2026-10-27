@@ -151,7 +151,7 @@ describe('HR proposals in the chat', () => {
     root = createRoot(box);
     await act(async () => root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />));
     await until(() => $('[data-proposal="47"]'), 'the held card');
-    expect(text($('[data-proposal="47"]')!)).toMatch(/to end, since 10m/);
+    expect(text($('[data-proposal="47"]')!)).toMatch(/finishes its turn, since 10m/);
     await click([...$('[data-proposal="47"]')!.querySelectorAll('button')].find((b) => text(b).trim() === 'Apply now')!);
     await until(() => !$('[data-proposal="47"] .hr-held'), 'the card applied');
   });

@@ -97,7 +97,7 @@ describe('loading', () => {
     const s = setup();
     s.daemon.knobs.refuse('agents.list', 'unsupported', 'not served');
     await mount(ARCH, s);
-    await until(() => text($('.rail-list')).includes('does not serve'), 'the not-served sentence');
+    await until(() => text($('.rail-list')).includes('needs a newer Handline'), 'the not-served sentence');
   });
 });
 
