@@ -230,7 +230,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
           )}
           <WorkingBubble working={chat.working} messages={chat.messages} items={chat.items} />
         </View>
-        {anchor.room > 0 && <View testID="send-spacer" style={{ height: anchor.room }} />}
+        {anchor.room > 0 && <View testID="send-spacer" style={{ height: anchor.room }} onLayout={anchor.spacer} />}
       </ScrollView>
       <HandoffLine handoff={props.detail.handoff ?? null} items={chat.items} />
       <NeedsYouCard agent={agent} needs={props.detail.needs_you ?? null} prompt={props.detail.prompt ?? null} />
