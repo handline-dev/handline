@@ -18,6 +18,8 @@ const NAME_MIN = 72;
 const CHIP_PAD = 28;
 const CHAR_W = 7;
 const GAP = 8;
+const RESTART_W = 93; // the icon and "Restarting…"
+const TIME_W = 34;
 
 export function AgentRow({
   agent: a,
@@ -61,11 +63,15 @@ export function AgentRow({
   // The needs-you chip comes right after the name (the lesser chips drop first) and is the word when the word fits beside the name, else the icon.
   const main = useRef<HTMLButtonElement>(null);
   const [wide, setWide] = useState(true);
+  const [roomy, setRoomy] = useState(true); // the word "Restarting…" fits beside the name and the time, else its icon alone
   const kindLen = a.needs_you?.kind.length ?? 0;
   useEffect(() => {
     const el = main.current;
     if (!el) return;
-    const fit = () => setWide(el.clientWidth >= MARK_W + NAME_MIN + CHIP_PAD + CHAR_W * kindLen + 2 * GAP);
+    const fit = () => {
+      setWide(el.clientWidth >= MARK_W + NAME_MIN + CHIP_PAD + CHAR_W * kindLen + 2 * GAP);
+      setRoomy(!el.clientWidth || el.clientWidth >= MARK_W + NAME_MIN + RESTART_W + TIME_W + 3 * GAP);
+    };
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(el);
@@ -79,8 +85,6 @@ export function AgentRow({
   const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
     .filter(Boolean)
     .join(' · ');
-  // The left edge: the waiting hue outranks the selection.
-  const edge = dot === 'waiting' ? 'border-l-wait' : selected ? 'border-l-primary' : 'border-l-transparent';
   const showControls = hot || menuOpen || !!mark; // never just because the row is selected; a pending verb's mark is drawn in the button
   // The ⋯ button asks the row for its own context menu, at the button.
   const opener = useRef<((at: At) => void) | null>(null);
@@ -100,7 +104,7 @@ export function AgentRow({
             onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setHot(false)}
           >
             <div
-              className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 h-11 py-[3px] border-l-[3px] hover:bg-canvas ${edge}`}
+              className={`row${selected ? ' on' : ''}${dot === 'waiting' ? ' attn' : ''} flex items-start gap-1 px-2.5 h-11 py-[3px] tint`}
               style={{ paddingLeft: 10 + depth * 14 }}
             >
               {kids ? (
@@ -117,10 +121,10 @@ export function AgentRow({
                 <span className="w-3 flex-none" aria-hidden />
               )}
               <div className="flex min-w-0 flex-1 flex-col">
-                {/* One line tall and wrapping: a chip that does not fit drops below the box whole, never cut off. */}
+                {/* One line that never wraps: the name gives way first, then the chips drop whole from the last one; the time keeps its place. */}
                 <button
                   ref={main}
-                  className={`row-main flex h-5 min-w-0 flex-1 flex-wrap content-start items-center gap-x-2 overflow-hidden border-0 bg-transparent p-0 text-left`}
+                  className={`row-main flex h-5 w-full min-w-0 flex-none items-center gap-x-2 overflow-hidden border-0 bg-transparent p-0 text-left`}
                   onClick={() => goAgent(a.name)}
                   aria-current={selected ? 'true' : undefined}
                   title={tip}
@@ -134,61 +138,67 @@ export function AgentRow({
                   <span className="name h-5 min-w-[4.5rem] flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-5">
                     {rowName(a.name, depth, team)}
                   </span>
-                  {a.handoff ? (
-                    <span className="restarting inline-flex flex-none items-center gap-1 whitespace-nowrap text-label text-primary">
-                      <Icon
-                        name="refresh"
-                        size={12}
-                        aria-hidden
-                        className="animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none"
-                      />
-                      Restarting…
-                    </span>
-                  ) : null}
-                  {a.needs_you ? (
-                    <span
-                      className="needs inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-pill bg-wait px-1.5 text-label text-canvas"
-                      title={[a.needs_you.kind, a.needs_you.text].filter(Boolean).join(': ')}
-                    >
-                      <Icon name={a.needs_you.kind === 'permission' ? 'permission' : 'answer'} size={12} label={a.needs_you.kind} />
-                      {wide ? <span>{a.needs_you.kind}</span> : null}
-                    </span>
-                  ) : null}
-                  {a.founder_unread ? (
-                    <span
-                      className="unread inline-flex flex-none items-center rounded-pill bg-primary px-1.5 text-label text-canvas"
-                      title={`${a.founder_unread} unseen ${a.founder_unread === 1 ? 'request' : 'requests'} to you`}
-                    >
-                      {a.founder_unread}
-                    </span>
-                  ) : null}
-                  <Badges badges={badges} />
-                  {stuck ? (
-                    <span
-                      className="row-stuck inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-wait"
-                      title={`${stuck} under ${a.name} cannot go on: held for load, waiting on a dialog, or blocked`}
-                    >
-                      <Icon name="warn" size={11} aria-hidden />
-                      {stuck}
-                    </span>
-                  ) : null}
-                  {working ? (
-                    <span
-                      className="row-working inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-working"
-                      title={`${working} working under ${a.name}`}
-                    >
-                      <Icon name="working" size={11} aria-hidden />
-                      {working}
-                    </span>
-                  ) : null}
-                  {queued ? (
-                    <span
-                      className="row-queued inline-flex flex-none items-center whitespace-nowrap rounded-pill px-1.5 text-hint text-ink-2 ring-1 ring-line"
-                      title={queuedTip}
-                    >
-                      +{queued}
-                    </span>
-                  ) : null}
+                  <span className="row-chips flex h-5 min-w-0 flex-wrap content-start items-center gap-x-2 overflow-hidden [&>*]:h-5">
+                    {a.handoff ? (
+                      <span
+                        title="Restarting…"
+                        className="restarting inline-flex flex-none items-center gap-1 whitespace-nowrap text-label text-primary"
+                      >
+                        <Icon
+                          name="refresh"
+                          size={12}
+                          aria-hidden
+                          className="animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none"
+                        />
+                        {roomy ? 'Restarting…' : null}
+                      </span>
+                    ) : null}
+                    {a.needs_you ? (
+                      <span
+                        className="needs inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-pill bg-wait px-1.5 text-label text-canvas"
+                        title={[a.needs_you.kind, a.needs_you.text].filter(Boolean).join(': ')}
+                      >
+                        <Icon name={a.needs_you.kind === 'permission' ? 'permission' : 'answer'} size={12} label={a.needs_you.kind} />
+                        {wide ? <span>{a.needs_you.kind}</span> : null}
+                      </span>
+                    ) : null}
+                    {a.founder_unread ? (
+                      <span
+                        className="unread inline-flex flex-none items-center rounded-pill bg-primary px-1.5 text-label text-canvas"
+                        title={`${a.founder_unread} unseen ${a.founder_unread === 1 ? 'request' : 'requests'} to you`}
+                      >
+                        {a.founder_unread}
+                      </span>
+                    ) : null}
+                    <Badges badges={badges} />
+                    {stuck ? (
+                      <span
+                        className="row-stuck inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-wait"
+                        title={`${stuck} under ${a.name} cannot go on: held for load, waiting on a dialog, or blocked`}
+                      >
+                        <Icon name="warn" size={11} aria-hidden />
+                        {stuck}
+                      </span>
+                    ) : null}
+                    {working ? (
+                      <span
+                        className="row-working inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-working"
+                        title={`${working} working under ${a.name}`}
+                      >
+                        <Icon name="working" size={11} aria-hidden />
+                        {working}
+                      </span>
+                    ) : null}
+                    {queued ? (
+                      <span
+                        className="row-queued inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-ink-2"
+                        title={queuedTip}
+                      >
+                        <Icon name="tasks" size={11} aria-hidden />
+                        {queued}
+                      </span>
+                    ) : null}
+                  </span>
                   <span className="row-time flex-none whitespace-nowrap text-hint text-ink-3">{ago(stamp)}</span>
                 </button>
                 <span

@@ -15,6 +15,7 @@ import {
   resourceLine,
   useRows,
   type Limits,
+  type PageSettings,
 } from '@handline/app-core';
 import type { Resources } from '@handline/client';
 import { sentence, classify, useSettings, useStatus, useWrite } from '@handline/app-data';
@@ -65,7 +66,7 @@ export function ResourceArea() {
           <MenuCheckItem
             key={a.value}
             checked={limits.awake === a.value}
-            onCheckedChange={() => save.mutate({ changes: { keep_awake: a.value } })}
+            onCheckedChange={() => save.mutate({ changes: { keep_awake: a.value } satisfies PageSettings })}
           >
             {a.label}
             {a.value === 'working' ? ` · ${working} working` : ''}
@@ -77,7 +78,7 @@ export function ResourceArea() {
         <span className="relative inline-flex">
           <button
             type="button"
-            className="resource-cell inline-flex cursor-pointer items-center border-0 bg-transparent p-0 text-hint text-ink-2"
+            className="resource-cell tint -mx-1 inline-flex cursor-pointer items-center rounded-chip border-0 bg-transparent px-1 py-0 text-hint text-ink-2"
             aria-expanded={open}
             title="What the machine and the agents use"
             onClick={() => setOpen(!open)}
@@ -111,7 +112,7 @@ function Details({ r, limits }: { r: Resources; limits: Limits }) {
   const full = loadFull(r, limits.load_per_core_pct);
   const low = memoryLow(r, limits.ram_free_min_pct);
   const row =
-    'flex w-full cursor-pointer items-center gap-2 rounded-chip border-0 bg-transparent px-1 py-1 -mx-1 text-left text-body text-ink hover:bg-raised';
+    'flex w-full cursor-pointer items-center gap-2 rounded-chip border-0 bg-transparent px-1 py-1 -mx-1 text-left text-body text-ink tint';
   const mark = (which: 'load' | 'memory') => (
     <Icon
       name="chevronRight"
@@ -176,7 +177,7 @@ function Details({ r, limits }: { r: Resources; limits: Limits }) {
 function useChange() {
   const save = useWrite('settings.set');
   return {
-    set: (changes: Partial<Limits>) => save.mutate({ changes }),
+    set: (changes: Partial<Limits> & PageSettings) => save.mutate({ changes }),
     error: save.error ? sentence(classify(save.error)) : null,
   };
 }

@@ -163,6 +163,8 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		{Name: "unanswered founder messages", Run: (&housekeeping.Unanswered{Lead: leadCheck(home), Log: logLine,
 			Notice: func(q db.Q, to, text, reason string) error { _, err := env.Notice(q, to, text, reason); return err }}).Check},
 		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Free: cfg.DiskFree}).Check},
+		{Name: "orphans", Run: (&housekeeping.Orphans{Log: logLine, Scratch: housekeeping.ScratchRoot(),
+			Mode: func() string { return housekeeping.OrphansModeOf(usage.LoadConfig(home)) }}).Check},
 	}, Signalled: func() bool {
 		select {
 		case <-tc.Stop:

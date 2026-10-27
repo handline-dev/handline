@@ -22,7 +22,7 @@ const FILTERS: [HistoryFilter, string][] = [
   ['memo', 'Comment'],
 ];
 const CHIP =
-  'inline-flex items-center gap-1 rounded-full bg-transparent border border-line px-2.5 py-0.5 text-ink-2 aria-pressed:border-ink aria-pressed:bg-ink aria-pressed:text-canvas';
+  'inline-flex items-center gap-1 rounded-full bg-transparent border border-line px-2.5 py-0.5 text-ink-2 aria-pressed:border-ink aria-pressed:bg-raised aria-pressed:text-ink';
 const ROW = 'grid grid-cols-[5rem_minmax(0,1fr)] gap-x-2 border-t border-line py-1.5 max-sm:grid-cols-1';
 const WAS = 'text-ink-3 line-through';
 const FIELD_WORD: Record<string, string> = { timeout: 'time box', blocked_by: 'waits on', merged_into: 'merged into' };

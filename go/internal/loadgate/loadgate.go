@@ -13,11 +13,12 @@ import (
 	"github.com/handline/handline/go/internal/usage"
 )
 
-// The limits' config.yaml keys and their defaults. The agent cap is off by default; the load and memory limits are on.
+// The limits' config.yaml keys and their defaults. The agent cap is off by default; the load and memory limits and the simulator hold are on.
 const (
 	AgentCapKey       = "host_active_cap"
 	LoadPctKey        = "load_per_core_pct"
 	RAMFreePctKey     = "ram_free_min_pct"
+	SimulatorKey      = "host_simulator_hold"
 	DefaultLoadPct    = 150
 	DefaultRAMFreePct = 10
 )
@@ -27,12 +28,13 @@ type Limits struct {
 	Agents     int // most agents mid-turn on the machine
 	LoadPct    int // most 1-minute load per core, in percent
 	RAMFreePct int // least free memory, in percent of all
+	Simulator  int // 1: a running phone simulator or emulator holds new starts, 0: it does not
 }
 
 // LimitsOf reads the limits from config, each at its default when it is not set to a whole number of at least 0.
 func LimitsOf(cfg usage.Config) Limits {
 	return Limits{Agents: setting(cfg, AgentCapKey, 0), LoadPct: setting(cfg, LoadPctKey, DefaultLoadPct),
-		RAMFreePct: setting(cfg, RAMFreePctKey, DefaultRAMFreePct)}
+		RAMFreePct: setting(cfg, RAMFreePctKey, DefaultRAMFreePct), Simulator: setting(cfg, SimulatorKey, 1)}
 }
 
 func setting(cfg usage.Config, key string, def int) int {
@@ -75,6 +77,9 @@ func Held(l Limits, active int, m *sysres.Machine) string {
 	}
 	if m == nil {
 		return ""
+	}
+	if l.Simulator > 0 && m.Simulator != "" {
+		return HeldPrefix + "the " + m.Simulator + " is running. It starts by itself when it closes."
 	}
 	if l.LoadPct > 0 && m.Cores > 0 {
 		if pct := int(m.Load1 * 100 / float64(m.Cores)); pct > l.LoadPct {

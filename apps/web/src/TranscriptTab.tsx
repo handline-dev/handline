@@ -62,7 +62,7 @@ function Item({ agent, e }: { agent: string; e: Entry }) {
       return <ToolCall agent={agent} t={e} />;
     case 'error':
       return (
-        <div className="tr-error border-l-[3px] border-l-bad pl-1.5 text-body text-bad" role="alert">
+        <div className="tr-error text-body text-bad" role="alert">
           {e.code}: {e.text}
         </div>
       );

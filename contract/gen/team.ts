@@ -61,7 +61,7 @@ export type Proposal = {
   };
   error?: string | null;
   settled?: Timestamp | null;
-  /** What the proposal does: add, retire, rename, link, unlink, team, settings, context or bundle (several changes decided once). An open set: a client draws a word it does not know as text. Optional until the Python hr.list sends it; a client then reads the first word of `title`. */
+  /** What the proposal does: add, retire, rename, link, unlink, team, settings, context, schedule or bundle (several changes decided once). An open set: a client draws a word it does not know as text. Optional until the Python hr.list sends it; a client then reads the first word of `title`. */
   kind?: string;
 };
 
@@ -94,6 +94,16 @@ export type HrArgs = {
   sets?: { [key: string]: string };
   /** bundle: the steps, at most 40, each judged against the roster the earlier ones leave. name is then ignored (send the count, `3 changes`). */
   changes?: { [key: string]: unknown }[];
+  /** schedule: add a schedule to `name`, edit one of its (give was_cron for which; cron and message are then the new ones, a missing one stays), or remove one (was_cron). */
+  action?: "add" | "edit" | "remove";
+  /** schedule add, edit: five cron fields; it may not fire more than once an hour (bad_request). */
+  cron?: string;
+  /** schedule add, edit: the text typed at the agent each time, at most 1000 characters. */
+  message?: string;
+  /** schedule edit, remove: the cron of the existing schedule. */
+  was_cron?: string;
+  /** schedule edit, remove: its message, when two of the agent's schedules share the cron. */
+  was_message?: string;
 };
 
 export type ScheduleError = {
@@ -116,7 +126,7 @@ export interface TeamMethods {
     said?: string;
   } };
   "hr.propose": { params: {
-  kind: "add" | "retire" | "rename" | "link" | "unlink" | "team" | "settings" | "context" | "bundle";
+  kind: "add" | "retire" | "rename" | "link" | "unlink" | "team" | "settings" | "context" | "schedule" | "bundle";
   args: HrArgs;
   why?: string;
   request_id: RequestId;

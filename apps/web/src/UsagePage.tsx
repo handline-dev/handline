@@ -1,13 +1,10 @@
-// The Usage page (#/stats), in the rail under Tasks and what the status bar's usage item opens: the usage outlook (when the daemon serves it), then each account's gauges, then the Stats section.
+// The Usage page (#/stats), in the rail under Tasks and what the status bar's usage item opens: the usage outlook (when the daemon serves it), then the Stats section; the accounts are in Settings.
 import { useSelector } from '@handline/app-react';
 import { OutlookSection } from '#src/Outlook.tsx';
-import { PageHead, PageTitle, ScrollPage, SectionHead, SettingsCard } from '#src/ui/index.ts';
-import { UsageRow, useAccountList } from '#src/Accounts.tsx';
+import { PageHead, PageTitle, ScrollPage } from '#src/ui/index.ts';
 import { StatsSection } from '#src/Stats.tsx';
-import { View } from '#src/View.tsx';
 
 export function UsagePage() {
-  const { q, served, now, list } = useAccountList();
   const outlook = useSelector((s) => s.can('stats.outlook'));
   return (
     <ScrollPage className="usage-page" aria-label="Usage">
@@ -15,14 +12,6 @@ export function UsagePage() {
         <PageTitle>Usage</PageTitle>
       </PageHead>
       {outlook ? <OutlookSection /> : null}
-      <View q={q} served={served} shape="accounts" what="accounts" empty={!list.length && 'No accounts configured.'}>
-        <SectionHead>Accounts</SectionHead>
-        <SettingsCard className="acct-list flex flex-col">
-          {list.map((account) => (
-            <UsageRow key={account.name} account={account} now={now} />
-          ))}
-        </SettingsCard>
-      </View>
       <StatsSection />
     </ScrollPage>
   );

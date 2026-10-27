@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/handline/handline/go/internal/handoff"
+	"github.com/handline/handline/go/internal/housekeeping"
 	"github.com/handline/handline/go/internal/keepawake"
 	"github.com/handline/handline/go/internal/loadgate"
 	"github.com/handline/handline/go/internal/rpc"
@@ -20,14 +21,15 @@ import (
 // A key set to null is removed (back to the default).
 
 const (
-	int1  = "int>=1"
-	int0  = "int>=0"
-	pct   = "int 0-100"
-	tgt   = "int 50-100"
-	burst = "int 0-50"
-	flag_ = "bool"
-	line  = "line"
-	awake = "off, on or working"
+	int1   = "int>=1"
+	int0   = "int>=0"
+	pct    = "int 0-100"
+	tgt    = "int 50-100"
+	burst  = "int 0-50"
+	flag_  = "bool"
+	line   = "line"
+	awake  = "off, on or working"
+	reaper = "dry, on or off"
 )
 
 // LineMax is how long a one-line text setting may be, in characters.
@@ -37,8 +39,8 @@ var settingKinds = map[string]string{"active_cap": int1, "park_timeout_s": int0,
 	"ignore_cache_expiry": flag_, "dev_mode": flag_, "bg_notice_s": int1, "bg_grace_s": int1, "bg_check_s": int1, "notice_digest_s": int1,
 	"input_hold_idle_s": int1, handoff.PromptKey: line,
 	"push_prompt_asked": flag_, "push_task_done": flag_, "push_stall": flag_, "push_account_out": flag_,
-	"heavy_slots": int1, keepawake.Key: awake,
-	loadgate.AgentCapKey: int0, loadgate.LoadPctKey: int0, loadgate.RAMFreePctKey: pct,
+	"heavy_slots": int1, keepawake.Key: awake, housekeeping.OrphansKey: reaper,
+	loadgate.AgentCapKey: int0, loadgate.LoadPctKey: int0, loadgate.RAMFreePctKey: pct, loadgate.SimulatorKey: int0,
 	usage.PacingKey: flag_, usage.PaceTargetKey: tgt, usage.PaceBurstKey: burst}
 
 var perAgent = map[string]bool{"park_timeout_s": true, "ignore_cache_expiry": true, "bg_notice_s": true, "bg_grace_s": true, "bg_check_s": true,
@@ -56,6 +58,10 @@ func settingValue(key string, v any) (any, error) {
 		if m, ok := v.(string); ok && (m == keepawake.Off || m == keepawake.On || m == keepawake.Working) {
 			return m, nil
 		}
+	case reaper:
+		if m, ok := v.(string); ok && (m == housekeeping.OrphansDry || m == housekeeping.OrphansOn || m == housekeeping.OrphansOff) {
+			return m, nil
+		}
 	case line:
 		// config.yaml holds one line: a newline or another control character is refused, not written.
 		if s, ok := v.(string); ok && !textsafe.HasUnsafe(s) && utf8.RuneCountInString(s) <= LineMax {
@@ -69,7 +75,7 @@ func settingValue(key string, v any) (any, error) {
 	}
 	what := map[string]string{int1: "a whole number, at least 1", int0: "a whole number, at least 0", pct: "a whole number from 0 to 100",
 		tgt: "a whole number from 50 to 100", burst: "a whole number from 0 to 50",
-		flag_: "true or false", awake: "off, on or working",
+		flag_: "true or false", awake: "off, on or working", reaper: "dry, on or off",
 		line: fmt.Sprintf("one line of text, at most %d characters", LineMax)}[kind]
 	return nil, badParam(fmt.Sprintf("%s is %s, or null", key, what), key)
 }

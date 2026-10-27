@@ -139,13 +139,13 @@ test('a time box just edited shows at once, before the clock has caught up', () 
   assert.equal(timeBoxText(t, 0), '3h');
 });
 
-test('tasks group as Needs you, Running, Up next and Done, each keeping its order', () => {
+test('tasks group as My turn, Running, Up next and Done, each keeping its order', () => {
   const all = [task(1), task(2, { state: 'doing' }), task(3, { to: 'human' }), task(4, { state: 'done' }), task(6, { state: 'doing' })];
   const g = groupTasks(all, 'me');
   assert.deepEqual(
     g.map((x) => [x.label, ids(x.rows)]),
     [
-      ['Needs you', [3]],
+      ['My turn', [3]],
       ['Running', [2, 6]],
       ['Up next', [1]],
       ['Done', [4]],

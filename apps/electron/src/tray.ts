@@ -1,4 +1,5 @@
 // The tray's menu as plain data, so a test can read it; main.ts hands it to Electron's Menu.
+import { badgeText } from '#src/notices.ts';
 import type { FollowState } from '#src/follow.ts';
 import type { Link, Mode } from '#src/mode.ts';
 import type { DaemonState } from '#src/owner.ts';
@@ -26,7 +27,7 @@ export interface TrayActions {
 /** What the menu-bar icon shows: nothing extra, a red dot (items wait on the person), a blue dot (an update is ready) or the yellow icon (trouble). */
 export type TrayIcon = 'plain' | 'turn' | 'update' | 'trouble';
 
-/** What the tray shows besides the daemon: the unread count, and whether the menu was opened with Option held (the details). */
+/** What the tray shows besides the daemon: the My turn count, and whether the menu was opened with Option held (the details). */
 export interface TrayView {
   unread: number;
   details: boolean;
@@ -139,7 +140,7 @@ export function trayMenu(
 ): TrayItem[] {
   const items: TrayItem[] = [{ label: 'Open Handline', click: a.open }];
   const notes: TrayItem[] = [];
-  if (view.unread > 0) notes.push({ label: `${view.unread} waiting on you`, click: a.inbox });
+  if (view.unread > 0) notes.push({ label: `${badgeText(view.unread)} waiting on you`, click: a.inbox });
   notes.push(...(trouble(state, reason, a, m) ?? []));
   if (follow?.state === 'available' && follow.next) notes.push({ label: 'Restart to update', click: follow.restart });
   if (follow?.state === 'updating') notes.push({ label: 'Updating…', enabled: false });

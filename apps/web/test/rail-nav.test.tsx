@@ -67,7 +67,7 @@ describe('the rail on the nav prefs', () => {
     await until(pin, 'the Pin item');
     await act(async () => pin()!.click());
     await until(() => box.querySelector('.pinned-head'), 'the Pinned section');
-    for (const label of ['Needs me', 'Unread']) {
+    for (const label of ['My turn', 'Unread']) {
       await act(async () => chip(label).click());
       await until(
         () => chip(label).getAttribute('aria-pressed') === 'true' && !box.querySelector('.pinned-head'),
@@ -77,13 +77,13 @@ describe('the rail on the nav prefs', () => {
     }
   });
 
-  it('has the Needs me chip beside All and Unread, and the View menu flips Tree to Flat', async () => {
+  it('has the My turn chip beside All and Unread, and the View menu flips Tree to Flat', async () => {
     await mount();
     await until(() => box.querySelector('[data-agent]'), 'the agent rows');
-    expect(chip('Needs me')).toBeTruthy();
+    expect(chip('My turn')).toBeTruthy();
     expect(chip('All').getAttribute('aria-pressed')).toBe('true');
-    await act(async () => chip('Needs me').click());
-    await until(() => chip('Needs me').getAttribute('aria-pressed') === 'true', 'the chip to follow the prefs');
+    await act(async () => chip('My turn').click());
+    await until(() => chip('My turn').getAttribute('aria-pressed') === 'true', 'the chip to follow the prefs');
     await act(async () => chip('All').click());
     await until(() => box.querySelector('.team-head'), 'team headings in the tree');
     await act(async () => box.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"][aria-label^="View"]')!.click());
