@@ -10,15 +10,10 @@ import (
 	"github.com/handline/handline/go/internal/team"
 )
 
-// A task waiting for its owner always says why, and a wait with no cause is told to the owner's lead (daemon/taskholds.py).
-//
-// The daemon retries every path that can land a task each tick (SweepTaskQueue moves the next task to a free owner, DeliverQueued types it).
-// What those paths said when they declined was logged or held in memory, so `hl task list` showed a queued task with nothing beside it. This reads
-// the same facts as a level each tick and keeps one line per waiting task in meta, for the readers in other processes.
-//
-// A reason is either a cause (behind another task, blocked, the owner mid-turn, closed, at its usage limit, a dialog, no terminal) or "the owner
-// can take it" - nothing is in the way and the daemon is about to type it. A task that stays in that second state past AbleWarnS has a cause
-// nobody named, and the owner's lead is told once.
+// A task waiting for its owner always says why (daemon/taskholds.py). Each tick this reads the facts the delivery paths already weigh as one level
+// and keeps a line per waiting task in meta, for readers in other processes. A reason is a cause (behind another task, blocked, mid-turn, closed,
+// usage limit, dialog, no terminal) or "the owner can take it". Past AbleWarnS in that second state the cause is unnamed: the owner's lead is
+// told once.
 
 const (
 	// HoldPrefix names the meta rows.
