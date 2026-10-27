@@ -104,7 +104,7 @@ describe('HR proposals in the chat', () => {
     await act(async () => root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />));
     await until(() => $('[data-proposal="46"]'), 'the held card');
     const held = $('[data-proposal="46"]')!;
-    expect(text(held)).toContain(`waits for ${ARCH}'s turn to end`);
+    expect(text(held)).toContain(`Held until ${ARCH} finishes its turn.`);
     const buttons = (el: Element) => [...el.querySelectorAll('button')].map((b) => text(b).trim());
     const has = (el: Element, word: string) => buttons(el).some((b) => b.startsWith(word));
     expect(has(held, 'Approve') || has(held, 'Reject')).toBe(false);
@@ -132,7 +132,7 @@ describe('HR proposals in the chat', () => {
     root = createRoot(box);
     await act(async () => root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />));
     await until(() => $('[data-proposal="47"]'), 'the held card');
-    expect(text($('[data-proposal="47"]')!)).toMatch(/to end, since 10m/);
+    expect(text($('[data-proposal="47"]')!)).toMatch(/finishes its turn, since 10m/);
     await click([...$('[data-proposal="47"]')!.querySelectorAll('button')].find((b) => text(b).trim() === 'Apply now')!);
     await until(() => !$('[data-proposal="47"] .hr-held'), 'the card applied');
   });

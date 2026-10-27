@@ -112,7 +112,7 @@ describe('the settings rows the web has', () => {
     await press($('nav-agents'));
     await press($('agents-menu'));
     await press($('settings-open'));
-    await until(() => text().includes('does not serve settings'), 'the note');
+    await until(() => text().includes('needs a newer Handline'), 'the note');
     expect($('load-input')).toBeNull();
     expect($('prompt-input')).toBeNull();
     m.store.stop();

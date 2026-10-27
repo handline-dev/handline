@@ -57,7 +57,7 @@ export function ChatEmpty() {
       <Text testID="chat-off" style={{ color: c.ink, fontWeight: '600' }}>
         Chat is not available yet
       </Text>
-      <Text style={{ color: c.muted }}>This daemon does not serve chat. Use the Terminal tab to talk to the agent.</Text>
+      <Text style={{ color: c.muted }}>This needs a newer Handline. Use the Terminal tab to talk to the agent.</Text>
     </View>
   );
 }
@@ -159,7 +159,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
         ref={scroll}
         testID="chat"
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: space.sm, gap: space.sm }}
+        contentContainerStyle={{ padding: space.sm, gap: space.sm, flexGrow: 1, justifyContent: 'flex-end' }}
         keyboardShouldPersistTaps="handled"
         scrollEventThrottle={64}
         onLayout={(e) => anchor.layout(e.nativeEvent.layout.height)}

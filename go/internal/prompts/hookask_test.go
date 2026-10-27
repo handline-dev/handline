@@ -2,9 +2,12 @@ package prompts
 
 import (
 	"context"
+	"io"
+	"net"
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
@@ -163,4 +166,105 @@ func TestAQuestionClosedUnderItsCallEndsTheCallUnanswered(t *testing.T) {
 	case <-time.After(2 * StaleS * time.Second):
 		t.Fatal("the call still waits on a question nobody sees")
 	}
+}
+
+// An agent that stops or takes a new prompt while its question waits has moved on (answered at its own dialog, or ended): the call ends
+// unanswered at its next refresh and closes the question, instead of showing a dialog for an hour. Other events do not end it.
+func TestAQuestionTheAgentMovedOnFromIsClosed(t *testing.T) {
+	for _, c := range []struct {
+		kind string
+		ends bool
+	}{{"Stop", true}, {"UserPromptSubmit", true}, {"Notification", false}, {"PostToolUse", false}} {
+		e, _ := testEnv(t)
+		register(e)
+		call, b := ask(t, e, "cd /x && make")
+		wait := 2 * StaleS * time.Second
+		if !c.ends {
+			wait = 2 * StaleS / 3 * time.Second * 2 // two refreshes
+		}
+		if _, err := db.AddEvent(e.DB, "backend", c.kind); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case a := <-call:
+			if !c.ends || a.err != nil || a.reply["behavior"] != nil {
+				t.Fatalf("%s: returned %v %v", c.kind, a.reply, a.err)
+			}
+			if open, _ := e.OpenOf("backend"); open != nil {
+				t.Fatalf("%s: the question stays open", c.kind)
+			}
+		case <-time.After(wait):
+			if c.ends {
+				t.Fatalf("%s: the call still waits on a question nobody sees", c.kind)
+			}
+			if open, _ := e.OpenOf("backend"); open == nil || open.ID != b.ID {
+				t.Fatalf("%s: the question was closed", c.kind)
+			}
+			if _, err := answers(e, b.Fingerprint, "allow"); err != nil {
+				t.Fatal(err)
+			}
+			reply(t, call)
+		}
+	}
+}
+
+type sessionOf struct{ agent string }
+
+func (s sessionOf) AgentOf(int) string       { return s.agent }
+func (s sessionOf) SessionsReadable() error  { return nil }
+func (s sessionOf) FounderKeyOK(string) bool { return false }
+
+// The hook's client going away (its process killed by the agent) ends the waiting call within a refresh and closes its question.
+func TestAQuestionWhoseHookClientIsGoneIsClosed(t *testing.T) {
+	e, _ := testEnv(t)
+	register(e)
+	cl, sv := net.Pipe()
+	srv := rpc.NewServer(sessionOf{"backend"}, "abc1234", 7, "local", func(string, ...any) {})
+	Register(srv, e)
+	served := make(chan struct{})
+	go func() { srv.Serve(rpc.NewLineTransport(sv), 0); sv.Close(); close(served) }()
+	cl.SetDeadline(time.Now().Add(10 * time.Second))
+	go io.Copy(io.Discard, cl) // a pipe holds nothing: the replies are read as they come
+	for _, line := range []string{`{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"t/1","protocol":1}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"permission.ask","params":{"tool":"Bash","input":{"command":"cd /x"}}}`} {
+		if _, err := cl.Write([]byte(line + "\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitOpen(t, e, "cd /x")
+	cl.Close()
+	select {
+	case <-served:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the connection was not served out")
+	}
+	for i := 0; i < 100; i++ {
+		if open, _ := e.OpenOf("backend"); open == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("the question stays open after its client went")
+}
+
+// A turn event replayed from the spool after the question opened, but from before it, is not the agent moving on.
+func TestALateReplayedEventFromBeforeTheQuestionLeavesItOpen(t *testing.T) {
+	e, _ := testEnv(t)
+	register(e)
+	call, b := ask(t, e, "cd /x && make")
+	if _, err := db.AddEventAt(e.DB, time.Now().Unix()-3600, "backend", "Stop"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case a := <-call:
+		t.Fatalf("a replayed old Stop ended the call: %v %v", a.reply, a.err)
+	case <-time.After(2 * StaleS / 3 * time.Second * 2):
+	}
+	if open, _ := e.OpenOf("backend"); open == nil || open.ID != b.ID {
+		t.Fatal("the question was closed")
+	}
+	if _, err := answers(e, b.Fingerprint, "allow"); err != nil {
+		t.Fatal(err)
+	}
+	reply(t, call)
 }

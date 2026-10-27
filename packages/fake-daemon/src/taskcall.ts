@@ -64,6 +64,8 @@ export function taskCall(
         return (tasks.memo(p, 'edit', person, agent), ok('Comment changed.'));
       case 'task.comment.delete':
         return (tasks.memo(p, 'delete', person), ok('Comment deleted.'));
+      case 'task.comment.send_now':
+        return (tasks.sendNow(p), ok('Sent.'));
       default:
         throw refused('unsupported', `the fake daemon does not serve ${method}`);
     }

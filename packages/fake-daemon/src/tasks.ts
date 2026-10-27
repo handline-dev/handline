@@ -1,7 +1,7 @@
 // The fake daemon's tasks: the rows `tasks.list` and `task.get` answer and the writes that change them, on the tasks topic.
 // A task the founder asks for starts as `queued`; withdrawing or cancelling one that has not been delivered discards it.
 import type { FakeInbox } from '#src/inbox.ts';
-import type { HistoryRow, Memo, MemoFile, Task, TaskClock, TaskDetail, TimeSegment } from '@handline/contract';
+import type { HistoryRow, Memo, MemoFile, MemoReader, Task, TaskClock, TaskDetail, TimeSegment } from '@handline/contract';
 import { seedTasks } from '#src/fixtures.ts';
 import { changes, fieldsOf } from '#src/history.ts';
 import { refs, type FakeAttachments } from '#src/attachments.ts';
@@ -220,6 +220,23 @@ export class FakeTasks {
     else if (open) inbox.close(open);
   }
 
+  /** Where the tell of a founder's comment stands for each agent it was told to, as the daemon reports it (Memo.readers). */
+  setReaders(task: number, memo: number, readers: MemoReader[]): void {
+    const m = this.find(task).memos?.find((x) => x.id === memo);
+    if (!m) throw new TaskFailure('refused', `memo ${memo} does not exist`);
+    m.readers = readers;
+  }
+
+  /** task.comment.send_now: a held tell goes to the agent now. */
+  sendNow(p: Record<string, unknown>): void {
+    const row = this.rows.find((t) => t.memos?.some((m) => m.id === p.memo && m.readers?.some((r) => r.agent === p.agent)));
+    const tell = row?.memos?.find((m) => m.id === p.memo)?.readers?.find((r) => r.agent === p.agent);
+    if (!row || !tell || tell.state !== 'held') throw new TaskFailure('refused', 'that comment is not held for this agent');
+    Object.assign(tell, { state: 'sent', at: this.now() });
+    delete tell.minutes;
+    this.emit(row);
+  }
+
   /** A memo that carries files, as `hl task comment add --file` leaves it. */
   memoWithFiles(task: number, author: string, text: string, files: MemoFile[]): number {
     const id = this.memo({ task, text }, 'add', author);
@@ -401,4 +418,5 @@ const VERBS = new Set([
   'task.comment.add',
   'task.comment.edit',
   'task.comment.delete',
+  'task.comment.send_now',
 ]);

@@ -161,8 +161,7 @@ describe('the workspace', () => {
     const bar = $('.statusbar')!;
     expect($('#app')!.parentElement).toBe($('.frame'));
     expect(bar.querySelector('[aria-label="daemon open"]')).not.toBeNull();
-    expect(text(bar)).toContain('daemon ok'); // the cell says its state in a word; the agent counts are the sidebar's
-    expect(text(bar)).not.toMatch(/blocked|need you/);
+    expect(text(bar)).not.toMatch(/offline|daemon ok|need you|blocked/); // up, the daemon is a mark with no word; the counts are not here
     expect($('.rail input[type=search]')).toBeNull(); // the palette (⌘K) finds agents
   });
 
