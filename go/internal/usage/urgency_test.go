@@ -24,7 +24,7 @@ func TestUrgencyIsTheUnusedWeekPerHourLeft(t *testing.T) {
 }
 
 func TestTheWeekThatRunsOutFirstIsSpentFirstAndSimilarOnesSpread(t *testing.T) {
-	// The architect's numbers (T6323): unused weekly use per hour left.
+	// The numbers of the design: unused weekly use per hour left.
 	all := []Ranked{{"alpha", 0.76, true, 0}, {"beta", 0.83, true, 0}, {"delta", 1.00, true, 0}, {"gamma", 1.88, true, 1}, {"sigma", 1.24, true, 0}, {"theta", 2.34, true, 2}}
 	for _, c := range []struct {
 		name string

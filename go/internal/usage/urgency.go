@@ -2,7 +2,7 @@ package usage
 
 import "sort"
 
-// The weekly ranking: an account whose unused week runs out soonest is spent first (T6328). The 5-hour test (FiveHourShare) and the cap
+// The weekly ranking: an account whose unused week runs out soonest is spent first. The 5-hour test (FiveHourShare) and the cap
 // filter the accounts first; this only orders those that passed.
 const (
 	// UrgencyBandAbs and UrgencyBandRel: accounts within the larger of this many points per hour and this share of the top score count as
