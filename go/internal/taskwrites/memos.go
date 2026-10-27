@@ -193,6 +193,7 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 		}
 		store := attachments.New(home)
 		var files []attachments.Info
+		var added int64
 		out, err := c.Effect(func(tx *sql.Tx) (map[string]any, error) {
 			if ok, err := hasTask(tx, tid); err != nil || !ok {
 				if err != nil {
@@ -212,6 +213,7 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 			if err != nil {
 				return nil, err
 			}
+			added = mid
 			if hasReply {
 				if _, err := tx.Exec("UPDATE task_memos SET reply_to = ? WHERE id = ?", reply, mid); err != nil {
 					return nil, err
@@ -233,7 +235,6 @@ func memoAdd(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, err
 			if lines := store.FileLines(files); lines != "" {
 				told += "\n" + lines
 			}
-			added, _ := out["memo"].(int64)
 			tell.MemoChanged(tid, added, c.Caller.Actor(), "added", told, now)
 		}
 		return out, err

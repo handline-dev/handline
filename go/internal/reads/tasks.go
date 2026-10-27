@@ -765,8 +765,8 @@ func memoJSON(q db.Q, m row, parts func(string) []any, store *attachments.Store,
 	if p := parts(m.str("body")); p != nil {
 		memo["parts"] = p
 	}
-	if d, ok := q.(*sql.DB); ok && m.str("author") == db.Human {
-		readers, err := memoReaders(d, m.i("id"))
+	if m.str("author") == db.Human {
+		readers, err := memoReaders(q, m.i("id"))
 		if err != nil {
 			return nil, err
 		}
@@ -791,7 +791,7 @@ func memoJSON(q db.Q, m row, parts func(string) []any, store *attachments.Store,
 // memoReaders is where the tell of memo mid stands for each reader it was told to: read (with when), held for the reader's next digest
 // (since when), or sent and not yet read (when it was sent). A tell typed at once counts as read when it landed in the agent's session;
 // a held one when the agent opens it with hl read (MarkReadBy).
-func memoReaders(q *sql.DB, mid int64) ([]any, error) {
+func memoReaders(q db.Q, mid int64) ([]any, error) {
 	rows, err := query(q, "SELECT t.reader, t.request_id, r.read_at, r.delivered_at, r.typed_at, r.landed_at, r.send_now, r.notice "+
 		"FROM memo_tells t JOIN requests r ON r.id = t.request_id WHERE t.memo_id = ? ORDER BY t.rowid", mid)
 	if err != nil {
