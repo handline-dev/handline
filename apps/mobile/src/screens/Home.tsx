@@ -18,8 +18,11 @@ import { Stats } from '#src/screens/Stats.tsx';
 import { Tasks } from '#src/screens/Tasks.tsx';
 import { Icon, type IconName } from '#src/screens/Icon.tsx';
 import { Bell, NoticesPage, Toasts } from '#src/screens/Notices.tsx';
+import { DoneCard } from '#src/screens/DoneCard.tsx';
 import { ConnectionBar } from '#src/screens/ConnectionBar.tsx';
 
+/** Where the done card floats on an agent's page, which has no tab bar: above the composer. */
+const DONE_ABOVE_COMPOSER = 96;
 const TABS = ['agents', 'inbox', 'tasks', 'usage'] as const;
 type Tab = (typeof TABS)[number];
 const NAV_ICON: Record<Tab, IconName> = { agents: 'agent', inbox: 'inbox', tasks: 'tasks', usage: 'stats' };
@@ -107,6 +110,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
     first,
     save: (op, t = null) => (setKept(op), setFirst(t), props.pending?.save(op, t)),
   };
+  const [bar, setBar] = useState(0); // the tab bar's height: the done card floats just above it, and above the composer on an agent's page
   const toAgent = (name: string) => (setPage(null), void props.store.openAgent(name));
   return (
     <View style={{ flex: 1 }} {...swipe}>
@@ -139,6 +143,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
       {!open && !page && (
         <View
           accessibilityRole="tablist"
+          onLayout={(e) => setBar(e.nativeEvent.layout.height)}
           style={{ flexDirection: 'row', borderTopWidth: 1, borderTopColor: c.line, backgroundColor: c.panel }}
         >
           {TABS.map((t) => (
@@ -168,6 +173,13 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
           ))}
         </View>
       )}
+      <DoneCard
+        store={props.store}
+        agent={open}
+        bottom={!open && !page ? bar + space.sm : DONE_ABOVE_COMPOSER}
+        onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))}
+        onList={() => setPage('notices')}
+      />
     </View>
   );
 }

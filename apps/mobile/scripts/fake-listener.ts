@@ -1,5 +1,5 @@
 // The fake daemon as the paired-device listener: wss with a fresh self-signed certificate, paired devices only.
-// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture] [--held-load] [--queue] [--held-by <device>] [--review] [--readers]`
+// Prints the pairing uri for the phone. `node scripts/fake-listener.ts [--port 7788] [--host 127.0.0.1] [--latency ms] [--refuse method:gate:reason] [--founder-phone] [--prompt] [--picture] [--held-load] [--queue] [--held-by <device>] [--review] [--done N] [--readers]`
 import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -183,6 +183,18 @@ daemon.raiseProposal({
   diff: '- handline.auditor\n+ handline.reviewer',
   reason: 'the role changed',
 });
+if (process.argv.includes('--done')) {
+  // Finished tasks the founder gave, in groups of `--done N` every 20 s, so the floating done card can be seen (one card, or "N tasks done").
+  let task = 7100;
+  setInterval(() => {
+    for (let i = 0; i < Number(arg('done', '1')); i++, task++)
+      daemon.emit('notifications', 'task_done', {
+        agent: 'handline.pc.auditor',
+        title: `T${task} done`,
+        data: { task, task_title: `Audit the phone card ${task}`, result: 'PASS', from_founder: true },
+      });
+  }, 20_000);
+}
 daemon.autoplay(Number(arg('autoplay', '1500')));
 // For watching the loading and refusal states on a device: `--latency 800` and `--refuse agents.list:state:the daemon is resting`
 // (method:gate:reason; repeat the flag for more). Both apply to calls after the pairing hello.
