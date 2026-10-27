@@ -183,10 +183,11 @@ export function AgentRow({
                   ) : null}
                   {queued ? (
                     <span
-                      className="row-queued inline-flex flex-none items-center whitespace-nowrap rounded-pill px-1.5 text-hint text-ink-2 ring-1 ring-line"
+                      className="row-queued inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-ink-2"
                       title={queuedTip}
                     >
-                      +{queued}
+                      <Icon name="tasks" size={11} aria-hidden />
+                      {queued}
                     </span>
                   ) : null}
                   <span className="row-time flex-none whitespace-nowrap text-hint text-ink-3">{ago(stamp)}</span>

@@ -237,9 +237,10 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
                         accessibilityLabel={`${queued} waiting behind the current task`}
                         onPress={() => setQueueOf(a)}
                         hitSlop={8}
-                        style={{ borderWidth: 1, borderColor: c.line, borderRadius: radius.chip, paddingHorizontal: 6 }}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}
                       >
-                        <Text style={{ color: c.muted, fontSize: font.size.hint }}>+{queued}</Text>
+                        <Icon name="tasks" size={11} color={c.muted} decorative />
+                        <Text style={{ color: c.muted, fontSize: font.size.hint }}>{queued}</Text>
                       </Pressable>
                     ) : null}
                   </View>
