@@ -34,7 +34,11 @@ test('the bar line says the agents share, their memory, whether the load is full
   const calm = res({ load_per_core: 0.4, ram_free_pct: 40 });
   assert.equal(resourceLine(calm)!.over, false);
   assert.match(resourceLine(calm)!.text, /^Agents: CPU \d+%, .* · Memory .* free \(40%\)$/);
-  assert.equal(resourceLine(res({ ram_free_bytes: 1.1 * GB, ram_free_pct: 3 }))!.text.endsWith('Memory low: 1.1 GB free (3%)'), true, 'low memory is said, not only red');
+  assert.equal(
+    resourceLine(res({ ram_free_bytes: 1.1 * GB, ram_free_pct: 3 }))!.text.endsWith('Memory low: 1.1 GB free (3%)'),
+    true,
+    'low memory is said, not only red',
+  );
 });
 
 test('a limit of never holds nothing, and the memory floor holds under it', () => {
