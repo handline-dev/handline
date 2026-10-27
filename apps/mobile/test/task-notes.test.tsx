@@ -38,4 +38,14 @@ describe('hand-off notes on the task page', () => {
     expect(text(notesOnScreen()[0])).toContain('line 12');
     m.store.stop();
   }, 20000);
+
+  it('cuts one long paragraph of eight lines or fewer, so Show more has something to show', async () => {
+    const long = Array.from({ length: 140 }, (_, i) => `word${i}`).join(' ');
+    const m = await open(notes([long]));
+    await until(() => notesOnScreen().length > 0, 'the note');
+    expect(text(notesOnScreen()[0])).not.toContain('word139');
+    await press(box.querySelector<HTMLElement>('[data-testid^="event-note-more-"]')!);
+    expect(text(notesOnScreen()[0])).toContain('word139');
+    m.store.stop();
+  }, 20000);
 });

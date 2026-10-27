@@ -127,8 +127,8 @@ function Event({ item }: { item: ActivityItem }) {
       {item.line} <span className="text-hint text-ink-3">· {dateTime(item.at)}</span>
       {item.note ? (
         <div className="tnote mt-1 min-w-0 rounded-card border border-line px-3 py-1.5 text-ink">
-          <Fold long={noteIsLong(item.note)}>
-            <Markdown text={item.note} />
+          <Fold note={item.note} long={noteIsLong(item.note)}>
+            {(text) => <Markdown text={text} />}
           </Fold>
         </div>
       ) : null}

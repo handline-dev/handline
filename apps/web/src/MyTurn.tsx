@@ -2,8 +2,8 @@
 // button(s) and a menu for the rest; a dialog the daemon does not know has only Open terminal.
 import { useState, type KeyboardEvent } from 'react';
 import { APPROVED, ago, noteIsLong, type Card, type CardAction } from '@handline/app-core';
-import { Fold } from '#src/Fold.tsx';
 import { classify, sentence, useMyTurn, useWrite } from '@handline/app-data';
+import { Fold } from '#src/Fold.tsx';
 import { goTerminal } from '#src/route.ts';
 import { useWide } from '#src/taskui.tsx';
 import { AskChange, ReviewPictures } from '#src/ReviewCard.tsx';
@@ -156,8 +156,8 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
         </p>
         {card.detail ? (
           <div className="mt-1 text-ink-2 [overflow-wrap:anywhere]">
-            <Fold long={card.task != null && noteIsLong(card.detail)}>
-              <p className={`m-0${card.task != null ? '' : ' whitespace-pre-wrap'}`}>{card.detail}</p>
+            <Fold note={card.detail} long={card.task != null && noteIsLong(card.detail)}>
+              {(text) => <p className={`m-0${card.task != null ? '' : ' whitespace-pre-wrap'}`}>{text}</p>}
             </Fold>
           </div>
         ) : null}
