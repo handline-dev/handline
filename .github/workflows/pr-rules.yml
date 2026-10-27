@@ -21,6 +21,6 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - run: python3 -m unittest tools/test_pr_checks.py
+      - run: python3 -m unittest tools/test_pr_checks.py tools/test_merge_ready.py
       - run: python3 tools/pr_checks.py body
 
