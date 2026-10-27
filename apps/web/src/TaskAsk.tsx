@@ -8,6 +8,18 @@ import { CancelSheet } from '#src/TaskDetailParts.tsx';
 
 export type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'release' | 'assign';
 
+/** For the founder every state verb acts at once, with no box; the daemon writes its own word (Done, Discarded). Anyone else is asked first. */
+export function useActNow(t: Detail, cancel: ReturnType<typeof useWrite<'task.cancel'>>) {
+  const done = useWrite('task.done');
+  const reopen = useWrite('task.reopen');
+  const discard = useWrite('task.discard');
+  const withdraw = useWrite('task.withdraw');
+  const release = useWrite('task.release');
+  const task = t.id;
+  const now = { done, reopen, discard, withdraw, cancel, release } as const;
+  return (ask: Exclude<Ask, null | 'assign'>) => now[ask].mutate({ task });
+}
+
 export function AskSheets({
   t,
   ask,

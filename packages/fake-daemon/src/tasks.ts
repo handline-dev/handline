@@ -353,7 +353,7 @@ export class FakeTasks {
   done(p: Record<string, unknown>): string {
     const t = this.find(p.task);
     if (t.state !== 'doing' && t.state !== 'queued') throw new TaskFailure('refused', `task ${t.id} is ${t.state}, not open`);
-    const evidence = String(p.evidence ?? '') || null;
+    const evidence = String(p.evidence ?? '') || 'Done';
     this.change(t, { state: 'done', done: this.now(), evidence });
     this.host.inbox.closeAsks(t.id);
     return `task T${t.id} done`;
@@ -373,16 +373,14 @@ export class FakeTasks {
   }
   discard(p: Record<string, unknown>): void {
     const t = this.find(p.task);
-    if (!String(p.reason ?? '').trim()) throw new TaskFailure('bad_request', 'a discard needs a reason');
     if (t.state === 'done' || t.state === 'discarded') throw new TaskFailure('refused', `task ${t.id} is ${t.state}`);
-    this.change(t, { state: 'discarded', done: this.now(), hold_reason: String(p.reason) });
+    this.change(t, { state: 'discarded', done: this.now(), hold_reason: String(p.reason ?? '').trim() || 'Discarded' });
     this.host.inbox.closeAsks(t.id);
   }
-  /** Take a doing task back to queued; the daemon takes no target but needs a reason. */
+  /** Take a doing task back to queued; the daemon takes no target and no reason. */
   release(p: Record<string, unknown>): void {
     if ('to' in p) throw new TaskFailure('bad_request', 'task.release takes no to');
     const t = this.find(p.task);
-    if (!String(p.reason ?? '').trim()) throw new TaskFailure('bad_request', 'a release needs a reason');
     if (t.state !== 'doing') throw new TaskFailure('refused', `task ${t.id} is ${t.state}, not doing`);
     this.change(t, { state: 'queued' });
   }

@@ -352,23 +352,33 @@ describe('writes', () => {
     expect($('.tsheet')).toBeNull(); // the key does nothing either
   });
 
-  it('discards with a required reason, saying "stop it and discard" for a running task, and shows "…" until the daemon answers', async () => {
+  it('discards one task at once, with no box, and shows "…" until the daemon answers', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks', s);
     await loaded();
     await cursorTo(1688); // doing
-    await press('d');
-    const ask = sheet('stop it and discard - why:')!;
-    await click(button('Discard', ask)!);
-    expect(text($('.tsheet-err'))).toContain('A reason is required.'); // an empty reason keeps the sheet open
-    await typeInto($('input', ask) as HTMLInputElement, 'not needed');
     const release = s.daemon.knobs.hold('task.discard');
-    await click(button('Discard', ask)!);
+    await press('d');
+    expect($('.tsheet')).toBeNull();
     await until(() => text($('.c-state', row(1688)!)).includes('…'), 'the decided mark');
     expect(row(1688)!.classList.contains('pending')).toBe(false); // the row itself is not changed
     expect(text($('.c-state', row(1688)!))).not.toContain('doing');
     release();
     await until(() => !row(1688), 'the row gone');
+    expect(s.daemon.tasks.get({ task: 1688 }).hold_reason).toBe('Discarded');
+  });
+
+  it('asks before discarding several marked tasks, saying "stop it and discard" for a running one; the reason is optional', async () => {
+    const s = withVerbs(setup());
+    await mount('#/tasks', s);
+    await loaded();
+    await mark(1684);
+    await mark(1688); // doing
+    await focusPage();
+    await press('d');
+    const ask = sheet('stop it and discard - why (optional):')!;
+    await click(button('Discard', ask)!);
+    await until(() => !row(1688) && !row(1684), 'both rows gone');
   });
 
   it('folds the marked tasks into the row under the cursor, naming both ends', async () => {
@@ -492,10 +502,9 @@ describe('the detail', () => {
     await act(async () => void (location.hash = '#/tasks/2000'));
     await until(() => $('.tverbs'), 'the verbs');
     await click(button('More', $('.tverbs')!)!);
-    await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => text(i).startsWith('Withdraw')));
-    const ask = sheet('withdraw T2000?')!; // local-ref-ok
     s.daemon.knobs.latency(300);
-    await click(button('Withdraw', ask)!);
+    await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => text(i).startsWith('Withdraw')));
+    expect($('.tsheet')).toBeNull(); // no box: it acts at once
     await until(() => text($('.tdetail-head')).includes('…'), 'the decided mark');
     await until(() => text($('.tdetail-head')).includes('discarded'), 'withdrawn', 600);
     expect(button('Cancel task', $('.tverbs')!)).toBeUndefined(); // closed: no verbs left that stop it
@@ -539,18 +548,14 @@ describe('the detail', () => {
     expect(text($('.tchips'))).toContain('Assigned to');
   });
 
-  it('serves the verbs of the daemon plan once it lists them: done needs a result, reopen only for a done task I asked for', async () => {
+  it('serves the verbs of the daemon plan once it lists them: done acts at once, reopen only for a done task I asked for', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
     await until(() => $('.tverbs'), 'the verbs');
     await click(button('Done', $('.tverbs')!)!);
-    const ask = sheet('done: what came of it?')!;
-    await click(button('Done', ask)!);
-    expect(text($('.tsheet-err'))).toContain('A reason is required.');
-    await typeInto($('input', ask) as HTMLInputElement, 'landed as abc123');
-    await click(button('Done', ask)!);
+    expect($('.tsheet')).toBeNull(); // no box: the founder's Done acts at once
     await until(() => text($('.tdetail-head')).includes('done'), 'done');
-    expect(s.daemon.tasks.get({ task: 1688 }).evidence).toBe('landed as abc123');
+    expect(s.daemon.tasks.get({ task: 1688 }).evidence).toBe('Done');
     // the founder's own done task: the key says why it cannot be reopened
     await act(async () => void (location.hash = '#/tasks/1650'));
     await until(() => $('.tdetail[aria-label$="T1650"] .tverbs'), 'task 1650'); // local-ref-ok
@@ -592,7 +597,7 @@ describe('actions on one task or many', () => {
     await menu($('.tbar')!, 'More', 'Done');
     const sh = sheet('Done 2 tasks?')!;
     expect(sh).toBeTruthy();
-    await typeInto($('input[aria-label="what came of it?"]', sh) as HTMLInputElement, 'checked by hand');
+    await typeInto($('input[aria-label="what came of it? (optional)"]', sh) as HTMLInputElement, 'checked by hand');
     await click(button('Done', sh));
     await until(() => sheet('done: 1 of 2 changed'), 'the result sheet');
     expect(text(sheet('done: 1 of 2 changed'))).toContain('task is locked');
@@ -620,10 +625,7 @@ describe('actions on one task or many', () => {
     await mark(1684);
     await menu($('.tbar')!, 'More', 'Release');
     const ask = sheet('Release 1 task?')!;
-    await click(button('Release', ask));
-    expect(text(ask)).toContain('This is required.');
-    await typeInto(ask.querySelector('input')!, 'slow');
-    await click(button('Release', ask));
+    await click(button('Release', ask)); // the reason is optional
     await until(() => s.daemon.tasks.get({ task: 1684 }).state === 'queued', 'released');
   });
 

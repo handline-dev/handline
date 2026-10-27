@@ -394,7 +394,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await click($$('button').find((b) => b.getAttribute('aria-label') === 'Actions on the marked tasks')!);
     await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => text(b).startsWith('Discard'))!);
     const sh = $$('.tsheet').find((x) => x.getAttribute('aria-label') === 'Discard 1 task?')!;
-    await typeInto(sh.querySelector('input[aria-label="why?"]') as HTMLInputElement, 'duplicate');
+    await typeInto(sh.querySelector('input[aria-label="why? (optional)"]') as HTMLInputElement, 'duplicate');
     await click([...sh.querySelectorAll('button')].find((b) => text(b) === 'Discard')!);
     await until(() => s.daemon.tasks.get({ task: 1684 }).state === 'discarded', 'the task is discarded');
   });

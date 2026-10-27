@@ -171,8 +171,14 @@ export function Sheet(props: {
   );
 }
 
-/** A sheet that asks for a required sentence (the discard, done and reopen reasons): an empty one keeps the sheet open. */
-export function ReasonSheet(props: { label: string; submit: string; onCancel: () => void; onSubmit: (reason: string) => void }) {
+/** A sheet that asks for a sentence (the discard, done and reopen reasons): an empty one keeps the sheet open, unless the reason is optional. */
+export function ReasonSheet(props: {
+  label: string;
+  submit: string;
+  optional?: boolean;
+  onCancel: () => void;
+  onSubmit: (reason: string) => void;
+}) {
   const [text, setText] = useState('');
   const [empty, setEmpty] = useState(false);
   return (
@@ -180,7 +186,7 @@ export function ReasonSheet(props: { label: string; submit: string; onCancel: ()
       label={props.label}
       submit={props.submit}
       onCancel={props.onCancel}
-      onSubmit={() => (text.trim() ? props.onSubmit(text.trim()) : setEmpty(true))}
+      onSubmit={() => (text.trim() || props.optional ? props.onSubmit(text.trim()) : setEmpty(true))}
     >
       <Input
         grow
