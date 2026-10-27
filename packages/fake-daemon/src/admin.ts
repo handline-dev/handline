@@ -344,7 +344,11 @@ export class FakeAdmin {
         throw badRequest('keep_awake is off, on or working', 'keep_awake');
       let kept = value;
       if (key === 'handoff_prompt' && typeof value === 'string') {
-        kept = value.split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean).join(' ');
+        kept = value
+          .split(/[\r\n]+/)
+          .map((l) => l.trim())
+          .filter(Boolean)
+          .join(' ');
         if (kept !== '' && [...(kept as string)].length < 20)
           throw badRequest('Too short to guide a note. Leave it blank for the built-in.', 'handoff_prompt');
       }
