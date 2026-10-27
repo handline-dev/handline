@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   askedLines,
+  dateTime,
   decideMany,
   type DecideResult,
   changesToggle,
@@ -296,7 +297,7 @@ function Card({
           </MetaItem>
         ) : null}
         <MetaItem title="Raised">
-          <Icon name="schedules" size={14} label="Raised" /> {new Date(p.created).toLocaleString()}
+          <Icon name="schedules" size={14} label="Raised" /> {dateTime(p.created)}
         </MetaItem>
         {kindOf(p) ? <MetaItem className="hr-kind rounded-chip border border-line px-1.5">{kindOf(p)}</MetaItem> : null}
       </MetaLine>

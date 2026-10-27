@@ -287,7 +287,7 @@ describe('settings', () => {
       await act(async () => void (location.hash = hash));
       await until(() => $('[role=tablist]') && head().parent, hash);
       expect(head()).toEqual(first);
-      expect($('.settings-shell > header [role=tablist]')).not.toBeNull();
+      expect($('.topbar header [role=tablist]')).not.toBeNull();
     }
   });
 

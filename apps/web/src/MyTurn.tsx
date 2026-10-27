@@ -19,6 +19,9 @@ const KIND: Record<Card['kind'], string> = {
   task: 'Task',
 };
 
+/** Outside the component: the compiler reads an assignment to `location` in a handler as a mutation of a value it owns. */
+const goHash = (to: string) => void (location.hash = to);
+
 function dueText(due: number, now: number): string {
   const s = Math.round((due - now) / 1000);
   const t =
@@ -88,7 +91,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
       case 'ask_change':
         return setAsking(true);
       case 'open':
-        return card.task != null ? onOpen(card.task) : void (location.hash = a.to);
+        return card.task != null ? onOpen(card.task) : goHash(a.to);
       case 'terminal':
         return goTerminal(a.agent);
       case 'read':
@@ -268,7 +271,7 @@ export function MyTurnPage() {
         </div>
       ) : (
         <div className="empty">
-          <strong>Nothing waits on you</strong>
+          <strong>Nothing needs you</strong>
           <p>Messages for you and tasks given to you show here.</p>
         </div>
       )}

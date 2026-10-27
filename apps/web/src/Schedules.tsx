@@ -1,5 +1,5 @@
 // The agent's schedules: founder-only writes (schedule.add, edit, remove), authored: the line shows at once and reverts on a refusal.
-import { cronWords, ellipsis } from '@handline/app-core';
+import { cronWords, dateTime, ellipsis } from '@handline/app-core';
 import { classify, sentence, useScheduleEditor, useSchedules, useServes } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
 import type { Schedule } from '@handline/client';
@@ -33,7 +33,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
             {s.id < 0 ? <Icon name="unsaved" size={12} /> : null} {cronWords(s.cron) ?? s.cron}
             {cronWords(s.cron) ? <code className="muted"> {s.cron}</code> : null}
           </span>
-          <span className="muted">{s.next_run ? `next ${new Date(s.next_run).toLocaleString()}` : ''}</span>
+          <span className="muted">{s.next_run ? `next ${dateTime(s.next_run)}` : ''}</span>
           <span className="smsg min-w-[12ch] flex-1">{ellipsis(s.message, 60)}</span>
           {write ? (
             <span className="sact">
@@ -64,23 +64,23 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
       ) : null}
       {write && !form ? <Button label="Add schedule" onClick={() => setForm({ cron: '', message: '' })} /> : null}
       <AnimatedList>
-      {form ? (
-        <Sheet key="form" role="dialog" aria-label="Schedule">
-          <input
-            type="text"
-            aria-label="When (cron)"
-            placeholder="0 9 * * 1-5"
-            value={form.cron}
-            onChange={(e) => setForm({ ...form, cron: e.target.value })}
-          />
-          <span className="muted">{cronWords(form.cron) ?? ''}</span>
-          <textarea aria-label="Message" rows={2} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
-          <SheetActions>
-            <Button variant="solid" label="Save" className="max-sm:min-h-12 max-sm:flex-1" onClick={save} />
-            <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" onClick={() => setForm(null)} />
-          </SheetActions>
-        </Sheet>
-      ) : null}
+        {form ? (
+          <Sheet key="form" role="dialog" aria-label="Schedule">
+            <input
+              type="text"
+              aria-label="When (cron)"
+              placeholder="0 9 * * 1-5"
+              value={form.cron}
+              onChange={(e) => setForm({ ...form, cron: e.target.value })}
+            />
+            <span className="muted">{cronWords(form.cron) ?? ''}</span>
+            <textarea aria-label="Message" rows={2} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} />
+            <SheetActions>
+              <Button variant="solid" label="Save" className="max-sm:min-h-12 max-sm:flex-1" onClick={save} />
+              <Button variant="outline" label="Cancel" className="max-sm:min-h-12 max-sm:flex-1" onClick={() => setForm(null)} />
+            </SheetActions>
+          </Sheet>
+        ) : null}
       </AnimatedList>
     </div>
   );

@@ -33,7 +33,7 @@ export function StateChip({
   const me = useMe();
   const foryou = state === 'doing' && !!to && isPerson(to, me); // the task is the person's to do: the agent is not working on it
   const said = foryou
-    ? 'waiting for you'
+    ? 'needs you'
     : state === 'done' && (result === 'failed' || result === 'timed_out')
       ? result === 'failed'
         ? 'failed'
@@ -65,7 +65,7 @@ export function StateChip({
         label={said}
         size={16}
         aria-hidden="true"
-        className={state === 'doing' && !foryou ? 'animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none' : undefined}
+        className={state === 'doing' && !foryou ? 'animate-spin motion-reduce:animate-none' : undefined}
       />
       {word ? <span className="ml-0.5">{said}</span> : <VisuallyHidden>{said}</VisuallyHidden>}
     </span>

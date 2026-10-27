@@ -4,8 +4,9 @@
     python3 tools/pr_checks.py files BASE   the files the change adds or edits: no binary or image outside the asset paths,
                                             no scratch file, no comment block over MAX_COMMENT_LINES with a line
                                             the change adds or edits
-    python3 tools/pr_checks.py body         the pull request in $GITHUB_EVENT_PATH: base, body sections, no Korean and
-                                            no message ids
+    python3 tools/pr_checks.py body         the pull request in $GITHUB_EVENT_PATH: base, body sections, no Korean, and
+                                            nothing tools/localrefs.py refuses in a commit message (task and message ids,
+                                            an @-mention outside code)
     python3 tools/pr_checks.py body-file FILE TITLE BASE
                                             the same, for a pull request not opened yet (tools/pr-open.sh)
 
@@ -16,6 +17,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import localrefs  # noqa: E402
+
 MAX_COMMENT_LINES = 6
 MAX_BINARY_BYTES = 1 << 20
 # Screenshots the phone's e2e flows keep, the apps' own icons and fonts, and the TUI catalog's images. Images for a review go in the PR body.
@@ -23,10 +27,10 @@ ASSET_PATHS = ("apps/mobile/shots/", "apps/mobile/assets/", "apps/web/public/", 
 MEDIA = re.compile(r"\.(png|jpe?g|gif|webp|bmp|tiff?|heic|ico|icns|svg|mp4|mov|webm|ttf|otf|woff2?)$", re.I)
 SCRATCH = re.compile(r"(^|/)(scratch|tmp|\.claude)/|(^|/)\.DS_Store$|\.(orig|rej|bak|swp|log)$|~$")
 GENERATED = ("contract/protocol.ts", "contract/protocol.md", "contract/gen/")
-CODE = {".ts": "//", ".tsx": "//", ".js": "//", ".mjs": "//", ".go": "//", ".py": "#", ".sh": "#"}
+CODE = localrefs.COMMENT_MARKS
 SECTIONS = ("Why", "What changed", "Evidence", "Risk")
 HANGUL = re.compile(r"[ᄀ-ᇿ㄰-㆏가-힣]")
-MESSAGE_ID = re.compile(r"\bmsg_[0-9a-f]{7}\b|\bocp-msg [0-9a-f]{8,}")
+OCP_MESSAGE = re.compile(r"\bocp-msg [0-9a-f]{8,}")
 
 
 def git(*args: str) -> str:
@@ -93,8 +97,12 @@ def body_problems(pr: dict, files: list[str]) -> list[str]:
     text = (pr.get("title") or "") + "\n" + body
     if HANGUL.search(text):
         out.append("the title or body has Korean: write it in English")
-    if MESSAGE_ID.search(text):
+    if OCP_MESSAGE.search(text):
         out.append("the title or body names a message id: say what it asked instead")
+    for found in localrefs.scan_message(text, "", comments=False):
+        line, kind = found.split(":", 3)[1:3]
+        what = "write it in backticks or reword" if "mention" in kind else "say it in words or as a placeholder"
+        out.append(f"line {line} of the title and body:{found.split(':', 2)[2]}; {what}")
     return out
 
 

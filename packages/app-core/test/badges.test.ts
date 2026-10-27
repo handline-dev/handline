@@ -20,7 +20,7 @@ test('badges come from the parsed facts, one row of the design table each', () =
 
 test('a stall says why and since when; a held badge names the holder', () => {
   const b = badgesOf(view({ block: { kind: 'wall', since: '2026-10-07T01:00:00Z' } }), 'me');
-  assert.equal(b[0]!.tip, 'wall since 2026-10-07T01:00:00Z');
+  assert.match(b[0]!.tip, /^wall since \w{3} \d{1,2}, \d\d:\d\d$/); // the short date, never the raw ISO string
   assert.equal(badgesOf(view({ input_holders: [{ kind: 'device', name: 'phone', since: null }] }), 'me')[0]!.label, 'phone is typing');
 });
 

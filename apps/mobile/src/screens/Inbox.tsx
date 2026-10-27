@@ -264,11 +264,11 @@ export function Inbox(props: { onTask: (id: number) => void }) {
         isEmpty={all.length === 0 && tasks.length === 0}
         skeleton="inbox"
         label="the inbox"
-        empty="Nothing waits on you."
+        empty="Nothing needs you."
       >
         {items.length === 0 && tasks.length === 0 && (
           <Text testID="inbox-clear" style={{ color: c.muted, padding: space.lg }}>
-            Nothing waits on you.
+            Nothing needs you.
           </Text>
         )}
         <FlatList
