@@ -87,6 +87,50 @@ func TestASessionFileSayingWaitingNeedsAPersonAndOneSayingBusyDoesNot(t *testing
 	}
 }
 
+// Claude Code writes waiting with `<Tool>: <input>` while a command runs, with nothing drawn: only a hook event for the prompt makes it a card.
+func TestARunningCommandInTheSessionFileIsNotADialog(t *testing.T) {
+	home := t.TempDir()
+	d, err := store.Open(filepath.Join(home, "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	config, err := team.AccountConfigDir(home, "acct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt := t.TempDir()
+	d.Exec("INSERT INTO agent_state(agent, state, updated, account, worktree, terminal) VALUES('worker', 'RUNNING', 1, 'acct', ?, '%1')", wt)
+	put := func(waitingFor string) {
+		dir := filepath.Join(config, "sessions")
+		os.MkdirAll(dir, 0o755)
+		pid := os.Getpid()
+		rec, _ := json.Marshal(map[string]any{"pid": pid, "sessionId": "s", "cwd": wt, "version": "2.1.296", "peerProtocol": 1,
+			"messagingSocketPath": "/tmp/x.sock", "status": "waiting", "waitingFor": waitingFor, "updatedAt": 5000000})
+		os.WriteFile(filepath.Join(dir, strconv.Itoa(pid)+".json"), rec, 0o644)
+		os.WriteFile(filepath.Join(dir, strconv.Itoa(pid)+".k.key"), []byte("k"), 0o600)
+	}
+	needs := (&Parts{db: d, home: home}).needsYou()
+	for _, w := range []string{"Bash: cd /Users/ron/work && make permission", "Bash: cd /w", "something new", ""} {
+		put(w)
+		if n := needs("worker"); n != nil {
+			t.Errorf("%q with no hook event raised a card: %+v", w, n)
+		}
+	}
+	for w, kind := range map[string]string{"question": "question", "usage limit": "usage", "permission prompt": "permission"} {
+		put(w)
+		if n := needs("worker"); n == nil || n.Kind != kind {
+			t.Errorf("%q: %+v, want %s", w, n, kind)
+		}
+	}
+	put("Bash: cd /w")
+	os.MkdirAll(filepath.Join(home, "waiting"), 0o755)
+	os.WriteFile(filepath.Join(home, "waiting", "worker.json"), []byte(`{"tool":"Bash","command":"cd /w","since":1700}`), 0o644)
+	if n := needs("worker"); n == nil || n.Kind != "permission" || n.Source != "hook" {
+		t.Fatalf("the same call with a PermissionRequest: %+v", n)
+	}
+}
+
 // A wait file outlives a session that died at its prompt; it counts only for a row that is running and open.
 func TestAWaitFileDoesNotOutliveItsSession(t *testing.T) {
 	home := t.TempDir()

@@ -78,7 +78,9 @@ func (p *Parts) needsYou() func(agent string) *agentview.NeedsYou {
 		}
 		if sess != nil {
 			s := peerinbox.Session{Status: sess.Status, WaitingFor: sess.WaitingFor}
-			return &agentview.NeedsYou{Kind: s.NeedsKind(), Source: "session", Since: sess.UpdatedAt / 1000, Text: sess.WaitingFor}
+			if kind := s.NeedsKind(); kind != "" {
+				return &agentview.NeedsYou{Kind: kind, Source: "session", Since: sess.UpdatedAt / 1000, Text: sess.WaitingFor}
+			}
 		}
 		return nil
 	}

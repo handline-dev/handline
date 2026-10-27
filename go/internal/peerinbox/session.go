@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -133,8 +134,13 @@ func (s Session) Blocked() bool { return s.Status == "waiting" }
 func (s Session) Busy() bool { return s.Status == "busy" }
 
 // NeedsKind is what the blocked session waits for, as the spec's needs_you kind: permission for the permission prompt, question for a
-// question put to the person, usage for the session limit's choice, and dialog for any other (and any it does not know: unknown is a person).
+// question put to the person, usage for the session limit's choice. "" is no person: a waitingFor of the form `<Tool>: <input>` is a
+// call that is running (Claude Code writes it while a command runs or is classified, with nothing drawn; a hook event is what proves
+// a prompt), and one the file does not name is not guessed to be a dialog.
 func (s Session) NeedsKind() string {
+	if toolCall.MatchString(s.WaitingFor) {
+		return ""
+	}
 	w := strings.ToLower(s.WaitingFor)
 	switch {
 	case strings.Contains(w, "permission"):
@@ -144,8 +150,10 @@ func (s Session) NeedsKind() string {
 	case strings.Contains(w, "limit") || strings.Contains(w, "usage"):
 		return "usage"
 	}
-	return "dialog"
+	return ""
 }
+
+var toolCall = regexp.MustCompile(`^[A-Za-z][\w.-]*: `)
 
 // readKey returns the key, trimmed of its line end. The caller zeroes it.
 func (s Session) readKey() ([]byte, error) {

@@ -371,7 +371,7 @@ func TestBlocked(t *testing.T) {
 }
 
 func TestNeedsKind(t *testing.T) {
-	for waitingFor, want := range map[string]string{"permission prompt": "permission", "question": "question", "usage limit": "usage", "": "dialog", "something new": "dialog"} {
+	for waitingFor, want := range map[string]string{"permission prompt": "permission", "question": "question", "usage limit": "usage", "": "", "something new": "", "Bash: cd /w && make permission": "", "Task: usage report": ""} {
 		if got := (Session{Status: "waiting", WaitingFor: waitingFor}).NeedsKind(); got != want {
 			t.Errorf("%q: %q, want %q", waitingFor, got, want)
 		}
