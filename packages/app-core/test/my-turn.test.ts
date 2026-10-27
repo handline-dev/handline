@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { AgentView, InboxItem, Task } from '@handline/client';
-import { inboxGroup, myTurn, reviewPictures, changeAsked, turnAgents } from '#src/my-turn.ts';
+import { inboxGroup, messageRows, myTurn, reviewPictures, changeAsked, turnAgents } from '#src/my-turn.ts';
 
 const item = (o: Partial<InboxItem>): InboxItem =>
   ({
@@ -202,4 +202,85 @@ test('a permission card is titled by what is asked, not the raw command line, wh
   assert.equal(c!.detail, 'cd /Users/user/x && ./check.sh');
   const [bare] = myTurn({ items: [item({ id: 5, title: raw, prompt: { ...perm, tool: '' } as never })], agents: [], tasks: [] });
   assert.equal(bare!.title, 'Asks for a yes');
+});
+
+test('an ask from a task comment is answered by a reply, OK or Approve, and never closes the task', () => {
+  const ask = item({ id: 9, kind: 'ask', task: 5, memo: 77, agent: 'a', body: 'Ship it?' });
+  const [plain] = myTurn({ items: [ask], agents: [], tasks: [task({ id: 5 })] });
+  assert.equal(plain!.memo, 77);
+  assert.deepEqual(plain!.actions.slice(0, plain!.primary), [
+    { type: 'reply', id: 9, text: 'OK', label: 'Go ahead' },
+    { type: 'answer', id: 9 },
+  ]);
+  const [review] = myTurn({ items: [ask], agents: [], tasks: [task({ id: 5, tags: ['review'] })] });
+  assert.deepEqual(review!.actions.slice(0, review!.primary), [
+    { type: 'reply', id: 9, text: 'Approved', label: 'Approve' },
+    { type: 'change', id: 9 },
+  ]);
+  assert.ok(![...plain!.actions, ...review!.actions].some((a) => a.type === 'done' || a.type === 'approve' || a.type === 'ask_change'));
+});
+
+test('one message row per agent with unread messages, newest first, opening at the first above the cursor', () => {
+  const rows = messageRows([
+    agent({ name: 'a', founder_unread: 2, founder_seen: 10, last_to_founder: { text: 'old', at: '2026-10-15T00:00:00Z' } }),
+    agent({ name: 'b', founder_unread: 1, last_to_founder: { text: 'new', at: '2026-10-16T00:00:00Z' } }),
+    agent({ name: 'c', founder_unread: 0 }),
+    agent({ name: 'd' }),
+  ]);
+  assert.deepEqual(
+    rows.map((r) => [r.agent, r.line, r.unread, r.from]),
+    [
+      ['b', 'new', 1, null],
+      ['a', 'old', 2, 11],
+    ],
+  );
+});
+
+test('a task with an open `@human` ask is shown once, by the ask, and its text drops the mention', () => {
+  const ask = item({ id: 9, kind: 'ask', task: 5, memo: 77, body: '@human is 16 px fine?' });
+  const old = item({ id: 8, kind: 'decision', task: 5 });
+  const cards = myTurn({ items: [old, ask], agents: [], tasks: [task({ id: 5, to: 'human', tags: ['review'] })], me: 'human' });
+  assert.deepEqual(
+    cards.map((c) => c.key),
+    ['item:9'],
+  );
+  assert.equal(cards[0]!.detail, 'is 16 px fine?');
+  assert.deepEqual(
+    myTurn({ items: [ask], agents: [], tasks: [task({ id: 5, to: 'human' })], me: 'human' }).map((c) => c.key),
+    ['item:9'],
+  );
+});
+
+test('an ask on a task outside the list is titled with the task read by its id, and keeps its comment as the text', () => {
+  const ask = item({
+    id: 9,
+    kind: 'ask',
+    task: 1684,
+    memo: 77,
+    title: '@human should the tab strip wrap?',
+    body: '@human should the tab strip wrap or scroll?',
+  }); // local-ref-ok
+  const [c] = myTurn({ items: [ask], agents: [], tasks: [], titles: new Map([[1684, 'Tab strip']]), me: 'human' }); // local-ref-ok
+  assert.equal(c!.title, 'Tab strip');
+  assert.equal(c!.detail, 'should the tab strip wrap or scroll?');
+});
+
+test('an ask whose task is not known yet drops the mention from its title and keeps the comment as the text', () => {
+  const ask = item({
+    id: 9,
+    kind: 'ask',
+    task: 1684,
+    memo: 77,
+    title: '@human should the tab strip wrap?',
+    body: '@human should the tab strip wrap?',
+  }); // local-ref-ok
+  const [c] = myTurn({ items: [ask], agents: [], tasks: [], me: 'human' });
+  assert.equal(c!.title, 'should the tab strip wrap?');
+  assert.equal(c!.detail, 'should the tab strip wrap?');
+});
+
+test('a mention in the middle of a sentence leaves the sentence its colon', () => {
+  const ask = item({ id: 9, kind: 'ask', task: 5, memo: 77, body: 'Second look please @human: the margin is now 24 px.' });
+  const [c] = myTurn({ items: [ask], agents: [], tasks: [task({ id: 5, to: 'human' })], me: 'human' });
+  assert.equal(c!.detail, 'Second look please: the margin is now 24 px.');
 });

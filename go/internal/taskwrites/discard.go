@@ -223,6 +223,10 @@ func discardOne(tx *sql.Tx, home, by string, tid int64, reason, batch string, st
 	if len(waits) > 0 && by != human {
 		return nil, refusal(fmt.Sprintf("task T%d is waiting on %s - it cannot be discarded until they close", tid, taskList(waits)))
 	}
+	// The asks its comments raised end with it, and are no request left open.
+	if err := db.CloseMemoAsks(tx, "withdrawn", "id IN (SELECT request_id FROM task_requests WHERE task_id = ?)", tid); err != nil {
+		return nil, err
+	}
 	reqs, err := taskRequests(tx, tid)
 	if err != nil {
 		return nil, err

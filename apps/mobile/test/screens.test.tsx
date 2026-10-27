@@ -140,7 +140,7 @@ describe('the inbox tab', () => {
     await press($(`inbox-open-${DECISION}`));
     await press(done(DECISION));
     await until(() => $('inbox-clear'), 'the empty sentence');
-    expect(text()).toContain('Nothing waits on you');
+    expect(text()).toContain('Nothing needs you');
     expect(item(RESULT)).toBeNull(); // what is read waits in the Read group, shut
     await press($('inbox-group-open-read'));
     await until(() => item(RESULT), 'the read item in its group');

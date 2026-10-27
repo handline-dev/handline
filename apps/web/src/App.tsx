@@ -29,7 +29,8 @@ import { NewAgent } from '#src/NewAgent.tsx';
 import { KeysSheet } from '#src/KeysSheet.tsx';
 import { Palette } from '#src/Palette.tsx';
 import { Sidebar } from '#src/Sidebar.tsx';
-import { FoldedControls, RailControls } from '#src/RailControls.tsx';
+import { RailControls } from '#src/RailControls.tsx';
+import { Shell } from '#src/ui/TopBar.tsx';
 import { DaemonDown } from '#src/DaemonDown.tsx';
 import { terminalOwnsKey } from '#src/terminal/core.ts';
 import { StatusBar } from '#src/StatusBar.tsx';
@@ -113,34 +114,27 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   useEffect(() => {
     document.title = unread ? `(${unread}) Handline` : 'Handline';
   }, [unread]);
-  // Everything but the workspace lives in the sidebar, so the main view gets the whole window height.
-  // The pages with no tab strip keep the rail's handle; on the agent workspace the controls ride the first strip.
-  const hasStrip =
-    !team && !accounts.open && tasks === null && page !== 'stats' && page !== 'settings' && page !== 'admin' && !!agent && !settings;
+  // Everything but the workspace lives in the sidebar; the top bar carries the rail's buttons while the sidebar is folded.
   return (
-    <FoldedControls.Provider value={railOpen ? null : { show: toggle }}>
-      <div className="frame flex h-screen flex-col">
-        <CaptureHost />
-        <div id="app" data-rail={railOpen ? 'open' : 'closed'} style={{ '--rail-w': `${railW}px` } as React.CSSProperties}>
-          {railOpen ? (
-            <>
-              <Sidebar selected={agent} onTasks={tasks !== null} storage={storage} onToggle={toggle} />
-              <div
-                className="rail-divider z-[1] -ml-0.75 w-[5px] flex-none cursor-col-resize touch-none hover:bg-primary max-[760px]:hidden"
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize the sidebar"
-                title="Drag to resize; double-click to reset"
-                onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
-                onPointerMove={(e) => e.buttons & 1 && sizeRail(e.clientX)}
-                onDoubleClick={() => sizeRail(RAIL_W)}
-              />
-            </>
-          ) : hasStrip ? null : (
-            <div className="rail-handle flex w-9 flex-none justify-start self-stretch border-r border-line bg-panel px-1 shell:pt-[calc(var(--h-tabs)+4px)] pt-2">
-              <RailControls show={toggle} />
-            </div>
-          )}
+    <div className="frame flex h-screen flex-col">
+      <CaptureHost />
+      <div id="app" data-rail={railOpen ? 'open' : 'closed'} style={{ '--rail-w': `${railW}px` } as React.CSSProperties}>
+        {railOpen ? (
+          <>
+            <Sidebar selected={agent} onTasks={tasks !== null} storage={storage} onToggle={toggle} />
+            <div
+              className="rail-divider z-[1] -ml-0.75 w-[5px] flex-none cursor-col-resize touch-none hover:bg-primary max-[760px]:hidden"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize the sidebar"
+              title="Drag to resize; double-click to reset"
+              onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+              onPointerMove={(e) => e.buttons & 1 && sizeRail(e.clientX)}
+              onDoubleClick={() => sizeRail(RAIL_W)}
+            />
+          </>
+        ) : null}
+        <Shell lead={railOpen ? undefined : <RailControls show={toggle} row />}>
           <main className={`main flex min-h-0 min-w-0 flex-1 bg-canvas${railOpen ? ' max-[900px]:ml-0' : ''}`} aria-label="Agent workspace">
             <DaemonDown />
             {team ? (
@@ -170,12 +164,12 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
               </div>
             )}
           </main>
-          <AnimatedList>{newAgent.open ? <NewAgent key="NewAgent" onClose={() => leave('')} /> : null}</AnimatedList>
-        </div>
-        <StatusBar />
-        <AnimatedList>{palette ? <Palette key="Palette" onClose={() => setPalette(false)} /> : null}</AnimatedList>
-        <AnimatedList>{keys ? <KeysSheet key="KeysSheet" onClose={() => setKeys(false)} /> : null}</AnimatedList>
+        </Shell>
+        <AnimatedList>{newAgent.open ? <NewAgent key="NewAgent" onClose={() => leave('')} /> : null}</AnimatedList>
       </div>
-    </FoldedControls.Provider>
+      <StatusBar />
+      <AnimatedList>{palette ? <Palette key="Palette" onClose={() => setPalette(false)} /> : null}</AnimatedList>
+      <AnimatedList>{keys ? <KeysSheet key="KeysSheet" onClose={() => setKeys(false)} /> : null}</AnimatedList>
+    </div>
   );
 }

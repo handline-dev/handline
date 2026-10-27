@@ -17,6 +17,10 @@ export type CardAction =
   | { type: 'approve'; item: InboxItem }
   /** A review card: the UI asks for text and a drawing, comments them, then closes the task 'Change asked: <text>'. */
   | { type: 'ask_change'; item: InboxItem }
+  /** An ask raised by a task comment: a fixed reply (OK, Approved) answers it as a comment on the task, not task.done. */
+  | { type: 'reply'; id: number; text: string; label: string }
+  /** The same ask on a review: the UI asks for text and replies `Change asked: <text>`. */
+  | { type: 'change'; id: number }
   | { type: 'open'; to: string }
   | { type: 'terminal'; agent: string }
   | { type: 'read'; id: number };
@@ -30,6 +34,8 @@ export interface Card {
   /** Who is asking, never the person themselves. */
   from: string | null;
   task: number | null;
+  /** The task comment an ask answers (InboxItem.memo); null for every other card. */
+  memo: number | null;
   /** The task is tagged `review`: its first comment's pictures are the thing to look at (Memo.parts), and Approve and Ask for change stand in for Done. */
   review: boolean;
   /** 1 is the most urgent; 4 for a card with no task. */
@@ -47,6 +53,8 @@ export interface MyTurnInput {
   items: readonly InboxItem[];
   agents: readonly AgentView[];
   tasks: readonly Task[];
+  /** Titles of tasks the list above does not hold (an ask can be on a task older than its newest page), by task id. */
+  titles?: ReadonlyMap<number, string>;
   /** The caller's own name: a report is accepted by whoever it answers to, the founder (`human`) or this name. */
   me?: string;
 }
@@ -93,6 +101,7 @@ function taskCards(
       agent: null,
       from: t.from && !isPerson(t.from, me) ? t.from : null,
       task: t.id,
+      memo: null,
       review: !!t.tags?.includes(REVIEW_TAG),
       ...when(t.id),
       since: at(t.created),
@@ -104,8 +113,39 @@ function taskCards(
     }));
 }
 
+/** The text without the mention of the founder: a leading one goes with its punctuation, one inside a sentence leaves the sentence's own colon or comma. */
+export const withoutTag = (text: string) =>
+  text
+    .replace(/^\s*@human\b[,:]?\s*/, '')
+    .replace(/\s*@human\b([,:]?)\s*/g, '$1 ')
+    .replace(/\s+([.,:;!?])/g, '$1')
+    .trim();
+
+/** An ask an agent raised by naming `@human` in a task comment: the founder's answer is a reply comment on that task, and the task stays open. */
+function commentAsk(
+  i: InboxItem,
+  base: Omit<Card, 'key' | 'kind' | 'title' | 'primary' | 'actions'>,
+  title: string,
+  open: readonly CardAction[],
+): Card {
+  const answer = { type: 'answer', id: i.id } as const;
+  const verbs: CardAction[] = base.review
+    ? [{ type: 'reply', id: i.id, text: APPROVED, label: 'Approve' }, { type: 'change', id: i.id }, answer]
+    : [{ type: 'reply', id: i.id, text: 'OK', label: 'Go ahead' }, answer];
+  return {
+    ...base,
+    // The card says whom it asks; the mention in the text is noise.
+    detail: withoutTag(base.detail),
+    key: `item:${i.id}`,
+    kind: 'decision',
+    title,
+    primary: verbs.length - (base.review ? 1 : 0),
+    actions: [...verbs, ...open],
+  };
+}
+
 /** The cards, most urgent first: task priority, then the earliest deadline (none last), then the one waiting longest. */
-export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
+export function myTurn({ items, agents, tasks, titles, me = '' }: MyTurnInput): Card[] {
   const byTask = new Map(tasks.map((t) => [t.id, t]));
   const when = (task: number | null) => {
     const t = task == null ? undefined : byTask.get(task);
@@ -121,15 +161,19 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
     if (i.read) continue;
     const t = i.task == null ? undefined : byTask.get(i.task);
     // The daemon titles an item with the first line of its body; a card about a task is titled with the task, and the body is its text.
-    const title = t?.title ?? i.title;
+    const known = t?.title ?? (i.task == null ? undefined : titles?.get(i.task));
+    const asked = i.kind === 'ask' && i.memo != null && i.task != null;
+    // An ask whose task is not known yet is headed by its comment's first line; the whole comment stays as the text.
+    const title = known ?? (asked ? withoutTag(i.title) : i.title);
     const base = {
       agent: i.agent,
       from: other(t?.from) ?? other(i.agent),
       task: i.task,
+      memo: i.memo ?? null,
       review: !!t?.tags?.includes(REVIEW_TAG),
       since: at(i.created),
       ...when(i.task),
-      detail: i.body && i.body !== title ? i.body : '',
+      detail: i.body && (i.body !== title || (asked && !known)) ? i.body : '',
     };
     const open: CardAction[] = [
       ...(i.task != null
@@ -159,6 +203,8 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
           ...open,
         ],
       });
+    } else if (i.kind === 'ask' && i.memo != null && i.task != null) {
+      cards.push(commentAsk(i, base, title, open));
     } else if (KINDS[i.kind]) {
       const decide: CardAction[] =
         i.kind !== 'decision' || i.task == null
@@ -203,6 +249,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
       agent: a.name,
       from: a.name,
       task: a.task?.id ?? null,
+      memo: null,
       review: false,
       ...w,
       since: at(n.since),
@@ -219,13 +266,43 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
 
   cards.push(...taskCards(tasks, new Set(cards.flatMap((c) => (c.task == null ? [] : [c.task]))), me, when));
 
-  return cards.sort(
+  // Until the founder's tasks are migrated, a task with an open `@human` ask is shown once: by the ask, not by its task or decision card.
+  const asked = new Set(cards.flatMap((c) => (c.memo != null && c.task != null ? [c.task] : [])));
+  const once = cards.filter((c) => c.memo != null || c.task == null || !asked.has(c.task) || (c.kind !== 'decision' && c.kind !== 'task'));
+
+  return once.sort(
     (x, y) =>
       x.priority - y.priority ||
       (x.due === y.due ? 0 : x.due == null ? 1 : y.due == null ? -1 : x.due - y.due) ||
       x.since - y.since ||
       x.key.localeCompare(y.key),
   );
+}
+
+/** An agent with messages for the person they have not seen: the Messages section of My turn, one row each. */
+export interface MessageRow {
+  agent: string;
+  /** The whole body of its newest request to the founder. */
+  line: string;
+  /** When it was written (ms). */
+  at: number;
+  unread: number;
+  /** The message to open the chat at (the first above the founder's cursor), absent from a daemon without founder_seen. */
+  from: number | null;
+}
+
+/** One row per agent with unread messages, newest first. */
+export function messageRows(agents: readonly AgentView[]): MessageRow[] {
+  return agents
+    .filter((a) => (a.founder_unread ?? 0) > 0)
+    .map((a) => ({
+      agent: a.name,
+      line: a.last_to_founder?.text ?? '',
+      at: at(a.last_to_founder?.at),
+      unread: a.founder_unread!,
+      from: a.founder_seen === undefined ? null : a.founder_seen + 1,
+    }))
+    .sort((x, y) => y.at - x.at || x.agent.localeCompare(y.agent));
 }
 
 export type InboxGroup = 'decisions' | 'approvals' | 'fyi';

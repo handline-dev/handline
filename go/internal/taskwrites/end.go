@@ -35,7 +35,7 @@ func (r linked) asks() bool {
 }
 
 func taskRequests(tx *sql.Tx, tid int64) ([]linked, error) {
-	rows, err := tx.Query("SELECT r.id, r.requester, r.target, r.state, r.kind, r.landed_at, r.delivered_at, r.queue_order "+
+	rows, err := tx.Query("SELECT r.id, r.requester, r.target, r.state, COALESCE(r.kind, ''), r.landed_at, r.delivered_at, r.queue_order "+
 		"FROM requests r JOIN task_requests l ON l.request_id = r.id WHERE l.task_id = ? ORDER BY r.id", tid)
 	if err != nil {
 		return nil, err

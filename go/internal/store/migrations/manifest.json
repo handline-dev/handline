@@ -138,5 +138,10 @@
   "version": 28,
   "name": "memo_tells",
   "additive": true
+ },
+ {
+  "version": 29,
+  "name": "request_memo",
+  "additive": true
  }
 ]

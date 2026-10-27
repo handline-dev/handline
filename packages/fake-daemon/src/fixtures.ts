@@ -35,6 +35,7 @@ export interface AgentFixture {
       | 'has_dialog'
       | 'last_to_founder'
       | 'founder_unread'
+      | 'founder_seen'
       | 'state_detail'
       | 'handoff'
       | 'status'

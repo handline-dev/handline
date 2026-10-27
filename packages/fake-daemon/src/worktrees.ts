@@ -87,7 +87,20 @@ const seed = (): Worktree[] => {
 
 /** The folders and file names file.write never touches, and the only endings it writes, as the contract's `denied` gate says. */
 const DENIED_DIRS = ['.git', '.claude', '.github', '.husky', '.codex', '.cursor', '.vscode', '.devcontainer', 'hooks'];
-const DENIED_NAMES = ['settings.json', 'settings.local.json', '.mcp.json', 'mcp.json', 'hooks.json', 'package.json', '.claude.json', 'tsconfig.json', 'turbo.json', 'deno.json', 'composer.json', 'lefthook.json'];
+const DENIED_NAMES = [
+  'settings.json',
+  'settings.local.json',
+  '.mcp.json',
+  'mcp.json',
+  'hooks.json',
+  'package.json',
+  '.claude.json',
+  'tsconfig.json',
+  'turbo.json',
+  'deno.json',
+  'composer.json',
+  'lefthook.json',
+];
 const etagOf = (text: string) => createHash('sha256').update(text).digest('hex');
 const FILE_CAP = 1 << 20;
 
@@ -143,7 +156,13 @@ export class FakeWorktrees {
   private file(method: string, p: Record<string, unknown>): unknown {
     const { agent, path } = p;
     if (typeof agent !== 'string' || !agent) throw invalidParams('agent is an agent name', 'agent');
-    if (typeof path !== 'string' || !path || path.startsWith('/') || /[\\\0]/.test(path) || path.split('/').some((x) => x === '' || x === '.' || x === '..'))
+    if (
+      typeof path !== 'string' ||
+      !path ||
+      path.startsWith('/') ||
+      /[\\\0]/.test(path) ||
+      path.split('/').some((x) => x === '' || x === '.' || x === '..')
+    )
       throw invalidParams('path is relative to the agent worktree', 'path');
     const key = `${agent}:${path}`;
     const have = this.files.get(key);

@@ -19,6 +19,7 @@
   --s-wait: #f0b429;
   --s-bad: #e8743b;
   --s-ok: #3fbf9b;
+  --cmd: #f06fb0;
   --term-bg: #0a0a0b;
   --term-ink: #e8e6df;
   --code-bg: #0a0a0b;
@@ -50,6 +51,7 @@
     --s-wait: #b87900;
     --s-bad: #c2410c;
     --s-ok: #00875f;
+    --cmd: #c2377f;
     --term-bg: #16150f;
     --term-ink: #e8e6df;
     --code-bg: #f3f2ee;
@@ -81,6 +83,7 @@
   --s-wait: #b87900;
   --s-bad: #c2410c;
   --s-ok: #00875f;
+  --cmd: #c2377f;
   --term-bg: #16150f;
   --term-ink: #e8e6df;
   --code-bg: #f3f2ee;
@@ -134,6 +137,7 @@
   --h-row: 36px;
   --h-row-2: 52px;
   --h-tabs: 40px;
+  --h-top: 44px;
   --h-bar: 28px;
   --h-btn: 32px;
   --h-btn-sm: 28px;

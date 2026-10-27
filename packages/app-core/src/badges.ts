@@ -1,5 +1,6 @@
 import type { AgentDetail, AgentView } from '@handline/client';
 import { STATE_WORDS } from '@handline/client';
+import { dateTime } from '#src/time.ts';
 
 export type BadgeKind = 'dialog' | 'stalled' | 'held' | 'no_terminal' | 'no_session' | 'other';
 export interface Badge {
@@ -19,7 +20,7 @@ export function badgesOf(a: AgentView | AgentDetail, me: string): Badge[] {
   const detail = a as Partial<AgentDetail>;
   if (a.has_dialog || detail.prompt) out.push({ kind: 'dialog', label: '!', tip: 'A dialog is open: answer it in Chat' });
   if (a.block || a.state === 'stalled' || a.state === 'blocked') {
-    const why = a.block ? `${a.block.kind} since ${a.block.since}` : a.state;
+    const why = a.block ? `${a.block.kind} since ${dateTime(a.block.since)}` : a.state;
     out.push({ kind: 'stalled', label: 'blocked', tip: why });
   }
   const holder = a.input_holders?.[0];
@@ -27,7 +28,7 @@ export function badgesOf(a: AgentView | AgentDetail, me: string): Badge[] {
     out.push({
       kind: 'held',
       label: `${holder.name} is typing`,
-      tip: `${holder.name} holds the input${holder.since ? ` since ${holder.since}` : ''}`,
+      tip: `${holder.name} holds the input${holder.since ? ` since ${dateTime(holder.since)}` : ''}`,
     });
   if (a.structured) {
     if (detail.session_open === false) out.push({ kind: 'no_session', label: 'no session', tip: 'Start or resume the agent to open one' });

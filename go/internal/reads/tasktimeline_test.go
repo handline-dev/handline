@@ -43,6 +43,27 @@ func TestATasksTimelineIsEverythingThatHappenedOnItInOrder(t *testing.T) {
 	}
 }
 
+func TestATasksTimelineLeavesOutAMemosTellButKeepsTheOtherRequests(t *testing.T) {
+	e := testEnv(t)
+	addAgent(t, e, "bob", "")
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(1, 'a', 'bob', 'amy', 10)")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, notice, edge_ok) VALUES(1, 10, 'amy', 'bob', 'the brief', 'landed', 'task', 0, 1), "+
+		"(2, 20, 'amy', 'bob', 'a memo tell', 'landed', 'say', 2, 1), (3, 30, 'cy', 'bob', 'a child result', 'landed', 'say', 1, 1)")
+	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(1, 1), (1, 2), (1, 3)")
+	got, err := e.taskGet(nil, map[string]any{"task": json.Number("1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []string
+	for _, r := range got.(map[string]any)["timeline"].([]any) {
+		rows = append(rows, fmt.Sprint(r.(map[string]any)["text"]))
+	}
+	want := []string{"landed  the brief", "landed  a child result"}
+	if fmt.Sprint(rows) != fmt.Sprint(want) {
+		t.Fatalf("got  %q\nwant %q", rows, want)
+	}
+}
+
 func TestATasksPageNamesItsSubtasksParentMergeAndWhomToAsk(t *testing.T) {
 	e := testEnv(t)
 	for _, a := range []string{"amy", "bob", "cy", "dee", "eve"} {

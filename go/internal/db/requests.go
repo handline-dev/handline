@@ -665,3 +665,12 @@ func ReopenLanded(q Q, rid int64) (bool, error) {
 	n, _ := res.RowsAffected()
 	return n > 0, nil
 }
+
+// CloseMemoAsks closes the open asks that task comments raised (requests.memo_id) and that match where, with arg: state "landed" is
+// answered (read as well), "withdrawn" is taken back.
+func CloseMemoAsks(q Q, state, where string, arg any) error {
+	_, err := q.Exec("UPDATE requests SET state = ?1, state_at = ?2, landed_at = CASE WHEN ?1 = 'landed' THEN ?2 END, "+
+		"read_at = CASE WHEN ?1 = 'landed' THEN COALESCE(read_at, ?2) ELSE read_at END, queue_order = NULL "+
+		"WHERE memo_id IS NOT NULL AND state = 'queued' AND "+where, state, Now(), arg)
+	return err
+}

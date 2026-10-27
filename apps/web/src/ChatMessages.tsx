@@ -3,18 +3,28 @@
 // to reply to (the reference the composer shows).
 import { memo, useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
-import { clockTime, ellipsis, landingLabel, openTask, restartCause, sideOf, tickLevel } from '@handline/app-core';
-import { useWrite } from '@handline/app-data';
+import {
+  ago,
+  clockTime,
+  dateTime,
+  ellipsis,
+  isTaskDelivery,
+  landingLabel,
+  openTask,
+  restartCause,
+  sideOf,
+  tickLevel,
+} from '@handline/app-core';
 import { useMe } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from '#src/msgClass.ts';
 import { Pictures } from '#src/ChatAttach.tsx';
 import { Markdown } from '#src/Markdown.tsx';
 import { RichText } from '#src/RichText.tsx';
-import { useWorkspace } from '#src/Workspace.tsx';
+import type { useWorkspace } from '#src/Workspace.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { Reveal } from '#src/ui/Reveal.tsx';
-import { TaskLine } from '#src/ChatTaskCards.tsx';
+import { BatchCard, TaskLine } from '#src/ChatTaskCards.tsx';
 
 /** A plain click on a task link opens the task in the workspace; a modified or middle click keeps the browser's own. */
 export const openTaskOnClick = (apply: ReturnType<typeof useWorkspace>['apply'], task: number) => (e: MouseEvent) => {
@@ -35,7 +45,7 @@ export function jumpTo(id: number): boolean {
 
 const full = (at: string) => {
   const d = new Date(at);
-  return Number.isNaN(+d) ? undefined : d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  return Number.isNaN(+d) ? undefined : dateTime(at);
 };
 
 // A message to a structured agent says how far into the CLI it is; `unknown` is never resent, so the person is told it may have run.
@@ -50,15 +60,40 @@ const receiptLabel = (state: string) => RECEIPT[state] ?? '';
 const onControl = (e: MouseEvent) => !!(e.target as HTMLElement).closest('button, a, input, textarea, form');
 
 /** The stamp hangs in the gutter beside the bubble, out of the flow: an agent's to its right, the person's to its left — the bubble never resizes for it. The time shows on hover; the ticks (`always`) show all the time. */
-function Stamp({ left, time, always }: { left?: boolean; time: ReactNode; always?: ReactNode }) {
+function Stamp({ left, time, always, hovered }: { left?: boolean; time: ReactNode; always?: ReactNode; hovered?: ReactNode }) {
   return (
     <div
       className={`${MSG_META} absolute bottom-0 flex items-center justify-end whitespace-nowrap gap-1.5 text-ink-3 ${
         left ? 'right-full mr-1.5' : 'left-full ml-1.5'
       }`}
     >
-      <span className="hidden [.peer:hover~*_&]:inline [.peer[aria-current]~*_&]:inline">{time}</span>
+      <span className="hidden items-center gap-1.5 [.peer:hover~*_&]:inline-flex [.peer[aria-current]~*_&]:inline-flex">
+        {time}
+        {hovered}
+      </span>
       {always}
+    </div>
+  );
+}
+
+/** Under an agent's message, shown on hover: copy, quote, and how long ago. Nothing is drawn at rest, but the room stays so the list does not jump. */
+function HoverBar({ m, onPick }: { m: ChatMessage; onPick?: (m: ChatMessage) => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(m.body).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div
+      className={`msg-hover -mt-1 flex h-6 items-center gap-1 text-ink-3 opacity-0 transition-opacity focus-within:opacity-100 hover:opacity-100 [.peer:hover+&]:opacity-100 ${MSG_META}`}
+    >
+      <Button variant="ghost" size="sm" icon={copied ? 'done' : 'copy'} label={copied ? 'Copied' : 'Copy'} onClick={copy} />
+      {onPick && m.id >= 0 ? <Button variant="ghost" size="sm" icon="reply" label="Quote" onClick={() => onPick(m)} /> : null}
+      <time dateTime={m.at} title={full(m.at)}>
+        {ago(m.at)} ago
+      </time>
     </div>
   );
 }
@@ -123,6 +158,8 @@ type MessageProps = {
   /** A message number in the text was clicked. */
   /** In the all-messages room: the sender's name over a message that is not the person's (null when the one before is from the same sender), never `from -> to`. */
   group?: { name: string | null };
+  /** The person's newest message: its ticks stay in view, the others' show on hover. */
+  latest?: boolean;
 };
 
 /** A row draws again only when its own message, its sender line or the message it replies to changed: the chat hands every row the same maps and actions. */
@@ -135,6 +172,7 @@ function sameMessage(a: MessageProps, b: MessageProps) {
     a.onPick === b.onPick &&
     a.actions === b.actions &&
     a.group?.name === b.group?.name &&
+    a.latest === b.latest &&
     parentOf(a) === parentOf(b)
   );
 }
@@ -143,6 +181,7 @@ function MessageRow(props: MessageProps) {
   const { m, agent } = props;
   const act = props.actions;
   const side = sideOf(m, agent, useMe());
+  const ticks = <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} />;
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
@@ -168,7 +207,13 @@ function MessageRow(props: MessageProps) {
           ) : null
         ) : side === 'other' ? (
           <div className={`${MSG_FROM} muted`}>
-            {m.from} <Icon name="forward" size={11} aria-hidden className="inline-block align-[-1px]" /> {m.to}
+            {isTaskDelivery(m) ? (
+              `Task T${m.tasks[0]!.id} handed to ${m.to}`
+            ) : (
+              <>
+                {m.from} <Icon name="forward" size={11} aria-hidden className="inline-block align-[-1px]" /> {m.to}
+              </>
+            )}
           </div>
         ) : side === 'person' && m.to !== agent ? (
           <div className={`${MSG_FROM} muted`}>to {m.to}</div>
@@ -205,7 +250,7 @@ function MessageRow(props: MessageProps) {
                 {p.caption || p.image.name || 'image'} - no longer kept
               </span>
             ) : (
-              <Pictures key={n} items={[{ id: p.image.id, name: p.image.name ?? p.caption }]} />
+              <Pictures key={n} items={[{ id: p.image.id, name: p.image.name ?? p.caption }]} thumb={side !== 'person'} />
             ),
           )
         ) : (
@@ -215,7 +260,7 @@ function MessageRow(props: MessageProps) {
                 <Markdown text={m.body} agent={agent} />
               </div>
             ) : null}
-            {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
+            {m.attachments?.length ? <Pictures items={m.attachments} thumb={side !== 'person'} /> : null}
           </>
         )}
         {m.receipt?.state === 'unknown' ? (
@@ -237,11 +282,16 @@ function MessageRow(props: MessageProps) {
         ) : null}
       </div>
       {side === 'person' && !unnumbered && !failed ? <RequestChip m={m} /> : null}
-      <Stamp
-        left={side !== 'agent'}
-        time={clockTime(m.at)}
-        always={side === 'person' && !failed ? <Ticks level={tickLevel(m)} label={tickLabel(m)} receipt={m.receipt?.state} /> : null}
-      />
+      {side === 'person' ? (
+        <Stamp
+          left
+          time={clockTime(m.at)}
+          always={props.latest && !failed ? ticks : null}
+          hovered={props.latest || failed ? null : ticks}
+        />
+      ) : unnumbered || failed ? null : (
+        <HoverBar m={m} onPick={props.onPick} />
+      )}
     </>
   );
 }
@@ -278,10 +328,10 @@ function SessionCard({ i }: { i: TranscriptItem }) {
   const cause = restartCause(i);
   const handoff = i.session?.handoff || null;
   return (
-    <div className="card-session flex items-center gap-3 text-meta text-muted" data-kind="session">
+    <div className="card-session group flex items-center gap-3 text-meta text-muted" data-kind="session">
       <hr className="m-0 h-px flex-1 border-0 bg-line" />
       <span>
-        New session at <span className="card-time">{clockTime(i.at)}</span>
+        New session<span className="card-time hidden group-hover:inline"> at {clockTime(i.at)}</span>
         {cause ? `: ${cause}` : ''}
       </span>
       {handoff ? (
@@ -298,40 +348,6 @@ function SessionCard({ i }: { i: TranscriptItem }) {
         ) : null}
       </AnimatedList>
     </div>
-  );
-}
-
-/** A batch discard as one card: a line per task with its title and reason; the line opens the task, Reopen brings it back as a draft. */
-function BatchCard({ i }: { i: TranscriptItem }) {
-  const { apply } = useWorkspace();
-  const reopen = useWrite('task.reopen');
-  const b = i.task_batch;
-  if (!b) return null;
-  return (
-    <Card variant="chat" className="card-batch flex-col items-stretch" data-kind="task_batch">
-      <div className="flex items-baseline gap-x-2">
-        <Icon name="withdrawn" size={14} label="Discarded" />
-        <span className="card-event text-meta font-semibold uppercase tracking-wide">Discarded {b.tasks.length}</span>
-        <span className="muted card-time ml-auto">{clockTime(i.at)}</span>
-      </div>
-      {b.tasks.map((t) => (
-        <div key={t.task} className="flex items-baseline gap-x-2" data-task={t.task}>
-          <button
-            type="button"
-            className="flex min-w-0 flex-1 cursor-pointer flex-wrap items-baseline gap-x-2 border-0 bg-transparent p-0 text-left text-body"
-            title={`Open T${t.task} in the Tasks tab`}
-            onClick={() => apply((w) => openTask(w, t.task))}
-          >
-            <span className="mono">T{t.task}</span>
-            <span className="max-w-[28ch] overflow-hidden text-ellipsis whitespace-nowrap font-medium">{t.title}</span>
-            <span className="muted min-w-0 break-words">{t.reason}</span>
-          </button>
-          <Button label={`Reopen T${t.task}`} onClick={() => reopen.mutate({ task: t.task, note: 'reopened from the batch card' })}>
-            Reopen
-          </Button>
-        </div>
-      ))}
-    </Card>
   );
 }
 
