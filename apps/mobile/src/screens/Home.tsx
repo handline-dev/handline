@@ -12,6 +12,7 @@ import { AgentPage } from '#src/screens/AgentPage.tsx';
 import { Inbox } from '#src/screens/Inbox.tsx';
 import { NewAgent, type Pending } from '#src/screens/NewAgent.tsx';
 import { SettingsPage } from '#src/screens/Settings.tsx';
+import { RequestsPage } from '#src/screens/Requests.tsx';
 import { TeamPage } from '#src/screens/TeamEntry.tsx';
 import { Stats } from '#src/screens/Stats.tsx';
 import { Tasks } from '#src/screens/Tasks.tsx';
@@ -23,7 +24,7 @@ const TABS = ['agents', 'inbox', 'tasks', 'usage'] as const;
 type Tab = (typeof TABS)[number];
 const NAV_ICON: Record<Tab, IconName> = { agents: 'agent', inbox: 'inbox', tasks: 'tasks', usage: 'stats' };
 
-type Page = 'new' | 'settings' | 'team' | 'notices' | null;
+type Page = 'new' | 'settings' | 'team' | 'requests' | 'notices' | null;
 
 /** `pending` is where New agent was left: with an operation in it, the app starts on that page. */
 export function Home(props: { store: Store; onUnpair: () => void; pending?: Pending }) {
@@ -111,12 +112,14 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
     <View style={{ flex: 1 }} {...swipe}>
       <ConnectionBar store={props.store} />
       {!open && !page && <Bell store={props.store} onOpen={() => setPage('notices')} />}
-      <Toasts store={props.store} />
+      <Toasts store={props.store} onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))} />
       <View style={{ flex: 1 }}>
         {open ? (
           <AgentPage />
         ) : page === 'team' ? (
           <TeamPage onClose={() => setPage(null)} />
+        ) : page === 'requests' ? (
+          <RequestsPage onClose={() => setPage(null)} onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))} />
         ) : page === 'notices' ? (
           <NoticesPage store={props.store} onClose={() => setPage(null)} onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))} />
         ) : page === 'settings' ? (

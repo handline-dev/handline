@@ -196,7 +196,7 @@ func TestTheHandoffPromptIsOneLineOfTextGloballyOrForOneAgent(t *testing.T) {
 	if got := r.file("config.yaml"); !strings.Contains(got, `handoff_prompt: "Write {path}: what is next, 100%."`) {
 		t.Fatalf("%q", got)
 	}
-	r.result(r.one("settings.set", `{"changes":{"handoff_prompt":"alice: {path}"},"agent":"alice","request_id":"h2"}`))
+	r.result(r.one("settings.set", `{"changes":{"handoff_prompt":"alice: {path}, what is next"},"agent":"alice","request_id":"h2"}`))
 	if !strings.Contains(r.file("agents", "alice", "agent.yaml"), "handoff_prompt:") {
 		t.Fatal("the agent's own file")
 	}

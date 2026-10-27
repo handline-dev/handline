@@ -1,9 +1,10 @@
-// The task detail's presentational parts: the owner, priority and time box chips, the link sections and the cancel sheet.
+// The task detail's presentational parts: the assignee, priority and time box chips, the link sections and the cancel sheet.
 import { useState } from 'react';
 import { isGate, taskRef, timeBoxText, watchLine } from '@handline/app-core';
 import type { TaskDetail as Detail } from '@handline/client';
 import { Icon, type IconName } from '#src/ui/Icon.tsx';
 import { Sheet } from '#src/taskui.tsx';
+import { AssignPopover } from '#src/TaskPeople.tsx';
 import { Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
 import { Button, Input, MenuButton, MenuItem } from '#src/ui/index.ts';
 
@@ -11,21 +12,31 @@ const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
 const CHIP = 'inline-flex items-center gap-1 rounded-pill border border-line px-2 text-hint leading-5';
 const LI = 'flex items-baseline gap-1.5 py-0.5';
 
-/** Owner, priority and time box as chips: the first two open a choice, the time box edits where it is. A closed task shows them as plain words. */
-export function TaskChips({ t, now, onAssign }: { t: Detail; now: number; onAssign: () => void }) {
+/** The assignee, priority and time box as chips: the first two open a choice, the time box edits where it is. A closed task shows them as plain words. */
+export function TaskChips({ t, now, me }: { t: Detail; now: number; me: string }) {
+  const [picking, setPicking] = useState(false);
   const edit = useEditTask(t);
   const can = edit.can.ok && t.state !== 'done' && t.state !== 'discarded' && !isGate(t);
   const box = timeBoxText(t, now);
-  const owner = `Owner · ${t.to}`;
+  const owner = `Assigned to · ${t.to}`;
   const priority = `Priority · P${t.priority ?? 2}`;
   return (
     <>
       <div className="tchips flex flex-wrap items-center gap-2">
         {can ? (
           <>
-            <Button variant="outline" size="sm" label="Change the owner" title={edit.can.why} onClick={onAssign}>
-              {owner} ▾
-            </Button>
+            <span className="relative inline-flex">
+              <Button
+                variant="outline"
+                size="sm"
+                label="Change who it is assigned to"
+                title={edit.can.why}
+                onClick={() => setPicking(!picking)}
+              >
+                {owner} ▾
+              </Button>
+              <AssignPopover t={t} me={me} open={picking} onClose={() => setPicking(false)} />
+            </span>
             <MenuButton label="Change the priority" variant="outline" size="sm" align="start" trigger={`${priority} ▾`}>
               {([1, 2, 3] as const).map((p) => (
                 <MenuItem key={p} onSelect={() => edit.save({ priority: p })}>

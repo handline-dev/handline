@@ -8,9 +8,7 @@ export function SettingsShell({ tab, label, children }: { tab: Tab; label: strin
     <ScrollPage className="settings-shell" aria-label={label}>
       <PageHead>
         <PageTitle>Settings</PageTitle>
-        <div className="basis-full">
-          <SettingsTabs value={tab} />
-        </div>
+        <SettingsTabs value={tab} />
       </PageHead>
       <div className="flex min-w-0 flex-col gap-4">{children}</div>
     </ScrollPage>

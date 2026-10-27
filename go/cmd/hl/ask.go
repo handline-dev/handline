@@ -188,7 +188,7 @@ func refusedListing() string {
 func humanInbox(got map[string]any, showAll bool) int {
 	lines := list(got, "lines")
 	if len(lines) == 0 && !showAll {
-		fmt.Println("nothing waiting on you")
+		fmt.Println("nothing needs you")
 		return 0
 	}
 	fmt.Printf("%d waiting. `hl read <id>` shows one whole.\n", num(got, "waiting"))

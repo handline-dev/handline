@@ -33,14 +33,14 @@ export function parseSeconds(text: string): number | null | typeof INVALID {
   if (t === '') return null;
   return /^\d+$/.test(t) ? Number(t) : INVALID;
 }
-/** A machine limit: a whole number, `off` or 0 for no limit, empty for the default. */
+/** A machine limit: a whole number, `no limit` (or `off`, or 0) for none, empty for the default. */
 export function parseLimit(text: string): number | null | typeof INVALID {
   const t = text.trim().toLowerCase();
   if (t === '') return null;
-  if (t === 'off') return 0;
+  if (t === 'off' || t === 'no limit') return 0;
   return /^\d+$/.test(t) ? Number(t) : INVALID;
 }
-const limitOf = (n: number | undefined): string => (n === undefined ? '' : n === 0 ? 'off' : String(n));
+const limitOf = (n: number | undefined): string => (n === undefined ? '' : n === 0 ? 'no limit' : String(n));
 export const minutesOf = (seconds: number | undefined): string => (seconds === undefined ? '' : String(Math.round(seconds / 60)));
 
 /** The default cap field of the Settings page, on the PC and the phone: everything but the words around it and the layout. */
@@ -65,7 +65,7 @@ export const idleField = (parkTimeoutS: number | undefined) => ({
 
 /** The machine load limits of the Settings page, on the PC and the phone: the daemon starts no new work over any of them; 0 is off. */
 export const limitFields = (v: { host_active_cap?: number; load_per_core_pct?: number; ram_free_min_pct?: number }) => {
-  const allowed = 'a whole number, 0 or off for no limit, or empty for the default';
+  const allowed = 'a whole number, no limit or 0 for none, or empty for the default';
   const field = (
     label: string,
     hint: string,
@@ -77,7 +77,7 @@ export const limitFields = (v: { host_active_cap?: number; load_per_core_pct?: n
     setting: key,
     label,
     hint,
-    unit,
+    unit: n === 0 ? '' : unit,
     current: limitOf(n),
     parse: parseLimit,
     change,
@@ -126,18 +126,22 @@ export const paceFields = (v: { pacing?: boolean; pace_target_pct?: number; pace
     n: number | undefined,
     min: number,
     max: number,
-    key: 'pace_target_pct' | 'pace_burst_pct',
+    change: (x: number | null) => PageSettings,
   ) => ({
     label,
     hint,
     unit: '%',
     current: n === undefined ? '' : String(n),
     parse: parseRange(min, max),
-    change: (x: number | null): PageSettings => ({ [key]: x }),
+    change,
     allowed: `a whole number from ${min} to ${max}, or empty for the default`,
   });
   return [
-    field('Pace target', "The share of its week an account may have used by the week's end", v.pace_target_pct, 50, 100, 'pace_target_pct'),
-    field('Pace burst', 'Points over the pace line before an account starts no new turn', v.pace_burst_pct, 0, 50, 'pace_burst_pct'),
+    field('Pace target', "The share of its week an account may have used by the week's end", v.pace_target_pct, 50, 100, (x) => ({
+      pace_target_pct: x,
+    })),
+    field('Pace burst', 'Points over the pace line before an account starts no new turn', v.pace_burst_pct, 0, 50, (x) => ({
+      pace_burst_pct: x,
+    })),
   ];
 };

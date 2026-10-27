@@ -140,7 +140,7 @@ export function trayMenu(
 ): TrayItem[] {
   const items: TrayItem[] = [{ label: 'Open Handline', click: a.open }];
   const notes: TrayItem[] = [];
-  if (view.unread > 0) notes.push({ label: `${badgeText(view.unread)} waiting on you`, click: a.inbox });
+  if (view.unread > 0) notes.push({ label: `Needs you · ${badgeText(view.unread)}`, click: a.inbox });
   notes.push(...(trouble(state, reason, a, m) ?? []));
   if (follow?.state === 'available' && follow.next) notes.push({ label: 'Restart to update', click: follow.restart });
   if (follow?.state === 'updating') notes.push({ label: 'Updating…', enabled: false });

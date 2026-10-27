@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Store } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
+import { OPEN_RESOURCES } from '#src/ResourceArea.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -31,7 +32,7 @@ async function mount(held: boolean) {
       status: {
         state: 'waiting',
         reason: 'load',
-        text: 'Held: the Mac is busy (5.4 per core, limit 1.5). It starts by itself when that drops.',
+        text: 'Waiting: the computer is under heavy memory load right now. It starts by itself when the load drops.',
         since: new Date().toISOString(),
         until: null,
         tasks: [],
@@ -48,7 +49,13 @@ describe('chat of an agent held for machine load', () => {
   it('says why, and Start now starts it and removes the line', async () => {
     await mount(true);
     await until(() => $('.card-held'), 'the held line');
-    expect($('.card-held')!.textContent).toContain('the Mac is busy (5.4 per core, limit 1.5)');
+    expect($('.card-held')!.textContent).toContain('the computer is under heavy memory load right now');
+    expect($('.card-held .card-what')!.className).not.toContain('whitespace-nowrap'); // the long sentence wraps, so the hover time after it is reachable
+    let asked = 0;
+    window.addEventListener(OPEN_RESOURCES, () => asked++);
+    const see = [...box.querySelectorAll('.card-held button')].find((b) => b.textContent === 'See what uses the computer') as HTMLElement;
+    await act(async () => see.click());
+    expect(asked).toBe(1);
     const start = [...box.querySelectorAll('.card-held button')].find((b) => b.textContent === 'Start now') as HTMLElement;
     await act(async () => start.click());
     await until(() => !$('.card-held'), 'the line gone after the start');

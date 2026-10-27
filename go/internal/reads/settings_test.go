@@ -3,6 +3,7 @@ package reads
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -88,6 +89,14 @@ func TestSettingsShowTheHandoffPromptAsSetOrTheBuiltInAndAnAgentsOwn(t *testing.
 	}
 	if got := get("ann")["overrides"].(map[string]any)[handoff.PromptKey]; got != "ann: {path}" {
 		t.Fatalf("ann's own: %q", got)
+	}
+	// the built-in text stays beside the value once one is set, and the agents with their own are named; neither is part of one agent's view
+	all := get("")
+	if all["handoff_prompt_default"] != handoff.AskTemplate || !reflect.DeepEqual(all["handoff_prompt_own"], []string{"ann"}) {
+		t.Fatalf("%v %v", all["handoff_prompt_default"], all["handoff_prompt_own"])
+	}
+	if _, ok := get("ann")["handoff_prompt_own"]; ok {
+		t.Fatal("an agent's view carries the roster")
 	}
 }
 

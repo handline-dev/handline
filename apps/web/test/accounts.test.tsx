@@ -57,11 +57,10 @@ describe('the list', () => {
   it('shows the skeleton while loading, then a line per account with its gauges, state chip and agents', async () => {
     const s = setup();
     s.daemon.knobs.latency(400);
-    await mount('#/stats', s);
-    await until(() => $('.usage-page .skeleton'), 'the skeleton');
-    expect($('.usage-page .skeleton')!.getAttribute('aria-busy')).toBe('true');
+    await mount('#/accounts', s);
+    await until(() => $('.skeleton'), 'the skeleton');
+    expect($('.skeleton')!.getAttribute('aria-busy')).toBe('true');
     await until(() => $$('.acct-row').length === 3, 'the rows', 600);
-    await until(() => !$('.usage-page .skeleton'), 'the Stats section below them to load too', 600);
     expect(text(card('alpha').querySelector('.acct-state'))).toBe('in use');
     expect(text(card('beta').querySelector('strong'))).toBe('review');
     expect(text(card('gamma').querySelector('.acct-state'))).toBe('login needed');
@@ -75,7 +74,7 @@ describe('the list', () => {
   it('says under the week gauge where the week stands against its pace, and nothing without a pace', async () => {
     const s = setup();
     s.daemon.accounts.add({ name: 'delta', pace: null });
-    await mount('#/stats', s);
+    await mount('#/accounts', s);
     await until(() => $$('.acct-row').length === 4, 'the rows', 600);
     expect(card('delta').querySelector('.acct-pace')).toBeNull();
     expect(text(card('alpha').querySelector('.acct-pace'))).toBe('ahead');
@@ -92,7 +91,8 @@ describe('the list', () => {
     const was = fx.state;
     fx.state = 'running';
     try {
-      await mount('#/stats', s);
+      await mount('#/accounts', s);
+      await until(() => $('[data-account="alpha"]'), 'the rows');
       await until(() => text(card('alpha').querySelector('.acct-agents')).includes('1 of 4 working'), 'the running count');
     } finally {
       fx.state = was;
@@ -100,7 +100,8 @@ describe('the list', () => {
   });
 
   it('says on each line the login, the plan, when the week resets, and whether it can take another agent and why not', async () => {
-    await mount('#/stats');
+    await mount('#/accounts');
+    await until(() => $('[data-account="beta"]'), 'the rows');
     await until(() => text(card('beta').querySelector('[data-usage]')).includes('cannot'), 'the usage line');
     expect(text(card('alpha').querySelector('[data-usage]'))).toMatch(/^logged in · pro · week resets .*· can take another agent$/);
     expect(text(card('beta').querySelector('[data-usage]'))).toContain('cannot take another agent: 5h 88% at last reading');
@@ -108,7 +109,8 @@ describe('the list', () => {
   });
 
   it('keeps the usage line when the accounts topic sends a row without those fields', async () => {
-    const s = await mount('#/stats');
+    const s = await mount('#/accounts');
+    await until(() => $('[data-account="beta"]'), 'the rows');
     await until(() => text(card('beta').querySelector('[data-usage]')).includes('cannot'), 'the usage line');
     await act(async () => void s.daemon.accounts.set({ account: 'beta', cap: 3 }));
     await until(() => text(card('beta').querySelector('.acct-agents')).includes('of 3 working'), 'the event');
@@ -119,7 +121,7 @@ describe('the list', () => {
     const s = setup();
     for (const p of [59, 60, 84, 85])
       s.daemon.accounts.add({ name: `p${p}`, five_hour: { used_pct: p, resets_at: null, source: 'measured' } });
-    await mount('#/stats', s);
+    await mount('#/accounts', s);
     await until(() => $$('.acct-row').length === 7, 'the rows');
     const tone = (n: string) => card(n).querySelector('[data-gauge="5 h"]')!.getAttribute('data-tone');
     expect([59, 60, 84, 85].map((p) => tone(`p${p}`))).toEqual(['ok', 'warn', 'warn', 'bad']);
@@ -132,7 +134,7 @@ describe('the list', () => {
       name: 'full',
       five_hour: { used_pct: 100, resets_at: new Date(Date.now() + 3_600_000).toISOString(), source: 'measured' },
     });
-    await mount('#/stats', s);
+    await mount('#/accounts', s);
     await until(() => card('full'), 'the card');
     expect(card('full').querySelector('.acct-state')!.getAttribute('data-state')).toBe('out');
     expect(text(card('full').querySelector('.acct-state'))).toContain('out until');

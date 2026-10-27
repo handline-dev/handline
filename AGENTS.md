@@ -22,11 +22,13 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   merger marks it done with the merged commit sha (`hl task done T<n> <sha>`), or
   hands it back with `"not merged: <reason>"`. A wrong result is reopened by its
   asker (`hl task reopen T<n> "<why>"`).
-- Where work lands: each story has a branch `story/<n>`. Its tasks branch from
+- Where work lands: each story has a branch `story/<name>`. Its tasks branch from
   it and, after the PASS, the merger merges them into it, with no founder step.
   A story reaches main as one PR, which the founder checks by eye and merges.
   Only a fix for a red main, a daemon bug or a security fix goes straight to main,
-  as its own PR. Main is merged into every `story/<n>` at least once a day.
+  as its own PR. Main is merged into every `story/<name>` at least once a day.
+  A branch name says what the work is in words and carries no task number: GitHub shows it
+  (`tools/pr-open.sh` refuses one).
 - New work goes in Go. The Python package `handline/` is gone; Python stays only in `tools/` and `contract/` (dev and test harnesses).
 - Every PR to main shows, in its body, a screenshot of each screen it adds or
   changes, before and after, PC and phone where both change, so the founder can
@@ -85,8 +87,8 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
    file an id that is an argument of an `hl` command is the product's own syntax and passes.
    A commit's author and committer email must be a noreply address too
    (`git config user.email <id>+<name>@users.noreply.github.com`).
-   `tools/localrefs.py` enforces it in the git hooks
-   (`tools/install-git-hooks.sh`), and a review runs it too:
+   `tools/localrefs.py` enforces it, and refuses an @-mention outside code in a commit message, in the git hooks
+   (`tools/install-git-hooks.sh`), and CI (pr-rules) runs it on each PR:
    `tools/localrefs.py diff main...<sha>` and `tools/localrefs.py log main..<sha>`.
 
 Easy to get wrong:
@@ -131,6 +133,10 @@ agent (ROLE.md, base.md); this file does not repeat them.
 - Pull requests: open one with `tools/pr-open.sh --title "..." --body-file FILE`, never a bare `gh pr create`. It first runs
   the checks CI would refuse it for (the body's Why, What changed, Evidence and Risk, English only, base main; the changed
   files; Prettier; ESLint with its size limits), and opens nothing until they pass. After editing a body, run it with `--check`.
+- Landing: `tools/merge-ready.sh N` merges PR N only when it is ready (green required checks, no conflict, auditor PASS for its
+  head, ux live PASS for an app change). With 3 or more ready PRs, `tools/bundle.sh` builds one `bundle-<numbers>` branch of their
+  heads (a head that moved or conflicts is left out); `--push` opens its PR, one CI run covers all, and one merge commit (not a squash) lands them,
+  and GitHub closes each part. If the bundle's CI is red, rebuild with `--without <PR>` for the part that broke it. It never merges.
 - UI: don't design a screen alone. Agree on its shape with the human first,
   and after you build it, the human checks it by eye. Passing tests do not
   finish UI work.

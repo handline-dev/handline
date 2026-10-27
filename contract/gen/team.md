@@ -26,7 +26,7 @@ The founder seals team.yaml and every agent.yaml as they are now (the Team page 
 
 ### `hr.propose`
 
-Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, settings, context, and diff, which is kind bundle: args.changes lists several changes decided once and applied together or not at all).
+Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, settings, context, schedule, and diff, which is kind bundle: args.changes lists several changes decided once and applied together or not at all).
 
 ### `hr.withdraw`
 

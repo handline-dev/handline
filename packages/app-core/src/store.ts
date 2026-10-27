@@ -111,8 +111,8 @@ export class Store {
     this.emit();
   }
 
-  /** Says why a call the person asked for failed: "Couldn't <what>: <first sentence of the reason>", the daemon's full words behind Details. A lost connection says nothing here: the banner does, and the reconnect refetches. */
-  reportError(what: string, e: unknown): void {
+  /** Says why a call the person asked for failed: "Couldn't <what>: <first sentence of the reason>", the daemon's full words behind Details, `retry` behind "Try again". A lost connection says nothing here: the banner does, and the reconnect refetches. */
+  reportError(what: string, e: unknown, retry?: () => void): void {
     if (e instanceof RpcError && e.code === 'transport') return;
     const rpc = e instanceof RpcError ? e : null;
     const reason = rpc ? (rpc.reason ?? rpc.message) : (e as Error).message;
@@ -125,6 +125,7 @@ export class Store {
       'system',
       undefined,
       raw === said ? undefined : raw,
+      retry,
     );
     this.emit();
   }

@@ -53,7 +53,7 @@ export function Button({
           label={label}
           size={size === 'sm' ? 14 : 16}
           aria-hidden={iconOnly ? undefined : true}
-          className={busy ? 'animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none' : undefined}
+          className={busy ? 'animate-spin motion-reduce:animate-none' : undefined}
         />
       ) : null}
       {children ?? (icon ? null : label)}

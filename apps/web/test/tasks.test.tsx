@@ -264,8 +264,8 @@ describe('writes', () => {
     await mark(1700);
     s.daemon.knobs.refuse('task.edit', 'state', 'cannot move', undefined, 1);
     await press('o');
-    await choose($('select[aria-label="New owner"]') as HTMLSelectElement, 'handline.auditor');
-    await click(button('Change owner')!);
+    await choose($('select[aria-label="Assign to"]') as HTMLSelectElement, 'handline.auditor');
+    await click(button('Assign')!);
     await until(() => text($('.toast')).includes('1 of 2 changed'), 'the partial toast');
     expect($$('.not-changed')).toHaveLength(1);
     const owners = [1684, 1700].map((id) => s.daemon.tasks.get({ task: id }).to);
@@ -399,7 +399,7 @@ describe('the detail', () => {
     await until(() => $('article.tdetail') && text($('article.tdetail')).includes('Build the pane.'), 'the detail');
     expect(location.hash).toBe('#/tasks/1688');
     const d = $('article.tdetail')!;
-    expect(text(d)).toContain('Terminal pane on the bytes channel');
+    expect(text($('.page-bar')!)).toContain('Terminal pane on the bytes channel'); // the bar names the task
     expect(text(d)).toContain('Asked by');
     expect(text(d)).toContain('handline.architect');
     expect(text(d)).toContain('T1684'); // under, local-ref-ok
@@ -417,6 +417,13 @@ describe('the detail', () => {
     await until(() => text($('article.tdetail')).includes('Sub-tasks'), 'children');
     await act(async () => void (location.hash = '#/tasks/9999'));
     await until(() => text($('article.tdetail')).includes('This task no longer exists'), 'gone');
+  });
+
+  it('names the task in the top bar of a task page, with a Back to Tasks', async () => {
+    await mount('#/tasks/1688');
+    await until(() => text($('.page-bar')).includes('T1688'), 'the task named in the bar');
+    await click($('.page-bar button[title="Back to Tasks"]'));
+    await until(() => location.hash === '#/tasks', 'the list again');
   });
 
   it('draws the detail skeleton while it loads', async () => {
@@ -457,7 +464,7 @@ describe('the detail', () => {
     };
     const release = s.daemon.knobs.hold('task.edit');
     await edit('Title', 'Pair the web UI');
-    await until(() => text($('.tdetail-head')).includes('Pair the web UI'), 'the new title at once');
+    await until(() => text(document.body).includes('Pair the web UI'), 'the new title at once');
     expect(s.daemon.tasks.get({ task: 1700 }).title).toContain('Draft'); // not yet at the daemon
     release();
     await until(() => s.daemon.tasks.get({ task: 1700 }).title === 'Pair the web UI', 'saved');
@@ -469,7 +476,7 @@ describe('the detail', () => {
     s.daemon.knobs.refuse('task.edit', 'state', 'locked');
     await edit('Title', 'Nope');
     await until(() => text($('.toast')).includes('locked'), 'the refusal');
-    await until(() => text($('.tdetail-head')).includes('Pair the web UI'), 'the title back');
+    await until(() => text(document.body).includes('Pair the web UI'), 'the title back');
   });
 
   it('withdraws a task I asked for after a confirmation, with "…" until the daemon answers; a started task can only be cancelled', async () => {
@@ -497,24 +504,26 @@ describe('the detail', () => {
   it('assigns the task from a short list: a click hands it over at once, with no note box', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    await until(() => button('Owner ·'), 'the owner button');
-    await click(button('Owner ·')!);
-    const ask = sheet('Assign T1688 to…')!; // local-ref-ok
+    await until(() => button('Assigned to ·'), 'the assignee button');
+    await click(button('Assigned to ·')!);
+    const ask = $('[role="dialog"][aria-label="Assign T1688 to"]')!; // local-ref-ok
     expect($('[role="listbox"][aria-label="Likely"]', ask)).not.toBeNull();
     expect($$('[role="option"]', ask).length).toBeLessThanOrEqual(4);
     expect($('textarea', ask)).toBeNull();
+    expect(text(ask)).not.toMatch(/Cancel|Assign to /); // no label row, no confirm and Cancel: picking is the only step
+    expect(text(ask)).toMatch(/Type to find more · \d+ in all|now/);
     await typeInto($('input[aria-label="Find someone"]', ask) as HTMLInputElement, 'architect');
     expect($('[role="listbox"][aria-label="Matches"]', ask)).not.toBeNull();
     await click(button('handline.architect', ask)!);
     await until(() => s.daemon.tasks.get({ task: 1688 }).to === 'handline.architect', 'the new owner');
   });
 
-  it('keeps the assign sheet open and says why when the daemon refuses the new owner', async () => {
+  it('keeps the assign popover open and says why when the daemon refuses the new owner', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    await until(() => button('Owner ·'), 'the owner button');
-    await click(button('Owner ·')!);
-    const ask = sheet('Assign T1688 to…')!; // local-ref-ok
+    await until(() => button('Assigned to ·'), 'the assignee button');
+    await click(button('Assigned to ·')!);
+    const ask = $('[role="dialog"][aria-label="Assign T1688 to"]')!; // local-ref-ok
     await typeInto($('input[aria-label="Find someone"]', ask) as HTMLInputElement, 'architect');
     s.daemon.knobs.refuse('task.edit', 'state', 'cannot move it now');
     await click(button('handline.architect', ask)!);
@@ -527,7 +536,7 @@ describe('the detail', () => {
     await until(() => $('.tverbs'), 'the verbs');
     for (const b of $$('button', $('.tverbs')!)) expect(text(b).trim()).not.toBe('');
     expect(text($('.tdetail-head'))).toContain('doing');
-    expect(text($('.tchips'))).toContain('Owner');
+    expect(text($('.tchips'))).toContain('Assigned to');
   });
 
   it('serves the verbs of the daemon plan once it lists them: done needs a result, reopen only for a done task I asked for', async () => {
@@ -544,7 +553,7 @@ describe('the detail', () => {
     expect(s.daemon.tasks.get({ task: 1688 }).evidence).toBe('landed as abc123');
     // the founder's own done task: the key says why it cannot be reopened
     await act(async () => void (location.hash = '#/tasks/1650'));
-    await until(() => text($('.tdetail-head')).includes('T1650'), 'task 1650'); // local-ref-ok
+    await until(() => $('.tdetail[aria-label$="T1650"] .tverbs'), 'task 1650'); // local-ref-ok
     expect(button('Reopen', $('.tverbs')!)).toBeUndefined(); // asked by 'founder', not by me
     await press('r', {}, $('.tbody')!);
     await until(() => text($('.toast')).includes('only a done task that you asked for can be reopened'), 'the bridge sentence');

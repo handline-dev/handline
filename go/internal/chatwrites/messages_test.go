@@ -189,3 +189,41 @@ func TestTheCancelConfirmSaysYouForTheFoundersOwnMessage(t *testing.T) {
 		t.Fatalf("%q %v", said, err)
 	}
 }
+
+func TestAnAskFromACommentIsReadAwayOnlyByNamingItAndAReplyIsTheFoundersComment(t *testing.T) {
+	r := newRig(t)
+	s := r.server("")
+	tid, err := dbpkg.NewTask(r.db, "t", "alice", "manager", 0, dbpkg.DefaultPriority, "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ask := func(text string) (rid, mid int64) {
+		mid, err := dbpkg.AddMemo(r.db, tid, "alice", text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rid = r.request("alice", "human", text)
+		dbpkg.LinkRequest(r.db, tid, rid)
+		r.db.Exec("UPDATE requests SET memo_id = ? WHERE id = ?", mid, rid)
+		return rid, mid
+	}
+	a1, _ := ask("@human which?")
+	later := r.request("alice", "human", "fyi")
+	if d := r.errData(r.one(s, "inbox.mark_read", fmt.Sprintf(`{"ids":[%d],"request_id":"s2"}`, later))); d["gate"] != "state" {
+		t.Fatalf("reading the message behind an ask does not read the ask: %v", d)
+	}
+	r.result(r.one(s, "chat.seen", fmt.Sprintf(`{"agent":"alice","up_to":%d,"request_id":"s1"}`, later)))
+	if r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND state = 'queued' AND read_at IS NULL", a1) != 1 {
+		t.Fatal("chat.seen past the ask leaves it open and unread")
+	}
+	r.result(r.one(s, "inbox.mark_read", fmt.Sprintf(`{"ids":[%d],"request_id":"s3"}`, a1)))
+	if r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND state = 'landed'", a1) != 1 {
+		t.Fatal("naming the ask reads it")
+	}
+	a2, m2 := ask("@human other?")
+	r.result(r.one(s, "inbox.reply", fmt.Sprintf(`{"id":%d,"text":"B","request_id":"s4"}`, a2)))
+	if r.count("SELECT COUNT(*) FROM task_memos WHERE task_id = ? AND author = 'human' AND body = 'B' AND reply_to = ?", tid, m2) != 1 ||
+		r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND state = 'landed'", a2) != 1 {
+		t.Fatal("the reply is the founder's comment on the task, and closes the ask")
+	}
+}

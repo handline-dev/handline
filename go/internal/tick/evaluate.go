@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
@@ -38,6 +39,7 @@ type Tick struct {
 
 	said, saidClose map[string]string
 	rolloverDay     string
+	spans           []span // this tick's stages and what each took (timed)
 }
 
 // NamedSweep is one of the tick's guarded passes: its name is how a failure is logged.
@@ -209,7 +211,7 @@ func (t *Tick) supervise(agent string, now int64, samples map[string][]Sample, a
 			t.Delivery.NoteFailure(agent, "could not be woken - "+why)
 			// For an agent whose session was closed, the deadline is the only thing that makes the wake due again: clearing it on a wake
 			// that did not work is how a park slept through every later tick.
-			t.logf("  %s: stays %s, still due", agent, state)
+			t.logf("  %s: stays %s, still due - %s", agent, state, why)
 			return
 		}
 		// The prompt has been sent by now, so the agent may already have answered it: only write QUEUED if nothing has claimed it since.
@@ -420,6 +422,9 @@ func (t *Tick) supervise(agent string, now int64, samples map[string][]Sample, a
 	if kind, _, kept := must3(db.NoteWaitKept(q, agent, now)); !trig.Fired && kept && !t.Handoff.NoteHold(q, agent, now) {
 		trig = Trigger{true, kind, "its handoff note is written"}
 	}
+	if !trig.Fired && must(db.Cursor(q, "handoff_deferred:"+agent)) != 0 {
+		check(db.ClearDeferred(q, agent)) // a trigger deferred behind a turn that no longer fires holds nothing
+	}
 	if trig.Fired {
 		ok := t.Handoff.PerformHandoff(q, agent, trig, "")
 		suffix := ""
@@ -487,9 +492,11 @@ func (t *Tick) Sweep() {
 // guarded runs one of the tick's passes: its failure is logged under its name and is not the tick's failure.
 func (t *Tick) guarded(name string, f func() error) {
 	var err error
-	if p := guard(func() { err = f() }); p != nil {
-		err = p
-	}
+	t.timed(name, func() {
+		if p := guard(func() { err = f() }); p != nil {
+			err = p
+		}
+	})
 	if err != nil {
 		t.logf("  %s: %v", name, err)
 	}
@@ -498,6 +505,8 @@ func (t *Tick) guarded(name string, f func() error) {
 // Run is one tick over the samples the caller keeps across ticks.
 func (t *Tick) Run(samples map[string][]Sample) (Result, error) {
 	t.init()
+	began := time.Now()
+	defer func() { t.logSlow(time.Since(began)) }()
 	now := t.Now()
 	var actions []string
 	if samples == nil {
@@ -506,14 +515,18 @@ func (t *Tick) Run(samples map[string][]Sample) (Result, error) {
 	q := t.Q
 
 	// Before anything is decided on what we believe, check what is true.
-	t.Reconcile.Sweep(q, &actions)
+	t.timed("reconcile", func() { t.Reconcile.Sweep(q, &actions) })
 
 	// And what is true includes the two readings every decision below is made on. Both are pulls (D11), so they happen here.
-	if err := t.Sweeps.CollectSnapshot(q); err != nil {
-		return Result{now, actions}, fmt.Errorf("collect snapshots: %w", err)
+	var snapErr error
+	t.timed("snapshots", func() { snapErr = t.Sweeps.CollectSnapshot(q) })
+	if snapErr != nil {
+		return Result{now, actions}, fmt.Errorf("collect snapshots: %w", snapErr)
 	}
-	if err := t.Sweeps.PollUsage(q); err != nil { // a failure outside any one account is not the tick's failure either
-		t.logf("  usage: poll failed: %v", err)
+	var pollErr error
+	t.timed("usage poll", func() { pollErr = t.Sweeps.PollUsage(q) })
+	if pollErr != nil { // a failure outside any one account is not the tick's failure either
+		t.logf("  usage: poll failed: %v", pollErr)
 	}
 
 	// Link a file added to shared/.claude into accounts registered before it.
@@ -551,19 +564,21 @@ func (t *Tick) Run(samples map[string][]Sample) (Result, error) {
 	})
 
 	for _, agent := range t.Host.Agents() {
-		if err := guard(func() { t.Supervise(agent, now, samples, &actions) }); err != nil {
+		var err error
+		t.timed("supervise", func() { err = guard(func() { t.Supervise(agent, now, samples, &actions) }) })
+		if err != nil {
 			// A real failure, not a resource shortage: bad config, unreadable status, a host call that failed. Catching it per agent is
 			// the point - supervising one agent is not allowed to end supervision of every agent after it in the list.
 			t.Reconcile.StallAgent(q, agent, &actions, err, "error")
 		}
 	}
 
-	t.Sweeps.BlockedSweep(q, now)
+	t.timed("blocked sweep", func() { t.Sweeps.BlockedSweep(q, now) })
 	for _, s := range t.Passes {
 		s := s
 		t.guarded(s.Name, func() error { return s.Run(q, now) })
 	}
-	t.observeBurn()
+	t.timed("observe", t.observeBurn)
 	return Result{now, actions}, nil
 }
 
