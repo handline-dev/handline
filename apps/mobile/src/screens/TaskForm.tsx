@@ -30,7 +30,7 @@ function TaskFields(p: { id: 'nt' | 'et'; owners: string[]; draft: TaskDraft; ch
   const { id, draft, change } = p;
   return (
     <>
-      <Text style={{ color: c.muted, fontWeight: '600' }}>Owner</Text>
+      <Text style={{ color: c.muted, fontWeight: '600' }}>Assigned to</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
         {p.owners.map((a) => (
           <Pill role="radio" key={a} on={draft.owner === a} label={a} onPress={() => change({ owner: a })} testID={`${id}-owner-${a}`} />

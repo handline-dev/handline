@@ -16,12 +16,14 @@ export function RichText({ text, agent }: { text: string; agent?: string }) {
   if (!images.length) return <Linked text={text} agent={agent} />;
   const parts: ReactNode[] = [];
   let at = 0;
+  // Blank space between two pictures would break their row in a pre-wrapped text, so it is left out.
+  const words = (from: number, to: number) => text.slice(from, to).trim() !== '';
   for (const i of images) {
-    if (i.start > at) parts.push(<Linked key={`t${at}`} text={text.slice(at, i.start)} agent={agent} />);
+    if (i.start > at && words(at, i.start)) parts.push(<Linked key={`t${at}`} text={text.slice(at, i.start)} agent={agent} />);
     parts.push(<AttachmentImage key={i.start} id={i.id} name={i.caption} />);
     at = i.end;
   }
-  if (at < text.length) parts.push(<Linked key={`t${at}`} text={text.slice(at)} agent={agent} />);
+  if (at < text.length && words(at, text.length)) parts.push(<Linked key={`t${at}`} text={text.slice(at)} agent={agent} />);
   return <>{parts}</>;
 }
 

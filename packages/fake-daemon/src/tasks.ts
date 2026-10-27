@@ -118,7 +118,7 @@ export class FakeTasks {
       const tasks = on.map((b) => b.task).sort((a, b) => a - b);
       return { on: 'task', text: `blocked by ${tasks.map((id) => `T${id}`).join(', ')}`, tasks, since: on[0]!.at ?? t.created };
     }
-    return t.to === 'human' ? { on: 'founder', text: 'waiting on you', tasks: [], since: t.created } : null;
+    return t.to === 'human' ? { on: 'founder', text: 'needs you', tasks: [], since: t.created } : null;
   }
   private view(row: Row): Task {
     const { body: _body, memos: _memos, notes: _notes, blockers, clock, estimate: _estimate, ...t } = row;

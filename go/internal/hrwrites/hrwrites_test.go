@@ -1129,20 +1129,20 @@ func TestAHeldRenameWhoseStartIsHeldIsAppliedAndStartsByItself(t *testing.T) {
 	r.live["bob"] = true
 	r.decide(id, "approve", p.subject(), "h2")
 	r.sweepEnded(func(string) (bool, string) {
-		return false, loadgate.HeldPrefix + "the Mac is busy (3.1 per core, limit 1.5)."
+		return false, loadgate.HeldPrefix + "the computer is busy right now."
 	})
 	if v := r.e.reader().HRView("aaaa000b"); v["state"] != "approved" || v["error"] != nil {
 		t.Fatalf("applied, no error: %v", v)
 	}
 	f := r.followUp("aaaa000b")
-	if f["agent"] != "robert" || f["state"] != "waiting" || !strings.Contains(f["text"].(string), "the Mac is busy") {
+	if f["agent"] != "robert" || f["state"] != "waiting" || !strings.Contains(f["text"].(string), "the computer is busy right now") {
 		t.Fatalf("follow-up waits: %v", f)
 	}
 	if !strings.Contains(r.file("team.yaml"), "  robert: {}") {
 		t.Fatal("the rename itself stands")
 	}
 	still := func(string) (bool, string) {
-		return false, loadgate.HeldPrefix + "the Mac is busy (3.0 per core, limit 1.5)."
+		return false, loadgate.HeldPrefix + "the computer is busy right now."
 	}
 	r.sweepEnded(still)
 	if r.followUp("aaaa000b")["state"] != "waiting" {
@@ -1361,5 +1361,92 @@ func TestApplyNowPressesEscOnceThenWaits(t *testing.T) {
 	r.e.SweepHeld(ports)
 	if interrupted != 2 {
 		t.Fatalf("pressed again after the pause: %d", interrupted)
+	}
+}
+
+// An agent proposes its own recurring work: add, edit and remove are written down for the founder, guarded, listed, and applied through the
+// schedule store only when the founder approves.
+func TestAnAgentProposesAScheduleAndItIsAppliedOnlyOnApproval(t *testing.T) {
+	r := newRig(t)
+	propose := func(rid, args string) map[string]any {
+		return r.callAs("alice", "hr.propose", fmt.Sprintf(`{"kind":"schedule","args":%s,"why":"a weekly review","request_id":%q}`, args, rid))
+	}
+	refusal := func(m map[string]any) string { msg, _ := m["error"].(map[string]any)["message"].(string); return msg }
+	res := propose("s1", `{"name":"bob","action":"add","cron":"0 9 * * 1","message":"review   the open PRs"}`)["result"].(map[string]any)
+	pid := fmt.Sprintf("%08x", int64(res["proposal"].(float64)))
+	p, err := r.e.load(pid)
+	if err != nil || p == nil || p.str("kind") != "schedule" || p.str("state") != "proposed" || p.str("requested_by") != "alice" ||
+		p.sets()["cron"] != "0 9 * * 1" || p.sets()["message"] != "review the open PRs" {
+		t.Fatalf("%v %+v", err, p)
+	}
+	if strings.Contains(r.file("agents", "bob", "agent.yaml"), "review") {
+		t.Fatal("applied before the founder decided")
+	}
+	// one proposal per agent and entry
+	if msg := refusal(propose("s2", `{"name":"bob","action":"add","cron":"0 9 * * 1","message":"review the open PRs"}`)); !strings.Contains(msg, "already asks for that schedule") {
+		t.Fatalf("%q", msg)
+	}
+	// replay of the same request id answers the same proposal and writes no second one
+	if again := propose("s1", `{"name":"bob","action":"add","cron":"0 9 * * 1","message":"review   the open PRs"}`)["result"].(map[string]any); again["proposal"] != res["proposal"] {
+		t.Fatalf("replay: %v", again)
+	}
+	r.decide(int64(res["proposal"].(float64)), "approve", p.subject(), "d1")
+	if got := r.file("agents", "bob", "agent.yaml"); !strings.Contains(got, "review the open PRs") || !strings.Contains(got, "0 9 * * 1") {
+		t.Fatalf("not applied:\n%s", got)
+	}
+	// edit and remove name the existing entry by its cron
+	edit := propose("s3", `{"name":"bob","action":"edit","was_cron":"0 9 * * 1","cron":"0 8 * * 1"}`)["result"].(map[string]any)
+	ep, _ := r.e.load(fmt.Sprintf("%08x", int64(edit["proposal"].(float64))))
+	if ep.sets()["message"] != "review the open PRs" || ep.sets()["message_was"] != "review the open PRs" || ep.sets()["cron_was"] != "0 9 * * 1" {
+		t.Fatalf("%+v", ep.sets())
+	}
+	r.decide(int64(edit["proposal"].(float64)), "approve", ep.subject(), "d2")
+	if got := r.file("agents", "bob", "agent.yaml"); !strings.Contains(got, "0 8 * * 1") || strings.Contains(got, "0 9 * * 1") {
+		t.Fatalf("not edited:\n%s", got)
+	}
+	rm := propose("s4", `{"name":"bob","action":"remove","was_cron":"0 8 * * 1"}`)["result"].(map[string]any)
+	rp, _ := r.e.load(fmt.Sprintf("%08x", int64(rm["proposal"].(float64))))
+	r.decide(int64(rm["proposal"].(float64)), "reject", rp.subject(), "d3")
+	if !strings.Contains(r.file("agents", "bob", "agent.yaml"), "0 8 * * 1") {
+		t.Fatal("a rejected removal removed it")
+	}
+	// a withdrawn proposal is taken back by its author
+	wd := propose("s5", `{"name":"bob","action":"remove","was_cron":"0 8 * * 1"}`)["result"].(map[string]any)
+	if m := r.callAs("alice", "hr.withdraw", fmt.Sprintf(`{"proposal":%d,"request_id":"w1"}`, int64(wd["proposal"].(float64)))); m["error"] != nil {
+		t.Fatalf("%v", m)
+	}
+	// neither an add nor an edit may leave two identical entries
+	if msg := refusal(propose("s6", `{"name":"bob","action":"add","cron":"0 8 * * 1","message":"review the open PRs"}`)); !strings.Contains(msg, "has this schedule already") {
+		t.Fatalf("add: %q", msg)
+	}
+	other := propose("s7", `{"name":"bob","action":"add","cron":"0 7 * * 1","message":"review the open PRs"}`)["result"].(map[string]any)
+	op, _ := r.e.load(fmt.Sprintf("%08x", int64(other["proposal"].(float64))))
+	r.decide(int64(other["proposal"].(float64)), "approve", op.subject(), "d4")
+	if msg := refusal(propose("s8", `{"name":"bob","action":"edit","was_cron":"0 7 * * 1","cron":"0 8 * * 1"}`)); !strings.Contains(msg, "has this schedule already") {
+		t.Fatalf("edit: %q", msg)
+	}
+}
+
+func TestAScheduleProposalIsRefusedWhenItIsTooOftenTooLongOrNamesNothing(t *testing.T) {
+	r := newRig(t)
+	call := func(rid, args string) string {
+		m := r.callAs("alice", "hr.propose", fmt.Sprintf(`{"kind":"schedule","args":%s,"why":"w","request_id":%q}`, args, rid))
+		msg, _ := m["error"].(map[string]any)["message"].(string)
+		return msg
+	}
+	for i, c := range []struct{ args, want string }{
+		{`{"name":"bob","action":"add","cron":"*/5 * * * *","message":"m"}`, "at most once an hour"},
+		{`{"name":"bob","action":"add","cron":"0,30 * * * *","message":"m"}`, "at most once an hour"},
+		{`{"name":"bob","action":"add","cron":"nope","message":"m"}`, "five fields"},
+		{`{"name":"bob","action":"add","cron":"0 9 * * *"}`, "needs --message"},
+		{`{"name":"bob","action":"add","cron":"0 9 * * *","message":"` + strings.Repeat("x", ScheduleMessageMax+1) + `"}`, "at most 1000"},
+		{`{"name":"bob","action":"remove","was_cron":"0 9 * * *"}`, "has no schedule with cron"},
+		{`{"name":"bob","action":"edit","cron":"0 9 * * *"}`, "say which schedule"},
+		{`{"name":"bob","action":"swap","cron":"0 9 * * *","message":"m"}`, "add, edit or remove"},
+		{`{"name":"ghost","action":"add","cron":"0 9 * * *","message":"m"}`, "ghost is not an agent"},
+	} {
+		if msg := call(fmt.Sprintf("g%d", i), c.args); !strings.Contains(msg, c.want) {
+			t.Errorf("%s: %q, want %q", c.args, msg, c.want)
+		}
 	}
 }

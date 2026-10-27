@@ -12,6 +12,7 @@ import { Loadable } from '#src/screens/Loadable.tsx';
 import { Answers } from '#src/screens/StandingAnswers.tsx';
 import { AppUpdate } from '#src/screens/AppUpdate.tsx';
 import { Button, PageHeader } from '#src/screens/parts.tsx';
+import { HandoffPrompt } from '#src/screens/HandoffPrompt.tsx';
 import { Connection } from '#src/screens/Connection.tsx';
 import { PairedDevices } from '#src/screens/PairedDevices.tsx';
 
@@ -147,9 +148,6 @@ const inRange = (min: number, max: number) => (t: string) => {
 };
 const parseTarget = inRange(50, 100);
 const parseBurst = inRange(0, 50);
-
-/** The handoff prompt is one line; a break is not sent, and an empty line is the built-in prompt. */
-export const parsePrompt = (t: string) => (/[\r\n]/.test(t) ? INVALID : t.trim());
 
 function Toggle(props: { id: string; label: string; hint: string; on: boolean; change: (on: boolean) => SettingsChanges }) {
   const c = usePalette();
@@ -323,22 +321,11 @@ function Settings(props: { footer: React.ReactNode }) {
             <Toggle
               id="handoff"
               label="Handoff note"
-              hint="A note for the next session before a close or move"
+              hint="Before a session closes, the agent writes a note for the next one"
               on={!!v.handoff_note}
               change={(on) => ({ handoff_note: on })}
             />
-            <Field
-              text
-              id="prompt"
-              label="Handoff prompt"
-              hint={`One line; {path} is the note's file and {max} its size limit.${
-                v.handoff_prompt?.includes('{path}') ? '' : ' Without {path} the path is added on a line of its own.'
-              }`}
-              current={v.handoff_prompt ?? ''}
-              parse={parsePrompt}
-              change={(t) => ({ handoff_prompt: t })}
-              allowed="one line: no line break"
-            />
+            <HandoffPrompt settings={query.data!} />
             <Toggle
               id="cache"
               label="Ignore cache expiry"
