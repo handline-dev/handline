@@ -735,7 +735,10 @@ func (m *Manager) launchClosed(agent string, row *db.AgentState, wt, session str
 		// A fresh start is handed it too: told the ordinary way, it would wait behind a first turn spent on the handoff.
 		t, told, got := must3(m.Delivery.WaitingPrompt(m.Q, agent))
 		waiting.text, waiting.told, waiting.ok = t, told, got
-		if resume && !got && !c.force {
+		// A head already told to the session that closed is still waiting but has nothing left to type (WaitingPrompt marks a request
+		// delivered once); the resumed session is told it again by the next delivery. Giving up on it left the wake reserved, silent and
+		// the same on every tick.
+		if resume && !got && !c.force && !m.waitingFor(agent) {
 			return false, "what was waiting for it is gone; nothing to resume it for"
 		}
 		restartNote := ""
