@@ -28,6 +28,7 @@ const KEYS = [
   'ram_free_min_pct',
   'heavy_slots',
   'keep_awake',
+  'reap_orphans',
 ];
 
 test('settings.get serves every SettingsValues key, a load limit reads back, and null restores the default', async () => {
