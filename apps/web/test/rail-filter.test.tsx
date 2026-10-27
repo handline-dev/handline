@@ -45,14 +45,14 @@ describe('the rail filter button', () => {
     expect(box.querySelector('[data-testid="filter-active"]')).toBeNull();
   });
 
-  it('is marked and counts the hidden dots, and Not running is not checked while one of its dots is hidden', async () => {
+  it('is marked and counts the hidden dots, and Waiting or stopped is not checked while one of its dots is hidden', async () => {
     await mount('parked');
     await until(() => filter().getAttribute('aria-label') === 'View: 1 hidden', 'the stored setting to move into prefs');
     expect(filter().getAttribute('aria-label')).toBe('View: 1 hidden');
     expect(box.querySelector('[data-testid="filter-active"]')).not.toBeNull();
     await act(async () => filter().click());
     await until(() => document.querySelector('[role="menuitemcheckbox"]'), 'the filter menu');
-    const sleeping = [...document.querySelectorAll('[role="menuitemcheckbox"]')].find((i) => i.textContent?.includes('Not running'));
+    const sleeping = [...document.querySelectorAll('[role="menuitemcheckbox"]')].find((i) => i.textContent?.includes('Waiting or stopped'));
     expect(sleeping?.getAttribute('aria-checked')).toBe('false');
   });
 });

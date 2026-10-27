@@ -133,7 +133,7 @@ export const RAIL_FILTERS: { id: string; label: string; dots: Dot[] }[] = [
   { id: 'working', label: 'Working', dots: ['running'] },
   { id: 'waking', label: 'Waking', dots: ['waking'] },
   { id: 'idle', label: 'Idle', dots: ['idle'] },
-  { id: 'sleeping', label: 'Not running', dots: ['parked', 'none'] },
+  { id: 'sleeping', label: 'Waiting or stopped', dots: ['parked', 'none'] },
 ];
 
 /** What is piled up for an agent: tasks it owns that are not done (`task_count`) and messages owed to it that have not reached it (`unreached`, which the daemon sends only for agents.list `status: true`). A count the view does not carry is null, never 0. */
