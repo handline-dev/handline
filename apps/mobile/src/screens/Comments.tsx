@@ -14,7 +14,17 @@ import { PrBody } from '#src/screens/PrBody.tsx';
 const small = { paddingVertical: space.sm, paddingHorizontal: space.md } as const;
 
 /** One comment with Edit and Delete (as the web's MemoRow). Both show at once and roll back with the reason on a refusal; Delete asks first. */
-export function CommentRow({ task, agent, memo, when }: { task: number; agent: string; memo: { id: number; author: string; text: string; files?: MemoFile[] }; when: string }) {
+export function CommentRow({
+  task,
+  agent,
+  memo,
+  when,
+}: {
+  task: number;
+  agent: string;
+  memo: { id: number; author: string; text: string; files?: MemoFile[] };
+  when: string;
+}) {
   const c = usePalette();
   const edit = useWrite('task.comment.edit', String(task));
   const del = useWrite('task.comment.delete', String(task));
