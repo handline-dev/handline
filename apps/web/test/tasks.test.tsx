@@ -551,7 +551,7 @@ describe('the detail', () => {
     expect(s.daemon.tasks.get({ task: 1688 }).evidence).toBe('landed as abc123');
     // the founder's own done task: the key says why it cannot be reopened
     await act(async () => void (location.hash = '#/tasks/1650'));
-    await until(() => text(document.body).includes('T1650'), 'task 1650'); // local-ref-ok
+    await until(() => $('.tdetail[aria-label$="T1650"] .tverbs'), 'task 1650'); // local-ref-ok
     expect(button('Reopen', $('.tverbs')!)).toBeUndefined(); // asked by 'founder', not by me
     await press('r', {}, $('.tbody')!);
     await until(() => text($('.toast')).includes('only a done task that you asked for can be reopened'), 'the bridge sentence');
