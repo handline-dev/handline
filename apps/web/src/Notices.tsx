@@ -1,6 +1,6 @@
 // The notices (T5591 N2): the bell at the status bar's right end with the unread count, the list that opens upward from it (a link to what
 // needs the person, then what happened, newest first), and the short results stacked above it.
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { clockTime, SPARE_SHOWN, spareNotice, targetOf, type Notice, type SpareNotice } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
 import { useMyTurn, useTasks, useWrite } from '@handline/app-data';
@@ -214,10 +214,52 @@ function Toast({ n }: { n: Notice }) {
   );
 }
 
+/** Lifts the stack above any chat composer it would cover, so Send stays reachable; re-fits as the window, the stack or the set of composers changes. */
+function useClearOfComposers(count: number) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let rows: Element[] = [];
+    const fit = () => {
+      el.style.transform = '';
+      const at = el.getBoundingClientRect();
+      let lift = 0;
+      for (const row of rows) {
+        const r = row.getBoundingClientRect();
+        if (r.width && r.left < at.right && r.right > at.left && r.top < at.bottom) lift = Math.max(lift, at.bottom - r.top + 8);
+      }
+      if (lift) el.style.transform = `translateY(-${lift}px)`;
+    };
+    const resize = new ResizeObserver(fit);
+    resize.observe(document.body);
+    resize.observe(el);
+    // A composer that mounts or unmounts later (navigation, a closed split pane) is not a resize of anything watched.
+    const sync = () => {
+      const now = [...document.querySelectorAll('.compose-row')];
+      if (now.length === rows.length && now.every((r, i) => r === rows[i])) return;
+      for (const r of rows) resize.unobserve(r);
+      rows = now;
+      for (const r of rows) resize.observe(r);
+      fit();
+    };
+    const mounts = new MutationObserver(sync);
+    mounts.observe(document.body, { childList: true, subtree: true });
+    sync();
+    fit();
+    return () => {
+      resize.disconnect();
+      mounts.disconnect();
+    };
+  }, [count]);
+  return ref;
+}
+
 function Toasts({ hidden }: { hidden: boolean }) {
   const store = useStore();
   const toasts = useSelector((s) => s.notices.toasts());
   const spare = useSpareNotices();
+  const stack = useClearOfComposers(hidden ? 0 : toasts.length + spare.length);
   useAway((away) => store.notices.setAway(away));
   // Escape closes the toast the focus is in, else the newest one.
   const first = toasts[0]?.id;
@@ -234,7 +276,11 @@ function Toasts({ hidden }: { hidden: boolean }) {
   }, [first, hidden, store]);
   if ((!toasts.length && !spare.length) || hidden) return null;
   return (
-    <div className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[360px] max-w-[90vw] flex-col-reverse gap-1.5" role="status">
+    <div
+      ref={stack}
+      className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[360px] max-w-[90vw] flex-col-reverse gap-1.5"
+      role="status"
+    >
       {spare.map((n) => (
         <div key={n.task} className="rounded-[8px] bg-raised shadow-[var(--shadow-2)]">
           <SpareCard n={n} />
