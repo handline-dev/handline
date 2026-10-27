@@ -29,6 +29,7 @@ export class Desk {
   private ports: Ports;
   private off: (() => void)[] = [];
   private seen = new Set<number>();
+  private timer: ReturnType<typeof setTimeout> | undefined;
   constructor(client: Feed, ports: Ports) {
     this.client = client;
     this.ports = ports;
@@ -37,7 +38,7 @@ export class Desk {
   /** Safe to call again after it threw: the handlers are added once, the subscription is asked for again. */
   async start(): Promise<void> {
     if (!this.off.length) this.listen();
-    await this.client.subscribe(['inbox', 'status', 'notifications']);
+    await this.client.subscribe(['inbox', 'status', 'notifications', 'agents', 'tasks']);
     // A daemon that does not serve hr yet refuses the topic; that must not take the badge and the other notices with it.
     await this.client.subscribe(['hr']).catch((e) => {
       if (!(e instanceof RpcError && e.code === 'bad_request')) throw e;
@@ -49,6 +50,8 @@ export class Desk {
     this.off.push(
       this.client.onEvent((e) => {
         if (e.topic === 'inbox' || e.topic === 'status') void this.refresh();
+        // An agent asking for the person and a task changing owner move the count too; these topics are chatty, so they wait out a burst.
+        if (e.topic === 'agents' || e.topic === 'tasks') this.later();
         if (e.topic === 'notifications' || e.topic === 'hr') this.raise(e);
       }),
     );
@@ -61,7 +64,13 @@ export class Desk {
     );
   }
 
+  private later(): void {
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => void this.refresh(), 300);
+  }
+
   stop(): void {
+    clearTimeout(this.timer);
     for (const f of this.off) f();
     this.off = [];
   }

@@ -98,7 +98,7 @@ test('the desk subscribes to hr and raises a notice for hr.raised only', async (
   } as unknown as Feed;
   const { log, p } = ports();
   await new Desk(feed, p).start();
-  assert.deepEqual(asked, [['inbox', 'status', 'notifications'], ['hr']]);
+  assert.deepEqual(asked, [['inbox', 'status', 'notifications', 'agents', 'tasks'], ['hr']]);
   handlers.event!(hr({ cursor: 2 }));
   handlers.event!(hr({ cursor: 3, type: 'hr.settled' }));
   handlers.event!(hr({ cursor: 2 })); // a replayed cursor is not raised twice
@@ -331,4 +331,29 @@ test('past 99 the badge and the tray line say 99+ while the exact count goes to 
   const { log, p } = ports();
   await new Desk(feed, p).start();
   assert.deepEqual(log.badge, ['99+/120']);
+});
+
+test('a burst of agents and tasks events refreshes the badge once, after the burst', async () => {
+  const handlers: { event?: (e: Event) => void } = {};
+  let calls = 0;
+  const feed = {
+    onEvent: (f: (e: Event) => void) => {
+      handlers.event = f;
+      return () => {};
+    },
+    onGap: () => () => {},
+    onState: () => () => {},
+    subscribe: async () => undefined,
+    call: async (m: string) => (m === 'inbox.list' && calls++, lists(1, m)),
+  } as unknown as Feed;
+  const { log, p } = ports();
+  const desk = new Desk(feed, p);
+  await desk.start();
+  for (const topic of ['agents', 'tasks', 'agents']) handlers.event!(ev({ topic, type: `${topic}.changed`, cursor: 9 }));
+  assert.equal(calls, 1);
+  await until(() => calls === 2);
+  await new Promise((r) => setTimeout(r, 450));
+  assert.equal(calls, 2);
+  assert.equal(log.badge.length, 2);
+  desk.stop();
 });
