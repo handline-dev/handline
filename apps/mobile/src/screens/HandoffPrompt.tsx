@@ -90,7 +90,11 @@ export function HandoffPrompt({ settings }: { settings: HandoffSettings }) {
         <Button testID="prompt-save" label="Save" onPress={commit} disabled={!!why} />
       </View>
       {note ? (
-        <Text testID="prompt-note" accessibilityRole={save.error ? 'alert' : undefined} style={{ ...small, color: save.error ? c.block : c.muted }}>
+        <Text
+          testID="prompt-note"
+          accessibilityRole={save.error ? 'alert' : undefined}
+          style={{ ...small, color: save.error ? c.block : c.muted }}
+        >
           {note}
         </Text>
       ) : null}

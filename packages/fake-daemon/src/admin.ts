@@ -340,7 +340,8 @@ export class FakeAdmin {
   handoffOwn: string[] = [];
 
   set(changes: SettingsChanges): void {
-    for (let [key, value] of Object.entries(changes)) {
+    for (const [key, given] of Object.entries(changes)) {
+      let value = given;
       if (key === 'handoff_prompt' && typeof value === 'string') {
         value = value.replace(/\s*[\r\n]+\s*/g, ' ').trim();
         if (value && value.length < 20) throw badRequest('Too short to guide a note. Leave it blank for the built-in.', 'handoff_prompt');

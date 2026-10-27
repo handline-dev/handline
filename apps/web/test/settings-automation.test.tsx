@@ -31,7 +31,6 @@ const setValue = (el: HTMLInputElement | HTMLTextAreaElement, value: string) =>
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
 const blur = (el: HTMLElement) => act(async () => void el.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
-const field = (label: string) => $(`[data-setting="${label}"] input`) as HTMLInputElement;
 const values = (s: ReturnType<typeof setup>) => s.daemon.admin.settings().values as Record<string, unknown>;
 
 async function mount(s = setup(), folds = true) {
