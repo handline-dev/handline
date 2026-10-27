@@ -408,6 +408,13 @@ func (e *Env) Record(agent, closedSession string) ([]string, error) {
 	if err := db.SetHandoff(e.DB, agent, text); err != nil {
 		return nil, err
 	}
+	if note, err := e.NoteText(agent); err != nil {
+		return nil, err
+	} else if note != "" {
+		if err := e.archive(agent, text); err != nil {
+			return nil, err
+		}
+	}
 	return missing, e.ClearNote(agent) // it is in the record now
 }
 

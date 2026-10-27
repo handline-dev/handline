@@ -143,6 +143,11 @@ func HandoffNoteFile(home, agent string) string {
 	return filepath.Join(AgentDir(home, agent), "handoff.md")
 }
 
+// HandoffArchiveDir keeps each handoff record an agent was handed with its note in it, one timestamped file per record.
+func HandoffArchiveDir(home, agent string) string {
+	return filepath.Join(AgentDir(home, agent), "handoffs")
+}
+
 // StrayHandoffFile is where a session in a dangling terminal of the agent writes its handoff before the terminal is closed.
 func StrayHandoffFile(home, agent string, pid int) string {
 	return filepath.Join(AgentDir(home, agent), fmt.Sprintf("handoff-%d.md", pid))
