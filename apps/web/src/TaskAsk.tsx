@@ -4,7 +4,6 @@ import { taskRef } from '@handline/app-core';
 import { useWrite } from '@handline/app-data';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { ReasonSheet, Sheet } from '#src/taskui.tsx';
-import { AssignSheet } from '#src/TaskPeople.tsx';
 import { CancelSheet } from '#src/TaskDetailParts.tsx';
 
 export type Ask = null | 'done' | 'reopen' | 'discard' | 'cancel' | 'withdraw' | 'release' | 'assign';
@@ -43,7 +42,13 @@ export function AskSheets({
         />
       ) : null}
       {ask === 'reopen' ? (
-        <ReasonSheet key="reopen" label="reopen: why?" submit="Reopen" onCancel={onClose} onSubmit={(note) => then(reopen, { task: t.id, note })} />
+        <ReasonSheet
+          key="reopen"
+          label="reopen: why?"
+          submit="Reopen"
+          onCancel={onClose}
+          onSubmit={(note) => then(reopen, { task: t.id, note })}
+        />
       ) : null}
       {ask === 'discard' ? (
         <ReasonSheet
@@ -66,7 +71,13 @@ export function AskSheets({
         </Sheet>
       ) : null}
       {ask === 'cancel' ? (
-        <CancelSheet key="cancel" running={running} id={t.id} onCancel={onClose} onSubmit={(reason) => then(cancel, { task: t.id, reason })} />
+        <CancelSheet
+          key="cancel"
+          running={running}
+          id={t.id}
+          onCancel={onClose}
+          onSubmit={(reason) => then(cancel, { task: t.id, reason })}
+        />
       ) : null}
       {ask === 'release' ? (
         <ReasonSheet
@@ -77,7 +88,6 @@ export function AskSheets({
           onSubmit={(reason) => then(release, { task: t.id, reason })}
         />
       ) : null}
-      {ask === 'assign' ? <AssignSheet key="assign" t={t} me={me} onClose={onClose} /> : null}
     </AnimatedList>
   );
 }

@@ -56,6 +56,24 @@ describe('the task page', () => {
     expect($('.line-clamp-4', $('article.tdetail')!)).toBeNull();
   });
 
+  it('says "Not picked up yet" as a quiet line, not a boxed warning, when only the daemon has not looked at the task', async () => {
+    const s = setup();
+    const row = (
+      s.daemon.tasks as unknown as { rows: { id: number; to: string; state: string; blockers: unknown[]; hold_reason: string }[] }
+    ).rows.find((r) => r.id === 1688)!;
+    Object.assign(row, {
+      to: 'handline.architect',
+      state: 'queued',
+      blockers: [],
+      hold_reason: 'waiting: the daemon has not looked at it yet - it does on its next tick',
+    });
+    await mount('#/tasks/1688', s);
+    await until(() => $('.twhy'), 'the waiting line');
+    const why = $('.twhy')!;
+    expect(text(why).trim()).toBe('Not picked up yet');
+    expect(why.className).not.toContain('border-wait');
+  });
+
   it('does not say again, under the state chip, that a task waits on the founder', async () => {
     const s = setup();
     const row = (s.daemon.tasks as unknown as { rows: { id: number; to: string; state: string; blockers: unknown[] }[] }).rows.find(
