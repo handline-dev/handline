@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/hlclient"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/paths"
@@ -161,6 +162,10 @@ func capture(c *hlclient.Client, d *sql.DB, agent, event string, raw map[string]
 		fmt.Println("{}")
 		return 0
 	}
+	out := "{}"
+	if event == "Stop" {
+		out = founderNudge(&session.Env{DB: d, Home: c.Home}, agent, raw) // before the record, so the last Stop recorded is the turn before
+	}
 	record(c, agent, event, raw)
 	if collected[event] {
 		cwd, _ := raw["cwd"].(string)
@@ -170,6 +175,27 @@ func capture(c *hlclient.Client, d *sql.DB, agent, event string, raw map[string]
 		sid, _ := raw["session_id"].(string)
 		usage.CollectSnapshot(c.Home, agent, cwd, sid)
 	}
-	fmt.Println("{}")
+	fmt.Println(out)
 	return 0
+}
+
+// founderNudge is the Stop hook's output: a block, once per message, when a founder's message typed in this turn has no answer
+// (session.UnansweredFounder), else {}. A Stop the hook already held (stop_hook_active) and any error pass.
+func founderNudge(env *session.Env, agent string, raw map[string]any) (out string) {
+	defer func() {
+		if recover() != nil {
+			out = "{}"
+		}
+	}()
+	if active, _ := raw["stop_hook_active"].(bool); active {
+		return "{}"
+	}
+	rid, err := env.UnansweredFounder(agent)
+	if err != nil || rid == 0 {
+		return "{}"
+	}
+	if first, err := env.NoteFounderNudged(agent, rid); err != nil || !first {
+		return "{}"
+	}
+	return rpc.PyJSON(map[string]any{"decision": "block", "reason": session.FounderNudgeText(db.MsgName(env.DB, rid))}, true, true)
 }
