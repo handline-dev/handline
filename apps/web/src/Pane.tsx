@@ -17,8 +17,6 @@ import {
   type TabParams,
   type Workspace,
 } from '@handline/app-core';
-import { useHello, useMe } from '@handline/app-react';
-import { useWrite } from '@handline/app-data';
 import { ChatTab } from '#src/ChatTab.tsx';
 import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
 import { TasksTab } from '#src/TasksTab.tsx';
@@ -34,6 +32,7 @@ import { ChatStrip } from '#src/ChatCards.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
 import { goSettings } from '#src/route.ts';
 import { RailControls, useFoldedControls } from '#src/RailControls.tsx';
+import { usePaneData, type PaneData } from '#src/PaneData.ts';
 
 const label = (t: Tab, structured = false): string =>
   t.kind === 'chat'
@@ -74,16 +73,18 @@ const TAB_KEYS: KeyRows = [
   ['Enter Space', 'show the focused tab'],
 ];
 
+/** The pane's data (who I am, what the daemon serves, the shell writes) is read once here; the view below holds none. */
 export function Pane({ group }: { group: Group }) {
+  const { agent } = useWorkspace();
+  return <PaneView group={group} data={usePaneData(agent)} />;
+}
+
+function PaneView({ group, data: { me, hello, openShell, closeShell } }: { group: Group; data: PaneData }) {
   useScreenKeys('On the tabs', TAB_KEYS);
   const { ws, detail, agent, storage, apply, show, canSplit, lead, dragging, setDragging } = useWorkspace();
-  const { mutateAsync: openShell } = useWrite('shell.open', agent);
-  const { mutate: closeShell } = useWrite('shell.close', agent);
   const folded = useFoldedControls();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
-  const me = useMe();
-  const hello = useHello();
   const badges = badgesOf(detail, me);
   const structured = detail.structured === true;
   // What a new tab can show: the same flat list for the + menu and for the picker in a freshly split pane.
