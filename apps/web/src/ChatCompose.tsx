@@ -198,7 +198,10 @@ export function Compose(props: {
         onRetry={att.retry}
         onUnref={att.unrefer}
       />
-      <ComposeRow className={cmd ? 'shadow-[inset_0_0_0_1px_var(--cmd)]' : undefined}>
+      <ComposeRow className={cmd ? '[--focus:var(--cmd)]' : undefined}>
+        {cmd ? (
+          <span className="compose-cmd absolute bottom-full left-3 mb-0.5 text-hint text-ink-2">Sent as typed to the agent</span>
+        ) : null}
         {menu ? (
           <ul
             className="compose-menu absolute inset-x-0 bottom-full z-10 m-0 mb-1 max-h-60 list-none overflow-auto rounded-card border border-line-strong bg-panel px-0 py-1 shadow-[var(--shadow-2)]"
@@ -238,7 +241,7 @@ export function Compose(props: {
           }}
           onKeyDown={onKey}
         />
-        {cmd ? null : <PickButton onPick={att.add} disabled={!canSend || !canAttach.ok} />}
+        <PickButton onPick={att.add} disabled={cmd || !canSend || !canAttach.ok} />
         {clearing ? (
           <span className="compose-clear self-center text-wait" role="status" title="Esc again clears the draft">
             <Icon name="warn" size={14} label="Esc again clears the draft" />

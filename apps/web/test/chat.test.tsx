@@ -235,6 +235,8 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await click(msg('Use the contract fixtures.')!.querySelector('.msg-body')!);
     await typeInto(compose(), '!git status');
     expect(compose().className).toContain('font-mono');
+    expect($('.compose-cmd')?.textContent).toBe('Sent as typed to the agent');
+    expect($('.compose-attach')).not.toBeNull(); // the slot stays, so the box does not move
     await press(compose(), 'Enter');
     await until(() => sentMsgs(t).some((m) => m.body === '!git status'), 'the daemon got it');
     expect(sentMsgs(t).find((x) => x.body === '!git status')!.parent).toBeNull();
