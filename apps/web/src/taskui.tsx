@@ -1,5 +1,5 @@
 // Small pieces the Tasks list and the task detail share: the state chip, the clock, the width query and the inline reason sheet.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { isPerson } from '@handline/app-core';
 import { useMe } from '@handline/app-react';
 import { useServes } from '@handline/app-data';
@@ -94,6 +94,24 @@ export function useWide(px: number): boolean {
     return () => m.removeEventListener('change', on);
   }, [query]);
   return wide;
+}
+
+/**
+ * Which optional columns of the table fit its own width (not the window's: the detail pane takes part of it). The one place that decides, so the
+ * colgroup, the group headings' span and the cells agree; on a phone the rows are cards and show everything.
+ */
+export function useTableColumns(ref: RefObject<HTMLElement | null>): { owner: boolean; pri: boolean } {
+  const [width, setWidth] = useState(Infinity);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const on = () => setWidth(innerWidth < 640 ? Infinity : el.clientWidth || Infinity);
+    on();
+    const ro = new ResizeObserver(on);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return { owner: width > 600, pri: width > 720 };
 }
 
 /** Whether the daemon lists the method; a control for one it does not is shown disabled and says why. */
