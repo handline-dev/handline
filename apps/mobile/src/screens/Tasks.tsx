@@ -322,7 +322,12 @@ function Body({ t }: { t: TaskDetail }) {
     </Text>
   );
   return (
-    <ScrollView testID="task-detail" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: space.lg, gap: space.lg }}>
+    <ScrollView
+      testID="task-detail"
+      automaticallyAdjustKeyboardInsets
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={{ padding: space.lg, gap: space.lg }}
+    >
       <Text style={{ color: c.ink, fontSize: font.size.page, fontWeight: '700' }}>{t.title}</Text>
       {t.body ? <PrBody id={`task-${t.id}`} agent={t.to} body={t.body} /> : null}
       <Text style={{ color: c.muted }}>
