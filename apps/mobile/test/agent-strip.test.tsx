@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { act } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ARCH, $, mount, press, text, until } from '#test/harness.tsx';
 import { cacheText } from '#src/screens/AgentStrip.tsx';
 
@@ -28,20 +29,34 @@ describe('the strip in the agent page menu', () => {
     m.store.stop();
   });
 
-  it('redraws when the cache runs out', async () => {
-    const m = await open((s) => (s.daemon.sessions.get(ARCH)!.strip = { cache_left_s: 6 }));
-    await until(() => /\ds left/.test(text($('strip-cache'))), 'the count'); // the clock runs while the page opens, so only that it is counting is waited for
-    await until(() => text($('strip-cache')).includes('lapsed'), 'the lapse', 8000);
-    m.store.stop();
-  });
+  describe('with the clock driven', () => {
+    // The strip counts on Date and setTimeout; the clock still moves with real time, and a test jumps it by the seconds it wants to see.
+    beforeEach(() => void vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], shouldAdvanceTime: true }));
+    afterEach(() => void vi.useRealTimers());
+    const jump = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+    const cache = () => text($('strip-cache'));
+    const left = () => Number(/(\d+)s left/.exec(cache())?.[1]);
 
-  it('counts the seconds down while under a minute', async () => {
-    const m = await open((s) => (s.daemon.sessions.get(ARCH)!.strip = { cache_left_s: 30 }));
-    const left = () => Number(/(\d+)s left/.exec(text($('strip-cache')))?.[1] ?? NaN);
-    await until(() => left() < 30, 'the count');
-    const first = left();
-    for (const n of [1, 2, 3]) await until(() => left() <= first - n, `${n}s fewer`, 2500);
-    m.store.stop();
+    it('redraws when the cache runs out', async () => {
+      const m = await open((s) => (s.daemon.sessions.get(ARCH)!.strip = { cache_left_s: 60 }));
+      await until(() => /\ds left/.test(cache()), 'the count');
+      await jump(61_000);
+      await until(() => cache().includes('lapsed'), 'the lapse');
+      m.store.stop();
+    });
+
+    it('counts the seconds down while under a minute', async () => {
+      const m = await open((s) => (s.daemon.sessions.get(ARCH)!.strip = { cache_left_s: 1000 }));
+      await until(() => /\dm left/.test(cache()), 'the count in minutes');
+      await jump(1000 * 1000 - 3000);
+      await until(() => /^[2-4]s left$/.test(cache()), 'the last seconds');
+      const first = left();
+      for (const n of [1, 2]) {
+        await jump(1000);
+        await until(() => left() === first - n, `${first - n}s left`);
+      }
+      m.store.stop();
+    });
   });
 
   it('is absent when the daemon does not serve agent.strip', async () => {
