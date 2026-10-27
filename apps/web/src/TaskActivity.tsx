@@ -7,6 +7,7 @@ import { classify, sentence, useAgents, useOff, useWrite } from '@handline/app-d
 import { useHello, useMe } from '@handline/app-react';
 import { BodyEditor } from '#src/BodyEditor.tsx';
 import { CommentPicture } from '#src/CommentPicture.tsx';
+import { Thumbs } from '#src/AttachmentImage.tsx';
 import { MemoFiles } from '#src/MemoFiles.tsx';
 import { Markdown } from '#src/Markdown.tsx';
 import { AgentLink } from '#src/TaskInline.tsx';
@@ -86,7 +87,9 @@ function Comment({ t, item, onReply }: { t: Detail; item: ActivityItem; onReply?
       </span>
       {of ? <span className="truncate text-hint text-ink-3" data-reply-to={of.id}>{`↩ ${of.author}: ${firstLine(of.text)}`}</span> : null}
       <div className="min-w-0">
-        <Markdown text={item.note} />
+        <Thumbs.Provider value>
+          <Markdown text={item.note} />
+        </Thumbs.Provider>
       </div>
       {m?.files?.length ? <MemoFiles files={m.files} /> : null}
       {del.isError ? <span role="alert">{sentence(classify(del.error))}</span> : null}

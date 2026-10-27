@@ -1,9 +1,12 @@
 // The one picture of an uploaded image: a small copy in the text, the original in the ImageViewer behind a click. Chat pictures, memos and task
 // descriptions all draw it (the editor draws it for an image node too).
-import { useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { useAttachmentUrl } from '@handline/app-data';
 import { ImageViewer, type Picture } from '#src/ImageViewer.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
+
+/** Pictures drawn under it are thumbnails: a comment's text draws its inline images through RichText, which cannot pass `thumb` down. */
+export const Thumbs = createContext(false);
 
 /** `thumb` is a fixed small thumbnail (a comment's pictures), never the full-height copy a chat message shows. */
 export function AttachmentImage({
@@ -20,6 +23,8 @@ export function AttachmentImage({
   thumb?: boolean;
 }) {
   const small = useAttachmentUrl(id, true);
+  const inThumbs = useContext(Thumbs);
+  thumb ??= inThumbs;
   const [open, setOpen] = useState(false);
   const label = name || 'image';
   if (small.failed)
