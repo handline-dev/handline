@@ -31,8 +31,8 @@ test('orders the segments by time and adds them up with their shares', () => {
 test('totals the kinds the task spent time in, working first', () => {
   assert.deepEqual(timeView(segments).totals, [
     { kind: 'working', word: 'Working', seconds: 3 * 3600 },
-    { kind: 'waiting', word: 'Waiting', seconds: 1800 },
-    { kind: 'queued', word: 'Up next', seconds: 3600 },
+    { kind: 'waiting', word: 'Needs you', seconds: 1800 },
+    { kind: 'queued', word: 'Waiting', seconds: 3600 },
   ]);
 });
 test('words a stretch with no reason by its kind, and an empty task has nothing', () => {

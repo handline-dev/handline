@@ -1,19 +1,19 @@
-// One task: title and status, why it waits, owner, priority and time box as chips, the brief (folded), what it waits on and what hangs under it,
-// one Activity list, and along the bottom the one main action, Cancel and More. The history and the time open from More. A verb that does not apply is
+// One task: title, status and a History button, the Time line, why it waits, assignee, priority and time box as chips, the brief (folded), what it
+// waits on and what hangs under it, one Activity list, and along the bottom Done, Assign, Comment, Cancel and More. A verb that does not apply is
 // hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { dateTime, HELD, taskRef, watchResult } from '@handline/app-core';
+import { dateTime, HELD, isPerson, taskRef, watchResult } from '@handline/app-core';
 import { useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
-import { classify, useOff, usePending, useTask, useTaskHistory, useTaskTime, useWrite } from '@handline/app-data';
-import { Button, MenuButton, MenuItem, MenuSeparator } from '#src/ui/index.ts';
+import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
+import { Button, MenuButton, MenuItem, Popup } from '#src/ui/index.ts';
 import { leave } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
 import { AskSheets, type Ask } from '#src/TaskAsk.tsx';
 import { TaskChips, TaskWatch, TaskLinks } from '#src/TaskDetailParts.tsx';
 import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
 import { TaskHistory } from '#src/TaskHistory.tsx';
-import { TaskTime } from '#src/TaskTime.tsx';
+import { TimeLine } from '#src/TaskTime.tsx';
 import { Activity } from '#src/TaskActivity.tsx';
 import { Markdown } from '#src/Markdown.tsx';
 import { RichText } from '#src/RichText.tsx';
@@ -48,7 +48,7 @@ export function TaskDetail({
           ? ' w-[min(480px,45%)] flex-none border-l border-line bg-surface'
           : embedded
             ? ' pane relative flex-1 bg-panel -outline-offset-1'
-            : ' flex-1 mx-auto w-full max-w-[var(--w-page)]'
+            : ' flex-1 mx-auto w-full max-w-[var(--w-page)] bg-canvas'
       }`}
       aria-label={`Task ${taskRef(id)}`}
     >
@@ -79,9 +79,6 @@ function Body({ t }: { t: Detail }) {
   const [ask, setAsk] = useState<Ask>(null);
   const commentBox = useRef<HTMLDivElement>(null);
   const edit = useEditTask(t);
-  const [showHistory, setShowHistory] = useState(false);
-  const [showTime, setShowTime] = useState(false);
-  const noTime = useOff('task.time');
   const queue = useWrite('task.queue');
   const draft = useWrite('task.draft');
   const cancel = useWrite('task.cancel');
@@ -138,8 +135,10 @@ function Body({ t }: { t: Detail }) {
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => root.current?.focus({ preventScroll: true }), [t.id]);
 
-  const why = (t.status ? (HELD.includes(t.status.state) ? t.status.text : undefined) : t.waiting?.text) ?? t.hold_reason ?? t.block_reason;
-  const yes = { ok: true, why: undefined };
+  // The state chip already says it waits on a person, so the box leaves that out and keeps any other reason.
+  const waitsOnTask = t.waiting && t.waiting.on !== 'founder' && !isPerson(t.waiting.on, me) ? t.waiting.text : undefined;
+  const heldText = t.status && HELD.includes(t.status.state) && t.status.reason !== 'you' ? t.status.text : undefined;
+  const why = (t.status ? heldText : waitsOnTask) ?? t.hold_reason ?? t.block_reason;
   const item = (label: string, key: string, run: () => void, can: { ok: boolean; why?: string }) => ({ label, key, run, can });
   // What changes the status, in the dropdown on the state; the one that fits best is also the main button.
   const status = [
@@ -154,14 +153,11 @@ function Body({ t }: { t: Detail }) {
   const more = [
     ...status.filter((v) => v !== first),
     ...(startable && mine ? [item('Withdraw', 'w', verbs.w, can.withdraw)] : []),
-    ...(open ? [item('Discard', 'd', verbs.d, can.discard), item('Assign', 'o', verbs.o, edit.can)] : []),
-    'sep' as const,
-    item(showHistory ? 'Hide history' : 'Show history', '', () => setShowHistory(!showHistory), yes),
-    ...(noTime ? [] : [item(showTime ? 'Hide time' : 'Show time', '', () => setShowTime(!showTime), yes)]),
+    ...(open ? [item('Discard', 'd', verbs.d, can.discard)] : []),
   ];
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
   return (
-    <div className="tbody flex min-h-full flex-col" ref={root} tabIndex={-1} onKeyDown={key}>
+    <div className="tbody flex min-h-full flex-col bg-inherit" ref={root} tabIndex={-1} onKeyDown={key}>
       <header className="tdetail-head flex flex-wrap items-baseline gap-2">
         <h2 className="m-0 min-w-0 text-title font-semibold">
           <span className="mono">{taskRef(t.id)}</span>{' '}
@@ -190,6 +186,7 @@ function Body({ t }: { t: Detail }) {
         ) : (
           <StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />
         )}
+        <HistoryButton id={t.id} />
       </header>
       <p className="m-0 mt-1 text-hint text-ink-3">
         Asked by <AgentLink name={t.from} /> · created {dateTime(t.created)}
@@ -204,6 +201,7 @@ function Body({ t }: { t: Detail }) {
           </>
         ) : null}
       </p>
+      <TimeLine id={t.id} />
       <TaskWatch t={t} />
       {why ? (
         <p className="twhy m-0 mt-3 rounded-card border border-wait px-3 py-2 text-wait" role="status">
@@ -228,11 +226,9 @@ function Body({ t }: { t: Detail }) {
       ) : null}
 
       <Activity t={t} box={commentBox} />
-      {showTime ? <TimeSection id={t.id} /> : null}
-      {showHistory ? <HistorySection id={t.id} /> : null}
 
       {/* A sticky bar stops above the scroll box's 12 px bottom padding; -bottom-3 takes it to the edge. */}
-      <div className="task-footer sticky -bottom-3 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-canvas px-4 pb-[calc(var(--sp-3,12px)+0.5rem+env(safe-area-inset-bottom))] pt-2">
+      <div className="task-footer sticky -bottom-3 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-inherit px-4 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pt-1.5">
         <AskSheets t={t} me={me} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
 
         <div className="tverbs flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Task actions">
@@ -251,6 +247,21 @@ function Body({ t }: { t: Detail }) {
           {open ? (
             <Button
               variant="outline"
+              label="Assign"
+              title={edit.can.why ?? 'Assign (o)'}
+              disabled={!edit.can.ok}
+              className="max-sm:min-h-[44px]"
+              onClick={verbs.o}
+            >
+              Assign
+            </Button>
+          ) : null}
+          <Button variant="outline" label="Comment" title="Comment (a)" className="max-sm:min-h-[44px]" onClick={verbs.a}>
+            Comment
+          </Button>
+          {open ? (
+            <Button
+              variant="outline"
               label="Cancel task"
               title={can.cancel.why ?? 'Cancel task (c)'}
               disabled={!can.cancel.ok}
@@ -261,15 +272,11 @@ function Body({ t }: { t: Detail }) {
             </Button>
           ) : null}
           <MenuButton label="More" trigger="More ▾" variant="outline" className="max-sm:min-h-[44px]">
-            {more.map((v) =>
-              v === 'sep' ? (
-                <MenuSeparator key="sep" />
-              ) : (
-                <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
-                  {v.label}
-                </MenuItem>
-              ),
-            )}
+            {more.map((v) => (
+              <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
+                {v.label}
+              </MenuItem>
+            ))}
           </MenuButton>
         </div>
       </div>
@@ -303,26 +310,22 @@ function Brief({ t, can }: { t: Detail; can: boolean }) {
   );
 }
 
-/** Every field changed, from task.history; it is read only once opened from More. */
-function HistorySection({ id }: { id: number }) {
-  const history = useTaskHistory(id);
-  const rows = history.data?.rows ?? [];
-  return rows.length ? (
-    <section aria-label="History" className="mt-4">
-      <h3 className="m-0 mb-1 text-ink-3">History · {rows.length} changes</h3>
-      <TaskHistory rows={rows} />
-    </section>
-  ) : null;
+/** The History button in the header: every field changed, from task.history, in a popover with its filters; read only once opened. */
+function HistoryButton({ id }: { id: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative ml-auto">
+      <Button icon="history" label="History" title="History" aria-expanded={open} onClick={() => setOpen(!open)} />
+      <Popup open={open} onClose={() => setOpen(false)} title="History" align="right" bare>
+        <div className="max-h-[60vh] w-[min(420px,90vw)] overflow-auto p-2">
+          <HistoryRows id={id} />
+        </div>
+      </Popup>
+    </span>
+  );
 }
 
-/** Where its time went, from task.time; it is read only once opened from More. */
-function TimeSection({ id }: { id: number }) {
-  const time = useTaskTime(id);
-  const segments = time.data?.segments ?? [];
-  return segments.length ? (
-    <section aria-label="Time" className="mt-4">
-      <h3 className="m-0 mb-1 text-ink-3">Time</h3>
-      <TaskTime segments={segments} />
-    </section>
-  ) : null;
+function HistoryRows({ id }: { id: number }) {
+  const rows = useTaskHistory(id).data?.rows ?? [];
+  return rows.length ? <TaskHistory rows={rows} /> : <p className="m-0 text-ink-3">No changes yet.</p>;
 }

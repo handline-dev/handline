@@ -87,13 +87,15 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
         return read.mutate({ ids: [a.id] });
     }
   };
+  // The rarer verbs are a three-dot menu at the card's top-right, and so is Reply unless it is the card's main verb: then it stays a button.
   const main = card.actions.slice(0, card.primary);
-  const rest = card.actions.slice(card.primary);
+  const rest = card.actions.slice(card.primary).filter((a) => a.type !== 'answer');
   const answerId = card.actions.find((a) => a.type === 'answer');
+  const replyIcon = answerId && !main.includes(answerId) ? answerId : undefined;
   const askId = card.actions.find((a) => a.type === 'ask_change')?.item.id;
   return (
     <article
-      className={`my-turn-card rounded-card border bg-panel px-3 py-2.5 ${selected ? 'border-primary' : 'border-line'}`}
+      className={`my-turn-card group rounded-card border bg-panel px-3 py-2.5 ${selected ? 'border-primary' : 'border-line'}`}
       data-kind={card.kind}
       data-card={card.key}
       aria-current={selected || undefined}
@@ -124,6 +126,22 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
           ) : null}
           <span className={`text-hint ${card.review ? 'text-ok' : 'text-ink-2'}`}>{card.review ? 'Review' : KIND[card.kind]}</span>
           <h3 className="m-0 min-w-0 flex-1 truncate text-[15px] font-medium">{card.title}</h3>
+          <span
+            className="flex items-center self-center opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            {replyIcon ? <Button size="sm" icon="reply" label="Reply" onClick={() => run(replyIcon)} /> : null}
+            {rest.length ? (
+              <MenuButton size="sm" icon="ellipsis" label="More">
+                {rest.map((a, i) => (
+                  <MenuItem key={a.type + i} onSelect={() => run(a)}>
+                    {label(a)}
+                  </MenuItem>
+                ))}
+              </MenuButton>
+            ) : null}
+          </span>
         </header>
         <p className="muted m-0 mt-0.5 flex flex-wrap gap-x-3 text-hint">
           {card.from ? (
@@ -148,15 +166,6 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
             {label(a)}
           </Button>
         ))}
-        {rest.length ? (
-          <MenuButton label="More" icon="menu">
-            {rest.map((a, i) => (
-              <MenuItem key={a.type + i} onSelect={() => run(a)}>
-                {label(a)}
-              </MenuItem>
-            ))}
-          </MenuButton>
-        ) : null}
       </div>
       {refused ? (
         <p className="m-0 mt-1 text-hint text-bad" role="alert">
