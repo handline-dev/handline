@@ -274,7 +274,11 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
             onPointerDown={scroll.driven}
             onScroll={scroll.onScroll}
           >
-            <div ref={content} className="flex min-h-full flex-col gap-2 px-3 pb-2 pt-3 [&>*]:flex-none [&>.skeleton]:self-stretch">
+            {/* A short chat sits at the bottom, next to the composer; one that fills the window is unchanged. */}
+            <div
+              ref={content}
+              className={`flex min-h-full flex-col gap-2 px-3 pb-2 pt-3 [&>*]:flex-none [&>.skeleton]:self-stretch${entries.length ? ' justify-end' : ''}`}
+            >
               <Skeleton shape="chat" loading={loading} shown={skeleton} label="the conversation" />
               {chat.status === 'error' && sentence(classify(chat.error)) ? (
                 <div className="banner" role="alert">
