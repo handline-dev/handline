@@ -38,3 +38,11 @@ xcrun simctl install booted ios/build/Build/Products/Debug-iphonesimulator/Handl
 xcrun simctl io booted screenshot shot.png        # a screenshot without a window
 emulator -avd <name> -no-window -no-audio &       # Android, the same way
 ```
+
+Start the emulator, the simulator and Metro for a check and stop them when it ends, also when it failed: a forgotten one keeps burning CPU for days.
+
+```
+adb emu kill                                      # the Android emulator
+xcrun simctl shutdown all                         # the iOS simulator
+pkill -f "expo start"                             # Metro, if the check started it
+```
