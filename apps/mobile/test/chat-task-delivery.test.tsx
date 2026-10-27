@@ -10,14 +10,14 @@ describe('chat task delivery on the phone', () => {
         to: ARCH,
         body: 'Founder decisions one at a time',
         kind: 'task',
-        tasks: [{ id: 6477, title: 'Founder decisions' }],
-      }); // local-ref-ok
+        tasks: [{ id: 91, title: 'Founder decisions' }],
+      });
     });
     await until(() => $(`agent-${ARCH}`), 'the rows');
     await press($(`agent-${ARCH}`));
     await pickTab('chat');
     await until(() => text().includes('Founder decisions one at a time'), 'the message');
-    expect(text()).toContain(`Task T6477 handed to ${ARCH}`);
+    expect(text()).toContain(`Task T91 handed to ${ARCH}`);
     expect(text()).not.toContain(`human → ${ARCH}`);
     m.store.stop();
   });

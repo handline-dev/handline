@@ -21,14 +21,14 @@ afterEach(async () => {
 describe('chat task delivery', () => {
   it('labels it "Task T# handed to <agent>" instead of a from → to line', async () => {
     const s = setup();
-    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: BODY, kind: 'task', tasks: [{ id: 6477, title: 'Founder decisions' }] }); // local-ref-ok
+    s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: BODY, kind: 'task', tasks: [{ id: 91, title: 'Founder decisions' }] });
     location.hash = `#/agents/${ARCH}`;
     box = document.body.appendChild(document.createElement('div'));
     root = createRoot(box);
     await act(async () => root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />));
     const find = () => [...box.querySelectorAll<HTMLElement>('.msg')].find((m) => m.textContent?.includes(BODY));
     for (let t = 0; t < 3000 && !find(); t += 10) await act(async () => void (await new Promise((r) => setTimeout(r, 10))));
-    expect(find()?.textContent).toContain(`Task T6477 handed to ${ARCH}`);
+    expect(find()?.textContent).toContain(`Task T91 handed to ${ARCH}`);
     expect(find()?.textContent).not.toContain('human');
   });
 });
