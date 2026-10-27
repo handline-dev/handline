@@ -168,4 +168,14 @@ describe('Edit and Delete on a comment', () => {
     expect(sheet('Edit comment')).toBeNull();
     expect(text(s)).toContain('mine');
   });
+
+  it('hides the composer Source link while a comment is edited, and gives it back after', async () => {
+    await mount();
+    const composerSource = () => [...section()!.querySelectorAll('button')].find((b) => b.textContent === 'Source');
+    expect(composerSource()).toBeDefined();
+    await act(async () => void (await item(comments()[0]!, 'Edit'))!.click());
+    expect(composerSource()).toBeUndefined();
+    await act(async () => void button(sheet('Edit comment')!, 'Cancel')!.click());
+    expect(composerSource()).toBeDefined();
+  });
 });

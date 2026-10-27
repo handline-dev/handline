@@ -1,6 +1,6 @@
 // The task description editor: Markdown stored, shown and edited rich (Tiptap), with a source view for the raw text. A pasted or dropped image is
 // uploaded and goes in at the cursor as `![name](attachment:ID)`; an image node draws with the same AttachmentImage as chat and memos.
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { mergeAttributes, type Editor } from '@tiptap/core';
 import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor, type NodeViewProps } from '@tiptap/react';
 import { NodeSelection } from '@tiptap/pm/state';
@@ -10,15 +10,16 @@ import Image from '@tiptap/extension-image';
 import type { Attachment } from '@handline/client';
 import { imageRef, insertImageRef, mentionAt, mentionNames } from '@handline/app-core';
 import { classify, sentence, useUploadImage, whyNotImage } from '@handline/app-data';
-import { AttachmentImage } from '#src/AttachmentImage.tsx';
+import { AttachmentImage, Thumbs } from '#src/AttachmentImage.tsx';
 import { forEditor, keepTyped } from '#src/bodyMarkdown.ts';
 
 const idOf = (src: unknown) => /^attachment:(.+)$/.exec(String(src ?? ''))?.[1];
 
 function ImageView({ node }: NodeViewProps) {
   const id = idOf(node.attrs.src);
+  const thumbs = useContext(Thumbs); // a compact editor draws its pictures as the small thumbnails of the view, side by side
   return (
-    <NodeViewWrapper contentEditable={false}>
+    <NodeViewWrapper contentEditable={false} className={thumbs ? 'inline-block align-top' : undefined}>
       {id ? (
         <AttachmentImage id={id} name={String(node.attrs.alt ?? '')} />
       ) : (
@@ -229,7 +230,9 @@ export function BodyEditor(props: {
           }}
         />
       ) : (
-        <EditorContent editor={editor} />
+        <Thumbs.Provider value={!!props.compact}>
+          <EditorContent editor={editor} />
+        </Thumbs.Provider>
       )}
       {pick ? (
         <ul

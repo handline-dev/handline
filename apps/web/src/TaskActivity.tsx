@@ -24,7 +24,17 @@ const ON_HOVER =
  * One comment. Its author, and the founder for any, can Edit and Delete from the three-dot menu: both show at once and roll back with the daemon's
  * reason. Delete takes the card out at once and offers Undo for a few seconds before the daemon is asked.
  */
-function Comment({ t, item, onReply }: { t: Detail; item: ActivityItem; onReply?: (memo: number) => void }) {
+function Comment({
+  t,
+  item,
+  onReply,
+  onEditing,
+}: {
+  t: Detail;
+  item: ActivityItem;
+  onReply?: (memo: number) => void;
+  onEditing: (on: boolean) => void;
+}) {
   const m = t.memos.find((x) => x.id === item.memo);
   const of = m?.reply_to != null ? t.memos.find((x) => x.id === m.reply_to) : undefined; // the comment this one answers
   const me = useMe();
@@ -37,6 +47,12 @@ function Comment({ t, item, onReply }: { t: Detail; item: ActivityItem; onReply?
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [undoing, setUndoing] = useState(false);
+  const editing = ask === 'edit';
+  useEffect(() => {
+    if (!editing) return;
+    onEditing(true);
+    return () => onEditing(false);
+  }, [editing]); // eslint-disable-line react-hooks/exhaustive-deps
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const mine = !!m && (m.author === me || hello?.role === 'founder');
   const close = () => (setAsk(null), edit.reset(), del.reset());
@@ -191,6 +207,7 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
   const [busy, setBusy] = useState(false);
   const [fresh, setFresh] = useState(0); // a new editor after a send: its content is the box's own
   const [all, setAll] = useState(false);
+  const [editing, setEditing] = useState(0); // comments being edited: the composer hides its Source link meanwhile
   const [replyTo, setReplyTo] = useState<number | null>(null);
   const answering = replyTo === null ? undefined : t.memos.find((x) => x.id === replyTo);
   const { items, hidden } = foldEvents(activityOf(t.memos, t.timeline), all);
@@ -217,7 +234,13 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
         <ul className="tmemos m-0 grid min-w-0 grid-cols-[minmax(0,1fr)] list-none gap-2 p-0">
           {items.map((i, n) =>
             i.kind === 'comment' ? (
-              <Comment key={`${n}-${i.memo}`} t={t} item={i} onReply={can.ok ? setReplyTo : undefined} />
+              <Comment
+                key={`${n}-${i.memo}`}
+                t={t}
+                item={i}
+                onReply={can.ok ? setReplyTo : undefined}
+                onEditing={(on) => setEditing((n) => Math.max(0, n + (on ? 1 : -1)))}
+              />
             ) : (
               <Event key={`${n}-${i.line}`} item={i} />
             ),
@@ -234,6 +257,7 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
               </p>
             ) : null}
             <BodyEditor
+              plain={editing > 0}
               compact
               key={fresh}
               value={text}
