@@ -132,15 +132,21 @@ def problems(pr: dict, required: list[str], listing: str, show) -> list[str]:
     return out
 
 
+PR_FIELDS = "number,state,isDraft,baseRefName,headRefOid,mergeable,statusCheckRollup,files"
+
+
+def required_checks() -> list[str]:
+    return json.loads(run("gh", "api", "repos/{owner}/{repo}/branches/main/protection/required_status_checks", "--jq", ".contexts"))
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 2 or not argv[1].isdigit():
         print("usage: tools/merge-ready.sh <PR number>", file=sys.stderr)
         return 2
     n = int(argv[1])
     try:
-        pr = json.loads(run("gh", "pr", "view", str(n), "--json",
-                            "number,state,isDraft,baseRefName,headRefOid,mergeable,statusCheckRollup,files"))
-        required = json.loads(run("gh", "api", "repos/{owner}/{repo}/branches/main/protection/required_status_checks", "--jq", ".contexts"))
+        pr = json.loads(run("gh", "pr", "view", str(n), "--json", PR_FIELDS))
+        required = required_checks()
         listing = run("hl", "task", "list", "--everyone", "--all")
         bad = problems(pr, required, listing, lambda tid: run("hl", "task", "show", f"T{tid}"))
     except (RuntimeError, ValueError, KeyError) as e:

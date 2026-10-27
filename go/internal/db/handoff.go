@@ -140,6 +140,41 @@ func LastBoundSessionStart(q Q, agent string) (int64, error) {
 	return ts, err
 }
 
+// RestartHeld is whether nothing more is typed at the agent now: a handoff note is being written, a handoff trigger is deferred behind a
+// running turn, a clear is owed, or a handoff of the agent is in flight (decided, not yet released). Each counts only for NoteWaitStaleS
+// since it began, or since the row's last step, so one that stuck holds for that long at most; the reconciler gives a row up sooner, at
+// its deadline.
+func RestartHeld(q Q, agent string, now int64) (bool, error) {
+	if _, _, kept, err := NoteWaitKept(q, agent, now); err != nil || kept {
+		return kept, err
+	}
+	for _, key := range []string{deferredKey(agent), "clear_owed:" + agent} {
+		since, err := Cursor(q, key)
+		if err != nil {
+			return false, err
+		}
+		if since != 0 && now-since <= NoteWaitStaleS {
+			return true, nil
+		}
+	}
+	h, err := InFlightFor(q, agent)
+	return h != nil && now-h.Updated <= NoteWaitStaleS, err
+}
+
+func deferredKey(agent string) string { return "handoff_deferred:" + agent }
+
+// MarkDeferred keeps that a handoff trigger waits for the agent's running turn to end, since now. The first time is kept until
+// ClearDeferred: the tick fires the trigger again every pass, and a later call must not start the hold over.
+func MarkDeferred(q Q, agent string, now int64) error {
+	if since, err := Cursor(q, deferredKey(agent)); err != nil || since != 0 {
+		return err
+	}
+	return SetCursor(q, deferredKey(agent), now)
+}
+
+// ClearDeferred ends the wait MarkDeferred kept: the handoff opened its row, or its trigger no longer fires.
+func ClearDeferred(q Q, agent string) error { return ClearCursor(q, deferredKey(agent)) }
+
 func noteWaitKey(agent string) string { return "handoff_note_wait:" + agent }
 
 // NoteWaitStaleS is how long a wait for the agent's note counts as one: a trigger that went away before it was acted on, or a session that
@@ -152,6 +187,16 @@ func MarkNoteWait(q Q, agent, kind string, now int64) error {
 		return err
 	}
 	return SetMeta(q, noteWaitKey(agent), fmt.Sprintf("%d:%s", now, kind))
+}
+
+// CloseOwedHandoff is NoteWaitKept for a wake: the wait counts while it is within NoteWaitStaleS, and for a session closed while it
+// counted (closedAt, 0 for not closed), however late the wake. A mark left behind by a handoff that never went on owes nothing to a later close.
+func CloseOwedHandoff(q Q, agent string, now, closedAt int64) (kind string, ok bool, err error) {
+	kind, since, ok, err := NoteWait(q, agent)
+	if err != nil || !ok {
+		return "", false, err
+	}
+	return kind, now-since <= NoteWaitStaleS || (closedAt >= since && closedAt <= since+NoteWaitStaleS), nil
 }
 
 // ClearNoteWait ends the wait MarkNoteWait kept.

@@ -49,7 +49,7 @@ export function Toasts(props: { store: Store }) {
   return (
     <View testID="toasts">
       {toasts.map((n) => (
-        <Banner key={n.id} text={lineOf(n)} error={n.level === 'fail'} onPress={() => props.store.notices.dismissToasts()} />
+        <Banner key={n.id} text={lineOf(n)} error={n.level === 'fail'} onPress={() => props.store.notices.close(n.id)} />
       ))}
     </View>
   );
@@ -97,9 +97,7 @@ function NoticeRow(props: { n: Notice; fresh: boolean; onTask: (id: number) => v
           </Text>
         ) : null}
       </View>
-      <Text style={{ color: c.muted, fontSize: font.size.label }}>
-        {clockTime(new Date(n.at).toISOString())}
-      </Text>
+      <Text style={{ color: c.muted, fontSize: font.size.label }}>{clockTime(new Date(n.at).toISOString())}</Text>
     </>
   );
   const style = {

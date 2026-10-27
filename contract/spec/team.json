@@ -203,7 +203,7 @@
      },
      "kind": {
       "type": "string",
-      "description": "What the proposal does: add, retire, rename, link, unlink, team, settings, context or bundle (several changes decided once). An open set: a client draws a word it does not know as text. Optional until the Python hr.list sends it; a client then reads the first word of `title`."
+      "description": "What the proposal does: add, retire, rename, link, unlink, team, settings, context, schedule or bundle (several changes decided once). An open set: a client draws a word it does not know as text. Optional until the Python hr.list sends it; a client then reads the first word of `title`."
      }
     },
     "required": [
@@ -324,6 +324,31 @@
        "description": "A step: kind (add, retire, rename, link, unlink, team, context) and the other fields of this type, name included."
       },
       "description": "bundle: the steps, at most 40, each judged against the roster the earlier ones leave. name is then ignored (send the count, `3 changes`)."
+     },
+     "action": {
+      "type": "string",
+      "enum": [
+       "add",
+       "edit",
+       "remove"
+      ],
+      "description": "schedule: add a schedule to `name`, edit one of its (give was_cron for which; cron and message are then the new ones, a missing one stays), or remove one (was_cron)."
+     },
+     "cron": {
+      "type": "string",
+      "description": "schedule add, edit: five cron fields; it may not fire more than once an hour (bad_request)."
+     },
+     "message": {
+      "type": "string",
+      "description": "schedule add, edit: the text typed at the agent each time, at most 1000 characters."
+     },
+     "was_cron": {
+      "type": "string",
+      "description": "schedule edit, remove: the cron of the existing schedule."
+     },
+     "was_message": {
+      "type": "string",
+      "description": "schedule edit, remove: its message, when two of the agent's schedules share the cron."
      }
     }
    },
@@ -405,7 +430,7 @@
   },
   {
    "name": "hr.propose",
-   "summary": "Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, settings, context, and diff, which is kind bundle: args.changes lists several changes decided once and applied together or not at all).",
+   "summary": "Propose a roster change; the founder decides (hl hr add, retire, rename, link, unlink, team, settings, context, schedule, and diff, which is kind bundle: args.changes lists several changes decided once and applied together or not at all).",
    "paramStructure": "by-name",
    "params": [
     {
@@ -422,6 +447,7 @@
        "team",
        "settings",
        "context",
+       "schedule",
        "bundle"
       ]
      }

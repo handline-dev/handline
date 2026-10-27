@@ -35,7 +35,7 @@ export function AgentSettings({ agent, onBack }: { agent: string; onBack: () => 
       <PageHeader title="Settings" back={{ label: agent, onPress: onBack, testID: 'settings-back' }}>
         <Text style={{ color: c.muted }}>
           {!served
-            ? 'This daemon does not serve agent settings.'
+            ? 'This needs a newer Handline.'
             : editable
               ? 'Each change saves as you make it.'
               : 'Only the founder edits agent settings.'}
@@ -68,7 +68,8 @@ export function AgentSettings({ agent, onBack }: { agent: string; onBack: () => 
 function FieldRow(props: { agent: string; f: Field; stored: string | undefined; editable: boolean; role: string | undefined }) {
   const c = usePalette();
   const { f } = props;
-  const { stored, pending, global, draft, setDraft, note, setNote, ask, setAsk, allowed, off, value, send, commit, choose, options } = useFieldRow(props);
+  const { stored, pending, global, draft, setDraft, note, setNote, ask, setAsk, allowed, off, value, send, commit, choose, options } =
+    useFieldRow(props);
   const danger = ask ? DANGER[f.key] : undefined;
   const follows =
     f.key === 'handoff_note' ? `default follows the global switch${global === undefined ? '' : global ? ' (on)' : ' (off)'}` : '';

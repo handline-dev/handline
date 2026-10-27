@@ -156,6 +156,8 @@ export type DaemonStatus = {
   };
   /** Null until the first measure, and on a daemon that does not measure. */
   resources?: Resources | null;
+  /** The machine's own needs-you items, oldest first; absent when there are none, and on a daemon that does not serve it. A client draws each beside the agents' needs-you cards, in the text given. */
+  needs_you?: MachineNeed[];
 };
 
 export type Repo = {
@@ -286,7 +288,7 @@ export type SettingsValues = {
   load_per_core_pct?: number;
   /** Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. */
   ram_free_min_pct?: number;
-  /** 1 holds the daemon's new work while a phone simulator or emulator runs on this machine (the iOS Simulator, the Android emulator and its qemu); 0 does not. Held the same way as a load limit (status reason load), by the same rules. */
+  /** 1 holds the daemon's new work while a phone simulator or emulator runs on this machine (a booted iOS simulator device, or the qemu an Android emulator runs on); 0 does not. Held the same way as a load limit (status reason load), by the same rules. */
   host_simulator_hold?: number;
   /** Hold each account to its weekly pace line (Account.pace): an account ahead of the line starts fewer turns, and one ahead by more than pace_burst_pct starts none (status reason pace) until the line catches up or another account has room. A turn a person starts is never held, and a running turn is never stopped. Off: only the windows' walls hold work. */
   pacing?: boolean;
@@ -556,6 +558,15 @@ export type Prefs = {
 export type ReadCursor = {
   /** The newest stream cursor when this read began. An event above it may be in the answer already (applying it again changes nothing); none at or below it is missing. A client drops the events at or below it for this answer. */
   cursor: number;
+};
+
+/** Something the machine needs of the founder, which no agent has: not a task and not an inbox message. */
+export type MachineNeed = {
+  /** disk: free space is under the floor (config disk_free_min_gb, default 5), so builds and tests wait. It stays until space is back over the floor plus 2 GB. */
+  kind: "disk";
+  since: Timestamp;
+  /** The item in plain words, with the free space in it. */
+  text: string;
 };
 
 export interface CoreMethods {

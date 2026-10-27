@@ -55,6 +55,16 @@ export const SEEDS: Record<string, Seed> = {
     d.inbox.add({ kind: 'decision', agent: ARCH, title: 'Review: wider margin on the board', body: 'Is this right?', task: 9301 });
   },
 
+  /** An open task given to the person, with its card in the architect's chat: the card then offers Open and Done. */
+  'task-card': (d) => {
+    d.tasks.seed({ id: 1695, from: ARCH, to: ME, title: 'Confirm the chat plan', state: 'doing' });
+    d.chat.seedItem(ARCH, {
+      at: new Date().toISOString(),
+      kind: 'task_event',
+      task_event: { event: 'opened', task: 1695, request: null, evidence: null, who: ARCH },
+    });
+  },
+
   /** Three HR proposals: a new agent (team, model), a setting change old -> new, and one to reject. */
   hr: (d) => {
     const hr = d.script.hr;
@@ -84,6 +94,11 @@ export const SEEDS: Record<string, Seed> = {
       diff: 'retire agent handline.term-build',
       reason: 'Its work is merged. Reject this one to keep the agent.',
     });
+  },
+
+  /** Two agents set their own handoff prompt, so the global one is ignored by them. */
+  'handoff-own': (d) => {
+    d.admin.handoffOwn.push('handline.auditor', 'handline.term-build');
   },
 
   /** Two more HR proposals: one applying, held for the agent's running turn, and one the founder asked for themself (`requested_by` human). */
@@ -168,7 +183,7 @@ export const SEEDS: Record<string, Seed> = {
       status: {
         state: 'waiting',
         reason: 'load',
-        text: 'Held: the Mac is busy (5.4 per core, limit 1.5). It starts by itself when that drops.',
+        text: 'Waiting: the computer is under heavy memory load right now. It starts by itself when the load drops.',
         until: null,
         since,
         tasks: [],
@@ -184,6 +199,13 @@ export const SEEDS: Record<string, Seed> = {
       ...s.fx.view,
       status: { state: 'waiting', reason: 'task', text: 'blocked by T1684 (human)', until: null, since, tasks: [1684] },
     };
+  },
+
+  /** The architect hit the session limit (needs_you kind usage): its chat shows the needs-you card. */
+  'agent-usage': (d) => {
+    const s = d.sessions.get(ARCH)!;
+    const since = new Date(Date.now() - 3 * 60_000).toISOString();
+    s.fx.view = { ...s.fx.view, needs_you: { kind: 'usage', since, text: null, source: 'hook' } };
   },
 
   /** An approved proposal that did not apply, the daemon's error in its own words, and the daemon down notice's page. */

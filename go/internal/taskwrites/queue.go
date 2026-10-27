@@ -304,3 +304,54 @@ func workKept(q *sql.DB, tid int64) (string, error) {
 	return fmt.Sprintf("parked while %s worked it: branch %s @ %s in %s (%s) - resume from there", agent,
 		textsafe.Oneline(strings.TrimSpace(branch.Stdout)), strings.TrimSpace(head.Stdout), wt, strings.Join(has, ", ")), nil
 }
+
+// QueueDrafts approves the named draft tasks to run, as task.queue does for the caller by: a task that is not a draft is skipped and named
+// in skipped, never an error, so one gone stale does not hold back the others. queued is who is delivered after the commit
+// (Teller.QueueDelivered).
+func QueueDrafts(tx *sql.Tx, home, by string, tids []int64) (queued []int64, skipped []string, err error) {
+	for _, tid := range tids {
+		t, err := getTask(tx, tid)
+		if err != nil {
+			return nil, nil, err
+		}
+		st := ""
+		if t != nil {
+			if st, err = state(tx, t); err != nil {
+				return nil, nil, err
+			}
+		}
+		if st != "draft" {
+			skipped = append(skipped, fmt.Sprintf("T%d (%s)", tid, map[bool]string{true: "gone", false: st}[t == nil]))
+			continue
+		}
+		if _, err := setQueued(tx, home, tid, by, true, ""); err != nil {
+			return nil, nil, err
+		}
+		queued = append(queued, tid)
+	}
+	return queued, skipped, nil
+}
+
+// AskFounder opens a task for the founder, owned by them, that expects a decision; it answers the task's number. The founder's answer
+// is the task's close (tasks.decide).
+func AskFounder(d *sql.DB, tell Teller, title, body string, tags ...string) (int64, error) {
+	tx, err := d.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	tid, asked, err := OpenTask(tx, tell, db.Human, NewIn{Owner: db.Human, Title: title, Body: body, Tags: tags, Prio: db.DefaultPriority, Expects: "decision"})
+	if err != nil {
+		return 0, err
+	}
+	if !asked.OK {
+		return 0, fmt.Errorf("the founder's task was refused: %s", asked.Msg)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	if asked.After != nil {
+		asked.After()
+	}
+	return tid, nil
+}

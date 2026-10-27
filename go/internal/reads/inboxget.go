@@ -84,6 +84,11 @@ func (e *Env) requestRead(c *rpc.Conn, params map[string]any) (any, error) {
 			return nil, err
 		}
 	}
+	if shown && r.str("target") != db.Human && r.str("target") == c.Caller.Actor() { // the agent a request was told to opens it: that is its reading of it
+		if err := db.MarkReadBy(e.DB, id, r.str("target")); err != nil {
+			return nil, err
+		}
+	}
 	kind := r.str("kind")
 	if kind == "" {
 		kind = "ask"

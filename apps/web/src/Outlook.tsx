@@ -88,9 +88,7 @@ function Line({ o }: { o: Outlook }) {
           ) : null}
         </svg>
         <p className="outlook-readout muted m-0 mt-1 h-5 text-hint" aria-live="polite">
-          {near
-            ? `${dateTime(near.at)} · ${Math.round(near.left_pct!)}% left${near.guess ? ' (guess)' : ''}`
-            : ''}
+          {near ? `${dateTime(near.at)} · ${Math.round(near.left_pct!)}% left${near.guess ? ' (guess)' : ''}` : ''}
         </p>
         <span className={OUTLOOK_END} style={{ top: `${((100 - (lastLeft ?? 0)) / 100) * 100}%` }}>
           {o.accounts === 1 ? 'the account' : `all ${o.accounts} accounts`}

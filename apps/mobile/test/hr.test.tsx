@@ -349,9 +349,9 @@ describe('the HR list', () => {
     await press($('agents-menu'));
     await press($('team-open'));
     await until(() => $('not-served'), 'the sentence');
-    expect($('not-served')?.textContent).toBe('This daemon does not serve the team.');
+    expect($('not-served')?.textContent).toBe('This needs a newer Handline.');
     await press($('team-tab-hr'));
-    await until(() => $('not-served')?.textContent === 'This daemon does not serve HR proposals.', 'the HR sentence');
+    await until(() => $('not-served')?.textContent === 'This needs a newer Handline.', 'the HR sentence');
     m.store.stop();
   });
 });
@@ -364,7 +364,7 @@ describe('a held proposal and the founder’s own', () => {
     });
     await openHr();
     await until(() => $('hr-46'), 'the held card');
-    expect($('hr-46')?.textContent).toContain(`waits for ${ARCH}'s turn to end`);
+    expect($('hr-46')?.textContent).toContain(`Held until ${ARCH} finishes its turn.`);
     expect($('hr-approve-46')).toBeNull();
     expect($('hr-reject-46')).toBeNull();
     expect($('hr-withdraw-46')).toBeNull();

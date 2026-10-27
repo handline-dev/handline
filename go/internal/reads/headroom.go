@@ -73,7 +73,11 @@ func (e *Env) headroomAt(clock time.Time, from, to, step int64) (any, error) {
 	for _, a := range h.Accounts {
 		resets := []any{}
 		for _, r := range a.Resets {
-			resets = append(resets, map[string]any{"at": ts(r.At), "window": r.Window})
+			reset := map[string]any{"at": ts(r.At), "window": r.Window}
+			if r.HasUnused {
+				reset["unused_pct"] = round(r.Unused, 1)
+			}
+			resets = append(resets, reset)
 			if r.At > now && (nextAt == 0 || r.At < nextAt) {
 				nextAt, next = r.At, map[string]any{"at": ts(r.At), "account": a.Account, "window": r.Window}
 			}

@@ -5,19 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  Button,
-  Dialog,
-  Empty,
-  Field,
-  Popup,
-  PopupRow,
-  Segmented,
-  Select,
-  State,
-  Switch,
-  stateOf,
-} from '#src/ui/index.ts';
+import { Button, Dialog, Empty, Field, Popup, PopupRow, Segmented, Select, State, Switch, stateOf } from '#src/ui/index.ts';
 import { DOT_ORDER, Mark } from '#src/RailIcons.tsx';
 import { AgentGauges } from '#src/AgentGauges.tsx';
 
@@ -154,9 +142,9 @@ describe('Field, Switch, Segmented, Empty', () => {
   });
 
   it('an empty state is an icon, a name and one hint', async () => {
-    await show(<Empty icon="inbox" name="Nothing waits on you" hint="Results land here" />);
+    await show(<Empty icon="inbox" name="Nothing needs you" hint="Results land here" />);
     expect($('.ui-empty-ring svg')).not.toBeNull();
-    expect($('.ui-empty strong')!.textContent).toBe('Nothing waits on you');
+    expect($('.ui-empty strong')!.textContent).toBe('Nothing needs you');
   });
 });
 
