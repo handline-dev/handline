@@ -86,6 +86,11 @@ export const SEEDS: Record<string, Seed> = {
     });
   },
 
+  /** Two agents set their own handoff prompt, so the global one is ignored by them. */
+  'handoff-own': (d) => {
+    d.admin.handoffOwn.push('handline.auditor', 'handline.term-build');
+  },
+
   /** Two more HR proposals: one applying, held for the agent's running turn, and one the founder asked for themself (`requested_by` human). */
   'hr-held': (d) => {
     const hr = d.script.hr;

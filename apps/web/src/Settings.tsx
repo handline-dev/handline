@@ -1,12 +1,13 @@
 // The Home settings page (#/settings), founder only: the default cap, idle close and three switches through settings.set, each field saving on its
 // own (authored: it shows at once and goes back with its own note when refused), and the standing answers. One
 // card per section whose rows are a title, one grey line and the control on the right (docs/design-gaps.md G80).
-import { INVALID, capField, idleField, limitFields, paceFields, type KV } from '@handline/app-core';
+import { capField, idleField, limitFields, paceFields, type KV } from '@handline/app-core';
 import { useServes, useSettings } from '@handline/app-data';
 import { Answers } from '#src/Answers.tsx';
 import { Devices } from '#src/Devices.tsx';
 import { DebugEntry } from '#src/debug/DebugEntry.tsx';
 import { SectionHead, SettingsCard } from '#src/ui/index.ts';
+import { HandoffPrompt } from '#src/HandoffPrompt.tsx';
 import { NumberRow, SwitchRow } from '#src/SettingsRows.tsx';
 import { Appearance, BackgroundRows, Connection, NoticeBatch, Notifications, TerminalRow, WeekAlertRow } from '#src/SettingsMore.tsx';
 import { TeamSeal } from '#src/TeamSeal.tsx';
@@ -15,8 +16,6 @@ import { View } from '#src/View.tsx';
 
 /** The machine-wide cap stays in General; the other load limits are Advanced. */
 const isHostCap = (f: { setting: string }) => f.setting === 'host_active_cap';
-
-export const parsePrompt = (t: string) => (/[\r\n]/.test(t) ? INVALID : t.trim());
 
 export function SettingsPage({ storage }: { storage: KV | null }) {
   const q = useSettings();
@@ -62,6 +61,18 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                     <NumberRow {...idleField(v.park_timeout_s)} hint="Idle time before a session closes" more="0 is never" />
                   </SettingsCard>
                 </section>
+                <section id="set-handoff">
+                  <SectionHead>Handoff</SectionHead>
+                  <SettingsCard>
+                    <SwitchRow
+                      label="Handoff note"
+                      hint="Before a session closes, the agent writes a note for the next one"
+                      on={!!v.handoff_note}
+                      change={(on) => ({ handoff_note: on })}
+                    />
+                    <HandoffPrompt settings={q.data!} />
+                  </SettingsCard>
+                </section>
                 <section id="set-notifications">
                   <Notifications />
                 </section>
@@ -74,7 +85,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                 <section id="set-appearance">
                   <Appearance storage={storage} />
                 </section>
-                <SettingsFold title="Advanced" hint="Limits, pacing, background work, handoff notes, terminal view">
+                <SettingsFold title="Advanced" hint="Limits, pacing, background work, terminal view">
                   <SettingsCard>
                     {limits
                       .filter((f) => !isHostCap(f))
@@ -86,24 +97,6 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                     ))}
                     <BackgroundRows notice={v.bg_notice_s} grace={v.bg_grace_s} check={v.bg_check_s} />
                     <NoticeBatch digest={v.notice_digest_s} />
-                    <SwitchRow
-                      label="Handoff note"
-                      hint="A note for the next session before a close or move"
-                      on={!!v.handoff_note}
-                      change={(on) => ({ handoff_note: on })}
-                    />
-                    <NumberRow
-                      text
-                      wide
-                      label="Handoff prompt"
-                      hint={`One line; {path} is the note's file and {max} its size limit.${
-                        v.handoff_prompt?.includes('{path}') ? '' : ' Without {path} the path is added on a line of its own.'
-                      }`}
-                      current={v.handoff_prompt ?? ''}
-                      parse={parsePrompt}
-                      change={(t) => ({ handoff_prompt: t })}
-                      allowed="one line: no line break"
-                    />
                     <SwitchRow
                       label="Ignore cache expiry"
                       hint="Resume the old session even after its cache went cold"
