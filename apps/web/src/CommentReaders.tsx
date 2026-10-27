@@ -17,7 +17,7 @@ export function CommentReaders({ memo, readers }: { memo: number; readers: MemoR
   if (!readers.length || read === readers.length) return null;
   const held = readers.some((r) => r.state === 'held');
   return (
-    <span className="relative self-start text-hint text-ink-3">
+    <span className="relative self-start">
       <button
         type="button"
         className="comment-readers flex items-center gap-1 rounded-card border-0 bg-transparent px-1 text-hint text-ink-3 tint"
@@ -31,9 +31,9 @@ export function CommentReaders({ memo, readers }: { memo: number; readers: MemoR
       <Popup open={open} onClose={() => setOpen(false)} title="Who has read this" up>
         <ul className="m-0 grid list-none gap-0.5 p-1">
           {readers.map((r) => (
-            <li key={r.agent} className="flex h-7 items-center gap-2 px-1" data-reader={r.agent}>
+            <li key={r.agent} className="flex h-7 items-center gap-2 px-1 text-hint" data-reader={r.agent}>
               <span className="mono flex-1 truncate">{r.agent}</span>
-              <span className="text-ink-3">{stateText(r)}</span>
+              <span className="text-ink-2">{stateText(r)}</span>
               {r.state === 'held' ? (
                 <Button
                   size="sm"
