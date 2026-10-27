@@ -19,8 +19,10 @@ const (
 	LoadPctKey        = "load_per_core_pct"
 	RAMFreePctKey     = "ram_free_min_pct"
 	SimulatorKey      = "host_simulator_hold"
+	DiskFreeGBKey     = "disk_free_min_gb"
 	DefaultLoadPct    = 150
 	DefaultRAMFreePct = 10
+	DefaultDiskFreeGB = 5 // under housekeeping.DiskLow, so the founder is warned before builds stop
 )
 
 // Limits are the machine's limits; 0 turns one off.
@@ -28,13 +30,14 @@ type Limits struct {
 	Agents     int // most agents mid-turn on the machine
 	LoadPct    int // most 1-minute load per core, in percent
 	RAMFreePct int // least free memory, in percent of all
+	DiskFreeGB int // least free disk on the home's volume, in GB; only the heavy slot holds on it
 	Simulator  int // 1: a running phone simulator or emulator holds new starts, 0: it does not
 }
 
 // LimitsOf reads the limits from config, each at its default when it is not set to a whole number of at least 0.
 func LimitsOf(cfg usage.Config) Limits {
 	return Limits{Agents: setting(cfg, AgentCapKey, 0), LoadPct: setting(cfg, LoadPctKey, DefaultLoadPct),
-		RAMFreePct: setting(cfg, RAMFreePctKey, DefaultRAMFreePct), Simulator: setting(cfg, SimulatorKey, 1)}
+		RAMFreePct: setting(cfg, RAMFreePctKey, DefaultRAMFreePct), DiskFreeGB: setting(cfg, DiskFreeGBKey, DefaultDiskFreeGB), Simulator: setting(cfg, SimulatorKey, 1)}
 }
 
 func setting(cfg usage.Config, key string, def int) int {
