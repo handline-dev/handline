@@ -113,21 +113,21 @@ export function Sidebar({
       aria-label="Agents"
     >
       {/* The shell's drag strip: row as tall as a tab strip, centred on the traffic lights (--h-tabs and --lights-w follow the zoom: shell.ts); `rail-top` is the tests' hook. */}
-      <div className="rail-top flex items-center gap-0.5 pt-2 px-2.5 pb-1 shell:h-[var(--h-tabs)] shell:py-0 shell:pl-[var(--lights-w,86px)] shell:[-webkit-app-region:drag]">
+      <div className="rail-top flex items-center gap-0.5 h-[var(--h-top)] px-2.5 shell:py-0 shell:pl-[var(--lights-w,86px)] shell:[-webkit-app-region:drag]">
         <Button
-          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]"
+          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-top)-4px)] shell:!w-[calc(var(--h-top)-4px)]"
           icon="sidebar"
           label="Hide the agent list (⌘B)"
           onClick={onToggle}
         />
         <Button
-          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]"
+          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-top)-4px)] shell:!w-[calc(var(--h-top)-4px)]"
           icon="back"
           label="Back (⌘[)"
           onClick={() => history.back()}
         />
         <Button
-          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-tabs)-4px)] shell:!w-[calc(var(--h-tabs)-4px)]"
+          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-top)-4px)] shell:!w-[calc(var(--h-top)-4px)]"
           icon="forward"
           label="Forward (⌘])"
           onClick={() => history.forward()}

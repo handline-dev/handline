@@ -134,7 +134,7 @@ describe('the workspace', () => {
     await until(() => $$('.pane').length === 2, 'two panes');
     expect($('.agent-head')).toBeNull();
     expect($('.tabstrip')).toBeNull();
-    expect($('.topbar')).toBeNull();
+    expect($$('.topbar')).toHaveLength(1); // one bar over the page; the tab strip joins it in a later step
     for (const p of $$('.pane')) {
       expect(p.querySelectorAll('.strip')).toHaveLength(1);
       expect(p.firstElementChild!.classList.contains('strip')).toBe(true);
@@ -438,6 +438,35 @@ describe('the workspace', () => {
   });
 });
 
+describe('the top bar', () => {
+  const ROUTES = ['#/my-turn', '#/tasks', '#/requests', '#/stats', '#/settings', '#/team', '#/admin', `#/agents/${ARCH}`, `#/agents/${ARCH}/settings`];
+  it('is there on every page, once, and a page head is drawn inside it, not in the page', async () => {
+    await mount(ARCH);
+    await until(() => $('.rail'), 'sidebar');
+    for (const hash of ROUTES) {
+      await act(async () => void (location.hash = hash));
+      await wait(30);
+      expect($$('.topbar'), hash).toHaveLength(1);
+      expect($$('.main > section > header'), hash).toEqual([]);
+    }
+    await act(async () => void (location.hash = '#/my-turn'));
+    await until(() => $('.topbar .page-bar header'), 'the My turn head in the bar');
+  });
+  it('carries the sidebar button, Back and Forward while the sidebar is folded, and not while it is open', async () => {
+    await mount(ARCH);
+    await until(() => $('.rail'), 'sidebar');
+    expect($('.topbar [aria-label="Show the agent list (⌘B)"]')).toBeNull();
+    await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'b', metaKey: true })));
+    for (const hash of ['#/tasks', `#/agents/${ARCH}`]) {
+      await act(async () => void (location.hash = hash));
+      expect($$('.topbar [aria-label]').map((b) => b.getAttribute('aria-label')), hash).toEqual(
+        expect.arrayContaining(['Show the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']),
+      );
+    }
+    expect($('.rail-handle')).toBeNull();
+  });
+});
+
 describe('the sidebar', () => {
   it('a lead row with sub-agents working says nothing while it is open', async () => {
     const s = setup();
@@ -480,7 +509,7 @@ describe('the sidebar', () => {
     await click([...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((i) => text(i).trim() === 'Settings')!);
     expect(location.hash).toBe('#/agents/handline.architect/settings');
     await until(() => $('.settings-agent .back'), 'the back button');
-    expect($('.settings-agent .back')!.nextElementSibling).toBeNull(); // on a line of its own, apart from the title
+    expect($('.settings-agent .back')!.closest('.topbar')).not.toBeNull(); // the way up leaves from the top bar, ahead of the title
     await click($('.settings-agent .back')!);
     expect(location.hash).toBe('#/agents/handline.architect');
   });

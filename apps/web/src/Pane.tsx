@@ -33,7 +33,6 @@ import { TerminalTab } from '#src/TerminalTab.tsx';
 import { ChatStrip } from '#src/ChatCards.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
 import { goSettings } from '#src/route.ts';
-import { RailControls, useFoldedControls } from '#src/RailControls.tsx';
 
 const label = (t: Tab, structured = false): string =>
   t.kind === 'chat'
@@ -76,10 +75,9 @@ const TAB_KEYS: KeyRows = [
 
 export function Pane({ group }: { group: Group }) {
   useScreenKeys('On the tabs', TAB_KEYS);
-  const { ws, detail, agent, storage, apply, show, canSplit, lead, dragging, setDragging } = useWorkspace();
+  const { ws, detail, agent, storage, apply, show, canSplit, dragging, setDragging } = useWorkspace();
   const { mutateAsync: openShell } = useWrite('shell.open', agent);
   const { mutate: closeShell } = useWrite('shell.close', agent);
-  const folded = useFoldedControls();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
   const me = useMe();
@@ -129,11 +127,6 @@ export function Pane({ group }: { group: Group }) {
       onPointerDownCapture={() => ws.active !== group.id && apply((w) => ({ ...w, active: group.id }))}
     >
       <div className="strip flex h-[var(--h-tabs)] items-stretch border-b border-line bg-surface px-2" role="tablist" ref={strip}>
-        {folded && lead === group.id ? (
-          <div className="mr-1 flex flex-none items-center shell:pl-[var(--lights-w,86px)]">
-            <RailControls show={folded.show} row />
-          </div>
-        ) : null}
         {group.tabs.map((id) => {
           const t = ws.tabs[id]!;
           // Claude Code is reached by the switch (Cmd/Ctrl+J, /terminal, the icon in the bottom bar), not by a tab, while the chat is in the group.

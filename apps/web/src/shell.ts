@@ -41,7 +41,7 @@ export const inShell = (): boolean => typeof window !== 'undefined' && 'handline
 
 /**
  * The traffic lights are drawn by the OS at fixed pixels, so the rows beside them must not follow the page zoom, and in full screen
- * they are gone (the shell says when: onFullScreen). Sets --h-tabs (the row the lights are centred on, 32 screen px) and --lights-w
+ * they are gone (the shell says when: onFullScreen). Sets --h-top (the top bar, 44 screen px), --h-tabs (the row the lights are centred on, 32 screen px) and --lights-w
  * (the room they take, little in full screen). The zoom is the shell's own (a plain window: its outer width over the page's inner width).
  */
 export function trackShellInsets(): void {
@@ -50,6 +50,7 @@ export function trackShellInsets(): void {
   const set = () => {
     const zoom = shell('zoom')?.zoom?.() || (innerWidth ? outerWidth / innerWidth : 1);
     root.setProperty('--h-tabs', `${32 / zoom}px`);
+    root.setProperty('--h-top', `${44 / zoom}px`);
     root.setProperty('--lights-w', `${(full ? 4 : 86) / zoom}px`);
   };
   // The shell's zoom can still be the old one while the resize it causes is delivered, so it is read again once that has passed.
