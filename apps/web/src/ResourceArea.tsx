@@ -4,6 +4,7 @@
 import { useState, type ReactNode } from 'react';
 import {
   bytesText,
+  memoryFree,
   DEFAULT_LIMITS,
   LOAD_PRESETS,
   LOW_DISK_BYTES,
@@ -17,7 +18,7 @@ import {
 } from '@handline/app-core';
 import type { Resources } from '@handline/client';
 import { sentence, classify, useSettings, useStatus, useWrite } from '@handline/app-data';
-import { Button, MenuButton, MenuCheckItem, Popup, Segmented, STRIP_ITEM } from '#src/ui/index.ts';
+import { Button, Icon, MenuButton, MenuCheckItem, Popup, Segmented, STRIP_ITEM } from '#src/ui/index.ts';
 
 type Awake = 'off' | 'on' | 'working';
 const AWAKE: { value: Awake; label: string }[] = [
@@ -109,7 +110,16 @@ function Details({ r, limits }: { r: Resources; limits: Limits }) {
   const m = r.machine;
   const full = loadFull(r, limits.load_per_core_pct);
   const low = memoryLow(r, limits.ram_free_min_pct);
-  const row = 'flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-0 py-1 text-left text-body text-ink';
+  const row =
+    'flex w-full cursor-pointer items-center gap-2 rounded-chip border-0 bg-transparent px-1 py-1 -mx-1 text-left text-body text-ink hover:bg-raised';
+  const mark = (which: 'load' | 'memory') => (
+    <Icon
+      name="chevronRight"
+      size={12}
+      className={`flex-none text-ink-3 transition-transform ${editing === which ? 'rotate-90' : ''}`}
+      aria-hidden
+    />
+  );
   const toggle = (which: 'load' | 'memory') => setEditing(editing === which ? null : which);
   return (
     <div className="resource-details flex max-h-[70vh] w-[340px] max-w-[90vw] flex-col gap-1 overflow-y-auto p-3 text-body">
@@ -123,6 +133,7 @@ function Details({ r, limits }: { r: Resources; limits: Limits }) {
         <span className="font-mono tabular-nums">
           {m.load_per_core.toFixed(1)} / {limits.load_per_core_pct ? (limits.load_per_core_pct / 100).toFixed(1) : 'never'}
         </span>
+        {mark('load')}
       </button>
       {editing === 'load' ? <LoadEditor r={r} limits={limits} /> : null}
       <div className="flex items-center gap-2 py-1">
@@ -133,7 +144,8 @@ function Details({ r, limits }: { r: Resources; limits: Limits }) {
       <button type="button" className={row} aria-expanded={editing === 'memory'} onClick={() => toggle('memory')}>
         <span className="w-14">Memory</span>
         <Bar pct={100 - m.ram_free_pct} hot={low} />
-        <span className="font-mono tabular-nums">{bytesText(m.ram_free_bytes)} left</span>
+        <span className="font-mono tabular-nums">{memoryFree(r)}</span>
+        {mark('memory')}
       </button>
       {editing === 'memory' ? <MemoryEditor r={r} limits={limits} /> : null}
       {r.start_hold ? (
@@ -152,7 +164,7 @@ function Details({ r, limits }: { r: Resources; limits: Limits }) {
         ))}
       </ul>
       <p className={`m-0 text-hint ${m.disk_free_bytes < LOW_DISK_BYTES ? 'text-bad' : 'text-ink-2'}`}>
-        Disk {bytesText(m.disk_free_bytes)} left
+        Disk {bytesText(m.disk_free_bytes)} free
       </p>
       <a className="text-hint" href="#/admin">
         Admin
@@ -211,7 +223,14 @@ function LoadEditor({ r, limits }: { r: Resources; limits: Limits }) {
           −
         </Button>
         <span className="font-mono tabular-nums">{limits.heavy_slots}</span>
-        <Button variant="outline" size="sm" label="More" aria-label="More" onClick={() => set({ heavy_slots: limits.heavy_slots + 1 })}>
+        <Button
+          variant="outline"
+          size="sm"
+          label="More"
+          aria-label="More"
+          disabled={limits.heavy_slots >= r.machine.cores}
+          onClick={() => set({ heavy_slots: limits.heavy_slots + 1 })}
+        >
           +
         </Button>
       </span>
@@ -227,7 +246,7 @@ function MemoryEditor({ r, limits }: { r: Resources; limits: Limits }) {
   return (
     <Editor
       error={error}
-      note={limitSentence(`${r.machine.ram_free_pct}% free`, memoryLow(r, limits.ram_free_min_pct), limits.ram_free_min_pct === 0)}
+      note={limitSentence(memoryFree(r), memoryLow(r, limits.ram_free_min_pct), limits.ram_free_min_pct === 0)}
       reset={() => set({ ram_free_min_pct: DEFAULT_LIMITS.ram_free_min_pct })}
     >
       <Segmented label="Free memory floor" value={value} options={options} onChange={(v) => set({ ram_free_min_pct: Number(v) })} />

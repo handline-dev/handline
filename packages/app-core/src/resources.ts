@@ -7,10 +7,10 @@ const MB = 2 ** 20;
 /** The disk line turns red under the 10 GB where the daemon raises a card. */
 export const LOW_DISK_BYTES = 10 * GB;
 
-/** Bytes as the shortest honest figure: 3.6GB, 420MB. */
+/** Bytes as the shortest honest figure: 3.6 GB, 420 MB. */
 export function bytesText(n: number): string {
-  if (n >= GB) return `${(n / GB).toFixed(n >= 10 * GB ? 0 : 1)}GB`;
-  return `${Math.round(n / MB)}MB`;
+  if (n >= GB) return `${(n / GB).toFixed(n >= 10 * GB ? 0 : 1)} GB`;
+  return `${Math.round(n / MB)} MB`;
 }
 
 /** The limits the daemon holds new starts at, as settings.get keeps them: 150 is 1.5 load per core, 10 is 10% memory free, 0 is never. */
@@ -34,13 +34,16 @@ export const MEMORY_PRESETS = [
 export const loadFull = (r: Resources, limitPct: number): boolean => limitPct > 0 && r.machine.load_per_core * 100 >= limitPct;
 export const memoryLow = (r: Resources, floorPct: number): boolean => floorPct > 0 && r.machine.ram_free_pct < floorPct;
 
+/** The memory free, in bytes and as a share: "12 GB free (37%)" is the one way the app says it. */
+export const memoryFree = (r: Resources): string => `${bytesText(r.machine.ram_free_bytes)} free (${r.machine.ram_free_pct}%)`;
+
 /** One line of what is chosen and what it does now: "Now 2.8 → new starts wait." */
 export function limitSentence(now: string, held: boolean, never: boolean): string {
   if (never) return 'No limit: new starts are never held.';
   return `Now ${now} → ${held ? 'new starts wait.' : 'starts go.'}`;
 }
 
-/** The status bar's one text cell: "Agents 24% · 5.6 GB · CPU full · 9.8 GB left". Null until the daemon has measured. */
+/** The status bar's one text cell: "Agents: CPU 24%, 5.6 GB · Load full · Memory 9.8 GB free". Null until the daemon has measured. Low memory and a full load are said in words, not only in red. */
 export function resourceLine(r: Resources | null | undefined, limits: Limits = DEFAULT_LIMITS): { text: string; over: boolean } | null {
   if (!r) return null;
   const m = r.machine;
@@ -48,7 +51,7 @@ export function resourceLine(r: Resources | null | undefined, limits: Limits = D
   const full = loadFull(r, limits.load_per_core_pct);
   const low = memoryLow(r, limits.ram_free_min_pct);
   return {
-    text: `Agents ${agentsPct}% · ${bytesText(r.agents_total.rss_bytes)} · CPU ${full ? 'full' : 'ok'} · ${bytesText(m.ram_free_bytes)} left`,
+    text: `Agents: CPU ${agentsPct}%, ${bytesText(r.agents_total.rss_bytes)}${full ? ' · Load full' : ''} · ${low ? 'Memory low:' : 'Memory'} ${memoryFree(r)}`,
     over: full || low,
   };
 }

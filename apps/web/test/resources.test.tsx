@@ -37,13 +37,15 @@ describe('system resources', () => {
   it('the status bar has one text cell of what the agents use and a keep-awake choice; settings show only after a click', async () => {
     await mount('#/my-turn');
     await until(() => box.querySelector('.resource-cell'), 'the resource cell');
-    expect(text(box.querySelector('.resource-cell'))).toMatch(/^Agents \d+% · .* · CPU ok · .* left$/);
+    expect(text(box.querySelector('.resource-cell'))).toMatch(/^Agents: CPU \d+%, .* · Memory .* free \(\d+%\)$/);
     expect(text(box.querySelector('.statusbar'))).toContain('Awake: Off');
     expect(box.querySelector('.limit-editor')).toBeNull();
     await act(async () => void box.querySelector<HTMLElement>('.resource-cell')!.click());
     await until(() => box.querySelector('.resource-details'), 'the popover');
     expect(box.querySelector('.limit-editor')).toBeNull(); // read-only until a row is clicked
     const load = [...box.querySelectorAll<HTMLElement>('.resource-details button')].find((b) => text(b).startsWith('Load'))!;
+    expect(load.querySelector('svg')).not.toBeNull(); // the rows that open say so
+    expect(box.querySelectorAll('.resource-details button svg').length).toBe(2);
     await act(async () => void load.click());
     await until(() => box.querySelector('.limit-editor'), 'the load editor');
     expect(text(box.querySelector('.limit-editor'))).toContain('Now 0.3 → starts go.');
