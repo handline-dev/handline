@@ -1,4 +1,4 @@
-// The status bar (G12): 24 px along the bottom, each cell labelled: the daemon, the work waiting on the person or blocked, and the accounts'
+// The status bar (G12): 24 px along the bottom, each cell labelled: the daemon, the tasks that are blocked, and the accounts'
 // usage with its popup. The agents by state are the sidebar's, not repeated here.
 import { useConnection } from '@handline/app-react';
 import { awayLine, useAway, useTasks } from '@handline/app-data';
