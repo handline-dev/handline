@@ -1,6 +1,16 @@
 // The fake daemon's read-mostly admin surface: the stats windows, the usage outlook, the home settings, the standing answers, and the repos
 // and worktrees (worktrees.ts).
-import type { ConnectionInfo, Headroom, Outlook, Settings, SettingsChanges, StandingAnswer, Stats, Timestamp } from '@handline/contract';
+import type {
+  ConnectionInfo,
+  Headroom,
+  Outlook,
+  MachineNeed,
+  Settings,
+  SettingsChanges,
+  StandingAnswer,
+  Stats,
+  Timestamp,
+} from '@handline/contract';
 import { Failure, badRequest } from '#src/errors.ts';
 import { FakeWorktrees } from '#src/worktrees.ts';
 import { FakePrefs, type PrefsHost } from '#src/prefs.ts';
@@ -106,6 +116,9 @@ export class FakeAdmin {
     { kind: 'trust', key: ['/work/handline.architect'], text: 'trust folder /work/handline.architect' },
     { kind: 'dialog', key: ['claude', 'Do you trust the files', 'Yes, I trust'], text: 'claude: Do you trust the files → Yes, I trust' },
   ];
+
+  /** The machine's own needs-you items in daemon.status (a full disk); `setMachineNeeds` of helpers.ts changes them. */
+  machineNeeds: MachineNeed[] = [];
 
   /** `on` false is a daemon that does not serve stats, settings or standing answers: it lists none of their methods. */
   constructor(now: () => Timestamp, on: boolean, host: PrefsHost) {
