@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { targetOf, type Notice } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
 import { useMyTurn } from '#src/MyTurn.tsx';
-import { Icon, Popup } from '#src/ui/index.ts';
+import { Button, Icon, Popup } from '#src/ui/index.ts';
 
 const lineOf = (n: Notice) => (n.count > 1 ? `${n.text} ×${n.count}` : n.text);
 
@@ -131,6 +131,66 @@ function useAway(onChange: (away: boolean) => void) {
  * The notices above the bell. News goes by itself after 6 s; what needs the person and a failure stay until opened or closed. A pointer over a
  * toast or the keyboard focus in it stops its clock, as does a hidden or unfocused window. A click opens what it is about and closes only it.
  */
+const MARK = { need: ['warn', 'text-wait'], fail: ['failed', 'text-bad'], ok: ['done', 'text-ok'], info: ['info', 'text-ink-3'] } as const;
+
+/** One toast: a normal card on the neutral panel, the status icon (warning, failure, done), the short text, and its buttons below. */
+function Toast({ n }: { n: Notice }) {
+  const store = useStore();
+  const [more, setMore] = useState(false);
+  const [icon, tone] = MARK[n.level];
+  const go = targetOf(n) !== null;
+  return (
+    <div
+      className="toast relative flex items-start gap-2 rounded-card border border-line bg-panel px-3 py-2 text-body text-ink shadow-[var(--shadow-2)]"
+      onPointerEnter={() => store.notices.hold(n.id, 'pointer')}
+      onPointerLeave={() => store.notices.release(n.id, 'pointer')}
+      onFocus={() => store.notices.hold(n.id, 'focus')}
+      onBlur={() => store.notices.release(n.id, 'focus')}
+    >
+      <span className={`mt-0.5 flex flex-none ${tone}`}>
+        <Icon name={icon} size={16} aria-hidden />
+      </span>
+      <div className="grid min-w-0 flex-1 gap-1.5">
+        <span>{lineOf(n)}</span>
+        {more && n.details ? <span className="text-hint text-ink-3">{n.details}</span> : null}
+        {go || n.retry || n.details ? (
+          <span className="flex flex-wrap gap-1.5">
+            {go ? (
+              <Button variant="outline" size="sm" label="Open" className="toast-open" onClick={() => openNotice(store, n)}>
+                Open
+              </Button>
+            ) : null}
+            {n.retry ? (
+              <Button
+                variant="outline"
+                size="sm"
+                label="Try again"
+                className="toast-retry"
+                onClick={() => (n.retry?.(), store.notices.close(n.id))}
+              >
+                Try again
+              </Button>
+            ) : null}
+            {n.details ? (
+              <Button variant="ghost" size="sm" label="Details" aria-expanded={more} onClick={() => setMore(!more)}>
+                Details
+              </Button>
+            ) : null}
+          </span>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        className="toast-close flex-none cursor-pointer border-0 bg-transparent p-0 text-ink-3 hover:text-ink"
+        aria-label="Close"
+        onClick={() => store.notices.close(n.id)}
+      >
+        <Icon name="close" size={12} aria-hidden />
+      </button>
+    </div>
+  );
+}
+
 function Toasts() {
   const store = useStore();
   const toasts = useSelector((s) => s.notices.toasts());
@@ -138,56 +198,9 @@ function Toasts() {
   if (!toasts.length) return null;
   return (
     <div className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[360px] max-w-[90vw] flex-col-reverse gap-1.5" role="status">
-      {toasts.map((n) => {
-        const go = targetOf(n) !== null;
-        return (
-          <div
-            key={n.id}
-            className={`toast relative flex items-start gap-2 rounded-[8px] px-3 py-2 text-body shadow-[var(--shadow-2)] ${n.level === 'fail' ? 'bg-bad text-canvas' : 'bg-ink text-canvas'}`}
-            onPointerEnter={() => store.notices.hold(n.id, 'pointer')}
-            onPointerLeave={() => store.notices.release(n.id, 'pointer')}
-            onFocus={() => store.notices.hold(n.id, 'focus')}
-            onBlur={() => store.notices.release(n.id, 'focus')}
-          >
-            <div className="min-w-0 flex-1">
-              {go ? (
-                <button
-                  type="button"
-                  className="toast-open cursor-pointer border-0 bg-transparent p-0 text-left text-inherit"
-                  onClick={() => openNotice(store, n)}
-                >
-                  {lineOf(n)}
-                </button>
-              ) : (
-                <span>{lineOf(n)}</span>
-              )}
-              {n.retry ? (
-                <button
-                  type="button"
-                  className="toast-retry ml-2 cursor-pointer border-0 bg-transparent p-0 text-hint text-inherit underline"
-                  onClick={() => (n.retry?.(), store.notices.close(n.id))}
-                >
-                  Try again
-                </button>
-              ) : null}
-              {n.details ? (
-                <details className="mt-1 text-hint">
-                  <summary className="cursor-pointer">Details</summary>
-                  {n.details}
-                </details>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              className="toast-close flex-none cursor-pointer border-0 bg-transparent p-0 text-inherit opacity-70 hover:opacity-100"
-              aria-label="Close"
-              onClick={() => store.notices.close(n.id)}
-            >
-              <Icon name="close" size={12} aria-hidden />
-            </button>
-          </div>
-        );
-      })}
+      {toasts.map((n) => (
+        <Toast key={n.id} n={n} />
+      ))}
     </div>
   );
 }

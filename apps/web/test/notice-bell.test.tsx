@@ -83,6 +83,13 @@ describe('the notice bell', () => {
     expect(box.querySelectorAll('.toast').length).toBe(3);
     expect(box.querySelector('[title="Click to dismiss"]')).toBeNull();
     expect(toast('busy').textContent).toContain('Details');
+    // Look A: a normal card on the neutral panel, a status icon first, its buttons below the text.
+    for (const t of box.querySelectorAll<HTMLElement>('.toast')) {
+      expect(t.className).toContain('bg-panel');
+      expect(t.className).not.toMatch(/bg-ink|bg-bad/);
+      expect(t.querySelector('svg')).not.toBeNull();
+    }
+    expect(toast('busy').querySelector('.toast-retry')!.parentElement!.previousElementSibling!.textContent).toContain("Couldn't start");
     await act(async () => toast('busy').querySelector<HTMLButtonElement>('.toast-retry')!.click());
     expect(again).toBe(1);
     expect(box.querySelectorAll('.toast').length).toBe(2);
