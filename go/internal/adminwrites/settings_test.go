@@ -8,17 +8,17 @@ import (
 )
 
 func TestJoinLinesMakesOneLineOfTheBox(t *testing.T) {
-	for in, want := range map[string]string{
-		"one\ntwo":           "one two",
-		"one\r\ntwo\r\n":     "one two",
-		"  one  \n\n  two  ": "one two",
-		"\n\n":               "",
-		"already one line":   "already one line",
-		"a\rb":               "a b",
-	} {
-		if got := joinLines(in); got != want {
-			t.Errorf("joinLines(%q) = %q, want %q", in, got, want)
-		}
+	if got := joinLines("one\ntwo\r\nthree\rfour"); got != "one two three four" {
+		t.Errorf("line feed, CRLF and CR: %q", got)
+	}
+	if got := joinLines("  one  \n\n  two  "); got != "one two" {
+		t.Errorf("blank lines and the ends of each line: %q", got)
+	}
+	if got := joinLines("\n\n"); got != "" {
+		t.Errorf("only breaks: %q", got)
+	}
+	if got := joinLines("already one line"); got != "already one line" {
+		t.Errorf("one line is left alone: %q", got)
 	}
 }
 
