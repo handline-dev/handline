@@ -2,7 +2,7 @@
 // replies, tool lines and task events follow in time.
 // A daemon that does not serve chat gets an empty state; the permission card shows either way.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { OLDER_DWELL_MS, restartShown, sideOf, type TaskFold, type TimelineEntry } from '@handline/app-core';
 import { useMe, useNearEnd, useSelected } from '@handline/app-react';
@@ -25,6 +25,7 @@ import { PromptSlot } from '#src/PromptCard.tsx';
 import { Compose } from '#src/ChatCompose.tsx';
 import { LiveLine } from '#src/LiveLine.tsx';
 import { useChatScroll } from '#src/useChatScroll.ts';
+import { useViewedUpTo } from '#src/useViewedUpTo.ts';
 import { sentBodies, useOlderPages, useTail } from '#src/chatLines.ts';
 import { entryKey, useFolds } from '#src/ChatFold.tsx';
 import { useCardTitles } from '#src/ChatTitles.ts';
@@ -130,10 +131,20 @@ function useWindowedChat(agent: string, scope: ChatScope) {
 }
 
 /** Marks what the chat shows as read. It draws nothing and owns the writes, so their pending and done states do not draw the chat. */
-function ReadMarks({ agent, chat }: { agent: string; chat: Chat }) {
-  useChatReadMarks(agent, chat);
+function ReadMarks({ agent, chat, stream }: { agent: string; chat: Chat; stream: RefObject<HTMLElement | null> }) {
+  useChatReadMarks(agent, chat, useViewedUpTo(stream, agent, chat));
   return null;
 }
+
+/** The line above the first message the person has not had in view. */
+const UnreadDivider = () => (
+  <div
+    role="separator"
+    className="unread-divider my-1 flex items-center gap-2 text-label text-link before:flex-1 after:flex-1 before:border-t after:border-t before:border-link after:border-link before:content-[''] after:content-['']"
+  >
+    Unread from here
+  </div>
+);
 
 /** In the all room, the sender's name over a message, left out when the entry before is a message from the same sender. */
 const groupOf = (scope: ChatScope, prev: TimelineEntry | TaskFold | undefined, m: ChatMessage) =>
@@ -184,6 +195,11 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const since = detail.handoff && restartShown(detail.handoff, chat.items) ? detail.handoff.since : null;
   const restartAt = since === null ? -1 : entries.findIndex((e) => e.at >= since);
   const last = entries.at(-1)?.id;
+  // Where the chat was left: the divider stays where the first message above the cursor was found when the chat opened, though chat.seen moves it.
+  const [left, setLeft] = useState({ agent, seen: detail.founder_seen });
+  if (left.agent !== agent) setLeft({ agent, seen: detail.founder_seen });
+  const dividerAt =
+    left.seen === undefined ? -1 : entries.findIndex((e) => e.kind === 'message' && e.message.from === agent && e.message.id > left.seen!);
   // The ticks stay on the person's newest message; the others show them on hover.
   const lastMine = entries.filter((e) => e.kind === 'message' && sideOf(e.message, agent, me) === 'person').at(-1)?.id;
   const byId = new Map(chat.messages.map((m) => [m.id, m]));
@@ -256,7 +272,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   if (chat.status === 'off') return <ChatOff agent={agent} detail={detail} />;
   return (
     <ChatRefs agent={agent} text={refsText}>
-      <ReadMarks agent={agent} chat={chat} />
+      <ReadMarks agent={agent} chat={chat} stream={stream} />
       <section className={CHAT}>
         {finding ? (
           <div className="chat-find flex items-center gap-2 border-b border-line px-2 py-1">
@@ -321,6 +337,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                   );
                   // A plain child of the list: never animated in or out.
                   const restart = i === restartAt;
+                  const divider = i === dividerAt && i > 0 && <UnreadDivider key="unread" />;
                   return day
                     ? [
                         restart && <HandoffCard key="handoff" detail={detail} items={chat.items} />,
@@ -331,9 +348,10 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                         >
                           {day}
                         </div>,
+                        divider,
                         body,
                       ]
-                    : [restart && <HandoffCard key="handoff" detail={detail} items={chat.items} />, body];
+                    : [restart && <HandoffCard key="handoff" detail={detail} items={chat.items} />, divider, body];
                 })}
               </AnimatedList>
               {windowed && win.hasNewer ? <div ref={lower} aria-hidden className="h-px" /> : null}

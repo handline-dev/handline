@@ -5,11 +5,13 @@ import type { Chat } from '#src/chat.ts';
 import { useInbox } from '#src/read.ts';
 import { useWrite } from '#src/write.ts';
 
-export function useChatReadMarks(agent: string, chat: Pick<Chat, 'status' | 'messages'>): void {
+/** `viewed` is the newest message of the agent's that has been in view; without it the newest drawn counts (the phone's chat). */
+export function useChatReadMarks(agent: string, chat: Pick<Chat, 'status' | 'messages'>, viewed?: number): void {
   const mark = useWrite('chat.seen', agent);
   const seen = (up_to: number) => mark.mutate({ agent, up_to });
-  // The agent's messages now in front of the person leave the FOR YOU list (chat.seen); once per newest number.
-  const said = chat.messages.filter((m) => m.from === agent && m.id > 0).reduce((n, m) => Math.max(n, m.id), 0);
+  // The agent's messages in front of the person leave the FOR YOU list (chat.seen); once per newest number.
+  const drawn = chat.messages.filter((m) => m.from === agent && m.id > 0).reduce((n, m) => Math.max(n, m.id), 0);
+  const said = viewed ?? drawn;
   const told = useRef(0);
   useEffect(() => {
     if (chat.status === 'ready' && said > told.current) {
