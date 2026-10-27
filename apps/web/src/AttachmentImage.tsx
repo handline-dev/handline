@@ -43,7 +43,7 @@ export function AttachmentImage({
     <>
       <button
         type="button"
-        className={`attachment flex items-start border-0 bg-transparent p-0 text-left ${thumb ? 'h-11 w-16' : 'h-40 min-w-24 max-w-full'}`}
+        className={`attachment items-start border-0 bg-transparent p-0 text-left ${thumb ? 'mr-1.5 inline-flex h-11 w-16 align-top' : 'flex h-40 min-w-24 max-w-full'}`}
         title={label}
         aria-label={`Open ${label}`}
         onClick={() => setOpen(true)}

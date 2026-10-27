@@ -136,7 +136,7 @@ function Body({ t }: { t: Detail }) {
   useEffect(() => root.current?.focus({ preventScroll: true }), [t.id]);
 
   // The state chip already says it waits on a person, so the box leaves that out and keeps any other reason.
-  const waitsOnTask = t.waiting && !isPerson(t.waiting.on, me) ? t.waiting.text : undefined;
+  const waitsOnTask = t.waiting && t.waiting.on !== 'founder' && !isPerson(t.waiting.on, me) ? t.waiting.text : undefined;
   const heldText = t.status && HELD.includes(t.status.state) && t.status.reason !== 'you' ? t.status.text : undefined;
   const why = (t.status ? heldText : waitsOnTask) ?? t.hold_reason ?? t.block_reason;
   const item = (label: string, key: string, run: () => void, can: { ok: boolean; why?: string }) => ({ label, key, run, can });
