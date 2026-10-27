@@ -258,13 +258,13 @@ describe('the task verbs', () => {
     await press($(`memo-edit-${id}`));
     await fill('memo-edit-text', 'second note');
     m.daemon.knobs.refuse('task.comment.edit', 'state', 'that task is being merged');
-    await press($('sheet-submit'));
+    await press($('memo-edit-save'));
     await until(() => text().includes('that task is being merged'), 'the reason', 3000);
-    expect($('sheet')).not.toBeNull();
+    expect($('memo-edit-text')).not.toBeNull();
     expect(m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.text).toBe('first note');
     m.daemon.knobs.clear();
-    await press($('sheet-submit'));
-    await until(() => $('sheet') === null, 'the sheet to close');
+    await press($('memo-edit-save'));
+    await until(() => $('memo-edit-text') === null, 'the box to close');
     expect(m.daemon.tasks.get({ task: MINE_DOING }).memos[0]!.text).toBe('second note');
     expect($(`memo-${id}`)?.textContent).toContain('second note');
     await press($(`memo-delete-${id}`));
