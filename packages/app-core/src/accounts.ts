@@ -61,6 +61,17 @@ export const STATE_WORD: Record<AccountState, string> = {
   unknown: 'unknown',
 };
 
+/** A plain word for each error that stalls an account; one the daemon does not name shows as it is. */
+const STALL_WORD: Record<string, string> = {
+  authentication_failed: 'login expired',
+  oauth_org_not_allowed: 'organization not allowed',
+  account_on_hold: 'account on hold',
+  verification_required: 'verification needed',
+  billing_error: 'billing problem',
+  cloud_credential_error: 'cloud credentials problem',
+};
+export const stallWord = (s: { reason: string; error: string }): string => STALL_WORD[s.error] ?? STALL_WORD[s.reason] ?? s.reason;
+
 /** The state chip: login first, then a full window (out until it resets), then whether agents sit on it. */
 export function stateOf(a: Account): AccountState {
   if (a.login_state === 'needs_login') return 'needs_login';

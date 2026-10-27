@@ -51,7 +51,9 @@ describe('a stalled account', () => {
     await mount('#/accounts');
     await until(() => $('[data-stall="beta"]'), 'the stall');
     expect($('[data-stall="beta"]')!.textContent).toContain('blocked');
-    expect($('[data-stall="beta"]')!.textContent).toContain('billing_error');
+    expect($('[data-stall="beta"]')!.textContent).toContain('billing problem');
+    expect($('[data-stall="beta"]')!.textContent).not.toContain('billing_error'); // the code is in the title
+    expect($('[data-stall="beta"] .acct-stall-reason')!.title).toMatch(/^billing_error: /);
     expect($('[data-stall="alpha"]')).toBeNull();
   });
 

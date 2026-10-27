@@ -1,6 +1,6 @@
 // The Accounts tab of Settings (#/accounts): one row per account with its state and gauges; #/accounts/:name is one account in three tabs.
 import { useState, type ReactNode } from 'react';
-import { STATE_WORD, agentsLine, outUntil, paceLine, stateOf, span, dateTime } from '@handline/app-core';
+import { STATE_WORD, agentsLine, outUntil, paceLine, stallWord, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';
 import { useHello } from '@handline/app-react';
 import { classify, sentence, useAccounts, useAccountUsage, useAgents, useOff, useServes, useWrite } from '@handline/app-data';
@@ -99,8 +99,8 @@ export function Stall({ account }: { account: Account }) {
       {account.stalled ? (
         <>
           <span className="badge stalled inline-block rounded-card border border-bad px-1.5 text-bad">blocked</span>
-          <span className="acct-stall-reason" title={account.stalled.detail || account.stalled.error}>
-            {account.stalled.reason}
+          <span className="acct-stall-reason" title={[account.stalled.error, account.stalled.detail].filter(Boolean).join(': ')}>
+            {stallWord(account.stalled)}
           </span>
           {founder && served ? (
             <Button

@@ -3,7 +3,7 @@
 // typed to confirm (decided: nothing changes until the daemon accepts).
 import { useEffect, useState, type ReactNode } from 'react';
 import { FlatList, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { FIVE_HOURS_MS, STATE_WORD, agentsLine, paceLine, WEEK_MS, gaugeOf, outUntil, span, stateOf } from '@handline/app-core';
+import { FIVE_HOURS_MS, STATE_WORD, agentsLine, paceLine, stallWord, WEEK_MS, gaugeOf, outUntil, span, stateOf } from '@handline/app-core';
 import type { Account, Window } from '@handline/client';
 import { useStore } from '@handline/app-react';
 import { classify, sentence, useAccounts, useAccountUsage, useOff, usePending, useServes, useWrite } from '@handline/app-data';
@@ -43,7 +43,7 @@ function Stall({ a }: { a: Account }) {
       {a.stalled ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, flexWrap: 'wrap' }}>
           <Text style={{ color: c.block, fontWeight: '700' }}>STALLED</Text>
-          <Text style={{ color: c.muted, flexShrink: 1 }}>{a.stalled.reason}</Text>
+          <Text style={{ color: c.muted, flexShrink: 1 }}>{stallWord(a.stalled)}</Text>
           {founder && served ? (
             <Button
               testID={`wake-${a.name}`}

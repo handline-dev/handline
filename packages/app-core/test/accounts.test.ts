@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Account } from '@handline/client';
-import { FIVE_HOURS_MS, capacityOf, gaugeOf, headroom, outUntil, stateOf, toneOf } from '#src/index.ts';
+import { FIVE_HOURS_MS, capacityOf, gaugeOf, headroom, outUntil, stallWord, stateOf, toneOf } from '#src/index.ts';
 
 const NOW = Date.parse('2026-10-07T12:00:00Z');
 const at = (ms: number) => new Date(NOW + ms).toISOString();
@@ -68,4 +68,10 @@ test('capacity averages the room left on accounts that can run, is short with no
   assert.equal(word([acct({ five_hour: w(70) }), acct({ five_hour: w(60) })]), 'tight');
   assert.equal(word([acct({ five_hour: w(100) }), acct({ login_state: 'needs_login' })]), 'short');
   assert.equal(capacityOf([acct()]), null);
+});
+
+test('a stall shows a plain word for each error the daemon names, and any other error as it is', () => {
+  assert.equal(stallWord({ reason: 'billing_error', error: 'billing_error' }), 'billing problem');
+  assert.equal(stallWord({ reason: 'login expired', error: 'authentication_failed' }), 'login expired');
+  assert.equal(stallWord({ reason: 'odd_error', error: 'odd_error' }), 'odd_error');
 });
