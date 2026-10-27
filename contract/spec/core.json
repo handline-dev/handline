@@ -1752,7 +1752,7 @@
       "type": "integer",
       "minimum": 0,
       "default": 1,
-      "description": "1 holds the daemon's new work while a phone simulator or emulator runs on this machine (the iOS Simulator, the Android emulator and its qemu); 0 does not. Held the same way as a load limit (status reason load), by the same rules."
+      "description": "1 holds the daemon's new work while a phone simulator or emulator runs on this machine (a booted iOS simulator device, or the qemu an Android emulator runs on); 0 does not. Held the same way as a load limit (status reason load), by the same rules."
      },
      "pacing": {
       "type": "boolean",
