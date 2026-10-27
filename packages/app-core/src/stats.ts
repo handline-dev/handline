@@ -72,6 +72,7 @@ export const limitFields = (v: { host_active_cap?: number; load_per_core_pct?: n
     unit: string,
     n: number | undefined,
     key: 'host_active_cap' | 'load_per_core_pct' | 'ram_free_min_pct',
+    change: (x: number | null) => PageSettings,
   ) => ({
     setting: key,
     label,
@@ -79,21 +80,31 @@ export const limitFields = (v: { host_active_cap?: number; load_per_core_pct?: n
     unit,
     current: limitOf(n),
     parse: parseLimit,
-    change: (x: number | null): PageSettings => ({ [key]: x }),
+    change,
     allowed,
   });
   // A daemon that has none of the keys does not know the limits: no rows.
   if (v.host_active_cap === undefined && v.load_per_core_pct === undefined && v.ram_free_min_pct === undefined) return [];
   return [
-    field('Agents at once', 'Agents working at once on this machine, over every account', 'agents', v.host_active_cap, 'host_active_cap'),
+    field(
+      'Agents at once',
+      'Agents working at once on this machine, over every account',
+      'agents',
+      v.host_active_cap,
+      'host_active_cap',
+      (x) => ({ host_active_cap: x }),
+    ),
     field(
       'Load per core',
       'Most 1-minute load per core; over it no new work starts (150 is 1.5)',
       '%',
       v.load_per_core_pct,
       'load_per_core_pct',
+      (x) => ({ load_per_core_pct: x }),
     ),
-    field('Least free memory', 'Under this share of memory free, no new work starts', '%', v.ram_free_min_pct, 'ram_free_min_pct'),
+    field('Least free memory', 'Under this share of memory free, no new work starts', '%', v.ram_free_min_pct, 'ram_free_min_pct', (x) => ({
+      ram_free_min_pct: x,
+    })),
   ];
 };
 
