@@ -44,7 +44,7 @@ describe('the task detail footer', () => {
     expect(scroll.className).toContain('py-3');
     expect(bar.className).toMatch(/(^| )-bottom-3( |$)/);
     expect(bar.className).toContain('-mb-3');
-    expect(bar.className).toContain('bg-canvas');
+    expect(bar.className).toContain('bg-inherit');
     expect(bar.className).toContain('border-t');
   });
 });
