@@ -46,7 +46,7 @@ func heavyKind(words []string) string {
 			break
 		}
 	case "pnpm", "npm", "yarn":
-		if has("vitest") && (has("exec") || has("dlx") || name == "yarn") {
+		if packageVitest(rest) {
 			return "vitest"
 		}
 		if has("perf") {
@@ -70,6 +70,21 @@ func heavyKind(words []string) string {
 		}
 	}
 	return ""
+}
+
+// packageVitest is whether the arguments of pnpm, npm or yarn run vitest: it follows the flags and any exec, dlx or run (pnpm and yarn
+// run a bin without exec), so `pnpm add vitest` and `pnpm why vitest` are not it.
+func packageVitest(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--filter" || a == "-F" || a == "-C" || a == "--dir":
+			i++ // these take a value
+		case strings.HasPrefix(a, "-") || a == "exec" || a == "dlx" || a == "run":
+		default:
+			return a == "vitest"
+		}
+	}
+	return false
 }
 
 // headlessChrome is whether a command is a Chrome run with --headless.
