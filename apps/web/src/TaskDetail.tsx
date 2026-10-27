@@ -50,8 +50,8 @@ export function TaskDetail({
     <>
       {page ? (
         <PageHead back={onBack ? { label: 'My turn', to: onBack } : { label: 'Tasks', to: () => leave('#/tasks') }}>
-          {/* A flex row, not a truncating heading: the title field takes what the ref leaves and its focus ring is not clipped. */}
-          <PageTitle className="flex min-w-0 items-center gap-1.5">
+          {/* A flex-1 row, not a truncating heading: the title takes the bar's free width (a long one truncates), the field what the ref leaves and its focus ring is not clipped. */}
+          <PageTitle className="flex min-w-0 flex-1 items-center gap-1.5">
             <span className="mono flex-none">{taskRef(id)}</span>
             {q.data ? (
               <span className="title-slot min-w-0 flex-1 [&>[role=button]]:truncate">
