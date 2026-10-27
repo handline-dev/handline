@@ -69,8 +69,13 @@ describe('my turn', () => {
     expect(row.textContent).toContain('The build is green');
     expect(row.textContent).toContain('3');
     expect(box.querySelector('[aria-label="Messages"]')!.contains(row)).toBe(true);
+    // The Chat tab drops `?m=` once it has scrolled to the message, so the link is read as the click sets it, not after.
+    const seen: string[] = [];
+    const note = () => void seen.push(location.hash);
+    addEventListener('hashchange', note);
     await act(async () => void row.click());
-    expect(location.hash).toBe(`#/agents/${encodeURIComponent(ARCH)}?m=5`);
+    removeEventListener('hashchange', note);
+    expect(seen).toContain(`#/agents/${encodeURIComponent(ARCH)}?m=5`);
   });
   async function open(s = setup()) {
     s.daemon.tasks.verbs = true;
