@@ -38,6 +38,7 @@ const DEFAULTS: Settings['values'] = {
   host_active_cap: 0,
   load_per_core_pct: 150,
   ram_free_min_pct: 10,
+  host_simulator_hold: 1,
   heavy_slots: 2,
   keep_awake: 'off',
 };

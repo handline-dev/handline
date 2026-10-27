@@ -1748,6 +1748,12 @@
       "default": 10,
       "description": "Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work."
      },
+     "host_simulator_hold": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 1,
+      "description": "1 holds the daemon's new work while a phone simulator or emulator runs on this machine (the iOS Simulator, the Android emulator and its qemu); 0 does not. Held the same way as a load limit (status reason load), by the same rules."
+     },
      "pacing": {
       "type": "boolean",
       "default": true,
@@ -2014,6 +2020,18 @@
        }
       ],
       "description": "Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. null removes the key (back to the default)."
+     },
+     "host_simulator_hold": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "1 holds the daemon's new work while a phone simulator or emulator runs on this machine; 0 does not. null removes the key (back to the default)."
      },
      "pacing": {
       "oneOf": [
