@@ -285,8 +285,8 @@ func TestAClosedAgentIsWokenByResumingItsSessionAndTheStreakResets(t *testing.T)
 	}
 }
 
-// A head told to the session that closed is still the head but has nothing left to type: the wake resumes the session anyway, and does not
-// give up silently each tick (handline.pc-chat, T6740).
+// A task the agent holds has landed in the session that closed: nothing is left to type, and the resume is what brings the agent back to
+// it, not a silent give-up each tick (handline.pc-chat, T6740).
 func TestAWakeForAHeadAlreadyToldToTheClosedSessionStillResumesIt(t *testing.T) {
 	m, d, tm := newManager(t)
 	d.head = &db.Request{ID: 47823, Requester: "human"}
