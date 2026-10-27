@@ -55,6 +55,16 @@ export const SEEDS: Record<string, Seed> = {
     d.inbox.add({ kind: 'decision', agent: ARCH, title: 'Review: wider margin on the board', body: 'Is this right?', task: 9301 });
   },
 
+  /** An open task given to the person, with its card in the architect's chat: the card then offers Open and Done. */
+  'task-card': (d) => {
+    d.tasks.seed({ id: 1695, from: ARCH, to: ME, title: 'Confirm the chat plan', state: 'doing' });
+    d.chat.seedItem(ARCH, {
+      at: new Date().toISOString(),
+      kind: 'task_event',
+      task_event: { event: 'opened', task: 1695, request: null, evidence: null, who: ARCH },
+    });
+  },
+
   /** Three HR proposals: a new agent (team, model), a setting change old -> new, and one to reject. */
   hr: (d) => {
     const hr = d.script.hr;
