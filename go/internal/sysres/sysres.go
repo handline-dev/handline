@@ -29,6 +29,8 @@ type Machine struct {
 	Load1                      float64
 	Cores                      int
 	DiskFree, DiskTotal        int64
+	// Simulator is the name of a running phone simulator or emulator ("" for none): the heaviest thing a test of the app starts.
+	Simulator string
 }
 
 // Snapshot is one measurement.
@@ -43,7 +45,7 @@ type Sampler struct {
 	Home string
 	// Panes is each agent's pane process, the root of its tree; agents with no terminal are left out.
 	Panes func() map[string]int
-	// PS is the process table as `ps -axo pid=,ppid=,%cpu=,rss=` prints it; nil runs ps.
+	// PS is the process table as `ps -axo pid=,ppid=,%cpu=,rss=,comm=` prints it; nil runs ps.
 	PS func() (string, error)
 	// Machine reads the machine's RAM and load; nil reads this one.
 	Machine func() (Machine, error)
@@ -59,14 +61,15 @@ type proc struct {
 	ppid int
 	cpu  float64
 	rss  int64
+	comm string // the command name or path, "" when the line has none
 }
 
-// parsePS reads the process table; a line that is not four numbers is skipped.
+// parsePS reads the process table; a line that does not start with four numbers is skipped, and the rest of it is the command.
 func parsePS(out string) map[int]proc {
 	procs := map[int]proc{}
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
-		if len(f) != 4 {
+		if len(f) < 4 {
 			continue
 		}
 		pid, e1 := strconv.Atoi(f[0])
@@ -74,10 +77,29 @@ func parsePS(out string) map[int]proc {
 		cpu, e3 := strconv.ParseFloat(f[2], 64)
 		rss, e4 := strconv.ParseInt(f[3], 10, 64)
 		if e1 == nil && e2 == nil && e3 == nil && e4 == nil {
-			procs[pid] = proc{ppid: ppid, cpu: cpu, rss: rss * 1024}
+			procs[pid] = proc{ppid: ppid, cpu: cpu, rss: rss * 1024, comm: strings.Join(f[4:], " ")}
 		}
 	}
 	return procs
+}
+
+// deviceSimulator names a running phone simulator or emulator, "" for none, by the command's name alone: the iOS Simulator app, a booted
+// simulated device (launchd_sim), the Android emulator, or the qemu it runs on. Look-alikes (CoreSimulatorService, an editor open on
+// an "emulator" file) are other names and do not match.
+func deviceSimulator(procs map[int]proc) string {
+	for _, p := range procs {
+		name := p.comm
+		if i := strings.LastIndex(name, "/"); i >= 0 {
+			name = name[i+1:]
+		}
+		switch {
+		case name == "Simulator" || name == "launchd_sim":
+			return "iOS simulator"
+		case name == "emulator" || strings.HasPrefix(name, "qemu-system-"):
+			return "Android emulator"
+		}
+	}
+	return ""
 }
 
 // treeUse sums each root's process and all its descendants.
@@ -113,7 +135,7 @@ func (s *Sampler) Sample(now int64) error {
 	ps := s.PS
 	if ps == nil {
 		ps = func() (string, error) {
-			out, err := exec.Command("ps", "-axo", "pid=,ppid=,%cpu=,rss=").Output()
+			out, err := exec.Command("ps", "-axo", "pid=,ppid=,%cpu=,rss=,comm=").Output()
 			return string(out), err
 		}
 	}
@@ -121,7 +143,8 @@ func (s *Sampler) Sample(now int64) error {
 	if err != nil {
 		return fmt.Errorf("reading the process table: %w", err)
 	}
-	snap := &Snapshot{At: now, Agents: treeUse(parsePS(table), s.Panes())}
+	procs := parsePS(table)
+	snap := &Snapshot{At: now, Agents: treeUse(procs, s.Panes())}
 	machine := s.Machine
 	if machine == nil {
 		machine = thisMachine
@@ -130,6 +153,7 @@ func (s *Sampler) Sample(now int64) error {
 		s.Log("resources: " + err.Error())
 	}
 	snap.Machine.Cores = runtime.NumCPU()
+	snap.Machine.Simulator = deviceSimulator(procs)
 	disk := s.Disk
 	if disk == nil {
 		disk = StatfsFree
