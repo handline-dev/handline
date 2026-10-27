@@ -256,7 +256,7 @@ export function BytesTab({
             {SKELETON_ROWS.map((w, i) => (
               <div
                 key={i}
-                className="term-skeleton-row h-[13px] animate-[term-pulse_1.2s_ease-in-out_infinite] rounded-[3px] bg-line opacity-60 motion-reduce:animate-none"
+                className="term-skeleton-row h-[13px] animate-pulse rounded-[3px] bg-line opacity-60 motion-reduce:animate-none"
                 style={{ width: `${w}%` }}
               />
             ))}

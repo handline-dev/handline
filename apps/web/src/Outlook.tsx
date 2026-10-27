@@ -2,7 +2,7 @@
 // a table of each agent's cost and share under it and a click on an agent to draw that one alone. A series has a shape (a dash, a pattern and a
 // letter), not only a hue. The numbers are always in a table behind a toggle, so the picture is never the only way to read them.
 import { useState } from 'react';
-import { costByAgent, guessLine } from '@handline/app-core';
+import { costByAgent, dateTime, guessLine } from '@handline/app-core';
 import type { Outlook } from '@handline/client';
 import { useOutlook } from '@handline/app-data';
 import {
@@ -88,9 +88,7 @@ function Line({ o }: { o: Outlook }) {
           ) : null}
         </svg>
         <p className="outlook-readout muted m-0 mt-1 h-5 text-hint" aria-live="polite">
-          {near
-            ? `${new Date(near.at).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · ${Math.round(near.left_pct!)}% left${near.guess ? ' (guess)' : ''}`
-            : ''}
+          {near ? `${dateTime(near.at)} · ${Math.round(near.left_pct!)}% left${near.guess ? ' (guess)' : ''}` : ''}
         </p>
         <span className={OUTLOOK_END} style={{ top: `${((100 - (lastLeft ?? 0)) / 100) * 100}%` }}>
           {o.accounts === 1 ? 'the account' : `all ${o.accounts} accounts`}
@@ -194,7 +192,7 @@ function Table({ o, view }: { o: Outlook; view: 'left' | 'cost' }) {
       <tbody>
         {[...o.past.map((p) => ({ ...p, guess: false })), ...o.future.map((p) => ({ ...p, guess: true }))].map((p) => (
           <tr key={p.at}>
-            <td>{new Date(p.at).toLocaleString()}</td>
+            <td>{dateTime(p.at)}</td>
             <td>{p.left_pct === null ? 'no data' : `${Math.round(p.left_pct)}%`}</td>
             <td className="muted">{p.guess ? 'guess' : ''}</td>
           </tr>
