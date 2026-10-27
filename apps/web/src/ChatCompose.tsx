@@ -81,7 +81,7 @@ export function Compose(props: {
       set('');
       openTerminal();
     } else if (e.insert !== undefined) {
-      set(open?.kind === 'hash' ? text.replace(/#\w*$/, e.insert) : e.insert);
+      set(open?.kind === 'hash' ? text.replace(/#\w*$/, e.insert) : open?.kind === 'at' ? text.replace(/@[\w.-]*$/, e.insert) : e.insert);
     }
     box.current?.focus();
   };
@@ -187,7 +187,14 @@ export function Compose(props: {
           <Icon name="warn" size={14} aria-hidden /> {refused}
         </p>
       ) : null}
-      <AttachChips drafts={att.drafts} refs={att.refs} problem={att.problem} onRemove={att.remove} onUnref={att.unrefer} />
+      <AttachChips
+        drafts={att.drafts}
+        refs={att.refs}
+        problem={att.problem}
+        onRemove={att.remove}
+        onRetry={att.retry}
+        onUnref={att.unrefer}
+      />
       <ComposeRow>
         {menu ? (
           <ul

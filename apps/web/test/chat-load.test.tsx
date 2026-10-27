@@ -60,4 +60,44 @@ describe('chat load', () => {
     watch.disconnect();
     expect(both).toBe(false);
   });
+
+  it('asks for an older page only after the top has stayed in view for 0.3 s', async () => {
+    const live = new Set<{ cb: (e: { isIntersecting: boolean }[]) => void }>();
+    class Watch {
+      cb: (e: { isIntersecting: boolean }[]) => void;
+      constructor(cb: (e: { isIntersecting: boolean }[]) => void) {
+        this.cb = cb;
+      }
+      observe() {
+        live.add(this);
+      }
+      unobserve() {}
+      disconnect() {
+        live.delete(this);
+      }
+    }
+    vi.stubGlobal('IntersectionObserver', Watch);
+    const s = setup();
+    for (let i = 0; i < 100; i++) s.daemon.chat.seed(ARCH, { from: 'human', to: ARCH, body: `filler ${i}` });
+    await mount(s);
+    await until(() => msg('filler 99') && $('.stream'), 'the newest page');
+    const rows = () => box.querySelectorAll('.stream .msg[data-id]').length;
+    const near = (isIntersecting: boolean) => act(async () => live.forEach((w) => w.cb([{ isIntersecting }])));
+    const wait = (ms: number) => act(async () => void (await new Promise((r) => setTimeout(r, ms))));
+    const first = rows();
+    const stream = $('.stream') as HTMLElement;
+    Object.defineProperty(stream, 'scrollHeight', { value: 5000, configurable: true });
+    await act(async () => void stream.dispatchEvent(new Event('scroll'))); // the reader is up in the history
+    await near(true);
+    await wait(100);
+    await near(false); // scrolled past before 0.3 s
+    await wait(500);
+    expect(rows()).toBe(first);
+    await near(true);
+    await wait(100);
+    expect(rows()).toBe(first);
+    await until(() => rows() > first, 'the older page after 0.3 s');
+    expect(box.textContent).not.toContain('new message'); // an older page is no news
+    vi.unstubAllGlobals();
+  });
 });

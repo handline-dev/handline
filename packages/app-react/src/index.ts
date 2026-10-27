@@ -1,5 +1,15 @@
 // React bindings for the shared store. No JSX, so the package is plain .ts that Vite and Metro compile as it is.
-import { createContext, createElement, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import type { Store } from '@handline/app-core';
 import { RpcError } from '@handline/client';
 
@@ -67,8 +77,23 @@ export function useSelector<T>(select: (s: Store) => T): T {
   return last.current.value;
 }
 
+/**
+ * Like `useSelector`, but draws again only when the selected value changes (by `Object.is`), not on every store change.
+ * For a flag, a name or a number; a value the store changes in place would not be noticed.
+ */
+export function useSelected<T extends string | number | boolean | null | undefined>(select: (s: Store) => T): T {
+  const store = useStore();
+  const pick = useRef(select);
+  pick.current = select;
+  const subscribe = useCallback((cb: () => void) => store.subscribe(cb), [store]);
+  return useSyncExternalStore(subscribe, () => pick.current(store));
+}
+
 export const useConnection = () => useSelector((s) => s.conn);
 export const useError = () => useSelector((s) => s.error);
+/** Who this window is and what the daemon said at hello: read through the store version, so a render is never left with the values from before the hello. */
+export const useMe = () => useSelected((s) => s.me);
+export const useHello = () => useSelector((s) => s.client.hello);
 
 /** Runs one async job at a time: a call while it runs does nothing. `going` is true meanwhile, for the buttons to disable. */
 export function useOnce(): [going: boolean, once: (job: () => Promise<void>) => Promise<void>] {
@@ -92,12 +117,13 @@ export function useOnce(): [going: boolean, once: (job: () => Promise<void>) => 
  * Calls `more` when the sentinel element comes within `margin` px of the scroll box `root` (the top of a chat, the end of a list; `null` for the window): put the
  * returned ref on an empty element at that end. Where there is no IntersectionObserver the box's own scroll is watched for the same distance.
  * `more` is called again only after the sentinel has left the margin and come back, or after `enabled` turns false and true.
+ * With `dwell` ms, the sentinel must stay inside the margin that long first: a scroll that only passes by loads nothing.
  */
 export function useNearEnd<R extends HTMLElement, S extends HTMLElement>(
   root: { current: R | null } | null,
   more: () => void,
   enabled: boolean,
-  { margin = 200, atTop = false }: { margin?: number; atTop?: boolean } = {},
+  { margin = 200, atTop = false, dwell = 0 }: { margin?: number; atTop?: boolean; dwell?: number } = {},
 ): { current: S | null } {
   const sentinel = useRef<S | null>(null);
   const call = useRef(more);
@@ -107,12 +133,18 @@ export function useNearEnd<R extends HTMLElement, S extends HTMLElement>(
     const el = sentinel.current;
     if (!enabled || !el || (root && !box)) return;
     if (typeof IntersectionObserver === 'function') {
-      const io = new IntersectionObserver((e) => e.some((x) => x.isIntersecting) && call.current(), {
-        root: box,
-        rootMargin: `${margin}px`,
-      });
+      let wait: ReturnType<typeof setTimeout> | undefined;
+      const io = new IntersectionObserver(
+        (e) => {
+          clearTimeout(wait);
+          if (!e.at(-1)?.isIntersecting) return;
+          if (dwell) wait = setTimeout(() => call.current(), dwell);
+          else call.current();
+        },
+        { root: box, rootMargin: `${margin}px` },
+      );
       io.observe(el);
-      return () => io.disconnect();
+      return () => (clearTimeout(wait), io.disconnect());
     }
     const target: HTMLElement | Window = box ?? window;
     const onScroll = () => {
@@ -122,6 +154,6 @@ export function useNearEnd<R extends HTMLElement, S extends HTMLElement>(
     };
     target.addEventListener('scroll', onScroll);
     return () => target.removeEventListener('scroll', onScroll);
-  }, [root, enabled, margin, atTop]);
+  }, [root, enabled, margin, atTop, dwell]);
   return sentinel;
 }

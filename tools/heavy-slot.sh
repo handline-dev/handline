@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run a command in one of the machine's heavy-run slots (go/cmd/heavyslot): tools/heavy-slot.sh <command> [args...]
 # tools/check.sh, tools/test-go.sh and the vitest test scripts (apps/web, apps/mobile, packages/app-data) run through it, so at most
-# HANDLINE_HEAVY_SLOTS (default 1) of them run at once on this machine; the others wait and say who holds the slot. Inside a slot
+# HANDLINE_HEAVY_SLOTS (default 2) of them run at once on this machine; the others wait their turn, in the order they came, and say who holds the slots. Inside a slot
 # (HANDLINE_HEAVY_SLOT set) it runs the command as is.
 [ -n "${HANDLINE_HEAVY_SLOT:-}" ] && exec "$@"
 top="$(cd "$(dirname "$0")/.." && pwd)" || exit 1

@@ -756,7 +756,10 @@ func memoJSON(q db.Q, m row, parts func(string) []any, store *attachments.Store,
 		edited = ts(m["edited_at"])
 	}
 	memo := map[string]any{"id": m.i("id"), "task": m.i("task_id"), "author": m.str("author"),
-		"at": ts(m["created_at"]), "text": m.str("body"), "edited_at": edited}
+		"at": ts(m["created_at"]), "text": m.str("body"), "edited_at": edited, "reply_to": nil}
+	if m.set("reply_to") {
+		memo["reply_to"] = m.i("reply_to")
+	}
 	if p := parts(m.str("body")); p != nil {
 		memo["parts"] = p
 	}

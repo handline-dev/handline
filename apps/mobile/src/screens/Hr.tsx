@@ -6,7 +6,7 @@ import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import {
   ago,
   askedLines,
-  cutError,
+  applyFailure,
   DANGER,
   changesToggle,
   diffLines,
@@ -229,9 +229,7 @@ function Card(props: { p: Proposal; decider: boolean; refresh: () => void }) {
           ))}
         </View>
       )}
-      {p.state === 'apply_failed' && (
-        <Text style={{ color: c.block }}>{p.error ? cutError(textSafe(p.error)) : 'the change was not applied'}</Text>
-      )}
+      {p.state === 'apply_failed' && <Text style={{ color: c.block }}>{applyFailure(p).line}</Text>}
       {note === 'settled' ? (
         <Text style={{ color: c.muted }}>already {p.state}</Text>
       ) : note ? (

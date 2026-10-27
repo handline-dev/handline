@@ -15,6 +15,7 @@ import (
 	"github.com/handline/handline/go/internal/handoff"
 	"github.com/handline/handline/go/internal/housekeeping"
 	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/loadgate"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/states"
@@ -128,7 +129,7 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		Usage:     tu,
 		Delivery:  tickDelivery{env: env},
 		Messaging: tickMessaging{env: env},
-		Lifecycle: tickLifecycle{m: lc.Manager},
+		Lifecycle: tickLifecycle{m: lc.Manager, gate: lc.Gate},
 		Handoff:   tickHandoff{ho: lc.Handoff, mv: lc.Mover},
 		Login:     loginPorts(team.Accounts{Home: home}, uenv.EndedWhy, founderAsker{env}),
 		Reconcile: tickReconciler{r: reconciler},
@@ -158,7 +159,9 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 		{Name: "log rotation", Run: func(db.Q, int64) error { return housekeeping.RotateLogs(home) }},
 		{Name: "attachment sweep", Run: func(q db.Q, _ int64) error { return attachments.New(home).Sweep(q) }},
 		{Name: "worktree locks", Run: func(q db.Q, _ int64) error { return releaseWorktreeLocks(q, home) }},
-		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Raise: raiseFromTaskBoard(env), Free: cfg.DiskFree}).Check},
+		{Name: "unanswered founder messages", Run: (&housekeeping.Unanswered{Lead: leadCheck(home), Log: logLine,
+			Notice: func(q db.Q, to, text, reason string) error { _, err := env.Notice(q, to, text, reason); return err }}).Check},
+		{Name: "disk watch", Run: (&housekeeping.DiskWatch{Home: home, Log: logLine, Free: cfg.DiskFree}).Check},
 	}, Signalled: func() bool {
 		select {
 		case <-tc.Stop:
@@ -180,15 +183,11 @@ func (p *Parts) Tick(cfg Config, tc TickConfig) *Tick {
 	return &Tick{Tick: t, Loop: loop, dev: dev, Startup: startup, gates: &gates.Sweep{DB: q, Home: home, Tell: env, Log: cfg.Log}}
 }
 
-// raiseFromTaskBoard puts a decision from the task board in front of the founder: a My turn card.
-func raiseFromTaskBoard(env *supervisor.Env) func(q db.Q, text string) error {
-	return func(q db.Q, text string) error {
-		var after supervisor.After
-		if _, err := env.RaiseDecision(q, &after, db.NoticeRequester, text, "disk", "", "", 0, 0); err != nil {
-			return err
-		}
-		after.Run()
-		return nil
+// leadCheck is whether an agent answers to no one in the team as it stands now.
+func leadCheck(home string) func(string) bool {
+	return func(agent string) bool {
+		tm, err := team.LoadTeam(home)
+		return err == nil && tm.LeadOf(agent) == ""
 	}
 }
 
@@ -521,7 +520,12 @@ func (m tickMessaging) TellUndelivered(q db.Q, agent string) { m.env.TellUndeliv
 func (m tickMessaging) DeliverPending(q db.Q, agent string)  { m.env.DeliverPending(q, agent) }
 
 // tickLifecycle is tick.Lifecycle over the lifecycle manager.
-type tickLifecycle struct{ m *lifecycle.Manager }
+type tickLifecycle struct {
+	m    *lifecycle.Manager
+	gate *loadgate.Gate
+}
+
+func (l tickLifecycle) ForgetLoadHold(agent string) { l.gate.Forget(agent) }
 
 func sessionOf(st tick.Status) lifecycle.SessionStatus {
 	return lifecycle.SessionStatus{SessionID: st.SessionID}

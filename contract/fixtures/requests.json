@@ -1,0 +1,171 @@
+{
+ "fixtures": [
+  {
+   "name": "requests.list.serves_items_and_more",
+   "spec": "requests.list",
+   "as": "founder",
+   "about": "requests.list answers a page: items and whether more follow.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "requests.list",
+      "params": {}
+     },
+     "result": {
+      "items": {
+       "$type": "array"
+      },
+      "more": {
+       "$type": "boolean"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "requests.list.each_row_names_its_status",
+   "spec": "requests.list",
+   "as": "founder",
+   "about": "Every row has a kind and one of the statuses.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "requests.list",
+      "params": {}
+     },
+     "result": {
+      "items": {
+       "$each": {
+        "kind": {
+         "$oneOf": [
+          "task",
+          "message"
+         ]
+        },
+        "status": {
+         "$oneOf": [
+          "waiting_on_you",
+          "review",
+          "doing",
+          "done",
+          "no_work",
+          "not_yet"
+         ]
+        },
+        "cursor": {
+         "$type": "string"
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "requests.list.an_unknown_state_is_bad_request",
+   "spec": "requests.list",
+   "as": "founder",
+   "about": "A state that is none of the statuses is bad_request naming state.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "requests.list",
+      "params": {
+       "state": "nope"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "state"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "requests.list.a_limit_of_zero_is_bad_request",
+   "spec": "requests.list",
+   "as": "founder",
+   "about": "A page holds at least one row: bad_request naming limit.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "requests.list",
+      "params": {
+       "limit": 0
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "limit"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

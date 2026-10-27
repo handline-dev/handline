@@ -111,6 +111,11 @@ func TestARetiredMembersDoneWorktreeIsRemovedAndTheRestStay(t *testing.T) {
 		git(main, "worktree", "add", "-q", "-b", name, wt[name])
 	}
 	git(wt["ahead"], "commit", "-q", "--allow-empty", "-m", "unmerged work")
+	var asked []string
+	r.e.Ask = func(title, body string, tags ...string) (int64, error) {
+		asked = append(asked, title+"|"+strings.Join(tags, ",")+"|"+body)
+		return int64(40 + len(asked)), nil
+	}
 	r.db.Exec("INSERT INTO agent_state(agent, state, updated, worktree, extra_worktrees) VALUES('bob', 'idle', 1, ?, ?)",
 		"repo::"+wt["done"], `["`+wt["ahead"]+`", "`+wt["shared"]+`"]`)
 	r.db.Exec("INSERT INTO agent_state(agent, state, updated, worktree) VALUES('alice', 'idle', 1, ?)", wt["shared"])
@@ -127,6 +132,12 @@ func TestARetiredMembersDoneWorktreeIsRemovedAndTheRestStay(t *testing.T) {
 	}
 	if _, err := os.Stat(wt["done"]); !os.IsNotExist(err) {
 		t.Fatal("the done worktree is still there")
+	}
+	// Only the one that holds work is put to the founder; the one an agent shares is not theirs to judge.
+	if len(asked) != 1 || !strings.HasPrefix(asked[0], "Remove bob's worktree?|worktree-removal|") ||
+		!strings.Contains(asked[0], "Path: "+wt["ahead"]) || !strings.Contains(asked[0], "Member: bob") || !strings.Contains(asked[0], "  unmerged work") ||
+		!strings.Contains(said, "asked the founder in T41") {
+		t.Fatalf("asked %q\n%s", asked, said)
 	}
 	for _, name := range []string{"ahead", "shared"} {
 		if _, err := os.Stat(wt[name]); err != nil {

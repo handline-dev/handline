@@ -107,18 +107,21 @@ describe('U15 HR', () => {
     raise(s, 4, { state: 'withdrawn' });
     raise(s, 5, { state: 'on_hold' });
     await open(s);
+    await until(() => $('[data-done="5"]'), 'the done rows');
+    for (const id of [3, 4, 5]) await click($(`[data-done="${id}"] button`)!);
     await until(() => $$('.hr-card').length === 5, 'five cards');
     expect(text(card(1))).toContain('waiting for you');
     expect(card(1).querySelector('.hr-state svg[data-icon="needs"]')).not.toBeNull(); // a shape, not only the word's colour
     expect(card(2).querySelector('.hr-state svg[data-icon="blocked"]')).not.toBeNull();
     expect(card(3).querySelector('.hr-state svg[data-icon="dismissed"]')).not.toBeNull(); // rejected has a shape of its own
-    expect(text(card(2))).toContain('approved, apply failed');
+    expect(text(card(2))).toContain('approved, not applied');
     expect(text(card(3))).toContain('rejected');
     expect(text(card(4))).toContain('withdrawn');
     expect(text(card(5))).toContain('on_hold');
     expect(text(card(1).querySelector('.hr-diff'))).toContain('- effort  high');
     expect(text(card(1).querySelector('.hr-diff'))).toContain('+ effort  max');
-    expect(text(card(2).querySelector('.fnote'))).toHaveLength(401); // cut at 400, with an ellipsis
+    expect(text(card(2).querySelector('.fnote'))).toContain('Approved, but not applied'); // the line, with the daemon's words behind Details
+    expect(text(card(2).querySelector('.fnote details'))).toHaveLength('Details'.length + 401); // cut at 400, with an ellipsis
     expect(btn(card(2), 'Retry')).toBeTruthy();
     expect(card(5).querySelector('button')).toBeNull();
     expect(card(3).querySelector('button')).toBeNull();
@@ -131,7 +134,11 @@ describe('U15 HR', () => {
     await until(() => $('.hr-card'), 'the card');
     await click(btn(card(1), 'Approve'));
     await until(() => p.state === 'approved', 'approved');
-    await until(() => text($('.hr')).includes('Recent') && text(card(1)).includes('approved and applied'), 'in Recent');
+    await until(() => $('[data-done="1"]'), 'a Done row');
+    expect(text($('.hr'))).toContain('Done');
+    expect(card(1)).toBeNull(); // one line until it is opened
+    await click($('[data-done="1"] button')!);
+    await until(() => card(1) && text(card(1)).includes('approved and applied'), 'the card');
     expect(card(1).querySelector('button')).toBeNull();
   });
 
@@ -169,8 +176,28 @@ describe('U15 HR', () => {
     await until(() => $('.hr-card'), 'the card');
     p.state = 'withdrawn'; // settled elsewhere, no event reached this tab
     await click(btn(card(1), 'Approve'));
-    await until(() => text(card(1)).includes('withdrawn'), 'the card follows the daemon');
+    await until(() => $('[data-done="1"]'), 'the card follows the daemon into Done');
+    await click($('[data-done="1"] button')!);
+    await until(() => card(1) && text(card(1)).includes('withdrawn'), 'the card');
     expect(btn(card(1), 'Approve')).toBeUndefined();
+  });
+
+  it('shows the first ten decided proposals as one-line rows and the rest behind a button', async () => {
+    const s = setup();
+    for (let id = 1; id <= 12; id++) raise(s, id, { state: id % 2 ? 'approved' : 'rejected' });
+    await open(s);
+    await until(() => $$('[data-done]').length === 10, 'ten rows');
+    expect($$('.hr-card')).toHaveLength(0);
+    await click(btn($('.hr')!, 'Show 2 older'));
+    await until(() => $$('[data-done]').length === 12, 'twelve rows');
+    expect(btn($('.hr')!, 'Show')).toBeUndefined();
+  });
+
+  it('a link to a decided proposal past the first ten shows the rest and opens its card', async () => {
+    const s = setup();
+    for (let id = 1; id <= 12; id++) raise(s, id, { state: 'approved', settled: new Date(Date.UTC(2026, 0, id)).toISOString() });
+    await open(s, '#/team/hr/1');
+    await until(() => $$('[data-done]').length === 12 && $('.hr-card[data-proposal="1"]'), 'the oldest card');
   });
 
   it('Approve all sends one decide per waiting proposal; one whose apply fails stays waiting', async () => {
@@ -313,33 +340,69 @@ describe('U15 HR', () => {
 });
 
 describe('U15 Team', () => {
-  it('lists the agents with their roles and, expanded, who each may ask and be asked by', async () => {
+  const row = (name: string) => $(`.team-row[data-agent="${name}"]`);
+
+  it('lists the agents as a tree and, opened, shows who each may ask and be asked by, with the way to its chat and settings', async () => {
     const s = setup();
     await open(s, '#/team');
-    await until(() => $('.team-card'), 'the rows');
-    expect($$('.team-card').length).toBeGreaterThan(1);
-    const name = $('.team-card')!.dataset.agent!;
-    await click($(`.team-card[data-agent="${name}"]`)!);
+    await until(() => $('.team-row'), 'the rows');
+    expect($$('.team-row').length).toBeGreaterThan(1);
+    const name = $('.team-row')!.dataset.agent!;
+    await click(row(name)!);
     expect(text($('.edges'))).toContain('May ask');
     expect(text($('.edges'))).toContain('May be asked by');
+    expect(btn($('.edges')!, 'Open chat')).toBeTruthy();
+    expect(btn($('.edges')!, 'Agent settings')).toBeTruthy();
   });
 
-  it('draws a parked agent’s card with the parked glyph, not the idle ring', async () => {
+  it('draws a parked agent’s row with the parked glyph, not the idle ring', async () => {
     const s = setup();
     await open(s, '#/team');
-    await until(() => $('.team-card[data-agent="handline.term-build"] .ui-state'), 'the card state');
-    expect($('.team-card[data-agent="handline.term-build"] .ui-state')!.dataset.state).toBe('parked');
+    await until(() => $('.team-row[data-agent="handline.term-build"] .ui-state'), 'the row state');
+    expect($('.team-row[data-agent="handline.term-build"] .ui-state')!.dataset.state).toBe('parked');
   });
 
-  it('groups the cards by who they report to', async () => {
+  it('nests each agent under the one it reports to, in name order, and a team folds', async () => {
     const s = setup();
     await open(s, '#/team');
-    await until(() => $('.team-card'), 'the rows');
-    const group = $('[aria-label="Reports to handline.architect"]')!;
-    expect([...group.querySelectorAll('.team-card')].map((c) => (c as HTMLElement).dataset.agent)).toEqual([
-      'handline.auditor',
-      'handline.term-build',
-    ]);
-    expect($('[aria-label="Top of the team"] .team-card')).not.toBeNull();
+    await until(() => $('.team-row'), 'the rows');
+    const under = (parent: string) => {
+      const rows = $$('.team-row');
+      const at = rows.findIndex((r) => r.dataset.agent === parent);
+      const level = Number(rows[at]!.getAttribute('aria-level'));
+      const kids: string[] = [];
+      for (const r of rows.slice(at + 1)) {
+        if (Number(r.getAttribute('aria-level')) <= level) break;
+        if (Number(r.getAttribute('aria-level')) === level + 1) kids.push(r.dataset.agent!);
+      }
+      return kids;
+    };
+    expect(under('handline.architect')).toEqual(['handline.auditor', 'handline.term-build']);
+    await click($('.team-row[data-agent="handline.architect"] .team-fold')!);
+    expect(row('handline.auditor')).toBeNull();
+    expect(row('handline.architect')).not.toBeNull();
+  });
+
+  it('shows no role text: a row is the name, the task, the model and the account', async () => {
+    const s = setup();
+    await open(s, '#/team');
+    await until(() => $('.team-row'), 'the rows');
+    expect($('.team-role')).toBeNull();
+    expect($$('.team-row')[0]!.children).toHaveLength(4);
+  });
+
+  it('the Chart view draws a box per agent, opens the same detail in a window, and is remembered', async () => {
+    const s = setup();
+    localStorage.removeItem('team-look');
+    await open(s, '#/team');
+    await until(() => $('.team-row'), 'the rows');
+    const agents = $$('.team-row').length;
+    await click($$('[role=radio]').find((r) => text(r) === 'Chart')!);
+    await until(() => $('.team-box'), 'the boxes');
+    expect($$('.team-box')).toHaveLength(agents);
+    await click($('.team-box')!);
+    await until(() => $('.edges'), 'the detail window');
+    expect(localStorage.getItem('team-look')).toBe('chart');
+    localStorage.removeItem('team-look');
   });
 });

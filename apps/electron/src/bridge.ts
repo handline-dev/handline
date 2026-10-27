@@ -2,6 +2,7 @@
 // Electron's own objects are injected, so this runs under node.
 import { PAGE_SETTINGS, type Fail } from '@handline/app-core';
 import type { Methods } from '@handline/client';
+import type { CliState } from '#src/cli.ts';
 import { parseMode, type Mode, type OfferInput } from '#src/mode.ts';
 
 export const CHANNELS = {
@@ -17,6 +18,8 @@ export const CHANNELS = {
   setMode: 'handline:setMode',
   follow: 'handline:follow',
   checkUpdate: 'handline:checkUpdate',
+  cli: 'handline:cli',
+  linkCli: 'handline:linkCli',
   pairRemote: 'handline:pairRemote',
   phone: 'handline:phone',
   token: 'handline:token',
@@ -28,6 +31,9 @@ export const CHANNELS = {
   capturePreview: 'handline:capturePreview',
   deviceShot: 'handline:deviceShot',
   deviceTap: 'handline:deviceTap',
+  deviceList: 'handline:deviceList',
+  deviceSwipe: 'handline:deviceSwipe',
+  deviceText: 'handline:deviceText',
 } as const;
 
 /** The part of an IPC event this checks: the frame that sent it. */
@@ -81,8 +87,8 @@ export interface ConnectionDeps {
   mode(): { mode: Mode; remote: string | null };
   /** The follow-main state, or null in a build that does not follow main. */
   follow(): { sha: string; state: 'current' | 'available' | 'updating' | 'failed'; next: string | null } | null;
-  /** Looks at GitHub's main now. */
-  check(): void;
+  /** Looks at GitHub's main now; settles when the look is done. */
+  check(): Promise<void>;
   /** Saves the mode and relaunches. */
   setMode(m: Mode): void;
   /** Pairs and relaunches on the new device; rejects with a sentence when the gateway cannot be paired with. */
@@ -112,9 +118,9 @@ export class Connection {
     const f = this.d.follow();
     return { ok: true as const, following: !!f, sha: f?.sha ?? '', state: f?.state ?? 'current', next: f?.next ?? null };
   }
-  checkUpdate(e: Sender): Reply {
+  async checkUpdate(e: Sender): Promise<Reply> {
     if (!fromWindow(e, this.origin)) return bad('not from the app window');
-    this.d.check();
+    await this.d.check();
     return { ok: true };
   }
   setMode(e: Sender, arg: unknown): Reply {
@@ -147,6 +153,34 @@ export class Connection {
       return { ok: true };
     } catch (err) {
       return { ok: false, code: 'cannot_pair', message: err instanceof Error ? err.message : String(err) };
+    }
+  }
+}
+
+export interface CliDeps {
+  state(): CliState;
+  /** Links the bundled hl; throws a sentence when it cannot. */
+  link(): void;
+}
+
+/** The page's way to see and put right the `hl` command on the person's PATH, from the window only. */
+export class Cli {
+  private origin: string;
+  private d: CliDeps;
+  constructor(origin: string, d: CliDeps) {
+    this.origin = origin;
+    this.d = d;
+  }
+  state(e: Sender): ({ ok: true } & CliState) | Fail<'bad_request'> {
+    return fromWindow(e, this.origin) ? { ok: true, ...this.d.state() } : (bad('not from the app window') as Fail<'bad_request'>);
+  }
+  link(e: Sender): Reply | Fail<'cannot_link'> {
+    if (!fromWindow(e, this.origin)) return bad('not from the app window');
+    try {
+      this.d.link();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, code: 'cannot_link', message: err instanceof Error ? err.message : String(err) };
     }
   }
 }

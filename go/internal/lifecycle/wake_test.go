@@ -946,3 +946,51 @@ func TestTheLoadNeverHoldsAPersonsMessage(t *testing.T) {
 		t.Fatalf("the daemon's wake for the founder's message was held: %q", said)
 	}
 }
+
+// The harbor case again (10-26): the founder's message is a say, which is never the head of the queue, so the pass above never saw it
+// and every wake was held for 13 minutes. A say from the founder that the agent has not been shown is a person's message too.
+func TestTheLoadNeverHoldsTheFoundersSay(t *testing.T) {
+	m, _, _ := newManager(t)
+	m.LoadHeld = func(string) string { return "held: machine load - load 7.39 per core, limit 1.50" }
+	db.SetTerminal(m.Q, "harbor", "t1", "/wt")
+	db.SetClosed(m.Q, "harbor", "sess-1")
+	db.SetAgentState(m.Q, "harbor", states.Idle, 0, "")
+	if _, err := db.AddRequest(m.Q, db.NewRequest{Requester: "lead", Target: "harbor", Body: "fyi", Kind: "say"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, said, _ := m.WakeAgent("harbor", WakeOpts{}); !strings.Contains(said, "held: machine load") {
+		t.Fatalf("an agent's say went past the load: %q", said)
+	}
+	if _, err := db.AddRequest(m.Q, db.NewRequest{Requester: db.Human, Target: "harbor", Body: "can the corners be rounder?", Kind: "say"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, said, _ := m.WakeAgent("harbor", WakeOpts{}); strings.Contains(said, "held: machine load") {
+		t.Fatalf("the daemon's wake for the founder's say was held: %q", said)
+	}
+}
+
+// handline.architect (10-26): asked for its handoff note at 21:25, it wrote it and was closed idle at 21:27 before the handoff went on;
+// the founder's message at 21:31 woke it by resuming that same session, which answered in the old conversation. A wake while the handoff
+// waits is the handoff's new session, with the message as its first prompt.
+func TestAWakeDuringAHandoffStartsTheNewSessionNotTheOldOne(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "테스트.", true, true
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	db.SetClosed(m.Q, "a", "sess-1")
+	if err := db.MarkNoteWait(m.Q, "a", "context", m.now()); err != nil {
+		t.Fatal(err)
+	}
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Person: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if len(tm.relaunched) != 1 || strings.Contains(tm.relaunched[0], "--resume") {
+		t.Fatalf("the old session was resumed: %q", tm.relaunched)
+	}
+	text, _ := os.ReadFile(filepath.Join(m.Home, "wake", "a.txt"))
+	if !strings.HasSuffix(string(text), "\n\n테스트.") {
+		t.Fatalf("the message is not the new session's first prompt: %q", text)
+	}
+	if _, _, kept, _ := db.NoteWait(m.Q, "a"); kept {
+		t.Fatal("the handoff still waits after its new session started")
+	}
+}

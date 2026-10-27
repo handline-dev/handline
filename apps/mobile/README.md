@@ -28,3 +28,13 @@ maestro --device emulator-5554 test -e URI="<the link, fp changed>" e2e/pin-mism
 ```
 
 Screenshots of both runs are in `shots/android/`.
+
+An agent runs both without a window in front of the person, since a simulator window that opens takes their focus. `npx expo run:ios` opens Simulator.app, so an agent builds once and installs on a simulator booted without it; Maestro drives it as it is:
+
+```
+xcrun simctl boot "iPhone 16"                     # booted with no Simulator.app window; never `open -a Simulator`
+npx expo prebuild --platform ios && xcodebuild -workspace ios/Handline.xcworkspace -scheme Handline -sdk iphonesimulator -derivedDataPath ios/build build
+xcrun simctl install booted ios/build/Build/Products/Debug-iphonesimulator/Handline.app
+xcrun simctl io booted screenshot shot.png        # a screenshot without a window
+emulator -avd <name> -no-window -no-audio &       # Android, the same way
+```

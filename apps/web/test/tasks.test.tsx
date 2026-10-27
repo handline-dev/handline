@@ -494,24 +494,19 @@ describe('the detail', () => {
     expect(button('Cancel task', $('.tverbs')!)).toBeUndefined(); // closed: no verbs left that stop it
   });
 
-  it('assigns the task: the picker groups who worked on it, then the note goes with it', async () => {
+  it('assigns the task from a short list: a click hands it over at once, with no note box', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
     await until(() => button('Owner ·'), 'the owner button');
     await click(button('Owner ·')!);
     const ask = sheet('Assign T1688 to…')!; // local-ref-ok
-    expect($('section[aria-label="Worked on this task"]', ask)).not.toBeNull();
+    expect($('[role="listbox"][aria-label="Likely"]', ask)).not.toBeNull();
+    expect($$('[role="option"]', ask).length).toBeLessThanOrEqual(4);
+    expect($('textarea', ask)).toBeNull();
+    await typeInto($('input[aria-label="Find someone"]', ask) as HTMLInputElement, 'architect');
+    expect($('[role="listbox"][aria-label="Matches"]', ask)).not.toBeNull();
     await click(button('handline.architect', ask)!);
-    await typeInto($('textarea', ask) as HTMLTextAreaElement, 'please take it');
-    await click(button('Assign to handline.architect', ask)!);
     await until(() => s.daemon.tasks.get({ task: 1688 }).to === 'handline.architect', 'the new owner');
-    await until(
-      () =>
-        (s.daemon.chat as unknown as { messages: { to: string; body: string }[] }).messages.some(
-          (m) => m.to === 'handline.architect' && m.body.includes('please take it'),
-        ),
-      'the note',
-    );
   });
 
   it('keeps the assign sheet open and says why when the daemon refuses the new owner', async () => {
@@ -520,9 +515,9 @@ describe('the detail', () => {
     await until(() => button('Owner ·'), 'the owner button');
     await click(button('Owner ·')!);
     const ask = sheet('Assign T1688 to…')!; // local-ref-ok
-    await click(button('handline.architect', ask)!);
+    await typeInto($('input[aria-label="Find someone"]', ask) as HTMLInputElement, 'architect');
     s.daemon.knobs.refuse('task.edit', 'state', 'cannot move it now');
-    await click(button('Assign to handline.architect', ask)!);
+    await click(button('handline.architect', ask)!);
     await until(() => text($('.tsheet-err', ask)).includes('cannot move it now'), 'the reason in the sheet');
     expect(s.daemon.tasks.get({ task: 1688 }).to).not.toBe('handline.architect');
   });

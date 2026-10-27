@@ -37,6 +37,14 @@ Not in: an HR proposal notice (the contract has no event for it), a notice's cli
 
 The page's side is `window.handline` (docs/electron-bridge.md): `screen` (which agent is on screen, so no notice for it), `unsent` (whether a restart would lose something) and `onNavigate`. `src/preload.ts` is bundled to `dist/preload.cjs`; every call is checked for its sender and its arguments in `src/bridge.ts`. Until the page has called `unsent` once, the shell probes the page itself.
 
+## Packaging
+
+    pnpm install && pnpm package [version]
+
+Makes `apps/electron/release/Handline-<version>-universal.dmg` and `-mac.zip`: the web build, the main process, the universal `handlined` and `hl` from `tools/build-darwin.sh`, then electron-builder (`electron-builder.config.mjs`). The app carries the web build and both binaries under `Contents/Resources` (`src/bundle.ts`); an installed app runs that daemon and serves that page, unless `HANDLINE_HANDLINED` or `HANDLINE_WEB_DIST` name others. Settings > Connection offers to link the carried `hl` into `~/.local/bin`.
+
+Without a Developer ID the app is signed ad hoc (`ad-hoc-sign.mjs`): it runs on the Mac that built it, and anywhere else the first open needs right-click > Open. To sign with a Developer ID, set `HANDLINE_SIGN_IDENTITY` to its name before `pnpm package` (hardened runtime and `assets/entitlements.mac.plist` then apply). Notarization is off (`notarize: false`) until there is an Apple account.
+
 ## Following main
 
     pnpm install && pnpm app
@@ -46,5 +54,7 @@ Run it from the checkout of main, once. It makes the app's own clone of this rep
 The app follows GitHub's main: it watches `origin/main` of the repo it was cloned from (any fetch there moves it; the repo's own `main` branch is not used, PRs merge on GitHub) and fetches it when the window comes to the front, at most once a minute. When main moves, a popover at the bottom right of the window names the new commit: **Restart now** brings the clone up to that main, rebuilds only what changed (the page; the app itself and a reinstall when `apps/electron`, the client packages or the lockfile changed; the gateway when `go/` changed) and relaunches on the same page, with the device token kept; **Later** asks again at the next move. The tray shows the commit the app is on and offers _Restart to update_ or _Check for update_.
 
 With Tailscale up, the gateway listens on the Mac's Tailscale address (`HANDLINE_GATEWAY` overrides) and advertises its `*.ts.net` name, so a phone's pairing link carries the name; without it, loopback only. The window reaches the gateway at the same address, which is chosen when the app starts, and the shell tells the page that one address is its own machine's, so plain ws to it is allowed (no other tailnet address is). If the gateway does not answer there and the app started it, the app restarts it on loopback; a gateway the app did not start is left alone and the tray says the gateway does not answer.
+
+An agent's run stays in the background: it has no dock or menu bar icon, no update dialog, never takes focus, keeps its window hidden, shows no native notices and does not bring the everyday app forward. An agent is known by `OCP_AGENT` in its shell, and `pnpm dev:team` passes the choice on. `HANDLINE_BACKGROUND=1` asks for it and `HANDLINE_BACKGROUND=0` turns it off. The hidden page keeps drawing, so screenshots go through the DevTools port (`Page.captureScreenshot`), never a screen capture.
 
 `HANDLINE_DEBUG_PORT=9333` opens the DevTools port on localhost for run checks. Any local process can then read the page, its device token included, so use it for checks only, never for the app you use every day.

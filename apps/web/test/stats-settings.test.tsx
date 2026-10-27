@@ -75,15 +75,17 @@ describe('stats', () => {
     expect(text($('.chart[aria-label="Agent time"]'))).toContain('1 idle agent');
   });
 
-  it('Stats is a section of the Usage page, under the accounts: #/accounts and #/stats are the same page', async () => {
-    await mount('#/accounts');
+  it('Stats is a section of the Usage page, under the account gauges; the Accounts tab holds the accounts to manage and no stats', async () => {
+    await mount('#/stats');
     await until(() => $('[data-tile]'), 'the tiles');
-    expect(text($('.accounts-head'))).toContain('Settings');
-    expect($('.acct-list')).not.toBeNull();
+    expect(text($('h2'))).toBe('Usage');
+    expect($('.acct-list [data-account] [role=progressbar], .acct-list [data-account] .gauge')).not.toBeNull();
     expect($('.acct-list')!.compareDocumentPosition($('[data-tile]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect($('[data-use]')).toBeNull();
-    await act(async () => void (location.hash = '#/stats'));
-    await until(() => $('.acct-list') && $('[data-tile]'), 'the same page');
+    await act(async () => void (location.hash = '#/accounts'));
+    await until(() => text($('h2')) === 'Settings' && $('.acct-list [data-account]'), 'the Accounts tab');
+    expect($('[data-tile]')).toBeNull();
+    expect($('.acct-list .gauge')).toBeNull();
+    expect(text($('.acct-list [data-account]'))).toMatch(/week \d+%.*cap \d+/);
   });
 
   it('every tile has an icon', async () => {
@@ -111,6 +113,9 @@ describe('outlook', () => {
     await until(() => $('.outlook-svg'), 'the graph');
     expect($('.outlook-svg .line.future')!.getAttribute('stroke-dasharray')).toBeTruthy();
     expect(text($('.outlook-legend'))).toContain('guess');
+    const end = $('.outlook-svg .line.past')!.getAttribute('d')!.split(' ').at(-1);
+    expect($('.outlook-svg .line.future')!.getAttribute('d')!.split(' ')[0]).toBe(end!.replace('L', 'M')); // the guess starts where the recorded line ends
+    expect($('.outlook')!.compareDocumentPosition($('.acct-list')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // the graph comes before the accounts
     expect($$('.outlook-legend li svg .line.future')[0]!.getAttribute('stroke-dasharray')).toBeTruthy();
     expect(text($('[data-runway="beta"]'))).toContain('runs out in 2 h');
     expect(text($('[data-runway="alpha"]'))).toContain('lasts until the week resets');
@@ -125,7 +130,17 @@ describe('outlook', () => {
     await until(() => $('.outlook-svg'), 'the graph');
     expect(text($('.outlook-readout'))).toContain('Point at the line');
     const plot = $('.outlook-plot')!;
-    vi.spyOn($('.outlook-svg')!, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 560, height: 160, right: 560, bottom: 160, x: 0, y: 0, toJSON: () => ({}) });
+    vi.spyOn($('.outlook-svg')!, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 560,
+      height: 160,
+      right: 560,
+      bottom: 160,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
     await act(async () => void plot.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 100 })));
     expect(text($('.outlook-readout'))).toMatch(/\d+% left/);
     expect($('.outlook-svg .cursor')).not.toBeNull();
@@ -192,6 +207,8 @@ describe('settings', () => {
     await until(() => field('Default cap'), 'the fields');
     expect(field('Default cap').value).toBe('4');
     expect(field('Idle close').value).toBe('30');
+    await click($$('button[aria-expanded]').find((b) => text(b).includes('Advanced'))!);
+    await until(() => toggle('Handoff note'), 'the Advanced rows');
     expect(toggle('Handoff note').getAttribute('aria-checked')).toBe('true');
   });
 
@@ -234,54 +251,51 @@ describe('settings', () => {
 
   it('a switch saves on change', async () => {
     const s = await mount('#/settings');
-    await until(() => toggle('Handoff note'), 'the fields');
+    const advanced = () => $$('button[aria-expanded]').find((b) => text(b).includes('Advanced'));
+    await until(advanced, 'the Advanced fold');
+    await click(advanced());
+    await until(() => toggle('Handoff note'), 'the Advanced rows');
     await click(toggle('Handoff note'));
     await until(() => s.daemon.admin.settings().values.handoff_note === false, 'handoff note');
   });
 
-  const navItem = (title: string) => $$('.settings-nav-item').find((b) => text(b).endsWith(title))!;
-
-  it('a click in the section nav makes that section current and scrolls the page to it', async () => {
-    const scrolled: string[] = [];
-    Element.prototype.scrollIntoView = function (this: Element) {
-      scrolled.push(this.id);
+  it('the title and the tab strip are the same, in the same place, on all four tabs', async () => {
+    const head = () => {
+      const strip = $('[role=tablist]');
+      return {
+        title: text($('h2')),
+        tabs: $$('[role=tab]').map((t) => text(t).replace(/\s*\d+$/, '')),
+        parent: strip?.parentElement?.parentElement?.tagName,
+      };
     };
     await mount('#/settings');
-    await until(() => $('#set-automation'), 'the sections');
-    expect(navItem('Concurrency').getAttribute('aria-current')).toBe('true');
-    await click(navItem('Automation'));
-    expect(navItem('Automation').getAttribute('aria-current')).toBe('true');
-    expect(navItem('Concurrency').getAttribute('aria-current')).toBeNull();
-    expect(scrolled).toEqual(['set-automation']);
+    await until(() => $('[role=tablist]'), 'the tab strip');
+    const first = head();
+    expect(first.title).toBe('Settings');
+    expect(first.tabs.slice(0, 3)).toEqual(['General', 'Accounts', 'Team']);
+    for (const hash of ['#/accounts', '#/team', '#/team/hr']) {
+      await act(async () => void (location.hash = hash));
+      await until(() => $('[role=tablist]') && head().parent, hash);
+      expect(head()).toEqual(first);
+      expect($('.settings-shell > header [role=tablist]')).not.toBeNull();
+    }
   });
 
-  it('the nav follows the scrolling page: the first section in view is the current one', async () => {
-    class Watch {
-      static last: Watch | null = null;
-      els: Element[] = [];
-      cb: (entries: { target: Element; isIntersecting: boolean }[]) => void;
-      opts: IntersectionObserverInit;
-      constructor(cb: (entries: { target: Element; isIntersecting: boolean }[]) => void, opts: IntersectionObserverInit) {
-        this.cb = cb;
-        this.opts = opts;
-        Watch.last = this;
-      }
-      observe(e: Element) {
-        this.els.push(e);
-      }
-      unobserve() {}
-      disconnect() {}
-    }
-    vi.stubGlobal('IntersectionObserver', Watch);
-    await mount('#/settings');
-    await until(() => Watch.last?.els.length === 8, 'the sections watched');
-    expect(Watch.last!.opts.root).toBe($('.settings'));
-    const see = (id: string, isIntersecting: boolean) => ({ target: $(`#set-${id}`)!, isIntersecting });
-    await act(async () => Watch.last!.cb([see('closing', true)]));
-    expect(navItem('Closing windows').getAttribute('aria-current')).toBe('true');
-    await act(async () => Watch.last!.cb([see('closing', false), see('answers', true)]));
-    expect(navItem('Standing answers').getAttribute('aria-current')).toBe('true');
-    expect(navItem('Closing windows').getAttribute('aria-current')).toBeNull();
+  it('Advanced and About stay folded; opened, Advanced saves its rows and About holds the connection, Admin, Debug and Seal', async () => {
+    const s = await mount('#/settings');
+    await until(() => field('Default cap'), 'the fields');
+    expect($(`[data-setting="Pace target"]`)).toBeNull();
+    expect(button('Admin')).toBeUndefined();
+    const fold = (name: string) => $$('button[aria-expanded]').find((b) => text(b).includes(name))!;
+    await click(fold('Advanced'));
+    await until(() => field('Pace target'), 'the Advanced rows');
+    await setValue(field('Pace target'), '90');
+    await blur(field('Pace target'));
+    await until(() => s.daemon.admin.settings().values.pace_target_pct === 90, 'the pace target');
+    await click(fold('About'));
+    await until(() => button('Admin'), 'the About rows');
+    expect(button('Debug: terminals')).toBeDefined();
+    expect(text(document.body)).toContain('Connection');
   });
 
   it('lists the paired devices and revokes one only after a confirm', async () => {
@@ -357,7 +371,7 @@ describe('standing answers', () => {
     expect(text($('.toast'))).toContain('that folder does not exist');
     await until(() => $$('[data-answer]').length === 2, 'the row gone');
     await click($('[data-answer="trust"] button'));
-    expect($$('[data-answer]')).toHaveLength(1);
+    await until(() => $$('[data-answer]').length === 1, 'the row gone');
     await until(() => (s.daemon.admin.call('answers.list', {}, () => 0) as { answers: unknown[] }).answers.length === 1, 'the daemon');
   });
 });

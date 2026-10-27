@@ -138,3 +138,21 @@ func TestALongOneLineBodyGetsAHintAndStillGoes(t *testing.T) {
 		t.Fatalf("calls %v", got)
 	}
 }
+
+func TestSayToHumanThatAsksIsRefusedToATask(t *testing.T) {
+	r := agentsRig(t)
+	calls := r.daemon(map[string]string{"say": `{"accepted":true,"said":"sent"}`})
+	for body, refused := range map[string]bool{"답장 한 번 주세요": true, "ok to merge?": true, "please reply": true,
+		"merged and deployed": false, "deployed, confirmed working": false, "he replied already": false, "which one? picked A": false} {
+		out, _, code := r.run(asAgent, "say", "human", body)
+		if refused != (code == 1 && strings.Contains(out, "hl task new --assign human")) {
+			t.Errorf("%q: exit %d, %q", body, code, out)
+		}
+	}
+	if n := len(sent(calls())); n != 4 {
+		t.Errorf("only the two plain says reach the daemon: %d", n)
+	}
+	if out, _, code := r.run(asAgent, "say", "b.two", "ok to merge?"); code != 0 {
+		t.Errorf("a question to an agent is fine: %q", out)
+	}
+}

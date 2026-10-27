@@ -5,6 +5,7 @@ import path from 'node:path';
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, Notification, session, shell, type WebContents } from 'electron';
 import { DaemonClient } from '@handline/client';
 import { unixSocketTransport } from '@handline/client-node';
+import { inBackground } from '#src/background.ts';
 import { isDebugWindow } from '#src/debug-window.ts';
 import { Desk } from '#src/desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from '#src/editor.ts';
@@ -19,9 +20,11 @@ import type { Follower } from '#src/follow.ts';
 import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from '#src/mode.ts';
 import { ownDaemon, readFounderKey, type Own } from '#src/own.ts';
 import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from '#src/tailnet.ts';
-import { Connection, Page, Settings, CHANNELS } from '#src/bridge.ts';
+import { Cli, Connection, Page, Settings, CHANNELS } from '#src/bridge.ts';
 import { serveDir } from '#src/serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from '#src/update.ts';
+import { bundleAt } from '#src/bundle.ts';
+import { cliState, linkCli } from '#src/cli.ts';
 
 const env = (k: string) => process.env[`HANDLINE_${k}`] ?? process.env[`OCP_${k}`];
 /** The same rule the daemon uses: the environment's, else ~/.handline once it exists, else ~/.orcapipe. */
@@ -35,6 +38,9 @@ const founderKey = () => {
   const rel = path.relative(home, socket);
   return rel === '..' || rel.startsWith(`..${path.sep}`) ? null : readFounderKey(home);
 };
+/** An installed app runs the daemon it carries and serves the web build it carries, unless the environment names others. */
+const carried = bundleAt(app.isPackaged, process.resourcesPath);
+if (carried) process.env.HANDLINE_HANDLINED ??= carried.handlined;
 /** The Go gateway (host:port): the web app reaches it at /rpc with a device token the app got for itself. An explicit WS address with no gateway is the old plain mode. */
 let gateway = env('WS') && !env('GATEWAY') ? undefined : gatewayAddress(env('GATEWAY'), os.networkInterfaces());
 const gatewaySocket = path.join(home, 'gateway.sock');
@@ -43,7 +49,7 @@ const root = path.resolve(import.meta.dirname, '../../..');
 /** The window always carries its daemon: a built page without `?daemon=` would take its own origin, which here is the static server. */
 let ws = env('WS') ?? (gateway ? `ws://${gateway}/rpc` : 'ws://127.0.0.1:7777');
 const APP_ICON = path.join(import.meta.dirname, '../assets/icon.png');
-const dist = env('WEB_DIST') ?? path.resolve(import.meta.dirname, '../../web/dist');
+const dist = env('WEB_DIST') ?? carried?.web ?? path.resolve(import.meta.dirname, '../../web/dist');
 
 let win: BrowserWindow | null = null;
 
@@ -68,8 +74,11 @@ function allowGatewayOrigin(): void {
   );
 }
 
+const background = inBackground(process.env);
+
+/** Brings the window to the front, except in a background run, whose window stays hidden (the DevTools port still draws and captures it). */
 function show(): void {
-  if (!win || win.isDestroyed()) return;
+  if (!win || win.isDestroyed() || background) return;
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
@@ -117,7 +126,7 @@ function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote |
   const c = new Connection(origin, {
     mode: () => ({ mode, remote: remote?.host ?? null }),
     follow: () => (f ? { sha: f.sha, state: f.state, next: f.next?.sha ?? null } : null),
-    check: () => void f?.look(),
+    check: async () => void (await f?.look()),
     setMode: (m) => own.switchMode(m),
     pair: (i) => own.pair(i),
     phone: () => own.phone(),
@@ -152,6 +161,7 @@ function makeUpdater(page: Page, composer: Composer): Updater {
       return !(await win.webContents.executeJavaScript(UNSENT_PROBE).catch(() => true));
     },
     ask: async () =>
+      !background &&
       (
         await dialog.showMessageBox(win!, {
           message: 'Handline was updated. Restart now?',
@@ -183,6 +193,8 @@ function createWindow(origin: string, onReady: () => void): BrowserWindow {
       sandbox: true,
       nodeIntegration: false,
       preload: path.join(import.meta.dirname, 'preload.cjs'),
+      // A hidden window would be throttled; a background run's page must keep drawing for its checks and captures.
+      backgroundThrottling: !background,
     },
   });
   // The traffic lights are gone in full screen: the page drops the room it keeps for them (shell.ts).
@@ -221,10 +233,11 @@ if (env('DEBUG_PORT')) app.commandLine.appendSwitch('remote-debugging-port', env
 const data = env('DATA');
 if (data) app.setPath('userData', data);
 
-if (!app.requestSingleInstanceLock()) {
-  app.quit(); // the first instance gets 'second-instance' and focuses its window
+if (!app.requestSingleInstanceLock({ background })) {
+  app.quit(); // the first instance gets 'second-instance' and focuses its window, unless this run is a background one
 } else {
-  app.on('second-instance', show);
+  app.on('second-instance', (_e, _argv, _cwd, data) => (data as { background?: boolean } | undefined)?.background || show());
+  if (background) app.setActivationPolicy('accessory'); // no dock icon, and the app never becomes the active one
   void app.whenReady().then(async () => {
     // An unpackaged app shows Electron's icon in the dock until it is told otherwise.
     app.dock?.setIcon(APP_ICON);
@@ -253,6 +266,7 @@ if (!app.requestSingleInstanceLock()) {
       loginPath: async () => (await editorEnv()).PATH,
       home,
       root,
+      background,
       socket,
       gatewaySocket,
       gateway,
@@ -274,6 +288,10 @@ if (!app.requestSingleInstanceLock()) {
         })),
     });
     handleConnection(origin, own, current.mode, remote, f);
+    const cliDir = path.join(os.homedir(), '.local', 'bin');
+    const cli = new Cli(origin, { state: () => cliState(carried?.hl ?? null, cliDir), link: () => linkCli(carried!.hl, cliDir) });
+    ipcMain.handle(CHANNELS.cli, (e) => cli.state(e));
+    ipcMain.handle(CHANNELS.linkCli, (e) => cli.link(e));
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
     const preview = new Preview(origin, () => win);
@@ -282,6 +300,9 @@ if (!app.requestSingleInstanceLock()) {
     const devices = new Devices(origin);
     ipcMain.handle(CHANNELS.deviceShot, (e, arg) => devices.shot(e, arg));
     ipcMain.handle(CHANNELS.deviceTap, (e, arg) => devices.tap(e, arg));
+    ipcMain.handle(CHANNELS.deviceList, (e) => devices.list(e));
+    ipcMain.handle(CHANNELS.deviceSwipe, (e, arg) => devices.swipe(e, arg));
+    ipcMain.handle(CHANNELS.deviceText, (e, arg) => devices.text(e, arg));
     handleSettings(origin, client, remote);
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
     const opener = new Opener(origin, {
@@ -328,6 +349,7 @@ if (!app.requestSingleInstanceLock()) {
         else app.setBadgeCount(Number(t.replace('+', '')) || 0);
       },
       notify: (n, onClick) => {
+        if (background) return;
         const notice = new Notification({ title: n.title, body: n.body });
         notice.on('click', onClick);
         notice.show();

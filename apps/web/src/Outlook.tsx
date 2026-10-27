@@ -2,7 +2,7 @@
 // a table of each agent's cost and share under it and a click on an agent to draw that one alone. A series has a shape (a dash, a pattern and a
 // letter), not only a hue. The numbers are always in a table behind a toggle, so the picture is never the only way to read them.
 import { useState } from 'react';
-import { costByAgent, runwayWords } from '@handline/app-core';
+import { costByAgent, guessLine, runwayWords } from '@handline/app-core';
 import type { Outlook } from '@handline/client';
 import { useOutlook } from '@handline/app-data';
 import {
@@ -78,7 +78,7 @@ function Line({ o }: { o: Outlook }) {
             <line key={g} x1={0} x2={W} y1={y(g)} y2={y(g)} className={GRID_LINE} />
           ))}
           <path d={path(o.past)} className={`${LINE} past`} fill="none" />
-          <path d={path(o.future)} className={`${LINE} future`} fill="none" strokeDasharray="5 4" />
+          <path d={path(guessLine(o))} className={`${LINE} future`} fill="none" strokeDasharray="5 4" />
           <line x1={x(o.now)} x2={x(o.now)} y1={0} y2={H} className={NOW_LINE} />
           {resets.map((at) => (
             <line key={at} data-reset={at} x1={x(at)} x2={x(at)} y1={0} y2={H} className={RESET_LINE} />
@@ -235,7 +235,7 @@ export function OutlookSection() {
   const q = useOutlook(shown);
   const o = q.data;
   return (
-    <ChartCard className="outlook mt-3" aria-label="Outlook">
+    <ChartCard className="outlook mb-3" aria-label="Outlook">
       <div className="outlook-controls mb-2 flex flex-wrap items-center gap-2">
         <h3 className="m-0 flex-1 text-title font-semibold">Outlook</h3>
         <Segmented

@@ -327,13 +327,16 @@ func (m *Manager) wakeAgent(agent string, o WakeOpts) (bool, string) {
 // personWaiting is whether what the agent would wake for is a person's message.
 func (m *Manager) personWaiting(agent string) bool { return m.personHead(agent) != nil }
 
-// personHead is what the agent would wake for when it is a person's message, else nil.
+// personHead is the person's message the agent would wake for, else nil: the head of its queue when that is the founder's, or else the
+// founder's oldest message not yet shown to it (a say is never a head, so it is looked for on its own).
 func (m *Manager) personHead(agent string) *db.Request {
-	head, err := m.Delivery.EffectiveHead(m.Q, agent)
-	if err != nil || head == nil || head.Requester != db.Human {
-		return nil
+	if head, err := m.Delivery.EffectiveHead(m.Q, agent); err == nil && head != nil && head.Requester == db.Human {
+		return head
 	}
-	return head
+	if rows, err := db.FounderPending(m.Q, agent); err == nil && len(rows) > 0 {
+		return rows[0]
+	}
+	return nil
 }
 
 // wakeClosed brings a closed agent back: its shell is put back into the session, resuming the same one first (which is what makes
@@ -368,6 +371,23 @@ func (m *Manager) wakeClosed(agent string, row *db.AgentState, handle, wt string
 		if cause == "" {
 			cause = oc
 		}
+	}
+	// A handoff that asked for the agent's note and was closed before it went on (an idle close can come first) goes on here: this wake is
+	// its new session, given the record with the note in it, never a resume of the conversation that wrote the note. So nothing waiting
+	// reaches the old session; it is the new one's first prompt.
+	if kind, _, kept := must3(db.NoteWaitKept(m.Q, agent, m.now())); kept && movedTo == "" {
+		if row.ResumeSession.String != "" {
+			if gaps := must(m.Handoff.Record(m.Q, agent, row.ResumeSession.String)); len(gaps) > 0 {
+				m.Log("  %s: handoff with gaps (could not read %s)", agent, strings.Join(gaps, ", "))
+			}
+			check(db.ForgetResume(m.Q, agent))
+		}
+		check(db.ClearNoteWait(m.Q, agent))
+		force, warm = true, false
+		if cause == "" && kind == "context" {
+			cause = "context_full"
+		}
+		row = must(db.GetAgentState(m.Q, agent))
 	}
 	// Before anything is typed: an agent.yaml that will not read is this agent's config error, which the callers stall by name.
 	if err := m.Agents.ReadConfig(agent); err != nil {

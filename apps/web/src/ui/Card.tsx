@@ -1,23 +1,28 @@
 // Cards: `box` is the ground of a page or a chart; `chat` is the stream's quiet one-line row, tone on tone — a card that
 // waits for you (an open prompt) is told by the wait-tinted ground, the glyph beside it says it too. A surface carries a border
-// or a ground, never both. Plus their parts.
+// or a ground, never both. `event` is the one look of something that happened or waits (a held start, a proposal, a stall): a tinted
+// ground with a straight bar at its left edge in its tone (a border would curve with the corner), so it never reads as a chat message. Plus their parts.
 import type { ComponentProps, ElementType } from 'react';
 
 const join = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 const BOX = 'rounded-card bg-surface shadow-[var(--shadow-1)]';
+const EVENT =
+  'card event my-1 flex items-center gap-2 rounded-[3px] [background:linear-gradient(var(--tone),var(--tone))_left/3px_100%_no-repeat,color-mix(in_srgb,var(--tone)_12%,transparent)] px-2.5 py-1.5 text-hint [&_svg]:text-[var(--tone)] [&_a]:text-inherit data-[tone=wait]:[--tone:var(--s-wait)] data-[tone=ok]:[--tone:var(--s-ok)] data-[tone=bad]:[--tone:var(--s-bad)] data-[tone=none]:[--tone:var(--line)]';
 const CHAT = 'card my-1 flex items-center gap-2 rounded-card px-2.5 py-1.5 text-[13px] [&_svg]:align-middle [&_a]:text-inherit';
 
 export function Card({
   variant = 'box',
+  tone,
   as: Tag = 'div',
   className,
   ...rest
-}: ComponentProps<'div'> & { variant?: 'box' | 'chat'; as?: ElementType }) {
+}: ComponentProps<'div'> & { variant?: 'box' | 'chat' | 'event'; tone?: 'wait' | 'ok' | 'bad' | 'none'; as?: ElementType }) {
   return (
     <Tag
       {...rest}
+      data-tone={variant === 'event' ? (tone ?? 'none') : undefined}
       className={join(
-        variant === 'box' ? BOX : CHAT,
+        variant === 'box' ? BOX : variant === 'event' ? EVENT : CHAT,
         variant === 'chat' && 'data-[open]:bg-[color-mix(in_srgb,var(--s-wait)_10%,transparent)]',
         className,
       )}

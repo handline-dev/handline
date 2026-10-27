@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -378,5 +379,76 @@ func TestAMessagesImagesAreItsReferencesThenWhatItWasSentWith(t *testing.T) {
 	q.Exec("INSERT INTO requests(id, requester, target, kind, state, ts, body) VALUES(8, 'human', 'w', 'say', 'landed', 1, ?)", ref(ids[6]))
 	if _, err := s.CheckMessage(q, ref(ids[6]), "text", nil, true); err != nil {
 		t.Fatalf("or one a message names: %v", err)
+	}
+}
+
+func TestAPutImageKnowsItsSize(t *testing.T) {
+	s, _, q := testStore(t)
+	info := putAll(t, s, q, "shot.png", "image/png", pngOf(40, 30), 100)
+	if info.Width != 40 || info.Height != 30 {
+		t.Fatalf("size %dx%d", info.Width, info.Height)
+	}
+	if got, _ := s.Lookup(info.ID); got.Width != 40 || got.Height != 30 {
+		t.Fatalf("kept size %dx%d", got.Width, got.Height)
+	}
+	if m := info.Map(); m["width"] != 40 || m["height"] != 30 {
+		t.Fatalf("map %v", m)
+	}
+	odd := putAll(t, s, q, "x.gif", "image/gif", []byte("GIF89a...."), 100) // a header too short to read
+	if _, ok := odd.Map()["width"]; ok || odd.Width != 0 {
+		t.Fatalf("an unreadable size was given: %+v", odd)
+	}
+}
+
+func TestWebPSizeFromEachHeaderKind(t *testing.T) {
+	head := func(kind string, body ...byte) []byte {
+		b := append([]byte("RIFF\x00\x00\x00\x00WEBP"+kind+"\x00\x00\x00\x00"), body...)
+		return append(b, make([]byte, 30-len(b))...)
+	}
+	bits := uint32(5-1) | uint32(7-1)<<14
+	for name, c := range map[string]struct {
+		b    []byte
+		w, h int
+	}{
+		"lossy":                   {head("VP8 ", 0, 0, 0, 0x9d, 0x01, 0x2a, 5, 0, 7, 0), 5, 7},
+		"lossless":                {head("VP8L", 0x2f, byte(bits), byte(bits>>8), byte(bits>>16), byte(bits>>24)), 5, 7},
+		"extended":                {head("VP8X", 0, 0, 0, 0, 4, 0, 0, 6, 0, 0), 5, 7},
+		"unknown":                 {head("ABCD"), 0, 0},
+		"lossy, wrong start code": {head("VP8 ", 0, 0, 0, 0x9d, 0x01, 0x2b, 5, 0, 7, 0), 0, 0},
+		"not riff":                {append([]byte("JUNK"), head("VP8X", 0, 0, 0, 0, 4, 0, 0, 6, 0, 0)[4:]...), 0, 0},
+		"short":                   {[]byte("RIFF\x00\x00\x00\x00WEBPVP8X"), 0, 0},
+	} {
+		if w, h := webpSize(c.b); w != c.w || h != c.h {
+			t.Errorf("%s: %dx%d, want %dx%d", name, w, h, c.w, c.h)
+		}
+	}
+}
+
+// jpegWithOrientation is a w x h JPEG carrying an Exif segment that says orientation o, as a phone writes one; pad fills the segment
+// out, as a camera's thumbnail and maker notes do.
+func jpegWithOrientation(t *testing.T, w, h int, o uint16, pad int) []byte {
+	var b bytes.Buffer
+	if err := jpeg.Encode(&b, image.NewRGBA(image.Rect(0, 0, w, h)), nil); err != nil {
+		t.Fatal(err)
+	}
+	tiff := []byte("MM\x00\x2a\x00\x00\x00\x08\x00\x01\x01\x12\x00\x03\x00\x00\x00\x01")
+	tiff = append(tiff, byte(o>>8), byte(o), 0, 0, 0, 0, 0, 0)
+	seg := append(append([]byte("Exif\x00\x00"), tiff...), make([]byte, pad)...)
+	app1 := append([]byte{0xff, 0xe1, byte((len(seg) + 2) >> 8), byte(len(seg) + 2)}, seg...)
+	return append(append([]byte{0xff, 0xd8}, app1...), b.Bytes()[2:]...)
+}
+
+func TestAJpegTurnedByItsExifIsSizedAsItIsDrawn(t *testing.T) {
+	s, _, q := testStore(t)
+	full := 65535 - 2 - 6 - 26 // the largest APP1: its length field at 65535, longer than the head that is read
+	for _, c := range []struct {
+		o    uint16
+		pad  int
+		want [2]int
+	}{{1, 0, [2]int{40, 30}}, {6, 0, [2]int{30, 40}}, {8, 0, [2]int{30, 40}}, {9, 0, [2]int{40, 30}}, {6, full, [2]int{30, 40}}} {
+		info := putAll(t, s, q, "photo.jpg", "image/jpeg", jpegWithOrientation(t, 40, 30, c.o, c.pad), 100000)
+		if info.Width != c.want[0] || info.Height != c.want[1] {
+			t.Errorf("orientation %d, pad %d: %dx%d, want %dx%d", c.o, c.pad, info.Width, info.Height, c.want[0], c.want[1])
+		}
 	}
 }

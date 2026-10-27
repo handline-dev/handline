@@ -36,13 +36,14 @@ const setValue = (el: HTMLInputElement | HTMLSelectElement, value: string) =>
 const blur = (el: HTMLElement) => act(async () => void el.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
 const field = (label: string) => $(`[data-setting="${label}"] input`) as HTMLInputElement;
 
-async function mount(hash: string, s = setup()) {
+async function mount(hash: string, s = setup(), folds = true) {
   location.hash = hash;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
   await act(async () => {
     root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
   });
+  if (folds) await openFolds();
   return s;
 }
 const scrollIntoView = Element.prototype.scrollIntoView;
@@ -120,3 +121,10 @@ describe('settings: more sections', () => {
     expect($('[data-setting="Fingerprint"]')).toBeNull();
   });
 });
+
+/** The Advanced and About sections start folded: open them once the page has drawn them. */
+async function openFolds() {
+  await until(() => document.querySelector('.settings-shell button[aria-expanded="false"]'), 'the folds');
+  const folds = [...document.querySelectorAll<HTMLElement>('.settings-shell button[aria-expanded="false"]')];
+  await act(async () => folds.forEach((b) => b.click()));
+}

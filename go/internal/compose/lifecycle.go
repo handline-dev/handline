@@ -132,13 +132,22 @@ func (p *Parts) Lifecycle(cfg Config, lc LifecycleConfig) *Lifecycle {
 			}
 			return n
 		}, Machine: cfg.Machine, Now: cfg.Now}
-	lc.Env.LoadHeld = gate.Held
+	// The start and delivery paths hold work with the ceiling on it; the agent view shows the hold as it stands (gate.Held).
+	forWork := func(agent string) string {
+		return gate.ForWork(agent, func(why string) {
+			if _, err := db.AddEvent(q, agent, "load_limit_passed", db.KV{K: "held", V: why}, db.KV{K: "by", V: "ceiling"}); err != nil {
+				cfg.Log("%s: load ceiling pass not recorded: %v", agent, err)
+			}
+			cfg.Log("  %s: held %s by the load, now let go once - %s", agent, loadgate.Ceiling, why)
+		})
+	}
+	lc.Env.LoadHeld = forWork
 	hp := &handoffPort{env: ho, q: q, now: nowOf(cfg.Now)}
 	m := &lifecycle.Manager{Q: q, Home: home, Log: cfg.Log, Settings: settings,
 		Delivery: lc.Env, Handoff: hp, Term: termPort{tm}, Blocked: noBlocked{}, Launch: launchPort, Spawn: spawns,
 		Agents: agentsPort{home: home, roster: roster, accounts: accounts, env: lc.Env, usage: uenv}, Status: &lifecycle.StatusAdapter{Env: uenv, Q: q},
 		Observe: observer{p: p}, Typing: terminalLock{home: p.home}, TermRun: termRun{p}, Locks: p.Locks, OnLaunch: onLaunch,
-		LoadHeld: gate.Held, OnStartStall: tellLeadOfStall(home, lc.Env, cfg.Log)}
+		LoadHeld: forWork, OnStartStall: tellLeadOfStall(home, lc.Env, cfg.Log)}
 	p.LC = &Lifecycle{Manager: m, Spawns: spawns, Launch: launcher, Handoff: ho, Env: lc.Env, Gate: gate, usage: uenv, roster: roster, term: tm}
 	hp.mover = func() *lifecycle.Mover { return p.LC.Mover }
 	p.LC.Mover = p.newMover(m, uenv, lc.Env, func() int64 { return nowOf(cfg.Now)().Unix() })

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { DANGER, type Field, FIELDS, fieldUnit } from '@handline/app-core';
 import type { AgentDetail } from '@handline/client';
-import { useStore } from '@handline/app-react';
+import { useHello } from '@handline/app-react';
 import { useAgentDetail, useFieldRow, useServes } from '@handline/app-data';
 import { goAgent } from '#src/route.ts';
 import { Schedules } from '#src/Schedules.tsx';
@@ -44,8 +44,7 @@ const moreOf = (f: Field) =>
 export function SettingsView({ agent }: { agent: string }) {
   const q = useAgentDetail(agent);
   const { served } = useServes('agent.set');
-  const store = useStore();
-  const role = store.client.hello?.role;
+  const role = useHello()?.role;
   const d: AgentDetail | undefined = q.data;
   const editable = served && (role === 'founder' || role === 'agent'); // agent.set is for the founder and an agent on itself
   return (

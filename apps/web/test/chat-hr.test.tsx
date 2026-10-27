@@ -129,9 +129,30 @@ describe('HR proposals in the chat', () => {
     expect(has(held, 'Approve') || has(held, 'Reject')).toBe(false);
     expect(has($('[data-proposal="45"]')!, 'Approve')).toBe(true);
     // two cards of ours are shown, one is waiting: the held one is not counted
-    expect(text($('.hr-head strong'))).toBe('HR · 1 waiting');
+    expect(text($('.hr-head strong'))).toBe('1 waiting');
     const order = $$('.hr-card').map((c) => c.dataset.proposal);
     expect(order.filter((id) => id === '46')).toHaveLength(1); // not again under Recent
     expect(order.indexOf('46')).toBeGreaterThan(order.indexOf('45'));
+  });
+
+  it('a held card says since when it waits and Apply now applies it at once', async () => {
+    const s = setup();
+    hrOf(s).raise({
+      id: 47,
+      title: 'rename handline.chat',
+      diff: 'rename',
+      agent: ARCH,
+      state: 'applying',
+      waiting_on: [ARCH],
+      waiting_since: new Date(Date.now() - 600_000).toISOString(),
+    });
+    location.hash = '#/team/hr';
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />));
+    await until(() => $('[data-proposal="47"]'), 'the held card');
+    expect(text($('[data-proposal="47"]')!)).toMatch(/to end, since 10m/);
+    await click([...$('[data-proposal="47"]')!.querySelectorAll('button')].find((b) => text(b).trim() === 'Apply now')!);
+    await until(() => !$('[data-proposal="47"] .hr-held'), 'the card applied');
   });
 });

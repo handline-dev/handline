@@ -56,6 +56,27 @@ describe('the rail on the nav prefs', () => {
     expect(box.querySelector('.pinned-head + [data-agent]')?.getAttribute('data-agent')).toBe(ARCH);
   });
 
+  it('lists each agent once under a chip: Pinned is only in the full list', async () => {
+    await mount();
+    await until(() => box.querySelector('[data-agent]'), 'the agent rows');
+    const names = () => [...box.querySelectorAll('[data-agent]')].map((e) => e.getAttribute('data-agent'));
+    await act(async () =>
+      box.querySelector(`[data-agent="${ARCH}"]`)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+    );
+    const pin = () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => i.textContent === 'Pin');
+    await until(pin, 'the Pin item');
+    await act(async () => pin()!.click());
+    await until(() => box.querySelector('.pinned-head'), 'the Pinned section');
+    for (const label of ['Needs me', 'Unread']) {
+      await act(async () => chip(label).click());
+      await until(
+        () => chip(label).getAttribute('aria-pressed') === 'true' && !box.querySelector('.pinned-head'),
+        `no Pinned under ${label}`,
+      );
+      expect(new Set(names()).size).toBe(names().length);
+    }
+  });
+
   it('has the Needs me chip beside All and Unread, and the View menu flips Tree to Flat', async () => {
     await mount();
     await until(() => box.querySelector('[data-agent]'), 'the agent rows');

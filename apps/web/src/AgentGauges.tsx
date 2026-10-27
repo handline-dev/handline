@@ -1,7 +1,7 @@
 // An agent's two gauges, one component for the sidebar row and the chat head: the context window FILLS as the session uses it (database, blue), the
 // prompt cache DRAINS as its minutes run out (timer, green). Each has its icon, so a bar is never read without knowing what it counts.
 import type { ReactNode } from 'react';
-import { Icon, MenuButton } from '#src/ui/index.ts';
+import { Icon, MenuButton, STRIP_ITEM } from '#src/ui/index.ts';
 import { Meter } from '#src/RailIcons.tsx';
 
 /** The prompt cache lives an hour; a bar is full when it was just warmed. */
@@ -9,10 +9,10 @@ export const CACHE_MINUTES = 60;
 
 /** A gauge that opens its details when `info` is given (the chat footer); a plain one otherwise (the sidebar row). */
 function Gauge({ name, info, children }: { name: string; info?: ReactNode; children: ReactNode }) {
-  if (!info) return <span className="inline-flex flex-none items-center text-ink-2">{children}</span>;
+  if (!info) return <span className="inline-flex flex-none items-center gap-1 text-ink-2 [&_.meter]:mx-0">{children}</span>;
   return (
     <MenuButton
-      className="h-5 flex-none gap-0 px-1.5 text-hint text-ink-2"
+      className={`${STRIP_ITEM} flex-none gap-1 text-hint text-ink-2 [&_.meter]:mx-0`}
       label={`${name} details`}
       aria-label={`${name} details`}
       name={name}
@@ -55,7 +55,7 @@ export function AgentGauges({
         <Gauge name="Context window" info={ctxInfo}>
           <Icon name="context" size={12} aria-hidden />
           <Meter pct={Math.min(100, ctx)} label="Context window" title={`Context window ${ctx}% full`} fill="bg-working" />
-          {ctxText ? <span className="ml-1 whitespace-nowrap">{ctxText}</span> : null}
+          {ctxText ? <span className="whitespace-nowrap">{ctxText}</span> : null}
         </Gauge>
       ) : null}
       {cacheMin !== null ? (
@@ -68,7 +68,7 @@ export function AgentGauges({
             fill="bg-ok"
             hot={false}
           />
-          {cacheText ? <span className="ml-1 whitespace-nowrap">{cacheText}</span> : null}
+          {cacheText ? <span className="whitespace-nowrap">{cacheText}</span> : null}
         </Gauge>
       ) : null}
     </>

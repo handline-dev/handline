@@ -7,6 +7,8 @@ import { Button, SectionHead, Segmented, SettingsCard } from '#src/ui/index.ts';
 import { applyTheme, themeOf, type Theme } from '#src/appearance.ts';
 import { setting } from '#src/daemon.ts';
 import { NumberRow, Row, SwitchRow } from '#src/SettingsRows.tsx';
+import { WEEK_ALERT_KEY, weekAlertHours } from '#src/UsageLink.tsx';
+import { CliRow } from '#src/SettingsCli.tsx';
 import { shell, useShellMode } from '#src/shell.ts';
 
 const SECONDS = 'whole seconds, or empty for the default';
@@ -19,7 +21,7 @@ const PUSH = [
   { key: 'push_account_out', label: 'An account out', hint: 'A desktop notice when an account hits its limit' },
 ] as const;
 
-export function Notifications({ digest }: { digest: number | undefined }) {
+export function Notifications() {
   const values = useSettings().data?.values as Record<string, unknown> | undefined;
   return (
     <>
@@ -28,22 +30,28 @@ export function Notifications({ digest }: { digest: number | undefined }) {
         {PUSH.map((p) => (
           <SwitchRow key={p.key} label={p.label} hint={p.hint} on={values?.[p.key] !== false} change={(on) => ({ [p.key]: on })} />
         ))}
-        <NumberRow
-          label="Notice batch"
-          hint="Wait this long after the first notice, then tell the agent all of them at once"
-          more="Never in the middle of a turn; a message from a person comes sooner"
-          unit="s"
-          current={secondsOf(digest)}
-          parse={parseSeconds}
-          change={(n) => ({ notice_digest_s: n })}
-          allowed={SECONDS}
-        />
       </SettingsCard>
     </>
   );
 }
 
-/** The idle-background rows join the Closing windows card: when an idle agent with background work is told to finish it, and when it is stopped. */
+/** Wait this long after the first notice, then tell the agent all of them at once. */
+export function NoticeBatch({ digest }: { digest: number | undefined }) {
+  return (
+    <NumberRow
+      label="Notice batch"
+      hint="Wait this long after the first notice, then tell the agent all of them at once"
+      more="Never in the middle of a turn; a message from a person comes sooner"
+      unit="s"
+      current={secondsOf(digest)}
+      parse={parseSeconds}
+      change={(n) => ({ notice_digest_s: n })}
+      allowed={SECONDS}
+    />
+  );
+}
+
+/** The idle-background rows: when an idle agent with background work is told to finish it, and when it is stopped. */
 export function BackgroundRows(props: { notice?: number; grace?: number; check?: number }) {
   return (
     <>
@@ -82,7 +90,6 @@ export function BackgroundRows(props: { notice?: number; grace?: number; check?:
 /** This window's own choices, kept in the browser: the daemon has nothing to say about them. */
 export function Appearance({ storage }: { storage: KV | null }) {
   const [theme, setTheme] = useState<Theme>(() => themeOf(storage));
-  const [terminal, setTerminal] = useState(() => (setting(storage, 'terminal', 'auto').value === 'text' ? 'text' : 'auto'));
   return (
     <>
       <SectionHead>Appearance</SectionHead>
@@ -103,26 +110,54 @@ export function Appearance({ storage }: { storage: KV | null }) {
             }}
           />
         </Row>
-        <Row
-          label="Terminal view"
-          hint="Auto draws the live terminal; Text shows the text grid. This window only"
-          more="A phone held upright always uses the text view"
-        >
-          <Segmented
-            label="Terminal view"
-            value={terminal}
-            options={[
-              { value: 'auto', label: 'Auto' },
-              { value: 'text', label: 'Text' },
-            ]}
-            onChange={(v) => {
-              setTerminal(v);
-              setting(storage, 'terminal', 'auto').save(v);
-            }}
-          />
-        </Row>
       </SettingsCard>
     </>
+  );
+}
+
+export function TerminalRow({ storage }: { storage: KV | null }) {
+  const [terminal, setTerminal] = useState(() => (setting(storage, 'terminal', 'auto').value === 'text' ? 'text' : 'auto'));
+  return (
+    <Row
+      label="Terminal view"
+      hint="Auto draws the live terminal; Text shows the text grid. This window only"
+      more="A phone held upright always uses the text view"
+    >
+      <Segmented
+        label="Terminal view"
+        value={terminal}
+        options={[
+          { value: 'auto', label: 'Auto' },
+          { value: 'text', label: 'Text' },
+        ]}
+        onChange={(v) => {
+          setTerminal(v);
+          setting(storage, 'terminal', 'auto').save(v);
+        }}
+      />
+    </Row>
+  );
+}
+
+/** How soon before the week runs out at the current pace the status bar warns; kept in this browser. */
+export function WeekAlertRow() {
+  const [hours, setHours] = useState(String(weekAlertHours()));
+  return (
+    <Row label="Week running out" hint="Warn when, at the current pace, the week runs out in less than this. This window only">
+      <Segmented
+        label="Week running out"
+        value={hours}
+        options={['0', '6', '12', '24', '48'].map((h) => ({ value: h, label: h === '0' ? 'Off' : `${h} h` }))}
+        onChange={(v) => {
+          setHours(v);
+          try {
+            localStorage.setItem(WEEK_ALERT_KEY, v);
+          } catch {
+            /* blocked */
+          }
+        }}
+      />
+    </Row>
   );
 }
 
@@ -136,10 +171,7 @@ function useFollow(): [Follow | null, () => void] {
       ?.follow?.()
       .then((r) => r.ok && setF(r));
   useEffect(load, []);
-  const check = () =>
-    void shell('checkUpdate')
-      ?.checkUpdate?.()
-      .then(() => setTimeout(load, 1500));
+  const check = () => void shell('checkUpdate')?.checkUpdate?.().then(load);
   return [f?.following ? f : null, check];
 }
 
@@ -204,6 +236,7 @@ export function Connection() {
             />
           </Row>
         ) : null}
+        <CliRow />
         {print ? (
           <Row label="Fingerprint" hint="Compare it with the one a device shows when pairing">
             <span className="text-ink-2" title={print}>

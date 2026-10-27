@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { NavigateTo } from '@handline/app-core';
 import { makeApi, type Ipc } from '#src/api.ts';
-import { CHANNELS, Connection, fromWindow, Page, Settings, type Sender } from '#src/bridge.ts';
+import { Cli, CHANNELS, Connection, fromWindow, Page, Settings, type Sender } from '#src/bridge.ts';
 import { noticeFor } from '#src/notices.ts';
 import type { Event } from '@handline/client';
 
@@ -163,7 +163,7 @@ test('the page switches the mode and pairs another device only from the window a
       throw new Error('paired with another device');
     },
     follow: () => ({ sha: 'abc1234', state: 'available', next: 'def5678' }),
-    check: () => void seen.push('check'),
+    check: async () => void seen.push('check'),
     setMode: (m) => void seen.push(m),
     pair: async (i) => {
       if (i.code === 'bad') throw new Error('the gateway at x cannot be paired with: nothing answered');
@@ -175,8 +175,8 @@ test('the page switches the mode and pairs another device only from the window a
   assert.equal(c.mode(evil).ok, false);
   assert.deepEqual(c.follow(top), { ok: true, following: true, sha: 'abc1234', state: 'available', next: 'def5678' });
   assert.equal(c.follow(evil).ok, false);
-  assert.deepEqual(c.checkUpdate(top), { ok: true });
-  assert.equal(c.checkUpdate(evil).ok, false);
+  assert.deepEqual(await c.checkUpdate(top), { ok: true });
+  assert.equal((await c.checkUpdate(evil)).ok, false);
   assert.deepEqual(c.setMode(top, 'own'), { ok: true });
   assert.equal(c.setMode(top, 'nonsense').ok, false);
   assert.equal(c.setMode(evil, 'own').ok, false);
@@ -234,4 +234,21 @@ test('settings: a daemon refusal comes back as a result, never a throw', async (
   const s = new Settings(ORIGIN, { get: () => Promise.reject(refuse), set: () => Promise.reject(new Error('down')) });
   assert.deepEqual(await s.get(top, {}), { ok: false, code: 'refused', message: 'not allowed' });
   assert.deepEqual(await s.set(top, { changes: { active_cap: 1 } }), { ok: false, code: 'unavailable', message: 'down' });
+});
+
+test('the page sees and links the carried hl only from the window, and a refusal comes back as a sentence', () => {
+  let linked = 0;
+  const cli = new Cli(ORIGIN, {
+    state: () => ({ bundled: true, linked: false, link: '/h/.local/bin/hl' }),
+    link: () => {
+      if (linked++) throw new Error('/h/.local/bin/hl is already a file: remove it first');
+    },
+  });
+  const evil: Sender = { senderFrame: { url: 'https://evil.example/', parent: null } };
+  assert.deepEqual(cli.state(top), { ok: true, bundled: true, linked: false, link: '/h/.local/bin/hl' });
+  assert.equal(cli.state(evil).ok, false);
+  assert.deepEqual(cli.link(top), { ok: true });
+  assert.deepEqual(cli.link(top), { ok: false, code: 'cannot_link', message: '/h/.local/bin/hl is already a file: remove it first' });
+  assert.equal(cli.link(evil).ok, false);
+  assert.equal(linked, 2);
 });

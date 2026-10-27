@@ -5,6 +5,8 @@ import { DaemonProvider } from '@handline/app-react';
 import { DataProvider, SKELETON_CSS, useUnread, type BoxComponent } from '@handline/app-data';
 import { setting } from '#src/daemon.ts';
 import { AccountsPage } from '#src/Accounts.tsx';
+import { RequestsPage } from '#src/RequestsPage.tsx';
+import { UsagePage } from '#src/UsagePage.tsx';
 import { MyTurnPage } from '#src/MyTurn.tsx';
 import { SettingsPage } from '#src/Settings.tsx';
 import { AdminPage } from '#src/Admin.tsx';
@@ -34,6 +36,7 @@ import { CaptureHost } from '#src/Capture.tsx';
 import { TasksPage } from '#src/Tasks.tsx';
 import { AgentWorkspace } from '#src/Workspace.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
+import { typing } from '#src/typing.ts';
 
 const Box: BoxComponent = (p) => <div {...p} />;
 
@@ -73,7 +76,6 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const [keys, setKeys] = useState(false);
   const own = tasks !== null; // these pages answer `?` with their own keys
   useEffect(() => {
-    const typing = (t: EventTarget | null) => t instanceof HTMLElement && !!t.closest('input, textarea, select, [contenteditable]');
     const onKey = (e: KeyboardEvent) => {
       if (terminalOwnsKey(e)) return; // a focused terminal gets every key
       const mod = e.metaKey || e.ctrlKey;
@@ -142,10 +144,14 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             <DaemonDown />
             {team ? (
               <TeamPage />
-            ) : accounts.open || page === 'stats' ? (
+            ) : page === 'stats' ? (
+              <UsagePage />
+            ) : accounts.open ? (
               <AccountsPage name={accounts.name} />
             ) : tasks !== null ? (
               <TasksPage route={tasks} />
+            ) : page === 'requests' ? (
+              <RequestsPage />
             ) : page === 'my-turn' ? (
               <MyTurnPage />
             ) : page === 'settings' ? (

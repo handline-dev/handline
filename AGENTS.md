@@ -128,6 +128,9 @@ agent (ROLE.md, base.md); this file does not repeat them.
   functions under 60; lint fails at 400 and 120 (tests 600, components 250), counted without blank or comment lines.
   A `max-lines` error means split the file by responsibility, not raise the limit or add a disable. The numbers are in
   `packages/config/eslint/limits.js`.
+- Pull requests: open one with `tools/pr-open.sh --title "..." --body-file FILE`, never a bare `gh pr create`. It first runs
+  the checks CI would refuse it for (the body's Why, What changed, Evidence and Risk, English only, base main; the changed
+  files; Prettier; ESLint with its size limits), and opens nothing until they pass. After editing a body, run it with `--check`.
 - UI: don't design a screen alone. Agree on its shape with the human first,
   and after you build it, the human checks it by eye. Passing tests do not
   finish UI work.

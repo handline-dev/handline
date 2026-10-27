@@ -24,7 +24,7 @@ const memory = (): KV => {
 let root: Root | null = null;
 let box: HTMLElement;
 const section = () => box.querySelector<HTMLElement>('section[aria-label="Activity"]');
-const send = () => [...section()!.querySelectorAll('button')].find((b) => b.textContent === 'Comment') as HTMLButtonElement;
+const send = () => [...section()!.querySelectorAll('button')].find((b) => b.textContent?.startsWith('Comment')) as HTMLButtonElement;
 const typeInto = async (value: string) => {
   await act(async () => void [...section()!.querySelectorAll('button')].find((b) => b.textContent === 'Source')!.click());
   const el = section()!.querySelector('textarea')!;
@@ -62,6 +62,23 @@ describe('a comment', () => {
     await until(() => section()!.querySelector('.comment strong'), 'the comment');
     expect([...section()!.querySelectorAll('.comment strong')].map((b) => b.textContent)).toContain('why');
     expect([...section()!.querySelectorAll('.comment ul li')].map((l) => l.textContent)).toEqual(['a', 'b']);
+  });
+});
+
+describe('a reply to a comment', () => {
+  it('names the comment it answers, sends reply, and shows what it answered', async () => {
+    const s = await mount((x) => x.daemon.tasks.memo({ task: 1688, text: 'Which port is it?' }, 'add', 'handline.architect'));
+    await until(() => section()!.querySelector('.comment'), 'the comment');
+    await act(
+      async () => void ([...section()!.querySelectorAll('.comment button')].find((b) => b.textContent === 'Reply') as HTMLElement).click(),
+    );
+    expect(section()!.querySelector('[data-replying]')?.textContent).toContain('Replying to handline.architect: Which port is it?');
+    await typeInto('7443');
+    await act(async () => void send().click());
+    await until(() => section()!.querySelector('[data-reply-to]'), 'the answer with what it answers');
+    expect(section()!.querySelector('[data-reply-to]')!.textContent).toContain('↩ handline.architect: Which port is it?');
+    expect(s.daemon.tasks.find(1688).memos!.at(-1)).toMatchObject({ text: '7443', reply_to: 1 });
+    expect(section()!.querySelector('[data-replying]')).toBeNull(); // the next comment is a plain one
   });
 });
 

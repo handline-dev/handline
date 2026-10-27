@@ -8,7 +8,6 @@ import (
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/states"
-	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/term"
 )
 
@@ -52,6 +51,8 @@ func (h healPorts) Interrupt(agent string) (bool, string) {
 
 func (h healPorts) Push(q db.Q, agent string, rid int64) string { return h.lc.Env.Push(q, agent, rid) }
 
+func (h healPorts) LoadHeld(agent string) string { return h.lc.Gate.Held(agent) }
+
 // Restart takes a RUNNING agent out of its turn without waiting for it (RestartHung); one between turns is restarted as a person's
 // restart is.
 func (h healPorts) Restart(agent string, fresh bool) (bool, string, error) {
@@ -64,13 +65,4 @@ func (h healPorts) Restart(agent string, fresh bool) (bool, string, error) {
 		return m.RestartHung(agent, st, fresh, by, cause)
 	}
 	return m.RestartAgent(agent, st, lifecycle.RestartOpts{Fresh: fresh, By: by, Cause: cause})
-}
-
-func (h healPorts) RaiseCard(q db.Q, agent, text, fix string) error {
-	var after supervisor.After
-	if _, err := h.lc.Env.RaiseDecision(q, &after, agent, text, "heal", "", "", 0, 0, db.KV{K: "fix", V: fix}); err != nil {
-		return err
-	}
-	after.Run()
-	return nil
 }

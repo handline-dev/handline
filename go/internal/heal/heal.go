@@ -34,14 +34,13 @@ const (
 
 var stepNames = map[int64]string{retryStep: "retry", restartStep: "restart in a new terminal", relaunchStep: "relaunch as a new conversation"}
 
-// FixOpenTerminal is the card's action id: open the agent's terminal, since every step the daemon could take was taken.
-const FixOpenTerminal = "open_terminal"
-
 // Ports is what the healer does to an agent, all of it the daemon's existing paths.
 type Ports interface {
 	Agents() []string
 	// NeedsPerson is a prompt or dialog waiting on a person: it already has its own card, and a restart would throw the answer away.
 	NeedsPerson(agent string) bool
+	// LoadHeld is why the machine's load holds the agent's waiting work, "" when it does not: a hold is the reason, not trouble.
+	LoadHeld(agent string) string
 	// Interrupt presses Esc on the agent's terminal.
 	Interrupt(agent string) (ok bool, why string)
 	// Push delivers request rid to the agent now, starting or waking it as delivery does.
@@ -49,8 +48,6 @@ type Ports interface {
 	// Restart ends the agent's session, without waiting for a hung turn, and starts it in a new terminal: resuming its conversation, or a
 	// new one when fresh.
 	Restart(agent string, fresh bool) (ok bool, said string, err error)
-	// RaiseCard puts a decision in front of the founder; fix is the action id the app turns into a button.
-	RaiseCard(q db.Q, agent, text, fix string) error
 }
 
 type Healer struct {
@@ -92,13 +89,18 @@ func (h *Healer) stuck(q db.Q, agent string, now int64) (*trouble, error) {
 	default: // mid-handoff, or waiting for its account on purpose
 		return nil, nil
 	}
-	// A task queued behind another is the task queue's; a notice waits for the digest on purpose. A message is typed when the agent is free.
+	// A task queued behind another is the task queue's; a notice waits for the digest on purpose. A message is typed when the agent is free,
+	// and one the load holds waits on purpose too, unless it is the founder's, which the load never holds.
 	waiting, err := db.UndeliveredFor(q, agent)
 	if err != nil {
 		return nil, err
 	}
+	held := ""
+	if len(waiting) > 0 {
+		held = h.Ports.LoadHeld(agent)
+	}
 	for _, r := range waiting {
-		if r.Kind.String == "task" || r.Notice.Int64 != 0 || r.EdgeOK.Int64 == 0 || now-r.TS < UndeliveredS {
+		if r.Kind.String == "task" || r.Notice.Int64 != 0 || r.EdgeOK.Int64 == 0 || now-r.TS < UndeliveredS || held != "" && r.Requester != db.Human {
 			continue
 		}
 		return &trouble{what: fmt.Sprintf("message %s has not been delivered for %dm", r.Ref, (now-r.TS)/60), rid: r.ID}, nil
@@ -154,7 +156,8 @@ func (h *Healer) heal(q db.Q, agent string, now int64) error {
 		return err
 	}
 	if step == cardStep {
-		return h.raise(q, agent, t)
+		h.raise(agent, t)
+		return nil
 	}
 	h.start(agent, func() { h.try(q, agent, step, t) })
 	return nil
@@ -244,18 +247,27 @@ func (h *Healer) try(q db.Q, agent string, step int64, t *trouble) {
 	}
 }
 
-func (h *Healer) raise(q db.Q, agent string, t *trouble) error {
-	text := fmt.Sprintf("%s is stuck: %s.", agent, t.what)
-	if tid, ok, err := db.CurrentTask(q, agent); err != nil {
-		return err
-	} else if ok && tid != 0 {
-		text = fmt.Sprintf("%s is stuck on T%d: %s.", agent, tid, t.what)
-	}
-	text += "\n\nThe daemon retried it, restarted it in a new terminal and relaunched it as a new conversation; it is still stuck. " +
-		"Open its terminal to see what holds it."
-	h.logf("%s: still stuck after every step; raised a card", agent)
-	return h.Ports.RaiseCard(q, agent, text, FixOpenTerminal)
+// raise is the last rung: nothing is raised as a task. The agent's view says it waits on the founder (CardUp) for as long as the trouble lasts.
+func (h *Healer) raise(agent string, t *trouble) {
+	h.logf("%s: still stuck after every step (%s); its card is up", agent, t.what)
 }
+
+// CardUp is whether the agent is stuck past every step, since when: the "waiting agent" card of My turn. It goes when the trouble does,
+// not after QuietS, and comes back if the trouble does before the ladder is forgotten.
+func CardUp(q db.Q, agent string) (since int64, up bool) {
+	step, err := db.Cursor(q, stepKey(agent))
+	if err != nil || step < cardStep {
+		return 0, false
+	}
+	if quiet, err := db.Cursor(q, quietKey(agent)); err != nil || quiet != 0 {
+		return 0, false
+	}
+	at, _ := db.Cursor(q, atKey(agent))
+	return at, true
+}
+
+// CardText is what the card says: the fix the daemon has run out of.
+const CardText = "stuck: the daemon retried it, restarted it in a new terminal and relaunched it as a new conversation; open its terminal to see what holds it"
 
 func (h *Healer) logf(format string, a ...any) {
 	if h.Log != nil {

@@ -16,7 +16,7 @@ import {
   type TabKind,
   type TabParams,
 } from '@handline/app-core';
-import { useStore } from '@handline/app-react';
+import { useHello, useMe } from '@handline/app-react';
 import { ChatTab } from '#src/ChatTab.tsx';
 import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
 import { TasksTab } from '#src/TasksTab.tsx';
@@ -73,10 +73,11 @@ export function Pane({ group }: { group: Group }) {
   useScreenKeys('On the tabs', TAB_KEYS);
   const { ws, detail, agent, storage, apply, show, canSplit, lead, dragging, setDragging } = useWorkspace();
   const folded = useFoldedControls();
-  const store = useStore();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
-  const badges = badgesOf(detail, store.me);
+  const me = useMe();
+  const hello = useHello();
+  const badges = badgesOf(detail, me);
   const structured = detail.structured === true;
   // What a new tab can show: the same flat list for the + menu and for the picker in a freshly split pane.
   const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; disabled?: boolean }[] = [
@@ -92,8 +93,8 @@ export function Pane({ group }: { group: Group }) {
           },
         ]),
     { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
-    { kind: 'android', params: { id: 'new' }, label: 'Android', icon: 'device' },
-    { kind: 'ios', params: { id: 'new' }, label: 'iOS', icon: 'device' },
+    { kind: 'android', params: {}, label: 'Android', icon: 'device' },
+    { kind: 'ios', params: {}, label: 'iOS', icon: 'device' },
   ];
   // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.
   // The first terminal tab of the group: a group holds one terminal tab per agent, so the unread dot follows that one.
@@ -123,9 +124,6 @@ export function Pane({ group }: { group: Group }) {
             <RailControls show={folded.show} row />
           </div>
         ) : null}
-        <span className="agent-name mr-2 max-w-[180px] flex-none self-center truncate pl-1 text-body font-semibold text-ink" title={agent}>
-          {agent}
-        </span>
         {group.tabs.map((id) => {
           const t = ws.tabs[id]!;
           // Claude Code is reached by the switch (Cmd/Ctrl+J, /terminal, the icon in the bottom bar), not by a tab, while the chat is in the group.
@@ -142,7 +140,8 @@ export function Pane({ group }: { group: Group }) {
               draggable={id !== CHAT}
               onDragStart={(e) => {
                 e.dataTransfer?.setData('text/plain', id);
-                setDragging(id);
+                // The drop cover appears over the tab being dragged; mounting it inside dragstart makes Chromium cancel the drag.
+                setTimeout(() => setDragging(id), 0);
               }}
               onDragEnd={() => setDragging(null)}
               onClick={() => show(id)}
@@ -240,14 +239,20 @@ export function Pane({ group }: { group: Group }) {
             onUrl={(u) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, url: u } } } }))}
           />
         ) : tab.kind === 'android' || tab.kind === 'ios' ? (
-          <DeviceTab agent={agent} kind={tab.kind} hidden={!!dragging} />
+          <DeviceTab
+            agent={agent}
+            kind={tab.kind}
+            hidden={!!dragging}
+            picked={typeof tab.params.device === 'string' ? tab.params.device : ''}
+            onPick={(device) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, device } } } }))}
+          />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (
           <Watch
             agent={agent}
             structured={structured}
             terminal={
               <div className="flex min-h-0 flex-col [&>:nth-last-child(2)]:flex-1">
-                {wantsBytes(store.client.hello?.capabilities.terminal_format, storage) ? (
+                {wantsBytes(hello?.capabilities.terminal_format, storage) ? (
                   <BytesTab agent={agent} detail={detail} />
                 ) : (
                   <TerminalTab agent={agent} detail={detail} />

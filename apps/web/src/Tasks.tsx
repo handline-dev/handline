@@ -15,7 +15,7 @@ import {
   type TaskFilter,
 } from '@handline/app-core';
 import type { Task } from '@handline/client';
-import { useStore } from '@handline/app-react';
+import { useMe } from '@handline/app-react';
 import { TASK_PAGE, useAgents, useServes, usePagedTasks } from '@handline/app-data';
 import { goTasks } from '#src/route.ts';
 import { TaskDetail } from '#src/TaskDetail.tsx';
@@ -31,6 +31,7 @@ import { ReasonSheet, useCan, useNow, useWide } from '#src/taskui.tsx';
 import { useMarks } from '#src/useMarks.ts';
 import { VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from '#src/TaskVerbUi.tsx';
 import { View } from '#src/View.tsx';
+import { typing } from '#src/typing.ts';
 
 type Open = null | 'discard' | 'owner' | 'priority' | 'merge' | 'states' | 'keys' | 'new';
 
@@ -43,8 +44,6 @@ const inScope = (tasks: Task[], scope: Scope, me: string, now: number, graph: bo
     : (scope === 'mine' ? tasks.filter((t) => t.to === me) : tasks).filter(
         (t) => graph || !CLOSED.includes(t.state) || now - Date.parse(t.done ?? t.created) <= DAY,
       );
-
-const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
 
 export function TasksPage({ route }: { route: string }) {
   const id = route && route !== 'graph' ? Number(route) : null;
@@ -127,7 +126,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
   const now = useNow();
   const [filter, setFilter] = useState<TaskFilter>(defaultFilter);
   const [scope, setScope] = useState<Scope>('open');
-  const me = useStore().me;
+  const me = useMe();
   const [sort, setSort] = useState<{ by: TaskColumn; reverse: boolean }>({ by: 'priority', reverse: false });
   const [cursor, setCursor] = useState<number | null>(null);
   const [open, setOpen] = useState<Open>(null);

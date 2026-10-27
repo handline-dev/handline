@@ -1,10 +1,24 @@
 // What sits around the transcript of an agent's chat: the one-line strip of its state, the banner when it is stuck, and the HR proposals
 // that concern it, decided where they were discussed.
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useSelector } from '@handline/app-react';
+import { HeldLine } from '#src/ApplyNow.tsx';
 import type { AgentDetail, Proposal, TranscriptItem } from '@handline/client';
-import { ago, clockTime, decidedProposals, heldLine, isHeld, isWaiting, restartingLine, restartShown } from '@handline/app-core';
-import { classify, sentence, useAgentStrip, useHr, useWorktrees, useWrite } from '@handline/app-data';
+import {
+  VERBS,
+  type FollowUp,
+  ago,
+  clockTime,
+  decidedProposals,
+  applyFailure,
+  followUpOf,
+  isHeld,
+  isWaiting,
+  restartingLine,
+  restartShown,
+} from '@handline/app-core';
+import { classify, sentence, useAgentStrip, useHr, useVerbMark, useVerbRun, useWorktrees, useWrite } from '@handline/app-data';
+import { useServed } from '#src/AgentVerbs.tsx';
 import { Button, Card, CardWhat, Chip, Dialog, Field, Icon } from '#src/ui/index.ts';
 import { goTeam } from '#src/route.ts';
 import { openTaskOnClick } from '#src/ChatMessages.tsx';
@@ -14,10 +28,12 @@ import { AccountMenu, ModelMenu } from '#src/AgentPickers.tsx';
 import { ViewSwitch } from '#src/ViewSwitch.tsx';
 import { useOpenTerminal } from '#src/ChatMenus.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
+import { useNow } from '#src/Gauge.tsx';
+import { BranchChip, ContextMax } from '#src/ChatStripItems.tsx';
 
-const until = (iso: string | null): number | null => {
+const until = (iso: string | null, now: number): number | null => {
   const t = iso ? Date.parse(iso) : NaN;
-  return Number.isNaN(t) ? null : Math.round((t - Date.now()) / 60_000);
+  return Number.isNaN(t) ? null : Math.round((t - now) / 60_000);
 };
 
 const tokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
@@ -25,12 +41,7 @@ const tokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : 
 /** One line under the composer: the model and account (menus), the task, the branch (dropped when the line is tight), and the context and
  *  prompt cache in words. */
 export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to?: 'chat' | 'terminal' }) {
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => tick((n) => n + 1), 30_000);
-    return () => clearInterval(t);
-  }, []);
-  const cache = until(detail.cache_until);
+  const cache = until(detail.cache_until, useNow(30_000));
   const { apply } = useWorkspace();
   const strip = useAgentStrip(detail.name).data;
   const ctxPct = detail.ctx_pct ?? strip?.ctx_pct;
@@ -39,20 +50,23 @@ export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to
   const used = strip?.ctx_used;
   const limit = strip?.ctx_limit;
   return (
-    <div className="chat-strip @container flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-hint text-ink-2">
+    <div className="chat-strip @container flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-hint text-ink-2">
       <ModelMenu detail={detail} />
       <AccountMenu detail={detail} />
       {detail.task ? (
-        <Chip as="a" href={`#/tasks/${detail.task.id}`} title={detail.task.title} onClick={openTaskOnClick(apply, detail.task.id)}>
+        <Chip
+          as="a"
+          href={`#/tasks/${detail.task.id}`}
+          className="hover:bg-raised"
+          title={detail.task.title}
+          onClick={openTaskOnClick(apply, detail.task.id)}
+        >
           <Icon name="tasks" size={13} aria-hidden />T{detail.task.id}
         </Chip>
       ) : null}
       {detail.worktree ? (
         <span className="branch hidden min-w-0 @[44rem]:inline-flex">
-          <Chip className="min-w-0" title={`Branch ${detail.worktree.branch}`}>
-            <Icon name="worktrees" size={13} aria-hidden />
-            <span className="truncate">{detail.worktree.branch}</span>
-          </Chip>
+          <BranchChip branch={detail.worktree.branch} />
         </span>
       ) : null}
       {changed ? (
@@ -72,6 +86,7 @@ export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to
               <GaugeLine what="Used">{`${used.toLocaleString()} / ${limit.toLocaleString()} tokens`}</GaugeLine>
             ) : null}
             {ctxPct != null ? <GaugeLine what="Full">{`${Math.round(ctxPct)}%`}</GaugeLine> : null}
+            <ContextMax detail={detail} limit={limit} />
           </>
         }
         cacheInfo={
@@ -98,10 +113,10 @@ export function ChatBanner({ detail }: { detail: AgentDetail }) {
     detail.blocker || detail.wall_reason || (detail.state === 'stalled' ? detail.state_detail || 'The session has stalled' : null);
   if (!why) return null;
   return (
-    <div className="chat-banner flex items-center gap-2 border-l-[3px] border-l-bad bg-panel px-2 py-1.5 text-body" role="status">
+    <Card variant="event" tone="bad" className="chat-banner" role="status">
       <Icon name="blocked" size={14} label="Blocked" />
       <span>{why}</span>
-    </div>
+    </Card>
   );
 }
 
@@ -116,14 +131,61 @@ export function DecidedCard({ p }: { p: Proposal }) {
   const word =
     p.state === 'rejected' ? 'Rejected' : p.kind === 'add' && p.asked?.team ? `Applied: ${p.agent} added to ${p.asked.team}` : 'Applied';
   return (
-    <div className="card-hr decided flex items-center gap-2 text-hint text-ink-2" data-kind="hr" data-proposal={p.id} data-state={p.state}>
+    <Card
+      variant="event"
+      tone={p.state === 'rejected' ? 'none' : 'ok'}
+      className="card-hr decided"
+      data-kind="hr"
+      data-proposal={p.id}
+      data-state={p.state}
+    >
       <Icon name="team" size={13} label="Proposal" />
       <span className="min-w-0 truncate">
         <strong className="font-medium text-ink">{p.title}</strong> · <span className="outcome">{word} by you</span> ·{' '}
         {p.settled ? clockTime(p.settled) : ''}
       </span>
       <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
-    </div>
+    </Card>
+  );
+}
+
+/** An approved proposal whose change is applied but whose agent is not running: it says so, and Start now makes the start the daemon put off
+ *  (or lost). Never "not applied", never approve again. */
+function FollowUpCard({ p, follow }: { p: Proposal; follow: FollowUp }) {
+  const run = useVerbRun(follow.agent);
+  const busy = !!useVerbMark(follow.agent);
+  const served = useServed();
+  const [refused, setRefused] = useState<string | null>(null);
+  const verb = VERBS.force_start;
+  return (
+    <Card
+      variant="event"
+      tone={follow.state === 'failed' ? 'bad' : 'wait'}
+      className="card-hr"
+      data-kind="hr"
+      data-proposal={p.id}
+      data-state={p.state}
+      data-follow-up={follow.state}
+    >
+      <Icon name="team" label="Proposal" />
+      <CardWhat stacked>
+        <strong>{p.title}</strong>
+        <span className="outcome">Applied</span>
+        <span className="muted whitespace-normal">
+          {follow.state === 'failed' ? follow.text : `${follow.agent} starts when the load drops`}
+        </span>
+        {refused ? <span role="alert">{refused}</span> : null}
+      </CardWhat>
+      {served(verb) ? (
+        <Button
+          label="Start now"
+          size="sm"
+          disabled={busy}
+          onClick={() => (setRefused(null), run(verb, undefined, { onError: (e) => setRefused(sentence(classify(e))) }))}
+        />
+      ) : null}
+      <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
+    </Card>
   );
 }
 
@@ -150,23 +212,41 @@ export function HrCards({ agent }: { agent: string }) {
     setRejecting(null);
     setNote('');
   };
-  const shown = proposalsOf(q.data?.proposals, agent).filter((p) => isWaiting(p) || isHeld(p));
+  const shown = proposalsOf(q.data?.proposals, agent).filter((p) => isWaiting(p) || isHeld(p) || followUpOf(p));
   return (
     <>
       {shown.map((p) => {
+        const follow = followUpOf(p);
+        if (follow) return <FollowUpCard key={p.id} p={p} follow={follow} />;
         const mine = sent[p.id];
-        const failed =
-          mine?.error ?? (mine && !mine.wait && p.state === 'apply_failed' ? `Not applied${p.error ? `: ${p.error}` : ''}` : undefined);
+        const failed = mine?.error; // a refusal of this press; the not-applied line is the card's own, shown once
+        const apply = p.state === 'apply_failed' ? applyFailure(p) : null;
         const pressed = (c: 'approve' | 'reject') => !!mine && mine.choice === c;
         return (
-          <Card variant="chat" key={p.id} className="card-hr bg-surface" data-kind="hr" data-proposal={p.id} data-state={p.state}>
+          <Card
+            variant="event"
+            tone={p.state === 'apply_failed' ? 'bad' : 'wait'}
+            key={p.id}
+            className="card-hr"
+            data-kind="hr"
+            data-proposal={p.id}
+            data-state={p.state}
+          >
             <Icon name="team" label="Proposal" />
             <CardWhat stacked>
               <strong>{p.title}</strong>
               {p.state === 'apply_failed' ? (
-                <span className="outcome text-bad">Not applied{p.error ? `: ${p.error}` : ''}. Approve to try again.</span>
+                <>
+                  <span className="outcome whitespace-normal text-bad">{apply!.line} Approve to try again.</span>
+                  {apply!.details ? (
+                    <details className="muted whitespace-normal">
+                      <summary>Details</summary>
+                      {apply!.details}
+                    </details>
+                  ) : null}
+                </>
               ) : isHeld(p) ? (
-                <span className="muted hr-held">{heldLine(p)}</span>
+                <HeldLine p={p} />
               ) : p.reason ? (
                 <span className="muted">{p.reason}</span>
               ) : null}
@@ -184,7 +264,7 @@ export function HrCards({ agent }: { agent: string }) {
                   size="sm"
                   aria-pressed={pressed('approve')}
                   aria-busy={mine?.wait && pressed('approve') ? true : undefined}
-                  disabled={!!mine && (mine.wait || !failed)}
+                  disabled={!!mine && (mine.wait || !(failed || apply))}
                   className={pressed('approve') ? 'bg-raised' : ''}
                   onClick={() => send(p, 'approve')}
                 >
@@ -200,7 +280,7 @@ export function HrCards({ agent }: { agent: string }) {
                   size="sm"
                   aria-pressed={pressed('reject')}
                   aria-busy={mine?.wait && pressed('reject') ? true : undefined}
-                  disabled={!!mine && (mine.wait || !failed)}
+                  disabled={!!mine && (mine.wait || !(failed || apply))}
                   className={pressed('reject') ? 'bg-raised' : ''}
                   onClick={() => setRejecting({ id: p.id, subject: p.subject })}
                 />
@@ -243,7 +323,7 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
   if (!need) return null;
   const reachable = detail.structured || !!detail.terminal;
   return (
-    <Card variant="chat" className="card-needs bg-surface" data-kind="needs_you" data-need={need.kind}>
+    <Card variant="event" tone="wait" className="card-needs" data-kind="needs_you" data-need={need.kind}>
       <Icon name="blocked" label="Needs you" />
       <CardWhat stacked>
         <strong>{NEEDS[need.kind] ?? NEEDS.dialog}</strong>

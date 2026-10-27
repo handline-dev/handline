@@ -1,4 +1,5 @@
 // Seeds a UI check needs that the first-load fixtures leave out: switch them on by name, in a test or at serve time.
+import { crc32, deflateSync } from 'node:zlib';
 import type { FakeDaemon } from '#src/daemon.ts';
 
 const ARCH = 'handline.architect';
@@ -6,6 +7,27 @@ const AUD = 'handline.auditor';
 const ME = 'human';
 
 type Seed = (d: FakeDaemon) => void;
+
+/** A one-colour PNG of the size given: a picture with a real height for a layout check. */
+function solidPng(w: number, h: number): Buffer {
+  const chunk = (type: string, data: Buffer) => {
+    const out = Buffer.concat([Buffer.alloc(4), Buffer.from(type), data, Buffer.alloc(4)]);
+    out.writeUInt32BE(data.length, 0);
+    out.writeUInt32BE(crc32(out.subarray(4, out.length - 4)), out.length - 4);
+    return out;
+  };
+  const head = Buffer.alloc(13);
+  head.writeUInt32BE(w, 0);
+  head.writeUInt32BE(h, 4);
+  head.set([8, 2, 0, 0, 0], 8);
+  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(w * 3, 0x9a)]);
+  return Buffer.concat([
+    Buffer.from('89504e470d0a1a0a', 'hex'),
+    chunk('IHDR', head),
+    chunk('IDAT', deflateSync(Buffer.concat(Array.from({ length: h }, () => row)))),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
 
 const task = (d: FakeDaemon, id: number, more: Parameters<FakeDaemon['tasks']['seed']>[0]) => d.tasks.seed({ ...more, id });
 
@@ -103,6 +125,106 @@ export const SEEDS: Record<string, Seed> = {
     }
   },
 
+  /** The founder's requests: one waiting on them, one in review, one doing, a done one, a message that is not a task yet. */
+  requests: (d) => {
+    d.requests.add({
+      title: 'Show the usage graph first',
+      task: 6071,
+      status: 'doing',
+      agent: 'handline.pc',
+      holders: ['handline.pc'],
+      open: 2,
+      done: 1,
+    });
+    d.requests.add({
+      title: 'Open a new shell from the + menu',
+      task: 6068,
+      status: 'review',
+      agent: 'handline.pc',
+      holders: ['handline.pc'],
+      open: 1,
+      done: 2,
+      prs: [630],
+    });
+    d.requests.add({
+      title: 'Which build is live?',
+      task: 6020,
+      status: 'waiting_on_you',
+      agent: 'handline',
+      holders: ['handline'],
+      open: 1,
+      unread_comments: 2,
+    });
+    d.requests.add({ title: 'Settings in one place', task: 5983, status: 'done', agent: 'handline.pc', done: 6 });
+    d.requests.add({ title: 'Why is the build so slow today?', kind: 'message', agent: 'handline' });
+  },
+
+  /** The architect is held back for the machine's load: its chat and row say so, and agent.force_start starts it. */
+  'agent-held': (d) => {
+    const s = d.sessions.get(ARCH)!;
+    const since = new Date(Date.now() - 4 * 60_000).toISOString();
+    s.fx.view = {
+      ...s.fx.view,
+      status: {
+        state: 'waiting',
+        reason: 'load',
+        text: 'held: machine load - load 5.40 per core, limit 1.50',
+        until: null,
+        since,
+        tasks: [],
+      },
+    };
+  },
+
+  /** The architect waits on another task (status reason task): its chat shows the blocked-by card with the task as a link. */
+  'agent-blocked': (d) => {
+    const s = d.sessions.get(ARCH)!;
+    const since = new Date(Date.now() - 12 * 60_000).toISOString();
+    s.fx.view = {
+      ...s.fx.view,
+      status: { state: 'waiting', reason: 'task', text: 'blocked by T1684 (human)', until: null, since, tasks: [1684] },
+    };
+  },
+
+  /** An approved proposal that did not apply, the daemon's error in its own words, and the daemon down notice's page. */
+  'hr-apply-failed': (d) => {
+    d.script.hr.raise({
+      id: 908,
+      kind: 'settings',
+      agent: ARCH,
+      title: 'settings handline.architect',
+      diff: 'effort: high',
+      state: 'apply_failed',
+      error:
+        'proposal p908 was not applied: agent.yaml is locked by another process. Retry when the lock clears (/Users/x/.handline/agents/handline.architect/agent.yaml).',
+    });
+  },
+
+  /** Two approved proposals whose change is applied but whose agent did not start: the architect's waits for the load, the auditor's failed. */
+  'hr-followup': (d) => {
+    const hr = d.script.hr;
+    hr.raise({
+      id: 906,
+      kind: 'settings',
+      agent: ARCH,
+      title: 'rename handline.architect',
+      diff: 'rename handline.architect -> handline.planner',
+      state: 'approved',
+      settled: new Date().toISOString(),
+      follow_up: { agent: ARCH, state: 'waiting', text: 'held: machine load - load 3.09 per core, limit 1.50' },
+    });
+    hr.raise({
+      id: 907,
+      kind: 'settings',
+      agent: AUD,
+      title: 'rename handline.auditor',
+      diff: 'rename handline.auditor -> handline.reviewer',
+      state: 'approved',
+      settled: new Date().toISOString(),
+      follow_up: { agent: AUD, state: 'failed', text: 'start failed: no free account' },
+    });
+  },
+
   /** Chat messages with one-tap actions: OK / No on an open task the founder owns. */
   'chat-actions': (d) => {
     task(d, 6902, { id: 6902, from: ARCH, to: ME, title: 'Open task the founder owns', state: 'doing' });
@@ -116,6 +238,21 @@ export const SEEDS: Record<string, Seed> = {
         { key: 'no', label: 'No', verb: 'task.handoff', task: 6902, params: { task: 6902, to: ARCH }, needs: 'note' },
       ],
     });
+  },
+
+  /** A long chat with the architect: 120 messages (four pages), every seventh with a picture, for paging up through history. */
+  'chat-long': (d) => {
+    const png = solidPng(240, 160);
+    for (let n = 1; n <= 120; n++) {
+      const mine = n % 2 === 0;
+      const shot = n % 7 === 0 ? d.uploads.add(`shot-${n}.png`, png) : null;
+      d.chat.seed(ARCH, {
+        from: mine ? ME : ARCH,
+        to: mine ? ARCH : ME,
+        body: `Message ${n}. ${'A line of the talk. '.repeat(1 + (n % 5))}`,
+        ...(shot ? { attachments: [{ id: shot.id, name: shot.name, mime: 'image/png', bytes: png.length }] } : {}),
+      });
+    }
   },
 
   /** The account beta stalled on a billing error: its row shows STALLED and a founder can Wake it. */
