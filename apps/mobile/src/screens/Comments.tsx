@@ -1,12 +1,13 @@
 // A task's comments on the phone (docs/pc-app-gaps.md U11): add, edit and delete, each a `useWrite` that shows at once and rolls back with the daemon's reason.
 import { useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
-import type { MemoFile } from '@handline/client';
+import type { MemoFile, MemoReader } from '@handline/client';
 import { classify, sentence, useOff, useWrite } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { ImageBodyInput } from '#src/screens/ImageBodyInput.tsx';
 import { Button } from '#src/screens/parts.tsx';
+import { CommentReaders } from '#src/screens/CommentReaders.tsx';
 import { MemoFiles } from '#src/screens/MemoFiles.tsx';
 import { Sheet } from '#src/screens/TaskActions.tsx';
 import { PrBody } from '#src/screens/PrBody.tsx';
@@ -22,7 +23,7 @@ export function CommentRow({
 }: {
   task: number;
   agent: string;
-  memo: { id: number; author: string; text: string; files?: MemoFile[] };
+  memo: { id: number; author: string; text: string; files?: MemoFile[]; readers?: MemoReader[] };
   when: string;
 }) {
   const c = usePalette();
@@ -39,6 +40,7 @@ export function CommentRow({
       <Text style={{ color: c.muted, fontSize: font.size.label }}>{`${memo.author} ${when}`}</Text>
       {ask === 'edit' ? null : <PrBody id={`memo-${memo.id}`} agent={agent} body={memo.text} />}
       {memo.files?.length ? <MemoFiles files={memo.files} /> : null}
+      {memo.readers?.length ? <CommentReaders memo={memo.id} readers={memo.readers} /> : null}
       {ask === null && (
         <View style={{ flexDirection: 'row', gap: space.sm }}>
           <Button
