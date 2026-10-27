@@ -464,6 +464,7 @@ describe('the sidebar', () => {
     await until(() => $('.pinned-head'), 'the pinned section');
     const pinned = $$('.row-working').filter((w) => w.closest('[data-agent]')?.getAttribute('data-agent') === name);
     expect(pinned.map((w) => text(w).trim())).toEqual(['1']); // the pinned copy; the open tree row says nothing
+    expect(pinned[0]!.querySelector('svg')!.classList.contains('animate-spin')).toBe(true); // the count's ring turns like the state glyph
     const stuck = $$('.row-stuck').filter((w) => w.closest('[data-agent]')?.getAttribute('data-agent') === name);
     expect(stuck.map((w) => text(w).trim())).toEqual(['1']);
   });

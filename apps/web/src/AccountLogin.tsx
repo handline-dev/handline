@@ -57,7 +57,7 @@ export function AccountLogin({ account }: { account: Account }) {
         ) : run ? (
           // A login another client started (or one a reload took the URL away from) still runs: cancel it, then Log in again.
           <p className="muted m-0 flex items-center gap-2" role="status">
-            <Icon name="working" size={14} label="Logging in" className="animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none" />
+            <Icon name="working" size={14} label="Logging in" className="animate-spin motion-reduce:animate-none" />
             <Button variant="ghost" size="sm" label="Cancel" disabled={cancelLogin.isPending} onClick={() => cancelLogin.mutate({ login_id: loginId })} />
           </p>
         ) : (

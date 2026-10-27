@@ -157,7 +157,7 @@ function AgentRowView({
                           name="refresh"
                           size={12}
                           aria-hidden
-                          className="animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none"
+                          className="animate-spin motion-reduce:animate-none"
                         />
                         {roomy ? 'Restarting…' : null}
                       </span>
@@ -194,7 +194,7 @@ function AgentRowView({
                         className="row-working inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-working"
                         title={`${working} working under ${a.name}`}
                       >
-                        <Icon name="working" size={11} aria-hidden />
+                        <Icon name="working" size={11} aria-hidden className="animate-spin motion-reduce:animate-none" />
                         {working}
                       </span>
                     ) : null}
