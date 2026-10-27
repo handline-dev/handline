@@ -214,7 +214,8 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
                 testID={`agent-${a.name}`}
                 onPress={() => void store.openAgent(a.name)}
                 onLongPress={() => setTarget(a)}
-                style={{
+                style={({ pressed }) => ({
+                  backgroundColor: pressed ? c.press : undefined,
                   flexDirection: 'row',
                   alignItems: 'center',
                   gap: space.md,
@@ -224,7 +225,7 @@ export function AgentList(props: { onPage: (page: 'new' | 'settings' | 'team') =
                   paddingRight: space.lg,
                   borderTopWidth: 1,
                   borderTopColor: c.line,
-                }}
+                })}
               >
                 <StateMark agent={a} />
                 <View style={{ flex: 1 }}>

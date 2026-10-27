@@ -15,6 +15,6 @@ export function Chip({
       ? `chip-ico ${STRIP_ITEM} rounded-ctl whitespace-nowrap text-inherit no-underline data-[lapsed]:text-bad`
       : 'status-cell';
   // A cell that does something takes the one tint; a plain span is text and takes none.
-  const acts = Tag !== 'span' ? (variant === 'cell' ? ' tint -mx-1 rounded-chip px-1' : ' tint') : '';
+  const acts = Tag !== 'span' ? (variant === 'cell' ? ' tint -mx-1 rounded-chip px-1 text-inherit' : ' tint') : '';
   return <Tag {...rest} className={`${look}${acts} inline-flex items-center gap-1${className ? ` ${className}` : ''}`} />;
 }
