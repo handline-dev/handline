@@ -29,12 +29,6 @@ const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null | undefined) => el?.textContent ?? '';
 const button = (label: string) => $$('button').find((b) => text(b).trim() === label || b.title === label);
-const setValue = (el: HTMLInputElement | HTMLSelectElement, value: string) =>
-  act(async () => {
-    const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, value);
-    el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
-  });
 
 async function mount(hash: string, s = setup()) {
   location.hash = hash;
@@ -85,22 +79,15 @@ describe('the Requests page', () => {
     expect(location.hash).toBe('#/tasks/1684');
   });
 
-  it('turns a message that is not a task yet into a request, or marks it as needing no work', async () => {
+  it("lists a message that is not a task yet without buttons: turning it into a request is the lead's job", async () => {
     const s = setup();
-    const msg = s.daemon.requests.add({ title: 'Why is the build slow?', kind: 'message' });
-    const other = s.daemon.requests.add({ title: 'thanks', kind: 'message' });
+    s.daemon.requests.add({ title: 'Why is the build slow?', kind: 'message' });
+    s.daemon.requests.add({ title: 'thanks', kind: 'message', status: 'no_work', reason: 'a thank-you' });
     await mount('#/requests', s);
     await until(() => $$('.request-row').length === 2, 'two messages');
-    const made = $(`[data-request="${msg.ref}"]`)!;
-    await click([...made.querySelectorAll('button')].find((b) => text(b).includes('Make a request') || b.title === 'Make a request'));
-    await until(() => s.daemon.requests.rows.find((r) => r.ref === msg.ref)?.kind === 'task', 'the request made');
-    expect(s.daemon.requests.rows.find((r) => r.ref === msg.ref)?.kind).toBe('task');
-    const row = $(`[data-request="${other.ref}"]`)!;
-    await click([...row.querySelectorAll('button')].find((b) => text(b) === 'No work'));
-    await setValue(row.querySelector('input[aria-label="Why no work"]') as HTMLInputElement, 'a thank-you');
-    await click([...row.querySelectorAll('button')].find((b) => text(b) === 'Mark no work'));
-    await until(() => s.daemon.requests.rows.find((r) => r.ref === other.ref)?.status === 'no_work', 'marked');
-    await until(() => text($(`[data-request="${other.ref}"]`)).includes('a thank-you'), 'the reason shows');
+    expect($$('.request-row button')).toHaveLength(0);
+    expect(text($('[data-status="no_work"]'))).toContain('Nothing to do');
+    expect(text($('[data-status="no_work"]'))).toContain('a thank-you');
   });
 
   it('has a sidebar entry that opens the page, and a New request dialog', async () => {
