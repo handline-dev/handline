@@ -328,7 +328,7 @@ func TestTheDaemonsWakeWaitsForThePaceOrTheFiveHourLimitAndAPersonsStartDoesNot(
 	for _, c := range []struct {
 		fiveHour bool
 		holds    string
-	}{{false, "weekly pace"}, {true, "5-hour limit is nearly used up"}} {
+	}{{false, "weekly pace"}, {true, "5-hour limit lasts until it starts over"}} {
 		t.Run(c.holds, func(t *testing.T) { theDaemonsWakeWaits(t, pacedLaunch{fiveHour: c.fiveHour}, c.holds) })
 	}
 }

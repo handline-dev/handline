@@ -903,7 +903,7 @@ func TestAStartIsHeldOnlyWhenNoAccountLastsToItsFiveHourReset(t *testing.T) {
 	if got := r.l.FindRoom("ann"); got == "" {
 		t.Error("and it still has an account to go to")
 	}
-	if got := DescribeWakeWait(&WakeWait{FiveHour: true, Reset: 3000}); !strings.HasPrefix(got, "Held: Claude's 5-hour limit is nearly used up. It starts over at ") {
+	if got := DescribeWakeWait(&WakeWait{FiveHour: true, Reset: 3000}); !strings.HasPrefix(got, "Held so Claude's 5-hour limit lasts until it starts over at ") || !strings.HasSuffix(got, ". This starts then.") {
 		t.Errorf("the card says what is held and when: %q", got)
 	}
 }

@@ -37,7 +37,7 @@ func (c controls) ForceStart(agent string) (bool, string, error) {
 	if w := c.lc.Launch.WakeWait(m.Q, agent, row); w != nil && (w.Pace != nil || w.FiveHour) {
 		paced = lifecycle.DescribeWakeWait(w)
 		if w.FiveHour {
-			pacedWhat = "Claude's 5-hour limit is nearly used up"
+			pacedWhat = "Claude's 5-hour limit would run out before it starts over"
 		}
 	}
 	if owed == "" && !c.lc.Launch.Ports.WaitingFor(m.Q, agent) {

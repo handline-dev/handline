@@ -544,7 +544,7 @@ func WaitClock(w *WakeWait, unknown string) string {
 // DescribeWakeWait is the wording for a wait already computed, so a caller that holds one does not recompute it.
 func DescribeWakeWait(w *WakeWait) string {
 	if w.FiveHour {
-		return fmt.Sprintf("Held: Claude's 5-hour limit is nearly used up. It starts over at %s, and this starts then.", WaitClock(w, "a later time"))
+		return fmt.Sprintf("Held so Claude's 5-hour limit lasts until it starts over at %s. This starts then.", WaitClock(w, "a later time"))
 	}
 	if w.Pace != nil {
 		return fmt.Sprintf("waiting for %s's weekly pace: %d%% used, %.0f points ahead of its line (%.0f%%)", w.Account, w.Pace.Used,
