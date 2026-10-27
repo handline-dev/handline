@@ -50,7 +50,7 @@ describe('the task page', () => {
     await mount('#/tasks/1690', s);
     await until(() => $('.twhy'), 'the waiting line');
     expect(text($('.twhy'))).toContain('blocked by T1688');
-    expect(text($('.tchips'))).toMatch(/Owner · handline.auditor ▾.*Priority · P3 ▾.*Time box/);
+    expect(text($('.tchips'))).toMatch(/Assigned to · handline.auditor ▾.*Priority · P3 ▾.*Time box/);
     expect($('.line-clamp-4', $('article.tdetail')!)).not.toBeNull();
     await click(button('Show more', $('article.tdetail')!)!);
     expect($('.line-clamp-4', $('article.tdetail')!)).toBeNull();
@@ -85,7 +85,7 @@ describe('the task page', () => {
     expect($('.twhy')).toBeNull();
   });
 
-  it('lists comments and events as one Activity: the last three events, older ones folded, a note opened on "Read note"', async () => {
+  it('lists comments and events as one Activity: the last three events, older ones folded, a note shown open under its line', async () => {
     const s = setup();
     const row = (s.daemon.tasks as unknown as { rows: { id: number; notes?: { at: string; who: string; text: string }[] }[] }).rows.find(
       (r) => r.id === 1688,
@@ -97,14 +97,15 @@ describe('the task page', () => {
     expect($$('.tevent', act_)).toHaveLength(3);
     expect(text(act_)).toContain('Show 2 earlier events');
     expect(text(act_)).toContain('handline.pc sent it back');
-    expect(text(act_)).not.toContain('note 5');
-    await click(button('Read note', act_)!);
+    expect(text(act_)).toContain('note 5'); // the notes of the shown events are open
+    expect(text(act_)).not.toContain('note 1'); // the folded ones are not
+    expect(button('Read note', act_)).toBeUndefined(); // no link to click: the note is the content
     expect(text(act_)).toContain('note 3');
     await click(button('Show 2 earlier events', act_)!);
     expect($$('.tevent', act_)).toHaveLength(5);
   });
 
-  it('shows the brief, a Read note body and the waiting line as Markdown, not raw marks', async () => {
+  it('shows the brief, an open note body and the waiting line as Markdown, not raw marks', async () => {
     const s = setup();
     const tasks = s.daemon.tasks as unknown as {
       rows: { id: number; body: string; notes?: { at: string; who: string; text: string }[] }[];
@@ -117,10 +118,28 @@ describe('the task page', () => {
     const d = $('article.tdetail')!;
     expect(text(d)).not.toContain('## Plan');
     expect(text(d)).not.toContain('**weight**');
-    await click(button('Read note', d)!);
     expect([...$$('.tevent strong', d)].map((b) => text(b))).toContain('this');
     expect($$('.tevent li', d).map((l) => text(l))).toEqual(['a', 'b']);
     expect($('section[aria-label="Activity"]')!.className).toContain('min-w-0'); // a long line cannot widen the list
+  });
+
+  it('folds a note longer than eight lines to its first lines with a Show more, and short ones stay open', async () => {
+    const s = setup();
+    const r = (s.daemon.tasks as unknown as { rows: { id: number; notes?: { at: string; who: string; text: string }[] }[] }).rows.find(
+      (x) => x.id === 1688,
+    )!;
+    r.notes = [
+      { at: '2026-01-01T10:00:00.000Z', who: 'handline.pc', text: Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join('\n\n') },
+    ];
+    await mount('#/tasks/1688', s);
+    await until(() => $('.tnote'), 'the note');
+    const note = $('.tnote')!;
+    expect(text(note)).toContain('line 4');
+    expect(text(note)).not.toContain('line 12');
+    expect(text(note)).toContain('Show more');
+    await click(button('Show more', note)!);
+    expect(text(note)).toContain('line 12');
+    expect(text(note)).toContain('Show less');
   });
 
   it('lists what closed today under a folded "Done today" that opens on a click', async () => {

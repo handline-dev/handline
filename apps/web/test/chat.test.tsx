@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store, defaultWorkspace, groupsOf, openTab, saveWorkspace, splitTab, storageKey, type KV } from '@handline/app-core';
 import { second, setup } from '@handline/fake-daemon/helpers';
+import { applySeeds } from '@handline/fake-daemon/seeds';
 import { App } from '#src/App.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -296,12 +297,27 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     const events = $$('[data-kind="task_event"]');
     expect(icon(events[0], 'Task added')).not.toBeNull();
     expect(text(events[0])).toContain('1684');
-    expect(events[0]!.tagName).toBe('BUTTON');
     const changed = events.find((c) => c.getAttribute('data-event') === 'changed')!;
     expect(text(changed)).toContain('assigned to alice');
     expect(text(changed)).toContain('priority 2 → 1');
-    expect(changed.querySelector('.card-time')).not.toBeNull(); // the time has its own column on the right
+    expect(changed.querySelector('.card-time')).not.toBeNull(); // the time is its own span at the card's end
     expect(text(events[0])).not.toMatch(/TASK|task added/); // no shouted label: the dot says it
+  });
+
+  it('a task card has Open at its end, and Done only on an open task given to the person', async () => {
+    const s = setup();
+    s.daemon.tasks.verbs = true;
+    applySeeds(s.daemon, 'task-card');
+    await mount(ARCH, s);
+    await until(() => msg('Which gap list'), 'history');
+    const card = (n: number) => $$('[data-kind="task_event"]').find((c) => text(c).includes(String(n)));
+    const button = (n: number, word: string) => [...(card(n)?.querySelectorAll('button') ?? [])].find((b) => text(b) === word);
+    await until(() => button(1695, 'Done'), 'Done on the open task');
+    expect(button(1695, 'Open')).toBeDefined();
+    expect(button(1684, 'Open')).toBeDefined();
+    expect(button(1684, 'Done')).toBeUndefined(); // T1684 is the architect's, not the person's
+    await click(button(1695, 'Done')!);
+    await until(() => !button(1695, 'Done'), 'the card without Done');
   });
 
   it('a batch discard is one card with a line per task: the line opens the task, Reopen brings it back', async () => {

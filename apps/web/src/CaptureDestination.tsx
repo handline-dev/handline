@@ -62,7 +62,7 @@ export function CaptureDestination({
             />
           ) : (
             <Select
-              label="Owner"
+              label="Assigned to"
               value={value.owner}
               onChange={(e) => onChange({ ...value, owner: e.target.value })}
               options={[{ value: '', label: 'pick an agent' }, ...agents.map((a) => ({ value: a, label: a }))]}

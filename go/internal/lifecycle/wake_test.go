@@ -1009,3 +1009,86 @@ func TestAWakeDuringAHandoffStartsTheNewSessionNotTheOldOne(t *testing.T) {
 		t.Fatal("the handoff still waits after its new session started")
 	}
 }
+
+// handline.architect (10-27): closed while its context handoff waited for the note, woken 1h40m later, it resumed the 441k session
+// that had already hit the limit, three times. A close after the wait began is never resumed, however late the wake.
+func TestAWakeLongAfterACloseDuringAHandoffStillStartsFresh(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "테스트.", true, true
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	if err := db.MarkNoteWait(m.Q, "a", "context", m.now()-2*db.NoteWaitStaleS); err != nil {
+		t.Fatal(err)
+	}
+	db.SetClosed(m.Q, "a", "sess-1")
+	m.Q.Exec("UPDATE agent_state SET closed_at = ? WHERE agent = 'a'", m.now()-2*db.NoteWaitStaleS+60) // closed a minute into the wait
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Person: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if len(tm.relaunched) != 1 || strings.Contains(tm.relaunched[0], "--resume") {
+		t.Fatalf("the old session was resumed: %q", tm.relaunched)
+	}
+}
+
+// A note-wait mark left behind by a handoff that never went on is not owed by an ordinary close long after it: that wake resumes.
+func TestAWakeAfterAnOrdinaryCloseResumesPastAStaleNoteWaitMark(t *testing.T) {
+	m, d, tm := newManager(t)
+	d.waitingMsg, d.tookPrompt, tm.launchOK = "테스트.", true, true
+	m.Handoff = fakeHandoff{}
+	db.SetTerminal(m.Q, "a", "t1", "/wt")
+	if err := db.MarkNoteWait(m.Q, "a", "context", m.now()-3*86400); err != nil {
+		t.Fatal(err)
+	}
+	db.SetClosed(m.Q, "a", "sess-1")
+	if ok, said, err := m.WakeAgentLocked("a", WakeOpts{Force: true}); err != nil || !ok {
+		t.Fatalf("%v %q %v", ok, said, err)
+	}
+	if len(tm.relaunched) != 1 || !strings.HasSuffix(tm.relaunched[0], "-- --resume sess-1") {
+		t.Fatalf("the conversation was not resumed: %q", tm.relaunched)
+	}
+}
+
+// The load holds new work; a wake that carries on a handoff goes. A plain idle close keeps a handoff record too, so the record is no sign of one.
+func TestTheLoadDoesNotHoldTheWakeThatCompletesAHandoff(t *testing.T) {
+	const held = "held: machine load"
+	setup := func() (*Manager, *fakeTerm) {
+		m, d, tm := newManager(t)
+		m.LoadHeld = func(string) string { return held + " - load 2.00 per core, limit 1.50" }
+		d.waitingMsg, d.tookPrompt, tm.launchOK = "hi", true, true
+		db.SetTerminal(m.Q, "a", "t1", "/wt")
+		return m, tm
+	}
+	wake := func(m *Manager) string {
+		_, said, _ := m.WakeAgent("a", WakeOpts{})
+		return said
+	}
+	m, _ := setup()
+	if ok, _, _ := m.CloseAgent("a", SessionStatus{SessionID: "sess-1"}, CloseOpts{Idle: true}); !ok {
+		t.Fatal("not closed")
+	}
+	if said := wake(m); !strings.Contains(said, held) {
+		t.Fatalf("an ordinary idle close went past the load: %q", said)
+	}
+	m, _ = setup()
+	db.MarkNoteWait(m.Q, "a", "context", m.now())
+	m.CloseAgent("a", SessionStatus{SessionID: "sess-1"}, CloseOpts{Idle: true})
+	if said := wake(m); strings.Contains(said, held) {
+		t.Fatalf("the wake of a close during a handoff's note wait was held: %q", said)
+	}
+	m, _ = setup()
+	m.CloseAgent("a", SessionStatus{SessionID: "sess-1"}, CloseOpts{Idle: true})
+	db.StartHandoff(m.Q, "h1", "a", "sess-1", "context", m.now()+60)
+	db.AdvanceHandoff(m.Q, "h1", "released", "done", "")
+	db.SetAgentState(m.Q, "a", states.Parked, m.now(), "handoff")
+	if said := wake(m); strings.Contains(said, held) {
+		t.Fatalf("the park a completed handoff left was held: %q", said)
+	}
+	m, _ = setup()
+	db.StartHandoff(m.Q, "h1", "a", "sess-1", "context", m.now()+60)
+	db.AdvanceHandoff(m.Q, "h1", "released", "done", "")
+	m.Q.Exec("UPDATE handoff SET updated = ? WHERE id = 'h1'", m.now()-3*86400)
+	m.CloseAgent("a", SessionStatus{SessionID: "sess-1"}, CloseOpts{Idle: true})
+	db.SetAgentState(m.Q, "a", states.Parked, m.now(), "idle")
+	if said := wake(m); !strings.Contains(said, held) {
+		t.Fatalf("a park long after an old released handoff went past the load: %q", said)
+	}
+}

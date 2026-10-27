@@ -92,6 +92,7 @@ describe('the list', () => {
     fx.state = 'running';
     try {
       await mount('#/accounts', s);
+      await until(() => $('[data-account="alpha"]'), 'the rows');
       await until(() => text(card('alpha').querySelector('.acct-agents')).includes('1 working / cap 4'), 'the running count');
     } finally {
       fx.state = was;

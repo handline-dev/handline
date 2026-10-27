@@ -9,7 +9,9 @@
 package turns
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"sync"
 	"time"
 )
@@ -34,6 +36,8 @@ type Tracker struct {
 	pid      func(agent string) int
 	ended    func(agent string)
 	reapWait time.Duration // reapWait when 0
+	// retryWait is how often a transcript that is not there yet is looked for: transcriptRetry when 0.
+	retryWait time.Duration
 	// now and after are the clock doing's hold reads and the timer it releases with: time.Now and time.AfterFunc when nil.
 	now   func() time.Time
 	after func(d time.Duration, f func()) (stop func() bool)
@@ -253,21 +257,79 @@ func runningTasks(v any) []string {
 	return out
 }
 
+// transcriptRetry and transcriptGiveUp are how often, and for how long, a transcript that does not exist yet is looked for: the hook can
+// name the file a moment before the session creates it.
+const transcriptRetry, transcriptGiveUp = 500 * time.Millisecond, time.Minute
+
 func (t *Tracker) watchTranscript(agent, path string) func() {
-	stop, err := watchLines(path, func(line []byte) {
-		if interruptEntry(line) {
-			t.interrupt(agent)
-		} else if d := toolCall(line); d != nil {
-			t.called(agent, d)
-		}
-	})
-	if err != nil {
+	watch := func() (func(), error) {
+		return watchLines(path, func(line []byte) {
+			if interruptEntry(line) {
+				t.interrupt(agent)
+			} else if d := toolCall(line); d != nil {
+				t.called(agent, d)
+			}
+		})
+	}
+	stop, err := watch()
+	if err == nil {
+		return stop
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
 		if t.Log != nil {
 			t.Log("  turns: %s: cannot watch the transcript, an Esc will not be seen: %v", agent, err)
 		}
 		return nil
 	}
-	return stop
+	every := t.retryWait
+	if every == 0 {
+		every = transcriptRetry
+	}
+	quit := make(chan struct{})
+	var once sync.Once
+	var mu sync.Mutex
+	var inner func()
+	go func() {
+		tick := time.NewTicker(every)
+		defer tick.Stop()
+		give := time.After(transcriptGiveUp)
+		for {
+			select {
+			case <-quit:
+				return
+			case <-give:
+				if t.Log != nil {
+					t.Log("  turns: %s: the transcript did not appear, an Esc will not be seen: %v", agent, err)
+				}
+				return
+			case <-tick.C:
+				mu.Lock()
+				select {
+				case <-quit: // stopped while this attempt waited for the lock
+					mu.Unlock()
+					return
+				default:
+				}
+				s, e := watch()
+				if e == nil {
+					inner = s
+				}
+				mu.Unlock()
+				if e == nil || !errors.Is(e, fs.ErrNotExist) {
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		once.Do(func() { close(quit) })
+		mu.Lock()
+		defer mu.Unlock()
+		if inner != nil {
+			inner()
+			inner = nil
+		}
+	}
 }
 
 func (t *Tracker) interrupt(agent string) {

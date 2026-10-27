@@ -28,7 +28,7 @@ func drawn(q map[string]any, all bool) string {
 	if q["whose"] == human {
 		lines := q["lines"].([]any)
 		if len(lines) == 0 && !all {
-			return "nothing waiting on you\n"
+			return "nothing needs you\n"
 		}
 		fmt.Fprintf(&b, "%d waiting. `hl read <id>` shows one whole.\n", q["waiting"])
 		for _, l := range lines {
