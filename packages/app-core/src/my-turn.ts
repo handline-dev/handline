@@ -76,6 +76,34 @@ const at = (iso: string | null | undefined) => (Number.isFinite(ms(iso)) ? ms(is
 /** The agents that have a card in the person's turn: the filter that reads 'My turn'. */
 export const turnAgents = (cards: readonly Card[]): Set<string> => new Set(cards.flatMap((c) => (c.agent ? [c.agent] : [])));
 
+/** The open tasks given to the person that no unread item already stands for; a task leaves when it is done, discarded or handed on. */
+function taskCards(
+  tasks: readonly Task[],
+  shown: ReadonlySet<number>,
+  me: string,
+  when: (task: number | null) => Pick<Card, 'priority' | 'due'>,
+): Card[] {
+  return tasks
+    .filter((t) => !CLOSED.includes(t.state) && isPerson(t.to, me) && !shown.has(t.id))
+    .map((t) => ({
+      key: `task:${t.id}`,
+      kind: 'task',
+      title: t.title,
+      detail: '',
+      agent: null,
+      from: t.from && !isPerson(t.from, me) ? t.from : null,
+      task: t.id,
+      review: !!t.tags?.includes(REVIEW_TAG),
+      ...when(t.id),
+      since: at(t.created),
+      primary: 1,
+      actions: [
+        { type: 'open', to: `#/tasks/${t.id}` },
+        { type: 'done_task', task: t.id },
+      ],
+    }));
+}
+
 /** The cards, most urgent first: task priority, then the earliest deadline (none last), then the one waiting longest. */
 export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
   const byTask = new Map(tasks.map((t) => [t.id, t]));
@@ -188,28 +216,7 @@ export function myTurn({ items, agents, tasks, me = '' }: MyTurnInput): Card[] {
     });
   }
 
-  // A task given to the person that no unread item already stands for; it leaves when it is done, discarded or handed on.
-  const shown = new Set(cards.flatMap((c) => (c.task == null ? [] : [c.task])));
-  for (const t of tasks) {
-    if (CLOSED.includes(t.state) || !isPerson(t.to, me) || shown.has(t.id)) continue;
-    cards.push({
-      key: `task:${t.id}`,
-      kind: 'task',
-      title: t.title,
-      detail: '',
-      agent: null,
-      from: other(t.from),
-      task: t.id,
-      review: !!t.tags?.includes(REVIEW_TAG),
-      ...when(t.id),
-      since: at(t.created),
-      primary: 1,
-      actions: [
-        { type: 'open', to: `#/tasks/${t.id}` },
-        { type: 'done_task', task: t.id },
-      ],
-    });
-  }
+  cards.push(...taskCards(tasks, new Set(cards.flatMap((c) => (c.task == null ? [] : [c.task]))), me, when));
 
   return cards.sort(
     (x, y) =>
