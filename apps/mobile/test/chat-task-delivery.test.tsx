@@ -17,7 +17,7 @@ describe('chat task delivery on the phone', () => {
     await press($(`agent-${ARCH}`));
     await pickTab('chat');
     await until(() => text().includes('Founder decisions one at a time'), 'the message');
-    expect(text()).toContain(`Task T91 handed to ${ARCH}`);
+    expect(text()).toContain(`Task T91 handed to ${ARCH}`); // local-ref-ok
     expect(text()).not.toContain(`human → ${ARCH}`);
     m.store.stop();
   });

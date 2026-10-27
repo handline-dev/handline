@@ -28,7 +28,7 @@ describe('chat task delivery', () => {
     await act(async () => root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />));
     const find = () => [...box.querySelectorAll<HTMLElement>('.msg')].find((m) => m.textContent?.includes(BODY));
     for (let t = 0; t < 3000 && !find(); t += 10) await act(async () => void (await new Promise((r) => setTimeout(r, 10))));
-    expect(find()?.textContent).toContain(`Task T91 handed to ${ARCH}`);
+    expect(find()?.textContent).toContain(`Task T91 handed to ${ARCH}`); // local-ref-ok
     expect(find()?.textContent).not.toContain('human');
   });
 });
