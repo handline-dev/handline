@@ -198,7 +198,14 @@ function SpareCard(props: { n: SpareNotice; onTask: (id: number) => void }) {
           />
         ) : null}
       </View>
-      <Button testID="spare-close" icon="close" label="" accessibilityLabel="Close this notice" onPress={() => reply('dismiss')} />
+      <Button
+        testID="spare-close"
+        icon="close"
+        label=""
+        accessibilityLabel="Close this notice"
+        onPress={() => reply('dismiss')}
+        style={{ alignSelf: 'flex-start' }}
+      />
     </View>
   );
 }
