@@ -48,6 +48,29 @@ func lowMemory() string {
 	return ""
 }
 
+// freeDisk is the free and total bytes of the volume holding path; a test stubs it.
+var freeDisk = sysres.StatfsFree
+
+const gb = int64(1) << 30
+
+// lowDisk is why a free slot is not taken now, "" when the home's volume has at least disk_free_min_gb free (0 is off) or cannot be read:
+// a run is never held on a reading it did not get.
+func lowDisk() string {
+	limit := loadgate.LimitsOf(usage.LoadConfig(paths.Home())).DiskFreeGB
+	if limit <= 0 {
+		return ""
+	}
+	free, _, err := freeDisk(paths.Home())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "heavyslot: free disk not read: %v\n", err)
+		return ""
+	}
+	if free < int64(limit)*gb {
+		return fmt.Sprintf("free disk %d GB under %d GB", free/gb, limit)
+	}
+	return ""
+}
+
 func main() {
 	args := os.Args[1:]
 	if len(args) > 0 && args[0] == "--" {
@@ -86,10 +109,12 @@ func acquire() (*os.File, int, error) {
 	for {
 		ahead := ticket.ahead()
 		var held, said []string
-		// Only the first in line looks at memory; it keeps its place while it waits for it.
+		// Only the first in line looks at memory and disk; it keeps its place while it waits for them.
 		low := ""
 		if ahead == 0 {
-			low = lowMemory()
+			if low = lowMemory(); low == "" {
+				low = lowDisk()
+			}
 		}
 		for n := 1; low == "" && n <= heavyslots.Slots(); n++ {
 			f, err := os.OpenFile(filepath.Join(d, fmt.Sprintf("slot-%d.lock", n)), os.O_RDWR|os.O_CREATE, 0o644)

@@ -10,11 +10,11 @@ import (
 )
 
 func TestLimitsDefaultAndAreSetByConfig(t *testing.T) {
-	if got := LimitsOf(usage.Config{}); got != (Limits{Agents: 0, LoadPct: 150, RAMFreePct: 10, Simulator: 1}) {
+	if got := LimitsOf(usage.Config{}); got != (Limits{Agents: 0, LoadPct: 150, RAMFreePct: 10, DiskFreeGB: 5, Simulator: 1}) {
 		t.Fatalf("defaults: %+v", got)
 	}
 	cfg := usage.Config{AgentCapKey: int64(4), LoadPctKey: 0, RAMFreePctKey: "x", SimulatorKey: 0}
-	if got := LimitsOf(cfg); got != (Limits{Agents: 4, LoadPct: 0, RAMFreePct: 10}) {
+	if got := LimitsOf(cfg); got != (Limits{Agents: 4, LoadPct: 0, RAMFreePct: 10, DiskFreeGB: 5}) {
 		t.Fatalf("set: %+v", got)
 	}
 }
