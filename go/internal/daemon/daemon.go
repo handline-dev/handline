@@ -376,26 +376,7 @@ func (d *Daemon) hrEnv() *hrwrites.Env {
 
 // askFounder opens a task for the founder, as hr.decide's retire needs to put them a question; it answers the task's number.
 func (d *Daemon) askFounder(title, body string, tags ...string) (int64, error) {
-	tx, err := d.db.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-	tid, asked, err := taskwrites.OpenTask(tx, d.teller(), dbpkg.Human, taskwrites.NewIn{Owner: dbpkg.Human, Title: title, Body: body, Tags: tags,
-		Prio: dbpkg.DefaultPriority, Expects: "decision"})
-	if err != nil {
-		return 0, err
-	}
-	if !asked.OK {
-		return 0, fmt.Errorf("the founder's task was refused: %s", asked.Msg)
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	if asked.After != nil {
-		asked.After()
-	}
-	return tid, nil
+	return taskwrites.AskFounder(d.db, d.teller(), title, body, tags...)
 }
 
 // legacy answers a legacy `{verb}` request that Python's hl still sends. nil is a verb it does not serve.
