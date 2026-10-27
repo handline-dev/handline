@@ -16,7 +16,7 @@ LISTING = "\n".join([
 ])
 SHOWS = {
     10: "T10  Audit PR 7\nstate done\ndone 2026-10-27 00:24: PASS #7 @abc1234de (diff read)\n",
-    11: "T11  UX PR 7\nstate done\ndone 2026-10-27 00:25: PASS live check on the phone @abc1234def\n",
+    11: "T11  UX PR 7\nstate done\ndone 2026-10-27 00:25: PASS live @abc1234def on the phone\n",
 }
 
 
@@ -69,10 +69,42 @@ class Refuses(unittest.TestCase):
         self.one(got, "not the head abc123")
 
     def test_findings_are_not_a_pass(self):
-        self.one(check(shows={**SHOWS, 10: "done 2026-10-27 00:24: FINDINGS #7 @abc1234de"}), "does not start with PASS")
+        self.one(check(shows={**SHOWS, 10: "done 2026-10-27 00:24: FINDINGS #7 @abc1234de"}), "first verdict word is not PASS")
 
     def test_evidence_without_a_sha(self):
         self.one(check(shows={**SHOWS, 10: "done 2026-10-27 00:24: PASS (re-audit)"}), "names no head sha")
+
+    def test_only_the_first_sha_counts(self):
+        self.one(check(shows={**SHOWS, 10: "done 2026-10-27 00:24: PASS #7 @0000000aa (earlier @abc1234de)"}), "not the head")
+
+    def test_the_auditors_other_form_is_read_by_its_first_verdict_word(self):
+        self.assertEqual(check(shows={**SHOWS, 10: "done 2026-10-27 00:24: PR #7 @abc1234de PASS (diff read)"}), [])
+        self.one(check(shows={**SHOWS, 10: "done 2026-10-27 00:24: PR #7 @abc1234de FAIL, but PASS on the second item"}), "not PASS")
+
+    def test_a_re_audit_counts_and_the_highest_numbered_decides(self):
+        listing = LISTING + "\nT15 Re-audit PR 7 (T1)  [handline.auditor] done  DONE: x"
+        self.one(check(listing=listing, shows={**SHOWS, 15: "done 2026-10-27 02:00: PASS @1111111"}), "T15")
+        self.assertEqual(check(listing=listing, shows={**SHOWS, 15: "done 2026-10-27 02:00: PASS @abc1234"}), [])
+
+    def test_a_title_names_the_pr_of_its_first_number_only(self):
+        listing = "T16 Audit PR 8 (follows PR 7)  [handline.auditor] done  DONE: x"
+        self.one(check(listing=listing), "no audit task for PR 7")
+
+    def test_branch_protection_with_no_required_checks(self):
+        self.assertEqual(len(merge_ready.problems(pr(), [], LISTING, lambda t: SHOWS[t])), 1)
+
+    def test_a_hundred_files_cannot_be_told_apart(self):
+        self.one(check(pr(files=[{"path": f"go/f{i}.go"} for i in range(100)])), "100 or more files")
+
+    def test_the_newest_run_of_a_check_name_decides(self):
+        old_red = {"name": "go", "status": "COMPLETED", "conclusion": "FAILURE", "completedAt": "2026-10-27T01:00:00Z"}
+        new_green = {"name": "go", "status": "COMPLETED", "conclusion": "SUCCESS", "completedAt": "2026-10-27T02:00:00Z"}
+        self.assertEqual(check(pr(statusCheckRollup=[old_red, new_green, GREEN[1]])), [])
+        self.assertEqual(check(pr(statusCheckRollup=[new_green, old_red, GREEN[1]])), [])
+        new_red = {**old_red, "completedAt": "2026-10-27T03:00:00Z"}
+        self.one(check(pr(statusCheckRollup=[new_green, new_red, GREEN[1]])), "required check go is failure")
+        rerun = {"name": "go", "status": "IN_PROGRESS", "conclusion": ""}
+        self.one(check(pr(statusCheckRollup=[new_green, rerun, GREEN[1]])), "still running")
 
     def test_the_newest_audit_decides(self):
         listing = "T10 Audit PR 7  [a] done  DONE: x\nT14 Audit PR 7 re-audit  [a] done  DONE: x"
@@ -81,7 +113,8 @@ class Refuses(unittest.TestCase):
     def test_no_ux_pass_for_a_ui_pr(self):
         ui = pr(files=[{"path": "apps/mobile/src/B.tsx"}])
         self.one(check(ui, listing=LISTING.replace("T11 UX", "T11 Other")), "no ux task")
-        self.one(check(ui, shows={**SHOWS, 11: "done 2026-10-27 00:25: PASS on the diff @abc1234de"}), "not say it was checked live")
+        self.one(check(ui, shows={**SHOWS, 11: "done 2026-10-27 00:25: PASS on the diff @abc1234de"}), 'does not start with "PASS live @<sha>"')
+        self.one(check(ui, shows={**SHOWS, 11: "done 2026-10-27 00:25: PASS checked live @abc1234de"}), 'does not start with "PASS live @<sha>"')
         self.one(check(ui, shows={**SHOWS, 11: "done 2026-10-27 00:25: PASS live @9999999"}), "not the head")
 
     def test_a_ui_change_in_a_package(self):

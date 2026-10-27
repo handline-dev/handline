@@ -1,8 +1,10 @@
 """Merges a pull request only when it is ready: tools/merge-ready.sh PR runs this.
 
 Refuses unless: the PR is open, on main, not a draft; every check main requires is green on its head; GitHub finds no conflict; the PR's audit
-task (the highest-numbered task titled "Audit PR <n> ...") is done with evidence "PASS ... @<sha>" for the head sha; and for a PR that touches
-an app (apps/, packages/app-*, packages/tokens) its ux task (title with "ux" and "PR <n>") is done with "PASS ... live ... @<sha>".
+task (the highest-numbered task titled "Audit PR <n> ..." or "Re-audit PR <n> ...", by the first PR number in the title) is done and its first
+verdict word is PASS with the head as its first @<sha>; and for a PR that touches an app (apps/, packages/app-*, packages/tokens) its ux task
+(title with "ux" and "PR <n>") is done with evidence starting "PASS live @<sha>" for the head. A PR of 100 or more files, and branch
+protection with no required checks, are refused.
 Otherwise runs `gh pr merge --merge` and says what it did. It reads through gh and hl and has no way to be told to skip a check.
 """
 import json
@@ -21,14 +23,19 @@ def run(*cmd: str) -> str:
     return r.stdout
 
 
+def first_pr(title: str) -> int:
+    m = re.search(r"PR\s*#?(\d+)", title, re.I)
+    return int(m.group(1)) if m else 0
+
+
 def tasks_for(listing: str, pr: int, kind: str) -> list[tuple[int, str, str]]:
-    """The (id, title, state) of the tasks in an `hl task list` listing that are the PR's audit ('audit') or ux ('ux') task, by id."""
-    n = rf"PR\s*#?{pr}(?!\d)"
-    title = {"audit": re.compile(rf"^audit\b.*{n}", re.I), "ux": re.compile(rf"(\bux\b.*{n}|{n}.*\bux\b)", re.I)}[kind]
+    """The (id, title, state) of the tasks in an `hl task list` listing that are the PR's audit ('audit', also 'Re-audit') or ux ('ux') task,
+    by id. A title names the PR of its first 'PR <n>' only."""
+    title = {"audit": re.compile(r"^(re-?)?audit\b", re.I), "ux": re.compile(r"\bux\b", re.I)}[kind]
     out = []
     for line in listing.splitlines():
         m = TASK_LINE.match(line)
-        if m and title.search(m.group(2)):
+        if m and title.search(m.group(2)) and first_pr(m.group(2)) == pr:
             out.append((int(m.group(1)), m.group(2), m.group(3)))
     return sorted(out)
 
@@ -38,18 +45,44 @@ def evidence_of(show: str) -> str:
     return m.group(1).strip() if m else ""
 
 
-def verdict(evidence: str, head: str, live: bool) -> str:
-    """'' when the evidence is a PASS for head (and says it was live, if asked), else why not."""
-    if not re.match(r"PASS\b", evidence):
-        return "its evidence does not start with PASS"
-    shas = re.findall(r"@([0-9a-f]{7,40})\b", evidence, re.I)
-    if not shas:
+def first_sha_is(evidence: str, head: str) -> str:
+    """'' when the first @<sha> in the evidence is the head, else why not."""
+    m = re.search(r"@([0-9a-f]{7,40})\b", evidence, re.I)
+    if not m:
         return "its evidence names no head sha (@<sha>)"
-    if not any(head.lower().startswith(s.lower()) for s in shas):
-        return f"its evidence is for {shas[0]}, not the head {head[:9]}"
-    if live and not re.search(r"\blive\b", evidence, re.I):
-        return "its evidence does not say it was checked live"
+    if not head.lower().startswith(m.group(1).lower()):
+        return f"its evidence is for {m.group(1)}, not the head {head[:9]}"
     return ""
+
+
+VERDICT = re.compile(r"\b(PASS|FAIL|FAILED|FINDINGS?|BLOCKED)\b")
+
+
+def verdict(evidence: str, head: str, live: bool) -> str:
+    """'' when the evidence is a PASS for head, else why not. An audit's first verdict word must be PASS, wherever it stands ("PASS #7 @sha",
+    "PR #7 @sha PASS"). A ux pass is exactly "PASS live @<sha>" at the start."""
+    if live:
+        m = re.match(r"PASS live @([0-9a-f]{7,40})\b", evidence, re.I)
+        if not m:
+            return 'its evidence does not start with "PASS live @<sha>"'
+        return first_sha_is(evidence, head)
+    w = VERDICT.search(evidence)
+    if not w or w.group(1) != "PASS":
+        return "its first verdict word is not PASS"
+    return first_sha_is(evidence, head)
+
+
+def newest_checks(rollup: list[dict]) -> dict[str, dict]:
+    """The rollup by check name, the newest run of a name that ran more than once (one still running counts as the newest)."""
+    out: dict[str, dict] = {}
+    for c in rollup:
+        name = c.get("name") or c.get("context")
+        if "conclusion" not in c and "state" in c:  # a commit status, not a check run
+            c = {**c, "status": "COMPLETED", "conclusion": c["state"]}
+        at = c.get("completedAt") or "9999" if c.get("status") != "COMPLETED" else c.get("completedAt") or ""
+        if name not in out or at >= out[name]["_at"]:
+            out[name] = {**c, "_at": at}
+    return out
 
 
 def problems(pr: dict, required: list[str], listing: str, show) -> list[str]:
@@ -62,7 +95,11 @@ def problems(pr: dict, required: list[str], listing: str, show) -> list[str]:
         out.append(f"PR {n} is based on {pr['baseRefName']}, not main")
     if pr["isDraft"]:
         out.append(f"PR {n} is a draft")
-    seen = {c.get("name"): c for c in pr["statusCheckRollup"]}
+    if not required:
+        out.append("branch protection lists no required checks, so nothing says the PR is green")
+    if len(pr["files"]) >= 100:
+        out.append("the PR lists 100 or more files, so whether it touches an app cannot be told")
+    seen = newest_checks(pr["statusCheckRollup"])
     for name in required:
         c = seen.get(name)
         if c is None:
