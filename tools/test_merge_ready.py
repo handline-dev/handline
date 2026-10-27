@@ -11,13 +11,14 @@ REQUIRED = ["go", "apps"]
 GREEN = [{"name": n, "status": "COMPLETED", "conclusion": "SUCCESS"} for n in REQUIRED]
 LISTING = "\n".join([
     "T10 Audit PR 7 (T1)  [handline.auditor] done  DONE: PASS #7 @abc1234de",
-    "T11 UX PR 7 (T1)  [handline.ux] done  DONE: PASS live @abc1234de",
+    "T11 Live check PR #7 web row  [handline.ux] done  DONE: UX live PASS on #7 @abc1234de",
     "T12 Audit PR 70 (T2)  [handline.auditor] doing",
 ])
 SHOWS = {
     10: "T10  Audit PR 7\nstate done\ndone 2026-10-27 00:24: PASS #7 @abc1234de (diff read)\n",
-    11: "T11  UX PR 7\nstate done\ndone 2026-10-27 00:25: PASS live @abc1234def on the phone\n",
+    11: "T11  Live check PR #7\nstate done\ndone 2026-10-27 00:25: UX live PASS on #7 @abc1234def: no wrap\n",
 }
+UI = [{"path": "apps/web/src/A.tsx"}]
 
 
 def pr(**kw) -> dict:
@@ -30,12 +31,26 @@ def check(p=None, listing=LISTING, shows=None):
     return merge_ready.problems(p or pr(), REQUIRED, listing, lambda tid: (shows or SHOWS)[tid])
 
 
+def said(text: str) -> str:
+    return f"done 2026-10-27 00:24: {text}"
+
+
 class Ready(unittest.TestCase):
     def test_a_ready_go_pr_has_no_problems(self):
         self.assertEqual(check(), [])
 
     def test_a_ready_ui_pr_needs_its_ux_pass_too(self):
-        self.assertEqual(check(pr(files=[{"path": "apps/web/src/A.tsx"}])), [])
+        self.assertEqual(check(pr(files=UI)), [])
+
+    def test_the_real_audit_forms(self):
+        for text in ["PASS #7 @abc1234de (diff read)", "PASS: PR #7 @abc1234de. Diff read", "PASS on PR #7 @abc1234de", "PR #7 @abc1234de PASS (diff read)",
+                     "@abc1234de PASS", "PASS @abc1234def5678abc1234def5678abc1234def56"]:
+            self.assertEqual(check(shows={**SHOWS, 10: said(text)}), [], text)
+
+    def test_the_real_ux_forms(self):
+        ui = pr(files=UI)
+        for text in ["UX live PASS on #7 @abc1234de: words", "Web half PASS on #7 @abc1234de (no wrap); nit: x", "UX live PASS @abc1234de"]:
+            self.assertEqual(check(ui, shows={**SHOWS, 11: said(text)}), [], text)
 
 
 class Refuses(unittest.TestCase):
@@ -65,30 +80,26 @@ class Refuses(unittest.TestCase):
         self.one(check(listing=LISTING + "\nT13 Audit PR 7 again  [handline.auditor] doing"), "T13 is doing")
 
     def test_a_stale_audit_head(self):
-        got = check(shows={**SHOWS, 10: "done 2026-10-27 00:24: PASS #7 @0000000aa"})
-        self.one(got, "not the head abc123")
-
-    def test_findings_are_not_a_pass(self):
-        self.one(check(shows={**SHOWS, 10: "done 2026-10-27 00:24: FINDINGS #7 @abc1234de"}), "first verdict word is not PASS")
-
-    def test_evidence_without_a_sha(self):
-        self.one(check(shows={**SHOWS, 10: "done 2026-10-27 00:24: PASS (re-audit)"}), "names no head sha")
+        self.one(check(shows={**SHOWS, 10: said("PASS #7 @0000000aa")}), "not the head abc123")
 
     def test_only_the_first_sha_counts(self):
-        self.one(check(shows={**SHOWS, 10: "done 2026-10-27 00:24: PASS #7 @0000000aa (earlier @abc1234de)"}), "not the head")
+        self.one(check(shows={**SHOWS, 10: said("PASS #7 @0000000aa (earlier @abc1234de)")}), "not the head")
 
-    def test_the_auditors_other_form_is_read_by_its_first_verdict_word(self):
-        self.assertEqual(check(shows={**SHOWS, 10: "done 2026-10-27 00:24: PR #7 @abc1234de PASS (diff read)"}), [])
-        self.one(check(shows={**SHOWS, 10: "done 2026-10-27 00:24: PR #7 @abc1234de FAIL, but PASS on the second item"}), "not PASS")
+    def test_what_is_not_a_pass_is_refused_wherever_the_word_PASS_stands(self):
+        for text in ["Findings, no PASS @abc1234de", "fail: PASS on web @abc1234de", "PR #7 @abc1234de: not PASS yet", "NOT PASS @abc1234de",
+                     "FINDINGS #7 @abc1234de", "FAIL #7 @abc1234de", "pass #7 @abc1234de", "PASS (re-audit)", "PASSED #7 @abc1234de"]:
+            self.one(check(shows={**SHOWS, 10: said(text)}), "does not say PASS first", )
+
+    def test_an_audit_of_another_pr(self):
+        self.one(check(shows={**SHOWS, 10: said("PASS #8 @abc1234de")}), "for PR 8, not 7")
 
     def test_a_re_audit_counts_and_the_highest_numbered_decides(self):
         listing = LISTING + "\nT15 Re-audit PR 7 (T1)  [handline.auditor] done  DONE: x"
-        self.one(check(listing=listing, shows={**SHOWS, 15: "done 2026-10-27 02:00: PASS @1111111"}), "T15")
-        self.assertEqual(check(listing=listing, shows={**SHOWS, 15: "done 2026-10-27 02:00: PASS @abc1234"}), [])
+        self.one(check(listing=listing, shows={**SHOWS, 15: said("PASS @1111111")}), "T15")
+        self.assertEqual(check(listing=listing, shows={**SHOWS, 15: said("PASS @abc1234")}), [])
 
     def test_a_title_names_the_pr_of_its_first_number_only(self):
-        listing = "T16 Audit PR 8 (follows PR 7)  [handline.auditor] done  DONE: x"
-        self.one(check(listing=listing), "no audit task for PR 7")
+        self.one(check(listing="T16 Audit PR 8 (follows PR 7)  [handline.auditor] done  DONE: x"), "no audit task for PR 7")
 
     def test_branch_protection_with_no_required_checks(self):
         self.assertEqual(len(merge_ready.problems(pr(), [], LISTING, lambda t: SHOWS[t])), 1)
@@ -106,19 +117,43 @@ class Refuses(unittest.TestCase):
         rerun = {"name": "go", "status": "IN_PROGRESS", "conclusion": ""}
         self.one(check(pr(statusCheckRollup=[new_green, rerun, GREEN[1]])), "still running")
 
-    def test_the_newest_audit_decides(self):
-        listing = "T10 Audit PR 7  [a] done  DONE: x\nT14 Audit PR 7 re-audit  [a] done  DONE: x"
-        self.one(check(listing=listing, shows={10: SHOWS[10], 14: "done 2026-10-27 01:00: PASS @1111111"}), "T14")
+    def test_no_ux_task_for_a_ui_pr(self):
+        self.one(check(pr(files=UI), listing=LISTING.replace("Live check", "Other").replace("[handline.ux]", "[handline.pc]")), "no ux task")
 
-    def test_no_ux_pass_for_a_ui_pr(self):
-        ui = pr(files=[{"path": "apps/mobile/src/B.tsx"}])
-        self.one(check(ui, listing=LISTING.replace("T11 UX", "T11 Other")), "no ux task")
-        self.one(check(ui, shows={**SHOWS, 11: "done 2026-10-27 00:25: PASS on the diff @abc1234de"}), 'does not start with "PASS live @<sha>"')
-        self.one(check(ui, shows={**SHOWS, 11: "done 2026-10-27 00:25: PASS checked live @abc1234de"}), 'does not start with "PASS live @<sha>"')
-        self.one(check(ui, shows={**SHOWS, 11: "done 2026-10-27 00:25: PASS live @9999999"}), "not the head")
+    def test_the_ux_task_is_found_by_its_assignee_or_its_title(self):
+        by_assignee = LISTING.replace("Live check PR #7 web row", "Look at PR #7")
+        self.assertEqual(check(pr(files=UI), listing=by_assignee), [])
+        by_title = LISTING.replace("[handline.ux]", "[handline.pc]").replace("Live check", "Re-check")
+        self.assertEqual(check(pr(files=UI), listing=by_title), [])
 
-    def test_a_ui_change_in_a_package(self):
-        self.one(check(pr(files=[{"path": "packages/app-ui/src/C.tsx"}]), listing=LISTING.replace("T11 UX", "T11 Other")), "no ux task")
+    def test_a_ux_fail_or_anything_but_a_ux_pass_is_refused(self):
+        ui = pr(files=UI)
+        for text in ["UX live FAIL on #7 @abc1234de: 2 numbers remain", "PASS live @abc1234de", "PASS on the diff @abc1234de",
+                     "Phone half PASS on #7 @abc1234de", "UX live PASS but not on the phone @abc1234de", "Not UX live PASS on #7 @abc1234de"]:
+            self.one(check(ui, shows={**SHOWS, 11: said(text)}), "does not start with", )
+
+    def test_a_ux_pass_for_another_pr_or_head(self):
+        ui = pr(files=UI)
+        self.one(check(ui, shows={**SHOWS, 11: said("UX live PASS on #8 @abc1234de")}), "for PR 8, not 7")
+        self.one(check(ui, shows={**SHOWS, 11: said("UX live PASS on #7 @9999999")}), "not the head")
+
+    def test_the_real_ux_texts_of_T6298_T6299_T6359(self):
+        ui = pr(number=648, headRefOid="7b4d3705f" + "0" * 31, files=UI)
+        listing = "T6298 Re-check PR #648 resource area (T6288 fixes)  [handline.ux] done  DONE: x\nT6300 Audit PR 648 (T6288)  [handline.auditor] done  DONE: x"
+        shows = {6298: said("UX live PASS on #648 @7b4d3705f: words for low memory / full load, one form '12 GB free (37%)'. Image in memo."),
+                 6300: said("PASS #648 @7b4d3705f0")}
+        self.assertEqual(merge_ready.problems(ui, REQUIRED, listing, lambda t: shows[t]), [])
+        ui = pr(number=681, headRefOid="a6a1fe196" + "0" * 31, files=UI)
+        listing = "T6299 Live check PR #681 web row fix (T6283) and the phone half  [handline.ux] done  DONE: x\nT6301 Audit PR 681  [handline.auditor] done  DONE: x"
+        shows = {6299: said("Web half PASS on #681 @a6a1fe196 (no wrap, time fixed); nit: at 280px the Restarting word pushes out the blocked count."),
+                 6301: said("PASS #681 @a6a1fe196")}
+        self.assertEqual(merge_ready.problems(ui, REQUIRED, listing, lambda t: shows[t]), [])
+        ui = pr(number=698, headRefOid="ee27722ed" + "0" * 31, files=UI)
+        listing = "T6359 Live check PR #698: My turn, one number  [handline.ux] done  DONE: x\nT6360 Audit PR 698  [handline.auditor] done  DONE: x"
+        shows = {6359: said("UX live FAIL on #698 @ee27722ed: My turn 4 is the one sidebar number, but 2 numbers remain."), 6360: said("PASS #698 @ee27722ed")}
+        got = merge_ready.problems(ui, REQUIRED, listing, lambda t: shows[t])
+        self.assertEqual(len(got), 1, got)
+        self.assertIn("T6359", got[0])
 
     def test_closed_draft_and_other_base(self):
         got = check(pr(state="MERGED", isDraft=True, baseRefName="story/x"))

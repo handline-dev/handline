@@ -1,9 +1,9 @@
 """Merges a pull request only when it is ready: tools/merge-ready.sh PR runs this.
 
 Refuses unless: the PR is open, on main, not a draft; every check main requires is green on its head; GitHub finds no conflict; the PR's audit
-task (the highest-numbered task titled "Audit PR <n> ..." or "Re-audit PR <n> ...", by the first PR number in the title) is done and its first
-verdict word is PASS with the head as its first @<sha>; and for a PR that touches an app (apps/, packages/app-*, packages/tokens) its ux task
-(title with "ux" and "PR <n>") is done with evidence starting "PASS live @<sha>" for the head. A PR of 100 or more files, and branch
+task (the highest-numbered task titled "Audit PR <n> ..." or "Re-audit PR <n> ...", by the first PR number in the title) is done with evidence
+"PASS ... @<head>" or "PR #<n> @<head> PASS"; and for a PR that touches an app (apps/, packages/app-*, packages/tokens) its ux task (assigned
+to handline.ux, or titled "Live check PR <n>" / "Re-check PR <n>") is done with evidence "UX live PASS [on #<n>] @<head>" or "Web half PASS ...". A PR of 100 or more files, and branch
 protection with no required checks, are refused.
 Otherwise runs `gh pr merge --merge` and says what it did. It reads through gh and hl and has no way to be told to skip a check.
 """
@@ -13,7 +13,7 @@ import subprocess
 import sys
 
 UI_PATH = re.compile(r"^(apps/|packages/app-|packages/tokens/)")
-TASK_LINE = re.compile(r"^T(\d+)\s+(.*?)\s+\[[^\]]*\]\s+(\w+)\b")
+TASK_LINE = re.compile(r"^T(\d+)\s+(.*?)\s+\[([^\]]*)\]\s+(\w+)\b")
 
 
 def run(*cmd: str) -> str:
@@ -29,14 +29,16 @@ def first_pr(title: str) -> int:
 
 
 def tasks_for(listing: str, pr: int, kind: str) -> list[tuple[int, str, str]]:
-    """The (id, title, state) of the tasks in an `hl task list` listing that are the PR's audit ('audit', also 'Re-audit') or ux ('ux') task,
-    by id. A title names the PR of its first 'PR <n>' only."""
-    title = {"audit": re.compile(r"^(re-?)?audit\b", re.I), "ux": re.compile(r"\bux\b", re.I)}[kind]
+    """The (id, title, state) of the tasks in an `hl task list` listing that are the PR's audit ('audit': titled Audit or Re-audit) or ux ('ux':
+    assigned to handline.ux, or titled Live check or Re-check) task, by id. A title names the PR of its first 'PR <n>' only."""
+    title = {"audit": re.compile(r"^(re-?)?audit\b", re.I), "ux": re.compile(r"^(live check|re-?check)\b", re.I)}[kind]
     out = []
     for line in listing.splitlines():
         m = TASK_LINE.match(line)
-        if m and title.search(m.group(2)) and first_pr(m.group(2)) == pr:
-            out.append((int(m.group(1)), m.group(2), m.group(3)))
+        if not m or first_pr(m.group(2)) != pr:
+            continue
+        if title.search(m.group(2)) or (kind == "ux" and m.group(3) == "handline.ux"):
+            out.append((int(m.group(1)), m.group(2), m.group(4)))
     return sorted(out)
 
 
@@ -45,31 +47,31 @@ def evidence_of(show: str) -> str:
     return m.group(1).strip() if m else ""
 
 
-def first_sha_is(evidence: str, head: str) -> str:
-    """'' when the first @<sha> in the evidence is the head, else why not."""
-    m = re.search(r"@([0-9a-f]{7,40})\b", evidence, re.I)
-    if not m:
-        return "its evidence names no head sha (@<sha>)"
-    if not head.lower().startswith(m.group(1).lower()):
-        return f"its evidence is for {m.group(1)}, not the head {head[:9]}"
-    return ""
+SHA = r"@([0-9a-f]{7,40})\b"
+# An audit's evidence says PASS first and the head right after ("PASS #7 @sha", "PASS: PR #7 @sha"), or PR and head first and PASS right after
+# ("PR #7 @sha PASS"). Nothing else may stand before the verdict, so "Findings, no PASS @sha" and "NOT PASS @sha" are not a pass.
+AUDIT_PASS = [re.compile(rf"PASS\b[:,]?\s*(?:on\s+)?(?:PR\s*)?(?:#(\d+)\s*)?{SHA}"), re.compile(rf"(?:PR\s*#?(\d+)\s+)?{SHA}\s+PASS\b")]
+# A ux pass is "UX live PASS" or "Web half PASS", optionally "on #<n>" (the PR), then the head.
+UX_PASS = re.compile(rf"(?:UX live|Web half) PASS(?:\s+on\s+(?:PR\s*)?#(\d+))?\s+{SHA}")
 
 
-VERDICT = re.compile(r"\b(PASS|FAIL|FAILED|FINDINGS?|BLOCKED)\b")
-
-
-def verdict(evidence: str, head: str, live: bool) -> str:
-    """'' when the evidence is a PASS for head, else why not. An audit's first verdict word must be PASS, wherever it stands ("PASS #7 @sha",
-    "PR #7 @sha PASS"). A ux pass is exactly "PASS live @<sha>" at the start."""
+def verdict(evidence: str, head: str, pr: int, live: bool) -> str:
+    """'' when the evidence is a PASS for head (and for PR pr, if it names one), else why not."""
     if live:
-        m = re.match(r"PASS live @([0-9a-f]{7,40})\b", evidence, re.I)
-        if not m:
-            return 'its evidence does not start with "PASS live @<sha>"'
-        return first_sha_is(evidence, head)
-    w = VERDICT.search(evidence)
-    if not w or w.group(1) != "PASS":
-        return "its first verdict word is not PASS"
-    return first_sha_is(evidence, head)
+        m = UX_PASS.match(evidence)
+        form = 'its evidence does not start with "UX live PASS ... @<sha>"'
+        n, sha = (m.group(1), m.group(2)) if m else (None, None)
+    else:
+        form = "its evidence does not say PASS first with the head right after, or PR and head first and then PASS"
+        m = next((x for x in (r.match(evidence) for r in AUDIT_PASS) if x), None)
+        n, sha = (m.group(1), m.group(2)) if m else (None, None)
+    if not m:
+        return form
+    if n is not None and int(n) != pr:
+        return f"its evidence is for PR {n}, not {pr}"
+    if not head.lower().startswith(sha.lower()):
+        return f"its evidence is for {sha}, not the head {head[:9]}"
+    return ""
 
 
 def newest_checks(rollup: list[dict]) -> dict[str, dict]:
@@ -124,7 +126,7 @@ def problems(pr: dict, required: list[str], listing: str, show) -> list[str]:
         if state != "done":
             out.append(f"the {kind} task T{tid} is {state}, not done")
             continue
-        why = verdict(evidence_of(show(tid)), head, live)
+        why = verdict(evidence_of(show(tid)), head, n, live)
         if why:
             out.append(f"the {kind} task T{tid}: {why}")
     return out
