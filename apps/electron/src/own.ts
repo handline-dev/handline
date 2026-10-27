@@ -6,6 +6,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Tray } from 'electron';
+import { clockTime } from '@handline/app-core';
 import { webSocketTransport } from '@handline/client';
 import { pinnedWebSocketTransport, unixSocketTransport } from '@handline/client-node';
 import { CHANNELS, fromWindow } from '#src/bridge.ts';
@@ -53,7 +54,7 @@ const makePhone = async (pairing: PairDeps): Promise<{ win: BrowserWindow; expir
   const minutes = Math.max(1, Math.round((Date.parse(l.expiresAt) - Date.now()) / 60_000));
   const w = new BrowserWindow({ width: 340, height: 500, resizable: false, title: 'Pair a phone', webPreferences: { sandbox: true } });
   w.setMenuBarVisibility(false);
-  const until = new Date(l.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const until = clockTime(l.expiresAt);
   // The link never enters the page: the button navigates to COPY_URL and the app puts the link on the clipboard.
   w.webContents.on('will-navigate', (e, url) => {
     e.preventDefault();

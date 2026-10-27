@@ -227,7 +227,7 @@ export function MyTurnPage() {
         </div>
       ) : (
         <div className="empty">
-          <strong>Nothing waits on you</strong>
+          <strong>Nothing needs you</strong>
           <p>Messages for you and tasks given to you show here.</p>
         </div>
       )}

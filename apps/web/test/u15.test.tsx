@@ -30,7 +30,7 @@ const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null) => el?.textContent ?? '';
 // A dot sits on the Settings button of the sidebar; its title carries the count.
-const teamRow = () => $('.rail-foot .rail-hr')?.getAttribute('title')?.match(/^\d+/)?.[0] ?? '';
+const teamRow = () => $('.rail-foot .rail-hr')?.getAttribute('title')?.match(/\d+/)?.[0] ?? '';
 const card = (id: number) => $(`[data-proposal="${id}"]`)!;
 const btn = (within: Element, label: string) => [...within.querySelectorAll('button')].find((b) => text(b).trim().startsWith(label))!;
 const hrOf = (s: ReturnType<typeof setup>) => (s.daemon as unknown as { script: { hr: FakeHr } }).script.hr;
@@ -110,7 +110,7 @@ describe('U15 HR', () => {
     await until(() => $('[data-done="5"]'), 'the done rows');
     for (const id of [3, 4, 5]) await click($(`[data-done="${id}"] button`)!);
     await until(() => $$('.hr-card').length === 5, 'five cards');
-    expect(text(card(1))).toContain('waiting for you');
+    expect(text(card(1))).toContain('needs you');
     expect(card(1).querySelector('.hr-state svg[data-icon="needs"]')).not.toBeNull(); // a shape, not only the word's colour
     expect(card(2).querySelector('.hr-state svg[data-icon="blocked"]')).not.toBeNull();
     expect(card(3).querySelector('.hr-state svg[data-icon="dismissed"]')).not.toBeNull(); // rejected has a shape of its own

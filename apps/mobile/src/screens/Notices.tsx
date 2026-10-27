@@ -1,7 +1,7 @@
 // The notices (docs: T5591 N3): the bell in the title bar with the unread count, the short results under it, and the list behind the bell.
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { SPARE_SHOWN, spareNotice, type Notice, type SpareNotice, type Store } from '@handline/app-core';
+import { clockTime, SPARE_SHOWN, spareNotice, type Notice, type SpareNotice, type Store } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
 import { useTasks, useWrite } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
@@ -102,9 +102,7 @@ function NoticeRow(props: { n: Notice; fresh: boolean; onTask: (id: number) => v
           </Text>
         ) : null}
       </View>
-      <Text style={{ color: c.muted, fontSize: font.size.label }}>
-        {new Date(n.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-      </Text>
+      <Text style={{ color: c.muted, fontSize: font.size.label }}>{clockTime(new Date(n.at).toISOString())}</Text>
     </>
   );
   const style = {
