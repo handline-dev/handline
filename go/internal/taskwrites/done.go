@@ -18,7 +18,7 @@ import (
 
 var shaLike = regexp.MustCompile(`^[0-9a-fA-F]{4,40}$`)
 
-// doneMethod is task.done (actions.mark_task_done): the owner's or the founder's call, with exactly one of a merge sha on main, a
+// doneMethod is task.done (actions.mark_task_done): the assignee's, the owner's (who it answers to, the opener unless named) or the founder's call, with exactly one of a merge sha on main, a
 // request already answered, or a one-line fact. Done closes the task: a review is the task handed to its reviewer before the done.
 func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
@@ -166,7 +166,7 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 			return nil, err
 		}
 		for _, r := range reqs {
-			if r.State == "queued" && (by == t.Owner || by == human) {
+			if r.State == "queued" && (by == t.Owner || by == t.reporter() || by == human) {
 				notes, forget, err := endTask(tx, home, tid, by, t, doneText(tid, by, t.DoneEvidence.String), delivery.Failed(t.DoneEvidence.String), nil)
 				if err != nil {
 					return nil, err
@@ -177,8 +177,8 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		}
 		return nil, refusal(fmt.Sprintf("task T%d is already done (%s)", tid, t.DoneEvidence.String))
 	}
-	if by != t.Owner && by != human {
-		return nil, refusal(fmt.Sprintf("task T%d can only be marked done by its owner (%s) or the founder", tid, t.Owner))
+	if by != t.Owner && by != t.reporter() && by != human {
+		return nil, refusal(fmt.Sprintf("task T%d can only be marked done by its assignee (%s), owner (%s) or the founder", tid, t.Owner, t.reporter()))
 	}
 	var mark, via string
 	switch {
