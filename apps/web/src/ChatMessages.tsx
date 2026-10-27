@@ -331,7 +331,7 @@ function SessionCard({ i }: { i: TranscriptItem }) {
     <div className="card-session group flex items-center gap-3 text-meta text-muted" data-kind="session">
       <hr className="m-0 h-px flex-1 border-0 bg-line" />
       <span>
-        New session<span className="card-time hidden group-hover:inline"> at {clockTime(i.at)}</span>
+        New session<span className="card-time hidden group-hover:inline group-focus-within:inline"> at {clockTime(i.at)}</span>
         {cause ? `: ${cause}` : ''}
       </span>
       {handoff ? (
@@ -393,7 +393,7 @@ export function Item({
     const name = p?.kind === 'permission' ? 'permission' : 'prompt';
     const what = p?.kind === 'permission' ? `Asked permission: ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`;
     return (
-      <Card variant="chat" className="card-prompt" data-kind="prompt" data-open={i.open ? '' : undefined}>
+      <Card variant="chat" className="card-prompt group w-fit max-w-full" data-kind="prompt" data-open={i.open ? '' : undefined}>
         <Icon name={name} label={what} />
         <CardWhat>
           {p?.kind === 'permission' ? <span className="mono">{p.tool}</span> : <span className="muted">{p?.kind}</span>}
@@ -402,7 +402,7 @@ export function Item({
         <span className="card-state" title={i.open ? 'Needs you' : 'Answered'}>
           <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Needs you' : 'Answered'} />
         </span>
-        <span className="muted card-time">{clockTime(i.at)}</span>
+        <span className="muted card-time hidden group-hover:inline group-focus-within:inline">{clockTime(i.at)}</span>
       </Card>
     );
   }

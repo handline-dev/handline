@@ -74,7 +74,7 @@ function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
   );
 }
 
-const CHAT = 'chat relative flex min-h-0 min-w-0 flex-col border-r border-line [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[56rem]';
+const CHAT = 'chat relative flex min-h-0 min-w-0 flex-col border-r border-line [&>*]:mx-auto [&>*]:w-full [&>*]:max-w-[48rem]';
 
 /** The count of messages that came while the person reads up; a click takes them down. */
 function NewerPill({ count, onClick }: { count: number; onClick: () => void }) {
