@@ -658,7 +658,31 @@ func TestAMemoNoticeToTheNewOwnerDoesNotCountAsTheTaskDelivered(t *testing.T) {
 	}
 }
 
-// A founder's memo keeps which request told each reader, held for a digest or typed at once, so the memo can show who has read it.
+// The founder's comment on a task they hold is an answer someone waits for: it is typed at once to the task's owner and its assignee, not held
+// for a digest as an agent's memo is (T6340, T6370).
+func TestTheFoundersMemoReachesTheTaskOwnerAtOnceWhileAnAgentsMemoDigests(t *testing.T) {
+	r := newRig(t)
+	r.agentUp("bob")
+	r.agentUp("alice")
+	tid := r.newTask(db.Human, "bob", "decide") // assigned to the founder, answered to bob
+	r.must(r.TellMemo(r.DB, tid, db.Human, "added", "go with the first", "", false))
+	if got := r.saysTo("bob"); len(got) != 1 || got[0] != "T1 memo added by human: go with the first" {
+		t.Fatalf("the founder's memo did not reach its owner: %v", got)
+	}
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(left) != 0 {
+		t.Fatalf("it also waits in the digest: %v", left)
+	}
+	typed := len(r.term.typed)
+	r.must(r.TellMemo(r.DB, tid, "alice", "added", "fyi", "", false))
+	if len(r.term.typed) != typed {
+		t.Fatalf("an agent's memo was typed at once: %q", r.term.typed)
+	}
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(left) != 1 {
+		t.Fatalf("an agent's memo no longer digests: %v", left)
+	}
+}
+
+// A memo keeps which request told each reader, held for a digest or typed at once, so the memo can show who has read it.
 func TestAMemoKeepsTheTellItSentToEachReader(t *testing.T) {
 	r := newRig(t)
 	r.register("carol")
@@ -666,8 +690,8 @@ func TestAMemoKeepsTheTellItSentToEachReader(t *testing.T) {
 	r.agentUp("bob")
 	tid := r.newTask("bob", "carol", "job")
 	r.AdvanceCurrentTask(r.DB, "bob")
-	r.must(r.TellMemoOf(r.DB, tid, 7, db.Human, "added", "plain", "", false))
-	r.must(r.TellMemoOf(r.DB, tid, 8, db.Human, "added", "@bob look", "", false))
+	r.must(r.TellMemoOf(r.DB, tid, 7, "dave", "added", "plain", "", false))
+	r.must(r.TellMemoOf(r.DB, tid, 8, "dave", "added", "@bob look", "", false))
 	count := func(mid int64) int {
 		var n int
 		r.must(r.DB.QueryRow("SELECT COUNT(*) FROM memo_tells WHERE memo_id = ?", mid).Scan(&n))
@@ -686,7 +710,7 @@ func TestAMemoKeepsTheTellItSentToEachReader(t *testing.T) {
 	if !sent.Valid || digests != 1 {
 		t.Fatalf("send now writes a digest of the held tell and marks it sent: %v %d", sent, digests)
 	}
-	r.must(r.TellMemoOf(r.DB, tid, 0, db.Human, "added", "unlinked", "", false))
+	r.must(r.TellMemoOf(r.DB, tid, 0, "dave", "added", "unlinked", "", false))
 	var n int
 	r.must(r.DB.QueryRow("SELECT COUNT(*) FROM memo_tells WHERE memo_id = 0").Scan(&n))
 	if n != 0 {
