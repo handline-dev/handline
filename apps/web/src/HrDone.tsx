@@ -1,6 +1,6 @@
 // A decided HR proposal as one line, opening to its card.
 import { useState, type ReactNode } from 'react';
-import { kindOf, stateWord, textSafe } from '@handline/app-core';
+import { dateTime, kindOf, stateWord, textSafe } from '@handline/app-core';
 import type { Proposal } from '@handline/client';
 import { Button, Icon, SectionHead, type IconName } from '#src/ui/index.ts';
 import { Reveal } from '#src/ui/Reveal.tsx';
@@ -23,7 +23,7 @@ export function DoneRow({ p, open, onToggle, children }: { p: Proposal; open: bo
         {kindOf(p) ? <span className="hr-kind rounded-chip border border-line px-1.5 text-label text-ink-2">{kindOf(p)}</span> : null}
         <span className="min-w-0 flex-1 truncate">{textSafe(p.title)}</span>
         <span className="muted truncate">{textSafe(p.agent)}</span>
-        <span className="muted tabular-nums">{new Date(p.settled ?? p.created).toLocaleDateString()}</span>
+        <span className="muted tabular-nums">{dateTime(p.settled ?? p.created)}</span>
       </button>
       <Reveal show={open}>
         <div className="pt-2">{children}</div>

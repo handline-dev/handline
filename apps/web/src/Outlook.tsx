@@ -2,7 +2,7 @@
 // a table of each agent's cost and share under it and a click on an agent to draw that one alone. A series has a shape (a dash, a pattern and a
 // letter), not only a hue. The numbers are always in a table behind a toggle, so the picture is never the only way to read them.
 import { useState } from 'react';
-import { costByAgent, guessLine } from '@handline/app-core';
+import { costByAgent, dateTime, guessLine } from '@handline/app-core';
 import type { Outlook } from '@handline/client';
 import { useOutlook } from '@handline/app-data';
 import {
@@ -194,7 +194,7 @@ function Table({ o, view }: { o: Outlook; view: 'left' | 'cost' }) {
       <tbody>
         {[...o.past.map((p) => ({ ...p, guess: false })), ...o.future.map((p) => ({ ...p, guess: true }))].map((p) => (
           <tr key={p.at}>
-            <td>{new Date(p.at).toLocaleString()}</td>
+            <td>{dateTime(new Date(p.at).toISOString())}</td>
             <td>{p.left_pct === null ? 'no data' : `${Math.round(p.left_pct)}%`}</td>
             <td className="muted">{p.guess ? 'guess' : ''}</td>
           </tr>
