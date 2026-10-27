@@ -23,5 +23,6 @@ test('no target, an empty id, the id "None" or a screen it does not know is no r
 });
 
 test('the shell forwards every limit the status bar resource area writes', () => {
-  for (const key of [...Object.keys(DEFAULT_LIMITS), 'keep_awake']) assert.ok((PAGE_SETTINGS as readonly string[]).includes(key), key);
+  for (const key of [...Object.keys(DEFAULT_LIMITS), 'keep_awake', 'host_active_cap'])
+    assert.ok((PAGE_SETTINGS as readonly string[]).includes(key), key);
 });

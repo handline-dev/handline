@@ -22,6 +22,7 @@ export const PAGE_SETTINGS = [
   'pace_target_pct',
   'pace_burst_pct',
   // the status bar's resource area
+  'host_active_cap',
   'keep_awake',
   'load_per_core_pct',
   'ram_free_min_pct',
