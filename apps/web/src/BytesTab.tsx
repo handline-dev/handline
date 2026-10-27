@@ -47,8 +47,7 @@ function useSkeleton(loading: boolean): boolean {
 const reasonOf = (e: unknown) => (e as { reason?: string }).reason ?? (e as Error).message;
 
 /**
- * `handle` attaches by terminal handle instead of by agent (the debug window). With no agent it is watch-only: no agent, no input holder.
- * `shell` is a plain shell of the agent's worktree: nobody holds its input, so every key goes in and this pane sizes it.
+ * `handle` attaches by terminal handle instead of by agent (the debug window, or a shell). With no agent it is watch-only: no agent, no input holder.
  */
 export function BytesTab({
   agent,
@@ -61,6 +60,7 @@ export function BytesTab({
   detail: Pick<AgentDetail, 'terminal'>;
   create?: CreateTerm;
   handle?: string;
+  /** `handle` is a plain shell the person opened (shell.open): nobody holds its input, so keys go in and this pane sizes it, with no take or release. */
   shell?: boolean;
 }) {
   const store = useStore();
@@ -74,7 +74,7 @@ export function BytesTab({
   const [failure, setFailure] = useState('');
   const [title, setTitle] = useState('');
   const [everLive, setEverLive] = useState(false);
-  const [holds, setHolds] = useState(shell); // this device holds the input: keys go in and the pane sets the size
+  const [holds, setHolds] = useState(false); // this device holds the input: keys go in and the pane sets the size
   const [refused, setRefused] = useState('');
   const [heldBy, setHeldBy] = useState(''); // someone else holds the input: a click cannot take it
   const [attempt, setAttempt] = useState(0); // Retry runs the effect again
@@ -140,7 +140,7 @@ export function BytesTab({
       });
       const grab = () => {
         const v = live.current?.view;
-        if (!v || shell || watchOnly || holding || v.state !== 'live' || v.holders.some((h) => h.kind !== 'daemon')) return;
+        if (!v || watchOnly || shell || holding || v.state !== 'live' || v.holders.some((h) => h.kind !== 'daemon')) return;
         take({ agent }); // a refusal is reported by the write
       };
       /** The one key the app keeps: the terminal lets go of the keyboard and the hold is released. */
@@ -238,6 +238,11 @@ export function BytesTab({
           aria-label={shell ? `Shell of ${agent}` : `Terminal of ${agent}`}
         />
         {!hasTerminal && <StartTerminal agent={agent} />}
+        {state === 'live' && watchOnly ? (
+          <span className="watch-only absolute top-1.5 right-2.5 z-10 rounded-sm bg-term-bg/70 px-1.5 text-[11px] text-wait">
+            Watch only
+          </span>
+        ) : null}
         {state === 'live' && !watchOnly && heldBy && !holds ? (
           <div className="input-elsewhere absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-term-bg/70">
             <span className="text-hint text-term-ink">Typing is on {heldBy}</span>
@@ -259,11 +264,6 @@ export function BytesTab({
         )}
         <div className="grid-status px-2.5 pb-1.5 text-[12px] text-wait empty:hidden">
           {note}
-          {state === 'live' &&
-            !holds &&
-            !heldBy &&
-            !takeInput.error &&
-            (watchOnly ? 'Watch only: no agent has this pane, so it takes no keys. ' : 'Click the terminal to type in it. ')}
           {refused || (takeInput.error ? `Could not take the input: ${reasonOf(takeInput.error)}` : '')}
           {state === 'failed' && <Button variant="outline" size="sm" label="Retry" onClick={() => setAttempt((n) => n + 1)} />}
         </div>

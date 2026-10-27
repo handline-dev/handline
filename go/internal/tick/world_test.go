@@ -131,6 +131,7 @@ func (l wLifecycle) WakeAgent(_ db.Q, a string) (bool, string) {
 	l.w.call("wake %s", a)
 	return l.w.wakeOK, l.w.wakeWhy
 }
+func (l wLifecycle) ForgetLoadHold(a string)                              { l.w.call("forget hold %s", a) }
 func (l wLifecycle) StartOrWakeNeeded(db.Q, string, *db.AgentState) *Need { return l.w.need }
 func (l wLifecycle) StartForWork(_ db.Q, a string) string {
 	l.w.call("start %s", a)

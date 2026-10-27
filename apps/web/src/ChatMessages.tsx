@@ -1,11 +1,11 @@
 // One line of the conversation: the person's and the agent's messages with how far each got, and the transcript's tool, prompt, task and
 // session lines as small cards. What a line is and where it stands is an icon with its words as the tooltip; a click on a message picks it
 // to reply to (the reference the composer shows).
-import { useState, type MouseEvent, type ReactNode } from 'react';
+import { memo, useState, type MouseEvent, type ReactNode } from 'react';
 import type { ChatMessage, TranscriptItem } from '@handline/client';
 import { clockTime, ellipsis, landingLabel, openTask, restartCause, sideOf, tickLevel } from '@handline/app-core';
-import { useChatActions, useWrite } from '@handline/app-data';
-import { useStore } from '@handline/app-react';
+import { useWrite } from '@handline/app-data';
+import { useMe } from '@handline/app-react';
 import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from '#src/msgClass.ts';
 import { Pictures } from '#src/ChatAttach.tsx';
@@ -92,7 +92,25 @@ function Ticks({ level, label, receipt }: { level: 0 | 1 | 2; label: string; rec
   );
 }
 
-export function Message(props: {
+/** Under a message of the person's: the task the team took it as (a link), or why it needs none. Turning a message into a request is the lead's job, not the person's. */
+function RequestChip({ m }: { m: ChatMessage }) {
+  if (m.request_task != null)
+    return (
+      <a
+        className="msg-request mt-0.5 w-fit self-end text-label text-link"
+        href={`#/tasks/${m.request_task}`}
+        data-request={m.request_task}
+      >
+        Taken as T{m.request_task}
+      </a>
+    );
+  if (m.no_work) return <span className="msg-request mt-0.5 w-fit self-end text-label text-ink-3">Nothing to do: {m.no_work}</span>;
+  return null;
+}
+
+export const Message = memo(MessageRow, sameMessage);
+
+type MessageProps = {
   m: ChatMessage;
   agent: string;
   /** The message a reply is being written to. */
@@ -100,13 +118,31 @@ export function Message(props: {
   onPick?: (m: ChatMessage) => void;
   /** The messages the page holds, to say what a reply refers to. */
   byId?: Map<number, ChatMessage>;
+  /** What a failed message offers; the chat gives one value for every row. */
+  actions?: { retry: (id: number) => void; discard: (id: number) => void };
   /** A message number in the text was clicked. */
   /** In the all-messages room: the sender's name over a message that is not the person's (null when the one before is from the same sender), never `from -> to`. */
   group?: { name: string | null };
-}) {
+};
+
+/** A row draws again only when its own message, its sender line or the message it replies to changed: the chat hands every row the same maps and actions. */
+function sameMessage(a: MessageProps, b: MessageProps) {
+  const parentOf = (p: MessageProps) => (p.m.parent != null ? p.byId?.get(p.m.parent) : undefined);
+  return (
+    a.m === b.m &&
+    a.agent === b.agent &&
+    a.picked === b.picked &&
+    a.onPick === b.onPick &&
+    a.actions === b.actions &&
+    a.group?.name === b.group?.name &&
+    parentOf(a) === parentOf(b)
+  );
+}
+
+function MessageRow(props: MessageProps) {
   const { m, agent } = props;
-  const act = useChatActions(agent);
-  const side = sideOf(m, agent, useStore().me);
+  const act = props.actions;
+  const side = sideOf(m, agent, useMe());
   const unnumbered = m.id < 0; // shown before the daemon numbered it (or failed): nothing can be done to it but Retry and Discard
   const failed = m.state === 'failed';
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
@@ -191,15 +227,16 @@ export function Message(props: {
         {failed ? (
           <div className={MSG_FAILED} role="alert">
             <Icon name="failed" size={13} /> {m.sending_reason}{' '}
-            <button className="icon" aria-label="Retry" title="Retry" onClick={() => act.retry(m.id)}>
+            <button className="icon" aria-label="Retry" title="Retry" onClick={() => act?.retry(m.id)}>
               <Icon name="retry" size={14} />
             </button>
-            <button className="icon" aria-label="Discard" title="Discard" onClick={() => act.discard(m.id)}>
+            <button className="icon" aria-label="Discard" title="Discard" onClick={() => act?.discard(m.id)}>
               <Icon name="discard" size={14} />
             </button>
           </div>
         ) : null}
       </div>
+      {side === 'person' && !unnumbered && !failed ? <RequestChip m={m} /> : null}
       <Stamp
         left={side !== 'agent'}
         time={clockTime(m.at)}
@@ -346,8 +383,8 @@ export function Item({
           {p?.kind === 'permission' ? <span className="mono">{p.tool}</span> : <span className="muted">{p?.kind}</span>}
           {p?.command ? <CardCode>{p.command}</CardCode> : null}
         </CardWhat>
-        <span className="card-state" title={i.open ? 'Waiting for you' : 'Answered'}>
-          <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Waiting for you' : 'Answered'} />
+        <span className="card-state" title={i.open ? 'Needs you' : 'Answered'}>
+          <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Needs you' : 'Answered'} />
         </span>
         <span className="muted card-time">{clockTime(i.at)}</span>
       </Card>

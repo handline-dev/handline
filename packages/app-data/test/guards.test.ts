@@ -4,8 +4,14 @@ import { describe, expect, it } from 'vitest';
 import { NOT_FROM_UI, NOT_QUERIES, PAIRING, reads, writes, keyOf } from '#src/index.ts';
 
 const repo = path.resolve(import.meta.dirname, '../../..');
-const protocol = JSON.parse(fs.readFileSync(path.join(repo, 'contract/protocol.json'), 'utf8')) as {
-  methods: { name: string; 'x-write': boolean }[];
+const specDir = path.join(repo, 'contract/spec'); // one file per method group
+const protocol = {
+  methods: fs
+    .readdirSync(specDir)
+    .filter((f) => f.endsWith('.json'))
+    .flatMap(
+      (f) => (JSON.parse(fs.readFileSync(path.join(specDir, f), 'utf8')) as { methods: { name: string; 'x-write': boolean }[] }).methods,
+    ),
 };
 const methods = (write: boolean) => protocol.methods.filter((m) => m['x-write'] === write).map((m) => m.name);
 

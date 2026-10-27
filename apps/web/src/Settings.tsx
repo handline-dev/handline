@@ -8,7 +8,7 @@ import { Devices } from '#src/Devices.tsx';
 import { DebugEntry } from '#src/debug/DebugEntry.tsx';
 import { SectionHead, SettingsCard } from '#src/ui/index.ts';
 import { NumberRow, SwitchRow } from '#src/SettingsRows.tsx';
-import { Appearance, BackgroundRows, Connection, NoticeBatch, Notifications, TerminalRow } from '#src/SettingsMore.tsx';
+import { Appearance, BackgroundRows, Connection, NoticeBatch, Notifications, TerminalRow, WeekAlertRow } from '#src/SettingsMore.tsx';
 import { TeamSeal } from '#src/TeamSeal.tsx';
 import { SettingsFold, SettingsShell } from '#src/SettingsShell.tsx';
 import { View } from '#src/View.tsx';
@@ -111,6 +111,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                       change={(on) => ({ ignore_cache_expiry: on })}
                     />
                     <TerminalRow storage={storage} />
+                    <WeekAlertRow />
                   </SettingsCard>
                 </SettingsFold>
                 <SettingsFold title="About" hint="Connection, version, Admin, Debug, seal the team files">

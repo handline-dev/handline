@@ -84,7 +84,8 @@ const BASE: Record<string, (h: Call) => unknown> = {
   'agent.force_start': (h) => {
     const { actor, script, agent } = h;
     const s = agent();
-    if (s.fx.view?.status?.reason !== 'load') throw refused('state', `${s.fx.name} is not held for machine load`);
+    const followed = script.hr.started(s.fx.name);
+    if (!followed && s.fx.view?.status?.reason !== 'load') throw refused('state', `${s.fx.name} is not held for machine load`);
     s.fx.view = { ...s.fx.view, status: undefined };
     script.setState(s, 'running', actor);
     return script.accepted(`${s.fx.name}: started`);

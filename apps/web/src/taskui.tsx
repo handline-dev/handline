@@ -1,7 +1,7 @@
 // Small pieces the Tasks list and the task detail share: the state chip, the clock, the width query and the inline reason sheet.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { isPerson } from '@handline/app-core';
-import { useStore } from '@handline/app-react';
+import { useMe } from '@handline/app-react';
 import { useServes } from '@handline/app-data';
 import { STATE_GLYPH as GLYPHS, toneOf, type Tone } from '@handline/app-ui';
 import { Icon, type IconName } from '#src/Icon.tsx';
@@ -17,10 +17,28 @@ const CHIP = 'inline-flex items-center gap-0.5 align-middle text-ink-2 [&>svg]:s
 const DONE_TONE: Record<string, string> = { failed: 'data-[state=done]:text-bad', timed_out: 'data-[state=done]:text-ink-3' };
 
 /** A state is a shape of its own (the glyph), then a tooltip, then colour; the word stays for a screen reader. `mark` says what the write in flight is: hollow dot, or the decided "…". */
-export function StateChip({ state, mark, word, to, result }: { state: string; mark?: 'authored' | 'decided' | null; word?: boolean; to?: string; result?: string | null }) {
-  const me = useStore().me;
+export function StateChip({
+  state,
+  mark,
+  word,
+  to,
+  result,
+}: {
+  state: string;
+  mark?: 'authored' | 'decided' | null;
+  word?: boolean;
+  to?: string;
+  result?: string | null;
+}) {
+  const me = useMe();
   const foryou = state === 'doing' && !!to && isPerson(to, me); // the task is the person's to do: the agent is not working on it
-  const said = foryou ? 'waiting for you' : state === 'done' && (result === 'failed' || result === 'timed_out') ? result === 'failed' ? 'failed' : 'timed out' : state;
+  const said = foryou
+    ? 'waiting for you'
+    : state === 'done' && (result === 'failed' || result === 'timed_out')
+      ? result === 'failed'
+        ? 'failed'
+        : 'timed out'
+      : state;
   if (mark === 'decided')
     return (
       <span className={`tchip pending ${CHIP}`} title="waiting for the daemon">
@@ -28,10 +46,22 @@ export function StateChip({ state, mark, word, to, result }: { state: string; ma
       </span>
     );
   return (
-    <span className={`tchip ${TONE[foryou ? 'wait' : toneOf(state)]} ${DONE_TONE[result ?? ''] ?? 'data-[state=done]:text-ok'} ${CHIP}`} data-state={state} title={said}>
+    <span
+      className={`tchip ${TONE[foryou ? 'wait' : toneOf(state)]} ${DONE_TONE[result ?? ''] ?? 'data-[state=done]:text-ok'} ${CHIP}`}
+      data-state={state}
+      title={said}
+    >
       {mark === 'authored' ? <Icon name="unsaved" size={12} aria-hidden /> : null}
       <Icon
-        name={foryou ? 'taskPending' : state === 'done' && result === 'failed' ? 'failed' : state === 'done' && result === 'timed_out' ? 'waiting' : (STATE_GLYPH[state] ?? 'taskPending')}
+        name={
+          foryou
+            ? 'taskPending'
+            : state === 'done' && result === 'failed'
+              ? 'failed'
+              : state === 'done' && result === 'timed_out'
+                ? 'waiting'
+                : (STATE_GLYPH[state] ?? 'taskPending')
+        }
         label={said}
         size={16}
         aria-hidden="true"
@@ -64,6 +94,24 @@ export function useWide(px: number): boolean {
     return () => m.removeEventListener('change', on);
   }, [query]);
   return wide;
+}
+
+/**
+ * Which optional columns of the table fit its own width (not the window's: the detail pane takes part of it). The one place that decides, so the
+ * colgroup, the group headings' span and the cells agree; on a phone the rows are cards and show everything.
+ */
+export function useTableColumns(ref: RefObject<HTMLElement | null>): { owner: boolean; pri: boolean } {
+  const [width, setWidth] = useState(Infinity);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const on = () => setWidth(innerWidth < 640 ? Infinity : el.clientWidth || Infinity);
+    on();
+    const ro = new ResizeObserver(on);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return { owner: width > 600, pri: width > 720 };
 }
 
 /** Whether the daemon lists the method; a control for one it does not is shown disabled and says why. */

@@ -1,0 +1,3567 @@
+{
+ "openrpc": "1.3.2",
+ "info": {
+  "title": "Handline daemon protocol",
+  "version": "1",
+  "description": "OpenRPC-shaped. Source of contract/protocol.md and contract/protocol.ts: regenerate with `python3 contract/generate.py`. Extensions are x-* keys."
+ },
+ "x-protocol": 1,
+ "x-framing": {
+  "reach": "v1 reaches this machine, the LAN or Tailscale only (founder decision 3): the network listener binds the address the config names (default loopback; a LAN or Tailscale address is opt-in), always speaks an encrypted WebSocket whose certificate fingerprint is in the pairing QR, and has no relay or public endpoint.",
+  "transport": [
+   "Unix socket (0600, owned by the local user; the role is proven by hello, not by the socket), one JSON-RPC 2.0 object per line",
+   "WebSocket (network listener, off by default), one object per text frame"
+  ],
+  "lines": "UTF-8 JSON, terminated by \\n, at most 1 MiB. No batches (bad_request). A connection may carry many calls; a one-shot call works.",
+  "ids": "Request id is the client's integer or string; replies may arrive in any order. Notifications (no id) flow from the daemon after subscribe or terminal.attach, interleaved with replies.",
+  "concurrency": "Calls on one connection are served concurrently: a call that waits (inbox.list or inbox.get with wait_s, up to 600 s) does not hold up the calls after it, and replies come in the order they finish, matched by id. Calls on one connection that touch the same thing are not ordered by the connection: a client that needs the order waits for the first reply. Stream notifications are never held behind a waiting call.",
+  "network": "The network listener is the only way in for a phone, a browser or another machine, and only a paired device may use it. A connection on it is unpaired until its hello carries a valid device `token`. An unpaired connection may call device.redeem and nothing else: every other call, hello and an unknown method name included, is refused before any handler runs with the one reply `{code: -32002, message: \"refused\", data: {code: \"refused\", gate: \"unpaired\", reason: \"not paired\"}}`, the same words every time: no method list, no state, no version, no hint, nothing that says why. A token that is revoked or was never issued is the same refusal, so a reply does not say which. The Unix socket is not the network: its roles are proven as below. Conformance: the network transport is the WebSocket over TLS the listener speaks, and a client pins the certificate fingerprint from the pairing uri; fixtures with `as: unpaired` or `as: member` over the network are run against it with `--as unpaired=...` and `--as member=...` sockets that are already past TLS and the pinned check (a socket the harness is given, or a connector function); contract/README.md says what that does and does not show.",
+  "params": "By name only.",
+  "legacy": "A line with `verb` and no `jsonrpc` is a legacy request, answered {ok, said} by the adapter until its last caller has moved.",
+  "request_id": "Every write takes request_id. The daemon keeps each successful reply for 24 hours; a retry with the same id and the same params returns it with replayed:true and repeats nothing. The same id with other params is bad_request. Refusals and errors are not stored: a retry is judged again. One exception: chat.send to a structured agent returns the receipt as it is now (see x-delivery).",
+  "unknown_method": "A method the daemon does not know is JSON-RPC error -32601 with data.code `bad_request` and data.method; a method it knows but the caller's role may not call is `refused`, gate `role`.",
+  "idle": "A line begun but not finished within 30 s is dropped with bad_request, and so is a connection that has not said hello within 30 s. After hello, a connection with nothing in flight is closed after 3600 s without a byte. A subscribed or terminal-attached connection has no idle limit (the daemon notices a dead peer by a failed write); the subscribe and terminal tasks must build that. A call that waits (inbox wait_s) is in flight."
+ },
+ "x-handshake": "The first call is hello. Compatibility: adding a method or field never changes protocol; removing or changing one does, and the daemon then serves old and new side by side for one release. Clients ignore unknown fields and unknown enum-like strings (state words, kinds, event types). A client that does not know the daemon's protocol refuses to run and prints the one command that fixes it: `hl service install`.",
+ "x-roles": {
+  "order": [
+   "anonymous",
+   "agent",
+   "member",
+   "founder"
+  ],
+  "rule": "x-role on a method is the lowest role that may call it. Roles are proven, not assumed. founder: the connection said hello with the founder key and it matches (a Unix-socket peer being the same user proves nothing, because agents run as that user). agent: the peer pid verifies against a recorded session. member: no caller holds it today, since a paired device (its token proves it) is the founder; the role stays as the lowest a method can ask of a person. Anything else is anonymous: on the Unix socket it may call only hello and device.redeem; on the network listener it is unpaired and may call only device.redeem (see Framing, network). A call below its role is refused, gate `role`. session.type and session.keys act at a shell prompt as they do anywhere in the pane: only a paired device can connect to the network listener and an unpaired caller gets no data, so a shell is within what a paired device may reach."
+ },
+ "x-gates": {
+  "role": "Caller's role is agent: a person-at-the-terminal method.",
+  "terminal_lock": "The agent's terminal lock, the one the tick holds.",
+  "input_holder": "Someone else holds the input. A daemon holder is a short hold, not a refusal. terminal.resize: under 80 by 24, whoever asks; with no holder, from a caller that has not attached the terminal.",
+  "wall": "The usage limit (wall_reason): typing would only spend quota.",
+  "screen_blocker": "A dialog is open, so a typed line would answer it. Use keys or prompt.answer.",
+  "state": "The state checks the legacy verb has today; this protocol adds none.",
+  "unsupported": "The host or the format cannot do it: a resize on a host that cannot, bytes on a terminal whose host serves only text. transcript.events for an agent the daemon runs as a terminal; the typing and terminal methods for an agent it runs as a structured session.",
+  "not_self": "The agent named is not the caller's own session.",
+  "attempt_limit": "Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes.",
+  "unpaired": "A network connection with no valid device token called anything but device.redeem. The reply is always message \"refused\" and reason \"not paired\": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed.",
+  "pairing_code": "device.redeem: the code is wrong, expired or already used. The reply does not say which.",
+  "proposal_changed": "hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again.",
+  "proposal_settled": "hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now.",
+  "confirm": "chat.cancel: the message was delivered, so cancelling needs confirm true. data.plan says what it would do.",
+  "limit": "attachment.put: the file or the unsent total is over its limit, or too many uploads are open (x-attachments).",
+  "listing": "inbox.queue: the caller may not list that agent's messages. Only the agent itself, its supervisor and the founder may.",
+  "duplicate_title": "task.new: an open task under the same parent, or the parent itself, has nearly the title (same first word, 80% of the shorter title's words, Story prefix, case, punctuation and commit shas ignored). data.task names it; duplicate_ok opens the task anyway.",
+  "open_children": "task.done: the task has open child tasks. The reason names each (number, state, assignee, title), the hint the commands that close one, and the refusal's `children` lists them, so a client can offer to discard them from the same prompt.",
+  "denied": "file.write: the path is one the daemon never writes: under .git, .claude, .github, .husky, .codex, .cursor, .vscode, .devcontainer or a hooks folder (at any depth); a settings.json, settings.local.json, .mcp.json, mcp.json, hooks.json, package.json, .claude.json, tsconfig.json, turbo.json, deno.json, composer.json or lefthook.json; or anything but a .md or .json file.",
+  "stale": "file.write: the file is not what the etag says (it changed, is gone, or exists when the etag is empty). Read it again; nothing was written.",
+  "too_big": "file.write: the file on disk is over 1 MiB, so file.read gave only its start; it is not written (a text read from it would cut it)."
+ },
+ "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or applying, or its apply ran again: it was decided, withdrawn, turned applying, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed. The `notifications` topic's task_done: `agent` is the agent that closed the task, `data.task` its id, `data.task_title` its title and `data.result` the first non-blank line of its done evidence, trimmed, cut at 140 characters; each of the last two is absent when the daemon has none. A bell row draws the agent, task_title, result and `at` from the event alone, never fetching the task; `title` stays a plain line for a client that reads none of them.",
+ "x-legacy": {
+  "agent_set": "agent.set",
+  "message": null,
+  "say": "say",
+  "push": null,
+  "notify_cancelled": null,
+  "wake": "session.wake",
+  "close": "session.stop{mode:close}",
+  "restart": "session.restart",
+  "park": "session.park",
+  "fold": "agent.fold",
+  "move": "agent.move",
+  "start": "session.start",
+  "answer_block": "prompt.answer",
+  "trust": null
+ },
+ "x-identity": {
+  "rule": "x-callers on a method, when present, lists the only roles that may call it, whatever the chain says. The agent-identity methods (hook.record, agent.set, task.progress) act as the caller's OWN session, found by peer pid or session token as say already finds its sender: an `agent` argument that is not the caller's own name is refused (gate not_self), and a member device cannot call them (agent.set is also the founder's, who may name any agent).",
+  "sender": "say and task.new carry no sender parameter: the daemon sets it. An agent's calls carry its own name; a member device's and the founder's carry `human`.",
+  "ownership": "Methods that act on a task by id (edit, merge, discard, reopen, queue, draft) are anyone's: the task's opener and assignee are told, and its history keeps who did it. withdraw, release, memo.edit and memo.delete keep their checks on who may; a refusal is `refused` with the reason."
+ },
+ "x-agent-commands": {
+  "hl task new": "task.new",
+  "hl task begin": "task.begin",
+  "hl task start": "task.start",
+  "hl task handoff": "task.handoff",
+  "hl task done": "task.done",
+  "hl task reopen": "task.reopen",
+  "hl task edit": "task.edit",
+  "hl task merge": "task.merge",
+  "hl task release": "task.release",
+  "hl task discard": "task.discard",
+  "hl task queue": "task.queue",
+  "hl task draft": "task.draft",
+  "hl task board": "task.board",
+  "hl task show": "task.get",
+  "hl task list": "tasks.list",
+  "hl task comment list": "task.comment.list",
+  "hl task comment add": "task.comment.add",
+  "hl task comment edit": "task.comment.edit",
+  "hl task comment delete": "task.comment.delete",
+  "hl progress": "task.progress",
+  "hl inbox": "inbox.queue",
+  "hl read": "request.read",
+  "hl say": "say",
+  "hl hook": "hook.record",
+  "hl agent set": "agent.set",
+  "hl agent move": "agent.move",
+  "hl fold": "agent.fold",
+  "hl close": "session.stop",
+  "hl restart": "session.restart",
+  "hl resume": "session.wake",
+  "hl wake": "session.wake",
+  "hl hr add|retire|rename|link|unlink|team|context": "hr.propose",
+  "hl hr diff": "hr.propose",
+  "hl hr withdraw": "hr.withdraw",
+  "hl hr list": "hr.list",
+  "hl trust add": "trust.propose",
+  "hl trust list|proposals": "trust.list",
+  "hl team": "team.get",
+  "hl ps": "agents.list",
+  "hl status": "status.pick",
+  "hl events": "events.feed",
+  "hl triggers": "agent.triggers",
+  "hl schedule (show)": "schedules.list",
+  "hl account list": "accounts.list",
+  "hl memory status": "memory.status",
+  "hl task request": "task.request",
+  "hl task none": "task.none"
+ },
+ "x-dropped-from-agents": {
+  "note": "Agent commands the spec does not keep at agent role, for the founder to decide. Each is founder-only or a person's act today, or is not a daemon call.",
+  "founder_only_today": [
+   "hl cancel",
+   "hl unstall",
+   "hl hr approve|reject|apply|relabel|rehome|links",
+   "hl trust remove|apply|mcp",
+   "hl schedule add|edit|remove",
+   "hl account add|remove|register|cap|cycle|recover|wake (set; the billing-cycle and cap reads are for the next spec task)",
+   "hl idle-timeout|idle-background|notice-digest|ignore-cache-expiry (set)",
+   "hl dev-mode",
+   "hl device pair|list|revoke (device.pair, devices.list, device.revoke: the gateway's socket, from the founder's terminal)",
+   "hl service ..."
+  ],
+  "needs_a_decision": [
+   "hl spawn (a founder's act; it calls session.start, and agent.create serves it to the founder's apps)",
+   "hl agent register (a roster change, founder)"
+  ],
+  "not_daemon_methods": [
+   "hl init",
+   "hl login",
+   "hl launch",
+   "hl doctor",
+   "hl hooks",
+   "hl go",
+   "hl sandbox-repo",
+   "hl install-hooks",
+   "hl backup",
+   "hl venv",
+   "hl bridge",
+   "hl top",
+   "hl watch",
+   "hl guide",
+   "hl withdraw",
+   "hl memory migrate",
+   "hl task note (suppressed)"
+  ]
+ },
+ "x-topics": {
+  "status": {
+   "snapshot": "daemon.status",
+   "data": {
+    "status.changed": "DaemonStatus"
+   }
+  },
+  "accounts": {
+   "snapshot": "accounts.list",
+   "data": {
+    "account.changed": "Account"
+   }
+  },
+  "agents": {
+   "snapshot": "agents.list",
+   "data": {
+    "agent.changed": "AgentView",
+    "agent.removed": "{name}",
+    "agent.control": "TimelineEntry"
+   }
+  },
+  "inbox": {
+   "snapshot": "inbox.list",
+   "data": {
+    "inbox.added": "InboxItem",
+    "inbox.changed": "InboxItem"
+   }
+  },
+  "tasks": {
+   "snapshot": "tasks.list",
+   "data": {
+    "task.changed": "Task"
+   }
+  },
+  "notifications": {
+   "snapshot": "events.feed",
+   "data": {
+    "task_done": "{task, task_title?, result?}",
+    "prompt_asked": "Prompt",
+    "stall": "{agent}",
+    "account_out": "{account}",
+    "disk_low": "{free_bytes, total_bytes}"
+   }
+  },
+  "chat": {
+   "snapshot": "chat.transcript",
+   "data": {
+    "chat.message": "ChatMessage",
+    "chat.transcript": "TranscriptItem",
+    "chat.working": "Working"
+   }
+  },
+  "operations": {
+   "snapshot": "operation.get",
+   "data": {
+    "operation.progress": "Operation"
+   }
+  },
+  "devices": {
+   "snapshot": "devices.list",
+   "data": {
+    "device.paired": "Device",
+    "device.revoked": "{device}"
+   }
+  },
+  "hr": {
+   "snapshot": "hr.list",
+   "data": {
+    "hr.raised": "{proposal}",
+    "hr.settled": "{proposal}"
+   }
+  },
+  "transcript": {
+   "snapshot": "transcript.events",
+   "data": {
+    "transcript.event": "TranscriptEvent"
+   }
+  },
+  "prefs": {
+   "snapshot": "prefs.get",
+   "data": {
+    "prefs.changed": "Prefs"
+   }
+  },
+  "requests": {
+   "snapshot": "requests.list",
+   "data": {
+    "request.changed": "RequestRow"
+   }
+  }
+ },
+ "x-state-words": {
+  "rule": "AgentView.state is one of these lower-case words. The set is open: a client treats a word it does not know as idle and keeps working. Upper case is never sent: the daemon's internal states (IDLE, QUEUED, RUNNING, DONE, HANDOFF, DEGRADED, PARKED, THROTTLED, STALLED) and the view words its screens use (PENDING, MOVING, DIALOG, FATAL) are mapped to these before they leave it. The mapping is made from the source facts (the state row, its wake time, the screen), never by reading state_detail text.",
+  "words": {
+   "running": "A turn is running (a hand-off in progress counts: moving is working).",
+   "idle": "At its prompt with nothing to do, or nothing pending for it (a park with no work behind it, a finished one). state_detail may say what it waits on (a child task, background work).",
+   "queued": "Has work and will start at the daemon's next tick, with no time to wait for: a restart between two sessions (`handoff.phase` starting) reads queued, not parked. state_detail may say why it is not running yet (a restart retry).",
+   "starting": "A terminal agent's launch in progress: hl launch kept the session start, no hook of that session, no session end and no failed wake has come since, and its pane runs something other than its shell. A launch that died is back at the shell, so it never reads as starting. Never hides a running turn, a dialog or a stall.",
+   "parked": "Waits for a time: the usage window rolling over, a park a person asked for, a throttle or degraded retry, or an account move settling. state_detail is the clock (`due` once it has passed; `moving` for an account move, which has no clock).",
+   "waiting": "A person must answer: a dialog or a prompt is open (has_dialog is true).",
+   "stalled": "Stopped until a person unstalls it (the daemon will not wake it).",
+   "blocked": "Reserved: waiting on a blocker the view names in `block`. The daemon does not send it today; a client draws it as blocked.",
+   "no_terminal": "Registered but with no terminal to show: never started or its terminal closed, and nothing waits for it. Checked before idle; a closed agent with work waiting is queued or parked."
+  },
+  "from_daemon": {
+   "RUNNING, HANDOFF": "running",
+   "IDLE, DONE, PARKED with no work behind it": "idle",
+   "QUEUED, a restart retry (PENDING with no clock)": "queued",
+   "a terminal launch in progress, before its session's first hook, with claude and not the shell in its pane (checked over idle, queued and no_terminal)": "starting",
+   "PARKED, THROTTLED, DEGRADED with a wake time (PENDING with a clock); MOVING": "parked",
+   "DIALOG (an open prompt or modal)": "waiting",
+   "STALLED (FATAL)": "stalled",
+   "no state row or no terminal, and nothing waiting for it (checked before IDLE)": "no_terminal"
+  },
+  "pending": "PENDING is two words, by what it waits for: `queued` when nothing but the next tick stands between it and a start, `parked` when it waits for a time. A client draws both as waiting its turn, and the clock in state_detail tells them apart. MOVING is `parked` with state_detail `moving`."
+ },
+ "x-status": {
+  "rule": "Every agent (AgentView.status) and every task (Task.status) carries one status: a state, the reason for it, and the line a client shows as it is. Both lists are closed for the daemon and open for a client: a word it does not know is drawn from `text`. The daemon fills it from the facts it acts on (the state row, the wake gate, the account it would wake on, the board), never from free text, and never sends a bare queued or an unknown where it knows the cause. state, state_detail, hold_reason, block_reason and waiting stay until the apps read status.",
+  "states": {
+   "preparing": "Has work and the daemon starts or sends it at its next tick; nothing stands in the way. Reasons: work, restart, retry.",
+   "starting": "A launch is in progress (agents). Reason: launch.",
+   "running": "Working: a turn runs, a hand-off is moving, background work runs, or a task is with an owner that has it. Reasons: turn, watch, handoff, background.",
+   "waiting": "Held by something the daemon names: a person, another task, the owner, a clock, an account move, the machine's load, an account's pace. Reasons: you, opener, task, owner, clock, move, load, pace.",
+   "stopped": "Will not go on by itself: no account has room (until the reset when it is known) or a person must unstall it. Reasons: wall, cap, stalled.",
+   "idle": "At its prompt with nothing to do (agents). Reason: none.",
+   "off": "Registered with no terminal and nothing waiting for it (agents). Reason: none.",
+   "done": "Closed (tasks). Reasons: done (its owner finished it), discarded."
+  },
+  "reasons": {
+   "work": "Work waits for it and nothing is in the way: the next tick types or starts it.",
+   "restart": "Between two sessions of a restart; the next one begins at the next tick.",
+   "retry": "A failed start is retried; text says which attempt.",
+   "launch": "Its terminal is starting.",
+   "turn": "A turn is running (agents); the owner has the task (tasks).",
+   "watch": "A gate watches outside state; text names it (\"watching PR #412 CI\").",
+   "handoff": "A hand-off to a new session is moving.",
+   "background": "Background work runs while the agent sits at its prompt.",
+   "you": "A person must answer: a dialog or prompt on the agent, an open request to the founder on the task, or a task the founder owns.",
+   "opener": "A draft: waits on its opener to queue it.",
+   "task": "Waits on other tasks; tasks lists them.",
+   "owner": "Waits on its owner, busy with something text names.",
+   "clock": "Waits for a time: until says when.",
+   "move": "An account move is settling.",
+   "load": "The machine is over a load limit (host_active_cap, load_per_core_pct, ram_free_min_pct): the daemon starts none of its work until it is under, by itself; text names the limit that tripped. agent.force_start lets it go once. A message the person sends (the founder's or a paired device's) is never held by it: its agent wakes at once, and load_limit_passed is recorded in agent.timeline within 10 s of the send; the limit holds only agents' work and the daemon's own, and for at most 10 minutes: work held that long goes once, and load_limit_passed (by: ceiling) is recorded. A message held by the load is not a stuck delivery: no heal step or stuck card is made for it.",
+   "pace": "Every account it may run on has no free slot only because of its weekly pace (Account.pace; without pacing one would have room): the daemon starts it when a slot frees or a line catches up, by itself, and a start goes to the account furthest behind its line. text names the account and how far ahead it is; until is the earliest back_at, null when not known. A turn a person starts (a message a person sends, a person's own start or wake) and a restart are never held. agent.force_start lets it go once.",
+   "wall": "The account it would run on is at a usage limit; until is when the window rolls over, null when not known.",
+   "cap": "No account has a free slot; it starts when a running turn ends.",
+   "stalled": "Stopped until a person unstalls it; text says why it stopped.",
+   "none": "Nothing to say beyond the state.",
+   "done": "Its owner finished it.",
+   "discarded": "Thrown away; text says why."
+  }
+ },
+ "x-dialogs": {
+  "rule": "A dialog in an agent's terminal is routine, a human's or unknown. The daemon answers only the routine ones, and only at launch, once, from what the founder already decided; it never answers any other (no key into a pane after launch). A human's dialog and an unknown one are `needs_you` on the agent (AgentView), and the person answers them at the terminal terminal.open points to. Unknown is a person: a dialog the table does not name is class human, kind dialog. The class is decided from the hook or session file that reported it, never from the screen, except the launch's folder-trust screen, which the launch reads once.",
+  "dialogs": {
+   "folder_trust": {
+    "class": "routine",
+    "when": "launch",
+    "answered_by": "the folder is inside a declared trust root (standing consent, trust.*)",
+    "else": "human, kind permission"
+   },
+   "tool_permission": {
+    "class": "human",
+    "kind": "permission",
+    "reported_by": "PermissionRequest hook; Notification permission_prompt; the session file status waiting, waitingFor permission prompt"
+   },
+   "question": {
+    "class": "human",
+    "kind": "question",
+    "reported_by": "Notification elicitation_dialog; the session file status waiting with a waitingFor that names a question (any other waitingFor is kind dialog)"
+   },
+   "usage_limit_choice": {
+    "class": "human",
+    "kind": "usage",
+    "reported_by": "Stop with a limit"
+   },
+   "exit_confirm": {
+    "class": "not raised",
+    "note": "The daemon ends a session by stopping its process, never by typing /exit, so the dialog does not arise; if one is there anyway it is human, kind dialog."
+   },
+   "startup_notice": {
+    "class": "unknown",
+    "kind": "dialog",
+    "note": "Any other screen a launch stops at (new MCP servers, an update, a login). Not answered; the launch reports needs_you."
+   },
+   "any_other": {
+    "class": "unknown",
+    "kind": "dialog"
+   }
+  },
+  "retired": "Dialog rules (answer.add with vendor, title and label; the `dialog` entries of answers.list) answered a dialog by matching its screen. A daemon that never answers a dialog and reads no screen refuses to save one (gate unsupported), and lists none; the Python daemon, which still runs agents, keeps serving them until the cutover. Trust roots are not rules and stay."
+ },
+ "x-notifications": {
+  "event": {
+   "params": "Event",
+   "note": "Sent after subscribe, for the subscribed topics, in cursor order."
+  },
+  "gap": {
+   "params": {
+    "type": "object",
+    "properties": {
+     "reason": {
+      "type": "string",
+      "enum": [
+       "retention",
+       "slow_client"
+      ]
+     },
+     "cursor": {
+      "type": "integer"
+     },
+     "topic": {
+      "$ref": "#/components/schemas/Topic"
+     }
+    },
+    "required": [
+     "reason",
+     "cursor"
+    ]
+   },
+   "note": "retention: the resume cannot be served (the cursor is older than the daemon keeps, or more than 5000 of the subscribed events behind); refetch the topic's snapshot; the connection stays open and the cursor is the newest. slow_client: more than 1000 live events were waiting to be written to this client; the daemon sends this and then closes the connection. A resume up to 5000 behind is replayed in full and does not count toward the 1000. The daemon sets no `topic` in v1."
+  },
+  "frame": {
+   "params": {
+    "type": "object",
+    "properties": {
+     "terminal": {
+      "type": "string"
+     },
+     "seq": {
+      "type": "integer"
+     },
+     "full": {
+      "type": "boolean"
+     },
+     "lines": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Row"
+      }
+     },
+     "changed": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "y": {
+         "type": "integer"
+        },
+        "row": {
+         "$ref": "#/components/schemas/Row"
+        }
+       },
+       "required": [
+        "y",
+        "row"
+       ]
+      }
+     },
+     "cursor": {
+      "$ref": "#/components/schemas/Cursor"
+     },
+     "format": {
+      "type": "string",
+      "enum": [
+       "styled"
+      ],
+      "description": "Present on a `styled` attach's frames and absent on a text one's, so a connection that watches one terminal in both formats can tell which attach a frame belongs to."
+     }
+    },
+    "required": [
+     "terminal",
+     "seq",
+     "full",
+     "cursor"
+    ]
+   },
+   "note": "Text and styled attaches only. full:true carries every line and is what a slow client gets instead of a backlog. A frame may carry `changed: []` for a cursor move alone."
+  },
+  "resize": {
+   "params": {
+    "type": "object",
+    "properties": {
+     "terminal": {
+      "type": "string"
+     },
+     "seq": {
+      "type": "integer"
+     },
+     "cols": {
+      "type": "integer"
+     },
+     "rows": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "terminal",
+     "seq",
+     "cols",
+     "rows"
+    ]
+   },
+   "note": "Text attaches only; a bytes attach gets a snapshot notice instead."
+  },
+  "marker": {
+   "params": {
+    "type": "object",
+    "properties": {
+     "terminal": {
+      "type": "string"
+     },
+     "seq": {
+      "type": "integer"
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "daemon_typed",
+       "control"
+      ]
+     },
+     "actor": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Actor"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "text": {
+      "type": "string"
+     },
+     "format": {
+      "type": "string",
+      "enum": [
+       "text",
+       "bytes",
+       "styled"
+      ],
+      "description": "The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it."
+     }
+    },
+    "required": [
+     "terminal",
+     "seq",
+     "at",
+     "kind",
+     "actor",
+     "format"
+    ]
+   },
+   "note": "The daemon typed, or a control call happened, at this point in the stream."
+  },
+  "holder": {
+   "params": {
+    "type": "object",
+    "properties": {
+     "terminal": {
+      "type": "string"
+     },
+     "seq": {
+      "type": "integer"
+     },
+     "holders": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/InputHolder"
+      }
+     },
+     "format": {
+      "type": "string",
+      "enum": [
+       "text",
+       "bytes",
+       "styled"
+      ],
+      "description": "The attach this notice belongs to, whose counter `seq` is: a terminal watched in both formats is sent each of these twice. Additive: a client that does not know it ignores it."
+     }
+    },
+    "required": [
+     "terminal",
+     "seq",
+     "holders",
+     "format"
+    ]
+   },
+   "note": "Sent to attached clients whenever the holders change (take, release, the idle hold timeout, the daemon taking over for a send). agent.changed carries the same in AgentView.input_holders."
+  },
+  "output": {
+   "params": {
+    "type": "object",
+    "properties": {
+     "terminal": {
+      "type": "string"
+     },
+     "seq": {
+      "type": "integer"
+     },
+     "data": {
+      "type": "string",
+      "description": "Base64 of what the program wrote."
+     }
+    },
+    "required": [
+     "terminal",
+     "seq",
+     "data"
+    ]
+   },
+   "note": "Bytes attaches only: the pane's output in order, at most one notice per 50 ms and 64 KiB decoded each. A notice may end inside a multi-byte character or an escape sequence."
+  },
+  "snapshot": {
+   "params": {
+    "type": "object",
+    "properties": {
+     "terminal": {
+      "type": "string"
+     },
+     "seq": {
+      "type": "integer"
+     },
+     "reason": {
+      "type": "string",
+      "enum": [
+       "resize",
+       "slow_client"
+      ]
+     },
+     "cols": {
+      "type": "integer"
+     },
+     "rows": {
+      "type": "integer"
+     },
+     "data": {
+      "type": "string",
+      "description": "Base64, as in the attach snapshot."
+     },
+     "alt_screen": {
+      "type": "boolean"
+     },
+     "cursor": {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "integer"
+       },
+       "y": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "x",
+       "y"
+      ]
+     },
+     "cursor_visible": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "terminal",
+     "seq",
+     "reason",
+     "cols",
+     "rows",
+     "data",
+     "alt_screen",
+     "cursor",
+     "cursor_visible"
+    ]
+   },
+   "note": "Bytes attaches only: the screen again, to be repainted as after an attach (reset, resize to cols by rows, write data), because the terminal changed size or the client fell behind. Everything the stream would have said before it is dropped; output follows with the next seq."
+  }
+ },
+ "x-terminal": "Format `text` sends plain text rows (frame notices). Format `styled` sends the same rows and frames with each row's style runs (Row.spans), for a host that has no byte stream or a client that cannot run a terminal emulator (below). Format `bytes` (below) sends the pane's own escape-coded output, which carries the colour. One poller per terminal, at most ~5 reads a second however many clients; it stops when the last client leaves. The input holders are a list (TerminalSnapshot.holders, AgentView.input_holders) with a `holder` notice on change; a holder that has not typed for the input_hold_idle_s setting loses the hold.",
+ "x-terminal-bytes": {
+  "format": "`terminal.attach` and `terminal.history` take `format`: `text` (the default; what they send is unchanged) or `bytes`. The format belongs to the attach, so two clients may watch one terminal in different formats. `hello.capabilities.terminal_format` lists the formats the daemon serves at all and `terminal_hosts` maps each host it has to its formats, e.g. `{tmux: [text, bytes]}`. A bytes request for a terminal whose host cannot serve it is refused, gate `unsupported`, and nothing is attached; a client then asks for text. A `format` that is neither word is bad_request naming `format`. A connection has at most one attach per terminal and format (see terminal.attach); detach takes an optional `format`.",
+  "encoding": "Bytes travel as base64 (standard alphabet, padded) in JSON strings on the same transport as every other message: no binary frames. They need not be valid UTF-8, and a notice may end inside a character or an escape sequence, so a client writes each as bytes to a terminal that keeps its own parser state.",
+  "snapshot": "`data` is written unchanged to a freshly reset terminal of `cols` by `rows` (the client resizes, resets, writes, in one step). It begins with `ESC [ ? 1049 h` when `alt_screen` is true, then paints the visible rows with their SGR codes, each row ending in a reset and rows separated by CR LF, never a bare LF; then sets the modes the pane has on that change what a client sends (application cursor keys, bracketed paste, mouse reporting and its SGR encoding) as far as the host reports them; it ends by placing the cursor at `cursor` and showing or hiding it as `cursor_visible` says. It is at most 1 MiB decoded: a screen whose coded form is larger is sent with its styling left out, never refused. Later transitions of the alternate screen are in the stream; the flag is for the snapshot alone.",
+  "sequence": "One counter per attach, shared by all its notices (`output`, `snapshot`, `marker`, `holder`), and it goes up by exactly 1 with each. The snapshot's `seq` is the last notice its screen includes: the daemon takes the screen and starts the stream together, so the first notice after the reply has `seq` + 1 and no byte is lost or repeated between them. A client ignores a notice whose seq is not above the last it applied and re-attaches on a hole. The counters of different attaches, text ones included, are unrelated: a connection that watches one terminal in both formats has two counters, and attaching the same terminal and format again replaces that attach and starts a new one at its snapshot's seq. There is no resume: after a reconnect the client attaches again and repaints from the new snapshot, and what it missed is not replayed.",
+  "slow_client": "Output is never dropped from the middle. When one attach's unsent output reaches 1 MiB decoded, the daemon discards all of it and sends one `snapshot` notice, reason `slow_client`, with a seq above everything discarded; output follows it. Counting bytes, not seconds, is the whole rule. A connection that falls behind on events past the gap rule is closed with gap `slow_client` as before and attaches again.",
+  "history": "Lines come as strings with their SGR codes, as the host keeps them: one physical row each (the row as the pane wrapped it, never joined), starting at default attributes and ending in a reset, with no line break inside. `history` on attach and `limit` on `terminal.history` count lines as in text (default 100, at most 2000); a page is trimmed to 1 MiB and says `more`. Only the normal screen has scrollback: while `alt_screen` is true the snapshot's history is empty.",
+  "input": "`terminal.input` carries keystrokes and pasted bytes as base64; its gates and recording are on the method.",
+  "resize": "See `terminal.resize` for who may resize. A bytes attach is told of any size change, whoever caused it and the restore included, by a `snapshot` notice, reason `resize`, with the new cols and rows, and gets no `resize` notice: the client repaints rather than reflow, as tmux's reflow is not xterm's.",
+  "markers": "`marker` and `holder` notices come to a bytes attach as to a text one, in the one counter: a `marker` stands where the daemon typed, before the output that echoes it. Each carries `format`, the attach it was sent to, since a terminal watched in both formats gets each notice once per attach with that attach's counter."
+ },
+ "x-terminal-styled": {
+  "format": "`terminal.attach` and `terminal.history` take `format: styled`. It is the text format with colour: the snapshot has `format` `styled`, every Row in `lines`, `history` and `terminal.history` pages may carry `spans`, and every `frame` notice of the attach carries `format` `styled`. Frames, seq, `full`, `changed`, `cursor` and `resize` are as for text; the `holder` and `marker` notices are as for text too, and carry `format` `styled` on this attach so a client can tell its counter from a text attach's of the same terminal, and `text` is exactly what a text attach would send. Offered the way `bytes` is: `hello.capabilities.terminal_format` lists it and `terminal_hosts` maps each host to its formats, e.g. `{tmux: [text, bytes, styled]}`; a styled request for a terminal whose host cannot serve it is refused, gate `unsupported`, and nothing is attached; a client then asks for text. The format belongs to the attach, so a text and a styled attach of one terminal on one connection have unrelated counters. `terminal.detach` takes `styled` as it takes `bytes`.",
+  "when": "A host serves `styled` when its rendered-screen read gives the attributes of each cell, not only the characters. It is meant for a host that has no byte stream but does render the screen it reads. The phone app has no terminal emulator and uses the format on any host that serves it. A host whose read has no attributes stays `text`: the daemon never invents styles, and never sends `spans` on a terminal that has none to give.",
+  "spans": "A run is `[from, to)` over the row's characters counted in Unicode code points of `text` (not UTF-16 units, not bytes; a client in JavaScript converts with `Array.from`), and may extend past the end of `text` for blank cells that have a background: past the end, each blank cell counts as one, so `to` is at most len(`text`) + (`cols` minus the display width of `text`), where a wide character (CJK) is one code point and two cells. A run boundary never falls inside a cell: a base character stays with its combining code points, and a wide character is one unit. Runs are sorted, never overlap, are never empty and are sent only for cells whose style is not the default; a cell no run covers is drawn default. Two neighbouring cells with the same style are one run. Style is `SpanStyle`: `fg`, `bg` (a palette index 0-255 or `#rrggbb`) and the flags `bold`, `dim`, `italic`, `underline`, `inverse`, `strike`, each left out when off. Palette indexes 0-15 are the client's theme colours, so a dark and a light client each draw them in their own tokens; the daemon does not resolve a colour it was given as an index.",
+  "cursor": "A frame's `cursor` (text and styled attaches; a bytes attach's is in cells) is `{x, y}` or null: null when the cursor is hidden or above the frame. `x` counts code points of the row's `text`, as spans do (a host that reads cells converts; a wide character is one), and may run past the end of `text` when the cursor sits in blank cells, each counting one. `y` is a row of the frame's `lines`, from 0, and may be len(lines) or more when the cursor is on a blank row the frame drops. A frame may carry `changed: []` for a cursor move alone.",
+  "size": "A row's spans are what its colours need and no more; `terminal.history` pages and the 1 MiB trim of a text page apply to the JSON as sent, spans included, and `more` says when it was trimmed. A frame for a screen of a few hundred runs is a few KiB; the slow-client rule of text is unchanged (`full: true`).",
+  "input": "`styled` is read-only like text: keys go by `terminal.input` where the host supports bytes in, and by `session.type` and `session.keys` as before.",
+  "not_in_it": "No hyperlink, image, blink or font-weight beyond bold, no wide-character marker beyond what `text` has, no mouse or screen-mode state: a client that needs the real terminal asks for `bytes`."
+ },
+ "x-transcript": {
+  "what": "The per-agent stream a view draws for a structured session (the CLI's frames reduced to what a view needs), in place of a terminal. Topic `transcript`, event type `transcript.event`, data TranscriptEvent; events carry `agent`, so subscribe's `agent` filters. `hello.capabilities.transcript` says the daemon serves it; `AgentView.structured` says which agents it serves it for (absent: a terminal agent, whose transcript.events is refused, gate unsupported, and whose terminal a client shows). The topic needs member, as transcript.events does: subscribe naming it from an agent session is refused, gate role.",
+  "kinds": "turn_start (a message began a turn: uuid, sender, text), text (one whole assistant text block), tool_use (id, tool, input), tool_result (tool_use_id, ok, text cut at 64 KiB), permission (a person is asked: a Prompt), permission_answer (allowed or denied, and by whom), turn_end (reason, cost_usd, duration_ms, usage), error (code, text). The order within a turn: turn_start, then text, tool_use, permission, permission_answer and tool_result as they happen, then turn_end. A tool_result follows its tool_use, not necessarily next. Open set: a client skips a kind it does not know.",
+  "permission": "A tool call that needs a person is a `permission` event whose `prompt` is an ordinary Prompt: kind permission, id = the tool call's id, options `allow` and `deny`, tool, command and reason as for any prompt. The card calls prompt.answer with choice allow or deny, and prompt.list holds it while it is open (it is also in the chat view as a prompt item and in the inbox, as today). The `permission_answer` event ends it, whoever answered: `by` person (prompt.answer), policy (a rule decided; no `permission` came before), cancel (the CLI withdrew it) or closed (the session closed or no handler answered: deny). A client that reconnects and sees a permission with no answer after it asks prompt.list before showing buttons.",
+  "sequence": "`seq` is per agent, starts at 1, goes up by exactly 1 with each event, continues across sessions of the agent (the `session` field changes on a fresh start, not on a resume) and is never reused. Events are final: nothing is changed after it is sent.",
+  "resume": "The connection's cursor works as for every topic: subscribe with `since` replays what was missed, up to the usual 5000 events, in full. A client that has no cursor, or gets `gap`, or sees a seq that is not last + 1, reads transcript.events: first load with no since_seq (the newest page), older pages with before_seq, the missed ones with since_seq = the last seq it applied. To start without a race: subscribe first, then read, then apply stream events above the read's last_seq and drop those at or below the last it holds. `gap: true` in the read means the daemon no longer keeps the events between; the client shows the break and goes on from first_seq.",
+  "send": "A message goes in by chat.send with the client's own request_id as its operation id (see x-delivery); the daemon derives the message uuid from it, so the `turn_start` event for a message that begins a turn carries the uuid. A message that joined a running turn has no turn_start. chat.messages has the message under the same operation, with its receipt.",
+  "chat": "chat.transcript is unchanged and stays the chat view's feed: a `text` event is also a reply item and a `permission` also a prompt item (the event's `item` is that item's id, so a view showing both draws it once); tool_use, tool_result, turn_start, turn_end and error have no chat item, and chat.transcript has still no tool item. The task_event and session items exist only in chat.transcript. A view that renders the transcript uses this stream and ignores chat.transcript's reply and prompt items for the same agent.",
+  "not_in_v1": "Partial text deltas, thinking blocks, images, and the edit diff of a tool. A tool's input is whatever the model sent."
+ },
+ "x-delivery": {
+  "what": "How a message reaches a structured agent, and what the composer shows. One path serves a person, an agent, the daemon's own notices and a task; the apps use it through chat.send.",
+  "operation": "The caller's request_id is the operation id. The daemon derives the message uuid from it, records the operation before writing, and answers a repeat with the recorded operation without writing again. A client makes a new request_id for each message it means to send and keeps it across retries of that one message.",
+  "receipt": "Receipt.state: queued (held behind a running turn), sent (written to the CLI), confirmed (the CLI echoed the uuid), unknown (see crash rule). The order is queued, sent, confirmed; unknown follows sent. `accepted` is never `delivered`: a caller that needs delivery waits for confirmed, with its own deadline. There is no `published` state: a message that joins a running turn has no turn_start, so `seq` on the receipt is optional and best effort.",
+  "repeat": "The same request_id and params returns {accepted, replayed: true, request, receipt} with the receipt as it is now, so a retry after a lost reply learns whether the message was echoed. The same request_id with other params is bad_request. This is the one write whose replay is not the first reply frozen.",
+  "delivery": "chat.send `delivery`: queue (default) or now. Queue while a turn runs is held by the daemon, which persists it, and is written when the CLI reports the turn over. Now is written at once and joins the running turn. With nothing running both are written at once and the receipt is sent.",
+  "crash": "If the daemon or the CLI ends with an operation sent and not confirmed, the daemon does not write it again: the operation is unknown, the sender is told (the chat event), and it stays unknown. A queued operation survives and is written after the restart. A person who sees unknown may chat.send the text again under a NEW request_id (their call: the CLI may have run it); chat.cancel keeps its meaning for a delivered message. Nothing else changes an unknown operation.",
+  "queued": "chat.send_now writes a queued operation now, with priority now (receipt sent). chat.cancel withdraws it without confirm. Both are refused (gate state) for any other receipt; there is no chat.withdraw.",
+  "view": "ChatMessage.receipt carries the receipt, and landing follows it: queued is queued, sent and unknown are typed (sending_reason says unknown), confirmed is delivered. Each change sends the usual chat.message event. A terminal agent's message has no receipt.",
+  "terminal": "An agent whose AgentView.structured is not true accepts `delivery` and ignores it, and its result and messages have no receipt."
+ },
+ "x-structured-controls": {
+  "what": "How the apps drive and watch an agent that AgentView.structured marks. It has no terminal: everything below is a chat, session or prompt call.",
+  "watch": "transcript.events and the transcript topic show what it did; chat.transcript and chat.messages draw the conversation and each message's receipt. Both stay readable while its session is closed.",
+  "detail": "agent.get: terminal null, session_open true while its session is live, input_holders [].",
+  "controls": "session.start, wake, restart, park, stop (exit and close are the same; kill is for a person) and interrupt (refused, gate state, when no turn runs); prompt.answer takes allow or deny; chat.send, chat.send_now and chat.cancel as in Delivery.",
+  "never": "A client does not send session.input, session.keys, session.type, input.take, input.release or terminal.attach for a structured agent, and shows no terminal tab, holder, key strip or Take control. The Go daemon does not serve the first five at all; a daemon that does refuses a structured agent (gate unsupported). terminal.attach with agent is not_found (terminal): it has no terminal."
+ },
+ "x-attachments": {
+  "what": "Images a person attaches to a chat message, a task's brief, a memo or a note: one path for all of them, and one mechanism for every agent, structured or terminal: the file is stored on the daemon's machine and the agent is told its path, which it reads with its own file tool.",
+  "flow": "attachment.put sends the file in chunks and ends with the Attachment (an id). A text names it as `![caption](attachment:ID)` (texts); chat.send may also list up to 6 ids in `attachments`. A message's images are those its body names, in order, then the listed ids it does not name, each once, at most 6 in all. The message is delivered like any other, with one line per image added after the body, in that order: `[image N: /absolute/path.png (image/png, 184 KB)]`. ChatMessage.attachments and turn_start.attachments list every image of the message for a client to draw, and ChatMessage.parts cuts the body at its images; the body the client stored stays as typed (the path lines are added at delivery only), so a client that shows an agent's echo of a user turn may drop lines of that shape.",
+  "texts": "A text names an image with Markdown image syntax and the attachment: scheme, `![caption](attachment:ID)`, in chat.send and say `body`, inbox.reply `text`, task.new and task.edit `body`, task.memo.add and task.memo.edit `text`, and task.handoff `note`. The text is stored as written; only that exact form is a reference, anywhere in the text, anything else is plain text: a client draws the rest as Markdown. At most 6 per text. The write checks each image it names in its own transaction: a malformed id or an upload not yet finished is bad_request (the field, a reason naming the id); an image never put or no longer kept is not_found, what attachment; more than 6 is bad_request. chat.send's `attachments` are checked the same way, with field attachments. An edit that keeps a reference the text already had is never refused for it, even when the image is gone. A write that names an image claims it, as a message does; an image a task names (its brief, a memo or a handoff note) is not removed while that task is open, and is kept 30 days after the last such task is done or discarded. The id is the daemon's, not a device's: one device may upload it and another write the text that names it. task.get cuts each task text at its references so a client need not parse it: TaskDetail.body_parts, Memo.parts and a timeline row's parts; chat reads and request.read do the same for a message in `parts`. Each is a list of TextPart and ImagePart; an image no longer kept is a part with gone: true and only its id. Wherever the daemon types a message, a task's brief, a memo or a note to an agent, it adds the path lines after the text, the message's own images first, then those its task's memos name, numbered on; an agent's reads carry the path in each ImagePart, so hl task show and hl read print the same lines.",
+  "limits": "Types: PNG, JPEG, GIF, WebP, checked by the file's first bytes, not by the mime the client says (a mismatch is bad_request, field data). SVG and everything else is refused. At most 10 MiB per image and 6 per message; chunks of at most 512 KiB of file (a 700 KiB base64 string) so a frame stays under the 1 MiB line. More than 20 unsent uploads open at once, or more than 100 MiB unsent, is refused, gate limit.",
+  "storage": "The daemon's attachments folder under its home (mode 0700; files 0600, owner the daemon's user), one file per image named by its id and the extension of its type: the name the client gave is never part of the path. An upload not finished within 1 hour is dropped with its partial file; a finished image no message names is dropped after 24 hours; one a message names is kept 30 days after the last message naming it, and one a task names as texts says; then it is removed: attachment.get for it is not_found and the client shows the name without the picture.",
+  "reach": "The daemon makes the folder readable by the agent without a prompt (a session setting that allows reads of that folder), so an agent in any worktree can Read the path. A client never sees the path.",
+  "roles": "member and founder may put and get, and name any kept image in a text; an agent may not put or get (refused, gate role) in v1, and names only an image a task's text or a message already names or was sent with (else refused, gate role), so it can pass on a picture it was shown.",
+  "memo-files": "task.memo.add may also carry files by path (files): images and Markdown, read by the daemon, kept in the same store and linked to the memo, never named in its text. task.get and task.memo.list list them in Memo.files, each read with attachment.get (a Markdown file is served whole, never as a thumbnail). A memo's files are kept like the images its task names: while the task is open, then 30 days after it ends; deleting the memo unlinks them, and they go 30 days after the memo was added. An agent told of the memo reads one line per file after its text: `[file N: /absolute/path.md (text/markdown, 2 KB)]`."
+ },
+ "components": {
+  "schemas": {
+   "Timestamp": {
+    "type": "string",
+    "format": "date-time",
+    "description": "UTC, RFC 3339."
+   },
+   "AgentName": {
+    "type": "string",
+    "description": "An agent's name, as hl team lists it."
+   },
+   "Role": {
+    "type": "string",
+    "enum": [
+     "anonymous",
+     "agent",
+     "member",
+     "founder"
+    ],
+    "description": "Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too."
+   },
+   "Topic": {
+    "type": "string",
+    "enum": [
+     "status",
+     "accounts",
+     "agents",
+     "inbox",
+     "tasks",
+     "notifications",
+     "operations",
+     "chat",
+     "devices",
+     "hr",
+     "transcript",
+     "prefs",
+     "requests"
+    ],
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. requests (member, which includes the founder): the founder's requests (RequestRow), so a Requests page is live."
+   },
+   "Caller": {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "person",
+       "device",
+       "agent",
+       "anonymous"
+      ]
+     },
+     "name": {
+      "type": "string",
+      "description": "The user, the device's name, or the agent's name."
+     },
+     "device": {
+      "type": "string",
+      "description": "Device id, when kind is device."
+     }
+    },
+    "required": [
+     "kind",
+     "name"
+    ]
+   },
+   "Actor": {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "user",
+       "device",
+       "agent",
+       "daemon"
+      ]
+     },
+     "name": {
+      "type": "string"
+     },
+     "device": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "kind",
+     "name"
+    ],
+    "description": "Who did a write; recorded on its event."
+   },
+   "Accepted": {
+    "type": "object",
+    "properties": {
+     "accepted": {
+      "const": true
+     },
+     "said": {
+      "type": "string",
+      "description": "One sentence for a person, the legacy `said`."
+     },
+     "replayed": {
+      "type": "boolean",
+      "description": "True when this is the stored reply to a retried request_id; the action was not repeated."
+     }
+    },
+    "required": [
+     "accepted",
+     "said"
+    ],
+    "additionalProperties": true,
+    "description": "Every write's result. A refusal is the `refused` error, never an accepted:false result."
+   },
+   "RefusalData": {
+    "type": "object",
+    "properties": {
+     "code": {
+      "const": "refused"
+     },
+     "reason": {
+      "type": "string",
+      "description": "The gate's own sentence."
+     },
+     "gate": {
+      "type": "string",
+      "description": "Stable id of the gate that refused; see x-gates."
+     },
+     "hint": {
+      "type": "string",
+      "description": "The command or step that fixes it, when there is one."
+     },
+     "proposal": {
+      "$ref": "#/components/schemas/Proposal",
+      "description": "With gates proposal_changed and proposal_settled: the proposal as it is now."
+     },
+     "plan": {
+      "type": "string",
+      "description": "With gate confirm: what the call would do and who is told."
+     },
+     "task": {
+      "type": "integer",
+      "description": "With gate duplicate_title: the open task the new one repeats."
+     },
+     "children": {
+      "type": "array",
+      "description": "With gate open_children: the task's open child tasks.",
+      "items": {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        },
+        "state": {
+         "type": "string"
+        },
+        "assignee": {
+         "type": "string"
+        },
+        "title": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "task",
+        "state",
+        "assignee",
+        "title"
+       ]
+      }
+     }
+    },
+    "required": [
+     "code",
+     "reason"
+    ]
+   },
+   "Duration": {
+    "type": "string",
+    "description": "Like 2h, 30m, 1d."
+   },
+   "InputHolder": {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "daemon",
+       "person",
+       "device"
+      ]
+     },
+     "name": {
+      "type": "string",
+      "description": "`daemon`, or the person or device."
+     },
+     "since": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "kind",
+     "name",
+     "since"
+    ]
+   },
+   "PromptOption": {
+    "type": "object",
+    "properties": {
+     "key": {
+      "type": "string",
+      "description": "What prompt.answer takes as `choice`."
+     },
+     "label": {
+      "type": "string"
+     },
+     "answer": {
+      "type": "string",
+      "enum": [
+       "yes",
+       "no",
+       "other"
+      ]
+     },
+     "highlighted": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "key",
+     "label"
+    ]
+   },
+   "Prompt": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "description": "Opaque; changes whenever the open prompt changes (the daemon uses the screen block's fingerprint)."
+     },
+     "agent": {
+      "$ref": "#/components/schemas/AgentName"
+     },
+     "kind": {
+      "type": "string",
+      "description": "permission, question, dialog or exit_confirm today; open set. A dialog is `dialog` unless its screen is a known one (contract/prompts/)."
+     },
+     "tool": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "The tool asking, when the screen's title names a known one or the hook record does; else null."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "command": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "The command or action it wants to run, as the screen shows it; null when the screen states none."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "reason": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "Why it asks, when the screen says; else null, never inferred."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "lines": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "The dialog's panel as it is on screen, one string per line."
+     },
+     "options": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/PromptOption"
+      },
+      "description": "The choices, parsed from the dialog. Empty until the session-control task fills it; a client falls back to lines."
+     },
+     "since": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "When the daemon first saw this prompt open."
+     },
+     "multi": {
+      "type": "boolean",
+      "description": "Several options may be picked, then submitted: prompt.answer takes `choice` as an array of PromptOption.key. Absent means false, as for every other prompt, where an array is bad_request."
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "hook"
+      ],
+      "description": "hook: asked through permission.ask, answered allow or deny with no terminal typed into. Absent for a prompt read from the agent's screen."
+     }
+    },
+    "required": [
+     "id",
+     "agent",
+     "kind",
+     "lines",
+     "options",
+     "since"
+    ]
+   },
+   "Status": {
+    "type": "object",
+    "description": "What an agent or task is doing and why (x-status).",
+    "properties": {
+     "state": {
+      "type": "string",
+      "description": "One of x-status states."
+     },
+     "reason": {
+      "type": "string",
+      "description": "One of x-status reasons."
+     },
+     "text": {
+      "type": "string",
+      "description": "The line every view shows for it, as it is."
+     },
+     "until": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "When it ends by itself (a clock, a wall's reset); null when nothing says."
+     },
+     "since": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Since when it has been so; null when not known."
+     },
+     "tasks": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "description": "The tasks it waits on, for reason task; empty otherwise."
+     }
+    },
+    "required": [
+     "state",
+     "reason",
+     "text",
+     "until",
+     "since",
+     "tasks"
+    ]
+   },
+   "Event": {
+    "type": "object",
+    "properties": {
+     "cursor": {
+      "type": "integer",
+      "description": "Opaque, increasing integer: the daemon's own stream position, not the id of any other table's row. A client keeps the newest one it saw and resumes from it."
+     },
+     "topic": {
+      "$ref": "#/components/schemas/Topic"
+     },
+     "type": {
+      "type": "string",
+      "description": "See x-topics for each topic's types."
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "actor": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Actor"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "agent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "title": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "target": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "screen": {
+          "type": "string"
+         },
+         "id": {
+          "type": "string",
+          "description": "Agent name, task or item id."
+         }
+        },
+        "required": [
+         "screen",
+         "id"
+        ],
+        "description": "Deep link."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "data": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    },
+    "required": [
+     "cursor",
+     "topic",
+     "type",
+     "at",
+     "actor",
+     "agent",
+     "title",
+     "target",
+     "data"
+    ]
+   },
+   "DaemonStatus": {
+    "type": "object",
+    "properties": {
+     "alive": {
+      "type": "boolean"
+     },
+     "version": {
+      "type": "string",
+      "description": "The loaded build's identity: its git sha, or <version>+<sha>[-dirty] for a release build."
+     },
+     "protocol": {
+      "type": "integer"
+     },
+     "schema": {
+      "type": "integer"
+     },
+     "started_at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "terminal_host": {
+      "type": "object",
+      "properties": {
+       "name": {
+        "type": "string"
+       },
+       "health": {
+        "type": "string",
+        "enum": [
+         "ok",
+         "degraded",
+         "down"
+        ]
+       },
+       "detail": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "name",
+       "health"
+      ]
+     },
+     "agents": {
+      "type": "object",
+      "properties": {
+       "total": {
+        "type": "integer"
+       },
+       "by_state": {
+        "type": "object",
+        "additionalProperties": {
+         "type": "integer"
+        }
+       }
+      },
+      "required": [
+       "total",
+       "by_state"
+      ]
+     },
+     "inbox": {
+      "type": "object",
+      "properties": {
+       "unread": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "unread"
+      ]
+     },
+     "resources": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Resources"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Null until the first measure, and on a daemon that does not measure."
+     }
+    },
+    "required": [
+     "alive",
+     "version",
+     "protocol",
+     "schema",
+     "started_at",
+     "terminal_host",
+     "agents",
+     "inbox"
+    ]
+   },
+   "Repo": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "path": {
+      "type": "string"
+     },
+     "default_branch": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "path",
+     "default_branch"
+    ]
+   },
+   "Operation": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "kind": {
+      "type": "string"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "running",
+       "done",
+       "failed"
+      ]
+     },
+     "step": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "steps_done": {
+      "type": "integer"
+     },
+     "steps_total": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "message": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "result": {
+      "oneOf": [
+       {
+        "type": "object",
+        "additionalProperties": true
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "agent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "id",
+     "kind",
+     "state",
+     "step",
+     "steps_done",
+     "steps_total",
+     "message",
+     "result",
+     "agent"
+    ]
+   },
+   "Settings": {
+    "type": "object",
+    "properties": {
+     "timings": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "number"
+      }
+     },
+     "terminal_host": {
+      "type": "object",
+      "properties": {
+       "choice": {
+        "type": "string"
+       },
+       "available": {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       },
+       "health": {
+        "type": "string",
+        "enum": [
+         "ok",
+         "degraded",
+         "down"
+        ]
+       }
+      },
+      "required": [
+       "choice",
+       "available",
+       "health"
+      ]
+     },
+     "listener": {
+      "$ref": "#/components/schemas/Listener"
+     },
+     "trust_folders": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "account": {
+         "type": "string"
+        },
+        "agent": {
+         "oneOf": [
+          {
+           "$ref": "#/components/schemas/AgentName"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        "path": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "account",
+        "agent",
+        "path"
+       ]
+      }
+     },
+     "hooks": {
+      "type": "object",
+      "properties": {
+       "installed": {
+        "type": "boolean"
+       },
+       "accounts": {
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "account": {
+           "type": "string"
+          },
+          "installed": {
+           "type": "boolean"
+          }
+         },
+         "required": [
+          "account",
+          "installed"
+         ]
+        }
+       }
+      },
+      "required": [
+       "installed",
+       "accounts"
+      ]
+     },
+     "values": {
+      "$ref": "#/components/schemas/SettingsValues"
+     },
+     "overrides": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "With settings.get `agent`: only that agent's own values for the Per agent keys."
+     }
+    },
+    "required": [
+     "timings",
+     "terminal_host",
+     "listener",
+     "trust_folders",
+     "hooks",
+     "values"
+    ]
+   },
+   "Row": {
+    "type": "object",
+    "properties": {
+     "text": {
+      "type": "string"
+     },
+     "spans": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "from": {
+         "type": "integer",
+         "description": "First character, counted in Unicode code points of `text`, 0-based."
+        },
+        "to": {
+         "type": "integer",
+         "description": "One past the last, so the run is [from, to). May go past the end of `text` for blank cells with a background; see x-terminal-styled `spans` for how those count."
+        },
+        "style": {
+         "$ref": "#/components/schemas/SpanStyle"
+        }
+       },
+       "required": [
+        "from",
+        "to",
+        "style"
+       ]
+      },
+      "description": "Set only in format `styled`, never in `text` (those rows have none). Sorted by `from`, not overlapping, none empty, only runs whose style is not the default; what no span covers is drawn in the default style. `text` is the same string `text` would send, so a client that ignores spans loses nothing."
+     }
+    },
+    "required": [
+     "text"
+    ],
+    "description": "One terminal row: plain text, no escapes; in format `styled` also its style runs."
+   },
+   "Cursor": {
+    "description": "Text and styled attaches; null when hidden or above the frame. `x` is in code points of the row's `text`, like `Row.spans`; `y` is in the frame's rows and may be len(lines) or more. Rules: `x-terminal-styled`, Cursor.",
+    "oneOf": [
+     {
+      "type": "object",
+      "properties": {
+       "x": {
+        "type": "integer"
+       },
+       "y": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "x",
+       "y"
+      ]
+     },
+     {
+      "type": "null"
+     }
+    ]
+   },
+   "Capabilities": {
+    "type": "object",
+    "properties": {
+     "chat": {
+      "type": "boolean"
+     },
+     "review": {
+      "type": "boolean",
+      "description": "Worktree review beyond worktree.diff; false in v1, the UI hides the Review tab."
+     },
+     "terminal_format": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "enum": [
+        "text",
+        "bytes",
+        "styled"
+       ]
+      },
+      "description": "Formats the daemon serves on at least one host."
+     },
+     "terminal_hosts": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "description": "Each terminal host the daemon has and the formats it serves there, e.g. {tmux: [text, bytes]}. Absent: text on the one host it has."
+     },
+     "transcript": {
+      "type": "boolean",
+      "description": "The daemon serves the transcript topic and transcript.events. Absent means false: a client then watches the terminal."
+     },
+     "founder_typed": {
+      "type": "boolean",
+      "description": "The founder's own messages to a terminal agent are typed into its terminal (unless its agent.yaml turns peer_inbox off), so hl launch tells the agent so. Absent means false."
+     }
+    },
+    "required": [
+     "chat",
+     "review",
+     "terminal_format"
+    ]
+   },
+   "Listener": {
+    "type": "object",
+    "properties": {
+     "enabled": {
+      "type": "boolean"
+     },
+     "bind": {
+      "type": "string",
+      "description": "loopback, lan, tailscale or an address."
+     },
+     "encryption": {
+      "type": "string",
+      "enum": [
+       "tls",
+       "none"
+      ],
+      "description": "Always an encrypted WebSocket with a certificate; `none` only on loopback. A Tailscale address is just a bind address."
+     },
+     "fingerprint": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "enabled",
+     "bind",
+     "encryption",
+     "fingerprint"
+    ]
+   },
+   "RequestId": {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 128,
+    "description": "Chosen by the caller; unique per intended action."
+   },
+   "SettingsValues": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "active_cap": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 2,
+      "description": "Default cap: most agents mid-turn at once on an account with no cap of its own."
+     },
+     "park_timeout_s": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 600,
+      "description": "Idle close, seconds; 0 never. The UI shows whole minutes. Per agent with `agent`."
+     },
+     "handoff_note": {
+      "type": "boolean",
+      "default": true,
+      "description": "Agents write a note for the next session before a close or move."
+     },
+     "ignore_cache_expiry": {
+      "type": "boolean",
+      "default": false,
+      "description": "Resume the old session even after its cache went cold. Per agent with `agent`."
+     },
+     "dev_mode": {
+      "type": "boolean",
+      "default": false,
+      "description": "The daemon restarts itself when its own code changed (hl dev-mode)."
+     },
+     "bg_notice_s": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Seconds of nothing shown before an idle agent with background work is told to finish or stop it; default follows park_timeout_s. Per agent with `agent`."
+     },
+     "bg_grace_s": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 300,
+      "description": "Seconds after that notice before the work is stopped. Per agent."
+     },
+     "bg_check_s": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 600,
+      "description": "How often an agent with background work is asked which to stop. Per agent."
+     },
+     "notice_digest_s": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 300,
+      "description": "Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent."
+     },
+     "token_prices": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "number",
+       "exclusiveMinimum": 0
+      },
+      "default": {},
+      "description": "Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored."
+     },
+     "input_hold_idle_s": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 600,
+      "description": "NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice)."
+     },
+     "handoff_prompt": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent."
+     },
+     "push_prompt_asked": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
+     },
+     "push_task_done": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
+     },
+     "push_stall": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
+     },
+     "push_account_out": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this."
+     },
+     "host_active_cap": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Most agents mid-turn at once on this machine, over every account; 0 is no limit. Over it the daemon starts no new work (status reason load)."
+     },
+     "load_per_core_pct": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 150,
+      "description": "Most 1-minute load per core, in percent (150 is 1.5 per core); 0 is off. Over it the daemon starts no new work."
+     },
+     "ram_free_min_pct": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 10,
+      "description": "Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work."
+     },
+     "pacing": {
+      "type": "boolean",
+      "default": true,
+      "description": "Hold each account to its weekly pace line (Account.pace): an account ahead of the line starts fewer turns, and one ahead by more than pace_burst_pct starts none (status reason pace) until the line catches up or another account has room. A turn a person starts is never held, and a running turn is never stopped. Off: only the windows' walls hold work."
+     },
+     "pace_target_pct": {
+      "type": "integer",
+      "minimum": 50,
+      "maximum": 100,
+      "default": 98,
+      "description": "Where each account's pace line ends: its weekly usage, in percent, at the end of its week (its weekly reset, or its subscription end when that comes first). Under 100 because a reading lags by minutes."
+     },
+     "pace_burst_pct": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 50,
+      "default": 10,
+      "description": "How far, in points of the week, an account may run ahead of its pace line. Inside it the account's cap shrinks in step; past it the account starts no new turn."
+     },
+     "heavy_slots": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 2,
+      "description": "How many heavy runs (test and build slots, tools/heavy-slot.sh) may hold a slot at once on this machine. The count is read from the config.yaml of the home the process runs in, and the slots are one lock per machine: two homes on one machine share it, so set the same number in both. HANDLINE_HEAVY_SLOTS in the environment overrides it. A change reaches the next run without a restart."
+     },
+     "keep_awake": {
+      "type": "string",
+      "enum": [
+       "off",
+       "on",
+       "working"
+      ],
+      "default": "off",
+      "description": "Keep the machine from idle sleep: off; on (held while the daemon runs); working (held while an agent is mid-turn, released when the last one stops). The daemon holds macOS caffeinate -i; closing the lid still sleeps. Applied at the next tick, without a restart."
+     }
+    },
+    "description": "Every global setting by its config.yaml name, with its default; every one is the founder's to set. Per-account keys (label, cap, usage recovery, cycle) are account.set; per-agent keys are agent.set and schedule.*; a key marked Per agent also takes `agent` in settings.set."
+   },
+   "SettingsChanges": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "active_cap": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Default cap: most agents mid-turn at once on an account with no cap of its own. null removes the key (back to the default)."
+     },
+     "park_timeout_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Idle close, seconds; 0 never. The UI shows whole minutes. Per agent with `agent`. null removes the key (back to the default)."
+     },
+     "handoff_note": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Agents write a note for the next session before a close or move. null removes the key (back to the default)."
+     },
+     "ignore_cache_expiry": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Resume the old session even after its cache went cold. Per agent with `agent`. null removes the key (back to the default)."
+     },
+     "dev_mode": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The daemon restarts itself when its own code changed (hl dev-mode). null removes the key (back to the default)."
+     },
+     "bg_notice_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Seconds of nothing shown before an idle agent with background work is told to finish or stop it; default follows park_timeout_s. Per agent with `agent`. null removes the key (back to the default)."
+     },
+     "bg_grace_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Seconds after that notice before the work is stopped. Per agent. null removes the key (back to the default)."
+     },
+     "bg_check_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "How often an agent with background work is asked which to stop. Per agent. null removes the key (back to the default)."
+     },
+     "notice_digest_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Seconds after the first waiting notice before the agent is typed one digest, at its prompt. Per agent. null removes the key (back to the default)."
+     },
+     "token_prices": {
+      "oneOf": [
+       {
+        "type": "object",
+        "additionalProperties": {
+         "type": "number",
+         "exclusiveMinimum": 0
+        }
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Input price per million tokens by model-name pattern, laid over the built-in table; an entry that is not a positive number is ignored. null removes the key (back to the default)."
+     },
+     "input_hold_idle_s": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "NEW, no code today: seconds a person or device may hold a terminal's input without typing before the daemon takes it back (see terminal `holder` notice). null removes the key (back to the default)."
+     },
+     "handoff_prompt": {
+      "oneOf": [
+       {
+        "type": "string",
+        "maxLength": 4000
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The prompt typed at an agent to write its handoff note, one line; {path} is the note's file and {max} its size limit (3000). Without {path} the path is added on a line of its own. settings.get shows the built-in prompt when none is set. Per agent. An empty string is the built-in prompt; null removes the key (back to the default)."
+     },
+     "push_prompt_asked": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `prompt_asked` event (an agent asks (a permission or a question)) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
+     },
+     "push_task_done": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `task_done` event (a task is done) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
+     },
+     "push_stall": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `stall` event (an agent stalls) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
+     },
+     "push_account_out": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whether a notifications `account_out` event (an account is out) raises a notice on the founder's devices. The event is on the topic and in events.feed either way; the shell that raises notices reads this. null removes the key (back to the default)."
+     },
+     "host_active_cap": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Most agents mid-turn at once on this machine, over every account; 0 is no limit. Over it the daemon starts no new work (status reason load). null removes the key (back to the default)."
+     },
+     "load_per_core_pct": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Most 1-minute load per core, in percent (150 is 1.5 per core); 0 is off. Over it the daemon starts no new work. null removes the key (back to the default)."
+     },
+     "ram_free_min_pct": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. null removes the key (back to the default)."
+     },
+     "pacing": {
+      "oneOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Hold each account to its weekly pace line (Account.pace): an account ahead of the line starts fewer turns, and one ahead by more than pace_burst_pct starts none (status reason pace) until the line catches up or another account has room. A turn a person starts is never held, and a running turn is never stopped. Off: only the windows' walls hold work. null removes the key (back to the default)."
+     },
+     "pace_target_pct": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 50,
+        "maximum": 100
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Where each account's pace line ends: its weekly usage, in percent, at the end of its week (its weekly reset, or its subscription end when that comes first). Under 100 because a reading lags by minutes. null removes the key (back to the default)."
+     },
+     "pace_burst_pct": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 50
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "How far, in points of the week, an account may run ahead of its pace line. Inside it the account's cap shrinks in step; past it the account starts no new turn. null removes the key (back to the default)."
+     },
+     "heavy_slots": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "How many heavy runs (test and build slots, tools/heavy-slot.sh) may hold a slot at once on this machine. The count is read from the config.yaml of the home the process runs in, and the slots are one lock per machine: two homes on one machine share it, so set the same number in both. HANDLINE_HEAVY_SLOTS in the environment overrides it. A change reaches the next run without a restart. null removes the key (back to the default)."
+     },
+     "keep_awake": {
+      "oneOf": [
+       {
+        "type": "string",
+        "enum": [
+         "off",
+         "on",
+         "working"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Keep the machine from idle sleep: off; on (held while the daemon runs); working (held while an agent is mid-turn, released when the last one stops). The daemon holds macOS caffeinate -i; closing the lid still sleeps. Applied at the next tick, without a restart. null removes the key (back to the default)."
+     }
+    },
+    "description": "settings.set's changes: any of SettingsValues' keys; null removes one."
+   },
+   "MethodInfo": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "since": {
+      "type": "integer"
+     },
+     "role": {
+      "$ref": "#/components/schemas/Role"
+     },
+     "allowed": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "name",
+     "since",
+     "role",
+     "allowed"
+    ],
+    "description": "One method as a daemon lists it: its role and whether this caller may call it."
+   },
+   "CellColor": {
+    "oneOf": [
+     {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+     },
+     {
+      "type": "string",
+      "pattern": "^#[0-9a-f]{6}$"
+     }
+    ],
+    "description": "An xterm palette index (0-15 are the client's theme ANSI colours, 16-255 the fixed cube and greys) or a true colour as lower-case `#rrggbb`. A colour the cell does not have (the default) is left out, never sent as a number."
+   },
+   "SpanStyle": {
+    "type": "object",
+    "properties": {
+     "fg": {
+      "$ref": "#/components/schemas/CellColor"
+     },
+     "bg": {
+      "$ref": "#/components/schemas/CellColor"
+     },
+     "bold": {
+      "type": "boolean"
+     },
+     "dim": {
+      "type": "boolean"
+     },
+     "italic": {
+      "type": "boolean"
+     },
+     "underline": {
+      "type": "boolean"
+     },
+     "inverse": {
+      "type": "boolean"
+     },
+     "strike": {
+      "type": "boolean"
+     }
+    },
+    "description": "Only what differs from the default cell: a flag is sent as true or left out, a colour is left out for the default. `inverse` is sent as the flag, not applied: the client swaps the foreground and background it draws, so default colours swap too. A client ignores a key it does not know."
+   },
+   "AttachmentId": {
+    "type": "string",
+    "pattern": "^[0-9a-f]{16}$",
+    "description": "Chosen by the daemon when an upload completes."
+   },
+   "DebugTerminalPane": {
+    "type": "object",
+    "description": "One pane of the terminal host, with what the daemon knows of it. A field the daemon does not know is null.",
+    "properties": {
+     "session": {
+      "type": "string"
+     },
+     "window": {
+      "type": "string",
+      "description": "The window's index in its session."
+     },
+     "window_name": {
+      "type": "string"
+     },
+     "terminal": {
+      "type": "string",
+      "description": "The pane's handle, as terminal.attach takes it."
+     },
+     "pid": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The pane's own process (its shell)."
+     },
+     "command": {
+      "type": "string",
+      "description": "What the host says runs in the pane now."
+     },
+     "path": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "dead": {
+      "type": "boolean"
+     },
+     "last_activity": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "idle_s": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Seconds since the pane's window last drew output."
+     },
+     "process": {
+      "type": "string",
+      "enum": [
+       "agent",
+       "shell",
+       "other",
+       "unknown"
+      ],
+      "description": "agent: an agent CLI (claude, codex, opencode) runs at or under the pane's process; shell: none does and the pane shows a shell; unknown: the process table could not be read and the pane's command says neither."
+     },
+     "agent_process": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "pid": {
+          "type": "integer"
+         },
+         "name": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "pid",
+         "name"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "agent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The agent whose current terminal this pane is."
+     },
+     "orphan": {
+      "type": "boolean",
+      "description": "No agent has this pane as its terminal."
+     },
+     "closed": {
+      "type": "boolean",
+      "description": "The agent is closed; it keeps the handle of the pane it had."
+     },
+     "recorded_agent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "For an orphan: the agent the daemon opened the pane for."
+     },
+     "state": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "account": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "session_id": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "worktree": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "cache_until": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "When the agent's prompt cache lapses, from its view."
+     },
+     "orca_terminal": {
+      "type": "null",
+      "description": "Always null: the daemon keeps no link from a tmux pane to an Orca terminal."
+     }
+    },
+    "required": [
+     "session",
+     "window",
+     "window_name",
+     "terminal",
+     "pid",
+     "command",
+     "path",
+     "dead",
+     "last_activity",
+     "idle_s",
+     "process",
+     "agent_process",
+     "agent",
+     "orphan",
+     "closed",
+     "recorded_agent",
+     "state",
+     "account",
+     "session_id",
+     "worktree",
+     "cache_until",
+     "orca_terminal"
+    ]
+   },
+   "TextPart": {
+    "type": "object",
+    "description": "Words of a task's text between its image references.",
+    "properties": {
+     "text": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "text"
+    ]
+   },
+   "ImagePart": {
+    "type": "object",
+    "description": "An image a task's text names, where it names it.",
+    "properties": {
+     "image": {
+      "type": "object",
+      "description": "The Attachment; only `id` when the image is gone.",
+      "properties": {
+       "id": {
+        "$ref": "#/components/schemas/AttachmentId"
+       },
+       "name": {
+        "type": "string"
+       },
+       "mime": {
+        "type": "string",
+        "enum": [
+         "image/png",
+         "image/jpeg",
+         "image/gif",
+         "image/webp"
+        ]
+       },
+       "bytes": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "id"
+      ]
+     },
+     "caption": {
+      "type": "string",
+      "description": "The words in the reference's brackets; what a client shows when it cannot draw the image."
+     },
+     "gone": {
+      "type": "boolean",
+      "description": "true when the image is no longer kept: the client shows the caption without a picture."
+     },
+     "path": {
+      "type": "string",
+      "description": "Where the image is stored. Only for an agent caller, which reads it by path; a member or founder client never gets it."
+     }
+    },
+    "required": [
+     "image",
+     "caption"
+    ]
+   },
+   "RequestRef": {
+    "type": "string",
+    "description": "The request's ref: 12 lowercase hex characters, unique and not guessable from another request's. The integer id stays the request's key everywhere else."
+   },
+   "ConnectionInfo": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "served_by": {
+      "type": "string",
+      "enum": [
+       "daemon",
+       "gateway"
+      ],
+      "description": "Which process answered. A daemon behind a gateway has no listener of its own; ask the gateway's local socket for the gateway's."
+     },
+     "listener": {
+      "oneOf": [
+       {
+        "type": "null"
+       },
+       {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+         "address": {
+          "type": "string",
+          "description": "The host:port a pairing names (-advertise, else where the listener binds)."
+         },
+         "encryption": {
+          "type": "string",
+          "enum": [
+           "tls",
+           "none"
+          ],
+          "description": "none is Tailscale mode: plain ws on a Tailscale or loopback address."
+         },
+         "fingerprint": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "description": "sha256 of the certificate presented; null in Tailscale mode."
+         },
+         "tailscale_host": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "description": "The address's host when it is a *.ts.net name, else null."
+         }
+        },
+        "required": [
+         "address",
+         "encryption",
+         "fingerprint",
+         "tailscale_host"
+        ]
+       }
+      ],
+      "description": "The network listener of this process; null when it has none."
+     },
+     "heavy_slots": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+       "slots": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "HANDLINE_HEAVY_SLOTS as this process sees it, default 2."
+       },
+       "dir": {
+        "oneOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "description": "Where the slot locks are kept: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots."
+       }
+      },
+      "required": [
+       "slots",
+       "dir"
+      ]
+     },
+     "dev_mode": {
+      "type": "boolean",
+      "description": "SettingsValues.dev_mode."
+     }
+    },
+    "required": [
+     "served_by",
+     "listener",
+     "heavy_slots",
+     "dev_mode"
+    ],
+    "description": "How this process is reached, read only."
+   },
+   "RequestName": {
+    "oneOf": [
+     {
+      "type": "integer"
+     },
+     {
+      "type": "string",
+      "pattern": "^(msg_)?[0-9a-fA-F]{6,12}$"
+     }
+    ],
+    "description": "A request named by its integer id, or by its ref: msg_ and the 12 hex characters, or the hash alone, or a prefix of at least 6 of them that begins only one request the caller may read (an ambiguous one is bad_request). A request the caller may not read is not_found, the same answer as one that does not exist."
+   },
+   "Resources": {
+    "type": "object",
+    "description": "What the machine and each agent use, measured every 15 s: one ps read for every agent. A figure the daemon could not read is 0.",
+    "properties": {
+     "at": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "When it was measured."
+     },
+     "agents": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "object",
+       "properties": {
+        "cpu_pct": {
+         "type": "number",
+         "description": "CPU in percent of one core, summed over the tree (ps %cpu): over 100 on several cores."
+        },
+        "rss_bytes": {
+         "type": "integer",
+         "description": "Resident memory summed over the tree."
+        }
+       },
+       "required": [
+        "cpu_pct",
+        "rss_bytes"
+       ]
+      },
+      "description": "Per agent with a terminal pane: its pane process and every process under it."
+     },
+     "machine": {
+      "type": "object",
+      "properties": {
+       "ram_total_bytes": {
+        "type": "integer"
+       },
+       "ram_used_bytes": {
+        "type": "integer"
+       },
+       "ram_free_bytes": {
+        "type": "integer",
+        "description": "Free for use: macOS free, inactive and speculative pages; Linux MemAvailable."
+       },
+       "load_1m": {
+        "type": "number",
+        "description": "The 1-minute load average; compare with cores."
+       },
+       "cores": {
+        "type": "integer"
+       },
+       "disk_free_bytes": {
+        "type": "integer",
+        "description": "Free space of the volume the daemon home is on."
+       },
+       "disk_total_bytes": {
+        "type": "integer"
+       },
+       "load_per_core": {
+        "type": "number",
+        "description": "load_1m divided by cores; the load limit is compared with this (150 percent is 1.5)."
+       },
+       "ram_free_pct": {
+        "type": "integer",
+        "description": "ram_free_bytes in percent of ram_total_bytes; the free-memory floor is compared with this."
+       }
+      },
+      "required": [
+       "ram_total_bytes",
+       "ram_used_bytes",
+       "ram_free_bytes",
+       "load_1m",
+       "cores",
+       "disk_free_bytes",
+       "disk_total_bytes",
+       "load_per_core",
+       "ram_free_pct"
+      ]
+     },
+     "agents_total": {
+      "type": "object",
+      "properties": {
+       "cpu_pct": {
+        "type": "number",
+        "description": "CPU in percent of one core, summed over every agent's tree."
+       },
+       "rss_bytes": {
+        "type": "integer",
+        "description": "Resident memory summed over every agent's tree."
+       }
+      },
+      "required": [
+       "cpu_pct",
+       "rss_bytes"
+      ],
+      "description": "What all agents with a terminal pane use together."
+     },
+     "start_hold": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Why the daemon starts no new work now (the machine is over a load limit: text names the limit, as the status reason load does), null when starts may go. Level-triggered on the same measure; a machine with no agent mid-turn never holds."
+     }
+    },
+    "required": [
+     "at",
+     "agents",
+     "machine",
+     "agents_total",
+     "start_hold"
+    ]
+   },
+   "NavPrefs": {
+    "type": "object",
+    "description": "How the person's agent list and dock show agents, the same on every device.",
+    "properties": {
+     "pins": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "Pinned agents in the person's order: the dock shows them first and the list on top. No name twice."
+     },
+     "unread_only": {
+      "type": "boolean",
+      "description": "The list shows only agents with something unread or waiting on the person."
+     },
+     "hidden": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "enum": [
+        "needs",
+        "working",
+        "waking",
+        "idle",
+        "sleeping"
+       ]
+      },
+      "description": "State groups the list hides: needs (waiting, blocked), working, waking, idle, sleeping (parked, none)."
+     },
+     "layout": {
+      "type": "string",
+      "enum": [
+       "tree",
+       "flat"
+      ],
+      "description": "tree: team, lead, members by parent. flat: urgency first, then by name."
+     },
+     "collapsed": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "Agents folded in the tree."
+     },
+     "order": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "The person's order for the tree layout: agents under one parent, and the top-level agents, stand in this order; one not listed (a new agent) comes after the listed ones, by name. The flat layout ignores it. No name twice."
+     }
+    },
+    "required": [
+     "pins",
+     "unread_only",
+     "hidden",
+     "layout",
+     "collapsed",
+     "order"
+    ],
+    "additionalProperties": false
+   },
+   "NavPrefsChanges": {
+    "type": "object",
+    "description": "Any keys of NavPrefs; each given key replaces the stored value whole.",
+    "properties": {
+     "pins": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "Pinned agents in the person's order: the dock shows them first and the list on top. No name twice."
+     },
+     "unread_only": {
+      "type": "boolean",
+      "description": "The list shows only agents with something unread or waiting on the person."
+     },
+     "hidden": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "enum": [
+        "needs",
+        "working",
+        "waking",
+        "idle",
+        "sleeping"
+       ]
+      },
+      "description": "State groups the list hides: needs (waiting, blocked), working, waking, idle, sleeping (parked, none)."
+     },
+     "layout": {
+      "type": "string",
+      "enum": [
+       "tree",
+       "flat"
+      ],
+      "description": "tree: team, lead, members by parent. flat: urgency first, then by name."
+     },
+     "collapsed": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "Agents folded in the tree."
+     },
+     "order": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentName"
+      },
+      "description": "The person's order for the tree layout: agents under one parent, and the top-level agents, stand in this order; one not listed (a new agent) comes after the listed ones, by name. The flat layout ignores it. No name twice."
+     }
+    },
+    "additionalProperties": false
+   },
+   "Prefs": {
+    "type": "object",
+    "description": "The person's view preferences, one set for the founder's devices, kept by the daemon. A new daemon serves the defaults: no pins, unread_only false, hidden empty, layout tree, collapsed empty, order empty.",
+    "properties": {
+     "nav": {
+      "$ref": "#/components/schemas/NavPrefs"
+     }
+    },
+    "required": [
+     "nav"
+    ],
+    "additionalProperties": false
+   },
+   "ReadCursor": {
+    "type": "object",
+    "properties": {
+     "cursor": {
+      "type": "integer",
+      "description": "The newest stream cursor when this read began. An event above it may be in the answer already (applying it again changes nothing); none at or below it is missing. A client drops the events at or below it for this answer."
+     }
+    },
+    "required": [
+     "cursor"
+    ]
+   }
+  },
+  "errors": {
+   "not_found": {
+    "code": -32001,
+    "message": "not_found",
+    "data": "Names what was not found."
+   },
+   "refused": {
+    "code": -32002,
+    "message": "refused",
+    "data": "RefusalData"
+   },
+   "stale_prompt": {
+    "code": -32003,
+    "message": "stale_prompt",
+    "data": "{code, current: Prompt|null}; nothing was sent."
+   },
+   "daemon_busy": {
+    "code": -32004,
+    "message": "daemon_busy",
+    "data": "{code, retry_after_ms}"
+   },
+   "bad_request": {
+    "code": -32600,
+    "message": "bad_request",
+    "data": "{code, field?, method?}; also JSON-RPC parse errors (-32700), invalid params (-32602) and an unknown method (-32601, data.method)."
+   },
+   "internal": {
+    "code": -32603,
+    "message": "internal",
+    "data": "{code}"
+   },
+   "daemon_down": {
+    "code": null,
+    "message": "daemon_down",
+    "data": "{code, log_path}; raised by the client library, never sent on the wire."
+   }
+  }
+ },
+ "methods": [
+  {
+   "name": "hello",
+   "summary": "First call on every connection: versions and who the caller is.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "client",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "name/version of the caller."
+     }
+    },
+    {
+     "name": "protocol",
+     "required": true,
+     "schema": {
+      "type": "integer",
+      "description": "The protocol the client will speak."
+     }
+    },
+    {
+     "name": "token",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Device token; network listener only."
+     }
+    },
+    {
+     "name": "key",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The founder key, from the founder's own key file; local socket only. Wrong key: refused, gate `role`."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "protocol": {
+       "type": "integer",
+       "description": "Newest protocol the daemon speaks."
+      },
+      "min_client": {
+       "type": "integer",
+       "description": "Oldest client protocol it still serves."
+      },
+      "daemon": {
+       "type": "string",
+       "description": "The loaded build's identity: its git sha, or <version>+<sha>[-dirty] for a release build."
+      },
+      "schema": {
+       "type": "integer"
+      },
+      "role": {
+       "$ref": "#/components/schemas/Role"
+      },
+      "caller": {
+       "$ref": "#/components/schemas/Caller"
+      },
+      "capabilities": {
+       "$ref": "#/components/schemas/Capabilities"
+      },
+      "transport": {
+       "type": "string",
+       "enum": [
+        "local",
+        "tls"
+       ],
+       "description": "How this connection is protected."
+      },
+      "methods": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/MethodInfo"
+       }
+      }
+     },
+     "required": [
+      "protocol",
+      "min_client",
+      "daemon",
+      "schema",
+      "role",
+      "caller",
+      "capabilities",
+      "transport",
+      "methods"
+     ]
+    }
+   },
+   "x-role": "anonymous",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "A client whose protocol is below min_client gets `refused` (gate `protocol`) with hint `hl service install`. A newer client gets a normal reply and decides itself whether to run. Any other call before hello is bad_request. Role by proof: a matching `key` gives founder; with no key, a peer pid that verifies against a recorded session gives agent; a device token (network listener) gives member; anything else is anonymous and every method but hello is refused until a later hello proves more. On the network listener a hello without a valid `token` is refused, gate `unpaired`, with no data; with one it is member."
+  },
+  {
+   "name": "whoami",
+   "summary": "The viewer, the device, the role and the methods allowed.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "caller": {
+       "$ref": "#/components/schemas/Caller"
+      },
+      "role": {
+       "$ref": "#/components/schemas/Role"
+      },
+      "methods": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/MethodInfo"
+       },
+       "description": "The same list hello gives, with allowed flags for this caller."
+      }
+     },
+     "required": [
+      "caller",
+      "role",
+      "methods"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "subscribe",
+   "summary": "Turn the connection into a stream of `event` notices; replays after `since` first, unless `resume` is latest.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "topics",
+     "required": true,
+     "schema": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Topic"
+      }
+     }
+    },
+    {
+     "name": "since",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "Last cursor seen. Absent: live only. A cursor older than the daemon keeps, or with more than 5000 subscribed events after it, is answered by a `gap` notice (reason retention) instead of a replay; the connection stays open. Up to 5000 events behind, every missed event is replayed in full, in cursor order, before any live one."
+     }
+    },
+    {
+     "name": "resume",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "replay",
+       "latest"
+      ],
+      "description": "replay (the default): what was missed after `since` is sent first, as `since` says. latest: nothing missed is sent, neither a replay nor a gap; the reply's cursor is the newest and only later events follow. A client that resumes at the latest reads again what it shows: each read a stream event keeps current says its `cursor`, and an event at or below it is in that answer already."
+     }
+    },
+    {
+     "name": "agent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName",
+      "description": "Only events of this agent, plus events that carry no agent. Meant for the chat topic."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "cursor": {
+       "type": "integer",
+       "description": "The newest cursor at subscribe time."
+      }
+     },
+     "required": [
+      "cursor"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "description": "topics is a non-empty list of known topics, else -32602 bad_request naming `topics`. Notices start only after this reply is sent. devices is subscribed on its own, by the founder: a topics list naming devices and any other topic is -32602 bad_request naming `topics`, because devices is served by the gateway itself and every other topic by the daemon behind it. A devices subscription is live only: `since` and `agent` are ignored, the reply cursor is 0, its events carry cursor 0, and a client that reconnects reads devices.list again. The transcript topic needs member, as transcript.events does: an agent session that names it is refused, gate role, and nothing is subscribed (the stream holds every agent's tool inputs and results).",
+   "x-gates": [
+    "role"
+   ]
+  },
+  {
+   "name": "unsubscribe",
+   "summary": "Stop some topics; a subscription with no topics left ends. Result {}.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "topics",
+     "required": true,
+     "schema": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Topic"
+      }
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {}
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "Naming devices follows the same rule as subscribe: on its own."
+  },
+  {
+   "name": "daemon.status",
+   "summary": "Status bar: alive, versions, terminal host, agent counts, inbox count.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/DaemonStatus"
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "events.feed",
+   "summary": "Resumable feed of events with their deep-link targets; the polling twin of subscribe.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "since",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "topics",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Topic"
+      }
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "events": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/Event"
+       }
+      },
+      "cursor": {
+       "type": "integer"
+      },
+      "gap": {
+       "type": "boolean",
+       "description": "True when `since` is older than retention; refetch snapshots."
+      }
+     },
+     "required": [
+      "events",
+      "cursor",
+      "gap"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "description": "topics defaults to [notifications]; limit defaults to 50, at most 200. Without `since`: the newest events, oldest first. With `since`: the events after it; if `since` is older than retention the feed starts at the oldest kept event and `gap` is true. cursor is the newest cursor in the reply, or the current newest when there are no events.",
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "operation.get",
+   "summary": "A long-running operation's current state.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "operation",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Operation"
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "debug.terminals",
+   "summary": "Every pane of the terminal host with what the daemon knows of it, for the hidden debug window.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "host": {
+       "type": "string"
+      },
+      "now": {
+       "$ref": "#/components/schemas/Timestamp"
+      },
+      "panes": {
+       "type": "array",
+       "items": {
+        "$ref": "#/components/schemas/DebugTerminalPane"
+       }
+      }
+     },
+     "required": [
+      "host",
+      "now",
+      "panes"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "unsupported",
+    "state"
+   ],
+   "description": "Lists every pane of the daemon's terminal server (tmux), whichever agent has it or none, to find panes kept open past their prompt cache and shells left behind after an agent's session exited. Reads only: the host's pane list, the process table and the daemon's own rows; of the agent's view only cache_until. A host that cannot list its panes is refused, gate unsupported; one that cannot be reached, gate state. Watching a listed pane is terminal.attach by its handle; a pane no agent has takes no input. Callers: the founder and a paired device (member); below that is refused, gate role."
+  },
+  {
+   "name": "prefs.get",
+   "summary": "The person's view preferences: the agent list's pins, filter, layout and folds.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Prefs"
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-callers": [
+    "member",
+    "founder"
+   ],
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ]
+  },
+  {
+   "name": "prefs.set",
+   "summary": "Change the person's view preferences: each key given in changes.nav replaces the stored one.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "changes",
+     "required": true,
+     "schema": {
+      "type": "object",
+      "properties": {
+       "nav": {
+        "$ref": "#/components/schemas/NavPrefsChanges"
+       }
+      },
+      "required": [
+       "nav"
+      ],
+      "additionalProperties": false
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-callers": [
+    "member",
+    "founder"
+   ],
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "description": "A pin, a fold or an order entry naming an agent the daemon does not know, or a name given twice, is bad_request naming the field. Once stored, a prefs.changed event on the prefs topic carries the whole Prefs. agent.retire drops the agent from pins, collapsed and order (and sends prefs.changed); a rename (hr) carries it over in place."
+  },
+  {
+   "name": "hook.record",
+   "summary": "A hook records an event; the spool replays it with the same request_id.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "kind",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "at",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/Timestamp"
+     }
+    },
+    {
+     "name": "data",
+     "required": true,
+     "schema": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "x-gates": [
+    "not_self"
+   ],
+   "x-callers": [
+    "agent"
+   ]
+  },
+  {
+   "name": "memory.status",
+   "summary": "Per-agent memory against its budget (hl memory status).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "agents": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "agent": {
+          "$ref": "#/components/schemas/AgentName"
+         },
+         "bytes": {
+          "type": "integer"
+         },
+         "budget": {
+          "type": "integer"
+         },
+         "entries": {
+          "type": "integer"
+         },
+         "unused": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         }
+        },
+        "required": [
+         "agent",
+         "bytes",
+         "budget",
+         "entries",
+         "unused"
+        ]
+       }
+      }
+     },
+     "required": [
+      "agents"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "connection.get",
+   "summary": "How this process is reached: its listener, the heavy-run slots and dev mode. Read only.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/ConnectionInfo"
+    }
+   },
+   "x-role": "founder",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "settings.get",
+   "summary": "Timings, terminal host, trust folders, hooks installed.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName",
+      "description": "Return that agent's own overrides in `overrides`."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Settings"
+    }
+   },
+   "x-role": "founder",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "settings.set",
+   "summary": "Change settings: any keys of SettingsValues, globally or as one agent's override.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "changes",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/SettingsChanges"
+     }
+    },
+    {
+     "name": "agent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName",
+      "description": "Write the per-agent override of: park_timeout_s, ignore_cache_expiry, bg_notice_s, bg_grace_s, bg_check_s, notice_digest_s, handoff_prompt. Any other key with `agent` is bad_request."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  }
+ ]
+}

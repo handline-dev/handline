@@ -319,14 +319,14 @@ func TestMemoAssigneeIsToldWhateverTheTaskStateAndNotTheAuthor(t *testing.T) {
 	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 || left[0].Body != "T1 memo added by alice: check the cache" {
 		t.Fatalf("the assignee of a task not yet doing waits for the memo in its digest: %q %v", r.term.typed, left)
 	}
-	r.AdvanceCurrentTask(r.DB, "bob")
+	r.AdvanceCurrentTask(r.DB, "bob") // the task goes out with the held memo
 	r.term.typed = nil
 	r.must(r.TellMemo(r.DB, tid, "alice", "added", "check the cache", "", false))
-	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 2 {
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 {
 		t.Fatalf("a memo with no @ waits in the doing assignee's digest: %q %v", r.term.typed, left)
 	}
 	r.must(r.TellMemo(r.DB, tid, "bob", "added", "mine", "", false))
-	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 2 {
+	if left, _ := db.PendingNotices(r.DB, "bob"); len(r.term.typed) != 0 || len(left) != 1 {
 		t.Fatal("told the assignee of its own memo")
 	}
 }
@@ -641,5 +641,18 @@ func TestABlockedTaskFreesItsOwnerAndComesBackWithoutPreempting(t *testing.T) {
 	}
 	if begun, _ := db.Begun(r.DB, held); !begun {
 		t.Fatal("it came back no longer begun")
+	}
+}
+
+func TestAMemoNoticeToTheNewOwnerDoesNotCountAsTheTaskDelivered(t *testing.T) {
+	r := newRig(t)
+	r.register("bob")
+	tid := r.newTask("human", "bob", "decide")
+	bob := "bob"
+	r.must(db.EditTask(r.DB, tid, "human", db.TaskEdit{Owner: &bob}))
+	r.must(r.TellMemo(r.DB, tid, "human", "added", "go ahead", "", false)) // held for bob's digest, linked to the task
+	r.must(r.SweepTaskQueue(r.clock))
+	if cur, ok, _ := db.CurrentTask(r.DB, "bob"); !ok || cur != tid {
+		t.Fatalf("the task was not delivered: current %d %v", cur, ok)
 	}
 }

@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { DANGER, type Field, FIELDS, fieldUnit } from '@handline/app-core';
 import type { AgentDetail } from '@handline/client';
-import { useStore } from '@handline/app-react';
+import { useHello } from '@handline/app-react';
 import { useAgentDetail, useFieldRow, useServes } from '@handline/app-data';
-import { goAgent } from '#src/route.ts';
+import { leave } from '#src/route.ts';
 import { Schedules } from '#src/Schedules.tsx';
 import {
   Button,
@@ -44,13 +44,12 @@ const moreOf = (f: Field) =>
 export function SettingsView({ agent }: { agent: string }) {
   const q = useAgentDetail(agent);
   const { served } = useServes('agent.set');
-  const store = useStore();
-  const role = store.client.hello?.role;
+  const role = useHello()?.role;
   const d: AgentDetail | undefined = q.data;
   const editable = served && (role === 'founder' || role === 'agent'); // agent.set is for the founder and an agent on itself
   return (
     <ScrollPage className="settings" aria-label={`${agent} settings`}>
-      <PageHead className="settings-head settings-agent" back={{ label: agent, to: () => goAgent(agent) }}>
+      <PageHead className="settings-head settings-agent" back={{ label: agent, to: () => leave(`#/agents/${encodeURIComponent(agent)}`) }}>
         <PageTitle>Settings</PageTitle>
         <p className="settings-lede m-0 basis-full text-body text-ink-2">Each change saves as you make it.</p>
       </PageHead>

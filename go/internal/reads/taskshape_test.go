@@ -2,16 +2,14 @@ package reads
 
 import (
 	"encoding/json"
-	"os"
 	"testing"
+
+	"github.com/handline/handline/go/internal/contracttest"
 )
 
 // The Python CLI reads these keys unguarded, so every one of the contract's Task must be on the row.
 func TestATaskRowCarriesEveryKeyOfTheContractTask(t *testing.T) {
-	raw, err := os.ReadFile("../../../contract/protocol.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := contracttest.Spec(t)
 	var proto struct {
 		Components struct {
 			Schemas map[string]struct {

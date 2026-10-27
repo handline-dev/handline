@@ -343,7 +343,7 @@ describe('a decided write, against the fake daemon with latency and a refusal', 
     await until(() => v.get().write.isError, 'the refusal');
     expect(v.get().pending).toEqual([]);
     expect(qc.getQueryData(qk.agents(D))).toEqual(before);
-    expect(store.error).toBe('start: the usage limit is hit (wait for the reset)');
+    expect(store.error).toBe("Couldn't start: the usage limit is hit (wait for the reset)");
   });
 });
 
@@ -376,7 +376,7 @@ describe('chat send, against the fake daemon', () => {
     await until(() => mine(v.get().chat, 'keep me')[0]?.state === 'failed', 'the failed row');
     const row = mine(v.get().chat, 'keep me')[0]!;
     expect(row.sending_reason).toBe('the agent is parked (hl wake)');
-    expect(store.error).toBe('send: the agent is parked (hl wake)');
+    expect(store.error).toBe("Couldn't send: the agent is parked");
     daemon.knobs.clear();
     act(() => v.get().act.retry(row.id));
     await until(() => mine(v.get().chat, 'keep me').length === 1 && mine(v.get().chat, 'keep me')[0]!.id > 0, 'the retried row, numbered');

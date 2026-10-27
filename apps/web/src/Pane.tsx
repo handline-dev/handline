@@ -13,11 +13,11 @@ import {
   taskRef,
   type Group,
   type Tab,
-  type Workspace,
   type TabKind,
   type TabParams,
+  type Workspace,
 } from '@handline/app-core';
-import { useStore } from '@handline/app-react';
+import { useHello, useMe } from '@handline/app-react';
 import { useWrite } from '@handline/app-data';
 import { ChatTab } from '#src/ChatTab.tsx';
 import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
@@ -44,25 +44,25 @@ const label = (t: Tab, structured = false): string =>
         ? t.params.pinned
           ? taskRef(Number(t.params.task))
           : 'Tasks'
-        : t.kind === 'shell'
-          ? 'Terminal'
-          : t.kind === 'android'
-            ? 'Android'
-            : t.kind === 'ios'
-              ? 'iOS'
-              : t.kind === 'web'
-                ? String(t.params.url ?? 'Preview').replace(/^https?:\/\//, '')
-                : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
-                  ? 'Transcript'
-                  : t.kind === 'terminal'
-                    ? 'Claude Code'
+        : t.kind === 'android'
+          ? 'Android'
+          : t.kind === 'ios'
+            ? 'iOS'
+            : t.kind === 'web'
+              ? String(t.params.url ?? 'Preview').replace(/^https?:\/\//, '')
+              : t.kind === 'transcript' || (t.kind === 'terminal' && structured)
+                ? 'Transcript'
+                : t.kind === 'terminal'
+                  ? 'Claude Code'
+                  : t.kind === 'shell'
+                    ? 'Terminal'
                     : `${t.kind}: ${Object.values(t.params)[0] ?? ''}`;
 const TAB_ICON: Record<string, IconName> = {
   chat: 'chat',
   tasks: 'tasks',
   terminal: 'terminal',
-  shell: 'terminal',
   transcript: 'terminal',
+  shell: 'terminal',
   web: 'web',
   android: 'device',
   ios: 'device',
@@ -77,25 +77,34 @@ const TAB_KEYS: KeyRows = [
 export function Pane({ group }: { group: Group }) {
   useScreenKeys('On the tabs', TAB_KEYS);
   const { ws, detail, agent, storage, apply, show, canSplit, lead, dragging, setDragging } = useWorkspace();
+  const { mutateAsync: openShell } = useWrite('shell.open', agent);
+  const { mutate: closeShell } = useWrite('shell.close', agent);
   const folded = useFoldedControls();
-  const store = useStore();
   const strip = useRef<HTMLDivElement>(null);
   const tab = ws.tabs[group.activeTab];
-  const badges = badgesOf(detail, store.me);
+  const me = useMe();
+  const hello = useHello();
+  const badges = badgesOf(detail, me);
   const structured = detail.structured === true;
   // What a new tab can show: the same flat list for the + menu and for the picker in a freshly split pane.
-  const openShell = useWrite('shell.open', agent);
-  const closeShell = useWrite('shell.close', agent);
-  const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; shell?: boolean }[] = [
-    { kind: 'shell', params: {}, label: 'Terminal', icon: 'terminal', shell: true },
+  const choices: { kind: TabKind; params: TabParams; label: string; icon: IconName; disabled?: boolean; open?: boolean }[] = [
+    // A new plain shell in the agent's worktree, not its Claude Code terminal (that one is its own tab); several may be open.
+    { kind: 'shell', params: {}, label: 'Terminal', icon: 'terminal', open: true },
     { kind: 'tasks', params: {}, label: 'Tasks', icon: 'tasks' },
-    { kind: 'android', params: { id: 'new' }, label: 'Android', icon: 'device' },
-    { kind: 'ios', params: { id: 'new' }, label: 'iOS', icon: 'device' },
+    { kind: 'android', params: {}, label: 'Android', icon: 'device' },
+    { kind: 'ios', params: {}, label: 'iOS', icon: 'device' },
   ];
-  /** A choice from the + menu or the new-tab tiles: a Terminal asks the daemon for its own shell first, the rest open at once. */
-  const choose = (c: (typeof choices)[number], place: (params: TabParams) => (w: Workspace) => Workspace) => {
-    if (!c.shell) return apply(place(c.params));
-    openShell.mutate({ agent }, { onSuccess: (r) => apply(place({ handle: r.terminal })) });
+  /** Opens what a choice shows; a new shell is first asked of the daemon and then shown by its handle. */
+  const choose = async (c: (typeof choices)[number], place: (w: Workspace, kind: TabKind, params: TabParams) => Workspace) => {
+    let params = c.params;
+    if (c.open) {
+      try {
+        params = { handle: (await openShell({ agent })).terminal };
+      } catch {
+        return; // useWrite has reported it
+      }
+    }
+    apply((w) => place(w, c.kind, params));
   };
   // A terminal tab that is not showing gets a dot when its agent newly needs someone (a dialog, a stall); showing it clears the dot.
   // The first terminal tab of the group: a group holds one terminal tab per agent, so the unread dot follows that one.
@@ -125,9 +134,6 @@ export function Pane({ group }: { group: Group }) {
             <RailControls show={folded.show} row />
           </div>
         ) : null}
-        <span className="agent-name mr-2 max-w-[180px] flex-none self-center truncate pl-1 text-body font-semibold text-ink" title={agent}>
-          {agent}
-        </span>
         {group.tabs.map((id) => {
           const t = ws.tabs[id]!;
           // Claude Code is reached by the switch (Cmd/Ctrl+J, /terminal, the icon in the bottom bar), not by a tab, while the chat is in the group.
@@ -144,7 +150,8 @@ export function Pane({ group }: { group: Group }) {
               draggable={id !== CHAT}
               onDragStart={(e) => {
                 e.dataTransfer?.setData('text/plain', id);
-                setDragging(id);
+                // The drop cover appears over the tab being dragged; mounting it inside dragstart makes Chromium cancel the drag.
+                setTimeout(() => setDragging(id), 0);
               }}
               onDragEnd={() => setDragging(null)}
               onClick={() => show(id)}
@@ -170,10 +177,10 @@ export function Pane({ group }: { group: Group }) {
                   className="x inline-flex border-0 bg-transparent p-0.5 text-ink-3 opacity-0 focus-visible:opacity-100 group-hover:opacity-100 group-aria-selected:opacity-100"
                   aria-label={`Close ${label(t, structured)}`}
                   title={
-                    t.kind === 'shell'
-                      ? 'Close the terminal'
-                      : t.kind === 'terminal' || t.kind === 'transcript'
-                        ? 'Close the tab; the agent keeps running'
+                    t.kind === 'terminal' || t.kind === 'transcript'
+                      ? 'Close the tab; the agent keeps running'
+                      : t.kind === 'shell'
+                        ? 'Close the terminal'
                         : 'Close the tab'
                   }
                   onClick={(e) => {
@@ -185,7 +192,7 @@ export function Pane({ group }: { group: Group }) {
                       !confirm(`Close the Claude Code tab of ${agent}? The agent keeps running.`)
                     )
                       return;
-                    if (t.kind === 'shell' && typeof t.params.handle === 'string') closeShell.mutate({ terminal: t.params.handle });
+                    if (t.kind === 'shell') closeShell({ terminal: String(t.params.handle) }); // the shell ends with its tab
                     apply((w) => closeTab(w, id));
                   }}
                 >
@@ -197,7 +204,12 @@ export function Pane({ group }: { group: Group }) {
         })}
         <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="ml-0.5 self-center">
           {choices.map((c) => (
-            <MenuItem key={c.label} icon={c.icon} onSelect={() => choose(c, (params) => (w) => openTab(w, c.kind, params, group.id))}>
+            <MenuItem
+              key={c.label}
+              icon={c.icon}
+              disabled={c.disabled}
+              onSelect={() => void choose(c, (w, kind, params) => openTab(w, kind, params, group.id))}
+            >
               {c.label}
             </MenuItem>
           ))}
@@ -225,8 +237,8 @@ export function Pane({ group }: { group: Group }) {
                   key={c.label}
                   type="button"
                   className="tile flex aspect-square flex-col items-center justify-center gap-2 rounded-card border-0 bg-transparent text-body text-ink hover:enabled:bg-raised disabled:opacity-50"
-                  disabled={openShell.isPending}
-                  onClick={() => choose(c, (params) => (w) => fillTab(w, tab.id, c.kind, params))}
+                  disabled={c.disabled}
+                  onClick={() => void choose(c, (w, kind, params) => fillTab(w, tab.id, kind, params))}
                 >
                   <Icon name={c.icon} size={20} aria-hidden />
                   {c.label}
@@ -243,17 +255,23 @@ export function Pane({ group }: { group: Group }) {
             hidden={!!dragging}
             onUrl={(u) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, url: u } } } }))}
           />
-        ) : tab.kind === 'shell' && typeof tab.params.handle === 'string' ? (
-          <BytesTab key={tab.id} agent={agent} detail={{ terminal: tab.params.handle }} handle={tab.params.handle} shell />
         ) : tab.kind === 'android' || tab.kind === 'ios' ? (
-          <DeviceTab agent={agent} kind={tab.kind} hidden={!!dragging} />
+          <DeviceTab
+            agent={agent}
+            kind={tab.kind}
+            hidden={!!dragging}
+            picked={typeof tab.params.device === 'string' ? tab.params.device : ''}
+            onPick={(device) => apply((w) => ({ ...w, tabs: { ...w.tabs, [tab.id]: { ...tab, params: { ...tab.params, device } } } }))}
+          />
+        ) : tab.kind === 'shell' ? (
+          <BytesTab key={tab.id} agent={agent} detail={{ terminal: String(tab.params.handle) }} handle={String(tab.params.handle)} shell />
         ) : tab.kind === 'terminal' || tab.kind === 'transcript' ? (
           <Watch
             agent={agent}
             structured={structured}
             terminal={
               <div className="flex min-h-0 flex-col [&>:nth-last-child(2)]:flex-1">
-                {wantsBytes(store.client.hello?.capabilities.terminal_format, storage) ? (
+                {wantsBytes(hello?.capabilities.terminal_format, storage) ? (
                   <BytesTab agent={agent} detail={detail} />
                 ) : (
                   <TerminalTab agent={agent} detail={detail} />

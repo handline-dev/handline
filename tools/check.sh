@@ -14,7 +14,7 @@ cd "$(dirname "$0")/.." || exit 1
 base="${1:-main}"
 apps() {
     [ -d node_modules ] || { echo "tools/check.sh: no node_modules for the app checks: run  pnpm install --frozen-lockfile" >&2; return 1; }
-    if grep -qE '^(apps|packages)/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|contract/package\.json|contract/protocol\.ts)$' <<< "$changed"; then
+    if grep -qE '^(apps|packages)/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|contract/package\.json|contract/protocol\.ts|contract/gen/.*\.ts)$' <<< "$changed"; then
         local r=0
         pnpm turbo test typecheck lint --continue || r=1
         tools/dupes.sh || r=1
@@ -37,7 +37,7 @@ done <<< "$changed"
 # CHECK_PLAN=1: say what would run and stop (CI reads this to pick its jobs): kind is none, docs or go; apps is yes or no.
 if [ -n "${CHECK_PLAN:-}" ]; then
     apps=no
-    case "$kind" in go) grep -qE '^(apps|web|packages)/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|contract/package\.json|contract/protocol\.ts)$' <<< "$changed" && apps=turbo || apps=app-data ;; esac
+    case "$kind" in go) grep -qE '^(apps|web|packages)/|^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|turbo\.json|contract/package\.json|contract/protocol\.ts|contract/gen/.*\.ts)$' <<< "$changed" && apps=turbo || apps=app-data ;; esac
     echo "kind=$kind apps=$apps"
     exit 0
 fi

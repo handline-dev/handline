@@ -10,8 +10,9 @@ import (
 	"github.com/handline/handline/go/internal/turns"
 )
 
-// The founder's words are typed only where nothing else takes them: not while a person or device holds the input, not at a shell.
-func TestTheFoundersWordsAreNotTypedAtAHeldTerminalOrAShell(t *testing.T) {
+// The founder's words are typed even while a person or device holds the input (the founder's own app takes it with a click), but never at
+// a shell.
+func TestTheFoundersWordsAreTypedAtAHeldTerminalButNotAtAShell(t *testing.T) {
 	tr := &turns.Tracker{Agent: func(string) string { return "alice" }}
 	p, _ := rigWith(t, func(c *Config) { c.Turns = tr })
 	ft := newFakeTerminals()
@@ -26,8 +27,8 @@ func TestTheFoundersWordsAreNotTypedAtAHeldTerminalOrAShell(t *testing.T) {
 	}
 	now := time.Now().Unix()
 	p.db.Exec("INSERT INTO input_holders(agent, kind, name, since, last_typed) VALUES('alice', 'person', 'phone', ?, ?)", now, now)
-	if why := p.typeable("alice"); !strings.Contains(why, "holds its input") {
-		t.Fatalf("a held terminal: %q", why)
+	if why := p.typeable("alice"); why != "" {
+		t.Fatalf("a held terminal is not typed at: %q", why)
 	}
 	p.db.Exec("DELETE FROM input_holders")
 	ft.screen = []string{"~/work $ "}

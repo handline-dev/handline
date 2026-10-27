@@ -113,6 +113,9 @@ describe('outlook', () => {
     await until(() => $('.outlook-svg'), 'the graph');
     expect($('.outlook-svg .line.future')!.getAttribute('stroke-dasharray')).toBeTruthy();
     expect(text($('.outlook-legend'))).toContain('guess');
+    const end = $('.outlook-svg .line.past')!.getAttribute('d')!.split(' ').at(-1);
+    expect($('.outlook-svg .line.future')!.getAttribute('d')!.split(' ')[0]).toBe(end!.replace('L', 'M')); // the guess starts where the recorded line ends
+    expect($('.outlook')!.compareDocumentPosition($('.acct-list')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // the graph comes before the accounts
     expect($$('.outlook-legend li svg .line.future')[0]!.getAttribute('stroke-dasharray')).toBeTruthy();
     expect(text($('[data-runway="beta"]'))).toContain('runs out in 2 h');
     expect(text($('[data-runway="alpha"]'))).toContain('lasts until the week resets');
@@ -248,8 +251,9 @@ describe('settings', () => {
 
   it('a switch saves on change', async () => {
     const s = await mount('#/settings');
-    await until(() => $('button[aria-expanded]'), 'the fields');
-    await click($$('button[aria-expanded]').find((b) => text(b).includes('Advanced'))!);
+    const advanced = () => $$('button[aria-expanded]').find((b) => text(b).includes('Advanced'));
+    await until(advanced, 'the Advanced fold');
+    await click(advanced());
     await until(() => toggle('Handoff note'), 'the Advanced rows');
     await click(toggle('Handoff note'));
     await until(() => s.daemon.admin.settings().values.handoff_note === false, 'handoff note');
@@ -367,7 +371,7 @@ describe('standing answers', () => {
     expect(text($('.toast'))).toContain('that folder does not exist');
     await until(() => $$('[data-answer]').length === 2, 'the row gone');
     await click($('[data-answer="trust"] button'));
-    expect($$('[data-answer]')).toHaveLength(1);
+    await until(() => $$('[data-answer]').length === 1, 'the row gone');
     await until(() => (s.daemon.admin.call('answers.list', {}, () => 0) as { answers: unknown[] }).answers.length === 1, 'the daemon');
   });
 });

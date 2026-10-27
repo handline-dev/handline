@@ -1,9 +1,9 @@
 // One agent row of the list, always the same height: the name and its marks on the first line, one line under it (agentLine).
 import { useEffect, useRef, useState, type HTMLAttributes } from 'react';
-import { ago, dotOf, rowName, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
+import { ago, dotOf, queuedBehind, waitingTasks, rowName, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
-import { useStore } from '@handline/app-react';
-import { useVerbMark } from '@handline/app-data';
+import { useMe } from '@handline/app-react';
+import { useOpenTasks, useVerbMark } from '@handline/app-data';
 import { DeleteSheet, VerbSheet } from '#src/AgentVerbs.tsx';
 import { Badges } from '#src/Badges.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
@@ -24,6 +24,7 @@ export function AgentRow({
   depth,
   kids,
   working,
+  stuck,
   team,
   line,
   folded,
@@ -38,6 +39,8 @@ export function AgentRow({
   kids: number;
   /** Sub-agents working under a folded or a pinned row; 0 when it is open and not pinned, or none work. */
   working: number;
+  /** Sub-agents under a folded or a pinned row that cannot go on: held for load, on a dialog, blocked. */
+  stuck: number;
   team: string;
   line: string;
   folded: boolean;
@@ -48,7 +51,7 @@ export function AgentRow({
   /** Dragging the row to reorder (tree layout): the handlers for the row, and the line where a drop would land. */
   drag?: { attrs: HTMLAttributes<HTMLDivElement>; mark: 'before' | 'after' | null };
 }) {
-  const store = useStore();
+  const me = useMe();
   const dot = dotOf(a);
   const [ask, setAsk] = useState<Verb | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -68,8 +71,11 @@ export function AgentRow({
     ro.observe(el);
     return () => ro.disconnect();
   }, [kindLen]);
+  const queued = queuedBehind(a) || 0;
+  const waiting = waitingTasks(a, useOpenTasks(a.name, hot && queued > 0).data?.items ?? []);
+  const queuedTip = [`${queued} waiting behind the current task`, ...waiting.map((t) => `${taskRef(t.id)} ${t.title}`)].join('\n');
   const stamp = a.founder_unread && a.last_to_founder ? a.last_to_founder.at : a.state_since; // when it last wrote to you, else since when it is in this state
-  const badges = badgesOf(a, store.me).filter((b) => b.kind === 'dialog' || b.kind === 'stalled'); // only what the founder must act on
+  const badges = badgesOf(a, me).filter((b) => b.kind === 'dialog' || b.kind === 'stalled'); // only what the founder must act on
   const tip = [a.name, mark ?? a.state, ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
     .filter(Boolean)
     .join(' · ');
@@ -157,18 +163,30 @@ export function AgentRow({
                     </span>
                   ) : null}
                   <Badges badges={badges} />
+                  {stuck ? (
+                    <span
+                      className="row-stuck inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-wait"
+                      title={`${stuck} under ${a.name} cannot go on: held for load, waiting on a dialog, or blocked`}
+                    >
+                      <Icon name="warn" size={11} aria-hidden />
+                      {stuck}
+                    </span>
+                  ) : null}
                   {working ? (
                     <span
-                      className="row-working inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-primary"
+                      className="row-working inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-working"
                       title={`${working} working under ${a.name}`}
                     >
-                      <Icon
-                        name="refresh"
-                        size={11}
-                        aria-hidden
-                        className="animate-[ui-spin_1.2s_linear_infinite] motion-reduce:animate-none"
-                      />
+                      <Icon name="working" size={11} aria-hidden />
                       {working}
+                    </span>
+                  ) : null}
+                  {queued ? (
+                    <span
+                      className="row-queued inline-flex flex-none items-center whitespace-nowrap rounded-pill px-1.5 text-hint text-ink-2 ring-1 ring-line"
+                      title={queuedTip}
+                    >
+                      +{queued}
                     </span>
                   ) : null}
                   <span className="row-time flex-none whitespace-nowrap text-hint text-ink-3">{ago(stamp)}</span>

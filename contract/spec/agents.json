@@ -1,0 +1,2730 @@
+{
+ "components": {
+  "schemas": {
+   "Block": {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "type": "string"
+     },
+     "since": {
+      "$ref": "#/components/schemas/Timestamp"
+     }
+    },
+    "required": [
+     "kind",
+     "since"
+    ]
+   },
+   "AgentView": {
+    "type": "object",
+    "properties": {
+     "name": {
+      "$ref": "#/components/schemas/AgentName"
+     },
+     "role": {
+      "type": "string",
+      "description": "The first line of the agent's ROLE.md that is not blank and not a heading, as one line, at most 160 characters; empty when there is none."
+     },
+     "model": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "effort": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "state": {
+      "type": "string",
+      "description": "One of x-state-words, lower case; an open set, clients treat an unknown word as idle."
+     },
+     "state_since": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "block": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Block"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "wall_reason": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "background_since": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "would_wake": {
+      "type": "boolean"
+     },
+     "blocker": {
+      "oneOf": [
+       {
+        "type": "string",
+        "description": "Headline of what blocks it."
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "account": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The account the agent is on: the one its session runs on, or, at rest, the one whose prompt cache still holds its conversation, until cache_until. null at rest once cache_until has passed or is null: the agent is on no account and counts on none. Its next wake goes to the account with the most weekly headroom (furthest behind its pace line, Account.pace; with pacing off, the most left of its weekly window), carrying the conversation there; it starts fresh from its handoff only when the conversation cannot be carried. While the cache lives a wake stays on its account, unless that account cannot run it now (its wall, its pace, no free slot), when the usual moves apply."
+     },
+     "task": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "integer"
+         },
+         "title": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "id",
+         "title"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "cache_until": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "ctx_pct": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Whole percent of the context window the agent's own session has used; null when it has no account, no session of its own, or a usage snapshot too old to trust. A view without the field is the same as null."
+     },
+     "has_dialog": {
+      "type": "boolean"
+     },
+     "parent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "input_holders": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/InputHolder"
+      },
+      "description": "Who holds the input; one in v1, a list so more can later. A structured agent has no input to hold: []."
+     },
+     "state_detail": {
+      "type": "string",
+      "description": "The text drawn beside the state word (a clock, what a wait is for), at most 40 characters; empty when there is none. The state column is drawn from state and state_detail alone."
+     },
+     "doing": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "text": {
+          "type": "string",
+          "description": "From the running turn's newest tool item of chat.transcript: its `tool`, a space and the first line of its `text`, or the tool alone when that text is empty; cut to 60 characters (Unicode code points, no ellipsis)."
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp",
+          "description": "When that call began."
+         }
+        },
+        "required": [
+         "text",
+         "at"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What a running agent is doing now, for the line under its name: while state is running and handoff is null, a client draws it in place of status.text. null when no turn runs or the turn has called no tool yet. Absent from a daemon that does not send it. A change of doing alone is pushed (agent.changed) at most once every 5 s, with the newest value."
+     },
+     "started": {
+      "type": "boolean",
+      "description": "Only with agents.list `status: true` (what `hl team` draws): whether the agent has ever run (a state row exists)."
+     },
+     "has_repo": {
+      "type": "boolean",
+      "description": "Only with agents.list `status: true` (what `hl team` draws): whether its config names a repo."
+     },
+     "has_terminal": {
+      "type": "boolean",
+      "description": "Only with agents.list `status: true` (what `hl team` draws): whether a terminal is recorded for it."
+     },
+     "screen_word": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Only with agents.list `status: true` (what `hl team` draws): the word the screens draw for its state (RUNNING, IDLE, PENDING, MOVING, DIALOG, FATAL), `tui.screen_state`'s and not the wire `state`; null when it never started."
+     },
+     "screen_detail": {
+      "type": "string",
+      "description": "Only with agents.list `status: true` (what `hl team` draws): the text drawn beside screen_word."
+     },
+     "unreached": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Only with agents.list `status: true` (what `hl team` draws): requests, messages and answers owed to it that have not reached it."
+     },
+     "task_waits": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "task": {
+         "type": "integer"
+        },
+        "words": {
+         "type": "string",
+         "description": "The daemon's reason the task waits."
+        }
+       },
+       "required": [
+        "task",
+        "words"
+       ]
+      },
+      "description": "Only with agents.list `status: true` (what `hl team` draws): its tasks that wait on a hold, oldest first."
+     },
+     "wake_wait_reason": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Only with agents.list `status: true` (what `hl team` draws): what holds back a wake that is due (set only while would_wake is true)."
+     },
+     "structured": {
+      "type": "boolean",
+      "description": "The agent is set up to run as a structured session, whether its session is live or closed: the transcript topic and transcript.events serve it (the stored log too), chat.send returns a receipt for it, and it has no terminal to watch. Absent means false (a terminal agent), so a client needs no transcript.events probe to choose its view. Sent in agent.changed too."
+     },
+     "kind": {
+      "type": "string",
+      "description": "What the agent is, for a column (agents.kind): the model and its effort as `<model> <effort>`, effort one of low, mid, high, xhi, max (any other effort is shown whole), with the vendor in front as `<vendor> <model> <effort>` only when it is not claude. Absent from a daemon that does not serve it yet."
+     },
+     "task_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The tasks the agent owns that are not done: the current one and those waiting (queued or doing). A draft that is not the current task is not counted, as it is not approved yet; one the agent picked up and made current is. Absent from a daemon that does not serve it yet."
+     },
+     "ready": {
+      "type": "boolean",
+      "description": "The agent is idle (the screen word IDLE), has a current task, that task is queued, and no open blocker holds it: it can be given work now. Absent means false."
+     },
+     "wall": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "account": {
+          "type": "string",
+          "description": "The account whose window the wake waits on."
+         },
+         "clock": {
+          "oneOf": [
+           {
+            "type": "integer"
+           },
+           {
+            "type": "null"
+           }
+          ],
+          "description": "When that window rolls over, as unix seconds: the shortest walled window, the longest when only that stands. Null when the reset is not known or the wait is for a slot (the account is at its cap), not a window."
+         },
+         "assumed": {
+          "type": "boolean",
+          "description": "The account is a guess (nothing has confirmed the one the resume is tied to), not the account itself."
+         }
+        },
+        "required": [
+         "account",
+         "clock",
+         "assumed"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What holds back a wake that is due (the screens' wall cell): the account that would wake it. Null when would_wake is false or nothing holds it back. Absent from a daemon that does not serve it yet."
+     },
+     "fire": {
+      "oneOf": [
+       {
+        "type": "string",
+        "enum": [
+         "usage",
+         "usage_7d",
+         "context"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "A trigger about to fire (the home row's warning cell): the daemon would hand this agent off at its next tick. `usage` is the shortest window at the wall, `usage_7d` the longest, `context` the context at its limit. Null when none, and for an agent whose triggers do not apply (closed, no terminal, parked, throttled or degraded). Needs a live evaluate over the agent's current usage and context readings, not a stored value. Absent from a daemon that does not serve it yet."
+     },
+     "attention": {
+      "oneOf": [
+       {
+        "type": "string",
+        "enum": [
+         "ask",
+         "alert",
+         "stuck",
+         "running"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "What this agent alone asks of the founder, the most urgent of: `ask` (an open ask to the founder), `alert` (the screen word needs a human, or a delivery block the founder has been told of), `stuck` (a delivery that is not moving, or a usage limit), `running` (a turn is going on), in that order. Null when none. The daemon says nothing of folds, which are the screen's: a screen that hides some of an agent's reports (found through `parent`, all the way down) ranks `ask` first, then `alert` and `stuck` together, then `running`. It draws the mark of the first rank any of them has and counts those in that rank; `alert` and `stuck` share one mark and one count, red if any of them is `alert`, yellow otherwise (so one `alert` and one `stuck` make a red mark counting 2). Read from stored state, no live evaluate. Absent from a daemon that does not serve it yet."
+     },
+     "cache_ignored": {
+      "type": "boolean",
+      "description": "The agent's resume reuses its session whatever the prompt cache did (its own ignore_cache_expiry, else the global one), so a countdown from cache_until means nothing. Read from configuration. Absent means false."
+     },
+     "config_error": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Why the agent's configuration cannot be read, as one line; null when it can. When set, `kind` is absent (and the model, effort and the other fields that come from the configuration are null or absent). Absent from a daemon that does not serve it yet."
+     },
+     "needs_you": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/NeedsYou"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Set while the agent waits on a decision only a person at its terminal can make. Fed by hooks (PermissionRequest and the permission and question Notification kinds) and by the session file saying status `waiting` with `waitingFor` (`permission prompt` is the one measured; the file has no needs or tempo key), never by reading the screen; the tool and its target come from the PermissionRequest hook event; cleared by the hook that follows (PostToolUse, UserPromptSubmit, Stop, SessionEnd) or when the session file stops saying it. While set, `state` is `waiting`, `has_dialog` is true and `attention` is `alert`. null when none. Absent from a daemon that does not serve it yet (the Python daemon reads the screen and sets has_dialog and `alert` without it)."
+     },
+     "handoff": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "cause": {
+          "type": "string",
+          "description": "Why the conversation is ending: the words of session.cause (`context_full`, `move`, and the trigger's own word for the rest, such as `usage` or `login`). An open set."
+         },
+         "phase": {
+          "type": "string",
+          "enum": [
+           "writing",
+           "starting"
+          ],
+          "description": "`writing`: the agent writes its handoff note and the daemon takes the record. `starting`: the old session is closed and the new one is launching."
+         },
+         "since": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "cause",
+         "phase",
+         "since"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Set while a session hands off, so a chat that sits still can say why. Cleared when the new session's start item appears. Every change is an agent.changed. A handoff that waits for a usage window to reset shows `writing` only; it is not `starting` until a launch is due. null when none. Absent from a daemon that does not serve it."
+     },
+     "last_to_founder": {
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "text": {
+          "type": "string",
+          "description": "The whole body of its newest request to the founder (a say, ask or decision), whether or not it was read."
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "text",
+         "at"
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The agent's newest request to the founder; null when it never wrote to them. Absent from a daemon that does not serve it yet."
+     },
+     "founder_unread": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How many of the agent's open requests to the founder they have not seen yet (past the for_you_seen cursor, as `hl inbox` counts them). Absent from a daemon that does not serve it yet."
+     },
+     "status": {
+      "$ref": "#/components/schemas/Status",
+      "description": "What it is doing and why (x-status). Absent from a daemon that does not send it."
+     }
+    },
+    "required": [
+     "name",
+     "role",
+     "model",
+     "effort",
+     "state",
+     "state_detail",
+     "state_since",
+     "account",
+     "task",
+     "cache_until",
+     "has_dialog",
+     "parent"
+    ],
+    "description": "The stored per-agent view; the daemon decided every field."
+   },
+   "AgentDetail": {
+    "allOf": [
+     {
+      "$ref": "#/components/schemas/AgentView"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "worktree": {
+        "oneOf": [
+         {
+          "type": "object",
+          "properties": {
+           "path": {
+            "type": "string"
+           },
+           "branch": {
+            "type": "string"
+           },
+           "repo": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ],
+            "description": "owner/repo of the worktree's origin when it is on GitHub (https or ssh), else null."
+           }
+          },
+          "required": [
+           "path",
+           "branch",
+           "repo"
+          ]
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "terminal": {
+        "oneOf": [
+         {
+          "type": "string",
+          "description": "Terminal handle for terminal.attach. Null for a structured agent."
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "session_id": {
+        "oneOf": [
+         {
+          "type": "string"
+         },
+         {
+          "type": "null"
+         }
+        ]
+       },
+       "session_open": {
+        "type": "boolean",
+        "description": "A session is running. For a structured agent, its session is live (terminal is null)."
+       },
+       "account_pick": {
+        "type": "object",
+        "properties": {
+         "account": {
+          "oneOf": [
+           {
+            "type": "string"
+           },
+           {
+            "type": "null"
+           }
+          ]
+         },
+         "reason": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "account",
+         "reason"
+        ],
+        "description": "The account the daemon would place a session start on, before session.start; account null with a reason when none can take work."
+       },
+       "prompt": {
+        "oneOf": [
+         {
+          "$ref": "#/components/schemas/Prompt"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "description": "The agent's open prompt, or null."
+       },
+       "settings": {
+        "$ref": "#/components/schemas/AgentSettingValues"
+       },
+       "cwd": {
+        "type": "string",
+        "description": "The directory a shell command for this agent runs in: its worktree when that is on disk, else the daemon's home directory. worktree.path is what the agent's record holds and may name a directory that is gone; cwd is always usable."
+       },
+       "can": {
+        "type": "object",
+        "description": "Whether each action of the chat page's menu is worth offering now, by the daemon's own rules: ok, and why not when it is not.",
+        "properties": {
+         "terminal": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "wake": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "close": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "restart": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "park": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "fold": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         },
+         "move": {
+          "type": "object",
+          "properties": {
+           "ok": {
+            "type": "boolean"
+           },
+           "why": {
+            "oneOf": [
+             {
+              "type": "string"
+             },
+             {
+              "type": "null"
+             }
+            ]
+           }
+          },
+          "required": [
+           "ok",
+           "why"
+          ]
+         }
+        },
+        "required": [
+         "terminal",
+         "wake",
+         "close",
+         "restart",
+         "park",
+         "fold",
+         "move"
+        ]
+       }
+      },
+      "required": [
+       "worktree",
+       "terminal",
+       "session_id",
+       "session_open",
+       "input_holders",
+       "account_pick",
+       "prompt",
+       "cwd",
+       "can"
+      ]
+     }
+    ]
+   },
+   "TimelineEntry": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer"
+     },
+     "at": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "kind": {
+      "type": "string",
+      "description": "The recorded event kind; open set. state, task_delivered, handoff, key, input, interrupt, start and stop are expected once those are recorded."
+     },
+     "actor": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/Actor"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "text": {
+      "type": "string",
+      "description": "One line to show; falls back to the kind."
+     },
+     "data": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "The event's whole payload."
+     }
+    },
+    "required": [
+     "id",
+     "at",
+     "kind",
+     "actor",
+     "text"
+    ]
+   },
+   "AgentOptions": {
+    "type": "object",
+    "properties": {
+     "repos": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Repo"
+      }
+     },
+     "roles": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string"
+        },
+        "description": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "name",
+        "description"
+       ]
+      }
+     },
+     "models": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "efforts": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "accounts": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "name": {
+         "type": "string"
+        },
+        "login_state": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "name",
+        "login_state"
+       ]
+      }
+     },
+     "free_names": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    },
+    "required": [
+     "repos",
+     "roles",
+     "models",
+     "efforts",
+     "accounts",
+     "free_names"
+    ]
+   },
+   "OperationStarted": {
+    "allOf": [
+     {
+      "$ref": "#/components/schemas/Accepted"
+     },
+     {
+      "type": "object",
+      "properties": {
+       "operation": {
+        "type": "string",
+        "description": "The id of the operation; operation.get and the operations topic follow it."
+       }
+      },
+      "required": [
+       "operation"
+      ]
+     }
+    ],
+    "description": "The result of a write that starts a long-running operation."
+   },
+   "AgentSettingValues": {
+    "type": "object",
+    "additionalProperties": false,
+    "description": "An agent's settings, every value a string as `hl agent set <agent> key=value` takes it. Keys an agent may change on itself: model, effort, context_k, handoff_note. Every other key is the founder's (an agent proposes it with hr.propose kind settings).",
+    "properties": {
+     "model": {
+      "type": "string"
+     },
+     "effort": {
+      "type": "string",
+      "enum": [
+       "low",
+       "medium",
+       "high",
+       "xhigh",
+       "max"
+      ]
+     },
+     "weight": {
+      "type": "string",
+      "enum": [
+       "light",
+       "heavy"
+      ]
+     },
+     "repo": {
+      "type": "string"
+     },
+     "browser": {
+      "type": "string",
+      "enum": [
+       "off",
+       "chrome",
+       "playwright",
+       "custom"
+      ],
+      "description": "custom is read-only: set in a terminal."
+     },
+     "browser_sites": {
+      "type": "string",
+      "description": "Space-separated origins."
+     },
+     "context_k": {
+      "type": "string",
+      "description": "Handoff threshold in thousands of tokens, a whole number."
+     },
+     "idle_close": {
+      "type": "string",
+      "description": "Idle close in whole minutes, 0 never, empty follows the global park_timeout_s."
+     },
+     "handoff_note": {
+      "type": "string",
+      "enum": [
+       "default",
+       "on",
+       "off"
+      ],
+      "description": "default follows the global switch."
+     },
+     "sandbox": {
+      "type": "string",
+      "enum": [
+       "on",
+       "off"
+      ],
+      "description": "Why a key, not an is_off/back_on pair: it is already an agent setting (agents.sandbox_on, `hl agent set sandbox=on`), read in AgentDetail.settings and written the same way as every other key. `on` takes effect at once (the key and the grant go now; a running session restarts on the next idle sweep). `off` needs the founder's grant."
+     },
+     "mode": {
+      "type": "string",
+      "enum": [
+       "default",
+       "auto",
+       "acceptEdits",
+       "plan"
+      ],
+      "description": "Permission mode."
+     }
+    }
+   },
+   "NeedsYou": {
+    "type": "object",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "permission",
+       "question",
+       "usage",
+       "dialog",
+       "stuck"
+      ],
+      "description": "permission: a tool or a folder waits for a yes. question: the agent asked the person something. usage: the session limit's choice. dialog: any other (a start-up dialog the daemon will not answer included), and any the daemon does not know: unknown is a person. stuck: the daemon retried, restarted and relaunched the agent and it is still stuck: one card, gone when the trouble is. The same event is never two cards, and a load hold is never stuck."
+     },
+     "since": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "text": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "One line, from the hook or the session file; never read from the screen."
+     },
+     "source": {
+      "type": "string",
+      "enum": [
+       "hook",
+       "session",
+       "daemon"
+      ],
+      "description": "hook: PermissionRequest or Notification. session: the session's own file (sessions/<pid>.json status waiting and waitingFor). daemon: the daemon's own record (a start-up dialog stall, an agent it could not heal); never a task."
+     }
+    },
+    "required": [
+     "kind",
+     "since",
+     "text",
+     "source"
+    ]
+   }
+  }
+ },
+ "methods": [
+  {
+   "name": "agents.list",
+   "summary": "The rail: the stored view of every agent.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "status",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Add the status-line fields of each agent (started, has_repo, has_terminal, screen_word, screen_detail, unreached, task_waits, wake_wait_reason), read at the call; screen_word and screen_detail may be as old as the stored view. Default false."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "agents": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/AgentView"
+         }
+        }
+       },
+       "required": [
+        "agents"
+       ]
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "agent.get",
+   "summary": "One agent: the view plus session and terminal facts.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/AgentDetail"
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "pr.exists",
+   "summary": "Which of the numbers are pull requests (open, merged or closed) in the repo of the agent's worktree.",
+   "description": "numbers holds at most 20 integers, else -32602 bad_request naming `numbers`. The daemon asks GitHub with its own gh login, so a private repo answers. repo is null, and found empty, when the agent has no worktree or its origin is not on GitHub. A number that is a PR is remembered for good, one that is not for about a minute. When gh fails, found is empty and nothing is remembered.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "numbers",
+     "required": true,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      },
+      "maxItems": 20
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "repo": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "found": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       }
+      }
+     },
+     "required": [
+      "repo",
+      "found"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "agent.timeline",
+   "summary": "The agent's recorded events, newest first.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "before",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "Return rows older than this id."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "Default 50, at most 200."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "items": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/TimelineEntry"
+         }
+        },
+        "more": {
+         "type": "boolean"
+        }
+       },
+       "required": [
+        "items",
+        "more"
+       ]
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "description": "Today this is the agent's generic recorded events (the daemon's events table, rows of that agent): id is the event's id and `before` an event id; kind is the recorded kind; actor is the payload's `actor` when it is an object, else null; text is the payload's `text`, else `detail`, else `method`, else the kind; data is the whole payload ({} when it has none). State changes, deliveries and key presses appear only once they are recorded as events, which a later task does; clients must not expect them, and must treat kind as an open set."
+  },
+  {
+   "name": "agent.options",
+   "summary": "What the new-agent form offers.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/AgentOptions"
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1
+  },
+  {
+   "name": "agent.set",
+   "summary": "Change an agent's settings: an agent its own ordinary keys, the founder any (legacy agent_set).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "values",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentSettingValues"
+     }
+    },
+    {
+     "name": "speaker",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
+    "not_self"
+   ],
+   "x-callers": [
+    "agent",
+    "founder"
+   ]
+  },
+  {
+   "name": "agent.fold",
+   "summary": "Run hl fold for an agent (legacy fold).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "agent.move",
+   "summary": "Move an agent to another account (legacy move).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "account",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "agent.unstall",
+   "summary": "Clear a STALLED agent: it goes to queued with its failure counters reset, as hl unstall does. Refused (gate state) when the agent is not stalled.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "terminal_lock",
+    "state"
+   ]
+  },
+  {
+   "name": "agent.force_start",
+   "summary": "Let work that the machine's load or an account's pace holds for an agent (status reason load or pace) go past them once: it starts at the next tick, and agent.timeline records it (load_limit_passed, or pace_passed). Refused (gate state) when neither holds anything of the agent's.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "state"
+   ]
+  },
+  {
+   "name": "agent.retire",
+   "summary": "Retire an agent, as an approved HR retire does: it leaves team.yaml (team.yaml.bak keeps the old one), its scheduling row is deleted, its folder (ROLE.md, memory, settings) moves to agents/archive/<date>-<name>, its build caches are removed and its sealed key is forgotten. Its past messages, requests and events stay, and its git worktrees are judged: one that is merged into main, clean and no other agent's is removed (its branch stays); one that holds work (commits not on main, files not committed) stays and is put to the founder as a task tagged `worktree-removal`, which they answer as they answer any decision task: `1` (what is left is committed to a new branch rescue/<agent>-<date>, then the worktree is removed), `2 yes` (removed with whatever it holds; a bare `2` asks again) or `3` (it stays); nothing is removed before the answer, and an answer that cannot be carried out leaves the task open; any other worktree stays. `said` says which. Founder only. An agent with a session running is accepted, not refused: `said` names the wait, and the daemon retires it when its current turn ends (a session at its prompt is closed at once). Refused (gate state) while another agent reports to it or hangs under its name (<agent>.<rest>): the reason names them. An agent the daemon does not have is not_found.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "state"
+   ]
+  },
+  {
+   "name": "agent.create",
+   "summary": "Register a new agent, give it a worktree on a branch of a repo, and start it there, as hl spawn does. A long-running operation: the reply carries the operation id, and the operations topic and operation.get follow it to done or failed. Founder only. Parameters are checked before anything is looked up, in this order: request_id, name, role, effort, account, then the repo, the parent, the name against its parent, and whether the name is used.",
+   "description": "The operation has kind agent.create and its agent is the new name from the first event. steps_total may be null while it is unknown; a client shows step as the daemon sent it and invents none. When it is done, result is {agent, registered: true}. When it failed, result is {agent, registered}: registered says whether the agent was added to the team before the failure, so a failed operation can leave a registered agent that is not started; nothing is cleaned up. A name already used by an agent is refused (gate state) and no operation starts. A name with a parent must be '<parent>.<rest>'; anything else is bad_request, field name. base omitted means the daemon's default branch name, which is main today; a client that knows the repo's default_branch sends it.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "name",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "role",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "A free string today."
+     }
+    },
+    {
+     "name": "repo",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "A directory, as repos.list gives it in path. An unknown one is not_found, what repo."
+     }
+    },
+    {
+     "name": "base",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The branch to start from. The worktree takes the side, local or origin/, that leads, and the operation fails when they have diverged."
+     }
+    },
+    {
+     "name": "model",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "effort",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "low",
+       "medium",
+       "high",
+       "xhigh",
+       "max"
+      ]
+     }
+    },
+    {
+     "name": "parent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "account",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Not served: bad_request, field account, never dropped. A new agent's account is chosen when it starts; a client offers no account picker until a daemon serves this."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/OperationStarted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
+    "state"
+   ]
+  },
+  {
+   "name": "session.start",
+   "summary": "Launch a session for the agent, optionally on a named account: in its terminal, or for a structured agent as a structured session with no terminal.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "account",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The Go daemon does not place sessions on a named account yet: it answers bad_request, field account, never drops it. A client offers no account picker until then."
+     }
+    },
+    {
+     "name": "repo",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "base",
+     "required": false,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "terminal_lock",
+    "state"
+   ]
+  },
+  {
+   "name": "session.wake",
+   "summary": "Resume a closed session.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "terminal_lock",
+    "state"
+   ]
+  },
+  {
+   "name": "session.stop",
+   "summary": "exit asks Claude to quit; close ends the session and keeps the terminal; kill ends the process.",
+   "description": "An agent may call it for mode exit and close, as the legacy verbs allow; mode kill is refused to the agent role (`refused`, gate `role`) before the agent is looked up, because it ends another session mid-turn with no handoff record. Kill is for a person. For a structured agent exit and close are the same: the daemon ends the CLI's input and waits for it to exit, and kill ends its process group. Close mid-turn is refused (gate state): interrupt first.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "mode",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "exit",
+       "close",
+       "kill"
+      ]
+     }
+    },
+    {
+     "name": "fresh",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "close only: the next start is a fresh session."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "terminal_lock",
+    "state"
+   ]
+  },
+  {
+   "name": "session.restart",
+   "summary": "Restart a session.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "fresh",
+     "required": false,
+     "schema": {
+      "type": "boolean"
+     }
+    },
+    {
+     "name": "force",
+     "required": false,
+     "schema": {
+      "type": "boolean"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "terminal_lock",
+    "state"
+   ]
+  },
+  {
+   "name": "session.park",
+   "summary": "Park an agent.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "terminal_lock",
+    "state"
+   ]
+  },
+  {
+   "name": "session.input",
+   "summary": "Type text at the prompt; Enter optional.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "enter",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Default true."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "terminal_lock",
+    "input_holder",
+    "wall",
+    "screen_blocker",
+    "unsupported"
+   ],
+   "description": "Refused at a shell prompt (gate state, reason 'nothing sent - a shell prompt is showing'): the daemon types nothing when the pane shows a shell, since a line there would run as a command. session.type and session.keys are not checked this way. Refused with gate screen_blocker while the screen shows a dialog or one the daemon does not recognise, which includes the moments right after a wake, before the screen has been read: nothing is typed; session.keys and terminal.input are the way through (they pass an open dialog), or call again once the screen reads. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id. A daemon that runs structured agents need not serve this method (the Go daemon does not: it is absent from hello, so a client never calls it for one). One that serves it refuses an agent run as a structured session, gate unsupported: it has no terminal to type at, so a client sends chat.send and watches the transcript."
+  },
+  {
+   "name": "session.keys",
+   "summary": "Named keys for menus and dialogs.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "keys",
+     "required": true,
+     "schema": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "description": "esc, enter, up, down, tab, shift-tab, ctrl-c, 0-9."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "terminal_lock",
+    "input_holder",
+    "unsupported"
+   ],
+   "description": "Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id. A daemon that runs structured agents need not serve this method (the Go daemon does not: it is absent from hello, so a client never calls it for one). One that serves it refuses an agent run as a structured session, gate unsupported: it has no terminal to type at, so a client sends chat.send and watches the transcript."
+  },
+  {
+   "name": "session.type",
+   "summary": "Plain typing into the pane: characters sent as typed, no Enter, no prompt checks.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "text",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Printable characters and tab; no other control characters (those are session.keys)."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "terminal_lock",
+    "input_holder",
+    "unsupported"
+   ],
+   "description": "Which call sends text when: session.type is what a person typing in the pane uses, with input.take first; it passes the wall and any open dialog, as the keys would. session.keys sends named keys (menus, dialogs, ctrl-c). session.input sends a whole prompt line for the daemon's own flow and is refused (gates wall, screen_blocker) while a usage wall or a dialog is up, since a typed line would answer the dialog. Each call is recorded as an event of the agent (kind type, key or input) whose actor is the caller: for a paired device, kind device with its id. A daemon that runs structured agents need not serve this method (the Go daemon does not: it is absent from hello, so a client never calls it for one). One that serves it refuses an agent run as a structured session, gate unsupported: it has no terminal to type at, so a client sends chat.send and watches the transcript."
+  },
+  {
+   "name": "session.interrupt",
+   "summary": "Stop the turn in progress (Esc for a terminal agent; a control request to the CLI for a structured one).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "terminal_lock",
+    "input_holder"
+   ],
+   "description": "For a structured agent no terminal lock or input hold applies, and it is refused (gate state) when no turn is running, so a stale button learns why."
+  },
+  {
+   "name": "prompt.list",
+   "summary": "The open permission prompts and dialogs.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "type": "object",
+       "properties": {
+        "prompts": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Prompt"
+         }
+        }
+       },
+       "required": [
+        "prompts"
+       ]
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ]
+  },
+  {
+   "name": "prompt.answer",
+   "summary": "Answer the prompt the caller saw; if it changed nothing is sent.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "prompt",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "choice",
+     "required": true,
+     "schema": {
+      "oneOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "array",
+        "items": {
+         "type": "string"
+        },
+        "description": "Keys of the picked options, for a prompt with `multi`; may be empty."
+       },
+       {
+        "type": "object",
+        "properties": {
+         "text": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "text"
+        ]
+       }
+      ],
+      "description": "A PromptOption.key, or {text} for the free-text answer to a dialog that asks for one; a text answer passes the same gates and the prompt check. An array only answers a `multi` prompt."
+     }
+    },
+    {
+     "name": "note",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "With choice deny on a prompt whose source is hook: a short reason, given to the agent with the deny. bad_request (field note) on any other answer."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/stale_prompt"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "terminal_lock",
+    "input_holder"
+   ],
+   "description": "For a structured agent's permission prompt the choice is one of its option keys, allow or deny; yes, no or esc is bad_request (field choice). No terminal lock or input hold applies. A prompt whose source is hook is answered the same way, allow or deny, through the call that is waiting on it (permission.ask)."
+  },
+  {
+   "name": "permission.ask",
+   "summary": "An agent's session asks the founder whether it may run a tool call, and waits for the answer.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "tool",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "The tool's name, as the PermissionRequest hook gives it."
+     }
+    },
+    {
+     "name": "input",
+     "required": true,
+     "schema": {
+      "type": "object",
+      "description": "The tool call's input as the hook gives it (tool_input): for Bash, command and description."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "behavior": {
+       "oneOf": [
+        {
+         "type": "string",
+         "enum": [
+          "allow",
+          "deny"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The founder's answer; null when the call ended with none (an hour passed), and the agent's own dialog shows in its terminal."
+      },
+      "message": {
+       "type": "string",
+       "description": "With deny: what the agent is told, with the founder's note when one was given."
+      }
+     },
+     "required": [
+      "behavior"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "description": "Called by `hl hook PermissionRequest`. Raises a Prompt of kind permission, source hook, with options allow and deny, and holds the call until prompt.answer answers it, the caller hangs up, or an hour passes. One such prompt per agent is open at a time; a second call waits for the first to close. Nothing is typed into the agent's terminal. Refused for a caller that is not an agent's session."
+  },
+  {
+   "name": "input.take",
+   "summary": "Become the one who types at this terminal.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "force",
+     "required": false,
+     "schema": {
+      "type": "boolean",
+      "description": "Take the input from the person or device that holds it instead of being refused; the holder notice tells them. It never types into the agent's own turn: typing still waits for it."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/Accepted"
+      },
+      {
+       "type": "object",
+       "properties": {
+        "holder": {
+         "$ref": "#/components/schemas/InputHolder"
+        }
+       },
+       "required": [
+        "holder"
+       ]
+      }
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "input_holder",
+    "unsupported"
+   ],
+   "description": "A daemon that runs structured agents need not serve this method (the Go daemon does not: it is absent from hello, so a client never calls it for one). One that serves it refuses an agent run as a structured session, gate unsupported: it has no terminal to type at, so a client sends chat.send and watches the transcript."
+  },
+  {
+   "name": "input.release",
+   "summary": "Hand the terminal back to the daemon.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "member",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "x-gates": [
+    "role",
+    "unsupported"
+   ],
+   "description": "A daemon that runs structured agents need not serve this method (the Go daemon does not: it is absent from hello, so a client never calls it for one). One that serves it refuses an agent run as a structured session, gate unsupported: it has no terminal to type at, so a client sends chat.send and watches the transcript."
+  },
+  {
+   "name": "agent.strip",
+   "summary": "The line under an agent's chat header: model, account, context, prompt-cache life and the screen word.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "type": "object",
+       "required": [
+        "agent",
+        "model",
+        "account",
+        "ctx_pct",
+        "ctx_used",
+        "ctx_limit",
+        "cache_left_s",
+        "screen_word",
+        "screen_detail"
+       ],
+       "properties": {
+        "agent": {
+         "$ref": "#/components/schemas/AgentName"
+        },
+        "model": {
+         "oneOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        "account": {
+         "oneOf": [
+          {
+           "type": "string"
+          },
+          {
+           "type": "null"
+          }
+         ]
+        },
+        "ctx_pct": {
+         "oneOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "Percent of the context window used, as far as the session's own report is trusted."
+        },
+        "ctx_used": {
+         "oneOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "Tokens in use."
+        },
+        "ctx_limit": {
+         "oneOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "The window the model has, with the agent's own setting applied."
+        },
+        "cache_left_s": {
+         "oneOf": [
+          {
+           "type": "integer"
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "Seconds until the prompt cache lapses; negative once it has; null with nothing to measure from."
+        },
+        "screen_word": {
+         "oneOf": [
+          {
+           "type": "string",
+           "enum": [
+            "RUNNING",
+            "IDLE",
+            "PENDING",
+            "MOVING",
+            "DIALOG",
+            "FATAL"
+           ]
+          },
+          {
+           "type": "null"
+          }
+         ],
+         "description": "The agent's state as the screens draw it (`tui.screen_state`), not the wire `state`; null when it never started."
+        },
+        "screen_detail": {
+         "type": "string",
+         "description": "The text drawn beside screen_word."
+        }
+       }
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ],
+   "description": "Context figures come from the usage snapshot of the agent's own session, so they are null for an agent with no account or no snapshot."
+  },
+  {
+   "name": "progress.get",
+   "summary": "The caller's progress note: the one on its request in progress, else on the task it holds, else on the agent (what hl progress shows with no note).",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "note": {
+       "oneOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "The note, or null when none is kept."
+      }
+     },
+     "required": [
+      "note"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1,
+   "x-callers": [
+    "agent"
+   ]
+  },
+  {
+   "name": "say",
+   "summary": "A message typed at once; needs no answer, starts no work.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "target",
+     "required": true,
+     "schema": {
+      "type": "string"
+     }
+    },
+    {
+     "name": "body",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Markdown. It may name images (x-attachments, texts)."
+     }
+    },
+    {
+     "name": "task",
+     "required": false,
+     "schema": {
+      "type": "integer"
+     }
+    },
+    {
+     "name": "no_task",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Why this carries no task."
+     }
+    },
+    {
+     "name": "parent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/RequestName"
+     }
+    },
+    {
+     "name": "files",
+     "required": false,
+     "schema": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+       "type": "string"
+      },
+      "description": "Absolute paths of images the message carries (ChatMessage.attachments): PNG, JPEG, GIF or WebP, at most 10 MiB each, at most 6. The daemon reads each and keeps a copy under its home. An agent may name only files under its worktree, its folder or the scratch folder; the founder any. A path outside those, a file that is not an image, or an image whose first bytes do not match its ending is bad_request (field files); the message is not written."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "agent",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "agent.triggers",
+   "summary": "What the daemon would decide for an agent right now (hl triggers).",
+   "description": "One row per agent the daemon knows, in name order; with `agent`, that agent's row alone, and an agent the home does not have is not_found. `fired` is whether the next tick would hand it off; `reason` is the trigger's reason, or for an agent whose triggers do not apply, what holds it (a walled wake, its state until its wake, or no session).",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": false,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "agents": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "agent": {
+          "$ref": "#/components/schemas/AgentName"
+         },
+         "fired": {
+          "type": "boolean"
+         },
+         "reason": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "agent",
+         "fired",
+         "reason"
+        ]
+       }
+      }
+     },
+     "required": [
+      "agents"
+     ]
+    }
+   },
+   "x-role": "agent",
+   "x-write": false,
+   "x-since": 1
+  }
+ ]
+}

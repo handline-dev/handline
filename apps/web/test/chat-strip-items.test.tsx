@@ -51,6 +51,7 @@ describe('the strip branch and context maximum', () => {
     await until(() => $('.chat-strip .branch button'), 'the branch');
     await act(async () => $('.chat-strip .branch button')!.click());
     expect(write).toHaveBeenCalledWith(branch);
+    expect($('.chat-strip .branch button')!.className).toContain('border-0'); // no default button border: the chip looks like its neighbours
     await until(() => text($('.chat-strip .branch')).includes('Copied'), 'the Copied state');
   });
 
@@ -66,5 +67,8 @@ describe('the strip branch and context maximum', () => {
         .click(),
     );
     await until(() => s.daemon.sessions.get(ARCH)!.settings.context_k === '500', 'the maximum applied');
+    // The daemon sends no event for it: the header reads the new maximum because the strip is read again.
+    await act(async () => $('.chat-strip [aria-label="Context window details"]')!.click());
+    await until(() => document.body.textContent?.includes('500,000'), 'the header with the new maximum');
   });
 });

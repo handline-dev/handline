@@ -20,7 +20,9 @@ export function heldId<T extends { id: number }>(entries: readonly T[], mine: (e
 
 /** The proposals about this agent that were decided: they sit in the timeline where they were settled. */
 export const decidedProposals = (all: readonly Proposal[] | undefined, agent: string): Proposal[] =>
-  (all ?? []).filter((p) => (p.agent === agent || p.requested_by === agent) && (p.state === 'approved' || p.state === 'rejected'));
+  (all ?? []).filter(
+    (p) => (p.agent === agent || p.requested_by === agent) && (p.state === 'approved' || p.state === 'rejected') && !p.follow_up,
+  );
 
 /** The sender of the daemon's own notices; its words are never the person's. */
 export const NOTICE_SENDER = 'task-board';

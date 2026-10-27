@@ -150,6 +150,9 @@
   ],
   "role": "agent"
  },
+ "hr.apply_now": {
+  "role": "member"
+ },
  "hr.decide": {
   "role": "member"
  },
@@ -232,6 +235,9 @@
  },
  "request.withdraw": {
   "role": "agent"
+ },
+ "requests.list": {
+  "role": "member"
  },
  "say": {
   "role": "agent"

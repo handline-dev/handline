@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/contracttest"
 	"github.com/handline/handline/go/internal/sealed"
 	"github.com/handline/handline/go/internal/store"
 )
@@ -79,10 +80,7 @@ func TestAnAgentWithNoStoredViewIsListedWithItsRoleAndTheNoTerminalState(t *test
 }
 
 func TestTheWordForNoStoredViewIsOneOfTheSpecs(t *testing.T) {
-	raw, err := os.ReadFile("../../../contract/protocol.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := contracttest.Spec(t)
 	var spec struct {
 		Words struct {
 			Words map[string]any `json:"words"`

@@ -41,7 +41,9 @@ export function NoticeBell() {
               onClick={() => void ((location.hash = '#/my-turn'), setOpen(false))}
             >
               <span className="size-2 flex-none rounded-full bg-wait" aria-hidden />
-              <span className="flex-1">{waiting} waiting on you</span>
+              <span className="flex-1">
+                {waiting} {waiting === 1 ? 'needs' : 'need'} you
+              </span>
               <Icon name="chevronRight" size={14} label="Opens My turn" aria-hidden />
             </button>
           ) : null}
@@ -103,8 +105,8 @@ function Row({ n, fresh }: { n: Notice; fresh: boolean }) {
 /** The results of what was just done, above the bell: a click closes them, a pointer over one keeps it, each runs out by itself. */
 function Toasts() {
   const store = useStore();
-  useSelector((s) => s.version); // the store speaks again when a toast runs out; what is on screen depends on the clock, so it is read here and not cached
-  const toasts = store.notices.toasts();
+  // The store speaks again when a toast runs out, so reading them once per store version keeps the list current.
+  const toasts = useSelector((s) => s.notices.toasts());
   if (!toasts.length) return null;
   return (
     <div className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[360px] max-w-[90vw] flex-col-reverse gap-1.5" role="status">
@@ -118,6 +120,12 @@ function Toasts() {
           onPointerLeave={() => store.notices.release(n.id)}
         >
           {lineOf(n)}
+          {n.details ? (
+            <details className="mt-1 text-hint" onClick={(e) => e.stopPropagation()}>
+              <summary className="cursor-pointer">Details</summary>
+              {n.details}
+            </details>
+          ) : null}
         </div>
       ))}
     </div>

@@ -43,6 +43,7 @@ const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const fire = (el: Element, type: string) =>
   act(async () => {
     el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+    if (type === 'dragstart') await new Promise((r) => setTimeout(r, 0)); // the drop cover mounts after the dragstart event
   });
 const rect = (l: number, t: number, w: number, h: number) =>
   ({ left: l, top: t, width: w, height: h, right: l + w, bottom: t + h, x: l, y: t, toJSON() {} }) as DOMRect;
@@ -152,8 +153,8 @@ describe('the workspace', () => {
     expect($('.side')).toBeNull();
     const top = $$('.rail-top button').map((b) => b.getAttribute('aria-label') ?? '');
     expect(top.slice(0, 3)).toEqual(['Hide the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']);
-    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*Usage/);
-    expect($$('.rail-nav .nav svg').length).toBe(3);
+    expect(text($('.rail-nav'))).toMatch(/Inbox.*Tasks.*Requests.*Usage/);
+    expect($$('.rail-nav .nav svg').length).toBe(4);
     expect(text($('.rail-nav'))).not.toMatch(/More|Team|Worktrees/);
     expect($$('.rail-foot button').map((b) => b.getAttribute('aria-label'))).toEqual(['Settings', 'Keys (?)']);
     expect($('.rail-status')).toBeNull();
@@ -161,7 +162,7 @@ describe('the workspace', () => {
     expect($('#app')!.parentElement).toBe($('.frame'));
     expect(bar.querySelector('[aria-label="daemon open"]')).not.toBeNull();
     expect(text(bar)).toContain('daemon ok'); // the cell says its state in a word; the agent counts are the sidebar's
-    expect(text(bar)).toMatch(/\d+ waiting on you.*\d+ blocked/);
+    expect(text(bar)).toMatch(/\d+ needs? you.*\d+ blocked/);
     expect($('.rail input[type=search]')).toBeNull(); // the palette (⌘K) finds agents
   });
 
@@ -361,6 +362,20 @@ describe('the workspace', () => {
     expect($$('[data-tab^="terminal:"]')).toHaveLength(1);
   });
 
+  it("the + menu's Terminal opens a new shell of the agent, beside its Claude Code tab, and closing the tab ends the shell", async () => {
+    const s = setup();
+    await mount(ARCH, textGrid(), s);
+    await until(() => $(termTab), 'the Claude Code tab');
+    await click($('[aria-label="Add a tab"]')!);
+    await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => text(b).trim() === 'Terminal')!);
+    await until(() => $('[data-tab^="shell:"]'), 'the shell tab');
+    expect([...s.daemon.script.shells]).toHaveLength(1);
+    expect($(termTab)).not.toBeNull(); // the agent's own terminal is untouched
+    await click($('[data-tab^="shell:"] .x')!);
+    await until(() => s.daemon.script.shells.size === 0, 'the shell closed');
+    expect($('[data-tab^="shell:"]')).toBeNull();
+  });
+
   it('allows four panes, and a lone tab dragged to another pane edge frees its own pane so the count holds', async () => {
     const storage = memory();
     let ws = closeTab(defaultWorkspace({ terminal: `term:${ARCH}` }), 'activity');
@@ -432,9 +447,13 @@ describe('the sidebar', () => {
     expect($('.row-working')).toBeNull();
   });
 
-  it('a pinned lead row counts the sub-agents working under it, its tree open or not', async () => {
+  it('a pinned lead row counts the sub-agents working and the ones that cannot go on, its tree open or not', async () => {
     const s = setup();
     auditorWorking(s.daemon);
+    const b = s.daemon.sessions.get('handline.term-build')!;
+    const was = b.fx.wall;
+    restores.push(() => void (b.fx.wall = was));
+    b.fx.wall = true; // walled like the auditor is until it works
     await mount(TB, undefined, s);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     const lead = $$('.row-wrap').find((r) => r.querySelector('.kids, [aria-expanded]'))!;
@@ -446,6 +465,8 @@ describe('the sidebar', () => {
     await until(() => $('.pinned-head'), 'the pinned section');
     const pinned = $$('.row-working').filter((w) => w.closest('[data-agent]')?.getAttribute('data-agent') === name);
     expect(pinned.map((w) => text(w).trim())).toEqual(['1']); // the pinned copy; the open tree row says nothing
+    const stuck = $$('.row-stuck').filter((w) => w.closest('[data-agent]')?.getAttribute('data-agent') === name);
+    expect(stuck.map((w) => text(w).trim())).toEqual(['1']);
   });
 
   it("a row's menu holds Settings, which opens that agent's settings, whose back button, above the title, returns to the agent", async () => {
@@ -528,7 +549,9 @@ describe('the daemon-down notice', () => {
     m.net.down = true;
     m.daemon.dropConnections();
     await until(() => $('.daemon-down'), 'the notice');
-    expect(text($('.daemon-down'))).toContain('hl service install');
+    expect(text($('.daemon-down'))).toContain("Handline isn't running");
+    expect(text($('.daemon-down code'))).toBe('hl service install'); // visible without the clipboard (a page over plain http has none)
+    expect($$('.daemon-down button').some((b) => text(b) === 'Copy command')).toBe(true);
     m.net.down = false;
     await until(() => !$('.daemon-down'), 'the notice gone');
   });

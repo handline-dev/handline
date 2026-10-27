@@ -86,13 +86,20 @@ func TestATrustScreenAfterTheLaunchIsLoggedAndRaisedOnce(t *testing.T) {
 	}
 }
 
-// A launch that stops at a dialog the table does not give the daemon to answer presses nothing: it stalls and the founder is asked.
-func TestAStartupDialogNoTableRowAnswersIsLeftToThePerson(t *testing.T) {
+// A launch that stops at a dialog the table does not give the daemon to answer presses nothing: it stalls, and no task is made for the
+// founder (the agent's view carries the card), however often the dialog is met.
+func TestAStartupDialogNoTableRowAnswersIsLeftToThePersonWithNoTask(t *testing.T) {
 	r := trustManager(t)
 	r.tm.trust = false
 	r.tm.blocker = &term.Blocker{Kind: term.Modal, Title: "New MCP servers found"}
 	ok, why := r.m.startupScreens("a", "t1")
-	if ok || len(r.ag.decisions) != 1 || !strings.Contains(why, DialogStall) {
+	if ok || len(r.ag.decisions) != 0 || !strings.Contains(why, DialogStall) {
 		t.Fatalf("%v %q decisions=%v", ok, why, r.ag.decisions)
+	}
+	if row, _ := db.GetAgentState(r.m.Q, "a"); row.State != states.Stalled || !strings.Contains(row.Detail.String, DialogStall) {
+		t.Fatalf("stalled with the dialog's words: %+v", row)
+	}
+	if ok, _ := r.m.startupScreens("a", "t1"); ok || len(r.ag.decisions) != 0 {
+		t.Fatalf("met again, still no task: %v", r.ag.decisions)
 	}
 }

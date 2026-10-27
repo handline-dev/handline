@@ -179,13 +179,24 @@ func (s *Sampler) Latest() map[string]any {
 		return nil
 	}
 	agents := map[string]any{}
+	var total Use
 	for name, u := range snap.Agents {
 		agents[name] = map[string]any{"cpu_pct": u.CPU, "rss_bytes": u.RSS}
+		total.CPU += u.CPU
+		total.RSS += u.RSS
 	}
 	m := snap.Machine
-	return map[string]any{"at": time.Unix(snap.At, 0).UTC().Format(time.RFC3339), "agents": agents, "machine": map[string]any{
+	machine := map[string]any{
 		"ram_total_bytes": m.RAMTotal, "ram_used_bytes": m.RAMUsed, "ram_free_bytes": m.RAMFree, "load_1m": m.Load1, "cores": m.Cores,
-		"disk_free_bytes": m.DiskFree, "disk_total_bytes": m.DiskTotal}}
+		"disk_free_bytes": m.DiskFree, "disk_total_bytes": m.DiskTotal, "load_per_core": 0.0, "ram_free_pct": 0}
+	if m.Cores > 0 {
+		machine["load_per_core"] = m.Load1 / float64(m.Cores)
+	}
+	if m.RAMTotal > 0 {
+		machine["ram_free_pct"] = int(m.RAMFree * 100 / m.RAMTotal)
+	}
+	return map[string]any{"at": time.Unix(snap.At, 0).UTC().Format(time.RFC3339), "agents": agents,
+		"agents_total": map[string]any{"cpu_pct": total.CPU, "rss_bytes": total.RSS}, "machine": machine}
 }
 
 // StatfsFree is the free (to this user) and total bytes of the volume holding path.

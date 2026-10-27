@@ -291,7 +291,7 @@ func WaitingTasks(q Q, agent string) ([]WaitingTask, error) {
 			}
 			delivered := false
 			for _, r := range linked {
-				if r.Target == agent && r.ID > after && !neverReached(r.State) {
+				if r.Target == agent && r.ID > after && !neverReached(r.State) && r.Kind.String != "say" { // a memo notice delivers nothing
 					delivered = true
 				}
 			}

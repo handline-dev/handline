@@ -17,7 +17,7 @@ import { edit, provisionalId, upsert, type Ctx } from '#src/cache.ts';
 import { accountAfter, type AccountChange } from '#src/account-after.ts';
 import { accountRemove } from '#src/account-remove.ts';
 import { chatWrites } from '#src/chat-writes.ts';
-import { qk } from '#src/reads.ts';
+import { keyOf, qk } from '#src/reads.ts';
 import type { WriteSpec } from '#src/write-spec.ts';
 
 const as = <T>(p: never) => p as T;
@@ -135,8 +135,8 @@ const tasks: Record<string, WriteSpec> = {
     label: 'add comment',
     touches: memoKeys,
     patch: (c, p) => {
-      const { task, text } = as<{ task: number; text: string }>(p);
-      const memo: Memo = { id: provisionalId(), task, author: c.me, at: c.now, text };
+      const { task, text, reply } = as<{ task: number; text: string; reply?: number }>(p);
+      const memo: Memo = { id: provisionalId(), task, author: c.me, at: c.now, text, ...(reply === undefined ? {} : { reply_to: reply }) };
       changeMemos(c, task, (l) => [...l, memo]);
     },
     reconcile: (c, p, r) => changeMemos(c, as<{ task: number }>(p).task, (l) => renumber(l, (m) => m.id < 0, (r as { memo: number }).memo)),
@@ -202,6 +202,8 @@ const settings: Record<string, WriteSpec> = {
       const { agent, values } = as<{ agent: string; values: object }>(p);
       edit<{ settings?: object }>(c.qc, qk.agent(c.d, agent), (a) => ({ ...a, settings: { ...a.settings, ...values } }));
     },
+    // The strip's numbers (the context maximum among them) come from the settings but ride no event of their own: read them again.
+    reconcile: (c, p) => void c.qc.invalidateQueries({ queryKey: keyOf(c.d, 'agent.strip', { agent: as<{ agent: string }>(p).agent }) }),
   },
   'settings.set': {
     kind: 'authored',
@@ -344,13 +346,14 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'input.take': 'take control',
     'input.release': 'release',
     'hr.withdraw': 'withdraw',
+    'hr.apply_now': 'apply now',
     'account.login': 'log in',
     'account.login_code': 'send code',
     'account.login_cancel': 'cancel login',
     'account.add': 'add account',
     'terminal.close': 'close terminal',
-    'shell.open': 'open terminal',
-    'shell.close': 'close terminal',
+    'task.request': 'make a request',
+    'task.none': 'mark no work',
     'task.discard': 'discard',
     'task.ask': 'ask',
     'device.pair': 'pair',
@@ -400,6 +403,8 @@ export const writes: Record<string, WriteSpec> = {
   'session.type': uncached('type'),
   'terminal.input': uncached('key'),
   'terminal.resize': uncached('resize'),
+  'shell.open': uncached('open shell'),
+  'shell.close': uncached('close shell'),
 };
 
 /** What a structured agent has no terminal for: a write of these to one is a bug in the view, not a refusal to wait for. */
@@ -414,8 +419,6 @@ export const NOT_FROM_UI = [
   'say',
   'hook.record',
   'task.wait', // hl task wait; no screen opens a gate yet
-  'task.request', // hl task request; the app's "make a request" (P1, T5985) moves it to the writes table
-  'task.none', // hl task none
   'hr.propose',
   'trust.propose',
   'task.begin',

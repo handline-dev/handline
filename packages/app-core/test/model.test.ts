@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { AgentDetail, AgentView, Prompt } from '@handline/client';
+import type { AgentDetail, AgentView, Prompt, Status } from '@handline/client';
 import {
   promptChoices,
   whyOf,
@@ -12,9 +12,12 @@ import {
   needsConfirm,
   offered,
   railRows,
+  stuckUnder,
   workingUnder,
   visibleRows,
   queueOf,
+  queuedBehind,
+  waitingTasks,
   RAIL_FILTERS,
   stopModesOf,
   shortName,
@@ -131,6 +134,22 @@ test('queue counts are null when the view does not carry them, never a made-up 0
   assert.deepEqual(queueOf(agent('x')), { tasks: null, messages: null });
   assert.deepEqual(queueOf(agent('x', { task_count: 0, unreached: 3 })), { tasks: 0, messages: 3 });
   assert.deepEqual(queueOf(agent('x'), 2), { tasks: null, messages: 2 });
+});
+
+test('queued behind is the owned tasks less the current one, never negative, null with no count', () => {
+  assert.equal(queuedBehind(agent('x')), null);
+  assert.equal(queuedBehind(agent('x', { task_count: 4, task: { id: 7, title: 't' } })), 3);
+  assert.equal(queuedBehind(agent('x', { task_count: 2 })), 2); // no current task: all wait
+  assert.equal(queuedBehind(agent('x', { task_count: 0, task: { id: 7, title: 't' } })), 0);
+});
+
+test('the waiting tasks are the ones the count adds up: not the current one, not a draft', () => {
+  const a = agent('x', { task_count: 3, task: { id: 7, title: 't' } });
+  const open = [7, 8, 9, 10].map((id, i) => ({ id, state: i === 3 ? 'draft' : i === 1 ? 'queued' : 'doing' }));
+  assert.deepEqual(
+    waitingTasks(a, open).map((t) => t.id),
+    [8, 9],
+  );
 });
 
 test('keydown maps to named keys only; printable text and IME composition are left to the textarea', () => {
@@ -344,4 +363,25 @@ test('workingUnder counts the running sub-agents at any depth, not the agent its
   assert.equal(workingUnder(list, 'lead'), 2);
   assert.equal(workingUnder(list, 'a'), 1);
   assert.equal(workingUnder(list, 'b'), 0);
+});
+
+test('stuckUnder counts the sub-agents held for load, on a dialog or blocked, at any depth', () => {
+  const held: Status = {
+    state: 'waiting',
+    reason: 'load',
+    text: 'held: machine load - load 2.19 per core, limit 1.50',
+    until: null,
+    since: '2026-10-26T12:00:00Z',
+    tasks: [],
+  };
+  const list = [
+    agent('lead', { state: 'running' }),
+    agent('a', { parent: 'lead', state: 'idle', status: held }),
+    agent('b', { parent: 'lead', state: 'running' }),
+    agent('c', { parent: 'a', state: 'idle', has_dialog: true }),
+    agent('d', { parent: 'b', state: 'stalled' }),
+  ];
+  assert.equal(stuckUnder(list, 'lead'), 3);
+  assert.equal(stuckUnder(list, 'b'), 1);
+  assert.equal(stuckUnder(list, 'd'), 0);
 });

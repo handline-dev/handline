@@ -35,7 +35,7 @@ test('the store knows who the caller is and which methods the daemon lets it cal
 test("a failure the person asked about reads as the gate's sentence, and a lost connection says nothing", async () => {
   const { store, client } = await open();
   store.reportError('start', new RpcError('refused', 'its account is at the wall', { hint: 'try later' } as never));
-  assert.match(store.error!, /^start: /);
+  assert.match(store.error!, /^Couldn't start: /);
   store.dismissError();
   assert.equal(store.error, null);
   store.reportError('start', new RpcError('transport', 'closed'));
@@ -51,7 +51,7 @@ test('a failure is a notice that stays in the list after the line goes, and the 
   store.reportError('start', new RpcError('refused', 'busy'));
   assert.deepEqual(
     store.notices.list().map((n) => [n.text, n.count]),
-    [['start: busy', 2]],
+    [["Couldn't start: busy", 2]],
   );
   store.dismissError();
   assert.equal(store.error, null);
@@ -174,5 +174,17 @@ test('what happened to an agent while the page watched is kept as notes', async 
   daemon.emit('agents', 'agent.control', { agent: ARCH, data: { at: 't', kind: 'start', text: 'started', actor: { name: 'me' } } });
   await until(() => (store.notes.get(ARCH) ?? []).length === 1, 'a note');
   assert.deepEqual(store.notes.get(ARCH), [{ at: 't', kind: 'start', text: 'started', actor: 'me' }]);
+  client.close();
+});
+
+test('a failure shows the first sentence of the reason, drops a hint that is a command, and keeps the full words behind Details', async () => {
+  const { store, client } = await open();
+  store.reportError(
+    'Start',
+    new RpcError('refused', 'account alpha is at 96% of its limit. It would not start.', { hint: 'use --force to override' } as never),
+  );
+  const [n] = store.notices.list();
+  assert.equal(n!.text, "Couldn't start: account alpha is at 96% of its limit.");
+  assert.equal(n!.details, 'account alpha is at 96% of its limit. It would not start. (use --force to override)');
   client.close();
 });

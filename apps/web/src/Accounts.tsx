@@ -2,13 +2,13 @@
 import { useState, type ReactNode } from 'react';
 import { STATE_WORD, agentsLine, outUntil, paceLine, stateOf, span, dateTime } from '@handline/app-core';
 import type { Account } from '@handline/client';
-import { useStore } from '@handline/app-react';
+import { useHello } from '@handline/app-react';
 import { classify, sentence, useAccounts, useAccountUsage, useAgents, useOff, useServes, useWrite } from '@handline/app-data';
 import { AccountLogin } from '#src/AccountLogin.tsx';
 import { AccountSettings } from '#src/AccountSettings.tsx';
 import { Gauge, useNow } from '#src/Gauge.tsx';
 import { SettingsSection, SettingsShell } from '#src/SettingsShell.tsx';
-import { goAgent, useHistoryValue } from '#src/route.ts';
+import { goAgent, leave, useHistoryValue } from '#src/route.ts';
 import {
   Button,
   Dialog,
@@ -90,7 +90,7 @@ export function UsageLine({ account }: { account: Account }) {
 
 /** A stalled account: STALLED and its reason, and for the founder Wake (the row loses the stall at once; a refusal puts it back and says why). */
 export function Stall({ account }: { account: Account }) {
-  const founder = useStore().client.hello?.role === 'founder';
+  const founder = useHello()?.role === 'founder';
   const { served } = useServes('account.wake');
   const wake = useWrite('account.wake', account.name);
   if (!account.stalled && !wake.error) return null;
@@ -98,7 +98,7 @@ export function Stall({ account }: { account: Account }) {
     <span className="acct-stall flex flex-wrap items-center gap-2 text-hint" data-stall={account.name}>
       {account.stalled ? (
         <>
-          <span className="badge stalled inline-block rounded-card border border-bad px-1.5 text-bad">STALLED</span>
+          <span className="badge stalled inline-block rounded-card border border-bad px-1.5 text-bad">blocked</span>
           <span className="acct-stall-reason" title={account.stalled.detail || account.stalled.error}>
             {account.stalled.reason}
           </span>
@@ -155,7 +155,7 @@ export function UsageRow({ account, now }: { account: Account; now: number }) {
 
 /** Founder only: a name registers the account, which then needs a login (the topic brings the row in). */
 function AddAccount() {
-  const founder = useStore().client.hello?.role === 'founder';
+  const founder = useHello()?.role === 'founder';
   const off = useOff('account.add');
   const [asking, setAsking] = useState(false);
   const [name, setName] = useState('');
@@ -262,7 +262,7 @@ function Frame({ name, title, children }: { name: string | null; title: string |
     );
   return (
     <ScrollPage className="accounts" aria-label="Accounts">
-      <PageHead className="accounts-head" back={{ label: 'accounts', to: () => (location.hash = '#/accounts') }}>
+      <PageHead className="accounts-head" back={{ label: 'accounts', to: () => leave('#/accounts') }}>
         <PageTitle>{title}</PageTitle>
       </PageHead>
       {children}

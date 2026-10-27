@@ -5,7 +5,7 @@ import { Text, View } from 'react-native';
 import { applyEach, plan, summary, taskRef, TASK_VERBS, type Outcome, type RowVerb } from '@handline/app-core';
 import { useStore } from '@handline/app-react';
 import type { Task } from '@handline/client';
-import { useAgents, useOff, useWrite } from '@handline/app-data';
+import { useAgents, useOff, useTaskActions } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { MenuItem, MenuSheet, Pill } from '#src/screens/parts.tsx';
@@ -26,35 +26,6 @@ const ARG: Record<RowVerb, Arg> = {
   timebox: 'timebox',
 };
 const DANGER: RowVerb[] = ['cancel', 'discard', 'withdraw'];
-
-/** One write per task for a verb; `arg` is the sentence, owner, priority or time box the verb asks for. */
-function useVerbs() {
-  const w = {
-    done: useWrite('task.done'),
-    reopen: useWrite('task.reopen'),
-    queue: useWrite('task.queue'),
-    draft: useWrite('task.draft'),
-    release: useWrite('task.release'),
-    withdraw: useWrite('task.withdraw'),
-    cancel: useWrite('task.cancel'),
-    discard: useWrite('task.discard'),
-    edit: useWrite('task.edit'),
-  };
-  const run: Record<RowVerb, (task: number, arg: string) => Promise<unknown>> = {
-    done: (task, evidence) => w.done.mutateAsync({ task, evidence, reason: true }),
-    reopen: (task, note) => w.reopen.mutateAsync({ task, ...(note ? { note } : {}) }),
-    queue: (task) => w.queue.mutateAsync({ tasks: [task] }),
-    draft: (task) => w.draft.mutateAsync({ tasks: [task] }),
-    release: (task, reason) => w.release.mutateAsync({ task, reason }),
-    withdraw: (task) => w.withdraw.mutateAsync({ task }),
-    cancel: (task, reason) => w.cancel.mutateAsync({ task, ...(reason ? { reason } : {}) }),
-    discard: (task, reason) => w.discard.mutateAsync({ task, reason }),
-    owner: (task, owner) => w.edit.mutateAsync({ task, owner }),
-    priority: (task, p) => w.edit.mutateAsync({ task, priority: Number(p) as 1 | 2 | 3 }),
-    timebox: (task, time_box) => w.edit.mutateAsync({ task, time_box }),
-  };
-  return run;
-}
 
 /** Why the daemon cannot run a verb now, or null: the connection, then whether it serves the method. */
 function useCans(): Record<RowVerb, string | undefined> {
@@ -77,7 +48,7 @@ function useCans(): Record<RowVerb, string | undefined> {
 export function TaskBatch(props: { tasks: Task[]; onClose: () => void; onDone: () => void }) {
   const c = usePalette();
   const me = useStore().me;
-  const run = useVerbs();
+  const { verbs: run } = useTaskActions();
   const cans = useCans();
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
   const [verb, setVerb] = useState<RowVerb | null>(null);
@@ -142,9 +113,23 @@ export function TaskBatch(props: { tasks: Task[]; onClose: () => void; onDone: (
       error={missing ? 'This needs an answer.' : undefined}
     >
       {kind === 'reason' || kind === 'reasonOptional' ? (
-        <Input testID="batch-text" label={kind === 'reason' ? 'Reason' : 'Reason (optional)'} value={arg} invalid={missing} onChange={(v) => (setArg(v), setMissing(false))} />
+        <Input
+          testID="batch-text"
+          label={kind === 'reason' ? 'Reason' : 'Reason (optional)'}
+          value={arg}
+          invalid={missing}
+          onChange={(v) => (setArg(v), setMissing(false))}
+        />
       ) : null}
-      {kind === 'timebox' ? <Input testID="batch-text" label="Time box, like 2h" value={arg} invalid={missing} onChange={(v) => (setArg(v), setMissing(false))} /> : null}
+      {kind === 'timebox' ? (
+        <Input
+          testID="batch-text"
+          label="Time box, like 2h"
+          value={arg}
+          invalid={missing}
+          onChange={(v) => (setArg(v), setMissing(false))}
+        />
+      ) : null}
       {kind === 'priority' ? (
         <View style={{ flexDirection: 'row', gap: space.sm }}>
           {(['1', '2', '3'] as const).map((x) => (
@@ -159,7 +144,11 @@ export function TaskBatch(props: { tasks: Task[]; onClose: () => void; onDone: (
           ))}
         </View>
       ) : null}
-      {p.skip.length ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{`Skipped: ${p.skip.map((s) => `${taskRef(s.task.id)} (${s.why})`).join('; ')}`}</Text> : null}
+      {p.skip.length ? (
+        <Text
+          style={{ color: c.muted, fontSize: font.size.label }}
+        >{`Skipped: ${p.skip.map((s) => `${taskRef(s.task.id)} (${s.why})`).join('; ')}`}</Text>
+      ) : null}
     </Sheet>
   );
 }

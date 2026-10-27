@@ -1,7 +1,6 @@
 package heal
 
 import (
-	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,8 +23,6 @@ type fakePorts struct {
 	person    bool
 	held      string
 	did       []string
-	cards     []string
-	fixes     []string
 	onRestart func()
 }
 
@@ -50,11 +47,6 @@ func (f *fakePorts) Restart(agent string, fresh bool) (bool, string, error) {
 		f.onRestart()
 	}
 	return true, agent + ": restarted", nil
-}
-func (f *fakePorts) RaiseCard(_ db.Q, agent, text, fix string) error {
-	f.cards = append(f.cards, text)
-	f.fixes = append(f.fixes, fix)
-	return nil
 }
 
 // hung leaves agent a RUNNING in its terminal with nothing heard for two hours.
@@ -104,8 +96,8 @@ func TestHungAgentRecoversByRestart(t *testing.T) {
 	if strings.Join(f.did, ",") != "interrupt,restart" {
 		t.Fatalf("an interrupt that did not take is followed by a restart, and the restart ends it: %v", f.did)
 	}
-	if len(f.cards) != 0 {
-		t.Fatalf("a healed agent raises no card: %v", f.cards)
+	if _, up := CardUp(q, "a"); up {
+		t.Fatal("a healed agent has no card")
 	}
 	if id, ok, _ := db.LastActivityID(q, "a", []string{"healed"}); !ok || id == 0 {
 		t.Fatal("no healed event")
@@ -135,8 +127,8 @@ func TestAHangThatKeepsComingBackReachesTheCard(t *testing.T) {
 			t.Fatalf("hang %d: %v", i+1, f.did)
 		}
 	}
-	if len(f.cards) != 1 {
-		t.Fatalf("the third hang within QuietS raises the card: %v", f.cards)
+	if _, up := CardUp(q, "a"); !up {
+		t.Fatal("the third hang within QuietS puts the card up")
 	}
 }
 
@@ -199,7 +191,7 @@ func TestWaitReturnsOnlyAfterARunningStepEnds(t *testing.T) {
 	}
 }
 
-func TestAgentThatStaysStuckRaisesOneCard(t *testing.T) {
+func TestAgentThatStaysStuckHasOneCardAndNoTask(t *testing.T) {
 	q := openDB(t)
 	now := time.Now().Unix()
 	hung(t, q, now)
@@ -213,11 +205,19 @@ func TestAgentThatStaysStuckRaisesOneCard(t *testing.T) {
 	if strings.Join(f.did, ",") != "interrupt,restart,relaunch" {
 		t.Fatalf("each step once, in order: %v", f.did)
 	}
-	if len(f.cards) != 1 {
-		t.Fatalf("exactly one card while it stays stuck, got %d", len(f.cards))
+	if since, up := CardUp(q, "a"); !up || since == 0 {
+		t.Fatalf("the card is up while it stays stuck: %d %v", since, up)
 	}
-	if !strings.Contains(f.cards[0], fmt.Sprintf("a is stuck on T%d: its turn is hung", tid)) || f.fixes[0] != FixOpenTerminal {
-		t.Fatalf("the card names the agent, task and trouble, with the fix: %q %q", f.cards[0], f.fixes[0])
+	var tasks int
+	must(t, q.QueryRow("SELECT COUNT(*) FROM tasks WHERE title != 'the work'").Scan(&tasks))
+	if tasks != 0 {
+		t.Fatalf("no task is made for the founder: %d", tasks)
+	}
+	// The trouble ends: the card goes at once, not after QuietS.
+	must(t, db.SetAgentState(q, "a", states.Idle, 0, "well"))
+	must(t, h.Sweep(q, now+30*StepWaitS))
+	if _, up := CardUp(q, "a"); up {
+		t.Fatal("the card goes when the trouble does")
 	}
 }
 
@@ -256,8 +256,8 @@ func TestPromptOnScreenIsLeftToThePerson(t *testing.T) {
 	hung(t, q, now)
 	f := &fakePorts{person: true}
 	sweepFor(t, inline(f), q, now, 20*StepWaitS)
-	if len(f.did) != 0 || len(f.cards) != 0 {
-		t.Fatalf("an agent at a prompt has its own card; nothing is done to it: %v %v", f.did, f.cards)
+	if len(f.did) != 0 {
+		t.Fatalf("an agent at a prompt has its own card; nothing is done to it: %v", f.did)
 	}
 }
 
@@ -273,8 +273,8 @@ func TestAMessageTheLoadHoldsIsNotStuck(t *testing.T) {
 	must(t, err)
 	f := &fakePorts{held: "held: machine load - load 2.19 per core, limit 1.50"}
 	sweepFor(t, inline(f), q, now, 20*StepWaitS)
-	if len(f.did) != 0 || len(f.cards) != 0 {
-		t.Fatalf("a held agent was healed: %v %v", f.did, f.cards)
+	if len(f.did) != 0 {
+		t.Fatalf("a held agent was healed: %v", f.did)
 	}
 	founder, err := db.AddRequest(q, db.NewRequest{Requester: db.Human, Target: "a", Body: "are you there?", Kind: "say"})
 	must(t, err)

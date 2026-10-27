@@ -186,5 +186,12 @@ function fakeResources(sessions: Map<string, Session>, at: Timestamp) {
   const agents: Record<string, { cpu_pct: number; rss_bytes: number }> = {};
   for (const [name, s] of sessions) agents[name] = { cpu_pct: s.state === 'running' ? 95 : 0.5, rss_bytes: 400 * 2 ** 20 };
   const machine = { ram_total_bytes: 32 * GB, ram_used_bytes: 20 * GB, ram_free_bytes: 12 * GB, load_1m: 3.2, cores: 10 };
-  return { at, agents, machine: { ...machine, disk_free_bytes: 120 * GB, disk_total_bytes: 500 * GB } };
+  const all = Object.values(agents);
+  return {
+    at,
+    agents,
+    agents_total: { cpu_pct: all.reduce((n, a) => n + a.cpu_pct, 0), rss_bytes: all.reduce((n, a) => n + a.rss_bytes, 0) },
+    start_hold: null,
+    machine: { ...machine, load_per_core: 0.32, ram_free_pct: 37, disk_free_bytes: 120 * GB, disk_total_bytes: 500 * GB },
+  };
 }

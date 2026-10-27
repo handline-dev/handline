@@ -96,16 +96,24 @@ export function railRows(agents: AgentView[], opts: RailFilter = {}, order?: rea
   return rows;
 }
 
-/** How many of an agent's sub-agents, at any depth, are working: a folded row shows it so the work under it is not out of sight. */
-export function workingUnder(agents: readonly AgentView[], name: string): number {
+/** The sub-agents of an agent, at any depth. */
+function below(agents: readonly AgentView[], name: string): AgentView[] {
   const under = new Set([name]);
   let size = 0;
   while (size < under.size) {
     size = under.size;
     for (const x of agents) if (x.parent && under.has(x.parent)) under.add(x.name);
   }
-  return agents.filter((x) => x.name !== name && under.has(x.name) && dotOf(x) === 'running').length;
+  return agents.filter((x) => x.name !== name && under.has(x.name));
 }
+
+/** How many of an agent's sub-agents, at any depth, are working: a folded row shows it so the work under it is not out of sight. */
+export const workingUnder = (agents: readonly AgentView[], name: string): number =>
+  below(agents, name).filter((x) => dotOf(x) === 'running').length;
+
+/** How many of an agent's sub-agents, at any depth, cannot go on: held for the machine's load, waiting on a dialog, blocked or stalled. */
+export const stuckUnder = (agents: readonly AgentView[], name: string): number =>
+  below(agents, name).filter((x) => ['waiting', 'blocked'].includes(dotOf(x))).length;
 
 /** The rows left once the collapsed agents hide their descendants: a row is dropped while it sits deeper than the nearest collapsed row above it. */
 export function visibleRows<R extends { agent: AgentView; depth: number }>(rows: R[], collapsed: ReadonlySet<string>): R[] {
@@ -132,6 +140,15 @@ export const RAIL_FILTERS: { id: string; label: string; dots: Dot[] }[] = [
 export function queueOf(a: AgentView, unreached: number | null = null): { tasks: number | null; messages: number | null } {
   return { tasks: a.task_count ?? null, messages: a.unreached ?? unreached };
 }
+
+/** Tasks waiting behind the one the agent is on: the owned tasks that are not done (queued or doing), less the current one. Null when the view carries no count. */
+export function queuedBehind(a: AgentView): number | null {
+  return a.task_count == null ? null : Math.max(0, a.task_count - (a.task ? 1 : 0));
+}
+
+/** Which of an agent's open tasks wait behind its current one: the same set `task_count` counts, so the list adds up to the number. */
+export const waitingTasks = <T extends { id: number; state: string }>(a: AgentView, open: readonly T[]): T[] =>
+  open.filter((t) => t.state !== 'draft' && t.id !== a.task?.id);
 
 export interface Controls {
   start: boolean;

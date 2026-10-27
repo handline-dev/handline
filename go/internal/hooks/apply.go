@@ -12,10 +12,11 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/handline/handline/go/internal/policy"
 	"github.com/handline/handline/go/internal/rpc"
 )
 
-const hookKeep = 24 * time.Hour
+const hookKeep = policy.HookKeep
 
 // captured are the hook events that are recorded; PostToolUse is deliberately absent.
 var captured = set("SessionStart", "SessionEnd", "Stop", "StopFailure", "SubagentStop", "PostCompact", "UserPromptSubmit",
@@ -268,14 +269,14 @@ func markActivity(tx *sql.Tx, agent, event string, payload map[string]any) error
 		if row.found && row.state == "RUNNING" && row.wakeAt == 0 {
 			return nil // already correct; do not rewrite on every prompt
 		}
-		return setState(tx, agent, "RUNNING", "active ("+event+")")
+		return setState(tx, agent, "RUNNING", "working")
 	case event == "StopFailure" && payload["limit"] != nil && payload["limit"] != "":
 		// Out of usage is not working: the turn ended and nothing will run.
 		if row.found && row.state == "RUNNING" {
 			return setState(tx, agent, "IDLE", "at its usage limit: "+cut(fmt.Sprint(payload["limit"]), 80))
 		}
 	case event == "Stop" && row.found && row.state == "RUNNING":
-		return setState(tx, agent, "IDLE", "finished its turn")
+		return setState(tx, agent, "IDLE", "idle")
 	}
 	return nil
 }
@@ -307,5 +308,5 @@ func noteToolUse(tx *sql.Tx, agent string) error {
 		strings.HasPrefix(row.detail, "moving") {
 		return err
 	}
-	return setState(tx, agent, "RUNNING", "active (tool use)")
+	return setState(tx, agent, "RUNNING", "working")
 }

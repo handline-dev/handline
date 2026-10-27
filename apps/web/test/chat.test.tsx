@@ -228,6 +228,20 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(text(msg('and the transcripts')!.querySelector('.msg-ref'))).toContain('Use the contract fixtures.');
   });
 
+  it('a message of the person offers no request buttons; what the team made of it shows under it in plain words', async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Use the contract fixtures.'), 'history');
+    await click(msg('Use the contract fixtures.')!.querySelector('.msg-body')!);
+    expect($$('.msg-request button')).toHaveLength(0); // the lead turns a message into a request, not the person
+    const none = (call: string, p: object) =>
+      t.daemon.requests.call(call, { request: idOf('Use the contract fixtures.'), ...p }, () => ({}));
+    none('task.request', {});
+    await until(() => $('a.msg-request'), 'the request chip');
+    expect(text($('a.msg-request'))).toMatch(/^Taken as T\d+$/);
+    expect($('a.msg-request')!.getAttribute('href')).toMatch(/^#\/tasks\/\d+$/);
+    expect(t.daemon.requests.rows.some((r) => r.kind === 'task' && r.title.startsWith('Use the contract fixtures.'))).toBe(true);
+  });
+
   it("a reply quoting another agent's message goes to this chat's agent, with the quote as its parent", async () => {
     const s = setup();
     s.daemon.chat.seed(ARCH, { from: 'handline.pr', to: ARCH, body: 'PR note from elsewhere' });

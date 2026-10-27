@@ -5,6 +5,7 @@ package loadgate
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +49,21 @@ func setting(cfg usage.Config, key string, def int) int {
 	return def
 }
 
+// HeldPrefix starts every reason Held gives, so a caller can tell a load hold from any other refusal (IsHeld).
+const HeldPrefix = "Held: "
+
+// IsHeld is whether why is a reason Held gave.
+func IsHeld(why string) bool { return strings.HasPrefix(why, HeldPrefix) }
+
+// Cause is the clause of a Held reason that names what holds it: "the Mac is busy", "3 of 3 agents are working".
+func Cause(why string) string {
+	s := strings.TrimPrefix(why, HeldPrefix)
+	if i := strings.IndexAny(s, "(."); i > 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}
+
 // Held is why a new start must wait, "" when it may go. active is the agents mid-turn on the machine; m is the latest measure, nil
 // before the first, when only the agent cap is checked.
 func Held(l Limits, active int, m *sysres.Machine) string {
@@ -55,22 +71,33 @@ func Held(l Limits, active int, m *sysres.Machine) string {
 		return ""
 	}
 	if l.Agents > 0 && active >= l.Agents {
-		return fmt.Sprintf("held: machine load - %d of %d agents mid-turn", active, l.Agents)
+		return fmt.Sprintf(HeldPrefix+"%d of %d agents are working. It starts by itself when one finishes.", active, l.Agents)
 	}
 	if m == nil {
 		return ""
 	}
 	if l.LoadPct > 0 && m.Cores > 0 {
 		if pct := int(m.Load1 * 100 / float64(m.Cores)); pct > l.LoadPct {
-			return fmt.Sprintf("held: machine load - load %.2f per core, limit %.2f", float64(pct)/100, float64(l.LoadPct)/100)
+			load, limit := perCore(pct, l.LoadPct)
+			return HeldPrefix + "the Mac is busy (" + load + " per core, limit " + limit + "). It starts by itself when that drops."
 		}
 	}
 	if l.RAMFreePct > 0 && m.RAMTotal > 0 {
 		if pct := int(m.RAMFree * 100 / m.RAMTotal); pct < l.RAMFreePct {
-			return fmt.Sprintf("held: machine load - %d%% of memory free, limit %d%%", pct, l.RAMFreePct)
+			return fmt.Sprintf(HeldPrefix+"the Mac is low on memory (%d%% free, limit %d%%). It starts by itself when memory frees up.", pct,
+				l.RAMFreePct)
 		}
 	}
 	return ""
+}
+
+// perCore writes a load and its limit (percent of a core) with one decimal, or two when one would show them equal (1.51 over 1.50).
+func perCore(load, limit int) (string, string) {
+	a, b := fmt.Sprintf("%.1f", float64(load)/100), fmt.Sprintf("%.1f", float64(limit)/100)
+	if a == b {
+		a, b = fmt.Sprintf("%.2f", float64(load)/100), fmt.Sprintf("%.2f", float64(limit)/100)
+	}
+	return a, b
 }
 
 // PassFor is how long a force start lets an agent past the limits: long enough for the start it asked for, after which the agent counts
@@ -118,13 +145,18 @@ func (g *Gate) Held(agent string) string {
 const Ceiling = 10 * time.Minute
 
 // ForWork is Held for an agent with work waiting, with Ceiling on it: the first ask held Ceiling ago lets the agent past once and calls
-// onCeiling with why it had been held. Only the start and delivery paths ask it, so an agent with nothing waiting starts no clock.
+// onCeiling with why it had been held. Only the start and delivery paths ask it, so an agent with nothing waiting starts no clock. A nil
+// gate holds nothing.
 func (g *Gate) ForWork(agent string, onCeiling func(why string)) string {
+	if g == nil {
+		return ""
+	}
 	why := g.Held(agent)
+	now := g.now()
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	if why == "" {
 		delete(g.since, agent)
+		g.mu.Unlock()
 		return ""
 	}
 	if g.since == nil {
@@ -132,18 +164,30 @@ func (g *Gate) ForWork(agent string, onCeiling func(why string)) string {
 	}
 	since, ok := g.since[agent]
 	if !ok {
-		g.since[agent] = g.now()
-		return why
+		g.since[agent] = now
+		since = now
 	}
-	if g.now().Sub(since) < Ceiling {
+	if now.Sub(since) < Ceiling {
+		g.mu.Unlock()
 		return why
 	}
 	delete(g.since, agent)
 	g.pass(agent)
+	g.mu.Unlock()
 	if onCeiling != nil {
 		onCeiling(why)
 	}
 	return ""
+}
+
+// Forget drops agent's hold clock: its caller found nothing waiting for it, so the next work it gets starts a clock of its own.
+func (g *Gate) Forget(agent string) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	delete(g.since, agent)
+	g.mu.Unlock()
 }
 
 // Pass lets agent's next start past the limits (a person's force start).

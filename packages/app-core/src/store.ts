@@ -18,6 +18,10 @@ export interface Page {
   view: TerminalView | null;
 }
 
+/** What is a command for a terminal, not words for a person: a flag, a backtick or an `hl` command. */
+const COMMAND_LINE = /--\w|`|\bhl [a-z]/;
+const firstSentence = (s: string) => s.split(/(?<=[.!?])\s/, 1)[0] ?? s;
+
 export class Store {
   client: DaemonClient;
   notes = new Map<string, Note[]>(); // what happened to each agent while this page watched
@@ -107,12 +111,21 @@ export class Store {
     this.emit();
   }
 
-  /** Says why a call the person asked for failed, with the gate's own sentence and hint. A lost connection says nothing here: the banner does, and the reconnect refetches. */
+  /** Says why a call the person asked for failed: "Couldn't <what>: <first sentence of the reason>", the daemon's full words behind Details. A lost connection says nothing here: the banner does, and the reconnect refetches. */
   reportError(what: string, e: unknown): void {
-    if (e instanceof RpcError) {
-      if (e.code === 'transport') return;
-      this.notices.push('fail', `${what}: ${e.reason ?? e.message}${e.hint ? ` (${e.hint})` : ''}`);
-    } else this.notices.push('fail', `${what}: ${(e as Error).message}`);
+    if (e instanceof RpcError && e.code === 'transport') return;
+    const rpc = e instanceof RpcError ? e : null;
+    const reason = rpc ? (rpc.reason ?? rpc.message) : (e as Error).message;
+    const hint = rpc?.hint && !COMMAND_LINE.test(rpc.hint) ? ` (${rpc.hint})` : '';
+    const said = `${firstSentence(reason)}${hint}`;
+    const raw = `${reason}${rpc?.hint ? ` (${rpc.hint})` : ''}`;
+    this.notices.push(
+      'fail',
+      `Couldn't ${what.charAt(0).toLowerCase()}${what.slice(1)}: ${said}`,
+      'system',
+      undefined,
+      raw === said ? undefined : raw,
+    );
     this.emit();
   }
 
