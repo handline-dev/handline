@@ -55,11 +55,11 @@ describe('HR proposals in the chat', () => {
     await mount(ARCH, s);
     await until(() => $('.card-hr'), 'the HR line');
     expect($$('.card-hr')).toHaveLength(1);
-    expect(text($('.card-hr'))).toContain('2 HR proposals wait for you');
+    expect(text($('.card-hr'))).toContain('2 HR proposals need you');
     expect(labelled($('.card-hr'), 'Approve')).toBeUndefined();
     expect(labelled($('.card-hr'), 'Reject')).toBeUndefined();
-    await click(labelled($('.card-hr'), 'Open in My turn')!);
-    expect(location.hash).toBe('#/my-turn');
+    await click(labelled($('.card-hr'), 'Open in HR')!);
+    expect(location.hash).toBe('#/team/hr');
   });
 
   it('a proposal already decided keeps its place in the timeline, by the time it was settled, and is not pinned after the newest message', async () => {
@@ -89,7 +89,7 @@ describe('HR proposals in the chat', () => {
     });
     await mount(ARCH, s);
     await until(() => $('.card-hr'), 'the held line');
-    expect(text($('.card-hr'))).toContain('1 HR proposal waits for you');
+    expect(text($('.card-hr'))).toContain('1 HR proposal needs you');
     expect(labelled($('.card-hr'), 'Approve')).toBeUndefined();
   });
 
