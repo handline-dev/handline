@@ -42,7 +42,8 @@ const cert = fs.readFileSync(`${dir}/c.pem`);
 const daemon = new FakeDaemon();
 daemon.tasks.verbs = true; // done, reopen, queue... (the daemon's plan D3), so the phone's task verbs can be tried
 if (process.argv.includes('--founder-phone')) daemon.deviceRole = 'founder'; // so the HR verbs can be tried: a real phone is a member
-if (process.argv.includes('--stalled')) daemon.accounts.stall('beta', { reason: 'billing_error', detail: 'The turn ended: the organization has a billing problem.' }); // so STALLED and Wake can be tried
+if (process.argv.includes('--stalled'))
+  daemon.accounts.stall('beta', { reason: 'billing_error', detail: 'The turn ended: the organization has a billing problem.' }); // so STALLED and Wake can be tried
 if (process.argv.includes('--prompt')) {
   // The phone cannot type into a terminal, so a permission that waits on handline.architect is put in here, as the tests do.
   const s = daemon.sessions.get('handline.architect')!;
@@ -70,7 +71,14 @@ if (process.argv.includes('--held-load')) {
   // handline.architect waits on the machine load limit, as the daemon reports it: the phone shows the text and Force start.
   const s = daemon.sessions.get('handline.architect')!;
   s.state = 'waiting';
-  s.fx.view = { ...s.fx.view, status: { state: 'waiting', reason: 'load', text: 'Held: the Mac is busy (2.1 per core, limit 1.5). It starts by itself when that drops.' } };
+  s.fx.view = {
+    ...s.fx.view,
+    status: {
+      state: 'waiting',
+      reason: 'load',
+      text: 'Held: the Mac is busy (2.1 per core, limit 1.5). It starts by itself when that drops.',
+    },
+  };
 }
 if (process.argv.includes('--queue')) {
   // Tasks waiting for two agents, as the Team screen shows them.
@@ -93,21 +101,54 @@ if (process.argv.includes('--review')) {
   const { Buffer } = await import('node:buffer');
   const [w, h] = [640, 400];
   const rows = Array.from({ length: h }, (_, y) =>
-    Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: w }, (_, x) => [40 + (x * 150) / w, 90 + (y * 120) / h, 180]).flat().map(Math.round))]),
+    Buffer.concat([
+      Buffer.from([0]),
+      Buffer.from(
+        Array.from({ length: w }, (_, x) => [40 + (x * 150) / w, 90 + (y * 120) / h, 180])
+          .flat()
+          .map(Math.round),
+      ),
+    ]),
   );
   const chunk = (t: string, d: Buffer) => {
     const body = Buffer.concat([Buffer.from(t), d]);
-    return Buffer.concat([Buffer.from(Uint32Array.of(d.length).buffer).reverse(), body, Buffer.from(Uint32Array.of(crc32(body)).buffer).reverse()]);
+    return Buffer.concat([
+      Buffer.from(Uint32Array.of(d.length).buffer).reverse(),
+      body,
+      Buffer.from(Uint32Array.of(crc32(body)).buffer).reverse(),
+    ]);
   };
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(w, 0);
   ihdr.writeUInt32BE(h, 4);
   ihdr.set([8, 2, 0, 0, 0], 8);
-  const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(Buffer.concat(rows))), chunk('IEND', Buffer.alloc(0))]);
+  const png = Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', deflateSync(Buffer.concat(rows))),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
   const [before, after] = ['before.png', 'after.png'].map((n) => daemon.uploads.add(n, png));
-  daemon.tasks.seed({ id: 9301, from: 'handline.architect', to: 'founder', title: 'Review: wider margin on the board', state: 'doing', tags: ['review'] });
-  daemon.tasks.memo({ task: 9301, text: `Margin widened.\n![before](attachment:${before!.id})\n![after](attachment:${after!.id})` }, 'add', 'handline.architect');
-  void daemon.inbox.add({ kind: 'decision', agent: 'handline.architect', title: 'Review: wider margin on the board', body: 'Is this right?', task: 9301 });
+  daemon.tasks.seed({
+    id: 9301,
+    from: 'handline.architect',
+    to: 'founder',
+    title: 'Review: wider margin on the board',
+    state: 'doing',
+    tags: ['review'],
+  });
+  daemon.tasks.memo(
+    { task: 9301, text: `Margin widened.\n![before](attachment:${before!.id})\n![after](attachment:${after!.id})` },
+    'add',
+    'handline.architect',
+  );
+  void daemon.inbox.add({
+    kind: 'decision',
+    agent: 'handline.architect',
+    title: 'Review: wider margin on the board',
+    body: 'Is this right?',
+    task: 9301,
+  });
 }
 if (process.argv.includes('--batch')) {
   // A lead's batch discard: two tasks closed, and the one card in handline.architect's chat, as the daemon posts it.
