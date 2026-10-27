@@ -15,7 +15,7 @@ import (
 	"github.com/handline/handline/go/internal/textsafe"
 )
 
-// discardMethod is task.discard: anyone's call, with a one-line reason its opener, assignee and asker are told. tasks in place of task is
+// discardMethod is task.discard: anyone's call, with a one-line reason (the founder's is optional) its opener, assignee and asker are told. tasks in place of task is
 // a batch, one event and one chat card; reasons gives a task its own reason over reason.
 func discardMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (any, error) {
 	return func(c *rpc.Conn, p map[string]any) (any, error) {
@@ -23,8 +23,8 @@ func discardMethod(home string, tell Teller) func(*rpc.Conn, map[string]any) (an
 			return discardBatch(c, p, home, tell)
 		}
 		reason, err := text(p, "reason")
-		if err != nil {
-			return nil, err
+		if err != nil && (c.Caller.Actor() != human || p["reason"] != nil && !isText(p["reason"])) {
+			return nil, err // the founder may leave the reason out, not send something that is not text
 		}
 		return discard(c, p, home, tell, reason, false, false)
 	}
@@ -199,6 +199,9 @@ func discardOne(tx *sql.Tx, home, by string, tid int64, reason, batch string, st
 		return nil, refusal(fmt.Sprintf("task T%d was asked for by %s, so only they withdraw it - discard it with a reason instead", tid, who))
 	}
 	said := strings.TrimSpace(textsafe.Oneline(reason))
+	if said == "" && by == human {
+		said = "Discarded" // the founder needs no reason
+	}
 	if said == "" {
 		return nil, refusal("discarding needs a one-line reason")
 	}
