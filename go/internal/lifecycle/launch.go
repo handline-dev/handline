@@ -55,8 +55,8 @@ type UsagePort interface {
 	// Fit is whether nothing says the account is a bad place to start: a stale or missing reading is the account nobody has run on
 	// lately, and the session about to start is the only thing that writes a fresh one.
 	Fit(acct, agent string) bool
-	// CapOf is how many agents the account may have mid-turn at once: the configured cap, shrunk where its current burn would hit a
-	// window's block before that window resets and, with pacing on, where it runs ahead of its weekly pace line.
+	// CapOf is how many agents the account may have mid-turn at once: the configured cap, shrunk where its current burn would hit the
+	// week's block before it resets and, with pacing on, where it runs ahead of its weekly pace line.
 	CapOf(acct string) int
 	// CapUnpaced is CapOf without the pace: what a person's own start is held to.
 	CapUnpaced(acct string) int
@@ -239,9 +239,12 @@ func (l *Launcher) FindRoom(agent string) string {
 		}
 	}
 	// A start a person let past the hold (force start) goes where the week has the most room, though the 5-hour window will not last.
+	if !l.pacePassedFor(agent) {
+		return ""
+	}
 	best, most := "", math.Inf(-1)
 	for _, a := range candidates {
-		if h, _ := l.Ports.Usage.Headroom(a); l.pacePassedFor(agent) && !l.Ports.Usage.NotFor(a, vendor) && h > most {
+		if h, _ := l.Ports.Usage.Headroom(a); !l.Ports.Usage.NotFor(a, vendor) && h > most {
 			best, most = a, h
 		}
 	}
