@@ -229,6 +229,20 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     expect(text(msg('and the transcripts')!.querySelector('.msg-ref'))).toContain('Use the contract fixtures.');
   });
 
+  it('a message starting with ! is sent as typed: the picked reply is dropped and the box shows command mode', async () => {
+    const t = await mount(ARCH);
+    await until(() => msg('Use the contract fixtures.'), 'history');
+    await click(msg('Use the contract fixtures.')!.querySelector('.msg-body')!);
+    await typeInto(compose(), '!git status');
+    expect(compose().className).toContain('font-mono');
+    expect($('.compose-cmd')?.textContent).toBe('Sent as typed to the agent');
+    expect($('.compose-attach')).not.toBeNull(); // the slot stays, so the box does not move
+    await press(compose(), 'Enter');
+    await until(() => sentMsgs(t).some((m) => m.body === '!git status'), 'the daemon got it');
+    expect(sentMsgs(t).find((x) => x.body === '!git status')!.parent).toBeNull();
+    expect($('.compose-ref')).toBeNull();
+  });
+
   it('a message of the person offers no request buttons; what the team made of it shows under it in plain words', async () => {
     const t = await mount(ARCH);
     await until(() => msg('Use the contract fixtures.'), 'history');
