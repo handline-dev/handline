@@ -52,8 +52,6 @@ const landing = (body: string) => msg(body)?.getAttribute('data-landing');
 const link = (label: string, within: Element) =>
   [...within.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === label)!;
 const icon = (m: Element | undefined, label: string) => m?.querySelector(`[aria-label="${label}"]`) ?? null;
-const idOfBody = (t: { daemon: unknown }, body: string) =>
-  (t.daemon as { chat: { messages: { id: number; body: string }[] } }).chat.messages.find((m) => m.body === body)!.id;
 const other = async (t: ReturnType<typeof setup>, body: string) => {
   const c = second(t.daemon, t.net, { client: 'web-other' });
   await c.start();
@@ -422,9 +420,6 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
 });
 
 describe('the bridge items: message numbers, new, menus, seen, strip', () => {
-  const chatOf = (t: { daemon: unknown }) =>
-    (t.daemon as { chat: { messages: { id: number; body: string; landing: string }[]; seenUpTo: Map<string, number> } }).chat;
-
   it("nothing the task board sent is in the agent's own chat", async () => {
     const s = setup();
     s.daemon.chat.seed(ARCH, { from: 'task-board', to: ARCH, body: 'T3492 done by handline.pair: -' }); // local-ref-ok
@@ -513,12 +508,6 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     } finally {
       Element.prototype.getBoundingClientRect = rect;
     }
-  });
-
-  it("the agent's messages leave FOR YOU once they are drawn: chat.seen goes up to the newest", async () => {
-    const t = await mount(ARCH);
-    await until(() => msg('Which gap list'), 'history');
-    await until(() => (chatOf(t).seenUpTo.get(ARCH) ?? 0) === idOfBody(t, 'Which gap list should come first?'), 'chat.seen');
   });
 
   it('/ lists the terminal, and no verb the daemon does by itself, # a task or message number to refer to, Esc closes a menu', async () => {

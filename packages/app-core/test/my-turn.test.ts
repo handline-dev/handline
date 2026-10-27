@@ -191,19 +191,6 @@ test('the agents of My turn are the ones its cards name', () => {
   assert.deepEqual([...turnAgents(cards)], ['b']);
 });
 
-test('a permission card is titled by what is asked, not the raw command line, which is its detail', () => {
-  const raw = 'Bash: cd /Users/user/orca/workspaces/harbor && ./check.sh';
-  const [c] = myTurn({
-    items: [item({ id: 4, title: raw, prompt: { ...perm, command: 'cd /Users/user/x && ./check.sh' } as never })],
-    agents: [],
-    tasks: [],
-  });
-  assert.equal(c!.title, 'Asks to use Bash');
-  assert.equal(c!.detail, 'cd /Users/user/x && ./check.sh');
-  const [bare] = myTurn({ items: [item({ id: 5, title: raw, prompt: { ...perm, tool: '' } as never })], agents: [], tasks: [] });
-  assert.equal(bare!.title, 'Asks for a yes');
-});
-
 test('an ask from a task comment is answered by a reply, OK or Approve, and never closes the task', () => {
   const ask = item({ id: 9, kind: 'ask', task: 5, memo: 77, agent: 'a', body: 'Ship it?' });
   const [plain] = myTurn({ items: [ask], agents: [], tasks: [task({ id: 5 })] });

@@ -192,8 +192,7 @@ export function myTurn({ items, agents, tasks, titles, me = '' }: MyTurnInput): 
         ...base,
         key: `item:${i.id}`,
         kind: 'approval',
-        // The daemon titles the item with the session's raw line (`Bash: cd /Users/user/...`): the card says what is asked, the command is its detail.
-        title: t?.title ?? (i.prompt.tool ? `Asks to use ${i.prompt.tool}` : 'Asks for a yes'),
+        title,
         detail: i.prompt.command ?? i.prompt.reason ?? base.detail,
         primary: yes && no && i.agent ? 2 : 1,
         actions: [
