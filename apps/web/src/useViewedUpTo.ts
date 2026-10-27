@@ -1,10 +1,17 @@
-// The newest of the agent's messages that has been in view in the chat's stream: what chat.seen is sent for, not the newest drawn.
-import { useEffect, useState, type RefObject } from 'react';
+// Tells which of the agent's messages has been in view in the chat's stream, newest first seen: what chat.seen is sent for, not the newest drawn.
+// It keeps no state, so a message arriving draws nothing more than itself.
+import { useEffect, useRef, type RefObject } from 'react';
 import type { Chat } from '@handline/app-data';
 
-export function useViewedUpTo(stream: RefObject<HTMLElement | null>, agent: string, chat: Pick<Chat, 'status' | 'messages'>): number {
-  const [upTo, setUpTo] = useState(0);
+export function useViewedUpTo(
+  stream: RefObject<HTMLElement | null>,
+  agent: string,
+  chat: Pick<Chat, 'status' | 'messages'>,
+  onView: (up_to: number) => void,
+): void {
   const { messages, status } = chat;
+  const tell = useRef(onView);
+  tell.current = onView;
   useEffect(() => {
     const root = stream.current;
     const measure = () => {
@@ -17,7 +24,7 @@ export function useViewedUpTo(stream: RefObject<HTMLElement | null>, agent: stri
         const r = el.getBoundingClientRect();
         if (said.has(id) && r.bottom > box.top && r.top < box.bottom) max = Math.max(max, id);
       }
-      setUpTo((u) => Math.max(u, max));
+      if (max) tell.current(max);
     };
     // After the rows are drawn, so their places are measured.
     const frame = requestAnimationFrame(measure);
@@ -27,5 +34,4 @@ export function useViewedUpTo(stream: RefObject<HTMLElement | null>, agent: stri
       root?.removeEventListener('scroll', measure);
     };
   }, [stream, agent, messages, status]);
-  return upTo;
 }
