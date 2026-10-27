@@ -3,20 +3,13 @@
 // any other #N stays plain text.
 import type { MouseEvent, ReactNode } from 'react';
 import { findImageRefs, findRefs, openTask, openTaskTab, taskRef } from '@handline/app-core';
-import { useAgents, usePullRequests, useTasks } from '@handline/app-data';
 import { AttachmentImage } from '#src/AttachmentImage.tsx';
 import { PathText } from '#src/PathText.tsx';
 import { WebLink, findUrls } from '#src/WebLink.tsx';
 import { goTasks } from '#src/route.ts';
-import { useWorkspaceIfAny } from '#src/Workspace.tsx';
+import { useRefsData, useSharedRefs, type RefsData } from '#src/RefsContext.tsx';
 
 const LINK = 'ref border-0 bg-transparent p-0 font-mono text-[12px] leading-4 text-link underline cursor-pointer';
-
-/** Which task numbers exist: those up to the highest the task list holds (numbers run on from 1). Nothing is a task until the list is in. */
-function useKnownTask(): (id: number) => boolean {
-  const top = Math.max(0, ...(useTasks({ all: true, limit: 200 }).data?.items ?? []).map((t) => t.id));
-  return (id) => id <= top;
-}
 
 export function RichText({ text, agent }: { text: string; agent?: string }) {
   const images = findImageRefs(text);
@@ -47,13 +40,20 @@ function Linked({ text, agent }: { text: string; agent?: string }) {
   return <>{parts}</>;
 }
 
+/** The chat gives its reads once; a text outside a chat reads its own. */
 function Refs({ text, agent }: { text: string; agent?: string }) {
-  const ws = useWorkspaceIfAny();
-  const known = useKnownTask();
-  const names = new Set((useAgents().data?.agents ?? []).map((a) => a.name));
+  const shared = useSharedRefs();
+  return shared ? <RefsView data={shared} text={text} agent={agent} /> : <OwnRefs text={text} agent={agent} />;
+}
+
+function OwnRefs({ text, agent }: { text: string; agent?: string }) {
+  return <RefsView data={useRefsData(agent, text)} text={text} agent={agent} />;
+}
+
+function RefsView({ data, text, agent }: { data: RefsData; text: string; agent?: string }) {
+  const { ws, known, names, pr, repo } = data;
   // A #N is a pull request of the agent's repo when that repo has one of that number; else it is plain text.
-  const prs = usePullRequests(agent, text);
-  const refs = findRefs(text, { task: known, pr: prs.repo ? prs.isPr : undefined });
+  const refs = findRefs(text, { task: known, pr });
   if (!refs.length) return <PathText text={text} agent={agent} names={names} />;
   const open = (id: number, own: boolean) => {
     if (!ws) goTasks(id);
@@ -70,7 +70,7 @@ function Refs({ text, agent }: { text: string; agent?: string }) {
           key={r.start}
           className={LINK}
           data-pr={r.id}
-          href={`https://github.com/${prs.repo}/pull/${r.id}`}
+          href={`https://github.com/${repo}/pull/${r.id}`}
           target="_blank"
           rel="noopener noreferrer"
           title={`Open pull request ${shown} on GitHub`}

@@ -250,7 +250,7 @@ describe('one account', () => {
       await click(button('Submit'));
       await until(() => s.daemon.accounts.list().accounts.find((a) => a.name === 'gamma')?.login_state === 'ok', 'the login to finish');
       expect(spy.mock.calls.filter(([m]) => m === 'account.login_code')).toHaveLength(1);
-      expect(button('Log in again')).toBeTruthy();
+      await until(() => button('Log in again'), 'the page to show the login ended');
       expect($('.acct-login input')).toBeNull();
     });
 
@@ -275,7 +275,8 @@ describe('one account', () => {
       const s = await started();
       await click(button('Cancel'));
       await until(() => s.daemon.accounts.list().accounts.find((a) => a.name === 'gamma')?.login?.state === 'cancelled', 'the cancel');
-      expect((button('Log in') as HTMLButtonElement)!.disabled).toBe(false);
+      await until(() => button('Log in'), 'the page to offer Log in');
+      expect((button('Log in') as HTMLButtonElement).disabled).toBe(false);
     });
 
     it('a login another client started shows no URL, offers Cancel, and then Log in again', async () => {

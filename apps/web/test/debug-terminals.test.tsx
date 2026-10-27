@@ -61,7 +61,13 @@ describe('pane facts', () => {
   it('flags an orphan, a shell left after the agent exited, and a session kept past its cache', () => {
     expect(flags(pane(), now).map((f) => f.word)).toEqual(['orphan']);
     expect(flags(pane({ recorded_agent: 'a.b' }), now).map((f) => f.word)).toEqual(['orphan', 'agent exited']);
-    const kept = pane({ orphan: false, agent: 'a.b', process: 'agent', cache_until: '2026-01-01T00:50:00Z', agent_process: { pid: 9, name: 'claude' } });
+    const kept = pane({
+      orphan: false,
+      agent: 'a.b',
+      process: 'agent',
+      cache_until: '2026-01-01T00:50:00Z',
+      agent_process: { pid: 9, name: 'claude' },
+    });
     expect(cacheLeft(kept, now)).toBe(-600);
     expect(flags(kept, now).map((f) => f.word)).toEqual(['cache expired', 'agent running']);
     expect(flags({ ...kept, cache_until: '2026-01-01T02:00:00Z' }, now).map((f) => f.word)).toEqual(['agent running']);
@@ -69,7 +75,13 @@ describe('pane facts', () => {
   it('lists every metadata field, "-" for what the daemon does not know', () => {
     const rows = Object.fromEntries(facts(pane({ recorded_agent: 'a.b' }), now));
     expect(rows['Agent']).toBe('none (opened for a.b)');
-    expect([rows['Account'], rows['Session id'], rows['Worktree'], rows['Orca terminal'], rows['Cache expiry']]).toEqual(['-', '-', '-', '-', '-']);
+    expect([rows['Account'], rows['Session id'], rows['Worktree'], rows['Orca terminal'], rows['Cache expiry']]).toEqual([
+      '-',
+      '-',
+      '-',
+      '-',
+      '-',
+    ]);
     expect(rows['Process']).toBe('shell · pane pid 42 · zsh');
     expect(rows['Last activity']).toBe('2026-01-01T00:00:00Z (1 h 2 m idle)');
   });
@@ -113,7 +125,7 @@ describe('the debug window', () => {
     expect($('[data-fact="Agent"] dd')!.textContent).toBe(ARCH);
     expect($('[data-fact="Orca terminal"] dd')!.textContent).toBe('-');
     await until(() => $(`[aria-label="Terminal of ${ARCH}"]`), 'the terminal');
-    expect(box.textContent).toContain('Click the terminal to type in it.');
+    expect(box.textContent).not.toContain('Click the terminal to type');
     await act(async () => $('[data-pane="%stray"]')!.click());
     expect($('[data-fact="Agent"] dd')!.textContent).toContain('none (opened for');
   });

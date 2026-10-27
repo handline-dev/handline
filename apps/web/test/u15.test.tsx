@@ -114,13 +114,14 @@ describe('U15 HR', () => {
     expect(card(1).querySelector('.hr-state svg[data-icon="needs"]')).not.toBeNull(); // a shape, not only the word's colour
     expect(card(2).querySelector('.hr-state svg[data-icon="blocked"]')).not.toBeNull();
     expect(card(3).querySelector('.hr-state svg[data-icon="dismissed"]')).not.toBeNull(); // rejected has a shape of its own
-    expect(text(card(2))).toContain('approved, apply failed');
+    expect(text(card(2))).toContain('approved, not applied');
     expect(text(card(3))).toContain('rejected');
     expect(text(card(4))).toContain('withdrawn');
     expect(text(card(5))).toContain('on_hold');
     expect(text(card(1).querySelector('.hr-diff'))).toContain('- effort  high');
     expect(text(card(1).querySelector('.hr-diff'))).toContain('+ effort  max');
-    expect(text(card(2).querySelector('.fnote'))).toHaveLength(401); // cut at 400, with an ellipsis
+    expect(text(card(2).querySelector('.fnote'))).toContain('Approved, but not applied'); // the line, with the daemon's words behind Details
+    expect(text(card(2).querySelector('.fnote details'))).toHaveLength('Details'.length + 401); // cut at 400, with an ellipsis
     expect(btn(card(2), 'Retry')).toBeTruthy();
     expect(card(5).querySelector('button')).toBeNull();
     expect(card(3).querySelector('button')).toBeNull();

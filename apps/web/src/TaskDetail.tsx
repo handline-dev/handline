@@ -18,9 +18,9 @@ import { Activity } from '#src/TaskActivity.tsx';
 import { Markdown } from '#src/Markdown.tsx';
 import { RichText } from '#src/RichText.tsx';
 import { View } from '#src/View.tsx';
+import { typing } from '#src/typing.ts';
 
 const CLOSED = ['done', 'discarded'];
-const typing = (t: EventTarget | null) => t instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
 /** The bridge's own sentence for a key that does not apply. */
 const REOPEN_ONLY = 'only a done task that you asked for can be reopened';
 const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
@@ -231,7 +231,8 @@ function Body({ t }: { t: Detail }) {
       {showTime ? <TimeSection id={t.id} /> : null}
       {showHistory ? <HistorySection id={t.id} /> : null}
 
-      <div className="sticky bottom-0 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-canvas px-4 py-2">
+      {/* A sticky bar stops above the scroll box's 12 px bottom padding; -bottom-3 takes it to the edge. */}
+      <div className="task-footer sticky -bottom-3 z-[2] -mx-4 mt-auto -mb-3 border-t border-line bg-canvas px-4 pb-[calc(var(--sp-3,12px)+0.5rem+env(safe-area-inset-bottom))] pt-2">
         <AskSheets t={t} me={me} ask={ask} running={running} cancel={cancel} onClose={() => setAsk(null)} />
 
         <div className="tverbs flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Task actions">
