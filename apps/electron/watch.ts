@@ -1,6 +1,6 @@
 // `pnpm dev`: rebuilds the main process and preloads on every save and restarts Electron after each rebuild.
 // The web bundle is rebuilt by `vite build --watch` (run beside this); reload the window (Cmd+R) to see it.
-// One runs per checkout (dist/.watch.pid); started by dev.ts, it stops with its Electron when dev.ts's channel disconnects.
+// One runs per checkout (dist/.watch.pid); it stops with its Electron when dev.ts's channel disconnects or whoever started it ends.
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -99,3 +99,6 @@ const quit = (): void => {
 };
 for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(s, quit);
 process.once('disconnect', quit);
+// Started from a shell without dev.ts there is no channel to disconnect: when whoever started this ends, it ends with its Electron.
+const starter = process.ppid;
+setInterval(() => process.ppid !== starter && quit(), 5000).unref();
