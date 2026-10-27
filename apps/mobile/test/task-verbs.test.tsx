@@ -157,7 +157,10 @@ describe('the task verbs', () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DRAFT);
     await press($('assignee-menu'));
-    await until(() => $(`assign-${ARCH}`), 'the picker');
+    await until(() => $('assign-find'), 'the picker');
+    expect(text()).toContain('now');
+    await fill('assign-find', 'archi');
+    await until(() => $(`assign-${ARCH}`), 'the match');
     await press($(`assign-${ARCH}`));
     await until(() => $('sheet') === null, 'the picker to close');
     await until(() => m.daemon.tasks.get({ task: MINE_DRAFT }).to === ARCH, 'the daemon');
