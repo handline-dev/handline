@@ -70,7 +70,7 @@ export function AgentRow({
     if (!el) return;
     const fit = () => {
       setWide(el.clientWidth >= MARK_W + NAME_MIN + CHIP_PAD + CHAR_W * kindLen + 2 * GAP);
-      setRoomy(el.clientWidth >= MARK_W + NAME_MIN + RESTART_W + TIME_W + 3 * GAP);
+      setRoomy(!el.clientWidth || el.clientWidth >= MARK_W + NAME_MIN + RESTART_W + TIME_W + 3 * GAP);
     };
     fit();
     const ro = new ResizeObserver(fit);
