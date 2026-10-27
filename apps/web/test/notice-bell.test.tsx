@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
-import { registerComposer } from '#src/ui/composers.ts';
+import { composers, registerComposer } from '#src/ui/composers.ts';
+import { ComposeRow } from '#src/ui/index.ts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -218,5 +219,14 @@ describe('the toast stack and the composer', () => {
       Element.prototype.getBoundingClientRect = orig;
       vi.unstubAllGlobals();
     }
+  });
+
+  it('knows the real compose row while it is mounted', async () => {
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => root!.render(<ComposeRow />));
+    expect(composers.list()).toEqual([box.querySelector('.compose-row')]);
+    await act(async () => root!.render(null));
+    expect(composers.list()).toEqual([]);
   });
 });
