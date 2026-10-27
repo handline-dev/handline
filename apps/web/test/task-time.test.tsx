@@ -42,15 +42,16 @@ describe('task time', () => {
   it('is one line until clicked, then draws the segments in order, adding up to the whole', async () => {
     const s = await mount();
     await until(line, 'the time line');
-    expect(line()!.textContent).toMatch(/worked .* in all/);
+    expect(line()!.textContent).toMatch(/^Worked .* in all/);
+    expect(line()!.textContent).not.toMatch(/up next|queued| [hm]\b/);
     expect(box.querySelector('.ttime')).toBeNull();
     await click(line()!);
     await until(() => box.querySelector('.ttime'), 'the time');
     const kinds = [...box.querySelectorAll<HTMLElement>('[data-segment]')].map((r) => r.dataset.segment);
     expect(kinds).toEqual(['queued', 'working', 'waiting', 'working']);
     expect(box.querySelector('[data-segment="waiting"]')!.textContent).toContain('waiting on you');
-    expect(box.querySelector('[data-total="working"]')!.textContent).toContain('3 h 30 m');
-    expect(box.querySelector('[data-total="waiting"]')!.textContent).toContain('30 m');
+    expect(box.querySelector('[data-total="working"]')!.textContent).toContain('3h 30m');
+    expect(box.querySelector('[data-total="waiting"]')!.textContent).toContain('30m');
     const t = await s.client.call('task.time', { task: 1684 });
     expect(t.segments[0]!.from).toBe(t.start);
     t.segments.slice(1).forEach((x, i) => expect(x.from).toBe(t.segments[i]!.to));

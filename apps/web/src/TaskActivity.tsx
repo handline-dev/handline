@@ -73,7 +73,7 @@ function Comment({ t, item, onReply }: { t: Detail; item: ActivityItem; onReply?
         <span className={ON_HOVER}>
           {m && onReply && m.id > 0 ? <Button size="sm" icon="reply" label="Reply" onClick={() => onReply(m.id)} /> : null}
           {mine && ask === null ? (
-            <MenuButton size="sm" icon="more" label="More" title={offEdit || offDelete}>
+            <MenuButton size="sm" icon="ellipsis" label="More" title={offEdit || offDelete}>
               <MenuItem disabled={m.id < 0 || !!offEdit} onSelect={() => (setText(m.text), setAsk('edit'))}>
                 Edit
               </MenuItem>

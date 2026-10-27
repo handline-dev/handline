@@ -5,7 +5,20 @@ import { useAttachmentUrl } from '@handline/app-data';
 import { ImageViewer, type Picture } from '#src/ImageViewer.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 
-export function AttachmentImage({ id, name, group, at = 0 }: { id: string; name: string; group?: Picture[]; at?: number }) {
+/** `thumb` is a fixed small thumbnail (a comment's pictures), never the full-height copy a chat message shows. */
+export function AttachmentImage({
+  id,
+  name,
+  group,
+  at = 0,
+  thumb,
+}: {
+  id: string;
+  name: string;
+  group?: Picture[];
+  at?: number;
+  thumb?: boolean;
+}) {
   const small = useAttachmentUrl(id, true);
   const [open, setOpen] = useState(false);
   const label = name || 'image';
@@ -25,13 +38,13 @@ export function AttachmentImage({ id, name, group, at = 0 }: { id: string; name:
     <>
       <button
         type="button"
-        className="attachment flex h-40 min-w-24 max-w-full items-start border-0 bg-transparent p-0 text-left"
+        className={`attachment flex items-start border-0 bg-transparent p-0 text-left ${thumb ? 'h-11 w-16' : 'h-40 min-w-24 max-w-full'}`}
         title={label}
         aria-label={`Open ${label}`}
         onClick={() => setOpen(true)}
       >
         {small.url ? (
-          <img src={small.url} alt={label} className="max-h-40 max-w-full rounded-chip object-cover" />
+          <img src={small.url} alt={label} className={`rounded-chip object-cover ${thumb ? 'h-11 w-16' : 'max-h-40 max-w-full'}`} />
         ) : (
           <span className="muted text-[12px]">{label}</span>
         )}

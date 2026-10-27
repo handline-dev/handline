@@ -7,9 +7,10 @@ import { useOff, useTaskTime } from '@handline/app-data';
 import { Icon } from '#src/ui/index.ts';
 
 const TONE: Record<TimeKind, string> = { working: 'bg-ok', waiting: 'bg-bad', queued: 'bg-line-strong', starting: 'bg-ink-3' };
-const length = (seconds: number) => span(seconds * 1000);
+/** 4m, 58m, 1h 40m: the short form the rest of the app writes. */
+const length = (seconds: number) => span(seconds * 1000).replace(/ ([dhm])\b/g, '$1');
 
-const SAID: Record<TimeKind, string> = { working: 'worked', waiting: 'waited', queued: 'up next', starting: 'starting' };
+const SAID: Record<TimeKind, string> = { working: 'worked', waiting: 'needs you for', queued: 'waiting', starting: 'starting' };
 
 /** The one-line Time: it draws nothing for a daemon without task.time or a task with no stretches yet. */
 export function TimeLine({ id }: { id: number }) {
@@ -18,7 +19,8 @@ export function TimeLine({ id }: { id: number }) {
   const segments = useTaskTime(id).data?.segments ?? [];
   if (off || !segments.length) return null;
   const { rows, totals, seconds } = timeView(segments);
-  const sentence = [...totals.map((t) => `${SAID[t.kind]} ${length(t.seconds)}`), `${length(seconds)} in all`].join(' · ');
+  const said = [...totals.map((t) => `${SAID[t.kind]} ${length(t.seconds)}`), `${length(seconds)} in all`].join(' · ');
+  const sentence = said[0]!.toUpperCase() + said.slice(1);
   return (
     <section aria-label="Time" className="mt-2 rounded-card border border-line bg-surface px-2">
       <button

@@ -2,7 +2,7 @@
 // waits on and what hangs under it, one Activity list, and along the bottom Done, Assign, Comment, Cancel and More. A verb that does not apply is
 // hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { dateTime, HELD, taskRef, watchResult } from '@handline/app-core';
+import { dateTime, HELD, isPerson, taskRef, watchResult } from '@handline/app-core';
 import { useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
@@ -135,7 +135,9 @@ function Body({ t }: { t: Detail }) {
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => root.current?.focus({ preventScroll: true }), [t.id]);
 
-  const why = (t.status ? (HELD.includes(t.status.state) ? t.status.text : undefined) : t.waiting?.text) ?? t.hold_reason ?? t.block_reason;
+  // The state chip already says it waits on a person, so the box leaves that out and keeps any other reason.
+  const waitsOnTask = t.waiting && !isPerson(t.waiting.on, me) ? t.waiting.text : undefined;
+  const why = (t.status ? (HELD.includes(t.status.state) ? t.status.text : undefined) : waitsOnTask) ?? t.hold_reason ?? t.block_reason;
   const item = (label: string, key: string, run: () => void, can: { ok: boolean; why?: string }) => ({ label, key, run, can });
   // What changes the status, in the dropdown on the state; the one that fits best is also the main button.
   const status = [

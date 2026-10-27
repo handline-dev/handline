@@ -144,7 +144,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
           >
             {replyIcon ? <Button size="sm" icon="reply" label="Reply" onClick={() => run(replyIcon)} /> : null}
             {rest.length ? (
-              <MenuButton size="sm" icon="more" label="More">
+              <MenuButton size="sm" icon="ellipsis" label="More">
                 {rest.map((a, i) => (
                   <MenuItem key={a.type + i} onSelect={() => run(a)}>
                     {label(a)}
