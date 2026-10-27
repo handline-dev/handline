@@ -41,6 +41,7 @@ const DEFAULTS: Settings['values'] = {
   host_simulator_hold: 1,
   heavy_slots: 2,
   keep_awake: 'off',
+  reap_orphans: 'dry',
 };
 
 /** What the outlook_agent_use fixtures name (--var outlook_agent=grp.one outlook_group=grp): two agents of the group grp. */
@@ -341,6 +342,8 @@ export class FakeAdmin {
         throw badRequest('heavy_slots is a whole number, at least 1', 'heavy_slots');
       if (key === 'keep_awake' && value !== null && value !== 'off' && value !== 'on' && value !== 'working')
         throw badRequest('keep_awake is off, on or working', 'keep_awake');
+      if (key === 'reap_orphans' && value !== null && value !== 'dry' && value !== 'on' && value !== 'off')
+        throw badRequest('reap_orphans is dry, on or off', 'reap_orphans');
       const values = this.values as Record<string, unknown>;
       if (value === null) {
         values[key] = structuredClone(DEFAULTS[key as keyof typeof DEFAULTS]);
