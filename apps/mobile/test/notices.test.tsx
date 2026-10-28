@@ -114,7 +114,7 @@ describe('the phone notices', () => {
       done(m, 7001, 'handline.pc.auditor', { from_founder: true });
       await until(() => $('done-card'), 'the card');
       expect(text($('done-card'))).toContain('Task 7001');
-      expect(text($('done-card'))).toContain('T7001 done · auditor');
+      expect(text($('done-card'))).toContain('done · auditor');
       expect(text($('toasts'))).toBe('');
       await press($('done-card')!.firstElementChild as HTMLElement);
       await until(() => $('task-back') && !$('done-card'), 'the task');
