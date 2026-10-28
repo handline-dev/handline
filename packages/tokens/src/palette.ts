@@ -120,6 +120,8 @@ export interface Palette {
   idle: string;
   wait: string;
   block: string;
+  /** Command mode in the chat box (a message that starts with !). */
+  cmd: string;
   termBg: string;
   termInk: string;
   codeBg: string;
@@ -145,6 +147,7 @@ const flat = (c: Colors): Palette => ({
   idle: c.ink[2],
   wait: c.wait,
   block: c.bad,
+  cmd: c.cmd,
   termBg: c.termBg,
   termInk: c.termInk,
   codeBg: c.codeBg,

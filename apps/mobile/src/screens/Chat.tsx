@@ -69,7 +69,6 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const chat = useChat(agent, 'mine');
   const act = useChatActions(agent);
   const [picked, setPicked] = useState<Ref | null>(null); // a message, or a request a # chose
-  const img = useChatImages(canSend, agent);
   const [item, setItem] = useState<TranscriptItem | null>(null); // one of the agent's replies; never together with a picked message
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
@@ -85,6 +84,8 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
     drafts.set(agent, v);
     setTextState(v);
   };
+  const cmd = text.startsWith('!'); // command mode, as on the PC: sent as typed, the box shows it with the colour and mono type
+  const img = useChatImages(canSend && !cmd, agent);
   const hr = useHr({});
   const me = useStore().me;
   const { served } = useServes('tasks.list');
@@ -127,7 +128,9 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
     const out = img.finish(text);
     const { text: words, attachments } = out instanceof Promise ? await out : out; // a marked picture is drawn and uploaded first
     // A picked message is only a reference: the message goes to this chat's agent, whoever said the picked one.
-    if (picked) act.send(words, { parent: picked.id, delivery, attachments });
+    // A command is sent as typed: the reply selection is dropped, so nothing is put before the `!`.
+    if (cmd) act.send(words, { delivery, attachments });
+    else if (picked) act.send(words, { parent: picked.id, delivery, attachments });
     else if (item) act.send(words, { parent_item: item.id, delivery, attachments });
     else act.send(words, { delivery, attachments });
     img.clear();
@@ -245,6 +248,11 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
       )}
       {canSend && <ChatRefs agent={agent} text={text} onPick={(r, rest) => (setItem(null), setPicked(r), setText(rest))} />}
       {img.chips}
+      {cmd && (
+        <Text testID="cmd-hint" style={{ color: c.muted, fontSize: font.size.hint, paddingHorizontal: space.md }}>
+          Sent as typed to the agent
+        </Text>
+      )}
       <Row style={{ padding: space.sm }}>
         {img.button}
         <TextInput
@@ -258,14 +266,20 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
           style={{
             flex: 1,
             maxHeight: 120,
-            color: c.ink,
-            borderColor: c.line,
-            borderWidth: 1,
+            color: cmd ? c.cmd : c.ink,
+            borderColor: cmd ? c.cmd : c.line,
+            borderWidth: cmd ? 2 : 1,
             borderRadius: radius.card,
             padding: space.md,
+            ...(cmd ? { fontFamily: 'Menlo' } : {}),
           }}
         />
-        <SendButton disabled={!canSend || empty} choose={!!working && !!props.detail.structured} onSend={(d) => void send(d)} />
+        <SendButton
+          disabled={!canSend || empty}
+          color={cmd ? c.cmd : undefined}
+          choose={!!working && !!props.detail.structured}
+          onSend={(d) => void send(d)}
+        />
       </Row>
     </View>
   );
@@ -344,7 +358,7 @@ function Bubble(props: {
             ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
           </Text>
         )}
-        {m.body ? <PrBody id={m.id} agent={agent} body={m.body} /> : null}
+        {m.body ? <PrBody id={m.id} agent={agent} body={m.body} selectable /> : null}
         {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
         {m.actions?.length ? <ChatActions id={m.id} actions={m.actions} /> : null}
         {side === 'person' && m.request_task != null ? (

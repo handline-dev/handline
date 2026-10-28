@@ -9,7 +9,21 @@ import { fileTab, taskTab, useOpenInTab } from '#src/screens/AgentTabs.tsx';
 
 const MD_PATH = /(?:[\w.-]+\/)*[\w.-]+\.md\b/g;
 
-export function PrBody({ id, agent, body, testID, breaks = true }: { id: number | string; agent: string; body: string; testID?: string; breaks?: boolean }) {
+export function PrBody({
+  id,
+  agent,
+  body,
+  testID,
+  breaks = true,
+  selectable,
+}: {
+  id: number | string;
+  agent: string;
+  body: string;
+  testID?: string;
+  breaks?: boolean;
+  selectable?: boolean;
+}) {
   const c = usePalette();
   const prs = usePullRequests(agent, body);
   const tabs = useOpenInTab();
@@ -17,7 +31,12 @@ export function PrBody({ id, agent, body, testID, breaks = true }: { id: number 
     type Span = { start: number; end: number; onPress: () => void; testID: string };
     const spans: Span[] = [];
     for (const r of prs.repo ? findRefs(s, { pr: prs.isPr }).filter((r) => r.kind === 'pr') : [])
-      spans.push({ start: r.start, end: r.end, testID: `pr-${id}-${r.id}`, onPress: () => void Linking.openURL(`https://github.com/${prs.repo}/pull/${r.id}`) });
+      spans.push({
+        start: r.start,
+        end: r.end,
+        testID: `pr-${id}-${r.id}`,
+        onPress: () => void Linking.openURL(`https://github.com/${prs.repo}/pull/${r.id}`),
+      });
     if (tabs) {
       for (const r of findRefs(s, { task: () => true }).filter((r) => r.kind === 'task'))
         spans.push({ start: r.start, end: r.end, testID: `task-${id}-${r.id}`, onPress: () => tabs.open(taskTab(r.id)) });
@@ -29,7 +48,13 @@ export function PrBody({ id, agent, body, testID, breaks = true }: { id: number 
     for (const r of spans.sort((a, b) => a.start - b.start).filter((r, i, all) => !i || r.start >= all[i - 1]!.end)) {
       parts.push(s.slice(at, r.start));
       parts.push(
-        <Text key={r.start} testID={r.testID} accessibilityRole="link" style={{ color: c.accent, textDecorationLine: 'underline' }} onPress={r.onPress}>
+        <Text
+          key={r.start}
+          testID={r.testID}
+          accessibilityRole="link"
+          style={{ color: c.accent, textDecorationLine: 'underline' }}
+          onPress={r.onPress}
+        >
           {s.slice(r.start, r.end)}
         </Text>,
       );
@@ -38,5 +63,5 @@ export function PrBody({ id, agent, body, testID, breaks = true }: { id: number 
     parts.push(s.slice(at));
     return parts;
   };
-  return <Markdown testID={testID ?? `body-${id}`} text={body} breaks={breaks} plain={plain} />;
+  return <Markdown testID={testID ?? `body-${id}`} text={body} breaks={breaks} plain={plain} selectable={selectable} />;
 }
