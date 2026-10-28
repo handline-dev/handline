@@ -46,6 +46,8 @@ const rules: Record<string, Rule> = {
   'task.changed': ({ qc, d }, e) => {
     const t = data<Task>(e);
     edit(qc, qk.task(d, t.id), (old: object) => ({ ...old, ...t }), e.cursor);
+    // The row carries no body, so an edited brief only shows when the open detail is read again.
+    void qc.invalidateQueries({ queryKey: qk.task(d, t.id) });
     void qc.invalidateQueries({ queryKey: qk.taskHistory(d, t.id) });
     patchTaskLists(qc, d, t, e.cursor);
     void qc.invalidateQueries({ queryKey: ['d', d, 'board'] });

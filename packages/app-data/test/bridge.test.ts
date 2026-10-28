@@ -55,7 +55,7 @@ describe('agents', () => {
 describe('tasks and inbox', () => {
   const task = (id: number, state = 'queued') => ({ id, title: `t${id}`, state });
   const ids = (key: readonly unknown[]) => qc.getQueryData<{ items: { id: number }[] }>(key as never)!.items.map((t) => t.id);
-  it('task.changed patches the cached task and each list by its own filter, reading none again', () => {
+  it('task.changed patches the cached task and each list by its own filter, reading no list again', () => {
     qc.setQueryData(qk.task(D, 7), { ...task(7), body: 'b' });
     const open = qk.tasks(D);
     const all = [...qk.tasks(D), { all: true }];
@@ -74,6 +74,13 @@ describe('tasks and inbox', () => {
     applyEvent(c, ev('task.changed', task(12), { topic: 'tasks' }));
     expect(ids(open)).toEqual([12, 9]);
     for (const k of [open, all, doing]) expect(stale(k)).toBe(false);
+  });
+  it("task.changed reads that task's detail again, for a body the row does not carry, and only that task's", () => {
+    qc.setQueryData(qk.task(D, 7), { ...task(7), body: 'old' });
+    qc.setQueryData(qk.task(D, 8), { ...task(8), body: 'b' });
+    applyEvent(c, ev('task.changed', task(7), { topic: 'tasks' }));
+    expect(stale(qk.task(D, 7))).toBe(true);
+    expect(stale(qk.task(D, 8))).toBe(false);
   });
   it("task.changed reads that task's history again, and only that task's", () => {
     qc.setQueryData(qk.taskHistory(D, 7), { task: 7, rows: [] });
