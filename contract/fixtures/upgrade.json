@@ -1,0 +1,101 @@
+{
+ "fixtures": [
+  {
+   "name": "upgrade.refuses_a_binary_that_does_not_start",
+   "spec": "daemon.upgrade",
+   "about": "A binary that does not start is refused, gate build, and the daemon keeps answering.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "daemon.upgrade",
+      "params": {
+       "exe": "/nonexistent/handlined",
+       "sha": "0123456789ab",
+       "request_id": "conf-upgrade-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "message": {
+       "$type": "string"
+      },
+      "data": {
+       "code": "refused",
+       "gate": "build",
+       "reason": {
+        "$type": "string"
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "daemon.status",
+      "params": {}
+     },
+     "result": {
+      "alive": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "upgrade.needs_an_absolute_exe",
+   "spec": "daemon.upgrade",
+   "about": "A relative exe is bad_request naming exe.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "daemon.upgrade",
+      "params": {
+       "exe": "handlined",
+       "sha": "0123456789ab",
+       "request_id": "conf-upgrade-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "exe"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

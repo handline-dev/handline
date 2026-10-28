@@ -141,6 +141,9 @@ type Daemon struct {
 	mu      sync.Mutex
 	conns   map[net.Conn]struct{}
 	closing bool
+	// upgradeTo is the handlined a daemon.upgrade handed over; upgrading closes when it is set.
+	upgradeTo string
+	upgrading chan struct{}
 }
 
 func Start(cfg Config) (*Daemon, error) {
@@ -170,7 +173,7 @@ func Start(cfg Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Daemon{cfg: cfg, db: db, started: time.Now(), conns: map[net.Conn]struct{}{}, stop: make(chan struct{})}
+	d := &Daemon{cfg: cfg, db: db, started: time.Now(), conns: map[net.Conn]struct{}{}, stop: make(chan struct{}), upgrading: make(chan struct{})}
 	if cfg.Turns != nil {
 		cfg.Turns.Agent = func(handle string) string { a, _ := dbpkg.AgentOfTerminal(db, handle); return a }
 		cfg.Turns.Interrupted = func(agent string) {
@@ -514,6 +517,9 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	}
 	reads.Register(s, renv)
 	s.Register("connection.get", rpc.Method{Role: "founder", Handler: d.connectionGet})
+	if transport == "local" && !d.cfg.Gateway { // a paired device, relayed or not, does not choose the binary this machine runs
+		s.Register("daemon.upgrade", rpc.Method{Role: "founder", Write: true, Handler: d.upgrade})
+	}
 	if d.cfg.Gateway {
 		d.gatewayMethods(s, transport)
 	}
