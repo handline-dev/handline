@@ -85,6 +85,20 @@ describe('images an agent attaches to a message', () => {
     expect(imgs.filter(Boolean).join(',')).toContain('text,img,text,img,text');
   });
 
+  it('sizes the picture of a sent message to its image, so a low image leaves no empty area under it', async () => {
+    const s = setup();
+    const f = s.daemon.uploads.addMemoFile('wide.png', 'image/png', PNG);
+    s.daemon.chat.seed(ARCH, {
+      from: 'human',
+      to: ARCH,
+      body: 'look',
+      attachments: [{ id: f.id, name: f.name, mime: 'image/png' as const, bytes: f.bytes }],
+    });
+    await mount(s);
+    await until(() => box.querySelector('.msg .attachments img'), 'the picture');
+    expect(box.querySelector('.msg .attachments button.attachment')!.classList.contains('h-40')).toBe(false);
+  });
+
   it('opens a picture larger on a click, and Escape closes it', async () => {
     const s = setup();
     seed(s);
