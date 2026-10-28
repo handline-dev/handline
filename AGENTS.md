@@ -22,6 +22,9 @@ True for any agent, whatever tool runs it. Your name is in `$OCP_AGENT`.
   merger marks it done with the merged commit sha (`hl task done T<n> <sha>`), or
   hands it back with `"not merged: <reason>"`. A wrong result is reopened by its
   asker (`hl task reopen T<n> "<why>"`).
+- An audit goes to the auditor of the PR's area, so each one keeps reviewing the same code:
+  `tools/pr-area.sh N` prints web, phone, daemon or tools (`<team>.audit-<area>`), and a
+  trailing `ux` when the PR changes what an app draws, which the ux agent also checks live.
 - Where work lands: each story has a branch `story/<name>`. Its tasks branch from
   it and, after the PASS, the merger merges them into it, with no founder step.
   A story reaches main as one PR, which the founder checks by eye and merges.
