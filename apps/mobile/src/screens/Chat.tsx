@@ -72,6 +72,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   const [item, setItem] = useState<TranscriptItem | null>(null); // one of the agent's replies; never together with a picked message
   // A reply item is an id of the transcript, so a daemon that serves no transcript has nothing to answer.
   const canReplyItem = useSelector((s) => !!s.client.hello?.capabilities.transcript);
+  const sending = useRef(false);
   const [text, setTextState] = useState(drafts.get(agent) ?? '');
   const tabs = useOpenInTab();
   const setOpenTask = (id: number) => tabs?.open(taskTab(id)); // a task a batch card opened is a tab beside the chat
@@ -124,9 +125,16 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
   // Words or pictures to send, and none still on its way up.
   const empty = (!text.trim() && !img.ids.length) || img.busy;
   const send = async (delivery?: 'now' | 'queue') => {
-    if (empty) return;
+    if (empty || sending.current) return; // a second press while the pictures are still being uploaded is the same send
+    sending.current = true;
     const out = img.finish(text);
-    const { text: words, attachments } = out instanceof Promise ? await out : out; // a marked picture is drawn and uploaded first
+    let sent: Awaited<ReturnType<typeof img.finish>>;
+    try {
+      sent = out instanceof Promise ? await out : out; // a marked picture is drawn and uploaded first
+    } finally {
+      sending.current = false;
+    }
+    const { text: words, attachments } = sent;
     // A picked message is only a reference: the message goes to this chat's agent, whoever said the picked one.
     // A command is sent as typed: the reply selection is dropped, so nothing is put before the `!`.
     if (cmd) act.send(words, { delivery, attachments });
