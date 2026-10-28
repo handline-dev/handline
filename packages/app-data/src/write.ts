@@ -1,6 +1,6 @@
 // `useWrite`: the one door every UI write goes through (docs/turborepo-layout.md §8.5). An authored write edits the cache first and puts
 // it back if the daemon refuses; a decided write leaves the cache alone and is shown by its pending mark.
-import { useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { useIsMutating, useMutation, useMutationState, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView, CallParams, MethodName, Methods } from '@handline/client';
@@ -58,8 +58,29 @@ export function useWrite<M extends WriteMethod>(method: M, target?: string) {
     },
     onSettled: (_r, _e, p) => settle(qc, daemon, spec, p as never),
   });
-  again.current = mutation.mutate;
-  return mutation;
+  // The same write pressed again while it is in flight is the same press: it joins the first one instead of being sent twice. A refusal
+  // ends the flight, and a screen opened anew starts with none, so a lost reply cannot hold a retry. A chat message is the exception:
+  // the same words twice are two messages.
+  const flights = useRef(new Map<string, Promise<unknown>>());
+  const { mutateAsync: run } = mutation;
+  const mutateAsync = useCallback(
+    (p: CallParams<M>, o?: Parameters<typeof run>[1]): Promise<Methods[M]['result']> => {
+      const key = `${daemon}\n${method}\n${JSON.stringify(p)}`;
+      const first = method === 'chat.send' ? undefined : flights.current.get(key);
+      if (first) return first as Promise<Methods[M]['result']>;
+      const call = run(p, o);
+      if (method !== 'chat.send') {
+        flights.current.set(key, call);
+        const done = () => flights.current.delete(key);
+        call.then(done, done);
+      }
+      return call;
+    },
+    [daemon, method, run],
+  );
+  const mutate = useCallback((p: CallParams<M>, o?: Parameters<typeof run>[1]) => void mutateAsync(p, o).catch(() => {}), [mutateAsync]);
+  again.current = mutate;
+  return { ...mutation, mutate, mutateAsync };
 }
 
 /** A structured agent has no terminal and no input to hold: a write that needs one never leaves the app. */

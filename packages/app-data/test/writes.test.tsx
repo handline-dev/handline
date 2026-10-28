@@ -238,6 +238,38 @@ describe('writes', () => {
     expect(qc.getQueryData<{ state: string }>(qk.task(D, 7))!.state).toBe('blocked');
   });
 
+  it('a second press of the same write while it is in flight sends nothing; a different one, or the same after it settled, does', async () => {
+    const wait = deferred();
+    const stub = stubClient(() => wait.promise);
+    const w = probe(() => useWrite('task.done', 'target'));
+    await mount(openStore(stub), w.node);
+    act(() => {
+      w.get().mutate({ task: 7, evidence: 'ok' });
+      w.get().mutate({ task: 7, evidence: 'ok' });
+    });
+    await until(() => stub.count('task.done') === 1, 'the call');
+    act(() => w.get().mutate({ task: 8, evidence: 'ok' }));
+    wait.resolve({});
+    await sleep(50);
+    expect(stub.count('task.done')).toBe(2);
+    act(() => w.get().mutate({ task: 7, evidence: 'ok' }));
+    await until(() => stub.count('task.done') === 3, 'the same write again after it settled');
+  });
+
+  it('a refused write can be pressed again', async () => {
+    let n = 0;
+    const stub = stubClient(() => {
+      if (n++ === 0) throw refuse('no');
+      return {};
+    });
+    const w = probe(() => useWrite('task.done', 'target'));
+    await mount(openStore(stub), w.node);
+    act(() => w.get().mutate({ task: 7, evidence: 'ok' }));
+    await until(() => w.get().isError, 'the refusal');
+    act(() => w.get().mutate({ task: 7, evidence: 'ok' }));
+    await until(() => stub.count('task.done') === 2, 'the second press');
+  });
+
   it('a write is never retried, even when the connection drops', async () => {
     const stub = stubClient(() => {
       throw new RpcError('transport', 'connection lost');
