@@ -100,12 +100,13 @@ func TestAnAgentMayNotUpgradeTheDaemon(t *testing.T) {
 	}
 }
 
-// hello says which build and binary answer, and a client of another build is logged once on its connection, not at each hello.
+// hello says which build and binary answer, and a proven client of another build is logged once on its connection, not at each hello;
+// an anonymous one is not logged at all.
 func TestHelloCarriesVersionAndExeAndLogsAClientOfAnotherBuildOnce(t *testing.T) {
 	dir := homeDir(t)
 	var mu sync.Mutex
 	var lines []string
-	d, err := Start(Config{Home: dir, DBFile: filepath.Join(dir, "db.sqlite"), SocketFile: filepath.Join(dir, "d.sock"), Auth: fakeAuth{},
+	d, err := Start(Config{Home: dir, DBFile: filepath.Join(dir, "db.sqlite"), SocketFile: filepath.Join(dir, "d.sock"), Auth: fakeAuth{key: "k"},
 		Log: func(f string, a ...any) { mu.Lock(); lines = append(lines, fmt.Sprintf(f, a...)); mu.Unlock() }})
 	if err != nil {
 		t.Skipf("no socket here: %v", err)
@@ -114,24 +115,75 @@ func TestHelloCarriesVersionAndExeAndLogsAClientOfAnotherBuildOnce(t *testing.T)
 	exe, _ := os.Executable()
 	c := dial(t, d)
 	for i := 0; i < 2; i++ {
-		res, _ := c.raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"app","protocol":1,"client_build":"feedfacecafe"}}`)["result"].(map[string]any)
+		res, _ := c.raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"app","protocol":1,"key":"k","client_build":"feedfacecafe"}}`)["result"].(map[string]any)
 		if res["version"] != d.local.Sha || res["exe"] != exe {
 			t.Fatalf("%v", res)
 		}
 	}
-	dial(t, d).raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"app","protocol":1,"client_build":"`+d.local.Sha+`"}}`)
+	dial(t, d).raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"app","protocol":1,"key":"k","client_build":"`+d.local.Sha+`"}}`)
+	dial(t, d).raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":{"client":"stranger","protocol":1,"client_build":"0ddba11"}}`)
 	mu.Lock()
 	defer mu.Unlock()
 	n := 0
 	for _, l := range lines {
-		if strings.Contains(l, "is build feedfacecafe") {
+		if strings.Contains(l, `is build "feedfacecafe"`) {
 			n++
 		}
-		if strings.Contains(l, "is build "+d.local.Sha) {
-			t.Fatalf("a client of the same build was logged: %q", l)
+		if strings.Contains(l, d.local.Sha+`"`) || strings.Contains(l, "stranger") {
+			t.Fatalf("a client of the same build, or an anonymous one, was logged: %q", l)
 		}
 	}
 	if n != 1 {
 		t.Fatalf("%d lines for one connection: %q", n, lines)
+	}
+}
+
+// Only the founder's own socket may choose the binary: not the network listener, not the relay a gateway calls, not a gateway's socket.
+func TestDaemonUpgradeIsServedOnTheLocalSocketOnly(t *testing.T) {
+	d := start(t, fakeAuth{key: "k"}, "")
+	if !d.local.Has("daemon.upgrade") {
+		t.Fatal("the local socket does not serve daemon.upgrade")
+	}
+	for _, transport := range []string{"network", "relay"} {
+		if d.newServer(transport).Has("daemon.upgrade") {
+			t.Fatalf("the %s server serves daemon.upgrade", transport)
+		}
+	}
+	if g, _, _ := startGateway(t, ""); g.local.Has("daemon.upgrade") {
+		t.Fatal("a gateway serves daemon.upgrade")
+	}
+}
+
+// A retry of an answered upgrade, as the new process gets it when the client reconnects, is the kept reply: the binary is not checked
+// again and the daemon is not told to restart again.
+func TestARetriedUpgradeGetsTheKeptReplyFromTheDatabase(t *testing.T) {
+	var checks int
+	old := versionOf
+	versionOf = func(string) (string, error) { checks++; return "0123456789ab", nil }
+	t.Cleanup(func() { versionOf = old })
+	dir := homeDir(t)
+	cfg := Config{Home: dir, DBFile: filepath.Join(dir, "db.sqlite"), SocketFile: filepath.Join(dir, "d.sock"), Auth: fakeAuth{key: "k"}}
+	first, err := Start(cfg)
+	if err != nil {
+		t.Skipf("no socket here: %v", err)
+	}
+	want := founder(t, first).raw(t, upgradeCall("/new/handlined", "0123456789ab"))["result"]
+	<-first.Upgrading()
+	first.Close()
+	second, err := Start(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(second.Close)
+	got, _ := founder(t, second).raw(t, upgradeCall("/new/handlined", "0123456789ab"))["result"].(map[string]any)
+	replayed := got["replayed"]
+	delete(got, "replayed")
+	if checks != 1 || replayed != true || fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("%d checks; retry %v, first %v", checks, got, want)
+	}
+	select {
+	case <-second.Upgrading():
+		t.Fatal("the retry told the new daemon to restart again")
+	case <-time.After(200 * time.Millisecond):
 	}
 }

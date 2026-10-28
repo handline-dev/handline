@@ -594,11 +594,6 @@ func hello(c *Conn, params map[string]any) (any, error) {
 		return nil, Refused(fmt.Sprintf("this daemon serves clients of protocol %d or newer; yours speaks %d", MinClient, protocol),
 			"protocol", "hl service install")
 	}
-	if build, _ := params["client_build"].(string); build != "" && build != c.srv.Sha && !c.buildNoted {
-		c.buildNoted = true
-		client, _ := params["client"].(string)
-		c.srv.Log("  hello: %s is build %s, this daemon is %s", client, build, c.srv.Sha)
-	}
 	key, _ := params["key"].(string)
 	if c.srv.Net != nil {
 		tok, _ := params["token"].(string)
@@ -620,6 +615,12 @@ func hello(c *Conn, params map[string]any) (any, error) {
 			client, _ := params["client"].(string)
 			c.srv.noteFounderKey(c.Pid, client)
 		}
+	}
+	// Logged once the caller is known, and quoted: an unproven caller's words do not shape the log.
+	if build, _ := params["client_build"].(string); build != "" && build != c.srv.Sha && !c.buildNoted && c.Caller.Role != "anonymous" {
+		c.buildNoted = true
+		client, _ := params["client"].(string)
+		c.srv.Log("  hello: %q is build %q, this daemon is %s", client, build, c.srv.Sha)
 	}
 	caps, methods := baseCapabilities(), c.methodList()
 	// A server that serves terminal.* itself declares its formats and has no Relay; a gateway has a Relay and serves none of them, so the
