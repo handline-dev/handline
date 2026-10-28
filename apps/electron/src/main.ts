@@ -155,9 +155,9 @@ function handleDevices(origin: string): void {
   ipcMain.handle(CHANNELS.deviceText, (e, arg) => devices.text(e, arg));
 }
 
-/** The shell's own connection to the daemon, which tells the daemon which build it is. */
+/** The shell's own connection to the daemon. */
 const shellClient = (): DaemonClient =>
-  new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: founderKey, build: runningBuild ?? undefined });
+  new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: founderKey });
 
 /** On every connect, a daemon restarted by an update included, the tray learns which build it now is. */
 function watchVersion(client: DaemonClient, link: Link): void {

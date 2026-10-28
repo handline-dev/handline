@@ -30,7 +30,6 @@ export interface ClientOptions {
   client: string; // who is calling; the daemon names this actor on what it does
   token?: string; // the device token from pairing; the network listener admits no one without it
   key?: () => string | null; // the founder key, read at each hello: the person's own app proves itself on the Unix socket with it
-  build?: string; // the git sha this client was built from; the daemon logs it when it is not its own
   reconnect?: { minMs: number; maxMs: number } | false;
   newRequestId?: () => string;
   /** Methods answered by something other than the daemon connection (the desktop shell, for calls this caller may not make itself); each throws what a failed call throws. */
@@ -138,13 +137,7 @@ export class DaemonClient {
   }
 
   private async handshake(t: Transport): Promise<void> {
-    const hello = await this.callNow('hello', {
-      client: this.opts.client,
-      protocol: PROTOCOL,
-      token: this.opts.token,
-      key: this.opts.key?.() ?? undefined,
-      client_build: this.opts.build,
-    });
+    const hello = await this.callNow('hello', { client: this.opts.client, protocol: PROTOCOL, token: this.opts.token, key: this.opts.key?.() ?? undefined });
     if (hello.min_client > PROTOCOL || hello.protocol < PROTOCOL) {
       t.onclose = null;
       t.close();
@@ -166,9 +159,7 @@ export class DaemonClient {
   private async establish(): Promise<void> {
     // A reconnect resumes at the newest event, not the last seen: the screens read again, and what follows is the changes since.
     const back = this.wasOpen;
-    const r =
-      this.topics.size &&
-      (await this.callNow('subscribe', { topics: [...this.topics], ...(back ? { resume: 'latest' as const } : { since: this.cursor }) }));
+    const r = this.topics.size && (await this.callNow('subscribe', { topics: [...this.topics], ...(back ? { resume: 'latest' as const } : { since: this.cursor }) }));
     const from = this.cursor;
     if (back && r) this.cursor = r.cursor;
     if (back) for (const fn of this.resumeHandlers) fn({ from });
