@@ -69,9 +69,15 @@ export function useChatScroll(scroll: React.RefObject<ScrollView | null>, o: { r
     },
     /** The view changed size: the keyboard, the composer, a turn of the phone. */
     layout(view: number) {
+      if (size.current.view !== view) ours.current = true; // the scroll a resize makes (the view clamped to its new end) is not the person's
       size.current.view = view;
       if (entered.current) feed({ type: 'grew' });
       else settle();
+    },
+    /** The room under the lines was laid out at its new height: a held send is put back at the top, which a scroll before this one clamped away
+     * (the keyboard going down grows the view and the room together, and the view cannot reach past content that is not there yet). */
+    spacer() {
+      if (entered.current && state.current.mode === 'hold') feed({ type: 'grew' });
     },
     /** The lines (without the room) are `h` high. */
     lines(h: number) {
@@ -84,6 +90,9 @@ export function useChatScroll(scroll: React.RefObject<ScrollView | null>, o: { r
     scrolled(e: NativeSyntheticEvent<NativeScrollEvent>) {
       if (ours.current) return state.current.mode === 'follow';
       const { contentOffset, layoutMeasurement } = e.nativeEvent;
+      // A drag that does not leave the held place (dismissing the keyboard) keeps the send at the top: the lines' end in view is not the bottom
+      // of the conversation while the send is held, the room under it is.
+      if (state.current.mode === 'hold' && sentY.current !== null && Math.abs(contentOffset.y - sentY.current) < NEAR_BOTTOM) return false;
       // The room is empty: being at its end is not being at the bottom of the conversation.
       const atBottom = size.current.lines - contentOffset.y - layoutMeasurement.height < NEAR_BOTTOM;
       feed({ type: 'scrolled', atBottom });

@@ -120,7 +120,7 @@ describe('the chat scroll on the phone', () => {
     await m.run(() => m.a().drag());
     expect(m.a().scrolled(scrollEvent(100))).toBe(false); // up in the history
     expect(m.a().room).toBe(room);
-    expect(m.a().scrolled(scrollEvent(1000 - VIEW))).toBe(true); // and down at the end of the lines
+    expect(m.a().scrolled(scrollEvent(1000 - VIEW))).toBe(false); // and down at the end of the lines: the held place again, not a followed end
     expect(m.a().room).toBe(room);
   });
 
@@ -131,6 +131,46 @@ describe('the chat scroll on the phone', () => {
     expect(m.a().room).toBe(900 - space.sm + 500 - 1000);
     await m.run(() => m.a().layout(900));
     expect(m.a().room).toBe(900 - space.sm + 900 - 1000);
+  });
+
+  it('puts the held send back at the top once the grown room is laid out (the keyboard going down)', async () => {
+    const m = await mount({ ready: true, sent: SENT });
+    await entered(m);
+    await m.run(() => m.a().layout(900));
+    m.scrollTo.mockClear();
+    await m.run(() => m.a().spacer()); // the spacer was laid out at its new height
+    expect(last(m)).toEqual({ y: 900 - space.sm, animated: false });
+  });
+
+  it('a drag that stays at the held place (dismissing the keyboard) keeps the send held instead of following the lines', async () => {
+    const m = await mount({ ready: true, sent: SENT });
+    await entered(m);
+    await m.run(() => m.a().drag());
+    expect(m.a().scrolled(scrollEvent(900 - space.sm + 2))).toBe(false);
+    m.scrollTo.mockClear();
+    await m.run(() => m.a().layout(900));
+    expect(last(m)).toEqual({ y: 900 - space.sm, animated: false }); // still held, so the resize puts it back at the top
+  });
+
+  it('coming back to the end after reading up holds the send again, so the keyboard does not drop it to the bottom', async () => {
+    const m = await mount({ ready: true, sent: SENT });
+    await entered(m);
+    await m.run(() => m.a().drag());
+    expect(m.a().scrolled(scrollEvent(300))).toBe(false); // up in the history
+    expect(m.a().scrolled(scrollEvent(1000 - VIEW))).toBe(false); // and back at the end of the lines: held, not followed
+    m.scrollTo.mockClear();
+    await m.run(() => m.a().layout(400)); // the keyboard comes up
+    expect(last(m)).toEqual({ y: 900 - space.sm, animated: false });
+  });
+
+  it('does not move a reader who has left the held place when the room is laid out', async () => {
+    const m = await mount({ ready: true, sent: SENT });
+    await entered(m);
+    await m.run(() => m.a().drag());
+    m.a().scrolled(scrollEvent(300));
+    m.scrollTo.mockClear();
+    await m.run(() => m.a().spacer());
+    expect(m.scrollTo).not.toHaveBeenCalled();
   });
 
   it('a search hit leaves the view where the hit put it', async () => {
