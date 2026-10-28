@@ -1,6 +1,6 @@
 // The build the app and the daemon each are, as a git sha: the daemon reports it as `abc123`, `abc123-dirty` or `<version>+abc123` (release).
 
-/** The sha inside a daemon's version. */
+/** The sha inside a daemon's version; a `-dirty` build counts as its commit, so an uncommitted change is not a mismatch. */
 export const shaOf = (version: string): string =>
   version
     .split('+')

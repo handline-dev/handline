@@ -5,11 +5,9 @@ import { samePrefix, shaOf } from '@handline/app-core';
 export interface UpgradeDeps {
   /** Builds the daemon from the checkout; absent for a packaged app, which carries its own. */
   build?(): Promise<void>;
-  /** The app's own handlined (absolute). */
   exe: string;
   /** What `exe --version` prints, which is the sha the daemon will hold it to; it is read after the build. */
   binarySha(): Promise<string>;
-  /** The sha of the build the app is. */
   sha: string;
   /** daemon.upgrade over the shell's own connection; rejects with the daemon's own sentence when it refuses. */
   upgrade(a: { exe: string; sha: string }): Promise<unknown>;

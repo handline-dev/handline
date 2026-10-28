@@ -11,12 +11,10 @@ import { upgradeDaemon } from '#src/upgrade.ts';
  */
 export function upgradeNow(o: {
   client: DaemonClient;
-  /** The handlined this app runs with: the packaged one, or the checkout's go/handlined. */
   exe: string;
   /** Whether the checkout's handlined is built first (false for a packaged app). */
   build: boolean;
   root: string;
-  /** The folder with build.json. */
   dist: string;
   sha?: string;
 }): Promise<void> {

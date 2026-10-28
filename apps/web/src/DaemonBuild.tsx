@@ -13,7 +13,10 @@ export function DaemonBuild() {
   if (!line) return null;
   const restart = async () => {
     setState({ busy: true, error: '' });
-    const r = await shell('restartDaemon')!.restartDaemon!();
+    const r = await shell('restartDaemon')!.restartDaemon!().catch((e: unknown) => ({
+      ok: false as const,
+      message: e instanceof Error ? e.message : String(e),
+    }));
     setState({ busy: false, error: r.ok ? '' : r.message });
   };
   return (
