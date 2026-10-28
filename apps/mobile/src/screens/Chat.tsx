@@ -271,7 +271,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
             borderWidth: cmd ? 2 : 1,
             borderRadius: radius.card,
             padding: space.md,
-            ...(cmd ? { fontFamily: 'monospace' } : {}),
+            ...(cmd ? { fontFamily: 'Menlo' } : {}),
           }}
         />
         <SendButton
