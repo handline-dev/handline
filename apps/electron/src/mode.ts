@@ -3,6 +3,7 @@
 // remote pairing live in one small file in the app's data folder, readable by this user only (it holds a device token).
 import fs from 'node:fs';
 import path from 'node:path';
+import { mismatch } from '@handline/app-core';
 import { once } from '#src/pair.ts';
 import {
   isTailscaleHost,
@@ -143,6 +144,9 @@ export class Link {
   status: LinkStatus = 'connecting';
   address: string | null = null;
   version: string | null = null;
+  /** The daemon's version as hello gave it, and the build the app is (build.json): when they differ the tray says so. */
+  daemon: string | null = null;
+  app: string | null = null;
   reason = '';
   private listeners: (() => void)[] = [];
   onChange(f: () => void): void {
@@ -154,9 +158,14 @@ export class Link {
     this.reason = p.reason ?? '';
     for (const f of this.listeners) f();
   }
+  /** 'Daemon is x, app is y' while the two are not the same build; null otherwise. */
+  mismatch(): string | null {
+    return mismatch(this.daemon, this.app);
+  }
   /** The daemon's version: the loaded git sha its hello gives, short. */
   setVersion(daemon: string | undefined): void {
     this.version = daemon ? daemon.slice(0, 7) : null;
+    this.daemon = daemon ?? null;
     for (const f of this.listeners) f();
   }
 }

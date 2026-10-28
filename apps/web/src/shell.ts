@@ -19,6 +19,8 @@ type Call =
   | 'setMode'
   | 'follow'
   | 'checkUpdate'
+  | 'build'
+  | 'restartDaemon'
   | 'cli'
   | 'linkCli'
   | 'pairRemote'
@@ -83,6 +85,18 @@ export function useShellMode() {
       return r.ok ? r : null;
     },
     !!shell('mode'),
+  );
+}
+
+/** The build the desktop app is (its git sha) and whether it can restart the daemon; nothing in a plain browser. */
+export function useShellBuild() {
+  return useLoaded(
+    ['shell', 'build'],
+    async () => {
+      const r = await shell('build')!.build!();
+      return r.ok ? r : null;
+    },
+    !!shell('build'),
   );
 }
 

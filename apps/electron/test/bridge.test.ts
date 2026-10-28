@@ -159,6 +159,10 @@ test('the page switches the mode and pairs another device only from the window a
   const seen: unknown[] = [];
   const c = new Connection(ORIGIN, {
     mode: () => ({ mode: 'connect', remote: 'mac.ts.net:7443' }),
+    build: () => ({ sha: 'abc123def456', canRestart: false }),
+    restartDaemon: async () => {
+      throw new Error('on another device');
+    },
     phone: async () => {
       throw new Error('paired with another device');
     },
@@ -262,4 +266,25 @@ test('settings: the status bar resource area keys reach the daemon', async () =>
     sent,
     Object.entries(changes).map(([k, v]) => ({ [k]: v })),
   );
+});
+
+test('the page asks for the app build and restarts the daemon only from the window; a refusal carries its reason', async () => {
+  const c = new Connection(ORIGIN, {
+    mode: () => ({ mode: 'own', remote: null }),
+    build: () => ({ sha: 'abc123def456', canRestart: true }),
+    restartDaemon: async () => {
+      throw new Error('the daemon did not upgrade: refused');
+    },
+    phone: async () => undefined,
+    follow: () => null,
+    check: async () => undefined,
+    setMode: () => undefined,
+    pair: async () => undefined,
+  });
+  const win = { senderFrame: { url: `${ORIGIN}/`, parent: null } };
+  const frame = { senderFrame: { url: `${ORIGIN}/`, parent: {} } };
+  assert.deepEqual(c.build(win), { ok: true, sha: 'abc123def456', canRestart: true });
+  assert.equal(c.build(frame).ok, false);
+  assert.deepEqual(await c.restartDaemon(win), { ok: false, code: 'cannot_restart', message: 'the daemon did not upgrade: refused' });
+  assert.equal((await c.restartDaemon(frame)).ok, false);
 });

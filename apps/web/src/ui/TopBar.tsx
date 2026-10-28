@@ -7,20 +7,20 @@ import { createPortal } from 'react-dom';
 export const PageBarSlot = createContext<HTMLElement | null | undefined>(undefined);
 export const usePageBarSlot = () => useContext(PageBarSlot);
 
-/** The frame of the page area: the bar, then the page under it. `lead` is the rail's buttons while the rail is folded. */
-export function Shell({ lead, children }: { lead?: ReactNode; children: ReactNode }) {
+/** The frame of the page area: the bar, then the page under it. `lead` is the rail's buttons while the rail is folded; `notice` sits at the bar's right end. */
+export function Shell({ lead, notice, children }: { lead?: ReactNode; notice?: ReactNode; children: ReactNode }) {
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   return (
     <PageBarSlot.Provider value={slot}>
       <div className="shell-main flex min-h-0 min-w-0 flex-1 flex-col">
-        <TopBar lead={lead} slot={setSlot} />
+        <TopBar lead={lead} notice={notice} slot={setSlot} />
         {children}
       </div>
     </PageBarSlot.Provider>
   );
 }
 
-function TopBar({ lead, slot }: { lead?: ReactNode; slot: (el: HTMLElement | null) => void }) {
+function TopBar({ lead, notice, slot }: { lead?: ReactNode; notice?: ReactNode; slot: (el: HTMLElement | null) => void }) {
   return (
     <div
       className="topbar flex min-h-[var(--h-top)] flex-none items-center gap-2 border-b border-line bg-canvas px-4 py-1"
@@ -28,6 +28,7 @@ function TopBar({ lead, slot }: { lead?: ReactNode; slot: (el: HTMLElement | nul
     >
       {lead ? <div className="topbar-lead flex flex-none items-center shell:pl-[var(--lights-w,86px)] -ml-2">{lead}</div> : null}
       <div className="page-bar flex min-w-0 flex-1 items-center" ref={slot} />
+      {notice}
     </div>
   );
 }

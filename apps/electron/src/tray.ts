@@ -55,12 +55,14 @@ export interface TrayFollow {
 export interface TrayMode {
   mode: Mode;
   /** Connect mode: the link's state. Own mode: the address and version of the daemon it started. */
-  link: Pick<Link, 'status' | 'address' | 'version' | 'reason'>;
+  link: Pick<Link, 'status' | 'address' | 'version' | 'reason' | 'mismatch'>;
   switchTo(): void;
   /** Connect mode: pair with the `handline://` link on the clipboard. */
   pair(): void;
   /** Own mode, or Connect to this computer's daemon: show a QR a phone scans to pair. Absent when the app is on another device's gateway. */
   phone?(): void;
+  /** Moves the daemon onto this app's build; absent when the daemon is another device's. */
+  restartDaemon?(): void;
 }
 
 const MODE_WORDS: Record<Mode, string> = { connect: 'Mode: Connect to a daemon', own: 'Mode: Own daemon' };
@@ -143,6 +145,9 @@ export function trayMenu(
   if (view.unread > 0) notes.push({ label: `Needs you · ${badgeText(view.unread)}`, click: a.inbox });
   notes.push(...(trouble(state, reason, a, m) ?? []));
   if (follow?.state === 'available' && follow.next) notes.push({ label: 'Restart to update', click: follow.restart });
+  const apart = m?.link.mismatch();
+  if (apart)
+    notes.push({ label: `⚠ ${apart}`, enabled: false }, ...(m?.restartDaemon ? [{ label: 'Restart daemon', click: m.restartDaemon }] : []));
   if (follow?.state === 'updating') notes.push({ label: 'Updating…', enabled: false });
   if (follow?.state === 'failed')
     notes.push({ label: `Update failed: ${follow.reason}`, enabled: false }, { label: 'Check again', click: follow.check });

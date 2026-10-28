@@ -117,6 +117,10 @@ export interface ShellApi {
     | { ok: true; following: boolean; sha: string; state: 'current' | 'available' | 'updating' | 'failed'; next: string | null }
     | Fail<'bad_request'>
   >;
+  /** The build the app is (its git sha, null when it has none) and whether the app can move the daemon onto it; the page compares the sha with the daemon's. */
+  build?(): Promise<{ ok: true; sha: string | null; canRestart: boolean } | Fail<'bad_request'>>;
+  /** Builds and restarts the daemon onto the app's build, as Update does; `cannot_restart` says why not. */
+  restartDaemon?(): Promise<{ ok: true } | Fail<'bad_request' | 'cannot_restart'>>;
   /** The `hl` command an installed app carries: whether it has one, and whether it is linked into ~/.local/bin. */
   cli?(): Promise<{ ok: true; bundled: boolean; linked: boolean; link: string } | Fail<'bad_request'>>;
   /** Links the carried `hl` into ~/.local/bin; `cannot_link` says why not (another file is there). */
