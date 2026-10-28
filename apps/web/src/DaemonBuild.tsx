@@ -20,11 +20,13 @@ export function DaemonBuild() {
     setState({ busy: false, error: r.ok ? '' : r.message });
   };
   return (
-    <div className="daemon-build flex min-w-0 max-w-[50%] flex-initial items-center gap-2 text-meta text-ink-2" role="status">
+    <div
+      className="daemon-build flex min-w-0 max-w-[50%] flex-initial items-center gap-2 text-meta text-ink-2"
+      role="status"
+      title={state.error ? `Not restarted: ${state.error}` : line}
+    >
       <span className="size-1.5 flex-none rounded-full bg-wait" aria-hidden />
-      <span className="truncate" title={state.error || line}>
-        {state.error ? `Not restarted: ${state.error}` : line}
-      </span>
+      <span className="truncate max-[1100px]:sr-only">{state.error ? `Not restarted: ${state.error}` : line}</span>
       {build?.canRestart && shell('restartDaemon') ? (
         <Button label={state.busy ? 'Restarting…' : 'Restart daemon'} size="sm" disabled={state.busy} onClick={() => void restart()} />
       ) : null}
