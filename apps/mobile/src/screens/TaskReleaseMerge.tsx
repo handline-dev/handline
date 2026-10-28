@@ -1,4 +1,4 @@
-// Release and Merge on the phone's task page (docs/pc-app-gaps.md R2). Release takes a doing task back to queued and needs a reason; the
+// Release and Merge on the phone's task page (docs/pc-app-gaps.md R2). Release takes a doing task back to queued; its reason is optional; the
 // contract's optional draft target is left out. Merge starts from this task and folds the chosen others into it. Both keep their sheet open with the
 // reason when the daemon refuses.
 import { useState } from 'react';
@@ -14,22 +14,18 @@ import { Pill } from '#src/screens/parts.tsx';
 export function ReleaseTask({ t, onClose }: { t: TaskDetail; onClose: () => void }) {
   const release = useWrite('task.release');
   const [reason, setReason] = useState('');
-  const [empty, setEmpty] = useState(false);
-  const send = () => {
-    if (!reason.trim()) return setEmpty(true);
-    release.mutateAsync({ task: t.id, reason: reason.trim() }).then(onClose, () => {});
-  };
+  const send = () => void release.mutateAsync({ task: t.id, ...(reason.trim() ? { reason: reason.trim() } : {}) }).then(onClose, () => {});
   return (
     <Sheet
-      label={`release ${taskRef(t.id)} back to the queue? why:`}
+      label={`release ${taskRef(t.id)} back to the queue? why (optional):`}
       submit="Release"
       kind="no"
       busy={release.isPending}
       onCancel={onClose}
       onSubmit={send}
-      error={empty && !reason.trim() ? 'A reason is required.' : release.isError ? sentence(classify(release.error)) : undefined}
+      error={release.isError ? sentence(classify(release.error)) : undefined}
     >
-      <Input testID="release-reason" label="Reason" value={reason} onChange={(v) => (setReason(v), setEmpty(false))} />
+      <Input testID="release-reason" label="Reason" value={reason} onChange={setReason} />
     </Sheet>
   );
 }

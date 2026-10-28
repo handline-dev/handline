@@ -145,7 +145,8 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   const me = useStore().me;
   const [ask, setAsk] = useState<Ask>(null);
   const [menu, setMenu] = useState<null | 'status' | 'more'>(null);
-  const { done, reopen, withdraw, cancel, queue, draft, discard } = useTaskActions();
+  const { done, reopen, withdraw, cancel, queue, draft, discard, release } = useTaskActions();
+  const founder = useStore().client.hello?.role === 'founder';
   const off = {
     done: useOff('task.done'),
     reopen: useOff('task.reopen'),
@@ -199,6 +200,15 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
   };
   const reason = ask ? reasons[ask] : undefined;
   const Panel = ask ? PANELS[ask as keyof typeof PANELS] : undefined;
+  // For the founder every state verb acts at once, with no box; the daemon writes its own word (Done, Discarded). Anyone else is asked first.
+  const NOW = {
+    done: () => done.mutateAsync({ task: t.id }),
+    reopen: () => reopen.mutateAsync({ task: t.id }),
+    cancel: () => cancel.mutateAsync({ task: t.id }),
+    discard: () => discard.mutateAsync({ task: t.id }),
+    withdraw: () => withdraw.mutateAsync({ task: t.id }),
+    release: () => release.mutateAsync({ task: t.id }),
+  };
   const verb = (id: string, label: string, why: string | undefined, to: Ask) => (
     <MenuItem
       key={id}
@@ -207,7 +217,9 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
       disabled={!!why || ask !== null}
       onPress={() => {
         setMenu(null);
-        setAsk(to);
+        if (founder && to && to in NOW)
+          void NOW[to as keyof typeof NOW]().catch(() => {}); // the write's own rollback shows the reason
+        else setAsk(to);
       }}
     />
   );

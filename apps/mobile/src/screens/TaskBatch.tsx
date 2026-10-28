@@ -48,6 +48,8 @@ function useCans(): Record<RowVerb, string | undefined> {
 export function TaskBatch(props: { tasks: Task[]; onClose: () => void; onDone: () => void }) {
   const c = usePalette();
   const me = useStore().me;
+  const founder = useStore().client.hello?.role === 'founder';
+  const reasonKind = (v: RowVerb): Arg => (founder && ARG[v] === 'reason' ? 'reasonOptional' : ARG[v]); // the founder's done, discard and release need no reason
   const { verbs: run } = useTaskActions();
   const cans = useCans();
   const agents = useAgents().data?.agents.map((a) => a.name) ?? [];
@@ -57,6 +59,16 @@ export function TaskBatch(props: { tasks: Task[]; onClose: () => void; onDone: (
   const [busy, setBusy] = useState(false);
   const [outcomes, setOutcomes] = useState<Outcome[] | null>(null);
   const n = props.tasks.length;
+  const apply = async (v: RowVerb, text: string) => {
+    setBusy(true);
+    const planned = plan(v, props.tasks, me);
+    const res = await applyEach(
+      planned.run.map((t) => t.id),
+      (id) => run[v](id, text),
+    );
+    setOutcomes([...res, ...planned.skip.map((s) => ({ task: s.task.id, ok: false, why: s.why }))]);
+    setBusy(false);
+  };
   const what = n === 1 ? taskRef(props.tasks[0]!.id) : `${n} tasks`;
 
   if (outcomes)
@@ -84,23 +96,19 @@ export function TaskBatch(props: { tasks: Task[]; onClose: () => void; onDone: (
               disabled={!!why}
               danger={DANGER.includes(v)}
               note={why ?? (n > 1 ? `${p.run.length} of ${n}` : null)}
-              onPress={() => (setArg(''), setMissing(false), setVerb(v))}
+              onPress={() => (founder && v === 'discard' && n === 1 ? void apply(v, '') : (setArg(''), setMissing(false), setVerb(v)))}
             />
           );
         })}
       </MenuSheet>
     );
 
-  const kind = ARG[verb];
+  const kind = reasonKind(verb);
   const p = plan(verb, props.tasks, me);
   const label = TASK_VERBS.find((v) => v.verb === verb)!.label;
-  const submit = async () => {
+  const submit = () => {
     if ((kind === 'reason' || kind === 'owner' || kind === 'priority' || kind === 'timebox') && !arg.trim()) return setMissing(true);
-    setBusy(true);
-    const ids = p.run.map((t) => t.id);
-    const res = await applyEach(ids, (id) => run[verb](id, arg.trim()));
-    setOutcomes([...res, ...p.skip.map((s) => ({ task: s.task.id, ok: false, why: s.why }))]);
-    setBusy(false);
+    void apply(verb, arg.trim());
   };
   return (
     <Sheet
@@ -109,7 +117,7 @@ export function TaskBatch(props: { tasks: Task[]; onClose: () => void; onDone: (
       kind={DANGER.includes(verb) ? 'no' : 'yes'}
       busy={busy}
       onCancel={() => setVerb(null)}
-      onSubmit={() => void submit()}
+      onSubmit={submit}
       error={missing ? 'This needs an answer.' : undefined}
     >
       {kind === 'reason' || kind === 'reasonOptional' ? (
