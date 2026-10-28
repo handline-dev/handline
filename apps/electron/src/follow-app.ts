@@ -29,7 +29,12 @@ export const takeRoute = (): string => {
   }
 };
 
-export function followMain(o: { dir: string; window: () => BrowserWindow | null; changed: () => void }): {
+export function followMain(o: {
+  dir: string;
+  window: () => BrowserWindow | null;
+  changed: () => void;
+  upgradeDaemon: (sha: string) => Promise<void>;
+}): {
   follower: Follower;
   start(): Promise<void>;
 } {
@@ -66,6 +71,7 @@ export function followMain(o: { dir: string; window: () => BrowserWindow | null;
   const follower = new Follower({
     run: (file, args) => sh(file, args, o.dir),
     peek: () => peekMain((...a) => sh('git', ['-C', source, ...a], o.dir).then((s) => s.trim())),
+    upgradeDaemon: o.upgradeDaemon,
     beforeRelaunch: () => {
       const url = o.window()?.webContents.getURL() ?? '';
       try {

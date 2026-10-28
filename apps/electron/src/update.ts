@@ -32,7 +32,10 @@ export interface UpdatePorts {
   /** True when nothing on screen would be lost by asking. */
   idle(): Promise<boolean>;
   ask(): Promise<boolean>;
-  restart(): void;
+  /** Brings the daemon onto the new build, then relaunches. Rejects with the reason, and the app has not relaunched then. */
+  restart(): Promise<void>;
+  /** Tells the person why the update stopped. */
+  failed(reason: string): void;
 }
 
 /** A newer build than the one running is owed a question, asked only when idle, and a build said no to is not asked about again. */
@@ -55,8 +58,12 @@ export class Updater {
     this.asking = true;
     try {
       if (!(await this.ports.idle())) return; // owed: the next check asks again
-      if (await this.ports.ask()) this.ports.restart();
-      else this.declined = now;
+      if (!(await this.ports.ask())) this.declined = now;
+      else
+        await this.ports.restart().catch((e: unknown) => {
+          this.declined = now; // not asked again every check: the person has the reason
+          this.ports.failed(e instanceof Error ? e.message : String(e));
+        });
     } finally {
       this.asking = false;
     }

@@ -51,6 +51,8 @@ export function makeApi(ipc: Ipc, zoom: () => number = () => 1): ShellApi {
     setMode: (m) => call(CHANNELS.setMode, m),
     follow: () => call(CHANNELS.follow),
     checkUpdate: () => call(CHANNELS.checkUpdate),
+    build: () => call(CHANNELS.build),
+    restartDaemon: () => call(CHANNELS.restartDaemon),
     cli: () => call(CHANNELS.cli),
     linkCli: () => call(CHANNELS.linkCli),
     phone: () => call(CHANNELS.phone),

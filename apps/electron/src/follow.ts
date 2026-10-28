@@ -6,8 +6,6 @@ import path from 'node:path';
 export interface Rebuild {
   /** The lockfile changed: install before building. */
   install: boolean;
-  /** The Go gateway changed. */
-  gateway: boolean;
   web: boolean;
   /** The app's own main process, or what it bundles. */
   electron: boolean;
@@ -15,14 +13,13 @@ export interface Rebuild {
 
 const starts = (f: string, ...dirs: string[]) => dirs.some((d) => f.startsWith(d));
 
-/** What a list of changed paths means for the build. Docs and tests mean nothing. The app relaunches either way, which also restarts the daemon it owns. */
+/** What a list of changed paths means for the build. Docs and tests mean nothing. The daemon is built and restarted on every update, so `go/` is not asked about. */
 export function decide(files: string[]): Rebuild {
-  const r: Rebuild = { install: false, gateway: false, web: false, electron: false };
+  const r: Rebuild = { install: false, web: false, electron: false };
   for (const f of files) {
     if (f === 'package.json' || f === 'pnpm-lock.yaml' || f === 'pnpm-workspace.yaml') r.install = r.web = r.electron = true;
     if (starts(f, 'apps/electron/', 'packages/client/', 'packages/client-node/', 'packages/app-core/')) r.electron = true;
     if (starts(f, 'apps/web/', 'packages/', 'contract/')) r.web = true;
-    if (starts(f, 'go/')) r.gateway = true;
   }
   if (r.electron) r.web = true; // the relaunched app serves the page it was built with
   return r;
@@ -51,6 +48,8 @@ export interface FollowDeps {
   run(file: string, args: string[]): Promise<string>;
   /** Where GitHub's main is now, read through the repo the checkout was cloned from (`peekMain`). */
   peek(): Promise<Main>;
+  /** Builds the daemon, moves the running one onto it and waits for it, for the commit `sha`; rejects with the reason. */
+  upgradeDaemon(sha: string): Promise<void>;
   /** Called before the relaunch: keeps what the window shows. */
   beforeRelaunch(): void;
   relaunch(): void;
@@ -127,9 +126,10 @@ export class Follower {
       await this.git('merge', '--ff-only', target);
       const r = decide(files);
       if (r.install) await this.d.run('pnpm', ['install', '--frozen-lockfile']);
-      if (r.gateway) await this.d.run('go', ['build', '-C', 'go', '-o', 'handlined', './cmd/handlined']);
       if (r.web) await this.d.run('pnpm', ['--filter', '@handline/web', 'build']);
-      if (r.electron) await this.d.run('pnpm', ['--filter', '@handline/electron', 'build']);
+      // The electron build stamps the sha the daemon is compared with, so it runs every time.
+      await this.d.run('pnpm', ['--filter', '@handline/electron', 'build']);
+      await this.d.upgradeDaemon(target.slice(0, 12));
       this.d.beforeRelaunch();
       this.d.relaunch();
     } catch (e) {

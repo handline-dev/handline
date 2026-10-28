@@ -61,7 +61,7 @@ test('a build is the page that names its assets plus the main bundle, and null w
 });
 
 function harness(first: string | null = 'v1') {
-  const s = { build: first, idle: true, answer: true, asked: 0, restarts: 0 };
+  const s = { build: first, idle: true, answer: true, asked: 0, restarts: 0, fail: '', failures: [] as string[] };
   const u = new Updater({
     build: () => s.build,
     idle: async () => s.idle,
@@ -69,9 +69,11 @@ function harness(first: string | null = 'v1') {
       s.asked++;
       return s.answer;
     },
-    restart: () => {
+    restart: async () => {
+      if (s.fail) throw new Error(s.fail);
       s.restarts++;
     },
+    failed: (why) => s.failures.push(why),
   });
   return { s, u };
 }
@@ -125,4 +127,14 @@ test('when no build was readable at launch, the first one seen is the running on
   s.build = 'v1';
   await u.check();
   assert.equal(s.asked, 0);
+});
+
+test('a restart that fails says why, and the next check does not ask about that build again', async () => {
+  const { s, u } = harness();
+  s.build = 'v2';
+  s.fail = 'the daemon did not upgrade: refused';
+  await u.check();
+  assert.deepEqual([s.restarts, s.failures], [0, ['the daemon did not upgrade: refused']]);
+  await u.check();
+  assert.equal(s.asked, 1);
 });

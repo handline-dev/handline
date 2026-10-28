@@ -66,6 +66,9 @@ const makePhone = async (pairing: PairDeps): Promise<{ win: BrowserWindow; expir
   return { win: w, expiresAt: Date.parse(l.expiresAt) };
 };
 
+/** The tray's Restart daemon: the reason goes in a dialog when the daemon will not move. */
+const showUpgradeFailure = (e: Error): void => dialog.showErrorBox('Cannot restart the daemon', e.message);
+
 /** The tray's way: the same window, the reason in a dialog. */
 async function showPhone(openPhone: () => Promise<void>): Promise<void> {
   try {
@@ -163,6 +166,25 @@ export interface Own {
   pair(i: OfferInput): Promise<void>;
   /** Opens the phone-pairing QR window; rejects with a sentence when this app has no gateway of its own to pair a phone with. */
   phone(): Promise<void>;
+  /** Moves the daemon onto this app's build; rejects with the reason. */
+  restartDaemon(): Promise<void>;
+}
+
+/** What the tray's menu items do. */
+function trayActions(
+  o: { openWindow: () => void; openPage: (screen: 'inbox' | 'settings') => void; current: Settings },
+  owner: Owner,
+  relaunchAs: (next: Settings) => void,
+): TrayActions {
+  return {
+    open: o.openWindow,
+    startDaemon: () => void owner.start(),
+    quit: () => app.quit(),
+    inbox: () => o.openPage('inbox'),
+    settings: () => o.openPage('settings'),
+    reconnect: () => relaunchAs(o.current),
+    copy: (text: string) => clipboard.writeText(text),
+  };
 }
 
 /** The daemon's command with its claude resolved now, on the login shell's PATH: a Dock launch has no shell dirs. */
@@ -210,6 +232,9 @@ export function ownDaemon(o: {
   follow?: () => TrayFollow;
   /** Whether this run draws a menu bar icon (drawsTray in background.ts). */
   tray: boolean;
+  /** The build the app is (its sha), and the way to move the daemon onto it. */
+  build: string | null;
+  upgradeDaemon: () => Promise<void>;
 }): Own {
   const log = fs.openSync(path.join(app.getPath('userData'), 'daemon.log'), 'a');
   const owner = new Owner({
@@ -223,26 +248,20 @@ export function ownDaemon(o: {
   app.on('quit', () => owner.stop());
   const tray = makeTray(o.tray);
   const link = new Link();
+  link.app = o.build;
   link.set('connecting', { address: o.gateway ?? null });
   const relaunchAs = (next: Settings) => relaunchWith(o.settings, next);
   const pair = async (i: OfferInput) => relaunchAs({ mode: 'connect', remote: await pairFrom(i) });
   const pairClipboard = () => pair({ link: clipboard.readText() }).catch((e: Error) => link.set('cannot-pair', { reason: e.message }));
   link.onChange(() => draw());
-  const actions = {
-    open: o.openWindow,
-    startDaemon: () => void owner.start(),
-    quit: () => app.quit(),
-    inbox: () => o.openPage('inbox'),
-    settings: () => o.openPage('settings'),
-    reconnect: () => relaunchAs(o.current),
-    copy: (text: string) => clipboard.writeText(text),
-  };
+  const actions = trayActions(o, owner, relaunchAs);
   const mode = () => ({
     mode: o.current.mode,
     link,
     switchTo: () => relaunchAs({ ...o.current, mode: o.current.mode === 'connect' ? 'own' : 'connect' }),
     pair: () => void pairClipboard(),
     phone: o.current.remote ? undefined : () => void showPhone(openPhone),
+    restartDaemon: o.current.remote ? undefined : () => void o.upgradeDaemon().catch(showUpgradeFailure),
   });
   const { draw, setUnread } = trayControls(tray, owner, actions, mode, o.follow);
   owner.onChange(draw);
@@ -289,6 +308,7 @@ export function ownDaemon(o: {
     setUnread,
     link,
     remote: o.current.remote,
+    restartDaemon: o.upgradeDaemon,
     switchMode: (m) => relaunchAs({ ...o.current, mode: m }),
     pair,
     phone: () => (o.current.remote ? Promise.reject(new Error('paired with another device: pair the phone on that device')) : openPhone()),

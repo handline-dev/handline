@@ -31,6 +31,7 @@ import { Palette } from '#src/Palette.tsx';
 import { Sidebar } from '#src/Sidebar.tsx';
 import { RailControls } from '#src/RailControls.tsx';
 import { Shell } from '#src/ui/TopBar.tsx';
+import { DaemonBuild } from '#src/DaemonBuild.tsx';
 import { DaemonDown } from '#src/DaemonDown.tsx';
 import { terminalOwnsKey } from '#src/terminal/core.ts';
 import { StatusBar } from '#src/StatusBar.tsx';
@@ -134,7 +135,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             />
           </>
         ) : null}
-        <Shell lead={railOpen ? undefined : <RailControls show={toggle} row />}>
+        <Shell lead={railOpen ? undefined : <RailControls show={toggle} row />} notice={<DaemonBuild />}>
           <main className={`main flex min-h-0 min-w-0 flex-1 bg-canvas${railOpen ? ' max-[900px]:ml-0' : ''}`} aria-label="Agent workspace">
             <DaemonDown />
             {team ? (

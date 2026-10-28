@@ -17,13 +17,15 @@ import { Devices } from '#src/devices.ts';
 import { Preview } from '#src/preview.ts';
 import { followMain, takeRoute } from '#src/follow-app.ts';
 import type { Follower } from '#src/follow.ts';
-import { parseMode, remoteUrl, SettingsFile, type Mode, type Remote } from '#src/mode.ts';
+import { parseMode, remoteUrl, SettingsFile, type Link, type Mode, type Remote } from '#src/mode.ts';
 import { ownDaemon, readFounderKey, type Own } from '#src/own.ts';
 import { gatewayAddress, magicDnsName, onTailnet, TAILSCALE_CLIS } from '#src/tailnet.ts';
 import { Cli, Connection, Page, Settings, CHANNELS } from '#src/bridge.ts';
 import { serveDir } from '#src/serve.ts';
 import { buildId, UNSENT_PROBE, Updater } from '#src/update.ts';
 import { bundleAt } from '#src/bundle.ts';
+import { readBuildSha } from '#src/build-id.ts';
+import { upgradeNow } from '#src/daemon-upgrade.ts';
 import { cliState, linkCli } from '#src/cli.ts';
 
 const env = (k: string) => process.env[`HANDLINE_${k}`] ?? process.env[`OCP_${k}`];
@@ -75,6 +77,8 @@ function allowGatewayOrigin(): void {
 }
 
 const background = inBackground(process.env);
+/** The build this app is, read once at launch: an update builds a newer one on disk while this one still runs. */
+const runningBuild = readBuildSha(import.meta.dirname);
 
 /** Brings the window to the front, except in a background run, whose window stays hidden (the DevTools port still draws and captures it). */
 function show(): void {
@@ -124,6 +128,8 @@ function handleSettings(origin: string, client: DaemonClient, remote: Remote | n
 
 function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote | null, f?: Follower): void {
   const c = new Connection(origin, {
+    build: () => ({ sha: runningBuild, canRestart: !remote }),
+    restartDaemon: () => own.restartDaemon(),
     mode: () => ({ mode, remote: remote?.host ?? null }),
     follow: () => (f ? { sha: f.sha, state: f.state, next: f.next?.sha ?? null } : null),
     check: async () => void (await f?.look()),
@@ -140,6 +146,21 @@ function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote |
   serveCapture(ipcMain, origin, { sources: (thumbnailSize) => desktopCapturer.getSources({ types: ['window'], thumbnailSize }) });
 }
 
+function handleDevices(origin: string): void {
+  const devices = new Devices(origin);
+  ipcMain.handle(CHANNELS.deviceShot, (e, arg) => devices.shot(e, arg));
+  ipcMain.handle(CHANNELS.deviceTap, (e, arg) => devices.tap(e, arg));
+  ipcMain.handle(CHANNELS.deviceList, (e) => devices.list(e));
+  ipcMain.handle(CHANNELS.deviceSwipe, (e, arg) => devices.swipe(e, arg));
+  ipcMain.handle(CHANNELS.deviceText, (e, arg) => devices.text(e, arg));
+}
+
+/** On every connect, a daemon restarted by an update included, the tray learns which build it now is. */
+function watchVersion(client: DaemonClient, link: Link): void {
+  link.setVersion(client.hello?.daemon);
+  client.onState((st) => st === 'open' && link.setVersion(client.hello?.daemon));
+}
+
 /** Runs `f` until it stops throwing, two seconds apart. */
 async function untilUp(f: () => Promise<unknown>): Promise<void> {
   for (;;) {
@@ -151,7 +172,22 @@ async function untilUp(f: () => Promise<unknown>): Promise<void> {
   }
 }
 
-function makeUpdater(page: Page, composer: Composer): Updater {
+/** Moves the daemon onto this app's build: the checkout runs go/handlined, built here; an installed app carries its own. A paired remote daemon is not this app's to move. */
+function upgrader(client: DaemonClient, remote: Remote | null): (sha?: string) => Promise<void> {
+  return (sha) =>
+    remote
+      ? Promise.resolve()
+      : upgradeNow({
+          client,
+          exe: env('HANDLINED') ?? carried?.handlined ?? `${root}/go/handlined`,
+          build: !carried,
+          root,
+          dist: import.meta.dirname,
+          sha,
+        });
+}
+
+function makeUpdater(page: Page, composer: Composer, upgrade: () => Promise<void>): Updater {
   return new Updater({
     build: () => buildId({ page: path.join(dist, 'index.html'), main: import.meta.filename }),
     // The page says when it holds something unsent; until it has said so once, the shell looks into the page itself.
@@ -170,10 +206,13 @@ function makeUpdater(page: Page, composer: Composer): Updater {
           cancelId: 1,
         })
       ).response === 0,
-    restart: () => {
+    // The daemon moves onto the new build first; if it will not, the app stays and says why.
+    restart: async () => {
+      await upgrade();
       app.relaunch();
       app.quit();
     },
+    failed: (reason) => void dialog.showMessageBox(win!, { type: 'error', message: 'Handline was not restarted', detail: reason }),
   });
 }
 
@@ -259,7 +298,10 @@ if (!app.requestSingleInstanceLock({ background })) {
     // The shell's own calls (an agent's worktree, the badge) are the founder's: hello carries the key from the protected store, as pairing does.
     const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: founderKey });
     // Follow-main mode (pnpm app): the app runs from its own checkout of main and offers to restart when main moves.
-    const following = env('FOLLOW') ? followMain({ dir: root, window: () => win, changed: () => own.redraw() }) : null;
+    const upgradeTo = upgrader(client, remote);
+    const following = env('FOLLOW')
+      ? followMain({ dir: root, window: () => win, changed: () => own.redraw(), upgradeDaemon: upgradeTo })
+      : null;
     const f = following?.follower;
     const own: Own = ownDaemon({
       env,
@@ -274,6 +316,8 @@ if (!app.requestSingleInstanceLock({ background })) {
       origin,
       settings,
       current,
+      build: runningBuild,
+      upgradeDaemon: () => upgradeTo(),
       openWindow: () => void openWindow(),
       openPage: (screen) => void openWindow().then(() => win?.webContents.send(CHANNELS.navigate, { screen, id: '', event: 'tray' })),
       follow:
@@ -297,12 +341,7 @@ if (!app.requestSingleInstanceLock({ background })) {
     const preview = new Preview(origin, () => win);
     ipcMain.handle(CHANNELS.preview, (e, arg) => preview.set(e, arg));
     ipcMain.handle(CHANNELS.capturePreview, (e) => preview.capture(e));
-    const devices = new Devices(origin);
-    ipcMain.handle(CHANNELS.deviceShot, (e, arg) => devices.shot(e, arg));
-    ipcMain.handle(CHANNELS.deviceTap, (e, arg) => devices.tap(e, arg));
-    ipcMain.handle(CHANNELS.deviceList, (e) => devices.list(e));
-    ipcMain.handle(CHANNELS.deviceSwipe, (e, arg) => devices.swipe(e, arg));
-    ipcMain.handle(CHANNELS.deviceText, (e, arg) => devices.text(e, arg));
+    handleDevices(origin);
     handleSettings(origin, client, remote);
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
     const opener = new Opener(origin, {
@@ -331,7 +370,7 @@ if (!app.requestSingleInstanceLock({ background })) {
     app.on('window-all-closed', () => undefined);
     app.on('quit', () => web.close());
 
-    const updater = makeUpdater(page, composer);
+    const updater = makeUpdater(page, composer, () => upgradeTo());
     void own
       .ready()
       .then((at) => {
@@ -363,7 +402,7 @@ if (!app.requestSingleInstanceLock({ background })) {
     // The client reconnects once it has been up; a daemon that is down at launch is retried here.
     void (async () => {
       await untilUp(() => client.start());
-      if (!remote) own.link.setVersion(client.hello?.daemon);
+      if (!remote) watchVersion(client, own.link);
       await untilUp(() => desk.start());
     })();
   });

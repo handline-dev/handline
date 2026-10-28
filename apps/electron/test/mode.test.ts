@@ -72,7 +72,7 @@ const tray = (m: 'connect' | 'own', link: Partial<Link>) => {
     undefined,
     {
       mode: m,
-      link: { status: 'connected', address: null, version: null, reason: '', ...link },
+      link: { status: 'connected', address: null, version: null, reason: '', mismatch: () => null, ...link },
       switchTo: () => calls.push('switch'),
       pair: () => calls.push('pair'),
     },

@@ -12,7 +12,7 @@ test('the phone page holds a QR, a copy button, the lifetime and no script, and 
 });
 
 test('Pair a phone is in the tray only when the app has a way to show it', () => {
-  const link = { status: 'connected' as const, address: 'a', version: null, reason: '' };
+  const link = { status: 'connected' as const, address: 'a', version: null, reason: '', mismatch: () => null };
   const labels = (phone?: () => void) =>
     trayMenu('running', '', { open() {}, startDaemon() {}, quit() {}, inbox() {}, settings() {}, reconnect() {}, copy() {} }, undefined, {
       mode: 'own',

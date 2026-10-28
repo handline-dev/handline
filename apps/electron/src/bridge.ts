@@ -18,6 +18,8 @@ export const CHANNELS = {
   setMode: 'handline:setMode',
   follow: 'handline:follow',
   checkUpdate: 'handline:checkUpdate',
+  build: 'handline:build',
+  restartDaemon: 'handline:restartDaemon',
   cli: 'handline:cli',
   linkCli: 'handline:linkCli',
   pairRemote: 'handline:pairRemote',
@@ -87,6 +89,10 @@ export interface ConnectionDeps {
   mode(): { mode: Mode; remote: string | null };
   /** The follow-main state, or null in a build that does not follow main. */
   follow(): { sha: string; state: 'current' | 'available' | 'updating' | 'failed'; next: string | null } | null;
+  /** The build the app is, and whether the daemon here is one it can move onto that build. */
+  build(): { sha: string | null; canRestart: boolean };
+  /** Moves the daemon onto the app's build; rejects with the reason. */
+  restartDaemon(): Promise<void>;
   /** Looks at GitHub's main now; settles when the look is done. */
   check(): Promise<void>;
   /** Saves the mode and relaunches. */
@@ -117,6 +123,18 @@ export class Connection {
     if (!fromWindow(e, this.origin)) return bad('not from the app window') as Fail<'bad_request'>;
     const f = this.d.follow();
     return { ok: true as const, following: !!f, sha: f?.sha ?? '', state: f?.state ?? 'current', next: f?.next ?? null };
+  }
+  build(e: Sender) {
+    return fromWindow(e, this.origin) ? { ok: true as const, ...this.d.build() } : (bad('not from the app window') as Fail<'bad_request'>);
+  }
+  async restartDaemon(e: Sender): Promise<Reply | Fail<'cannot_restart'>> {
+    if (!fromWindow(e, this.origin)) return bad('not from the app window');
+    try {
+      await this.d.restartDaemon();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, code: 'cannot_restart', message: err instanceof Error ? err.message : String(err) };
+    }
   }
   async checkUpdate(e: Sender): Promise<Reply> {
     if (!fromWindow(e, this.origin)) return bad('not from the app window');

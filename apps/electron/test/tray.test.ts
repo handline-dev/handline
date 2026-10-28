@@ -18,7 +18,7 @@ const labels = (s: State, reason = '', follow?: TrayFollow, m?: TrayMode, v = vi
   trayMenu(s, reason, actions, follow, m, v).map((i) => i.label ?? '-');
 const mode = (over: Partial<TrayMode> = {}): TrayMode => ({
   mode: 'own',
-  link: { status: 'connected', address: '127.0.0.1:7443', version: 'abc1234', reason: '' },
+  link: { status: 'connected', address: '127.0.0.1:7443', version: 'abc1234', reason: '', mismatch: () => null },
   switchTo: () => calls.push('switch'),
   pair: () => calls.push('pair'),
   phone: () => calls.push('phone'),
@@ -73,7 +73,10 @@ test('a stopped or failed daemon shows one warning with its fix and the yellow i
 });
 
 test('connect mode: an unreachable daemon shows the warning and Reconnect; a daemon that answers shows nothing', () => {
-  const down = mode({ mode: 'connect', link: { status: 'cannot-pair', address: 'x:7443', version: null, reason: 'timed out' } });
+  const down = mode({
+    mode: 'connect',
+    link: { status: 'cannot-pair', address: 'x:7443', version: null, reason: 'timed out', mismatch: () => null },
+  });
   const l = labels('running', '', undefined, down);
   assert.ok(l.includes('⚠ Cannot reach the daemon: timed out'));
   trayMenu('running', '', actions, undefined, down).find((i) => i.label === 'Reconnect')!.click!();
@@ -95,4 +98,21 @@ test('Option shows the mode, the daemon, the commit and the switches; the addres
   items.find((i) => i.label?.startsWith('Handline is on main'))!.click!();
   assert.deepEqual(calls.splice(0), ['copy 127.0.0.1:7443', 'copy aaa1111ffff']);
   assert.ok(!labels('running', '', follow(), mode(), view()).includes('Check for update'));
+});
+
+test('a daemon that is not the app build is told in the menu, with Restart daemon when this app can move it', () => {
+  const link = {
+    status: 'connected' as const,
+    address: 'a',
+    version: '0000000',
+    reason: '',
+    mismatch: () => 'Daemon is 0000000, app is abc123d',
+  };
+  assert.deepEqual(labels('running', '', undefined, mode({ link, restartDaemon: () => calls.push('restart-daemon') })).slice(1, 4), [
+    '-',
+    '⚠ Daemon is 0000000, app is abc123d',
+    'Restart daemon',
+  ]);
+  assert.ok(!labels('running', '', undefined, mode({ link })).includes('Restart daemon')); // another device's daemon
+  assert.ok(!labels('running', '', undefined, mode()).some((l) => l.includes('Daemon is'))); // matching builds say nothing
 });

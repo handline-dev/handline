@@ -10,21 +10,15 @@ import { trayMenu } from '#src/tray.ts';
 test('a web-only change rebuilds the page and nothing of the app; an app change rebuilds it too', () => {
   assert.deepEqual(decide(['apps/web/src/App.tsx', 'docs/x.md', 'tests/a.py']), {
     install: false,
-    gateway: false,
     web: true,
     electron: false,
   });
-  assert.deepEqual(decide(['packages/app-data/src/writes.ts']), { install: false, gateway: false, web: true, electron: false });
-  assert.deepEqual(decide(['apps/electron/src/main.ts']), { install: false, gateway: false, web: true, electron: true });
+  assert.deepEqual(decide(['packages/app-data/src/writes.ts']), { install: false, web: true, electron: false });
+  assert.deepEqual(decide(['apps/electron/src/main.ts']), { install: false, web: true, electron: true });
   assert.equal(decide(['packages/client/src/client.ts']).electron, true); // the app bundles it
-  assert.deepEqual(decide(['pnpm-lock.yaml']), { install: true, gateway: false, web: true, electron: true });
-  assert.deepEqual(decide(['go/cmd/handlined/main.go', 'handline/daemon/x.py']), {
-    install: false,
-    gateway: true,
-    web: false,
-    electron: false,
-  });
-  assert.deepEqual(decide(['docs/a.md']), { install: false, gateway: false, web: false, electron: false });
+  assert.deepEqual(decide(['pnpm-lock.yaml']), { install: true, web: true, electron: true });
+  assert.deepEqual(decide(['go/cmd/handlined/main.go', 'handline/daemon/x.py']), { install: false, web: false, electron: false });
+  assert.deepEqual(decide(['docs/a.md']), { install: false, web: false, electron: false });
 });
 
 function rig(files: string[]) {
@@ -39,6 +33,7 @@ function rig(files: string[]) {
       return '';
     },
     peek: async () => main,
+    upgradeDaemon: async (sha) => void ran.push(`upgrade ${sha}`),
     beforeRelaunch: () => calls.push('save'),
     relaunch: () => calls.push('relaunch'),
   });
@@ -70,7 +65,7 @@ test('main moving is offered once; Later keeps it quiet until main moves again',
   assert.equal(r.f.next, null);
 });
 
-test('Restart now fetches, moves the checkout to that main, builds only what changed and relaunches after saving the page', async () => {
+test('Restart now fetches, moves the checkout to that main, builds the app and the daemon, waits for the daemon and relaunches after saving the page', async () => {
   const r = rig(['apps/web/src/App.tsx']);
   await r.f.init();
   r.main.sha = 'bbb2222';
@@ -83,6 +78,8 @@ test('Restart now fetches, moves the checkout to that main, builds only what cha
       'git diff --name-only aaa1111 bbb2222',
       'git merge --ff-only bbb2222',
       'pnpm --filter @handline/web build',
+      'pnpm --filter @handline/electron build',
+      'upgrade bbb2222',
     ],
   );
   assert.deepEqual(r.calls, ['save', 'relaunch']);
@@ -94,6 +91,24 @@ test('Restart now fetches, moves the checkout to that main, builds only what cha
   assert.ok(e.ran.includes('pnpm --filter @handline/electron build'));
 });
 
+test('a daemon that does not upgrade stops the update before the relaunch and its reason is shown', async () => {
+  const calls: string[] = [];
+  const f = new Follower({
+    run: async (_file, args) => (args[0] === 'diff' ? 'go/x.go' : 'aaa1111'),
+    peek: async () => ({ sha: 'bbb2222', title: 't' }),
+    upgradeDaemon: async () => {
+      throw new Error('the daemon did not upgrade: exe prints another sha');
+    },
+    beforeRelaunch: () => calls.push('save'),
+    relaunch: () => calls.push('relaunch'),
+  });
+  await f.init();
+  await f.restartNow();
+  assert.equal(f.state, 'failed');
+  assert.equal(f.reason, 'the daemon did not upgrade: exe prints another sha');
+  assert.deepEqual(calls, []);
+});
+
 test('a failed build is shown, nothing relaunches, and the next look tries again', async () => {
   const calls: string[] = [];
   const f = new Follower({
@@ -102,6 +117,7 @@ test('a failed build is shown, nothing relaunches, and the next look tries again
       return args[0] === 'diff' ? 'apps/web/a.ts' : 'aaa1111';
     },
     peek: async () => ({ sha: 'bbb2222', title: 't' }),
+    upgradeDaemon: async () => undefined,
     beforeRelaunch: () => calls.push('save'),
     relaunch: () => calls.push('relaunch'),
   });
@@ -222,6 +238,7 @@ test('a watch that cannot start or breaks is reported, not thrown', async () => 
   const f = new Follower({
     run: async () => '',
     peek: async () => ({ sha: 'x', title: '' }),
+    upgradeDaemon: async () => undefined,
     beforeRelaunch: () => undefined,
     relaunch: () => undefined,
   });
