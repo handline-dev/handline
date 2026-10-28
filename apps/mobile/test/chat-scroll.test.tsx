@@ -120,7 +120,7 @@ describe('the chat scroll on the phone', () => {
     await m.run(() => m.a().drag());
     expect(m.a().scrolled(scrollEvent(100))).toBe(false); // up in the history
     expect(m.a().room).toBe(room);
-    expect(m.a().scrolled(scrollEvent(1000 - VIEW))).toBe(true); // and down at the end of the lines
+    expect(m.a().scrolled(scrollEvent(1000 - VIEW))).toBe(false); // and down at the end of the lines: the held place again, not a followed end
     expect(m.a().room).toBe(room);
   });
 
@@ -150,6 +150,17 @@ describe('the chat scroll on the phone', () => {
     m.scrollTo.mockClear();
     await m.run(() => m.a().layout(900));
     expect(last(m)).toEqual({ y: 900 - space.sm, animated: false }); // still held, so the resize puts it back at the top
+  });
+
+  it('coming back to the end after reading up holds the send again, so the keyboard does not drop it to the bottom', async () => {
+    const m = await mount({ ready: true, sent: SENT });
+    await entered(m);
+    await m.run(() => m.a().drag());
+    expect(m.a().scrolled(scrollEvent(300))).toBe(false); // up in the history
+    expect(m.a().scrolled(scrollEvent(1000 - VIEW))).toBe(false); // and back at the end of the lines: held, not followed
+    m.scrollTo.mockClear();
+    await m.run(() => m.a().layout(400)); // the keyboard comes up
+    expect(last(m)).toEqual({ y: 900 - space.sm, animated: false });
   });
 
   it('does not move a reader who has left the held place when the room is laid out', async () => {

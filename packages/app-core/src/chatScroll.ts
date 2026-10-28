@@ -80,6 +80,10 @@ export function chatScroll(state: ScrollState, event: ScrollEvent, g: Geometry, 
       return stay(state.mode === 'free' ? { ...state, newer: state.newer + event.count } : state);
     case 'scrolled':
       // A scroll the adapter did not make is the person's: the view is theirs until they are back at the bottom.
-      return stay(event.atBottom ? START : { mode: 'free', newer: state.mode === 'free' ? state.newer : 0 });
+      // Back at the end of the lines with the last send's tail fitting under it is the held place again, not a followed end: the send stays at the top
+      // when the view changes size (the keyboard), where following the end would drop it to the bottom.
+      if (event.atBottom)
+        return stay(entry === 'lastSent' && g.sent !== null && g.lines - g.sent <= g.view ? { mode: 'hold', newer: 0 } : START);
+      return stay({ mode: 'free', newer: state.mode === 'free' ? state.newer : 0 });
   }
 }

@@ -115,3 +115,16 @@ test('on the phone the room under the lines follows the geometry in every mode, 
 test('on the PC there is never any room', () => {
   assert.equal(chatScroll({ mode: 'free', newer: 0 }, { type: 'grew' }, g(), 'bottom').room, 0);
 });
+
+test("on the phone, back at the end of the lines with the last send's tail fitting is the held place, so a resize keeps the send at the top", () => {
+  const free = { mode: 'free' as const, newer: 0 };
+  const back = chatScroll(free, { type: 'scrolled', atBottom: true }, g({ lines: 1000, view: 300, sent: 900 }), 'lastSent');
+  assert.equal(back.state.mode, 'hold');
+  assert.equal(chatScroll(back.state, { type: 'grew' }, g({ lines: 1000, view: 200, sent: 900 }), 'lastSent').to, 900); // the keyboard came up
+  // A tail that does not fit under the send is followed as before, and the PC always follows.
+  assert.equal(
+    chatScroll(free, { type: 'scrolled', atBottom: true }, g({ lines: 1500, view: 300, sent: 900 }), 'lastSent').state.mode,
+    'follow',
+  );
+  assert.equal(chatScroll(free, { type: 'scrolled', atBottom: true }, g({ sent: 900 }), 'bottom').state.mode, 'follow');
+});
