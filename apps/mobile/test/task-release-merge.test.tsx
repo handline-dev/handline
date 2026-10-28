@@ -1,8 +1,8 @@
-// Release and Merge on the phone's task page, on the fake daemon: a reason is required to release, the task leaves doing, a merge needs at
+// Release and Merge on the phone's task page, on the fake daemon: the founder releases at once and a reason is optional, the task leaves doing, a merge needs at
 // least one other task chosen and folds them, and a refusal keeps the sheet with its reason.
 import { describe, expect, it } from 'vitest';
 import type { setup } from '@handline/fake-daemon/helpers';
-import { $, fill, mount, press, text, until, value , verb } from '#test/harness.tsx';
+import { $, fill, mount, press, text, until, value, verb } from '#test/harness.tsx';
 
 const DOING = 1684;
 const OTHER = 1690; // queued
@@ -17,14 +17,19 @@ async function openTask(id: number) {
 }
 
 describe('Release a task', () => {
-  it('sends nothing without a reason, then releases and the task leaves doing', async () => {
+  it('the founder releases at once with no box, and the task leaves doing', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(DOING);
     await press(await verb('release'));
-    await press($('sheet-submit'));
-    expect($('sheet-error')?.textContent).toBe('A reason is required.');
-    expect(stateOf(m, DOING)).toBe('doing');
-    await fill('release-reason', 'stuck on the review');
+    expect($('sheet')).toBeNull();
+    await until(() => stateOf(m, DOING) === 'queued', 'the release');
+    m.store.stop();
+  }, 20000);
+
+  it('a member may leave the reason out', async () => {
+    const m = await mount(verbs, undefined, 'founder', { role: 'member' });
+    await openTask(DOING);
+    await press(await verb('release'));
     await press($('sheet-submit'));
     await until(() => $('sheet') === null, 'the sheet to close');
     await until(() => stateOf(m, DOING) === 'queued', 'the release');
@@ -32,7 +37,7 @@ describe('Release a task', () => {
   }, 20000);
 
   it('keeps the reason and says why when the daemon refuses', async () => {
-    const m = await mount(verbs, undefined, 'founder');
+    const m = await mount(verbs, undefined, 'founder', { role: 'member' });
     await openTask(DOING);
     await press(await verb('release'));
     await fill('release-reason', 'moving on');

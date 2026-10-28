@@ -40,8 +40,8 @@ describe('the task verbs', () => {
     m.store.stop();
   });
 
-  it('done wants a reason, closes the task at once, and a refusal puts it back with the sentence', async () => {
-    const m = await mount(verbs, undefined, 'founder');
+  it('done wants a reason from a member, closes the task at once, and a refusal puts it back with the sentence', async () => {
+    const m = await mount(verbs, undefined, 'founder', { role: 'member' });
     await openTask(MINE_DOING);
     await press(await verb('done'));
     await press($('sheet-submit'));
@@ -62,7 +62,7 @@ describe('the task verbs', () => {
   }, 20000);
 
   it('reopens a done task of mine with a reason', async () => {
-    const m = await mount(verbs, undefined, 'founder');
+    const m = await mount(verbs, undefined, 'founder', { role: 'member' });
     await openTask(MINE_DOING);
     await press(await verb('done'));
     await fill('sheet-text', 'shipped');
@@ -76,7 +76,7 @@ describe('the task verbs', () => {
   }, 20000);
 
   it('withdraws a draft after its confirmation, and cancels a running task with an optional reason', async () => {
-    const m = await mount(verbs, undefined, 'founder');
+    const m = await mount(verbs, undefined, 'founder', { role: 'member' });
     await openTask(MINE_DRAFT);
     expect((await verb('cancel'))?.textContent).toBe('Cancel');
     await press(await verb('withdraw'));
@@ -97,6 +97,37 @@ describe('the task verbs', () => {
     m.store.stop();
   }, 20000);
 
+  it("the founder's state buttons act at once, with no box: done, then reopen", async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DOING);
+    await press(await verb('done'));
+    expect($('sheet')).toBeNull();
+    await until(() => m.daemon.tasks.get({ task: MINE_DOING }).state === 'done', 'the daemon');
+    await press(await verb('reopen'));
+    expect($('sheet')).toBeNull();
+    await until(() => m.daemon.tasks.get({ task: MINE_DOING }).state !== 'done', 'the daemon');
+    m.store.stop();
+  }, 20000);
+
+  it("the founder's withdraw, stop and discard act at once too, and a refusal says why", async () => {
+    const m = await mount(verbs, undefined, 'founder');
+    await openTask(MINE_DRAFT);
+    await press(await verb('withdraw'));
+    expect($('sheet')).toBeNull();
+    await until(() => m.daemon.tasks.get({ task: MINE_DRAFT }).state !== 'draft', 'the daemon');
+    await press($('task-back'));
+    await openTask(MINE_DOING);
+    m.daemon.knobs.refuse('task.cancel', 'state', 'that task is waiting on an audit');
+    await press(await verb('cancel'));
+    expect($('sheet')).toBeNull();
+    await until(() => text().includes('that task is waiting on an audit'), 'the reason', 3000);
+    m.daemon.knobs.clear();
+    await press(await verb('discard'));
+    expect($('sheet')).toBeNull();
+    await until(() => m.daemon.tasks.get({ task: MINE_DOING }).state === 'discarded', 'the daemon');
+    m.store.stop();
+  }, 20000);
+
   it('queues a draft and sends a queued task back to draft', async () => {
     const m = await mount(verbs, undefined, 'founder');
     await openTask(MINE_DRAFT);
@@ -109,8 +140,8 @@ describe('the task verbs', () => {
     m.store.stop();
   }, 20000);
 
-  it('discard wants a reason, sends nothing when cancelled, and shows the refusal', async () => {
-    const m = await mount(verbs, undefined, 'founder');
+  it('discard wants a reason from a member, sends nothing when cancelled, and shows the refusal', async () => {
+    const m = await mount(verbs, undefined, 'founder', { role: 'member' });
     await openTask(MINE_DRAFT);
     await press(await verb('discard'));
     expect(text()).toContain(`discard T${MINE_DRAFT}? why:`);
