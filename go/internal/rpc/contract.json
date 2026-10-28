@@ -117,6 +117,9 @@
  "daemon.status": {
   "role": "agent"
  },
+ "daemon.upgrade": {
+  "role": "founder"
+ },
  "debug.terminals": {
   "role": "member"
  },

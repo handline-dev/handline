@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/user"
 	"sort"
 	"strings"
@@ -58,6 +59,7 @@ type Method struct {
 type Server struct {
 	Auth      authority.Authority
 	Sha       string // the build's git sha, reported in hello
+	Exe       string // the executable this process runs, reported in hello and daemon.status
 	Schema    int
 	Transport string // "local" or "network"
 	Log       func(format string, args ...any)
@@ -96,6 +98,7 @@ func (s *Server) DeclareCapabilities(fn func() map[string]any) {
 
 func NewServer(auth authority.Authority, sha string, schema int, transport string, log func(string, ...any)) *Server {
 	s := &Server{Auth: auth, Sha: sha, Schema: schema, Transport: transport, Log: log, methods: map[string]Method{}}
+	s.Exe, _ = os.Executable()
 	if u, err := user.Current(); err == nil {
 		s.founder = u.Username
 	}
@@ -138,12 +141,13 @@ func (s *Server) Wrap(name string, wrap func(next func(*Conn, map[string]any) (a
 
 // Conn is one connection's state.
 type Conn struct {
-	srv       *Server
-	tr        Transport
-	Pid       int
-	Caller    Caller
-	saidHello bool
-	fixed     *Caller // a relayed device's caller, which hello does not replace
+	srv        *Server
+	tr         Transport
+	Pid        int
+	Caller     Caller
+	saidHello  bool
+	buildNoted bool    // a client_build that differs from Sha has been logged on this connection
+	fixed      *Caller // a relayed device's caller, which hello does not replace
 	// Remote is the peer's host on the network listener, "" elsewhere.
 	Remote     string
 	closeFn    func()
@@ -590,6 +594,11 @@ func hello(c *Conn, params map[string]any) (any, error) {
 		return nil, Refused(fmt.Sprintf("this daemon serves clients of protocol %d or newer; yours speaks %d", MinClient, protocol),
 			"protocol", "hl service install")
 	}
+	if build, _ := params["client_build"].(string); build != "" && build != c.srv.Sha && !c.buildNoted {
+		c.buildNoted = true
+		client, _ := params["client"].(string)
+		c.srv.Log("  hello: %s is build %s, this daemon is %s", client, build, c.srv.Sha)
+	}
 	key, _ := params["key"].(string)
 	if c.srv.Net != nil {
 		tok, _ := params["token"].(string)
@@ -630,8 +639,9 @@ func hello(c *Conn, params map[string]any) (any, error) {
 		}
 	}
 	return map[string]any{
-		"protocol": Protocol, "min_client": MinClient, "daemon": c.srv.Sha, "schema": c.srv.Schema,
-		"role": c.Caller.Role, "caller": c.Caller.Info,
+		"protocol": Protocol, "min_client": MinClient, "daemon": c.srv.Sha, "version": c.srv.Sha, "exe": c.srv.Exe,
+		"schema": c.srv.Schema,
+		"role":   c.Caller.Role, "caller": c.Caller.Info,
 		"capabilities": caps,
 		"transport":    c.srv.Transport,
 		"methods":      methods,

@@ -62,12 +62,13 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `denied` | file.write: the path is one the daemon never writes: under .git, .claude, .github, .husky, .codex, .cursor, .vscode, .devcontainer or a hooks folder (at any depth); a settings.json, settings.local.json, .mcp.json, mcp.json, hooks.json, package.json, .claude.json, tsconfig.json, turbo.json, deno.json, composer.json or lefthook.json; or anything but a .md or .json file. |
 | `stale` | file.write: the file is not what the etag says (it changed, is gone, or exists when the etag is empty). Read it again; nothing was written. |
 | `too_big` | file.write: the file on disk is over 1 MiB, so file.read gave only its start; it is not written (a text read from it would cut it). |
+| `build` | daemon.upgrade was handed a binary that does not start, or one that says it is another build than the sha named; the daemon stays on the build it runs. |
 
 ## Methods
 
 One file per group, generated from `spec/<group>.json`; field types are in `protocol.ts`.
 
-- [core](gen/core.md): 15 methods
+- [core](gen/core.md): 16 methods
 - [accounts](gen/accounts.md): 12 methods
 - [agents](gen/agents.md): 30 methods
 - [chat](gen/chat.md): 25 methods

@@ -275,18 +275,31 @@ func main() {
 	defer housekeeping.DumpStacksOnUSR1()() // kill -USR1 <pid>: every goroutine's stack, in the err log
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	tickStop := make(chan struct{}) // a signal or an answered daemon.upgrade stops the tick
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-d.Upgrading():
+		}
+		close(tickStop)
+	}()
 	var tickDone <-chan struct{}
 	if startTick != nil {
-		tickDone = startTick(ctx.Done())
+		tickDone = startTick(tickStop)
 	}
 	select {
-	case <-ctx.Done():
+	case <-tickStop:
 	case <-tickDone: // the loop ended by itself: dev mode found a changed executable (nil when there is no tick)
 	}
 	if tickDone != nil {
 		<-tickDone // the tick in hand finishes before the database closes: a wake or a close is not cut off in the middle
 	}
 	d.Close()
+	if ctx.Err() == nil {
+		if err := d.ExecUpgrade(); err != nil {
+			log.Fatalf("handlined: daemon.upgrade: %v", err)
+		}
+	}
 	if tk != nil && tk.Restarting() && ctx.Err() == nil { // the lock and the database are given up, as a clean exit gives them up
 		if err := tk.Restart(); err != nil {
 			log.Fatalf("handlined: dev-mode restart: %v", err)
