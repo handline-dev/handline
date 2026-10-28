@@ -59,8 +59,9 @@ export function useWrite<M extends WriteMethod>(method: M, target?: string) {
     onSettled: (_r, _e, p) => settle(qc, daemon, spec, p as never),
   });
   // The same write pressed again while it is in flight is the same press: it joins the first one instead of being sent twice. A refusal
-  // ends the flight, so the button works again. A chat message is the exception: the same words twice are two messages.
-  const flights = useRef(flightsOf(qc));
+  // ends the flight, and a screen opened anew starts with none, so a lost reply cannot hold a retry. A chat message is the exception:
+  // the same words twice are two messages.
+  const flights = useRef(new Map<string, Promise<unknown>>());
   const { mutateAsync: run } = mutation;
   const mutateAsync = useCallback(
     (p: CallParams<M>, o?: Parameters<typeof run>[1]): Promise<Methods[M]['result']> => {
@@ -80,14 +81,6 @@ export function useWrite<M extends WriteMethod>(method: M, target?: string) {
   const mutate = useCallback((p: CallParams<M>, o?: Parameters<typeof run>[1]) => void mutateAsync(p, o).catch(() => {}), [mutateAsync]);
   again.current = mutate;
   return { ...mutation, mutate, mutateAsync };
-}
-
-const FLIGHTS = new WeakMap<QueryClient, Map<string, Promise<unknown>>>();
-/** The writes in flight of one app, shared by every place that presses them. */
-function flightsOf(qc: QueryClient) {
-  let m = FLIGHTS.get(qc);
-  if (!m) FLIGHTS.set(qc, (m = new Map()));
-  return m;
 }
 
 /** A structured agent has no terminal and no input to hold: a write that needs one never leaves the app. */
