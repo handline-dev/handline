@@ -25,8 +25,8 @@ export function upgradeNow(o: {
     build: o.build
       ? () =>
           new Promise<void>((resolve, reject) =>
-            execFile('go', ['build', '-C', 'go', '-o', 'handlined', './cmd/handlined'], { cwd: o.root }, (err, _out, errOut) =>
-              err ? reject(new Error(`go build: ${(errOut || err.message).trim().split('\n').pop()}`)) : resolve(),
+            execFile('bash', ['tools/build-go.sh'], { cwd: o.root }, (err, _out, errOut) =>
+              err ? reject(new Error(`build-go.sh: ${(errOut || err.message).trim().split('\n').pop()}`)) : resolve(),
             ),
           )
       : undefined,
