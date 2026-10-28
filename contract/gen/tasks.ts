@@ -463,7 +463,7 @@ export interface TasksMethods {
 }; result: Accepted };
   "task.done": { params: {
   task: number;
-  /** A merge sha on main, or a reason in words. */
+  /** A merge sha on main, or a reason in words. The founder may leave it out (and request): the task is done with the words Done. */
   evidence?: string;
   /** A request where the result was already reported. */
   request?: RequestName;

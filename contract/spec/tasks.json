@@ -2166,7 +2166,7 @@
      "required": false,
      "schema": {
       "type": "string",
-      "description": "A merge sha on main, or a reason in words."
+      "description": "A merge sha on main, or a reason in words. The founder may leave it out (and request): the task is done with the words Done."
      }
     },
     {
@@ -3565,7 +3565,7 @@
      "schema": {
       "type": "string"
      },
-     "description": "Required with task. With tasks, the reason of each task reasons does not name."
+     "description": "Required with task, except from the founder, whose blank one is written as Discarded. With tasks, the reason of each task reasons does not name."
     },
     {
      "name": "reasons",

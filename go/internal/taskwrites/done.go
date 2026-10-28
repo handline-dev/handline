@@ -29,10 +29,15 @@ func doneMethod(home string, tell Teller, decide CardDecider) func(*rpc.Conn, ma
 		var evidence *string
 		if v := p["evidence"]; v != nil {
 			s, ok := v.(string)
-			if !ok || strings.TrimSpace(s) == "" {
+			if ok && strings.TrimSpace(s) == "" && c.Caller.Actor() == human && p["request"] == nil {
+				s = "Done" // the founder needs no evidence
+			} else if !ok || strings.TrimSpace(s) == "" {
 				return nil, badParam("evidence is text and not empty", "evidence")
 			}
 			evidence = &s
+		} else if p["request"] == nil && c.Caller.Actor() == human {
+			evidence = new(string)
+			*evidence = "Done"
 		}
 		var request *int64
 		if p["request"] != nil {
