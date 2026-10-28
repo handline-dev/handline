@@ -408,6 +408,7 @@ export const writes: Record<string, WriteSpec> = {
   'terminal.resize': uncached('resize'),
   'shell.open': uncached('open shell'),
   'shell.close': uncached('close shell'),
+  'daemon.upgrade': uncached('upgrade daemon'),
 };
 
 /** What a structured agent has no terminal for: a write of these to one is a bug in the view, not a refusal to wait for. */

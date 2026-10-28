@@ -139,6 +139,8 @@ export type DaemonStatus = {
   alive: boolean;
   /** The loaded build's identity: its git sha, or <version>+<sha>[-dirty] for a release build. */
   version: string;
+  /** The absolute path of the executable this process runs. */
+  exe?: string;
   protocol: number;
   schema: number;
   started_at: Timestamp;
@@ -583,6 +585,8 @@ export interface CoreMethods {
   token?: string;
   /** The founder key, from the founder's own key file; local socket only. Wrong key: refused, gate `role`. */
   key?: string;
+  /** The git sha the client was built from. When it is not the daemon's own, the daemon logs it once on this connection; nothing is refused. */
+  client_build?: string;
 }; result: {
     /** Newest protocol the daemon speaks. */
     protocol: number;
@@ -590,6 +594,10 @@ export interface CoreMethods {
     min_client: number;
     /** The loaded build's identity: its git sha, or <version>+<sha>[-dirty] for a release build. */
     daemon: string;
+    /** The same build identity as `daemon`, under the name daemon.status uses, so a client compares its own build with one field. */
+    version?: string;
+    /** The absolute path of the executable this process runs. */
+    exe?: string;
     schema: number;
     role: Role;
     caller: Caller;
@@ -664,6 +672,19 @@ export interface CoreMethods {
     }[];
   } };
   "connection.get": { params: { [key: string]: unknown }; result: ConnectionInfo };
+  "daemon.upgrade": { params: {
+  /** Absolute path of the handlined to run. */
+  exe: string;
+  /** The git sha that binary was built from. */
+  sha: string;
+  request_id: RequestId;
+}; result: {
+    /** The build answering this call. */
+    from: string;
+    /** The sha it restarts onto. */
+    to: string;
+    exe: string;
+  } };
   "settings.get": { params: {
   /** Return that agent's own overrides in `overrides`. */
   agent?: AgentName;
@@ -690,6 +711,7 @@ export const CORE_METHODS: { [K in keyof CoreMethods]: { role: Role; callers: Ro
   "hook.record": { role: "agent", callers: ["agent"], write: true, since: 1 },
   "memory.status": { role: "agent", callers: null, write: false, since: 1 },
   "connection.get": { role: "founder", callers: null, write: false, since: 1 },
+  "daemon.upgrade": { role: "founder", callers: null, write: true, since: 1 },
   "settings.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.set": { role: "founder", callers: null, write: true, since: 1 },
 };

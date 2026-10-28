@@ -5,9 +5,6 @@ import type { DaemonClient } from '@handline/client';
 import { readBuildSha } from '#src/build-id.ts';
 import { upgradeDaemon } from '#src/upgrade.ts';
 
-/** The daemon.upgrade call is the daemon's (T6994); until its contract is in the typed client the call goes through by name. */
-type Untyped = { call(method: string, params: object): Promise<unknown> };
-
 /**
  * Moves the running daemon onto this app's own handlined and waits for it. `sha` is the build to move to (the app's, read now: an update
  * has just built a newer one than the app runs); a checkout builds `go/handlined` first, a packaged app carries its own.
@@ -25,6 +22,7 @@ export function upgradeNow(o: {
 }): Promise<void> {
   const sha = o.sha ?? readBuildSha(o.dist);
   if (!sha) return Promise.reject(new Error('this build has no id, so the daemon cannot be matched to it'));
+  const exe = path.resolve(o.exe);
   return upgradeDaemon({
     build: o.build
       ? () =>
@@ -34,9 +32,15 @@ export function upgradeNow(o: {
             ),
           )
       : undefined,
-    exe: path.resolve(o.exe),
+    exe,
     sha,
-    upgrade: (a) => (o.client as unknown as Untyped).call('daemon.upgrade', a),
+    binarySha: () =>
+      new Promise<string>((resolve, reject) =>
+        execFile(exe, ['--version'], { timeout: 5000 }, (err, out) =>
+          err ? reject(new Error(`${exe} does not start: ${err.message}`)) : resolve(out.trim()),
+        ),
+      ),
+    upgrade: (a) => o.client.call('daemon.upgrade', a),
     version: async () => (await o.client.call('daemon.status', {})).version,
     wait: (ms) => new Promise((r) => setTimeout(r, ms)),
   });

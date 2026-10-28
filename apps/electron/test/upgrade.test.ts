@@ -7,12 +7,15 @@ import { mismatch, sameBuild } from '@handline/app-core';
 import { readBuildSha } from '#src/build-id.ts';
 import { upgradeDaemon, type UpgradeDeps } from '#src/upgrade.ts';
 
+let binary = 'abc123def456';
+
 function rig(versions: (string | Error)[], upgrade: () => Promise<unknown> = async () => ({ ok: true })) {
   const order: string[] = [];
   let polled = 0;
   const d: UpgradeDeps = {
     build: async () => void order.push('build'),
     exe: '/app/handlined',
+    binarySha: async () => binary,
     sha: 'abc123def456',
     upgrade: async (a) => {
       order.push(`upgrade ${a.exe} ${a.sha}`);
@@ -47,6 +50,16 @@ test('a build that fails stops before the daemon is asked; one that never comes 
   await assert.rejects(upgradeDaemon(a.d), /syntax error/);
   assert.ok(!a.order.some((o) => o.startsWith('upgrade')));
   await assert.rejects(upgradeDaemon(rig(['oldsha000000']).d), /did not come back/);
+});
+
+test('the daemon is held to the sha the binary prints, whatever length the build stamped, and a binary of another build is refused', async () => {
+  binary = '1.2.0+abc123def';
+  const a = rig(['abc123def']);
+  await upgradeDaemon(a.d);
+  assert.equal(a.order[1], 'upgrade /app/handlined abc123def');
+  binary = '9999999aaaaa';
+  await assert.rejects(upgradeDaemon(rig(['x']).d), /is build 9999999aaaaa, not the app's/);
+  binary = 'abc123def456';
 });
 
 test('a packaged app has no build step', async () => {

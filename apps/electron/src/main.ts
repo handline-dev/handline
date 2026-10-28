@@ -155,6 +155,10 @@ function handleDevices(origin: string): void {
   ipcMain.handle(CHANNELS.deviceText, (e, arg) => devices.text(e, arg));
 }
 
+/** The shell's own connection to the daemon, which tells the daemon which build it is. */
+const shellClient = (): DaemonClient =>
+  new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: founderKey, build: runningBuild ?? undefined });
+
 /** On every connect, a daemon restarted by an update included, the tray learns which build it now is. */
 function watchVersion(client: DaemonClient, link: Link): void {
   link.setVersion(client.hello?.daemon);
@@ -296,7 +300,7 @@ if (!app.requestSingleInstanceLock({ background })) {
     const origin = new URL(web.url).origin;
     const page = new Page(origin);
     // The shell's own calls (an agent's worktree, the badge) are the founder's: hello carries the key from the protected store, as pairing does.
-    const client = new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: founderKey });
+    const client = shellClient();
     // Follow-main mode (pnpm app): the app runs from its own checkout of main and offers to restart when main moves.
     const upgradeTo = upgrader(client, remote);
     const following = env('FOLLOW')
