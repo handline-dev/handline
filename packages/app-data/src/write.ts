@@ -6,7 +6,8 @@ import { useStore } from '@handline/app-react';
 import type { AgentDetail, AgentView, CallParams, MethodName, Methods } from '@handline/client';
 import { useData } from '#src/provider.ts';
 import { qk, reads, type Key, type NOT_QUERIES, type ReadMethod } from '#src/reads.ts';
-import { NOT_FOR_STRUCTURED, writes, type NOT_FROM_UI, type PAIRING } from '#src/writes.ts';
+import { NOT_FOR_STRUCTURED, type NOT_FROM_UI, type PAIRING } from '#src/write-lists.ts';
+import { writes } from '#src/writes.ts';
 import type { WriteSpec } from '#src/write-spec.ts';
 
 /** Every method the UI may write: the contract's methods that are in none of the other lists. */

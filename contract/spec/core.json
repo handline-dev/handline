@@ -53,7 +53,8 @@
   "open_children": "task.done: the task has open child tasks. The reason names each (number, state, assignee, title), the hint the commands that close one, and the refusal's `children` lists them, so a client can offer to discard them from the same prompt.",
   "denied": "file.write: the path is one the daemon never writes: under .git, .claude, .github, .husky, .codex, .cursor, .vscode, .devcontainer or a hooks folder (at any depth); a settings.json, settings.local.json, .mcp.json, mcp.json, hooks.json, package.json, .claude.json, tsconfig.json, turbo.json, deno.json, composer.json or lefthook.json; or anything but a .md or .json file.",
   "stale": "file.write: the file is not what the etag says (it changed, is gone, or exists when the etag is empty). Read it again; nothing was written.",
-  "too_big": "file.write: the file on disk is over 1 MiB, so file.read gave only its start; it is not written (a text read from it would cut it)."
+  "too_big": "file.write: the file on disk is over 1 MiB, so file.read gave only its start; it is not written (a text read from it would cut it).",
+  "build": "daemon.upgrade was handed a binary that does not start, or one that says it is another build than the sha named; the daemon stays on the build it runs."
  },
  "x-note-topics": "The plan's earlier `requests` topic is replaced by `chat` (messages and landing state) and `inbox` (decisions); `usage` by `accounts`. The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or applying, or its apply ran again: it was decided, withdrawn, turned applying, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed. The `notifications` topic's task_done: `agent` is the agent that closed the task, `data.task` its id, `data.task_title` its title and `data.result` the first non-blank line of its done evidence, trimmed, cut at 140 characters, `data.reporter` who the task answers to (its reporter, else its opener) and `data.from_founder` whether the founder gave it (the founder opened it or answers for it); each of the last four is absent when the daemon has none. A bell row draws the agent, task_title, result and `at` from the event alone, never fetching the task; `title` stays a plain line for a client that reads none of them.",
  "x-legacy": {
@@ -1183,6 +1184,10 @@
      "version": {
       "type": "string",
       "description": "The loaded build's identity: its git sha, or <version>+<sha>[-dirty] for a release build."
+     },
+     "exe": {
+      "type": "string",
+      "description": "The absolute path of the executable this process runs."
      },
      "protocol": {
       "type": "integer"
@@ -2968,6 +2973,14 @@
       "type": "string",
       "description": "The founder key, from the founder's own key file; local socket only. Wrong key: refused, gate `role`."
      }
+    },
+    {
+     "name": "client_build",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "The git sha the client was built from. When it is not the daemon's own, the daemon logs it once on this connection; nothing is refused."
+     }
     }
    ],
    "result": {
@@ -2986,6 +2999,14 @@
       "daemon": {
        "type": "string",
        "description": "The loaded build's identity: its git sha, or <version>+<sha>[-dirty] for a release build."
+      },
+      "version": {
+       "type": "string",
+       "description": "The same build identity as `daemon`, under the name daemon.status uses, so a client compares its own build with one field."
+      },
+      "exe": {
+       "type": "string",
+       "description": "The absolute path of the executable this process runs."
       },
       "schema": {
        "type": "integer"
@@ -3572,6 +3593,76 @@
    "x-role": "founder",
    "x-write": false,
    "x-since": 1
+  },
+  {
+   "name": "daemon.upgrade",
+   "summary": "Restart the daemon onto a given handlined: the app's half of one update replacing app and daemon together.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "exe",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "description": "Absolute path of the handlined to run."
+     }
+    },
+    {
+     "name": "sha",
+     "required": true,
+     "schema": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{7,40}$",
+      "description": "The git sha that binary was built from."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "from": {
+       "type": "string",
+       "description": "The build answering this call."
+      },
+      "to": {
+       "type": "string",
+       "description": "The sha it restarts onto."
+      },
+      "exe": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "from",
+      "to",
+      "exe"
+     ]
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/refused"
+    }
+   ],
+   "x-gates": [
+    "build"
+   ],
+   "description": "The daemon runs `exe --version` (30 s at most) and refuses, gate `build`, unless the binary starts and prints `sha` (a checkout build prints the sha, a release <version>+<sha>[-dirty]); it then keeps running as it was. A binary that passes: the reply is sent, the tick in hand finishes, the lock and the database are given up as a clean stop gives them up, and the process execs `exe` with its own arguments. The client then sees the connection end and reconnects; the new daemon's hello and daemon.status carry the new version. A retry with the same request_id gets the kept reply and does not restart again. Served on the local socket only: a paired device does not choose the binary the machine runs."
   },
   {
    "name": "settings.get",

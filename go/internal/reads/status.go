@@ -33,7 +33,7 @@ func (e *Env) status(c *rpc.Conn, params map[string]any) (any, error) {
 		return nil, err
 	}
 	out := map[string]any{
-		"alive": true, "version": c.Server().Sha, "protocol": rpc.Protocol, "schema": c.Server().Schema,
+		"alive": true, "version": c.Server().Sha, "exe": c.Server().Exe, "protocol": rpc.Protocol, "schema": c.Server().Schema,
 		"started_at": ts(e.Started.Unix()),
 		// This daemon drives no terminal host yet.
 		"terminal_host": map[string]any{"name": "none", "health": "down", "detail": "this daemon does not drive a terminal host yet"},

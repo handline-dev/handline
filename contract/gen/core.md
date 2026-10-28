@@ -5,7 +5,7 @@ A method marked write takes a required `request_id`. Framing, roles, errors and 
 
 | Method | Role | Write | Params | Result | Errors | Gates |
 |---|---|---|---|---|---|---|
-| `hello` | anonymous |  | `client`, `protocol`, `token?`, `key?` | `{protocol, min_client, daemon, schema, role, caller, capabilities, transport, methods}` | `refused`, `bad_request` |  |
+| `hello` | anonymous |  | `client`, `protocol`, `token?`, `key?`, `client_build?` | `{protocol, min_client, daemon, version, exe, schema, role, caller, capabilities, transport, methods}` | `refused`, `bad_request` |  |
 | `whoami` | agent |  | none | `{caller, role, methods}` |  |  |
 | `subscribe` | agent |  | `topics`, `since?`, `resume?`, `agent?` | `{cursor}` | `bad_request`, `refused` | role |
 | `unsubscribe` | agent |  | `topics` | `object` | `bad_request` |  |
@@ -18,6 +18,7 @@ A method marked write takes a required `request_id`. Framing, roles, errors and 
 | `hook.record` | agent (only agent) | yes | `agent`, `kind`, `at`, `data`, `request_id` | `Accepted` | `refused` | not_self |
 | `memory.status` | agent |  | `agent?` | `{agents}` |  |  |
 | `connection.get` | founder |  | none | `ConnectionInfo` |  |  |
+| `daemon.upgrade` | founder | yes | `exe`, `sha`, `request_id` | `{from, to, exe}` | `bad_request`, `refused` | build |
 | `settings.get` | founder |  | `agent?` | `Settings` | `bad_request`, `not_found` |  |
 | `settings.set` | founder | yes | `changes`, `agent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
 
@@ -72,6 +73,10 @@ Per-agent memory against its budget (hl memory status).
 ### `connection.get`
 
 How this process is reached: its listener, the heavy-run slots and dev mode. Read only.
+
+### `daemon.upgrade`
+
+Restart the daemon onto a given handlined: the app's half of one update replacing app and daemon together. The daemon runs `exe --version` (30 s at most) and refuses, gate `build`, unless the binary starts and prints `sha` (a checkout build prints the sha, a release <version>+<sha>[-dirty]); it then keeps running as it was. A binary that passes: the reply is sent, the tick in hand finishes, the lock and the database are given up as a clean stop gives them up, and the process execs `exe` with its own arguments. The client then sees the connection end and reconnects; the new daemon's hello and daemon.status carry the new version. A retry with the same request_id gets the kept reply and does not restart again. Served on the local socket only: a paired device does not choose the binary the machine runs.
 
 ### `settings.get`
 
