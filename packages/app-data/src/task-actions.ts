@@ -17,14 +17,14 @@ export function useTaskActions() {
     cancel: useWrite('task.cancel'),
   };
   const verbs: Record<RowVerb, (task: number, arg: string) => Promise<unknown>> = {
-    done: (task, evidence) => w.done.mutateAsync({ task, evidence, reason: true }),
+    done: (task, evidence) => w.done.mutateAsync({ task, ...(evidence ? { evidence, reason: true } : {}) }),
     reopen: (task, note) => w.reopen.mutateAsync({ task, ...(note ? { note } : {}) }),
     queue: (task) => w.queue.mutateAsync({ tasks: [task] }),
     draft: (task) => w.draft.mutateAsync({ tasks: [task] }),
-    release: (task, reason) => w.release.mutateAsync({ task, reason }),
+    release: (task, reason) => w.release.mutateAsync({ task, ...(reason ? { reason } : {}) }),
     withdraw: (task) => w.withdraw.mutateAsync({ task }),
     cancel: (task, reason) => w.cancel.mutateAsync({ task, ...(reason ? { reason } : {}) }),
-    discard: (task, reason) => w.discard.mutateAsync({ task, reason }),
+    discard: (task, reason) => w.discard.mutateAsync({ task, ...(reason ? { reason } : {}) }),
     owner: (task, owner) => w.edit.mutateAsync({ task, owner }),
     priority: (task, p) => w.edit.mutateAsync({ task, priority: Number(p) as 1 | 2 | 3 }),
     timebox: (task, time_box) => w.edit.mutateAsync({ task, time_box }),

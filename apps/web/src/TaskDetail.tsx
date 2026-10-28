@@ -3,14 +3,14 @@
 // hidden; one the daemon does not serve yet is shown disabled.
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { dateTime, HELD, isPerson, taskRef, watchResult } from '@handline/app-core';
-import { useMe, useStore } from '@handline/app-react';
+import { useHello, useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
 import { Button, Icon, MenuButton, MenuItem, PageHead, PageTitle, Popup } from '#src/ui/index.ts';
 import { AssignPopover } from '#src/TaskPeople.tsx';
 import { leave } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
-import { AskSheets, type Ask } from '#src/TaskAsk.tsx';
+import { AskSheets, useActNow, type Ask } from '#src/TaskAsk.tsx';
 import { TaskChips, TaskWatch, TaskLinks } from '#src/TaskDetailParts.tsx';
 import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
 import { TaskHistory } from '#src/TaskHistory.tsx';
@@ -116,6 +116,9 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   const queue = useWrite('task.queue');
   const draft = useWrite('task.draft');
   const cancel = useWrite('task.cancel');
+  const founder = useHello()?.role === 'founder';
+  const actNow = useActNow(t, cancel);
+  const asks = (a: Exclude<Ask, null | 'assign'>) => (founder ? actNow(a) : setAsk(a));
   const can = {
     done: useCan('task.done'),
     queue: useCan('task.queue'),
@@ -142,20 +145,20 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
 
   const say = (sentence: string) => store.reportError('task', new Error(sentence));
   const verbs = {
-    x: () => (open ? setAsk('done') : say(`task ${taskRef(t.id)} is already closed`)),
+    x: () => (open ? asks('done') : say(`task ${taskRef(t.id)} is already closed`)),
     u: () =>
       t.state === 'draft'
         ? queue.mutate({ tasks: [t.id] })
         : t.state === 'queued'
           ? draft.mutate({ tasks: [t.id] })
           : say('only a draft or a queued task can move'),
-    r: () => (t.state === 'done' && mine ? setAsk('reopen') : say(REOPEN_ONLY)),
+    r: () => (t.state === 'done' && mine ? asks('reopen') : say(REOPEN_ONLY)),
     a: () => commentBox.current?.querySelector<HTMLElement>('[contenteditable]')?.focus(),
     o: () => open && setAsk('assign'),
-    d: () => (open ? setAsk('discard') : say(`task ${taskRef(t.id)} is already closed`)),
-    w: () => startable && mine && setAsk('withdraw'),
-    c: () => open && setAsk('cancel'),
-    l: () => (running ? setAsk('release') : say(`task ${taskRef(t.id)} is not running`)),
+    d: () => (open ? asks('discard') : say(`task ${taskRef(t.id)} is already closed`)),
+    w: () => startable && mine && asks('withdraw'),
+    c: () => open && asks('cancel'),
+    l: () => (running ? asks('release') : say(`task ${taskRef(t.id)} is not running`)),
   } as const;
   const key = (e: KeyboardEvent) => {
     if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;

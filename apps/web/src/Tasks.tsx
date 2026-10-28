@@ -215,6 +215,8 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
     if ((what === 'owner' || what === 'priority') && !canEdit.ok) return;
     if (what === 'merge' && (!canMerge.ok || ![...marked].some((t) => t !== cursor))) return; // folds the marked into the cursor row
     if (what !== 'new' && what !== 'keys' && what !== 'states' && !targets().length) return;
+    // One task is discarded at once; several are confirmed with their count first.
+    if (what === 'discard' && targets().length === 1) return own('discard', '');
     setOpen(what);
   };
 
@@ -269,9 +271,12 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
           <ReasonSheet
             key="discard"
             label={
-              targets().some((id) => all.find((t) => t.id === id)?.state === 'doing') ? 'stop it and discard - why:' : 'discard - why:'
+              targets().some((id) => all.find((t) => t.id === id)?.state === 'doing')
+                ? 'stop it and discard - why (optional):'
+                : 'discard - why (optional):'
             }
             submit="Discard"
+            optional
             onCancel={shut}
             onSubmit={(reason) => own('discard', reason)}
           />

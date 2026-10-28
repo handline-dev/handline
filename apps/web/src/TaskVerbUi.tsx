@@ -187,11 +187,11 @@ export function RowMenu(props: {
 }
 
 const NEEDS: Record<RowVerb, 'text' | 'optional' | 'owner' | 'priority' | 'time' | null> = {
-  done: 'text',
-  discard: 'text',
+  done: 'optional',
+  discard: 'optional',
   reopen: 'optional',
   cancel: 'optional',
-  release: 'text',
+  release: 'optional',
   owner: 'owner',
   priority: 'priority',
   timebox: 'time',
@@ -200,9 +200,9 @@ const NEEDS: Record<RowVerb, 'text' | 'optional' | 'owner' | 'priority' | 'time'
   withdraw: null,
 };
 const PROMPT: Partial<Record<RowVerb, string>> = {
-  done: 'what came of it?',
-  discard: 'why?',
-  release: 'why?',
+  done: 'what came of it? (optional)',
+  discard: 'why? (optional)',
+  release: 'why? (optional)',
   reopen: 'why? (optional)',
   cancel: 'why? (optional)',
   timebox: 'time box (2h, 30m)',
