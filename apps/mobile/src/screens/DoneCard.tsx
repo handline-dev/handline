@@ -1,7 +1,7 @@
 // A task the founder gave has finished: a small card floats above the tab bar for a few seconds. It overlays the page (never pushes it or covers the
 // header), stays while a finger is on it, goes with a swipe, and opens the task on a tap; several at once are one "N done" card that opens the list.
 // Tasks between agents, and those of the agent in view, go only to the bell list.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Animated, PanResponder, Pressable, Text, View } from 'react-native';
 import type { Notice, Store } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
@@ -22,17 +22,17 @@ export function DoneCard(props: { store: Store; agent: string | null; bottom: nu
   const c = usePalette();
   useSelector((s) => s.version);
   const list = props.store.notices.list();
-  const seen = useRef<Map<number, number> | null>(null);
-  seen.current ??= new Map(list.map((n) => [n.id, n.count])); // what was already there when this screen came is not news
+  const [seen] = useState(() => new Map(list.map((n) => [n.id, n.count]))); // what was already there when this screen came is not news
   const [shown, setShown] = useState<Notice[]>([]);
   const [touching, setTouching] = useState(false);
-  const x = useRef(new Animated.Value(0)).current;
+  const [x] = useState(() => new Animated.Value(0));
+  const agent = props.agent;
   useEffect(() => {
-    const fresh = list.filter((n) => isTaskDone(n) && seen.current!.get(n.id) !== n.count);
-    for (const n of list) seen.current!.set(n.id, n.count);
-    const add = fresh.filter((n) => n.about?.fromFounder === true && n.about.agent !== props.agent);
+    const fresh = list.filter((n) => isTaskDone(n) && seen.get(n.id) !== n.count);
+    for (const n of list) seen.set(n.id, n.count);
+    const add = fresh.filter((n) => n.about?.fromFounder === true && n.about.agent !== agent);
     if (add.length) setShown((prev) => [...add, ...prev.filter((p) => !add.some((a) => a.id === p.id))]);
-  });
+  }, [list, agent, seen]);
   useEffect(() => {
     if (!shown.length || touching) return;
     const t = setTimeout(() => setShown([]), SHOW_MS);
