@@ -41,6 +41,8 @@ export type ChatMessage = {
   typed_at: Timestamp | null;
   landed_at: Timestamp | null;
   parent: number | null;
+  /** The words of the parent message this one quotes, when it was sent with quote: as chat.send kept them, whitespace collapsed. Absent with no quote. */
+  quote?: string;
   kind: string;
   tasks: {
     id: number;
@@ -419,6 +421,8 @@ export interface ChatMethods {
   };
   /** The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found. The message goes to agent whoever the parent's requester or target is, so a row relayed from another agent can be quoted in this agent's chat. request in the result is the new message. */
   parent?: RequestName;
+  /** The words of the parent message this one answers, picked by the person: kept with the message (ChatMessage.quote) and delivered as a `> ` line, then a blank line, above the body. Whitespace is collapsed, and then it must appear in the parent's body, whitespace collapsed the same way, so a quote never shows words the parent did not say. Only with parent; alone, with parent_item or task, empty, longer than 1000 characters, or not in the parent, it is bad_request, field quote. */
+  quote?: string;
   /** Images from attachment.put to send with this message, drawn after those the body names (x-attachments, flow); an id the body names too counts once, and the two together are at most 6 (bad_request, field attachments when the list goes over). Then body may be empty. An id may be sent again. A malformed id or an unfinished upload is bad_request, field attachments; an image never put or no longer kept is not_found, what attachment. Not with task (bad_request): a brief names its images in its text. */
   attachments?: AttachmentId[];
   /** A reply of the agent's own that this message answers: the `id` of an item of kind reply that chat.transcript lists for this agent (a structured session's text block, whose live event carries the same id as `item`, or the answer to a request). The agent's turn text has no message number, so it cannot be `parent`; the two do not go together, nor does this with task (bad_request, field parent_item). It may go with attachments. An id that is no item of this agent's transcript, or one of another agent's, is not_found (what: item); one that is not a reply (a tool call, a prompt, a task event, a session) is bad_request. */

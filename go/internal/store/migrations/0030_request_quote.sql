@@ -1,0 +1,1 @@
+-- Step 30 (request_quote) is by hand: addRequestQuote in store.go.

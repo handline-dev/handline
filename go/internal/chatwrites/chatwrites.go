@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/handline/handline/go/internal/attachments"
 	"github.com/handline/handline/go/internal/db"
@@ -203,6 +204,10 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 			return nil, err
 		}
 	}
+	quote, err := quoteParam(p, parent)
+	if err != nil {
+		return nil, err
+	}
 	if task != nil {
 		if err := checkTask(task); err != nil {
 			return nil, err
@@ -227,7 +232,7 @@ func (w *writes) send(c *rpc.Conn, p map[string]any) (any, error) {
 		}
 		var res *Result
 		if parent != 0 {
-			res, err = w.sendUnder(tx, agent, parent, body, act)
+			res, err = w.sendUnder(tx, agent, parent, quote, body, act)
 		} else {
 			res, err = sayWrite(w.e, tx, db.Human, agent, body, 0, nil, act)
 		}
@@ -275,12 +280,41 @@ func checkTask(task any) error {
 	return nil
 }
 
+// quoteMax is the longest quote chat.send takes, in characters.
+const quoteMax = 1000
+
+// quoteParam is send's quote with its whitespace collapsed, "" for none: words picked from the parent, so never without one.
+func quoteParam(p map[string]any, parent int64) (string, error) {
+	v, has := p["quote"]
+	if !has {
+		return "", nil
+	}
+	s, ok := v.(string)
+	quote := collapsed(s)
+	if !ok || quote == "" || utf8.RuneCountInString(quote) > quoteMax || parent == 0 {
+		return "", badParam(fmt.Sprintf("quote is up to %d characters of the parent message, and goes with parent", quoteMax), "quote")
+	}
+	return quote, nil
+}
+
+// collapsed is s with each run of whitespace one space, trimmed.
+func collapsed(s string) string { return strings.Join(strings.Fields(s), " ") }
+
 // sendUnder is a message that replies to parent: a say to the agent with the parent link, whatever the parent asked and whoever it is between. It answers and settles nothing.
-func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, body string, act func(rid int64)) (*Result, error) {
-	if _, err := message(tx, parent); err != nil {
+// A quote must be words of the parent, whitespace aside, so the message never shows the parent saying what it did not.
+func (w *writes) sendUnder(tx *sql.Tx, agent string, parent int64, quote, body string, act func(rid int64)) (*Result, error) {
+	row, err := message(tx, parent)
+	if err != nil {
 		return nil, err
 	}
-	return sayWrite(w.e, tx, db.Human, agent, body, parent, nil, act)
+	if quote != "" && !strings.Contains(collapsed(row.Body), quote) {
+		return nil, badParam("quote is not in the parent message", "quote")
+	}
+	res, err := sayWrite(w.e, tx, db.Human, agent, body, parent, nil, act)
+	if err == nil && quote != "" && res != nil && res.OK && res.Request != 0 {
+		err = db.SetQuote(tx, res.Request, quote)
+	}
+	return res, err
 }
 
 func (w *writes) cancel(c *rpc.Conn, p map[string]any) (any, error) {

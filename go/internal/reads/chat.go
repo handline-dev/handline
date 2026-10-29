@@ -32,7 +32,7 @@ const (
 const neverReached = "('denied', 'withdrawn', 'replaced')"
 
 const requestSelect = "SELECT id, ref, ts, state_at, requester, target, state, body, " +
-	"delivered_at, typed_at, landed_at, parent_id, kind, " +
+	"delivered_at, typed_at, landed_at, parent_id, quote, kind, " +
 	"(SELECT group_concat(task_id) FROM task_requests WHERE request_id = requests.id) AS tasks, " +
 	"(SELECT t.title FROM tasks t JOIN task_requests q ON q.task_id = t.id WHERE q.request_id = requests.id ORDER BY t.id LIMIT 1) AS task_title, " +
 	"(SELECT MIN(task_id) FROM task_requests WHERE request_id = requests.id) AS task_id, " +
@@ -265,6 +265,9 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 		"state": r.str("state"), "landing": state, "sending_reason": why, "body": orEmpty(r["body"]),
 		"delivered_at": ts(r["delivered_at"]), "typed_at": ts(r["typed_at"]), "landed_at": ts(r["landed_at"]),
 		"parent": r.intOrNil("parent_id"), "kind": orEmpty(r["kind"]), "tasks": tasks}
+	if r["quote"] != nil {
+		m["quote"] = r.str("quote")
+	}
 	if len(actions) > 0 {
 		m["actions"] = actions
 	}
