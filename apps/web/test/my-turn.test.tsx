@@ -176,7 +176,7 @@ describe('my turn', () => {
     await open(s);
     await pick(ofTask(9002), 'the decision row');
     await until(() => cards()[0], 'the item');
-    await click(button(cards()[0]!, 'Open T9002'));
+    await click(button(cards()[0]!, 'Open T9002')); // local-ref-ok
     await until(() => box.querySelector('.tdetail'), 'the task detail');
     expect(box.querySelector('.my-turn-split .my-turn')).not.toBeNull(); // beside the list, not instead of it
     expect(listRows().find(ofTask(9002))!.getAttribute('aria-current')).toBe('true');
@@ -198,7 +198,7 @@ describe('my turn', () => {
     await open(s);
     await pick(ofTask(9002), 'the decision row');
     await until(() => cards()[0], 'the item');
-    await click(button(cards()[0]!, 'Open T9002'));
+    await click(button(cards()[0]!, 'Open T9002')); // local-ref-ok
     await until(() => box.querySelector('.tdetail .tbody'), 'the task body');
     expect(box.querySelector('.my-turn-split')).toBeNull(); // instead of the list, not beside it
     const backs = [...box.querySelectorAll('.back')];

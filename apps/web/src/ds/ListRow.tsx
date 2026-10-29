@@ -27,7 +27,7 @@ export function ListRow({
   time?: string;
   selected?: boolean;
   done?: boolean;
-  /** The accessible name when the row's words are not it ('Open T12'). */
+  /** The accessible name when the row's words are not it ('Open the item'). */
   label?: string;
   onOpen?: () => void;
 }) {
