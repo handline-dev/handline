@@ -473,6 +473,9 @@
  "worktree.diff": {
   "role": "member"
  },
+ "worktree.remove": {
+  "role": "founder"
+ },
  "worktree.set_status": {
   "role": "member"
  },

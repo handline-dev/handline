@@ -346,6 +346,7 @@ const decidedWrites: Record<string, WriteSpec> = Object.fromEntries(
     'agent.create': 'create',
     'agent.retire': 'retire',
     'worktree.set_status': 'set status',
+    'worktree.remove': 'remove worktree',
     'input.take': 'take control',
     'input.release': 'release',
     'hr.withdraw': 'withdraw',

@@ -63,6 +63,9 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `stale` | file.write: the file is not what the etag says (it changed, is gone, or exists when the etag is empty). Read it again; nothing was written. |
 | `too_big` | file.write: the file on disk is over 1 MiB, so file.read gave only its start; it is not written (a text read from it would cut it). |
 | `build` | daemon.upgrade was handed a binary that does not start, or one that says it is another build than the sha named; the daemon stays on the build it runs. |
+| `orphan` | worktree.remove: the path is no orphan worktree (an agent works in it, or it is not a worktree of an agent's repo). An agent's worktree goes only with the agent. |
+| `dirty` | worktree.remove: the orphan holds work (files changed, or commits not on main); the data carries files_changed and commits_ahead. force removes it. |
+| `git` | worktree.remove: git refused to remove the worktree; the reason carries git's words. |
 
 ## Methods
 
@@ -73,7 +76,7 @@ One file per group, generated from `spec/<group>.json`; field types are in `prot
 - [agents](gen/agents.md): 30 methods
 - [chat](gen/chat.md): 25 methods
 - [devices](gen/devices.md): 5 methods
-- [repos](gen/repos.md): 6 methods
+- [repos](gen/repos.md): 7 methods
 - [tasks](gen/tasks.md): 37 methods
 - [team](gen/team.md): 14 methods
 - [terminal](gen/terminal.md): 9 methods

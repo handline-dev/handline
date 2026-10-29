@@ -314,3 +314,25 @@ func Size(path string) (int64, error) {
 	kb, err := strconv.ParseInt(fields[0], 10, 64)
 	return kb * 1024, err
 }
+
+// DeleteMergedBranch deletes branch in repo with `git branch -d`, never -D: git keeps a branch not merged, and false says so.
+func DeleteMergedBranch(repo, branch string) bool {
+	return branch != "" && branch != "main" && gitrun.Run(repo, "branch", "-d", branch).RC == 0
+}
+
+// FindOrphan is the orphan worktree at path among the repositories an agent works in, with its repository; false when path is none.
+func FindOrphan(q db.Q, home, path string) (wt Worktree, repo string, ok bool, err error) {
+	agents, err := AgentWorktrees(q, "")
+	if err != nil {
+		return Worktree{}, "", false, err
+	}
+	want := Real(path)
+	for _, r := range Repos(home) {
+		for _, o := range Orphans(r, agents) {
+			if Real(o.Path) == want {
+				return o, r, true, nil
+			}
+		}
+	}
+	return Worktree{}, "", false, nil
+}
