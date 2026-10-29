@@ -151,42 +151,12 @@ summary::-webkit-details-marker {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.sub,
-.row-side {
+.sub {
   font-size: 12px;
   color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.row-side {
-  max-width: 90px;
-}
-.dot {
-  display: inline-block;
-  flex: none;
-  width: 9px;
-  height: 9px;
-  margin-top: 5px;
-  border-radius: 50%;
-  background: var(--ink-2);
-}
-.dot.running {
-  background: var(--s-working);
-}
-.dot.waiting {
-  background: var(--s-wait);
-}
-.dot.blocked {
-  background: var(--s-bad);
-}
-.dot.parked {
-  background: none;
-  border: 1.5px solid var(--ink-2);
-}
-.dot.none {
-  background: none;
-  border: 1.5px dashed var(--ink-2);
 }
 .empty {
   color: var(--ink-2);

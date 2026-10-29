@@ -516,8 +516,8 @@
       "tasks_done": {
        "$type": "integer"
       },
-      "working_seconds": {
-       "$type": "object"
+      "use": {
+       "$type": "array"
       },
       "moves": {
        "$type": "integer"

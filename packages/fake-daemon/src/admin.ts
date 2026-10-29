@@ -2,7 +2,7 @@
 // and worktrees (worktrees.ts).
 import type { ConnectionInfo, Outlook, MachineNeed, Settings, SettingsChanges, StandingAnswer, Timestamp } from '@handline/contract';
 import { Failure, badRequest } from '#src/errors.ts';
-import { AGENTS, headroomOf, outlookOf, statsOf } from '#src/usage.ts';
+import { AGENTS, outlookOf, statsOf } from '#src/usage.ts';
 import { FakeWorktrees } from '#src/worktrees.ts';
 import { FakePrefs, type PrefsHost } from '#src/prefs.ts';
 
@@ -58,6 +58,7 @@ export class FakeAdmin {
       created: '2026-10-01T09:00:00Z',
       last_seen: '2026-10-16T01:00:00Z',
       connected: true,
+      push: false,
     },
     {
       id: 'd2',
@@ -66,6 +67,7 @@ export class FakeAdmin {
       created: '2026-10-05T09:00:00Z',
       last_seen: '2026-10-12T08:00:00Z',
       connected: false,
+      push: true,
     },
   ];
   private answers: StandingAnswer[] = [
@@ -98,8 +100,6 @@ export class FakeAdmin {
         return statsOf(this.now(), p.window === '7d' ? '7d' : '24h');
       case 'stats.outlook':
         return outlookOf(this.now(), String(p.range) as Outlook['range'], p.agent);
-      case 'stats.headroom':
-        return headroomOf(this.now(), p);
       case 'connection.get':
         return this.connection();
       case 'settings.get':

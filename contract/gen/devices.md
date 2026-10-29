@@ -9,6 +9,7 @@ A method marked write takes a required `request_id`. Framing, roles, errors and 
 | `device.pair` | founder | yes | `name?`, `ttl_s?`, `request_id` | `Accepted & {code, expires_at, fingerprint, uri}` | `refused` |  |
 | `device.redeem` | anonymous | yes | `code`, `name`, `request_id` | `Accepted & {token, device}` | `refused` | pairing_code, attempt_limit |
 | `device.revoke` | founder | yes | `device`, `request_id` | `Accepted` | `refused`, `not_found` |  |
+| `device.push_token` | founder | yes | `platform`, `token`, `sandbox?`, `request_id` | `Accepted` | `refused`, `not_found` | device |
 
 ### `devices.list`
 
@@ -25,4 +26,8 @@ Trade a pairing code for a device token. The only method an unpaired network cal
 ### `device.revoke`
 
 Cancel a device and close its connections at once. Cancels the device's token. Its open connections and terminal attaches are closed at once, its next call is refused (gate `unpaired`), and a device.revoked event is sent on the devices topic. Revoking a device that is not paired is not_found.
+
+### `device.push_token`
+
+A paired device gives the push token its OS gave it. Called by the paired device itself, after pairing and whenever its OS gives it a new token; the token is kept on that device's row in place of the one before. A connection that is no paired device (the local socket) is refused, gate `device`. The token is dropped when the device is revoked. devices.list shows whether a device has one (`push`).
 

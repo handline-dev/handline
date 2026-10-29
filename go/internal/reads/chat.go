@@ -1006,10 +1006,22 @@ var transcriptEvents = map[string]string{"task_new": "opened", "task_begin": "ch
 // batchKind is a batch discard's one event: the task_batch card, apart from transcriptEvents since it names no one task.
 const batchKind = "discard_batch"
 
-// promptItemOf is a prompt block as a transcript item.
+// promptItemOf is a prompt block as a transcript item. A closed one carries its answer: what prompt.answer kept on the block (answer_label,
+// at answered_at), else {outside: true} from when the daemon saw it close, since it was answered in the terminal.
 func promptItemOf(agent string, b row) map[string]any {
-	return map[string]any{"id": itemID(b.i("first_seen"), itemPrompt, b.i("id")), "at": ts(b["first_seen"]), "kind": "prompt",
+	item := map[string]any{"id": itemID(b.i("first_seen"), itemPrompt, b.i("id")), "at": ts(b["first_seen"]), "kind": "prompt",
 		"prompt": promptOf(agent, b), "open": !b.set("gone_at")}
+	switch {
+	case b.str("answer_label") != "":
+		answer := map[string]any{"label": b.str("answer_label"), "by": b.str("answer_by"), "at": ts(b["answered_at"])}
+		if b.str("answer_note") != "" {
+			answer["note"] = b.str("answer_note")
+		}
+		item["answer"] = answer
+	case b.set("gone_at"):
+		item["answer"] = map[string]any{"outside": true, "at": ts(b["gone_at"])}
+	}
+	return item
 }
 
 // taskItemOf is one task event of the events table as a transcript item and the task it names; false when the chat does not show it. A

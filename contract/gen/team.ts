@@ -24,7 +24,7 @@ export type Proposal = {
   title: string;
   /** What approving does, in words, one change per line. Not a unified diff. */
   diff: string;
-  /** open: waits for the founder. applying: approved by the founder and held until each agent in `waiting_on` ends its turn; the daemon then closes those sessions, applies the change and restarts each agent that stays; it turns approved once the change is applied (an agent that stays and does not start at once is `follow_up`, not a failure), or apply_failed when the change itself fails; `settled` stays null and the founder is offered no action meanwhile. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the Python store's own states. */
+  /** open: waits for the founder. applying: approved by the founder and held until each agent in `waiting_on` ends its turn; the daemon then closes those sessions, applies the change and restarts each agent that stays; it turns approved once the change is applied (an agent that stays and does not start at once is `follow_up`, not a failure), or apply_failed when the change itself fails; `settled` stays null and the founder is offered no action meanwhile. approved: decided and applied. rejected. apply_failed: approved by the founder but not applied (the apply failed, or never ran): still the founder's move, and hr.decide approve again applies it. withdrawn: taken back by its author or the founder. An open set: a client draws a word it does not know as text, offers no action on it and does not count it. See hr.list for the proposal file's own states. */
   state: string;
   /** Set only while state is applying: the agents whose running turn the change waits on, by their names before the change. A card names them. */
   waiting_on?: AgentName[];
@@ -61,7 +61,7 @@ export type Proposal = {
   };
   error?: string | null;
   settled?: Timestamp | null;
-  /** What the proposal does: add, retire, rename, link, unlink, team, settings, context, schedule or bundle (several changes decided once). An open set: a client draws a word it does not know as text. Optional until the Python hr.list sends it; a client then reads the first word of `title`. */
+  /** What the proposal does: add, retire, rename, link, unlink, team, settings, context, schedule or bundle (several changes decided once). An open set: a client draws a word it does not know as text. */
   kind?: string;
 };
 

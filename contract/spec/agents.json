@@ -376,7 +376,7 @@
         "type": "null"
        }
       ],
-      "description": "Set while the agent waits on a decision only a person at its terminal can make. Fed by hooks (PermissionRequest and the permission and question Notification kinds) and by the session file saying status `waiting` with `waitingFor` (`permission prompt` is the one measured; the file has no needs or tempo key), never by reading the screen; the tool and its target come from the PermissionRequest hook event; cleared by the hook that follows (PostToolUse, UserPromptSubmit, Stop, SessionEnd) or when the session file stops saying it. While set, `state` is `waiting`, `has_dialog` is true and `attention` is `alert`. null when none. Absent from a daemon that does not serve it yet (the Python daemon reads the screen and sets has_dialog and `alert` without it)."
+      "description": "Set while the agent waits on a decision only a person at its terminal can make. Fed by hooks (PermissionRequest and the permission and question Notification kinds) and by the session file saying status `waiting` with `waitingFor` (`permission prompt` is the one measured; the file has no needs or tempo key), never by reading the screen; the tool and its target come from the PermissionRequest hook event; cleared by the hook that follows (PostToolUse, UserPromptSubmit, Stop, SessionEnd) or when the session file stops saying it. While set, `state` is `waiting`, `has_dialog` is true and `attention` is `alert`. null when none."
      },
      "handoff": {
       "oneOf": [
@@ -1250,7 +1250,7 @@
   },
   {
    "name": "agent.set",
-   "summary": "Change an agent's settings: an agent its own ordinary keys, the founder any (legacy agent_set).",
+   "summary": "Change an agent's settings: an agent its own ordinary keys, the founder any.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -1312,7 +1312,7 @@
   },
   {
    "name": "agent.fold",
-   "summary": "Run hl fold for an agent (legacy fold).",
+   "summary": "Run hl fold for an agent.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -1350,7 +1350,7 @@
   },
   {
    "name": "agent.move",
-   "summary": "Move an agent to another account (legacy move).",
+   "summary": "Move an agent to another account.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -1745,7 +1745,7 @@
   {
    "name": "session.stop",
    "summary": "exit asks Claude to quit; close ends the session and keeps the terminal; kill ends the process.",
-   "description": "An agent may call it for mode exit and close, as the legacy verbs allow; mode kill is refused to the agent role (`refused`, gate `role`) before the agent is looked up, because it ends another session mid-turn with no handoff record. Kill is for a person. For a structured agent exit and close are the same: the daemon ends the CLI's input and waits for it to exit, and kill ends its process group. Close mid-turn is refused (gate state): interrupt first.",
+   "description": "An agent may call it for mode exit and close; mode kill is refused to the agent role (`refused`, gate `role`) before the agent is looked up, because it ends another session mid-turn with no handoff record. Kill is for a person. For a structured agent exit and close are the same: the daemon ends the CLI's input and waits for it to exit, and kill ends its process group. Close mid-turn is refused (gate state): interrupt first.",
    "paramStructure": "by-name",
    "params": [
     {

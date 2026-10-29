@@ -436,11 +436,12 @@
      "tasks_done": {
       "type": "integer"
      },
-     "working_seconds": {
-      "type": "object",
-      "additionalProperties": {
-       "type": "integer"
-      }
+     "use": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentAccountUse"
+      },
+      "description": "Each agent's use of each account in the window, largest cost first; an agent on two accounts has two rows."
      },
      "moves": {
       "type": "integer"
@@ -493,11 +494,56 @@
      "since",
      "until",
      "tasks_done",
-     "working_seconds",
+     "use",
      "moves",
      "handoffs",
      "blocks",
      "per_account"
+    ]
+   },
+   "AgentAccountUse": {
+    "type": "object",
+    "description": "One agent's use of one account. tokens and cost are measured; week_pct is an estimate of the split, not of the account's rise.",
+    "properties": {
+     "agent": {
+      "type": "string",
+      "description": "Empty for the calls of no agent's worktree (the founder's own sessions, the usage poll); drawn as Other."
+     },
+     "account": {
+      "type": "string"
+     },
+     "tokens": {
+      "type": "integer",
+      "description": "Input, cache and output tokens."
+     },
+     "cost": {
+      "type": "number",
+      "description": "List price, USD."
+     },
+     "share": {
+      "type": "number",
+      "description": "This row's cost over the account's cost in the window, 0 to 1."
+     },
+     "week_pct": {
+      "oneOf": [
+       {
+        "type": "number",
+        "description": "Estimated points of the account's weekly limit used: share times the account's rise in the window, so an account's rows add up to it."
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "null when the account has no reading in the window or its calls had no list price."
+     }
+    },
+    "required": [
+     "agent",
+     "account",
+     "tokens",
+     "cost",
+     "share",
+     "week_pct"
     ]
    },
    "Outlook": {
@@ -842,7 +888,7 @@
         "resets"
        ]
       },
-      "description": "Each account that has a reading in the span, by name: its windows and its pace line, for a chart per account. It replaces stats.headroom. Absent from a daemon that does not send it."
+      "description": "Each account that has a reading in the span, by name: its windows and its pace line, for a chart per account. Absent from a daemon that does not send it."
      }
     },
     "required": [
@@ -853,275 +899,6 @@
      "future",
      "runway",
      "cost_per_day"
-    ]
-   },
-   "Headroom": {
-    "type": "object",
-    "properties": {
-     "now": {
-      "$ref": "#/components/schemas/Timestamp"
-     },
-     "step_s": {
-      "type": "integer"
-     },
-     "combined": {
-      "type": "object",
-      "properties": {
-       "past": {
-        "type": "array",
-        "items": {
-         "type": "object",
-         "properties": {
-          "at": {
-           "$ref": "#/components/schemas/Timestamp"
-          },
-          "left_pct": {
-           "oneOf": [
-            {
-             "type": "number",
-             "description": "The accounts' average of the smaller of five_left and week_left; null where none had a reading."
-            },
-            {
-             "type": "null"
-            }
-           ]
-          }
-         },
-         "required": [
-          "at",
-          "left_pct"
-         ]
-        },
-        "description": "Points up to now, oldest first."
-       },
-       "future": {
-        "type": "array",
-        "items": {
-         "type": "object",
-         "properties": {
-          "at": {
-           "$ref": "#/components/schemas/Timestamp"
-          },
-          "left_pct": {
-           "oneOf": [
-            {
-             "type": "number",
-             "description": "The accounts' average of the smaller of five_left and week_left; null where none had a reading."
-            },
-            {
-             "type": "null"
-            }
-           ]
-          }
-         },
-         "required": [
-          "at",
-          "left_pct"
-         ]
-        },
-        "description": "Points after now: a guess, kept apart from `past`. An account with no recent reading is left out."
-       }
-      },
-      "required": [
-       "past",
-       "future"
-      ]
-     },
-     "accounts": {
-      "type": "array",
-      "items": {
-       "type": "object",
-       "properties": {
-        "account": {
-         "type": "string"
-        },
-        "past": {
-         "type": "array",
-         "items": {
-          "type": "object",
-          "properties": {
-           "at": {
-            "$ref": "#/components/schemas/Timestamp"
-           },
-           "five_left": {
-            "oneOf": [
-             {
-              "type": "number",
-              "description": "What the 5h window had left, in percent; null where it had no reading."
-             },
-             {
-              "type": "null"
-             }
-            ]
-           },
-           "week_left": {
-            "oneOf": [
-             {
-              "type": "number",
-              "description": "What the weekly window had left, in percent; null where it had no reading."
-             },
-             {
-              "type": "null"
-             }
-            ]
-           }
-          },
-          "required": [
-           "at",
-           "five_left",
-           "week_left"
-          ]
-         },
-         "description": "What usage samples recorded, at the same points as `combined.past`."
-        },
-        "future": {
-         "type": "array",
-         "items": {
-          "type": "object",
-          "properties": {
-           "at": {
-            "$ref": "#/components/schemas/Timestamp"
-           },
-           "five_left": {
-            "oneOf": [
-             {
-              "type": "number",
-              "description": "What the 5h window had left, in percent; null where it had no reading."
-             },
-             {
-              "type": "null"
-             }
-            ]
-           },
-           "week_left": {
-            "oneOf": [
-             {
-              "type": "number",
-              "description": "What the weekly window had left, in percent; null where it had no reading."
-             },
-             {
-              "type": "null"
-             }
-            ]
-           }
-          },
-          "required": [
-           "at",
-           "five_left",
-           "week_left"
-          ]
-         },
-         "description": "A guess: each window keeps its pace (the 5h one over the last day, the weekly one over this week) and starts again from nothing at its reset, so the 5h line is a saw. Null when the account's last reading is stale; 0 after an account ends."
-        },
-        "left_at_reset": {
-         "oneOf": [
-          {
-           "type": "number"
-          },
-          {
-           "type": "null"
-          }
-         ],
-         "description": "A guess: the percent of this account's week still unused when it resets, if it goes on using the week at the rate of the last 24 hours (never below 0). Null when the week cannot be read or is over, or the last day has under 2 hours of readings to take a rate from."
-        },
-        "lost_anyway": {
-         "oneOf": [
-          {
-           "type": "number"
-          },
-          {
-           "type": "null"
-          }
-         ],
-         "description": "The percent of this account's unused week that even full 5h windows from now to its reset could not use, at the account's measured ratio of weekly to 5h use (never below 0). Null when left_at_reset is, or the ratio is unknown."
-        },
-        "resets": {
-         "type": "array",
-         "items": {
-          "type": "object",
-          "properties": {
-           "at": {
-            "$ref": "#/components/schemas/Timestamp"
-           },
-           "window": {
-            "type": "string",
-            "enum": [
-             "5h",
-             "7d"
-            ]
-           },
-           "unused_pct": {
-            "type": "number",
-            "description": "Only on a weekly (7d) reset the samples recorded: the percent of that week left unused at the last sample before it. Absent for a 5h reset, a guessed one, or a week with no sample."
-           }
-          },
-          "required": [
-           "at",
-           "window"
-          ]
-         },
-         "description": "Resets in the span, oldest first: those samples recorded, then those guessed (a 5h window opens again at its reset only while it is used)."
-        }
-       },
-       "required": [
-        "account",
-        "past",
-        "future",
-        "resets"
-       ]
-      },
-      "description": "Accounts that have a reading in the samples, by name."
-     },
-     "runs_out_at": {
-      "oneOf": [
-       {
-        "$ref": "#/components/schemas/Timestamp",
-        "description": "The first point ahead where `combined` reaches 0."
-       },
-       {
-        "type": "null"
-       }
-      ]
-     },
-     "next_reset": {
-      "oneOf": [
-       {
-        "type": "object",
-        "properties": {
-         "at": {
-          "$ref": "#/components/schemas/Timestamp"
-         },
-         "account": {
-          "type": "string"
-         },
-         "window": {
-          "type": "string",
-          "enum": [
-           "5h",
-           "7d"
-          ]
-         }
-        },
-        "required": [
-         "at",
-         "account",
-         "window"
-        ],
-        "description": "The first reset after now of any account."
-       },
-       {
-        "type": "null"
-       }
-      ]
-     }
-    },
-    "required": [
-     "now",
-     "step_s",
-     "combined",
-     "accounts",
-     "runs_out_at",
-     "next_reset"
     ]
    }
   }
@@ -1690,7 +1467,7 @@
   },
   {
    "name": "stats.get",
-   "summary": "Counts and sums over a window.",
+   "summary": "Counts over a window, and each agent's use of each account's weekly limit.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -1709,52 +1486,6 @@
     "name": "result",
     "schema": {
      "$ref": "#/components/schemas/Stats"
-    }
-   },
-   "x-role": "member",
-   "x-write": false,
-   "x-since": 1,
-   "errors": [
-    {
-     "$ref": "#/components/errors/bad_request"
-    }
-   ]
-  },
-  {
-   "name": "stats.headroom",
-   "summary": "Retired: stats.outlook's by_account carries the same lines and the pace line, and no app reads this. It leaves the contract when the daemon stops serving it. Each account's 5h and weekly headroom over a span, recorded up to now and guessed after, its resets, and the average of what binds.",
-   "paramStructure": "by-name",
-   "params": [
-    {
-     "name": "from",
-     "required": false,
-     "schema": {
-      "$ref": "#/components/schemas/Timestamp",
-      "description": "The first point. Default: 3 days before now."
-     }
-    },
-    {
-     "name": "to",
-     "required": false,
-     "schema": {
-      "$ref": "#/components/schemas/Timestamp",
-      "description": "No point after this. Default: 3 days after now. After `from`."
-     }
-    },
-    {
-     "name": "step_s",
-     "required": false,
-     "schema": {
-      "type": "integer",
-      "minimum": 60,
-      "description": "Seconds between points, from `from` on. Default 900. At most 2000 points."
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/Headroom"
     }
    },
    "x-role": "member",

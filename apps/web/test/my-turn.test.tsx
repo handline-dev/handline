@@ -1,6 +1,4 @@
-// The My turn page: cards from the inbox, agents that need the person, most urgent first.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+// The Requests page: what waits on the person, grouped Allow, Decide, Review and Do by hand, as a list beside the open item.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -32,6 +30,14 @@ afterEach(async () => {
   box?.remove();
 });
 const cards = () => [...box.querySelectorAll<HTMLElement>('.my-turn-card')];
+/** The list's rows: a row only opens its item, which is answered in the detail. */
+const listRows = () => [...box.querySelectorAll<HTMLElement>('[data-card-row] button')];
+const pick = async (match: (r: HTMLElement) => boolean, what: string) => {
+  await until(() => listRows().find(match), what);
+  await act(async () => void listRows().find(match)!.click());
+};
+const ofTask = (id: number) => (r: HTMLElement) => r.getAttribute('aria-label') === `Open T${id}`;
+const ofKey = (key: string) => (r: HTMLElement) => r.closest('[data-card-row]')!.getAttribute('data-card-row') === key;
 
 describe('my turn', () => {
   it('shows a dialog agent as one card with only Open terminal, and counts it in the rail', async () => {
@@ -41,45 +47,24 @@ describe('my turn', () => {
     fx.view = {
       needs_you: { kind: 'dialog', since: new Date(Date.now() - 5 * 60_000).toISOString(), text: 'Trust this folder?', source: 'hook' },
     };
-    location.hash = '#/my-turn';
+    location.hash = '#/requests';
     box = document.body.appendChild(document.createElement('div'));
     root = createRoot(box);
     await act(async () => {
       root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />);
     });
+    await pick(ofKey(`agent:${ARCH}`), 'the dialog row');
     await until(() => cards().some((c) => c.dataset.kind === 'dialog'), 'the dialog card');
     const dialog = cards().find((c) => c.dataset.kind === 'dialog')!;
     expect(dialog.textContent).toContain('Trust this folder?');
-    expect([...dialog.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual(['Open terminal']);
-    expect(box.querySelector('.rail-nav')!.textContent).toMatch(/My turn\d+/);
-  });
-  it('lists an agent with unread messages as a row under Messages, and a click opens its chat at the first unread', async () => {
-    const s = setup();
-    const fx = s.daemon.sessions.get(ARCH)!.fx;
-    keep = () => void (fx.view = undefined);
-    fx.view = { founder_unread: 3, founder_seen: 4, last_to_founder: { text: 'The build is green', at: new Date().toISOString() } };
-    location.hash = '#/my-turn';
-    box = document.body.appendChild(document.createElement('div'));
-    root = createRoot(box);
-    await act(async () => {
-      root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />);
-    });
-    await until(() => box.querySelector(`[data-row="${ARCH}"]`), 'the message row');
-    const row = box.querySelector<HTMLElement>(`[data-row="${ARCH}"]`)!;
-    expect(row.textContent).toContain('The build is green');
-    expect(row.textContent).toContain('3');
-    expect(box.querySelector('[aria-label="Messages"]')!.contains(row)).toBe(true);
-    // The Chat tab drops `?m=` once it has scrolled to the message, so the link is read as the click sets it, not after.
-    const seen: string[] = [];
-    const note = () => void seen.push(location.hash);
-    addEventListener('hashchange', note);
-    await act(async () => void row.click());
-    removeEventListener('hashchange', note);
-    expect(seen).toContain(`#/agents/${encodeURIComponent(ARCH)}?m=5`);
+    const names = [...dialog.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') ?? b.textContent);
+    expect(names).toContain('Open terminal');
+    expect(names).not.toContain('Allow'); // the answer is the terminal; the rest only name or open the agent
+    expect(box.querySelector('.rail-nav')!.textContent).toMatch(/Requests\d+/);
   });
   async function open(s = setup()) {
     s.daemon.tasks.verbs = true;
-    location.hash = '#/my-turn';
+    location.hash = '#/requests';
     box = document.body.appendChild(document.createElement('div'));
     root = createRoot(box);
     await act(async () => {
@@ -128,6 +113,7 @@ describe('my turn', () => {
     const s = setup();
     review(s, 9101);
     await open(s);
+    await pick(ofTask(9101), 'the review row');
     await until(() => reviewCard(9101), 'the review card');
     const c = reviewCard(9101)!;
     expect(button(c, 'Done')).toBeUndefined();
@@ -140,6 +126,7 @@ describe('my turn', () => {
     const s = setup();
     review(s, 9102);
     await open(s);
+    await pick(ofTask(9102), 'the review row');
     await until(() => reviewCard(9102), 'the review card');
     await click(button(reviewCard(9102)!, 'Ask for change'));
     await until(() => document.querySelector('textarea[aria-label="What should change"]'), 'the box');
@@ -154,63 +141,55 @@ describe('my turn', () => {
     expect(s.daemon.tasks.find(9102).memos?.map((m) => m.text)).toEqual(['Wider margin']);
   });
 
-  it('a row opens its task in a detail beside the list on a wide window; Back closes it', async () => {
+  it('a row opens its item beside the list on a wide window; its source chip is the one way to the task', async () => {
     const media = (matches: boolean) => vi.stubGlobal('matchMedia', () => ({ matches, addEventListener() {}, removeEventListener() {} }));
     media(true);
     keep = () => void vi.unstubAllGlobals();
     const s = setup();
     decision(s, 9002);
     await open(s);
-    const card = () => cards().find((c) => c.textContent?.includes('Task 9002'));
-    await until(card, 'the decision card');
-    const c = card()!;
-    await click(c.querySelector('[role=button]') ?? undefined);
-    await until(() => box.querySelector('.tdetail'), 'the task detail');
-    expect(box.querySelector('.my-turn-split .my-turn')).not.toBeNull(); // beside the list, not instead of it
-    expect(card()!.getAttribute('aria-current')).toBe('true');
-    await until(() => box.querySelector('.tdetail .tbody'), 'the task body');
-    // jsdom does not match :focus-visible, so the cascade is checked in the rules: a later, more specific one than the base ring.
-    const css = readFileSync(join(process.cwd(), 'src/styles/base.css'), 'utf8');
-    expect(css.indexOf('.tbody:focus-visible')).toBeGreaterThan(css.indexOf('\n:focus-visible'));
-    expect(/\.tbody:focus-visible\s*\{\s*outline:\s*none;/.test(css)).toBe(true);
-    expect(box.querySelector('.tdetail .tbody')).not.toBeNull();
-    await click(box.querySelector('.tdetail .back') ?? undefined);
-    expect(box.querySelector('.tdetail')).toBeNull();
+    await pick(ofTask(9002), 'the decision row');
+    await until(() => cards()[0], 'the item');
+    expect(listRows().find(ofTask(9002))!.getAttribute('aria-current')).toBe('true');
+    expect(box.querySelector('.tdetail')).toBeNull(); // no task page is embedded
+    const chip = button(cards()[0]!, 'Task T9002'); // local-ref-ok
+    expect(chip).toBeDefined();
+    expect(cards()[0]!.textContent).not.toMatch(/View in chat|Open T9002/); // nothing trails the answers // local-ref-ok
+    await click(chip);
+    expect(location.hash).toBe('#/tasks/9002');
   });
 
-  it('on a narrow window the task takes the page: one Back, to My turn, in the head', async () => {
+  it('on a narrow window the item takes the page, with one Back to Requests', async () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
     keep = () => void vi.unstubAllGlobals();
     const s = setup();
     decision(s, 9002);
     await open(s);
-    const card = () => cards().find((c) => c.textContent?.includes('Task 9002'));
-    await until(card, 'the decision card');
-    await click(card()!.querySelector('[role=button]') ?? undefined);
-    await until(() => box.querySelector('.tdetail .tbody'), 'the task body');
-    expect(box.querySelector('.my-turn-split')).toBeNull(); // instead of the list, not beside it
+    await pick(ofTask(9002), 'the decision row');
+    await until(() => cards()[0], 'the item');
     const backs = [...box.querySelectorAll('.back')];
-    expect(backs.map((b) => b.getAttribute('title'))).toEqual(['Back to My turn']); // one Back, not a second one in the article
-    expect(box.querySelector('.tdetail .back')).toBeNull();
+    expect(backs.map((b) => b.getAttribute('title'))).toEqual(['Back to Requests']);
     await click(backs[0]);
-    expect(box.querySelector('.tdetail')).toBeNull();
-    expect(cards().length).toBeGreaterThan(0);
+    expect(cards()).toHaveLength(0);
+    expect(listRows().length).toBeGreaterThan(0);
   });
 
-  it('Reply sends the written answer of a decision', async () => {
+  it('a decision is answered in its field, never a bare Reply', async () => {
     const s = await open();
+    await pick(ofKey('item:3'), 'the decision row');
     await until(() => box.querySelector('[data-card="item:3"]'), 'the decision card');
     const c = box.querySelector('[data-card="item:3"]')!;
     expect(c.querySelector('[role=button]')).toBeNull(); // no task to open, and no clamped text to unfold
     expect(c.textContent).not.toContain('Show more');
-    await click(button(c, 'Reply'));
+    expect(button(c, 'Reply')).toBeUndefined(); // no bare Reply: the answer is written in its field
     await type(c.querySelector('input')!, 'Yes, relay it.');
-    await click(button(c, 'Send reply'));
+    await click(button(c, 'Send answer'));
     await until(() => s.daemon.inbox.get(3).read, 'the daemon');
   });
 
   it('a permission prompt without yes/no options is a card with only Open terminal', async () => {
     await open();
+    await pick(ofKey('item:4'), 'the approval row');
     await until(() => box.querySelector('[data-card="item:4"]'), 'the approval card');
     const c = box.querySelector('[data-card="item:4"]')!;
     expect(c.getAttribute('data-kind')).toBe('approval');

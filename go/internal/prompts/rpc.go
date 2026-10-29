@@ -210,6 +210,9 @@ func (e *Env) answer(c *rpc.Conn, params map[string]any) (any, error) {
 	if !ok {
 		return nil, rpc.Refused(said, "", "")
 	}
+	if err := e.recordAnswer(c, block, choice, pick); err != nil {
+		return nil, err
+	}
 	if e.Holds != nil {
 		me, _ := c.Caller.Info["name"].(string)
 		if err := e.Holds.Touch(name, me); err != nil {
