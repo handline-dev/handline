@@ -26,6 +26,7 @@ import { useWorkspace } from '#src/Workspace.tsx';
 import { usePaneData, type PaneData } from '#src/PaneData.ts';
 import { lineAt, slotAt } from '#src/tabSlots.ts';
 import { shell } from '#src/shell.ts';
+import { useLoaded } from '@handline/app-data';
 
 export const tabLabel = (t: Tab, structured = false): string =>
   t.kind === 'chat'
@@ -252,12 +253,36 @@ export function PaneActions({ group }: { group: Group }) {
   const { agent, detail, apply, canSplit } = useWorkspace();
   const { choices, choose } = useChoices(usePaneData(agent).openShell);
   const open = shell('openPath');
+  const apps = useLoaded(
+    ['shell', 'openInApps'],
+    async () => {
+      const r = await shell('openInApps')!.openInApps!();
+      return r.ok ? r.apps : [];
+    },
+    !!shell('openInApps'),
+  );
+  const openIn = (app: 'vscode' | 'terminal' | 'claude') => void shell('openIn')?.openIn!({ app, agent });
   return (
     <>
       <MenuButton size="sm" label="Open in" name="Open in" align="end" trigger="Open in" className="shell:[-webkit-app-region:no-drag]">
         {open ? (
           <MenuItem icon="open" onSelect={() => void open.openPath!({ path: detail.cwd, agent })}>
             Finder
+          </MenuItem>
+        ) : null}
+        {apps?.includes('claude') ? (
+          <MenuItem icon="terminal" onSelect={() => openIn('claude')}>
+            Claude Code in Terminal
+          </MenuItem>
+        ) : null}
+        {apps?.includes('vscode') ? (
+          <MenuItem icon="edit" onSelect={() => openIn('vscode')}>
+            VS Code
+          </MenuItem>
+        ) : null}
+        {apps?.includes('terminal') ? (
+          <MenuItem icon="terminal" onSelect={() => openIn('terminal')}>
+            Terminal
           </MenuItem>
         ) : null}
         <MenuItem icon="reference" onSelect={() => void navigator.clipboard?.writeText(detail.cwd)}>
