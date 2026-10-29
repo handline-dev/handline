@@ -280,7 +280,7 @@ func checkTask(task any) error {
 	return nil
 }
 
-// quoteMax is the longest quote chat.send takes, in characters.
+// quoteMax is the longest quote chat.send takes, in characters as sent, before whitespace is collapsed: the schema's maxLength.
 const quoteMax = 1000
 
 // quoteParam is send's quote with its whitespace collapsed, "" for none: words picked from the parent, so never without one.
@@ -291,7 +291,7 @@ func quoteParam(p map[string]any, parent int64) (string, error) {
 	}
 	s, ok := v.(string)
 	quote := collapsed(s)
-	if !ok || quote == "" || utf8.RuneCountInString(quote) > quoteMax || parent == 0 {
+	if !ok || quote == "" || utf8.RuneCountInString(s) > quoteMax || parent == 0 {
 		return "", badParam(fmt.Sprintf("quote is up to %d characters of the parent message, and goes with parent", quoteMax), "quote")
 	}
 	return quote, nil

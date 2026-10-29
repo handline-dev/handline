@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -467,6 +468,7 @@ func TestSendKeepsAQuoteOfItsParent(t *testing.T) {
 		`{"agent":"alice","body":"x","quote":"onto main","request_id":"q3"}`,
 		`{"agent":"alice","body":"x","parent_item":1790000000100000,"quote":"onto main","request_id":"q4"}`,
 		fmt.Sprintf(`{"agent":"alice","body":"x","parent":%d,"quote":"  ","request_id":"q5"}`, asked),
+		fmt.Sprintf(`{"agent":"alice","body":"x","parent":%d,"quote":"onto%smain","request_id":"q6"}`, asked, strings.Repeat(" ", 993)), // 1001 as sent
 	} {
 		e, _ := r.one(s, "chat.send", params)["error"].(map[string]any)
 		if data, _ := e["data"].(map[string]any); data["code"] != "bad_request" || data["field"] != "quote" {

@@ -93,6 +93,7 @@ func TestABangMessageIsTypedAsWrittenEvenAsAReply(t *testing.T) {
 	r.must(err)
 	out.Finish()
 	r.must(db.MarkFounderAuthored(r.DB, out.RID))
+	r.must(db.SetQuote(r.DB, out.RID, "merge please"))
 	if got, err := r.TellNow(r.DB, out.RID); err != nil || got != "sent" {
 		t.Fatalf("%q %v", got, err)
 	}
