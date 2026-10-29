@@ -50,7 +50,7 @@ export function AgentSettings({ agent, onBack }: { agent: string; onBack: () => 
               </Text>
               {SECTIONS.map((s) => (
                 <View key={s.id} testID={`section-${s.id}`} style={{ gap: space.lg }}>
-                  <Text style={{ color: c.ink, fontSize: font.size.title, fontWeight: '700' }}>{s.title}</Text>
+                  <Text style={{ color: c.ink, fontSize: font.size.lg, fontWeight: '700' }}>{s.title}</Text>
                   {FIELDS.filter((f) => f.section === s.id).map((f) => (
                     <FieldRow key={f.key} agent={agent} f={f} stored={d.settings?.[f.key]} editable={editable} role={role} />
                   ))}
@@ -94,7 +94,7 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
                 borderWidth: 1,
                 borderColor: value === o ? c.ink : c.line,
                 backgroundColor: value === o ? c.panel : 'transparent',
-                borderRadius: radius.card,
+                borderRadius: radius.m,
                 opacity: off ? 0.4 : 1,
               }}
             >
@@ -138,7 +138,7 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
             color: c.ink,
             borderWidth: 1,
             borderColor: note ? c.block : c.line,
-            borderRadius: radius.card,
+            borderRadius: radius.m,
             padding: space.md,
             minHeight: 44,
             opacity: off ? 0.4 : 1,
@@ -155,10 +155,10 @@ function FieldRow(props: { agent: string; f: Field; stored: string | undefined; 
         {f.label}
         {pending ? '  saving…' : ''}
       </Text>
-      {hint ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{hint}</Text> : null}
+      {hint ? <Text style={{ color: c.muted, fontSize: font.size.sm }}>{hint}</Text> : null}
       {control()}
       {note ? (
-        <Text testID={`${f.key}-note`} accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
+        <Text testID={`${f.key}-note`} accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.sm }}>
           not saved: {note}
         </Text>
       ) : null}
@@ -217,7 +217,7 @@ function Sites({ value, off, save }: { value: string; off: boolean; save: (v: st
               color: c.ink,
               borderWidth: 1,
               borderColor: c.line,
-              borderRadius: radius.card,
+              borderRadius: radius.m,
               padding: space.md,
               minHeight: 44,
             }}

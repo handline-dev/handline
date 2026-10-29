@@ -60,7 +60,7 @@ export function ChatActions({ id, actions }: { id: number; actions: ChatAction[]
         ))}
       </View>
       {failure ? (
-        <Text testID={`action-error-${id}`} accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
+        <Text testID={`action-error-${id}`} accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.sm }}>
           {failure}
         </Text>
       ) : null}

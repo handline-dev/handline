@@ -124,7 +124,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
           <>
             <Sidebar selected={agent} onTasks={tasks !== null} storage={storage} onToggle={toggle} />
             <div
-              className="rail-divider z-[1] -ml-0.75 w-[5px] flex-none cursor-col-resize touch-none hover:bg-primary max-[760px]:hidden"
+              className="rail-divider z-[1] -ml-0.75 w-[5px] flex-none cursor-col-resize touch-none hover:bg-acc max-[760px]:hidden"
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize the sidebar"

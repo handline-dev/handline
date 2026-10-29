@@ -82,7 +82,7 @@ export function DoneCard(props: { store: Store; agent: string | null; bottom: nu
           gap: space.sm,
           minHeight: 56,
           padding: space.md,
-          borderRadius: radius.card,
+          borderRadius: radius.m,
           borderWidth: 1,
           borderColor: c.lineStrong,
           backgroundColor: c.raised,
@@ -93,7 +93,7 @@ export function DoneCard(props: { store: Store; agent: string | null; bottom: nu
           <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '600' }}>
             {one ? (one.about!.title ?? `T${one.about!.task} done`) : `${shown.length} tasks done`}
           </Text>
-          <Text numberOfLines={1} style={{ color: c.muted, fontSize: font.size.label }}>
+          <Text numberOfLines={1} style={{ color: c.muted, fontSize: font.size.sm }}>
             {one ? `T${one.about!.task} done · ${short(one.about!.agent ?? '')}` : 'Tap to see them'}
           </Text>
         </View>

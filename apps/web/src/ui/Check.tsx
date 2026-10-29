@@ -6,7 +6,7 @@ export function Check({ className, ...rest }: Omit<ComponentProps<'input'>, 'typ
     <input
       {...rest}
       type="checkbox"
-      className={`ui-check m-0 h-[18px] w-[18px] shrink-0 cursor-pointer appearance-none rounded-chip border border-line-strong bg-panel checked:border-primary checked:bg-primary disabled:opacity-50${className ? ` ${className}` : ''}`}
+      className={`ui-check m-0 h-[18px] w-[18px] shrink-0 cursor-pointer appearance-none rounded-sm border border-line-strong bg-panel checked:border-acc checked:bg-acc disabled:opacity-50${className ? ` ${className}` : ''}`}
     />
   );
 }

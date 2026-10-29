@@ -26,7 +26,7 @@ export function Bell(props: { store: Store; onOpen: () => void }) {
       >
         <Icon name="alert" decorative size={20} color={unread ? c.ink : c.muted} />
         {unread ? (
-          <Text testID="bell-count" style={{ color: c.ink, fontWeight: '700', fontSize: font.size.label }}>
+          <Text testID="bell-count" style={{ color: c.ink, fontWeight: '700', fontSize: font.size.sm }}>
             {unread}
           </Text>
         ) : null}
@@ -98,12 +98,12 @@ function NoticeRow(props: { n: Notice; fresh: boolean; onTask: (id: number) => v
           {head}
         </Text>
         {sub ? (
-          <Text numberOfLines={1} style={{ color: c.muted, fontSize: font.size.label }}>
+          <Text numberOfLines={1} style={{ color: c.muted, fontSize: font.size.sm }}>
             {sub}
           </Text>
         ) : null}
       </View>
-      <Text style={{ color: c.muted, fontSize: font.size.label }}>{clockTime(new Date(n.at).toISOString())}</Text>
+      <Text style={{ color: c.muted, fontSize: font.size.sm }}>{clockTime(new Date(n.at).toISOString())}</Text>
     </>
   );
   const style = {
@@ -167,7 +167,7 @@ function SpareCard(props: { n: SpareNotice; onTask: (id: number) => void }) {
   const rows = new Map((useTasks({}).data?.items ?? []).map((t) => [t.id, t]));
   const answer = useWrite('task.done');
   const reply = (evidence: string) => answer.mutate({ task: n.task, evidence, reason: true });
-  const small = { color: c.muted, fontSize: font.size.label } as const;
+  const small = { color: c.muted, fontSize: font.size.sm } as const;
   return (
     <View testID="notice-spare" style={{ flexDirection: 'row', gap: space.sm, padding: space.md, backgroundColor: c.raised }}>
       <Icon name="waiting" decorative size={16} color={c.wait} />

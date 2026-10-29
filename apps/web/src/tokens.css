@@ -2,31 +2,30 @@
    Dark is the default; light follows the OS and `data-theme` on <html> overrides both. */
 :root {
   /* surfaces: canvas, sidebar and bars, cards and inputs, hover and selected */
-  --bg-0: #0b0b0d;
-  --bg-1: #121215;
-  --bg-2: #1a1a1e;
-  --bg-3: #26262c;
-  --line: #ffffff12;
-  --line-strong: #ffffff26;
-  --ink: #fafafa;
-  --ink-2: #a1a1a1;
-  --ink-3: #6b6b6b;
-  --primary: #4a6fc4;
-  --on-primary: #ffffff;
-  --focus: #86a0dd;
-  --link: #9fb5e6;
+  --bg-0: #121214;
+  --bg-1: #17171a;
+  --bg-2: #1f1f23;
+  --bg-3: #2a2a30;
+  --line: #26262b;
+  --line-strong: #3a3a42;
+  --ink: #ececef;
+  --ink-2: #a6a6b0;
+  --ink-3: #73737d;
+  --ink-4: #4d4d55;
+  --acc: #5b85f0;
+  --acc-ink: #86a6f5;
+  --acc-wash: #1b2440;
+  --on-acc: #ffffff;
   --s-working: #56b4e9;
-  --s-wait: #f0b429;
-  --s-bad: #e8743b;
-  --s-ok: #3fbf9b;
+  --s-wait: #e69f00;
+  --s-bad: #e8735b;
+  --s-ok: #3fb37f;
   --cmd: #f06fb0;
   --term-bg: #0a0a0b;
   --term-ink: #e8e6df;
   --code-bg: #0a0a0b;
   --code-ink: #e8e6df;
-  --shadow-1: 0 1px 3px #0006;
-  --shadow-2: 0 8px 24px #0006;
-  --shadow-3: 0 16px 48px #0006;
+  --shadow: 0 10px 30px #00000080;
   --scrim: #0008;
   --hover-bg: #ffffff0f;
   --press-bg: #ffffff1a;
@@ -36,30 +35,29 @@
   :root:not([data-theme='dark']) {
     --bg-0: #ffffff;
     --bg-1: #f7f7f8;
-    --bg-2: #efeff1;
-    --bg-3: #e4e4e8;
-    --line: #e4e4e7;
-    --line-strong: #c9c9d0;
-    --ink: #2b2b30;
-    --ink-2: #52525b;
-    --ink-3: #8a8a94;
-    --primary: #3d62b5;
-    --on-primary: #ffffff;
-    --focus: #3d62b5;
-    --link: #2f4f98;
+    --bg-2: #f0f0f2;
+    --bg-3: #e6e6ea;
+    --line: #e7e7eb;
+    --line-strong: #d2d2d9;
+    --ink: #1d1d21;
+    --ink-2: #55555e;
+    --ink-3: #8b8b95;
+    --ink-4: #b4b4bc;
+    --acc: #2f5bd3;
+    --acc-ink: #2a51bd;
+    --acc-wash: #eaf0fd;
+    --on-acc: #ffffff;
     --s-working: #0072b2;
-    --s-wait: #b87900;
-    --s-bad: #c2410c;
-    --s-ok: #00875f;
+    --s-wait: #c77c00;
+    --s-bad: #c1442e;
+    --s-ok: #1f8a5b;
     --cmd: #c2377f;
     --term-bg: #16150f;
     --term-ink: #e8e6df;
     --code-bg: #f3f2ee;
-    --code-ink: #2b2b30;
-    --shadow-1: 0 1px 3px #0002;
-    --shadow-2: 0 8px 24px #0002;
-    --shadow-3: 0 16px 48px #0002;
-    --scrim: #00000059;
+    --code-ink: #1d1d21;
+    --shadow: 0 8px 28px #14141e1f, 0 1px 2px #14141e0f;
+    --scrim: #14141852;
     --hover-bg: #0000000d;
     --press-bg: #00000017;
     color-scheme: light;
@@ -68,101 +66,78 @@
 :root[data-theme='light'] {
   --bg-0: #ffffff;
   --bg-1: #f7f7f8;
-  --bg-2: #efeff1;
-  --bg-3: #e4e4e8;
-  --line: #e4e4e7;
-  --line-strong: #c9c9d0;
-  --ink: #2b2b30;
-  --ink-2: #52525b;
-  --ink-3: #8a8a94;
-  --primary: #3d62b5;
-  --on-primary: #ffffff;
-  --focus: #3d62b5;
-  --link: #2f4f98;
+  --bg-2: #f0f0f2;
+  --bg-3: #e6e6ea;
+  --line: #e7e7eb;
+  --line-strong: #d2d2d9;
+  --ink: #1d1d21;
+  --ink-2: #55555e;
+  --ink-3: #8b8b95;
+  --ink-4: #b4b4bc;
+  --acc: #2f5bd3;
+  --acc-ink: #2a51bd;
+  --acc-wash: #eaf0fd;
+  --on-acc: #ffffff;
   --s-working: #0072b2;
-  --s-wait: #b87900;
-  --s-bad: #c2410c;
-  --s-ok: #00875f;
+  --s-wait: #c77c00;
+  --s-bad: #c1442e;
+  --s-ok: #1f8a5b;
   --cmd: #c2377f;
   --term-bg: #16150f;
   --term-ink: #e8e6df;
   --code-bg: #f3f2ee;
-  --code-ink: #2b2b30;
-  --shadow-1: 0 1px 3px #0002;
-  --shadow-2: 0 8px 24px #0002;
-  --shadow-3: 0 16px 48px #0002;
-  --scrim: #00000059;
+  --code-ink: #1d1d21;
+  --shadow: 0 8px 28px #14141e1f, 0 1px 2px #14141e0f;
+  --scrim: #14141852;
   --hover-bg: #0000000d;
   --press-bg: #00000017;
   color-scheme: light;
 }
 
 :root {
-  /* type: one sans and one mono; six sizes */
-  --sans: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* type: one family, five sizes */
+  --sans: -apple-system, 'Pretendard', 'Apple SD Gothic Neo', Inter, 'Segoe UI', system-ui, sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  --fs-hint: 11px;
-  --fs-label: 13px;
-  --fs-body: 15px;
-  --fs-title: 17px;
-  --fs-page: 20px;
-  --fs-display: 28px;
-  --t-hint: 400 var(--fs-hint)/14px var(--sans);
-  --t-label: 400 var(--fs-label)/18px var(--sans);
-  --t-body: 400 var(--fs-body)/22px var(--sans);
-  --t-title: 600 var(--fs-title)/24px var(--sans);
-  --t-page: 600 var(--fs-page)/28px var(--sans);
-  --t-display: 600 var(--fs-display)/34px var(--sans);
-  --t-name: 500 var(--fs-body)/18px var(--sans);
+  --fs-xs: 11px;
+  --fs-sm: 12.5px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --t-xs: 400 var(--fs-xs)/14px var(--sans);
+  --t-sm: 400 var(--fs-sm)/18px var(--sans);
+  --t-md: 400 var(--fs-md)/22px var(--sans);
+  --t-lg: 600 var(--fs-lg)/24px var(--sans);
+  --t-xl: 600 var(--fs-xl)/28px var(--sans);
+  --t-name: 500 var(--fs-md)/18px var(--sans);
   --t-mono: 400 12px/16px var(--mono);
-  /* space on a 4 px grid */
+  /* space on a 4 px grid, and the gutter lists and details start their text at */
   --sp-1: 4px;
   --sp-2: 8px;
   --sp-3: 12px;
   --sp-4: 16px;
   --sp-5: 24px;
   --sp-6: 32px;
-  /* radius: chips, buttons and rows, cards and popups, dialogs, toggles and dots */
-  --r-chip: 6px;
-  --r-ctl: 10px;
-  --r-card: 14px;
-  --r-dialog: 20px;
-  --r-pill: 999px;
+  --gx: 20px;
+  --gy: 16px;
+  /* three control heights and three radii; round things use 999px */
+  --h-s: 24px;
+  --h-m: 28px;
+  --h-l: 36px;
+  --r-s: 6px;
+  --r-m: 10px;
+  --r-l: 16px;
   /* motion */
   --dur-fast: 120ms;
-  --dur-base: 200ms;
-  --dur-slow: 320ms;
+  --dur-slow: 200ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
-  /* sizes of chrome */
-  --h-row: 36px;
-  --h-row-2: 52px;
+  /* sizes of the layout */
   --h-tabs: 40px;
   --h-top: 44px;
-  --h-bar: 28px;
-  --h-btn: 32px;
-  --h-btn-sm: 28px;
-  --h-btn-lg: 36px;
-  --h-input: 36px;
-  --h-field: 40px;
-  --trow-h: 36px;
   --w-side: 240px;
   --w-form: 640px;
   --w-page: 960px;
   --w-dialog: 460px;
   --icon: 16px;
-}
-
-/* Legacy names of the screens not yet moved to the tokens; each group that touches a screen drops the aliases it stops using. */
-:root {
-  --bg: var(--bg-0);
-  --panel: var(--bg-2);
-  --muted: var(--ink-2);
-  --accent: var(--primary);
-  --accent-ink: var(--on-primary);
-  --run: var(--s-working);
-  --wait: var(--s-wait);
-  --block: var(--s-bad);
-  --idle: var(--ink-2);
 }
 
 :root {

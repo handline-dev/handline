@@ -151,7 +151,7 @@ function AgentRowView({
                     {a.handoff ? (
                       <span
                         title="Restarting…"
-                        className="restarting inline-flex flex-none items-center gap-1 whitespace-nowrap text-label text-primary"
+                        className="restarting inline-flex flex-none items-center gap-1 whitespace-nowrap text-sm text-acc"
                       >
                         <Icon name="refresh" size={12} aria-hidden className="animate-spin motion-reduce:animate-none" />
                         {roomy ? 'Restarting…' : null}
@@ -159,7 +159,7 @@ function AgentRowView({
                     ) : null}
                     {a.needs_you ? (
                       <span
-                        className="needs inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-pill bg-wait px-1.5 text-label text-canvas"
+                        className="needs inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-full bg-wait px-1.5 text-sm text-canvas"
                         title={[a.needs_you.kind, a.needs_you.text].filter(Boolean).join(': ')}
                       >
                         <Icon name={a.needs_you.kind === 'permission' ? 'permission' : 'answer'} size={12} label={a.needs_you.kind} />
@@ -168,7 +168,7 @@ function AgentRowView({
                     ) : null}
                     {a.founder_unread ? (
                       <span
-                        className="unread inline-flex flex-none items-center rounded-pill bg-primary px-1.5 text-label text-canvas"
+                        className="unread inline-flex flex-none items-center rounded-full bg-acc px-1.5 text-sm text-canvas"
                         title={`${a.founder_unread} unseen ${a.founder_unread === 1 ? 'request' : 'requests'} to you`}
                       >
                         {a.founder_unread}
@@ -177,7 +177,7 @@ function AgentRowView({
                     <Badges badges={badges} />
                     {stuck ? (
                       <span
-                        className="row-stuck inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-wait"
+                        className="row-stuck inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-xs text-wait"
                         title={`${stuck} under ${a.name} cannot go on: held for load, waiting on a dialog, or blocked`}
                       >
                         <Icon name="warn" size={11} aria-hidden />
@@ -186,7 +186,7 @@ function AgentRowView({
                     ) : null}
                     {working ? (
                       <span
-                        className="row-working inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-working"
+                        className="row-working inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-xs text-working"
                         title={`${working} working under ${a.name}`}
                       >
                         <Icon name="working" size={11} aria-hidden className="animate-spin motion-reduce:animate-none" />
@@ -195,7 +195,7 @@ function AgentRowView({
                     ) : null}
                     {queued ? (
                       <span
-                        className="row-queued inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-hint text-ink-2"
+                        className="row-queued inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-xs text-ink-2"
                         title={queuedTip}
                       >
                         <Icon name="tasks" size={11} aria-hidden />
@@ -203,10 +203,10 @@ function AgentRowView({
                       </span>
                     ) : null}
                   </span>
-                  <span className="row-time flex-none whitespace-nowrap text-hint text-ink-3">{ago(stamp)}</span>
+                  <span className="row-time flex-none whitespace-nowrap text-xs text-ink-3">{ago(stamp)}</span>
                 </button>
                 <span
-                  className={`row-line block h-4 cursor-pointer truncate pl-[22px] text-hint leading-4 ${a.founder_unread ? 'font-medium text-ink' : 'text-ink-2'}`}
+                  className={`row-line block h-4 cursor-pointer truncate pl-[22px] text-xs leading-4 ${a.founder_unread ? 'font-medium text-ink' : 'text-ink-2'}`}
                   title={line}
                   onClick={() => goAgent(a.name)}
                 >

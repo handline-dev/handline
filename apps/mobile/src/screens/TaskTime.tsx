@@ -43,7 +43,7 @@ export function TaskTime({ segments }: { segments: TimeSegment[] }) {
       </View>
       {rows.map((r, i) => (
         <View key={i} testID={`time-segment-${r.label}`} style={{ flexDirection: 'row', gap: space.sm }}>
-          <Text style={{ color: c.muted, fontSize: font.size.label }}>{clockTime(r.from)}</Text>
+          <Text style={{ color: c.muted, fontSize: font.size.sm }}>{clockTime(r.from)}</Text>
           <Text style={{ color: c.ink, flex: 1 }}>{r.text}</Text>
           <Text style={{ color: c.muted }}>{length(r.seconds)}</Text>
         </View>

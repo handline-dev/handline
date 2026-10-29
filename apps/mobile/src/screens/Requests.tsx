@@ -79,8 +79,8 @@ export function RequestsPage(props: { onClose: () => void; onTask: (id: number) 
               onPress={() => (r.task !== null ? props.onTask(r.task) : undefined)}
               trail={
                 <View style={{ alignItems: 'flex-end' }}>
-                  {r.task !== null ? <Text style={{ color: c.muted, fontSize: font.size.hint }}>T{r.task}</Text> : null}
-                  <Text style={{ color: c.muted, fontSize: font.size.hint }}>{ago(r.last_activity)}</Text>
+                  {r.task !== null ? <Text style={{ color: c.muted, fontSize: font.size.xs }}>T{r.task}</Text> : null}
+                  <Text style={{ color: c.muted, fontSize: font.size.xs }}>{ago(r.last_activity)}</Text>
                 </View>
               }
             />

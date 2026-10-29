@@ -83,7 +83,7 @@ export function NewAgentProgress(props: {
               value={text}
               onChangeText={setText}
               multiline
-              style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 88 }}
+              style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, padding: space.md, minHeight: 88 }}
             />
             <Button testID="na-retry-task" label="Retry" disabled={ask.isPending} onPress={send} />
           </>

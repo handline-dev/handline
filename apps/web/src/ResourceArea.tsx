@@ -59,7 +59,7 @@ export function ResourceArea() {
   return (
     <>
       <MenuButton
-        className={`${STRIP_ITEM} flex-none text-hint text-ink-2`}
+        className={`${STRIP_ITEM} flex-none text-xs text-ink-2`}
         label="Keep the Mac awake"
         name="Keep awake"
         align="start"
@@ -80,13 +80,13 @@ export function ResourceArea() {
             {a.value === 'working' ? ` · ${working} working` : ''}
           </MenuCheckItem>
         ))}
-        <p className="m-0 px-2 pb-1 text-hint text-ink-2">Closing the lid still sleeps the Mac.</p>
+        <p className="m-0 px-2 pb-1 text-xs text-ink-2">Closing the lid still sleeps the Mac.</p>
       </MenuButton>
       {line && r ? (
         <span className="relative inline-flex">
           <button
             type="button"
-            className="resource-cell tint -mx-1 inline-flex cursor-pointer items-center rounded-chip border-0 bg-transparent px-1 py-0 text-hint text-ink-2"
+            className="resource-cell tint -mx-1 inline-flex cursor-pointer items-center rounded-sm border-0 bg-transparent px-1 py-0 text-xs text-ink-2"
             aria-expanded={open}
             title="What the machine and the agents use"
             onClick={() => setOpen(!open)}
@@ -106,7 +106,7 @@ export function ResourceArea() {
 
 function Bar({ pct, mark, hot }: { pct: number; mark?: number; hot?: boolean }) {
   return (
-    <span className="relative h-1.5 flex-1 overflow-hidden rounded-chip bg-raised" aria-hidden>
+    <span className="relative h-1.5 flex-1 overflow-hidden rounded-sm bg-raised" aria-hidden>
       <span className={`block h-full ${hot ? 'bg-wait' : 'bg-working'}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
       {mark !== undefined ? <span className="absolute top-0 h-full w-px bg-ink" style={{ left: `${Math.min(100, mark)}%` }} /> : null}
     </span>
@@ -120,7 +120,7 @@ function Details({ r, limits }: { r: Resources; limits: Limits }) {
   const full = loadFull(r, limits.load_per_core_pct);
   const low = memoryLow(r, limits.ram_free_min_pct);
   const row =
-    'flex w-full cursor-pointer items-center gap-2 rounded-chip border-0 bg-transparent px-1 py-1 -mx-1 text-left text-body text-ink tint';
+    'flex w-full cursor-pointer items-center gap-2 rounded-sm border-0 bg-transparent px-1 py-1 -mx-1 text-left text-md text-ink tint';
   const mark = (which: 'load' | 'memory') => (
     <Icon
       name="chevronRight"
@@ -131,7 +131,7 @@ function Details({ r, limits }: { r: Resources; limits: Limits }) {
   );
   const toggle = (which: 'load' | 'memory') => setEditing(editing === which ? null : which);
   return (
-    <div className="resource-details flex max-h-[70vh] w-[340px] max-w-[90vw] flex-col gap-1 overflow-y-auto p-3 text-body">
+    <div className="resource-details flex max-h-[70vh] w-[340px] max-w-[90vw] flex-col gap-1 overflow-y-auto p-3 text-md">
       <button type="button" className={row} aria-expanded={editing === 'load'} onClick={() => toggle('load')}>
         <span className="w-14">Load</span>
         <Bar
@@ -158,11 +158,11 @@ function Details({ r, limits }: { r: Resources; limits: Limits }) {
       </button>
       {editing === 'memory' ? <MemoryEditor r={r} limits={limits} /> : null}
       {r.start_hold ? (
-        <p className="resource-hold m-0 rounded-chip bg-raised px-2 py-1 text-wait" role="status">
+        <p className="resource-hold m-0 rounded-sm bg-raised px-2 py-1 text-wait" role="status">
           Starts are held: {r.start_hold}
         </p>
       ) : null}
-      <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-hint text-ink-2" aria-label="Agents by use">
+      <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-xs text-ink-2" aria-label="Agents by use">
         {rows.slice(0, 8).map((x) => (
           <li key={x.agent} className="flex justify-between gap-2">
             <span className="truncate">{x.agent}</span>
@@ -172,10 +172,10 @@ function Details({ r, limits }: { r: Resources; limits: Limits }) {
           </li>
         ))}
       </ul>
-      <p className={`m-0 text-hint ${m.disk_free_bytes < LOW_DISK_BYTES ? 'text-bad' : 'text-ink-2'}`}>
+      <p className={`m-0 text-xs ${m.disk_free_bytes < LOW_DISK_BYTES ? 'text-bad' : 'text-ink-2'}`}>
         Disk {bytesText(m.disk_free_bytes)} free
       </p>
-      <a className="text-hint" href="#/admin">
+      <a className="text-xs" href="#/admin">
         Admin
       </a>
     </div>
@@ -192,10 +192,10 @@ function useChange() {
 
 function Editor({ children, note, reset, error }: { children: ReactNode; note: string; reset: () => void; error: string | null }) {
   return (
-    <div className="limit-editor flex flex-col gap-1.5 rounded-chip bg-surface p-2">
+    <div className="limit-editor flex flex-col gap-1.5 rounded-sm bg-surface p-2">
       {children}
-      <span className="text-hint text-ink-2">{note}</span>
-      <span className="text-hint text-ink-2">Running agents are never stopped, and starting one by hand always works.</span>
+      <span className="text-xs text-ink-2">{note}</span>
+      <span className="text-xs text-ink-2">Running agents are never stopped, and starting one by hand always works.</span>
       {error ? (
         <span className="text-bad" role="alert">
           {error}
