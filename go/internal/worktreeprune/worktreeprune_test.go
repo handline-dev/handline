@@ -13,6 +13,12 @@ import (
 // repo is a repository with main and one worktree per case, named for it.
 func repo(t *testing.T) (string, map[string]string) {
 	t.Helper()
+	return repoOn(t, "main")
+}
+
+// repoOn is repo with branch for main.
+func repoOn(t *testing.T, branch string) (string, map[string]string) {
+	t.Helper()
 	root := Real(t.TempDir())
 	main := filepath.Join(root, "main")
 	git := func(dir string, args ...string) {
@@ -22,7 +28,7 @@ func repo(t *testing.T) (string, map[string]string) {
 		}
 	}
 	os.MkdirAll(main, 0o755)
-	git(main, "init", "-q", "-b", "main")
+	git(main, "init", "-q", "-b", branch)
 	git(main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "start")
 	wts := map[string]string{}
 	for _, name := range []string{"merged", "ahead", "untracked", "locked", "agents"} {
@@ -141,5 +147,32 @@ func TestOrphansAreTheWorktreesNoAgentRecordsWithWhatTheyHold(t *testing.T) {
 		if got[name] != w {
 			t.Errorf("%s: merged, files, commits %v, want %v", name, got[name], w)
 		}
+	}
+}
+
+// A repository whose default branch is not main is measured against that branch, as origin's HEAD names it.
+func TestUnsavedCountsAgainstTheRepositorysDefaultBranch(t *testing.T) {
+	main, wts := repoOn(t, "trunk")
+	gitrun.Run(main, "update-ref", "refs/remotes/origin/trunk", "trunk")
+	gitrun.Run(main, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+	if b := DefaultBranch(wts["ahead"]); b != "trunk" {
+		t.Fatalf("default branch %q", b)
+	}
+	for name, want := range map[string][3]any{"merged": {true, 0, 0}, "ahead": {false, 0, 1}} {
+		merged, files, commits := Unsaved(wts[name])
+		if got := [3]any{merged, files, commits}; got != want {
+			t.Errorf("%s: merged, files, commits %v, want %v", name, got, want)
+		}
+	}
+}
+
+// Size is bytes, at least what the files hold.
+func TestSizeIsTheBytesUnderThePath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "f"), make([]byte, 64<<10), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := Size(dir); err != nil || n < 64<<10 || n > 1<<20 {
+		t.Fatalf("size %d %v, want 64 KiB or a little more", n, err)
 	}
 }
