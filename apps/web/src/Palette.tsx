@@ -23,6 +23,7 @@ const PAGES: [string, IconName, () => void][] = [
   ['HR', 'team', () => goTeam('hr')],
   ['Usage', 'accounts', () => void (location.hash = '#/stats')],
   ['Settings', 'settings', () => void (location.hash = '#/settings')],
+  ['Machine', 'settings', () => void (location.hash = '#/machine')],
 ];
 
 export function Palette({ onClose }: { onClose: () => void }) {

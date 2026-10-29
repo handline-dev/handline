@@ -1,16 +1,18 @@
 // The frame all four tabs of the Settings area share: a title and the tab strip that stay put while the content scrolls under them, and one content width.
 import { useState, type ReactNode } from 'react';
 import { Icon, PageHead, PageTitle, Reveal, ScrollPage, SectionHead } from '#src/ui/index.ts';
+import { ContentsPage, type Part } from '#src/ContentsPage.tsx';
 import { SettingsTabs, type Tab } from '#src/SettingsTabs.tsx';
 
-export function SettingsShell({ tab, label, children }: { tab: Tab; label: string; children: ReactNode }) {
+/** `parts` puts a contents list at the left and the content 640 wide beside it, flush left; without it the tab keeps the page column. */
+export function SettingsShell({ tab, label, parts, children }: { tab: Tab; label: string; parts?: readonly Part[]; children: ReactNode }) {
   return (
-    <ScrollPage className="settings-shell" aria-label={label}>
+    <ScrollPage className="settings-shell" aria-label={label} beside={!!parts}>
       <PageHead>
         <PageTitle>Settings</PageTitle>
         <SettingsTabs value={tab} />
       </PageHead>
-      <div className="flex min-w-0 flex-col gap-4">{children}</div>
+      {parts ? <ContentsPage parts={parts}>{children}</ContentsPage> : <div className="flex min-w-0 flex-col gap-4">{children}</div>}
     </ScrollPage>
   );
 }
@@ -39,10 +41,10 @@ export function SettingsSection({
 }
 
 /** A section that stays one line until the person opens it; its rows then appear in place. */
-export function SettingsFold({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
+export function SettingsFold({ id, title, hint, children }: { id?: string; title: string; hint: string; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
-    <section>
+    <section id={id}>
       <button
         type="button"
         aria-expanded={open}

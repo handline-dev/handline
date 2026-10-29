@@ -58,6 +58,32 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+describe('machine', () => {
+  it('lists the resources, the agents and the worktrees deleted agents left, with no remove button', async () => {
+    const s = setup();
+    s.daemon.admin.worktrees.rows.push({
+      path: '/w/gone',
+      repo: 'handline',
+      branch: 'gone',
+      owner: null,
+      parent: null,
+      children: [],
+      status: 'clean',
+      changed: [],
+      orphan: true,
+      merged: true,
+      files_changed: 0,
+      commits_ahead: 0,
+      size_bytes: 2048,
+    });
+    await mount('#/machine', s);
+    await until(() => $('.machine-page [data-orphan]'), 'a worktree left behind');
+    expect($$('.machine-page nav button').map(text)).toEqual(['Resources', 'Agents', 'Storage', 'Left by deleted agents']);
+    expect($$('.machine-page [data-agent]').length).toBeGreaterThan(0);
+    expect(button('Delete') ?? button('Remove')).toBeUndefined();
+  });
+});
+
 describe('stats', () => {
   it('shows a skeleton, then the four counts, the span and both charts', async () => {
     const s = setup();

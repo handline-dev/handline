@@ -203,8 +203,8 @@ function Details({ r, limits }: { r: Resources; limits: Limits }) {
           </li>
         ))}
       </ul>
-      <a className="mt-1 text-sm" href="#/admin">
-        Admin
+      <a className="mt-1 text-sm" href="#/machine">
+        Open Machine ›
       </a>
     </div>
   );
