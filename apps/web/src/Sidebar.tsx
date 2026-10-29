@@ -229,7 +229,7 @@ export function Sidebar({
         <View q={list} served={served} shape="agents" what="the agent list" empty={conn === 'open' && !agents.length && 'No agents.'}>
           {nl.pinned.length ? (
             <>
-              <h3 className="pinned-head m-0 px-3 pb-1 pt-3 text-sm font-semibold">Pinned</h3>
+              <h3 className="pinned-head m-0 px-2.5 pb-0.5 pt-2 text-xs font-normal uppercase tracking-wide text-ink-3">Pinned</h3>
               {nl.pinned.map((agent) => row(agent, 0, 0, teamOf(agent.name, names), `pin-${agent.name}`))}
             </>
           ) : null}
@@ -239,7 +239,9 @@ export function Sidebar({
             const head = heads && depth === 0 && team !== lastTop(rows, i, names);
             return (
               <Fragment key={agent.name}>
-                {head ? <h3 className="team-head m-0 px-3 pb-1 pt-3 text-sm font-semibold">{team}</h3> : null}
+                {head ? (
+                  <h3 className="team-head m-0 px-2.5 pb-0.5 pt-2 text-xs font-normal uppercase tracking-wide text-ink-3">{team}</h3>
+                ) : null}
                 {row(agent, depth, kids, team)}
               </Fragment>
             );

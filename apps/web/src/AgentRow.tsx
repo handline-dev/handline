@@ -1,9 +1,8 @@
 // One agent row of the list, always the same height: the name and its marks on the first line, one line under it (agentLine).
 import { useEffect, useRef, useState, type HTMLAttributes } from 'react';
-import { ago, dotOf, queuedBehind, rowName, agentStateWord, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
+import { ago, dotOf, queuedBehind, rowName, agentStateWord, type Verb, taskRef, whyOf } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { DeleteSheet, VerbSheet } from '#src/AgentVerbs.tsx';
-import { Badges } from '#src/Badges.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
 import { Hand } from 'lucide-react';
 import { Chip } from '#src/ds/Chip.tsx';
@@ -62,7 +61,6 @@ function AgentRowView({
   pinned,
   onPin,
   drag,
-  me,
   mark,
   waiting,
   hot,
@@ -92,7 +90,6 @@ function AgentRowView({
   const queued = queuedBehind(a) || 0;
   const queuedTip = [`${queued} waiting behind the current task`, ...waiting.map((t) => `${taskRef(t.id)} ${t.title}`)].join('\n');
   const stamp = a.founder_unread && a.last_to_founder ? a.last_to_founder.at : a.state_since; // when it last wrote to you, else since when it is in this state
-  const badges = badgesOf(a, me).filter((b) => b.kind === 'dialog' || b.kind === 'stalled'); // only what the founder must act on
   const tip = [a.name, mark ?? agentStateWord(a.state), ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
     .filter(Boolean)
     .join(' · ');
@@ -174,7 +171,6 @@ function AgentRowView({
                         <Chip kind="unread">{a.founder_unread}</Chip>
                       </span>
                     ) : null}
-                    <Badges badges={badges} />
                     {stuck ? (
                       <span
                         className="row-stuck inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-xs text-wait"
