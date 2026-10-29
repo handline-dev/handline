@@ -18,7 +18,7 @@ import {
 } from '@handline/app-core';
 import type { AgentView, NavPrefsChanges } from '@handline/client';
 import { useConnection } from '@handline/app-react';
-import { useAgents, useHrCount, useMyTurn, useNav, useServes } from '@handline/app-data';
+import { useAgents, useMyTurn, useNav, useServes } from '@handline/app-data';
 import { useRowDrag } from '#src/RowDrag.ts';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
 import { Button, Icon, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
@@ -99,7 +99,6 @@ export function Sidebar({
   const counts = new Map<Dot, number>();
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const myTurn = turn.length;
-  const hr = useHrCount();
   const pageRoute = usePageRoute();
   return (
     <nav
@@ -217,15 +216,7 @@ export function Sidebar({
       </div>
       <NewAgentButton />
       <footer className="rail-foot flex gap-0.5 border-t border-line px-2 py-1">
-        <span className="relative inline-flex">
-          <Button icon="settings" label="Settings" onClick={() => void (location.hash = '#/settings')} />
-          {hr ? (
-            <span
-              className="rail-hr pointer-events-none absolute right-0.5 top-0.5 size-2 rounded-full bg-bad"
-              title={`HR proposals: ${hr} · needs you`}
-            />
-          ) : null}
-        </span>
+        <Button icon="settings" label="Settings" onClick={() => void (location.hash = '#/settings')} />
         <Button icon="help" label="Keys (?)" onClick={() => dispatchEvent(new KeyboardEvent('keydown', { key: '?' }))} />
       </footer>
     </nav>

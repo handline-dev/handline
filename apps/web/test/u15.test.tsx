@@ -30,7 +30,10 @@ const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element) => act(async () => void (el as HTMLElement).click());
 const text = (el: Element | null) => el?.textContent ?? '';
 // A dot sits on the Settings button of the sidebar; its title carries the count.
-const teamRow = () => $('.rail-foot .rail-hr')?.getAttribute('title')?.match(/\d+/)?.[0] ?? '';
+const teamRow = () =>
+  $$('[role=tab]')
+    .find((t) => text(t).includes('HR'))
+    ?.textContent?.match(/\d+/)?.[0] ?? '';
 const card = (id: number) => $(`[data-proposal="${id}"]`)!;
 const btn = (within: Element, label: string) => [...within.querySelectorAll('button')].find((b) => text(b).trim().startsWith(label))!;
 const hrOf = (s: ReturnType<typeof setup>) => (s.daemon as unknown as { script: { hr: FakeHr } }).script.hr;
@@ -59,7 +62,7 @@ afterEach(async () => {
 });
 
 describe('U15 HR', () => {
-  it('counts open and apply_failed proposals in the tab and the sidebar, and not settled or unknown ones', async () => {
+  it('counts open and apply_failed proposals in the tab, and not settled or unknown ones', async () => {
     const s = setup();
     raise(s, 1);
     raise(s, 2, { state: 'apply_failed', error: 'boom' });
@@ -68,7 +71,6 @@ describe('U15 HR', () => {
     await open(s);
     await until(() => $('.hr-card'), 'the cards');
     expect(text($('[role=tab][aria-selected=true]'))).toContain(' 2');
-    expect(teamRow()).toBe('2');
   });
 
   it('draws a proposal the founder asked for with the founder mark, not the agent icon', async () => {
@@ -87,7 +89,7 @@ describe('U15 HR', () => {
     const s = setup();
     raise(s, 1);
     await open(s);
-    await until(() => /\d/.test(teamRow()), 'a waiting count on Settings');
+    await until(() => /\d/.test(teamRow()), 'a waiting count on the HR tab');
     expect(teamRow()).toBe('1');
     raise(s, 2);
     let two = '';

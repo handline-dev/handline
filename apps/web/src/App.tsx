@@ -12,6 +12,8 @@ import { SettingsPage } from '#src/Settings.tsx';
 import { AdminPage } from '#src/Admin.tsx';
 import { DebugTerminals } from '#src/debug/DebugTerminals.tsx';
 import {
+  goAgent,
+  goTasks,
   useAccountsRoute,
   useDebugRoute,
   useNewAgentRoute,
@@ -34,6 +36,8 @@ import { RailControls } from '#src/RailControls.tsx';
 import { Shell } from '#src/ui/TopBar.tsx';
 import { DaemonBuild } from '#src/DaemonBuild.tsx';
 import { DaemonDown } from '#src/DaemonDown.tsx';
+import { onCommand } from '#src/commands.ts';
+import { recents, useRemember } from '#src/recent.ts';
 import { terminalOwnsKey } from '#src/terminal/core.ts';
 import { StatusBar } from '#src/StatusBar.tsx';
 import { CaptureHost } from '#src/Capture.tsx';
@@ -78,6 +82,17 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   toggleRef.current = toggle;
   const [palette, setPalette] = useState(false);
   const [keys, setKeys] = useState(false);
+  useRemember(agent, tasks && /^\d+$/.test(tasks) ? tasks : null);
+  useEffect(
+    () =>
+      onCommand((name) => {
+        if (name === 'sidebar') toggleRef.current();
+        else if (name === 'back') history.back();
+        else if (name === 'forward') history.forward();
+        else if (name === 'keys') setKeys((k) => !k);
+      }),
+    [],
+  );
   const own = tasks !== null; // these pages answer `?` with their own keys
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -91,7 +106,15 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
         toggleRef.current();
       } else if (mod && e.key === '[') history.back();
       else if (mod && e.key === ']') history.forward();
-      else if (e.key === '?' && !mod && !own && !typing(e.target)) setKeys((k) => !k);
+      else if (e.ctrlKey && e.key === 'Tab') {
+        // Ctrl+Tab: the window opened before this one.
+        const was = recents().find((r) => (r.kind === 'agent' ? r.id !== agent : r.id !== tasks));
+        if (was) {
+          e.preventDefault();
+          if (was.kind === 'agent') goAgent(was.id);
+          else goTasks(Number(was.id));
+        }
+      } else if (e.key === '?' && !mod && !own && !typing(e.target)) setKeys((k) => !k);
     };
     // The mouse's back and forward buttons walk the history like the arrows do.
     const onMouse = (e: MouseEvent) => {
@@ -106,7 +129,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
       removeEventListener('keydown', onKey);
       removeEventListener('mouseup', onMouse);
     };
-  }, [own]);
+  }, [own, agent, tasks]);
   const [railW, setRailW] = useState(() => clampRail(Number(setting(storage, 'railWidth', '').value) || RAIL_W));
   const sizeRail = (w: number) => {
     const next = clampRail(w);
