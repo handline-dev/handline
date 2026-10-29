@@ -203,6 +203,12 @@ export class Notices {
     for (const n of this.all) n.read = true;
     this.emit();
   }
+  /** Drops the read notices from the list; the unread stay. */
+  removeRead(): void {
+    for (const n of this.all.filter((x) => x.read)) this.close(n.id);
+    this.all = this.all.filter((n) => !n.read);
+    this.emit();
+  }
   /** The person opened what the notice points to: it is read and its toast is gone. */
   open(id: number): void {
     const n = this.all.find((x) => x.id === id);
