@@ -1,11 +1,12 @@
 // One agent row of the list, always the same height: the name and its marks on the first line, one line under it (agentLine).
 import { useEffect, useRef, useState, type HTMLAttributes } from 'react';
-import { ago, dotOf, queuedBehind, rowName, agentStateWord, type Verb, taskRef, whyOf } from '@handline/app-core';
+import { ago, dotOf, queuedBehind, rowName, agentStateWord, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { DeleteSheet, VerbSheet } from '#src/AgentVerbs.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
 import { Hand } from 'lucide-react';
 import { Chip } from '#src/ds/Chip.tsx';
+import { Badges } from '#src/Badges.tsx';
 import { Icon, Menu, type At, MenuContent, MenuTrigger, VisuallyHidden } from '#src/ui/index.ts';
 import { goAgent } from '#src/route.ts';
 import { AgentMenu, RowControls } from '#src/RowControls.tsx';
@@ -61,6 +62,7 @@ function AgentRowView({
   pinned,
   onPin,
   drag,
+  me,
   mark,
   waiting,
   hot,
@@ -89,6 +91,7 @@ function AgentRowView({
   }, [kindLen]);
   const queued = queuedBehind(a) || 0;
   const queuedTip = [`${queued} waiting behind the current task`, ...waiting.map((t) => `${taskRef(t.id)} ${t.title}`)].join('\n');
+  const badges = badgesOf(a, me).filter((b) => b.kind === 'dialog' || b.kind === 'stalled'); // only what the founder must act on
   const stamp = a.founder_unread && a.last_to_founder ? a.last_to_founder.at : a.state_since; // when it last wrote to you, else since when it is in this state
   const tip = [a.name, mark ?? agentStateWord(a.state), ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
     .filter(Boolean)
@@ -163,6 +166,7 @@ function AgentRowView({
                         </Chip>
                       </span>
                     ) : null}
+                    <Badges badges={badges} mark />
                     {a.founder_unread ? (
                       <span
                         className="unread inline-flex flex-none"
