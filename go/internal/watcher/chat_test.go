@@ -157,6 +157,32 @@ func TestAPromptIsToldWhenItOpensAndOnceMoreWhenItCloses(t *testing.T) {
 	}
 }
 
+// A closed prompt's item says its answer: what prompt.answer kept on the block, or, answered in the terminal, outside with when it closed.
+func TestAClosedPromptCarriesItsAnswer(t *testing.T) {
+	r := newChatRig(t)
+	ins := "INSERT INTO prompt_blocks(agent, kind, fingerprint, title, panel, detail, answerable, first_seen, last_seen) VALUES(?, 'question', 'f', 't', '[]', '{}', 1, 1, 1)"
+	exec(t, r.d, ins, "amy")
+	exec(t, r.d, ins, "bob")
+	c := r.chat()
+	r.scan(c)
+	exec(t, r.d, "UPDATE prompt_blocks SET answered_at = 7, answer_ok = 1, answer_label = 'Other', answer_note = 'main', answer_by = 'casey' WHERE agent = 'amy'")
+	exec(t, r.d, "UPDATE prompt_blocks SET gone_at = 9")
+	r.scan(c)
+	answers := map[string]string{}
+	for _, e := range r.rows() {
+		var it map[string]any
+		json.Unmarshal(e.Data, &it)
+		a, _ := json.Marshal(it["answer"])
+		answers[*e.Agent] = string(a)
+	}
+	if want := `{"at":"1970-01-01T00:00:07Z","by":"casey","label":"Other","note":"main"}`; answers["amy"] != want {
+		t.Fatalf("answered in Handline: %s", answers["amy"])
+	}
+	if want := `{"at":"1970-01-01T00:00:09Z","outside":true}`; answers["bob"] != want {
+		t.Fatalf("answered in the terminal: %s", answers["bob"])
+	}
+}
+
 func TestAConversationIsToldOnceWhenItsSessionIdIsKnown(t *testing.T) {
 	r := newChatRig(t)
 	now := time.Now().Unix()
