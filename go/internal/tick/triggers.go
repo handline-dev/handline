@@ -5,7 +5,6 @@ package tick
 
 import (
 	"fmt"
-	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,8 +19,6 @@ const (
 	WallPct = 100
 	// PollS is how often the daemon looks.
 	PollS = 30
-	// StayWithinS: an agent at the wall stays parked when its own account resets within this - 13% of a 5h window, the cost of a cold start.
-	StayWithinS = 39 * 60
 	// MinStretchS is the least stretch of an account's life worth beginning a session for.
 	MinStretchS = 30 * 60
 	// DefaultActiveCap is the most agents mid-turn on one account at once (Pro); set per account in config.
@@ -111,27 +108,6 @@ func commas(n int) string {
 		s = "-" + s
 	}
 	return s
-}
-
-// StayWithin is T: the measured cost of a cold start as the seconds of the shortest window it spends, when there is a measurement; the
-// starting value otherwise.
-func StayWithin(coldStartPct *float64, windowS float64) float64 {
-	if coldStartPct == nil || *coldStartPct <= 0 || windowS <= 0 {
-		return StayWithinS
-	}
-	return *coldStartPct / 100 * windowS
-}
-
-// StayOrMove is, for an agent at the wall, whether a move is worth its cold start. Never for an idle agent - a move is for work that is
-// waiting - and not when its own window rolls over sooner than the start would pay back. An unknown reset is further than T.
-func StayOrMove(workWaiting bool, resetInS *float64, stayWithin float64) (bool, string) {
-	if !workWaiting {
-		return false, "no work is waiting - an idle agent does not move"
-	}
-	if resetInS != nil && *resetInS <= stayWithin {
-		return false, fmt.Sprintf("its account resets within %dm - cheaper to wait", int(math.Floor(stayWithin/60)))
-	}
-	return true, "work is waiting and its account resets too late to wait for"
 }
 
 // NextReset is when a window rolls over, used as wake_at for a parked agent: shortly from now when the reset is unknown or past.

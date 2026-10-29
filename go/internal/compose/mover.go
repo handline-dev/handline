@@ -5,6 +5,7 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/lifecycle"
+	"github.com/handline/handline/go/internal/staymove"
 	"github.com/handline/handline/go/internal/supervisor"
 	"github.com/handline/handline/go/internal/team"
 	"github.com/handline/handline/go/internal/tick"
@@ -60,8 +61,7 @@ func (p *Parts) newMover(m *lifecycle.Manager, uenv *usage.Env, env *supervisor.
 			return *st.TrustedCtxUsed, tickUsage{p: p, u: uenv, roster: p.LC.roster}.ContextLimit(agent, st.ModelID)
 		},
 		MeasureForget: func(q db.Q, agent string) { _ = usage.ForgetColdStart(q, agent) },
-		StayWithin:    tick.StayWithin,
-		StayOrMove:    tick.StayOrMove,
+		StayOrMove:    staymove.Decide,
 		WakeAfter:     tick.WakeAfter,
 	}}
 }
