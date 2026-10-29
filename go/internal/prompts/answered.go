@@ -1,7 +1,6 @@
 package prompts
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -9,21 +8,12 @@ import (
 	"github.com/handline/handline/go/internal/term"
 )
 
-// recordAnswer keeps what prompt.answer answered (prompt_answers), so the chat's prompt item says it once the prompt closes: the
-// choice as the caller sent it, the words for it, the typed text or a deny's reason as the note, and who answered.
+// recordAnswer keeps what prompt.answer answered on its block, beside the answered_at record() wrote, so the chat's prompt item says it
+// once the prompt closes: the words for the choice, the typed text or a deny's reason as the note, and who answered.
 func (e *Env) recordAnswer(c *rpc.Conn, b *Block, choice any, pick Choice) error {
-	raw, err := json.Marshal(choice)
-	if err != nil {
-		return err
-	}
 	label, note := answerLabel(b, choice, pick)
 	by, _ := c.Caller.Info["name"].(string)
-	var noteVal any
-	if note != "" {
-		noteVal = note
-	}
-	_, err = e.DB.Exec("INSERT OR REPLACE INTO prompt_answers(prompt_id, agent, kind, choice, label, note, by_name, at) VALUES(?,?,?,?,?,?,?,?)",
-		b.ID, b.Agent, b.Kind, string(raw), label, noteVal, by, e.now().Unix())
+	_, err := e.DB.Exec("UPDATE prompt_blocks SET answer_label = ?, answer_note = ?, answer_by = ? WHERE id = ?", label, note, by, b.ID)
 	return err
 }
 

@@ -160,6 +160,7 @@ var byHand = map[int]func(*sql.Tx) error{
 	24: addTaskWatch,      // task_watch
 	26: addRequestThreads, // request_threads
 	29: addRequestMemo,    // request_memo
+	30: addPromptAnswer,   // prompt_answer
 }
 
 // addExtraWorktrees is _agent_extra_worktrees in schema.py: a database made before the column has none.
@@ -208,6 +209,16 @@ func addRequestThreads(tx *sql.Tx) error {
 
 // addRequestMemo is the comment an ask to the founder was raised by (requests.memo_id).
 func addRequestMemo(tx *sql.Tx) error { return addColumn(tx, "requests", "memo_id", "INTEGER") }
+
+// addPromptAnswer is what prompt.answer answered, beside answered_at: the words for the choice, the typed text or a deny's reason, and who.
+func addPromptAnswer(tx *sql.Tx) error {
+	for _, c := range []string{"answer_label", "answer_note", "answer_by"} {
+		if err := addColumn(tx, "prompt_blocks", c, "TEXT"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // addTaskColumns adds each (name, type) column the tasks table does not have yet.
 func addTaskColumns(tx *sql.Tx, cols [][2]string) error {

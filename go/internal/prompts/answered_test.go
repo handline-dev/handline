@@ -2,19 +2,21 @@ package prompts
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
+
+	"github.com/handline/handline/go/internal/term"
 )
 
-// answered is the prompt_answers row of the prompt the caller named: label, note ("" for none) and who answered.
+// answered is what prompt.answer kept on the block the caller named: label, note and who answered.
 func answered(t *testing.T, e *Env, fingerprint string) (label, note, by string) {
 	t.Helper()
-	var n sql.NullString
-	err := e.DB.QueryRow("SELECT a.label, a.note, a.by_name FROM prompt_answers a JOIN prompt_blocks b ON b.id = a.prompt_id "+
-		"WHERE b.fingerprint = ?", fingerprint).Scan(&label, &n, &by)
-	if err != nil {
+	var l, n, b sql.NullString
+	err := e.DB.QueryRow("SELECT answer_label, answer_note, answer_by FROM prompt_blocks WHERE fingerprint = ?", fingerprint).Scan(&l, &n, &b)
+	if err != nil || !l.Valid {
 		t.Fatalf("no answer kept for %s: %v", fingerprint, err)
 	}
-	return label, n.String, by
+	return l.String, n.String, b.String
 }
 
 // What prompt.answer answered is kept for the chat line: a permission's Allowed or Denied with the deny's reason, a question's typed
@@ -69,7 +71,55 @@ func TestARefusedAnswerKeepsNothing(t *testing.T) {
 		t.Fatal("a stale answer was accepted")
 	}
 	var n int
-	if e.DB.QueryRow("SELECT count(*) FROM prompt_answers").Scan(&n); n != 0 {
+	if e.DB.QueryRow("SELECT count(*) FROM prompt_blocks WHERE answer_label IS NOT NULL").Scan(&n); n != 0 {
 		t.Fatalf("%d answers kept for a refused one", n)
+	}
+}
+
+// Esc is Denied for a permission and Cancelled for a question; a dialog's pick is its option's label; a question option with no label
+// is said by its number.
+func TestACancelADialogPickAndAnUnlabelledOptionAreSaidInWords(t *testing.T) {
+	e, h := testEnv(t)
+	noteWait(t, e, "backend", "rm -rf build", 7)
+	id := shown(t, e, h, boxless(t).Screen)
+	clearsOnAnyKey(h)
+	if _, err := answers(e, id, "esc"); err != nil {
+		t.Fatal(err)
+	}
+	if label, _, _ := answered(t, e, id); label != "Denied" {
+		t.Fatalf("permission Esc: %q", label)
+	}
+
+	e, h = testEnv(t)
+	id = shown(t, e, h, question)
+	clearsOnAnyKey(h)
+	if _, err := answers(e, id, "esc"); err != nil {
+		t.Fatal(err)
+	}
+	if label, _, _ := answered(t, e, id); label != "Cancelled" {
+		t.Fatalf("question Esc: %q", label)
+	}
+
+	e, h = testEnv(t)
+	var dialog []string
+	for _, c := range captures(t) {
+		if c.Name == "yes_no_dialog" {
+			dialog = c.Screen
+		}
+	}
+	id = shown(t, e, h, dialog)
+	clearsOnAnyKey(h)
+	if _, err := answers(e, id, "2"); err != nil {
+		t.Fatal(err)
+	}
+	var opts string
+	e.DB.QueryRow("SELECT detail FROM prompt_blocks WHERE fingerprint = ?", id).Scan(&opts)
+	if label, _, _ := answered(t, e, id); label == "" || label == "2" || !strings.Contains(opts, label) {
+		t.Fatalf("dialog pick: %q, options %s", label, opts)
+	}
+
+	b2 := &Block{Kind: term.PromptQuestion, Detail: map[string]any{"options": []any{map[string]any{"label": "main"}, map[string]any{}}}}
+	if label, _ := answerLabel(b2, "2", Choice{Choices: []int{1}}); label != "2" {
+		t.Fatalf("an option with no label: %q", label)
 	}
 }

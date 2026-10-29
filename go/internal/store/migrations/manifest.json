@@ -146,7 +146,7 @@
  },
  {
   "version": 30,
-  "name": "prompt_answers",
+  "name": "prompt_answer",
   "additive": true
  }
 ]

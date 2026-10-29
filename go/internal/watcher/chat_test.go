@@ -157,7 +157,7 @@ func TestAPromptIsToldWhenItOpensAndOnceMoreWhenItCloses(t *testing.T) {
 	}
 }
 
-// A closed prompt's item says its answer: what prompt.answer kept (prompt_answers), or, answered in the terminal, outside with when it closed.
+// A closed prompt's item says its answer: what prompt.answer kept on the block, or, answered in the terminal, outside with when it closed.
 func TestAClosedPromptCarriesItsAnswer(t *testing.T) {
 	r := newChatRig(t)
 	ins := "INSERT INTO prompt_blocks(agent, kind, fingerprint, title, panel, detail, answerable, first_seen, last_seen) VALUES(?, 'question', 'f', 't', '[]', '{}', 1, 1, 1)"
@@ -165,7 +165,7 @@ func TestAClosedPromptCarriesItsAnswer(t *testing.T) {
 	exec(t, r.d, ins, "bob")
 	c := r.chat()
 	r.scan(c)
-	exec(t, r.d, "INSERT INTO prompt_answers(prompt_id, agent, kind, choice, label, note, by_name, at) VALUES(1, 'amy', 'question', '{\"text\":\"main\"}', 'Other', 'main', 'casey', 7)")
+	exec(t, r.d, "UPDATE prompt_blocks SET answered_at = 7, answer_ok = 1, answer_label = 'Other', answer_note = 'main', answer_by = 'casey' WHERE agent = 'amy'")
 	exec(t, r.d, "UPDATE prompt_blocks SET gone_at = 9")
 	r.scan(c)
 	answers := map[string]string{}

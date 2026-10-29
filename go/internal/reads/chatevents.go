@@ -58,7 +58,7 @@ func (e *Env) TaskEventItem(id int64) (item map[string]any, owner string, ok boo
 
 // PromptItem is the prompt block with that id as a transcript item, and the agent it belongs to; ok is false when there is no such block.
 func (e *Env) PromptItem(id int64) (item map[string]any, agent string, ok bool, err error) {
-	b, err := queryOne(e.DB, promptItems+" WHERE b.id = ?", id)
+	b, err := queryOne(e.DB, "SELECT * FROM prompt_blocks WHERE id = ?", id)
 	if err != nil || b == nil {
 		return nil, "", false, err
 	}
