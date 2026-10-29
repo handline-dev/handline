@@ -9,7 +9,7 @@ type AgentAccountUse = Stats['use'][number];
 export type Band = 'ok' | 'warn' | 'bad';
 export const bandOf = (pct: number): Band => (pct >= 85 ? 'bad' : pct >= 60 ? 'warn' : 'ok');
 
-/** One line of "Who used it": an agent's use of one account, its bar a share of the longest line. */
+/** One line of "Who used it": an agent's use of one account; its bar is the share of a full weekly limit, empty without a reading. */
 export type UseLine = { key: string; agent: string; account: string | null; weekPct: number | null; cost: number; fill: number };
 
 /** An agent's use of each account, biggest first, by week_pct (cost when no row has one); no agent name reads "Other". */
@@ -17,7 +17,6 @@ export function agentUse(use: AgentAccountUse[]): UseLine[] {
   const byPoints = use.some((u) => u.week_pct !== null);
   const size = (u: AgentAccountUse) => (byPoints ? (u.week_pct ?? 0) : u.cost);
   const rows = use.filter((u) => size(u) > 0 || u.cost > 0).sort((a, b) => size(b) - size(a) || b.cost - a.cost);
-  const top = rows[0] ? size(rows[0]) || 1 : 1;
   const many = new Set(rows.map((u) => u.account)).size > 1;
   return rows.map((u) => ({
     key: `${u.agent}\u0000${u.account}`,
@@ -25,14 +24,17 @@ export function agentUse(use: AgentAccountUse[]): UseLine[] {
     account: many ? u.account : null,
     weekPct: u.week_pct,
     cost: u.cost,
-    fill: Math.min(1, size(u) / top),
+    fill: u.week_pct === null ? 0 : Math.min(1, u.week_pct / 100),
   }));
 }
 
-/** The numbers beside a line: the points of the week with a ≈ (they are an estimate), then what the calls cost at list price. */
+/** The heading over the numbers: the % is an estimate (list prices), of the weekly limit. */
+export const SPENT_HEAD = 'Share of the weekly limit (estimated) · cost at list price';
+
+/** The numbers beside a line: the share of the weekly limit, then what the calls cost at list price. */
 export const spentText = (r: Pick<UseLine, 'weekPct' | 'cost'>): string => {
-  const cost = `$${r.cost < 10 ? r.cost.toFixed(2) : Math.round(r.cost)}`;
-  return r.weekPct === null ? cost : `≈${r.weekPct < 10 ? Math.round(r.weekPct * 10) / 10 : Math.round(r.weekPct)}% · ${cost}`;
+  const cost = `$${r.cost.toFixed(2)}`;
+  return r.weekPct === null ? cost : `${r.weekPct < 10 ? Math.round(r.weekPct * 10) / 10 : Math.round(r.weekPct)}% · ${cost}`;
 };
 
 export const INVALID = Symbol('invalid');

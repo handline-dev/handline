@@ -3,7 +3,7 @@
 // Every number is text too; a bar is never the only way to read it.
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { agentUse, costByAgent, runwayWords, spentText } from '@handline/app-core';
+import { SPENT_HEAD, agentUse, costByAgent, runwayWords, spentText } from '@handline/app-core';
 import type { Outlook, Stats as StatsData } from '@handline/client';
 import { useOutlook, useServes, useStats } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
@@ -71,6 +71,7 @@ function Counts({ s }: { s: StatsData }) {
       </View>
       <View testID="agent-time" style={{ gap: space.sm }}>
         <Text style={{ color: c.ink, fontWeight: '600' }}>Who used it</Text>
+        <Text style={{ color: c.muted }}>{SPENT_HEAD}</Text>
         {rows.length ? (
           rows.map((r) => (
             <View key={r.key} testID={`use-${r.agent}`} style={{ gap: 2 }}>

@@ -32,28 +32,29 @@ test('who used it is biggest first by week points, Other for no agent, and names
   assert.deepEqual(
     rows.map((r) => [r.agent, r.account, r.fill]),
     [
-      ['b', 'y', 1],
-      ['a', 'x', 0.25],
-      ['Other', 'x', 0.125],
+      ['b', 'y', 0.08],
+      ['a', 'x', 0.02],
+      ['Other', 'x', 0.01],
     ],
   );
   assert.equal(agentUse([use('a', 'x', 2, 9)])[0]!.account, null);
 });
 
-test('with no week reading anywhere, who used it follows the cost', () => {
+test('with no week reading anywhere, who used it follows the cost and the bars stay empty', () => {
   const rows = agentUse([use('a', 'x', null, 1), use('b', 'x', null, 4)]);
   assert.deepEqual(
     rows.map((r) => [r.agent, r.fill]),
     [
-      ['b', 1],
-      ['a', 0.25],
+      ['b', 0],
+      ['a', 0],
     ],
   );
+  assert.equal(agentUse([use('a', 'x', 150, 1)])[0]!.fill, 1);
 });
 
-test('the numbers beside a line mark the week points as an estimate and always give the cost', () => {
-  assert.equal(spentText({ weekPct: 12.4, cost: 3.4 }), '≈12% · $3.40');
-  assert.equal(spentText({ weekPct: 0.55, cost: 120 }), '≈0.6% · $120');
+test('the numbers beside a line give the share of the limit and the cost in one money form', () => {
+  assert.equal(spentText({ weekPct: 12.4, cost: 3.4 }), '12% · $3.40');
+  assert.equal(spentText({ weekPct: 0.55, cost: 120 }), '0.6% · $120.00');
   assert.equal(spentText({ weekPct: null, cost: 0.5 }), '$0.50');
 });
 
