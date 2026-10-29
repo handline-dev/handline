@@ -11,17 +11,17 @@ body {
 body {
   background: var(--bg-0);
   color: var(--ink);
-  font: var(--t-body);
+  font: var(--t-md);
   font-variant-numeric: tabular-nums;
 }
 a {
-  color: var(--link);
+  color: var(--acc-ink);
   text-decoration: none;
 }
 /* A link answers a hover with the one tint, not an underline or another colour. */
 a:hover {
   background-image: linear-gradient(var(--hover-bg), var(--hover-bg));
-  border-radius: var(--r-chip);
+  border-radius: var(--r-s);
 }
 /* A row's number and a status cell are not web links: they keep the surrounding ink. Unlayered, or the `a` rule above beats any utility. */
 .tnum,
@@ -53,11 +53,11 @@ button {
 }
 /* The browser's defaults are not the app's: a thin scroll bar, a toned selection and an accent caret are the small tells of a native pane. */
 ::selection {
-  background: color-mix(in srgb, var(--focus) 30%, transparent);
+  background: color-mix(in srgb, var(--acc) 30%, transparent);
 }
 textarea,
 input {
-  caret-color: var(--link);
+  caret-color: var(--acc-ink);
 }
 * {
   scrollbar-width: thin;
@@ -69,7 +69,7 @@ input {
 }
 ::-webkit-scrollbar-thumb {
   background: var(--line-strong);
-  border-radius: var(--r-pill);
+  border-radius: 999px;
   border: 3px solid transparent;
   background-clip: content-box;
 }
@@ -88,7 +88,7 @@ button:disabled {
   opacity: 0.45;
 }
 :focus-visible {
-  outline: 2px solid var(--focus);
+  outline: 2px solid var(--acc);
   outline-offset: 1px;
 }
 /* A pane body takes focus when its content opens, for the keys; it is not a control, so it draws no ring. A utility class would lose to the rule above. */
@@ -96,7 +96,7 @@ button:disabled {
   outline: none;
 }
 .muted {
-  color: var(--muted);
+  color: var(--ink-2);
 }
 /* Element-level, as the rules above: the one <summary> left (the transcript's tr-fold). */
 summary {
@@ -135,7 +135,7 @@ summary::-webkit-details-marker {
 
 .check {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--ink-2);
   white-space: nowrap;
 }
 .group h3 {
@@ -143,7 +143,7 @@ summary::-webkit-details-marker {
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--ink-2);
   font-weight: 600;
 }
 .name {
@@ -151,45 +151,15 @@ summary::-webkit-details-marker {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.sub,
-.row-side {
+.sub {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--ink-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.row-side {
-  max-width: 90px;
-}
-.dot {
-  display: inline-block;
-  flex: none;
-  width: 9px;
-  height: 9px;
-  margin-top: 5px;
-  border-radius: 50%;
-  background: var(--idle);
-}
-.dot.running {
-  background: var(--run);
-}
-.dot.waiting {
-  background: var(--wait);
-}
-.dot.blocked {
-  background: var(--block);
-}
-.dot.parked {
-  background: none;
-  border: 1.5px solid var(--idle);
-}
-.dot.none {
-  background: none;
-  border: 1.5px dashed var(--idle);
-}
 .empty {
-  color: var(--muted);
+  color: var(--ink-2);
   padding: 24px;
 }
 .empty.big {
@@ -199,13 +169,13 @@ summary::-webkit-details-marker {
 .state {
   margin-left: auto;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--ink-2);
 }
 .banner {
   padding: 6px 10px;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--block) 14%, transparent);
-  color: var(--block);
+  background: color-mix(in srgb, var(--s-bad) 14%, transparent);
+  color: var(--s-bad);
 }
 .banner.ok {
   background: color-mix(in srgb, var(--s-ok) 14%, transparent);

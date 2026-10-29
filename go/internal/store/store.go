@@ -160,7 +160,9 @@ var byHand = map[int]func(*sql.Tx) error{
 	24: addTaskWatch,      // task_watch
 	26: addRequestThreads, // request_threads
 	29: addRequestMemo,    // request_memo
-	30: addRequestQuote,   // request_quote
+	30: addDevicePush,     // device_push
+	31: addPromptAnswer,   // prompt_answer
+	32: addRequestQuote,   // request_quote
 }
 
 // addExtraWorktrees is _agent_extra_worktrees in schema.py: a database made before the column has none.
@@ -209,6 +211,27 @@ func addRequestThreads(tx *sql.Tx) error {
 
 // addRequestMemo is the comment an ask to the founder was raised by (requests.memo_id).
 func addRequestMemo(tx *sql.Tx) error { return addColumn(tx, "requests", "memo_id", "INTEGER") }
+
+// addDevicePush is the push token a paired device gave (device.push_token): its platform (apns, fcm), the token and, for APNs, whether
+// it is a sandbox (development build) token.
+func addDevicePush(tx *sql.Tx) error {
+	for _, c := range [][2]string{{"push_platform", "TEXT"}, {"push_token", "TEXT"}, {"push_sandbox", "INTEGER"}} {
+		if err := addColumn(tx, "devices", c[0], c[1]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// addPromptAnswer is what prompt.answer answered, beside answered_at: the words for the choice, the typed text or a deny's reason, and who.
+func addPromptAnswer(tx *sql.Tx) error {
+	for _, c := range []string{"answer_label", "answer_note", "answer_by"} {
+		if err := addColumn(tx, "prompt_blocks", c, "TEXT"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // addRequestQuote is the words of its parent a message quotes (requests.quote, chat.send quote).
 func addRequestQuote(tx *sql.Tx) error { return addColumn(tx, "requests", "quote", "TEXT") }

@@ -113,7 +113,7 @@ export function DeviceTab({
             options={mine.map((d) => ({ value: d.id, label: d.name }))}
           />
         ) : null}
-        <span className="min-w-0 flex-1 text-body text-ink-2">{kind === 'ios' && !idb && !why ? IDB_HOW : ''}</span>
+        <span className="min-w-0 flex-1 text-md text-ink-2">{kind === 'ios' && !idb && !why ? IDB_HOW : ''}</span>
         <Button size="sm" icon="refresh" label="Refresh" onClick={() => setNow((n) => n + 1)} />
         {shot ? (
           <Button size="sm" variant="outline" label="Mark an area to ask" onClick={() => setMarking(shot)}>
@@ -172,7 +172,7 @@ export function DeviceTab({
           <p className="m-0 p-6 text-center text-ink-2">Looking for {kind === 'android' ? 'an Android device' : 'an iOS simulator'}…</p>
         )}
         {said ? (
-          <p role="alert" className="m-0 mt-2 text-center text-hint text-ink-2">
+          <p role="alert" className="m-0 mt-2 text-center text-xs text-ink-2">
             {said}
           </p>
         ) : null}

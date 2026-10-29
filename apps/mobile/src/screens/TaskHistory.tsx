@@ -1,7 +1,16 @@
 // A task's change history on the phone (docs/pc-app-gaps.md U3), read from task.history through the app-core view the web draws.
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { clockTime, dayLabel, firstLine, historyCounts, historyView, memoAction, type HistoryFilter, type HistoryFold } from '@handline/app-core';
+import {
+  clockTime,
+  dayLabel,
+  firstLine,
+  historyCounts,
+  historyView,
+  memoAction,
+  type HistoryFilter,
+  type HistoryFold,
+} from '@handline/app-core';
 import type { HistoryRow } from '@handline/client';
 import { useServes, useTaskHistory } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
@@ -27,7 +36,13 @@ function Change({ r, shown }: { r: HistoryRow; shown: boolean }) {
   const label = memo ? `comment #${r.memo}` : (FIELD_WORD[r.field] ?? r.field);
   const struck = { color: c.muted, textDecorationLine: 'line-through' as const };
   return (
-    <Pressable testID={`history-${r.field}`} disabled={!long} onPress={() => setOpen(!open)} accessibilityRole={long ? 'button' : undefined} accessibilityState={long ? { expanded: open } : undefined}>
+    <Pressable
+      testID={`history-${r.field}`}
+      disabled={!long}
+      onPress={() => setOpen(!open)}
+      accessibilityRole={long ? 'button' : undefined}
+      accessibilityState={long ? { expanded: open } : undefined}
+    >
       <Text style={{ color: c.ink }}>
         <Text style={{ color: c.muted }}>{shown ? `${clockTime(r.at)}  ` : ''}</Text>
         {r.by} <Text style={{ color: c.muted }}>{label}</Text>{' '}
@@ -38,7 +53,10 @@ function Change({ r, shown }: { r: HistoryRow; shown: boolean }) {
             </>
           ) : (
             <>
-              <Text style={{ fontWeight: '700' }}>{action}</Text> <Text style={action === 'deleted' ? { color: c.block } : undefined}>{firstLine(action === 'deleted' ? r.was : r.now).head}</Text>
+              <Text style={{ fontWeight: '700' }}>{action}</Text>{' '}
+              <Text style={action === 'deleted' ? { color: c.block } : undefined}>
+                {firstLine(action === 'deleted' ? r.was : r.now).head}
+              </Text>
             </>
           )
         ) : (
@@ -67,10 +85,17 @@ function Fold({ fold }: { fold: HistoryFold }) {
   const range = fold.from === fold.to ? clockTime(fold.to) : `${clockTime(fold.from)} to ${clockTime(fold.to)}`;
   return (
     <View style={{ gap: space.xs }}>
-      <Pressable testID="history-fold" onPress={() => setOpen(!open)} accessibilityRole="button" accessibilityState={{ expanded: open }} style={{ backgroundColor: c.panel, padding: space.sm }}>
+      <Pressable
+        testID="history-fold"
+        onPress={() => setOpen(!open)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        style={{ backgroundColor: c.panel, padding: space.sm }}
+      >
         <Text style={{ color: c.ink }}>
           {open ? '▾ ' : '▸ '}
-          <Text style={{ fontWeight: '700' }}>{n === 1 ? '1 comment change' : `${n} comment changes`}</Text> by {fold.by.join(', ')} · {range}
+          <Text style={{ fontWeight: '700' }}>{n === 1 ? '1 comment change' : `${n} comment changes`}</Text> by {fold.by.join(', ')} ·{' '}
+          {range}
         </Text>
       </Pressable>
       {open ? fold.rows.map((r, j) => <Change key={j} r={r} shown />) : null}
@@ -88,13 +113,19 @@ export function TaskHistory({ rows }: { rows: HistoryRow[] }) {
     <View testID="task-history" style={{ gap: space.sm }}>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
         {FILTERS.map(([k, word]) => (
-          <Button key={k} testID={`history-filter-${k}`} label={`${word} ${counts[k]}`} kind={filter === k ? 'yes' : 'plain'} onPress={() => setFilter(k)} />
+          <Button
+            key={k}
+            testID={`history-filter-${k}`}
+            label={`${word} ${counts[k]}`}
+            kind={filter === k ? 'yes' : 'plain'}
+            onPress={() => setFilter(k)}
+          />
         ))}
         <Button testID="history-order" label={newest ? 'Newest first' : 'Oldest first'} onPress={() => setNewest(!newest)} />
       </View>
       {days.map((d) => (
         <View key={d.day} style={{ gap: space.sm }}>
-          <Text style={{ color: c.muted, fontSize: font.size.label, fontWeight: '700' }}>{dayLabel(d.day)}</Text>
+          <Text style={{ color: c.muted, fontSize: font.size.sm, fontWeight: '700' }}>{dayLabel(d.day)}</Text>
           {d.items.map((item, i) =>
             item.kind === 'memos' ? (
               <Fold key={`${d.day}-${i}`} fold={item} />

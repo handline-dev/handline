@@ -104,9 +104,9 @@ export function VerbItems(props: { tasks: Task[]; me: string; cans: Cans; onPick
               >
                 {c.label}
                 {many ? (
-                  <span className="muted ml-auto text-hint">{`${c.count} of ${tasks.length}`}</span>
+                  <span className="muted ml-auto text-xs">{`${c.count} of ${tasks.length}`}</span>
                 ) : now(c.verb) ? (
-                  <span className="muted ml-auto pl-3 text-hint">{now(c.verb)}</span>
+                  <span className="muted ml-auto pl-3 text-xs">{now(c.verb)}</span>
                 ) : null}
               </MenuItem>
             ))}

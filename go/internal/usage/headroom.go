@@ -2,7 +2,7 @@ package usage
 
 import "sort"
 
-// The headroom of each account over a span, its 5h and weekly windows apart (stats.headroom): what usage_samples recorded up to now, and
+// The headroom of each account over a span, its 5h and weekly windows apart (stats.outlook draws them): what usage_samples recorded up to now, and
 // a guess after it. The guess keeps each window's pace and starts a window again from nothing at its reset, so the 5h line is a saw.
 
 const (

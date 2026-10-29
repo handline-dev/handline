@@ -51,16 +51,17 @@ describe('State', () => {
 
 describe('the sidebar marks', () => {
   it('every agent state has its own shape, so none is told from another by colour alone (parked is not idle)', async () => {
+    const dots = DOT_ORDER.filter((d) => d !== 'none'); // no terminal is drawn as idle: the design system has no state of its own for it
     await show(
       <>
-        {DOT_ORDER.map((d) => (
+        {dots.map((d) => (
           <Mark key={d} dot={d} />
         ))}
       </>,
     );
-    const shapes = [...box.querySelectorAll('.mark svg[data-icon]')].map((s) => s.getAttribute('data-icon'));
-    expect(shapes).toHaveLength(DOT_ORDER.length);
-    expect(new Set(shapes).size).toBe(DOT_ORDER.length);
+    const shapes = [...box.querySelectorAll('.mark svg')].map((s) => s.getAttribute('class')?.match(/lucide-[a-z-]+/)?.[0]);
+    expect(shapes).toHaveLength(dots.length);
+    expect(new Set(shapes).size).toBe(dots.length);
   });
 });
 

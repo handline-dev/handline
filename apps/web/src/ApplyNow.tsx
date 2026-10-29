@@ -31,7 +31,7 @@ export function ApplyNow({ p, refresh }: { p: Proposal; refresh?: () => void }) 
         Apply now
       </Button>
       {problem ? (
-        <span className="text-bad text-label" role="status">
+        <span className="text-bad text-sm" role="status">
           {problem}
         </span>
       ) : null}

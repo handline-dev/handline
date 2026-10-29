@@ -45,7 +45,7 @@ export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to
   const used = strip?.ctx_used;
   const limit = strip?.ctx_limit;
   return (
-    <div className="chat-strip @container flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-hint text-ink-2">
+    <div className="chat-strip @container flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-xs text-ink-2">
       <ModelMenu detail={detail} />
       <AccountMenu detail={detail} />
       {detail.task ? (
@@ -246,7 +246,7 @@ export function HandoffCard({ detail, items }: { detail: AgentDetail; items: Tra
   const h = detail.handoff;
   if (!h || !restartShown(h, items)) return null;
   return (
-    <div className="card-handoff flex items-center gap-3 text-meta text-primary" data-kind="handoff" data-phase={h.phase} role="status">
+    <div className="card-handoff flex items-center gap-3 text-meta text-acc" data-kind="handoff" data-phase={h.phase} role="status">
       <hr className="m-0 h-px flex-1 border-0 bg-line" />
       <span className="inline-flex items-center gap-1.5">
         <Icon name="refresh" size={14} aria-hidden className="animate-spin motion-reduce:animate-none" />

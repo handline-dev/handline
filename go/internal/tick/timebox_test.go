@@ -108,13 +108,6 @@ func TestATaskThatIsDoingStartsItsClockThenTellsItsOpenerPastTheDeadlineAndRearm
 	}
 }
 
-func report(t *testing.T, tk *Tick, tid int64) {
-	t.Helper()
-	if _, err := tk.Q.Exec("UPDATE tasks SET reporter = 'mgr', reported_at = 1010, report = 'shipped', report_via = 'reason' WHERE id = ?", tid); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestATerminalAgentsTaskIsClockedOnlyAtTheCutover(t *testing.T) {
 	tk, _, b, p := timebox(t)
 	mine := newTask(t, tk, "a", "boss", 100) // "a" is driven here

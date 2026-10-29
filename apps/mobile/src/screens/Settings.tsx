@@ -23,7 +23,7 @@ function Note(props: { error: unknown; pending: boolean; bad?: string | null; te
     <Text
       testID={props.testID}
       accessibilityRole={text ? 'alert' : undefined}
-      style={{ color: text ? c.block : c.muted, fontSize: font.size.label }}
+      style={{ color: text ? c.block : c.muted, fontSize: font.size.sm }}
     >
       {text ?? 'saving…'}
     </Text>
@@ -61,7 +61,7 @@ function Field<T extends number | string>(props: {
   return (
     <View testID={`setting-${props.id}`} style={{ gap: space.xs }}>
       <Text style={{ color: c.ink, fontWeight: '600' }}>{props.label}</Text>
-      <Text style={{ color: c.muted, fontSize: font.size.label }}>{props.hint}</Text>
+      <Text style={{ color: c.muted, fontSize: font.size.sm }}>{props.hint}</Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
         <TextInput
           testID={`${props.id}-input`}
@@ -77,7 +77,7 @@ function Field<T extends number | string>(props: {
             color: c.ink,
             borderWidth: 1,
             borderColor: bad ? c.block : c.line,
-            borderRadius: radius.card,
+            borderRadius: radius.m,
             padding: space.md,
             minHeight: 44,
           }}
@@ -85,7 +85,7 @@ function Field<T extends number | string>(props: {
         {props.unit ? <Text style={{ color: c.muted }}>{props.unit}</Text> : null}
         <Button testID={`${props.id}-save`} label="Save" onPress={commit} disabled={!!why} />
       </View>
-      {why ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{why}</Text> : null}
+      {why ? <Text style={{ color: c.muted, fontSize: font.size.sm }}>{why}</Text> : null}
       <Note testID={`${props.id}-note`} error={save.error} pending={save.isPending} bad={bad} />
     </View>
   );
@@ -172,7 +172,7 @@ function Toggle(props: { id: string; label: string; hint: string; on: boolean; c
       >
         <View style={{ flex: 1 }}>
           <Text style={{ color: c.ink, fontWeight: '600' }}>{props.label}</Text>
-          <Text style={{ color: c.muted, fontSize: font.size.label }}>{props.hint}</Text>
+          <Text style={{ color: c.muted, fontSize: font.size.sm }}>{props.hint}</Text>
         </View>
         <Text style={{ color: props.on ? c.run : c.muted, fontWeight: '700' }}>{props.on ? 'On' : 'Off'}</Text>
       </Pressable>

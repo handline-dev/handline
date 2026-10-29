@@ -67,3 +67,14 @@ func (s *MemStore) Touch(id string, ts int64) error {
 	}
 	return nil
 }
+
+func (s *MemStore) SetPush(id string, p Push) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d, ok := s.byID[id]
+	if ok {
+		d.Push = &p
+		s.byID[id] = d
+	}
+	return ok, nil
+}

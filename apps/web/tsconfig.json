@@ -1,4 +1,4 @@
 {
   "extends": "@handline/config/tsconfig.react.json",
-  "include": ["src", "test", "scripts", "vite.config.ts"]
+  "include": ["src", "test", "scripts", ".storybook", "vite.config.ts"]
 }

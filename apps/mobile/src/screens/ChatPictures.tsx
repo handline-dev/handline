@@ -78,7 +78,7 @@ function Thumb({ a }: { a: Picture }) {
   const line = read.state === 'gone' ? GONE : read.state === 'failed' || bad ? FAILED : null;
   if (line)
     return (
-      <Text testID={`picture-${a.id}`} accessibilityRole="alert" style={{ color: c.muted, fontSize: font.size.label }}>
+      <Text testID={`picture-${a.id}`} accessibilityRole="alert" style={{ color: c.muted, fontSize: font.size.sm }}>
         {a.name}: {line}
       </Text>
     );
@@ -91,10 +91,10 @@ function Thumb({ a }: { a: Picture }) {
             source={{ uri: read.uri }}
             resizeMode="cover"
             onError={() => setBad(true)}
-            style={{ width: 120, height: 120, borderRadius: radius.card }}
+            style={{ width: 120, height: 120, borderRadius: radius.m }}
           />
         ) : (
-          <Text style={{ color: c.muted, fontSize: font.size.label }}>{a.name}</Text>
+          <Text style={{ color: c.muted, fontSize: font.size.sm }}>{a.name}</Text>
         )}
       </Pressable>
       {open && <Full a={a} onClose={() => setOpen(false)} />}

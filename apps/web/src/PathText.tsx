@@ -26,7 +26,7 @@ export function PathText({ text, agent, names, whole }: { text: string; agent?: 
         <button
           key={s.start}
           type="button"
-          className="agent-link cursor-pointer border-0 bg-transparent p-0 font-mono text-link no-underline"
+          className="agent-link cursor-pointer border-0 bg-transparent p-0 font-mono text-acc-ink no-underline"
           title={`Open ${word}`}
           onClick={() => goAgent(word)}
         >
@@ -40,7 +40,7 @@ export function PathText({ text, agent, names, whole }: { text: string; agent?: 
       <button
         key={s.start}
         type="button"
-        className="path cursor-pointer border-0 bg-transparent p-0 font-mono text-link no-underline"
+        className="path cursor-pointer border-0 bg-transparent p-0 font-mono text-acc-ink no-underline"
         title="Open"
         onClick={() =>
           void api!.openPath!({ path: s.path, ...(agent ? { agent } : {}), branches: branchCandidates(whole ?? text) }).then((r) =>

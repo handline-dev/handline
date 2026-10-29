@@ -34,7 +34,7 @@ export function Button({
   const fit = iconOnly ? (size === 'sm' ? 'w-7 p-0' : size === 'md' ? 'w-8 p-0' : 'w-9 p-0') : PAD[size];
   const look =
     variant === 'solid'
-      ? 'bg-primary font-medium text-on-primary active:enabled:brightness-90'
+      ? 'bg-acc font-medium text-on-acc active:enabled:brightness-90'
       : variant === 'outline'
         ? 'bg-panel font-medium tint'
         : 'bg-transparent font-normal tint';
@@ -43,7 +43,7 @@ export function Button({
       {...rest}
       disabled={rest.disabled || busy}
       type={type}
-      className={`ui-btn ${variant === 'outline' ? 'quiet' : variant} ${size}${iconOnly ? ' icon-only' : ''} inline-flex items-center justify-center gap-1.5 ${H[size]} ${fit} rounded-ctl border border-transparent font-sans text-body text-ink whitespace-nowrap ${look}${className ? ` ${className}` : ''}`}
+      className={`ui-btn ${variant === 'outline' ? 'quiet' : variant} ${size}${iconOnly ? ' icon-only' : ''} inline-flex items-center justify-center gap-1.5 ${H[size]} ${fit} rounded-sm border border-transparent font-sans text-md text-ink whitespace-nowrap ${look}${className ? ` ${className}` : ''}`}
       title={rest.title ?? label}
       aria-label={rest['aria-label'] ?? (iconOnly ? label : undefined)}
     >
@@ -57,7 +57,7 @@ export function Button({
         />
       ) : null}
       {children ?? (icon ? null : label)}
-      {keys ? <kbd className="ui-keys ml-1 rounded-[3px] border border-current/30 px-1 font-sans text-hint opacity-70">{keys}</kbd> : null}
+      {keys ? <kbd className="ui-keys ml-1 rounded-[3px] border border-current/30 px-1 font-sans text-xs opacity-70">{keys}</kbd> : null}
     </button>
   );
 }

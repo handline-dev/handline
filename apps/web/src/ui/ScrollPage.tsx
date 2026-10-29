@@ -40,5 +40,5 @@ export function PageHead({ className, back, children, ...rest }: ComponentProps<
 }
 
 export function PageTitle({ className, ...rest }: ComponentProps<'h2'>) {
-  return <h2 {...rest} className={join('m-0 text-page font-semibold text-ink', className)} />;
+  return <h2 {...rest} className={join('m-0 text-xl font-semibold text-ink', className)} />;
 }

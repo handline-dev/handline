@@ -36,7 +36,7 @@ const computed = (token: string): string => getComputedStyle(document.documentEl
 function Swatch({ token }: { token: string }) {
   return (
     <span className="inline-flex w-[7.5rem] flex-col gap-0.5">
-      <span className="h-8 rounded-card border border-line" style={{ background: `var(${token})` }} />
+      <span className="h-8 rounded-md border border-line" style={{ background: `var(${token})` }} />
       <span className="font-mono text-[11px] text-ink-2">{token}</span>
       <span className="font-mono text-[11px] text-ink-3">{computed(token)}</span>
     </span>
@@ -44,17 +44,17 @@ function Swatch({ token }: { token: string }) {
 }
 
 const TYPE: [string, string][] = [
-  ['--t-hint', 'hint: the smallest aside'],
-  ['--t-label', 'label: names and values'],
-  ['--t-body', 'body: the reading size of a message'],
-  ['--t-name', 'name: a medium weight'],
-  ['--t-title', 'title: a card or a pane'],
-  ['--t-page', 'page: the one heading'],
+  ['--t-xs', 'xs: group heads, captions'],
+  ['--t-sm', 'sm: meta, buttons, names and values'],
+  ['--t-md', 'md: the reading size of a message'],
+  ['--t-name', 'name: md in a medium weight'],
+  ['--t-lg', 'lg: a detail or a pane title'],
+  ['--t-xl', 'xl: the one page heading'],
 ];
 
 export function Tokens() {
   const spaces = ['--sp-1', '--sp-2', '--sp-3', '--sp-4', '--sp-5', '--sp-6'];
-  const radii = ['--r-chip', '--r-ctl', '--r-card', '--r-dialog', '--r-pill'];
+  const radii = ['--r-s', '--r-m', '--r-l'];
   return (
     <>
       <Section name="Color · surfaces">
@@ -63,7 +63,7 @@ export function Tokens() {
         ))}
       </Section>
       <Section name="Color · text">
-        {['--ink', '--ink-2', '--ink-3', '--link', '--focus'].map((t) => (
+        {['--ink', '--ink-2', '--ink-3', '--ink-4', '--acc', '--acc-ink', '--acc-wash'].map((t) => (
           <Swatch key={t} token={t} />
         ))}
       </Section>
@@ -88,7 +88,7 @@ export function Tokens() {
         <span className="grid flex-1 gap-1">
           {spaces.map((t) => (
             <span key={t} className="flex items-center gap-2">
-              <span className="h-2 bg-primary" style={{ width: `var(${t})` }} />
+              <span className="h-2 bg-acc" style={{ width: `var(${t})` }} />
               <span className="font-mono text-[11px] text-ink-2">
                 {t} = {computed(t)}
               </span>

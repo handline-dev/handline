@@ -53,7 +53,7 @@ export function Dialog({
                 initialFocus={() => box.current?.querySelector<HTMLElement>('input, textarea, select, button') ?? true}
                 ref={box}
                 render={<motion.div {...open} style={{ overflowY: 'clip' }} />}
-                className={`ui-dialog flex flex-col gap-3 rounded-dialog bg-panel shadow-[var(--shadow-2)] ${
+                className={`ui-dialog flex flex-col gap-3 rounded-lg bg-panel shadow-[var(--shadow)] ${
                   full
                     ? 'h-[calc(100vh_-_var(--sp-2))] w-[calc(100vw_-_var(--sp-2))] p-2'
                     : 'w-[min(var(--w-dialog),calc(100vw_-_2_*_var(--sp-4)))] p-[calc(20px*var(--o,1))]'
@@ -61,7 +61,7 @@ export function Dialog({
                 aria-label={title}
                 aria-modal="true"
               >
-                <Base.Title className={full ? 'sr-only' : 'm-0 text-title font-semibold'}>{title}</Base.Title>
+                <Base.Title className={full ? 'sr-only' : 'm-0 text-lg font-semibold'}>{title}</Base.Title>
                 <div className={`ui-dialog-body flex flex-col gap-3${full ? ' min-h-0 flex-1' : ''}`}>{children}</div>
                 {action ? (
                   <footer className="flex items-center justify-end gap-2">

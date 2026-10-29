@@ -204,7 +204,7 @@ function Body(props: {
       {mark && (
         <Text
           testID="pending-mark"
-          style={{ color: c.muted, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: font.size.label }}
+          style={{ color: c.muted, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: font.size.sm }}
         >
           {mark}
         </Text>
@@ -212,7 +212,7 @@ function Body(props: {
       {note.length > 0 && (
         <Text
           testID="badge-stalled"
-          style={{ color: c.block, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: font.size.label }}
+          style={{ color: c.block, paddingHorizontal: space.md, paddingVertical: space.xs, fontSize: font.size.sm }}
         >
           {note.join(' · ')}
         </Text>

@@ -11,7 +11,7 @@ type Tool = Extract<Entry, { type: 'tool' }>;
 
 function Fold({ head, tone, children }: { head: ReactNode; tone?: 'bad'; children: ReactNode }) {
   return (
-    <details className="tr-fold text-hint text-ink-2 data-[tone=bad]:text-bad" data-tone={tone}>
+    <details className="tr-fold text-xs text-ink-2 data-[tone=bad]:text-bad" data-tone={tone}>
       <summary className="cursor-pointer overflow-hidden text-ellipsis whitespace-nowrap">{head}</summary>
       <pre className="mx-0 mt-1 mb-0 overflow-x-auto bg-panel p-1.5 whitespace-pre-wrap text-ink">{children}</pre>
     </details>
@@ -33,7 +33,7 @@ function ToolCall({ agent, t }: { agent: string; t: Tool }) {
       </Fold>
       {permission?.open ? <PromptCard agent={agent} prompt={permission.prompt} /> : null}
       {answer ? (
-        <div className="tr-note text-hint text-ink-2" data-answer={answer.behavior}>
+        <div className="tr-note text-xs text-ink-2" data-answer={answer.behavior}>
           {answer.behavior === 'allow' ? 'Allowed' : 'Denied'} by {answer.by}
           {answer.message ? `: ${answer.message}` : ''}
         </div>
@@ -57,17 +57,17 @@ function ToolCall({ agent, t }: { agent: string; t: Tool }) {
 function Item({ agent, e }: { agent: string; e: Entry }) {
   switch (e.type) {
     case 'text':
-      return <p className="tr-text m-0 whitespace-pre-wrap text-body">{e.text}</p>;
+      return <p className="tr-text m-0 whitespace-pre-wrap text-md">{e.text}</p>;
     case 'tool':
       return <ToolCall agent={agent} t={e} />;
     case 'error':
       return (
-        <div className="tr-error text-body text-bad" role="alert">
+        <div className="tr-error text-md text-bad" role="alert">
           {e.code}: {e.text}
         </div>
       );
     case 'gap':
-      return <div className="tr-note text-hint text-ink-2">Earlier events are no longer kept</div>;
+      return <div className="tr-note text-xs text-ink-2">Earlier events are no longer kept</div>;
   }
 }
 
@@ -76,15 +76,15 @@ function TurnView({ agent, turn }: { agent: string; turn: Turn }) {
   return (
     <section className="tr-turn flex flex-col gap-1" data-turn={turn.id ?? ''} data-running={turn.running || undefined}>
       {message ? (
-        <div className="tr-said rounded-ctl bg-panel px-2 py-1.5 text-body text-ink">
-          <span className="text-hint text-ink-2">{message.from ?? 'someone'}</span> {message.text}
+        <div className="tr-said rounded-sm bg-panel px-2 py-1.5 text-md text-ink">
+          <span className="text-xs text-ink-2">{message.from ?? 'someone'}</span> {message.text}
         </div>
       ) : null}
       {turn.entries.map((e) => (
         <Item key={`${e.type}-${e.seq}`} agent={agent} e={e} />
       ))}
       {end ? (
-        <div className="tr-end text-hint text-ink-2" data-reason={end.reason}>
+        <div className="tr-end text-xs text-ink-2" data-reason={end.reason}>
           {end.reason} · ${end.cost_usd.toFixed(2)} · {(end.duration_ms / 1000).toFixed(1)} s
         </div>
       ) : null}
@@ -156,7 +156,7 @@ export function TranscriptView({ agent, t }: { agent: string; t: Transcript }) {
       </div>
       {atEnd ? null : (
         <button
-          className="tr-newest absolute right-2 bottom-2 cursor-pointer rounded-pill border border-line bg-panel px-2 py-1 text-hint text-ink"
+          className="tr-newest absolute right-2 bottom-2 cursor-pointer rounded-full border border-line bg-panel px-2 py-1 text-xs text-ink"
           onClick={() => {
             follow.current = true;
             toEnd();

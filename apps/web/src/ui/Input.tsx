@@ -3,8 +3,8 @@ import type { ComponentProps } from 'react';
 import { registerComposer } from '#src/ui/composers.ts';
 
 const join = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
-const FIELD = 'rounded-ctl border border-line bg-panel text-ink';
-const BAR = 'h-8 rounded-ctl border border-line bg-panel px-2 text-body text-ink';
+const FIELD = 'rounded-sm border border-line bg-panel text-ink';
+const BAR = 'h-8 rounded-sm border border-line bg-panel px-2 text-md text-ink';
 
 /** `grow` takes the free width of its row (min 10 rem); `dense` is the tighter padding of an inline answer. */
 type Fit = { grow?: boolean; dense?: boolean };
@@ -34,7 +34,7 @@ export function ComposeRow({ className, ...rest }: ComponentProps<'div'>) {
     <div
       {...rest}
       ref={registerComposer}
-      className={join('compose-row relative mx-3 mb-3 flex items-end gap-1.5 rounded-dialog bg-surface px-2 py-1.5', className)}
+      className={join('compose-row relative mx-3 mb-3 flex items-end gap-1.5 rounded-lg bg-surface px-2 py-1.5', className)}
     />
   );
 }

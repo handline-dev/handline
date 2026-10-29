@@ -274,3 +274,37 @@ func TestOutlookOverlayValuesByNumber(t *testing.T) {
 		}
 	}
 }
+
+// stats.get's use is a row per agent and account: a's 20 points split 3:1 by cost, b's 10 all grp.one's; calls of no agent's worktree are
+// agent "", and an account with no reading says null, not 0.
+func TestStatsUseSplitsEachAccountsRiseByCostPerAgentAndAccount(t *testing.T) {
+	e, clock := outlookWithUse(t)
+	now := clock.Unix()
+	call := func(acct, cwd string, tokens int) {
+		run(t, e, `INSERT INTO token_calls(account, session, req, ts, model, cwd, side, inp, cc, cr, out, thinking)
+			VALUES(?, 's', ?, ?, 'claude-sonnet-5', ?, 0, ?, 0, 0, 0, 0)`, acct, acct+cwd+"x", now-60, cwd, tokens)
+	}
+	call("b", "/nowhere", 1_000_000) // b: grp.one $2 and no agent $2 of $4
+	call("c", "/w/two", 1_000_000)   // c has calls and no reading
+	got, err := e.statsUse(now-86400, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type key struct{ agent, acct string }
+	rows := map[key]map[string]any{}
+	for _, r := range got {
+		m := r.(map[string]any)
+		rows[key{m["agent"].(string), m["account"].(string)}] = m
+	}
+	week := func(agent, acct string) any { return rows[key{agent, acct}]["week_pct"] }
+	if len(rows) != 5 || week("grp.one", "a") != 15.0 || week("grp.two", "a") != 5.0 || week("grp.one", "b") != 5.0 || week("", "b") != 5.0 || week("grp.two", "c") != nil {
+		t.Fatalf("%v", got)
+	}
+	one := rows[key{"grp.one", "a"}]
+	if one["share"] != 0.75 || one["tokens"] != int64(3_000_000) || one["cost"] != 6.0 {
+		t.Fatalf("%v", one)
+	}
+	if got[0].(map[string]any)["cost"].(float64) < got[len(got)-1].(map[string]any)["cost"].(float64) {
+		t.Fatalf("largest cost first: %v", got)
+	}
+}

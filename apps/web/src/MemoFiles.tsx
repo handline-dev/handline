@@ -31,7 +31,7 @@ function MarkdownFile({ id, name, pictures }: { id: string; name: string; pictur
     if (editor && read.state === 'ready') editor.commands.setContent(forEditor(md), { contentType: 'markdown' });
   }, [editor, read.state, md]);
   return (
-    <section className="rounded-ctl border border-line bg-panel px-2 py-1.5" aria-label={name}>
+    <section className="rounded-sm border border-line bg-panel px-2 py-1.5" aria-label={name}>
       <h4 className="m-0 mb-1 font-mono text-[12px] font-normal text-ink-3">{name}</h4>
       {read.state === 'gone' || read.state === 'failed' ? (
         <p className="muted m-0">{read.state === 'gone' ? 'This file is no longer kept.' : 'Could not read this file.'}</p>

@@ -16,11 +16,11 @@ export function DoneRow({ p, open, onToggle, children }: { p: Proposal; open: bo
       <button
         type="button"
         aria-expanded={open}
-        className="flex w-full cursor-pointer items-center gap-2 rounded-card border border-line bg-surface px-3 py-1.5 text-left text-body"
+        className="flex w-full cursor-pointer items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-left text-md"
         onClick={onToggle}
       >
         <Icon name={DONE_ICON[p.state] ?? 'idle'} size={14} label={word} />
-        {kindOf(p) ? <span className="hr-kind rounded-chip border border-line px-1.5 text-label text-ink-2">{kindOf(p)}</span> : null}
+        {kindOf(p) ? <span className="hr-kind rounded-sm border border-line px-1.5 text-sm text-ink-2">{kindOf(p)}</span> : null}
         <span className="min-w-0 flex-1 truncate">{textSafe(p.title)}</span>
         <span className="muted truncate">{textSafe(p.agent)}</span>
         <span className="muted tabular-nums">{dateTime(p.settled ?? p.created)}</span>

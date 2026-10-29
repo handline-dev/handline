@@ -1,7 +1,6 @@
 package compose
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -379,14 +378,6 @@ func TestTheDiskWatchEntryRaisesOneCardFromTheTaskBoard(t *testing.T) {
 	if told() != 1 {
 		t.Fatalf("a second check at the same level told again: %d", told())
 	}
-}
-
-func stateOf(view string) string {
-	var v struct {
-		State string `json:"state"`
-	}
-	json.Unmarshal([]byte(view), &v)
-	return v.State
 }
 
 func TestTheNoticeSweepsRunInTheGoTickOnlyFromTheCutover(t *testing.T) {

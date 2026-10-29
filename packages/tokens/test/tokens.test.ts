@@ -1,7 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ansi, breakpointOf, breakpoints, colors, scheme, space, tokensCss, typeScale, typeSteps } from '#src/index.ts';
+import {
+  ansi,
+  breakpointOf,
+  breakpoints,
+  colors,
+  gutter,
+  height,
+  radius,
+  scheme,
+  space,
+  tokensCss,
+  typeScale,
+  typeSteps,
+} from '#src/index.ts';
 
 test('widths fall in phone, tablet or PC at the documented edges', () => {
   assert.deepEqual([375, 639, 640, 768, 1023, 1024, 1280].map(breakpointOf), ['phone', 'phone', 'tablet', 'tablet', 'tablet', 'pc', 'pc']);
@@ -12,13 +25,16 @@ test('both schemes define every token, and the mobile palette is read from them'
   assert.deepEqual(Object.keys(colors.dark).sort(), Object.keys(colors.light).sort());
   assert.equal(colors.dark.bg, scheme.dark.surface[0]);
   assert.equal(colors.light.accent, scheme.light.accent);
+  assert.equal(colors.dark.wait, scheme.dark.wait);
 });
 
-test('four surfaces, six type steps on both scales, space on a 4 px grid, 16 terminal colours', () => {
+test('four surfaces, five type steps, space on a 4 px grid, three heights and radii, 16 terminal colours', () => {
   assert.equal(scheme.dark.surface.length, 4);
-  assert.deepEqual(typeSteps.length, 6);
-  for (const s of typeSteps) assert.ok(typeScale.pc[s].size > 0 && typeScale.phone[s].size > 0);
-  for (const v of Object.values(space)) assert.equal(v % 4, 0);
+  assert.deepEqual(typeSteps.length, 5);
+  for (const s of typeSteps) assert.ok(typeScale[s].size > 0);
+  for (const v of [...Object.values(space), ...Object.values(gutter)]) assert.equal(v % 4, 0);
+  assert.equal(Object.keys(height).length, 3);
+  assert.equal(Object.keys(radius).length, 3);
   assert.equal(ansi.length, 16);
 });
 

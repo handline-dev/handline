@@ -15,7 +15,7 @@ export function AgentFile({ agent, initial = '' }: { agent: string; initial?: st
   const { q, served, saving, draft, setDraft, note, submit, edit, discard, editable } = useFileEditor(agent, path);
   const d = q.data;
   const open = () => setPath(typed.trim().replace(/^\.?\//, ''));
-  const field = { color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 44 } as const;
+  const field = { color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, padding: space.md, minHeight: 44 } as const;
   return (
     <View testID="file-tab" style={{ flex: 1 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.md }}>
@@ -55,10 +55,23 @@ export function AgentFile({ agent, initial = '' }: { agent: string; initial?: st
         <Loadable query={q} served={served} skeleton="tasks" label="the file" empty="The file is empty.">
           {d &&
             (draft !== null ? (
-              <TextInput testID="file-text" accessibilityLabel="File text" multiline value={draft} onChangeText={setDraft} autoCapitalize="none" autoCorrect={false} style={{ ...field, flex: 1, margin: space.md, fontFamily: 'Menlo', fontSize: font.size.label, textAlignVertical: 'top' }} />
+              <TextInput
+                testID="file-text"
+                accessibilityLabel="File text"
+                multiline
+                value={draft}
+                onChangeText={setDraft}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={{ ...field, flex: 1, margin: space.md, fontFamily: 'Menlo', fontSize: font.size.sm, textAlignVertical: 'top' }}
+              />
             ) : (
               <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: space.md }}>
-                {/\.md$/i.test(path) ? <Markdown text={d.text} /> : <Text style={{ color: c.ink, fontFamily: 'Menlo', fontSize: font.size.label }}>{shown(path, d.text)}</Text>}
+                {/\.md$/i.test(path) ? (
+                  <Markdown text={d.text} />
+                ) : (
+                  <Text style={{ color: c.ink, fontFamily: 'Menlo', fontSize: font.size.sm }}>{shown(path, d.text)}</Text>
+                )}
                 {d.truncated && <Text style={{ color: c.muted }}>The file is cut here (over 1 MiB); it cannot be edited.</Text>}
               </ScrollView>
             ))}

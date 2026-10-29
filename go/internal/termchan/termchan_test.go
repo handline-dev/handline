@@ -61,11 +61,6 @@ func (h *fakeHost) SendBytes(_ string, b []byte) (bool, string) {
 }
 func (h *fakeHost) ServesBytes() bool        { return true }
 func (h *fakeHost) ControlCommand() []string { return nil }
-func (h *fakeHost) set(rows ...string) {
-	h.mu.Lock()
-	h.rows = rows
-	h.mu.Unlock()
-}
 
 type inbox struct {
 	mu   sync.Mutex

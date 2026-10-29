@@ -16,20 +16,12 @@ import (
 	"github.com/handline/handline/go/internal/hlclient"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/paths"
-	"github.com/handline/handline/go/internal/protected"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/usage"
 	_ "modernc.org/sqlite"
 )
-
-// goSwitchOn is whether the founder switched a part of the Go hl on (`hl go <hook|launch> on`): only an entry that reads
-// "on" does, so a store that cannot be read leaves that part to Python.
-func goSwitchOn(home, name string) bool {
-	v, _ := protected.New(home).Get("switches", name)
-	return strings.TrimSpace(v) == "on"
-}
 
 // captured are the hook events recorded as they come (events.CAPTURED, without TeammateIdle, which is no longer kept). Notification is
 // installed for permission_prompt only, and the daemon raises the needs-you card from it (-notification-needs-you).
@@ -179,8 +171,11 @@ func capture(c *hlclient.Client, d *sql.DB, agent, event string, raw map[string]
 	return 0
 }
 
-// founderNudge is the Stop hook's output: a block, once per message, when a founder's message typed in this turn has no answer
-// (session.UnansweredFounder), else {}. A Stop the hook already held (stop_hook_active) and any error pass.
+// founderNudge is the Stop hook's output: feedback that keeps the turn going, once per message, when a founder's message typed in this
+// turn has no answer (session.UnansweredFounder), else {}. Feedback, not a block, so the terminal shows no hook error. A Stop the hook
+// already held (stop_hook_active) and any error pass. A Stop that only pauses until its own background work or wakeup brings the session
+// back (pausedForOwnWork) puts the nudge off once per message, so the Stop after it nudges whatever its lists hold: a recurring cron or a
+// monitor is listed on every Stop.
 func founderNudge(env *session.Env, agent string, raw map[string]any) (out string) {
 	defer func() {
 		if recover() != nil {
@@ -194,8 +189,22 @@ func founderNudge(env *session.Env, agent string, raw map[string]any) (out strin
 	if err != nil || rid == 0 {
 		return "{}"
 	}
+	if pausedForOwnWork(raw) {
+		if first, err := env.NoteFounderDeferred(agent, rid); err != nil || first {
+			return "{}"
+		}
+	}
 	if first, err := env.NoteFounderNudged(agent, rid); err != nil || !first {
 		return "{}"
 	}
-	return rpc.PyJSON(map[string]any{"decision": "block", "reason": session.FounderNudgeText(db.MsgName(env.DB, rid))}, true, true)
+	return rpc.PyJSON(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "Stop",
+		"additionalContext": session.FounderNudgeText(db.MsgName(env.DB, rid))}}, true, true)
+}
+
+// pausedForOwnWork: the Stop input lists a background task still in flight or a session wakeup still scheduled, so the turn ends only
+// until that brings the session back. Claude Code leaves both lists out where its task registry cannot be read.
+func pausedForOwnWork(raw map[string]any) bool {
+	tasks, _ := raw["background_tasks"].([]any)
+	crons, _ := raw["session_crons"].([]any)
+	return len(tasks) > 0 || len(crons) > 0
 }

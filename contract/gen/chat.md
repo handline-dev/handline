@@ -125,7 +125,7 @@ The founder's saved answers: trusted folders and dialog rules (Home settings). A
 
 ### `answer.add`
 
-Save a standing answer: a folder to trust, or a dialog rule (vendor, title and label). Blank fields add nothing; a half-filled rule is refused. Founder because the dialog-rule store and trust are the founder's alone: an agent that could write them could answer its own dialogs. A dialog rule (vendor, title, label) is retired in a daemon that answers no dialog (x-dialogs): refused, gate unsupported, nothing saved; a folder is saved as before.
+Save a standing answer: a folder to trust, or a dialog rule (vendor, title and label). Blank fields add nothing; a half-filled rule is refused. Founder because the dialog-rule store and trust are the founder's alone: an agent that could write them could answer its own dialogs. A dialog rule (vendor, title, label) is refused, gate unsupported, and nothing is saved, because the daemon answers no dialog (x-dialogs); a folder is saved.
 
 ### `answer.remove`
 

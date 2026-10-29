@@ -165,7 +165,7 @@ export function Compose(props: {
       {/* The reply bar's row is always this tall, so picking a message never shifts the stream to make room. */}
       <div className="mx-3 mb-1 flex h-[26px] items-center">
         {target ? (
-          <div className="compose-ref flex min-w-0 flex-1 items-center gap-1.5 rounded-chip bg-panel px-2 py-1 text-[12px]" role="status">
+          <div className="compose-ref flex min-w-0 flex-1 items-center gap-1.5 rounded-sm bg-panel px-2 py-1 text-[12px]" role="status">
             <Icon name="reference" size={14} label={`Replying to #${target.id}`} />
             <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>
             <button className="icon" aria-label="Drop the reply" title="Drop the reply (Esc)" onClick={onClear}>
@@ -173,7 +173,7 @@ export function Compose(props: {
             </button>
           </div>
         ) : item ? (
-          <div className="compose-ref flex min-w-0 flex-1 items-center gap-1.5 rounded-chip bg-panel px-2 py-1 text-[12px]" role="status">
+          <div className="compose-ref flex min-w-0 flex-1 items-center gap-1.5 rounded-sm bg-panel px-2 py-1 text-[12px]" role="status">
             <Icon name="reference" size={14} label="Replying to the agent's reply" />
             <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
               {(item.text ?? '').replace(/\s+/g, ' ')}
@@ -186,7 +186,7 @@ export function Compose(props: {
       </div>
       <AnimatedList>{verb && view ? <VerbSheet key="VerbSheet" a={view} verb={verb} onClose={() => setVerb(null)} /> : null}</AnimatedList>
       {refused ? (
-        <p role="status" className="mx-3 flex items-center gap-2 px-1 pb-1 text-label text-bad">
+        <p role="status" className="mx-3 flex items-center gap-2 px-1 pb-1 text-sm text-bad">
           <Icon name="warn" size={14} aria-hidden /> {refused}
         </p>
       ) : null}
@@ -198,13 +198,11 @@ export function Compose(props: {
         onRetry={att.retry}
         onUnref={att.unrefer}
       />
-      <ComposeRow className={cmd ? '[--focus:var(--cmd)]' : undefined}>
-        {cmd ? (
-          <span className="compose-cmd absolute bottom-full left-3 mb-0.5 text-hint text-ink-2">Sent as typed to the agent</span>
-        ) : null}
+      <ComposeRow className={cmd ? '[--acc:var(--cmd)]' : undefined}>
+        {cmd ? <span className="compose-cmd absolute bottom-full left-3 mb-0.5 text-xs text-ink-2">Sent as typed to the agent</span> : null}
         {menu ? (
           <ul
-            className="compose-menu absolute inset-x-0 bottom-full z-10 m-0 mb-1 max-h-60 list-none overflow-auto rounded-card border border-line-strong bg-panel px-0 py-1 shadow-[var(--shadow-2)]"
+            className="compose-menu absolute inset-x-0 bottom-full z-10 m-0 mb-1 max-h-60 list-none overflow-auto rounded-md border border-line-strong bg-panel px-0 py-1 shadow-[var(--shadow)]"
             role="listbox"
             aria-label={open!.kind === 'slash' ? 'Verbs' : open!.kind === 'hash' ? 'References' : 'History'}
           >
@@ -253,7 +251,7 @@ export function Compose(props: {
           </label>
         ) : null}
         <Button
-          className={`compose-send self-center rounded-pill${cmd ? ' !bg-[var(--cmd)]' : ''}`}
+          className={`compose-send self-center rounded-full${cmd ? ' !bg-[var(--cmd)]' : ''}`}
           variant="solid"
           icon="send"
           label="Send"

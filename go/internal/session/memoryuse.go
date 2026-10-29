@@ -39,25 +39,6 @@ func memoryRel(home, agent string, input map[string]any) (string, bool) {
 	return target[len(root)+1:], true
 }
 
-// truthy is Python's bool() of a JSON value.
-func truthy(v any) bool {
-	switch x := v.(type) {
-	case nil:
-		return false
-	case bool:
-		return x
-	case float64:
-		return x != 0
-	case string:
-		return x != ""
-	case []any:
-		return len(x) > 0
-	case map[string]any:
-		return len(x) > 0
-	}
-	return true
-}
-
 // renoteS is how recently a noted memory file is not noted again: a day's granularity is all the stale rule needs.
 const renoteS = 24 * 3600
 

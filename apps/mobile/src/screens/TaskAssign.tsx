@@ -44,7 +44,7 @@ export function AssignTask({ t, onClose }: { t: TaskDetail; onClose: () => void 
         onChangeText={setFind}
         autoCapitalize="none"
         autoCorrect={false}
-        style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 44 }}
+        style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, padding: space.md, minHeight: 44 }}
       />
       {names.map((n) => (
         <Pressable
@@ -63,12 +63,12 @@ export function AssignTask({ t, onClose }: { t: TaskDetail; onClose: () => void 
           <Text numberOfLines={1} style={{ color: c.ink, flexShrink: 1 }}>
             {n === me ? 'Me' : n}
           </Text>
-          {n === t.to ? <Text style={{ color: c.muted, fontSize: font.size.hint }}>now</Text> : null}
+          {n === t.to ? <Text style={{ color: c.muted, fontSize: font.size.xs }}>now</Text> : null}
         </Pressable>
       ))}
       {!names.length ? <Text style={{ color: c.muted }}>{q ? 'No one matches.' : 'There is no one else to assign it to.'}</Text> : null}
       {!q && everyone.length > names.length ? (
-        <Text style={{ color: c.muted, fontSize: font.size.hint }}>{`Type to find more · ${everyone.length} in all`}</Text>
+        <Text style={{ color: c.muted, fontSize: font.size.xs }}>{`Type to find more · ${everyone.length} in all`}</Text>
       ) : null}
       {error ? (
         <Text testID="sheet-error" accessibilityRole="alert" style={{ color: c.block }}>

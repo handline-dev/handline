@@ -45,4 +45,5 @@ const views = [
     },
   },
 ];
-export default [...react(import.meta.dirname), compilerDebt, ...views, ...test];
+// .storybook is two config files, checked by tsc; the project service does not reach a dot folder.
+export default [{ ignores: ['.storybook/**'] }, ...react(import.meta.dirname), compilerDebt, ...views, ...test];

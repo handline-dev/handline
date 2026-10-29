@@ -49,7 +49,7 @@ export function AttachmentImage({
         onClick={() => setOpen(true)}
       >
         {small.url ? (
-          <img src={small.url} alt={label} className={`rounded-chip object-cover ${thumb ? 'h-11 w-16' : 'max-h-40 max-w-full'}`} />
+          <img src={small.url} alt={label} className={`rounded-sm object-cover ${thumb ? 'h-11 w-16' : 'max-h-40 max-w-full'}`} />
         ) : (
           <span className="muted text-[12px]">{label}</span>
         )}

@@ -51,7 +51,7 @@ export function StateChip({ account, now }: { account: Account; now: number }) {
     <span className="acct-state-wrap inline-flex whitespace-nowrap items-center gap-1.5">
       <Icon name={STATE_ICON[state]} size={14} label={STATE_WORD[state]} />
       <span
-        className={`badge acct-state ${state} mr-1.5 inline-block rounded-card border border-line px-1.5 text-hint text-ink-2 ${STATE_TONE}`}
+        className={`badge acct-state ${state} mr-1.5 inline-block rounded-md border border-line px-1.5 text-xs text-ink-2 ${STATE_TONE}`}
         data-state={state}
       >
         {state === 'out' && until ? `out until ${span(Date.parse(until) - now)} from now` : STATE_WORD[state]}
@@ -67,7 +67,7 @@ function PaceLine({ account, short = false }: { account: Account; short?: boolea
   const line = paceLine(account);
   const text = short ? paceLine(account, true) : line;
   return line ? (
-    <span className={`acct-pace text-label text-ink-2${short ? ' truncate' : ''}`} title={line}>
+    <span className={`acct-pace text-sm text-ink-2${short ? ' truncate' : ''}`} title={line}>
       {text}
     </span>
   ) : null;
@@ -77,7 +77,7 @@ function PaceLine({ account, short = false }: { account: Account; short?: boolea
 export function UsageLine({ account }: { account: Account }) {
   const week = account.weekly?.resets_at;
   return (
-    <span className="acct-usage col-span-full text-hint muted" data-usage={account.name}>
+    <span className="acct-usage col-span-full text-xs muted" data-usage={account.name}>
       {[LOGIN_WORD[account.login_state], account.plan, week ? `week resets ${dateTime(week)}` : null].filter(Boolean).join(' · ')}
       {account.assignable === undefined ? null : account.assignable ? (
         <span className="acct-assign"> · can take another agent</span>
@@ -95,10 +95,10 @@ export function Stall({ account }: { account: Account }) {
   const wake = useWrite('account.wake', account.name);
   if (!account.stalled && !wake.error) return null;
   return (
-    <span className="acct-stall flex flex-wrap items-center gap-2 text-hint" data-stall={account.name}>
+    <span className="acct-stall flex flex-wrap items-center gap-2 text-xs" data-stall={account.name}>
       {account.stalled ? (
         <>
-          <span className="badge stalled inline-block rounded-card border border-bad px-1.5 text-bad">blocked</span>
+          <span className="badge stalled inline-block rounded-md border border-bad px-1.5 text-bad">blocked</span>
           <span className="acct-stall-reason" title={[account.stalled.error, account.stalled.detail].filter(Boolean).join(': ')}>
             {stallWord(account.stalled)}
           </span>
@@ -138,7 +138,7 @@ export function UsageRow({ account, now }: { account: Account; now: number }) {
           <PaceLine account={account} short />
         </span>
         <span
-          className="acct-agents inline-flex whitespace-nowrap items-center gap-1 font-mono text-label text-ink-2"
+          className="acct-agents inline-flex whitespace-nowrap items-center gap-1 font-mono text-sm text-ink-2"
           title="Agents working on it now, and the most it takes at once"
         >
           <Icon name="agent" size={14} label="Agents" />
@@ -284,7 +284,7 @@ function AccountPageOne({ account, now }: { account: Account; now: number }) {
               const v = agents.find((x) => x.name === n);
               return (
                 <li key={n}>
-                  <button className="nav rounded-ctl border-0 bg-transparent px-2 py-[5px]" onClick={() => goAgent(n)}>
+                  <button className="nav rounded-sm border-0 bg-transparent px-2 py-[5px]" onClick={() => goAgent(n)}>
                     {n}
                   </button>
                   <span className="muted"> {v ? v.state : ''}</span>

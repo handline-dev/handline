@@ -63,14 +63,14 @@ export function Popup({
       {open ? (
         <motion.div
           {...grow}
-          className={`ui-popup ${end ? 'right' : 'left'}${top ? ' up' : ''} absolute z-20 mt-1 min-w-[220px] rounded-card bg-panel pb-[calc(4px*var(--o,1))] shadow-[var(--shadow-2)]${end ? ' right-0' : ''}${top ? ' bottom-full mb-1' : ''}`}
+          className={`ui-popup ${end ? 'right' : 'left'}${top ? ' up' : ''} absolute z-20 mt-1 min-w-[220px] rounded-md bg-panel pb-[calc(4px*var(--o,1))] shadow-[var(--shadow)]${end ? ' right-0' : ''}${top ? ' bottom-full mb-1' : ''}`}
           role="dialog"
           aria-label={title}
           ref={box}
           style={{ overflowY: placed?.tight ? 'auto' : 'clip', maxHeight: placed?.tight ? placed.maxHeight : undefined }}
         >
           {bare ? null : (
-            <header className="flex items-center justify-between border-b border-line px-2 py-1.5 font-sans text-body font-medium">
+            <header className="flex items-center justify-between border-b border-line px-2 py-1.5 font-sans text-md font-medium">
               <strong>{title}</strong>
               {onRefresh ? <Button icon="refresh" label="Refresh" size="sm" onClick={onRefresh} /> : null}
             </header>
@@ -85,7 +85,7 @@ export function Popup({
 /** One row of a popup or menu; Sidebar's ⋯ rows and the palette's list ride the same look. */
 export const PROW = 'ui-prow flex h-7 w-full items-center gap-2 border-0 bg-transparent px-2 text-left text-ink tint';
 export const PROW_NAME = 'ui-prow-name flex-1';
-export const PROW_HINT = 'ui-prow-hint text-hint text-ink-3';
+export const PROW_HINT = 'ui-prow-hint text-xs text-ink-3';
 
 export function PopupRow({
   icon,

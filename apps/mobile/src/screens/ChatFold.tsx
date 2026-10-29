@@ -65,8 +65,8 @@ export function FoldLine(props: { f: TaskFold; folds: Folds; line: (i: TaskFold[
       >
         <Icon name={open ? 'less' : 'more'} decorative size={14} color={c.ink} />
         <Text style={{ color: c.ink, fontWeight: '600' }}>{parts.join(' · ')}</Text>
-        <Text style={{ color: c.muted, fontSize: font.size.hint }}>{range}</Text>
-        {!open && fresh > 0 ? <Text style={{ color: c.accent, fontSize: font.size.hint, fontWeight: '700' }}>{fresh} new</Text> : null}
+        <Text style={{ color: c.muted, fontSize: font.size.xs }}>{range}</Text>
+        {!open && fresh > 0 ? <Text style={{ color: c.accent, fontSize: font.size.xs, fontWeight: '700' }}>{fresh} new</Text> : null}
       </Pressable>
       {open && f.rows.map((r) => <View key={r.id}>{props.line(r.item)}</View>)}
     </View>

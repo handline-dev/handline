@@ -41,7 +41,7 @@ export function Input(props: {
           color: c.ink,
           borderWidth: 1,
           borderColor: props.invalid ? c.block : c.line,
-          borderRadius: radius.card,
+          borderRadius: radius.m,
           padding: space.md,
           minHeight: props.multiline ? 72 : 44,
         }}
@@ -293,7 +293,7 @@ export function TaskVerbs({ t }: { t: TaskDetail }) {
         </MenuSheet>
       )}
       {Object.values(off).some(Boolean) && (
-        <Text style={{ color: c.muted, fontSize: font.size.label }}>{Object.values(off).find(Boolean)}</Text>
+        <Text style={{ color: c.muted, fontSize: font.size.sm }}>{Object.values(off).find(Boolean)}</Text>
       )}
       {reason && <ReasonSheet {...reason} onCancel={() => setAsk(null)} onSubmit={(text) => settle(reason.send(text))} />}
       {ask === 'withdraw' && (

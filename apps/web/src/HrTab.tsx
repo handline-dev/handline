@@ -177,7 +177,7 @@ export function HrTab({ focus }: { focus: number | null }) {
               </SheetActions>
             </Sheet>
           ) : results ? (
-            <div key="results" className="flex flex-col gap-1 py-2 text-label" role="status" aria-label="Result">
+            <div key="results" className="flex flex-col gap-1 py-2 text-sm" role="status" aria-label="Result">
               <strong>
                 {results.rows.filter((r) => r.ok).length} of {results.rows.length} {results.verb}
               </strong>
@@ -268,16 +268,16 @@ function Card({
   };
   return (
     <article
-      className={`hr-card mb-3 flex flex-col gap-2 rounded-card border border-line bg-surface p-3${focus ? ' focus outline-2 outline-focus' : ''}`}
+      className={`hr-card mb-3 flex flex-col gap-2 rounded-md border border-line bg-surface p-3${focus ? ' focus outline-2 outline-acc' : ''}`}
       data-proposal={p.id}
       ref={el}
     >
       <header className="hr-top flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-        <span className="hr-title inline-flex min-w-0 items-center gap-1.5 text-title font-semibold [overflow-wrap:anywhere]">
+        <span className="hr-title inline-flex min-w-0 items-center gap-1.5 text-lg font-semibold [overflow-wrap:anywhere]">
           {decider && waiting && pick ? <Check aria-label={`Select ${textSafe(p.title)}`} checked={!!on} onChange={pick} /> : null}
           <Icon name="team" size={16} aria-hidden="true" /> {textSafe(p.title)}
         </span>
-        <span className={`hr-state ${state.tone} inline-flex items-center gap-1.5 text-label text-ink-2`}>
+        <span className={`hr-state ${state.tone} inline-flex items-center gap-1.5 text-sm text-ink-2`}>
           <State kind={STATE_KIND[p.state] ?? 'idle'} label={state.word} />
           {state.word}
         </span>
@@ -299,7 +299,7 @@ function Card({
         <MetaItem title="Raised">
           <Icon name="schedules" size={14} label="Raised" /> {dateTime(p.created)}
         </MetaItem>
-        {kindOf(p) ? <MetaItem className="hr-kind rounded-chip border border-line px-1.5">{kindOf(p)}</MetaItem> : null}
+        {kindOf(p) ? <MetaItem className="hr-kind rounded-sm border border-line px-1.5">{kindOf(p)}</MetaItem> : null}
       </MetaLine>
       {askedLines(p).map(([k, v]) => (
         <KeyValueRow key={k}>

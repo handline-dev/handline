@@ -83,7 +83,7 @@ function NewerPill({ count, onClick }: { count: number; onClick: () => void }) {
     // CHAT stretches every direct child to full width, so the row spans it and only the pill takes clicks.
     <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
       <button
-        className="newer pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-2)]"
+        className="newer pointer-events-auto inline-flex items-center gap-1 rounded-full bg-panel px-3 py-1 text-sm shadow-[var(--shadow)]"
         onClick={onClick}
       >
         {count} new {count === 1 ? 'message' : 'messages'}
@@ -98,7 +98,7 @@ function LatestPill({ onClick }: { onClick: () => void }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
       <button
-        className="latest pointer-events-auto inline-flex items-center gap-1 rounded-pill bg-panel px-3 py-1 text-label shadow-[var(--shadow-2)]"
+        className="latest pointer-events-auto inline-flex items-center gap-1 rounded-full bg-panel px-3 py-1 text-sm shadow-[var(--shadow)]"
         onClick={onClick}
       >
         Back to latest
@@ -140,7 +140,7 @@ function ReadMarks({ agent, chat, stream }: { agent: string; chat: Chat; stream:
 const UnreadDivider = () => (
   <div
     role="separator"
-    className="unread-divider my-1 flex items-center gap-2 text-label text-link before:flex-1 after:flex-1 before:border-t after:border-t before:border-link after:border-link before:content-[''] after:content-['']"
+    className="unread-divider my-1 flex items-center gap-2 text-sm text-acc-ink before:flex-1 after:flex-1 before:border-t after:border-t before:border-acc-ink after:border-acc-ink before:content-[''] after:content-['']"
   >
     Unread from here
   </div>
@@ -344,7 +344,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                         <div
                           key={`day ${day}`}
                           role="separator"
-                          className="mt-3 mb-0.5 flex items-center gap-2 text-label text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
+                          className="mt-3 mb-0.5 flex items-center gap-2 text-sm text-ink-2 before:flex-1 after:flex-1 before:border-t after:border-t before:border-line after:border-line before:content-[''] after:content-['']"
                         >
                           {day}
                         </div>,

@@ -26,10 +26,10 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
     setAsking(null);
     removeNow(s.id);
   };
-  const input = { color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 44 };
+  const input = { color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, padding: space.md, minHeight: 44 };
   return (
     <View testID="schedules" style={{ gap: space.sm }}>
-      <Text style={{ color: c.ink, fontSize: font.size.title, fontWeight: '700' }}>Schedules</Text>
+      <Text style={{ color: c.ink, fontSize: font.size.lg, fontWeight: '700' }}>Schedules</Text>
       <Loadable
         query={query}
         served={served}
@@ -49,8 +49,8 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
                 {s.id < 0 ? 'sending: ' : ''}
                 {cronWords(s.cron) ?? s.cron}
               </Text>
-              {cronWords(s.cron) ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{s.cron}</Text> : null}
-              {s.next_run ? <Text style={{ color: c.muted, fontSize: font.size.label }}>next {dateTime(s.next_run)}</Text> : null}
+              {cronWords(s.cron) ? <Text style={{ color: c.muted, fontSize: font.size.sm }}>{s.cron}</Text> : null}
+              {s.next_run ? <Text style={{ color: c.muted, fontSize: font.size.sm }}>next {dateTime(s.next_run)}</Text> : null}
               <Text style={{ color: c.ink }}>{ellipsis(s.message, 80)}</Text>
               {write ? (
                 <View style={{ flexDirection: 'row', gap: space.sm }}>
@@ -77,16 +77,16 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
         />
       )}
       {pending ? (
-        <Text testID="schedules-pending" style={{ color: c.muted, fontSize: font.size.label }}>
+        <Text testID="schedules-pending" style={{ color: c.muted, fontSize: font.size.sm }}>
           saving…
         </Text>
       ) : null}
       {note ? (
-        <Text testID="schedules-note" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
+        <Text testID="schedules-note" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.sm }}>
           not saved: {note}
         </Text>
       ) : null}
-      {served && !write ? <Text style={{ color: c.muted, fontSize: font.size.label }}>Only the founder changes schedules.</Text> : null}
+      {served && !write ? <Text style={{ color: c.muted, fontSize: font.size.sm }}>Only the founder changes schedules.</Text> : null}
       {served && write && !form ? (
         <Button testID="schedule-new" label="Add schedule" disabled={!!whyNot} onPress={() => setForm({ cron: '', message: '' })} />
       ) : null}
@@ -109,7 +109,7 @@ export function Schedules({ agent, role }: { agent: string; role: string | undef
             onChangeText={(cron) => setForm({ ...form, cron })}
             style={input}
           />
-          <Text style={{ color: c.muted, fontSize: font.size.label }}>{cronWords(form.cron) ?? ''}</Text>
+          <Text style={{ color: c.muted, fontSize: font.size.sm }}>{cronWords(form.cron) ?? ''}</Text>
           <TextInput
             testID="schedule-message"
             accessibilityLabel="Message"
