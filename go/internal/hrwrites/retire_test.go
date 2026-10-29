@@ -183,7 +183,7 @@ func TestWithNoAnswerAWorktreeThatHoldsWorkIsAskedAsATask(t *testing.T) {
 	}
 	said := r.e.pruneMemberWorktrees("bob", []string{wt["done"], wt["ahead"], wt["shared"]}, "")
 	if len(asked) != 1 || !strings.HasPrefix(asked[0], "Remove bob's worktree?|worktree-removal|") ||
-		!strings.Contains(asked[0], "Path: "+wt["ahead"]) || !strings.Contains(said, wt["ahead"]+" stays: ahead is not merged into main (asked the founder in T41)") {
+		!strings.Contains(asked[0], "Path: "+wt["ahead"]) || !strings.Contains(said, wt["ahead"]+" stays: ahead is not merged into main (asked the founder in T41)") { // local-ref-ok: the fake Ask numbers tasks from T41
 		t.Fatalf("asked %q\n%s", asked, said)
 	}
 	if _, err := os.Stat(wt["ahead"]); err != nil {
