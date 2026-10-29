@@ -1,6 +1,7 @@
 package reads
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -152,6 +153,12 @@ func TestAWorktreeNoAgentRecordsIsListedAsAnOrphan(t *testing.T) {
 	e.DB.Exec("INSERT INTO meta(name, value, updated) VALUES(?, '4096', 0)", "worktree_size:"+left)
 	if size := list(map[string]any{})["left"]["size_bytes"]; size != int64(4096) {
 		t.Fatalf("measured size: %v", size)
+	}
+	for i := 0; i < maxChanged; i++ {
+		os.WriteFile(filepath.Join(left, fmt.Sprintf("more%d.txt", i)), []byte("x"), 0o644)
+	}
+	if o := list(map[string]any{})["left"]; o["files_changed"] != maxChanged+1 || len(o["changed"].([]any)) != maxChanged {
+		t.Fatalf("files past the listing's cap still count: %v changed, %d listed", o["files_changed"], len(o["changed"].([]any)))
 	}
 	if mine := list(map[string]any{"owner": "alice"}); len(mine) != 1 {
 		t.Fatalf("owner lists no orphan: %v", mine)
