@@ -253,19 +253,16 @@ describe('the workspace', () => {
     expect($('[role="dialog"][aria-label="Keys"]')).not.toBeNull();
   });
 
-  it('opens with Chat alone in view and the Claude Code tab second, behind it; closing a running one asks first', async () => {
+  it('opens with Chat alone in view and the Claude Code tab second, behind it; closing a running one says it keeps working, without asking', async () => {
     const { daemon } = await mount(ARCH, textGrid(), setup(), true);
     await until(() => $$('.pane').length === 1 && $(termTab), 'one pane with the terminal tab');
     expect($$('.topbar [data-tab]').map((t) => t.getAttribute('data-tab'))).toEqual(['chat', `terminal:term:${ARCH}`]);
     expect($('[data-tab="chat"]')!.getAttribute('aria-selected')).toBe('true');
     expect($('.terminal-tab')).toBeNull(); // not shown
     expect($('[data-tab="chat"] .x')).toBeNull(); // Chat is pinned: it has no close
-    vi.stubGlobal('confirm', () => false);
     await click($(`${termTab} .x`)!);
-    expect($(termTab)).not.toBeNull(); // refused at the confirm
-    vi.stubGlobal('confirm', () => true);
-    await click($(`${termTab} .x`)!);
-    expect($(termTab)).toBeNull();
+    expect($(termTab)).toBeNull(); // no confirm: the agent keeps working
+    expect(text($('.pill'))).toContain('keeps working in the background');
     expect(daemon.sessions.get(ARCH)!.state).not.toBe('closed');
   });
 

@@ -27,6 +27,7 @@ import { TeamPage } from '#src/TeamPage.tsx';
 import { NewAgent } from '#src/NewAgent.tsx';
 import { KeysSheet } from '#src/KeysSheet.tsx';
 import { Palette } from '#src/Palette.tsx';
+import { PillHost } from '#src/Pill.tsx';
 import { Sidebar } from '#src/Sidebar.tsx';
 import { RailControls } from '#src/RailControls.tsx';
 import { Shell } from '#src/ui/TopBar.tsx';
@@ -167,6 +168,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
       </div>
       <StatusBar />
       <AnimatedList>{palette ? <Palette key="Palette" onClose={() => setPalette(false)} /> : null}</AnimatedList>
+      <PillHost />
       <AnimatedList>{keys ? <KeysSheet key="KeysSheet" onClose={() => setKeys(false)} /> : null}</AnimatedList>
     </div>
   );
