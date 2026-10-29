@@ -30,7 +30,7 @@ export function PopItem({
       type="button"
       role="menuitem"
       onClick={onClick}
-      className={`flex h-[30px] w-full cursor-pointer items-center gap-2 rounded-sm border-0 bg-transparent px-2.5 text-left hover:bg-panel focus-visible:bg-panel focus-visible:outline-none ${danger ? 'text-bad' : 'text-ink'}`}
+      className={`flex h-[30px] w-full cursor-pointer items-center gap-2 rounded-sm border-0 bg-transparent px-2.5 text-left tint focus-visible:bg-panel focus-visible:outline-none ${danger ? 'text-bad' : 'text-ink'}`}
     >
       {Glyph ? <Glyph width={14} height={14} strokeWidth={1.75} aria-hidden /> : null}
       {children}
@@ -52,7 +52,7 @@ export function Toast({ children, action, onAction }: { children: ReactNode; act
         <button
           type="button"
           onClick={onAction}
-          className="cursor-pointer border-0 bg-transparent p-0 font-semibold text-acc-wash underline hover:underline focus-visible:outline-2 focus-visible:outline-acc-wash"
+          className="cursor-pointer border-0 bg-transparent p-0 font-semibold text-acc-wash underline tint focus-visible:outline-2 focus-visible:outline-acc-wash"
         >
           {action}
         </button>

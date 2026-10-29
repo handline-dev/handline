@@ -29,9 +29,7 @@ export function Tab({
   children: ReactNode;
 }) {
   return (
-    <span
-      className={`group inline-flex h-[var(--h-m)] items-center rounded-sm ${active ? 'bg-panel text-ink' : 'text-ink-2 hover:bg-surface'}`}
-    >
+    <span className={`group inline-flex h-[var(--h-m)] items-center rounded-sm ${active ? 'bg-panel text-ink' : 'text-ink-2 tint'}`}>
       <button
         type="button"
         role="tab"
@@ -63,7 +61,7 @@ export function NewTab({ onClick }: { onClick?: () => void }) {
       aria-label="New tab"
       title="New tab"
       onClick={onClick}
-      className="inline-flex h-[var(--h-s)] w-[var(--h-s)] cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent text-ink-2 hover:bg-panel hover:text-ink focus-visible:outline-2 focus-visible:outline-acc"
+      className="inline-flex h-[var(--h-s)] w-[var(--h-s)] cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent text-ink-2 tint focus-visible:outline-2 focus-visible:outline-acc"
     >
       <Plus width={14} height={14} strokeWidth={1.75} aria-hidden />
     </button>

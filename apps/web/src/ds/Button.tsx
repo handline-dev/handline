@@ -6,10 +6,10 @@ export type ButtonKind = 'primary' | 'secondary' | 'quiet' | 'danger';
 export type ButtonSize = 's' | 'm' | 'l';
 
 const KIND: Record<ButtonKind, string> = {
-  primary: 'border-acc bg-acc text-on-acc hover:enabled:brightness-110',
-  secondary: 'border-line-strong bg-canvas text-ink hover:enabled:bg-panel',
-  quiet: 'border-transparent bg-transparent text-ink-2 hover:enabled:bg-panel hover:enabled:text-ink',
-  danger: 'border-line-strong bg-canvas text-bad hover:enabled:bg-panel',
+  primary: 'border-acc bg-acc text-on-acc tint',
+  secondary: 'border-line-strong bg-canvas text-ink tint',
+  quiet: 'border-transparent bg-transparent text-ink-2 tint',
+  danger: 'border-line-strong bg-canvas text-bad tint',
 };
 const SIZE: Record<ButtonSize, string> = {
   s: 'h-[var(--h-s)] px-[9px] text-xs',

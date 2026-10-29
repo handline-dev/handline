@@ -6,7 +6,7 @@ import type { ComponentProps, ReactNode } from 'react';
 type Press = { href?: string; onClick?: () => void; className?: string; children: ReactNode; title?: string };
 
 function Pressable({ href, onClick, className, children, title }: Press) {
-  const cls = `cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-acc hover:bg-none! hover:underline ${className ?? ''}`;
+  const cls = `cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-acc tint ${className ?? ''}`;
   if (href)
     return (
       <a href={href} onClick={onClick} className={cls} title={title}>

@@ -26,7 +26,7 @@ export function AgentRow({
       type="button"
       onClick={onOpen}
       aria-current={selected ? 'true' : undefined}
-      className={`flex w-full max-w-60 cursor-pointer flex-col rounded-sm border-0 py-1.5 pr-3 pl-2 text-left focus-visible:outline-2 focus-visible:outline-acc ${selected ? 'bg-canvas' : 'bg-transparent hover:bg-panel'}`}
+      className={`flex w-full max-w-60 cursor-pointer flex-col rounded-sm border-0 py-1.5 pr-3 pl-2 text-left focus-visible:outline-2 focus-visible:outline-acc ${selected ? 'bg-canvas' : 'bg-transparent tint'}`}
     >
       <span className="flex items-center gap-1.5 text-md font-medium">
         <StateMark state={state} />

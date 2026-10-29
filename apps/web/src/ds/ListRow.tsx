@@ -33,7 +33,7 @@ export function ListRow({
       type="button"
       onClick={onOpen}
       aria-current={selected ? 'true' : undefined}
-      className={`flex h-9 w-full cursor-pointer items-center gap-3 rounded-sm border-0 px-3 text-left text-md focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-acc ${selected ? 'bg-panel' : 'bg-transparent hover:bg-surface'}`}
+      className={`flex h-9 w-full cursor-pointer items-center gap-3 rounded-sm border-0 px-3 text-left text-md focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-acc ${selected ? 'bg-panel' : 'bg-transparent tint'}`}
     >
       {lead}
       <span className={`min-w-0 flex-1 truncate ${done ? 'text-ink-3' : ''}`}>{title}</span>

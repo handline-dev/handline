@@ -17,7 +17,7 @@ export function WorkLine({ children, onOpen }: { children: ReactNode; onOpen?: (
     <button
       type="button"
       onClick={onOpen}
-      className="mt-4 mb-1.5 flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-sm text-ink-3 hover:text-ink-2 focus-visible:outline-2 focus-visible:outline-acc"
+      className="mt-4 mb-1.5 flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-sm text-ink-3 focus-visible:outline-2 focus-visible:outline-acc"
     >
       {children}
       <ChevronRight width={13} height={13} strokeWidth={1.75} aria-hidden />
@@ -53,7 +53,7 @@ export function FootCell({ icon: Glyph, onOpen, children }: { icon: LucideIcon; 
     <button
       type="button"
       onClick={onOpen}
-      className="inline-flex cursor-pointer items-center gap-1 rounded-sm border-0 bg-transparent px-1 py-0.5 text-inherit hover:bg-panel focus-visible:outline-2 focus-visible:outline-acc"
+      className="inline-flex cursor-pointer items-center gap-1 rounded-sm border-0 bg-transparent px-1 py-0.5 text-inherit tint focus-visible:outline-2 focus-visible:outline-acc"
     >
       <Glyph width={13} height={13} strokeWidth={1.75} aria-hidden />
       {children}
