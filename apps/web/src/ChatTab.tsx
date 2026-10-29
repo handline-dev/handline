@@ -35,7 +35,7 @@ import { BlockedCard, HeldCard } from '#src/ChatHeld.tsx';
 import { ChatBanner, ChatStrip, HandoffCard, HrCards, NeedsYouCard, useDecided } from '#src/ChatCards.tsx';
 import { ChatSearch } from '#src/ChatSearch.tsx';
 import { Button, Empty, Icon, Textarea, ComposeRow } from '#src/ui/index.ts';
-import { ComposerBar } from '#src/ds/Chat.tsx';
+import { COMPOSER_BAR } from '#src/ds/Chat.tsx';
 import { useWantedMessage } from '#src/route.ts';
 import { useWorkspace } from '#src/Workspace.tsx';
 
@@ -70,9 +70,9 @@ function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
           disabled
           aria-label="Message to the agent"
         />
-        <ComposerBar>
+        <div className={COMPOSER_BAR}>
           <Button variant="solid" icon="send" label="Send" disabled />
-        </ComposerBar>
+        </div>
       </ComposeRow>
     </section>
   );

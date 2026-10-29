@@ -12,7 +12,7 @@ import { useCan } from '#src/taskui.tsx';
 import { AttachChips, attachHandlers, PickButton, useAttachDraft } from '#src/ChatAttach.tsx';
 import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow, sendKey, Check } from '#src/ui/index.ts';
 import { AnimatedList } from '#src/AnimatedList.tsx';
-import { ComposerBar } from '#src/ds/Chat.tsx';
+import { COMPOSER_BAR } from '#src/ds/Chat.tsx';
 
 const COMPOSE_KEYS: KeyRows = [
   ['Enter', 'send the message'],
@@ -240,7 +240,7 @@ export function Compose(props: {
           }}
           onKeyDown={onKey}
         />
-        <ComposerBar>
+        <div className={COMPOSER_BAR}>
           <PickButton onPick={att.add} disabled={cmd || !canSend || !canAttach.ok} />
           {clearing ? (
             <span className="compose-clear self-center text-wait" role="status" title="Esc again clears the draft">
@@ -261,7 +261,7 @@ export function Compose(props: {
             disabled={!canSend || (!text.trim() && !att.ids.length) || att.busy}
             onClick={send}
           />
-        </ComposerBar>
+        </div>
       </ComposeRow>
     </div>
   );

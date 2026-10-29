@@ -1,4 +1,4 @@
-// Chat and its composer: my bubble on the right, the agent's words with no ground, one composer for chat and comments.
+// Chat and composer: my bubble on the right, the agent's words with no ground.
 import { ChevronRight } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { HTMLAttributes, ReactNode, TextareaHTMLAttributes } from 'react';
@@ -61,7 +61,7 @@ export function FootCell({ icon: Glyph, onOpen, children }: { icon: LucideIcon; 
   );
 }
 
-/** What happened or what waits, as one quiet line: the state is the icon and the words, with no ground; the actions end the line. */
+/** A quiet line for what happened or waits, with no ground. */
 export function Notice({
   icon,
   actions,
@@ -81,7 +81,5 @@ export function Notice({
   );
 }
 
-/** The bar under the composer's words: the left says what the send does, the tools and the send button follow. */
-export function ComposerBar({ children }: { children: ReactNode }) {
-  return <div className="mt-3 flex items-center justify-end gap-2 text-sm text-ink-2">{children}</div>;
-}
+/** The bar under the words: a class, not a part, so a keystroke draws nothing extra. */
+export const COMPOSER_BAR = 'mt-3 flex items-center justify-end gap-2 text-sm text-ink-2';
