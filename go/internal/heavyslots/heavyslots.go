@@ -45,3 +45,11 @@ func Slots() int {
 	}
 	return Of(usage.LoadConfig(paths.Home()))
 }
+
+// LightSlots is how many runs of one test file may hold a light slot at once: HANDLINE_LIGHT_SLOTS, else 2.
+func LightSlots() int {
+	if n, err := strconv.Atoi(os.Getenv("HANDLINE_LIGHT_SLOTS")); err == nil && n > 0 {
+		return n
+	}
+	return 2
+}
