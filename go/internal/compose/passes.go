@@ -202,8 +202,17 @@ func (t timeboxPorts) BgNoticeS(agent string) int64 { return t.set.BgNoticeS(age
 func (t timeboxPorts) BgGraceS(agent string) int64  { return t.set.BgGraceS(agent) }
 func (t timeboxPorts) BgCheckS(agent string) int64  { return t.set.BgCheckS(agent) }
 
-// BgJobs: a structured session shows no footer to count its background jobs from, so none are named.
-func (t timeboxPorts) BgJobs(db.Q, string, int, int64) []string { return nil }
+// BgJobs names what the agent's last Stop said still runs, the last count of them when count is set.
+func (t timeboxPorts) BgJobs(_ db.Q, agent string, count int, _ int64) []string {
+	if t.p.turns == nil {
+		return nil
+	}
+	jobs := t.p.turns.Running(agent)
+	if count > 0 && len(jobs) > count {
+		jobs = jobs[len(jobs)-count:]
+	}
+	return jobs
+}
 
 // spareNotice is the sweep that tells the founder of a weekly loss coming, and offers the spare tasks to use it.
 func (p *Parts) spareNotice(cfg Config) *sparenotice.Env {

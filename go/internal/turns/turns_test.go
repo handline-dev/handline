@@ -150,6 +150,9 @@ func TestStopSaysWhetherBackgroundWorkStillRuns(t *testing.T) {
 	if running, known := tr.Background("%1"); running != "1 background task" || !known {
 		t.Fatalf("%q %v", running, known)
 	}
+	if got := tr.Running("amy"); len(got) != 1 || got[0] != "shell: sleep 60" {
+		t.Fatalf("named %q", got)
+	}
 	// The shell ending while idle: a prompt, then a Stop with nothing left.
 	tr.Hook("amy", "UserPromptSubmit", nil, 12)
 	if _, known := tr.Background("%1"); known {
@@ -158,6 +161,9 @@ func TestStopSaysWhetherBackgroundWorkStillRuns(t *testing.T) {
 	tr.Hook("amy", "Stop", map[string]any{"background_tasks": []any{}}, 13)
 	if running, known := tr.Background("%1"); running != "" || !known {
 		t.Fatalf("done read as %q %v", running, known)
+	}
+	if got := tr.Running("amy"); got != nil {
+		t.Fatalf("nothing left named %q", got)
 	}
 }
 
