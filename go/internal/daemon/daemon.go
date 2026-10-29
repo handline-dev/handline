@@ -274,10 +274,10 @@ func Start(cfg Config) (*Daemon, error) {
 		d.hub.Run(d.stop, cfg.Log)
 	}()
 	if cfg.Watch && !cfg.Gateway {
-		w := &watcher.Watcher{DB: db, Emit: d.hub.Append, Log: cfg.Log, Signature: watcher.HRSignature(cfg.Home),
+		w := &watcher.Watcher{DB: db, Emit: d.hub.Append, Log: cfg.Log, Signature: watchSignature(watcher.HRSignature(cfg.Home), watcher.LaterSignature(db)),
 			Detectors: []watcher.Detector{&watcher.Tasks{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Agents{}, &watcher.Notifications{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Inbox{Reads: &reads.Env{DB: db, Home: cfg.Home}},
 				&watcher.HR{Reads: &reads.Env{DB: db, Home: cfg.Home}},
-				&watcher.Prefs{}, &watcher.Requests{Reads: &reads.Env{DB: db, Home: cfg.Home}},
+				&watcher.Later{}, &watcher.Prefs{}, &watcher.Requests{Reads: &reads.Env{DB: db, Home: cfg.Home}},
 				&watcher.Chat{Reads: &reads.Env{DB: db, Home: cfg.Home, Delivery: cfg.Delivery}}}}
 		d.wg.Add(1)
 		go func() {
@@ -691,5 +691,16 @@ func (d *Daemon) Close() {
 	}
 	if d.db != nil {
 		d.db.Close()
+	}
+}
+
+// watchSignature joins the signatures that wake the watch though the database did not change.
+func watchSignature(sigs ...func() string) func() string {
+	return func() string {
+		out := ""
+		for _, s := range sigs {
+			out += s() + "|"
+		}
+		return out
 	}
 }

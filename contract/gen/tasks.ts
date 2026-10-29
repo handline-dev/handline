@@ -1,6 +1,6 @@
 // Generated from contract/spec/ by contract/generate.py; do not edit.
 /* eslint-disable */
-import type { Accepted, Actor, AgentName, AttachmentId, Duration, ImagePart, ReadCursor, RequestId, RequestName, RequestRef, Role, Status, TextPart, Timestamp, Topic } from './core.ts';
+import type { Accepted, Actor, AgentName, AttachmentId, Duration, ImagePart, LaterItem, ReadCursor, RequestId, RequestName, RequestRef, Role, Status, TextPart, Timestamp, Topic } from './core.ts';
 
 /** The task's clock. */
 export type TaskClock = {
@@ -697,6 +697,18 @@ export interface TasksMethods {
   text: string;
   request_id: RequestId;
 }; result: Accepted };
+  "later.set": { params: {
+  item: LaterItem;
+  /** When the item returns; later than now. */
+  until?: Timestamp;
+  /** The task whose end brings it back; open now, and not the item's own task. */
+  after_task?: number;
+  request_id: RequestId;
+}; result: Accepted };
+  "later.clear": { params: {
+  item: LaterItem;
+  request_id: RequestId;
+}; result: Accepted };
 }
 
 export const TASKS_METHODS: { [K in keyof TasksMethods]: { role: Role; callers: Role[] | null; write: boolean; since: number } } = {
@@ -737,4 +749,6 @@ export const TASKS_METHODS: { [K in keyof TasksMethods]: { role: Role; callers: 
   "task.cancel": { role: "member", callers: null, write: true, since: 1 },
   "task.edit": { role: "agent", callers: null, write: true, since: 1 },
   "task.ask": { role: "member", callers: null, write: true, since: 1 },
+  "later.set": { role: "founder", callers: null, write: true, since: 1 },
+  "later.clear": { role: "founder", callers: null, write: true, since: 1 },
 };

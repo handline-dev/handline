@@ -1,0 +1,586 @@
+{
+ "fixtures": [
+  {
+   "name": "later.set_replaces_and_clear_returns_a_task",
+   "spec": "later.set",
+   "about": "A second set replaces the first; clear returns the item; a second clear finds nothing.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "later a",
+       "body": "b",
+       "request_id": "conf-later-f0-2-task.new"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "a0"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "task",
+        "id": "{{a0}}"
+       },
+       "until": "2099-01-01T00:00:00Z",
+       "request_id": "conf-later-f0-3-later.set"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "task",
+        "id": "{{a0}}"
+       },
+       "until": "2099-02-02T00:00:00Z",
+       "request_id": "conf-later-f0-5-later.set"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "later.clear",
+      "params": {
+       "item": {
+        "kind": "task",
+        "id": "{{a0}}"
+       },
+       "request_id": "conf-later-f0-7-later.clear"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 9,
+      "method": "later.clear",
+      "params": {
+       "item": {
+        "kind": "task",
+        "id": "{{a0}}"
+       },
+       "request_id": "conf-later-f0-9-later.clear"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "later"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "later.a_task_returns_when_the_task_it_waits_for_is_done",
+   "spec": "later.set",
+   "about": "A task can wait for another task; the call is accepted while that task is open.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "later a",
+       "body": "b",
+       "request_id": "conf-later-f1-2-task.new"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "a1"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "later b",
+       "body": "b",
+       "request_id": "conf-later-f1-3-task.new"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "b1"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "task",
+        "id": "{{a1}}"
+       },
+       "after_task": "{{b1}}",
+       "request_id": "conf-later-f1-4-later.set"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "task.done",
+      "params": {
+       "task": "{{b1}}",
+       "evidence": "done",
+       "reason": true,
+       "request_id": "conf-later-f1-6-task.done"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "later.set_refuses_what_cannot_be_deferred",
+   "spec": "later.set",
+   "about": "A session ask, an HR proposal, a past time, a closed or own after_task, an unknown item and a malformed call are each refused, and nothing is held.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "later a",
+       "body": "b",
+       "request_id": "conf-later-f2-2-task.new"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "a2"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "later b",
+       "body": "b",
+       "request_id": "conf-later-f2-3-task.new"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "b2"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.done",
+      "params": {
+       "task": "{{b2}}",
+       "evidence": "done",
+       "reason": true,
+       "request_id": "conf-later-f2-discard"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "task",
+        "id": "{{a2}}"
+       },
+       "after_task": "{{b2}}",
+       "request_id": "conf-later-f2-5-later.set"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "task",
+        "id": "{{a2}}"
+       },
+       "after_task": "{{a2}}",
+       "request_id": "conf-later-f2-6-later.set"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "task",
+        "id": "{{a2}}"
+       },
+       "until": "2001-01-01T00:00:00Z",
+       "request_id": "conf-later-f2-7-later.set"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "session",
+        "id": "x"
+       },
+       "until": "2099-01-01T00:00:00Z",
+       "request_id": "conf-later-f2-8-later.set"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 9,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "hr",
+        "id": "1"
+       },
+       "until": "2099-01-01T00:00:00Z",
+       "request_id": "conf-later-f2-9-later.set"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 10,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "bogus",
+        "id": "1"
+       },
+       "until": "2099-01-01T00:00:00Z",
+       "request_id": "conf-later-f2-10-later.set"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "item"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 11,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "task",
+        "id": "{{a2}}"
+       },
+       "request_id": "conf-later-f2-11-later.set"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "until"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 12,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "task",
+        "id": "{{a2}}"
+       },
+       "until": "2099-01-01T00:00:00Z",
+       "after_task": "{{b2}}",
+       "request_id": "conf-later-f2-12-later.set"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "until"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 13,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "task",
+        "id": "999999"
+       },
+       "until": "2099-01-01T00:00:00Z",
+       "request_id": "conf-later-f2-13-later.set"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "task"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 14,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "comment",
+        "id": "999999"
+       },
+       "until": "2099-01-01T00:00:00Z",
+       "request_id": "conf-later-f2-14-later.set"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "comment"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 15,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "machine",
+        "id": "nope"
+       },
+       "until": "2099-01-01T00:00:00Z",
+       "request_id": "conf-later-f2-15-later.set"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "machine"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "later.is_the_founders_alone",
+   "spec": "later.set",
+   "about": "An agent cannot defer or return an item.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "later.set",
+      "params": {
+       "item": {
+        "kind": "task",
+        "id": "1"
+       },
+       "until": "2099-01-01T00:00:00Z",
+       "request_id": "conf-later-f3-2-later.set"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "later.clear",
+      "params": {
+       "item": {
+        "kind": "task",
+        "id": "1"
+       },
+       "request_id": "conf-later-f3-3-later.clear"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

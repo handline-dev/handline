@@ -42,6 +42,8 @@ A method marked write takes a required `request_id`. Framing, roles, errors and 
 | `task.cancel` | member | yes | `task`, `reason?`, `request_id` | `Accepted` | `refused`, `not_found` |  |
 | `task.edit` | agent | yes | `task`, `owner?`, `reporter?`, `title?`, `body?`, `time_box?`, `priority?`, `estimate?`, `blocked_by?`, `unblock?`, `add_tags?`, `remove_tags?`, `request_id`, `pr?` | `Accepted` | `refused`, `not_found` |  |
 | `task.ask` | member | yes | `task`, `to`, `text`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `later.set` | founder | yes | `item`, `until?`, `after_task?`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
+| `later.clear` | founder | yes | `item`, `request_id` | `Accepted` | `not_found`, `bad_request` |  |
 
 ### `tasks.list`
 
@@ -190,4 +192,12 @@ Change a task: owner, reporter, title, priority, body and time box, by anyone (b
 ### `task.ask`
 
 The founder asks an agent a question about a task: a message linked to the task, whose holder does not change. The agent's reply joins the task.
+
+### `later.set`
+
+The founder defers a For you item: it leaves its group and the count until a time, or until a task is done or discarded. A second call for the same item replaces the first.
+
+### `later.clear`
+
+The founder returns a deferred item to its group at once.
 

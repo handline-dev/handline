@@ -192,6 +192,12 @@
  "input.take": {
   "role": "member"
  },
+ "later.clear": {
+  "role": "founder"
+ },
+ "later.set": {
+  "role": "founder"
+ },
  "memory.status": {
   "role": "agent"
  },
