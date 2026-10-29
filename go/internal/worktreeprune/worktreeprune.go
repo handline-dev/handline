@@ -274,17 +274,32 @@ func Orphans(repo string, agents map[string]bool) []Worktree {
 	return out
 }
 
-// Unsaved is what the worktree holds that main does not: whether its HEAD is merged into main, its changed or untracked files and its
-// commits not on main.
+// DefaultBranch is the branch the repository at path merges into: origin's HEAD, else gitrun.IntegrationBranch.
+func DefaultBranch(path string) string {
+	if r := gitrun.Run(path, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"); r.RC == 0 && strings.TrimSpace(r.Stdout) != "" {
+		return strings.TrimPrefix(strings.TrimSpace(r.Stdout), "origin/")
+	}
+	return gitrun.IntegrationBranch
+}
+
+// Unsaved is what the worktree holds that its repository's default branch does not: whether its HEAD is merged into it, its changed or
+// untracked files and its commits not on it.
 func Unsaved(path string) (merged bool, files, commits int) {
-	merged = gitrun.Run(path, "merge-base", "--is-ancestor", "HEAD", "main").RC == 0
+	merged, commits = Ahead(path)
 	if r := gitrun.Run(path, "status", "--porcelain"); r.RC == 0 && strings.TrimSpace(r.Stdout) != "" {
 		files = len(strings.Split(strings.TrimSpace(r.Stdout), "\n"))
 	}
-	if r := gitrun.Run(path, "rev-list", "--count", "main..HEAD"); r.RC == 0 {
+	return merged, files, commits
+}
+
+// Ahead is Unsaved without the files: whether the worktree's HEAD is merged into the default branch, and its commits not on it.
+func Ahead(path string) (merged bool, commits int) {
+	base := DefaultBranch(path)
+	merged = gitrun.Run(path, "merge-base", "--is-ancestor", "HEAD", base).RC == 0
+	if r := gitrun.Run(path, "rev-list", "--count", base+"..HEAD"); r.RC == 0 {
 		commits, _ = strconv.Atoi(strings.TrimSpace(r.Stdout))
 	}
-	return merged, files, commits
+	return merged, commits
 }
 
 // SizePrefix starts the meta name an orphan's measured size is kept under: the prefix, then its real path; the value is the bytes.
