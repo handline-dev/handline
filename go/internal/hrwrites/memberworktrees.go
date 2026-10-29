@@ -3,14 +3,23 @@ package hrwrites
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/handline/handline/go/internal/worktreeprune"
 )
 
+// Answers to a worktree that holds work, as agent.retire takes them (worktree) and the founder's task offers them.
+const (
+	KeepWorktree  = "keep"  // it stays
+	SaveWorktree  = "save"  // what is left goes to a rescue branch, then it is removed
+	ForceWorktree = "force" // it is removed with whatever it holds
+)
+
 // pruneMemberWorktrees removes each worktree of a member who left the team that is done with, by the rule tools/prune_worktrees.py
-// uses; any other stays and says why. One that holds work (commits not on main, files not committed) is also put to the founder as a
-// task, and goes only by their answer (chatwrites.DecideCard).
-func (e *Env) pruneMemberWorktrees(name string, worktrees []string) string {
+// uses, and its branch with it (git branch -d); any other stays and says why. One that holds work goes by choice (KeepWorktree,
+// SaveWorktree, ForceWorktree) when the founder gave one; with none it is put to the founder as a task, and goes only by their answer
+// (chatwrites.DecideCard).
+func (e *Env) pruneMemberWorktrees(name string, worktrees []string, choice string) string {
 	if len(worktrees) == 0 {
 		return ""
 	}
@@ -20,16 +29,25 @@ func (e *Env) pruneMemberWorktrees(name string, worktrees []string) string {
 	}
 	var said []string
 	for _, path := range worktrees {
-		wt, found := find(worktreeprune.List(path), path)
+		all := worktreeprune.List(path)
+		wt, found := worktreeprune.Find(all, path)
 		if !found {
 			continue // gone already, or not a worktree git knows
 		}
-		if why := worktreeprune.WhyKept(wt, others, ""); why != "" {
+		why := worktreeprune.WhyKept(wt, others, "")
+		switch {
+		case why == "":
+			if ok, why := worktreeprune.Remove(path); !ok {
+				said = append(said, fmt.Sprintf("%s stays: %s", path, why))
+			} else if worktreeprune.DeleteMergedBranch(all[0].Path, wt.Branch) {
+				said = append(said, path+" is removed with its branch "+wt.Branch)
+			} else {
+				said = append(said, path+" is removed")
+			}
+		case worktreeprune.HoldsWork(why) && choice != "":
+			said = append(said, path+" "+e.carryOut(name, path, choice))
+		default:
 			said = append(said, fmt.Sprintf("%s stays: %s%s", path, why, e.askAbout(name, wt, why)))
-		} else if ok, why := worktreeprune.Remove(path); ok {
-			said = append(said, path+" is removed")
-		} else {
-			said = append(said, fmt.Sprintf("%s stays: %s", path, why))
 		}
 	}
 	if len(said) == 0 {
@@ -38,13 +56,22 @@ func (e *Env) pruneMemberWorktrees(name string, worktrees []string) string {
 	return " Its worktrees: " + strings.Join(said, "; ") + "."
 }
 
-func find(all []worktreeprune.Worktree, path string) (worktreeprune.Worktree, bool) {
-	for _, wt := range all {
-		if worktreeprune.Real(wt.Path) == worktreeprune.Real(path) {
-			return wt, true
+// carryOut does the founder's choice for a worktree that holds work, and says what was done.
+func (e *Env) carryOut(member, path, choice string) string {
+	switch choice {
+	case SaveWorktree:
+		branch, err := worktreeprune.Rescue(path, member, time.Now())
+		if err != nil {
+			return "stays: " + err.Error()
 		}
+		return "is removed; what it held is on " + branch
+	case ForceWorktree:
+		if ok, why := worktreeprune.RemoveForce(path); !ok {
+			return "stays: " + why
+		}
+		return "is removed with what it held"
 	}
-	return worktreeprune.Worktree{}, false
+	return "stays, as asked"
 }
 
 // askAbout puts a worktree that holds work to the founder, and says so for the retire reply; "" when there is nothing to ask.

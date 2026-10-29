@@ -21,6 +21,7 @@ import {
 } from '@handline/app-core';
 import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
 import { Badges } from '#src/Badges.tsx';
+import { showPill } from '#src/Pill.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
 import { usePaneData, type PaneData } from '#src/PaneData.ts';
 import { lineAt, slotAt } from '#src/tabSlots.ts';
@@ -204,20 +205,14 @@ function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneD
                 aria-label={`Close ${tabLabel(t, structured)}`}
                 title={
                   t.kind === 'terminal' || t.kind === 'transcript'
-                    ? 'Close the tab; the agent keeps running'
+                    ? 'Close the tab; the agent keeps working'
                     : t.kind === 'shell'
                       ? 'Close the terminal'
                       : 'Close the tab'
                 }
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (
-                    t.kind === 'terminal' &&
-                    !structured &&
-                    detail.session_open &&
-                    !confirm(`Close the Claude Code tab of ${agent}? The agent keeps running.`)
-                  )
-                    return;
+                  if (t.kind === 'terminal' && !structured && detail.session_open) showPill(`${agent} keeps working in the background`);
                   if (t.kind === 'shell') closeShell({ terminal: String(t.params.handle) }); // the shell ends with its tab
                   apply((w) => closeTab(w, id));
                 }}

@@ -70,7 +70,7 @@ export function TaskDetail({
             ? ' w-[min(480px,45%)] flex-none border-l border-line bg-surface'
             : embedded
               ? ' pane relative flex-1 bg-panel -outline-offset-1'
-              : ' flex-1 mx-auto w-full max-w-[var(--w-page)] bg-canvas'
+              : ' flex-1 mx-auto w-full max-w-[var(--w-col)] bg-canvas'
         }`}
         aria-label={`Task ${taskRef(id)}`}
       >
