@@ -74,7 +74,6 @@ function label(a: CardAction): string {
   }
 }
 
-/** The open item: its header, what it says, then the one answer with where to see it in full. A row only opens; an answer is given here. */
 /** The open item: its header, the ask, then the answers and nothing after them. The source chip is the one way to open the item itself. */
 function CardDetail({ card }: { card: Card }) {
   const now = useNow();

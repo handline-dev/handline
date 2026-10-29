@@ -32,7 +32,7 @@ export function Row(props: {
   const over = isOver(t, now);
   const authored = props.mark === 'authored';
   const time = timeLeft(timeoutText(t, now) || idleText(t, now));
-  // The open row is filled one step darker and hover tints; the cursor row is the one with the outline (no side bar). On a phone the row is a card.
+  // The open row is filled one step darker and hover tints; the cursor row is the one with the outline. On a phone the row is a card.
   const row = `trow group/trow cursor-default max-sm:mt-0 max-sm:mb-2 max-sm:grid max-sm:grid-cols-[auto_1fr_auto] max-sm:gap-x-2 max-sm:py-2 max-sm:px-3 max-sm:bg-panel max-sm:border max-sm:border-line max-sm:rounded-md max-sm:[grid-template-areas:'state_num_time'_'title_title_title'_'owner_pri_pri'] ${
     props.open ? 'open bg-panel' : 'tint'
   }${props.cursor ? ` cursor${props.open ? '' : ' bg-panel'}` : ''}${authored ? ' pending' : ''}`;

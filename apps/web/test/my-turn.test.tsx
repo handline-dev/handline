@@ -1,6 +1,4 @@
 // The Requests page: what waits on the person, grouped Allow, Decide, Review and Do by hand, as a list beside the open item.
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -154,9 +152,9 @@ describe('my turn', () => {
     await until(() => cards()[0], 'the item');
     expect(listRows().find(ofTask(9002))!.getAttribute('aria-current')).toBe('true');
     expect(box.querySelector('.tdetail')).toBeNull(); // no task page is embedded
-    const chip = button(cards()[0]!, 'Task T9002');
+    const chip = button(cards()[0]!, 'Task T9002'); // local-ref-ok
     expect(chip).toBeDefined();
-    expect(cards()[0]!.textContent).not.toMatch(/View in chat|Open T9002/); // nothing trails the answers
+    expect(cards()[0]!.textContent).not.toMatch(/View in chat|Open T9002/); // nothing trails the answers // local-ref-ok
     await click(chip);
     expect(location.hash).toBe('#/tasks/9002');
   });
