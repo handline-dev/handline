@@ -1,7 +1,6 @@
-// The Stats section of the Usage page (#/accounts, #/stats), under the account list: the window's four counts, how long each agent worked, from
-// stats.get. The previous window's figures stay on screen until the new ones arrive.
+// The Stats section of the Usage page (#/accounts, #/stats), under the account list: the window's four counts and who used how much, from stats.get. The previous window's figures stay on screen until the new ones arrive.
 import { useEffect, useState } from 'react';
-import { agentTime, dateTime, span } from '@handline/app-core';
+import { SPENT_HEAD, agentUse, dateTime, spentText } from '@handline/app-core';
 import type { Stats } from '@handline/client';
 import { useServes, useStats } from '@handline/app-data';
 import { ChartCard, ChartTitle, Icon, SectionHead, Segmented, type IconName } from '#src/ui/index.ts';
@@ -35,30 +34,28 @@ function Tiles({ s }: { s: Stats }) {
   );
 }
 
-function AgentTime({ s }: { s: Stats }) {
-  const { rows, idle } = agentTime(s.working_seconds);
-  const top = rows[0]?.seconds ?? 1;
+function WhoUsedIt({ s }: { s: Stats }) {
+  const rows = agentUse(s.use);
   return (
-    <ChartCard aria-label="Agent time">
-      <ChartTitle>Agent time</ChartTitle>
+    <ChartCard aria-label="Who used it">
+      <ChartTitle>Who used it</ChartTitle>
+      <p className="muted text-sm">{SPENT_HEAD}</p>
       {rows.length ? (
         rows.map((r) => (
-          <div key={r.agent} className="bar-row my-1 grid grid-cols-[minmax(70px,40%)_1fr_auto] items-center gap-2" data-agent={r.agent}>
-            <span className="bar-name truncate">{r.agent}</span>
-            <span className="bar h-2 overflow-hidden rounded-sm bg-raised">
-              <span className="bar-fill accent block h-full bg-ink-2" style={{ width: `${(r.seconds / top) * 100}%` }} />
+          <div key={r.key} className="bar-row my-1 grid grid-cols-[minmax(70px,35%)_1fr_9.5rem] items-center gap-2" data-agent={r.agent}>
+            <span className="bar-name truncate">
+              {r.agent}
+              {r.account ? <span className="text-ink-3"> · {r.account}</span> : null}
             </span>
-            <span className="bar-value font-mono text-sm">{span(r.seconds * 1000)}</span>
+            <span className="bar h-2 overflow-hidden rounded-sm bg-raised">
+              <span className="bar-fill accent block h-full bg-ink-2" style={{ width: `${r.fill * 100}%` }} />
+            </span>
+            <span className="bar-value text-right font-mono text-sm">{spentText(r)}</span>
           </div>
         ))
       ) : (
         <p className="muted">Nothing recorded in this window.</p>
       )}
-      {idle ? (
-        <p className="muted">
-          {idle} idle {idle === 1 ? 'agent' : 'agents'}
-        </p>
-      ) : null}
     </ChartCard>
   );
 }
@@ -91,7 +88,7 @@ export function StatsSection() {
             </p>
             <Tiles s={s} />
             <div className="charts mt-3 flex flex-col gap-3">
-              <AgentTime s={s} />
+              <WhoUsedIt s={s} />
             </div>
           </>
         ) : null}

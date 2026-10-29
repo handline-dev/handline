@@ -24,28 +24,28 @@ type agentTally struct {
 	cost   float64
 }
 
-// AgentUsesOf is stats.agent_use: each agent's tokens and list-price cost in (lo, hi], largest cost first, ties by name. weekUsed is the
-// points of each account's week used in the span (WeekConsumed): an agent's EstPct is its cost share of each account times that account's
-// points, averaged over the accounts, an estimate because what the plan charges is not what the price list says.
-func AgentUsesOf(q db.Q, lo, hi int64, table []priceEntry, weekUsed map[string]float64) ([]AgentUse, error) {
+type callKey struct{ agent, acct string }
+
+// tallyCalls is the tokens and list-price cost of the calls in (lo, hi] per agent and account, with the keys in a fixed order so the
+// float sums come out the same on every run.
+func tallyCalls(q db.Q, lo, hi int64, table []priceEntry) (map[callKey]*agentTally, []callKey, error) {
 	trees, err := worktrees(q)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	rows, err := q.Query("SELECT account, cwd, model, inp, cc, cr, out, thinking FROM token_calls WHERE ts > ? AND ts <= ? ORDER BY ts, rowid", lo, hi)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
-	type key struct{ agent, acct string }
-	per := map[key]*agentTally{}
+	per := map[callKey]*agentTally{}
 	for rows.Next() {
 		var acct, cwd, model string
 		var t Tokens
 		if err := rows.Scan(&acct, &cwd, &model, &t.Inp, &t.CC, &t.CR, &t.Out, &t.Thinking); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		k := key{agentForCwd(cwd, trees), acct}
+		k := callKey{agentForCwd(cwd, trees), acct}
 		if per[k] == nil {
 			per[k] = &agentTally{}
 		}
@@ -53,15 +53,67 @@ func AgentUsesOf(q db.Q, lo, hi int64, table []priceEntry, weekUsed map[string]f
 		per[k].cost += Cost(model, t, table)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	keys := make([]key, 0, len(per))
+	keys := make([]callKey, 0, len(per))
 	for k := range per {
 		keys = append(keys, k)
 	}
-	sort.Slice(keys, func(i, j int) bool { // a fixed order keeps the float sums the same on every run
+	sort.Slice(keys, func(i, j int) bool {
 		return keys[i].agent < keys[j].agent || (keys[i].agent == keys[j].agent && keys[i].acct < keys[j].acct)
 	})
+	return per, keys, nil
+}
+
+// PairUse is one agent's use of one account in a span. Agent is "" for the calls of no agent's worktree.
+type PairUse struct {
+	Agent, Account string
+	Tokens         int64
+	Cost           float64 // USD at list price
+	Share          float64 // of the account's cost in the span
+	// WeekPct is the points of the account's week it used: Share times the account's rise (WeekConsumed), so an account's rows add up to
+	// its rise. nil when the account has no reading in the span or its calls had no list price to split by.
+	WeekPct *float64
+}
+
+// PairUsesOf is stats.get's use: a row per agent and account with a call in (lo, hi], largest cost first, ties by agent then account.
+func PairUsesOf(q db.Q, lo, hi int64, table []priceEntry, weekUsed map[string]float64) ([]PairUse, error) {
+	per, keys, err := tallyCalls(q, lo, hi, table)
+	if err != nil {
+		return nil, err
+	}
+	acctCost := map[string]float64{}
+	for _, k := range keys {
+		acctCost[k.acct] += per[k].cost
+	}
+	out := make([]PairUse, 0, len(keys))
+	for _, k := range keys {
+		t := per[k]
+		u := PairUse{Agent: k.agent, Account: k.acct, Tokens: t.tokens, Cost: t.cost}
+		if u.Agent == Unattributed {
+			u.Agent = ""
+		}
+		if acctCost[k.acct] > 0 {
+			u.Share = t.cost / acctCost[k.acct]
+			if pts, ok := weekUsed[k.acct]; ok {
+				w := u.Share * pts
+				u.WeekPct = &w
+			}
+		}
+		out = append(out, u)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Cost > out[j].Cost })
+	return out, nil
+}
+
+// AgentUsesOf is stats.agent_use: each agent's tokens and list-price cost in (lo, hi], largest cost first, ties by name. weekUsed is the
+// points of each account's week used in the span (WeekConsumed): an agent's EstPct is its cost share of each account times that account's
+// points, averaged over the accounts, an estimate because what the plan charges is not what the price list says.
+func AgentUsesOf(q db.Q, lo, hi int64, table []priceEntry, weekUsed map[string]float64) ([]AgentUse, error) {
+	per, keys, err := tallyCalls(q, lo, hi, table)
+	if err != nil {
+		return nil, err
+	}
 	acctCost := map[string]float64{}
 	for _, k := range keys {
 		acctCost[k.acct] += per[k].cost

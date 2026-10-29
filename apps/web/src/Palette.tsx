@@ -16,7 +16,7 @@ interface Hit {
 }
 
 const PAGES: [string, IconName, () => void][] = [
-  ['My turn', 'inbox', () => void (location.hash = '#/my-turn')],
+  ['Requests', 'inbox', () => void (location.hash = '#/requests')],
   ['Tasks', 'tasks', () => goTasks()],
   ['Team', 'team', () => goTeam()],
   ['New agent', 'plus', () => goNew()],

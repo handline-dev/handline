@@ -37,6 +37,37 @@ function byAccount(past: Outlook['past'], future: Outlook['future'], now: number
     { account: 'beta', past: points(past, -5), future: points(future, -5), resets: [] },
   ];
 }
+/** [agent, account, tokens, list-price cost]: the architect and auditor share alpha with the founder's own sessions (agent ''), the auditor also used beta, which the architect moved to. */
+const CALLS: [string, string, number, number][] = [
+  [AGENTS[0]!, 'alpha', 9_200_000, 18],
+  [AGENTS[1]!, 'alpha', 3_100_000, 6],
+  ['', 'alpha', 3_000_000, 6],
+  [AGENTS[0]!, 'beta', 1_000_000, 2],
+  [AGENTS[1]!, 'beta', 1_500_000, 3],
+  [AGENTS[2]!, 'gamma', 400_000, 1],
+];
+/** Points each account's week rose in the window; gamma has no reading. */
+const RISE: Record<string, { '24h': number; '7d': number }> = { alpha: { '24h': 8, '7d': 30 }, beta: { '24h': 3, '7d': 10 } };
+
+/** Each row's week_pct is its share of the account's cost times the account's rise, so an account's rows add up to its rise. */
+function useOf(week: boolean): Stats['use'] {
+  const scale = week ? 1 : 0.25;
+  const cost = new Map<string, number>();
+  for (const [, account, , c] of CALLS) cost.set(account, (cost.get(account) ?? 0) + c);
+  return CALLS.map(([agent, account, tokens, c]) => {
+    const share = c / cost.get(account)!;
+    const rise = RISE[account]?.[week ? '7d' : '24h'];
+    return {
+      agent,
+      account,
+      tokens: Math.round(tokens * scale),
+      cost: Math.round(c * scale * 100) / 100,
+      share: Math.round(share * 10_000) / 10_000,
+      week_pct: rise === undefined ? null : Math.round(share * rise * 100) / 100,
+    };
+  }).sort((a, b) => b.cost - a.cost);
+}
+
 export function statsOf(nowIso: Timestamp, window: '24h' | '7d'): Stats {
   const until = Date.parse(nowIso);
   const week = window === '7d';
@@ -45,7 +76,7 @@ export function statsOf(nowIso: Timestamp, window: '24h' | '7d'): Stats {
     since: new Date(until - (week ? 7 * DAY : DAY)).toISOString(),
     until: new Date(until).toISOString(),
     tasks_done: week ? 19 : 3,
-    working_seconds: { [AGENTS[0]!]: week ? 61_200 : 11_520, [AGENTS[1]!]: week ? 20_000 : 3_600, [AGENTS[2]!]: 0 },
+    use: useOf(week),
     moves: week ? 6 : 1,
     handoffs: week ? 9 : 2,
     blocks: week ? 4 : 0,
