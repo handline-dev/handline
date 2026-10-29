@@ -155,7 +155,7 @@ func TestTheFoundersAnswerIsCarriedOutForAWorktreeThatHoldsWork(t *testing.T) {
 			if res == nil {
 				t.Fatalf("%v", m)
 			}
-			said := res["said"].(string)
+			said, _ := res["said"].(string)
 			for _, want := range []string{wt["done"] + " is removed with its branch done", wt["ahead"] + c.said, wt["shared"] + " stays: an agent works in it"} {
 				if !strings.Contains(said, want) {
 					t.Errorf("%q lacks %q", said, want)
@@ -169,6 +169,27 @@ func TestTheFoundersAnswerIsCarriedOutForAWorktreeThatHoldsWork(t *testing.T) {
 				t.Fatal("the merged branch goes, the unmerged one stays")
 			}
 		})
+	}
+}
+
+// A running agent retired with an answer is held with it: when its turn ends, SweepHeld carries the answer out, and nobody is asked again.
+func TestARunningAgentsRetireKeepsTheFoundersAnswerForItsTurnsEnd(t *testing.T) {
+	r := newRig(t)
+	_, wt, _ := bobsWorktrees(t, r)
+	r.live["bob"] = true
+	r.e.Ask = func(title, body string, tags ...string) (int64, error) {
+		t.Fatal("asked the founder again: " + title)
+		return 0, nil
+	}
+	if m := r.call("agent.retire", `{"agent":"bob","worktree":"force","request_id":"h2"}`); m["result"] == nil {
+		t.Fatalf("%v", m)
+	}
+	ports := HeldPorts{Alive: func(a string) bool { return r.live[a] }, Idle: func(string) bool { return false },
+		Close: func(string) (bool, string) { return false, "" }, Start: func(string) (bool, string) { return true, "" }}
+	r.live["bob"] = false // the turn ended and the session went
+	r.e.SweepHeld(ports)
+	if _, err := os.Stat(wt["ahead"]); err == nil || strings.Contains(r.file("team.yaml"), "  bob: {}") {
+		t.Fatalf("bob retired and its worktree forced away (stat err %v)\n%s", err, r.file("team.yaml"))
 	}
 }
 
