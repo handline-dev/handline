@@ -534,7 +534,7 @@ func TestAFreeSlotWaitsWhileFreeDiskIsLowAndGoesOnceItIsBack(t *testing.T) {
 func TestOnlyOneWholeTestFileIsLight(t *testing.T) {
 	for args, want := range map[string]bool{"vitest run a.test.ts": true, "/x/node_modules/.bin/vitest run src/b.spec.tsx": true,
 		"vitest run --reporter=dot src/a.test.ts": true, "vitest run": false, "vitest run src": false, "vitest run .test.ts": false,
-		"vitest run a.test.ts src": false, "vitest run a.test.ts b.test.ts": false, "go test a.test.ts": false} {
+		"vitest run a.test.ts src": false, "vitest run a.test.ts b.test.ts": false, "go test a.test.ts": false, "tsc a.test.ts": false, "node a.test.ts": false} {
 		if got := isLight(strings.Fields(args)); got != want {
 			t.Errorf("isLight(%q) = %v, want %v", args, got, want)
 		}
@@ -562,10 +562,19 @@ func TestALightRunGoesWhileBothHeavySlotsAreHeld(t *testing.T) {
 	lightEnv(t)
 	take(t, heavyClass)
 	take(t, heavyClass)
-	done := make(chan struct{})
-	go func() { take(t, lightClass); close(done) }()
+	done := make(chan error, 1)
+	go func() {
+		f, _, err := acquireClass(lightClass)
+		if f != nil {
+			f.Close()
+		}
+		done <- err
+	}()
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("a light run waited behind the heavy ones")
 	}
