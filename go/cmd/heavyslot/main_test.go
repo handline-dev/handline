@@ -578,8 +578,11 @@ func TestLightRunsAreCappedAndAHeavyRunDoesNotTakeTheirSlots(t *testing.T) {
 	if err := os.WriteFile(vitest, []byte("#!/bin/sh\n"+`[ -n "$HOLD" ] && sleep 30`+"\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	start(t, bin, slots, append([]string{"HOLD=1"}, env...), vitest, "a.test.ts")
-	start(t, bin, slots, append([]string{"HOLD=1"}, env...), vitest, "b.test.ts")
+	for _, f := range []string{"a.test.ts", "b.test.ts"} {
+		holder, _ := start(t, bin, slots, append([]string{"HOLD=1"}, env...), vitest, f)
+		// The command has a process group of its own, which only the helper's own signal handling reaches.
+		t.Cleanup(func() { holder.Process.Signal(syscall.SIGTERM); holder.Wait() })
+	}
 	for end := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
 		a, _ := os.ReadFile(filepath.Join(slots, "light-1.lock"))
 		b, _ := os.ReadFile(filepath.Join(slots, "light-2.lock"))

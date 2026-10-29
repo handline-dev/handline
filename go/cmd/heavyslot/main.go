@@ -2,9 +2,7 @@
 //
 // A slot is an flock on <dir>/slot-<n>.lock (dir: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots; n up to HANDLINE_HEAVY_SLOTS, default
 // 2), freed by the kernel when its holder dies; the holder writes who it is into the file. Waiters go in the order they came (a ticket
-// each). A run of one test file is light: it queues for one of HANDLINE_LIGHT_SLOTS (default 2) light slots, apart from the heavy ones; a
-// wait of a second or more is appended to <dir>/waits.log. The command runs with HANDLINE_HEAVY_SLOT set, so a heavy script it starts
-// shares the slot. With no writable directory it runs anyway.
+// each). The command runs with HANDLINE_HEAVY_SLOT set, so a heavy script it starts shares the slot. With no writable directory it runs anyway.
 package main
 
 import (
@@ -99,7 +97,8 @@ func main() {
 	os.Exit(run(args))
 }
 
-// A class is a set of slots with a queue of its own: <slot>-<n>.lock files and <ticket>-* tickets.
+// A class is a set of slots with a queue of its own: <slot>-<n>.lock files and <ticket>-* tickets. A run of one test file is light: it
+// takes one of HANDLINE_LIGHT_SLOTS (default 2) light slots, and a wait of 1s or more goes to <dir>/waits.log.
 type class struct {
 	name, slot, ticket string
 	slots              func() int
