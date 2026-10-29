@@ -75,7 +75,7 @@ export function Notice({
       className={`card my-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2${className ? ` ${className}` : ''}`}
     >
       <span className="flex-none">{icon}</span>
-      <span className="card-what min-w-0 flex-1">{children}</span>
+      <span className="card-what min-w-0">{children}</span>
       {actions}
     </div>
   );

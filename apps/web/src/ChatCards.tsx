@@ -15,7 +15,9 @@ import {
 } from '@handline/app-core';
 import { classify, sentence, useAgentStrip, useHr, useVerbMark, useVerbRun, useWorktrees } from '@handline/app-data';
 import { useServed } from '#src/AgentVerbs.tsx';
-import { Button, Chip, Icon } from '#src/ui/index.ts';
+import { Chip, Icon } from '#src/ui/index.ts';
+import { Button } from '#src/ds/Button.tsx';
+import { ExternalLink, Terminal } from 'lucide-react';
 import { Notice } from '#src/ds/Chat.tsx';
 import { goTeam } from '#src/route.ts';
 import { openTaskOnClick } from '#src/ChatMessages.tsx';
@@ -132,7 +134,7 @@ export function DecidedCard({ p }: { p: Proposal }) {
       data-kind="hr"
       data-proposal={p.id}
       data-state={p.state}
-      actions={<Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />}
+      actions={<Button iconOnly size="s" icon={ExternalLink} label="Open in Team" onClick={() => goTeam('hr')} />}
     >
       <strong className="font-medium text-ink">{p.title}</strong> · <span className="outcome">{word} by you</span> ·{' '}
       {p.settled ? clockTime(p.settled) : ''}
@@ -160,12 +162,12 @@ function FollowUpCard({ p, follow }: { p: Proposal; follow: FollowUp }) {
         served(verb) ? (
           <Button
             label="Start now"
-            size="sm"
+            size="s"
             disabled={busy}
             onClick={() => (setRefused(null), run(verb, undefined, { onError: (e) => setRefused(sentence(classify(e))) }))}
           />
         ) : (
-          <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
+          <Button iconOnly size="s" icon={ExternalLink} label="Open in Team" onClick={() => goTeam('hr')} />
         )
       }
     >
@@ -198,7 +200,7 @@ export function HrCards({ agent }: { agent: string }) {
           icon={<Icon name="team" label="Proposal" />}
           className="card-hr"
           data-kind="hr"
-          actions={<Button icon="open" label="Open in HR" size="sm" onClick={() => goTeam('hr')} />}
+          actions={<Button iconOnly size="s" icon={ExternalLink} label="Open in HR" onClick={() => goTeam('hr')} />}
         >
           HR proposals: {open} · needs you
         </Notice>
@@ -229,7 +231,7 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
       className="card-needs"
       data-kind="needs_you"
       data-need={need.kind}
-      actions={<Button icon="terminal" label="Open terminal" size="sm" disabled={!reachable} onClick={openTerminal} />}
+      actions={<Button iconOnly size="s" icon={Terminal} label="Open terminal" disabled={!reachable} onClick={openTerminal} />}
     >
       <strong>{NEEDS[need.kind] ?? NEEDS.dialog}</strong>
       {need.text ? <span className="muted"> · {need.text}</span> : null}

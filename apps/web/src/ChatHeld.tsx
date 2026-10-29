@@ -8,7 +8,8 @@ import { useServed } from '#src/AgentVerbs.tsx';
 import { openTaskOnClick } from '#src/ChatMessages.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
 import { OPEN_RESOURCES } from '#src/ResourceArea.tsx';
-import { Button, Icon } from '#src/ui/index.ts';
+import { Icon } from '#src/ui/index.ts';
+import { Button } from '#src/ds/Button.tsx';
 import { Notice } from '#src/ds/Chat.tsx';
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -28,7 +29,7 @@ export function BlockedCard({ detail }: { detail: AgentDetail }) {
       className="card-blocked group"
       data-kind="blocked"
       data-reason={status.reason}
-      actions={you && detail.task ? <Button label="Open" size="sm" onClick={() => apply((w) => openTask(w, detail.task!.id))} /> : null}
+      actions={you && detail.task ? <Button label="Open" size="s" onClick={() => apply((w) => openTask(w, detail.task!.id))} /> : null}
     >
       <strong>{capital(status.text || (you ? 'Needs you' : 'Blocked'))}</strong>
       {ids.map((id) => (
@@ -59,11 +60,11 @@ export function HeldCard({ detail }: { detail: AgentDetail }) {
       data-reason={status.reason}
       actions={
         <>
-          <Button label="See what uses the computer" size="sm" onClick={() => window.dispatchEvent(new Event(OPEN_RESOURCES))} />
+          <Button label="See what uses the computer" size="s" onClick={() => window.dispatchEvent(new Event(OPEN_RESOURCES))} />
           {served(verb) ? (
             <Button
               label="Start now"
-              size="sm"
+              size="s"
               disabled={busy}
               onClick={() => (setRefused(null), run(verb, undefined, { onError: (e) => setRefused(sentence(classify(e))) }))}
             />
