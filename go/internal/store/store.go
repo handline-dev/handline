@@ -162,6 +162,7 @@ var byHand = map[int]func(*sql.Tx) error{
 	29: addRequestMemo,    // request_memo
 	30: addDevicePush,     // device_push
 	31: addPromptAnswer,   // prompt_answer
+	32: addRequestQuote,   // request_quote
 }
 
 // addExtraWorktrees is _agent_extra_worktrees in schema.py: a database made before the column has none.
@@ -231,6 +232,9 @@ func addPromptAnswer(tx *sql.Tx) error {
 	}
 	return nil
 }
+
+// addRequestQuote is the words of its parent a message quotes (requests.quote, chat.send quote).
+func addRequestQuote(tx *sql.Tx) error { return addColumn(tx, "requests", "quote", "TEXT") }
 
 // addTaskColumns adds each (name, type) column the tasks table does not have yet.
 func addTaskColumns(tx *sql.Tx, cols [][2]string) error {
