@@ -29,5 +29,5 @@ Cancel a device and close its connections at once. Cancels the device's token. I
 
 ### `device.push_token`
 
-A paired device gives the push token its OS gave it. Called by the paired device itself, after pairing and whenever its OS gives it a new token; the token is kept on that device's row in place of the one before. A connection that is no paired device (the local socket) is refused, gate `device`. The token is dropped when the device is revoked, and when Apple or Google answers that it is no longer valid. devices.list shows whether a device has one (`push`).
+A paired device gives the push token its OS gave it. Called by the paired device itself, after pairing and whenever its OS gives it a new token; the token is kept on that device's row in place of the one before. A connection that is no paired device (the local socket) is refused, gate `device`. The token is dropped when the device is revoked. devices.list shows whether a device has one (`push`).
 
