@@ -361,6 +361,49 @@
      "open": {
       "type": "boolean"
      },
+     "answer": {
+      "description": "For kind prompt, once it is answered or closed: what it got. Answered through Handline (prompt.answer): `label` is the words for the choice (Allowed or Denied for a permission; the picked options' labels, joined by \", \", for a question, or Other for typed text; the option's label for a dialog; Cancelled for Esc), `note` the typed text or a deny's reason when there is one, `by` who answered (a person or a paired device, by name) and `at` when. Closed any other way (answered in the terminal, or gone): `outside` true and `at` when the daemon saw it close. Absent while the prompt is open and unanswered.",
+      "oneOf": [
+       {
+        "type": "object",
+        "properties": {
+         "label": {
+          "type": "string"
+         },
+         "note": {
+          "type": "string"
+         },
+         "by": {
+          "type": "string"
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "label",
+         "by",
+         "at"
+        ]
+       },
+       {
+        "type": "object",
+        "properties": {
+         "outside": {
+          "type": "boolean",
+          "const": true
+         },
+         "at": {
+          "$ref": "#/components/schemas/Timestamp"
+         }
+        },
+        "required": [
+         "outside",
+         "at"
+        ]
+       }
+      ]
+     },
      "task_event": {
       "type": "object",
       "properties": {

@@ -1006,10 +1006,26 @@ var transcriptEvents = map[string]string{"task_new": "opened", "task_begin": "ch
 // batchKind is a batch discard's one event: the task_batch card, apart from transcriptEvents since it names no one task.
 const batchKind = "discard_batch"
 
-// promptItemOf is a prompt block as a transcript item.
+// promptItems selects prompt blocks with what prompt.answer recorded for each (prompt_answers), for promptItemOf.
+const promptItems = "SELECT b.*, a.label AS answer_label, a.note AS answer_note, a.by_name AS answer_by, a.at AS answer_at " +
+	"FROM prompt_blocks b LEFT JOIN prompt_answers a ON a.prompt_id = b.id"
+
+// promptItemOf is a prompt block, read by promptItems, as a transcript item. A closed one carries its answer: what prompt.answer
+// recorded, else {outside: true} from when the daemon saw it close, since it was answered in the terminal.
 func promptItemOf(agent string, b row) map[string]any {
-	return map[string]any{"id": itemID(b.i("first_seen"), itemPrompt, b.i("id")), "at": ts(b["first_seen"]), "kind": "prompt",
+	item := map[string]any{"id": itemID(b.i("first_seen"), itemPrompt, b.i("id")), "at": ts(b["first_seen"]), "kind": "prompt",
 		"prompt": promptOf(agent, b), "open": !b.set("gone_at")}
+	switch {
+	case b.set("answer_at"):
+		answer := map[string]any{"label": b.str("answer_label"), "by": b.str("answer_by"), "at": ts(b["answer_at"])}
+		if b.str("answer_note") != "" {
+			answer["note"] = b.str("answer_note")
+		}
+		item["answer"] = answer
+	case b.set("gone_at"):
+		item["answer"] = map[string]any{"outside": true, "at": ts(b["gone_at"])}
+	}
+	return item
 }
 
 // taskItemOf is one task event of the events table as a transcript item and the task it names; false when the chat does not show it. A
@@ -1085,7 +1101,7 @@ func (e *Env) transcriptItems(agent string, tools []transcript.Tool) ([]map[stri
 		}
 		items = append(items, item)
 	}
-	blocks, err := query(e.DB, "SELECT * FROM prompt_blocks WHERE agent = ? ORDER BY id DESC LIMIT ?", agent, perSource)
+	blocks, err := query(e.DB, promptItems+" WHERE b.agent = ? ORDER BY b.id DESC LIMIT ?", agent, perSource)
 	if err != nil {
 		return nil, err
 	}
