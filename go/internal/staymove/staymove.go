@@ -25,7 +25,7 @@ type Situation struct {
 // StayWithin is T: the cold start's cost as seconds of the window, the default only while nothing was measured. A measured 0 is a
 // start that cost nothing, so T is 0.
 func StayWithin(coldStartPct *float64, windowS float64) float64 {
-	if coldStartPct == nil || *coldStartPct < 0 || windowS <= 0 {
+	if coldStartPct == nil || windowS <= 0 {
 		return DefaultStayWithinS
 	}
 	return *coldStartPct / 100 * windowS

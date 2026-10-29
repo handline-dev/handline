@@ -31,6 +31,8 @@ func TestTheWallChoiceInScenarios(t *testing.T) {
 			TurnEndedS: f(minute), CacheLifeS: hour}, false, "cheaper to wait"},
 		{"a start dearer than the cache lives is capped at its life", Situation{WorkWaiting: true, ResetInS: f(50 * minute),
 			ColdStartPct: f(40), WindowS: window5h, CacheLifeS: hour}, false, "within 60m"},
+		{"a cache that lives exactly to the reset is still warm", Situation{WorkWaiting: true, ResetInS: f(50 * minute),
+			ColdStartPct: f(40), WindowS: window5h, TurnEndedS: f(10 * minute), CacheLifeS: hour}, false, "within 60m"},
 		{"the cache's age decides past the cap", Situation{WorkWaiting: true, ResetInS: f(50 * minute), ColdStartPct: f(40),
 			WindowS: window5h, TurnEndedS: f(11 * minute), CacheLifeS: hour}, true, "prompt cache is cold"},
 		{"nothing waits", Situation{ResetInS: f(5 * hour), ColdStartPct: f(0), WindowS: window5h, TurnEndedS: f(3 * hour),

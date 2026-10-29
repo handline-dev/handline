@@ -123,7 +123,7 @@ func (v *Mover) MovePlan(agent, kind string, starting bool) (dest, why string, e
 		s := staymove.Situation{WorkWaiting: work, ResetInS: resetIn, ColdStartPct: v.E.ColdStartPct(m.Q), WindowS: w.ShortS,
 			CacheLifeS: states.PromptCacheS}
 		if end, ok := must2(db.LastEventOfTS(m.Q, agent, []string{"Stop", "StopFailure"})); ok {
-			ago := float64(max(0, now-end))
+			ago := float64(now - end)
 			s.TurnEndedS = &ago
 		}
 		if move, why := v.E.StayOrMove(s); !move {

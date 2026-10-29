@@ -89,28 +89,37 @@ func TestADeferredHandoffThreeTicksRunningLeavesTheCountersAtZero(t *testing.T) 
 }
 
 func TestAWakeWaitsOnItsWallOnlyForAResetWithinThePromptCachesLife(t *testing.T) {
-	g := newTermMoveRig(t)
-	g.v.E.StayOrMove = staymove.Decide
-	dear := 40.0 // a cold start measured dearer than the cache lives: 2h of a 5h window
-	g.v.E.ColdStartPct = func(db.Q) *float64 { return &dear }
-	// Nothing is queued for it: only the wake asks for it.
-	at := func(resetIn int64) Windows { return Windows{ShortReset: g.m.now() + resetIn, ShortS: 5 * 3600} }
-	g.v.E.Windows = func(string) Windows { return at(30 * 60) }
+	at := func(g *termMoveRig, resetIn int64) Windows {
+		return Windows{ShortReset: g.m.now() + resetIn, ShortS: 5 * 3600}
+	}
+	rig := func() *termMoveRig {
+		g := newTermMoveRig(t)
+		g.v.E.StayOrMove = staymove.Decide
+		dear := 40.0 // a cold start measured dearer than the cache lives: 2h of a 5h window, so T is the cache's hour
+		g.v.E.ColdStartPct = func(db.Q) *float64 { return &dear }
+		return g
+	}
+	g := rig()
+	// Nothing is queued for it: only the wake asks for it. 50m is past the 39m default and within the measured T.
+	g.v.E.Windows = func(string) Windows { return at(g, 50*60) }
 	if dest, why, _ := g.v.MovePlan("a", "usage", true); dest != "" || !strings.HasSuffix(why, "cheaper to wait") {
 		t.Fatalf("a reset within the cache's life is waited for: %q %q", dest, why)
 	}
-	g.v.E.Windows = func(string) Windows { return at(90 * 60) }
+	g.v.E.Windows = func(string) Windows { return at(g, 90*60) }
 	if dest, why, _ := g.v.MovePlan("a", "usage", true); dest != "beta" {
 		t.Fatalf("past it, the wake moves at once, though the cold start costs more: %q %q", dest, why)
 	}
 	if dest, why, _ := g.v.MovePlan("a", "usage", false); dest != "" || !strings.HasPrefix(why, "no work is waiting") {
 		t.Fatalf("a live agent with nothing waiting stays: %q %q", dest, why)
 	}
-	// Its last turn ended 50 minutes ago: by a reset 30 minutes off the cache is cold, so waiting saves nothing.
-	db.AddEventAt(g.m.Q, g.m.now()-50*60, "a", "StopFailure")
-	g.v.E.Windows = func(string) Windows { return at(30 * 60) }
-	if dest, why, _ := g.v.MovePlan("a", "usage", true); dest != "beta" {
-		t.Fatalf("a session whose cache is cold by the reset waited: %q %q", dest, why)
+	// Its last turn ended 20 minutes ago, by either kind of turn end: by a reset 50 minutes off the cache is cold, so waiting saves nothing.
+	for _, end := range []string{"Stop", "StopFailure"} {
+		g := rig()
+		db.AddEventAt(g.m.Q, g.m.now()-20*60, "a", end)
+		g.v.E.Windows = func(string) Windows { return at(g, 50*60) }
+		if dest, why, _ := g.v.MovePlan("a", "usage", true); dest != "beta" {
+			t.Fatalf("after a %s, a session whose cache is cold by the reset waited: %q %q", end, dest, why)
+		}
 	}
 }
 
