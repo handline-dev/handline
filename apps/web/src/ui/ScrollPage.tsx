@@ -6,9 +6,9 @@ import { usePageBarSlot } from '#src/ui/TopBar.tsx';
 
 const join = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(' ');
 
-// `beside` is for a page that shares the row with a pane: it takes the room the pane leaves, not the page width.
-export function ScrollPage({ className, beside, ...rest }: ComponentProps<'section'> & { beside?: boolean }) {
-  const size = beside ? 'min-w-0 flex-1' : 'mx-auto w-full max-w-[var(--w-page)]';
+// `beside` is for a page that shares the row with a pane: it takes the room the pane leaves, not the page width. `col` is the one reading column.
+export function ScrollPage({ className, beside, col, ...rest }: ComponentProps<'section'> & { beside?: boolean; col?: boolean }) {
+  const size = beside ? 'min-w-0 flex-1' : `mx-auto w-full ${col ? 'max-w-[var(--w-col)]' : 'max-w-[var(--w-page)]'}`;
   return <section {...rest} className={join('h-full overflow-auto px-4 pt-0 pb-6', size, className)} />;
 }
 

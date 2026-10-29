@@ -327,6 +327,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
   return (
     <ScrollPage
       beside={selected !== null}
+      col
       className="tasks flex flex-col outline-none"
       ref={root}
       tabIndex={0}

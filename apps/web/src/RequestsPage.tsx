@@ -217,7 +217,7 @@ export function RequestsPage() {
   ) : null;
   if (!wide && sel)
     return (
-      <ScrollPage aria-label="Request">
+      <ScrollPage col aria-label="Request">
         <PageHead back={{ label: 'Requests', to: () => setPick(null) }} />
         <CardDetail card={sel} />
       </ScrollPage>
@@ -271,7 +271,13 @@ export function RequestsPage() {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1">
       <div className="flex min-h-0 w-[min(420px,40%)] flex-none flex-col">{list}</div>
-      <div className="min-h-0 min-w-0 flex-1 overflow-auto border-l border-line">{sel ? <CardDetail card={sel} /> : null}</div>
+      <div className="min-h-0 min-w-0 flex-1 overflow-auto border-l border-line">
+        {sel ? (
+          <div className="mx-auto max-w-[var(--w-col)]">
+            <CardDetail card={sel} />
+          </div>
+        ) : null}
+      </div>
       {sheet}
     </div>
   );
