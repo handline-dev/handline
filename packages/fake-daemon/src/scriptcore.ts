@@ -1,0 +1,267 @@
+// The core of what the scripted sessions do: the screen text, the turn script, the prompt and the session lifecycle. The daemon owns
+// the connections and the event log; this class reaches them through `Host`.
+import type { Actor, Caller, Notifications, Prompt, Schedule, Timestamp, Topic } from '@handline/contract';
+import { FakeHr } from '#src/hr.ts';
+import { Timeline } from '#src/timeline.ts';
+import { BANNER, PROMPT_LINES } from '#src/fixtures.ts';
+import { badRequest, refused } from '#src/errors.ts';
+import { outputFor, snapshotOf } from '#src/bytes.ts';
+import { row, tid, view, visible, type Session } from '#src/session.ts';
+
+export interface Host {
+  iso(): Timestamp;
+  sessions(): Map<string, Session>;
+  /** A session's state changed from `from` (it is `s.state` now). */
+  moved(s: Session, from: string): void;
+  emit(topic: Topic, type: string, f?: { agent?: string; actor?: Actor; title?: string; data?: Record<string, unknown> }): void;
+  /** Sends a terminal notice to every connection attached to the session's terminal. */
+  broadcast(s: Session, method: string, params: unknown): void;
+  /** Sends a notice to the connections watching in bytes, each with its own seq. */
+  broadcastBytes(s: Session, method: 'output' | 'snapshot', build: () => object): void;
+  /** Whether any connection still has the session's terminal attached. */
+  watched(s: Session): boolean;
+}
+type Who = { caller: Caller };
+
+export class ScriptCore {
+  readonly timeline = new Timeline();
+  readonly schedules: Schedule[] = [];
+  /** The shells shell.open started and shell.close has not ended, by handle. */
+  readonly shells = new Map<string, Session>();
+  shellCount = 0;
+  scheduleId = 0;
+  readonly hr: FakeHr;
+  protected host: Host;
+  get sessions() {
+    return this.host.sessions();
+  }
+  constructor(host: Host) {
+    this.host = host;
+    this.hr = new FakeHr(host);
+  }
+
+  record(s: Session, kind: 'text' | 'key', value: string, actor: string) {
+    s.received.push({ kind, value, actor });
+  }
+
+  /** Applies a change to the screen text and sends the changed rows to everyone attached. */
+  edit(s: Session, change: () => void): void {
+    const before = visible(s);
+    change();
+    const changed = visible(s).flatMap((text, y) => (text !== before[y] ? [{ y, row: row(text) }] : []));
+    if (!changed.length) return;
+    this.pushTerminal(s, 'frame', (seq): Notifications['frame'] => ({ terminal: tid(s), seq, full: false, changed, cursor: null }));
+    this.host.broadcastBytes(s, 'output', () => ({
+      terminal: tid(s),
+      data: outputFor(
+        s,
+        changed.map((c) => c.y),
+      ),
+    }));
+  }
+  /** Tells bytes watchers to repaint: the size changed, or (`slow_client`) they fell behind. */
+  snapshotBytes(s: Session, reason: 'resize' | 'slow_client'): void {
+    this.host.broadcastBytes(s, 'snapshot', () => {
+      const { terminal, cols, rows, data, alt_screen, cursor, cursor_visible } = snapshotOf(s, 0, [s.holder]);
+      return { terminal, reason, cols, rows, data, alt_screen, cursor, cursor_visible };
+    });
+  }
+  /** With no attach left and nobody holding the input, the size from before the viewers' first resize comes back. */
+  lastLeft(s: Session): void {
+    if (!s.unheld || s.holder.kind !== 'daemon' || this.host.watched(s)) return;
+    [s.cols, s.rows] = s.unheld;
+    s.unheld = undefined;
+  }
+  /** A connection closed: each terminal it watched may have lost its last attach. */
+  gone(attached: Map<string, unknown>): void {
+    for (const s of this.sessions.values()) if (attached.has(tid(s))) this.lastLeft(s);
+  }
+  pushTerminal(s: Session, method: 'frame' | 'resize' | 'marker' | 'holder', build: (seq: number) => object): void {
+    const params = build(++s.seq);
+    this.host.broadcast(s, method, params);
+  }
+
+  setState(s: Session, state: string, actor?: Actor) {
+    const from = s.state;
+    s.state = state;
+    s.since = this.host.iso();
+    if (from !== state) this.host.moved(s, from);
+    this.host.emit('agents', 'agent.changed', { agent: s.fx.name, actor, data: view(s) as unknown as Record<string, unknown> });
+  }
+  /** Tells the terminal's watchers who holds the input now; the holder notice is the truth a pane follows. */
+  holderChanged(s: Session): void {
+    this.pushTerminal(s, 'holder', (seq) => ({ terminal: tid(s), seq, holders: [s.holder] }));
+  }
+  control(s: Session, actor: Actor, kind: string, text: string) {
+    const entry = this.timeline.record(s.fx.name, { at: this.host.iso(), kind, actor, text });
+    this.host.emit('agents', 'agent.control', { agent: s.fx.name, actor, data: { ...entry } });
+  }
+
+  write(s: Session, line: string) {
+    this.edit(s, () => {
+      s.lines.push(line);
+    });
+  }
+
+  setComposeLine(s: Session) {
+    this.edit(s, () => {
+      const line = `> ${s.buffer}`;
+      if (s.composing) s.lines[s.lines.length - 1] = line;
+      else s.lines.push(line);
+      s.composing = true;
+    });
+  }
+
+  submit(s: Session, actor: Actor) {
+    const text = s.buffer;
+    this.edit(s, () => {
+      const line = `> ${text}`;
+      if (s.composing) s.lines[s.lines.length - 1] = line;
+      else s.lines.push(line);
+      s.composing = false;
+      s.buffer = '';
+    });
+    if (s.state === 'idle') this.startTurn(s, actor);
+  }
+
+  startTurn(s: Session, actor: Actor) {
+    this.setState(s, 'running', actor);
+    s.queue = [() => this.write(s, '● Thinking…'), () => this.write(s, '● I will push the branch.'), () => this.openPrompt(s)];
+  }
+
+  openPrompt(s: Session) {
+    const lines = PROMPT_LINES.map((l) => l.replace('{branch}', s.fx.branch));
+    const prompt: Prompt = {
+      id: `p${++s.counter}-${s.fx.name}`,
+      agent: s.fx.name,
+      kind: 'permission',
+      tool: 'Bash',
+      command: `git push origin ${s.fx.branch}`,
+      reason: null,
+      lines,
+      since: this.host.iso(),
+      options: [
+        { key: '1', label: 'Yes', answer: 'yes', highlighted: true },
+        { key: '2', label: 'No', answer: 'no' },
+      ],
+    };
+    s.prompt = prompt;
+    for (const l of lines) this.write(s, l);
+    this.setState(s, 'waiting');
+    this.host.emit('notifications', 'prompt_asked', {
+      agent: s.fx.name,
+      title: 'Permission: Bash',
+      data: prompt as unknown as Record<string, unknown>,
+    });
+  }
+
+  answer(s: Session, key: string, actor: Actor) {
+    s.prompt = null;
+    if (key === '1') {
+      s.queue = [
+        () => {
+          this.setState(s, 'running');
+          this.write(s, `● Ran git push origin ${s.fx.branch}`);
+        },
+        () => this.write(s, '● Pushed. Done.'),
+        () => this.setState(s, 'idle'),
+      ];
+    } else {
+      s.queue = [
+        () => {
+          this.write(s, '● Understood, I will not push.');
+          this.setState(s, 'idle');
+        },
+      ];
+    }
+    this.setState(s, 'running', actor);
+  }
+
+  interruptTurn(s: Session, actor: Actor) {
+    if (s.state === 'idle') return;
+    s.prompt = null;
+    s.queue = [];
+    this.write(s, '● Interrupted · What should Claude do instead?');
+    this.setState(s, 'idle', actor);
+  }
+
+  pressKey(s: Session, key: string, actor: Actor) {
+    this.record(s, 'key', key, actor.name);
+    if (key === 'esc' || key === 'ctrl-c') this.interruptTurn(s, actor);
+    else if (key === 'enter') {
+      if (s.buffer) this.submit(s, actor);
+    } else if (s.prompt?.options.some((o) => o.key === key)) this.answer(s, key, actor);
+  }
+
+  /** agent.retire: refused while the session is open or another agent hangs under the name; otherwise the agent is gone. */
+  retire(s: Session, actor: Actor) {
+    const name = s.fx.name;
+    if (s.open) throw refused('state', `${name} has a session running. Close it first: an agent is not retired under a running session.`);
+    const under = [...this.sessions.keys()].filter((n) => n.startsWith(`${name}.`));
+    if (under.length) throw refused('state', `${name} has agents under it (${under.join(', ')}): retire or move them first.`);
+    this.sessions.delete(name);
+    this.host.emit('agents', 'agent.removed', { agent: name, actor, data: { name } });
+    return this.accepted(`${name} is retired.`);
+  }
+
+  accepted(said: string, extra: Record<string, unknown> = {}) {
+    return { accepted: true, said, ...extra };
+  }
+
+  /** The daemon's own typing: refused while a person holds the terminal, marked in the stream otherwise. */
+  daemonTypes(s: Session, text: string): void {
+    if (s.holder.kind !== 'daemon') throw refused('input_holder', `${s.holder.name} holds the input`);
+    this.record(s, 'text', text, 'daemon');
+    this.edit(s, () => {
+      s.lines.push(`> ${text}`);
+    });
+    this.pushTerminal(s, 'marker', (seq): Notifications['marker'] => ({
+      terminal: tid(s),
+      seq,
+      at: this.host.iso(),
+      kind: 'daemon_typed',
+      actor: { kind: 'daemon', name: 'daemon' },
+      text,
+      format: 'text',
+    }));
+  }
+
+  /** The gates every typing method passes: a session to type at, and nobody else holding the input. */
+  gate(s: Session, c: Who) {
+    if (!s.open) throw refused('state', 'the agent has no open session');
+    if (s.holder.kind !== 'daemon' && s.holder.name !== c.caller.name) throw refused('input_holder', `${s.holder.name} holds the input`);
+  }
+
+  /** Opens a session; the new screen follows the old text, as a terminal's scrollback would. */
+  startSession(s: Session, wake: boolean, actor: Actor) {
+    if (s.open) throw refused('state', 'the session is already open');
+    if (wake && !s.sessionId) throw refused('state', 'there is no closed session to resume');
+    s.open = true;
+    s.hasTerminal = !s.structured;
+    s.sessionId ??= `s-${s.fx.name}-${++s.counter}`;
+    this.edit(s, () => {
+      s.lines.push(...BANNER.map((l) => l.replace('{worktree}', s.fx.worktree)));
+    });
+    this.setState(s, 'starting', actor); // the launch, then its session ready at once
+    this.setState(s, 'idle', actor);
+    return this.accepted('Session started.');
+  }
+
+  restartSession(s: Session, fresh: boolean, actor: Actor) {
+    if (s.open) this.stopSession(s, 'close', actor);
+    if (fresh) s.sessionId = null;
+    return this.startSession(s, false, actor);
+  }
+
+  stopSession(s: Session, mode: unknown, actor: Actor) {
+    if (mode !== 'exit' && mode !== 'close' && mode !== 'kill') throw badRequest('mode must be exit, close or kill', 'mode');
+    if (!s.open) throw refused('state', 'the agent has no open session');
+    s.prompt = null;
+    s.queue = [];
+    s.open = false;
+    if (mode === 'kill') s.hasTerminal = false;
+    else this.write(s, '(session ended)');
+    this.setState(s, mode === 'kill' ? 'no_terminal' : 'parked', actor);
+    return this.accepted('Session ended.');
+  }
+}
