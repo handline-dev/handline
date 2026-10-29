@@ -158,6 +158,9 @@ func TestStopSaysWhetherBackgroundWorkStillRuns(t *testing.T) {
 	if _, known := tr.Background("%1"); known {
 		t.Fatal("mid-turn background work read as known")
 	}
+	if got := tr.Running("amy"); got != nil {
+		t.Fatalf("mid-turn background work named %q", got)
+	}
 	tr.Hook("amy", "Stop", map[string]any{"background_tasks": []any{}}, 13)
 	if running, known := tr.Background("%1"); running != "" || !known {
 		t.Fatalf("done read as %q %v", running, known)
