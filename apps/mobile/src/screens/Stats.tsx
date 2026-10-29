@@ -63,7 +63,9 @@ function Counts({ s }: { s: StatsData }) {
             testID={`tile-${key}`}
             style={{ flexBasis: '47%', flexGrow: 1, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, padding: space.md }}
           >
-            <Text style={{ color: key === 'blocks' && s[key] > 0 ? c.block : c.ink, fontSize: font.size.xl, fontWeight: '700' }}>{s[key]}</Text>
+            <Text style={{ color: key === 'blocks' && s[key] > 0 ? c.block : c.ink, fontSize: font.size.xl, fontWeight: '700' }}>
+              {s[key]}
+            </Text>
             <Text style={{ color: c.muted }}>{label}</Text>
           </View>
         ))}

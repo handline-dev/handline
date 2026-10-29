@@ -199,9 +199,7 @@ export function Compose(props: {
         onUnref={att.unrefer}
       />
       <ComposeRow className={cmd ? '[--acc:var(--cmd)]' : undefined}>
-        {cmd ? (
-          <span className="compose-cmd absolute bottom-full left-3 mb-0.5 text-xs text-ink-2">Sent as typed to the agent</span>
-        ) : null}
+        {cmd ? <span className="compose-cmd absolute bottom-full left-3 mb-0.5 text-xs text-ink-2">Sent as typed to the agent</span> : null}
         {menu ? (
           <ul
             className="compose-menu absolute inset-x-0 bottom-full z-10 m-0 mb-1 max-h-60 list-none overflow-auto rounded-md border border-line-strong bg-panel px-0 py-1 shadow-[var(--shadow)]"

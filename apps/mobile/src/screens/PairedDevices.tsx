@@ -21,13 +21,33 @@ export function PairedDevices() {
   return (
     <View testID="paired-devices" style={{ gap: space.sm }}>
       <Text style={{ color: c.muted }}>Paired devices</Text>
-      <Loadable query={query} served={served} isEmpty={rows.length === 0} skeleton="settings" label="paired devices" empty="No device is paired.">
+      <Loadable
+        query={query}
+        served={served}
+        isEmpty={rows.length === 0}
+        skeleton="settings"
+        label="paired devices"
+        empty="No device is paired."
+      >
         <View>
           {rows.map((d) => (
-            <View key={d.id} testID={`device-${d.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.sm, borderTopWidth: 1, borderTopColor: c.line }}>
+            <View
+              key={d.id}
+              testID={`device-${d.id}`}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: space.md,
+                paddingVertical: space.sm,
+                borderTopWidth: 1,
+                borderTopColor: c.line,
+              }}
+            >
               <View style={{ flex: 1 }}>
                 <Text style={{ color: c.ink }}>{d.name}</Text>
-                <Text style={{ color: c.muted, fontSize: font.size.sm }}>{d.connected ? 'connected' : d.last_seen ? `seen ${ago(d.last_seen)} ago` : 'never seen'}</Text>
+                <Text style={{ color: c.muted, fontSize: font.size.sm }}>
+                  {d.connected ? 'connected' : d.last_seen ? `seen ${ago(d.last_seen)} ago` : 'never seen'}
+                </Text>
               </View>
               <Button testID={`revoke-${d.id}`} label="Revoke" disabled={!!off} onPress={() => setAsking({ id: d.id, name: d.name })} />
             </View>
@@ -51,7 +71,9 @@ export function PairedDevices() {
             setAsking(null);
           }}
         >
-          <Text style={{ color: c.ink }}>{asking.name} loses its access to this daemon at once. To use it again it has to be paired anew.</Text>
+          <Text style={{ color: c.ink }}>
+            {asking.name} loses its access to this daemon at once. To use it again it has to be paired anew.
+          </Text>
         </Sheet>
       ) : null}
     </View>

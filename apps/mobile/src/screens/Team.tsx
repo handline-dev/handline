@@ -26,14 +26,7 @@ export function Team() {
           <View key={g.parent ?? ''} style={{ gap: space.sm }}>
             <Text style={{ color: c.muted, fontWeight: '600' }}>{g.parent ? `Reports to ${g.parent}` : 'Top of the team'}</Text>
             {g.agents.map((a) => (
-              <Card
-                key={a.name}
-                a={a}
-                d={doing(a.name)}
-                edges={edges}
-                open={isOpen(a.name)}
-                onPress={() => toggle(a.name)}
-              />
+              <Card key={a.name} a={a} d={doing(a.name)} edges={edges} open={isOpen(a.name)} onPress={() => toggle(a.name)} />
             ))}
           </View>
         ))}

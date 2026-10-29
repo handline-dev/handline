@@ -119,10 +119,20 @@ export function Annotator({ image, onChange }: { image: Blob; onChange: (marked:
           >
             {draw.elements.map((el, i) =>
               el.type === 'path' ? (
-                <path key={i} d={el.d} fill="none" stroke={el.stroke} strokeWidth={el.strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+                <path
+                  key={i}
+                  d={el.d}
+                  fill="none"
+                  stroke={el.stroke}
+                  strokeWidth={el.strokeWidth}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               ) : null,
             )}
-            {path ? <polyline points={path} fill="none" stroke={MARK_COLOR} strokeWidth={line} strokeDasharray={`${line * 2} ${line * 2}`} /> : null}
+            {path ? (
+              <polyline points={path} fill="none" stroke={MARK_COLOR} strokeWidth={line} strokeDasharray={`${line * 2} ${line * 2}`} />
+            ) : null}
           </svg>
           {marks.map((m, i) => (
             <button

@@ -19,7 +19,11 @@ function MarkdownFile({ file }: { file: MemoFile }) {
         <Markdown text={text} testID={`memo-markdown-${file.id}`} />
       ) : (
         <Text accessibilityRole={read.state === 'loading' ? undefined : 'alert'} style={{ color: c.muted }}>
-          {read.state === 'loading' ? 'Loading…' : read.state === 'gone' ? 'This file is no longer kept.' : 'This file could not be loaded.'}
+          {read.state === 'loading'
+            ? 'Loading…'
+            : read.state === 'gone'
+              ? 'This file is no longer kept.'
+              : 'This file could not be loaded.'}
         </Text>
       )}
     </View>
@@ -33,12 +37,16 @@ export function MemoFiles({ files }: { files: MemoFile[] }) {
   return (
     <View testID="memo-files" style={{ gap: space.sm }}>
       {images.length > 0 && <Pictures items={images} />}
-      {kept.filter((f) => f.kind === 'markdown').map((f) => (
-        <MarkdownFile key={f.id} file={f} />
-      ))}
-      {files.filter((f) => f.gone).map((f) => (
-        <Text key={f.id} style={{ color: c.muted, fontSize: font.size.sm }}>{`${f.name}: no longer kept.`}</Text>
-      ))}
+      {kept
+        .filter((f) => f.kind === 'markdown')
+        .map((f) => (
+          <MarkdownFile key={f.id} file={f} />
+        ))}
+      {files
+        .filter((f) => f.gone)
+        .map((f) => (
+          <Text key={f.id} style={{ color: c.muted, fontSize: font.size.sm }}>{`${f.name}: no longer kept.`}</Text>
+        ))}
     </View>
   );
 }

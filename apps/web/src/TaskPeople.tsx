@@ -6,8 +6,7 @@ import { classify, sentence, useAgents, useTeam, useWrite } from '@handline/app-
 import { Input, Popup } from '#src/ui/index.ts';
 
 export const CHIP = 'rounded-full border px-2 py-0.5 text-sm';
-export const chipLook = (on: boolean) =>
-  on ? 'border-acc bg-acc text-on-acc' : 'border-line-strong bg-transparent text-ink tint';
+export const chipLook = (on: boolean) => (on ? 'border-acc bg-acc text-on-acc' : 'border-line-strong bg-transparent text-ink tint');
 
 const SHOWN = 5;
 

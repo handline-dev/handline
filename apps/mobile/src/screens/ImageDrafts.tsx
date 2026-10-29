@@ -46,7 +46,17 @@ export function ImageChips(props: {
               <View
                 testID={`image-marked-${d.key}`}
                 accessibilityLabel="Marked"
-                style={{ position: 'absolute', right: -3, top: -3, width: 12, height: 12, borderRadius: 6, backgroundColor: MARK_COLOR, borderWidth: 1, borderColor: c.bg }}
+                style={{
+                  position: 'absolute',
+                  right: -3,
+                  top: -3,
+                  width: 12,
+                  height: 12,
+                  borderRadius: 6,
+                  backgroundColor: MARK_COLOR,
+                  borderWidth: 1,
+                  borderColor: c.bg,
+                }}
               />
             ) : null}
           </Pressable>

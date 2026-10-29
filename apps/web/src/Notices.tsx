@@ -309,11 +309,7 @@ function SpareCard({ n }: { n: SpareNotice }) {
   const reply = (evidence: string) => answer.mutate({ task: n.task, evidence, reason: true });
   const open = () => void (location.hash = `#/tasks/${n.task}`);
   return (
-    <div
-      className="notice-spare tint flex cursor-pointer items-start gap-2 px-3 py-2 text-md text-ink"
-      data-notice="spare"
-      onClick={open}
-    >
+    <div className="notice-spare tint flex cursor-pointer items-start gap-2 px-3 py-2 text-md text-ink" data-notice="spare" onClick={open}>
       <Icon name="waiting" size={14} className="mt-0.5 flex-none text-wait" aria-hidden />
       <div className="min-w-0 flex-1">
         <p className="m-0">{n.text}</p>

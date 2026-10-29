@@ -15,7 +15,8 @@ import { Button, Row } from '#src/screens/parts.tsx';
 export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () => void }) {
   const c = usePalette();
   const { agent, prompt: p } = props;
-  const { answering, picked, typing, setTyping, text, setText, changed, cancel, opts, multi, question, send, toggle, mark } = usePromptAnswer(agent, p, props.onStale);
+  const { answering, picked, typing, setTyping, text, setText, changed, cancel, opts, multi, question, send, toggle, mark } =
+    usePromptAnswer(agent, p, props.onStale);
   const what = p.command ? `${p.tool ?? ''} ${p.command}` : p.lines.join('\n');
   return (
     <View
@@ -70,7 +71,9 @@ export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () 
           ))}
         </Row>
       )}
-      {p.kind === 'dialog' && opts.some(isAlways) && <Text style={{ color: c.muted, fontSize: font.size.sm }}>↻ saves a rule for next time</Text>}
+      {p.kind === 'dialog' && opts.some(isAlways) && (
+        <Text style={{ color: c.muted, fontSize: font.size.sm }}>↻ saves a rule for next time</Text>
+      )}
       {multi && (
         <Button
           testID="answer-submit"

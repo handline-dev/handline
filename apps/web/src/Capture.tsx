@@ -39,7 +39,9 @@ export function CaptureHost(): ReactNode {
     };
   }, []);
   const task = route && /^\d+$/.test(route) ? Number(route) : null;
-  return <AnimatedList>{open ? <CaptureDialog key="capture" agents={agents} task={task} onClose={() => setOpen(false)} /> : null}</AnimatedList>;
+  return (
+    <AnimatedList>{open ? <CaptureDialog key="capture" agents={agents} task={task} onClose={() => setOpen(false)} /> : null}</AnimatedList>
+  );
 }
 
 type Win = { id: string; name: string; thumb: string };
@@ -118,7 +120,13 @@ export function CaptureDialog({
       const text = withImages(markText(note, marks), drawn ? [plain.id, drawn.id] : [plain.id], alt);
       if (as === 'comment' && target !== null) await memo.mutateAsync({ task: target, text });
       else
-        await ask.mutateAsync({ owner, title: titleFromNote(note || keptMarks(marks)[0]?.text || '', 'Capture'), body: text, time_box: '2h', priority: 2 });
+        await ask.mutateAsync({
+          owner,
+          title: titleFromNote(note || keptMarks(marks)[0]?.text || '', 'Capture'),
+          body: text,
+          time_box: '2h',
+          priority: 2,
+        });
       if (!gone.current) onClose();
     } catch (e) {
       if (!gone.current) {
