@@ -74,7 +74,7 @@ One file per group, generated from `spec/<group>.json`; field types are in `prot
 - [chat](gen/chat.md): 25 methods
 - [devices](gen/devices.md): 4 methods
 - [repos](gen/repos.md): 6 methods
-- [tasks](gen/tasks.md): 37 methods
+- [tasks](gen/tasks.md): 39 methods
 - [team](gen/team.md): 14 methods
 - [terminal](gen/terminal.md): 9 methods
 
@@ -157,7 +157,7 @@ The plan's earlier `requests` topic is replaced by `chat` (messages and landing 
 | `accounts` | `account.changed` (Account) | `accounts.list` |
 | `agents` | `agent.changed` (AgentView), `agent.removed` ({name}), `agent.control` (TimelineEntry) | `agents.list` |
 | `inbox` | `inbox.added` (InboxItem), `inbox.changed` (InboxItem) | `inbox.list` |
-| `tasks` | `task.changed` (Task) | `tasks.list` |
+| `tasks` | `task.changed` (Task), `later_returned` (LaterReturned) | `tasks.list` |
 | `notifications` | `task_done` ({task, task_title?, result?, reporter?, from_founder?}), `prompt_asked` (Prompt), `stall` ({agent}), `account_out` ({account}), `disk_low` ({free_bytes, total_bytes}) | `events.feed` |
 | `chat` | `chat.message` (ChatMessage), `chat.transcript` (TranscriptItem), `chat.working` (Working) | `chat.transcript` |
 | `operations` | `operation.progress` (Operation) | `operation.get` |

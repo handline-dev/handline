@@ -3,6 +3,7 @@ package reads
 import (
 	"encoding/json"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/housekeeping"
 	"github.com/handline/handline/go/internal/loadgate"
 	"github.com/handline/handline/go/internal/rpc"
@@ -42,19 +43,31 @@ func (e *Env) status(c *rpc.Conn, params map[string]any) (any, error) {
 		"resources":     e.resources(),
 	}
 	// The machine's own needs-you items, none of an agent's: a disk too full for builds.
-	if needs := e.machineNeeds(); len(needs) > 0 {
+	needs, err := e.machineNeeds()
+	if err != nil {
+		return nil, err
+	}
+	if len(needs) > 0 {
 		out["needs_you"] = needs
 	}
 	return out, nil
 }
 
 // machineNeeds are the items daemon.status carries: what the machine needs of the founder, oldest first.
-func (e *Env) machineNeeds() []any {
+func (e *Env) machineNeeds() ([]any, error) {
 	var out []any
 	if since, free, ok := housekeeping.DiskNeed(e.DB); ok {
-		out = append(out, map[string]any{"kind": "disk", "since": ts(since), "text": housekeeping.DiskNeedText(free)})
+		need := map[string]any{"kind": "disk", "since": ts(since), "text": housekeeping.DiskNeedText(free)}
+		later, err := e.laterOfID(db.LaterMachine, "disk")
+		if err != nil {
+			return nil, err
+		}
+		if later != nil {
+			need["later"] = later
+		}
+		out = append(out, need)
 	}
-	return out
+	return out, nil
 }
 
 // resources is the latest measure for daemon.status: null until the sampler has measured, or on a daemon that does not.

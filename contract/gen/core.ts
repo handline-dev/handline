@@ -573,6 +573,26 @@ export type MachineNeed = {
   since: Timestamp;
   /** The item in plain words, with the free space in it. */
   text: string;
+  later?: Later;
+};
+
+/** A For you item the founder can defer: a task (id is its number), a comment's ask to the founder (id is the comment's number, `memo`) or a need of the machine (id is `disk`). A session's ask and an HR proposal are never deferred: an agent is stopped on them. */
+export type LaterItem = {
+  kind: "task" | "comment" | "machine";
+  id: string;
+};
+
+/** Why a For you item is out of its group and when it returns: at the time `until`, or when the task `after_task` is done or discarded; exactly one is present. Absent from an item that is not deferred. The apps filter and count on it. */
+export type Later = {
+  until?: Timestamp;
+  after_task?: number;
+};
+
+/** The data of a later_returned event: the item came back to its group. */
+export type LaterReturned = {
+  item: LaterItem;
+  /** What brought it back: the time passed, or the task it waited for was done or discarded. An item the founder clears, or one that went away, is not announced: the founder's own call answers the first, and the item's own change the second. */
+  why: "time" | "task_done" | "task_discarded";
 };
 
 export interface CoreMethods {

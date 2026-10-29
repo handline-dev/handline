@@ -1,6 +1,6 @@
 // Generated from contract/spec/ by contract/generate.py; do not edit.
 /* eslint-disable */
-import type { Accepted, AgentName, AttachmentId, Duration, ImagePart, Prompt, ReadCursor, RequestId, RequestName, RequestRef, Role, TextPart, Timestamp } from './core.ts';
+import type { Accepted, AgentName, AttachmentId, Duration, ImagePart, Later, Prompt, ReadCursor, RequestId, RequestName, RequestRef, Role, TextPart, Timestamp } from './core.ts';
 
 export type InboxItem = {
   id: number;
@@ -18,6 +18,8 @@ export type InboxItem = {
   fix?: "open_terminal";
   /** Only on an ask an agent's task comment raised by naming `@human` (task.comment.add): that comment's id on `task`. A client opens the comment itself. Absent on any other item. */
   memo?: number;
+  /** Only on a deferred ask of a task comment (with `memo`): when it returns. Absent when not deferred. */
+  later?: Later;
 };
 
 /** Landing state of a message; open set. */

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/policy"
 	"github.com/handline/handline/go/internal/rpc"
 )
@@ -148,6 +149,11 @@ func (e *Env) founderItemsKept(since int64, kept bool) ([]map[string]any, error)
 		}
 		if m.memo != 0 {
 			it["memo"] = m.memo
+			if later, err := e.laterOf(db.LaterComment, m.memo); err != nil {
+				return nil, err
+			} else if later != nil {
+				it["later"] = later
+			}
 		}
 		out = append(out, it)
 	}

@@ -30,6 +30,7 @@ var taskExtras = []struct {
 	{"SELECT l.task_id, COUNT(*), MAX(r.state_at) FROM tasks t JOIN task_requests l ON l.task_id = t.id JOIN requests r ON r.id = l.request_id " +
 		"WHERE " + taskLooked + " GROUP BY l.task_id", true},
 	{"SELECT task_id, COUNT(*) FROM task_blocks WHERE dormant = 0 GROUP BY task_id", false},
+	{"SELECT CAST(item_id AS INTEGER), until_at, after_task FROM later WHERE item_kind = 'task'", false},
 }
 
 // Tasks is the tasks topic: a task that appeared or changed (its fields, a memo, a request linked to it), as the spec's Task. Its

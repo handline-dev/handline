@@ -196,7 +196,8 @@
   "tasks": {
    "snapshot": "tasks.list",
    "data": {
-    "task.changed": "Task"
+    "task.changed": "Task",
+    "later_returned": "LaterReturned"
    }
   },
   "notifications": {
@@ -2889,12 +2890,70 @@
      "text": {
       "type": "string",
       "description": "The item in plain words, with the free space in it."
+     },
+     "later": {
+      "$ref": "#/components/schemas/Later"
      }
     },
     "required": [
      "kind",
      "since",
      "text"
+    ]
+   },
+   "LaterItem": {
+    "type": "object",
+    "description": "A For you item the founder can defer: a task (id is its number), a comment's ask to the founder (id is the comment's number, `memo`) or a need of the machine (id is `disk`). A session's ask and an HR proposal are never deferred: an agent is stopped on them.",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "task",
+       "comment",
+       "machine"
+      ]
+     },
+     "id": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "kind",
+     "id"
+    ]
+   },
+   "Later": {
+    "type": "object",
+    "description": "Why a For you item is out of its group and when it returns: at the time `until`, or when the task `after_task` is done or discarded; exactly one is present. Absent from an item that is not deferred. The apps filter and count on it.",
+    "properties": {
+     "until": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "after_task": {
+      "type": "integer"
+     }
+    }
+   },
+   "LaterReturned": {
+    "type": "object",
+    "description": "The data of a later_returned event: the item came back to its group.",
+    "properties": {
+     "item": {
+      "$ref": "#/components/schemas/LaterItem"
+     },
+     "why": {
+      "type": "string",
+      "enum": [
+       "time",
+       "task_done",
+       "task_discarded"
+      ],
+      "description": "What brought it back: the time passed, or the task it waited for was done or discarded. An item the founder clears, or one that went away, is not announced: the founder's own call answers the first, and the item's own change the second."
+     }
+    },
+    "required": [
+     "item",
+     "why"
     ]
    }
   },

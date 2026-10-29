@@ -170,6 +170,8 @@ const tasks: Record<string, WriteSpec> = {
   'file.write': decided('save file'), // the page keeps the new etag from the reply
   'task.view.save': { kind: 'decided', label: 'save view', touches: (d) => [qk.taskViews(d)] },
   'task.view.delete': { kind: 'decided', label: 'delete view', touches: (d) => [qk.taskViews(d)] },
+  'later.set': decided('defer'),
+  'later.clear': decided('return'),
 };
 
 // ---- inbox, settings, accounts, schedules, standing answers ----

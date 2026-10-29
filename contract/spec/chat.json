@@ -75,6 +75,14 @@
      "memo": {
       "type": "integer",
       "description": "Only on an ask an agent's task comment raised by naming `@human` (task.comment.add): that comment's id on `task`. A client opens the comment itself. Absent on any other item."
+     },
+     "later": {
+      "allOf": [
+       {
+        "$ref": "#/components/schemas/Later"
+       }
+      ],
+      "description": "Only on a deferred ask of a task comment (with `memo`): when it returns. Absent when not deferred."
      }
     },
     "required": [

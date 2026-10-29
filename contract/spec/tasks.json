@@ -363,6 +363,14 @@
      "status": {
       "$ref": "#/components/schemas/Status",
       "description": "What it is doing and why (x-status). Absent from a daemon that does not send it."
+     },
+     "later": {
+      "allOf": [
+       {
+        "$ref": "#/components/schemas/Later"
+       }
+      ],
+      "description": "Only while the founder has the task deferred (later.set): when it returns. Absent otherwise. A client leaves the task out of For you and shows the Waiting for a time glyph by it."
      }
     },
     "required": [
@@ -3938,6 +3946,106 @@
     {
      "$ref": "#/components/errors/refused"
     },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "later.set",
+   "summary": "The founder defers a For you item: it leaves its group and the count until a time, or until a task is done or discarded. A second call for the same item replaces the first.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "item",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/LaterItem"
+     }
+    },
+    {
+     "name": "until",
+     "required": false,
+     "schema": {
+      "allOf": [
+       {
+        "$ref": "#/components/schemas/Timestamp"
+       }
+      ],
+      "description": "When the item returns; later than now."
+     }
+    },
+    {
+     "name": "after_task",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "description": "The task whose end brings it back; open now, and not the item's own task."
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "x-note": "Exactly one of until and after_task. Refused for a kind that is not task, comment or machine (a session ask or an HR proposal is stopped on by an agent), for an item that is not open now, for an until not in the future, and for an after_task that is closed or the item's own. When the item returns the daemon deletes the row and appends a later_returned event to the tasks topic.",
+   "errors": [
+    {
+     "$ref": "#/components/errors/refused"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    },
+    {
+     "$ref": "#/components/errors/bad_request"
+    }
+   ]
+  },
+  {
+   "name": "later.clear",
+   "summary": "The founder returns a deferred item to its group at once.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "item",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/LaterItem"
+     }
+    },
+    {
+     "name": "request_id",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/RequestId"
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "$ref": "#/components/schemas/Accepted"
+    }
+   },
+   "x-role": "founder",
+   "x-write": true,
+   "x-since": 1,
+   "errors": [
     {
      "$ref": "#/components/errors/not_found"
     },

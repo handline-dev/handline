@@ -89,6 +89,8 @@ func Register(s *rpc.Server, home string, tell Teller, decide CardDecider) {
 	s.Register("task.comment.send_now", rpc.Method{Role: "member", Write: true, Handler: memoSendNow(tell)})
 	s.Register("task.view.save", rpc.Method{Role: "member", Write: true, Handler: viewSave})
 	s.Register("task.view.delete", rpc.Method{Role: "member", Write: true, Handler: viewDelete})
+	s.Register("later.set", rpc.Method{Role: "founder", Write: true, Handler: laterSet})
+	s.Register("later.clear", rpc.Method{Role: "founder", Write: true, Handler: laterClear})
 }
 
 func claimImages(tx *sql.Tx, home, by, text, was, field string) error {
