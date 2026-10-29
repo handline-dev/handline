@@ -13,6 +13,7 @@ import { serveCapture } from '#src/capture.ts';
 import { gitView, scratch } from '#src/git-view.ts';
 import { Dropper } from '#src/drop.ts';
 import { Opener } from '#src/open.ts';
+import { OpenIn } from '#src/open-in.ts';
 import { Devices } from '#src/devices.ts';
 import { Preview } from '#src/preview.ts';
 import { followMain, takeRoute } from '#src/follow-app.ts';
@@ -220,6 +221,32 @@ function makeUpdater(page: Page, composer: Composer, upgrade: () => Promise<void
   });
 }
 
+/** The calls the shell makes on its own founder connection for the page: settings, and openIn. */
+function handleFounderCalls(origin: string, client: DaemonClient, remote: Remote | null, tmp: string): void {
+  handleSettings(origin, client, remote);
+  handleOpenIn(origin, client, tmp);
+}
+
+/** openIn and openInApps with the machine's own pieces: the shell's founder connection for the folder and the tmux command, and /usr/bin/open through execFile. */
+function handleOpenIn(origin: string, client: DaemonClient, tmp: string): void {
+  const openIn = new OpenIn(origin, {
+    platform: process.platform,
+    home: os.homedir(),
+    tmp,
+    worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,
+    attachOf: async (agent) => (await client.call('terminal.open', { agent })).attach?.argv ?? null,
+    exec: (file, args) => new Promise((resolve, reject) => execFile(file, args, (err) => (err ? reject(err) : resolve()))),
+    exists: (p) =>
+      fs.promises.access(p).then(
+        () => true,
+        () => false,
+      ),
+    later: (fn, ms) => void setTimeout(fn, ms).unref(),
+  });
+  ipcMain.handle(CHANNELS.openIn, (e, arg) => openIn.open(e, arg));
+  ipcMain.handle(CHANNELS.openInApps, (e) => openIn.apps(e));
+}
+
 /** The app window: the page gets window.handline and nothing else, and the window never leaves the loopback origin. */
 function createWindow(origin: string, onReady: () => void): BrowserWindow {
   const w = new BrowserWindow({
@@ -346,7 +373,7 @@ if (!app.requestSingleInstanceLock({ background })) {
     ipcMain.handle(CHANNELS.preview, (e, arg) => preview.set(e, arg));
     ipcMain.handle(CHANNELS.capturePreview, (e) => preview.capture(e));
     handleDevices(origin);
-    handleSettings(origin, client, remote);
+    handleFounderCalls(origin, client, remote, app.getPath('temp'));
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
     const opener = new Opener(origin, {
       worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,
