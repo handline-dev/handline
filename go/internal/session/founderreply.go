@@ -40,13 +40,17 @@ const founderNudgeKey, founderDeferKey = "founder_nudge:", "founder_nudge_deferr
 
 // NoteFounderNudged marks the founder's message rid as nudged; false when it already was.
 func (e *Env) NoteFounderNudged(agent string, rid int64) (bool, error) {
-	id, err := db.AddEventDeduped(e.DB, agent, FounderNudgeKind, fmt.Sprintf("%s%d", founderNudgeKey, rid), db.KV{K: "request_id", V: rid})
-	return id != 0, err
+	return e.noteFounder(agent, FounderNudgeKind, founderNudgeKey, rid)
 }
 
 // NoteFounderDeferred marks the founder's message rid as deferred; false when it already was.
 func (e *Env) NoteFounderDeferred(agent string, rid int64) (bool, error) {
-	id, err := db.AddEventDeduped(e.DB, agent, FounderDeferKind, fmt.Sprintf("%s%d", founderDeferKey, rid), db.KV{K: "request_id", V: rid})
+	return e.noteFounder(agent, FounderDeferKind, founderDeferKey, rid)
+}
+
+// noteFounder adds the kind event for rid once, by its key; false when it already was.
+func (e *Env) noteFounder(agent, kind, key string, rid int64) (bool, error) {
+	id, err := db.AddEventDeduped(e.DB, agent, kind, fmt.Sprintf("%s%d", key, rid), db.KV{K: "request_id", V: rid})
 	return id != 0, err
 }
 
