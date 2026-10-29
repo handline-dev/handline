@@ -2,35 +2,73 @@
 // context menu changes.
 import { useEffect, useState } from 'react';
 import type { AgentDetail } from '@handline/client';
-import { useServes, useWrite } from '@handline/app-data';
-import { Icon, MenuItem, MenuLabel, MenuSeparator, STRIP_ITEM } from '#src/ui/index.ts';
+import { VERBS } from '@handline/app-core';
+import { useServes, useVerbRun, useWrite } from '@handline/app-data';
+import { useServed } from '#src/AgentVerbs.tsx';
+import { Icon, MenuButton, MenuItem, MenuLabel, MenuSeparator, STRIP_ITEM } from '#src/ui/index.ts';
 
 const COPIED_MS = 1500;
 
-/** The branch name; its copy icon shows on hover or focus, and a click copies the name and says Copied for a moment. */
-export function BranchChip({ branch }: { branch: string }) {
+type ChangedFile = { path: string; added: number; deleted: number };
+
+/** The branch with the lines it adds and removes; it opens the branch name (a click copies it) and the files that changed, the biggest three first. */
+export function BranchMenu({ branch, changed }: { branch: string; changed: ChangedFile[] }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
     const t = setTimeout(() => setCopied(false), COPIED_MS);
     return () => clearTimeout(t);
   }, [copied]);
+  const added = changed.reduce((n, f) => n + f.added, 0);
+  const deleted = changed.reduce((n, f) => n + f.deleted, 0);
+  const biggest = [...changed].sort((a, b) => b.added + b.deleted - (a.added + a.deleted)).slice(0, 3);
+  const more = changed.length - biggest.length;
   return (
-    <button
-      type="button"
-      className={`group inline-flex ${STRIP_ITEM} min-w-0 items-center gap-1 rounded-sm border-0 bg-transparent text-inherit tint focus-visible:bg-raised`}
-      title={`Branch ${branch}: click to copy`}
-      aria-label={copied ? 'Copied' : `Copy branch ${branch}`}
-      onClick={() => void navigator.clipboard?.writeText(branch).then(() => setCopied(true))}
+    <MenuButton
+      className={`${STRIP_ITEM} min-w-0 gap-1 text-xs text-ink-2`}
+      label={`Branch ${branch}, ${changed.length} changed files`}
+      name="Branch"
+      align="start"
+      trigger={
+        <>
+          <Icon name="worktrees" size={13} aria-hidden />
+          <span className="truncate">{branch}</span>
+          {changed.length ? (
+            <span className="flex-none font-mono tabular-nums">
+              +{added} −{deleted}
+            </span>
+          ) : null}
+        </>
+      }
     >
-      <Icon name="worktrees" size={13} aria-hidden />
-      <span className="truncate">{branch}</span>
-      {copied ? (
-        <span className="flex-none text-ok">Copied</span>
-      ) : (
-        <Icon name="copy" size={12} aria-hidden className="flex-none opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
-      )}
-    </button>
+      <MenuItem
+        icon={copied ? 'markRead' : 'copy'}
+        onSelect={(e) => (e.preventDefault(), void navigator.clipboard?.writeText(branch).then(() => setCopied(true)))}
+      >
+        <span className="truncate">{copied ? 'Copied' : branch}</span>
+      </MenuItem>
+      {changed.length ? (
+        <>
+          <MenuSeparator />
+          <MenuLabel>
+            {changed.length} {changed.length === 1 ? 'file' : 'files'} changed
+          </MenuLabel>
+          {biggest.map((f) => (
+            <div key={f.path} className="flex items-center gap-3 px-2 py-0.5 text-sm text-ink-2">
+              <span className="min-w-0 flex-1 truncate font-mono">{f.path}</span>
+              <span className="flex-none font-mono tabular-nums">
+                +{f.added} −{f.deleted}
+              </span>
+            </div>
+          ))}
+          {more > 0 ? (
+            <div className="px-2 py-0.5 text-sm text-ink-3">
+              {more} more {more === 1 ? 'file' : 'files'}
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </MenuButton>
   );
 }
 
@@ -57,6 +95,22 @@ export function ContextMax({ detail, limit }: { detail: AgentDetail; limit: numb
           {k >= 1000 ? `${k / 1000}M` : `${k}k`} tokens
         </MenuItem>
       ))}
+    </>
+  );
+}
+
+/** The one action of the context menu: start the session over with a handoff now. */
+export function StartFresh({ detail }: { detail: AgentDetail }) {
+  const run = useVerbRun(detail.name);
+  const served = useServed();
+  const verb = VERBS.restart_fresh;
+  if (!detail.session_open || !served(verb)) return null;
+  return (
+    <>
+      <MenuSeparator />
+      <MenuItem icon="refresh" onSelect={() => run(verb)}>
+        Start fresh now
+      </MenuItem>
     </>
   );
 }

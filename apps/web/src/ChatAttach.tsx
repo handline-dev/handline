@@ -1,6 +1,6 @@
 // Images on a message: the chips under the box while they upload (a preview, the progress, a remove mark) and the pictures drawn in a sent
 // message (a small copy; a click opens the original). The files come from a paste, a drop or the file picker.
-import { useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
+import { useState, type ClipboardEvent, type DragEvent } from 'react';
 import type { Attachment } from '@handline/client';
 import {
   MAX_PER_MESSAGE,
@@ -276,37 +276,6 @@ export function AttachChips(props: {
         />
       ) : null}
     </div>
-  );
-}
-
-/** The file picker behind the paperclip. */
-export function PickButton(props: { onPick: (files: File[]) => void; disabled?: boolean }) {
-  const input = useRef<HTMLInputElement>(null);
-  return (
-    <>
-      <input
-        ref={input}
-        type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        multiple
-        hidden
-        aria-label="Choose images"
-        onChange={(e) => {
-          props.onPick([...(e.target.files ?? [])]);
-          e.target.value = '';
-        }}
-      />
-      <button
-        type="button"
-        className="icon compose-attach self-center"
-        aria-label="Attach images"
-        title="Attach images (or paste, or drop them here)"
-        disabled={props.disabled}
-        onClick={() => input.current?.click()}
-      >
-        <Icon name="attach" size={16} label="Attach images" />
-      </button>
-    </>
   );
 }
 

@@ -16,8 +16,8 @@ import {
   tickLevel,
 } from '@handline/app-core';
 import { useMe } from '@handline/app-react';
-import { Button, CardCode, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
-import { Notice } from '#src/ds/Chat.tsx';
+import { Button, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
+import { PromptLine } from '#src/PromptLine.tsx';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from '#src/msgClass.ts';
 import { Pictures } from '#src/ChatAttach.tsx';
 import { Markdown } from '#src/Markdown.tsx';
@@ -78,7 +78,7 @@ function Stamp({ left, time, always, hovered }: { left?: boolean; time: ReactNod
 }
 
 /** Under an agent's message, shown on hover: copy, quote, and how long ago. Nothing is drawn at rest, but the room stays so the list does not jump. */
-function HoverBar({ m, onPick }: { m: ChatMessage; onPick?: (m: ChatMessage) => void }) {
+function HoverBar({ m, onPick }: { m: ChatMessage; onPick?: (m: ChatMessage, quote?: string) => void }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
     void navigator.clipboard?.writeText(m.body).then(() => {
@@ -151,7 +151,7 @@ type MessageProps = {
   agent: string;
   /** The message a reply is being written to. */
   picked?: boolean;
-  onPick?: (m: ChatMessage) => void;
+  onPick?: (m: ChatMessage, quote?: string) => void;
   /** The messages the page holds, to say what a reply refers to. */
   byId?: Map<number, ChatMessage>;
   /** What a failed message offers; the chat gives one value for every row. */
@@ -188,8 +188,18 @@ function MessageRow(props: MessageProps) {
   const parent = m.parent != null ? props.byId?.get(m.parent) : undefined;
   // A click on the message, not on a control in it, picks it to reply to.
   const pick = (e: MouseEvent) => {
-    if (unnumbered || failed || !props.onPick || onControl(e)) return;
+    if (unnumbered || failed || !props.onPick || onControl(e) || window.getSelection()?.toString()) return;
     props.onPick(m);
+  };
+  // Words selected in an agent's message offer a small Quote above them; only words that are in the message can be quoted.
+  const [sel, setSel] = useState<{ text: string; x: number; y: number } | null>(null);
+  const select = () => {
+    const s = window.getSelection();
+    const text = s?.toString().replace(/\s+/g, ' ').trim();
+    if (side === 'person' || unnumbered || failed || !props.onPick || !text || !s?.rangeCount) return setSel(null);
+    if (!m.body.replace(/\s+/g, ' ').includes(text)) return setSel(null);
+    const r = s.getRangeAt(0).getBoundingClientRect();
+    setSel({ text, x: r.left + r.width / 2, y: r.top });
   };
   return (
     <>
@@ -201,6 +211,8 @@ function MessageRow(props: MessageProps) {
         data-pending={unnumbered && !failed ? 'true' : undefined}
         aria-current={props.picked ? 'true' : undefined}
         onClick={pick}
+        onMouseDown={() => setSel(null)}
+        onMouseUp={select}
       >
         {props.group && side !== 'person' ? (
           props.group.name ? (
@@ -282,6 +294,17 @@ function MessageRow(props: MessageProps) {
           </div>
         ) : null}
       </div>
+      {sel ? (
+        <button
+          type="button"
+          className="quote-pop fixed z-30 -translate-x-1/2 -translate-y-full cursor-pointer rounded-sm border-0 bg-ink px-2 py-1 text-xs text-canvas"
+          style={{ left: sel.x, top: sel.y - 6 }}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => (props.onPick?.(m, sel.text), setSel(null), window.getSelection()?.removeAllRanges())}
+        >
+          Quote
+        </button>
+      ) : null}
       {side === 'person' && !unnumbered && !failed ? <RequestChip m={m} /> : null}
       {side === 'person' ? (
         <Stamp
@@ -389,32 +412,7 @@ export function Item({
       </>
     );
   if (i.kind === 'tool') return <ToolLine i={i} />;
-  if (i.kind === 'prompt') {
-    const p = i.prompt;
-    const name = p?.kind === 'permission' ? 'permission' : 'prompt';
-    const what = p?.kind === 'permission' ? `Asked permission: ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`;
-    return (
-      <Notice
-        icon={<Icon name={name} label={what} />}
-        className="card-prompt group w-fit max-w-full"
-        data-kind="prompt"
-        data-open={i.open ? '' : undefined}
-        actions={
-          <>
-            <span className="card-state" title={i.open ? 'Needs you' : 'Answered'}>
-              <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Needs you' : 'Answered'} />
-            </span>
-            <span className="muted card-time hidden group-hover:inline group-focus-within:inline">{clockTime(i.at)}</span>
-          </>
-        }
-      >
-        <span className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap">
-          {p?.kind === 'permission' ? <span className="mono">{p.tool}</span> : <span className="muted">{p?.kind}</span>}
-          {p?.command ? <CardCode>{p.command}</CardCode> : null}
-        </span>
-      </Notice>
-    );
-  }
+  if (i.kind === 'prompt') return <PromptLine i={i} />;
   if (i.kind === 'session') return <SessionCard i={i} />;
   if (i.kind === 'task_batch') return <BatchCard i={i} />;
   return <TaskLine i={i} titles={titles} agent={agent} />;

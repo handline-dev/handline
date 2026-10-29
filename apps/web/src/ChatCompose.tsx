@@ -9,7 +9,7 @@ import { menuOf, useEntries, useOpenTerminal, type Entry, type MenuKind } from '
 import { VerbSheet } from '#src/AgentVerbs.tsx';
 import { useScreenKeys, type KeyRows } from '#src/screenKeys.ts';
 import { useCan } from '#src/taskui.tsx';
-import { AttachChips, attachHandlers, PickButton, useAttachDraft } from '#src/ChatAttach.tsx';
+import { AttachChips, attachHandlers, useAttachDraft } from '#src/ChatAttach.tsx';
 import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow, sendKey, Check } from '#src/ui/index.ts';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { COMPOSER_BAR } from '#src/ds/Chat.tsx';
@@ -34,13 +34,15 @@ export function Compose(props: {
   messages: ChatMessage[];
   /** The message this one answers or replies to; Escape or the close mark drops it. */
   target?: ChatMessage | null;
+  /** The words of the target the person selected; only they are quoted. */
+  quote?: string | null;
   /** One of the agent's own replies the person answers (never with a target). */
   item?: TranscriptItem | null;
   onClear?: () => void;
   /** The agent is mid-turn: a message to a structured agent is then queued behind it or joins the turn. */
   running?: boolean;
 }) {
-  const { agent, detail, storage, canSend, history, messages, target, item, onClear, running } = props;
+  const { agent, detail, storage, canSend, history, messages, target, quote, item, onClear, running } = props;
   useScreenKeys('In the message box', COMPOSE_KEYS);
   const act = useChatActions(agent);
   const att = useAttachDraft(agent);
@@ -54,6 +56,7 @@ export function Compose(props: {
   const [at, setAt] = useState(0);
   const [verb, setVerb] = useState<Verb | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [over, setOver] = useState(false); // files are being dragged over the box
   const [refused, setRefused] = useState<string | null>(null); // a /word this agent does not take: said, never sent
   const [now, setNow] = useState(false); // join the running turn instead of queueing behind it; back to queue after each send
   const back = useRef(-1);
@@ -114,7 +117,7 @@ export function Compose(props: {
     const body = [text, ...att.refs.map((r) => r.path)].filter(Boolean).join('\n');
     // A command is sent as typed: the reply selection is dropped, so nothing is put before the `!`.
     if (cmd) act.send(body, { delivery, attachments });
-    else if (target) act.send(body, { parent: target.id, delivery, attachments });
+    else if (target) act.send(body, { parent: target.id, quote: quote ?? undefined, delivery, attachments });
     else if (item) act.send(body, { parent_item: item.id, delivery, attachments });
     else act.send(body, { delivery, attachments });
     att.clear();
@@ -162,13 +165,21 @@ export function Compose(props: {
     }
   };
   return (
-    <div className="compose-wrap flex flex-col" {...attachHandlers(canAttach.ok ? att.add : () => undefined, att.refer)}>
+    <div
+      className="compose-wrap flex flex-col"
+      {...attachHandlers(canAttach.ok ? att.add : () => undefined, att.refer)}
+      onDragEnter={(e) => canAttach.ok && e.dataTransfer.types.includes('Files') && setOver(true)}
+      onDragLeave={(e) => e.currentTarget.contains(e.relatedTarget as Node | null) || setOver(false)}
+      onDropCapture={() => setOver(false)}
+    >
       {/* The reply bar's row is always this tall, so picking a message never shifts the stream to make room. */}
       <div className="mx-3 mb-1 flex h-[26px] items-center">
         {target ? (
           <div className="compose-ref flex min-w-0 flex-1 items-center gap-1.5 rounded-sm bg-panel px-2 py-1 text-[12px]" role="status">
             <Icon name="reference" size={14} label={`Replying to #${target.id}`} />
-            <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{target.body}</span>
+            <span className="compose-ref-body muted min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+              {quote ?? target.body}
+            </span>
             <button className="icon" aria-label="Drop the reply" title="Drop the reply (Esc)" onClick={onClear}>
               <Icon name="close" size={14} label="Drop the reply" />
             </button>
@@ -199,7 +210,12 @@ export function Compose(props: {
         onRetry={att.retry}
         onUnref={att.unrefer}
       />
-      <ComposeRow className={cmd ? '[--acc:var(--cmd)]' : undefined}>
+      <ComposeRow className={`${cmd ? '[--acc:var(--cmd)] ' : ''}${over ? 'outline-2 -outline-offset-2 outline-dashed outline-acc' : ''}`}>
+        {over ? (
+          <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-lg bg-surface text-sm text-ink-2">
+            Drop to attach
+          </span>
+        ) : null}
         {cmd ? <span className="compose-cmd absolute bottom-full left-3 mb-0.5 text-xs text-ink-2">Sent as typed to the agent</span> : null}
         {menu ? (
           <ul
@@ -241,7 +257,6 @@ export function Compose(props: {
           onKeyDown={onKey}
         />
         <div className={COMPOSER_BAR}>
-          <PickButton onPick={att.add} disabled={cmd || !canSend || !canAttach.ok} />
           {clearing ? (
             <span className="compose-clear self-center text-wait" role="status" title="Esc again clears the draft">
               <Icon name="warn" size={14} label="Esc again clears the draft" />
