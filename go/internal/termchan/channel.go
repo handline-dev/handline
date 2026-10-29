@@ -313,13 +313,6 @@ func newChannel(handle, fmt string, hub *Hub, host func() Host) *Channel {
 	return ch
 }
 
-// Size is the terminal's size as the channel last knew it.
-func (ch *Channel) Size() (int, int) {
-	ch.mu.Lock()
-	defer ch.mu.Unlock()
-	return ch.cols, ch.rows
-}
-
 func (ch *Channel) setSize(cols, rows int) {
 	ch.mu.Lock()
 	ch.cols, ch.rows = cols, rows

@@ -256,13 +256,6 @@ func TellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 	return r0, nil
 }
 
-// BatchText is batchText with a failed statement returned as the error.
-func BatchText(q db.Q, batch []*db.Request, folded []*db.Request, aheadOf *db.Request) (r0 string, err error) {
-	defer Catch(&err)
-	r0 = batchText(q, batch, folded, aheadOf)
-	return r0, nil
-}
-
 // PastDialog is pastDialog (delivery._past_dialog) with a failed statement returned as the error.
 func (e *Env) PastDialog(q db.Q, agent string) (why string, err error) {
 	defer Catch(&err)

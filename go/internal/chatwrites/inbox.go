@@ -227,8 +227,6 @@ func (w *writes) markRead(c *rpc.Conn, p map[string]any) (any, error) {
 	})
 }
 
-func inboxText(p map[string]any, key string) (string, error) { return text(p, key) }
-
 func (w *writes) inboxReply(c *rpc.Conn, p map[string]any) (any, error) {
 	body, err := text(p, "text")
 	if err != nil {

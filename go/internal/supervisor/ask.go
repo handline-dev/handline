@@ -50,11 +50,6 @@ func (a *After) Run() string {
 	return strings.Join(lines, "\n")
 }
 
-func (e *Env) isTerminal(q db.Q, agent string) bool {
-	row := stateOf(q, agent)
-	return row != nil && TerminalStates[row.State]
-}
-
 // ---------------------------------------------------------------- the inbox file
 
 func (e *Env) inboxDir(target string) string {
