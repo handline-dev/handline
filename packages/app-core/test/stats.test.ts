@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   INVALID,
-  agentTime,
+  agentUse,
+  useText,
   bandOf,
   minutesOf,
   parseCap,
@@ -17,14 +18,43 @@ test('the bars change colour at 60 and 85 percent, not before', () => {
   assert.deepEqual([59, 60, 84, 85].map(bandOf), ['ok', 'warn', 'warn', 'bad']);
 });
 
-test('agent time is longest first and folds the idle ones', () => {
-  assert.deepEqual(agentTime({ a: 10, b: 0, c: 99, d: 0 }), {
-    rows: [
-      { agent: 'c', seconds: 99 },
-      { agent: 'a', seconds: 10 },
+const use = (agent: string, account: string, week_pct: number | null, cost: number) => ({
+  agent,
+  account,
+  tokens: 1,
+  cost,
+  share: 0,
+  week_pct,
+});
+
+test('who used it is biggest first by week points, Other for no agent, and names the account only when there are several', () => {
+  const rows = agentUse([use('a', 'x', 2, 9), use('', 'x', 1, 1), use('b', 'y', 8, 3)]);
+  assert.deepEqual(
+    rows.map((r) => [r.agent, r.account, r.fill]),
+    [
+      ['b', 'y', 1],
+      ['a', 'x', 0.25],
+      ['Other', 'x', 0.125],
     ],
-    idle: 2,
-  });
+  );
+  assert.equal(agentUse([use('a', 'x', 2, 9)])[0]!.account, null);
+});
+
+test('with no week reading anywhere, who used it follows the cost', () => {
+  const rows = agentUse([use('a', 'x', null, 1), use('b', 'x', null, 4)]);
+  assert.deepEqual(
+    rows.map((r) => [r.agent, r.fill]),
+    [
+      ['b', 1],
+      ['a', 0.25],
+    ],
+  );
+});
+
+test('the numbers beside a line mark the week points as an estimate and always give the cost', () => {
+  assert.equal(useText({ weekPct: 12.4, cost: 3.4 }), '≈12% · $3.40');
+  assert.equal(useText({ weekPct: 0.55, cost: 120 }), '≈0.6% · $120');
+  assert.equal(useText({ weekPct: null, cost: 0.5 }), '$0.50');
 });
 
 test('the cap field clears when empty and refuses anything but a whole number from 1', () => {

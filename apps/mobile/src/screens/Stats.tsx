@@ -1,9 +1,9 @@
-// The Stats section of the Usage tab (docs/pc-app-gaps.md G10): the window's four counts and how long each agent worked from stats.get, then the usage
+// The Stats section of the Usage tab (docs/pc-app-gaps.md G10): the window's four counts and who used how much of each account from stats.get, then the usage
 // outlook (stats.outlook): the week left as recorded and guessed bars with each account's runway, or the cost per day, with ranges 12 h to 30 d.
 // Every number is text too; a bar is never the only way to read it.
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { agentTime, costByAgent, runwayWords, span } from '@handline/app-core';
+import { agentUse, costByAgent, runwayWords, useText } from '@handline/app-core';
 import type { Outlook, Stats as StatsData } from '@handline/client';
 import { useOutlook, useServes, useStats } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
@@ -52,8 +52,7 @@ function Choice<T extends string>(props: { label: string; value: T; options: rea
 
 function Counts({ s }: { s: StatsData }) {
   const c = usePalette();
-  const { rows, idle } = agentTime(s.working_seconds);
-  const top = rows[0]?.seconds ?? 1;
+  const rows = agentUse(s.use);
   return (
     <View style={{ gap: space.lg }}>
       <View testID="stats-tiles" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
@@ -71,27 +70,22 @@ function Counts({ s }: { s: StatsData }) {
         ))}
       </View>
       <View testID="agent-time" style={{ gap: space.sm }}>
-        <Text style={{ color: c.ink, fontWeight: '600' }}>Agent time</Text>
+        <Text style={{ color: c.ink, fontWeight: '600' }}>Who used it</Text>
         {rows.length ? (
           rows.map((r) => (
-            <View key={r.agent} testID={`time-${r.agent}`} style={{ gap: 2 }}>
+            <View key={r.key} testID={`use-${r.agent}`} style={{ gap: 2 }}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Text style={{ color: c.ink }}>{r.agent}</Text>
-                <Text style={{ color: c.muted }}>{span(r.seconds * 1000)}</Text>
+                <Text style={{ color: c.ink }}>{r.account ? `${r.agent} · ${r.account}` : r.agent}</Text>
+                <Text style={{ color: c.muted }}>{useText(r)}</Text>
               </View>
               <View style={{ height: 6, borderRadius: 3, backgroundColor: c.line }}>
-                <View style={{ width: `${(r.seconds / top) * 100}%`, height: 6, borderRadius: 3, backgroundColor: c.run }} />
+                <View style={{ width: `${r.fill * 100}%`, height: 6, borderRadius: 3, backgroundColor: c.run }} />
               </View>
             </View>
           ))
         ) : (
           <Text style={{ color: c.muted }}>{NOTHING}</Text>
         )}
-        {idle ? (
-          <Text style={{ color: c.muted }}>
-            {idle} idle {idle === 1 ? 'agent' : 'agents'}
-          </Text>
-        ) : null}
       </View>
     </View>
   );

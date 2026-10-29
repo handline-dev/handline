@@ -1,16 +1,43 @@
 // The numbers the Stats and Home settings pages show and the text they accept: bar colours, durations, and the two fields that change units
 // or may be cleared. Pure.
+import type { Stats } from '@handline/client';
 import type { PageSettings } from '#src/shell.ts';
+
+type AgentAccountUse = Stats['use'][number];
 
 /** The bridge's gauge bands (`gauge.py`): from 60% a bar warns, from 85% it fails. */
 export type Band = 'ok' | 'warn' | 'bad';
 export const bandOf = (pct: number): Band => (pct >= 85 ? 'bad' : pct >= 60 ? 'warn' : 'ok');
 
-/** Agents by time worked, longest first, and how many had none (folded into "n idle agents"). */
-export function agentTime(working: Record<string, number>): { rows: { agent: string; seconds: number }[]; idle: number } {
-  const all = Object.entries(working).map(([agent, seconds]) => ({ agent, seconds }));
-  return { rows: all.filter((r) => r.seconds > 0).sort((a, b) => b.seconds - a.seconds), idle: all.filter((r) => r.seconds <= 0).length };
+/** One line of "Who used it": an agent's use of one account, its bar a share of the longest line. */
+export type UseLine = { key: string; agent: string; account: string | null; weekPct: number | null; cost: number; fill: number };
+
+/**
+ * An agent's use of each account, biggest first. The bar and the order follow the points of the account's week it used (an estimate, week_pct);
+ * when no row has points (no reading in the window), they follow the cost. An agent with no name is the calls of no agent's worktree: "Other".
+ * The account is named only when more than one account has rows.
+ */
+export function agentUse(use: AgentAccountUse[]): UseLine[] {
+  const byPoints = use.some((u) => u.week_pct !== null);
+  const size = (u: AgentAccountUse) => (byPoints ? (u.week_pct ?? 0) : u.cost);
+  const rows = use.filter((u) => size(u) > 0 || u.cost > 0).sort((a, b) => size(b) - size(a) || b.cost - a.cost);
+  const top = rows[0] ? size(rows[0]) || 1 : 1;
+  const many = new Set(rows.map((u) => u.account)).size > 1;
+  return rows.map((u) => ({
+    key: `${u.agent}\u0000${u.account}`,
+    agent: u.agent || 'Other',
+    account: many ? u.account : null,
+    weekPct: u.week_pct,
+    cost: u.cost,
+    fill: Math.min(1, size(u) / top),
+  }));
 }
+
+/** The numbers beside a line: the points of the week with a ≈ (they are an estimate), then what the calls cost at list price. */
+export const useText = (r: Pick<UseLine, 'weekPct' | 'cost'>): string => {
+  const cost = `$${r.cost < 10 ? r.cost.toFixed(2) : Math.round(r.cost)}`;
+  return r.weekPct === null ? cost : `≈${r.weekPct < 10 ? Math.round(r.weekPct * 10) / 10 : Math.round(r.weekPct)}% · ${cost}`;
+};
 
 export const INVALID = Symbol('invalid');
 
