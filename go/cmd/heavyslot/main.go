@@ -2,8 +2,9 @@
 //
 // A slot is an flock on <dir>/slot-<n>.lock (dir: HANDLINE_HEAVY_DIR, else ~/.handline/heavy-slots; n up to HANDLINE_HEAVY_SLOTS, default
 // 2), freed by the kernel when its holder dies; the holder writes who it is into the file. Waiters go in the order they came (a ticket
-// each). A run of one test file is light: it waits in a queue of its own for one of HANDLINE_LIGHT_SLOTS (default 2) light slots, so a
-// full suite does not hold it; every wait of a second or more is appended to <dir>/waits.log. The command runs with HANDLINE_HEAVY_SLOT set, so a heavy script it starts shares the slot. With no writable directory it runs anyway.
+// each). A run of one test file is light: it queues for one of HANDLINE_LIGHT_SLOTS (default 2) light slots, apart from the heavy ones; a
+// wait of a second or more is appended to <dir>/waits.log. The command runs with HANDLINE_HEAVY_SLOT set, so a heavy script it starts
+// shares the slot. With no writable directory it runs anyway.
 package main
 
 import (
@@ -98,32 +99,32 @@ func main() {
 	os.Exit(run(args))
 }
 
-// A class is a set of slots with a queue of its own: its slot files and tickets are named by prefix.
+// A class is a set of slots with a queue of its own: <slot>-<n>.lock files and <ticket>-* tickets.
 type class struct {
-	name   string
-	prefix string // slot-<n>.lock, ticket-*
-	slots  func() int
+	name, slot, ticket string
+	slots              func() int
 }
 
 var (
-	heavyClass = class{"heavy", "slot", heavyslots.Slots}
-	lightClass = class{"light", "light", heavyslots.LightSlots}
+	heavyClass = class{"heavy", "slot", "ticket", heavyslots.Slots}
+	lightClass = class{"light", "light", "light-ticket", heavyslots.LightSlots}
 )
 
-var testFile = regexp.MustCompile(`\.(test|spec)\.[cm]?[jt]sx?$`)
+var testFile = regexp.MustCompile(`(^|/)[^/.][^/]*\.(test|spec)\.[cm]?[jt]sx?$`)
 
-// isLight is whether the command is vitest run on named test files only, which needs no more than a type check does.
+// isLight is whether the command is vitest run on one named test file, which needs no more than a type check does. A filter that is not
+// a whole test file (vitest takes substrings) or a second argument may run the suite.
 func isLight(args []string) bool {
 	if path.Base(args[0]) != "vitest" {
 		return false
 	}
-	files := 0
+	var files []string
 	for _, a := range args[1:] {
-		if testFile.MatchString(a) {
-			files++
+		if a != "run" && !strings.HasPrefix(a, "-") {
+			files = append(files, a)
 		}
 	}
-	return files > 0
+	return len(files) == 1 && testFile.MatchString(files[0])
 }
 
 // acquire waits for a free heavy slot and returns its locked file, which holds the slot until it is closed or the process ends.
@@ -164,14 +165,14 @@ func acquireIn(c class) (*os.File, int, error) {
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		return nil, 0, err
 	}
-	ticket, err := takeTicket(d, c.prefix)
+	ticket, err := takeTicket(d, c.ticket)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer ticket.drop()
 	me, last, spoke := holder(), "", false
 	for {
-		ahead := ticket.ahead(c.prefix)
+		ahead := ticket.ahead(c.ticket)
 		var held, said []string
 		// Only the first in line looks at memory and disk; it keeps its place while it waits for them.
 		low := ""
@@ -181,7 +182,7 @@ func acquireIn(c class) (*os.File, int, error) {
 			}
 		}
 		for n := 1; low == "" && n <= c.slots(); n++ {
-			f, err := os.OpenFile(filepath.Join(d, fmt.Sprintf("%s-%d.lock", c.prefix, n)), os.O_RDWR|os.O_CREATE, 0o644)
+			f, err := os.OpenFile(filepath.Join(d, fmt.Sprintf("%s-%d.lock", c.slot, n)), os.O_RDWR|os.O_CREATE, 0o644)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -232,7 +233,7 @@ type ticket struct {
 }
 
 func takeTicket(dir, prefix string) (*ticket, error) {
-	name := fmt.Sprintf("%s-ticket-%020d-%d", prefix, time.Now().UnixNano(), os.Getpid())
+	name := fmt.Sprintf("%s-%020d-%d", prefix, time.Now().UnixNano(), os.Getpid())
 	pending := filepath.Join(dir, fmt.Sprintf("pending-%d", os.Getpid()))
 	f, err := os.OpenFile(pending, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -256,7 +257,7 @@ func (t *ticket) drop() {
 
 // ahead is how many live waiters hold an earlier ticket. A ticket nobody holds the lock of belongs to a run that died: it is removed.
 func (t *ticket) ahead(prefix string) int {
-	names, _ := filepath.Glob(filepath.Join(t.dir, prefix+"-ticket-*"))
+	names, _ := filepath.Glob(filepath.Join(t.dir, prefix+"-*"))
 	sort.Strings(names)
 	n := 0
 	for _, path := range names {
