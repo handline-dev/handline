@@ -52,7 +52,13 @@ func (e *Env) status(c *rpc.Conn, params map[string]any) (any, error) {
 func (e *Env) machineNeeds() []any {
 	var out []any
 	if since, free, ok := housekeeping.DiskNeed(e.DB); ok {
-		out = append(out, map[string]any{"kind": "disk", "since": ts(since), "text": housekeeping.DiskNeedText(free)})
+		need := map[string]any{"kind": "disk", "since": ts(since), "text": housekeeping.DiskNeedText(free)}
+		// The worktrees agents left behind are named, so the founder knows what can go.
+		if count, bytes, err := housekeeping.OrphanSizes(e.DB); err == nil && count > 0 {
+			need["orphan_worktrees"] = map[string]any{"count": count, "size_bytes": bytes}
+			need["text"] = need["text"].(string) + " " + housekeeping.OrphanText(count, bytes)
+		}
+		out = append(out, need)
 	}
 	return out
 }
