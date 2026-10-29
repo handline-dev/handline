@@ -21,6 +21,7 @@ A method marked write takes a required `request_id`. Framing, roles, errors and 
 | `daemon.upgrade` | founder | yes | `exe`, `sha`, `request_id` | `{from, to, exe}` | `bad_request`, `refused` | build |
 | `settings.get` | founder |  | `agent?` | `Settings` | `bad_request`, `not_found` |  |
 | `settings.set` | founder | yes | `changes`, `agent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
+| `for_you.list` | member |  | none | `ForYouList & ReadCursor` |  |  |
 
 ### `hello`
 
@@ -60,7 +61,7 @@ The person's view preferences: the agent list's pins, filter, layout and folds.
 
 ### `prefs.set`
 
-Change the person's view preferences: each key given in changes.nav replaces the stored one. A pin, a fold or an order entry naming an agent the daemon does not know, or a name given twice, is bad_request naming the field. Once stored, a prefs.changed event on the prefs topic carries the whole Prefs. agent.retire drops the agent from pins, collapsed and order (and sends prefs.changed); a rename (hr) carries it over in place.
+Change the person's view preferences: each key given in changes.nav replaces the stored one, but `later` merges by item. A pin, a fold or an order entry naming an agent the daemon does not know, or a name given twice, is bad_request naming the field. Once stored, a prefs.changed event on the prefs topic carries the whole Prefs. agent.retire drops the agent from pins, collapsed and order (and sends prefs.changed); a rename (hr) carries it over in place.
 
 ### `hook.record`
 
@@ -85,4 +86,8 @@ Timings, terminal host, trust folders, hooks installed.
 ### `settings.set`
 
 Change settings: any keys of SettingsValues, globally or as one agent's override.
+
+### `for_you.list`
+
+Every open item waiting on the founder, whatever it is made of today (task rows, comment asks, prompts, HR proposals, the machine's needs), and the count of those not deferred.
 

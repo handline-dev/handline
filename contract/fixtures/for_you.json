@@ -1,0 +1,233 @@
+{
+ "fixtures": [
+  {
+   "name": "for_you.list_counts_what_waits_and_leaves_out_what_is_deferred",
+   "spec": "for_you.list",
+   "about": "A task given to the founder is an item and adds one to the count; deferred in the prefs it is still listed, with later, and not counted; cleared it counts again; done it is gone.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "for_you.list",
+      "params": {}
+     },
+     "result": {
+      "items": {
+       "$type": "array"
+      },
+      "count": {
+       "$type": "integer",
+       "$save": "c0"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "for you one",
+       "body": "b",
+       "request_id": "conf-foryou-3-task.new"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "t"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "for_you.list",
+      "params": {}
+     },
+     "result": {
+      "count": {
+       "$next": "c0"
+      },
+      "items": {
+       "$contains": {
+        "kind": "task",
+        "id": {
+         "$regex": "^{{t}}$"
+        },
+        "title": "for you one",
+        "asks": "decide",
+        "agent": {
+         "$type": "string"
+        },
+        "since": {
+         "$type": "timestamp"
+        },
+        "later": {
+         "$absent": true
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "later": {
+          "task:{{t}}": {
+           "until": "2099-01-01T00:00:00Z"
+          }
+         }
+        }
+       },
+       "request_id": "conf-foryou-5-prefs.set"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "for_you.list",
+      "params": {}
+     },
+     "result": {
+      "count": "{{c0}}",
+      "items": {
+       "$contains": {
+        "kind": "task",
+        "id": {
+         "$regex": "^{{t}}$"
+        },
+        "later": {
+         "$exact": true,
+         "until": "2099-01-01T00:00:00Z"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "later": {
+          "task:{{t}}": null
+         }
+        }
+       },
+       "request_id": "conf-foryou-7-prefs.set"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "for_you.list",
+      "params": {}
+     },
+     "result": {
+      "count": {
+       "$next": "c0"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 9,
+      "method": "task.done",
+      "params": {
+       "task": "{{t}}",
+       "evidence": "done",
+       "reason": true,
+       "request_id": "conf-foryou-9-task.done"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 10,
+      "method": "for_you.list",
+      "params": {}
+     },
+     "result": {
+      "count": "{{c0}}"
+     }
+    }
+   ]
+  },
+  {
+   "name": "for_you.list_is_for_a_member",
+   "spec": "for_you.list",
+   "about": "An agent does not read what waits on the founder.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "for_you.list",
+      "params": {}
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

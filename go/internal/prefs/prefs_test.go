@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/handline/handline/go/internal/storetest"
 )
@@ -98,5 +99,66 @@ func TestARetiredAgentLeavesPinsFoldsAndOrderAndARenamedOneKeepsItsPlace(t *test
 	}
 	if n, _ := navOf(d, "other"); !slices.Equal(n.Order, []string{"z", "c"}) {
 		t.Fatalf("an order-only change was not stored: %+v", n)
+	}
+}
+
+func TestLaterMergesByItemAndNullClearsOne(t *testing.T) {
+	d := storetest.Open(t)
+	must := func(later map[string]any) {
+		t.Helper()
+		if err := set(t, d, "human", map[string]any{"later": later}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(map[string]any{"task:1": map[string]any{"until": "2026-11-01T09:00:00+09:00"}, "comment:7": map[string]any{"after_task": float64(4)}})
+	must(map[string]any{"machine:disk": map[string]any{"until": "2026-11-02T00:00:00Z"}, "comment:7": nil})
+	got, _ := LaterOf(d, "human")
+	if len(got) != 2 || got["task:1"] != (Later{Until: "2026-11-01T00:00:00Z"}) || got["machine:disk"] != (Later{Until: "2026-11-02T00:00:00Z"}) {
+		t.Fatalf("%+v", got)
+	}
+	must(map[string]any{"task:1": nil, "machine:disk": nil})
+	if n, _ := navOf(d, "human"); n.Later != nil {
+		t.Errorf("later kept after the last was cleared: %+v", n.Later)
+	}
+}
+
+func TestLaterRefusesWhatIsNotADeferral(t *testing.T) {
+	d := storetest.Open(t)
+	for name, later := range map[string]any{
+		"not an object":       []any{},
+		"a prompt":            map[string]any{"prompt:fp1": map[string]any{"until": "2026-11-01T00:00:00Z"}},
+		"an hr proposal":      map[string]any{"hr:11": map[string]any{"until": "2026-11-01T00:00:00Z"}},
+		"a key with no id":    map[string]any{"task:": map[string]any{"after_task": float64(1)}},
+		"both until and task": map[string]any{"task:1": map[string]any{"until": "2026-11-01T00:00:00Z", "after_task": float64(2)}},
+		"neither":             map[string]any{"task:1": map[string]any{}},
+		"a time that is not":  map[string]any{"task:1": map[string]any{"until": "tomorrow"}},
+		"a task that is not":  map[string]any{"task:1": map[string]any{"after_task": 1.5}},
+		"a task of zero":      map[string]any{"task:1": map[string]any{"after_task": float64(0)}},
+	} {
+		if err := set(t, d, "human", map[string]any{"later": later}, nil); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	if n, _ := navOf(d, "human"); n.Later != nil {
+		t.Errorf("a refusal left %+v", n.Later)
+	}
+}
+
+func TestADeferralIsOverWhenItsTimeIsOrItsTaskIsNotOpen(t *testing.T) {
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	open := func(id int64) bool { return id == 5 }
+	for _, c := range []struct {
+		l    Later
+		over bool
+	}{
+		{Later{Until: "2026-11-01T00:00:01Z"}, false},
+		{Later{Until: "2026-11-01T00:00:00Z"}, true},
+		{Later{Until: "garbled"}, true},
+		{Later{AfterTask: 5}, false},
+		{Later{AfterTask: 6}, true},
+	} {
+		if got := c.l.Over(now, open); got != c.over {
+			t.Errorf("%+v: over %v, want %v", c.l, got, c.over)
+		}
 	}
 }

@@ -242,6 +242,13 @@
    "data": {
     "request.changed": "RequestRow"
    }
+  },
+  "for_you": {
+   "snapshot": "for_you.list",
+   "data": {
+    "for_you.opened": "ForYouOpened",
+    "for_you.closed": "ForYouClosed"
+   }
   }
  },
  "x-state-words": {
@@ -731,9 +738,10 @@
      "hr",
      "transcript",
      "prefs",
-     "requests"
+     "requests",
+     "for_you"
     ],
-    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. requests (member, which includes the founder): the founder's requests (RequestRow), so a Requests page is live."
+    "description": "chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. requests (member, which includes the founder): the founder's requests (RequestRow), so a Requests page is live. for_you (member, which includes the founder): the set of open items waiting on the founder, as for_you.list; an event whenever the count's set changes, with the new count. A client that misses events reads for_you.list again."
    },
    "Caller": {
     "type": "object",
@@ -2776,6 +2784,20 @@
        "$ref": "#/components/schemas/AgentName"
       },
       "description": "The person's order for the tree layout: agents under one parent, and the top-level agents, stand in this order; one not listed (a new agent) comes after the listed ones, by name. The flat layout ignores it. No name twice."
+     },
+     "later": {
+      "type": "object",
+      "description": "For you items the founder put off, by `kind:id` (ForYouItem.kind and id, such as `task:42`). prefs.set merges this key entry by entry: an entry sets or replaces one item, null clears it; the other entries stay, so two devices deferring different items lose nothing. An entry whose time passed or whose task ended is dead and the daemon drops it at the next prefs.set. Absent entries mean not deferred.",
+      "additionalProperties": {
+       "oneOf": [
+        {
+         "$ref": "#/components/schemas/Later"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      }
      }
     },
     "required": [
@@ -2790,7 +2812,7 @@
    },
    "NavPrefsChanges": {
     "type": "object",
-    "description": "Any keys of NavPrefs; each given key replaces the stored value whole.",
+    "description": "Any keys of NavPrefs; each given key replaces the stored value whole, except `later`, which merges entry by entry.",
     "properties": {
      "pins": {
       "type": "array",
@@ -2838,6 +2860,20 @@
        "$ref": "#/components/schemas/AgentName"
       },
       "description": "The person's order for the tree layout: agents under one parent, and the top-level agents, stand in this order; one not listed (a new agent) comes after the listed ones, by name. The flat layout ignores it. No name twice."
+     },
+     "later": {
+      "type": "object",
+      "description": "Entries to set or clear in NavPrefs.later: an entry sets or replaces one item's deferral, null clears it; the other items stay. A key is `kind:id` of a For you item (kind task, comment or machine: a prompt or an HR proposal cannot be put off); an entry has exactly one of until and after_task.",
+      "additionalProperties": {
+       "oneOf": [
+        {
+         "$ref": "#/components/schemas/Later"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      }
      }
     },
     "additionalProperties": false
@@ -2902,6 +2938,161 @@
     },
     "required": [
      "id"
+    ]
+   },
+   "Later": {
+    "type": "object",
+    "description": "Why a For you item is out of its group and when it returns: at the time `until`, or when the task `after_task` is done or discarded; exactly one is present. The founder's choice, kept in NavPrefs.later under the item's `kind:id`; the daemon reads it in for_you.list and the apps hide and return the item on their clock and on task.changed.",
+    "properties": {
+     "until": {
+      "$ref": "#/components/schemas/Timestamp"
+     },
+     "after_task": {
+      "type": "integer"
+     }
+    },
+    "additionalProperties": false,
+    "oneOf": [
+     {
+      "required": [
+       "until"
+      ]
+     },
+     {
+      "required": [
+       "after_task"
+      ]
+     }
+    ]
+   },
+   "ForYouItem": {
+    "type": "object",
+    "description": "One open item waiting on the founder. A task given to the founder (or the ask on it) is `task`, an agent's `@human` ask in a task comment is `comment`, an agent's open permission prompt or dialog is `prompt`, an HR proposal that waits is `hr`, and something the machine needs is `machine`. A plain say is not an item: nothing is asked.",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "task",
+       "comment",
+       "prompt",
+       "hr",
+       "machine"
+      ]
+     },
+     "id": {
+      "type": "string",
+      "description": "task: the task number. comment: the comment's number (InboxItem.memo), or the request's ref for an ask that is on no task. prompt: Prompt.id. hr: the proposal's id (Proposal.id). machine: the need's kind, `disk`. The pair (kind, id) names the item, as in the keys of NavPrefs.later."
+     },
+     "agent": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/AgentName"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Who asks; null for the machine."
+     },
+     "title": {
+      "type": "string",
+      "description": "One line: a task's title, a comment's first line, a prompt's command or tool, a proposal's title, the machine need's text."
+     },
+     "asks": {
+      "type": "string",
+      "enum": [
+       "allow",
+       "decide",
+       "review",
+       "do"
+      ],
+      "description": "What the item wants of the founder. A task or comment: `review` when the task is tagged review, else `decide`. A prompt: `allow` for a permission, else `decide`. An HR proposal: `allow`. The machine: `do`."
+     },
+     "since": {
+      "$ref": "#/components/schemas/Timestamp",
+      "description": "When it began to wait."
+     },
+     "later": {
+      "allOf": [
+       {
+        "$ref": "#/components/schemas/Later"
+       }
+      ],
+      "description": "Only while the founder has the item deferred and the deferral is not over (NavPrefs.later)."
+     }
+    },
+    "required": [
+     "kind",
+     "id",
+     "agent",
+     "title",
+     "asks",
+     "since"
+    ]
+   },
+   "ForYouList": {
+    "type": "object",
+    "properties": {
+     "items": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/ForYouItem"
+      },
+      "description": "Every open item, oldest `since` first (then kind and id), the deferred ones too."
+     },
+     "count": {
+      "type": "integer",
+      "description": "The items without `later`: what a badge and the Requests count show."
+     }
+    },
+    "required": [
+     "items",
+     "count"
+    ]
+   },
+   "ForYouOpened": {
+    "type": "object",
+    "description": "The data of a for_you.opened event: an item joined the count (it opened, or came back from Later).",
+    "properties": {
+     "item": {
+      "$ref": "#/components/schemas/ForYouItem"
+     },
+     "count": {
+      "type": "integer",
+      "description": "The count with it."
+     }
+    },
+    "required": [
+     "item",
+     "count"
+    ]
+   },
+   "ForYouClosed": {
+    "type": "object",
+    "description": "The data of a for_you.closed event: an item left the count (answered anywhere, closed, discarded, withdrawn, or deferred).",
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "task",
+       "comment",
+       "prompt",
+       "hr",
+       "machine"
+      ]
+     },
+     "id": {
+      "type": "string"
+     },
+     "count": {
+      "type": "integer",
+      "description": "The count without it."
+     }
+    },
+    "required": [
+     "kind",
+     "id",
+     "count"
     ]
    }
   },
@@ -3412,7 +3603,7 @@
   },
   {
    "name": "prefs.set",
-   "summary": "Change the person's view preferences: each key given in changes.nav replaces the stored one.",
+   "summary": "Change the person's view preferences: each key given in changes.nav replaces the stored one, but `later` merges by item.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -3748,6 +3939,28 @@
      "$ref": "#/components/errors/bad_request"
     }
    ]
+  },
+  {
+   "name": "for_you.list",
+   "summary": "Every open item waiting on the founder, whatever it is made of today (task rows, comment asks, prompts, HR proposals, the machine's needs), and the count of those not deferred.",
+   "paramStructure": "by-name",
+   "params": [],
+   "result": {
+    "name": "result",
+    "schema": {
+     "allOf": [
+      {
+       "$ref": "#/components/schemas/ForYouList"
+      },
+      {
+       "$ref": "#/components/schemas/ReadCursor"
+      }
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1
   }
  ]
 }
