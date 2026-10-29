@@ -52,12 +52,7 @@ func (e *Env) repoOf(agent string) string {
 	return s
 }
 
-func defaultBranch(repo string) string {
-	if ok, out := git(repo, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"); ok && strings.TrimSpace(out) != "" {
-		return strings.TrimPrefix(strings.TrimSpace(out), "origin/")
-	}
-	return gitrun.IntegrationBranch
-}
+func defaultBranch(repo string) string { return worktreeprune.DefaultBranch(repo) }
 
 // repos is rpc_worktrees.repos: the repos the agents were told to work in, by path.
 func (e *Env) repos() []any {
@@ -376,7 +371,7 @@ func (e *Env) worktreesList(_ *rpc.Conn, params map[string]any) (any, error) {
 }
 
 // orphans are the worktrees no agent records, in repo when it is named (by name or path), as worktrees.list items: orphan true, what
-// each holds that main does not, and the size housekeeping last measured (null until it has).
+// each holds that its default branch does not, and the size housekeeping last measured (null until it has).
 func (e *Env) orphans(repo *string) ([]any, error) {
 	agents, err := worktreeprune.AgentWorktrees(e.DB, "")
 	if err != nil {
@@ -389,7 +384,7 @@ func (e *Env) orphans(repo *string) ([]any, error) {
 		}
 		for _, wt := range worktreeprune.Orphans(r, agents) {
 			path := worktreeprune.Real(wt.Path)
-			merged, files, commits := worktreeprune.Unsaved(path)
+			merged, commits := worktreeprune.Ahead(path)
 			var size any
 			if v, ok, err := db.Meta(e.DB, worktreeprune.SizePrefix+path); err != nil {
 				return nil, err
@@ -402,8 +397,8 @@ func (e *Env) orphans(repo *string) ([]any, error) {
 				status = "dirty"
 			}
 			out = append(out, map[string]any{"path": path, "repo": filepath.Base(r), "branch": wt.Branch, "owner": nil, "parent": nil,
-				"children": []string{}, "status": status, "changed": ch, "orphan": true, "merged": merged, "files_changed": files,
-				"commits_ahead": commits, "size_bytes": size})
+				"children": []string{}, "status": status, "changed": ch, "orphan": true, "merged": merged,
+				"files_changed": len(ch), "commits_ahead": commits, "size_bytes": size})
 		}
 	}
 	return out, nil
