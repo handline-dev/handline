@@ -1,0 +1,67 @@
+{
+ "fixtures": [
+  {
+   "name": "stats.get.use_rows_carry_what_the_usage_page_draws",
+   "spec": "stats.get",
+   "about": "Every use row has the agent (empty for the calls of no agent's worktree), the account, tokens, list-price cost, share of the account's cost and week_pct (a number, or null with no reading); there is no working_seconds.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "stats.get",
+      "params": {
+       "window": "7d"
+      }
+     },
+     "result": {
+      "use": {
+       "$type": "array",
+       "$each": {
+        "agent": {
+         "$type": "string"
+        },
+        "account": {
+         "$type": "string"
+        },
+        "tokens": {
+         "$type": "integer"
+        },
+        "cost": {
+         "$type": "number"
+        },
+        "share": {
+         "$type": "number"
+        },
+        "week_pct": {
+         "$oneOf": [
+          {
+           "$type": "number"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        }
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

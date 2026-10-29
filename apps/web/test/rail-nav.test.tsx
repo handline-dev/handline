@@ -56,35 +56,10 @@ describe('the rail on the nav prefs', () => {
     expect(box.querySelector('.pinned-head + [data-agent]')?.getAttribute('data-agent')).toBe(ARCH);
   });
 
-  it('lists each agent once under a chip: Pinned is only in the full list', async () => {
+  it('the View menu flips Tree to Flat', async () => {
     await mount();
     await until(() => box.querySelector('[data-agent]'), 'the agent rows');
-    const names = () => [...box.querySelectorAll('[data-agent]')].map((e) => e.getAttribute('data-agent'));
-    await act(async () =>
-      box.querySelector(`[data-agent="${ARCH}"]`)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
-    );
-    const pin = () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => i.textContent === 'Pin');
-    await until(pin, 'the Pin item');
-    await act(async () => pin()!.click());
-    await until(() => box.querySelector('.pinned-head'), 'the Pinned section');
-    for (const label of ['My turn', 'Unread']) {
-      await act(async () => chip(label).click());
-      await until(
-        () => chip(label).getAttribute('aria-pressed') === 'true' && !box.querySelector('.pinned-head'),
-        `no Pinned under ${label}`,
-      );
-      expect(new Set(names()).size).toBe(names().length);
-    }
-  });
-
-  it('has the My turn chip beside All and Unread, and the View menu flips Tree to Flat', async () => {
-    await mount();
-    await until(() => box.querySelector('[data-agent]'), 'the agent rows');
-    expect(chip('My turn')).toBeTruthy();
-    expect(chip('All').getAttribute('aria-pressed')).toBe('true');
-    await act(async () => chip('My turn').click());
-    await until(() => chip('My turn').getAttribute('aria-pressed') === 'true', 'the chip to follow the prefs');
-    await act(async () => chip('All').click());
+    expect(chip('My turn')).toBeUndefined(); // the chips are gone: the rows carry what is unseen
     await until(() => box.querySelector('.team-head'), 'team headings in the tree');
     await act(async () => box.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"][aria-label^="View"]')!.click());
     await until(() => document.querySelector('[role="menuitemcheckbox"]'), 'the View menu');
@@ -96,7 +71,7 @@ describe('the rail on the nav prefs', () => {
   it('moves the old local settings into prefs once and clears them', async () => {
     const store = memory({ unreadOnly: '1' });
     await mount(store);
-    await until(() => chip('Unread').getAttribute('aria-pressed') === 'true', 'the Unread chip from the old setting');
+    await until(() => store.getItem('unreadOnly') === '', 'the old setting to be cleared');
     expect(store.getItem('unreadOnly')).toBe('');
   });
 });

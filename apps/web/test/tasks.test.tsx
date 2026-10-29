@@ -315,13 +315,13 @@ describe('writes', () => {
     expect($('.ui-dialog')).toBeNull(); // the form closed on success
   });
 
-  it('puts what waits on the person under My turn, with owner and priority chips on the row', async () => {
+  it('puts what waits on the person under Needs you, with owner and priority chips on the row', async () => {
     const s = setup();
     (s.daemon.tasks as unknown as { rows: { id: number; to: string }[] }).rows.find((r) => r.id === 1690)!.to = 'human';
     await mount('#/tasks', s);
     await loaded();
-    await until(() => $('tr.tgroup[data-group="needs"]'), 'the My turn group');
-    expect(text($('tr.tgroup[data-group="needs"]')).trim()).toBe('My turn 1');
+    await until(() => $('tr.tgroup[data-group="needs"]'), 'the Needs you group');
+    expect(text($('tr.tgroup[data-group="needs"]')).trim()).toBe('Needs you 1');
     expect(text($('.c-owner', row(1690)!))).toBe('you');
     expect(text($('.c-pri', row(1690)!))).toBe('P3');
   });

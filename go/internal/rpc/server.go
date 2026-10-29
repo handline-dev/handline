@@ -69,10 +69,7 @@ type Server struct {
 	// the contract lets a member call, is sent to the daemon behind it.
 	Relay *Relay
 	// NoEvents keeps a write from leaving the generic event: a gateway writes nothing but its devices.
-	NoEvents bool
-	// Legacy answers a legacy `{verb}` request of a local connection whose peer process is pid, with the one reply it gets; nil
-	// from it is a verb this daemon does not serve. Nil serves none.
-	Legacy       func(payload map[string]any, pid int) map[string]any
+	NoEvents     bool
 	capabilities []func() map[string]any
 	methods      map[string]Method
 	order        []string
@@ -360,19 +357,6 @@ func (c *Conn) one(raw []byte) bool {
 			"error": BadRequestError("not JSON: "+err.Error(), "", ParseError).wire()})
 	}
 	obj, isObj := msg.(map[string]any)
-	if isObj {
-		if _, verb := obj["verb"]; verb && obj["jsonrpc"] == nil {
-			var reply map[string]any
-			if c.srv.Legacy != nil && c.srv.Transport == "local" {
-				reply = c.srv.Legacy(obj, c.Pid)
-			}
-			if reply == nil {
-				reply = map[string]any{"ok": false, "said": "the legacy verbs are not served by this daemon yet"}
-			}
-			c.send(reply)
-			return false
-		}
-	}
 	var rid any
 	if isObj {
 		switch v := obj["id"].(type) {
