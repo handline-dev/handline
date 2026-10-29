@@ -122,6 +122,30 @@ describe('my turn', () => {
     expect(s.daemon.tasks.find(9101).evidence).toBe('Approved');
   });
 
+  it("a worktree-removal card has Keep it, Save a copy and Remove anyway; each closes the task with the daemon's words", async () => {
+    const s = setup();
+    s.daemon.tasks.seed({ id: 9103, from: ME, to: ARCH, title: 'Remove bob worktree', state: 'doing', tags: ['worktree-removal'] });
+    s.daemon.inbox.add({
+      kind: 'decision',
+      agent: ARCH,
+      title: 'Remove',
+      body: 'Path: /x',
+      task: 9103,
+      created: new Date().toISOString(),
+      read: false,
+    });
+    await open(s);
+    await pick(ofTask(9103), 'the worktree row');
+    await until(() => cards().find((c) => c.textContent?.includes('Remove bob worktree')), 'the card');
+    const c = cards().find((x) => x.textContent?.includes('Remove bob worktree'))!;
+    expect(button(c, 'Done')).toBeUndefined();
+    expect(button(c, 'Keep it')).toBeDefined();
+    expect(button(c, 'Save a copy, then remove')).toBeDefined();
+    await click(button(c, 'Remove anyway'));
+    await until(() => s.daemon.tasks.find(9103).state === 'done', 'the task done');
+    expect(s.daemon.tasks.find(9103).evidence).toBe('2 yes');
+  });
+
   it('Ask for change comments the words and closes the task with them', async () => {
     const s = setup();
     review(s, 9102);

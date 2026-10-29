@@ -2,7 +2,7 @@
 // beside the open item. A row only opens the item; the answer is given in the detail, which ends with its answers and nothing after them.
 import { ChevronRight, Plus } from 'lucide-react';
 import { useState } from 'react';
-import { APPROVED, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
+import { APPROVED, WORKTREE_WORDS, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
 import { classify, sentence, useAgents, useMyTurn, useWrite } from '@handline/app-data';
 import { Fold } from '#src/Fold.tsx';
 import { NewTask } from '#src/NewTask.tsx';
@@ -58,6 +58,8 @@ function label(a: CardAction): string {
     case 'done':
     case 'done_task':
       return 'Done';
+    case 'worktree':
+      return { keep: 'Keep it', save: 'Save a copy, then remove', force: 'Remove anyway' }[a.answer];
     case 'approve':
       return 'Approve';
     case 'ask_change':
@@ -101,6 +103,9 @@ function CardDetail({ card }: { card: Card }) {
         return void (done.mutate({ task: a.item.task!, evidence: 'decided in Requests', reason: true }), read.mutate({ ids: [a.item.id] }));
       case 'done_task':
         return done.mutate({ task: a.task, evidence: 'Done', reason: true });
+      case 'worktree':
+        return void (done.mutate({ task: a.item.task!, evidence: WORKTREE_WORDS[a.answer], reason: true }),
+        read.mutate({ ids: [a.item.id] }));
       case 'approve':
         return void (done.mutate({ task: a.item.task!, evidence: APPROVED, reason: true }), read.mutate({ ids: [a.item.id] }));
       case 'ask_change':
