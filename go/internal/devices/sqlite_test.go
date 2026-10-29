@@ -32,17 +32,20 @@ func TestAPushTokenIsKeptOnTheRowAndGoesWithIt(t *testing.T) {
 	if push() != false {
 		t.Fatal("a device that gave no token has push")
 	}
-	if found, err := m.SetPush(d.ID, Push{Platform: "apns", Token: "old"}); !found || err != nil {
+	if found, err := m.SetPush(d.ID, Push{Platform: "fcm", Token: "old"}); !found || err != nil {
 		t.Fatal(found, err)
 	}
-	if found, err := m.SetPush(d.ID, Push{Platform: "fcm", Token: "new"}); !found || err != nil {
+	if got, _, _ := (SQLStore{DB: db}).ByTokenHash(hashOf(token)); got.Push == nil || *got.Push != (Push{Platform: "fcm", Token: "old"}) {
+		t.Fatalf("the token is read back with its platform: %+v", got.Push)
+	}
+	if found, err := m.SetPush(d.ID, Push{Platform: "apns", Token: "new", Sandbox: true}); !found || err != nil {
 		t.Fatal(found, err)
 	}
 	if push() != true {
 		t.Fatal("a device that gave a token has no push")
 	}
 	got, _, _ := SQLStore{DB: db}.ByTokenHash(hashOf(token))
-	if got.Push == nil || *got.Push != (Push{Platform: "fcm", Token: "new"}) {
+	if got.Push == nil || *got.Push != (Push{Platform: "apns", Token: "new", Sandbox: true}) {
 		t.Fatalf("the newest token replaces the one before: %+v", got.Push)
 	}
 	if found, err := m.SetPush("dev_gone", Push{Platform: "fcm", Token: "x"}); found || err != nil {
