@@ -34,23 +34,21 @@ afterEach(async () => {
 });
 
 describe('system resources', () => {
-  it('the status bar has one text cell of what the agents use and a keep-awake choice; settings show only after a click', async () => {
+  it('the status bar has cells for the CPU, memory and disk and a keep-awake choice; the popover is a read-only summary', async () => {
     await mount('#/my-turn');
     await until(() => box.querySelector('.resource-cell'), 'the resource cell');
-    expect(text(box.querySelector('.resource-cell'))).toMatch(/^Agents: CPU \d+%, .* · Memory .* free \(\d+%\)$/);
-    expect(text(box.querySelector('.statusbar'))).toContain('Awake: Off');
+    expect(text(box.querySelector('.resource-cell'))).toMatch(/^CPU \d+%.*Memory .* free.*Disk .* left/);
+    expect(text(box.querySelector('.statusbar'))).toContain('Off');
     expect(box.querySelector('.limit-editor')).toBeNull();
     await act(async () => void box.querySelector<HTMLElement>('.resource-cell')!.click());
     await until(() => box.querySelector('.resource-details'), 'the popover');
-    expect(box.querySelector('.limit-editor')).toBeNull(); // read-only until a row is clicked
-    const load = [...box.querySelectorAll<HTMLElement>('.resource-details button')].find((b) => text(b).startsWith('Load'))!;
-    expect(load.querySelector('svg')).not.toBeNull(); // the rows that open say so
-    expect(box.querySelectorAll('.resource-details button svg').length).toBe(2);
-    await act(async () => void load.click());
-    await until(() => box.querySelector('.limit-editor'), 'the load editor');
-    expect(text(box.querySelector('.limit-editor'))).toContain('Now 0.3 → starts go.');
-    await act(async () => void box.querySelector<HTMLElement>('button[aria-label="Max"]')!.click());
-    await until(() => text(box.querySelector('.resource-details')).includes('/ 3.0'), 'the new limit');
+    expect(['CPU', 'Memory', 'Disk'].map((l) => !!box.querySelector(`.resource-details [data-resource="${l}"]`))).toEqual([
+      true,
+      true,
+      true,
+    ]);
+    expect(box.querySelector('.limit-editor')).toBeNull(); // a summary: the limits are set in Settings
+    expect(box.querySelectorAll('.resource-details button').length).toBe(0);
   });
 
   it('the admin view lists agents heaviest first with Stop behind a menu on each row and a totals line', async () => {

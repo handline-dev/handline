@@ -89,14 +89,19 @@ export const idleField = (parkTimeoutS: number | undefined) => ({
 });
 
 /** The machine load limits of the Settings page, on the PC and the phone: the daemon starts no new work over any of them; 0 is off. */
-export const limitFields = (v: { host_active_cap?: number; load_per_core_pct?: number; ram_free_min_pct?: number }) => {
+export const limitFields = (v: {
+  host_active_cap?: number;
+  load_per_core_pct?: number;
+  ram_free_min_pct?: number;
+  heavy_slots?: number;
+}) => {
   const allowed = 'a whole number, no limit or 0 for none, or empty for the default';
   const field = (
     label: string,
     hint: string,
     unit: string,
     n: number | undefined,
-    key: 'host_active_cap' | 'load_per_core_pct' | 'ram_free_min_pct',
+    key: 'host_active_cap' | 'load_per_core_pct' | 'ram_free_min_pct' | 'heavy_slots',
     change: (x: number | null) => PageSettings,
   ) => ({
     setting: key,
@@ -130,6 +135,16 @@ export const limitFields = (v: { host_active_cap?: number; load_per_core_pct?: n
     field('Least free memory', 'Under this share of memory free, no new work starts', '%', v.ram_free_min_pct, 'ram_free_min_pct', (x) => ({
       ram_free_min_pct: x,
     })),
+    field(
+      'Heavy test runs at once',
+      'Test and build runs that may go at the same time on this machine',
+      'runs',
+      v.heavy_slots,
+      'heavy_slots',
+      (x) => ({
+        heavy_slots: x,
+      }),
+    ),
   ];
 };
 
