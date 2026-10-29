@@ -150,11 +150,11 @@ func countOf(s string) int64 {
 	return n
 }
 
-// changed is rpc_worktrees._changed: the changed files with git's status letter and line counts.
-func changed(path string) []any {
+// changed is rpc_worktrees._changed: the changed files with git's status letter and line counts, up to maxChanged, and how many there are.
+func changed(path string) ([]any, int) {
 	ok, status := git(path, "status", "--porcelain=v1", "-z", "-uall")
 	if !ok {
-		return []any{}
+		return []any{}, 0
 	}
 	counts := map[string][2]int64{}
 	if ok, stat := git(path, "diff", "--numstat", "-z", "--no-ext-diff", "HEAD"); ok {
@@ -171,9 +171,9 @@ func changed(path string) []any {
 			}
 		}
 	}
-	rows := []any{}
+	rows, total := []any{}, 0
 	entries := strings.Split(status, "\x00")
-	for i := 0; i < len(entries) && len(rows) < maxChanged; i++ {
+	for i := 0; i < len(entries); i++ {
 		entry := entries[i]
 		if len([]rune(entry)) < 4 {
 			continue
@@ -181,6 +181,9 @@ func changed(path string) []any {
 		code, name := entry[:2], entry[3:]
 		if strings.ContainsAny(code, "RC") {
 			i++
+		}
+		if total++; len(rows) >= maxChanged {
+			continue
 		}
 		mark := "M"
 		if code == "??" {
@@ -196,7 +199,7 @@ func changed(path string) []any {
 		n := counts[name]
 		rows = append(rows, map[string]any{"path": name, "status": mark, "added": n[0], "deleted": n[1]})
 	}
-	return rows
+	return rows, total
 }
 
 // bosses is each agent's supervisor from team.yaml; empty when it cannot be read.
@@ -249,7 +252,7 @@ func (e *Env) labels() (map[string]string, error) {
 
 func (e *Env) worktree(path, owner string, kn known, bosses map[string]string, labels map[string]string) map[string]any {
 	ok, branch := git(path, "rev-parse", "--abbrev-ref", "HEAD")
-	ch := changed(path)
+	ch, _ := changed(path)
 	boss := bosses[owner]
 	repo := e.repoOf(owner)
 	repoName := ""
@@ -391,14 +394,14 @@ func (e *Env) orphans(repo *string) ([]any, error) {
 			} else if n, err := strconv.ParseInt(v, 10, 64); ok && err == nil {
 				size = n
 			}
-			ch := changed(path)
+			ch, files := changed(path)
 			status := "clean"
 			if len(ch) > 0 {
 				status = "dirty"
 			}
 			out = append(out, map[string]any{"path": path, "repo": filepath.Base(r), "branch": wt.Branch, "owner": nil, "parent": nil,
 				"children": []string{}, "status": status, "changed": ch, "orphan": true, "merged": merged,
-				"files_changed": len(ch), "commits_ahead": commits, "size_bytes": size})
+				"files_changed": files, "commits_ahead": commits, "size_bytes": size})
 		}
 	}
 	return out, nil
