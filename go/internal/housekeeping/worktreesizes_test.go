@@ -48,6 +48,25 @@ func TestOrphanSizesAreKeptFromTheLastWalk(t *testing.T) {
 	}
 }
 
+// A check while a walk still runs, though another is due, starts no second walk over the same trees.
+func TestNoSecondWalkStartsWhileOneRuns(t *testing.T) {
+	q, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	walks, release := 0, make(chan struct{})
+	w := &WorktreeSizes{Log: func(string) {}, Size: func(string) (int64, error) { <-release; return 1, nil }}
+	w.Orphans = func(db.Q) ([]string, error) { walks++; return []string{"/a"}, nil }
+	w.Check(q, 1000)
+	w.Check(q, 1000+worktreeprune.SizeEvery)
+	close(release)
+	waitIdle(t, w)
+	if walks != 1 {
+		t.Fatalf("%d walks", walks)
+	}
+}
+
 func waitIdle(t *testing.T, w *WorktreeSizes) {
 	t.Helper()
 	for i := 0; i < 500; i++ {
