@@ -173,20 +173,26 @@ func capture(c *hlclient.Client, d *sql.DB, agent, event string, raw map[string]
 
 // founderNudge is the Stop hook's output: feedback that keeps the turn going, once per message, when a founder's message typed in this
 // turn has no answer (session.UnansweredFounder), else {}. Feedback, not a block, so the terminal shows no hook error. A Stop the hook
-// already held (stop_hook_active), one that only pauses until its own background work or wakeup brings the session back (pausedForOwnWork),
-// and any error pass; the paused one is not counted as nudged, so the Stop after the wakeup is.
+// already held (stop_hook_active) and any error pass. A Stop that only pauses until its own background work or wakeup brings the session
+// back (pausedForOwnWork) puts the nudge off once per message, so the Stop after it nudges whatever its lists hold: a recurring cron or a
+// monitor is listed on every Stop.
 func founderNudge(env *session.Env, agent string, raw map[string]any) (out string) {
 	defer func() {
 		if recover() != nil {
 			out = "{}"
 		}
 	}()
-	if active, _ := raw["stop_hook_active"].(bool); active || pausedForOwnWork(raw) {
+	if active, _ := raw["stop_hook_active"].(bool); active {
 		return "{}"
 	}
 	rid, err := env.UnansweredFounder(agent)
 	if err != nil || rid == 0 {
 		return "{}"
+	}
+	if pausedForOwnWork(raw) {
+		if first, err := env.NoteFounderDeferred(agent, rid); err != nil || first {
+			return "{}"
+		}
 	}
 	if first, err := env.NoteFounderNudged(agent, rid); err != nil || !first {
 		return "{}"
