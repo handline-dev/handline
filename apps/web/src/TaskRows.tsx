@@ -80,6 +80,11 @@ export function Row(props: {
             >
               {t.title}
             </span>
+            {t.state === 'discarded' ? (
+              <span className="ml-2 align-middle">
+                <Chip>Dropped</Chip>
+              </span>
+            ) : null}
           </AnimatedCell>
           {props.columns.owner ? (
             <AnimatedCell className={`c-owner w-28 text-right ${TD} max-sm:[grid-area:owner] max-sm:text-left`}>

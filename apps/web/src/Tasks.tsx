@@ -154,7 +154,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
         if (g.key !== 'done') return [{ ...g, folded: false }];
         if (scope === 'open') return [{ ...g, label: 'Done today', folded: !showDone }];
         // Closed: by the day it closed, newest first
-        return ['Today', 'Yesterday', 'This week', 'Earlier']
+        return ['Today', 'Yesterday', 'This week', 'This month', 'Earlier']
           .map((label) => ({ ...g, label, rows: g.rows.filter((t) => doneBucket(t, now) === label), folded: false }))
           .filter((b) => b.rows.length);
       }),

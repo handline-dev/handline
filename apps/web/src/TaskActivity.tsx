@@ -73,7 +73,7 @@ function Comment({
   const undo = () => (clearTimeout(timer.current), (timer.current = undefined), setUndoing(false));
   if (undoing)
     return (
-      <li className="comment flex items-center gap-2 rounded-md border border-line px-3 py-1 text-xs text-ink-3">
+      <li className="comment flex items-center gap-2 px-0 py-1 text-xs text-ink-3">
         Comment deleted
         <Button variant="ghost" size="sm" icon="undo" label="Undo" onClick={undo}>
           Undo
@@ -81,7 +81,7 @@ function Comment({
       </li>
     );
   return (
-    <li className="comment group grid min-w-0 gap-0.5 rounded-md border border-line px-3 py-1.5">
+    <li className="comment group grid min-w-0 gap-0.5 border-t border-line px-0 py-2">
       <span className="flex items-center gap-1 text-xs text-ink-3">
         <span className="min-w-0 flex-1 truncate">
           <strong className="font-medium text-ink-2">{isPerson(item.who, me) ? 'You' : <AgentLink name={item.who} />}</strong>{' '}
@@ -185,7 +185,7 @@ function Event({ item }: { item: ActivityItem }) {
       <span className="mr-2 inline-block h-2 w-2 rounded-full bg-ink-3 align-middle" aria-hidden="true" />
       {item.line} <span className="text-xs text-ink-3">· {dateTime(item.at)}</span>
       {item.note ? (
-        <div className="tnote mt-1 min-w-0 rounded-md border border-line px-3 py-1.5 text-ink">
+        <div className="tnote mt-1 min-w-0 px-0 py-1 text-ink">
           <Fold note={item.note} long={noteIsLong(item.note)}>
             {(text) => <Markdown text={text} />}
           </Fold>
