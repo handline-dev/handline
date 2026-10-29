@@ -258,7 +258,7 @@ func TestTheExitStatusIsTheCommandsAndANestedRunDoesNotWait(t *testing.T) {
 func waitTickets(t *testing.T, slots string, n int) {
 	t.Helper()
 	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
-		if m, _ := filepath.Glob(filepath.Join(slots, "ticket-*")); len(m) >= n {
+		if m, _ := filepath.Glob(filepath.Join(slots, "slot-ticket-*")); len(m) >= n {
 			return
 		}
 	}
@@ -299,7 +299,7 @@ func TestADeadWaitersTicketIsDropped(t *testing.T) {
 	if err := os.MkdirAll(slots, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	dead := filepath.Join(slots, "ticket-00000000000000000001-99999")
+	dead := filepath.Join(slots, "slot-ticket-00000000000000000001-99999")
 	if err := os.WriteFile(dead, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +310,7 @@ func TestADeadWaitersTicketIsDropped(t *testing.T) {
 	if _, err := os.Stat(dead); !os.IsNotExist(err) {
 		t.Errorf("the dead waiter's ticket is still there: %v", err)
 	}
-	if m, _ := filepath.Glob(filepath.Join(slots, "ticket-*")); len(m) != 0 {
+	if m, _ := filepath.Glob(filepath.Join(slots, "slot-ticket-*")); len(m) != 0 {
 		t.Errorf("tickets left behind: %v", m)
 	}
 }
@@ -429,7 +429,7 @@ func TestOnlyTheFirstInLineLooksAtMemory(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	front, err := os.OpenFile(filepath.Join(dir, "ticket-00000000000000000001-1"), os.O_RDWR|os.O_CREATE, 0o644)
+	front, err := os.OpenFile(filepath.Join(dir, "slot-ticket-00000000000000000001-1"), os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,5 +528,27 @@ func TestAFreeSlotWaitsWhileFreeDiskIsLowAndGoesOnceItIsBack(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("still waiting after the disk was back")
+	}
+}
+
+func TestARunOfOneTestFileIsLightAndWaitsForNoHeavyRun(t *testing.T) {
+	for args, want := range map[string]bool{"vitest run a.test.ts": true, "/x/node_modules/.bin/vitest run src/b.spec.tsx": true,
+		"vitest run": false, "vitest run src": false, "go test ./...": false, "tsc a.test.ts": false} {
+		if got := isLight(strings.Fields(args)); got != want {
+			t.Errorf("isLight(%q) = %v, want %v", args, got, want)
+		}
+	}
+	bin, slots := build(t)
+	start(t, bin, slots, nil, "sleep", "30")
+	waitHeld(t, slots)
+	fake := filepath.Join(t.TempDir(), "vitest")
+	os.WriteFile(fake, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	began := time.Now()
+	c, _ := start(t, bin, slots, nil, fake, "run", "a.test.ts")
+	if err := c.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(began); took > 5*time.Second {
+		t.Errorf("a one-file run waited %v behind a heavy holder", took)
 	}
 }
