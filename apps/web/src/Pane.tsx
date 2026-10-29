@@ -45,7 +45,7 @@ function PaneView({ group, data: { openShell, hello } }: { group: Group; data: P
     >
       {split ? (
         <div
-          className={`pane-handle flex h-[22px] flex-none items-center gap-1.5 border-b border-line px-2 text-xs ${focused ? 'bg-raised text-ink' : 'bg-surface text-ink-2'}`}
+          className={`pane-handle flex h-[22px] flex-none items-center gap-1.5 border-b border-line px-2 text-xs ${focused ? 'bg-panel text-ink' : 'bg-surface text-ink-2'}`}
           data-handle={group.id}
           ref={handle}
         >

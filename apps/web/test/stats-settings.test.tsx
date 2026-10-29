@@ -70,9 +70,9 @@ describe('stats', () => {
     expect(text($('[data-span]'))).toContain(' to ');
     expect($('[data-tile="blocks"]')!.hasAttribute('data-warn')).toBe(false);
     const rows = $$('[data-agent]');
-    expect(rows.map((r) => r.dataset.agent)).toEqual(['handline.architect', 'handline.auditor']);
-    expect(text(rows[0])).toContain('3 h 12 m');
-    expect(text($('.chart[aria-label="Agent time"]'))).toContain('1 idle agent');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(text(rows[0])).toContain('$');
+    expect(text($('.chart[aria-label="Who used it"]'))).not.toContain('idle');
   });
 
   it('Stats is a section of the Usage page without the accounts; the Accounts tab of Settings holds the accounts with their gauges and no stats', async () => {

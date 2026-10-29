@@ -147,7 +147,7 @@ export const taskAgents = (tasks: readonly Task[]): string[] => [...new Set(task
 
 export type TaskGroupKey = 'needs' | 'running' | 'queued' | 'done';
 export const TASK_GROUPS: readonly { key: TaskGroupKey; label: string }[] = [
-  { key: 'needs', label: 'My turn' },
+  { key: 'needs', label: 'Needs you' },
   { key: 'running', label: 'Running' },
   { key: 'queued', label: 'Up next' },
   { key: 'done', label: 'Done' },
@@ -200,9 +200,9 @@ export function graphBands(tasks: readonly Task[], now: number, recent = true): 
   })).filter((b) => b.tasks.length);
 }
 
-/** When a closed task closed, in the words the Closed list groups by: today, yesterday, within a week, earlier. */
-export function doneBucket(t: Task, now: number): 'Today' | 'Yesterday' | 'This week' | 'Earlier' {
+/** When a closed task closed, in the words the Closed list groups by: today, yesterday, within a week, within a month, earlier. */
+export function doneBucket(t: Task, now: number): 'Today' | 'Yesterday' | 'This week' | 'This month' | 'Earlier' {
   const day = (ms: number) => new Date(ms).setHours(0, 0, 0, 0);
   const ago = Math.round((day(now) - day(Date.parse(t.done ?? t.created))) / DAY);
-  return ago <= 0 ? 'Today' : ago === 1 ? 'Yesterday' : ago < 7 ? 'This week' : 'Earlier';
+  return ago <= 0 ? 'Today' : ago === 1 ? 'Yesterday' : ago < 7 ? 'This week' : ago < 30 ? 'This month' : 'Earlier';
 }

@@ -54,11 +54,11 @@ export function NoticeBell() {
             <button
               type="button"
               className="notice-turn flex w-full cursor-pointer items-center gap-2 border-0 border-b border-line bg-[color-mix(in_srgb,var(--color-wait)_14%,transparent)] px-3 py-1.5 text-left text-md font-medium text-ink"
-              onClick={() => void ((location.hash = '#/my-turn'), setOpen(false))}
+              onClick={() => void ((location.hash = '#/requests'), setOpen(false))}
             >
               <span className="size-2 flex-none rounded-full bg-wait" aria-hidden />
-              <span className="flex-1">My turn</span>
-              <Icon name="chevronRight" size={14} label="Opens My turn" aria-hidden />
+              <span className="flex-1">Requests</span>
+              <Icon name="chevronRight" size={14} label="Opens Requests" aria-hidden />
             </button>
           ) : null}
           {spare.map((n) => (

@@ -58,15 +58,15 @@ What the new-agent form offers.
 
 ### `agent.set`
 
-Change an agent's settings: an agent its own ordinary keys, the founder any (legacy agent_set).
+Change an agent's settings: an agent its own ordinary keys, the founder any.
 
 ### `agent.fold`
 
-Run hl fold for an agent (legacy fold).
+Run hl fold for an agent.
 
 ### `agent.move`
 
-Move an agent to another account (legacy move).
+Move an agent to another account.
 
 ### `agent.unstall`
 
@@ -94,7 +94,7 @@ Resume a closed session.
 
 ### `session.stop`
 
-exit asks Claude to quit; close ends the session and keeps the terminal; kill ends the process. An agent may call it for mode exit and close, as the legacy verbs allow; mode kill is refused to the agent role (`refused`, gate `role`) before the agent is looked up, because it ends another session mid-turn with no handoff record. Kill is for a person. For a structured agent exit and close are the same: the daemon ends the CLI's input and waits for it to exit, and kill ends its process group. Close mid-turn is refused (gate state): interrupt first.
+exit asks Claude to quit; close ends the session and keeps the terminal; kill ends the process. An agent may call it for mode exit and close; mode kill is refused to the agent role (`refused`, gate `role`) before the agent is looked up, because it ends another session mid-turn with no handoff record. Kill is for a person. For a structured agent exit and close are the same: the daemon ends the CLI's input and waits for it to exit, and kill ends its process group. Close mid-turn is refused (gate state): interrupt first.
 
 ### `session.restart`
 

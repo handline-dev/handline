@@ -1,5 +1,5 @@
-// The fake daemon's usage numbers: stats.get, stats.outlook and stats.headroom, made from the clock it is given.
-import type { Headroom, Outlook, Stats, Timestamp } from '@handline/contract';
+// The fake daemon's usage numbers: stats.get and stats.outlook, made from the clock it is given.
+import type { Outlook, Stats, Timestamp } from '@handline/contract';
 import { badRequest } from '#src/errors.ts';
 
 export const HOUR = 3_600_000;
@@ -37,6 +37,37 @@ function byAccount(past: Outlook['past'], future: Outlook['future'], now: number
     { account: 'beta', past: points(past, -5), future: points(future, -5), resets: [] },
   ];
 }
+/** [agent, account, tokens, list-price cost]: the architect and auditor share alpha with the founder's own sessions (agent ''), the auditor also used beta, which the architect moved to. */
+const CALLS: [string, string, number, number][] = [
+  [AGENTS[0]!, 'alpha', 9_200_000, 18],
+  [AGENTS[1]!, 'alpha', 3_100_000, 6],
+  ['', 'alpha', 3_000_000, 6],
+  [AGENTS[0]!, 'beta', 1_000_000, 2],
+  [AGENTS[1]!, 'beta', 1_500_000, 3],
+  [AGENTS[2]!, 'gamma', 400_000, 1],
+];
+/** Points each account's week rose in the window; gamma has no reading. */
+const RISE: Record<string, { '24h': number; '7d': number }> = { alpha: { '24h': 8, '7d': 30 }, beta: { '24h': 3, '7d': 10 } };
+
+/** Each row's week_pct is its share of the account's cost times the account's rise, so an account's rows add up to its rise. */
+function useOf(week: boolean): Stats['use'] {
+  const scale = week ? 1 : 0.25;
+  const cost = new Map<string, number>();
+  for (const [, account, , c] of CALLS) cost.set(account, (cost.get(account) ?? 0) + c);
+  return CALLS.map(([agent, account, tokens, c]) => {
+    const share = c / cost.get(account)!;
+    const rise = RISE[account]?.[week ? '7d' : '24h'];
+    return {
+      agent,
+      account,
+      tokens: Math.round(tokens * scale),
+      cost: Math.round(c * scale * 100) / 100,
+      share: Math.round(share * 10_000) / 10_000,
+      week_pct: rise === undefined ? null : Math.round(share * rise * 100) / 100,
+    };
+  }).sort((a, b) => b.cost - a.cost);
+}
+
 export function statsOf(nowIso: Timestamp, window: '24h' | '7d'): Stats {
   const until = Date.parse(nowIso);
   const week = window === '7d';
@@ -45,7 +76,7 @@ export function statsOf(nowIso: Timestamp, window: '24h' | '7d'): Stats {
     since: new Date(until - (week ? 7 * DAY : DAY)).toISOString(),
     until: new Date(until).toISOString(),
     tasks_done: week ? 19 : 3,
-    working_seconds: { [AGENTS[0]!]: week ? 61_200 : 11_520, [AGENTS[1]!]: week ? 20_000 : 3_600, [AGENTS[2]!]: 0 },
+    use: useOf(week),
     moves: week ? 6 : 1,
     handoffs: week ? 9 : 2,
     blocks: week ? 4 : 0,
@@ -94,61 +125,5 @@ export function outlookOf(nowIso: Timestamp, range: Outlook['range'], pick?: unk
     ...(pick !== undefined && {
       overlay: (Object.hasOwn(OVERLAYS, pick) ? OVERLAYS[pick]! : []).map((v, i) => (i < past.length ? v : 0)).slice(0, past.length),
     }),
-  };
-}
-
-/** Two accounts: alpha's 5h window resets every 5 hours from 2 hours on and fills a little faster than beta's; beta runs low on its week. */
-export function headroomOf(nowIso: Timestamp, p: Record<string, unknown>): Headroom {
-  const now = Date.parse(nowIso);
-  const time = (key: string, fallback: number): number => {
-    if (p[key] === undefined || p[key] === null) return fallback;
-    const t = typeof p[key] === 'string' && /^\d{4}-\d\d-\d\dT/.test(p[key] as string) ? Date.parse(p[key] as string) : NaN;
-    if (Number.isNaN(t)) throw badRequest(`${key} is an RFC 3339 timestamp`, key);
-    return Math.floor(t / 1000) * 1000;
-  };
-  const from = time('from', now - 3 * DAY);
-  const to = time('to', now + 3 * DAY);
-  const step = p.step_s === undefined || p.step_s === null ? 900 : p.step_s;
-  if (!Number.isInteger(step)) throw badRequest('step_s is an integer', 'step_s');
-  const stepMs = (step as number) * 1000;
-  if (to <= from) throw badRequest('to is after from', 'to');
-  if ((step as number) < 60) throw badRequest('step_s is at least 60', 'step_s');
-  if (Math.floor((to - from) / stepMs) + 1 > 2000) throw badRequest('step_s is too small for the span: at most 2000 points', 'step_s');
-  const at = (t: number) => new Date(t).toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const FIVE = 5 * HOUR;
-  const firstReset = now + 2 * HOUR;
-  const saw = (t: number, perHour: number) => Math.max(0, 100 - (perHour * ((((t - firstReset) % FIVE) + FIVE) % FIVE)) / HOUR);
-  const plans = [
-    { account: 'alpha', five: (t: number) => saw(t, 15), week: (t: number) => Math.max(0, 70 - ((t - now) / DAY) * 8) },
-    { account: 'beta', five: (t: number) => saw(t, 10), week: (t: number) => Math.max(0, 30 - ((t - now) / DAY) * 12) },
-  ];
-  const times: number[] = [];
-  for (let t = from; t <= to; t += stepMs) times.push(t);
-  const round = (v: number) => Math.round(v * 100) / 100;
-  const accounts = plans.map((a) => {
-    const point = (t: number) => ({ at: at(t), five_left: round(a.five(t)), week_left: round(a.week(t)) });
-    const resets: Headroom['accounts'][number]['resets'] = [];
-    for (let r = firstReset - Math.ceil((firstReset - from) / FIVE) * FIVE; r <= to; r += FIVE)
-      if (r >= from) resets.push({ at: at(r), window: '5h' });
-    return {
-      account: a.account,
-      past: times.filter((t) => t <= now).map(point),
-      future: times.filter((t) => t > now).map(point),
-      resets,
-    };
-  });
-  const combined = (t: number) => ({
-    at: at(t),
-    left_pct: round(plans.reduce((sum, a) => sum + Math.min(a.five(t), a.week(t)), 0) / plans.length),
-  });
-  const future = times.filter((t) => t > now).map(combined);
-  const next = firstReset > now && firstReset <= to ? firstReset : null;
-  return {
-    now: at(now),
-    step_s: step as number,
-    combined: { past: times.filter((t) => t <= now).map(combined), future },
-    accounts,
-    runs_out_at: future.find((q) => q.left_pct !== null && q.left_pct <= 0)?.at ?? null,
-    next_reset: next === null ? null : { at: at(next), account: 'alpha', window: '5h' },
   };
 }

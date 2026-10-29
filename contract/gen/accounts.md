@@ -15,7 +15,6 @@ A method marked write takes a required `request_id`. Framing, roles, errors and 
 | `account.login_code` | founder | yes | `login_id`, `code`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | role, state |
 | `account.remove` | founder | yes | `account`, `dry_run?`, `confirm?`, `request_id` | `Accepted & {would_remove, plan}` | `refused`, `not_found`, `bad_request` |  |
 | `stats.get` | member |  | `window` | `Stats` | `bad_request` |  |
-| `stats.headroom` | member |  | `from?`, `to?`, `step_s?` | `Headroom` | `bad_request` |  |
 | `stats.outlook` | member |  | `range`, `agent?` | `Outlook` | `bad_request` |  |
 
 ### `accounts.list`
@@ -56,11 +55,7 @@ Log an account out and take it off the roster; dry_run names what would happen. 
 
 ### `stats.get`
 
-Counts and sums over a window.
-
-### `stats.headroom`
-
-Retired: stats.outlook's by_account carries the same lines and the pace line, and no app reads this. It leaves the contract when the daemon stops serving it. Each account's 5h and weekly headroom over a span, recorded up to now and guessed after, its resets, and the average of what binds.
+Counts over a window, and each agent's use of each account's weekly limit.
 
 ### `stats.outlook`
 

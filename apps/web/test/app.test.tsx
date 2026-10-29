@@ -167,8 +167,8 @@ describe('the workspace', () => {
     expect($('.side')).toBeNull();
     const top = $$('.rail-top button').map((b) => b.getAttribute('aria-label') ?? '');
     expect(top.slice(0, 3)).toEqual(['Hide the agent list (⌘B)', 'Back (⌘[)', 'Forward (⌘])']);
-    expect(text($('.rail-nav'))).toMatch(/My turn.*Tasks.*Requests.*Usage/);
-    expect($$('.rail-nav .nav svg').length).toBe(4);
+    expect(text($('.rail-nav'))).toMatch(/Tasks.*Requests.*Usage/);
+    expect($$('.rail-nav .nav svg').length).toBe(3);
     expect(text($('.rail-nav'))).not.toMatch(/More|Team|Worktrees/);
     expect($$('.rail-foot button').map((b) => b.getAttribute('aria-label'))).toEqual(['Settings', 'Keys (?)']);
     expect($('.rail-status')).toBeNull();
@@ -198,8 +198,8 @@ describe('the workspace', () => {
   it('the nav rows go to their pages, Back and Forward use the history, and ⌘B hides and shows the sidebar', async () => {
     await mount(ARCH);
     await until(() => $('.rail'), 'sidebar');
-    await click($$('.rail-nav .nav').find((b) => text(b).trim().startsWith('My turn'))!);
-    expect(location.hash).toBe('#/my-turn');
+    await click($$('.rail-nav .nav').find((b) => text(b).trim().startsWith('Requests'))!);
+    expect(location.hash).toBe('#/requests');
     await click($$('.rail-nav .nav').find((b) => text(b).trim().startsWith('Tasks'))!);
     expect(location.hash).toMatch(/^#\/tasks/);
     const back = vi.spyOn(history, 'back').mockImplementation(() => undefined);
@@ -223,7 +223,7 @@ describe('the workspace', () => {
     await act(async () => void dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true })));
     const field = $('.palette input') as HTMLInputElement;
     expect($$('.palette [role="option"]').map((o) => text(o))).toEqual(
-      expect.arrayContaining([expect.stringContaining('My turn'), expect.stringContaining('Tasks')]),
+      expect.arrayContaining([expect.stringContaining('Requests'), expect.stringContaining('Tasks')]),
     );
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, 'auditor');

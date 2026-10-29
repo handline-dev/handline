@@ -6,7 +6,10 @@ import { dateTime, HELD, isPerson, taskRef, watchResult } from '@handline/app-co
 import { useHello, useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
+import { Hand } from 'lucide-react';
 import { Button, Icon, MenuButton, MenuItem, PageHead, PageTitle, Popup } from '#src/ui/index.ts';
+import { Button as DsButton } from '#src/ds/Button.tsx';
+import { Id } from '#src/ds/Link.tsx';
 import { AssignPopover } from '#src/TaskPeople.tsx';
 import { leave } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
@@ -24,7 +27,7 @@ import { typing } from '#src/typing.ts';
 const CLOSED = ['done', 'discarded'];
 /** The bridge's own sentence for a key that does not apply. */
 const REOPEN_ONLY = 'only a done task that you asked for can be reopened';
-const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
+const H3 = 'm-0 mt-4 mb-1 flex items-center text-sm font-semibold';
 
 /** The daemon's reason for a task it has not yet looked at: not something the person can act on, so it reads as a quiet line. */
 const NOT_PICKED = /has not looked at it yet/;
@@ -198,7 +201,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
       <header className="tdetail-head flex flex-wrap items-baseline gap-2">
         {barNamed ? null : (
           <h2 className={`m-0 min-w-0 text-lg font-semibold`}>
-            <span className="mono">{taskRef(t.id)}</span> <TitleEdit t={t} />
+            <Id>{taskRef(t.id)}</Id> <TitleEdit t={t} />
           </h2>
         )}
         {status.length ? (
@@ -241,8 +244,11 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
           Not picked up yet
         </p>
       ) : why ? (
-        <p className="twhy m-0 mt-3 rounded-md border border-wait px-3 py-2 text-wait" role="status">
-          <RichText text={why} />
+        <p className="twhy m-0 mt-3 flex items-start gap-1.5 text-wait" role="status">
+          <Hand width={15} height={15} strokeWidth={1.75} className="mt-[3px] shrink-0" aria-hidden />
+          <span>
+            <RichText text={why} />
+          </span>
         </p>
       ) : null}
       <div className="mt-3">
@@ -270,8 +276,8 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
 
         <div className="tverbs flex flex-wrap items-center gap-1.5" role="toolbar" aria-label="Task actions">
           {main ? (
-            <Button
-              variant="solid"
+            <DsButton
+              kind="primary"
               label={main.label}
               title={main.can.why ?? `${main.label} (${main.key})`}
               disabled={!main.can.ok || main.busy}
@@ -279,37 +285,29 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
               onClick={main.run}
             >
               {main.busy ? '…' : main.label}
-            </Button>
+            </DsButton>
           ) : null}
           {open ? (
             <span className="relative inline-flex">
-              <Button
-                variant="outline"
+              <DsButton
                 label="Assign"
                 title={edit.can.why ?? 'Assign (o)'}
                 disabled={!edit.can.ok}
                 className="max-sm:min-h-[44px]"
                 onClick={() => setAsk(ask === 'assign' ? null : 'assign')}
-              >
-                Assign
-              </Button>
+              />
               <AssignPopover t={t} me={me} open={ask === 'assign'} onClose={() => setAsk(null)} up />
             </span>
           ) : null}
-          <Button variant="outline" label="Comment" title="Comment (a)" className="max-sm:min-h-[44px]" onClick={verbs.a}>
-            Comment
-          </Button>
+          <DsButton label="Comment" title="Comment (a)" className="max-sm:min-h-[44px]" onClick={verbs.a} />
           {open ? (
-            <Button
-              variant="outline"
+            <DsButton
               label="Cancel task"
               title={can.cancel.why ?? 'Cancel task (c)'}
               disabled={!can.cancel.ok}
               className="max-sm:min-h-[44px]"
               onClick={verbs.c}
-            >
-              Cancel task
-            </Button>
+            />
           ) : null}
           <MenuButton label="More" trigger="More ▾" variant="outline" className="max-sm:min-h-[44px]">
             {more.map((v) => (
