@@ -1,4 +1,4 @@
-// The sidebar's nav rows: the shape every row shares. The current one is filled one step lighter, with no stripe.
+// The sidebar's nav rows: the shape every row shares; the current one is filled one step lighter.
 const SHAPE =
   'nav flex h-[var(--h-m)] w-full cursor-pointer items-center gap-2 rounded-sm border-0 px-2 text-left text-md text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-acc';
 export const NAV = `${SHAPE} bg-transparent tint`;
