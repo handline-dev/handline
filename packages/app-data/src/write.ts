@@ -51,7 +51,7 @@ export function useWrite<M extends WriteMethod>(method: M, target?: string) {
     onError: (e, p, mine) => {
       const handled = spec.fail?.(ctx(), p as never, e) ?? false;
       if (!handled) restore(qc, mine?.snapshot ?? []);
-      store.reportError(spec.label, e, () => again.current(p));
+      if (!spec.asks?.(e)) store.reportError(spec.label, e, () => again.current(p));
     },
     onSuccess: (r, p) => {
       spec.reconcile?.(ctx(), p as never, r as never);

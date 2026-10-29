@@ -43,6 +43,7 @@ describe('Delete agent with work in its worktree', () => {
     await press($('verb-delete'));
     await press($('sheet-submit'));
     await until(() => $('delete-held-save'), 'the three answers');
+    expect(text()).not.toContain("Couldn't retire"); // the sheet asks: no error line
     expect(text($('delete-held-sheet'))).toContain(`${LEAF} has 3 unsaved files, 2 unpushed commits`);
     expect(m.daemon.sessions.has(LEAF)).toBe(true);
     expect($('delete-held-force')).not.toBeNull();
