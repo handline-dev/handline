@@ -1,24 +1,38 @@
-// The Requests page (#/requests): every request the founder made, newest first, each with its status, who holds it and what is open under it. A
-// request opens its task; the lead turns a message of theirs into one. New request asks an agent for something.
+// The Requests page (#/requests): every request the founder made, grouped by where it stands, each with who holds it and what is open under it.
+// A request opens its task; the lead turns a message of theirs into one. New request asks an agent for something.
+import { Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { ago } from '@handline/app-core';
 import type { RequestRow } from '@handline/client';
 import { useAgents, useRequests } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
+import { Button } from '#src/ds/Button.tsx';
+import { Chip } from '#src/ds/Chip.tsx';
+import { Segmented } from '#src/ds/Field.tsx';
+import { EmptyList, ListRow, SectionHead } from '#src/ds/ListRow.tsx';
+import { StateMark, type StateName } from '#src/ds/StateMark.tsx';
 import { NewTask } from '#src/NewTask.tsx';
 import { goTasks } from '#src/route.ts';
-import { Button, Empty, PageHead, PageTitle, ScrollPage, Segmented, State, type StateKind } from '#src/ui/index.ts';
+import { PageHead, PageTitle, ScrollPage } from '#src/ui/index.ts';
 import { View } from '#src/View.tsx';
 
 type Status = RequestRow['status'];
-const WORDS: Record<Status, { label: string; glyph: StateKind }> = {
-  waiting_on_you: { label: 'Needs you', glyph: 'needs' },
-  review: { label: 'In review', glyph: 'working' },
-  doing: { label: 'Doing', glyph: 'working' },
-  done: { label: 'Done', glyph: 'done' },
-  no_work: { label: 'Nothing to do', glyph: 'idle' },
-  not_yet: { label: 'No task yet', glyph: 'idle' },
+const WORDS: Record<Status, { label: string; state: StateName }> = {
+  waiting_on_you: { label: 'Needs you', state: 'needs' },
+  review: { label: 'In review', state: 'working' },
+  doing: { label: 'Doing', state: 'working' },
+  done: { label: 'Done', state: 'done' },
+  no_work: { label: 'Nothing to do', state: 'dropped' },
+  not_yet: { label: 'No task yet', state: 'idle' },
 };
+/** The groups, in the order the founder reads them: what waits on them first, closed last. */
+const GROUPS: { title: string; of: Status[] }[] = [
+  { title: 'Waiting on you', of: ['waiting_on_you'] },
+  { title: 'Being worked', of: ['review', 'doing'] },
+  { title: 'Not taken yet', of: ['not_yet'] },
+  { title: 'Done', of: ['done'] },
+  { title: 'Nothing to do', of: ['no_work'] },
+];
 const FILTERS: { value: 'all' | Status; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'waiting_on_you', label: 'Needs you' },
@@ -35,44 +49,47 @@ const meta = (r: RequestRow): string =>
     r.done ? `${r.done} done` : '',
     r.prs.length ? r.prs.map((n) => `#${n}`).join(' ') : '',
     r.unread_comments ? `${r.unread_comments} new ${r.unread_comments === 1 ? 'comment' : 'comments'}` : '',
+    r.status === 'no_work' && r.reason ? r.reason : '',
   ]
     .filter(Boolean)
     .join(' · ');
 
 function Row({ row }: { row: RequestRow }) {
   const w = WORDS[row.status];
-  const open = row.task !== null ? () => goTasks(row.task!) : undefined;
+  const closed = row.status === 'done' || row.status === 'no_work';
+  const mark = (
+    <span className="flex w-28 shrink-0 items-center">
+      <StateMark state={w.state} word label={w.label} />
+    </span>
+  );
+  const chip = (
+    <span className="flex min-w-0 shrink-0 items-center gap-2 text-xs text-ink-3">
+      {meta(row) ? <span className="truncate">{meta(row)}</span> : null}
+      <Chip>{row.holders.length ? row.holders.join(', ') : row.agent}</Chip>
+      {row.task !== null ? <span className="font-mono text-ink-2">T{row.task}</span> : null}
+    </span>
+  );
+  const time = ago(row.last_activity);
   return (
-    <li
-      className="request-row rounded-md border border-line bg-panel px-3 py-2.5"
-      data-status={row.status}
-      data-request={row.task ?? row.ref}
-    >
-      <div
-        {...(open
-          ? {
-              role: 'button',
-              tabIndex: 0,
-              'aria-label': `Open T${row.task}`,
-              onClick: open,
-              onKeyDown: (e: React.KeyboardEvent) => (e.key === 'Enter' || e.key === ' ') && open(),
-            }
-          : {})}
-        className={open ? 'cursor-pointer' : undefined}
-      >
-        <div className="flex min-w-0 items-center gap-2">
-          <State kind={w.glyph} label={w.label} size={14} />
-          <span className="text-xs text-ink-2">{w.label}</span>
-          <h3 className="m-0 min-w-0 flex-1 truncate text-[15px] font-medium">{row.title}</h3>
-          {row.task !== null ? <span className="mono text-xs text-ink-2">T{row.task}</span> : null}
-          <span className="text-xs text-ink-3">{ago(row.last_activity)}</span>
+    <li className="request-row" data-status={row.status} data-request={row.task ?? row.ref}>
+      {row.task !== null ? (
+        <ListRow
+          lead={mark}
+          title={row.title}
+          chip={chip}
+          time={time}
+          done={closed}
+          label={`Open T${row.task}`}
+          onOpen={() => goTasks(row.task!)}
+        />
+      ) : (
+        <div className="flex h-9 items-center gap-3 px-3 text-md">
+          {mark}
+          <span className={`min-w-0 flex-1 truncate ${closed ? 'text-ink-3' : ''}`}>{row.title}</span>
+          {chip}
+          <span className="w-[2.4em] text-right text-xs text-ink-3">{time}</span>
         </div>
-        <p className="muted m-0 mt-0.5 flex flex-wrap gap-x-3 text-xs">
-          <span className="mono">{row.holders.length ? row.holders.join(', ') : row.agent}</span>
-          {meta(row) ? <span>{meta(row)}</span> : null}
-          {row.status === 'no_work' && row.reason ? <span>{row.reason}</span> : null}
-        </p>
-      </div>
+      )}
     </li>
   );
 }
@@ -90,18 +107,26 @@ export function RequestsPage() {
     <ScrollPage className="requests-page" aria-label="Requests">
       <PageHead>
         <PageTitle>Requests</PageTitle>
-        <Button icon="plus" label="New request" onClick={() => setAsking(true)} />
+        <Button iconOnly icon={Plus} label="New request" size="s" onClick={() => setAsking(true)} />
       </PageHead>
-      <Segmented label="Show" value={filter} onChange={setFilter} options={FILTERS} />
+      <Segmented label="Show" value={filter} onChange={setFilter} choices={FILTERS} />
       <View q={q} served={served} shape="tasks" what="requests">
         {shown.length ? (
-          <ul className="mx-0 mt-3 mb-0 flex list-none flex-col gap-2 p-0">
-            {shown.map((r) => (
-              <Row key={r.cursor} row={r} />
-            ))}
-          </ul>
+          GROUPS.map((g) => {
+            const list = shown.filter((r) => g.of.includes(r.status));
+            return list.length ? (
+              <section key={g.title} aria-label={g.title}>
+                <SectionHead count={list.length}>{g.title}</SectionHead>
+                <ul className="m-0 flex list-none flex-col p-0">
+                  {list.map((r) => (
+                    <Row key={r.cursor} row={r} />
+                  ))}
+                </ul>
+              </section>
+            ) : null;
+          })
         ) : (
-          <Empty icon="tasks" name={rows?.length ? 'Nothing with this status' : 'No requests yet'} />
+          <EmptyList>{rows?.length ? 'Nothing with this status' : 'No requests yet'}</EmptyList>
         )}
       </View>
       {asking ? (

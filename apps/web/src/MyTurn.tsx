@@ -1,6 +1,6 @@
 // My turn (#/my-turn, docs/story9-my-turn.md 9-1): everything that waits on the person as cards, most urgent first. A card has its primary
 // button(s) and a menu for the rest; a dialog the daemon does not know has only Open terminal.
-import { useState, type KeyboardEvent } from 'react';
+import { useState } from 'react';
 import { APPROVED, ago, changeAsked, noteIsLong, type Card, type CardAction, type MessageRow } from '@handline/app-core';
 import { classify, sentence, useMyTurn, useWrite } from '@handline/app-data';
 import { Fold } from '#src/Fold.tsx';
@@ -9,7 +9,15 @@ import { useWide } from '#src/taskui.tsx';
 import { AskChange, ReviewPictures } from '#src/ReviewCard.tsx';
 import { TaskDetail } from '#src/TaskDetail.tsx';
 import { Button, Icon, Input, MenuButton, MenuItem, PageHead, PageTitle, ScrollPage } from '#src/ui/index.ts';
+import { Button as DsButton } from '#src/ds/Button.tsx';
+import { Chip } from '#src/ds/Chip.tsx';
+import { Answer, ItemHeader } from '#src/ds/Item.tsx';
+import { SeeInFull, Who } from '#src/ds/Link.tsx';
+import { ListRow, SectionHead } from '#src/ds/ListRow.tsx';
 import { useNow } from '#src/Gauge.tsx';
+
+/** Where an item came from, the word on its chip. */
+const sourceOf = (c: Card): string => (c.review ? 'Review' : c.task != null ? 'Task' : c.kind === 'machine' ? 'Machine' : 'Chat');
 
 const KIND: Record<Card['kind'], string> = {
   decision: 'Decision',
@@ -61,7 +69,8 @@ function label(a: CardAction): string {
   }
 }
 
-function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; onOpen: (task: number) => void }) {
+/** The open item: its header, what it says, then the one answer with where to see it in full. A row only opens; an answer is given here. */
+function CardDetail({ card, onOpen }: { card: Card; onOpen: (task: number) => void }) {
   const now = useNow();
   const answer = useWrite('inbox.reply');
   const prompt = useWrite('prompt.answer');
@@ -105,47 +114,40 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
   const answerId = card.actions.find((a) => a.type === 'answer');
   const replyIcon = answerId && !main.includes(answerId) ? answerId : undefined;
   const askId = card.actions.find((a) => a.type === 'ask_change')?.item.id;
+  const kind = card.review ? 'Review' : card.memo != null ? 'Question for you' : KIND[card.kind];
+  const full =
+    card.task != null ? (
+      <SeeInFull onClick={() => onOpen(card.task!)} title={`Open T${card.task}`}>
+        Open T{card.task}
+      </SeeInFull>
+    ) : card.from ? (
+      <SeeInFull onClick={() => goHash(`#/agents/${encodeURIComponent(card.from!)}`)}>View in chat</SeeInFull>
+    ) : undefined;
   return (
-    <article
-      className={`my-turn-card group rounded-md border bg-panel px-3 py-2.5 ${selected ? 'border-acc' : 'border-line'}`}
-      data-kind={card.kind}
-      data-card={card.key}
-      aria-current={selected || undefined}
-    >
-      {/* A row with a task opens it in the detail beside the list; a card with no task shows its whole text and has nothing to open. */}
-      <div
-        {...(card.task != null
-          ? {
-              role: 'button',
-              tabIndex: 0,
-              'aria-label': `Open T${card.task}`,
-              onClick: () => onOpen(card.task!),
-              onKeyDown: (e: KeyboardEvent) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  onOpen(card.task!);
-                }
-              },
-            }
-          : {})}
-        className={`rounded-md outline-offset-2${card.task != null ? ' cursor-pointer' : ''}`}
-      >
-        <header className="flex min-w-0 items-baseline gap-2">
-          {card.priority <= 3 ? (
-            <span className="mono text-xs text-ink-2" title="Priority">
-              P{card.priority}
-            </span>
-          ) : null}
-          <span className={`text-xs ${card.review ? 'text-ok' : 'text-ink-2'}`}>
-            {card.review ? 'Review' : card.memo != null ? 'Question for you' : KIND[card.kind]}
-          </span>
-          <h3 className="m-0 min-w-0 flex-1 truncate text-[15px] font-medium">{card.title}</h3>
-          <span
-            className="flex items-center self-center opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            {replyIcon ? <Button size="sm" icon="reply" label="Reply" onClick={() => run(replyIcon)} /> : null}
+    <article className="my-turn-card px-5 py-4" data-kind={card.kind} data-card={card.key}>
+      <ItemHeader
+        source={<Chip>{sourceOf(card)}</Chip>}
+        who={card.from ? <Who onClick={() => goHash(`#/agents/${encodeURIComponent(card.from!)}`)}>{card.from}</Who> : undefined}
+        when={
+          [card.due != null ? dueText(card.due, now) : '', card.since ? `waiting ${ago(new Date(card.since).toISOString(), now)}` : '']
+            .filter(Boolean)
+            .join(' · ') || 'now'
+        }
+        title={card.title}
+      />
+      {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
+      <Answer
+        kind={kind}
+        code={card.kind === 'approval' || card.kind === 'dialog'}
+        ask={
+          card.detail ? (
+            <Fold note={card.detail} long={card.task != null && noteIsLong(card.detail)}>
+              {(text) => <p className={`m-0${card.task != null ? '' : ' whitespace-pre-wrap'}`}>{text}</p>}
+            </Fold>
+          ) : null
+        }
+        full={
+          <>
             {rest.length ? (
               <MenuButton size="sm" icon="ellipsis" label="More">
                 {rest.map((a, i) => (
@@ -155,34 +157,15 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
                 ))}
               </MenuButton>
             ) : null}
-          </span>
-        </header>
-        <p className="muted m-0 mt-0.5 flex flex-wrap gap-x-3 text-xs">
-          {card.from ? (
-            <span>
-              from <span className="mono">{card.from}</span>
-            </span>
-          ) : null}
-          {card.task != null ? <span className="mono">T{card.task}</span> : null}
-          {card.due != null ? <span>{dueText(card.due, now)}</span> : null}
-          {card.since ? <span>waiting {ago(new Date(card.since).toISOString(), now)}</span> : null}
-        </p>
-        {card.detail ? (
-          <div className="mt-1 text-ink-2 [overflow-wrap:anywhere]">
-            <Fold note={card.detail} long={card.task != null && noteIsLong(card.detail)}>
-              {(text) => <p className={`m-0${card.task != null ? '' : ' whitespace-pre-wrap'}`}>{text}</p>}
-            </Fold>
-          </div>
-        ) : null}
-        {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+            {full}
+          </>
+        }
+      >
+        {replyIcon ? <DsButton size="m" label="Reply" onClick={() => run(replyIcon)} /> : null}
         {main.map((a, i) => (
-          <Button key={a.type + i} variant={i === 0 ? 'solid' : 'outline'} label={label(a)} onClick={() => run(a)}>
-            {label(a)}
-          </Button>
+          <DsButton key={a.type + i} kind={i === 0 ? 'primary' : 'secondary'} label={label(a)} onClick={() => run(a)} />
         ))}
-      </div>
+      </Answer>
       {refused ? (
         <p className="m-0 mt-1 text-xs text-bad" role="alert">
           {sentence(classify(refused))}
@@ -221,29 +204,35 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
 function RowView({ row }: { row: MessageRow }) {
   const now = useNow();
   return (
-    <button
-      type="button"
-      className="my-turn-row flex w-full min-w-0 items-baseline gap-2 rounded-md border border-line bg-panel px-3 py-2 text-left"
-      data-row={row.agent}
-      aria-label={`Open the chat with ${row.agent}`}
-      onClick={() => (row.from === null ? (location.hash = `#/agents/${encodeURIComponent(row.agent)}`) : goMessage(row.agent, row.from))}
-    >
-      <span className="mono text-[15px] font-medium">{row.agent}</span>
-      <span className="min-w-0 flex-1 truncate text-ink-2">{row.line}</span>
-      {row.at ? <span className="muted text-xs">{ago(new Date(row.at).toISOString(), now)}</span> : null}
-      <span className="rounded-full bg-wait px-1.5 text-xs font-semibold text-canvas">{row.unread}</span>
-    </button>
+    <div data-row={row.agent}>
+      <ListRow
+        title={
+          <>
+            <span className="font-mono">{row.agent}</span> <span className="text-ink-2">{row.line}</span>
+          </>
+        }
+        chip={<Chip kind="unread">{row.unread}</Chip>}
+        time={row.at ? ago(new Date(row.at).toISOString(), now) : undefined}
+        label={`Open the chat with ${row.agent}`}
+        onOpen={() => (row.from === null ? (location.hash = `#/agents/${encodeURIComponent(row.agent)}`) : goMessage(row.agent, row.from))}
+      />
+    </div>
   );
 }
 
 export function MyTurnPage() {
   const { cards, rows, loading } = useMyTurn();
   const wide = useWide(1100);
+  const now = useNow();
+  const [pick, setPick] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null);
-  // Narrow: the task takes the page, with Back. Wide: it opens beside the list, as on the Tasks page.
-  if (open !== null && !wide) return <TaskDetail id={open} onBack={() => setOpen(null)} />;
+  // Wide: the first item is open, as the list is read top down. Narrow: the list alone until a row is picked.
+  const sel = cards.find((c) => c.key === pick) ?? (wide ? cards[0] : undefined);
+  const back = () => (setOpen(null), setPick(null));
+  if (!wide && open !== null) return <TaskDetail id={open} onBack={() => setOpen(null)} />;
+  if (!wide && sel) return <ItemPage card={sel} onBack={back} onOpen={setOpen} />;
   const list = (
-    <ScrollPage beside={open !== null} className="my-turn" aria-label="My turn">
+    <ScrollPage beside={wide} className="my-turn" aria-label="My turn">
       <PageHead>
         <PageTitle>
           My turn <span className="muted">{cards.length}</span>
@@ -252,24 +241,33 @@ export function MyTurnPage() {
       {loading ? (
         <p className="muted">Loading…</p>
       ) : cards.length || rows.length ? (
-        <div className="flex flex-col gap-4">
+        <>
           {cards.length ? (
-            <section aria-label="Needs you" className="flex flex-col gap-2">
-              {rows.length ? <h2 className="m-0 text-xs text-ink-2">Needs you</h2> : null}
+            <section aria-label="Needs you">
+              <SectionHead count={cards.length}>Needs you</SectionHead>
               {cards.map((c) => (
-                <CardView key={c.key} card={c} selected={c.task != null && c.task === open} onOpen={setOpen} />
+                <div key={c.key} className="my-turn-card-row" data-card-row={c.key}>
+                  <ListRow
+                    title={c.title}
+                    chip={<Chip>{sourceOf(c)}</Chip>}
+                    time={c.since ? ago(new Date(c.since).toISOString(), now) : undefined}
+                    selected={sel?.key === c.key}
+                    label={c.task != null ? `Open T${c.task}` : c.title}
+                    onOpen={() => (setPick(c.key), setOpen(null))}
+                  />
+                </div>
               ))}
             </section>
           ) : null}
           {rows.length ? (
-            <section aria-label="Messages" className="flex flex-col gap-2">
-              {cards.length ? <h2 className="m-0 text-xs text-ink-2">Messages</h2> : null}
+            <section aria-label="Messages">
+              <SectionHead count={rows.length}>Messages</SectionHead>
               {rows.map((r) => (
                 <RowView key={r.agent} row={r} />
               ))}
             </section>
           ) : null}
-        </div>
+        </>
       ) : (
         <div className="empty">
           <strong>Nothing needs you</strong>
@@ -278,13 +276,27 @@ export function MyTurnPage() {
       )}
     </ScrollPage>
   );
-  if (open === null) return list;
+  if (!wide) return list;
   return (
     <div className="my-turn-split flex h-full min-h-0 min-w-0 flex-1">
-      {list}
-      <div className="flex min-h-0 w-[min(520px,45%)] flex-none border-l border-line">
-        <TaskDetail id={open} onBack={() => setOpen(null)} embedded />
+      <div className="flex min-h-0 w-[min(420px,40%)] flex-none flex-col">{list}</div>
+      <div className="min-h-0 min-w-0 flex-1 overflow-auto border-l border-line">
+        {open !== null ? (
+          <TaskDetail id={open} onBack={() => setOpen(null)} embedded />
+        ) : sel ? (
+          <CardDetail card={sel} onOpen={setOpen} />
+        ) : null}
       </div>
     </div>
+  );
+}
+
+/** A narrow window: the picked item takes the page, with one Back to the list. */
+function ItemPage({ card, onBack, onOpen }: { card: Card; onBack: () => void; onOpen: (task: number) => void }) {
+  return (
+    <ScrollPage aria-label="My turn item">
+      <PageHead back={{ label: 'My turn', to: onBack }} />
+      <CardDetail card={card} onOpen={onOpen} />
+    </ScrollPage>
   );
 }

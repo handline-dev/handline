@@ -1,5 +1,6 @@
-// One row of the Tasks list: mark (on hover), state icon, number, title, owner and priority chips, time. A click opens the task; only the box marks.
+// One row of the Tasks list: mark (on hover), state, number, title, owner and priority chips, time. A click opens the task; only the box marks.
 import { Check } from '#src/ui/index.ts';
+import { Chip } from '#src/ds/Chip.tsx';
 import { idleText, isOver, isPerson, type RowVerb, taskRef, timeLeft, timeoutText, watchResult } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useMe } from '@handline/app-react';
@@ -7,8 +8,6 @@ import { goTasks } from '#src/route.ts';
 import { AnimatedCell, AnimatedRow } from '#src/AnimatedList.tsx';
 import { StateChip } from '#src/taskui.tsx';
 import { RowMenu, type Cans } from '#src/TaskVerbUi.tsx';
-
-const CHIP = 'inline-block max-w-full truncate rounded-full border border-line px-2 text-xs leading-5 align-middle';
 
 export function Row(props: {
   t: Task;
@@ -33,10 +32,10 @@ export function Row(props: {
   const over = isOver(t, now);
   const authored = props.mark === 'authored';
   const time = timeLeft(timeoutText(t, now) || idleText(t, now));
-  // An open row keeps its raised ground when hovered; a cursor row carries the inset bar. On a phone the row is a card.
+  // The open row is filled one step darker and hover tints; the cursor row is the one with the outline (no side bar). On a phone the row is a card.
   const row = `trow group/trow cursor-default max-sm:mt-0 max-sm:mb-2 max-sm:grid max-sm:grid-cols-[auto_1fr_auto] max-sm:gap-x-2 max-sm:py-2 max-sm:px-3 max-sm:bg-panel max-sm:border max-sm:border-line max-sm:rounded-md max-sm:[grid-template-areas:'state_num_time'_'title_title_title'_'owner_pri_pri'] ${
-    props.open ? 'open bg-raised tint' : 'tint'
-  }${props.cursor ? ` cursor shadow-[inset_2px_0_0_var(--ink)]${props.open ? '' : ' bg-panel'}` : ''}${authored ? ' pending' : ''}`;
+    props.open ? 'open bg-panel' : 'tint'
+  }${props.cursor ? ` cursor${props.open ? '' : ' bg-panel'}` : ''}${authored ? ' pending' : ''}`;
   const TD = 'max-sm:block max-sm:h-auto max-sm:p-0 max-sm:border-0 max-sm:w-auto';
   return (
     <RowMenu tasks={[t]} me={me} cans={props.verbs.cans} onPick={props.verbs.onPick}>
@@ -68,7 +67,7 @@ export function Row(props: {
             {props.failed ? <span className="not-changed text-bad text-xs"> not changed</span> : null}
           </AnimatedCell>
           <AnimatedCell className={`c-num mono w-16 ${TD} max-sm:[grid-area:num]`}>
-            <a href={`#/tasks/${t.id}`} className="tnum text-inherit no-underline" onClick={(e) => e.stopPropagation()}>
+            <a href={`#/tasks/${t.id}`} className="tnum text-acc-ink no-underline" onClick={(e) => e.stopPropagation()}>
               {t.id < 0 ? 'new' : taskRef(t.id)}
             </a>
           </AnimatedCell>
@@ -84,18 +83,20 @@ export function Row(props: {
           </AnimatedCell>
           {props.columns.owner ? (
             <AnimatedCell className={`c-owner w-28 text-right ${TD} max-sm:[grid-area:owner] max-sm:text-left`}>
-              <span className={CHIP} title={`assigned to: ${t.to}`}>
-                {isPerson(t.to, me) ? 'you' : t.to.slice(t.to.lastIndexOf('.') + 1)}
+              <span title={`assigned to: ${t.to}`}>
+                <Chip kind={isPerson(t.to, me) ? 'you' : 'source'}>
+                  {isPerson(t.to, me) ? 'you' : t.to.slice(t.to.lastIndexOf('.') + 1)}
+                </Chip>
               </span>
             </AnimatedCell>
           ) : null}
           {props.columns.pri ? (
             <AnimatedCell className={`c-pri mono w-14 ${TD} max-sm:[grid-area:pri] max-sm:text-right`} title="priority, 1 high to 3 low">
-              <span className={CHIP}>P{t.priority ?? 2}</span>
+              <Chip>P{t.priority ?? 2}</Chip>
             </AnimatedCell>
           ) : null}
           <AnimatedCell
-            className={`c-time mono w-36 whitespace-nowrap text-right ${TD} max-sm:[grid-area:time] max-sm:text-ink-2${over ? ' text-bad font-semibold' : ''}`}
+            className={`c-time w-36 whitespace-nowrap text-right text-sm text-ink-3 ${TD} max-sm:[grid-area:time] max-sm:text-ink-2${over ? ' text-bad font-semibold' : ''}`}
           >
             <span className="inline-flex items-center gap-1">
               <span

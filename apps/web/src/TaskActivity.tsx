@@ -219,7 +219,7 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
   };
   return (
     <section className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" aria-label="Activity">
-      <h3 className="m-0 text-ink-3">Activity</h3>
+      <h3 className="m-0 text-sm font-semibold">Activity</h3>
       {hidden ? (
         <button type="button" className="justify-self-start border-0 bg-transparent p-0 text-acc-ink" onClick={() => setAll(true)}>
           Show {hidden} earlier {hidden === 1 ? 'event' : 'events'}

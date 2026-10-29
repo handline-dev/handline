@@ -41,12 +41,13 @@ it('shows a full disk as a card with its text and age and no button, and drops i
   await act(async () => {
     root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />);
   });
+  await until(() => box.querySelector('[data-card-row] button'), 'the disk row');
+  await act(async () => void box.querySelector<HTMLElement>('[data-card-row] button')!.click());
   await until(machine, 'the disk card');
   expect(machine()!.textContent).toContain('Free disk is 3.1 GB, under the 5 GB floor');
   expect(machine()!.textContent).toMatch(/waiting 12m/);
   expect(machine()!.querySelectorAll('button')).toHaveLength(0);
-  expect(machine()!.querySelector('h3')!.textContent).toBe('Free disk space');
-  expect(machine()!.querySelector('[title="Priority"]')!.textContent).toBe('P1');
+  expect(machine()!.querySelector('h2')!.textContent).toBe('Free disk space');
   const rail = () => box.querySelector('.rail-nav')!.textContent;
   const before = Number(/My turn(\d+)/.exec(rail())![1]);
   expect(before).toBeGreaterThan(0);
