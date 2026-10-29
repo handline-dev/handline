@@ -64,7 +64,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `too_big` | file.write: the file on disk is over 1 MiB, so file.read gave only its start; it is not written (a text read from it would cut it). |
 | `build` | daemon.upgrade was handed a binary that does not start, or one that says it is another build than the sha named; the daemon stays on the build it runs. |
 | `orphan` | worktree.remove: the path is no orphan worktree (an agent works in it, or it is not a worktree of an agent's repo). An agent's worktree goes only with the agent. |
-| `dirty` | worktree.remove: the orphan holds work (files changed, or commits not on main); the data carries files_changed and commits_ahead. force removes it. |
+| `dirty` | worktree.remove: the orphan holds work (files changed, or commits not on main); the data carries files_changed and commits_ahead, and force removes it. agent.retire: a worktree of the agent holds work and the call gave no worktree answer; the data carries worktrees [{path, files_changed, commits_ahead}], and nothing is retired. |
 | `git` | worktree.remove: git refused to remove the worktree; the reason carries git's words. |
 
 ## Methods

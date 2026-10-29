@@ -1478,7 +1478,7 @@
   },
   {
    "name": "agent.retire",
-   "summary": "Retire an agent, as an approved HR retire does: it leaves team.yaml (team.yaml.bak keeps the old one), its scheduling row is deleted, its folder (ROLE.md, memory, settings) moves to agents/archive/<date>-<name>, its build caches are removed and its sealed key is forgotten. Its past messages, requests and events stay, and its git worktrees are judged: one that is merged into main, clean and no other agent's is removed (its branch stays); one that holds work (commits not on main, files not committed) stays and is put to the founder as a task tagged `worktree-removal`, which they answer as they answer any decision task: `1` (what is left is committed to a new branch rescue/<agent>-<date>, then the worktree is removed), `2 yes` (removed with whatever it holds; a bare `2` asks again) or `3` (it stays); nothing is removed before the answer, and an answer that cannot be carried out leaves the task open; any other worktree stays. `said` says which. Founder only. An agent with a session running is accepted, not refused: `said` names the wait, and the daemon retires it when its current turn ends (a session at its prompt is closed at once). Refused (gate state) while another agent reports to it or hangs under its name (<agent>.<rest>): the reason names them. An agent the daemon does not have is not_found.",
+   "summary": "Retire an agent, as an approved HR retire does: it leaves team.yaml (team.yaml.bak keeps the old one), its scheduling row is deleted, its folder (ROLE.md, memory, settings) moves to agents/archive/<date>-<name>, its build caches are removed and its sealed key is forgotten. Its past messages, requests and events stay, and its git worktrees are judged: one that is merged into main, clean and no other agent's is removed with its branch (`git branch -d`); one that holds work (commits not on main, files not committed) goes as `worktree` says. Without `worktree`, such a worktree refuses the call (gate `dirty`, with `worktrees` [{path, files_changed, commits_ahead}] in the error data) and nothing is retired: the app asks the founder and calls again with the answer. Any other worktree stays. `said` says which. Founder only. An agent with a session running is accepted, not refused: `said` names the wait, and the daemon retires it when its current turn ends (a session at its prompt is closed at once). Refused (gate state) while another agent reports to it or hangs under its name (<agent>.<rest>): the reason names them. An agent the daemon does not have is not_found.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -1486,6 +1486,19 @@
      "required": true,
      "schema": {
       "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "worktree",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "keep",
+       "save",
+       "force"
+      ],
+      "description": "The founder's answer for a worktree of the agent that holds work: keep (it stays), save (what is left is committed to a new branch rescue/<agent>-<date>, then it is removed) or force (removed with whatever it holds; its branch stays). Another word is bad_request, field worktree."
      }
     },
     {
@@ -1514,7 +1527,8 @@
     }
    ],
    "x-gates": [
-    "state"
+    "state",
+    "dirty"
    ]
   },
   {

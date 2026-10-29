@@ -182,7 +182,8 @@ func (e *Env) doRetire(p step) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
-	p.later(func() string { return e.pruneMemberWorktrees(name, mine) })
+	choice := p.str("worktree") // the founder's answer for a worktree that holds work, when they gave one
+	p.later(func() string { return e.pruneMemberWorktrees(name, mine, choice) })
 	// The scheduling row goes with it. Its requests and events stay - they are the record of work that was done.
 	if _, err := p.tx.Exec("DELETE FROM agent_state WHERE agent = ?", name); err != nil {
 		return false, "", err
