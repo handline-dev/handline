@@ -25,6 +25,7 @@ import { showPill } from '#src/Pill.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
 import { usePaneData, type PaneData } from '#src/PaneData.ts';
 import { lineAt, slotAt } from '#src/tabSlots.ts';
+import { shell } from '#src/shell.ts';
 
 export const tabLabel = (t: Tab, structured = false): string =>
   t.kind === 'chat'
@@ -248,10 +249,21 @@ function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneD
 
 /** The bar's + and Split for `group`. */
 export function PaneActions({ group }: { group: Group }) {
-  const { agent, apply, canSplit } = useWorkspace();
+  const { agent, detail, apply, canSplit } = useWorkspace();
   const { choices, choose } = useChoices(usePaneData(agent).openShell);
+  const open = shell('openPath');
   return (
     <>
+      <MenuButton size="sm" label="Open in" name="Open in" align="end" trigger="Open in" className="shell:[-webkit-app-region:no-drag]">
+        {open ? (
+          <MenuItem icon="open" onSelect={() => void open.openPath!({ path: detail.cwd, agent })}>
+            Finder
+          </MenuItem>
+        ) : null}
+        <MenuItem icon="reference" onSelect={() => void navigator.clipboard?.writeText(detail.cwd)}>
+          Copy path
+        </MenuItem>
+      </MenuButton>
       <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="shell:[-webkit-app-region:no-drag]">
         {choices.map((c) => (
           <MenuItem
