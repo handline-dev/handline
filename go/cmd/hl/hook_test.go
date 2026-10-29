@@ -347,3 +347,43 @@ func TestAFoundersUnansweredMessageHoldsTheStopOncePerMessage(t *testing.T) {
 		t.Fatalf("an error lets the stop through: %s", out)
 	}
 }
+
+// A Stop that only pauses for the session's own background task or scheduled wakeup is not nudged and not counted, so the Stop the
+// wakeup brings is; empty lists are a plain Stop.
+func TestAStopPausedForItsOwnBackgroundWorkIsNotNudged(t *testing.T) {
+	r := hookRig(t, false)
+	r.daemon(nil)
+	d, err := store.Open(paths.DBFile(r.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	rid, err := db.AddRequest(d, db.NewRequest{Requester: db.Human, Target: "a.one", Kind: "say", Body: "how is it going?"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Exec("UPDATE requests SET founder_auth = 1, landed_at = 100, state = 'landed' WHERE id = ?", rid); err != nil {
+		t.Fatal(err)
+	}
+	stop := func(lists string) string {
+		t.Helper()
+		out, _, code := r.runIn(`{"hook_event_name": "Stop", "session_id": "s1", "stop_hook_active": false`+lists+`}`, asAgent, "hook", "Stop")
+		if code != 0 {
+			t.Fatalf("exit %d", code)
+		}
+		return strings.TrimSpace(out)
+	}
+	for _, lists := range []string{
+		`, "background_tasks": [{"id": "b1", "type": "shell", "status": "running", "command": "go test ./..."}], "session_crons": []`,
+		`, "background_tasks": [], "session_crons": [{"id": "c1", "schedule": "0 9 * * *", "recurring": false, "prompt": "check"}]`,
+	} {
+		if out := stop(lists); out != "{}" {
+			t.Fatalf("a stop paused for its own work is not nudged: %s", out)
+		}
+	}
+	held := rpc.PyJSON(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "Stop",
+		"additionalContext": session.FounderNudgeText(db.MsgName(d, rid))}}, true, true)
+	if out := stop(`, "background_tasks": [], "session_crons": []`); out != held {
+		t.Fatalf("the stop after the wakeup is nudged: %s", out)
+	}
+}

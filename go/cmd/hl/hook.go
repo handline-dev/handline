@@ -173,14 +173,15 @@ func capture(c *hlclient.Client, d *sql.DB, agent, event string, raw map[string]
 
 // founderNudge is the Stop hook's output: feedback that keeps the turn going, once per message, when a founder's message typed in this
 // turn has no answer (session.UnansweredFounder), else {}. Feedback, not a block, so the terminal shows no hook error. A Stop the hook
-// already held (stop_hook_active) and any error pass.
+// already held (stop_hook_active), one that only pauses until its own background work or wakeup brings the session back (pausedForOwnWork),
+// and any error pass; the paused one is not counted as nudged, so the Stop after the wakeup is.
 func founderNudge(env *session.Env, agent string, raw map[string]any) (out string) {
 	defer func() {
 		if recover() != nil {
 			out = "{}"
 		}
 	}()
-	if active, _ := raw["stop_hook_active"].(bool); active {
+	if active, _ := raw["stop_hook_active"].(bool); active || pausedForOwnWork(raw) {
 		return "{}"
 	}
 	rid, err := env.UnansweredFounder(agent)
@@ -192,4 +193,12 @@ func founderNudge(env *session.Env, agent string, raw map[string]any) (out strin
 	}
 	return rpc.PyJSON(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "Stop",
 		"additionalContext": session.FounderNudgeText(db.MsgName(env.DB, rid))}}, true, true)
+}
+
+// pausedForOwnWork: the Stop input lists a background task still in flight or a session wakeup still scheduled, so the turn ends only
+// until that brings the session back. Claude Code leaves both lists out where its task registry cannot be read.
+func pausedForOwnWork(raw map[string]any) bool {
+	tasks, _ := raw["background_tasks"].([]any)
+	crons, _ := raw["session_crons"].([]any)
+	return len(tasks) > 0 || len(crons) > 0
 }
