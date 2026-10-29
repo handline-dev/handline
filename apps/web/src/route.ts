@@ -86,7 +86,7 @@ export const goTeam = (tab: 'team' | 'hr' = 'team'): void => {
 };
 
 /** Which of the page routes the URL names: `#/stats`, `#/settings`, `#/requests` (also the old `#/my-turn`) or `#/admin`, or '' for none. */
-export function usePageRoute(): 'stats' | 'settings' | 'admin' | 'requests' | '' {
+export function usePageRoute(): 'stats' | 'settings' | 'admin' | 'machine' | 'requests' | '' {
   const hash = useSyncExternalStore(subscribe, () => location.hash);
   return hash === '#/stats'
     ? 'stats'
@@ -94,9 +94,11 @@ export function usePageRoute(): 'stats' | 'settings' | 'admin' | 'requests' | ''
       ? 'settings'
       : hash === '#/admin'
         ? 'admin'
-        : hash === '#/requests' || hash === '#/my-turn'
-          ? 'requests'
-          : '';
+        : hash === '#/machine'
+          ? 'machine'
+          : hash === '#/requests' || hash === '#/my-turn'
+            ? 'requests'
+            : '';
 }
 
 const NEW_AGENT = /^#\/new(?:\/(.+))?$/;

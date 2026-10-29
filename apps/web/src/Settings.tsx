@@ -15,6 +15,17 @@ import { SettingsFold, SettingsShell } from '#src/SettingsShell.tsx';
 import { View } from '#src/View.tsx';
 
 /** The machine-wide cap stays in General; the other load limits are Advanced. */
+const PARTS = [
+  { id: 'set-concurrency', label: 'Concurrency' },
+  { id: 'set-closing', label: 'Closing windows' },
+  { id: 'set-handoff', label: 'Handoff' },
+  { id: 'set-notifications', label: 'Notifications' },
+  { id: 'set-answers', label: 'Always answer' },
+  { id: 'set-devices', label: 'Devices' },
+  { id: 'set-appearance', label: 'Appearance' },
+  { id: 'set-advanced', label: 'Advanced' },
+];
+
 const isHostCap = (f: { setting: string }) => f.setting === 'host_active_cap';
 
 export function SettingsPage({ storage }: { storage: KV | null }) {
@@ -23,7 +34,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
   const v = q.data?.values;
   const limits = v ? limitFields(v) : [];
   return (
-    <SettingsShell tab="settings" label="Settings">
+    <SettingsShell tab="settings" label="Settings" parts={PARTS}>
       <p className="settings-phone muted hidden max-sm:block">Open this on a computer.</p>
       <div className="settings-body flex min-w-0 flex-col gap-4 max-sm:hidden">
         {!served ? (
@@ -85,7 +96,7 @@ export function SettingsPage({ storage }: { storage: KV | null }) {
                 <section id="set-appearance">
                   <Appearance storage={storage} />
                 </section>
-                <SettingsFold title="Advanced" hint="Limits, pacing, background work, terminal view">
+                <SettingsFold id="set-advanced" title="Advanced" hint="Limits, pacing, background work, terminal view">
                   <SettingsCard>
                     {limits
                       .filter((f) => !isHostCap(f))
