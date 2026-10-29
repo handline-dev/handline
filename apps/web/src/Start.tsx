@@ -40,7 +40,9 @@ export function Start({
     };
   }, [url, token, open, storage]);
   const store = useMemo(() => {
-    const s = new Store(new DaemonClient({ client: 'web-pc', token: token ?? undefined, connect: () => open(url), relay: settingsRelay() }));
+    const s = new Store(
+      new DaemonClient({ client: 'web-pc', token: token ?? undefined, connect: () => open(url), relay: settingsRelay() }),
+    );
     if (failure) s.fail(failure);
     else if (insecure) s.fail(`Refusing ${url}: use wss:// for a daemon that is not on this machine.`);
     return s;
@@ -73,8 +75,12 @@ function PairScreen(p: { url: string; storage: KV | null; open: Open; lost: bool
         if (text.trim() && !busy) void submit();
       }}
     >
-      <h1 className="m-0 text-page">Pair this computer</h1>
-      {lost && <p className="m-0" role="status">This computer is no longer paired.</p>}
+      <h1 className="m-0 text-xl">Pair this computer</h1>
+      {lost && (
+        <p className="m-0" role="status">
+          This computer is no longer paired.
+        </p>
+      )}
       <p className="m-0">
         In a terminal run <code>hl device pair</code> and paste the code, or the <code>handline://</code> line, here.
       </p>
@@ -82,7 +88,11 @@ function PairScreen(p: { url: string; storage: KV | null; open: Open; lost: bool
       <button type="submit" disabled={busy || !text.trim()}>
         {busy ? 'Pairing…' : 'Pair'}
       </button>
-      {error && <p className="m-0" role="alert">{error}</p>}
+      {error && (
+        <p className="m-0" role="alert">
+          {error}
+        </p>
+      )}
       <Connection />
     </form>
   );
@@ -140,7 +150,11 @@ function Connection() {
           </button>
         </>
       )}
-      {error && <p className="m-0" role="alert">{error}</p>}
+      {error && (
+        <p className="m-0" role="alert">
+          {error}
+        </p>
+      )}
     </fieldset>
   );
 }

@@ -147,7 +147,7 @@ export function TasksBar(props: {
     <div
       role="toolbar"
       aria-label="Actions on the selected tasks"
-      className="tbar fixed bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-card border border-line-strong bg-raised px-3 py-2 shadow-lg"
+      className="tbar fixed bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-md border border-line-strong bg-raised px-3 py-2 shadow-lg"
     >
       <strong className="mr-1 whitespace-nowrap font-medium">{props.marked} selected</strong>
       <Button

@@ -2,7 +2,6 @@
 package daemon
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -693,10 +692,4 @@ func (d *Daemon) Close() {
 	if d.db != nil {
 		d.db.Close()
 	}
-}
-
-// Wait blocks until ctx ends, then closes.
-func (d *Daemon) Wait(ctx context.Context) {
-	<-ctx.Done()
-	d.Close()
 }

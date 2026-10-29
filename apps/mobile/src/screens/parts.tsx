@@ -96,7 +96,7 @@ export function Button(props: {
         overflow: 'hidden',
         borderColor: c.line,
         borderWidth: 1,
-        borderRadius: radius.card,
+        borderRadius: radius.m,
         paddingVertical: space.md,
         paddingHorizontal: space.lg,
         opacity: props.disabled ? 0.4 : 1,
@@ -140,12 +140,12 @@ export function PageHeader(props: {
           hitSlop={12}
           style={{ alignSelf: 'flex-start' }}
         >
-          <Text style={{ color: c.accent, fontSize: font.size.title }}>‹ {back.label}</Text>
+          <Text style={{ color: c.accent, fontSize: font.size.lg }}>‹ {back.label}</Text>
         </Pressable>
       ) : null}
       {props.title || props.actions ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-          <Text accessibilityRole="header" style={{ color: c.ink, fontSize: font.size.page, fontWeight: '700', flex: 1 }}>
+          <Text accessibilityRole="header" style={{ color: c.ink, fontSize: font.size.xl, fontWeight: '700', flex: 1 }}>
             {props.title}
           </Text>
           {props.actions}
@@ -162,7 +162,7 @@ export function Card(props: { children: React.ReactNode; testID?: string }) {
   return (
     <View
       testID={props.testID}
-      style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, backgroundColor: c.panel }}
+      style={{ gap: space.sm, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, backgroundColor: c.panel }}
     >
       {props.children}
     </View>
@@ -183,7 +183,7 @@ export function Pill(props: { on: boolean; label: string; testID: string; onPres
         justifyContent: 'center',
         borderWidth: props.on ? 2 : 1,
         borderColor: props.on ? c.ink : c.line,
-        borderRadius: radius.pill,
+        borderRadius: 999,
         paddingHorizontal: space.md,
         overflow: 'hidden',
       }}
@@ -239,7 +239,7 @@ export function ListRow(props: {
             <Text numberOfLines={1} style={{ color: c.ink, fontWeight: '600' }}>
               {props.title}
             </Text>
-            <Text style={{ color: props.metaColor ?? c.muted, fontSize: font.size.label }}>{props.meta}</Text>
+            <Text style={{ color: props.metaColor ?? c.muted, fontSize: font.size.sm }}>{props.meta}</Text>
           </View>
           {props.trail}
           <PressTint on={pressed} />
@@ -289,7 +289,7 @@ export function Link(props: { label: string; onPress: () => void; testID: string
       onPress={props.onPress}
       style={{ opacity: props.disabled ? 0.4 : 1 }}
     >
-      <Text style={{ color: c.accent, fontSize: font.size.label }}>{props.label}</Text>
+      <Text style={{ color: c.accent, fontSize: font.size.sm }}>{props.label}</Text>
     </Pressable>
   );
 }
@@ -320,8 +320,8 @@ function SheetBody(props: { onClose: () => void; children: React.ReactNode; test
           onStartShouldSetResponder={() => true}
           style={{
             backgroundColor: c.bg,
-            borderTopLeftRadius: radius.dialog,
-            borderTopRightRadius: radius.dialog,
+            borderTopLeftRadius: radius.l,
+            borderTopRightRadius: radius.l,
             paddingBottom: space.xl + bottom,
             maxHeight: '85%',
           }}
@@ -378,13 +378,13 @@ export function MenuItem(props: {
         <Text
           style={{
             color: props.danger ? c.block : props.on ? c.accent : c.ink,
-            fontSize: font.size.title,
+            fontSize: font.size.lg,
             fontWeight: props.on ? '700' : '400',
           }}
         >
           {props.label}
         </Text>
-        {props.note ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{props.note}</Text> : null}
+        {props.note ? <Text style={{ color: c.muted, fontSize: font.size.sm }}>{props.note}</Text> : null}
       </View>
     </Pressable>
   );

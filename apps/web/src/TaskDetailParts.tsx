@@ -9,7 +9,7 @@ import { Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
 import { Button, Input, MenuButton, MenuItem } from '#src/ui/index.ts';
 
 const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
-const CHIP = 'inline-flex items-center gap-1 rounded-pill border border-line px-2 text-hint leading-5';
+const CHIP = 'inline-flex items-center gap-1 rounded-full border border-line px-2 text-xs leading-5';
 const LI = 'flex items-baseline gap-1.5 py-0.5';
 
 /** The assignee, priority and time box as chips: the first two open a choice, the time box edits where it is. A closed task shows them as plain words. */
@@ -113,7 +113,7 @@ export function TaskWatch({ t }: { t: Detail }) {
   const watch = watchLine(t);
   if (!watch) return null;
   return (
-    <p className="twatch m-0 mt-1 text-hint text-ink-3">
+    <p className="twatch m-0 mt-1 text-xs text-ink-3">
       Watches{' '}
       {watch.url ? (
         <a href={watch.url} target="_blank" rel="noreferrer">

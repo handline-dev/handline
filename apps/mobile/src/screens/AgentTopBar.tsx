@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { agentLine } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
-import { font, radius, space } from '@handline/tokens';
+import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon } from '#src/screens/Icon.tsx';
 import { StateMark } from '#src/screens/StateMark.tsx';
@@ -38,7 +38,7 @@ export function AgentTopBar(props: {
     <View
       key={key}
       onLayout={(e) => void (at.current[key] = e.nativeEvent.layout.x)}
-      style={{ flexDirection: 'row', alignItems: 'center', borderRadius: radius.pill, backgroundColor: on ? c.panel : 'transparent' }}
+      style={{ flexDirection: 'row', alignItems: 'center', borderRadius: 999, backgroundColor: on ? c.panel : 'transparent' }}
     >
       <Pressable
         testID={testID}
@@ -50,11 +50,11 @@ export function AgentTopBar(props: {
           justifyContent: 'center',
           paddingLeft: space.md,
           paddingRight: close ? space.xs : space.md,
-          borderRadius: radius.pill,
+          borderRadius: 999,
           backgroundColor: pressed ? c.press : undefined,
         })}
       >
-        <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: on ? '700' : '500', fontSize: font.size.body }}>
+        <Text numberOfLines={1} style={{ color: on ? c.accent : c.muted, fontWeight: on ? '700' : '500', fontSize: font.size.md }}>
           {label}
         </Text>
       </Pressable>
@@ -91,13 +91,13 @@ export function AgentTopBar(props: {
           <Icon name="back" decorative size={22} color={c.accent} />
         </Pressable>
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text testID="agent-name" numberOfLines={1} style={{ color: c.ink, fontWeight: '600', fontSize: font.size.body }}>
+          <Text testID="agent-name" numberOfLines={1} style={{ color: c.ink, fontWeight: '600', fontSize: font.size.md }}>
             {props.agent}
           </Text>
           {row && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
               <StateMark agent={row} />
-              <Text testID="agent-state-line" numberOfLines={1} style={{ flex: 1, color: c.muted, fontSize: font.size.label }}>
+              <Text testID="agent-state-line" numberOfLines={1} style={{ flex: 1, color: c.muted, fontSize: font.size.sm }}>
                 {line}
               </Text>
             </View>

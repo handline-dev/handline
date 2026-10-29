@@ -20,10 +20,10 @@ export function Switch({
       aria-label={label}
       title={label}
       disabled={disabled}
-      className={`ui-switch inline-flex h-5 w-9 items-center rounded-pill p-0.5 ${on ? 'justify-end bg-primary' : 'bg-raised'}`}
+      className={`ui-switch inline-flex h-5 w-9 items-center rounded-full p-0.5 ${on ? 'justify-end bg-acc' : 'bg-raised'}`}
     >
       <Base.Thumb
-        className={`ui-knob inline-flex h-4 w-4 items-center justify-center rounded-pill text-primary ${on ? 'bg-on-primary' : 'bg-ink-2'}`}
+        className={`ui-knob inline-flex h-4 w-4 items-center justify-center rounded-full text-acc ${on ? 'bg-on-acc' : 'bg-ink-2'}`}
       >
         {on ? <Icon name="markRead" size={12} label="On" aria-hidden /> : null}
       </Base.Thumb>

@@ -95,22 +95,6 @@ func (b *Timebox) note(t *Tick, who, text string) {
 	}
 }
 
-func (b *Timebox) stateOf(t *Tick, agent string) string {
-	row := must(db.GetAgentState(t.Q, agent))
-	if row == nil {
-		return "unknown"
-	}
-	bg := ""
-	if t.Delivery.HasBackgroundWork(t.Q, agent) {
-		bg = " with background work"
-	}
-	detail := ""
-	if row.Detail.String != "" {
-		detail = " (" + row.Detail.String + ")"
-	}
-	return row.State + bg + detail
-}
-
 func (b *Timebox) boss(agent string) string {
 	if s := b.Ports.SupervisorOf(agent); s != "" {
 		return s

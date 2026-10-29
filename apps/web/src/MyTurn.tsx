@@ -107,7 +107,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
   const askId = card.actions.find((a) => a.type === 'ask_change')?.item.id;
   return (
     <article
-      className={`my-turn-card group rounded-card border bg-panel px-3 py-2.5 ${selected ? 'border-primary' : 'border-line'}`}
+      className={`my-turn-card group rounded-md border bg-panel px-3 py-2.5 ${selected ? 'border-acc' : 'border-line'}`}
       data-kind={card.kind}
       data-card={card.key}
       aria-current={selected || undefined}
@@ -128,15 +128,15 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
               },
             }
           : {})}
-        className={`rounded-card outline-offset-2${card.task != null ? ' cursor-pointer' : ''}`}
+        className={`rounded-md outline-offset-2${card.task != null ? ' cursor-pointer' : ''}`}
       >
         <header className="flex min-w-0 items-baseline gap-2">
           {card.priority <= 3 ? (
-            <span className="mono text-hint text-ink-2" title="Priority">
+            <span className="mono text-xs text-ink-2" title="Priority">
               P{card.priority}
             </span>
           ) : null}
-          <span className={`text-hint ${card.review ? 'text-ok' : 'text-ink-2'}`}>
+          <span className={`text-xs ${card.review ? 'text-ok' : 'text-ink-2'}`}>
             {card.review ? 'Review' : card.memo != null ? 'Question for you' : KIND[card.kind]}
           </span>
           <h3 className="m-0 min-w-0 flex-1 truncate text-[15px] font-medium">{card.title}</h3>
@@ -157,7 +157,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
             ) : null}
           </span>
         </header>
-        <p className="muted m-0 mt-0.5 flex flex-wrap gap-x-3 text-hint">
+        <p className="muted m-0 mt-0.5 flex flex-wrap gap-x-3 text-xs">
           {card.from ? (
             <span>
               from <span className="mono">{card.from}</span>
@@ -184,7 +184,7 @@ function CardView({ card, selected, onOpen }: { card: Card; selected: boolean; o
         ))}
       </div>
       {refused ? (
-        <p className="m-0 mt-1 text-hint text-bad" role="alert">
+        <p className="m-0 mt-1 text-xs text-bad" role="alert">
           {sentence(classify(refused))}
         </p>
       ) : null}
@@ -223,15 +223,15 @@ function RowView({ row }: { row: MessageRow }) {
   return (
     <button
       type="button"
-      className="my-turn-row flex w-full min-w-0 items-baseline gap-2 rounded-card border border-line bg-panel px-3 py-2 text-left"
+      className="my-turn-row flex w-full min-w-0 items-baseline gap-2 rounded-md border border-line bg-panel px-3 py-2 text-left"
       data-row={row.agent}
       aria-label={`Open the chat with ${row.agent}`}
       onClick={() => (row.from === null ? (location.hash = `#/agents/${encodeURIComponent(row.agent)}`) : goMessage(row.agent, row.from))}
     >
       <span className="mono text-[15px] font-medium">{row.agent}</span>
       <span className="min-w-0 flex-1 truncate text-ink-2">{row.line}</span>
-      {row.at ? <span className="muted text-hint">{ago(new Date(row.at).toISOString(), now)}</span> : null}
-      <span className="rounded-full bg-wait px-1.5 text-hint font-semibold text-canvas">{row.unread}</span>
+      {row.at ? <span className="muted text-xs">{ago(new Date(row.at).toISOString(), now)}</span> : null}
+      <span className="rounded-full bg-wait px-1.5 text-xs font-semibold text-canvas">{row.unread}</span>
     </button>
   );
 }
@@ -255,7 +255,7 @@ export function MyTurnPage() {
         <div className="flex flex-col gap-4">
           {cards.length ? (
             <section aria-label="Needs you" className="flex flex-col gap-2">
-              {rows.length ? <h2 className="m-0 text-hint text-ink-2">Needs you</h2> : null}
+              {rows.length ? <h2 className="m-0 text-xs text-ink-2">Needs you</h2> : null}
               {cards.map((c) => (
                 <CardView key={c.key} card={c} selected={c.task != null && c.task === open} onOpen={setOpen} />
               ))}
@@ -263,7 +263,7 @@ export function MyTurnPage() {
           ) : null}
           {rows.length ? (
             <section aria-label="Messages" className="flex flex-col gap-2">
-              {cards.length ? <h2 className="m-0 text-hint text-ink-2">Messages</h2> : null}
+              {cards.length ? <h2 className="m-0 text-xs text-ink-2">Messages</h2> : null}
               {rows.map((r) => (
                 <RowView key={r.agent} row={r} />
               ))}

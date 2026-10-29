@@ -8,8 +8,8 @@ export type SkeletonNode =
   | { col: SkeletonNode[]; gap?: number; h?: number }
   | { repeat: number; of: SkeletonNode };
 
-const bar = (w: number | string, h: number = rowHeight.line): SkeletonNode => ({ box: { w, h, r: radius.ctl } });
-const dot = (size: number): SkeletonNode => ({ box: { w: size, h: size, r: radius.pill } });
+const bar = (w: number | string, h: number = rowHeight.line): SkeletonNode => ({ box: { w, h, r: radius.s } });
+const dot = (size: number): SkeletonNode => ({ box: { w: size, h: size, r: 999 } });
 /** One list row of height `h`: a mark, then lines of text. */
 const item = (h: number, lines: SkeletonNode[]): SkeletonNode => ({
   row: [dot(h - space.lg), { col: lines, gap: space.xs }],

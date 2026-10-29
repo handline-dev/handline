@@ -197,7 +197,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
     <div className="tbody flex min-h-full flex-col bg-inherit" ref={root} tabIndex={-1} onKeyDown={key}>
       <header className="tdetail-head flex flex-wrap items-baseline gap-2">
         {barNamed ? null : (
-          <h2 className={`m-0 min-w-0 text-title font-semibold`}>
+          <h2 className={`m-0 min-w-0 text-lg font-semibold`}>
             <span className="mono">{taskRef(t.id)}</span> <TitleEdit t={t} />
           </h2>
         )}
@@ -220,7 +220,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
         )}
         <HistoryButton id={t.id} />
       </header>
-      <p className="m-0 mt-1 text-hint text-ink-3">
+      <p className="m-0 mt-1 text-xs text-ink-3">
         Asked by <AgentLink name={t.from} /> · created {dateTime(t.created)}
         {t.done ? ` · closed ${dateTime(t.done)}` : ''}
         {t.parent ? (
@@ -236,12 +236,12 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
       <TimeLine id={t.id} />
       <TaskWatch t={t} />
       {why && NOT_PICKED.test(why) ? (
-        <p className="twhy m-0 mt-2 flex items-center gap-1.5 text-hint text-ink-3" role="status">
+        <p className="twhy m-0 mt-2 flex items-center gap-1.5 text-xs text-ink-3" role="status">
           <Icon name="queued" size={14} aria-hidden />
           Not picked up yet
         </p>
       ) : why ? (
-        <p className="twhy m-0 mt-3 rounded-card border border-wait px-3 py-2 text-wait" role="status">
+        <p className="twhy m-0 mt-3 rounded-md border border-wait px-3 py-2 text-wait" role="status">
           <RichText text={why} />
         </p>
       ) : null}
@@ -337,7 +337,7 @@ function Brief({ t, can }: { t: Detail; can: boolean }) {
               <Markdown text={t.body} />
             </div>
             {long ? (
-              <button type="button" className="border-0 bg-transparent p-0 text-link" onClick={() => setMore(!more)}>
+              <button type="button" className="border-0 bg-transparent p-0 text-acc-ink" onClick={() => setMore(!more)}>
                 {more ? 'Show less' : 'Show more'}
               </button>
             ) : null}

@@ -21,7 +21,7 @@ function Input(props: { value: string; onChange: (v: string) => void; label: str
       onChangeText={props.onChange}
       autoCapitalize="none"
       autoCorrect={false}
-      style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 44 }}
+      style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, padding: space.md, minHeight: 44 }}
     />
   );
 }
@@ -59,7 +59,7 @@ function AddAnswer(props: { onAdd: (p: CallParams<'answer.add'>) => void; onDone
           <Input testID="answer-option" label="Option" value={f.label} onChange={set('label')} />
         </>
       )}
-      {why ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{why}</Text> : null}
+      {why ? <Text style={{ color: c.muted, fontSize: font.size.sm }}>{why}</Text> : null}
     </Sheet>
   );
 }
@@ -77,7 +77,7 @@ export function Answers() {
   const failed = add.error ?? remove.error;
   return (
     <View testID="answers" style={{ gap: space.sm }}>
-      <Text style={{ color: c.ink, fontSize: font.size.title, fontWeight: '700' }}>Standing answers</Text>
+      <Text style={{ color: c.ink, fontSize: font.size.lg, fontWeight: '700' }}>Standing answers</Text>
       <Loadable
         query={query}
         served={served}
@@ -115,7 +115,7 @@ export function Answers() {
         </View>
       </Loadable>
       {failed ? (
-        <Text testID="answers-note" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
+        <Text testID="answers-note" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.sm }}>
           not saved: {sentence(classify(failed))}
         </Text>
       ) : null}

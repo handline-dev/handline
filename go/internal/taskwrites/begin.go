@@ -11,15 +11,6 @@ import (
 	"github.com/handline/handline/go/internal/textsafe"
 )
 
-// idParam is a task or request number under key (rpc_tasks._task_id).
-func idParam(p map[string]any, key string) (int64, error) {
-	n, ok := rpc.AsInt(p[key])
-	if !ok {
-		return 0, badParam(key+" is a task number", key)
-	}
-	return n, nil
-}
-
 // parsePriority is actions.parse_priority: P1, p2 or a bare 3.
 func parsePriority(v any) (int64, error) {
 	raw := fmt.Sprint(v)

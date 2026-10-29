@@ -62,20 +62,6 @@ func (e *Env) now() time.Time {
 	return time.Now()
 }
 
-// AddLoginTerminal makes handle a terminal that can be watched though no agent has it.
-func (e *Env) AddLoginTerminal(handle string) {
-	e.mu.Lock()
-	e.login[handle] = true
-	e.mu.Unlock()
-}
-
-// SetLink gives the bytes format a control link of its own (a test's); by default it is tmux's.
-func (e *Env) SetLink(l *ControlLink) {
-	e.mu.Lock()
-	e.link = l
-	e.mu.Unlock()
-}
-
 func (e *Env) controlLink() *ControlLink {
 	e.mu.Lock()
 	defer e.mu.Unlock()

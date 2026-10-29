@@ -14,25 +14,27 @@ const LOOK: Record<Badge['kind'], string> = {
 export function Badges({ badges, onClick }: { badges: Badge[]; onClick?: Partial<Record<Badge['kind'], () => void>> }) {
   return (
     <>
-      {badges.filter((b) => b.kind !== 'no_terminal').map((b) => {
-        const clickable = !!onClick?.[b.kind];
-        return (
-          <span
-            key={b.kind}
-            className={`badge ${b.kind} mr-1.5 inline-block flex-none whitespace-nowrap rounded-card border px-1.5 text-hint text-ink-2 ${LOOK[b.kind]}${clickable ? ' cursor-pointer' : ''}`}
-            title={b.tip}
-            role={clickable ? 'button' : undefined}
-            onClick={(e) => {
-              const f = onClick?.[b.kind];
-              if (!f) return;
-              e.stopPropagation(); // the badge acts; the tab or row under it does not also select
-              f();
-            }}
-          >
-            {b.label}
-          </span>
-        );
-      })}
+      {badges
+        .filter((b) => b.kind !== 'no_terminal')
+        .map((b) => {
+          const clickable = !!onClick?.[b.kind];
+          return (
+            <span
+              key={b.kind}
+              className={`badge ${b.kind} mr-1.5 inline-block flex-none whitespace-nowrap rounded-md border px-1.5 text-xs text-ink-2 ${LOOK[b.kind]}${clickable ? ' cursor-pointer' : ''}`}
+              title={b.tip}
+              role={clickable ? 'button' : undefined}
+              onClick={(e) => {
+                const f = onClick?.[b.kind];
+                if (!f) return;
+                e.stopPropagation(); // the badge acts; the tab or row under it does not also select
+                f();
+              }}
+            >
+              {b.label}
+            </span>
+          );
+        })}
     </>
   );
 }

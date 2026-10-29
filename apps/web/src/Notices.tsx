@@ -40,7 +40,7 @@ export function NoticeBell() {
       <Toasts hidden={open} />
       <button
         type="button"
-        className="notice-bell tint -mx-1 inline-flex cursor-pointer items-center gap-1 rounded-chip border-0 bg-transparent px-1 py-0 text-ink-2"
+        className="notice-bell tint -mx-1 inline-flex cursor-pointer items-center gap-1 rounded-sm border-0 bg-transparent px-1 py-0 text-ink-2"
         aria-label={unread ? `Notices, ${unread} unread` : 'Notices'}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
@@ -53,7 +53,7 @@ export function NoticeBell() {
           {waiting ? (
             <button
               type="button"
-              className="notice-turn flex w-full cursor-pointer items-center gap-2 border-0 border-b border-line bg-[color-mix(in_srgb,var(--color-wait)_14%,transparent)] px-3 py-1.5 text-left text-body font-medium text-ink"
+              className="notice-turn flex w-full cursor-pointer items-center gap-2 border-0 border-b border-line bg-[color-mix(in_srgb,var(--color-wait)_14%,transparent)] px-3 py-1.5 text-left text-md font-medium text-ink"
               onClick={() => void ((location.hash = '#/my-turn'), setOpen(false))}
             >
               <span className="size-2 flex-none rounded-full bg-wait" aria-hidden />
@@ -66,17 +66,17 @@ export function NoticeBell() {
               <SpareCard n={n} />
             </div>
           ))}
-          {list.length === 0 && !waiting && !spare.length ? <p className="m-0 px-3 py-2 text-hint text-ink-3">Nothing new.</p> : null}
+          {list.length === 0 && !waiting && !spare.length ? <p className="m-0 px-3 py-2 text-xs text-ink-3">Nothing new.</p> : null}
           {list.map((n) => (
             <Row key={n.id} n={n} onOpened={() => setOpen(false)} />
           ))}
         </div>
         {list.length ? (
-          <footer className="flex items-center justify-between border-t border-line px-3 py-1.5 text-hint text-ink-3">
+          <footer className="flex items-center justify-between border-t border-line px-3 py-1.5 text-xs text-ink-3">
             <span>{unread ? `${unread} unread` : 'All read'}</span>
             <button
               type="button"
-              className="cursor-pointer border-0 bg-transparent p-0 text-hint text-ink-2 disabled:opacity-50"
+              className="cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 disabled:opacity-50"
               disabled={!unread}
               onClick={() => store.notices.markAllRead()}
             >
@@ -114,7 +114,7 @@ function Row({ n, onOpened }: { n: Notice; onOpened: () => void }) {
   return (
     <button
       type="button"
-      className={`notice-row flex w-full items-center gap-2 border-0 bg-transparent px-3 py-1.5 text-left text-body text-ink ${go ? 'cursor-pointer tint' : 'cursor-default'}`}
+      className={`notice-row flex w-full items-center gap-2 border-0 bg-transparent px-3 py-1.5 text-left text-md text-ink ${go ? 'cursor-pointer tint' : 'cursor-default'}`}
       data-notice
       onClick={() => (openNotice(store, n), onOpened())}
     >
@@ -123,9 +123,9 @@ function Row({ n, onOpened }: { n: Notice; onOpened: () => void }) {
       </span>
       <span className="min-w-0 flex-1">
         <span className={`block truncate ${n.read ? '' : 'font-semibold'}`}>{head}</span>
-        {sub ? <span className="block truncate text-hint text-ink-3">{sub}</span> : null}
+        {sub ? <span className="block truncate text-xs text-ink-3">{sub}</span> : null}
       </span>
-      <time className="flex-none text-hint text-ink-3">{clockTime(new Date(n.at).toISOString())}</time>
+      <time className="flex-none text-xs text-ink-3">{clockTime(new Date(n.at).toISOString())}</time>
     </button>
   );
 }
@@ -163,7 +163,7 @@ function Toast({ n }: { n: Notice }) {
   const long = !!n.details;
   return (
     <div
-      className="toast relative flex items-start gap-2 rounded-card border border-line bg-panel px-3 py-2 text-body text-ink shadow-[var(--shadow-2)]"
+      className="toast relative flex items-start gap-2 rounded-md border border-line bg-panel px-3 py-2 text-md text-ink shadow-[var(--shadow)]"
       onPointerEnter={() => store.notices.hold(n.id, 'pointer')}
       onPointerLeave={() => store.notices.release(n.id, 'pointer')}
       onFocus={() => store.notices.hold(n.id, 'focus')}
@@ -175,7 +175,7 @@ function Toast({ n }: { n: Notice }) {
       <div className="grid min-w-0 flex-1 gap-1">
         <span className="font-semibold">{lineOf(n)}</span>
         {sub ? <span className="text-ink-2">{sub}</span> : null}
-        {more && n.details ? <span className="whitespace-pre-wrap text-hint text-ink-3">{n.details}</span> : null}
+        {more && n.details ? <span className="whitespace-pre-wrap text-xs text-ink-3">{n.details}</span> : null}
         {go || n.retry || long ? (
           <span className="mt-0.5 flex flex-wrap gap-1.5">
             {go ? (
@@ -282,7 +282,7 @@ function Toasts({ hidden }: { hidden: boolean }) {
       role="status"
     >
       {spare.map((n) => (
-        <div key={n.task} className="rounded-[8px] bg-raised shadow-[var(--shadow-2)]">
+        <div key={n.task} className="rounded-[8px] bg-raised shadow-[var(--shadow)]">
           <SpareCard n={n} />
         </div>
       ))}
@@ -309,23 +309,19 @@ function SpareCard({ n }: { n: SpareNotice }) {
   const reply = (evidence: string) => answer.mutate({ task: n.task, evidence, reason: true });
   const open = () => void (location.hash = `#/tasks/${n.task}`);
   return (
-    <div
-      className="notice-spare tint flex cursor-pointer items-start gap-2 px-3 py-2 text-body text-ink"
-      data-notice="spare"
-      onClick={open}
-    >
+    <div className="notice-spare tint flex cursor-pointer items-start gap-2 px-3 py-2 text-md text-ink" data-notice="spare" onClick={open}>
       <Icon name="waiting" size={14} className="mt-0.5 flex-none text-wait" aria-hidden />
       <div className="min-w-0 flex-1">
         <p className="m-0">{n.text}</p>
         <div className="mt-1.5 flex flex-col gap-0.5">
           {n.ids.slice(0, SPARE_SHOWN).map((id) => (
-            <span key={id} className="flex min-w-0 gap-1.5 text-hint text-ink-2">
+            <span key={id} className="flex min-w-0 gap-1.5 text-xs text-ink-2">
               <b className="flex-none font-mono font-semibold text-ink">{`T${id}`}</b>
               <span className="min-w-0 flex-1 truncate">{rows.get(id)?.title ?? ''}</span>
               {rows.get(id) ? <span className="flex-none text-ink-3">{shortName(rows.get(id)!.to)}</span> : null}
             </span>
           ))}
-          {n.ids.length > SPARE_SHOWN ? <span className="text-hint text-ink-3">{`and ${n.ids.length - SPARE_SHOWN} more`}</span> : null}
+          {n.ids.length > SPARE_SHOWN ? <span className="text-xs text-ink-3">{`and ${n.ids.length - SPARE_SHOWN} more`}</span> : null}
         </div>
         {n.ids.length ? (
           <Button

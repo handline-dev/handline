@@ -5,9 +5,8 @@ import type { TaskDetail as Detail } from '@handline/client';
 import { classify, sentence, useAgents, useTeam, useWrite } from '@handline/app-data';
 import { Input, Popup } from '#src/ui/index.ts';
 
-export const CHIP = 'rounded-full border px-2 py-0.5 text-label';
-export const chipLook = (on: boolean) =>
-  on ? 'border-primary bg-primary text-on-primary' : 'border-line-strong bg-transparent text-ink tint';
+export const CHIP = 'rounded-full border px-2 py-0.5 text-sm';
+export const chipLook = (on: boolean) => (on ? 'border-acc bg-acc text-on-acc' : 'border-line-strong bg-transparent text-ink tint');
 
 const SHOWN = 5;
 
@@ -68,18 +67,18 @@ function AssignList({ t, me, onClose }: { t: Detail; me: string; onClose: () => 
           <li key={n} role="option" aria-selected={n === pick}>
             <button
               type="button"
-              className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-chip border-0 px-2 py-1 text-left text-body text-ink ${n === pick ? 'bg-raised' : 'bg-transparent'}`}
+              className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-sm border-0 px-2 py-1 text-left text-md text-ink ${n === pick ? 'bg-raised' : 'bg-transparent'}`}
               onClick={() => submit(n)}
             >
               <span className="truncate">{n === me ? 'Me' : n}</span>
-              <span className="flex-none text-hint text-ink-3">{n === t.to ? 'now' : n === pick ? '↵' : ''}</span>
+              <span className="flex-none text-xs text-ink-3">{n === t.to ? 'now' : n === pick ? '↵' : ''}</span>
             </button>
           </li>
         ))}
       </ul>
       {!names.length ? <span className="muted px-2">{q ? 'No one matches.' : 'There is no one else to assign it to.'}</span> : null}
       {!q && everyone.length > names.length ? (
-        <span className="px-2 text-hint text-ink-3">{`Type to find more · ${everyone.length} in all`}</span>
+        <span className="px-2 text-xs text-ink-3">{`Type to find more · ${everyone.length} in all`}</span>
       ) : null}
       {edit.isError ? (
         <span className="tsheet-err px-2 text-bad" role="alert">

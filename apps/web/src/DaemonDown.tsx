@@ -11,7 +11,7 @@ export function DaemonDown() {
   if (conn !== 'closed' && conn !== 'reconnecting') return null;
   return (
     <section
-      className="daemon-down m-2 flex items-start gap-2.5 h-fit rounded-card border-2 border-bad bg-panel px-3 py-2.5"
+      className="daemon-down m-2 flex items-start gap-2.5 h-fit rounded-md border-2 border-bad bg-panel px-3 py-2.5"
       role="alert"
       aria-label="Handline is not running"
     >

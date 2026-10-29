@@ -74,7 +74,13 @@ export function WebTab({ agent, url, onUrl, hidden }: { agent: string; url: stri
           go();
         }}
       >
-        <Input aria-label="Address" placeholder="localhost:5173" value={typed} onChange={(e) => setTyped(e.target.value)} className="flex-1" />
+        <Input
+          aria-label="Address"
+          placeholder="localhost:5173"
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          className="flex-1"
+        />
         <Button type="submit" icon="refresh" size="sm" label={url ? 'Reload' : 'Show'} />
         {url && grab ? (
           <Button size="sm" variant="outline" label="Mark an area to ask" onClick={() => void mark()}>
@@ -90,7 +96,7 @@ export function WebTab({ agent, url, onUrl, hidden }: { agent: string; url: stri
         ) : null}
       </form>
       {problem ? (
-        <p className="m-0 border-b border-line px-3 py-1.5 text-body text-bad" role="alert">
+        <p className="m-0 border-b border-line px-3 py-1.5 text-md text-bad" role="alert">
           {problem}
         </p>
       ) : null}

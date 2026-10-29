@@ -33,7 +33,7 @@ export function KeysSheet({ onClose }: { onClose: () => void }) {
       <KeyRows rows={KEYS} />
       {groups.map((g) => (
         <section key={g.title}>
-          <h3 className="mt-2 text-label text-ink-3">{g.title}</h3>
+          <h3 className="mt-2 text-sm text-ink-3">{g.title}</h3>
           <KeyRows rows={g.rows} />
         </section>
       ))}

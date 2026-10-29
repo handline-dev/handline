@@ -9,7 +9,7 @@ import { WebLink, findUrls } from '#src/WebLink.tsx';
 import { goTasks } from '#src/route.ts';
 import { useRefsData, useSharedRefs, type RefsData } from '#src/RefsContext.tsx';
 
-const LINK = 'ref border-0 bg-transparent p-0 font-mono text-[12px] leading-4 text-link underline cursor-pointer';
+const LINK = 'ref border-0 bg-transparent p-0 font-mono text-[12px] leading-4 text-acc-ink underline cursor-pointer';
 
 export function RichText({ text, agent }: { text: string; agent?: string }) {
   const images = findImageRefs(text);

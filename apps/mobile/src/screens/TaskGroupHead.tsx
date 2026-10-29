@@ -10,7 +10,7 @@ export function GroupHead(props: { title: string; count: number }) {
       accessibilityRole="header"
       style={{
         color: c.muted,
-        fontSize: font.size.label,
+        fontSize: font.size.sm,
         fontWeight: '700',
         paddingHorizontal: space.lg,
         paddingTop: space.lg,

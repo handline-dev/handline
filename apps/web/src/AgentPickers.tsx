@@ -5,7 +5,7 @@ import type { AgentDetail } from '@handline/client';
 import { EFFORTS, useAccounts, useServes, useVerbMark, useWrite } from '@handline/app-data';
 import { Icon, MenuButton, MenuItem, MenuLabel, MenuSeparator, STRIP_ITEM } from '#src/ui/index.ts';
 
-const CHIP = `${STRIP_ITEM} gap-1 text-hint text-ink-2`;
+const CHIP = `${STRIP_ITEM} gap-1 text-xs text-ink-2`;
 
 export function ModelMenu({ detail }: { detail: AgentDetail }) {
   const set = useWrite('agent.set', detail.name);
@@ -103,11 +103,11 @@ const FILL = { ok: 'bg-ok', warn: 'bg-wait', bad: 'bg-bad' } as const;
 
 /** The 5 h window's room an account has left, as a short bar and the words, the same reading the footer gauge shows. */
 function Room({ left }: { left: number | null }) {
-  if (left === null) return <span className="muted text-label">no reading</span>;
+  if (left === null) return <span className="muted text-sm">no reading</span>;
   return (
-    <span className="room ml-3 inline-flex items-center gap-2 text-label text-ink-2" data-left={left}>
+    <span className="room ml-3 inline-flex items-center gap-2 text-sm text-ink-2" data-left={left}>
       <span
-        className="relative h-2 w-14 overflow-hidden rounded-chip bg-raised"
+        className="relative h-2 w-14 overflow-hidden rounded-sm bg-raised"
         role="meter"
         aria-label="5 h room left"
         aria-valuemin={0}

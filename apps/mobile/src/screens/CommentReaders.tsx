@@ -35,7 +35,7 @@ export function CommentReaders({ memo, readers }: { memo: number; readers: MemoR
         style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: space.xs, minHeight: 32 }}
       >
         {held ? <Icon name="waiting" color={c.muted} size={12} decorative /> : null}
-        <Text style={{ color: c.muted, fontSize: font.size.label }}>{`${read}/${readers.length} read`}</Text>
+        <Text style={{ color: c.muted, fontSize: font.size.sm }}>{`${read}/${readers.length} read`}</Text>
       </Pressable>
       {open ? (
         <Sheet

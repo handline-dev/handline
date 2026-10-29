@@ -12,7 +12,6 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/delivery"
-	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/msgtest"
 	"github.com/handline/handline/go/internal/store"
 	"github.com/handline/handline/go/internal/term"
@@ -304,8 +303,6 @@ func copyTemplateDB(dst string) error {
 	}
 	return os.WriteFile(dst, b, 0o644)
 }
-
-func lockTerminal(home, agent string) *lock.Hold { return lock.TakeTerminal(home, agent) }
 
 // flipTerm shows no blocker for the first `after` reads and then the blocker.
 type flipTerm struct {

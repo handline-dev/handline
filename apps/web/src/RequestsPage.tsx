@@ -44,7 +44,7 @@ function Row({ row }: { row: RequestRow }) {
   const open = row.task !== null ? () => goTasks(row.task!) : undefined;
   return (
     <li
-      className="request-row rounded-card border border-line bg-panel px-3 py-2.5"
+      className="request-row rounded-md border border-line bg-panel px-3 py-2.5"
       data-status={row.status}
       data-request={row.task ?? row.ref}
     >
@@ -62,12 +62,12 @@ function Row({ row }: { row: RequestRow }) {
       >
         <div className="flex min-w-0 items-center gap-2">
           <State kind={w.glyph} label={w.label} size={14} />
-          <span className="text-hint text-ink-2">{w.label}</span>
+          <span className="text-xs text-ink-2">{w.label}</span>
           <h3 className="m-0 min-w-0 flex-1 truncate text-[15px] font-medium">{row.title}</h3>
-          {row.task !== null ? <span className="mono text-hint text-ink-2">T{row.task}</span> : null}
-          <span className="text-hint text-ink-3">{ago(row.last_activity)}</span>
+          {row.task !== null ? <span className="mono text-xs text-ink-2">T{row.task}</span> : null}
+          <span className="text-xs text-ink-3">{ago(row.last_activity)}</span>
         </div>
-        <p className="muted m-0 mt-0.5 flex flex-wrap gap-x-3 text-hint">
+        <p className="muted m-0 mt-0.5 flex flex-wrap gap-x-3 text-xs">
           <span className="mono">{row.holders.length ? row.holders.join(', ') : row.agent}</span>
           {meta(row) ? <span>{meta(row)}</span> : null}
           {row.status === 'no_work' && row.reason ? <span>{row.reason}</span> : null}

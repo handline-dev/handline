@@ -14,7 +14,7 @@ export function StartTerminal({ agent }: { agent: string }) {
       >
         {start.isPending ? 'Starting…' : 'Start terminal'}
       </Button>
-      {start.error ? <span className="text-hint text-term-ink">Could not start it: try again</span> : null}
+      {start.error ? <span className="text-xs text-term-ink">Could not start it: try again</span> : null}
     </div>
   );
 }

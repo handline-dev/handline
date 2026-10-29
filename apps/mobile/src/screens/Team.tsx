@@ -26,14 +26,7 @@ export function Team() {
           <View key={g.parent ?? ''} style={{ gap: space.sm }}>
             <Text style={{ color: c.muted, fontWeight: '600' }}>{g.parent ? `Reports to ${g.parent}` : 'Top of the team'}</Text>
             {g.agents.map((a) => (
-              <Card
-                key={a.name}
-                a={a}
-                d={doing(a.name)}
-                edges={edges}
-                open={isOpen(a.name)}
-                onPress={() => toggle(a.name)}
-              />
+              <Card key={a.name} a={a} d={doing(a.name)} edges={edges} open={isOpen(a.name)} onPress={() => toggle(a.name)} />
             ))}
           </View>
         ))}
@@ -59,11 +52,11 @@ function Card(props: {
       accessibilityRole="button"
       accessibilityState={{ expanded: props.open }}
       onPress={props.onPress}
-      style={{ gap: space.xs, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.card }}
+      style={{ gap: space.xs, padding: space.md, borderWidth: 1, borderColor: c.line, borderRadius: radius.m }}
     >
       <Text style={{ color: c.ink, fontWeight: '700' }}>{a.name}</Text>
       {d && (
-        <Text style={{ color: c.muted, fontSize: font.size.label }}>
+        <Text style={{ color: c.muted, fontSize: font.size.sm }}>
           {[
             d.status?.text ?? (d.block ? `blocked (${d.block.kind})` : d.state),
             d.status ? null : d.state_detail,
@@ -76,12 +69,12 @@ function Card(props: {
       )}
       <Text style={{ color: c.ink }}>{a.role}</Text>
       {d?.task && (
-        <Text style={{ color: c.muted, fontSize: font.size.label }}>
+        <Text style={{ color: c.muted, fontSize: font.size.sm }}>
           doing {taskRef(d.task.id)} {d.task.title}
         </Text>
       )}
       {queued ? (
-        <Text testID={`team-queue-${a.name}`} style={{ color: c.wait, fontSize: font.size.label }}>
+        <Text testID={`team-queue-${a.name}`} style={{ color: c.wait, fontSize: font.size.sm }}>
           {queued} {queued === 1 ? 'task' : 'tasks'} waiting
         </Text>
       ) : null}

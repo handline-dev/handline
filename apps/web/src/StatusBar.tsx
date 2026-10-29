@@ -12,7 +12,7 @@ export function StatusBar() {
   const up = conn === 'open';
   const { away, dismiss } = useAway();
   return (
-    <footer className="statusbar flex h-6 items-center gap-3 border-t border-line bg-surface px-2 text-hint text-ink-2" aria-label="Status">
+    <footer className="statusbar flex h-6 items-center gap-3 border-t border-line bg-surface px-2 text-xs text-ink-2" aria-label="Status">
       <Chip variant="cell" title={`Daemon ${conn}`} role="img" aria-label={`daemon ${conn}`}>
         <Icon name={up ? 'online' : 'offline'} size={14} className={up ? undefined : 'text-bad'} aria-hidden />
         {up ? null : <span className="text-bad">offline</span>}

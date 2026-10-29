@@ -40,7 +40,7 @@ export function HandoffPrompt({ settings }: { settings: HandoffSettings }) {
   };
   const note = save.error ? `not saved: ${sentence(classify(save.error))}` : save.isPending ? 'saving…' : null;
   const reads = promptPreview(bad ? current : text || builtin || '');
-  const small = { color: c.muted, fontSize: font.size.label } as const;
+  const small = { color: c.muted, fontSize: font.size.sm } as const;
   return (
     <View testID="setting-prompt" style={{ gap: space.xs }}>
       <Text style={{ color: c.ink, fontWeight: '600' }}>What the agent is asked</Text>
@@ -63,7 +63,7 @@ export function HandoffPrompt({ settings }: { settings: HandoffSettings }) {
           color: c.ink,
           borderWidth: 1,
           borderColor: bad ? c.block : c.line,
-          borderRadius: radius.card,
+          borderRadius: radius.m,
           padding: space.md,
           minHeight: 96,
           textAlignVertical: 'top',
@@ -116,7 +116,7 @@ export function HandoffPrompt({ settings }: { settings: HandoffSettings }) {
           )}
         </Pressable>
         {showReads ? (
-          <View style={{ backgroundColor: c.panel, borderRadius: radius.card, padding: space.md }}>
+          <View style={{ backgroundColor: c.panel, borderRadius: radius.m, padding: space.md }}>
             <Text testID="prompt-preview" style={small}>
               {reads}
             </Text>

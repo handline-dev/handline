@@ -23,7 +23,7 @@ export function ChatRefs(props: { agent: string; text: string; onPick: (r: Ref, 
   return (
     <View
       testID="chat-refs"
-      style={{ marginHorizontal: space.sm, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, backgroundColor: c.panel }}
+      style={{ marginHorizontal: space.sm, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, backgroundColor: c.panel }}
     >
       {rows.slice(0, 6).map((r) => (
         <Pressable
