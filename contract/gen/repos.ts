@@ -19,6 +19,16 @@ export type Worktree = {
   children: string[];
   status: string;
   changed: ChangedFile[];
+  /** Present and true only on a worktree no agent records: one an agent left behind when it was retired, renamed or moved. Its owner is null. Never the repo's own checkout or a locked worktree. */
+  orphan?: boolean;
+  /** Orphans only: whether its HEAD is merged into main. */
+  merged?: boolean;
+  /** Orphans only: its changed and untracked files, as git status counts them. */
+  files_changed?: number;
+  /** Orphans only: its commits not on main. */
+  commits_ahead?: number;
+  /** Orphans only: the bytes it takes on disk, as housekeeping last measured them (at most hourly, off the daemon's tick); null until measured. */
+  size_bytes?: number | null;
 };
 
 export interface ReposMethods {

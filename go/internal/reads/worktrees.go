@@ -11,10 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/gitrun"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/worktreeprune"
 )
 
 const (
@@ -59,17 +61,8 @@ func defaultBranch(repo string) string {
 
 // repos is rpc_worktrees.repos: the repos the agents were told to work in, by path.
 func (e *Env) repos() []any {
-	seen := map[string]bool{}
-	var paths_ []string
-	for _, name := range paths.ListAgents(e.Home) {
-		if repo := e.repoOf(name); repo != "" && !seen[repo] && isDir(repo) {
-			seen[repo] = true
-			paths_ = append(paths_, repo)
-		}
-	}
-	sort.Strings(paths_)
-	out := make([]any, 0, len(paths_))
-	for _, p := range paths_ {
+	out := []any{}
+	for _, p := range worktreeprune.Repos(e.Home) {
 		out = append(out, map[string]any{"name": filepath.Base(p), "path": p, "default_branch": defaultBranch(p)})
 	}
 	return out
@@ -372,7 +365,48 @@ func (e *Env) worktreesList(_ *rpc.Conn, params map[string]any) (any, error) {
 			out = append(out, wt)
 		}
 	}
+	if owner == nil {
+		orphans, err := e.orphans(repo)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, orphans...)
+	}
 	return map[string]any{"worktrees": out}, nil
+}
+
+// orphans are the worktrees no agent records, in repo when it is named (by name or path), as worktrees.list items: orphan true, what
+// each holds that main does not, and the size housekeeping last measured (null until it has).
+func (e *Env) orphans(repo *string) ([]any, error) {
+	agents, err := worktreeprune.AgentWorktrees(e.DB, "")
+	if err != nil {
+		return nil, err
+	}
+	out := []any{}
+	for _, r := range worktreeprune.Repos(e.Home) {
+		if repo != nil && *repo != r && *repo != filepath.Base(r) {
+			continue
+		}
+		for _, wt := range worktreeprune.Orphans(r, agents) {
+			path := worktreeprune.Real(wt.Path)
+			merged, files, commits := worktreeprune.Unsaved(path)
+			var size any
+			if v, ok, err := db.Meta(e.DB, worktreeprune.SizePrefix+path); err != nil {
+				return nil, err
+			} else if n, err := strconv.ParseInt(v, 10, 64); ok && err == nil {
+				size = n
+			}
+			ch := changed(path)
+			status := "clean"
+			if len(ch) > 0 {
+				status = "dirty"
+			}
+			out = append(out, map[string]any{"path": path, "repo": filepath.Base(r), "branch": wt.Branch, "owner": nil, "parent": nil,
+				"children": []string{}, "status": status, "changed": ch, "orphan": true, "merged": merged, "files_changed": files,
+				"commits_ahead": commits, "size_bytes": size})
+		}
+	}
+	return out, nil
 }
 
 func (e *Env) worktreeDiff(_ *rpc.Conn, params map[string]any) (any, error) {

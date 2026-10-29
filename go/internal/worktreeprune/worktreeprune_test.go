@@ -119,3 +119,27 @@ func TestRemoveForceTakesADirtyWorktreeAndKeepsItsBranch(t *testing.T) {
 		t.Fatal("the branch went with it")
 	}
 }
+
+// An orphan is a worktree no agent records; the repo's own checkout and a locked one never are. Unsaved says what each holds.
+func TestOrphansAreTheWorktreesNoAgentRecordsWithWhatTheyHold(t *testing.T) {
+	main, wts := repo(t)
+	gitrun.Run(main, "worktree", "lock", wts["locked"])
+	got := map[string][3]int{}
+	for _, wt := range Orphans(main, map[string]bool{Real(wts["agents"]): true}) {
+		merged, files, commits := Unsaved(wt.Path)
+		m := 0
+		if merged {
+			m = 1
+		}
+		got[filepath.Base(wt.Path)] = [3]int{m, files, commits}
+	}
+	want := map[string][3]int{"merged": {1, 0, 0}, "ahead": {0, 0, 1}, "untracked": {1, 1, 0}}
+	if len(got) != len(want) {
+		t.Fatalf("orphans %v, want %v", got, want)
+	}
+	for name, w := range want {
+		if got[name] != w {
+			t.Errorf("%s: merged, files, commits %v, want %v", name, got[name], w)
+		}
+	}
+}

@@ -6,12 +6,18 @@ package worktreeprune
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/gitrun"
+	"github.com/handline/handline/go/internal/paths"
+	"github.com/handline/handline/go/internal/team"
 )
 
 // Worktree is one entry of `git worktree list --porcelain`.
@@ -224,4 +230,72 @@ func Remove(path string) (ok bool, why string) {
 		return false, strings.TrimSpace(r.Stderr)
 	}
 	return true, ""
+}
+
+// Repos are the repositories the agents were told to work in (team.yaml repo), each once, sorted.
+func Repos(home string) []string {
+	seen := map[string]bool{}
+	var out []string
+	roster := team.NewRoster(home)
+	for _, name := range paths.ListAgents(home) {
+		cfg, err := roster.Read(name)
+		if err != nil {
+			continue
+		}
+		if repo, _ := cfg["repo"].(string); repo != "" && !seen[repo] {
+			if st, err := os.Stat(repo); err == nil && st.IsDir() {
+				seen[repo] = true
+				out = append(out, repo)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Orphans are the worktrees of repo that no agent records (agents, from AgentWorktrees): left behind by an agent that went. The repo's own
+// checkout, a locked worktree and one that is no checkout are never orphans.
+func Orphans(repo string, agents map[string]bool) []Worktree {
+	all := List(repo)
+	var out []Worktree
+	for i, wt := range all {
+		if i == 0 || wt.Bare || wt.Prunable || wt.Locked || agents[Real(wt.Path)] {
+			continue
+		}
+		out = append(out, wt)
+	}
+	return out
+}
+
+// Unsaved is what the worktree holds that main does not: whether its HEAD is merged into main, its changed or untracked files and its
+// commits not on main.
+func Unsaved(path string) (merged bool, files, commits int) {
+	merged = gitrun.Run(path, "merge-base", "--is-ancestor", "HEAD", "main").RC == 0
+	if r := gitrun.Run(path, "status", "--porcelain"); r.RC == 0 && strings.TrimSpace(r.Stdout) != "" {
+		files = len(strings.Split(strings.TrimSpace(r.Stdout), "\n"))
+	}
+	if r := gitrun.Run(path, "rev-list", "--count", "main..HEAD"); r.RC == 0 {
+		commits, _ = strconv.Atoi(strings.TrimSpace(r.Stdout))
+	}
+	return merged, files, commits
+}
+
+// SizePrefix starts the meta name an orphan's measured size is kept under: the prefix, then its real path; the value is the bytes.
+const SizePrefix = "worktree_size:"
+
+// SizeEvery is how often the orphans' sizes are measured, in seconds: a walk of a worktree with its dependencies takes a while.
+const SizeEvery = int64(3600)
+
+// Size is the bytes the files under path take on disk, as du counts them.
+func Size(path string) (int64, error) {
+	out, err := exec.Command("du", "-sk", path).Output()
+	if err != nil {
+		return 0, err
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) == 0 {
+		return 0, fmt.Errorf("du said nothing for %s", path)
+	}
+	kb, err := strconv.ParseInt(fields[0], 10, 64)
+	return kb * 1024, err
 }
