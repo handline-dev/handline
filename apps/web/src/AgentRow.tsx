@@ -3,9 +3,11 @@ import { useEffect, useRef, useState, type HTMLAttributes } from 'react';
 import { ago, dotOf, queuedBehind, rowName, agentStateWord, type Verb, badgesOf, taskRef, whyOf } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { DeleteSheet, VerbSheet } from '#src/AgentVerbs.tsx';
-import { Badges } from '#src/Badges.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
-import { Icon, Menu, type At, MenuContent, MenuTrigger } from '#src/ui/index.ts';
+import { Hand } from 'lucide-react';
+import { Chip } from '#src/ds/Chip.tsx';
+import { Badges } from '#src/Badges.tsx';
+import { Icon, Menu, type At, MenuContent, MenuTrigger, VisuallyHidden } from '#src/ui/index.ts';
 import { goAgent } from '#src/route.ts';
 import { AgentMenu, RowControls } from '#src/RowControls.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
@@ -89,8 +91,8 @@ function AgentRowView({
   }, [kindLen]);
   const queued = queuedBehind(a) || 0;
   const queuedTip = [`${queued} waiting behind the current task`, ...waiting.map((t) => `${taskRef(t.id)} ${t.title}`)].join('\n');
-  const stamp = a.founder_unread && a.last_to_founder ? a.last_to_founder.at : a.state_since; // when it last wrote to you, else since when it is in this state
   const badges = badgesOf(a, me).filter((b) => b.kind === 'dialog' || b.kind === 'stalled'); // only what the founder must act on
+  const stamp = a.founder_unread && a.last_to_founder ? a.last_to_founder.at : a.state_since; // when it last wrote to you, else since when it is in this state
   const tip = [a.name, mark ?? agentStateWord(a.state), ago(a.state_since), a.task ? `${taskRef(a.task.id)} ${a.task.title}` : '']
     .filter(Boolean)
     .join(' · ');
@@ -158,23 +160,21 @@ function AgentRowView({
                       </span>
                     ) : null}
                     {a.needs_you ? (
-                      <span
-                        className="needs inline-flex flex-none items-center gap-1 whitespace-nowrap rounded-full bg-wait px-1.5 text-sm text-canvas"
-                        title={[a.needs_you.kind, a.needs_you.text].filter(Boolean).join(': ')}
-                      >
-                        <Icon name={a.needs_you.kind === 'permission' ? 'permission' : 'answer'} size={12} label={a.needs_you.kind} />
-                        {wide ? <span>{a.needs_you.kind}</span> : null}
+                      <span className="needs inline-flex flex-none" title={[a.needs_you.kind, a.needs_you.text].filter(Boolean).join(': ')}>
+                        <Chip kind="you" icon={Hand}>
+                          {wide ? a.needs_you.kind : <VisuallyHidden>{a.needs_you.kind}</VisuallyHidden>}
+                        </Chip>
                       </span>
                     ) : null}
+                    <Badges badges={badges} mark />
                     {a.founder_unread ? (
                       <span
-                        className="unread inline-flex flex-none items-center rounded-full bg-acc px-1.5 text-sm text-canvas"
+                        className="unread inline-flex flex-none"
                         title={`${a.founder_unread} unseen ${a.founder_unread === 1 ? 'request' : 'requests'} to you`}
                       >
-                        {a.founder_unread}
+                        <Chip kind="unread">{a.founder_unread}</Chip>
                       </span>
                     ) : null}
-                    <Badges badges={badges} />
                     {stuck ? (
                       <span
                         className="row-stuck inline-flex flex-none items-center gap-0.5 whitespace-nowrap text-xs text-wait"

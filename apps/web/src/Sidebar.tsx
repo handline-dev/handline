@@ -24,6 +24,7 @@ import { Mark, MARKS } from '#src/RailIcons.tsx';
 import { Button, Icon, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
 import { setting } from '#src/daemon.ts';
 import { goTasks, usePageRoute } from '#src/route.ts';
+import { Chip } from '#src/ds/Chip.tsx';
 import { AgentRow } from '#src/AgentRow.tsx';
 import { NewAgentButton } from '#src/NewAgent.tsx';
 import { View } from '#src/View.tsx';
@@ -136,7 +137,11 @@ export function Sidebar({
           onClick={() => void (location.hash = '#/requests')}
         >
           <Icon name="inbox" size={14} aria-hidden /> Requests
-          {myTurn ? <span className="ml-auto rounded-full bg-wait px-1.5 text-xs font-semibold text-canvas">{myTurn}</span> : null}
+          {myTurn ? (
+            <span className="ml-auto">
+              <Chip kind="you">{myTurn}</Chip>
+            </span>
+          ) : null}
         </button>
         <button
           className={navOf(pageRoute === 'stats')}
