@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -174,40 +175,38 @@ func TestAMessageIsDeliveredNowAndConfirmedByItsEcho(t *testing.T) {
 	}
 }
 
-// the confirmation is settled only after the echo event is published, so whoever waits on it finds the event
+// the confirmation is settled only after the echo event is published: when OnEvent sees the echo, its message is not yet settled
 func TestTheEchoIsPublishedBeforeTheDeliveryIsConfirmed(t *testing.T) {
-	ev := &events{}
-	entered, release, waited := make(chan struct{}), make(chan struct{}), make(chan int, 1)
-	var once sync.Once
+	var sess atomic.Pointer[Session]
+	checked := make(chan struct{})
 	h := Handlers{OnEvent: func(m map[string]any) {
 		if m["type"] != "user" {
 			return
 		}
-		once.Do(func() { close(entered) })
-		select { // holds the echo back until the waiter has returned; a correct order has it return only after this does
-		case <-release:
-		case <-time.After(500 * time.Millisecond):
+		defer close(checked)
+		s := sess.Load()
+		s.mu.Lock()
+		e := s.ledger["op-1"]
+		s.mu.Unlock()
+		select {
+		case <-e.settled:
+			t.Error("settled before the echo was published")
+		default:
 		}
-		ev.add(m)
 	}}
 	s, err := Open(context.Background(), launch(t), h, 5*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	r, err := s.Send("op-1", "hello", delivery.Now)
-	if err != nil {
+	sess.Store(s)
+	if _, err := s.Send("op-1", "hello", delivery.Now); err != nil {
 		t.Fatal(err)
 	}
-	go func() {
-		s.WaitConfirmed(ctx(t), "op-1")
-		waited <- ev.count(isEcho(r.UUID))
-		close(release)
-	}()
-	<-entered
-	if n := <-waited; n != 1 {
-		t.Fatalf("the delivery was confirmed with %d echo events published", n)
+	if err := s.WaitConfirmed(ctx(t), "op-1"); err != nil {
+		t.Fatal(err)
 	}
+	<-checked
 }
 
 func TestARetryWithTheSameOperationIdIsNeverSentTwice(t *testing.T) {
