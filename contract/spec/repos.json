@@ -71,6 +71,33 @@
       "items": {
        "$ref": "#/components/schemas/ChangedFile"
       }
+     },
+     "orphan": {
+      "type": "boolean",
+      "description": "Present and true only on a worktree no agent records: one an agent left behind when it was retired, renamed or moved. Its owner is null. Never the repo's own checkout or a locked worktree."
+     },
+     "merged": {
+      "type": "boolean",
+      "description": "Orphans only: whether its HEAD is merged into main."
+     },
+     "files_changed": {
+      "type": "integer",
+      "description": "Orphans only: its changed and untracked files, as git status counts them."
+     },
+     "commits_ahead": {
+      "type": "integer",
+      "description": "Orphans only: its commits not on main."
+     },
+     "size_bytes": {
+      "oneOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Orphans only: the bytes it takes on disk, as housekeeping last measured them (at most hourly, off the daemon's tick); null until measured."
      }
     },
     "required": [
@@ -152,7 +179,8 @@
    },
    "x-role": "member",
    "x-write": false,
-   "x-since": 1
+   "x-since": 1,
+   "description": "The worktrees agents work in, then the orphans: worktrees of the same repos that no agent records (orphan true), each with what it holds that main does not and its size. `owner` lists no orphans, since they have none; `repo` narrows both, by the repo's name or path."
   },
   {
    "name": "worktree.diff",
