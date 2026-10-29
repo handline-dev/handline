@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"net"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -175,10 +174,10 @@ func TestPolicyOfTheConnection(t *testing.T) {
 	if rpc, code := errOf(t, big.read(t)); rpc != -32600 || code != "bad_request" {
 		t.Fatalf("%d %s", rpc, code)
 	}
-	// a legacy verb is told it is not served here and hung up on
+	// a request in the old {verb} shape is not JSON-RPC
 	l := dial(t, a)
-	if r := l.raw(t, `{"verb":"wake","agent":"x"}`); r["ok"] != false {
-		t.Fatalf("%v", r)
+	if rpc, code := errOf(t, l.raw(t, `{"verb":"wake","agent":"x"}`)); rpc != -32600 || code != "bad_request" {
+		t.Fatalf("%d %s", rpc, code)
 	}
 }
 
@@ -257,39 +256,6 @@ func TestAWaitingCallKeepsTheCallerItWasRoutedWithWhileAnotherHelloReplacesIt(t 
 	}
 	cl.Close()
 	<-done
-}
-
-// A legacy verb a daemon serves gets that one reply and a hangup, with the peer's process id; a verb it does not is told so.
-func TestALegacyVerbIsAnsweredByTheHookWithThePeerPid(t *testing.T) {
-	for _, transport := range []string{"local", "network"} {
-		cl, sv := net.Pipe()
-		srv := NewServer(fakeAuth{}, "abc1234", 7, transport, func(string, ...any) {})
-		srv.Legacy = func(p map[string]any, pid int) map[string]any {
-			if p["verb"] != "answer_block" {
-				return nil
-			}
-			return map[string]any{"ok": true, "said": "pid " + strconv.Itoa(pid)}
-		}
-		done := make(chan struct{})
-		go func() { srv.Serve(NewLineTransport(sv), 4321); sv.Close(); close(done) }()
-		c := &client{cl, bufio.NewReader(cl)}
-		got := c.raw(t, `{"verb":"answer_block"}`)
-		if transport == "local" && (got["ok"] != true || got["said"] != "pid 4321") {
-			t.Fatalf("%v", got)
-		}
-		if transport == "network" && got["ok"] != false {
-			t.Fatalf("a legacy verb is for the local socket only: %v", got)
-		}
-		cl.Close()
-		<-done
-		cl2, sv2 := net.Pipe()
-		go func() { srv.Serve(NewLineTransport(sv2), 1); sv2.Close() }()
-		c2 := &client{cl2, bufio.NewReader(cl2)}
-		if got := c2.raw(t, `{"verb":"wake","agent":"x"}`); got["ok"] != false {
-			t.Fatalf("%v", got)
-		}
-		cl2.Close()
-	}
 }
 
 func (f fakeAuth) SessionsReadable() error { return nil }

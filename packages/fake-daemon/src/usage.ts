@@ -1,5 +1,5 @@
-// The fake daemon's usage numbers: stats.get, stats.outlook and stats.headroom, made from the clock it is given.
-import type { Headroom, Outlook, Stats, Timestamp } from '@handline/contract';
+// The fake daemon's usage numbers: stats.get and stats.outlook, made from the clock it is given.
+import type { Outlook, Stats, Timestamp } from '@handline/contract';
 import { badRequest } from '#src/errors.ts';
 
 export const HOUR = 3_600_000;
@@ -94,61 +94,5 @@ export function outlookOf(nowIso: Timestamp, range: Outlook['range'], pick?: unk
     ...(pick !== undefined && {
       overlay: (Object.hasOwn(OVERLAYS, pick) ? OVERLAYS[pick]! : []).map((v, i) => (i < past.length ? v : 0)).slice(0, past.length),
     }),
-  };
-}
-
-/** Two accounts: alpha's 5h window resets every 5 hours from 2 hours on and fills a little faster than beta's; beta runs low on its week. */
-export function headroomOf(nowIso: Timestamp, p: Record<string, unknown>): Headroom {
-  const now = Date.parse(nowIso);
-  const time = (key: string, fallback: number): number => {
-    if (p[key] === undefined || p[key] === null) return fallback;
-    const t = typeof p[key] === 'string' && /^\d{4}-\d\d-\d\dT/.test(p[key] as string) ? Date.parse(p[key] as string) : NaN;
-    if (Number.isNaN(t)) throw badRequest(`${key} is an RFC 3339 timestamp`, key);
-    return Math.floor(t / 1000) * 1000;
-  };
-  const from = time('from', now - 3 * DAY);
-  const to = time('to', now + 3 * DAY);
-  const step = p.step_s === undefined || p.step_s === null ? 900 : p.step_s;
-  if (!Number.isInteger(step)) throw badRequest('step_s is an integer', 'step_s');
-  const stepMs = (step as number) * 1000;
-  if (to <= from) throw badRequest('to is after from', 'to');
-  if ((step as number) < 60) throw badRequest('step_s is at least 60', 'step_s');
-  if (Math.floor((to - from) / stepMs) + 1 > 2000) throw badRequest('step_s is too small for the span: at most 2000 points', 'step_s');
-  const at = (t: number) => new Date(t).toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const FIVE = 5 * HOUR;
-  const firstReset = now + 2 * HOUR;
-  const saw = (t: number, perHour: number) => Math.max(0, 100 - (perHour * ((((t - firstReset) % FIVE) + FIVE) % FIVE)) / HOUR);
-  const plans = [
-    { account: 'alpha', five: (t: number) => saw(t, 15), week: (t: number) => Math.max(0, 70 - ((t - now) / DAY) * 8) },
-    { account: 'beta', five: (t: number) => saw(t, 10), week: (t: number) => Math.max(0, 30 - ((t - now) / DAY) * 12) },
-  ];
-  const times: number[] = [];
-  for (let t = from; t <= to; t += stepMs) times.push(t);
-  const round = (v: number) => Math.round(v * 100) / 100;
-  const accounts = plans.map((a) => {
-    const point = (t: number) => ({ at: at(t), five_left: round(a.five(t)), week_left: round(a.week(t)) });
-    const resets: Headroom['accounts'][number]['resets'] = [];
-    for (let r = firstReset - Math.ceil((firstReset - from) / FIVE) * FIVE; r <= to; r += FIVE)
-      if (r >= from) resets.push({ at: at(r), window: '5h' });
-    return {
-      account: a.account,
-      past: times.filter((t) => t <= now).map(point),
-      future: times.filter((t) => t > now).map(point),
-      resets,
-    };
-  });
-  const combined = (t: number) => ({
-    at: at(t),
-    left_pct: round(plans.reduce((sum, a) => sum + Math.min(a.five(t), a.week(t)), 0) / plans.length),
-  });
-  const future = times.filter((t) => t > now).map(combined);
-  const next = firstReset > now && firstReset <= to ? firstReset : null;
-  return {
-    now: at(now),
-    step_s: step as number,
-    combined: { past: times.filter((t) => t <= now).map(combined), future },
-    accounts,
-    runs_out_at: future.find((q) => q.left_pct !== null && q.left_pct <= 0)?.at ?? null,
-    next_reset: next === null ? null : { at: at(next), account: 'alpha', window: '5h' },
   };
 }
