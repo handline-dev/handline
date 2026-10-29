@@ -38,7 +38,7 @@ export const BodyImage = Image.extend({
 /** Compact: one or two lines. The picture nodes, and the empty paragraph after them, sit inline so the thumbnails make one row. */
 const COMPACT =
   'min-h-9 [&_p]:m-0 [&>div]:mr-1.5 [&>div]:inline-block [&>div]:align-top [&>p:has(>br:only-child)]:inline-block [&>p:has(>br:only-child)]:min-w-4';
-const BOX = 'rounded-sm border border-line bg-panel px-2 py-1.5 text-ink';
+const BOX = 'rounded-sm border border-line-strong bg-canvas px-2 py-1.5 text-ink';
 
 const imagesOf = (list: FileList | null | undefined): File[] => Array.from(list ?? []).filter((f) => f.type.startsWith('image/'));
 
