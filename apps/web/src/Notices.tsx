@@ -151,9 +151,11 @@ function useAway(onChange: (away: boolean) => void) {
  * toast or the keyboard focus in it stops its clock, as does a hidden or unfocused window. A click opens what it is about and closes only it.
  */
 const MARK = { need: ['warn', 'text-wait'], fail: ['failed', 'text-bad'], ok: ['done', 'text-ok'], info: ['info', 'text-ink-3'] } as const;
+/** The stack shows the newest three; the bell lists the rest. */
+const MAX_TOASTS = 3;
 const CHIP = 'bg-raised! tint';
 
-/** One toast: a normal card on the neutral panel, the status icon, a bold title and a short second line, then its buttons: the main one filled, the rest grey chips. */
+/** One toast: the same inset on every side, the status icon with a bold title and a short second line, then its buttons flush right: the main one filled, the rest grey chips. */
 function Toast({ n }: { n: Notice }) {
   const store = useStore();
   const [more, setMore] = useState(false);
@@ -163,7 +165,7 @@ function Toast({ n }: { n: Notice }) {
   const long = !!n.details;
   return (
     <div
-      className="toast relative flex items-start gap-2 rounded-md border border-line bg-panel px-3 py-2 text-md text-ink shadow-[var(--shadow)]"
+      className="toast relative flex items-start gap-2 rounded-md border border-line bg-panel p-3 text-md text-ink shadow-[var(--shadow)]"
       onPointerEnter={() => store.notices.hold(n.id, 'pointer')}
       onPointerLeave={() => store.notices.release(n.id, 'pointer')}
       onFocus={() => store.notices.hold(n.id, 'focus')}
@@ -177,7 +179,7 @@ function Toast({ n }: { n: Notice }) {
         {sub ? <span className="text-ink-2">{sub}</span> : null}
         {more && n.details ? <span className="whitespace-pre-wrap text-xs text-ink-3">{n.details}</span> : null}
         {go || n.retry || long ? (
-          <span className="mt-0.5 flex flex-wrap gap-1.5">
+          <span className="mt-0.5 flex flex-wrap justify-end gap-1.5">
             {go ? (
               <Button variant="solid" size="sm" label={openWord(n)} className="toast-open" onClick={() => openNotice(store, n)}>
                 {openWord(n)}
@@ -278,7 +280,7 @@ function Toasts({ hidden }: { hidden: boolean }) {
   return (
     <div
       ref={stack}
-      className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[360px] max-w-[90vw] flex-col-reverse gap-1.5"
+      className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[380px] max-w-[90vw] flex-col-reverse gap-1.5"
       role="status"
     >
       {spare.map((n) => (
@@ -286,7 +288,7 @@ function Toasts({ hidden }: { hidden: boolean }) {
           <SpareCard n={n} />
         </div>
       ))}
-      {toasts.map((n) => (
+      {toasts.slice(0, MAX_TOASTS).map((n) => (
         <Toast key={n.id} n={n} />
       ))}
     </div>

@@ -34,11 +34,11 @@ afterEach(async () => {
 });
 
 describe('system resources', () => {
-  it('the status bar has one text cell of what the agents use and a keep-awake choice; settings show only after a click', async () => {
+  it('the status bar has cells for the CPU, memory and disk and a keep-awake choice; settings show only after a click', async () => {
     await mount('#/my-turn');
     await until(() => box.querySelector('.resource-cell'), 'the resource cell');
-    expect(text(box.querySelector('.resource-cell'))).toMatch(/^Agents: CPU \d+%, .* · Memory .* free \(\d+%\)$/);
-    expect(text(box.querySelector('.statusbar'))).toContain('Awake: Off');
+    expect(text(box.querySelector('.resource-cell'))).toMatch(/^CPU \d+%.*Memory .* free.*Disk .* left/);
+    expect(text(box.querySelector('.statusbar'))).toContain('Off');
     expect(box.querySelector('.limit-editor')).toBeNull();
     await act(async () => void box.querySelector<HTMLElement>('.resource-cell')!.click());
     await until(() => box.querySelector('.resource-details'), 'the popover');

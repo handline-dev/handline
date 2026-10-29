@@ -1,4 +1,4 @@
-// The status bar's right-hand resource area: the keep-awake choice and the one text cell of what the agents use, which opens a popover of the
+// The status bar's right-hand resource area: the keep-awake choice and the cells of what the machine and the agents use (CPU, memory, disk), which opens a popover of the
 // machine's load, CPU, memory, why starts are held and each agent's use. Everything shown is read-only; a limit's editor opens only on a click
 // on its row and closes with the popover.
 import { useEffect, useState, type ReactNode } from 'react';
@@ -12,16 +12,18 @@ import {
   loadFull,
   memoryLow,
   MEMORY_PRESETS,
-  resourceLine,
+  resourceCells,
   useRows,
   type Limits,
   type PageSettings,
 } from '@handline/app-core';
 import type { Resources } from '@handline/client';
 import { sentence, classify, useSettings, useStatus, useWrite } from '@handline/app-data';
+import { Coffee, Cpu, HardDrive, MemoryStick, TriangleAlert } from 'lucide-react';
 import { Button, Icon, MenuButton, MenuCheckItem, Popup, Segmented, STRIP_ITEM } from '#src/ui/index.ts';
 
 type Awake = 'off' | 'on' | 'working';
+const CELL_ICON = { cpu: Cpu, memory: MemoryStick, disk: HardDrive } as const;
 const AWAKE: { value: Awake; label: string }[] = [
   { value: 'off', label: 'Off' },
   { value: 'on', label: 'On' },
@@ -48,7 +50,7 @@ export function ResourceArea() {
   const limits = useLimits();
   const save = useWrite('settings.set');
   const working = (data?.agents.by_state as Record<string, number> | undefined)?.running ?? 0;
-  const line = resourceLine(r, limits);
+  const cells = resourceCells(r, limits);
   const [open, setOpen] = useState(false);
   useEffect(() => {
     const show = () => setOpen(true);
@@ -65,7 +67,8 @@ export function ResourceArea() {
         align="start"
         trigger={
           <>
-            Awake: {label}
+            <Coffee width={14} height={14} strokeWidth={1.75} aria-hidden />
+            {label}
             {limits.awake === 'working' ? ` (${working})` : ''}
           </>
         }
@@ -82,18 +85,25 @@ export function ResourceArea() {
         ))}
         <p className="m-0 px-2 pb-1 text-xs text-ink-2">Closing the lid still sleeps the Mac.</p>
       </MenuButton>
-      {line && r ? (
+      {cells && r ? (
         <span className="relative inline-flex">
           <button
             type="button"
-            className="resource-cell tint -mx-1 inline-flex cursor-pointer items-center rounded-sm border-0 bg-transparent px-1 py-0 text-xs text-ink-2"
+            className="resource-cell tint -mx-1 inline-flex cursor-pointer items-center gap-3 rounded-sm border-0 bg-transparent px-1 py-0 text-xs text-ink-2"
             aria-expanded={open}
             title="What the machine and the agents use"
             onClick={() => setOpen(!open)}
           >
-            <span className={line.over ? 'text-bad' : undefined} data-over={line.over || undefined}>
-              {line.text}
-            </span>
+            {cells.map((c) => {
+              const Glyph = CELL_ICON[c.kind];
+              return (
+                <span key={c.kind} className={`inline-flex items-center gap-1 ${c.warn ? 'text-bad' : ''}`} data-over={c.warn || undefined}>
+                  <Glyph width={14} height={14} strokeWidth={1.75} aria-hidden />
+                  {c.text}
+                  {c.warn ? <TriangleAlert width={12} height={12} strokeWidth={1.75} aria-hidden /> : null}
+                </span>
+              );
+            })}
           </button>
           <Popup open={open} onClose={() => setOpen(false)} title="Resources" align="right" up bare>
             <Details r={r} limits={limits} />
