@@ -4,13 +4,14 @@
 import { useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
 import { useStore } from '@handline/app-react';
-import { askOf, needsAsk, verbsOf, type Verb, type VerbId } from '@handline/app-core';
+import { askOf, heldWords, needsAsk, verbsOf, type HeldWorktree, type Verb, type VerbId, type WorktreeAnswer } from '@handline/app-core';
 import { classify, sentence, useAccounts, useAgents, useOff, useRetireAgent, useServes, useVerbRun } from '@handline/app-data';
 import type { AgentDetail, AgentView } from '@handline/client';
 import { space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Sheet } from '#src/screens/TaskActions.tsx';
 import { Button, MenuItem, MenuSheet, Row } from '#src/screens/parts.tsx';
+import { POP_LABELS, WorktreeAnswers } from '#src/screens/WorktreeAnswers.tsx';
 import type { IconName } from '#src/screens/Icon.tsx';
 
 const VERB_ICON: Record<VerbId, IconName> = {
@@ -194,26 +195,40 @@ function VerbSheet(props: {
   );
 }
 
-/** Delete agent: says what goes and what stays; a refusal (a running session, agents under it) keeps the sheet with the daemon's reason. */
+/** Delete agent: says what goes and what stays; a refusal (a running session, agents under it) keeps the sheet with the daemon's reason.
+ * A worktree that holds work turns it into the three answers for that work, and the delete is sent again with the one picked. */
 function DeleteSheet(props: { name: string; onClose: () => void; onDeleted?: () => void }) {
   const retire = useRetireAgent(props.name);
   const [why, setWhy] = useState('');
+  const [held, setHeld] = useState<HeldWorktree[]>([]);
   const [busy, setBusy] = useState(false);
   const c = usePalette();
-  const go = () => {
+  const go = (worktree?: WorktreeAnswer) => {
     setBusy(true);
     setWhy('');
-    retire({
-      onSuccess: () => {
-        props.onClose();
-        props.onDeleted?.();
+    retire(
+      {
+        onSuccess: () => {
+          props.onClose();
+          props.onDeleted?.();
+        },
+        onError: (e) => {
+          setBusy(false);
+          const f = classify(e);
+          if (f.kind === 'refused' && f.held?.length) setHeld(f.held);
+          else setWhy(sentence(f));
+        },
       },
-      onError: (e) => {
-        setBusy(false);
-        setWhy(sentence(classify(e)));
-      },
-    });
+      worktree,
+    );
   };
+  if (held.length)
+    return (
+      <Sheet label={`${props.name} has work in its worktree`} onCancel={props.onClose} error={why || undefined} id="delete-held">
+        <Text style={{ color: c.muted }}>{`${props.name} has ${heldWords(held)}. Nothing is deleted until you pick.`}</Text>
+        <WorktreeAnswers id="delete-held" labels={POP_LABELS} busy={busy} onPick={go} />
+      </Sheet>
+    );
   return (
     <Sheet
       label={`Delete ${props.name}?`}
@@ -221,12 +236,12 @@ function DeleteSheet(props: { name: string; onClose: () => void; onDeleted?: () 
       kind="no"
       busy={busy}
       onCancel={props.onClose}
-      onSubmit={go}
+      onSubmit={() => go()}
       error={why || undefined}
     >
       <Text style={{ color: c.muted }}>
-        Its team entry, schedule and keys go, and its folder is moved to the archive. Past messages, tasks, events and the git worktree
-        stay.
+        Its team entry, schedule and keys go, and its folder is moved to the archive. Past messages, tasks and events stay. A worktree with
+        nothing in it goes with its branch; one that holds work asks you first.
       </Text>
     </Sheet>
   );
