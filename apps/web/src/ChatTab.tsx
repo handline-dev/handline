@@ -35,6 +35,7 @@ import { BlockedCard, HeldCard } from '#src/ChatHeld.tsx';
 import { ChatBanner, ChatStrip, HandoffCard, HrCards, NeedsYouCard, useDecided } from '#src/ChatCards.tsx';
 import { ChatSearch } from '#src/ChatSearch.tsx';
 import { Button, Empty, Icon, Textarea, ComposeRow } from '#src/ui/index.ts';
+import { ComposerBar } from '#src/ds/Chat.tsx';
 import { useWantedMessage } from '#src/route.ts';
 import { useWorkspace } from '#src/Workspace.tsx';
 
@@ -63,13 +64,15 @@ function ChatOff({ agent, detail }: { agent: string; detail: AgentDetail }) {
       </div>
       <ComposeRow>
         <Textarea
-          className="compose flex-1 resize-none border-0 bg-transparent px-1.5"
+          className="compose block w-full resize-none border-0 bg-transparent p-0!"
           rows={2}
           placeholder="Chat is not available from this daemon yet"
           disabled
           aria-label="Message to the agent"
         />
-        <Button variant="solid" icon="send" label="Send" disabled />
+        <ComposerBar>
+          <Button variant="solid" icon="send" label="Send" disabled />
+        </ComposerBar>
       </ComposeRow>
     </section>
   );

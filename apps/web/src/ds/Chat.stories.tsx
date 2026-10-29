@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { ChevronDown, Gauge, GitBranch, Mic, Paperclip, UserRound } from 'lucide-react';
+import { ChevronDown, Gauge, GitBranch, Hourglass, Mic, Paperclip, UserRound } from 'lucide-react';
 import { Button } from '#src/ds/Button.tsx';
-import { AgentSay, Composer, ComposerFoot, FootCell, UserBubble, WorkLine } from '#src/ds/Chat.tsx';
+import { AgentSay, Composer, ComposerFoot, FootCell, Notice, UserBubble, WorkLine } from '#src/ds/Chat.tsx';
 import { Id } from '#src/ds/Link.tsx';
 
 const meta: Meta<typeof Composer> = { title: 'Patterns/Chat and composer', component: Composer };
@@ -49,3 +49,13 @@ export const AgentWords: Story = {
 };
 export const ComposerEmpty: Story = { args: { placeholder: 'Send a message…', left: model, tools } };
 export const ComposerTyping: Story = { args: { defaultValue: 'Run the audit again, then merge', left: model, tools } };
+export const HeldNotice: Story = {
+  render: () => (
+    <Notice
+      icon={<Hourglass width={14} height={14} strokeWidth={1.75} aria-hidden />}
+      actions={<Button kind="quiet" size="s" label="Start now" />}
+    >
+      <strong>Waiting: the computer is busy right now.</strong> It starts by itself when it calms down.
+    </Notice>
+  ),
+};

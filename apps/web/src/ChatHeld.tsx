@@ -8,7 +8,8 @@ import { useServed } from '#src/AgentVerbs.tsx';
 import { openTaskOnClick } from '#src/ChatMessages.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
 import { OPEN_RESOURCES } from '#src/ResourceArea.tsx';
-import { Button, Card, CardWhat, Icon } from '#src/ui/index.ts';
+import { Button, Icon } from '#src/ui/index.ts';
+import { Notice } from '#src/ds/Chat.tsx';
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -22,20 +23,22 @@ export function BlockedCard({ detail }: { detail: AgentDetail }) {
   const you = status.reason === 'you' && !detail.needs_you && !detail.has_dialog;
   if (status.reason !== 'task' && !you) return null;
   return (
-    <Card variant="event" tone="wait" className="card-blocked group" data-kind="blocked" data-reason={status.reason}>
-      <Icon name="blocked" label="Blocked" />
-      <CardWhat wrap>
-        <strong>{capital(status.text || (you ? 'Needs you' : 'Blocked'))}</strong>
-        {ids.map((id) => (
-          <a key={id} className="muted ml-1.5 underline" href={`#/tasks/${id}`} onClick={openTaskOnClick(apply, id)}>
-            {taskRef(id)}
-            {titles.get(id) ? ` ${titles.get(id)}` : ''}
-          </a>
-        ))}
-        {status.since ? <span className="muted ml-1.5 hidden group-hover:inline">for {ago(status.since)}</span> : null}
-      </CardWhat>
-      {you && detail.task ? <Button label="Open" size="sm" onClick={() => apply((w) => openTask(w, detail.task!.id))} /> : null}
-    </Card>
+    <Notice
+      icon={<Icon name="blocked" label="Blocked" />}
+      className="card-blocked group"
+      data-kind="blocked"
+      data-reason={status.reason}
+      actions={you && detail.task ? <Button label="Open" size="sm" onClick={() => apply((w) => openTask(w, detail.task!.id))} /> : null}
+    >
+      <strong>{capital(status.text || (you ? 'Needs you' : 'Blocked'))}</strong>
+      {ids.map((id) => (
+        <a key={id} className="muted ml-1.5 underline" href={`#/tasks/${id}`} onClick={openTaskOnClick(apply, id)}>
+          {taskRef(id)}
+          {titles.get(id) ? ` ${titles.get(id)}` : ''}
+        </a>
+      ))}
+      {status.since ? <span className="muted ml-1.5 hidden group-hover:inline">for {ago(status.since)}</span> : null}
+    </Notice>
   );
 }
 
@@ -49,22 +52,28 @@ export function HeldCard({ detail }: { detail: AgentDetail }) {
   if (status?.reason !== 'load' && status?.reason !== 'pace') return null;
   const verb = VERBS.force_start;
   return (
-    <Card variant="event" tone="wait" className="card-held group" data-kind="held" data-reason={status.reason}>
-      <Icon name="blocked" label="Held" />
-      <CardWhat wrap>
-        <strong>{status.text || 'Waiting: the computer is busy right now. It starts by itself when it calms down.'}</strong>
-        {status.since ? <span className="muted hidden group-hover:inline"> · for {ago(status.since)}</span> : null}
-        {refused ? <span role="alert">{refused}</span> : null}
-      </CardWhat>
-      <Button label="See what uses the computer" size="sm" onClick={() => window.dispatchEvent(new Event(OPEN_RESOURCES))} />
-      {served(verb) ? (
-        <Button
-          label="Start now"
-          size="sm"
-          disabled={busy}
-          onClick={() => (setRefused(null), run(verb, undefined, { onError: (e) => setRefused(sentence(classify(e))) }))}
-        />
-      ) : null}
-    </Card>
+    <Notice
+      icon={<Icon name="blocked" label="Held" />}
+      className="card-held group"
+      data-kind="held"
+      data-reason={status.reason}
+      actions={
+        <>
+          <Button label="See what uses the computer" size="sm" onClick={() => window.dispatchEvent(new Event(OPEN_RESOURCES))} />
+          {served(verb) ? (
+            <Button
+              label="Start now"
+              size="sm"
+              disabled={busy}
+              onClick={() => (setRefused(null), run(verb, undefined, { onError: (e) => setRefused(sentence(classify(e))) }))}
+            />
+          ) : null}
+        </>
+      }
+    >
+      <strong>{status.text || 'Waiting: the computer is busy right now. It starts by itself when it calms down.'}</strong>
+      {status.since ? <span className="muted hidden group-hover:inline"> · for {ago(status.since)}</span> : null}
+      {refused ? <span role="alert">{refused}</span> : null}
+    </Notice>
   );
 }

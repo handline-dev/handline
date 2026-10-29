@@ -15,7 +15,8 @@ import {
 } from '@handline/app-core';
 import { classify, sentence, useAgentStrip, useHr, useVerbMark, useVerbRun, useWorktrees } from '@handline/app-data';
 import { useServed } from '#src/AgentVerbs.tsx';
-import { Button, Card, CardWhat, Chip, Icon } from '#src/ui/index.ts';
+import { Button, Chip, Icon } from '#src/ui/index.ts';
+import { Notice } from '#src/ds/Chat.tsx';
 import { goTeam } from '#src/route.ts';
 import { openTaskOnClick } from '#src/ChatMessages.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
@@ -108,10 +109,9 @@ export function ChatBanner({ detail }: { detail: AgentDetail }) {
     detail.blocker || detail.wall_reason || (detail.state === 'stalled' ? detail.state_detail || 'The session stopped answering' : null);
   if (!why) return null;
   return (
-    <Card variant="event" tone="bad" className="chat-banner" role="status">
-      <Icon name="blocked" size={14} label="Blocked" />
-      <span>{why}</span>
-    </Card>
+    <Notice icon={<Icon name="blocked" size={14} label="Blocked" />} className="chat-banner" role="status">
+      {why}
+    </Notice>
   );
 }
 
@@ -126,21 +126,17 @@ export function DecidedCard({ p }: { p: Proposal }) {
   const word =
     p.state === 'rejected' ? 'Rejected' : p.kind === 'add' && p.asked?.team ? `Applied: ${p.agent} added to ${p.asked.team}` : 'Applied';
   return (
-    <Card
-      variant="event"
-      tone={p.state === 'rejected' ? 'none' : 'ok'}
+    <Notice
+      icon={<Icon name="team" size={13} label="Proposal" />}
       className="card-hr decided"
       data-kind="hr"
       data-proposal={p.id}
       data-state={p.state}
+      actions={<Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />}
     >
-      <Icon name="team" size={13} label="Proposal" />
-      <span className="min-w-0 truncate">
-        <strong className="font-medium text-ink">{p.title}</strong> · <span className="outcome">{word} by you</span> ·{' '}
-        {p.settled ? clockTime(p.settled) : ''}
-      </span>
-      <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
-    </Card>
+      <strong className="font-medium text-ink">{p.title}</strong> · <span className="outcome">{word} by you</span> ·{' '}
+      {p.settled ? clockTime(p.settled) : ''}
+    </Notice>
   );
 }
 
@@ -153,36 +149,32 @@ function FollowUpCard({ p, follow }: { p: Proposal; follow: FollowUp }) {
   const [refused, setRefused] = useState<string | null>(null);
   const verb = VERBS.force_start;
   return (
-    <Card
-      variant="event"
-      tone={follow.state === 'failed' ? 'bad' : 'wait'}
+    <Notice
+      icon={<Icon name="team" label="Proposal" />}
       className="card-hr"
       data-kind="hr"
       data-proposal={p.id}
       data-state={p.state}
       data-follow-up={follow.state}
+      actions={
+        served(verb) ? (
+          <Button
+            label="Start now"
+            size="sm"
+            disabled={busy}
+            onClick={() => (setRefused(null), run(verb, undefined, { onError: (e) => setRefused(sentence(classify(e))) }))}
+          />
+        ) : (
+          <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
+        )
+      }
     >
-      <Icon name="team" label="Proposal" />
-      <CardWhat>
-        <strong>{p.title}</strong>
-        <span className="muted">
-          {' · '}
-          <span className="outcome">Applied</span>
-          {` · ${follow.state === 'failed' ? follow.text : `${follow.agent} starts when the load drops`}`}
-        </span>
-        {refused ? <span role="alert"> · {refused}</span> : null}
-      </CardWhat>
-      {served(verb) ? (
-        <Button
-          label="Start now"
-          size="sm"
-          disabled={busy}
-          onClick={() => (setRefused(null), run(verb, undefined, { onError: (e) => setRefused(sentence(classify(e))) }))}
-        />
-      ) : (
-        <Button icon="open" label="Open in Team" size="sm" onClick={() => goTeam('hr')} />
-      )}
-    </Card>
+      <strong>{p.title}</strong>
+      {' · '}
+      <span className="outcome">Applied</span>
+      {` · ${follow.state === 'failed' ? follow.text : `${follow.agent} starts when the load drops`}`}
+      {refused ? <span role="alert"> · {refused}</span> : null}
+    </Notice>
   );
 }
 
@@ -202,11 +194,14 @@ export function HrCards({ agent }: { agent: string }) {
         <FollowUpCard key={p.id} p={p} follow={follow} />
       ))}
       {open ? (
-        <Card variant="event" tone="wait" className="card-hr" data-kind="hr">
-          <Icon name="team" label="Proposal" />
-          <CardWhat>HR proposals: {open} · needs you</CardWhat>
-          <Button icon="open" label="Open in HR" size="sm" onClick={() => goTeam('hr')} />
-        </Card>
+        <Notice
+          icon={<Icon name="team" label="Proposal" />}
+          className="card-hr"
+          data-kind="hr"
+          actions={<Button icon="open" label="Open in HR" size="sm" onClick={() => goTeam('hr')} />}
+        >
+          HR proposals: {open} · needs you
+        </Notice>
       ) : null}
     </>
   );
@@ -229,15 +224,17 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
   if (!need) return null;
   const reachable = detail.structured || !!detail.terminal;
   return (
-    <Card variant="event" tone="wait" className="card-needs" data-kind="needs_you" data-need={need.kind}>
-      <Icon name="blocked" label="Needs you" />
-      <CardWhat stacked>
-        <strong>{NEEDS[need.kind] ?? NEEDS.dialog}</strong>
-        {need.text ? <span className="muted">{need.text}</span> : null}
-        <span className="muted">{ago(need.since)}</span>
-      </CardWhat>
-      <Button icon="terminal" label="Open terminal" size="sm" disabled={!reachable} onClick={openTerminal} />
-    </Card>
+    <Notice
+      icon={<Icon name="blocked" label="Needs you" />}
+      className="card-needs"
+      data-kind="needs_you"
+      data-need={need.kind}
+      actions={<Button icon="terminal" label="Open terminal" size="sm" disabled={!reachable} onClick={openTerminal} />}
+    >
+      <strong>{NEEDS[need.kind] ?? NEEDS.dialog}</strong>
+      {need.text ? <span className="muted"> · {need.text}</span> : null}
+      <span className="muted"> · {ago(need.since)}</span>
+    </Notice>
   );
 }
 

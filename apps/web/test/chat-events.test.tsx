@@ -44,7 +44,7 @@ const rename = (id: number, agent: string, follow_up: { agent: string; state: st
 });
 
 describe('event cards', () => {
-  it('one look for every kind, tinted, with no bar: waiting amber; the proposals are one line', async () => {
+  it('one look for every kind: a quiet line with no ground and no bar; the proposals are one line', async () => {
     const s = setup();
     const hr = s.daemon.script.hr;
     hr.raise({ id: 910, title: 'settings handline.auditor', diff: 'effort: high', state: 'open' });
@@ -54,9 +54,7 @@ describe('event cards', () => {
     };
     await mount(s);
     await until(() => $('.card-held') && $('.card-hr'), 'the cards');
-    for (const el of [$('.card-held'), $('.card-hr')]) expect(el!.classList.contains('event')).toBe(true);
-    expect($('.card-held')!.dataset.tone).toBe('wait');
-    expect($('.card-hr')!.dataset.tone).toBe('wait');
+    for (const el of [$('.card-held'), $('.card-hr')]) expect(el!.className).not.toMatch(/\bbg-/); // a quiet line, no ground
     expect($('.card-hr')!.textContent).toContain('HR proposals: 2 · needs you');
     expect(document.querySelector('[data-proposal="911"]')).toBeNull(); // the detail is in My turn and HR
   });
@@ -70,7 +68,6 @@ describe('event cards', () => {
     expect(card.textContent).toContain('Applied');
     expect(card.textContent).toContain(`${ARCH} starts when the load drops`);
     expect(card.textContent).not.toContain('Not applied');
-    expect(card.dataset.tone).toBe('wait');
     expect([...card.querySelectorAll('button')].some((b) => b.getAttribute('aria-label') === 'Approve')).toBe(false);
     await act(async () => ([...card.querySelectorAll('button')].find((b) => b.textContent === 'Start now') as HTMLElement).click());
     await until(() => !$('[data-follow-up]'), 'the waiting card gone once the agent started');
@@ -85,7 +82,6 @@ describe('event cards', () => {
     const card = $('[data-proposal="913"]')!;
     expect(card.textContent).toContain('start failed: no free account');
     expect(card.textContent).not.toContain('Not applied');
-    expect(card.dataset.tone).toBe('bad');
     expect([...card.querySelectorAll('button')].some((b) => b.textContent === 'Start now')).toBe(true);
   });
 
@@ -97,7 +93,6 @@ describe('event cards', () => {
     await mount(s);
     await until(() => $('.card-blocked'), 'the blocked card');
     const card = $('.card-blocked')!;
-    expect(card.dataset.tone).toBe('wait');
     expect(card.textContent).toContain('Blocked by T1684 (human)');
     const link = card.querySelector('a')!;
     expect(link.getAttribute('href')).toBe('#/tasks/1684');

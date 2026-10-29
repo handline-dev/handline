@@ -7,7 +7,7 @@ import { clockTime, isAlways, promptTitle } from '@handline/app-core';
 import { usePromptAnswer } from '@handline/app-data';
 import { AnimatedItem, AnimatedList } from '#src/AnimatedList.tsx';
 import { Icon } from '#src/ui/Icon.tsx';
-import { Button, Card, CardActions, CodeBlock, Input, Kbd, Check } from '#src/ui/index.ts';
+import { Button, CardActions, CodeBlock, Input, Kbd, Check } from '#src/ui/index.ts';
 
 export function PromptCard({ agent, prompt: p, onStale }: { agent: string; prompt: Prompt; onStale?: () => void }) {
   const { answering, picked, typing, setTyping, text, setText, changed, all, cancel, opts, multi, question, send, toggle, mark } =
@@ -43,9 +43,8 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
   };
 
   return (
-    <Card
-      variant="chat"
-      className="prompt !flex-col !items-stretch !gap-0 bg-surface"
+    <div
+      className="card prompt my-2 flex flex-col border-t border-line pt-3"
       role="alert"
       ref={card}
       tabIndex={-1}
@@ -172,7 +171,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
         </CardActions>
       ) : null}
       {answering ? <p className="muted">{slow ? 'still waiting' : 'answering…'}</p> : null}
-    </Card>
+    </div>
   );
 }
 

@@ -16,7 +16,8 @@ import {
   tickLevel,
 } from '@handline/app-core';
 import { useMe } from '@handline/app-react';
-import { Button, Card, CardCode, CardWhat, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
+import { Button, CardCode, CodeBlock, Dialog, Icon } from '#src/ui/index.ts';
+import { Notice } from '#src/ds/Chat.tsx';
 import { bubbleClass, MSG_BODY, MSG_FAILED, MSG_FROM, MSG_META } from '#src/msgClass.ts';
 import { Pictures } from '#src/ChatAttach.tsx';
 import { Markdown } from '#src/Markdown.tsx';
@@ -393,17 +394,25 @@ export function Item({
     const name = p?.kind === 'permission' ? 'permission' : 'prompt';
     const what = p?.kind === 'permission' ? `Asked permission: ${p.tool ?? ''}` : `Asked: ${p?.kind ?? 'a dialog'}`;
     return (
-      <Card variant="chat" className="card-prompt group w-fit max-w-full" data-kind="prompt" data-open={i.open ? '' : undefined}>
-        <Icon name={name} label={what} />
-        <CardWhat>
+      <Notice
+        icon={<Icon name={name} label={what} />}
+        className="card-prompt group w-fit max-w-full"
+        data-kind="prompt"
+        data-open={i.open ? '' : undefined}
+        actions={
+          <>
+            <span className="card-state" title={i.open ? 'Needs you' : 'Answered'}>
+              <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Needs you' : 'Answered'} />
+            </span>
+            <span className="muted card-time hidden group-hover:inline group-focus-within:inline">{clockTime(i.at)}</span>
+          </>
+        }
+      >
+        <span className="flex items-center gap-1.5 overflow-hidden whitespace-nowrap">
           {p?.kind === 'permission' ? <span className="mono">{p.tool}</span> : <span className="muted">{p?.kind}</span>}
           {p?.command ? <CardCode>{p.command}</CardCode> : null}
-        </CardWhat>
-        <span className="card-state" title={i.open ? 'Needs you' : 'Answered'}>
-          <Icon name={i.open ? 'waiting' : 'answered'} size={14} label={i.open ? 'Needs you' : 'Answered'} />
         </span>
-        <span className="muted card-time hidden group-hover:inline group-focus-within:inline">{clockTime(i.at)}</span>
-      </Card>
+      </Notice>
     );
   }
   if (i.kind === 'session') return <SessionCard i={i} />;

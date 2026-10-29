@@ -5,7 +5,7 @@ import { CLOSED, clockTime, isPerson, openTask, type TaskChange, taskRow } from 
 import { useMe } from '@handline/app-react';
 import { useServes, useTask, useWrite } from '@handline/app-data';
 import { useWorkspace } from '#src/Workspace.tsx';
-import { Button, Card, Icon } from '#src/ui/index.ts';
+import { Button, Icon } from '#src/ui/index.ts';
 
 const DOT: Record<string, string> = { opened: 'bg-ok', changed: 'bg-wait', done: 'bg-ok', withdrawn: 'bg-bad' };
 const VERB: Record<string, string> = { opened: 'added', changed: 'changed', done: 'done', withdrawn: 'deleted' };
@@ -87,7 +87,7 @@ export function BatchCard({ i }: { i: TranscriptItem }) {
   const b = i.task_batch;
   if (!b) return null;
   return (
-    <Card variant="chat" className="card-batch group flex-col items-stretch" data-kind="task_batch">
+    <div className="card-batch group my-1 flex flex-col gap-1 text-sm" data-kind="task_batch">
       <div className="flex items-baseline gap-x-2">
         <Icon name="withdrawn" size={14} label="Discarded" />
         <span className="card-event text-meta font-semibold uppercase tracking-wide">Discarded {b.tasks.length}</span>
@@ -110,6 +110,6 @@ export function BatchCard({ i }: { i: TranscriptItem }) {
           </Button>
         </div>
       ))}
-    </Card>
+    </div>
   );
 }
