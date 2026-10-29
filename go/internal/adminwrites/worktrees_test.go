@@ -96,3 +96,53 @@ func TestRemoveTakesAnOrphanCleanAtOnceAndOneHoldingWorkOnlyByForce(t *testing.T
 		t.Fatalf("forced: %v, the unmerged branch stays", res)
 	}
 }
+
+// An agent records a worktree it works in beside its start dir: worktree.remove no longer takes it as an orphan, a second record is said
+// so, and a path that is no worktree of an agent's repo, the repo's own checkout or a person's call is refused.
+func TestAnAgentDeclaresAWorktreeItWorksInSoItIsNoOrphan(t *testing.T) {
+	r := newRig(t)
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	repo, mine, used := filepath.Join(root, "repo"), filepath.Join(root, "mine"), filepath.Join(root, "used")
+	os.MkdirAll(repo, 0o755)
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"commit", "-q", "--allow-empty", "-m", "start"},
+		{"worktree", "add", "-q", "-b", "mine", mine}, {"worktree", "add", "-q", "-b", "used", used}} {
+		if out, err := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	os.WriteFile(filepath.Join(r.home, "agents", "alice", "agent.yaml"), []byte("repo: "+repo+"\n"), 0o644)
+	r.e.DB.Exec("INSERT INTO agent_state(agent, state, updated, worktree, extra_worktrees) VALUES('alice', 'idle', 0, ?, '[\"/kept/extra\"]')", mine)
+	declare := func(path, id string) map[string]any {
+		return r.one("worktree.declare", fmt.Sprintf(`{"path":%q,"request_id":%q}`, path, id))
+	}
+	gate := func(m map[string]any) any {
+		e, _ := m["error"].(map[string]any)
+		d, _ := e["data"].(map[string]any)
+		return d["gate"]
+	}
+
+	if g := gate(declare(used, "d0")); g != "role" {
+		t.Fatalf("a person's call: %v", g)
+	}
+	r.as = "alice"
+	if res := r.result(declare(used, "d1")); res["said"] != used+" is recorded as one of alice's worktrees" {
+		t.Fatalf("%v", res)
+	}
+	var extras string
+	r.e.DB.QueryRow("SELECT extra_worktrees FROM agent_state WHERE agent = 'alice'").Scan(&extras)
+	if extras != `["/kept/extra", "`+used+`"]` {
+		t.Fatalf("extra_worktrees %s", extras)
+	}
+	if res := r.result(declare(used, "d2")); res["said"] != used+" is already one of alice's worktrees" {
+		t.Fatalf("again: %v", res)
+	}
+	for i, path := range []string{repo, filepath.Join(root, "elsewhere")} {
+		if c := r.code(declare(path, fmt.Sprint("n", i))); c != "not_found" {
+			t.Fatalf("%s: %s", path, c)
+		}
+	}
+	r.as = ""
+	if g := gate(r.one("worktree.remove", fmt.Sprintf(`{"path":%q,"request_id":"x1","force":true}`, used))); g != "orphan" {
+		t.Fatalf("a declared worktree is no orphan: %v", g)
+	}
+}

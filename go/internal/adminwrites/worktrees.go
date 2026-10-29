@@ -2,6 +2,7 @@ package adminwrites
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"github.com/handline/handline/go/internal/db"
@@ -81,5 +82,49 @@ func (e *Env) worktreeRemove(c *rpc.Conn, p map[string]any) (any, error) {
 		}
 		deleted := !holds && worktreeprune.DeleteMergedBranch(repo, wt.Branch)
 		return map[string]any{"accepted": true, "said": path + " removed", "branch_deleted": deleted}, nil
+	})
+}
+
+// worktree.declare: the calling agent records a worktree of an agent's repository as one it works in, beside the one its session
+// started in (agent_state.extra_worktrees), so no list calls it an orphan and it goes with the agent. One already recorded is said so.
+func (e *Env) worktreeDeclare(c *rpc.Conn, p map[string]any) (any, error) {
+	if c.Caller.Role != "agent" {
+		return nil, rpc.Refused("worktree.declare is for an agent: it records a worktree the caller works in", "role", "")
+	}
+	path, _ := p["path"].(string)
+	if path == "" {
+		return nil, badParam("path is a worktree path", "path")
+	}
+	real := worktreeprune.Real(path)
+	if !worktreeprune.InAgentRepo(e.Home, real) {
+		nf := rpc.NotFoundError(path + " is not a worktree of an agent's repository")
+		nf.Data = map[string]any{"what": "worktree", "path": path}
+		return nil, nf
+	}
+	me := c.Caller.Actor()
+	return c.Effect(func(tx *sql.Tx) (map[string]any, error) {
+		have, err := worktreeprune.Of(tx, me)
+		if err != nil {
+			return nil, err
+		}
+		for _, h := range have {
+			if h == real {
+				return map[string]any{"accepted": true, "said": real + " is already one of " + me + "'s worktrees"}, nil
+			}
+		}
+		row, err := db.GetAgentState(tx, me)
+		if err != nil {
+			return nil, err
+		}
+		var extras []string
+		if row != nil && row.ExtraWorktrees.String != "" {
+			if err := json.Unmarshal([]byte(row.ExtraWorktrees.String), &extras); err != nil {
+				return nil, fmt.Errorf("%s's extra_worktrees: %w", me, err)
+			}
+		}
+		if err := db.SetExtraWorktrees(tx, me, append(extras, real)); err != nil {
+			return nil, err
+		}
+		return map[string]any{"accepted": true, "said": real + " is recorded as one of " + me + "'s worktrees"}, nil
 	})
 }

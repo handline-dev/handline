@@ -33,6 +33,7 @@ var commands = map[string]command{
 	"task":            task,
 	"team":            teamCmd,
 	"withdraw":        withdraw,
+	"worktree":        worktree,
 }
 
 func main() {
