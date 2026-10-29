@@ -73,7 +73,7 @@ function Comment({
   const undo = () => (clearTimeout(timer.current), (timer.current = undefined), setUndoing(false));
   if (undoing)
     return (
-      <li className="comment flex items-center gap-2 rounded-card border border-line px-3 py-1 text-hint text-ink-3">
+      <li className="comment flex items-center gap-2 px-0 py-1 text-xs text-ink-3">
         Comment deleted
         <Button variant="ghost" size="sm" icon="undo" label="Undo" onClick={undo}>
           Undo
@@ -81,8 +81,8 @@ function Comment({
       </li>
     );
   return (
-    <li className="comment group grid min-w-0 gap-0.5 rounded-card border border-line px-3 py-1.5">
-      <span className="flex items-center gap-1 text-hint text-ink-3">
+    <li className="comment group grid min-w-0 gap-0.5 border-t border-line px-0 py-2">
+      <span className="flex items-center gap-1 text-xs text-ink-3">
         <span className="min-w-0 flex-1 truncate">
           <strong className="font-medium text-ink-2">{isPerson(item.who, me) ? 'You' : <AgentLink name={item.who} />}</strong>{' '}
           {ago(item.at)}
@@ -102,7 +102,7 @@ function Comment({
           ) : null}
         </span>
       </span>
-      {of ? <span className="truncate text-hint text-ink-3" data-reply-to={of.id}>{`↩ ${of.author}: ${firstLine(of.text)}`}</span> : null}
+      {of ? <span className="truncate text-xs text-ink-3" data-reply-to={of.id}>{`↩ ${of.author}: ${firstLine(of.text)}`}</span> : null}
       {m && ask === 'edit' ? (
         <EditInPlace
           text={text}
@@ -182,10 +182,10 @@ const firstLine = (text: string): string =>
 function Event({ item }: { item: ActivityItem }) {
   return (
     <li className="tevent min-w-0 text-ink-2">
-      <span className="mr-2 inline-block h-2 w-2 rounded-pill bg-ink-3 align-middle" aria-hidden="true" />
-      {item.line} <span className="text-hint text-ink-3">· {dateTime(item.at)}</span>
+      <span className="mr-2 inline-block h-2 w-2 rounded-full bg-ink-3 align-middle" aria-hidden="true" />
+      {item.line} <span className="text-xs text-ink-3">· {dateTime(item.at)}</span>
       {item.note ? (
-        <div className="tnote mt-1 min-w-0 rounded-card border border-line px-3 py-1.5 text-ink">
+        <div className="tnote mt-1 min-w-0 px-0 py-1 text-ink">
           <Fold note={item.note} long={noteIsLong(item.note)}>
             {(text) => <Markdown text={text} />}
           </Fold>
@@ -219,9 +219,9 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
   };
   return (
     <section className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" aria-label="Activity">
-      <h3 className="m-0 text-ink-3">Activity</h3>
+      <h3 className="m-0 text-sm font-semibold">Activity</h3>
       {hidden ? (
-        <button type="button" className="justify-self-start border-0 bg-transparent p-0 text-link" onClick={() => setAll(true)}>
+        <button type="button" className="justify-self-start border-0 bg-transparent p-0 text-acc-ink" onClick={() => setAll(true)}>
           Show {hidden} earlier {hidden === 1 ? 'event' : 'events'}
         </button>
       ) : null}
@@ -246,7 +246,7 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
         {can.ok ? (
           <>
             {answering ? (
-              <p className="m-0 flex items-center gap-2 text-hint text-ink-2" data-replying={answering.id}>
+              <p className="m-0 flex items-center gap-2 text-xs text-ink-2" data-replying={answering.id}>
                 <span className="min-w-0 flex-1 truncate">{`Replying to ${answering.author}: ${firstLine(answering.text)}`}</span>
                 <Button variant="outline" label="Cancel reply" onClick={() => setReplyTo(null)} />
               </p>

@@ -10,7 +10,7 @@ export function Fold({ note, long, children }: { note: string; long: boolean; ch
       {long ? (
         <button
           type="button"
-          className="mt-0.5 cursor-pointer border-0 bg-transparent p-0 text-hint text-link"
+          className="mt-0.5 cursor-pointer border-0 bg-transparent p-0 text-xs text-acc-ink"
           aria-expanded={more}
           onClick={() => setMore(!more)}
         >

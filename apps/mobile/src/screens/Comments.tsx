@@ -37,7 +37,7 @@ export function CommentRow({
   const close = () => (setAsk(null), edit.reset(), del.reset());
   return (
     <View testID={`memo-${memo.id}`} style={{ gap: space.sm }}>
-      <Text style={{ color: c.muted, fontSize: font.size.label }}>{`${memo.author} ${when}`}</Text>
+      <Text style={{ color: c.muted, fontSize: font.size.sm }}>{`${memo.author} ${when}`}</Text>
       {ask === 'edit' ? null : <PrBody id={`memo-${memo.id}`} agent={agent} body={memo.text} />}
       {memo.files?.length ? <MemoFiles files={memo.files} /> : null}
       {memo.readers?.length ? <CommentReaders memo={memo.id} readers={memo.readers} /> : null}
@@ -52,7 +52,7 @@ export function CommentRow({
           <Button testID={`memo-delete-${memo.id}`} label="Delete" disabled={sending || !!offDelete} onPress={() => setAsk('delete')} />
         </View>
       )}
-      {ask === null && (offEdit || offDelete) && <Text style={{ color: c.muted, fontSize: font.size.label }}>{offEdit || offDelete}</Text>}
+      {ask === null && (offEdit || offDelete) && <Text style={{ color: c.muted, fontSize: font.size.sm }}>{offEdit || offDelete}</Text>}
       {ask === 'edit' && (
         <View style={{ gap: space.sm }}>
           <TextInput
@@ -66,14 +66,14 @@ export function CommentRow({
               color: c.ink,
               borderWidth: 1,
               borderColor: !text.trim() || edit.isError ? c.block : c.line,
-              borderRadius: radius.card,
+              borderRadius: radius.m,
               padding: space.md,
               minHeight: 72,
               textAlignVertical: 'top',
             }}
           />
           {!text.trim() || edit.isError ? (
-            <Text testID="memo-edit-error" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
+            <Text testID="memo-edit-error" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.sm }}>
               {!text.trim() ? 'A comment needs text.' : sentence(classify(edit.error))}
             </Text>
           ) : null}
@@ -130,7 +130,7 @@ export function CommentBox({ id }: { id: number }) {
         onChange={setText}
       />
       <Button testID="memo-send" label="Comment" disabled={!!why || !text.trim()} onPress={send} />
-      {why && <Text style={{ color: c.muted, fontSize: font.size.label }}>{why}</Text>}
+      {why && <Text style={{ color: c.muted, fontSize: font.size.sm }}>{why}</Text>}
     </View>
   );
 }

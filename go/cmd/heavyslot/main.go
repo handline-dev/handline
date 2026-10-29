@@ -11,7 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -81,7 +83,11 @@ func main() {
 		os.Exit(2)
 	}
 	if os.Getenv("HANDLINE_HEAVY_SLOT") == "" {
-		if lock, n, err := acquire(); err != nil {
+		class := heavyClass
+		if isLight(args) {
+			class = lightClass
+		}
+		if lock, n, err := acquireClass(class); err != nil {
 			fmt.Fprintf(os.Stderr, "heavyslot: runs without a slot: %v\n", err)
 		} else {
 			defer lock.Close()
@@ -91,8 +97,66 @@ func main() {
 	os.Exit(run(args))
 }
 
-// acquire waits for a free slot and returns its locked file, which holds the slot until it is closed or the process ends.
-func acquire() (*os.File, int, error) {
+// A class is a set of slots with a queue of its own: <slot>-<n>.lock files and <ticket>-* tickets. A run of one test file is light: it
+// takes one of HANDLINE_LIGHT_SLOTS (default 2) light slots, and a wait of 1s or more goes to <dir>/waits.log.
+type class struct {
+	name, slot, ticket string
+	slots              func() int
+}
+
+var (
+	heavyClass = class{"heavy", "slot", "ticket", heavyslots.Slots}
+	lightClass = class{"light", "light", "light-ticket", heavyslots.LightSlots}
+)
+
+var testFile = regexp.MustCompile(`(^|/)[^/.][^/]*\.(test|spec)\.[cm]?[jt]sx?$`)
+
+// isLight is whether the command is vitest run on one named test file, which needs no more than a type check does. A filter that is not
+// a whole test file (vitest takes substrings) or a second argument may run the suite.
+func isLight(args []string) bool {
+	if path.Base(args[0]) != "vitest" {
+		return false
+	}
+	var files []string
+	for _, a := range args[1:] {
+		if a != "run" && !strings.HasPrefix(a, "-") {
+			files = append(files, a)
+		}
+	}
+	return len(files) == 1 && testFile.MatchString(files[0])
+}
+
+// acquire waits for a free heavy slot and returns its locked file, which holds the slot until it is closed or the process ends.
+func acquire() (*os.File, int, error) { return acquireClass(heavyClass) }
+
+func acquireClass(c class) (*os.File, int, error) {
+	began := time.Now()
+	f, n, err := acquireIn(c)
+	if wait := time.Since(began); err == nil && wait >= time.Second {
+		logWait(c, wait)
+	}
+	return f, n, err
+}
+
+// logWait appends one line per wait: epoch seconds, class, agent, seconds waited.
+func logWait(c class, wait time.Duration) {
+	d, err := heavyslots.Dir()
+	if err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(d, "waits.log"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	agent := os.Getenv("OCP_AGENT")
+	if agent == "" {
+		agent = "-"
+	}
+	fmt.Fprintf(f, "%d %s %s %d\n", time.Now().Unix(), c.name, agent, int(wait.Seconds()))
+}
+
+func acquireIn(c class) (*os.File, int, error) {
 	d, err := heavyslots.Dir()
 	if err != nil {
 		return nil, 0, err
@@ -100,14 +164,14 @@ func acquire() (*os.File, int, error) {
 	if err := os.MkdirAll(d, 0o755); err != nil {
 		return nil, 0, err
 	}
-	ticket, err := takeTicket(d)
+	ticket, err := takeTicket(d, c.ticket)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer ticket.drop()
 	me, last, spoke := holder(), "", false
 	for {
-		ahead := ticket.ahead()
+		ahead := ticket.ahead(c.ticket)
 		var held, said []string
 		// Only the first in line looks at memory and disk; it keeps its place while it waits for them.
 		low := ""
@@ -116,8 +180,8 @@ func acquire() (*os.File, int, error) {
 				low = lowDisk()
 			}
 		}
-		for n := 1; low == "" && n <= heavyslots.Slots(); n++ {
-			f, err := os.OpenFile(filepath.Join(d, fmt.Sprintf("slot-%d.lock", n)), os.O_RDWR|os.O_CREATE, 0o644)
+		for n := 1; low == "" && n <= c.slots(); n++ {
+			f, err := os.OpenFile(filepath.Join(d, fmt.Sprintf("%s-%d.lock", c.slot, n)), os.O_RDWR|os.O_CREATE, 0o644)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -150,7 +214,7 @@ func acquire() (*os.File, int, error) {
 			if low != "" {
 				fmt.Fprintf(os.Stderr, "heavyslot: %s\n", line)
 			} else {
-				fmt.Fprintf(os.Stderr, "heavyslot: waiting for a heavy-run slot (HANDLINE_HEAVY_SLOTS=%d): %s\n", heavyslots.Slots(), line)
+				fmt.Fprintf(os.Stderr, "heavyslot: waiting for a %s-run slot (%d slots): %s\n", c.name, c.slots(), line)
 			}
 			last = now
 			spoke = true
@@ -167,8 +231,8 @@ type ticket struct {
 	f    *os.File
 }
 
-func takeTicket(dir string) (*ticket, error) {
-	name := fmt.Sprintf("ticket-%020d-%d", time.Now().UnixNano(), os.Getpid())
+func takeTicket(dir, prefix string) (*ticket, error) {
+	name := fmt.Sprintf("%s-%020d-%d", prefix, time.Now().UnixNano(), os.Getpid())
 	pending := filepath.Join(dir, fmt.Sprintf("pending-%d", os.Getpid()))
 	f, err := os.OpenFile(pending, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
@@ -191,8 +255,8 @@ func (t *ticket) drop() {
 }
 
 // ahead is how many live waiters hold an earlier ticket. A ticket nobody holds the lock of belongs to a run that died: it is removed.
-func (t *ticket) ahead() int {
-	names, _ := filepath.Glob(filepath.Join(t.dir, "ticket-*"))
+func (t *ticket) ahead(prefix string) int {
+	names, _ := filepath.Glob(filepath.Join(t.dir, prefix+"-*"))
 	sort.Strings(names)
 	n := 0
 	for _, path := range names {

@@ -2,9 +2,6 @@
 // show while the pointer is on it or it is selected. One filter button opens the menu of what to show.
 import { Fragment, useEffect, useState } from 'react';
 import {
-  chipChanges,
-  chipCounts,
-  chipOf,
   turnAgents,
   chipList,
   dotOf,
@@ -26,7 +23,6 @@ import { useRowDrag } from '#src/RowDrag.ts';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
 import { Button, Icon, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
 import { setting } from '#src/daemon.ts';
-import { useSelector } from '@handline/app-react';
 import { goTasks, usePageRoute } from '#src/route.ts';
 import { AgentRow } from '#src/AgentRow.tsx';
 import { NewAgentButton } from '#src/NewAgent.tsx';
@@ -63,12 +59,10 @@ export function Sidebar({
     setting(storage, key, '').save(on ? '1' : '0');
     set(on);
   };
-  const chip = chipOf(nav);
   const turn = useMyTurn().cards;
-  const chipN = chipCounts(agents);
   const names = agents.map((x) => x.name);
   const tree = nav.layout === 'tree';
-  const nl = chipList(agents, nav, turnAgents(turn));
+  const nl = chipList(agents, { ...nav, unread_only: false }, turnAgents(turn));
   const rows = tree ? byTeam(nl.rows, grouped, names) : nl.rows;
   const heads = tree && grouped;
   // Beside an agent: the rows shown under the same parent (the top level within its team), in the order shown.
@@ -106,10 +100,9 @@ export function Sidebar({
   const myTurn = turn.length;
   const hr = useHrCount();
   const pageRoute = usePageRoute();
-  const requests = useSelector((s) => s.can('requests.list'));
   return (
     <nav
-      className="rail flex w-[var(--rail-w,280px)] flex-none flex-col overflow-hidden border-r border-line bg-panel min-h-0 max-[900px]:fixed max-[900px]:z-10 max-[900px]:[inset:0_auto_0_0] max-[900px]:w-[min(320px,90vw)] max-[900px]:shadow-[var(--shadow-2)]"
+      className="rail flex w-[var(--rail-w,280px)] flex-none flex-col overflow-hidden border-r border-line bg-panel min-h-0 max-[900px]:fixed max-[900px]:z-10 max-[900px]:[inset:0_auto_0_0] max-[900px]:w-[min(320px,90vw)] max-[900px]:shadow-[var(--shadow)]"
       aria-label="Agents"
     >
       {/* The shell's drag strip: row as tall as the top bar, centred on the traffic lights (--h-top and --lights-w follow the zoom: shell.ts); `rail-top` is the tests' hook. */}
@@ -134,26 +127,17 @@ export function Sidebar({
         />
       </div>
       <div className="rail-nav flex flex-wrap gap-0.5 border-b border-line px-1.5 pb-1.5">
-        <button
-          className={navOf(pageRoute === 'my-turn')}
-          aria-current={pageRoute === 'my-turn' ? 'page' : undefined}
-          onClick={() => void (location.hash = '#/my-turn')}
-        >
-          <Icon name="inbox" size={14} aria-hidden /> My turn
-          {myTurn ? <span className="ml-auto rounded-full bg-wait px-1.5 text-hint font-semibold text-canvas">{myTurn}</span> : null}
-        </button>
         <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           <Icon name="tasks" size={14} aria-hidden /> Tasks
         </button>
-        {requests ? (
-          <button
-            className={navOf(pageRoute === 'requests')}
-            aria-current={pageRoute === 'requests' ? 'page' : undefined}
-            onClick={() => void (location.hash = '#/requests')}
-          >
-            <Icon name="reply" size={14} aria-hidden /> Requests
-          </button>
-        ) : null}
+        <button
+          className={navOf(pageRoute === 'requests')}
+          aria-current={pageRoute === 'requests' ? 'page' : undefined}
+          onClick={() => void (location.hash = '#/requests')}
+        >
+          <Icon name="inbox" size={14} aria-hidden /> Requests
+          {myTurn ? <span className="ml-auto rounded-full bg-wait px-1.5 text-xs font-semibold text-canvas">{myTurn}</span> : null}
+        </button>
         <button
           className={navOf(pageRoute === 'stats')}
           aria-current={pageRoute === 'stats' ? 'page' : undefined}
@@ -163,23 +147,6 @@ export function Sidebar({
         </button>
       </div>
       <div className="rail-read flex gap-0.5 px-2.5 py-1.5" role="group" aria-label="Show agents">
-        {(
-          [
-            ['all', 'All'],
-            ['unread', 'Unread'],
-            ['needs', 'My turn'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            className={`rounded-ctl border-0 px-2 py-0.5 text-label ${chip === id ? 'bg-canvas text-ink' : 'bg-transparent text-ink-2'}`}
-            aria-pressed={chip === id}
-            onClick={() => change(chipChanges(id))}
-          >
-            {label}
-            {id === 'unread' && chipN[id] ? <span className="ml-1 text-wait">{chipN[id]}</span> : null}
-          </button>
-        ))}
         <span className="rail-opts relative ml-auto inline-flex">
           <MenuButton icon="filter" label={nav.hidden.length ? `View: ${nav.hidden.length} hidden` : 'View'} name="View">
             <MenuLabel>Show agents that are</MenuLabel>
@@ -214,7 +181,7 @@ export function Sidebar({
             <span
               aria-hidden
               data-testid="filter-active"
-              className="pointer-events-none absolute right-1 top-1 size-2 rounded-full bg-focus"
+              className="pointer-events-none absolute right-1 top-1 size-2 rounded-full bg-acc"
             />
           ) : null}
         </span>
@@ -224,7 +191,7 @@ export function Sidebar({
         <View q={list} served={served} shape="agents" what="the agent list" empty={conn === 'open' && !agents.length && 'No agents.'}>
           {nl.pinned.length ? (
             <>
-              <h3 className="pinned-head m-0 px-2.5 pb-0.5 pt-2 text-hint font-normal uppercase tracking-wide text-ink-3">Pinned</h3>
+              <h3 className="pinned-head m-0 px-2.5 pb-0.5 pt-2 text-xs font-normal uppercase tracking-wide text-ink-3">Pinned</h3>
               {nl.pinned.map((agent) => row(agent, 0, 0, teamOf(agent.name, names), `pin-${agent.name}`))}
             </>
           ) : null}
@@ -235,21 +202,13 @@ export function Sidebar({
             return (
               <Fragment key={agent.name}>
                 {head ? (
-                  <h3 className="team-head m-0 px-2.5 pb-0.5 pt-2 text-hint font-normal uppercase tracking-wide text-ink-3">{team}</h3>
+                  <h3 className="team-head m-0 px-2.5 pb-0.5 pt-2 text-xs font-normal uppercase tracking-wide text-ink-3">{team}</h3>
                 ) : null}
                 {row(agent, depth, kids, team)}
               </Fragment>
             );
           })}
         </View>
-        {chip !== 'all' && conn === 'open' && agents.length > 0 && !rows.length && !nl.pinned.length ? (
-          <p className="m-0 px-2.5 py-2 text-ink-2" data-testid="filter-empty">
-            {chip === 'unread' ? 'No unread messages' : 'Nothing in My turn'}.{' '}
-            <button className="border-0 bg-transparent p-0 text-link underline" onClick={() => change(chipChanges('all'))}>
-              Show all
-            </button>
-          </p>
-        ) : null}
       </div>
       <NewAgentButton />
       <footer className="rail-foot flex gap-0.5 border-t border-line px-2 py-1">

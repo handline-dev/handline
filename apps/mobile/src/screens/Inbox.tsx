@@ -101,24 +101,24 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
           <Text numberOfLines={open ? undefined : 1} style={{ color: c.ink, fontWeight: i.read ? '400' : '700' }}>
             {i.title}
           </Text>
-          <Text style={{ color: c.muted, fontSize: font.size.label }}>
+          <Text style={{ color: c.muted, fontSize: font.size.sm }}>
             {[KIND[i.kind] ?? i.kind, i.agent, i.task != null && `T${i.task}`].filter(Boolean).join(' · ')}
           </Text>
         </View>
-        <Text style={{ color: c.muted, fontSize: font.size.label }}>{ago(i.created)}</Text>
+        <Text style={{ color: c.muted, fontSize: font.size.sm }}>{ago(i.created)}</Text>
       </Pressable>
       {open && (
         <View style={{ paddingHorizontal: space.lg, paddingBottom: space.lg, gap: space.md }}>
           {i.body && i.body !== i.title ? <Text style={{ color: c.ink }}>{i.body}</Text> : null}
           {i.evidence ? (
-            <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: font.size.hint }} numberOfLines={12}>
+            <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: font.size.xs }} numberOfLines={12}>
               {i.evidence}
             </Text>
           ) : null}
           {i.prompt && i.agent ? (
             <PromptCard agent={i.agent} prompt={i.prompt} />
           ) : i.prompt ? (
-            <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: font.size.hint }}>
+            <Text style={{ color: c.muted, fontFamily: 'Menlo', fontSize: font.size.xs }}>
               {i.prompt.command ?? i.prompt.lines.join('\n')}
             </Text>
           ) : null}
@@ -136,7 +136,7 @@ function Card(props: { item: InboxItem; pending: boolean; ui: Ui; setUi: (patch:
                 value={text}
                 onChangeText={setText}
                 accessibilityLabel="Your reply"
-                style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md, minHeight: 64 }}
+                style={{ color: c.ink, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, padding: space.md, minHeight: 64 }}
               />
               <View style={{ flexDirection: 'row', gap: space.sm }}>
                 <Button testID="inbox-send" kind="yes" label="Send reply" disabled={!text.trim()} onPress={send} style={{ flex: 1 }} />
@@ -246,7 +246,7 @@ export function Inbox(props: { onTask: (id: number) => void }) {
         title="My turn"
         actions={
           <>
-            <Text testID="unread-count" style={{ color: c.muted, fontSize: font.size.body }}>
+            <Text testID="unread-count" style={{ color: c.muted, fontSize: font.size.md }}>
               {unread.length}
             </Text>
             <Button
@@ -295,7 +295,7 @@ export function Inbox(props: { onTask: (id: number) => void }) {
                     onPress={() => props.onTask(t.task!)}
                     style={{ flex: 1, minHeight: 48, justifyContent: 'center' }}
                   >
-                    <Text style={{ color: c.muted, fontSize: font.size.hint }}>Task{t.from ? ` · from ${t.from}` : ''}</Text>
+                    <Text style={{ color: c.muted, fontSize: font.size.xs }}>Task{t.from ? ` · from ${t.from}` : ''}</Text>
                     <Text style={{ color: c.ink, fontWeight: '600' }}>{`T${t.task} ${t.title}`}</Text>
                   </Pressable>
                   <Button

@@ -95,7 +95,7 @@ function TaskTable({
               <tr className="tgroup max-sm:block" data-group={g.key}>
                 <th
                   colSpan={widths.length}
-                  className="px-2 pt-4 pb-1 text-left text-label font-semibold data-[group=needs]:text-wait data-[group=running]:text-working"
+                  className="px-2 pt-4 pb-1 text-left text-sm font-semibold data-[group=needs]:text-wait data-[group=running]:text-working"
                   data-group={g.key}
                 >
                   {g.key === 'done' && g.label === 'Done today' ? (
@@ -154,7 +154,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
         if (g.key !== 'done') return [{ ...g, folded: false }];
         if (scope === 'open') return [{ ...g, label: 'Done today', folded: !showDone }];
         // Closed: by the day it closed, newest first
-        return ['Today', 'Yesterday', 'This week', 'Earlier']
+        return ['Today', 'Yesterday', 'This week', 'This month', 'Earlier']
           .map((label) => ({ ...g, label, rows: g.rows.filter((t) => doneBucket(t, now) === label), folded: false }))
           .filter((b) => b.rows.length);
       }),
@@ -367,7 +367,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
         )}
       </View>
       {more ? (
-        <div className="flex items-center justify-center gap-3 py-3 text-hint text-ink-2">
+        <div className="flex items-center justify-center gap-3 py-3 text-xs text-ink-2">
           <span>{all.length} loaded · older ones exist</span>
           <Button
             variant="outline"

@@ -22,7 +22,7 @@ export function useEditTask(t: Detail) {
   };
 }
 
-const LOOK = 'cursor-text rounded-ctl border-0 bg-transparent p-0 text-left text-inherit tint';
+const LOOK = 'cursor-text rounded-sm border-0 bg-transparent p-0 text-left text-inherit tint';
 
 /** The value as it reads; a click opens `input(done)`, which draws the field and calls `done` when it is over. Without the right to edit it is only the value. */
 export function Inline({

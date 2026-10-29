@@ -36,9 +36,7 @@ const TONE: Record<Dot, string> = {
 /** An agent's state as the shared glyph (ui/State): its own shape per state, the hue only repeats it. */
 export function Mark({ dot, title }: { dot: Dot; title?: string }) {
   return (
-    <span
-      className={`mark ${dot} inline-flex w-3.5 flex-none items-center justify-center text-center text-hint leading-[1.4] ${TONE[dot]}`}
-    >
+    <span className={`mark ${dot} inline-flex w-3.5 flex-none items-center justify-center text-center text-xs leading-[1.4] ${TONE[dot]}`}>
       <State kind={KIND[dot]} label={title ?? MARKS[dot].label} size={14} />
     </span>
   );
@@ -60,7 +58,7 @@ export function Meter({
 }) {
   return (
     <span
-      className={`meter${hot ? ' hot' : ''} inline-block h-1.5 w-7 mx-[3px] overflow-hidden rounded-chip border border-ink-2 align-middle`}
+      className={`meter${hot ? ' hot' : ''} inline-block h-1.5 w-7 mx-[3px] overflow-hidden rounded-sm border border-ink-2 align-middle`}
       role="meter"
       aria-label={label}
       aria-valuemin={0}

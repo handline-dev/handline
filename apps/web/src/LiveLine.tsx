@@ -47,7 +47,7 @@ export function LiveLine({ working, messages, items }: { working: Working; messa
     <div className="working-slot flex min-h-5 flex-none flex-col items-start self-start">
       <button
         type="button"
-        className={`line ${running ? 'working' : 'ran'} flex h-5 max-w-full cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-hint ${running ? 'text-working' : 'text-ink-2'}`}
+        className={`line ${running ? 'working' : 'ran'} flex h-5 max-w-full cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-xs ${running ? 'text-working' : 'text-ink-2'}`}
         role="status"
         aria-expanded={open}
         title={text}

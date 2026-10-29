@@ -146,6 +146,11 @@
  },
  {
   "version": 30,
+  "name": "device_push",
+  "additive": true
+ },
+ {
+  "version": 31,
   "name": "prompt_answer",
   "additive": true
  }

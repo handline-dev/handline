@@ -68,9 +68,17 @@ export function UpdateBanner() {
   const u = useAppUpdate();
   if (!u.update) return null;
   return (
-    <View testID="update-banner" style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.sm, backgroundColor: c.panel }}>
+    <View
+      testID="update-banner"
+      style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm, padding: space.sm, backgroundColor: c.panel }}
+    >
       <Text style={{ flex: 1, color: c.ink }}>Update {u.update.versionName} is ready</Text>
-      <Button testID="update-banner-install" label={u.state === 'installing' ? 'Downloading…' : 'Install'} disabled={u.state !== 'idle'} onPress={() => void u.install()} />
+      <Button
+        testID="update-banner-install"
+        label={u.state === 'installing' ? 'Downloading…' : 'Install'}
+        disabled={u.state !== 'idle'}
+        onPress={() => void u.install()}
+      />
     </View>
   );
 }
@@ -92,14 +100,43 @@ export function AppUpdate() {
     <View testID="app-update" style={{ gap: space.sm }}>
       <Text style={{ color: c.ink, fontWeight: '600' }}>App updates</Text>
       <View style={{ flexDirection: 'row', gap: space.sm }}>
-        <Button testID="channel-nightly" label={u.channel === 'nightly' ? '✓ Nightly' : 'Nightly'} kind={u.channel === 'nightly' ? 'yes' : 'plain'} onPress={() => u.choose('nightly')} />
-        <Button testID="channel-stable" label={u.channel === 'stable' ? '✓ Stable' : 'Stable'} kind={u.channel === 'stable' ? 'yes' : 'plain'} onPress={() => u.choose('stable')} />
+        <Button
+          testID="channel-nightly"
+          label={u.channel === 'nightly' ? '✓ Nightly' : 'Nightly'}
+          kind={u.channel === 'nightly' ? 'yes' : 'plain'}
+          onPress={() => u.choose('nightly')}
+        />
+        <Button
+          testID="channel-stable"
+          label={u.channel === 'stable' ? '✓ Stable' : 'Stable'}
+          kind={u.channel === 'stable' ? 'yes' : 'plain'}
+          onPress={() => u.choose('stable')}
+        />
       </View>
-      <Text style={{ color: c.muted, fontSize: font.size.label }}>Nightly is built every night and may change often. Stable is cut by hand and changes less.</Text>
-      {status ? <Text testID="update-status" style={{ color: u.error ? c.block : c.muted }}>{status}</Text> : null}
+      <Text style={{ color: c.muted, fontSize: font.size.sm }}>
+        Nightly is built every night and may change often. Stable is cut by hand and changes less.
+      </Text>
+      {status ? (
+        <Text testID="update-status" style={{ color: u.error ? c.block : c.muted }}>
+          {status}
+        </Text>
+      ) : null}
       <View style={{ flexDirection: 'row', gap: space.sm }}>
-        <Button testID="update-check" label="Check now" disabled={u.state !== 'idle' || !u.channel} onPress={() => u.channel && void u.check(u.channel)} />
-        {u.update ? <Button testID="update-install" label={u.state === 'installing' ? 'Downloading…' : 'Install'} kind="yes" disabled={u.state !== 'idle'} onPress={() => void u.install()} /> : null}
+        <Button
+          testID="update-check"
+          label="Check now"
+          disabled={u.state !== 'idle' || !u.channel}
+          onPress={() => u.channel && void u.check(u.channel)}
+        />
+        {u.update ? (
+          <Button
+            testID="update-install"
+            label={u.state === 'installing' ? 'Downloading…' : 'Install'}
+            kind="yes"
+            disabled={u.state !== 'idle'}
+            onPress={() => void u.install()}
+          />
+        ) : null}
       </View>
     </View>
   );

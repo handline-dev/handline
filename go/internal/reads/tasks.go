@@ -32,8 +32,6 @@ func duration(secs int64) string {
 	return fmt.Sprintf("%ds", secs)
 }
 
-func ended(t row) bool { return t.str("done_evidence") != "" || t.str("discarded_by") != "" }
-
 // openTask is ended in SQL, negated: a task with no done evidence that was not discarded.
 const openTask = "COALESCE(done_evidence, '') = '' AND COALESCE(discarded_by, '') = ''"
 

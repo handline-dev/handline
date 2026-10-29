@@ -4,8 +4,8 @@ import { Icon } from '#src/ui/Icon.tsx';
 
 /** The labelled field and its note, shared by the hand-rolled forms (NewTask, NewAgent, the account pages). */
 export const FIELD = 'ui-field flex flex-col gap-1';
-export const FIELD_LABEL = 'ui-field-label text-label text-ink-2';
-export const NOTE = 'ui-note m-0 flex items-center gap-3 text-hint text-ink-3';
+export const FIELD_LABEL = 'ui-field-label text-sm text-ink-2';
+export const NOTE = 'ui-note m-0 flex items-center gap-3 text-xs text-ink-3';
 export const noteTone = (tone?: 'warn' | 'bad'): string => (tone === 'bad' ? ' text-bad' : tone === 'warn' ? ' text-wait' : '');
 
 export function Field({
@@ -28,12 +28,12 @@ export function Field({
       <div className="ui-input-wrap relative flex items-center">
         <input
           id={id}
-          className="h-9 w-full rounded-ctl border border-line-strong bg-panel px-3 py-0 text-ink placeholder:text-ink-3 disabled:border-dashed disabled:text-ink-3"
+          className="h-9 w-full rounded-sm border border-line-strong bg-panel px-3 py-0 text-ink placeholder:text-ink-3 disabled:border-dashed disabled:text-ink-3"
           aria-describedby={note ? `${id}-note` : undefined}
           aria-invalid={tone === 'bad' || undefined}
           {...rest}
         />
-        {unit ? <span className="ui-unit absolute right-3 text-hint text-ink-3">{unit}</span> : null}
+        {unit ? <span className="ui-unit absolute right-3 text-xs text-ink-3">{unit}</span> : null}
       </div>
       {note ? (
         <p id={`${id}-note`} className={`${NOTE}${noteTone(tone)}`}>

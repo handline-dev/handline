@@ -18,15 +18,15 @@ function PaneRow({ p, now, on, pick }: { p: DebugPane; now: number; on: boolean;
         type="button"
         data-pane={p.terminal}
         aria-current={on ? 'true' : undefined}
-        className="flex w-full flex-col gap-0.5 rounded-ctl border-0 bg-transparent px-2 py-1.5 text-left tint aria-[current=true]:bg-raised"
+        className="flex w-full flex-col gap-0.5 rounded-sm border-0 bg-transparent px-2 py-1.5 text-left tint aria-[current=true]:bg-raised"
         onClick={pick}
       >
-        <span className="flex items-center gap-2 text-body text-ink">
-          <span className="font-mono text-label text-ink-3">
+        <span className="flex items-center gap-2 text-md text-ink">
+          <span className="font-mono text-sm text-ink-3">
             {p.session}:{p.window} {p.terminal}
           </span>
           <span className="truncate">{p.agent ?? p.window_name}</span>
-          <span className="ml-auto text-label text-ink-3">{p.idle_s === null ? '-' : span(p.idle_s * 1000)}</span>
+          <span className="ml-auto text-sm text-ink-3">{p.idle_s === null ? '-' : span(p.idle_s * 1000)}</span>
         </span>
         <span className="flex flex-wrap gap-1">
           {flags(p, now).map((f) => (
@@ -34,7 +34,7 @@ function PaneRow({ p, now, on, pick }: { p: DebugPane; now: number; on: boolean;
               key={f.word}
               data-flag={f.word}
               title={f.why}
-              className={`rounded-[4px] px-1 text-label ${f.bad ? 'bg-[color-mix(in_srgb,var(--bad)_14%,transparent)] text-bad' : 'text-ink-2'}`}
+              className={`rounded-[4px] px-1 text-sm ${f.bad ? 'bg-[color-mix(in_srgb,var(--bad)_14%,transparent)] text-bad' : 'text-ink-2'}`}
             >
               {f.word}
             </span>
@@ -47,11 +47,11 @@ function PaneRow({ p, now, on, pick }: { p: DebugPane; now: number; on: boolean;
 
 function Facts({ p, now }: { p: DebugPane; now: number }) {
   return (
-    <dl className="debug-facts m-0 grid grid-cols-[8rem_1fr] gap-x-3 gap-y-0.5 border-b border-line px-3 py-2 text-body">
+    <dl className="debug-facts m-0 grid grid-cols-[8rem_1fr] gap-x-3 gap-y-0.5 border-b border-line px-3 py-2 text-md">
       {facts(p, now).map(([k, v]) => (
         <div key={k} className="contents" data-fact={k}>
           <dt className="text-ink-3">{k}</dt>
-          <dd className="m-0 font-mono text-label [overflow-wrap:anywhere] text-ink">{v}</dd>
+          <dd className="m-0 font-mono text-sm [overflow-wrap:anywhere] text-ink">{v}</dd>
         </div>
       ))}
     </dl>
@@ -76,8 +76,8 @@ export function DebugTerminals({ create }: { create?: CreateTerm }) {
     <div className="debug-terminals grid h-screen grid-cols-[320px_minmax(0,1fr)] bg-canvas" aria-label="Terminals (debug)">
       <aside className="flex min-h-0 flex-col border-r border-line bg-panel">
         <header className="flex items-center gap-2 px-3 py-2">
-          <h2 className="m-0 text-body font-semibold text-ink">Terminals</h2>
-          <span className="text-label text-ink-3">{q.data ? `${q.data.host} · ${panes.length} panes` : ''}</span>
+          <h2 className="m-0 text-md font-semibold text-ink">Terminals</h2>
+          <span className="text-sm text-ink-3">{q.data ? `${q.data.host} · ${panes.length} panes` : ''}</span>
           <Button variant="outline" size="sm" label="Refresh" className="ml-auto" onClick={() => void q.refetch()} />
         </header>
         {!served ? (

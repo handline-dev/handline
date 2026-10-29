@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/yamlcompat"
@@ -251,17 +250,3 @@ func ReadStatus(home, acct string) Status {
 }
 
 var zoned = regexp.MustCompile(`(Z|[+-]\d\d:\d\d)$`)
-
-// parseISO is datetime.fromisoformat: a value with a zone is read in it, one without is local time.
-func parseISO(s string) (time.Time, bool) {
-	if strings.Contains(s, "T") && zoned.MatchString(s) {
-		t, err := time.Parse(time.RFC3339Nano, s)
-		return t, err == nil
-	}
-	for _, layout := range []string{"2006-01-02T15:04:05.999999999", "2006-01-02 15:04:05.999999999", "2006-01-02T15:04", "2006-01-02"} {
-		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
-			return t, true
-		}
-	}
-	return time.Time{}, false
-}

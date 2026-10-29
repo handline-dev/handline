@@ -139,13 +139,13 @@ test('a time box just edited shows at once, before the clock has caught up', () 
   assert.equal(timeBoxText(t, 0), '3h');
 });
 
-test('tasks group as My turn, Running, Up next and Done, each keeping its order', () => {
+test('tasks group as Needs you, Running, Up next and Done, each keeping its order', () => {
   const all = [task(1), task(2, { state: 'doing' }), task(3, { to: 'human' }), task(4, { state: 'done' }), task(6, { state: 'doing' })];
   const g = groupTasks(all, 'me');
   assert.deepEqual(
     g.map((x) => [x.label, ids(x.rows)]),
     [
-      ['My turn', [3]],
+      ['Needs you', [3]],
       ['Running', [2, 6]],
       ['Up next', [1]],
       ['Done', [4]],
@@ -181,10 +181,10 @@ test('the graph has Done (the last 24 h, newest first), Running and Queued bands
   );
 });
 
-test('closed tasks fall in Today, Yesterday, This week or Earlier by the day they closed', () => {
+test('closed tasks fall in Today, Yesterday, This week, This month or Earlier by the day they closed', () => {
   const at = (days: number) => task(1, { state: 'done', done: new Date(NOW - days * 86_400_000).toISOString() });
   assert.deepEqual(
-    [0, 1, 3, 9].map((d) => doneBucket(at(d), NOW)),
-    ['Today', 'Yesterday', 'This week', 'Earlier'],
+    [0, 1, 3, 9, 40].map((d) => doneBucket(at(d), NOW)),
+    ['Today', 'Yesterday', 'This week', 'This month', 'Earlier'],
   );
 });

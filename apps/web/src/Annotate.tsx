@@ -119,10 +119,20 @@ export function Annotator({ image, onChange }: { image: Blob; onChange: (marked:
           >
             {draw.elements.map((el, i) =>
               el.type === 'path' ? (
-                <path key={i} d={el.d} fill="none" stroke={el.stroke} strokeWidth={el.strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
+                <path
+                  key={i}
+                  d={el.d}
+                  fill="none"
+                  stroke={el.stroke}
+                  strokeWidth={el.strokeWidth}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               ) : null,
             )}
-            {path ? <polyline points={path} fill="none" stroke={MARK_COLOR} strokeWidth={line} strokeDasharray={`${line * 2} ${line * 2}`} /> : null}
+            {path ? (
+              <polyline points={path} fill="none" stroke={MARK_COLOR} strokeWidth={line} strokeDasharray={`${line * 2} ${line * 2}`} />
+            ) : null}
           </svg>
           {marks.map((m, i) => (
             <button
@@ -130,7 +140,7 @@ export function Annotator({ image, onChange }: { image: Blob; onChange: (marked:
               type="button"
               aria-label={`Comment ${i + 1}${m.text.trim() ? `: ${m.text.trim()}` : ''}`}
               title={m.text}
-              className="absolute grid size-5 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full border-0 bg-bad p-0 text-label text-canvas"
+              className="absolute grid size-5 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full border-0 bg-bad p-0 text-sm text-canvas"
               style={pct(m.rect.x, m.rect.y)}
               onClick={() => dispatch({ type: 'open', id: m.id })}
             >
@@ -140,7 +150,7 @@ export function Annotator({ image, onChange }: { image: Blob; onChange: (marked:
           {current ? (
             // At the mark: below and to the right of it, flipped when that would leave the picture.
             <div
-              className="absolute z-10 flex w-56 gap-1 rounded-card border border-bad bg-panel p-1.5 shadow-[var(--shadow-2)]"
+              className="absolute z-10 flex w-56 gap-1 rounded-md border border-bad bg-panel p-1.5 shadow-[var(--shadow)]"
               style={{
                 ...pct(current.rect.x + current.rect.w, current.rect.y + current.rect.h),
                 transform: `translate(${(current.rect.x + current.rect.w) / size.w > 0.6 ? 'calc(-100% - 8px)' : '8px'}, ${(current.rect.y + current.rect.h) / size.h > 0.7 ? 'calc(-100% - 8px)' : '8px'})`,

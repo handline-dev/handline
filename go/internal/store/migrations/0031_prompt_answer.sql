@@ -1,0 +1,1 @@
+-- Step 31 (prompt_answer) is by hand: addPromptAnswer in store.go.

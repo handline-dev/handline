@@ -100,6 +100,23 @@ async function measure(page: Page, run: () => Promise<void>): Promise<Result> {
   };
 }
 
+/** Resolves once the page has drawn something new and then stayed still for three frames: one message's commits are all in, however slow the machine is. */
+const drawnAndStill = (page: Page, before: number) =>
+  page.eval(`new Promise((done, fail) => {
+    const P = window.__perf, frame = () => new Promise(requestAnimationFrame);
+    const timer = setTimeout(() => fail(new Error('perf: the page drew nothing after a message')), 10000);
+    (async () => {
+      while (P.commits.length === ${before}) await frame();
+      for (let still = 0; still < 3; ) {
+        const n = P.commits.length;
+        await frame();
+        still = P.commits.length === n ? still + 1 : 0;
+      }
+      clearTimeout(timer);
+      done(true);
+    })();
+  })`);
+
 async function typeInto(page: Page, selector: string, text: string) {
   if (!(await page.eval<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`)))
     throw new Error(`perf: nothing matches ${selector}`);
@@ -118,8 +135,9 @@ async function scenarios(page: Page, base: string, incoming: (agent: string) => 
   out['chat: type 30 characters'] = await measure(page, () => typeInto(page, 'textarea', 'please check the chat list now'));
   out['chat: 10 messages arrive in the open chat'] = await measure(page, async () => {
     for (let i = 0; i < 10; i++) {
+      const before = await page.eval<number>('__perf.commits.length');
       incoming(AGENT);
-      await sleep(400);
+      await drawnAndStill(page, before);
     }
   });
   out['chat: 10 messages arrive for another agent'] = await measure(page, async () => {

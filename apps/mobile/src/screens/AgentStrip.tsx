@@ -32,7 +32,7 @@ export function AgentStrip({ agent }: { agent: string }) {
   if (!served || !strip) return null;
   const left = lapsesAt === null ? null : Math.round((lapsesAt - Date.now()) / 1000);
   const cell = (label: string, value: string, testID: string, warn = false) => (
-    <Text testID={testID} style={{ color: warn ? c.wait : c.muted, fontSize: font.size.label }}>
+    <Text testID={testID} style={{ color: warn ? c.wait : c.muted, fontSize: font.size.sm }}>
       {label} <Text style={{ color: warn ? c.wait : c.ink, fontWeight: '600' }}>{value}</Text>
     </Text>
   );

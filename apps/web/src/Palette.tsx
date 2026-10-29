@@ -16,7 +16,7 @@ interface Hit {
 }
 
 const PAGES: [string, IconName, () => void][] = [
-  ['My turn', 'inbox', () => void (location.hash = '#/my-turn')],
+  ['Requests', 'inbox', () => void (location.hash = '#/requests')],
   ['Tasks', 'tasks', () => goTasks()],
   ['Team', 'team', () => goTeam()],
   ['New agent', 'plus', () => goNew()],
@@ -81,7 +81,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
     <Backdrop onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <motion.div
         {...open}
-        className="palette w-[min(560px,calc(100vw-2*var(--sp-4)))] overflow-hidden rounded-dialog border border-line-strong bg-panel shadow-[var(--shadow-2)]"
+        className="palette w-[min(560px,calc(100vw-2*var(--sp-4)))] overflow-hidden rounded-lg border border-line-strong bg-panel shadow-[var(--shadow)]"
         role="dialog"
         aria-modal="true"
         aria-label="Search everything"

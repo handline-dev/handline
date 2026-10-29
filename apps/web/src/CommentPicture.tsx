@@ -46,7 +46,7 @@ export function CommentPicture({ onAttach }: { onAttach: (markdown: string) => v
         Add picture
       </Button>
       {problem && !shot ? (
-        <span className="text-hint text-bad" role="alert">
+        <span className="text-xs text-bad" role="alert">
           {problem}
         </span>
       ) : null}

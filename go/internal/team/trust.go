@@ -497,6 +497,3 @@ func (t *Trust) SettleMoot() ([]string, error) {
 	}
 	return gone, nil
 }
-
-// OneLine is textsafe.Oneline, for the verdicts a proposal keeps.
-func OneLine(s string) string { return textsafe.Oneline(s) }
