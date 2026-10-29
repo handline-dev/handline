@@ -9,7 +9,7 @@ export function KeyValueRow({ className, ...rest }: ComponentProps<'div'>) {
     <div
       {...rest}
       className={join(
-        'hr-kv grid grid-cols-[6rem_1fr] gap-2 text-body [overflow-wrap:anywhere] max-[480px]:grid-cols-1 max-[480px]:gap-0',
+        'hr-kv grid grid-cols-[6rem_1fr] gap-2 text-md [overflow-wrap:anywhere] max-[480px]:grid-cols-1 max-[480px]:gap-0',
         className,
       )}
     />
@@ -18,7 +18,7 @@ export function KeyValueRow({ className, ...rest }: ComponentProps<'div'>) {
 
 /** A wrapping line of icon-and-word items in the grey label size. */
 export function MetaLine({ className, ...rest }: ComponentProps<'p'>) {
-  return <p {...rest} className={join('m-0 flex flex-wrap items-center gap-x-3 gap-y-1 text-label text-ink-2', className)} />;
+  return <p {...rest} className={join('m-0 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-2', className)} />;
 }
 
 export function MetaItem({ className, ...rest }: ComponentProps<'span'>) {

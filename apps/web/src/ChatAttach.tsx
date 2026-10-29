@@ -169,7 +169,7 @@ function Ring({ value, failed }: { value: number; failed?: boolean }) {
   const r = 15;
   const c = 2 * Math.PI * r;
   return (
-    <svg viewBox="0 0 36 36" className="h-9 w-9 -rotate-90 rounded-chip bg-black/35" aria-hidden="true">
+    <svg viewBox="0 0 36 36" className="h-9 w-9 -rotate-90 rounded-sm bg-black/35" aria-hidden="true">
       <circle cx="18" cy="18" r={r} fill="none" strokeWidth="3" className="stroke-white/30" />
       <circle
         cx="18"
@@ -201,7 +201,7 @@ export function AttachChips(props: {
       {props.drafts.map((d) => (
         <span
           key={d.key}
-          className="attach-chip relative inline-flex items-center gap-1.5 rounded-chip bg-panel py-0.5 pl-0.5 pr-1.5 text-[12px]"
+          className="attach-chip relative inline-flex items-center gap-1.5 rounded-sm bg-panel py-0.5 pl-0.5 pr-1.5 text-[12px]"
           data-state={d.error ? 'failed' : d.attachment ? 'ready' : 'sending'}
           title={d.error ?? d.name}
         >
@@ -213,7 +213,7 @@ export function AttachChips(props: {
               title="Enlarge"
               onClick={() => setViewing(props.drafts.indexOf(d))}
             >
-              <img src={d.preview} alt="" className="h-9 w-9 rounded-chip object-cover" />
+              <img src={d.preview} alt="" className="h-9 w-9 rounded-sm object-cover" />
             </button>
             {d.error ? (
               <button
@@ -252,7 +252,7 @@ export function AttachChips(props: {
       {props.refs?.map((r) => (
         <span
           key={r.key}
-          className="attach-chip inline-flex items-center gap-1.5 rounded-chip bg-panel px-1.5 py-0.5 text-[12px]"
+          className="attach-chip inline-flex items-center gap-1.5 rounded-sm bg-panel px-1.5 py-0.5 text-[12px]"
           data-state="ref"
           title={r.path}
         >
@@ -264,7 +264,7 @@ export function AttachChips(props: {
         </span>
       ))}
       {props.problem ? (
-        <span className="text-label text-bad" role="status">
+        <span className="text-sm text-bad" role="status">
           {props.problem}
         </span>
       ) : null}

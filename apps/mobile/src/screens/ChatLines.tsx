@@ -14,11 +14,11 @@ export function Stamp({ m, time, ticks }: { m: { id: number }; time: string | nu
   const c = usePalette();
   return (
     <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
-      {time ? <Text style={{ color: c.muted, fontSize: font.size.hint }}>{time}</Text> : null}
+      {time ? <Text style={{ color: c.muted, fontSize: font.size.xs }}>{time}</Text> : null}
       {ticks ? (
         <View testID={`landing-${m.id}`} accessible accessibilityLabel={iconLabel(ticks)} style={{ alignItems: 'flex-end' }}>
           <Icon name={ticks} decorative size={16} color={c.ink} />
-          {ticks === 'withdrawn' ? <Text style={{ color: c.muted, fontSize: font.size.hint }}>{iconLabel(ticks)}</Text> : null}
+          {ticks === 'withdrawn' ? <Text style={{ color: c.muted, fontSize: font.size.xs }}>{iconLabel(ticks)}</Text> : null}
         </View>
       ) : null}
     </View>
@@ -41,7 +41,7 @@ export function Line(props: {
 }) {
   const { i, agent, onReply, onTask } = props;
   const c = usePalette();
-  const small = { color: c.muted, fontSize: font.size.label } as const;
+  const small = { color: c.muted, fontSize: font.size.sm } as const;
   if (i.kind === 'reply')
     return (
       <View testID={`reply-${i.id}`} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.xs }}>
@@ -57,7 +57,7 @@ export function Line(props: {
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
                 <Icon name="reference" decorative size={14} color={c.accent} />
-                <Text style={{ color: c.accent, fontSize: font.size.label, fontWeight: '600' }}>Reply</Text>
+                <Text style={{ color: c.accent, fontSize: font.size.sm, fontWeight: '600' }}>Reply</Text>
               </View>
             </Pressable>
           )}
@@ -122,11 +122,11 @@ export function TaskCard({
         </Text>
       ) : null}
       {row.detail ? (
-        <Text style={{ color: c.muted, fontSize: font.size.label }} numberOfLines={3}>
+        <Text style={{ color: c.muted, fontSize: font.size.sm }} numberOfLines={3}>
           {row.detail}
         </Text>
       ) : null}
-      <Text style={{ color: c.muted, fontSize: font.size.hint }}>{clockTime(i.at)}</Text>
+      <Text style={{ color: c.muted, fontSize: font.size.xs }}>{clockTime(i.at)}</Text>
     </Pressable>
   );
 }
@@ -153,7 +153,7 @@ export function BatchCard({ i, onTask }: { i: TranscriptItem; onTask?: (task: nu
           <Text style={{ color: c.accent, fontWeight: '600' }}>
             T{t.task} {t.title}
           </Text>
-          {t.reason ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{t.reason}</Text> : null}
+          {t.reason ? <Text style={{ color: c.muted, fontSize: font.size.sm }}>{t.reason}</Text> : null}
         </Pressable>
       ))}
     </View>
@@ -166,7 +166,7 @@ export function SessionMark({ i }: { i: TranscriptItem }) {
   const [open, setOpen] = useState(false);
   const { reason, handoff } = sessionLine(i);
   const mark = (
-    <Text testID={`session-${i.id}`} style={{ color: c.muted, fontSize: font.size.label, textAlign: 'center' }}>
+    <Text testID={`session-${i.id}`} style={{ color: c.muted, fontSize: font.size.sm, textAlign: 'center' }}>
       ── {reason} · {clockTime(i.at)}
       {handoff ? ' · Handoff' : ''} ──
     </Text>
@@ -197,7 +197,7 @@ export function SessionMark({ i }: { i: TranscriptItem }) {
 export function Decided({ p }: { p: Proposal }) {
   const c = usePalette();
   return (
-    <Text testID="decided" style={{ color: c.muted, fontSize: font.size.label }}>
+    <Text testID="decided" style={{ color: c.muted, fontSize: font.size.sm }}>
       {p.title} · {p.state === 'rejected' ? 'Rejected' : 'Applied'} by you · {p.settled ? clockTime(p.settled) : ''}
     </Text>
   );

@@ -259,11 +259,11 @@ function Row(props: { t: Task; selecting: boolean; marked: boolean; onPress: () 
       trail={
         <View style={{ alignItems: 'flex-end' }}>
           {t.priority ? (
-            <Text style={{ color: t.priority === 1 ? c.block : c.muted, fontWeight: '700', fontSize: font.size.label }}>
+            <Text style={{ color: t.priority === 1 ? c.block : c.muted, fontWeight: '700', fontSize: font.size.sm }}>
               {PRIORITY[t.priority]}
             </Text>
           ) : null}
-          {time ? <Text style={{ color: time.startsWith('over') ? c.block : c.muted, fontSize: font.size.label }}>{time}</Text> : null}
+          {time ? <Text style={{ color: time.startsWith('over') ? c.block : c.muted, fontSize: font.size.sm }}>{time}</Text> : null}
         </View>
       }
       onPress={props.onPress}
@@ -300,7 +300,7 @@ function Section(props: { title: string; children: React.ReactNode }) {
   const c = usePalette();
   return (
     <View style={{ gap: space.xs }}>
-      <Text style={{ color: c.muted, fontSize: font.size.label, fontWeight: '700' }}>{props.title}</Text>
+      <Text style={{ color: c.muted, fontSize: font.size.sm, fontWeight: '700' }}>{props.title}</Text>
       {props.children}
     </View>
   );
@@ -329,7 +329,7 @@ function Body({ t }: { t: TaskDetail }) {
       keyboardShouldPersistTaps="handled"
       contentContainerStyle={{ padding: space.lg, gap: space.lg }}
     >
-      <Text style={{ color: c.ink, fontSize: font.size.page, fontWeight: '700' }}>{t.title}</Text>
+      <Text style={{ color: c.ink, fontSize: font.size.xl, fontWeight: '700' }}>{t.title}</Text>
       {t.body ? <PrBody id={`task-${t.id}`} agent={t.to} body={t.body} /> : null}
       <Text style={{ color: c.muted }}>
         {[`${taskRef(t.id)}`, t.priority && PRIORITY[t.priority], `${t.from} → ${t.to}`, timeoutText(t, now)].filter(Boolean).join(' · ')}

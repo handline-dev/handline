@@ -132,14 +132,14 @@ function RequestChip({ m }: { m: ChatMessage }) {
   if (m.request_task != null)
     return (
       <a
-        className="msg-request mt-0.5 w-fit self-end text-label text-link"
+        className="msg-request mt-0.5 w-fit self-end text-sm text-acc-ink"
         href={`#/tasks/${m.request_task}`}
         data-request={m.request_task}
       >
         Taken as T{m.request_task}
       </a>
     );
-  if (m.no_work) return <span className="msg-request mt-0.5 w-fit self-end text-label text-ink-3">Nothing to do: {m.no_work}</span>;
+  if (m.no_work) return <span className="msg-request mt-0.5 w-fit self-end text-sm text-ink-3">Nothing to do: {m.no_work}</span>;
   return null;
 }
 

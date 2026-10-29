@@ -39,13 +39,13 @@ function PaneView({ group, data: { openShell, hello } }: { group: Group; data: P
 
   return (
     <section
-      className={`pane relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas -outline-offset-1${ws.active === group.id ? ' focus outline-1 outline-[color-mix(in_srgb,var(--primary)_40%,transparent)]' : ''}`}
+      className={`pane relative flex min-h-0 min-w-0 flex-1 flex-col bg-canvas -outline-offset-1${ws.active === group.id ? ' focus outline-1 outline-[color-mix(in_srgb,var(--acc)_40%,transparent)]' : ''}`}
       data-group={group.id}
       onPointerDownCapture={() => ws.active !== group.id && apply((w) => ({ ...w, active: group.id }))}
     >
       {split ? (
         <div
-          className={`pane-handle flex h-[22px] flex-none items-center gap-1.5 border-b border-line px-2 text-hint ${focused ? 'bg-raised text-ink' : 'bg-surface text-ink-2'}`}
+          className={`pane-handle flex h-[22px] flex-none items-center gap-1.5 border-b border-line px-2 text-xs ${focused ? 'bg-raised text-ink' : 'bg-surface text-ink-2'}`}
           data-handle={group.id}
           ref={handle}
         >
@@ -75,7 +75,7 @@ function PaneView({ group, data: { openShell, hello } }: { group: Group; data: P
                 <button
                   key={c.label}
                   type="button"
-                  className="tile flex aspect-square flex-col items-center justify-center gap-2 rounded-card border-0 bg-transparent text-body text-ink tint disabled:opacity-50"
+                  className="tile flex aspect-square flex-col items-center justify-center gap-2 rounded-md border-0 bg-transparent text-md text-ink tint disabled:opacity-50"
                   disabled={c.disabled}
                   onClick={() => void choose(c, (w, kind, params) => fillTab(w, tab.id, kind, params))}
                 >

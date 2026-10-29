@@ -18,9 +18,9 @@ function Fold(props: { id: string; head: string; body: string; tint?: string }) 
     <Pressable testID={props.id} onPress={() => setOpen(!open)} style={{ paddingVertical: 2 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.xs }}>
         <Icon name={open ? 'chevron' : 'chevronRight'} decorative size={14} color={props.tint ?? c.muted} />
-        <Text style={{ color: props.tint ?? c.muted, fontFamily: 'Menlo', fontSize: font.size.label, flex: 1 }}>{props.head}</Text>
+        <Text style={{ color: props.tint ?? c.muted, fontFamily: 'Menlo', fontSize: font.size.sm, flex: 1 }}>{props.head}</Text>
       </View>
-      {open && <Text style={{ color: c.ink, fontFamily: 'Menlo', fontSize: font.size.hint, paddingLeft: space.md }}>{props.body}</Text>}
+      {open && <Text style={{ color: c.ink, fontFamily: 'Menlo', fontSize: font.size.xs, paddingLeft: space.md }}>{props.body}</Text>}
     </Pressable>
   );
 }
@@ -37,7 +37,7 @@ function Tool(props: { e: Extract<Entry, { type: 'tool' }>; agent: string; held:
       <Fold id={`tr-${e.seq}`} head={`${e.tool ?? 'tool'} ${toolInputLine(e.input, 80)}`} body={JSON.stringify(e.input, null, 2)} />
       {asking && card && <PromptCard agent={props.agent} prompt={card.prompt} />}
       {e.answer && (
-        <Text testID={`answer-${e.id}`} style={{ color: c.muted, fontSize: font.size.label }}>
+        <Text testID={`answer-${e.id}`} style={{ color: c.muted, fontSize: font.size.sm }}>
           {e.answer.behavior === 'allow' ? 'Allowed' : 'Denied'} by {e.answer.by}
           {e.answer.message ? `: ${e.answer.message}` : ''}
         </Text>
@@ -72,22 +72,22 @@ function TurnView(props: { turn: Turn; agent: string; held: Set<string> }) {
         ) : e.type === 'tool' ? (
           <Tool key={e.seq} e={e} agent={props.agent} held={props.held} />
         ) : e.type === 'error' ? (
-          <Text key={e.seq} testID={`error-${e.seq}`} style={{ color: c.block, fontSize: font.size.label }}>
+          <Text key={e.seq} testID={`error-${e.seq}`} style={{ color: c.block, fontSize: font.size.sm }}>
             {e.code}: {e.text}
           </Text>
         ) : (
-          <Text key={e.seq} testID="gap" style={{ color: c.muted, fontSize: font.size.label }}>
+          <Text key={e.seq} testID="gap" style={{ color: c.muted, fontSize: font.size.sm }}>
             Earlier events are no longer kept.
           </Text>
         ),
       )}
       {t.end && (
-        <Text testID={`end-${t.seq}`} style={{ color: c.muted, fontSize: font.size.label }}>
+        <Text testID={`end-${t.seq}`} style={{ color: c.muted, fontSize: font.size.sm }}>
           {t.end.reason} · ${t.end.cost_usd.toFixed(2)} · {(t.end.duration_ms / 1000).toFixed(1)} s
         </Text>
       )}
       {t.running && (
-        <Text testID="running" style={{ color: c.muted, fontSize: font.size.label }}>
+        <Text testID="running" style={{ color: c.muted, fontSize: font.size.sm }}>
           working…
         </Text>
       )}
@@ -112,7 +112,7 @@ function Working(props: { agent: string }) {
         />
       </Row>
       {!!reason && (
-        <Text testID="tr-interrupt-refused" style={{ color: c.wait, fontSize: font.size.label }}>
+        <Text testID="tr-interrupt-refused" style={{ color: c.wait, fontSize: font.size.sm }}>
           {reason}
         </Text>
       )}
@@ -156,7 +156,7 @@ export function Transcript(props: { agent: string; transcript: TranscriptState }
         onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })}
       >
         {!!t.olderError && (
-          <Text testID="tr-older-error" style={{ color: c.block, fontSize: font.size.label }}>
+          <Text testID="tr-older-error" style={{ color: c.block, fontSize: font.size.sm }}>
             Could not load older events.
           </Text>
         )}

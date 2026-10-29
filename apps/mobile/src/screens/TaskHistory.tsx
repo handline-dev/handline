@@ -94,7 +94,7 @@ export function TaskHistory({ rows }: { rows: HistoryRow[] }) {
       </View>
       {days.map((d) => (
         <View key={d.day} style={{ gap: space.sm }}>
-          <Text style={{ color: c.muted, fontSize: font.size.label, fontWeight: '700' }}>{dayLabel(d.day)}</Text>
+          <Text style={{ color: c.muted, fontSize: font.size.sm, fontWeight: '700' }}>{dayLabel(d.day)}</Text>
           {d.items.map((item, i) =>
             item.kind === 'memos' ? (
               <Fold key={`${d.day}-${i}`} fold={item} />

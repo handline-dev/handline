@@ -14,7 +14,7 @@ function MarkdownFile({ file }: { file: MemoFile }) {
   const text = useMemo(() => (read.state === 'ready' ? new TextDecoder().decode(read.bytes) : null), [read]);
   return (
     <View testID={`memo-file-${file.id}`} style={{ gap: space.xs }}>
-      <Text style={{ color: c.muted, fontSize: font.size.label }}>{file.name}</Text>
+      <Text style={{ color: c.muted, fontSize: font.size.sm }}>{file.name}</Text>
       {text !== null ? (
         <Markdown text={text} testID={`memo-markdown-${file.id}`} />
       ) : (
@@ -37,7 +37,7 @@ export function MemoFiles({ files }: { files: MemoFile[] }) {
         <MarkdownFile key={f.id} file={f} />
       ))}
       {files.filter((f) => f.gone).map((f) => (
-        <Text key={f.id} style={{ color: c.muted, fontSize: font.size.label }}>{`${f.name}: no longer kept.`}</Text>
+        <Text key={f.id} style={{ color: c.muted, fontSize: font.size.sm }}>{`${f.name}: no longer kept.`}</Text>
       ))}
     </View>
   );

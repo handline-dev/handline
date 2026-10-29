@@ -19,9 +19,9 @@ import { Button } from '#src/ui/Button.tsx';
 import { Icon, type IconName } from '#src/ui/Icon.tsx';
 import { GROW, useOpenMotion } from '#src/ui/Reveal.tsx';
 
-const PANEL = 'z-30 overflow-y-auto min-w-[200px] rounded-card border border-line bg-panel py-[calc(4px*var(--o,1))] shadow-[var(--shadow-2)] outline-none';
+const PANEL = 'z-30 overflow-y-auto min-w-[200px] rounded-md border border-line bg-panel py-[calc(4px*var(--o,1))] shadow-[var(--shadow)] outline-none';
 const ITEM =
-  'flex h-8 w-full cursor-default select-none items-center gap-2 px-2 text-left text-body text-ink outline-none data-[highlighted]:bg-raised data-[disabled]:opacity-55 max-sm:min-h-12';
+  'flex h-8 w-full cursor-default select-none items-center gap-2 px-2 text-left text-md text-ink outline-none data-[highlighted]:bg-raised data-[disabled]:opacity-55 max-sm:min-h-12';
 
 /** Where a menu opens: a point (a right-click) or a box (a button), which the menu keeps clear of when it flips. */
 export type At = { x: number; y: number; w?: number; h?: number };
@@ -151,7 +151,7 @@ export function MenuButton({
           </span>
         </D.Anchor>
         <MenuContent side="bottom" align={align} sideOffset={4} aria-label={name}>
-          {name ? <D.Label className="px-2 py-1 text-hint text-ink-3">{name}</D.Label> : null}
+          {name ? <D.Label className="px-2 py-1 text-xs text-ink-3">{name}</D.Label> : null}
           {children}
         </MenuContent>
        </Opened.Provider>
@@ -222,7 +222,7 @@ export function MenuSubContent({ children }: { children: ReactNode }) {
 }
 
 export const MenuLabel = ({ children }: { children: ReactNode }) => (
-  <D.Label className="px-2 py-1 text-hint text-ink-3">{children}</D.Label>
+  <D.Label className="px-2 py-1 text-xs text-ink-3">{children}</D.Label>
 );
 
 export const MenuSeparator = () => <D.Separator className="my-1 h-px bg-line" />;

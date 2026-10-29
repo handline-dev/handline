@@ -109,7 +109,7 @@ export function Sidebar({
   const requests = useSelector((s) => s.can('requests.list'));
   return (
     <nav
-      className="rail flex w-[var(--rail-w,280px)] flex-none flex-col overflow-hidden border-r border-line bg-panel min-h-0 max-[900px]:fixed max-[900px]:z-10 max-[900px]:[inset:0_auto_0_0] max-[900px]:w-[min(320px,90vw)] max-[900px]:shadow-[var(--shadow-2)]"
+      className="rail flex w-[var(--rail-w,280px)] flex-none flex-col overflow-hidden border-r border-line bg-panel min-h-0 max-[900px]:fixed max-[900px]:z-10 max-[900px]:[inset:0_auto_0_0] max-[900px]:w-[min(320px,90vw)] max-[900px]:shadow-[var(--shadow)]"
       aria-label="Agents"
     >
       {/* The shell's drag strip: row as tall as the top bar, centred on the traffic lights (--h-top and --lights-w follow the zoom: shell.ts); `rail-top` is the tests' hook. */}
@@ -140,7 +140,7 @@ export function Sidebar({
           onClick={() => void (location.hash = '#/my-turn')}
         >
           <Icon name="inbox" size={14} aria-hidden /> My turn
-          {myTurn ? <span className="ml-auto rounded-full bg-wait px-1.5 text-hint font-semibold text-canvas">{myTurn}</span> : null}
+          {myTurn ? <span className="ml-auto rounded-full bg-wait px-1.5 text-xs font-semibold text-canvas">{myTurn}</span> : null}
         </button>
         <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           <Icon name="tasks" size={14} aria-hidden /> Tasks
@@ -172,7 +172,7 @@ export function Sidebar({
         ).map(([id, label]) => (
           <button
             key={id}
-            className={`rounded-ctl border-0 px-2 py-0.5 text-label ${chip === id ? 'bg-canvas text-ink' : 'bg-transparent text-ink-2'}`}
+            className={`rounded-sm border-0 px-2 py-0.5 text-sm ${chip === id ? 'bg-canvas text-ink' : 'bg-transparent text-ink-2'}`}
             aria-pressed={chip === id}
             onClick={() => change(chipChanges(id))}
           >
@@ -214,7 +214,7 @@ export function Sidebar({
             <span
               aria-hidden
               data-testid="filter-active"
-              className="pointer-events-none absolute right-1 top-1 size-2 rounded-full bg-focus"
+              className="pointer-events-none absolute right-1 top-1 size-2 rounded-full bg-acc"
             />
           ) : null}
         </span>
@@ -224,7 +224,7 @@ export function Sidebar({
         <View q={list} served={served} shape="agents" what="the agent list" empty={conn === 'open' && !agents.length && 'No agents.'}>
           {nl.pinned.length ? (
             <>
-              <h3 className="pinned-head m-0 px-2.5 pb-0.5 pt-2 text-hint font-normal uppercase tracking-wide text-ink-3">Pinned</h3>
+              <h3 className="pinned-head m-0 px-2.5 pb-0.5 pt-2 text-xs font-normal uppercase tracking-wide text-ink-3">Pinned</h3>
               {nl.pinned.map((agent) => row(agent, 0, 0, teamOf(agent.name, names), `pin-${agent.name}`))}
             </>
           ) : null}
@@ -235,7 +235,7 @@ export function Sidebar({
             return (
               <Fragment key={agent.name}>
                 {head ? (
-                  <h3 className="team-head m-0 px-2.5 pb-0.5 pt-2 text-hint font-normal uppercase tracking-wide text-ink-3">{team}</h3>
+                  <h3 className="team-head m-0 px-2.5 pb-0.5 pt-2 text-xs font-normal uppercase tracking-wide text-ink-3">{team}</h3>
                 ) : null}
                 {row(agent, depth, kids, team)}
               </Fragment>
@@ -245,7 +245,7 @@ export function Sidebar({
         {chip !== 'all' && conn === 'open' && agents.length > 0 && !rows.length && !nl.pinned.length ? (
           <p className="m-0 px-2.5 py-2 text-ink-2" data-testid="filter-empty">
             {chip === 'unread' ? 'No unread messages' : 'Nothing in My turn'}.{' '}
-            <button className="border-0 bg-transparent p-0 text-link underline" onClick={() => change(chipChanges('all'))}>
+            <button className="border-0 bg-transparent p-0 text-acc-ink underline" onClick={() => change(chipChanges('all'))}>
               Show all
             </button>
           </p>

@@ -28,7 +28,7 @@ export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () 
         backgroundColor: c.panel,
         borderColor: c.wait,
         borderWidth: 1,
-        borderRadius: radius.dialog,
+        borderRadius: radius.l,
       }}
     >
       <Text style={{ color: c.ink, fontWeight: '700' }}>
@@ -41,7 +41,7 @@ export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () 
           This prompt changed
         </Text>
       )}
-      <Text style={{ color: c.ink, fontFamily: 'Menlo', fontSize: font.size.label }}>{what}</Text>
+      <Text style={{ color: c.ink, fontFamily: 'Menlo', fontSize: font.size.sm }}>{what}</Text>
       {question || multi ? (
         <View style={{ gap: space.sm }}>
           {opts.map((o, i) => (
@@ -70,7 +70,7 @@ export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () 
           ))}
         </Row>
       )}
-      {p.kind === 'dialog' && opts.some(isAlways) && <Text style={{ color: c.muted, fontSize: font.size.label }}>↻ saves a rule for next time</Text>}
+      {p.kind === 'dialog' && opts.some(isAlways) && <Text style={{ color: c.muted, fontSize: font.size.sm }}>↻ saves a rule for next time</Text>}
       {multi && (
         <Button
           testID="answer-submit"
@@ -96,7 +96,7 @@ export function PromptCard(props: { agent: string; prompt: Prompt; onStale?: () 
               editable={!answering}
               autoFocus
               accessibilityLabel="Your own answer"
-              style={{ flex: 1, color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.card, padding: space.md }}
+              style={{ flex: 1, color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.m, padding: space.md }}
             />
             <Button
               testID="answer-text-send"

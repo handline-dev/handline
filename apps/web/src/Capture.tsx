@@ -157,10 +157,10 @@ export function CaptureDialog({
               <button
                 key={w.id}
                 type="button"
-                className="grid gap-1 rounded-card border border-line p-2 text-left"
+                className="grid gap-1 rounded-md border border-line p-2 text-left"
                 onClick={() => void pick(w)}
               >
-                <img src={w.thumb} alt="" className="w-full rounded-card" />
+                <img src={w.thumb} alt="" className="w-full rounded-md" />
                 <span className="truncate text-ink-2">{w.name}</span>
               </button>
             ))}

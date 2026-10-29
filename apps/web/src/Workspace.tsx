@@ -261,7 +261,7 @@ function Tree({ node, path }: { node: Node; path: Path }): ReactNode {
         <Tree node={node.a} path={[...path, 'a']} />
       </div>
       <div
-        className={`divider flex-none touch-none bg-line hover:bg-primary ${row ? 'w-[5px] cursor-col-resize' : 'h-[5px] cursor-row-resize'}`}
+        className={`divider flex-none touch-none bg-line hover:bg-acc ${row ? 'w-[5px] cursor-col-resize' : 'h-[5px] cursor-row-resize'}`}
         role="separator"
         aria-orientation={row ? 'vertical' : 'horizontal'}
         title="Drag to resize; double-click to reset"

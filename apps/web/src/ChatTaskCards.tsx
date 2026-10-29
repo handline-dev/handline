@@ -10,7 +10,7 @@ import { Button, Card, Icon } from '#src/ui/index.ts';
 const DOT: Record<string, string> = { opened: 'bg-ok', changed: 'bg-wait', done: 'bg-ok', withdrawn: 'bg-bad' };
 const VERB: Record<string, string> = { opened: 'added', changed: 'changed', done: 'done', withdrawn: 'deleted' };
 
-const LINK = 'cursor-pointer border-0 bg-transparent p-0 text-hint text-ink-2 underline disabled:opacity-50';
+const LINK = 'cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 underline disabled:opacity-50';
 
 /** One card: a click opens the task in the Tasks tab; Open and, on an open task the person may close, Done are at the line's end. */
 function TaskCard(props: { ev: string; label: string; task: number; title?: string | null; what: string[]; at: string }) {
@@ -25,7 +25,7 @@ function TaskCard(props: { ev: string; label: string; task: number; title?: stri
   return (
     // The row opens the task for a pointer; its Open button is the keyboard's way.
     <div
-      className="card-task group tint flex w-fit max-w-full cursor-pointer items-baseline gap-x-2 rounded-card px-1.5 py-1 text-body"
+      className="card-task group tint flex w-fit max-w-full cursor-pointer items-baseline gap-x-2 rounded-md px-1.5 py-1 text-md"
       data-kind="task_event"
       data-event={props.ev}
       title={`Open T${props.task} in the Tasks tab`}
@@ -97,7 +97,7 @@ export function BatchCard({ i }: { i: TranscriptItem }) {
         <div key={t.task} className="flex items-baseline gap-x-2" data-task={t.task}>
           <button
             type="button"
-            className="flex min-w-0 flex-1 cursor-pointer flex-wrap items-baseline gap-x-2 border-0 bg-transparent p-0 text-left text-body"
+            className="flex min-w-0 flex-1 cursor-pointer flex-wrap items-baseline gap-x-2 border-0 bg-transparent p-0 text-left text-md"
             title={`Open T${t.task} in the Tasks tab`}
             onClick={() => apply((w) => openTask(w, t.task))}
           >

@@ -73,7 +73,7 @@ function PairScreen(p: { url: string; storage: KV | null; open: Open; lost: bool
         if (text.trim() && !busy) void submit();
       }}
     >
-      <h1 className="m-0 text-page">Pair this computer</h1>
+      <h1 className="m-0 text-xl">Pair this computer</h1>
       {lost && <p className="m-0" role="status">This computer is no longer paired.</p>}
       <p className="m-0">
         In a terminal run <code>hl device pair</code> and paste the code, or the <code>handline://</code> line, here.

@@ -19,7 +19,7 @@ export function Badges({ badges, onClick }: { badges: Badge[]; onClick?: Partial
         return (
           <span
             key={b.kind}
-            className={`badge ${b.kind} mr-1.5 inline-block flex-none whitespace-nowrap rounded-card border px-1.5 text-hint text-ink-2 ${LOOK[b.kind]}${clickable ? ' cursor-pointer' : ''}`}
+            className={`badge ${b.kind} mr-1.5 inline-block flex-none whitespace-nowrap rounded-md border px-1.5 text-xs text-ink-2 ${LOOK[b.kind]}${clickable ? ' cursor-pointer' : ''}`}
             title={b.tip}
             role={clickable ? 'button' : undefined}
             onClick={(e) => {

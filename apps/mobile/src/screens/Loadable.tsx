@@ -59,7 +59,7 @@ export function Loadable(props: {
   return (
     <View style={{ flex: 1 }}>
       {state === 'refreshing' && (
-        <Text testID="refreshing" style={{ color: c.muted, fontSize: font.size.hint, paddingHorizontal: space.lg }}>
+        <Text testID="refreshing" style={{ color: c.muted, fontSize: font.size.xs, paddingHorizontal: space.lg }}>
           Updating…
         </Text>
       )}

@@ -82,7 +82,7 @@ export function State({ kind, label, word, size = 16 }: { kind: StateKind; label
   return (
     <span className={`ui-state inline-flex items-center gap-1.5 align-middle${hue ? ` ${hue}` : ''}`} data-state={kind} title={text}>
       <Icon name={g.icon} size={size} label={text} className={MOTION[kind]} />
-      {word ? <span className="ui-state-word text-hint text-ink-2">{g.label}</span> : null}
+      {word ? <span className="ui-state-word text-xs text-ink-2">{g.label}</span> : null}
     </span>
   );
 }

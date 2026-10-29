@@ -34,7 +34,7 @@ export function SendButton(props: { disabled: boolean; choose: boolean; color?: 
         style={{
           width: 40,
           height: 40,
-          borderRadius: radius.pill,
+          borderRadius: 999,
           alignItems: 'center',
           justifyContent: 'center',
           backgroundColor: props.color ?? c.accent,
@@ -128,7 +128,7 @@ export function WorkingBubble(props: { working: Working; messages: ChatMessage[]
                 alignItems: 'center',
                 paddingHorizontal: space.md,
                 height: 28,
-                borderRadius: radius.dialog,
+                borderRadius: radius.l,
                 backgroundColor: c.panel,
               }}
             >

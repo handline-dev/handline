@@ -207,7 +207,7 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
                       justifyContent: 'center',
                     }}
                   >
-                    <Text style={{ color: c.onFill, fontSize: font.size.label, fontWeight: '700' }}>{number(m)}</Text>
+                    <Text style={{ color: c.onFill, fontSize: font.size.sm, fontWeight: '700' }}>{number(m)}</Text>
                   </View>
                 ))}
                 {current && !capturing && (
@@ -225,7 +225,7 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
                       flexDirection: 'row',
                       gap: space.xs,
                       padding: space.xs,
-                      borderRadius: radius.card,
+                      borderRadius: radius.m,
                       borderWidth: 1,
                       borderColor: MARK_COLOR,
                       backgroundColor: c.panel,
@@ -261,7 +261,7 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
               alignItems: 'center',
               gap: space.lg,
               paddingHorizontal: space.lg,
-              borderRadius: radius.pill,
+              borderRadius: 999,
               backgroundColor: 'rgba(24,24,24,0.72)',
             }}
           >

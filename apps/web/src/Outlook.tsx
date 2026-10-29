@@ -84,10 +84,10 @@ function Line({ o }: { o: Outlook }) {
             <line key={at} data-reset={at} x1={x(at)} x2={x(at)} y1={0} y2={H} className={RESET_LINE} />
           ))}
           {near ? (
-            <line x1={x(near.at)} x2={x(near.at)} y1={0} y2={H} className="cursor stroke-primary [vector-effect:non-scaling-stroke]" />
+            <line x1={x(near.at)} x2={x(near.at)} y1={0} y2={H} className="cursor stroke-acc [vector-effect:non-scaling-stroke]" />
           ) : null}
         </svg>
-        <p className="outlook-readout muted m-0 mt-1 h-5 text-hint" aria-live="polite">
+        <p className="outlook-readout muted m-0 mt-1 h-5 text-xs" aria-live="polite">
           {near ? `${dateTime(near.at)} · ${Math.round(near.left_pct!)}% left${near.guess ? ' (guess)' : ''}` : ''}
         </p>
         <span className={OUTLOOK_END} style={{ top: `${((100 - (lastLeft ?? 0)) / 100) * 100}%` }}>
@@ -262,7 +262,7 @@ export function OutlookSection() {
   return (
     <ChartCard className="outlook mb-3" aria-label="Outlook">
       <div className="outlook-controls mb-2 flex flex-wrap items-center gap-2">
-        <h3 className="m-0 flex-1 text-title font-semibold">Outlook</h3>
+        <h3 className="m-0 flex-1 text-lg font-semibold">Outlook</h3>
         <Segmented
           label="View"
           value={view}

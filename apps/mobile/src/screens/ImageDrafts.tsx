@@ -30,7 +30,7 @@ export function ImageChips(props: {
             gap: space.xs,
             borderWidth: 1,
             borderColor: d.error ? c.block : c.line,
-            borderRadius: radius.card,
+            borderRadius: radius.m,
             padding: 2,
           }}
         >
@@ -41,7 +41,7 @@ export function ImageChips(props: {
             disabled={!props.onMark || !d.attachment}
             onPress={() => props.onMark?.(d.key)}
           >
-            <Image source={{ uri: d.preview }} accessibilityLabel={d.name} style={{ width: 48, height: 48, borderRadius: radius.chip }} />
+            <Image source={{ uri: d.preview }} accessibilityLabel={d.name} style={{ width: 48, height: 48, borderRadius: radius.s }} />
             {props.marked === d.key ? (
               <View
                 testID={`image-marked-${d.key}`}
@@ -58,10 +58,10 @@ export function ImageChips(props: {
               hitSlop={8}
               onPress={() => props.onRetry(d.key)}
             >
-              <Text style={{ color: c.block, fontSize: font.size.label }}>Retry</Text>
+              <Text style={{ color: c.block, fontSize: font.size.sm }}>Retry</Text>
             </Pressable>
           ) : !d.attachment ? (
-            <Text testID={`image-progress-${d.key}`} style={{ color: c.muted, fontSize: font.size.label }}>
+            <Text testID={`image-progress-${d.key}`} style={{ color: c.muted, fontSize: font.size.sm }}>
               {Math.round(d.progress * 100)}%
             </Text>
           ) : null}
@@ -72,12 +72,12 @@ export function ImageChips(props: {
             hitSlop={10}
             onPress={() => props.onRemove(d.key)}
           >
-            <Text style={{ color: c.muted, fontSize: font.size.body }}>✕</Text>
+            <Text style={{ color: c.muted, fontSize: font.size.md }}>✕</Text>
           </Pressable>
         </View>
       ))}
       {props.problem ? (
-        <Text testID="image-problem" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.label }}>
+        <Text testID="image-problem" accessibilityRole="alert" style={{ color: c.block, fontSize: font.size.sm }}>
           {props.problem}
         </Text>
       ) : null}
@@ -97,7 +97,7 @@ export function AttachButton(props: { onPress: () => void; disabled?: boolean })
       onPress={props.onPress}
       style={{ padding: space.sm, opacity: props.disabled ? 0.4 : 1 }}
     >
-      <Text style={{ color: c.accent, fontSize: font.size.page }}>＋</Text>
+      <Text style={{ color: c.accent, fontSize: font.size.xl }}>＋</Text>
     </Pressable>
   );
 }

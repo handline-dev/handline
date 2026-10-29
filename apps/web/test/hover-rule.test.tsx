@@ -21,7 +21,7 @@ describe('one hover rule: a light tint from one token', () => {
           const own =
             line.match(/(?<![\w-])(group-)?hover:(?:enabled:)?(bg-(?!hover\b)|text-|underline|outline|border-|brightness-)[\w/[\]-]*/g) ??
             [];
-          const ok = (m: string) => HANDLES.some((h) => f.endsWith(h)) && m.startsWith('hover:bg-primary');
+          const ok = (m: string) => HANDLES.some((h) => f.endsWith(h)) && m.startsWith('hover:bg-acc');
           return own.filter((m) => !ok(m)).map((m) => `${f.slice(SRC.length + 1)}:${i + 1} ${m}`);
         }),
     );

@@ -8,7 +8,7 @@ import { AnimatedCell, AnimatedRow } from '#src/AnimatedList.tsx';
 import { StateChip } from '#src/taskui.tsx';
 import { RowMenu, type Cans } from '#src/TaskVerbUi.tsx';
 
-const CHIP = 'inline-block max-w-full truncate rounded-pill border border-line px-2 text-hint leading-5 align-middle';
+const CHIP = 'inline-block max-w-full truncate rounded-full border border-line px-2 text-xs leading-5 align-middle';
 
 export function Row(props: {
   t: Task;
@@ -34,7 +34,7 @@ export function Row(props: {
   const authored = props.mark === 'authored';
   const time = timeLeft(timeoutText(t, now) || idleText(t, now));
   // An open row keeps its raised ground when hovered; a cursor row carries the inset bar. On a phone the row is a card.
-  const row = `trow group/trow cursor-default max-sm:mt-0 max-sm:mb-2 max-sm:grid max-sm:grid-cols-[auto_1fr_auto] max-sm:gap-x-2 max-sm:py-2 max-sm:px-3 max-sm:bg-panel max-sm:border max-sm:border-line max-sm:rounded-card max-sm:[grid-template-areas:'state_num_time'_'title_title_title'_'owner_pri_pri'] ${
+  const row = `trow group/trow cursor-default max-sm:mt-0 max-sm:mb-2 max-sm:grid max-sm:grid-cols-[auto_1fr_auto] max-sm:gap-x-2 max-sm:py-2 max-sm:px-3 max-sm:bg-panel max-sm:border max-sm:border-line max-sm:rounded-md max-sm:[grid-template-areas:'state_num_time'_'title_title_title'_'owner_pri_pri'] ${
     props.open ? 'open bg-raised tint' : 'tint'
   }${props.cursor ? ` cursor shadow-[inset_2px_0_0_var(--ink)]${props.open ? '' : ' bg-panel'}` : ''}${authored ? ' pending' : ''}`;
   const TD = 'max-sm:block max-sm:h-auto max-sm:p-0 max-sm:border-0 max-sm:w-auto';
@@ -65,7 +65,7 @@ export function Row(props: {
           </AnimatedCell>
           <AnimatedCell className={`c-state w-8 ${TD} max-sm:[grid-area:state]`}>
             <StateChip state={t.state} mark={props.mark} to={t.to} result={watchResult(t)} />
-            {props.failed ? <span className="not-changed text-bad text-hint"> not changed</span> : null}
+            {props.failed ? <span className="not-changed text-bad text-xs"> not changed</span> : null}
           </AnimatedCell>
           <AnimatedCell className={`c-num mono w-16 ${TD} max-sm:[grid-area:num]`}>
             <a href={`#/tasks/${t.id}`} className="tnum text-inherit no-underline" onClick={(e) => e.stopPropagation()}>
@@ -77,7 +77,7 @@ export function Row(props: {
             title={`asked by ${t.from}`}
           >
             <span
-              className={`ttitle line-clamp-2 break-words whitespace-normal text-body font-medium${authored ? ' ghost italic text-ink-2' : ''}`}
+              className={`ttitle line-clamp-2 break-words whitespace-normal text-md font-medium${authored ? ' ghost italic text-ink-2' : ''}`}
             >
               {t.title}
             </span>

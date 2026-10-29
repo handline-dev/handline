@@ -40,7 +40,7 @@ function Choice<T extends string>(props: { label: string; value: T; options: rea
             borderWidth: 1,
             borderColor: props.value === o ? c.ink : c.line,
             backgroundColor: props.value === o ? c.panel : 'transparent',
-            borderRadius: radius.card,
+            borderRadius: radius.m,
           }}
         >
           <Text style={{ color: props.value === o ? c.ink : c.muted, fontWeight: props.value === o ? '700' : '400' }}>{o}</Text>
@@ -61,9 +61,9 @@ function Counts({ s }: { s: StatsData }) {
           <View
             key={key}
             testID={`tile-${key}`}
-            style={{ flexBasis: '47%', flexGrow: 1, borderWidth: 1, borderColor: c.line, borderRadius: radius.card, padding: space.md }}
+            style={{ flexBasis: '47%', flexGrow: 1, borderWidth: 1, borderColor: c.line, borderRadius: radius.m, padding: space.md }}
           >
-            <Text style={{ color: key === 'blocks' && s[key] > 0 ? c.block : c.ink, fontSize: font.size.display, fontWeight: '700' }}>{s[key]}</Text>
+            <Text style={{ color: key === 'blocks' && s[key] > 0 ? c.block : c.ink, fontSize: font.size.xl, fontWeight: '700' }}>{s[key]}</Text>
             <Text style={{ color: c.muted }}>{label}</Text>
           </View>
         ))}
@@ -122,7 +122,7 @@ function Left({ o }: { o: Outlook }) {
           />
         ))}
       </View>
-      <Text style={{ color: c.muted, fontSize: font.size.label }}>solid: recorded, dashed: guess. Now is where they change.</Text>
+      <Text style={{ color: c.muted, fontSize: font.size.sm }}>solid: recorded, dashed: guess. Now is where they change.</Text>
       {o.runway.map((r) => (
         <Text key={r.account} testID={`runway-${r.account}`} style={{ color: c.ink }}>
           {r.account} <Text style={{ color: c.muted }}>{runwayWords(r)}</Text>
@@ -152,7 +152,7 @@ function Cost({ o }: { o: Outlook }) {
           </View>
         ))}
       </View>
-      <Text style={{ color: c.muted, fontSize: font.size.label }}>
+      <Text style={{ color: c.muted, fontSize: font.size.sm }}>
         {o.cost_per_day[0]?.day} to {o.cost_per_day.at(-1)?.day}, most {`$${top.toFixed(2)}`} a day
       </Text>
       {agents.map((a, i) => (
@@ -211,7 +211,7 @@ export function Stats() {
   const [win, setWin] = useState<Window>('24h');
   return (
     <View testID="stats-page" style={{ padding: space.lg, paddingBottom: space.xl * 2, gap: space.xl }}>
-      <Text style={{ color: c.ink, fontSize: font.size.page, fontWeight: '700' }}>Stats</Text>
+      <Text style={{ color: c.ink, fontSize: font.size.xl, fontWeight: '700' }}>Stats</Text>
       <Choice label="window" value={win} options={WINDOWS} onChange={setWin} />
       <Numbers win={win} />
       <OutlookSection range={win} />

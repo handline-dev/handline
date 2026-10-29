@@ -245,7 +245,7 @@ export function BytesTab({
         ) : null}
         {state === 'live' && !watchOnly && heldBy && !holds ? (
           <div className="input-elsewhere absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-term-bg/70">
-            <span className="text-hint text-term-ink">Typing is on {heldBy}</span>
+            <span className="text-xs text-term-ink">Typing is on {heldBy}</span>
             <Button variant="solid" label="Type here" onClick={() => take({ agent, force: true })}>
               Type here
             </Button>
