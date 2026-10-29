@@ -95,6 +95,10 @@ func TestADeferredItemReturnsWhenItsTimePasses(t *testing.T) {
 	if got := r.scan(); len(got) != 0 || !r.held("task", "1") {
 		t.Fatalf("before its time: %v", got)
 	}
+	r.now = 1_999
+	if got := r.scan(); len(got) != 0 || !r.held("task", "1") {
+		t.Fatalf("a second before its time: %v", got)
+	}
 	r.now = 2_000
 	got := r.scan()
 	if len(got) != 1 || got[0]["why"] != "time" || got[0]["item"].(map[string]any)["id"] != "1" || r.held("task", "1") {
@@ -143,5 +147,42 @@ func TestAClearedDeferralIsNotToldAndAGoneItemIsDroppedQuietly(t *testing.T) {
 	r.exec("UPDATE tasks SET done_evidence = 'x', done_at = 5 WHERE id = 2")
 	if got := r.scan(); len(got) != 0 || r.held("task", "2") || r.held("comment", "9") || r.held("machine", "disk") {
 		t.Fatalf("a gone item was told or kept: %v", got)
+	}
+}
+
+// Only the disk is a machine need: a deferral of another machine id is dropped as gone while the disk need stands.
+func TestAMachineDeferralOfAnythingButTheDiskIsDroppedQuietly(t *testing.T) {
+	r := newLaterRig(t)
+	r.exec("INSERT INTO cursors(name, row_id, updated) VALUES('disk_full_since', 9, 9)")
+	r.set("machine", "disk", 5_000, 0)
+	r.set("machine", "memory", 5_000, 0)
+	if got := r.scan(); len(got) != 0 || !r.held("machine", "disk") || r.held("machine", "memory") {
+		t.Fatalf("told %v; disk held %v, memory held %v", got, r.held("machine", "disk"), r.held("machine", "memory"))
+	}
+}
+
+// The database does not change when a time passes, so the watch is woken by the signature alone.
+func TestTheSignatureChangesWhenADeferralsTimePasses(t *testing.T) {
+	r := newLaterRig(t)
+	sig := LaterSignature(r.d)
+	quiet := sig()
+	r.set("task", "1", time.Now().Unix()+3600, 0)
+	if sig() != quiet {
+		t.Fatalf("a deferral still to come changed the signature")
+	}
+	r.set("task", "2", time.Now().Unix()-1, 0)
+	if sig() == quiet {
+		t.Fatalf("a deferral whose time passed left the signature as it was")
+	}
+}
+
+// The founder defers an item again after the scan read its row: the new deferral stands, and nothing is told.
+func TestADeferralReplacedDuringAScanIsNeitherDeletedNorTold(t *testing.T) {
+	r := newLaterRig(t)
+	r.set("task", "1", 2_000, 0)
+	r.now = 2_000
+	r.w.afterRead = func() { r.set("task", "1", 9_000, 0) }
+	if got := r.scan(); len(got) != 0 || !r.held("task", "1") {
+		t.Fatalf("told %v, held %v", got, r.held("task", "1"))
 	}
 }

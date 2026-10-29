@@ -16,6 +16,8 @@ import (
 // change said it.
 type Later struct {
 	Now func() time.Time // nil is time.Now
+
+	afterRead func() // test hook: runs between reading the rows and ending any of them
 }
 
 func (*Later) Name() string { return "later" }
@@ -62,6 +64,9 @@ func (w *Later) Scan(q *sql.DB, emit Emit) error {
 	if err != nil {
 		return err
 	}
+	if w.afterRead != nil {
+		w.afterRead()
+	}
 	for _, l := range rows {
 		gone, err := goneItem(q, l)
 		if err != nil {
@@ -76,10 +81,10 @@ func (w *Later) Scan(q *sql.DB, emit Emit) error {
 				continue
 			}
 		}
-		// a clear that came first, or another scan, took the row: it is not this scan's to tell
-		if deleted, err := db.LaterClear(q, l.Kind, l.ID); err != nil {
+		// a clear or a new set that came after the read took the row: it is not this scan's to end or tell
+		if dropped, err := db.LaterDrop(q, l); err != nil {
 			return err
-		} else if !deleted || gone {
+		} else if !dropped || gone {
 			continue
 		}
 		entry := stream.Entry{Topic: "tasks", Type: "later_returned", Data: map[string]any{"item": map[string]any{"kind": l.Kind, "id": l.ID}, "why": why}}

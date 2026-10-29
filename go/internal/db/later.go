@@ -36,6 +36,17 @@ func LaterClear(q Q, kind, id string) (bool, error) {
 	return n > 0, err
 }
 
+// LaterDrop deletes the row as it was read: false when it has since been replaced or cleared, which is then not the reader's to end.
+func LaterDrop(q Q, l Later) (bool, error) {
+	res, err := q.Exec("DELETE FROM later WHERE item_kind = ? AND item_id = ? AND set_at = ? AND until_at IS ? AND after_task IS ?",
+		l.Kind, l.ID, l.SetAt, l.Until, l.After)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // LaterRows are every row of the table, oldest first.
 func LaterRows(q Q) ([]Later, error) {
 	rows, err := q.Query("SELECT item_kind, item_id, until_at, after_task, set_at FROM later ORDER BY set_at, item_kind, item_id")

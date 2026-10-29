@@ -2890,9 +2890,6 @@
      "text": {
       "type": "string",
       "description": "The item in plain words, with the free space in it."
-     },
-     "later": {
-      "$ref": "#/components/schemas/Later"
      }
     },
     "required": [
@@ -2924,7 +2921,7 @@
    },
    "Later": {
     "type": "object",
-    "description": "Why a For you item is out of its group and when it returns: at the time `until`, or when the task `after_task` is done or discarded; exactly one is present. Absent from an item that is not deferred. The apps filter and count on it.",
+    "description": "Why a For you item is out of its group and when it returns: at the time `until`, or when the task `after_task` is done or discarded; exactly one is present. for_you.list carries it on a deferred item (ForYouItem.later); an item that is not deferred has none.",
     "properties": {
      "until": {
       "$ref": "#/components/schemas/Timestamp"

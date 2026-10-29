@@ -434,11 +434,6 @@ func (e *Env) taskOf(t row, state string, b *board) (map[string]any, error) {
 	if len(blockedBy) > 0 {
 		task["block_reason"] = "waiting on " + tids(blockedBy)
 	}
-	if later, err := e.laterOf(db.LaterTask, t.i("id")); err != nil {
-		return nil, err
-	} else if later != nil {
-		task["later"] = later
-	}
 	return task, nil
 }
 
