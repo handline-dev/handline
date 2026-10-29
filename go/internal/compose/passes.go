@@ -34,7 +34,10 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 		Say: lc.Env.SystemSayThen, Log: func(s string) { cfg.Log("%s", s) }}
 	healer := &heal.Healer{Ports: healPorts{lc: lc, home: cfg.Home, needs: p.needsYou()}, Log: func(s string) { cfg.Log("%s", s) }}
 	p.healer = healer
-	held := &hrwrites.Env{DB: lc.Env.DB, Home: cfg.Home, Say: lc.Env, Log: cfg.Log}
+	held := &hrwrites.Env{DB: lc.Env.DB, Home: cfg.Home, Say: lc.Env, Log: cfg.Log,
+		Ask: func(title, body string, tags ...string) (int64, error) {
+			return taskwrites.AskFounder(lc.Env.DB, lc.Env, title, body, tags...)
+		}}
 	if lc.Env.Observer != nil {
 		held.Live = lc.Env.Observer.LiveSessions
 	}
@@ -59,6 +62,7 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 		{Name: "hr-held", Run: func(q db.Q, now int64) error {
 			return held.SweepHeld(heldPorts(tk, q, healPorts{lc: lc, home: cfg.Home}))
 		}},
+		{Name: "left-worktrees", Run: func(db.Q, int64) error { return held.SweepLeftWorktrees() }},
 	}
 }
 

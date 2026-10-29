@@ -1,10 +1,12 @@
 package hrwrites
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/worktreeprune"
 )
 
@@ -75,7 +77,7 @@ func (e *Env) askAbout(member string, wt worktreeprune.Worktree, why string) str
 	}
 	_, files, commits := worktreeprune.Unsaved(wt.Path)
 	title := fmt.Sprintf("Remove %s's worktree?", member)
-	body := fmt.Sprintf("%s has left, and its worktree holds work that is not on main: %s changed, %s not on main.\n\n",
+	body := fmt.Sprintf("%s no longer works in this worktree, and it holds work that is not on main: %s changed, %s not on main.\n\n",
 		member, plural(files, "file"), plural(commits, "commit")) + worktreeprune.Describe(wt) + "\n\nMember: " + member + `
 
 Answer with one word (a comment or a chat message does nothing):
@@ -97,4 +99,57 @@ func plural(n int, noun string) string {
 		return "1 " + noun
 	}
 	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// leftSeen is the cursor of the last WorktreeLeft event SweepLeftWorktrees judged.
+const leftSeen = "worktree_left_seen"
+
+// SweepLeftWorktrees judges each worktree an agent left for another (db.WorktreeLeft, written when it launched in a new one), as a retired
+// agent's: merged and clean, it goes with its branch; holding work, it is put to the founder. One any agent still records is left alone.
+func (e *Env) SweepLeftWorktrees() error {
+	seen, err := db.Cursor(e.DB, leftSeen)
+	if err != nil {
+		return err
+	}
+	rows, err := e.DB.Query("SELECT id, agent, json_extract(payload, '$.path') FROM events WHERE kind = ? AND id > ? ORDER BY id", db.WorktreeLeft, seen)
+	if err != nil {
+		return err
+	}
+	type left struct {
+		id          int64
+		agent, path string
+	}
+	var all []left
+	for rows.Next() {
+		var l left
+		var path sql.NullString
+		if err := rows.Scan(&l.id, &l.agent, &path); err != nil {
+			rows.Close()
+			return err
+		}
+		l.path = path.String
+		if _, p, ok := strings.Cut(l.path, "::"); ok {
+			l.path = p
+		}
+		all = append(all, l)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, l := range all {
+		recorded, err := worktreeprune.AgentWorktrees(e.DB, "")
+		if err != nil {
+			return err
+		}
+		if l.path != "" && !recorded[worktreeprune.Real(l.path)] {
+			if said := e.pruneMemberWorktrees(l.agent, []string{l.path}, ""); said != "" {
+				e.logf("%s left a worktree:%s", l.agent, said)
+			}
+		}
+		if err := db.SetCursor(e.DB, leftSeen, l.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }

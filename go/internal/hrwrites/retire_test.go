@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/gitrun"
 	"github.com/handline/handline/go/internal/sealed"
 	"github.com/handline/handline/go/internal/team"
@@ -189,5 +190,36 @@ func TestWithNoAnswerAWorktreeThatHoldsWorkIsAskedAsATask(t *testing.T) {
 	}
 	if _, err := os.Stat(wt["ahead"]); err != nil {
 		t.Fatal("ahead was removed before the answer")
+	}
+}
+
+// An agent that launches in a new worktree leaves its old one (db.WorktreeLeft); the tick judges it as a retired agent's: merged and
+// clean it goes with its branch, holding work it is put to the founder, and one another agent records is left alone. Each is judged once.
+func TestAWorktreeAnAgentLeftForAnotherIsJudged(t *testing.T) {
+	r := newRig(t)
+	main, wt, git := bobsWorktrees(t, r)
+	var asked []string
+	r.e.Ask = func(title, body string, tags ...string) (int64, error) { asked = append(asked, title); return 50, nil }
+	r.db.Exec("UPDATE agent_state SET worktree = ?, extra_worktrees = NULL WHERE agent = 'bob'", wt["done"])
+	moved := filepath.Join(filepath.Dir(main), "next")
+	for _, step := range []string{wt["ahead"], wt["shared"], moved} { // done -> ahead -> shared -> next
+		if err := db.SetTerminal(r.db, "bob", "", step); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.e.SweepLeftWorktrees(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(wt["done"]); !os.IsNotExist(err) || git(main, "rev-parse", "--verify", "-q", "refs/heads/done") {
+		t.Fatal("the merged, clean worktree it left is still there, or its branch")
+	}
+	if _, err := os.Stat(wt["ahead"]); err != nil || len(asked) != 1 {
+		t.Fatalf("the one holding work stays and is asked about once: %v", asked)
+	}
+	if _, err := os.Stat(wt["shared"]); err != nil {
+		t.Fatal("alice's worktree was removed")
+	}
+	if err := r.e.SweepLeftWorktrees(); err != nil || len(asked) != 1 {
+		t.Fatalf("judged again: %v %v", asked, err)
 	}
 }
