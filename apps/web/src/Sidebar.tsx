@@ -28,6 +28,7 @@ import { Button, Icon, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } fro
 import { setting } from '#src/daemon.ts';
 import { useSelector } from '@handline/app-react';
 import { goTasks, usePageRoute } from '#src/route.ts';
+import { Chip } from '#src/ds/Chip.tsx';
 import { AgentRow } from '#src/AgentRow.tsx';
 import { NewAgentButton } from '#src/NewAgent.tsx';
 import { View } from '#src/View.tsx';
@@ -140,7 +141,11 @@ export function Sidebar({
           onClick={() => void (location.hash = '#/my-turn')}
         >
           <Icon name="inbox" size={14} aria-hidden /> My turn
-          {myTurn ? <span className="ml-auto rounded-full bg-wait px-1.5 text-xs font-semibold text-canvas">{myTurn}</span> : null}
+          {myTurn ? (
+            <span className="ml-auto">
+              <Chip kind="you">{myTurn}</Chip>
+            </span>
+          ) : null}
         </button>
         <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           <Icon name="tasks" size={14} aria-hidden /> Tasks
@@ -224,7 +229,7 @@ export function Sidebar({
         <View q={list} served={served} shape="agents" what="the agent list" empty={conn === 'open' && !agents.length && 'No agents.'}>
           {nl.pinned.length ? (
             <>
-              <h3 className="pinned-head m-0 px-2.5 pb-0.5 pt-2 text-xs font-normal uppercase tracking-wide text-ink-3">Pinned</h3>
+              <h3 className="pinned-head m-0 px-3 pb-1 pt-3 text-sm font-semibold">Pinned</h3>
               {nl.pinned.map((agent) => row(agent, 0, 0, teamOf(agent.name, names), `pin-${agent.name}`))}
             </>
           ) : null}
@@ -234,9 +239,7 @@ export function Sidebar({
             const head = heads && depth === 0 && team !== lastTop(rows, i, names);
             return (
               <Fragment key={agent.name}>
-                {head ? (
-                  <h3 className="team-head m-0 px-2.5 pb-0.5 pt-2 text-xs font-normal uppercase tracking-wide text-ink-3">{team}</h3>
-                ) : null}
+                {head ? <h3 className="team-head m-0 px-3 pb-1 pt-3 text-sm font-semibold">{team}</h3> : null}
                 {row(agent, depth, kids, team)}
               </Fragment>
             );

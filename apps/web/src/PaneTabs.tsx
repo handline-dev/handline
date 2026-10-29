@@ -171,7 +171,7 @@ function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneD
             role="tab"
             tabIndex={0}
             aria-selected={id === group.activeTab || asleep}
-            className={`tab group ${hidden.has(id) ? 'hidden' : 'inline-flex'} h-8 min-w-24 max-w-[200px] shrink cursor-default select-none items-center gap-1.5 whitespace-nowrap rounded-sm px-2.5 font-sans text-md font-medium tint shell:[-webkit-app-region:no-drag] ${id === group.activeTab ? 'on bg-raised text-ink' : asleep ? 'text-ink-2 bg-raised/50' : 'text-ink-2'}`}
+            className={`tab group ${hidden.has(id) ? 'hidden' : 'inline-flex'} h-[var(--h-m)] min-w-24 max-w-[200px] shrink cursor-default select-none items-center gap-1.5 whitespace-nowrap rounded-sm px-2.5 font-sans text-sm focus-visible:outline-2 focus-visible:outline-acc shell:[-webkit-app-region:no-drag] ${id === group.activeTab ? 'on bg-panel text-ink' : asleep ? 'text-ink-2 bg-panel/50 tint' : 'text-ink-2 tint'}`}
             data-tab={id}
             draggable={id !== CHAT}
             onDragStart={(e) => {
