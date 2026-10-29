@@ -102,6 +102,7 @@ export class FakeAdmin {
       created: '2026-10-01T09:00:00Z',
       last_seen: '2026-10-16T01:00:00Z',
       connected: true,
+      push: false,
     },
     {
       id: 'd2',
@@ -110,6 +111,7 @@ export class FakeAdmin {
       created: '2026-10-05T09:00:00Z',
       last_seen: '2026-10-12T08:00:00Z',
       connected: false,
+      push: true,
     },
   ];
   private answers: StandingAnswer[] = [

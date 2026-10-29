@@ -1,0 +1,1 @@
+-- Step 30 (device_push) is by hand: addDevicePush in store.go.
