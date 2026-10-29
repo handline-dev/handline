@@ -6,10 +6,12 @@ import { Icon, type IconName } from '#src/ui/Icon.tsx';
 import { Sheet } from '#src/taskui.tsx';
 import { AssignPopover } from '#src/TaskPeople.tsx';
 import { Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
-import { Button, Input, MenuButton, MenuItem } from '#src/ui/index.ts';
+import { Input, MenuButton, MenuItem } from '#src/ui/index.ts';
+import { Button as DsButton } from '#src/ds/Button.tsx';
+import { Chip } from '#src/ds/Chip.tsx';
+import { Id } from '#src/ds/Link.tsx';
 
-const H3 = 'mt-4 mb-1 flex items-center text-ink-3';
-const CHIP = 'inline-flex items-center gap-1 rounded-full border border-line px-2 text-xs leading-5';
+const H3 = 'm-0 mt-4 mb-1 flex items-center text-sm font-semibold';
 const LI = 'flex items-baseline gap-1.5 py-0.5';
 
 /** The assignee, priority and time box as chips: the first two open a choice, the time box edits where it is. A closed task shows them as plain words. */
@@ -26,15 +28,9 @@ export function TaskChips({ t, now, me }: { t: Detail; now: number; me: string }
         {can ? (
           <>
             <span className="relative inline-flex">
-              <Button
-                variant="outline"
-                size="sm"
-                label="Change who it is assigned to"
-                title={edit.can.why}
-                onClick={() => setPicking(!picking)}
-              >
+              <DsButton size="s" label="Change who it is assigned to" title={edit.can.why} onClick={() => setPicking(!picking)}>
                 {owner} ▾
-              </Button>
+              </DsButton>
               <AssignPopover t={t} me={me} open={picking} onClose={() => setPicking(false)} />
             </span>
             <MenuButton label="Change the priority" variant="outline" size="sm" align="start" trigger={`${priority} ▾`}>
@@ -47,11 +43,11 @@ export function TaskChips({ t, now, me }: { t: Detail; now: number; me: string }
           </>
         ) : (
           <>
-            <span className={CHIP}>{owner}</span>
-            <span className={CHIP}>{priority}</span>
+            <Chip>{owner}</Chip>
+            <Chip>{priority}</Chip>
           </>
         )}
-        <span className={CHIP}>
+        <Chip>
           Time box ·{' '}
           <Inline
             can={can}
@@ -62,7 +58,7 @@ export function TaskChips({ t, now, me }: { t: Detail; now: number; me: string }
           >
             {box || 'none'}
           </Inline>
-        </span>
+        </Chip>
       </div>
       {edit.error ? (
         <p className="m-0 text-bad" role="alert">
@@ -83,9 +79,7 @@ export function TaskLinks({ icon, label, items }: { icon: IconName; label: strin
       <ul className="tlinks m-0 list-none p-0">
         {items.map((b) => (
           <li key={b.task} className={LI}>
-            <a href={`#/tasks/${b.task}`} className="mono text-inherit no-underline">
-              {taskRef(b.task)}
-            </a>{' '}
+            <Id href={`#/tasks/${b.task}`}>{taskRef(b.task)}</Id>{' '}
             {b.reason !== undefined ? <span className="muted">{b.reason}</span> : null}
           </li>
         ))}

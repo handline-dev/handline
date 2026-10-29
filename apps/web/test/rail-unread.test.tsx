@@ -1,4 +1,4 @@
-// The rail's unread badge, the last request under an agent's name, and the All|Unread filter.
+// The rail's unread badge and the last request under an agent's name.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -30,11 +30,9 @@ afterEach(async () => {
 });
 
 const rows = () => [...box.querySelectorAll('[data-agent]')].map((r) => r.getAttribute('data-agent'));
-const pick = (label: string) =>
-  [...box.querySelectorAll<HTMLButtonElement>('.rail-read button')].find((b) => b.textContent?.startsWith(label))!;
 
 describe('the rail unread marks', () => {
-  it('shows the count and the last request, and the Unread filter keeps only agents with something unseen', async () => {
+  it('shows the count and the last request', async () => {
     const s = setup();
     const fx = s.daemon.sessions.get(ARCH)!.fx;
     keep = () => void (fx.view = undefined); // the fixture is shared by every setup
@@ -49,25 +47,5 @@ describe('the rail unread marks', () => {
     expect(row.querySelector('.row-time')).not.toBeNull(); // when it was said
     expect(row.querySelector('[aria-label="Context window"]')).toBeNull(); // no bars on the row
     expect(rows().length).toBeGreaterThan(1);
-    expect(pick('Unread').textContent).toBe('Unread1');
-    await act(async () => pick('Unread').click());
-    expect(rows()).toEqual([ARCH]);
-    await act(async () => pick('All').click());
-    expect(rows().length).toBeGreaterThan(1);
-  });
-
-  it('a filter with nothing to show says so in one line and links back to All', async () => {
-    const s = setup();
-    box = document.body.appendChild(document.createElement('div'));
-    root = createRoot(box);
-    await act(async () => root!.render(<App store={new Store(s.client)} daemon="test" storage={null} />));
-    await until(() => box.querySelector('[data-agent]'), 'the agent rows');
-    await act(async () => pick('Unread').click());
-    await until(() => box.querySelector('[data-testid="filter-empty"]'), 'the empty line');
-    expect(rows()).toEqual([]);
-    expect(box.querySelector('[data-testid="filter-empty"]')!.textContent).toBe('No unread messages. Show all');
-    await act(async () => box.querySelector<HTMLButtonElement>('[data-testid="filter-empty"] button')!.click());
-    expect(rows().length).toBeGreaterThan(1);
-    expect(box.querySelector('[data-testid="filter-empty"]')).toBeNull();
   });
 });

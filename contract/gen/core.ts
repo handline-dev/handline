@@ -32,7 +32,7 @@ export type Actor = {
 /** Every write's result. A refusal is the `refused` error, never an accepted:false result. */
 export type Accepted = {
   accepted: true;
-  /** One sentence for a person, the legacy `said`. */
+  /** One sentence for a person. */
   said: string;
   /** True when this is the stored reply to a retried request_id; the action was not repeated. */
   replayed?: boolean;

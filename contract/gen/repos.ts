@@ -51,6 +51,16 @@ export interface ReposMethods {
     diff: string;
     truncated: boolean;
   } };
+  "worktree.remove": { params: {
+  /** The orphan's path, as worktrees.list gives it. */
+  path: string;
+  /** Remove it even though it holds work: files changed, or commits not on main. The person's confirm; nothing asks again. */
+  force?: boolean;
+  request_id: RequestId;
+}; result: Accepted & {
+    /** Whether its branch went too: only for one merged into main and clean, by `git branch -d`. A forced removal leaves the branch. */
+    branch_deleted: boolean;
+  } };
   "file.read": { params: {
   agent: AgentName;
   /** Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise. */
@@ -92,6 +102,7 @@ export const REPOS_METHODS: { [K in keyof ReposMethods]: { role: Role; callers: 
   "repos.list": { role: "member", callers: null, write: false, since: 1 },
   "worktrees.list": { role: "member", callers: null, write: false, since: 1 },
   "worktree.diff": { role: "member", callers: null, write: false, since: 1 },
+  "worktree.remove": { role: "founder", callers: null, write: true, since: 1 },
   "file.read": { role: "founder", callers: null, write: false, since: 1 },
   "file.write": { role: "founder", callers: null, write: true, since: 1 },
   "worktree.set_status": { role: "member", callers: null, write: true, since: 1 },

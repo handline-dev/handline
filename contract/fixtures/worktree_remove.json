@@ -1,0 +1,121 @@
+{
+ "fixtures": [
+  {
+   "name": "worktree.remove.a_path_that_is_no_orphan_is_refused",
+   "spec": "worktree.remove",
+   "about": "A path no orphan worktree has (here the filesystem root) is refused, gate orphan, and nothing is removed.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.remove",
+      "params": {
+       "path": "/",
+       "request_id": "conf-wr-1"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "orphan"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.remove.force_is_a_boolean",
+   "spec": "worktree.remove",
+   "about": "force is true or false: anything else is bad_request naming force.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.remove",
+      "params": {
+       "path": "/",
+       "force": "yes",
+       "request_id": "conf-wr-2"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "force"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktree.remove.is_the_founders",
+   "spec": "worktree.remove",
+   "about": "An agent's session cannot remove a worktree: refused, gate role.",
+   "as": "agent",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktree.remove",
+      "params": {
+       "path": "/",
+       "request_id": "conf-wr-3"
+      }
+     },
+     "error": {
+      "code": -32002,
+      "data": {
+       "code": "refused",
+       "gate": "role"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

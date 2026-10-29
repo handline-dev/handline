@@ -18,6 +18,7 @@ export function ListRow({
   time,
   selected,
   done,
+  label,
   onOpen,
 }: {
   title: ReactNode;
@@ -26,12 +27,15 @@ export function ListRow({
   time?: string;
   selected?: boolean;
   done?: boolean;
+  /** The accessible name when the row's words are not it ('Open the item'). */
+  label?: string;
   onOpen?: () => void;
 }) {
   return (
     <button
       type="button"
       onClick={onOpen}
+      aria-label={label}
       aria-current={selected ? 'true' : undefined}
       className={`flex h-9 w-full cursor-pointer items-center gap-3 rounded-sm border-0 px-3 text-left text-md focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-acc ${selected ? 'bg-panel' : 'bg-transparent tint'}`}
     >

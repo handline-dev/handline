@@ -7,7 +7,6 @@ import { setting } from '#src/daemon.ts';
 import { AccountsPage } from '#src/Accounts.tsx';
 import { RequestsPage } from '#src/RequestsPage.tsx';
 import { UsagePage } from '#src/UsagePage.tsx';
-import { MyTurnPage } from '#src/MyTurn.tsx';
 import { SettingsPage } from '#src/Settings.tsx';
 import { AdminPage } from '#src/Admin.tsx';
 import { DebugTerminals } from '#src/debug/DebugTerminals.tsx';
@@ -148,8 +147,6 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
               <TasksPage route={tasks} />
             ) : page === 'requests' ? (
               <RequestsPage />
-            ) : page === 'my-turn' ? (
-              <MyTurnPage />
             ) : page === 'settings' ? (
               <SettingsPage storage={storage} />
             ) : page === 'admin' ? (
