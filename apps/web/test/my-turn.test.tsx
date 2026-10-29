@@ -129,7 +129,7 @@ describe('my turn', () => {
       kind: 'decision',
       agent: ARCH,
       title: 'Remove',
-      body: 'Path: /x',
+      body: 'Path: /x\nBranch: b\n\nMember: eve\n\nClose this task with the number as its answer',
       task: 9103,
       created: new Date().toISOString(),
       read: false,
@@ -140,10 +140,19 @@ describe('my turn', () => {
     const c = cards().find((x) => x.textContent?.includes('Remove bob worktree'))!;
     expect(button(c, 'Done')).toBeUndefined();
     expect(button(c, 'Keep it')).toBeDefined();
-    expect(button(c, 'Save a copy, then remove')).toBeDefined();
+    expect(button(c, 'Save to a branch, then remove')).toBeDefined();
+    expect(c.textContent).not.toMatch(/Close this task with the number|Write an answer/);
     await click(button(c, 'Remove anyway'));
+    expect(s.daemon.tasks.find(9103).state).not.toBe('done'); // the first click only asks
+    await click(
+      button(
+        cards().find((x) => x.textContent?.includes('Remove bob worktree'))!,
+        'Remove',
+      ),
+    );
     await until(() => s.daemon.tasks.find(9103).state === 'done', 'the task done');
     expect(s.daemon.tasks.find(9103).evidence).toBe('2 yes');
+    expect(document.body.textContent).toContain("eve's worktree removed with its files");
   });
 
   it('Ask for change comments the words and closes the task with them', async () => {
