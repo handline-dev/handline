@@ -1,15 +1,6 @@
 // The fake daemon's read-mostly admin surface: the stats windows, the usage outlook, the home settings, the standing answers, and the repos
 // and worktrees (worktrees.ts).
-import type {
-  ConnectionInfo,
-  Outlook,
-  MachineNeed,
-  Settings,
-  SettingsChanges,
-  StandingAnswer,
-  Stats,
-  Timestamp,
-} from '@handline/contract';
+import type { ConnectionInfo, Outlook, MachineNeed, Settings, SettingsChanges, StandingAnswer, Stats, Timestamp } from '@handline/contract';
 import { Failure, badRequest } from '#src/errors.ts';
 import { FakeWorktrees } from '#src/worktrees.ts';
 import { FakePrefs, type PrefsHost } from '#src/prefs.ts';
