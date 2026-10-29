@@ -91,7 +91,9 @@ describe('the leftover worktrees under the disk card', () => {
       { role: 'founder' },
     );
     await press($('nav-inbox'));
-    await until(() => $('disk-orphans-open'), 'the card');
+    await until(() => $('disk-open'), 'the card');
+    await press($('disk-open'));
+    await until(() => $('disk-orphans-open'), 'the list button');
     expect(text($('disk-card'))).toContain('Free space is 3 GB.');
     expect(text($('disk-orphans-open'))).toContain('Leftover worktrees: 2, 2.0 GB');
     await press($('disk-orphans-open'));
@@ -118,7 +120,9 @@ describe('the leftover worktrees under the disk card', () => {
       { role: 'member' },
     );
     await press($('nav-inbox'));
-    await until(() => $('disk-card'), 'the card');
+    await until(() => $('disk-open'), 'the card');
+    await press($('disk-open'));
+    expect(text($('disk-card'))).toContain('Free space is 3 GB.');
     expect($('disk-orphans-open')).toBeNull();
     m.store.stop();
   }, 20000);

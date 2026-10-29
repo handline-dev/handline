@@ -293,7 +293,7 @@ export function Inbox(props: { onTask: (id: number) => void }) {
           ListHeaderComponent={
             <>
               {machine.map((m) => (
-                <DiskCard key={m.key} detail={m.detail} />
+                <DiskCard key={m.key} detail={m.detail} since={m.since} />
               ))}
               {tasks.map((t) => (
                 <View
