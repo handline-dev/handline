@@ -159,6 +159,27 @@ describe('my turn', () => {
     expect(location.hash).toBe('#/tasks/9002');
   });
 
+  it('j and k walk the requests and Enter opens the open one', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+    keep = () => void vi.unstubAllGlobals();
+    const s = setup();
+    decision(s, 9002);
+    decision(s, 9003);
+    await open(s);
+    await pick(ofTask(9002), 'the decision row');
+    const key = (k: string) => act(async () => void document.body.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })));
+    const current = () =>
+      listRows()
+        .find((r) => r.getAttribute('aria-current') === 'true')
+        ?.getAttribute('aria-label');
+    await key('j');
+    expect(current()).not.toBe('Open T9002');
+    await key('k');
+    expect(current()).toBe('Open T9002');
+    await key('Enter');
+    expect(location.hash).toBe('#/tasks/9002');
+  });
+
   it('on a narrow window the item takes the page, with one Back to Requests', async () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
     keep = () => void vi.unstubAllGlobals();

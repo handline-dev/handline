@@ -1,7 +1,7 @@
 // The Requests page (#/requests): everything that waits on the person, grouped by what they must do (Allow, Decide, Review, Do by hand), as a list
 // beside the open item. A row only opens the item; the answer is given in the detail, which ends with its answers and nothing after them.
 import { ChevronRight, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { APPROVED, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
 import { classify, sentence, useAgents, useMyTurn, useWrite } from '@handline/app-data';
 import { Fold } from '#src/Fold.tsx';
@@ -16,6 +16,28 @@ import { Answer, ItemHeader } from '#src/ds/Item.tsx';
 import { Link, Who } from '#src/ds/Link.tsx';
 import { ListRow, SectionHead } from '#src/ds/ListRow.tsx';
 import { useNow } from '#src/Gauge.tsx';
+import { useScreenKeys, type KeyRows } from '#src/screenKeys.ts';
+
+const REQUEST_KEYS: KeyRows = [
+  ['J K', 'move down and up the requests'],
+  ['A', 'allow or approve the open request'],
+  ['D', 'deny the open request'],
+  ['C', 'ask for a change'],
+  ['Enter', 'open the request itself'],
+];
+
+/** Runs `f` on a plain key press anywhere on the page except while a field has the focus. */
+function useKey(f: (key: string) => boolean) {
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.metaKey || e.ctrlKey || e.altKey || el?.closest('input,textarea,select,[contenteditable],[role=dialog]')) return;
+      if (f(e.key.toLowerCase())) e.preventDefault();
+    };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  });
+}
 
 type Group = 'Allow' | 'Decide' | 'Review' | 'Do by hand';
 const GROUPS: Group[] = ['Allow', 'Decide', 'Review', 'Do by hand'];
@@ -124,6 +146,20 @@ function CardDetail({ card }: { card: Card }) {
       : card.kind === 'machine'
         ? undefined
         : () => goHash(`#/agents/${encodeURIComponent(card.from ?? card.agent ?? '')}`);
+  const act = (types: CardAction['type'][]) => {
+    const a = card.actions.find((x) => types.includes(x.type));
+    if (a) run(a);
+    return !!a;
+  };
+  useKey((k) =>
+    k === 'a'
+      ? act(['allow', 'approve'])
+      : k === 'd'
+        ? act(['deny'])
+        : k === 'c'
+          ? act(['ask_change', 'change'])
+          : k === 'enter' && !!open && (open(), true),
+  );
   const source = (
     <Link onClick={open} className="h-5 gap-1 rounded-sm border border-line-strong px-1.5 text-xs">
       {sourceFull(card)}
@@ -210,7 +246,17 @@ export function RequestsPage() {
   const [pick, setPick] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   // Wide: the first item is open, as the list is read top down. Narrow: the list alone until a row is picked.
-  const sel = cards.find((c) => c.key === pick) ?? (wide ? cards[0] : undefined);
+  // The list reads in its groups, so j and k walk the cards in that order.
+  const ordered = GROUPS.flatMap((g) => cards.filter((c) => groupOf(c) === g));
+  const sel = cards.find((c) => c.key === pick) ?? (wide ? ordered[0] : undefined);
+  useScreenKeys('On Requests', REQUEST_KEYS);
+  useKey((k) => {
+    if (k !== 'j' && k !== 'k') return false;
+    const at = ordered.findIndex((c) => c.key === sel?.key);
+    const next = ordered[Math.max(0, Math.min(ordered.length - 1, at + (k === 'j' ? 1 : -1)))];
+    if (next) setPick(next.key);
+    return !!next;
+  });
   const leads = (agents.data?.agents ?? []).filter((a) => !a.parent).map((a) => a.name);
   const sheet = asking ? (
     <NewTask request agents={leads.length ? leads : (agents.data?.agents ?? []).map((a) => a.name)} onClose={() => setAsking(false)} />
