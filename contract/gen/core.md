@@ -21,6 +21,7 @@ A method marked write takes a required `request_id`. Framing, roles, errors and 
 | `daemon.upgrade` | founder | yes | `exe`, `sha`, `request_id` | `{from, to, exe}` | `bad_request`, `refused` | build |
 | `settings.get` | founder |  | `agent?` | `Settings` | `bad_request`, `not_found` |  |
 | `settings.set` | founder | yes | `changes`, `agent?`, `request_id` | `Accepted` | `refused`, `bad_request` |  |
+| `for_you.list` | member |  | none | `ForYouList & ReadCursor` |  |  |
 
 ### `hello`
 
@@ -85,4 +86,8 @@ Timings, terminal host, trust folders, hooks installed.
 ### `settings.set`
 
 Change settings: any keys of SettingsValues, globally or as one agent's override.
+
+### `for_you.list`
+
+Every open item waiting on the founder, whatever it is made of today (task rows, comment asks, prompts, HR proposals, the machine's needs), and the count of those not deferred.
 

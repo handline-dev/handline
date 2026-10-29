@@ -144,6 +144,9 @@
  "file.write": {
   "role": "founder"
  },
+ "for_you.list": {
+  "role": "member"
+ },
  "hello": {
   "role": "anonymous"
  },

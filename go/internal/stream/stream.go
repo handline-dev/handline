@@ -27,7 +27,8 @@ const (
 )
 
 var topics = map[string]bool{"status": true, "accounts": true, "agents": true, "inbox": true, "tasks": true,
-	"notifications": true, "operations": true, "chat": true, devicesTopic: true, "hr": true, transcriptTopic: true, "prefs": true, "requests": true}
+	"notifications": true, "operations": true, "chat": true, devicesTopic: true, "hr": true, transcriptTopic: true, "prefs": true, "requests": true,
+	"for_you": true}
 
 // Hub fans events out to the connections subscribed to them.
 type Hub struct {
@@ -467,7 +468,7 @@ func Register(srv *rpc.Server, h *Hub) {
 // topic has no cursor, and chat.requests, which gives its own).
 var Stamped = []string{"accounts.list", "agent.get", "agent.strip", "agent.timeline", "agents.list", "chat.messages", "chat.transcript",
 	"daemon.status", "hr.list", "inbox.get", "inbox.list", "operation.get", "prefs.get", "prompt.list", "task.get",
-	"task.time", "tasks.list"}
+	"task.time", "tasks.list", "for_you.list"}
 
 // StampCursor gives each Stamped read of s a cursor: the newest when the read began, so an event after it may be in the answer already
 // (it is applied again, which changes nothing) and none at or before it is missing from the answer.
@@ -583,7 +584,7 @@ func check(p map[string]any) (map[string]bool, error) {
 }
 
 // memberTopics are the topics an agent may not follow: the reads behind them (chat.*, operation.get, prefs.get) are a member's.
-var memberTopics = map[string]bool{"chat": true, "operations": true, "prefs": true, "requests": true}
+var memberTopics = map[string]bool{"chat": true, "operations": true, "prefs": true, "requests": true, "for_you": true}
 
 // Allowed refuses a caller below a member any of the named topics that are a member's.
 func Allowed(c *rpc.Conn, names ...string) error {

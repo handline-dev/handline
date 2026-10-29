@@ -68,7 +68,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 
 One file per group, generated from `spec/<group>.json`; field types are in `protocol.ts`.
 
-- [core](gen/core.md): 16 methods
+- [core](gen/core.md): 17 methods
 - [accounts](gen/accounts.md): 12 methods
 - [agents](gen/agents.md): 30 methods
 - [chat](gen/chat.md): 25 methods
@@ -166,6 +166,7 @@ The plan's earlier `requests` topic is replaced by `chat` (messages and landing 
 | `transcript` | `transcript.event` (TranscriptEvent) | `transcript.events` |
 | `prefs` | `prefs.changed` (Prefs) | `prefs.get` |
 | `requests` | `request.changed` (RequestRow) | `requests.list` |
+| `for_you` | `for_you.opened` (ForYouOpened), `for_you.closed` (ForYouClosed) | `for_you.list` |
 
 ## State words
 
