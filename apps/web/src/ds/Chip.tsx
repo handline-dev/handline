@@ -13,7 +13,7 @@ const KIND: Record<ChipKind, string> = {
 
 export function Chip({ kind = 'source', icon: Glyph, children }: { kind?: ChipKind; icon?: LucideIcon; children?: ReactNode }) {
   return (
-    <span className={`inline-flex h-5 items-center gap-1 rounded-[5px] px-1.5 text-xs whitespace-nowrap ${KIND[kind]}`}>
+    <span className={`inline-flex h-5 items-center gap-1 rounded-sm px-1.5 text-xs whitespace-nowrap ${KIND[kind]}`}>
       {Glyph ? <Glyph width={12} height={12} strokeWidth={1.75} aria-hidden /> : null}
       {children}
     </span>

@@ -52,7 +52,7 @@ export function Toast({ children, action, onAction }: { children: ReactNode; act
         <button
           type="button"
           onClick={onAction}
-          className="cursor-pointer border-0 bg-transparent p-0 font-semibold text-[#9cb8ff] hover:underline focus-visible:outline-2 focus-visible:outline-[#9cb8ff]"
+          className="cursor-pointer border-0 bg-transparent p-0 font-semibold text-acc-wash underline hover:underline focus-visible:outline-2 focus-visible:outline-acc-wash"
         >
           {action}
         </button>

@@ -1,5 +1,4 @@
-// An agent in the sidebar: a state glyph, the name, the waiting chip, a count and the time. The line under it says one thing, in this order:
-// what it asks, the unread words, what it does with its task, why it waits.
+// An agent in the sidebar; the line under it says one thing: what it asks, unread words, its work, or why it waits.
 import type { ReactNode } from 'react';
 import { StateMark, type StateName } from '#src/ds/StateMark.tsx';
 

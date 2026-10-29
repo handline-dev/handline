@@ -1,5 +1,4 @@
-// Every detail has the same three parts: a header (source, who, when, then the title), the why, and an answer row
-// (the kind, what is asked, the answers, and at the end where to see it in full).
+// A detail is always a header, the why, then an answer row that ends with where to see it in full.
 import { ShieldCheck } from 'lucide-react';
 import type { ReactNode } from 'react';
 

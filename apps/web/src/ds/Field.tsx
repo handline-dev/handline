@@ -50,7 +50,7 @@ export function Segmented<T extends string>({
           role="radio"
           aria-checked={c.value === value}
           onClick={() => onChange(c.value)}
-          className={`cursor-pointer rounded-[5px] border-0 px-2.5 py-[3px] focus-visible:outline-2 focus-visible:outline-acc ${c.value === value ? 'bg-canvas font-medium text-ink shadow-[0_1px_1px_rgb(0_0_0/0.05)]' : 'bg-transparent text-ink-2'}`}
+          className={`cursor-pointer rounded-sm border-0 px-2.5 py-[3px] focus-visible:outline-2 focus-visible:outline-acc ${c.value === value ? 'bg-canvas font-medium text-ink' : 'bg-transparent text-ink-2'}`}
         >
           {c.label}
         </button>
