@@ -17,7 +17,7 @@ type Props = {
   group?: { name: string | null };
   /** The person's newest message: it keeps its ticks in view. */
   latest?: boolean;
-  onPick: (m: ChatMessage) => void;
+  onPick: (m: ChatMessage, quote?: string) => void;
   onReply?: (i: TranscriptItem) => void;
   byId: Map<number, ChatMessage>;
   actions: { retry: (id: number) => void; discard: (id: number) => void };

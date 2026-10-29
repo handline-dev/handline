@@ -44,20 +44,13 @@ afterEach(async () => {
 const chip = (name: string) => $(`.chat-strip [title^="${name}"]`)!;
 
 describe('the chat strip', () => {
-  it('says the context as used / limit and the cache as time left', async () => {
+  it('says the context in percent and opens its details with the used tokens and the cache', async () => {
     await mount();
-    await until(() => text($('.chat-strip')).includes('74k / 300k'), 'the context words');
-    expect(text($('.chat-strip'))).toMatch(/\d+m|lapsed/);
-  });
-
-  it('the context and cache gauges open their details on click', async () => {
-    await mount();
-    await until(() => $('.chat-strip [aria-label="Context window details"]'), 'the context gauge');
+    await until(() => text($('.chat-strip')).includes('% context'), 'the context words');
+    expect(text($('.chat-strip'))).not.toMatch(/\d+m$|lapsed/);
     await act(async () => $('.chat-strip [aria-label="Context window details"]')!.click());
-    await until(() => text(document.body).includes('74,000'), 'the context details');
-    await act(async () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
-    await act(async () => $('.chat-strip [aria-label="Prompt cache details"]')!.click());
-    await until(() => text(document.body).includes('time until the cache lapses'), 'the cache details');
+    await until(() => text(document.body).includes('74k of 300k'), 'the context details');
+    expect(text(document.body)).toMatch(/Prompt cache|Maximum/);
   });
 
   it('the model menu lists the efforts, checks the current one and a pick is applied at once', async () => {

@@ -62,6 +62,7 @@ export function AccountMenu({ detail }: { detail: AgentDetail }) {
   const move = useWrite('agent.move', detail.name);
   const { served } = useServes('agent.move');
   const all = useAccounts().data?.accounts ?? [];
+  const mine = all.find((a) => a.name === detail.account);
   const listed = all.map((a) => a.name);
   const left = (name: string): number | null => {
     const w = all.find((a) => a.name === name)?.five_hour;
@@ -85,6 +86,20 @@ export function AccountMenu({ detail }: { detail: AgentDetail }) {
         </>
       }
     >
+      {mine ? (
+        <>
+          <div className="px-2 pb-1 pt-0.5 text-sm text-ink-2">
+            {[
+              mine.five_hour ? `5-hour ${Math.round(mine.five_hour.used_pct)}% used` : null,
+              mine.weekly ? `week ${Math.round(mine.weekly.used_pct)}% used` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ') || 'No usage reading'}
+          </div>
+          <MenuSeparator />
+          <MenuLabel>Change account</MenuLabel>
+        </>
+      ) : null}
       {accounts.map((a) => (
         <MenuItem
           key={a}
