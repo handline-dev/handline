@@ -12,11 +12,7 @@ export const bandOf = (pct: number): Band => (pct >= 85 ? 'bad' : pct >= 60 ? 'w
 /** One line of "Who used it": an agent's use of one account, its bar a share of the longest line. */
 export type UseLine = { key: string; agent: string; account: string | null; weekPct: number | null; cost: number; fill: number };
 
-/**
- * An agent's use of each account, biggest first. The bar and the order follow the points of the account's week it used (an estimate, week_pct);
- * when no row has points (no reading in the window), they follow the cost. An agent with no name is the calls of no agent's worktree: "Other".
- * The account is named only when more than one account has rows.
- */
+/** An agent's use of each account, biggest first, by week_pct (cost when no row has one); no agent name reads "Other". */
 export function agentUse(use: AgentAccountUse[]): UseLine[] {
   const byPoints = use.some((u) => u.week_pct !== null);
   const size = (u: AgentAccountUse) => (byPoints ? (u.week_pct ?? 0) : u.cost);
@@ -34,7 +30,7 @@ export function agentUse(use: AgentAccountUse[]): UseLine[] {
 }
 
 /** The numbers beside a line: the points of the week with a ≈ (they are an estimate), then what the calls cost at list price. */
-export const useText = (r: Pick<UseLine, 'weekPct' | 'cost'>): string => {
+export const spentText = (r: Pick<UseLine, 'weekPct' | 'cost'>): string => {
   const cost = `$${r.cost < 10 ? r.cost.toFixed(2) : Math.round(r.cost)}`;
   return r.weekPct === null ? cost : `≈${r.weekPct < 10 ? Math.round(r.weekPct * 10) / 10 : Math.round(r.weekPct)}% · ${cost}`;
 };

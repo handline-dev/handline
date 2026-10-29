@@ -105,7 +105,7 @@ export type Stats = {
   since: Timestamp;
   until: Timestamp;
   tasks_done: number;
-  /** Each agent's use of each account in the window, one row per agent and account with a call in it (an agent that moved shows on both), largest cost first. An account's rows add up to its week_pct rise. */
+  /** Each agent's use of each account in the window, largest cost first; an agent on two accounts has two rows. */
   use: AgentAccountUse[];
   moves: number;
   handoffs: number;
@@ -117,18 +117,18 @@ export type Stats = {
   }[];
 };
 
-/** One agent's use of one account. tokens and cost are measured from each call's own usage line; week_pct is an estimate, because the plan's weights for models and token kinds are not published, so only the split between agents is a guess, not the account's rise. */
+/** One agent's use of one account. tokens and cost are measured; week_pct is an estimate of the split, not of the account's rise. */
 export type AgentAccountUse = {
-  /** The agent whose worktree the calls ran in. Empty for the calls of no agent's worktree (the founder's own sessions, the usage poll); a client draws it as Other. */
+  /** Empty for the calls of no agent's worktree (the founder's own sessions, the usage poll); drawn as Other. */
   agent: string;
   account: string;
-  /** Input, cache and output tokens of the calls, as the API reported them. */
+  /** Input, cache and output tokens. */
   tokens: number;
-  /** What the calls cost at list price, in USD. */
+  /** List price, USD. */
   cost: number;
   /** This row's cost over the account's cost in the window, 0 to 1. */
   share: number;
-  /** null when the account has no reading in the window, or its calls had no list price to split by; never 0 for that. */
+  /** null when the account has no reading in the window or its calls had no list price. */
   week_pct: number | null;
 };
 

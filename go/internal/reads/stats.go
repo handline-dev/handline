@@ -15,8 +15,7 @@ func (e *Env) countEvents(kind string, since, until int64) (int64, error) {
 	return r.i("n"), err
 }
 
-// statsUse is stats.get's use: each agent's tokens, list-price cost and share of each account in the span, and the points of the account's
-// week that share is estimated to have used (the account's rise split by cost).
+// statsUse is stats.get's use: a row per agent and account, the account's weekly rise split by list-price cost.
 func (e *Env) statsUse(since, until int64) ([]any, error) {
 	ue := &usage.Env{Home: e.Home, Now: func() float64 { return float64(until) }}
 	rows, err := usage.SamplesSince(e.DB, since-usage.OutlookMaxAgeS)

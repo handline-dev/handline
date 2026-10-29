@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   INVALID,
   agentUse,
-  useText,
+  spentText,
   bandOf,
   minutesOf,
   parseCap,
@@ -52,9 +52,9 @@ test('with no week reading anywhere, who used it follows the cost', () => {
 });
 
 test('the numbers beside a line mark the week points as an estimate and always give the cost', () => {
-  assert.equal(useText({ weekPct: 12.4, cost: 3.4 }), '≈12% · $3.40');
-  assert.equal(useText({ weekPct: 0.55, cost: 120 }), '≈0.6% · $120');
-  assert.equal(useText({ weekPct: null, cost: 0.5 }), '$0.50');
+  assert.equal(spentText({ weekPct: 12.4, cost: 3.4 }), '≈12% · $3.40');
+  assert.equal(spentText({ weekPct: 0.55, cost: 120 }), '≈0.6% · $120');
+  assert.equal(spentText({ weekPct: null, cost: 0.5 }), '$0.50');
 });
 
 test('the cap field clears when empty and refuses anything but a whole number from 1', () => {

@@ -1,7 +1,6 @@
-// The Stats section of the Usage page (#/accounts, #/stats), under the account list: the window's four counts, who used how much of each account, from
-// stats.get. The previous window's figures stay on screen until the new ones arrive.
+// The Stats section of the Usage page (#/accounts, #/stats), under the account list: the window's four counts and who used how much, from stats.get. The previous window's figures stay on screen until the new ones arrive.
 import { useEffect, useState } from 'react';
-import { agentUse, dateTime, useText } from '@handline/app-core';
+import { agentUse, dateTime, spentText } from '@handline/app-core';
 import type { Stats } from '@handline/client';
 import { useServes, useStats } from '@handline/app-data';
 import { ChartCard, ChartTitle, Icon, SectionHead, Segmented, type IconName } from '#src/ui/index.ts';
@@ -54,7 +53,7 @@ function WhoUsedIt({ s }: { s: Stats }) {
               className="bar-value font-mono text-sm"
               title={r.weekPct === null ? undefined : "Points of the account's weekly limit, estimated from list prices"}
             >
-              {useText(r)}
+              {spentText(r)}
             </span>
           </div>
         ))
