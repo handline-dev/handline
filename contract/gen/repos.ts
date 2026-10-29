@@ -66,6 +66,23 @@ export interface ReposMethods {
   path: string;
   request_id: RequestId;
 }; result: Accepted };
+  "files.list": { params: {
+  agent: AgentName;
+  /** Matched case-insensitively as a subsequence of the path: its letters appear in the path in order, not necessarily side by side. Absent or empty lists every file. Anything but a string is bad_request (field query). */
+  query?: string;
+  /** The most files returned. Outside 1..200, or not an integer: bad_request (field limit). */
+  limit?: number;
+}; result: {
+    /** With no query, every file in byte order of path. With one, the matches best first: a match inside the file's name (the part after the last `/`) comes first, then one elsewhere in the path, then a subsequence that is not side by side; within each, the shorter path first, then byte order. */
+    files: {
+      /** Relative to the worktree, with `/` between parts. */
+      path: string;
+      /** The file's size in bytes. */
+      size: number;
+    }[];
+    /** More files matched than limit let through. */
+    more: boolean;
+  } };
   "file.read": { params: {
   agent: AgentName;
   /** Relative to the agent's worktree, with `/` between parts. No .., no empty or . part, not absolute, no backslash, and no part of it (nor the worktree path under it) may be a symlink: bad_request (field path) otherwise. */
@@ -109,6 +126,7 @@ export const REPOS_METHODS: { [K in keyof ReposMethods]: { role: Role; callers: 
   "worktree.diff": { role: "member", callers: null, write: false, since: 1 },
   "worktree.remove": { role: "founder", callers: null, write: true, since: 1 },
   "worktree.declare": { role: "agent", callers: null, write: true, since: 1 },
+  "files.list": { role: "member", callers: null, write: false, since: 1 },
   "file.read": { role: "founder", callers: null, write: false, since: 1 },
   "file.write": { role: "founder", callers: null, write: true, since: 1 },
   "worktree.set_status": { role: "member", callers: null, write: true, since: 1 },

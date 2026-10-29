@@ -361,6 +361,89 @@
    ]
   },
   {
+   "name": "files.list",
+   "summary": "The files of an agent's worktree, for the chat's @ menu.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "query",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Matched case-insensitively as a subsequence of the path: its letters appear in the path in order, not necessarily side by side. Absent or empty lists every file. Anything but a string is bad_request (field query)."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "default": 50,
+      "description": "The most files returned. Outside 1..200, or not an integer: bad_request (field limit)."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "files": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "path": {
+          "type": "string",
+          "description": "Relative to the worktree, with `/` between parts."
+         },
+         "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The file's size in bytes."
+         }
+        },
+        "required": [
+         "path",
+         "size"
+        ]
+       },
+       "description": "With no query, every file in byte order of path. With one, the matches best first: a match inside the file's name (the part after the last `/`) comes first, then one elsewhere in the path, then a subsequence that is not side by side; within each, the shorter path first, then byte order."
+      },
+      "more": {
+       "type": "boolean",
+       "description": "More files matched than limit let through."
+      }
+     },
+     "required": [
+      "files",
+      "more"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "description": "The files are what git tracks plus the untracked files it does not ignore (`git ls-files --cached --others --exclude-standard`), the regular files among them that are there now. An agent with no worktree, or whose worktree is gone, is not_found. It reads only names and sizes, never a file's content."
+  },
+  {
    "name": "file.read",
    "summary": "The founder reads a text file in an agent's worktree.",
    "paramStructure": "by-name",
