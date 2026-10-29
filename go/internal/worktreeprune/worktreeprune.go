@@ -336,3 +336,41 @@ func FindOrphan(q db.Q, home, path string) (wt Worktree, repo string, ok bool, e
 	}
 	return Worktree{}, "", false, nil
 }
+
+// Held is a worktree of an agent that holds work: its path, its changed or untracked files and its commits not on main.
+type Held struct {
+	Path           string
+	Files, Commits int
+}
+
+// Holding are the worktrees agent records that hold work nobody else has (HoldsWork): what a retire must ask about before it goes.
+func Holding(q db.Q, agent string) ([]Held, error) {
+	mine, err := Of(q, agent)
+	if err != nil {
+		return nil, err
+	}
+	others, err := AgentWorktrees(q, agent)
+	if err != nil {
+		return nil, err
+	}
+	var out []Held
+	for _, path := range mine {
+		wt, ok := Find(List(path), path)
+		if !ok || !HoldsWork(WhyKept(wt, others, "")) {
+			continue
+		}
+		_, files, commits := Unsaved(path)
+		out = append(out, Held{Path: path, Files: files, Commits: commits})
+	}
+	return out, nil
+}
+
+// Find is the worktree of all at path.
+func Find(all []Worktree, path string) (Worktree, bool) {
+	for _, wt := range all {
+		if Real(wt.Path) == Real(path) {
+			return wt, true
+		}
+	}
+	return Worktree{}, false
+}
