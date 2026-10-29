@@ -1,9 +1,8 @@
-// The notices (T5591 N2): the bell at the status bar's right end with the unread count, the list that opens upward from it (a link to what
-// needs the person, then what happened, newest first), and the short results stacked above it.
+// The notices (T5591 N2): the bell at the status bar's right end with the unread count, the list that opens upward from it (what happened, newest first), and the short results stacked above it.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { clockTime, SPARE_SHOWN, spareNotice, targetOf, type Notice, type SpareNotice } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
-import { useMyTurn, useTasks, useWrite } from '@handline/app-data';
+import { useTasks, useWrite } from '@handline/app-data';
 import { Button, Icon, Popup } from '#src/ui/index.ts';
 import { composers } from '#src/ui/composers.ts';
 
@@ -32,7 +31,6 @@ export function NoticeBell() {
   const store = useStore();
   const unread = useSelector((s) => s.notices.unread());
   const list = useSelector((s) => s.notices.list());
-  const waiting = useMyTurn().cards.length;
   const spare = useSpareNotices();
   const [open, setOpen] = useState(false);
   return (
@@ -50,23 +48,12 @@ export function NoticeBell() {
       </button>
       <Popup open={open} onClose={() => setOpen(false)} title="Notices" align="right" up bare>
         <div className="max-h-[60vh] w-[360px] max-w-[90vw] overflow-y-auto">
-          {waiting ? (
-            <button
-              type="button"
-              className="notice-turn flex w-full cursor-pointer items-center gap-2 border-0 border-b border-line bg-[color-mix(in_srgb,var(--color-wait)_14%,transparent)] px-3 py-1.5 text-left text-md font-medium text-ink"
-              onClick={() => void ((location.hash = '#/requests'), setOpen(false))}
-            >
-              <span className="size-2 flex-none rounded-full bg-wait" aria-hidden />
-              <span className="flex-1">Requests</span>
-              <Icon name="chevronRight" size={14} label="Opens Requests" aria-hidden />
-            </button>
-          ) : null}
           {spare.map((n) => (
             <div key={n.task} className="border-b border-line">
               <SpareCard n={n} />
             </div>
           ))}
-          {list.length === 0 && !waiting && !spare.length ? <p className="m-0 px-3 py-2 text-xs text-ink-3">Nothing new.</p> : null}
+          {list.length === 0 && !spare.length ? <p className="m-0 px-3 py-2 text-xs text-ink-3">Nothing new.</p> : null}
           {list.map((n) => (
             <Row key={n.id} n={n} onOpened={() => setOpen(false)} />
           ))}
@@ -74,14 +61,24 @@ export function NoticeBell() {
         {list.length ? (
           <footer className="flex items-center justify-between border-t border-line px-3 py-1.5 text-xs text-ink-3">
             <span>{unread ? `${unread} unread` : 'All read'}</span>
-            <button
-              type="button"
-              className="cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 disabled:opacity-50"
-              disabled={!unread}
-              onClick={() => store.notices.markAllRead()}
-            >
-              Mark all read
-            </button>
+            <span className="flex gap-3">
+              <button
+                type="button"
+                className="cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 disabled:opacity-50"
+                disabled={!unread}
+                onClick={() => store.notices.markAllRead()}
+              >
+                Mark all read
+              </button>
+              <button
+                type="button"
+                className="cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 disabled:opacity-50"
+                disabled={list.every((n) => !n.read)}
+                onClick={() => store.notices.removeRead()}
+              >
+                Remove read ones
+              </button>
+            </span>
           </footer>
         ) : null}
       </Popup>

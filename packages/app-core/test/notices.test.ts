@@ -128,6 +128,18 @@ test('the list keeps the last 100 and counts the unread until they are marked re
   assert.equal(n.unread(), 1);
 });
 
+test('removing the read ones keeps the unread', () => {
+  const n = new Notices(clock().now);
+  n.push('info', 'a');
+  n.markAllRead();
+  n.push('fail', 'b');
+  n.removeRead();
+  assert.deepEqual(
+    n.list().map((x) => x.text),
+    ['b'],
+  );
+});
+
 test('dismissing hides the toasts and keeps the list', () => {
   const n = new Notices(clock().now);
   n.push('fail', 'x');
