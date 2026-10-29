@@ -36,7 +36,7 @@ export const CHAT_SEEDS: Record<string, Seed> = {
     d.chat.seed(ARCH, {
       from: ARCH,
       to: ME,
-      body: 'T6902 is yours. Is it fine to go ahead?',
+      body: 'T6902 is yours. Is it fine to go ahead?', // local-ref-ok
       tasks: [{ id: 6902, title: 'Open task the founder owns' }],
       actions: [
         { key: 'ok', label: 'OK', verb: 'task.done', task: 6902, params: { task: 6902 } },

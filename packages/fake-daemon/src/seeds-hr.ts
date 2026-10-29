@@ -77,7 +77,7 @@ export const HR_SEEDS: Record<string, Seed> = {
       diff: 'effort: high',
       state: 'apply_failed',
       error:
-        'proposal p908 was not applied: agent.yaml is locked by another process. Retry when the lock clears (/Users/x/.handline/agents/handline.architect/agent.yaml).',
+        'proposal p908 was not applied: agent.yaml is locked by another process. Retry when the lock clears (/Users/x/.handline/agents/handline.architect/agent.yaml).', // local-ref-ok
     });
   },
 

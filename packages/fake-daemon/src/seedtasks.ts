@@ -21,7 +21,7 @@ export function seedTasks(tasks: TaskStore, at: string): void {
       { kind: 'working', on: null, text: '', task: null, from: ago(240), to: ago(180), seconds: 3600 },
       { kind: 'waiting', on: 'founder', text: 'needs you', task: null, from: ago(180), to: ago(150), seconds: 1800 },
       { kind: 'working', on: null, text: '', task: null, from: ago(150), to: ago(135), seconds: 900 },
-      { kind: 'waiting', on: 'task', text: 'blocked by T1688', task: 1688, from: ago(135), to: ago(125), seconds: 600 },
+      { kind: 'waiting', on: 'task', text: 'blocked by T1688', task: 1688, from: ago(135), to: ago(125), seconds: 600 }, // local-ref-ok
       { kind: 'working', on: null, text: '', task: null, from: ago(125), to: ago(105), seconds: 1200 },
       { kind: 'waiting', on: 'agent', text: 'waiting on handline.auditor', task: null, from: ago(105), to: ago(95), seconds: 600 },
       { kind: 'working', on: null, text: '', task: null, from: ago(95), to: ago(65), seconds: 1800 },

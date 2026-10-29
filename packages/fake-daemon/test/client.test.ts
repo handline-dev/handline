@@ -436,7 +436,9 @@ test('hello carries the founder key when the client has one, read at each connec
     send(m: string) {
       const msg = JSON.parse(m) as { id: number; method: string; params: unknown };
       sent.push(msg.params);
-      queueMicrotask(() => t.onmessage?.(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocol: 1, min_client: 1, capabilities: {} } })));
+      queueMicrotask(() =>
+        t.onmessage?.(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocol: 1, min_client: 1, capabilities: {} } })),
+      );
     },
   };
   let key: string | null = null;
