@@ -43,17 +43,21 @@ export function limitSentence(now: string, held: boolean, never: boolean): strin
   return `Now ${now} → ${held ? 'new starts wait.' : 'starts go.'}`;
 }
 
-/** The status bar's one text cell: "Agents: CPU 24%, 5.6 GB · Load full · Memory 9.8 GB free". Null until the daemon has measured. Low memory and a full load are said in words, not only in red. */
-export function resourceLine(r: Resources | null | undefined, limits: Limits = DEFAULT_LIMITS): { text: string; over: boolean } | null {
+export type ResourceCell = { kind: 'cpu' | 'memory' | 'disk'; text: string; warn: boolean };
+
+/** The status bar's cells: what the agents use of the CPU, the memory free and the disk left. A cell that is over its limit says so in words (Load full, Memory low, Low), so red is never alone. Null until the daemon has measured. */
+export function resourceCells(r: Resources | null | undefined, limits: Limits = DEFAULT_LIMITS): ResourceCell[] | null {
   if (!r) return null;
   const m = r.machine;
   const agentsPct = m.cores ? Math.round(r.agents_total.cpu_pct / m.cores) : 0;
   const full = loadFull(r, limits.load_per_core_pct);
   const low = memoryLow(r, limits.ram_free_min_pct);
-  return {
-    text: `Agents: CPU ${agentsPct}%, ${bytesText(r.agents_total.rss_bytes)}${full ? ' · Load full' : ''} · ${low ? 'Memory low:' : 'Memory'} ${memoryFree(r)}`,
-    over: full || low,
-  };
+  const diskLow = m.disk_free_bytes < LOW_DISK_BYTES;
+  return [
+    { kind: 'cpu', text: `CPU ${agentsPct}%${full ? ' · Load full' : ''}`, warn: full },
+    { kind: 'memory', text: `${low ? 'Memory low' : 'Memory'} ${bytesText(m.ram_free_bytes)} free`, warn: low },
+    { kind: 'disk', text: `Disk ${bytesText(m.disk_free_bytes)} left${diskLow ? ' · Low' : ''}`, warn: diskLow },
+  ];
 }
 
 export type UseRow = { agent: string; cpu: string; memory: string; cpuPct: number; rss: number };
