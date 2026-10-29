@@ -45,19 +45,6 @@ func TestBurnRate(t *testing.T) {
 	}
 }
 
-func TestStayOrMove(t *testing.T) {
-	soon := 600.0
-	if move, _ := StayOrMove(false, nil, StayWithinS); move {
-		t.Error("an idle agent moved")
-	}
-	if move, _ := StayOrMove(true, &soon, StayWithinS); move {
-		t.Error("moved with a reset in ten minutes")
-	}
-	if move, _ := StayOrMove(true, nil, StayWithinS); !move {
-		t.Error("an unknown reset is further than T")
-	}
-}
-
 func TestWakeAfter(t *testing.T) {
 	if got := WakeAfter("usage", 1000, 9000, 2000); got != 2300 {
 		t.Errorf("past reset: %d", got)

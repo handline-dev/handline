@@ -8,6 +8,7 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
+	"github.com/handline/handline/go/internal/staymove"
 )
 
 // moveLaunch is the room test: the account it names, or why none has room.
@@ -44,8 +45,7 @@ func newMoveRigOn(m *Manager, l *moveLaunch) *moveRig {
 		BackgroundWork: func(db.Q, string) string { return rig.bg },
 		ContextUse:     func(db.Q, string) (int, int) { return 190000, 200000 },
 		MeasureForget:  func(db.Q, string) {},
-		StayWithin:     func(*float64, float64) float64 { return 0 },
-		StayOrMove:     func(bool, *float64, float64) (bool, string) { return true, "" },
+		StayOrMove:     func(staymove.Situation) (bool, string) { return true, "" },
 		WakeAfter:      func(_ string, short, _, now int64) int64 { return now + 1000 },
 	}}
 	return rig
@@ -90,28 +90,27 @@ func TestADeferredHandoffThreeTicksRunningLeavesTheCountersAtZero(t *testing.T) 
 
 func TestAWakeWaitsOnItsWallOnlyForAResetWithinThePromptCachesLife(t *testing.T) {
 	g := newTermMoveRig(t)
-	g.v.E.StayWithin = func(*float64, float64) float64 { return 2 * 3600 } // a cold start measured dearer than the cache lives
-	g.v.E.StayOrMove = func(work bool, resetIn *float64, within float64) (bool, string) {
-		if !work {
-			return false, "idle"
-		}
-		if resetIn != nil && *resetIn <= within {
-			return false, "cheaper to wait"
-		}
-		return true, ""
-	}
+	g.v.E.StayOrMove = staymove.Decide
+	dear := 40.0 // a cold start measured dearer than the cache lives: 2h of a 5h window
+	g.v.E.ColdStartPct = func(db.Q) *float64 { return &dear }
 	// Nothing is queued for it: only the wake asks for it.
-	at := func(resetIn int64) Windows { return Windows{ShortReset: g.m.now() + resetIn} }
+	at := func(resetIn int64) Windows { return Windows{ShortReset: g.m.now() + resetIn, ShortS: 5 * 3600} }
 	g.v.E.Windows = func(string) Windows { return at(30 * 60) }
-	if dest, why, _ := g.v.MovePlan("a", "usage", true); dest != "" || why != "cheaper to wait" {
+	if dest, why, _ := g.v.MovePlan("a", "usage", true); dest != "" || !strings.HasSuffix(why, "cheaper to wait") {
 		t.Fatalf("a reset within the cache's life is waited for: %q %q", dest, why)
 	}
 	g.v.E.Windows = func(string) Windows { return at(90 * 60) }
 	if dest, why, _ := g.v.MovePlan("a", "usage", true); dest != "beta" {
 		t.Fatalf("past it, the wake moves at once, though the cold start costs more: %q %q", dest, why)
 	}
-	if dest, why, _ := g.v.MovePlan("a", "usage", false); dest != "" || why != "idle" {
+	if dest, why, _ := g.v.MovePlan("a", "usage", false); dest != "" || !strings.HasPrefix(why, "no work is waiting") {
 		t.Fatalf("a live agent with nothing waiting stays: %q %q", dest, why)
+	}
+	// Its last turn ended 50 minutes ago: by a reset 30 minutes off the cache is cold, so waiting saves nothing.
+	db.AddEventAt(g.m.Q, g.m.now()-50*60, "a", "StopFailure")
+	g.v.E.Windows = func(string) Windows { return at(30 * 60) }
+	if dest, why, _ := g.v.MovePlan("a", "usage", true); dest != "beta" {
+		t.Fatalf("a session whose cache is cold by the reset waited: %q %q", dest, why)
 	}
 }
 
