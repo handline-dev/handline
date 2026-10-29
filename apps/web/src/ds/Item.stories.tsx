@@ -15,7 +15,7 @@ export const TaskRequest: Story = {
       <ItemHeader
         source={
           <Chip icon={SquareCheck}>
-            Task <span className="font-mono">T7070</span>
+            Task <span className="font-mono">K7070</span>
           </Chip>
         }
         who={<Who>handline</Who>}
@@ -27,7 +27,7 @@ export const TaskRequest: Story = {
         }
       />
       <p className="mt-3">Both PRs are green and audit-web passed them. Merging puts the build stamp fix on main.</p>
-      <Answer kind="Allow" ask="Merge both into main." full={<SeeInFull>Open T7070</SeeInFull>}>
+      <Answer kind="Allow" ask="Merge both into main." full={<SeeInFull>Open K7070</SeeInFull>}>
         <Button kind="primary" label="Merge" />
         <Button label="Not now" />
       </Answer>

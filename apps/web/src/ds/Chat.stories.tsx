@@ -26,7 +26,7 @@ export const Conversation: Story = {
       <UserBubble>새로 태스크 만드는 거나 상태 변경은 한 줄로 묶어서 보여줘</UserBubble>
       <WorkLine>Worked for 2m 10s</WorkLine>
       <AgentSay>
-        받아 적었습니다(채팅 요구사항 8, 9). 변경은 접힌 한 줄로 묶습니다. <Id>T7020</Id>
+        받아 적었습니다(채팅 요구사항 8, 9). 변경은 접힌 한 줄로 묶습니다. <Id>K7020</Id>
       </AgentSay>
       <div className="mt-4">
         <Composer placeholder="Send a message…" left={model} tools={tools} />
@@ -43,7 +43,7 @@ export const MyMessage: Story = { render: () => <UserBubble>Merge both into main
 export const AgentWords: Story = {
   render: () => (
     <AgentSay>
-      Both PRs are green. <Id>T7070</Id> is next.
+      Both PRs are green. <Id>K7070</Id> is next.
     </AgentSay>
   ),
 };

@@ -23,7 +23,7 @@ export const Working: Story = {
     chip: <Chip icon={ListOrdered}>3</Chip>,
     line: (
       <>
-        Reading T7016 · <Id>T7016</Id>
+        Reading K7016 · <Id>K7016</Id>
       </>
     ),
   },
@@ -55,4 +55,4 @@ export const UnreadWords: Story = {
   },
   decorators: [side],
 };
-export const Blocked: Story = { args: { state: 'blocked', name: 'pc-tasks', time: '14m', line: 'waits on T7020' }, decorators: [side] };
+export const Blocked: Story = { args: { state: 'blocked', name: 'pc-tasks', time: '14m', line: 'waits on K7020' }, decorators: [side] };

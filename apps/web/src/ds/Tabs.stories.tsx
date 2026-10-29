@@ -15,10 +15,10 @@ export const AgentWindow: Story = {
         </Tab>
         <Tab>Tasks</Tab>
         <Tab mono onClose={() => {}}>
-          T7013
+          K7013
         </Tab>
         <Tab mono preview onClose={() => {}}>
-          T7016
+          K7016
         </Tab>
         <NewTab />
       </Tabs>
@@ -31,7 +31,7 @@ export const PinnedTask: Story = {
       <Tabs>
         <Tab>Chat</Tab>
         <Tab mono active onClose={() => {}}>
-          T7013
+          K7013
         </Tab>
       </Tabs>
     </div>
@@ -43,7 +43,7 @@ export const PreviewTask: Story = {
       <Tabs>
         <Tab>Chat</Tab>
         <Tab mono preview active onClose={() => {}}>
-          T7016
+          K7016
         </Tab>
       </Tabs>
     </div>

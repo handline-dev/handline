@@ -18,7 +18,7 @@ export const Rows: Story = {
       <ListRow selected title="Merge PR #798, #799" chip={<Chip icon={SquareCheck}>Task</Chip>} time="40m" />
       <ListRow title="Team changes: 5 new agents under ux" chip={<Chip icon={Users}>HR</Chip>} time="5m" />
       <SectionHead>Today</SectionHead>
-      <ListRow done lead={<Id>T6950</Id>} title="데몬 빌드 표시를 좁은 화면에서 줄여줘" time="3h" />
+      <ListRow done lead={<Id>K6950</Id>} title="데몬 빌드 표시를 좁은 화면에서 줄여줘" time="3h" />
     </div>
   ),
 };
