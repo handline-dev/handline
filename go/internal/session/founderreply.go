@@ -39,7 +39,7 @@ func (e *Env) NoteFounderNudged(agent string, rid int64) (bool, error) {
 	return id != 0, err
 }
 
-// FounderNudgeText is the reason the Stop hook gives for holding the agent.
+// FounderNudgeText is the feedback the Stop hook gives for holding the agent.
 func FounderNudgeText(name string) string {
 	return fmt.Sprintf("The founder's message %s has no answer: your terminal text is not shown to them. "+
 		"Answer it with hl say, then stop.", name)

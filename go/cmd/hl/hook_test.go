@@ -296,7 +296,8 @@ func TestAFoundersUnansweredMessageHoldsTheStopOncePerMessage(t *testing.T) {
 		return strings.TrimSpace(out)
 	}
 	held := func(rid int64) string {
-		return rpc.PyJSON(map[string]any{"decision": "block", "reason": session.FounderNudgeText(db.MsgName(d, rid))}, true, true)
+		return rpc.PyJSON(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "Stop",
+			"additionalContext": session.FounderNudgeText(db.MsgName(d, rid))}}, true, true)
 	}
 
 	first := typed(100)

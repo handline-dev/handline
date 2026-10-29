@@ -179,8 +179,9 @@ func capture(c *hlclient.Client, d *sql.DB, agent, event string, raw map[string]
 	return 0
 }
 
-// founderNudge is the Stop hook's output: a block, once per message, when a founder's message typed in this turn has no answer
-// (session.UnansweredFounder), else {}. A Stop the hook already held (stop_hook_active) and any error pass.
+// founderNudge is the Stop hook's output: feedback that keeps the turn going, once per message, when a founder's message typed in this
+// turn has no answer (session.UnansweredFounder), else {}. Feedback, not a block, so the terminal shows no hook error. A Stop the hook
+// already held (stop_hook_active) and any error pass.
 func founderNudge(env *session.Env, agent string, raw map[string]any) (out string) {
 	defer func() {
 		if recover() != nil {
@@ -197,5 +198,6 @@ func founderNudge(env *session.Env, agent string, raw map[string]any) (out strin
 	if first, err := env.NoteFounderNudged(agent, rid); err != nil || !first {
 		return "{}"
 	}
-	return rpc.PyJSON(map[string]any{"decision": "block", "reason": session.FounderNudgeText(db.MsgName(env.DB, rid))}, true, true)
+	return rpc.PyJSON(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "Stop",
+		"additionalContext": session.FounderNudgeText(db.MsgName(env.DB, rid))}}, true, true)
 }
