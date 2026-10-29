@@ -55,7 +55,7 @@ Log an account out and take it off the roster; dry_run names what would happen. 
 
 ### `stats.get`
 
-Counts and sums over a window.
+Counts over a window, and each agent's use of each account's weekly limit.
 
 ### `stats.outlook`
 

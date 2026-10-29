@@ -105,7 +105,8 @@ export type Stats = {
   since: Timestamp;
   until: Timestamp;
   tasks_done: number;
-  working_seconds: { [key: string]: number };
+  /** Each agent's use of each account in the window, one row per agent and account with a call in it (an agent that moved shows on both), largest cost first. An account's rows add up to its week_pct rise. */
+  use: AgentAccountUse[];
   moves: number;
   handoffs: number;
   blocks: number;
@@ -114,6 +115,21 @@ export type Stats = {
     five_hour_used_pct: number | null;
     weekly_used_pct: number | null;
   }[];
+};
+
+/** One agent's use of one account. tokens and cost are measured from each call's own usage line; week_pct is an estimate, because the plan's weights for models and token kinds are not published, so only the split between agents is a guess, not the account's rise. */
+export type AgentAccountUse = {
+  /** The agent whose worktree the calls ran in. Empty for the calls of no agent's worktree (the founder's own sessions, the usage poll); a client draws it as Other. */
+  agent: string;
+  account: string;
+  /** Input, cache and output tokens of the calls, as the API reported them. */
+  tokens: number;
+  /** What the calls cost at list price, in USD. */
+  cost: number;
+  /** This row's cost over the account's cost in the window, 0 to 1. */
+  share: number;
+  /** null when the account has no reading in the window, or its calls had no list price to split by; never 0 for that. */
+  week_pct: number | null;
 };
 
 export type Outlook = {
