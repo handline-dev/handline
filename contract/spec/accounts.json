@@ -436,11 +436,12 @@
      "tasks_done": {
       "type": "integer"
      },
-     "working_seconds": {
-      "type": "object",
-      "additionalProperties": {
-       "type": "integer"
-      }
+     "use": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AgentAccountUse"
+      },
+      "description": "Each agent's use of each account in the window, largest cost first; an agent on two accounts has two rows."
      },
      "moves": {
       "type": "integer"
@@ -493,11 +494,56 @@
      "since",
      "until",
      "tasks_done",
-     "working_seconds",
+     "use",
      "moves",
      "handoffs",
      "blocks",
      "per_account"
+    ]
+   },
+   "AgentAccountUse": {
+    "type": "object",
+    "description": "One agent's use of one account. tokens and cost are measured; week_pct is an estimate of the split, not of the account's rise.",
+    "properties": {
+     "agent": {
+      "type": "string",
+      "description": "Empty for the calls of no agent's worktree (the founder's own sessions, the usage poll); drawn as Other."
+     },
+     "account": {
+      "type": "string"
+     },
+     "tokens": {
+      "type": "integer",
+      "description": "Input, cache and output tokens."
+     },
+     "cost": {
+      "type": "number",
+      "description": "List price, USD."
+     },
+     "share": {
+      "type": "number",
+      "description": "This row's cost over the account's cost in the window, 0 to 1."
+     },
+     "week_pct": {
+      "oneOf": [
+       {
+        "type": "number",
+        "description": "Estimated points of the account's weekly limit used: share times the account's rise in the window, so an account's rows add up to it."
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "null when the account has no reading in the window or its calls had no list price."
+     }
+    },
+    "required": [
+     "agent",
+     "account",
+     "tokens",
+     "cost",
+     "share",
+     "week_pct"
     ]
    },
    "Outlook": {
@@ -1421,7 +1467,7 @@
   },
   {
    "name": "stats.get",
-   "summary": "Counts and sums over a window.",
+   "summary": "Counts over a window, and each agent's use of each account's weekly limit.",
    "paramStructure": "by-name",
    "params": [
     {

@@ -105,7 +105,8 @@ export type Stats = {
   since: Timestamp;
   until: Timestamp;
   tasks_done: number;
-  working_seconds: { [key: string]: number };
+  /** Each agent's use of each account in the window, largest cost first; an agent on two accounts has two rows. */
+  use: AgentAccountUse[];
   moves: number;
   handoffs: number;
   blocks: number;
@@ -114,6 +115,21 @@ export type Stats = {
     five_hour_used_pct: number | null;
     weekly_used_pct: number | null;
   }[];
+};
+
+/** One agent's use of one account. tokens and cost are measured; week_pct is an estimate of the split, not of the account's rise. */
+export type AgentAccountUse = {
+  /** Empty for the calls of no agent's worktree (the founder's own sessions, the usage poll); drawn as Other. */
+  agent: string;
+  account: string;
+  /** Input, cache and output tokens. */
+  tokens: number;
+  /** List price, USD. */
+  cost: number;
+  /** This row's cost over the account's cost in the window, 0 to 1. */
+  share: number;
+  /** null when the account has no reading in the window or its calls had no list price. */
+  week_pct: number | null;
 };
 
 export type Outlook = {
