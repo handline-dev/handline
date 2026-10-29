@@ -143,5 +143,10 @@
   "version": 29,
   "name": "request_memo",
   "additive": true
+ },
+ {
+  "version": 30,
+  "name": "device_push",
+  "additive": true
  }
 ]

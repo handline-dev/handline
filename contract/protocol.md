@@ -50,6 +50,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `not_self` | The agent named is not the caller's own session. |
 | `attempt_limit` | Too many wrong pairing codes: five wrong tries kill a code, and five wrong codes in ten minutes from one address refuse device.redeem from it for fifteen minutes. |
 | `unpaired` | A network connection with no valid device token called anything but device.redeem. The reply is always message "refused" and reason "not paired": no data, no method list, no version, no hint. A revoked token is refused the same way, and its connections are closed. |
+| `device` | device.push_token: the connection is no paired device (the local socket, an agent), so it has no row to keep a push token on. |
 | `pairing_code` | device.redeem: the code is wrong, expired or already used. The reply does not say which. |
 | `proposal_changed` | hr.decide: the proposal changed after the caller read it (its `subject` is no longer the one handed in). Checked after the settled check. Nothing was done; the refusal's `proposal` is the proposal as it is now, to be read and decided again. |
 | `proposal_settled` | hr.decide, hr.withdraw: the proposal is already approved, rejected or withdrawn, so there is nothing to decide or take back. The refusal's `proposal` is the proposal as it is now. |
@@ -71,7 +72,7 @@ One file per group, generated from `spec/<group>.json`; field types are in `prot
 - [accounts](gen/accounts.md): 11 methods
 - [agents](gen/agents.md): 30 methods
 - [chat](gen/chat.md): 25 methods
-- [devices](gen/devices.md): 4 methods
+- [devices](gen/devices.md): 5 methods
 - [repos](gen/repos.md): 6 methods
 - [tasks](gen/tasks.md): 37 methods
 - [team](gen/team.md): 14 methods

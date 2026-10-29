@@ -32,6 +32,14 @@ type Device struct {
 	Name     string
 	Created  int64
 	LastSeen *int64
+	Push     *Push // nil until the device gives a push token
+}
+
+// Push is where a notification for a device goes: the token its OS gave, for APNs or FCM.
+type Push struct {
+	Platform string // apns or fcm
+	Token    string
+	Sandbox  bool // an APNs token of a development build, sent to the sandbox host
 }
 
 // Store keeps the paired devices; a token is only ever given to it as a hash.
@@ -41,6 +49,7 @@ type Store interface {
 	Delete(id string) (bool, error)
 	List() ([]Device, error)
 	Touch(id string, ts int64) error
+	SetPush(id string, p Push) (bool, error)
 }
 
 type code struct {
@@ -216,6 +225,9 @@ func (m *Manager) Revoke(id string) (bool, error) {
 	return found, err
 }
 
+// SetPush keeps the push token a device gave, in place of any it gave before. false when it is not paired.
+func (m *Manager) SetPush(id string, p Push) (bool, error) { return m.store.SetPush(id, p) }
+
 // List is the paired devices, each with whether it has a connection open.
 func (m *Manager) List() ([]map[string]any, error) {
 	ds, err := m.store.List()
@@ -244,7 +256,8 @@ func (m *Manager) row(d Device) map[string]any {
 		seen = time.Unix(*d.LastSeen, 0).UTC().Format("2006-01-02T15:04:05Z")
 	}
 	return map[string]any{"id": d.ID, "name": d.Name, "role": "founder",
-		"created": time.Unix(d.Created, 0).UTC().Format("2006-01-02T15:04:05Z"), "last_seen": seen, "connected": len(m.conns[d.ID]) > 0}
+		"created": time.Unix(d.Created, 0).UTC().Format("2006-01-02T15:04:05Z"), "last_seen": seen, "connected": len(m.conns[d.ID]) > 0,
+		"push": d.Push != nil}
 }
 
 // Know, Login and Live are rpc.NetGate.
