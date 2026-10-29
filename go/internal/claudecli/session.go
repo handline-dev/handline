@@ -591,6 +591,7 @@ func (s *Session) read(out io.Reader) {
 
 func (s *Session) handle(m map[string]any) {
 	s.noteRetry(m)
+	var confirmed *entry // settled after OnEvent, so whoever waits on the confirmation finds the echo already published
 	switch m["type"] {
 	case "control_response":
 		r, _ := m["response"].(map[string]any)
@@ -619,7 +620,7 @@ func (s *Session) handle(m map[string]any) {
 		switch m["state"] {
 		case "queued", "started":
 			if uid != "" {
-				s.echoed(uid)
+				confirmed = s.echoed(uid)
 			}
 		case "cancelled": // queued and then dropped (an interrupt, an exit): it may not have run, and the sender is told
 			s.mu.Lock()
@@ -631,7 +632,7 @@ func (s *Session) handle(m map[string]any) {
 		}
 	case "user":
 		if uid, _ := m["uuid"].(string); uid != "" {
-			s.echoed(uid)
+			confirmed = s.echoed(uid)
 		}
 	case "system":
 		if m["subtype"] == "session_state_changed" {
@@ -641,9 +642,13 @@ func (s *Session) handle(m map[string]any) {
 	if s.h.OnEvent != nil {
 		s.h.OnEvent(m)
 	}
+	if confirmed != nil {
+		close(confirmed.settled)
+	}
 }
 
-func (s *Session) echoed(uid string) {
+// echoed confirms a written message and returns it, for the caller to settle; nil when there was nothing to confirm.
+func (s *Session) echoed(uid string) *entry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if e := s.byUUID[uid]; e != nil && e.state == delivery.Sent {
@@ -653,8 +658,9 @@ func (s *Session) echoed(uid string) {
 			e.timer.Stop()
 		}
 		s.led.Put(e.record())
-		close(e.settled)
+		return e
 	}
+	return nil
 }
 
 func (s *Session) stateChanged(state any) {

@@ -7,11 +7,11 @@
 }
 
 .gallery-title {
-  font: var(--t-page);
+  font: var(--t-xl);
 }
 .gallery-section h3 {
   margin: var(--sp-4) 0 var(--sp-2);
-  font: var(--t-hint);
+  font: var(--t-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--ink-3);

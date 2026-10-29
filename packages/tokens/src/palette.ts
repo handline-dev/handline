@@ -5,14 +5,13 @@ export interface Colors {
   surface: readonly [string, string, string, string];
   line: string;
   lineStrong: string;
-  ink: readonly [string, string, string];
-  /** The solid control fill (primary button, switch on) and the ink on it. */
-  primary: string;
-  onPrimary: string;
-  /** The one calm blue: focus ring, links and the mobile accent. `accentStrong` is the link on text. */
+  ink: readonly [string, string, string, string];
+  /** The one blue, for what can be clicked: the primary button and the sender's bubble (`accent`), links and ids (`accentInk`), the ink on the fill (`onAccent`), a faint ground for a chosen item (`accentWash`). It is also the focus ring. */
   accent: string;
-  accentStrong: string;
-  /** Okabe-Ito state hues; each sits beside a glyph and is never the only signal. */
+  accentInk: string;
+  accentWash: string;
+  onAccent: string;
+  /** Okabe-Ito state hues; each sits beside a glyph (apps/web/src/ui/State.tsx) and is never the only signal. */
   working: string;
   wait: string;
   bad: string;
@@ -24,7 +23,8 @@ export interface Colors {
   /** Code and diff blocks in text (a proposal's change, a card's code): the terminal's colours in dark, a soft gray in light. */
   codeBg: string;
   codeInk: string;
-  shadowAlpha: string;
+  /** The shadow of a floating layer (menu, popup, toast, dialog): the only shadow there is. */
+  shadow: string;
   scrim: string;
   /** The one tint over a hovered item, and the step darker over a pressed one: light on dark, dark on light, over any ground. */
   hover: string;
@@ -32,49 +32,49 @@ export interface Colors {
 }
 
 const dark: Colors = {
-  surface: ['#0b0b0d', '#121215', '#1a1a1e', '#26262c'],
-  line: '#ffffff12',
-  lineStrong: '#ffffff26',
-  ink: ['#fafafa', '#a1a1a1', '#6b6b6b'],
-  primary: '#4a6fc4',
-  onPrimary: '#ffffff',
-  accent: '#86a0dd',
-  accentStrong: '#9fb5e6',
+  surface: ['#121214', '#17171a', '#1f1f23', '#2a2a30'],
+  line: '#26262b',
+  lineStrong: '#3a3a42',
+  ink: ['#ececef', '#a6a6b0', '#73737d', '#4d4d55'],
+  accent: '#5b85f0',
+  accentInk: '#86a6f5',
+  accentWash: '#1b2440',
+  onAccent: '#ffffff',
   working: '#56b4e9',
-  wait: '#f0b429',
-  bad: '#e8743b',
-  ok: '#3fbf9b',
+  wait: '#e69f00',
+  bad: '#e8735b',
+  ok: '#3fb37f',
   cmd: '#f06fb0',
   termBg: '#0a0a0b',
   termInk: '#e8e6df',
   codeBg: '#0a0a0b',
   codeInk: '#e8e6df',
-  shadowAlpha: '#0006',
+  shadow: '0 10px 30px #00000080',
   scrim: '#0008',
   hover: '#ffffff0f',
   press: '#ffffff1a',
 };
 
 const light: Colors = {
-  surface: ['#ffffff', '#f7f7f8', '#efeff1', '#e4e4e8'],
-  line: '#e4e4e7',
-  lineStrong: '#c9c9d0',
-  ink: ['#2b2b30', '#52525b', '#8a8a94'],
-  primary: '#3d62b5',
-  onPrimary: '#ffffff',
-  accent: '#3d62b5',
-  accentStrong: '#2f4f98',
+  surface: ['#ffffff', '#f7f7f8', '#f0f0f2', '#e6e6ea'],
+  line: '#e7e7eb',
+  lineStrong: '#d2d2d9',
+  ink: ['#1d1d21', '#55555e', '#8b8b95', '#b4b4bc'],
+  accent: '#2f5bd3',
+  accentInk: '#2a51bd',
+  accentWash: '#eaf0fd',
+  onAccent: '#ffffff',
   working: '#0072b2',
-  wait: '#b87900',
-  bad: '#c2410c',
-  ok: '#00875f',
+  wait: '#c77c00',
+  bad: '#c1442e',
+  ok: '#1f8a5b',
   cmd: '#c2377f',
   termBg: '#16150f',
   termInk: '#e8e6df',
   codeBg: '#f3f2ee',
-  codeInk: '#2b2b30',
-  shadowAlpha: '#0002',
-  scrim: '#00000059',
+  codeInk: '#1d1d21',
+  shadow: '0 8px 28px #14141e1f, 0 1px 2px #14141e0f',
+  scrim: '#14141852',
   hover: '#0000000d',
   press: '#00000017',
 };
@@ -116,6 +116,7 @@ export interface Palette {
   hint: string;
   accent: string;
   accentInk: string;
+  link: string;
   run: string;
   idle: string;
   wait: string;
@@ -142,8 +143,9 @@ const flat = (c: Colors): Palette => ({
   muted: c.ink[1],
   hint: c.ink[2],
   accent: c.accent,
-  accentInk: c.surface[0],
-  run: c.ok,
+  link: c.accentInk,
+  accentInk: c.onAccent,
+  run: c.working,
   idle: c.ink[2],
   wait: c.wait,
   block: c.bad,

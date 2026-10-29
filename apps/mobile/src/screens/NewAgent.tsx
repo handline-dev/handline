@@ -21,8 +21,8 @@ function Label(props: { text: string; note?: string }) {
   const c = usePalette();
   return (
     <View>
-      <Text style={{ color: c.muted, fontSize: font.size.label }}>{props.text}</Text>
-      {props.note ? <Text style={{ color: c.muted, fontSize: font.size.label }}>{props.note}</Text> : null}
+      <Text style={{ color: c.muted, fontSize: font.size.sm }}>{props.text}</Text>
+      {props.note ? <Text style={{ color: c.muted, fontSize: font.size.sm }}>{props.note}</Text> : null}
     </View>
   );
 }
@@ -53,7 +53,7 @@ function Input(props: {
           color: c.ink,
           borderWidth: 1,
           borderColor: c.line,
-          borderRadius: radius.card,
+          borderRadius: radius.m,
           padding: space.md,
           minHeight: props.multiline ? 88 : 44,
         }}
@@ -90,7 +90,7 @@ function Choice(props: {
             style={{
               borderWidth: 1,
               borderColor: props.value === o.value ? c.ink : c.line,
-              borderRadius: radius.pill,
+              borderRadius: 999,
               paddingVertical: space.sm,
               paddingHorizontal: space.md,
             }}

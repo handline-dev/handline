@@ -38,11 +38,11 @@ describe('the stats tab', () => {
     m.store.stop();
   });
 
-  it('shows the four counts and each agent’s time, and the week’s figures after the window changes', async () => {
+  it('shows the four counts and who used each account, and the week’s figures after the window changes', async () => {
     const m = await mount();
     await until(() => $('tile-tasks_done'), 'the tiles');
     expect(text($('tile-tasks_done'))).toContain('3');
-    expect(text($('time-handline.architect'))).toContain('3 h 12 m');
+    expect(text($('use-handline.architect'))).toContain('$');
     await press($('window-7d'));
     await until(() => text($('tile-tasks_done')).includes('19'), 'the week');
     expect(text($('tile-blocks'))).toContain('4');

@@ -103,7 +103,7 @@ export function PromptCard({ agent, prompt: p, onStale }: { agent: string; promp
         </CardActions>
       )}
       {opts.some(isAlways) && p.kind === 'dialog' ? (
-        <p className="muted note mt-1.5 mb-0 border-b border-line px-3 py-1.5 text-label">
+        <p className="muted note mt-1.5 mb-0 border-b border-line px-3 py-1.5 text-sm">
           <Icon name="retry" size={11} aria-hidden className="mr-1 inline-block align-[-1px]" /> saves a rule for next time
         </p>
       ) : null}

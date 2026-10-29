@@ -97,10 +97,8 @@ func Both(env map[string]string) map[string]string {
 func ConfigFile(home string) string  { return filepath.Join(home, "config.yaml") }
 func TeamFile(home string) string    { return filepath.Join(home, "team.yaml") }
 func RelaySocket(home string) string { return filepath.Join(home, "relay.sock") }
-func GatewaySocket(home string) string {
-	return filepath.Join(home, "gateway.sock")
-}
-func MCPConfig(home string) string        { return filepath.Join(home, "shared", "mcp.json") }
+func MCPConfig(home string) string   { return filepath.Join(home, "shared", "mcp.json") }
+
 // QuietDir is the folder a claude the daemon starts outside any worktree runs in: empty and its own, under the daemon's home, so a claude
 // that walks its working folder finds nothing, and never inherits the daemon's (which may be / or the person's home).
 func QuietDir() string {

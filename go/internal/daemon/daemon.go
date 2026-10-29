@@ -2,7 +2,6 @@
 package daemon
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -22,7 +21,6 @@ import (
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/hrwrites"
 	"github.com/handline/handline/go/internal/inputhold"
-	"github.com/handline/handline/go/internal/legacyverbs"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/lock"
 	"github.com/handline/handline/go/internal/peer"
@@ -382,15 +380,6 @@ func (d *Daemon) askFounder(title, body string, tags ...string) (int64, error) {
 	return taskwrites.AskFounder(d.db, d.teller(), title, body, tags...)
 }
 
-// legacy answers a legacy `{verb}` request that Python's hl still sends. nil is a verb it does not serve.
-func (d *Daemon) legacy(payload map[string]any, pid int) map[string]any {
-	e := &legacyverbs.Env{DB: d.db, Home: d.cfg.Home, Sup: d.env(), Prompts: d.prompts, SetByAgent: d.hrEnv().SetByAgent, Log: d.cfg.Log}
-	if d.cfg.Session != nil {
-		e.Controls = func() sessionrpc.Controls { return d.cfg.Session().Controls }
-	}
-	return e.Legacy(payload, pid)
-}
-
 // accountChanged says an account changed (its web login moved) on the accounts topic, as accounts.list shows the account with the login in
 // the state the move made, not the one it has by now. Announcements arrive in any order; one numbered before the last published for the
 // account is dropped, so the topic never says an earlier state after a later one.
@@ -496,9 +485,6 @@ func (d *Daemon) newServer(transport string) *rpc.Server {
 	}
 	if transport == "network" {
 		s.Net = d.dev
-	}
-	if transport == "local" {
-		s.Legacy = d.legacy
 	}
 	devices.Register(s, d.dev, d.hub.Emit)
 	stream.Register(s, d.hub)
@@ -706,12 +692,6 @@ func (d *Daemon) Close() {
 	if d.db != nil {
 		d.db.Close()
 	}
-}
-
-// Wait blocks until ctx ends, then closes.
-func (d *Daemon) Wait(ctx context.Context) {
-	<-ctx.Done()
-	d.Close()
 }
 
 // watchSignature joins the signatures that wake the watch though the database did not change.

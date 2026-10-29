@@ -154,7 +154,7 @@ export function TaskBatch(props: { tasks: Task[]; onClose: () => void; onDone: (
       ) : null}
       {p.skip.length ? (
         <Text
-          style={{ color: c.muted, fontSize: font.size.label }}
+          style={{ color: c.muted, fontSize: font.size.sm }}
         >{`Skipped: ${p.skip.map((s) => `${taskRef(s.task.id)} (${s.why})`).join('; ')}`}</Text>
       ) : null}
     </Sheet>

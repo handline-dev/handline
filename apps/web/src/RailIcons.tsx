@@ -1,6 +1,6 @@
-// The sidebar's state marks: the agent's dot as the shared State glyph.
+// The sidebar's state marks: the agent's dot as the design system's StateMark.
 import type { Dot } from '@handline/app-core';
-import { State, type StateKind } from '#src/ui/index.ts';
+import { StateMark, type StateName } from '#src/ds/StateMark.tsx';
 
 export const MARKS: Record<Dot, { label: string }> = {
   running: { label: 'working' },
@@ -13,33 +13,21 @@ export const MARKS: Record<Dot, { label: string }> = {
 };
 export const DOT_ORDER: Dot[] = ['waiting', 'blocked', 'running', 'waking', 'idle', 'parked', 'none'];
 
-const KIND: Record<Dot, StateKind> = {
+const STATE: Record<Dot, StateName> = {
   running: 'working',
-  waking: 'booting',
+  waking: 'starting',
   waiting: 'needs',
   blocked: 'blocked',
   idle: 'idle',
-  parked: 'parked',
-  none: 'noTerminal',
+  parked: 'waiting',
+  none: 'idle',
 };
 
-const TONE: Record<Dot, string> = {
-  running: 'text-working',
-  waking: 'text-ink-2',
-  waiting: 'text-wait',
-  blocked: 'text-bad',
-  idle: 'text-ink-2',
-  parked: 'text-ink-2',
-  none: 'text-ink-2',
-};
-
-/** An agent's state as the shared glyph (ui/State): its own shape per state, the hue only repeats it. */
+/** An agent's state as the design system's mark: a glyph of its own shape per state, the hue only repeats it. */
 export function Mark({ dot, title }: { dot: Dot; title?: string }) {
   return (
-    <span
-      className={`mark ${dot} inline-flex w-3.5 flex-none items-center justify-center text-center text-hint leading-[1.4] ${TONE[dot]}`}
-    >
-      <State kind={KIND[dot]} label={title ?? MARKS[dot].label} size={14} />
+    <span className={`mark ${dot} inline-flex flex-none`}>
+      <StateMark state={STATE[dot]} label={title ?? MARKS[dot].label} />
     </span>
   );
 }
@@ -60,7 +48,7 @@ export function Meter({
 }) {
   return (
     <span
-      className={`meter${hot ? ' hot' : ''} inline-block h-1.5 w-7 mx-[3px] overflow-hidden rounded-chip border border-ink-2 align-middle`}
+      className={`meter${hot ? ' hot' : ''} inline-block h-1.5 w-7 mx-[3px] overflow-hidden rounded-sm border border-ink-2 align-middle`}
       role="meter"
       aria-label={label}
       aria-valuemin={0}

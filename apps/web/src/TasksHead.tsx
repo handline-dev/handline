@@ -1,7 +1,10 @@
 // The header of the Tasks page: Open / Mine / Closed, search, Filter, View (List or Graph) and + New task; and the floating bar that acts on the ticked rows.
 import type { ReactNode } from 'react';
 import { CLOSED, LISTED, TASK_STATES, type TaskColumn, type TaskFilter } from '@handline/app-core';
-import { BarInput, Button, Icon, PageHead, PageTitle, Popup, Segmented, Select, Check } from '#src/ui/index.ts';
+import { Filter, Plus, ScanLine } from 'lucide-react';
+import { BarInput, Button as OldButton, Icon, PageHead, PageTitle, Popup, Select, Check } from '#src/ui/index.ts';
+import { Button } from '#src/ds/Button.tsx';
+import { Segmented } from '#src/ds/Field.tsx';
 import { STATE_GLYPH } from '#src/taskui.tsx';
 import { canCapture, requestCapture } from '#src/Capture.tsx';
 
@@ -46,7 +49,7 @@ export function TasksHead(props: {
         label="Show"
         value={props.scope}
         onChange={props.onScope}
-        options={[
+        choices={[
           { value: 'open', label: 'Open' },
           { value: 'mine', label: 'Mine' },
           { value: 'closed', label: 'Closed' },
@@ -55,8 +58,8 @@ export function TasksHead(props: {
       <span className="tfilters relative inline-flex">
         <Button
           label="Filter"
+          icon={Filter}
           title="Filter (v)"
-          variant="outline"
           className="max-sm:min-h-[44px]"
           aria-expanded={props.filtering}
           onClick={() => props.onAct('states')}
@@ -86,7 +89,7 @@ export function TasksHead(props: {
                 <Icon name={STATE_GLYPH[s] ?? 'taskPending'} size={14} aria-hidden="true" /> {s}
               </label>
             ))}
-            <Button
+            <OldButton
               variant="outline"
               size="sm"
               label="Reset"
@@ -99,7 +102,7 @@ export function TasksHead(props: {
         label="View"
         value={props.view}
         onChange={props.onView}
-        options={[
+        choices={[
           { value: 'list', label: 'List' },
           { value: 'graph', label: 'Graph' },
         ]}
@@ -107,8 +110,8 @@ export function TasksHead(props: {
       {canCapture() ? (
         <Button
           label="Capture a window"
+          icon={ScanLine}
           title="Capture a window (⌘⇧C)"
-          variant="outline"
           className="max-sm:min-h-[44px]"
           onClick={requestCapture}
         >
@@ -116,16 +119,14 @@ export function TasksHead(props: {
         </Button>
       ) : null}
       <Button
-        label="+ New task"
+        kind="primary"
+        label="New task"
+        icon={Plus}
         title="New task (n)"
-        variant="solid"
         className="flex-none max-sm:min-h-[44px]"
         onClick={() => props.onAct('new')}
       >
-        <span className="max-[1100px]:hidden">+ New task</span>
-        <span className="hidden max-[1100px]:inline" aria-hidden="true">
-          +
-        </span>
+        <span className="max-[1100px]:hidden">New task</span>
       </Button>
     </PageHead>
   );
@@ -147,24 +148,24 @@ export function TasksBar(props: {
     <div
       role="toolbar"
       aria-label="Actions on the selected tasks"
-      className="tbar fixed bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-card border border-line-strong bg-raised px-3 py-2 shadow-lg"
+      className="tbar fixed bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-md border border-line-strong bg-raised px-3 py-2 shadow-lg"
     >
       <strong className="mr-1 whitespace-nowrap font-medium">{props.marked} selected</strong>
-      <Button
+      <OldButton
         label="Assign"
         title={can.edit.why ?? 'Assign (o)'}
         disabled={!can.edit.ok}
         className={btn}
         onClick={() => props.onAct('owner')}
       />
-      <Button
+      <OldButton
         label="Priority"
         title={can.edit.why ?? 'Priority (p)'}
         disabled={!can.edit.ok}
         className={btn}
         onClick={() => props.onAct('priority')}
       />
-      <Button
+      <OldButton
         label="Merge"
         title={can.merge.why ?? 'Merge (m): tick tasks, put the cursor on the one to keep'}
         disabled={!can.merge.ok}
@@ -172,7 +173,7 @@ export function TasksBar(props: {
         onClick={() => props.onAct('merge')}
       />
       {props.children}
-      <Button label="Clear" className={btn} onClick={props.onClear} />
+      <OldButton label="Clear" className={btn} onClick={props.onClear} />
     </div>
   );
 }

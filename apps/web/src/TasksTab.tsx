@@ -109,24 +109,24 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
                         />
                       ) : null}
                       <button
-                        className={`tasks-tab-row grid ${COLS} w-full min-w-0 cursor-pointer items-center gap-2 rounded-card border bg-panel px-2.5 py-1.5 text-left${due?.over ? ' overdue border-bad' : ' border-line'}${CLOSED.includes(t.state) ? ' closed opacity-60' : ''}`}
+                        className={`tasks-tab-row grid ${COLS} w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border bg-panel px-2.5 py-1.5 text-left${due?.over ? ' overdue border-bad' : ' border-line'}${CLOSED.includes(t.state) ? ' closed opacity-60' : ''}`}
                         data-task={t.id}
                         onClick={() => setOpen(t.id)}
                       >
                         <StateChip state={t.state} result={watchResult(t)} />
                         <span className="mono">{taskRef(t.id)}</span>
                         <span
-                          className="ttitle min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-body font-medium"
+                          className="ttitle min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-md font-medium"
                           title={t.title}
                         >
                           {t.title}
                         </span>
                         {role === 'assigned' ? (
-                          <span className="who min-w-0 truncate text-hint text-ink-2" title={`Opened by ${agent}, held by ${t.to}`}>
+                          <span className="who min-w-0 truncate text-xs text-ink-2" title={`Opened by ${agent}, held by ${t.to}`}>
                             <Icon name="agent" size={12} aria-hidden /> {bare(t.to)}
                           </span>
                         ) : t.from !== agent ? (
-                          <span className="who min-w-0 truncate text-hint text-ink-2" title={`Opened by ${t.from}`}>
+                          <span className="who min-w-0 truncate text-xs text-ink-2" title={`Opened by ${t.from}`}>
                             from {bare(t.from)}
                           </span>
                         ) : (
@@ -134,7 +134,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
                         )}
                         {due ? (
                           <span
-                            className={`due truncate text-right text-hint${due.over ? ' font-medium text-bad' : ' text-ink-2'}`}
+                            className={`due truncate text-right text-xs${due.over ? ' font-medium text-bad' : ' text-ink-2'}`}
                             data-over={due.over || undefined}
                           >
                             {due.over ? <Icon name="alert" size={12} aria-hidden /> : null} {due.text}
@@ -156,7 +156,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
           </ul>
         )}
         {more && view === 'list' ? (
-          <div className="mt-2 flex items-center justify-center gap-3 text-hint text-ink-2">
+          <div className="mt-2 flex items-center justify-center gap-3 text-xs text-ink-2">
             <span>{mine.length} shown · older ones exist</span>
             <Button
               variant="outline"

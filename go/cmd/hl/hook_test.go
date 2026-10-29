@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -263,41 +264,64 @@ func TestAQuestionIsLeftToTheTerminal(t *testing.T) {
 
 // A founder's message typed into the agent's terminal and left unanswered holds its Stop once: never again for that message, again for
 // a new one, not for one answered with a say or a Stop the hook already held, and an error lets the Stop through.
-func TestAFoundersUnansweredMessageHoldsTheStopOncePerMessage(t *testing.T) {
+// founderStops is a rig for the Stop hook's founder nudge: the founder's message typed into a.one's terminal and landed at landed, a Stop
+// recorded as the daemon records it, the hook run on a Stop input (more holds its fields after stop_hook_active), and the nudge's output.
+type founderStops struct {
+	t *testing.T
+	r *rig
+	d *sql.DB
+}
+
+func newFounderStops(t *testing.T) *founderStops {
 	r := hookRig(t, false)
 	r.daemon(nil)
 	d, err := store.Open(paths.DBFile(r.home))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer d.Close()
-	exec := func(q string, args ...any) {
-		t.Helper()
-		if _, err := d.Exec(q, args...); err != nil {
-			t.Fatal(err)
-		}
+	t.Cleanup(func() { d.Close() })
+	return &founderStops{t: t, r: r, d: d}
+}
+
+func (f *founderStops) exec(q string, args ...any) {
+	f.t.Helper()
+	if _, err := f.d.Exec(q, args...); err != nil {
+		f.t.Fatal(err)
 	}
-	typed := func(landed int64) int64 { // the founder's message, typed into a.one's terminal and landed at landed
-		t.Helper()
-		rid, err := db.AddRequest(d, db.NewRequest{Requester: db.Human, Target: "a.one", Kind: "say", Body: "how is it going?"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		exec("UPDATE requests SET founder_auth = 1, landed_at = ?, state = 'landed' WHERE id = ?", landed, rid)
-		return rid
+}
+
+func (f *founderStops) typed(landed int64) int64 {
+	f.t.Helper()
+	rid, err := db.AddRequest(f.d, db.NewRequest{Requester: db.Human, Target: "a.one", Kind: "say", Body: "how is it going?"})
+	if err != nil {
+		f.t.Fatal(err)
 	}
-	stopped := func(at int64) { exec("INSERT INTO events(ts, agent, kind) VALUES(?, 'a.one', 'Stop')", at) } // as the daemon records it
-	stop := func(active bool) string {
-		t.Helper()
-		out, _, code := r.runIn(fmt.Sprintf(`{"hook_event_name": "Stop", "session_id": "s1", "stop_hook_active": %v}`, active), asAgent, "hook", "Stop")
-		if code != 0 {
-			t.Fatalf("exit %d", code)
-		}
-		return strings.TrimSpace(out)
+	f.exec("UPDATE requests SET founder_auth = 1, landed_at = ?, state = 'landed' WHERE id = ?", landed, rid)
+	return rid
+}
+
+func (f *founderStops) stopped(at int64) {
+	f.exec("INSERT INTO events(ts, agent, kind) VALUES(?, 'a.one', 'Stop')", at)
+}
+
+func (f *founderStops) stop(active bool, more string) string {
+	f.t.Helper()
+	out, _, code := f.r.runIn(fmt.Sprintf(`{"hook_event_name": "Stop", "session_id": "s1", "stop_hook_active": %v%s}`, active, more), asAgent, "hook", "Stop")
+	if code != 0 {
+		f.t.Fatalf("exit %d", code)
 	}
-	held := func(rid int64) string {
-		return rpc.PyJSON(map[string]any{"decision": "block", "reason": session.FounderNudgeText(db.MsgName(d, rid))}, true, true)
-	}
+	return strings.TrimSpace(out)
+}
+
+func (f *founderStops) held(rid int64) string {
+	return rpc.PyJSON(map[string]any{"hookSpecificOutput": map[string]any{"hookEventName": "Stop",
+		"additionalContext": session.FounderNudgeText(db.MsgName(f.d, rid))}}, true, true)
+}
+
+func TestAFoundersUnansweredMessageHoldsTheStopOncePerMessage(t *testing.T) {
+	f := newFounderStops(t)
+	d, exec, typed, stopped, held := f.d, f.exec, f.typed, f.stopped, f.held
+	stop := func(active bool) string { t.Helper(); return f.stop(active, "") }
 
 	first := typed(100)
 	if out := stop(false); out != held(first) {
@@ -344,5 +368,33 @@ func TestAFoundersUnansweredMessageHoldsTheStopOncePerMessage(t *testing.T) {
 	exec("DROP TABLE task_requests")
 	if out := stop(false); out != "{}" {
 		t.Fatalf("an error lets the stop through: %s", out)
+	}
+}
+
+// A Stop that only pauses for the session's own background task or scheduled wakeup puts the nudge off once per message, though the
+// daemon records that Stop: the next Stop nudges, even one listing a recurring cron again. Empty lists are a plain Stop.
+func TestAStopPausedForItsOwnBackgroundWorkPutsTheNudgeOffOnce(t *testing.T) {
+	f := newFounderStops(t)
+	typed, stopped, held := f.typed, f.stopped, f.held
+	stop := func(lists string) string { t.Helper(); return f.stop(false, lists) }
+	shell := `, "background_tasks": [{"id": "b1", "type": "shell", "status": "running", "command": "go test ./..."}], "session_crons": []`
+	loop := `, "background_tasks": [], "session_crons": [{"id": "c1", "schedule": "*/10 * * * *", "recurring": true, "prompt": "check"}]`
+
+	first := typed(100)
+	if out := stop(shell); out != "{}" {
+		t.Fatalf("a stop paused on its own task is not nudged: %s", out)
+	}
+	stopped(101)
+	if out := stop(`, "background_tasks": [], "session_crons": []`); out != held(first) {
+		t.Fatalf("the stop after the wakeup is nudged: %s", out)
+	}
+	stopped(102)
+	second := typed(103)
+	if out := stop(loop); out != "{}" {
+		t.Fatalf("a stop paused on its own wakeup is not nudged: %s", out)
+	}
+	stopped(104)
+	if out := stop(loop); out != held(second) {
+		t.Fatalf("a recurring cron puts the nudge off only once: %s", out)
 	}
 }

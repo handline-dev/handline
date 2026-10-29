@@ -40,7 +40,7 @@ function ReplyRow({ id, dropId, text, onDrop }: { id: string; dropId: string; te
   return (
     <Row style={{ paddingHorizontal: space.md, paddingTop: space.xs }}>
       <Icon name="reference" decorative size={14} color={c.muted} />
-      <Text testID={id} numberOfLines={1} style={{ color: c.muted, fontSize: font.size.label, flex: 1 }}>
+      <Text testID={id} numberOfLines={1} style={{ color: c.muted, fontSize: font.size.sm, flex: 1 }}>
         {text}
       </Text>
       <Pressable testID={dropId} accessibilityLabel="Drop the reply" hitSlop={12} onPress={onDrop}>
@@ -257,7 +257,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
       {canSend && <ChatRefs agent={agent} text={text} onPick={(r, rest) => (setItem(null), setPicked(r), setText(rest))} />}
       {img.chips}
       {cmd && (
-        <Text testID="cmd-hint" style={{ color: c.muted, fontSize: font.size.hint, paddingHorizontal: space.md }}>
+        <Text testID="cmd-hint" style={{ color: c.muted, fontSize: font.size.xs, paddingHorizontal: space.md }}>
           Sent as typed to the agent
         </Text>
       )}
@@ -277,7 +277,7 @@ export function Chat(props: { detail: AgentDetail; searching: boolean }) {
             color: cmd ? c.cmd : c.ink,
             borderColor: cmd ? c.cmd : c.line,
             borderWidth: cmd ? 2 : 1,
-            borderRadius: radius.card,
+            borderRadius: radius.m,
             padding: space.md,
             ...(cmd ? { fontFamily: 'Menlo' } : {}),
           }}
@@ -343,7 +343,7 @@ function Bubble(props: {
           maxWidth: bubble,
           gap: 4,
           padding: space.md,
-          borderRadius: radius.dialog,
+          borderRadius: radius.l,
           backgroundColor: bg,
           borderWidth: 1,
           borderColor: props.picked || props.flashed ? c.accent : failed ? c.block : c.line,
@@ -351,18 +351,18 @@ function Bubble(props: {
         }}
       >
         {props.flashed && (
-          <Text testID={`found-${m.id}`} style={{ color: c.accent, fontSize: font.size.hint }}>
+          <Text testID={`found-${m.id}`} style={{ color: c.accent, fontSize: font.size.xs }}>
             Found by search
           </Text>
         )}
         {side === 'other' && (
-          <Text style={{ color: c.muted, fontSize: font.size.hint }}>
+          <Text style={{ color: c.muted, fontSize: font.size.xs }}>
             {isTaskDelivery(m) ? `Task T${m.tasks[0]!.id} handed to ${m.to}` : `${m.from} → ${m.to}`}
           </Text>
         )}
-        {m.parent != null && <Text style={{ color: c.muted, fontSize: font.size.hint }}>↩ reply</Text>}
+        {m.parent != null && <Text style={{ color: c.muted, fontSize: font.size.xs }}>↩ reply</Text>}
         {m.parent_item && (
-          <Text testID={`quote-${m.id}`} numberOfLines={2} style={{ color: c.muted, fontSize: font.size.hint }}>
+          <Text testID={`quote-${m.id}`} numberOfLines={2} style={{ color: c.muted, fontSize: font.size.xs }}>
             ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
           </Text>
         )}
@@ -371,10 +371,10 @@ function Bubble(props: {
         {m.actions?.length ? <ChatActions id={m.id} actions={m.actions} /> : null}
         {side === 'person' && m.request_task != null ? (
           <Pressable testID={`request-chip-${m.id}`} accessibilityRole="link" hitSlop={8} onPress={() => props.onTask(m.request_task!)}>
-            <Text style={{ color: c.accent, fontSize: font.size.label }}>Taken as T{m.request_task}</Text>
+            <Text style={{ color: c.accent, fontSize: font.size.sm }}>Taken as T{m.request_task}</Text>
           </Pressable>
         ) : side === 'person' && m.no_work ? (
-          <Text testID={`request-chip-${m.id}`} style={{ color: c.muted, fontSize: font.size.label }}>
+          <Text testID={`request-chip-${m.id}`} style={{ color: c.muted, fontSize: font.size.sm }}>
             Nothing to do: {m.no_work}
           </Text>
         ) : null}
@@ -382,7 +382,7 @@ function Bubble(props: {
           <View accessibilityRole="alert" style={{ gap: space.xs }}>
             <Row>
               <Icon name="failed" decorative size={14} color={c.block} />
-              <Text style={{ color: c.block, fontSize: font.size.label, flex: 1 }}>{m.sending_reason}</Text>
+              <Text style={{ color: c.block, fontSize: font.size.sm, flex: 1 }}>{m.sending_reason}</Text>
             </Row>
             <Row>
               <Button testID={`retry-${m.id}`} label="Retry" onPress={() => act.retry(m.id)} />
@@ -391,7 +391,7 @@ function Bubble(props: {
           </View>
         )}
         {mine && m.receipt?.state === 'unknown' && (
-          <Text testID={`unknown-${m.id}`} style={{ color: c.block, fontSize: font.size.label }}>
+          <Text testID={`unknown-${m.id}`} style={{ color: c.block, fontSize: font.size.sm }}>
             Lost after it was written. It may or may not have run, and it is not sent again. Send it as a new message if you want it
             repeated.
           </Text>

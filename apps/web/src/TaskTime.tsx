@@ -40,11 +40,11 @@ export function TimeLine({ id }: { id: number }) {
   const said = [...totals.map((t) => `${SAID[t.label]} ${length(t.seconds)}`), `${length(seconds)} in all`].join(' · ');
   const sentence = said[0]!.toUpperCase() + said.slice(1);
   return (
-    <section aria-label="Time" className="mt-2 rounded-card border border-line bg-surface px-2">
+    <section aria-label="Time" className="mt-2 rounded-md border border-line bg-surface px-2">
       <button
         type="button"
         aria-expanded={open}
-        className="flex h-6 w-full min-w-0 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left text-hint text-ink-2"
+        className="flex h-6 w-full min-w-0 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left text-xs text-ink-2"
         onClick={() => setOpen(!open)}
       >
         {open ? null : <MiniBar rows={rows} className="h-1.5 w-16 flex-none" />}

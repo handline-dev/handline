@@ -33,7 +33,7 @@ export function ChatSearch(props: { agent: string; onGo: (id: number) => void })
         returnKeyType="search"
         autoCapitalize="none"
         autoCorrect={false}
-        style={{ color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.card, padding: space.sm }}
+        style={{ color: c.ink, borderColor: c.line, borderWidth: 1, borderRadius: radius.m, padding: space.sm }}
       />
       {showing && (
         <ScrollView testID="search-results" style={{ maxHeight: 280 }} keyboardShouldPersistTaps="handled">
@@ -57,14 +57,14 @@ export function ChatSearch(props: { agent: string; onGo: (id: number) => void })
                 }}
                 style={{ paddingVertical: space.sm, gap: 2, borderBottomWidth: 1, borderBottomColor: c.line }}
               >
-                <Text style={{ color: c.muted, fontSize: font.size.hint }}>
+                <Text style={{ color: c.muted, fontSize: font.size.xs }}>
                   {m.agent ?? props.agent} · {m.from} → {m.to} · {dateTime(m.at)}
                 </Text>
                 <Text style={{ color: c.ink }}>{searchSnippet(m.body, query)}</Text>
               </Pressable>
             ))
           )}
-          {found.isFetching && <Text style={{ color: c.muted, fontSize: font.size.label }}>Searching…</Text>}
+          {found.isFetching && <Text style={{ color: c.muted, fontSize: font.size.sm }}>Searching…</Text>}
         </ScrollView>
       )}
     </View>

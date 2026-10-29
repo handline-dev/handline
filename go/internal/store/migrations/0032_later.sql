@@ -1,4 +1,4 @@
--- Step 30 (later): a For you item the founder deferred, until a time or until a task ends. The item is a task, a comment's ask to the founder or a need of the machine, so it is keyed by kind and id, not held on tasks.
+-- Step 32 (later): a For you item the founder deferred, until a time or until a task ends. The item is a task, a comment's ask to the founder or a need of the machine, so it is keyed by kind and id, not held on tasks.
 CREATE TABLE IF NOT EXISTS later (
     item_kind  TEXT NOT NULL CHECK (item_kind IN ('task', 'comment', 'machine')),
     item_id    TEXT NOT NULL,

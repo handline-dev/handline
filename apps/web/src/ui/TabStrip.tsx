@@ -28,7 +28,7 @@ export function TabStrip<V extends string>({
           <Tabs.Tab
             key={t.value}
             value={t.value}
-            className={`chat-tab rounded-ctl border-0 bg-transparent px-3 ${dense ? 'py-0.5' : 'py-1'} text-ink-2 tint data-[active]:bg-raised data-[active]:font-medium data-[active]:text-ink`}
+            className={`chat-tab rounded-sm border-0 bg-transparent px-3 ${dense ? 'py-0.5' : 'py-1'} text-ink-2 tint data-[active]:bg-raised data-[active]:font-medium data-[active]:text-ink`}
           >
             {t.label}
           </Tabs.Tab>

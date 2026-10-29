@@ -61,7 +61,7 @@ export function DropOverlay({ group, handle }: { group: Group; handle: RefObject
     >
       {shown?.box ? (
         <div
-          className={`drop-preview pointer-events-none absolute rounded-card bg-[color-mix(in_srgb,var(--primary)_18%,transparent)] outline-2 -outline-offset-2 outline-primary transition-[left,top,width,height] duration-[120ms]`}
+          className={`drop-preview pointer-events-none absolute rounded-md bg-[color-mix(in_srgb,var(--acc)_18%,transparent)] outline-2 -outline-offset-2 outline-acc transition-[left,top,width,height] duration-[120ms]`}
           data-zone={shown.zone.kind === 'edge' ? shown.zone.edge : shown.zone.kind}
           style={{ left: shown.box.x, top: shown.box.y, width: shown.box.w, height: shown.box.h }}
         />

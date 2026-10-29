@@ -26,7 +26,7 @@ export function Segmented<V extends string>({
       value={value}
       onValueChange={(v) => onChange(v as V)}
       aria-label={label}
-      className="ui-seg inline-flex rounded-ctl bg-surface p-0.5"
+      className="ui-seg inline-flex rounded-sm bg-surface p-0.5"
     >
       {options.map((o) => (
         <Radio.Root
@@ -36,7 +36,7 @@ export function Segmented<V extends string>({
           render={<button type="button" />}
           aria-label={o.label}
           title={o.label}
-          className="inline-flex h-6 min-w-6 items-center justify-center rounded-chip border-0 bg-transparent px-2 text-ink-2 data-[checked]:bg-raised data-[checked]:font-semibold data-[checked]:text-ink data-[checked]:shadow-[inset_0_-2px_0_var(--ink)]"
+          className="inline-flex h-6 min-w-6 items-center justify-center rounded-sm border-0 bg-transparent px-2 text-ink-2 data-[checked]:bg-raised data-[checked]:font-semibold data-[checked]:text-ink data-[checked]:shadow-[inset_0_-2px_0_var(--ink)]"
         >
           {o.icon ? <Icon name={o.icon} size={14} label={o.label} aria-hidden /> : o.label}
         </Radio.Root>

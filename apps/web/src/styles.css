@@ -5,7 +5,6 @@
 @import './tokens.css';
 @import './styles/base.css';
 @import './styles/ui.css';
-@import './styles/themes.css';
 
 /* The one hover and press look: a light tint over the item's own ground, so a selected or raised item keeps its colour. Plain text has none. */
 @utility tint {
@@ -33,10 +32,11 @@
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);
-  --color-primary: var(--primary);
-  --color-on-primary: var(--on-primary);
-  --color-focus: var(--focus);
-  --color-link: var(--link);
+  --color-ink-4: var(--ink-4);
+  --color-acc: var(--acc);
+  --color-acc-ink: var(--acc-ink);
+  --color-acc-wash: var(--acc-wash);
+  --color-on-acc: var(--on-acc);
   --color-working: var(--s-working);
   --color-wait: var(--s-wait);
   --color-bad: var(--s-bad);
@@ -47,19 +47,17 @@
   --color-code-ink: var(--code-ink);
   --font-sans: var(--sans);
   --font-mono: var(--mono);
-  --text-hint: var(--fs-hint);
-  --text-hint--line-height: 14px;
-  --text-label: var(--fs-label);
-  --text-label--line-height: 18px;
-  --text-body: var(--fs-body);
-  --text-body--line-height: 22px;
-  --text-title: var(--fs-title);
-  --text-title--line-height: 24px;
-  --text-page: var(--fs-page);
-  --text-page--line-height: 28px;
-  --radius-chip: var(--r-chip);
-  --radius-ctl: var(--r-ctl);
-  --radius-card: var(--r-card);
-  --radius-dialog: var(--r-dialog);
-  --radius-pill: var(--r-pill);
+  --text-xs: var(--fs-xs);
+  --text-xs--line-height: 14px;
+  --text-sm: var(--fs-sm);
+  --text-sm--line-height: 18px;
+  --text-md: var(--fs-md);
+  --text-md--line-height: 22px;
+  --text-lg: var(--fs-lg);
+  --text-lg--line-height: 24px;
+  --text-xl: var(--fs-xl);
+  --text-xl--line-height: 28px;
+  --radius-sm: var(--r-s);
+  --radius-md: var(--r-m);
+  --radius-lg: var(--r-l);
 }
