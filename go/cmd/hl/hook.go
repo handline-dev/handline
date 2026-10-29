@@ -16,20 +16,12 @@ import (
 	"github.com/handline/handline/go/internal/hlclient"
 	"github.com/handline/handline/go/internal/hooks"
 	"github.com/handline/handline/go/internal/paths"
-	"github.com/handline/handline/go/internal/protected"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/session"
 	"github.com/handline/handline/go/internal/sessiontoken"
 	"github.com/handline/handline/go/internal/usage"
 	_ "modernc.org/sqlite"
 )
-
-// goSwitchOn is whether the founder switched a part of the Go hl on (`hl go <hook|launch> on`): only an entry that reads
-// "on" does, so a store that cannot be read leaves that part to Python.
-func goSwitchOn(home, name string) bool {
-	v, _ := protected.New(home).Get("switches", name)
-	return strings.TrimSpace(v) == "on"
-}
 
 // captured are the hook events recorded as they come (events.CAPTURED, without TeammateIdle, which is no longer kept). Notification is
 // installed for permission_prompt only, and the daemon raises the needs-you card from it (-notification-needs-you).

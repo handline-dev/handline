@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/handline/handline/go/internal/claudecli"
-	"github.com/handline/handline/go/internal/db"
 	dbpkg "github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/sealed"
 	"github.com/handline/handline/go/internal/store"
@@ -126,36 +125,9 @@ func TestTheDaemonsLauncherNamesTheSettingsALaunchReads(t *testing.T) {
 	}
 }
 
-// withLifecycle builds the lifecycle over a bound rig: a session is not opened without it, since it says what the session is kept out of.
-func withLifecycle(p *Parts, home string) {
-	env := &supervisor.Env{DB: p.db, Home: home, Log: func(string, ...any) {}}
-	p.Lifecycle(cfgOf(p), LifecycleConfig{Env: env})
-}
-
 type tells struct {
 	mu   sync.Mutex
 	logs []string
-}
-
-func (t *tells) SessionWritten(_ db.Q, agent, op string) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.logs = append(t.logs, "written "+agent+" "+op)
-	return nil
-}
-
-func (t *tells) SessionConfirmed(_ db.Q, agent, op string) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.logs = append(t.logs, "confirmed "+agent+" "+op)
-	return nil
-}
-
-func (t *tells) SessionLost(_ db.Q, agent string) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.logs = append(t.logs, "lost "+agent)
-	return nil
 }
 
 func TestOneSetOfLocksServesTheManagerAndTheSpawns(t *testing.T) {
