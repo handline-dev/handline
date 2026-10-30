@@ -65,7 +65,9 @@ export class FakeAttachments {
   marked<T extends ImagePart | MemoFile | TextPart>(x: T): T {
     const id = 'image' in x ? x.image.id : 'id' in x ? x.id : undefined;
     if (id === undefined || !this.removed.has(id)) return x;
-    return 'image' in x ? ({ image: { id }, caption: x.caption, gone: true, removed: true } as T) : ({ ...x, gone: true, removed: true } as T);
+    return 'image' in x
+      ? ({ image: { id }, caption: x.caption, gone: true, removed: true } as T)
+      : ({ ...x, gone: true, removed: true } as T);
   }
 
   /** A file a memo carries (an image or Markdown), kept as the daemon keeps one; a test passes the returned id as task.comment.add `files`. */
