@@ -33,7 +33,7 @@ function byAccount(past: Outlook['past'], future: Outlook['future'], now: number
       past: points(past, 5),
       future: points(future, 5),
       resets: [
-        { at: new Date(now - head / 2).toISOString(), window: '7d' as const, unused_pct: 18 },
+        { at: new Date(now - head / 2).toISOString(), window: '7d' as const },
         ...(reset <= now + head ? [{ at: new Date(reset).toISOString(), window: '7d' as const }] : []),
       ],
     },

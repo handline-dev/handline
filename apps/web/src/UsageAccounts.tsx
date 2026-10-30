@@ -1,6 +1,6 @@
 // The Usage page's accounts: one line each under hairlines, in the order the daemon lists them: name, state, plan, its agents, the 5-hour and
 // week left, and a warning when the account runs out or is blocked. The settings of an account are in Settings.
-import { dateTime, paceLine, stallWord, stateOf, runwayWords } from '@handline/app-core';
+import { dateTime, lostByAccount, paceLine, stallWord, stateOf, runwayWords } from '@handline/app-core';
 import type { Account, Outlook } from '@handline/client';
 import { useServes } from '@handline/app-data';
 import { StateChip, useAccountList } from '#src/Accounts.tsx';
@@ -18,7 +18,7 @@ function warning(a: Account, runway: Outlook['runway'][number] | undefined): str
   return pace;
 }
 
-function Line({ a, now, runway }: { a: Account; now: number; runway?: Outlook['runway'][number] }) {
+function Line({ a, now, runway, lost }: { a: Account; now: number; runway?: Outlook['runway'][number]; lost?: number }) {
   const warn = warning(a, runway);
   return (
     <li className="usage-account flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line py-4" data-account={a.name}>
@@ -30,6 +30,7 @@ function Line({ a, now, runway }: { a: Account; now: number; runway?: Outlook['r
         5-hour {left(a.five_hour)} · Week {left(a.weekly)}
       </span>
       {a.weekly?.resets_at ? <span className="muted">week resets {dateTime(a.weekly.resets_at)}</span> : null}
+      {lost !== undefined ? <span className="usage-lost muted tabular-nums">{Math.round(lost)}% lost at this pace</span> : null}
       {warn ? (
         <span className="usage-warn inline-flex items-center gap-1 text-wait">
           <Icon name="warn" size={14} label="Warning" />
@@ -40,7 +41,8 @@ function Line({ a, now, runway }: { a: Account; now: number; runway?: Outlook['r
   );
 }
 
-export function UsageAccounts({ runway }: { runway?: Outlook['runway'] }) {
+export function UsageAccounts({ outlook }: { outlook?: Outlook }) {
+  const lost = outlook ? lostByAccount(outlook) : [];
   const { q, served, now, list } = useAccountList();
   const { served: usageServed } = useServes('accounts.list');
   return (
@@ -48,7 +50,13 @@ export function UsageAccounts({ runway }: { runway?: Outlook['runway'] }) {
       {list.length ? (
         <ul className="usage-accounts m-0 mb-8 list-none border-t border-line p-0" aria-label="Accounts">
           {list.map((a) => (
-            <Line key={a.name} a={a} now={now} runway={runway?.find((r) => r.account === a.name)} />
+            <Line
+              key={a.name}
+              a={a}
+              now={now}
+              runway={outlook?.runway.find((r) => r.account === a.name)}
+              lost={lost.find((l) => l.account === a.name)?.pct}
+            />
           ))}
         </ul>
       ) : null}

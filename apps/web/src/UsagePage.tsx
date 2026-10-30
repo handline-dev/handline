@@ -17,7 +17,7 @@ export function UsagePage() {
         <PageTitle>Usage</PageTitle>
       </PageHead>
       {outlook ? <OutlookSection q={q} range={range} setRange={setRange} /> : null}
-      <UsageAccounts runway={q.data?.runway} />
+      <UsageAccounts outlook={q.data} />
       <StatsSection />
     </ScrollPage>
   );

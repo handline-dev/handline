@@ -118,7 +118,7 @@ describe('outlook', () => {
     expect($('.outlook h3')).toBeNull(); // no title
     expect($('.outlook-legend')).toBeNull();
     expect(text($('.week-left'))).toMatch(/^Week \d+% left$/);
-    expect(text($('.week-pace'))).toMatch(/^· at this pace about \d+% goes unused$/);
+    expect(text($('.week-pace'))).toMatch(/^· at this pace about \d+% of alpha's week goes unused$/);
     expect($('.outlook-svg .line.future')!.getAttribute('stroke-dasharray')).toBeTruthy();
     expect($('.outlook-svg .line.past')!.getAttribute('stroke-dasharray')).toBeNull();
     const end = $('.outlook-svg .line.past')!.getAttribute('d')!.split(' ').at(-1);
@@ -128,7 +128,10 @@ describe('outlook', () => {
     expect($$('.x-tick').length).toBeGreaterThan(2);
     expect($$('[data-reset-mark]').map((r) => r.dataset.resetMark)).toContain('alpha');
     expect($$('[data-lost]').length).toBe(1);
-    expect(text($('.lost-link'))).toMatch(/^\d+% lost ›$/);
+    expect(text($('.lost-link'))).toMatch(/^\d+% lost ›$/); // the number is beside the bar, not only in its title
+    expect($('[data-lost]')!.className).toContain('bg-acc');
+    expect(text($('.usage-accounts [data-account="alpha"] .usage-lost'))).toMatch(/^\d+% lost at this pace$/);
+    expect($('.usage-accounts [data-account="beta"] .usage-lost')).toBeNull(); // beta's week has no reset in the guess
   });
 
   it('the range last chosen is the one it opens on next time', async () => {

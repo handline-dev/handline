@@ -15,7 +15,7 @@ export function WeekReadout({ o }: { o: Outlook }) {
   const lost = lostAtLastReset(o);
   const soonest = o.runway.filter((r) => r.runs_out_in_seconds !== null).sort((a, b) => a.runs_out_in_seconds! - b.runs_out_in_seconds!)[0];
   const pace = lost
-    ? `at this pace about ${Math.round(lost.pct)}% goes unused`
+    ? `at this pace about ${Math.round(lost.pct)}% of ${lost.account}'s week goes unused`
     : soonest
       ? `at this pace ${soonest.account} ${runwayWords(soonest)}`
       : '';
@@ -95,7 +95,7 @@ export function LostBar({ o, span }: { o: Outlook; span: Span }) {
         href="#/requests"
         className="lost-link absolute -translate-y-full pr-4 text-right whitespace-nowrap text-acc-ink no-underline"
         style={{ right: `${100 - x}%`, bottom: `${lost.pct}%` }}
-        title={`${Math.round(lost.pct)}% of the week is lost at the reset ${dateTime(lost.at)} at this pace`}
+        title={`${lost.account}: ${Math.round(lost.pct)}% of the week is lost at the reset ${dateTime(lost.at)} at this pace`}
       >
         {Math.round(lost.pct)}% lost ›
       </a>

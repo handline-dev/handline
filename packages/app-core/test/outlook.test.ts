@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { axisTicks, guessLine, lostAtLastReset, weekResets } from '#src/outlook.ts';
+import { axisTicks, guessLine, lostAtLastReset, lostByAccount, weekResets } from '#src/outlook.ts';
 
 const p = (at: string, left_pct: number | null) => ({ at, left_pct });
 
@@ -43,14 +43,25 @@ describe('weekResets', () => {
     assert.deepEqual(weekResets({}), []);
   });
 });
-describe('lostAtLastReset', () => {
-  const future = [p('2026-10-26T12:00:00Z', 50), p('2026-10-26T14:00:00Z', 40), p('2026-10-26T16:00:00Z', 30)];
-  it('is the guess just before the last guessed reset', () => {
-    assert.deepEqual(lostAtLastReset({ ...o, future }), { at: '2026-10-26T15:00:00Z', pct: 40 });
+describe('lostByAccount', () => {
+  it("is each account's own guess just before its next weekly reset, and the last reset's account is the bar's", () => {
+    const beta = {
+      account: 'beta',
+      past: [],
+      future: [w('2026-10-26T13:00:00Z', 70), w('2026-10-26T19:00:00Z', 65)],
+      resets: [{ at: '2026-10-26T18:00:00Z', window: '7d' as const }],
+    };
+    const two = { now: o.now, by_account: [by, beta] };
+    assert.deepEqual(lostByAccount(two), [
+      { account: 'alpha', at: '2026-10-26T15:00:00Z', pct: 40 },
+      { account: 'beta', at: '2026-10-26T18:00:00Z', pct: 70 },
+    ]);
+    assert.deepEqual(lostAtLastReset(two), { account: 'beta', at: '2026-10-26T18:00:00Z', pct: 70 });
   });
-  it('is null when the guess stops before the reset or no reset is guessed', () => {
-    assert.equal(lostAtLastReset({ ...o, future: future.slice(0, 2) }), null);
-    assert.equal(lostAtLastReset({ now: o.now, future, by_account: [] }), null);
+  it('is nothing for an account whose guess stops before its reset, or a daemon without by_account', () => {
+    const short = { ...by, future: by.future.slice(0, 2) };
+    assert.deepEqual(lostByAccount({ now: o.now, by_account: [short] }), []);
+    assert.equal(lostAtLastReset({ now: o.now }), null);
   });
 });
 describe('axisTicks', () => {
