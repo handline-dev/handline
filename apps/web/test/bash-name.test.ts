@@ -9,7 +9,7 @@ describe('bashName', () => {
     expect(bashName('Bash ls -la')).toBe('ls');
   });
   it('skips a leading cd and names what runs', () => {
-    expect(bashName('Bash cd /Users/ron/work && pnpm test --filter web')).toBe('pnpm test');
+    expect(bashName('Bash cd /home/dev/work && pnpm test --filter web')).toBe('pnpm test');
     expect(bashName('Bash cd /a; cd b && git diff')).toBe('git diff');
   });
   it('skips an env prefix', () => {
