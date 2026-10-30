@@ -45,7 +45,7 @@ export function Toast({ children, action, onAction }: { children: ReactNode; act
   return (
     <div
       role="status"
-      className="inline-flex items-center gap-3 rounded-md bg-ink px-3.5 py-[9px] text-sm text-canvas shadow-[var(--shadow)]"
+      className="pointer-events-auto inline-flex items-center gap-3 rounded-md bg-ink px-3.5 py-[9px] text-sm text-canvas shadow-[var(--shadow)]"
     >
       <span>{children}</span>
       {action ? (

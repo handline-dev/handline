@@ -1,6 +1,6 @@
 // Images on a message: the chips under the box while they upload (a preview, the progress, a remove mark) and the pictures drawn in a sent
 // message (a small copy; a click opens the original). The files come from a paste, a drop or the file picker.
-import { useRef, useState, type ClipboardEvent, type DragEvent } from 'react';
+import { useEffect, useRef, useState, type ClipboardEvent } from 'react';
 import type { Attachment } from '@handline/client';
 import {
   MAX_PER_MESSAGE,
@@ -14,7 +14,6 @@ import {
 } from '@handline/app-data';
 import { AttachmentImage } from '#src/AttachmentImage.tsx';
 import { ImageViewer } from '#src/ImageViewer.tsx';
-import { shell } from '#src/shell.ts';
 import { Icon } from '#src/ui/index.ts';
 
 export interface Draft {
@@ -27,28 +26,20 @@ export interface Draft {
   error?: string;
 }
 
-/** A file or folder dropped from Finder: the message carries its absolute path, so the agent can read it. */
-export interface Ref {
-  key: number;
-  name: string;
-  path: string;
-}
-
 let nextKey = 1;
 
 interface Held {
   drafts: Draft[];
   problem: string | null;
-  refs: Ref[];
   live: Map<number, { aborted: boolean; preview: string; file: File }>;
 }
-const useHeld = keptState<Held>(() => ({ drafts: [], problem: null, refs: [], live: new Map() }));
+const useHeld = keptState<Held>(() => ({ drafts: [], problem: null, live: new Map() }));
 
 /** The images being attached to the next message: each is sent to the daemon as soon as it is added. Kept per agent, so they are still there when the person comes back to the chat. */
 export function useAttachDraft(agent?: string) {
   const upload = useUploadImage();
   const held = useHeld(agent);
-  const { drafts, problem, refs } = held.state;
+  const { drafts, problem } = held.state;
   const live = held.get().live;
   const patch = (key: number, p: Partial<Draft>) =>
     held.set((s) => ({ drafts: s.drafts.map((x) => (x.key === key ? { ...x, ...p } : x)) }));
@@ -78,29 +69,6 @@ export function useAttachDraft(agent?: string) {
       void send(key, f, signal);
     }
   };
-  // Only the desktop shell knows a dropped file's path; elsewhere nothing is added. The shell copies it into the agent's worktree, so the
-  // path the message carries is one the agent can read; when it cannot copy, the original path is sent as before.
-  const refer = async (files: File[]) => {
-    const api = shell('pathOf');
-    if (!api) return;
-    const bring = shell('bringIn')?.bringIn;
-    const found = files.flatMap((f) => {
-      const path = api.pathOf!(f);
-      return path ? [{ name: f.name || path.split('/').pop() || path, path }] : [];
-    });
-    const added = await Promise.all(
-      found.map(async (f) => {
-        const copy = agent && bring ? await bring({ path: f.path, agent }) : null;
-        return { key: nextKey++, name: f.name, path: copy?.ok ? copy.path : f.path };
-      }),
-    );
-    held.set((s) => ({
-      refs: [
-        ...s.refs,
-        ...added.filter((a, i) => !s.refs.some((x) => x.path === a.path) && added.findIndex((b) => b.path === a.path) === i),
-      ],
-    }));
-  };
   // Stops the upload and lets go of the preview; false when the draft was already gone.
   const drop = (key: number) => {
     const l = live.get(key);
@@ -118,15 +86,12 @@ export function useAttachDraft(agent?: string) {
   };
   const clear = () => {
     for (const key of [...live.keys()]) drop(key);
-    held.set({ drafts: [], refs: [], problem: null });
+    held.set({ drafts: [], problem: null });
   };
   return {
     drafts,
-    refs,
     problem,
     add,
-    refer,
-    unrefer: (key: number) => held.set((s) => ({ refs: s.refs.filter((x) => x.key !== key) })),
     remove,
     retry,
     clear,
@@ -139,29 +104,63 @@ export function useAttachDraft(agent?: string) {
 
 const imagesOf = (list: FileList | null | undefined): File[] => Array.from(list ?? []).filter((f) => f.type.startsWith('image/'));
 
-/** Handlers that take images from a paste or a drop; the rest of the paste goes into the box as text. */
-export function attachHandlers(add: (files: File[]) => void, refer?: (files: File[]) => void | Promise<void>) {
-  return {
-    onPaste: (e: ClipboardEvent) => {
-      const files = imagesOf(e.clipboardData?.files);
-      if (!files.length) return;
-      e.preventDefault();
-      add(files);
-    },
-    onDragOver: (e: DragEvent) => {
-      if ([...e.dataTransfer.types].includes('Files')) e.preventDefault();
-    },
-    onDrop: (e: DragEvent) => {
-      const all = Array.from(e.dataTransfer.files);
-      const files = imagesOf(e.dataTransfer.files);
-      // What is not an image (a document, a folder) is a reference by path, in the desktop shell.
-      const rest = refer ? all.filter((f) => !f.type.startsWith('image/')) : [];
-      if (!files.length && !rest.length) return;
-      e.preventDefault();
-      if (files.length) add(files);
-      if (rest.length) void refer!(rest);
-    },
+/** The paste handler: images go to `add`; the rest of the paste goes into the box as text. */
+export function pasteImages(add: (files: File[]) => void) {
+  return (e: ClipboardEvent) => {
+    const files = imagesOf(e.clipboardData?.files);
+    if (!files.length) return;
+    e.preventDefault();
+    add(files);
   };
+}
+
+/**
+ * Files dropped anywhere in the chat pane (the `.chat` section around `wrap`'s element): pictures go to `add`, anything else is said not to
+ * be sendable. `over` is true while files are dragged over the pane, so the caller can cover it.
+ */
+export function usePaneDrop(add: (files: File[]) => void, enabled: boolean) {
+  const wrap = useRef<HTMLDivElement>(null);
+  const [pane, setPane] = useState<HTMLElement | null>(null);
+  const [over, setOver] = useState(false);
+  const [note, setNote] = useState('');
+  const take = useRef(add);
+  useEffect(() => {
+    take.current = add;
+  });
+  useEffect(() => {
+    const root = wrap.current?.closest<HTMLElement>('.chat') ?? null;
+    setPane(root);
+    if (!root || !enabled) return;
+    const files = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+    const enter = (e: DragEvent) => files(e) && setOver(true);
+    const dragOver = (e: DragEvent) => files(e) && e.preventDefault();
+    const leave = (e: DragEvent) => root.contains(e.relatedTarget as Node | null) || setOver(false);
+    const drop = (e: DragEvent) => {
+      setOver(false);
+      const all = Array.from(e.dataTransfer?.files ?? []);
+      if (!all.length) return;
+      e.preventDefault();
+      const pictures = imagesOf(e.dataTransfer?.files);
+      if (pictures.length) take.current(pictures);
+      setNote(pictures.length < all.length ? 'Only pictures can be sent for now' : '');
+    };
+    root.addEventListener('dragenter', enter);
+    root.addEventListener('dragover', dragOver);
+    root.addEventListener('dragleave', leave);
+    root.addEventListener('drop', drop);
+    return () => {
+      root.removeEventListener('dragenter', enter);
+      root.removeEventListener('dragover', dragOver);
+      root.removeEventListener('dragleave', leave);
+      root.removeEventListener('drop', drop);
+    };
+  }, [enabled]);
+  useEffect(() => {
+    if (!note) return;
+    const t = setTimeout(() => setNote(''), 4000);
+    return () => clearTimeout(t);
+  }, [note]);
+  return { wrap, pane, over, note };
 }
 
 /** A ring over a thumbnail that fills clockwise as the upload goes; a red full ring when it failed. */
@@ -188,14 +187,12 @@ function Ring({ value, failed }: { value: number; failed?: boolean }) {
 
 export function AttachChips(props: {
   drafts: Draft[];
-  refs?: Ref[];
   problem: string | null;
   onRemove: (key: number) => void;
   onRetry?: (key: number) => void;
-  onUnref?: (key: number) => void;
 }) {
   const [viewing, setViewing] = useState<number | null>(null);
-  if (!props.drafts.length && !props.refs?.length && !props.problem) return null;
+  if (!props.drafts.length && !props.problem) return null;
   return (
     <div className="attach-chips mx-3 mb-1 flex flex-wrap items-center gap-1.5">
       {props.drafts.map((d) => (
@@ -249,20 +246,6 @@ export function AttachChips(props: {
           </button>
         </span>
       ))}
-      {props.refs?.map((r) => (
-        <span
-          key={r.key}
-          className="attach-chip inline-flex items-center gap-1.5 rounded-sm bg-panel px-1.5 py-0.5 text-[12px]"
-          data-state="ref"
-          title={r.path}
-        >
-          <Icon name="attach" size={13} label="Path" />
-          <span className="max-w-[180px] truncate">{r.name}</span>
-          <button className="icon" aria-label={`Remove ${r.name}`} title="Remove" onClick={() => props.onUnref?.(r.key)}>
-            <Icon name="close" size={12} label="Remove" />
-          </button>
-        </span>
-      ))}
       {props.problem ? (
         <span className="text-sm text-bad" role="status">
           {props.problem}
@@ -276,37 +259,6 @@ export function AttachChips(props: {
         />
       ) : null}
     </div>
-  );
-}
-
-/** The file picker behind the paperclip. */
-export function PickButton(props: { onPick: (files: File[]) => void; disabled?: boolean }) {
-  const input = useRef<HTMLInputElement>(null);
-  return (
-    <>
-      <input
-        ref={input}
-        type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        multiple
-        hidden
-        aria-label="Choose images"
-        onChange={(e) => {
-          props.onPick([...(e.target.files ?? [])]);
-          e.target.value = '';
-        }}
-      />
-      <button
-        type="button"
-        className="icon compose-attach self-center"
-        aria-label="Attach images"
-        title="Attach images (or paste, or drop them here)"
-        disabled={props.disabled}
-        onClick={() => input.current?.click()}
-      >
-        <Icon name="attach" size={16} label="Attach images" />
-      </button>
-    </>
   );
 }
 

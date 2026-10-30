@@ -50,12 +50,13 @@ describe('the strip branch and context maximum', () => {
     const branch = s.daemon.sessions.get(ARCH)!.fx.branch;
     await until(() => $('.chat-strip .branch button'), 'the branch');
     await act(async () => $('.chat-strip .branch button')!.click());
+    await until(() => document.querySelector('[role="menuitem"]'), 'the branch menu');
+    await act(async () => document.querySelector<HTMLElement>('[role="menuitem"]')!.click());
     expect(write).toHaveBeenCalledWith(branch);
-    expect($('.chat-strip .branch button')!.className).toContain('border-0'); // no default button border: the chip looks like its neighbours
-    await until(() => text($('.chat-strip .branch')).includes('Copied'), 'the Copied state');
+    await until(() => text(document.body).includes('Copied'), 'the Copied state');
   });
 
-  it('the context menu offers maximums and a pick is applied at once', async () => {
+  it('the context menu offers fresh-start points and a pick is applied at once', async () => {
     const s = await mount();
     await until(() => $('.chat-strip [aria-label="Context window details"]'), 'the context gauge');
     await act(async () => $('.chat-strip [aria-label="Context window details"]')!.click());
@@ -63,12 +64,12 @@ describe('the strip branch and context maximum', () => {
     await until(() => items().length, 'the maximums');
     await act(async () =>
       items()
-        .find((i) => text(i).includes('500k'))!
+        .find((i) => text(i).includes('150k'))!
         .click(),
     );
-    await until(() => s.daemon.sessions.get(ARCH)!.settings.context_k === '500', 'the maximum applied');
+    await until(() => s.daemon.sessions.get(ARCH)!.settings.context_k === '150', 'the maximum applied');
     // The daemon sends no event for it: the header reads the new maximum because the strip is read again.
     await act(async () => $('.chat-strip [aria-label="Context window details"]')!.click());
-    await until(() => document.body.textContent?.includes('500,000'), 'the header with the new maximum');
+    await until(() => document.body.textContent?.includes('of 150k'), 'the header with the new maximum');
   });
 });

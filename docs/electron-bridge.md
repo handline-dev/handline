@@ -31,9 +31,10 @@ One object, `window.handline`, made by a preload with `contextBridge`. No other 
 | `onNavigate` | shell → page | E2 | none; a deep link is the URL itself |
 | `onFullScreen`, `zoom` | shell → page | window insets | none; the insets are the desktop shell's only |
 | `openPath`, `cancelCompose`, `compose` | page → shell | E3 | §4 |
+| `openIn`, `openInApps` | page → shell | Open in menu | §4.6; the menu shows only Copy path |
 | `mode`, `setMode`, `pairRemote`, `phone` | page → shell | modes | the pairing screen shows no mode section |
 | `network`, `setNetwork` | page → shell | devices on the network | §4.3b; Settings > Computers shows no switch |
-| `build`, `restartDaemon` | page → shell | daemon build | the top bar never says the daemon is another build |
+| `build`, `restartDaemon` | page → shell | daemon build | the daemon is moved without a click; only a failure shows |
 | `settingsGet`, `settingsSet` | page → shell | the window is a paired device, which the daemon refuses `settings.get` and `settings.set`; the shell's founder connection makes just these two calls, with the same sender and argument checks (only the keys the Settings page edits, plain values, no other method) | the page calls the daemon itself |
 
 ## 3. Badge, notices, update, and the notice's click
@@ -157,14 +158,7 @@ The pairing screen's part in the app's two modes (Connect to a daemon, Run its o
 
 ### 4.3a `build`, `restartDaemon`
 
-An Update replaces the app and the daemon as one set (the build id is the 12-char git sha, stamped into `dist/build.json`). `build()` gives `{ sha, canRestart }`: the app's sha (null when it has none) and whether the daemon is one this app can move (false when paired with another device's). The page compares `sha` with hello's `daemon` (app-core `mismatch`) and shows “Daemon is x, app is y” in the top bar with Restart daemon. `restartDaemon()` builds the daemon (a checkout), has it re-exec onto the app's own handlined with `daemon.upgrade`, and resolves once it reports the app's sha; `cannot_restart` carries the reason. Same sender checks as the rest.
-### 4.4 `pathOf`
-
-`pathOf(file: File): string` is synchronous (`webUtils.getPathForFile`, called in the preload; the page cannot get a path from a `File` otherwise). It returns the absolute path of a file or folder dropped from Finder, or `''`. The composer uses it for a dropped non-image: a chip with the name, and the path on its own line after the words.
-
-### 4.5 `bringIn`
-
-`bringIn({ path, agent })` copies a file or folder dropped from Finder into the agent's worktree (`.handline-drops/d-XXXX/<name>`, one folder to a drop; the folder holds a `.gitignore` of `*`) and gives `{ ok: true, path }` with the copy's path. The worktree is the daemon's answer for `agent`, never the page's. `path` must be absolute. The composer sends the copy's path in place of the original, so the agent needs no permission for the person's folders; when the copy fails the original path is sent as before.
+An Update replaces the app and the daemon as one set (the build id is the 12-char git sha, stamped into `dist/build.json`). `build()` gives `{ sha, canRestart }`: the app's sha (null when it has none) and whether the daemon is one this app can move (false when paired with another device's). `canRestart` is also false while a newer build waits on disk (the follow offer moves app and daemon together). The page compares `sha` with hello's `daemon` (app-core `mismatch`); when they differ and `canRestart`, it calls `restartDaemon()` once per pair of builds, with no click, and shows a closable “Daemon not restarted” notice with Try again only if that fails. `restartDaemon()` builds the daemon (a checkout), has it re-exec onto the running app's own handlined with `daemon.upgrade`, and resolves once it reports the running app's sha; `cannot_restart` carries the reason. Same sender checks as the rest.
 
 ## 5. Tests
 
@@ -182,6 +176,24 @@ The shell tests run under node with the Electron side injected, as `Desk` and `U
 - The HR notice follows the `hr` topic of the HR spec (`hr.raised`; `target` `hr`, `agent` null for a bundle). The shell's `Desk` adds `hr` to its subscribe. It is not suppressed while the HR page itself is on screen; `screen` would need a second field for that, which nobody asked for.
 - The daemon emits `task_done` with `str(tid)` even when `task_id` is missing, which reads `None`; `routeOfTarget` guards it, and `stream.py` should stop sending it.
 - `terminal_editor` is the honest limit of a GUI app. Running the editor in the Terminal pane (a pty on the daemon) would lift it; it is a feature, not a fix, and not planned.
+### 4.6 `openIn`, `openInApps`
+
+```ts
+openIn(a: { app: 'vscode' | 'terminal' | 'claude'; agent: string }): Promise<{ ok: true } | Fail<'bad_request' | 'not_found' | 'unavailable'>>
+openInApps(): Promise<{ ok: true; apps: ('vscode' | 'terminal' | 'claude')[] } | Fail<'bad_request'>>
+```
+
+The Open in menu's rows: the agent's folder in VS Code or in Terminal, or the agent's Claude Code session (its tmux session) in a Terminal window. `openInApps` says which of the three this machine has (VS Code and Terminal are looked for as apps; `claude` goes with Terminal); the menu hides the others. macOS only: elsewhere `openInApps` is `[]` and `openIn` is `unavailable`, and the menu keeps Copy path.
+
+**Why `child_process` is allowed here, and rule 7 of §4.1 still holds.** `openPath` opens what a message names and so never runs anything. `openIn` must start another app, which only a process can. It is allowed on these terms, all enforced in `open-in.ts` and its tests:
+
+1. **The page sends an app key and an agent name, nothing else.** An extra key, an app outside the three, or an agent that is not a plain name (`[A-Za-z0-9._-]`, at most 512) is `bad_request`. Never a path, an argv or an app name.
+2. **The folder comes from the daemon.** The shell reads `agent.get` `worktree.path` on its own connection, takes the `realpath`, and requires a directory: none, gone or not a directory is `not_found`.
+3. **One fixed binary, an argument array, no shell.** Only `/usr/bin/open` runs, through `execFile` with `['-a', '<fixed app name>', '--', <folder>]`. `--` comes before the folder, so a name starting with `-` is not read as a flag. No `exec`, no `shell: true`, no string command, no `osascript`.
+4. **Claude Code in Terminal** asks the daemon for `terminal.open` `attach.argv` and runs it only if it is exactly `tmux -L <name> attach-session -t <name>` (names `[A-Za-z0-9._-]+`; the `-L` value is the tmux server name, `ocp` or `ocp-<hash>`, not a path). Anything else is `unavailable` and nothing is written. The command goes into a launcher file, `handline-claude.command`, in a fresh `mkdtemp` folder (mode 0700), created with `wx` and mode 0700, each word single-quoted with `'` written as `'\''`; Terminal opens that file. The folder is removed after 60 s, and at once when the open fails.
+5. **Sender.** Only the app's own window frame, as for the other calls; the page calls it from a click handler (the menu's tests assert it).
+
+Known limit: tmux attaches to the one shared session, so two outside terminals follow the same current window.
 
 ### 4.7 `update`, `updateAct`, `onUpdate`
 

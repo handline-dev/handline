@@ -122,6 +122,9 @@ describe('the list', () => {
     await press(' ');
     await press('Escape'); // clears the marks
     expect(text($('.tbar'))).not.toContain('selected');
+    await press('j');
+    await typeInto($('input[aria-label="Search tasks"]') as HTMLInputElement, 'terminal pane'); // the cursor row leaves
+    expect(row(1690)!.classList.contains('cursor')).toBe(true); // the one that moved into its place, not the top row
   });
 
   it('searches the number, title, owner and asker, every word having to match', async () => {
@@ -451,11 +454,11 @@ describe('the detail', () => {
     const done = button('Done', verbs) as HTMLButtonElement; // the main action
     expect(done.disabled).toBe(true);
     expect(done.title).toBe('This daemon does not serve task.done yet');
-    await click(button('More', verbs));
-    const discard = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => text(i).startsWith('Discard'))!;
-    expect(discard.getAttribute('aria-disabled')).toBe('true');
-    expect(discard.getAttribute('title')).toBe('This daemon does not serve task.discard yet');
-    expect((button('Cancel task', verbs) as HTMLButtonElement).disabled).toBe(false);
+    await click(button('More', $('.tdetail-head')!));
+    const item = (name: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => text(i).startsWith(name))!;
+    expect(item('Discard').getAttribute('aria-disabled')).toBe('true');
+    expect(item('Discard').getAttribute('title')).toBe('This daemon does not serve task.discard yet');
+    expect(item('Cancel task').getAttribute('aria-disabled')).not.toBe('true');
     expect(button('Edit', verbs)).toBeUndefined(); // fields change where they are
     expect(button('Reopen', verbs)).toBeUndefined(); // not a done task
     expect(button('Queue', verbs)).toBeUndefined(); // not a draft
@@ -501,7 +504,7 @@ describe('the detail', () => {
     await until(() => $$('tr.trow').some((r) => text(r).includes('T2000')), 'its number'); // local-ref-ok
     await act(async () => void (location.hash = '#/tasks/2000'));
     await until(() => $('.tverbs'), 'the verbs');
-    await click(button('More', $('.tverbs')!)!);
+    await click(button('More', $('.tdetail-head')!)!);
     s.daemon.knobs.latency(300);
     await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => text(i).startsWith('Withdraw')));
     expect($('.tsheet')).toBeNull(); // no box: it acts at once

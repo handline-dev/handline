@@ -65,6 +65,16 @@ describe('palette', () => {
     expect(location.hash).toBe('#/stats');
   });
 
+  it('the empty box lists the agents opened last, then the commands with their keys, then the pages', async () => {
+    localStorage.setItem('handline.recent', JSON.stringify([{ kind: 'agent', id: 'handline.architect' }]));
+    await mount();
+    const heads = $$('.palette [role="presentation"]').map(text);
+    expect(heads).toEqual(['Recent', 'Commands', 'Pages']);
+    expect(options()[0]).toContain('handline.architect');
+    expect(options().some((o) => o.includes('Split pane') && o.includes('⌘\\'))).toBe(true);
+    localStorage.removeItem('handline.recent');
+  });
+
   it('adds a Messages group for two characters and lands the chat on the message of a hit', async () => {
     await mount();
     await type('contract');

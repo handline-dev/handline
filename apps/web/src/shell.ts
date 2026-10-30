@@ -12,7 +12,8 @@ type Call =
   | 'unsent'
   | 'onNavigate'
   | 'openPath'
-  | 'bringIn'
+  | 'openIn'
+  | 'openInApps'
   | 'compose'
   | 'cancelCompose'
   | 'mode'
@@ -39,7 +40,6 @@ type Call =
   | 'deviceText'
   | 'captureWindows'
   | 'captureWindow'
-  | 'pathOf'
   | 'settingsGet'
   | 'settingsSet';
 

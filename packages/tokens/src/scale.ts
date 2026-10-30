@@ -46,6 +46,7 @@ export const chrome = {
   'w-side': 240,
   'w-form': 640,
   'w-page': 960,
+  'w-col': 768,
   'w-dialog': 460,
   icon: 16,
 } as const;

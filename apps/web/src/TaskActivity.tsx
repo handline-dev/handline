@@ -13,7 +13,7 @@ import { MemoFiles } from '#src/MemoFiles.tsx';
 import { Markdown } from '#src/Markdown.tsx';
 import { AgentLink } from '#src/TaskInline.tsx';
 import { useCan } from '#src/taskui.tsx';
-import { Button, MenuButton, MenuItem } from '#src/ui/index.ts';
+import { Button, MenuButton, MenuItem, Segmented } from '#src/ui/index.ts';
 import { Fold } from '#src/Fold.tsx';
 
 export const UNDO_MS = 6000;
@@ -181,8 +181,7 @@ const firstLine = (text: string): string =>
 
 function Event({ item }: { item: ActivityItem }) {
   return (
-    <li className="tevent min-w-0 text-ink-2">
-      <span className="mr-2 inline-block h-2 w-2 rounded-full bg-ink-3 align-middle" aria-hidden="true" />
+    <li className="tevent min-w-0 text-xs text-ink-3">
       {item.line} <span className="text-xs text-ink-3">· {dateTime(item.at)}</span>
       {item.note ? (
         <div className="tnote mt-1 min-w-0 px-0 py-1 text-ink">
@@ -205,7 +204,9 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
   const [editing, setEditing] = useState(0); // comments being edited: the composer hides its Source link meanwhile
   const [replyTo, setReplyTo] = useState<number | null>(null);
   const answering = replyTo === null ? undefined : t.memos.find((x) => x.id === replyTo);
-  const { items, hidden } = foldEvents(activityOf(t.memos, t.timeline), all);
+  const [show, setShow] = useState<'all' | 'comments' | 'changes'>('all');
+  const { items: folded, hidden } = foldEvents(activityOf(t.memos, t.timeline), all);
+  const items = folded.filter((i) => show === 'all' || (show === 'comments') === (i.kind === 'comment'));
   const agents = useAgents().data?.agents ?? [];
   const names = agents.map((a) => a.name);
   const stateOf = (n: string) => mentionState(agents.find((a) => a.name === n) ?? { state: 'idle' });
@@ -219,7 +220,19 @@ export function Activity({ t, box }: { t: Detail; box: RefObject<HTMLDivElement 
   };
   return (
     <section className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2" aria-label="Activity">
-      <h3 className="m-0 text-sm font-semibold">Activity</h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="m-0 text-sm font-semibold">Activity</h3>
+        <Segmented
+          label="Show"
+          value={show}
+          onChange={setShow}
+          options={[
+            { value: 'all', label: 'All' },
+            { value: 'comments', label: 'Comments' },
+            { value: 'changes', label: 'Changes' },
+          ]}
+        />
+      </div>
       {hidden ? (
         <button type="button" className="justify-self-start border-0 bg-transparent p-0 text-acc-ink" onClick={() => setAll(true)}>
           Show {hidden} earlier {hidden === 1 ? 'event' : 'events'}

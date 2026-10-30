@@ -74,4 +74,15 @@ describe('the row menu', () => {
     await until(() => menus().length === 1, 'the menu');
     expect(location.hash).toBe('#/tasks');
   });
+
+  it('starts with Open, Copy link and Copy number, and Open goes to the task', async () => {
+    await mount();
+    await loaded();
+    await context(row(1684)!);
+    await until(() => menus().length === 1, 'the row menu');
+    const items = $$('[role=menuitem]', menus()[0]!).map(text);
+    expect(items.slice(0, 3)).toEqual(['Open', 'Copy link', 'Copy number']);
+    await click($$('[role=menuitem]', menus()[0]!).find((i) => text(i) === 'Open'));
+    expect(location.hash).toBe('#/tasks/1684');
+  });
 });

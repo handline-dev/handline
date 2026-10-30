@@ -5,6 +5,7 @@ import { useAgentDetail, useVerbMark, useVerbRun } from '@handline/app-data';
 import { useSelector } from '@handline/app-react';
 import { useServed } from '#src/AgentVerbs.tsx';
 import { Button, Icon, MenuItem, MenuSeparator, MenuSub, MenuSubContent, MenuSubTrigger, type At, type IconName } from '#src/ui/index.ts';
+import { OpenInItems } from '#src/OpenInItems.tsx';
 import { shell } from '#src/shell.ts';
 import { goSettings } from '#src/route.ts';
 
@@ -77,9 +78,7 @@ export function AgentMenu({
           <MenuSub>
             <MenuSubTrigger icon="open">Open in</MenuSubTrigger>
             <MenuSubContent>
-              <MenuItem icon="open" onSelect={() => void open.openPath!({ path: d.cwd, agent })}>
-                Finder
-              </MenuItem>
+              <OpenInItems agent={agent} cwd={d.cwd} withCopy={false} />
             </MenuSubContent>
           </MenuSub>
           <MenuSeparator />

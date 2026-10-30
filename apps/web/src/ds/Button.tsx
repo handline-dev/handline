@@ -26,6 +26,8 @@ export interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement
   label: string;
   /** Icon-only: draw the icon alone. */
   iconOnly?: boolean;
+  /** The key that does the same, printed only while ⌘ is held. */
+  keys?: string;
   children?: ReactNode;
 }
 
@@ -35,6 +37,7 @@ export function Button({
   icon: Glyph,
   label,
   iconOnly,
+  keys,
   children,
   className,
   type = 'button',
@@ -51,6 +54,9 @@ export function Button({
     >
       {Glyph ? <Glyph width={px} height={px} strokeWidth={1.75} aria-hidden /> : null}
       {iconOnly ? null : (children ?? label)}
+      {keys && !iconOnly ? (
+        <kbd className="ui-keys ml-1 rounded-[3px] border border-current/30 px-1 font-sans text-xs opacity-70">{keys}</kbd>
+      ) : null}
     </button>
   );
 }

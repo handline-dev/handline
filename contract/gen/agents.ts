@@ -24,6 +24,7 @@ export type AgentView = {
   blocker?: string | null;
   /** The account the agent is on: the one its session runs on, or, at rest, the one whose prompt cache still holds its conversation, until cache_until. null at rest once cache_until has passed or is null: the agent is on no account and counts on none. Its next wake goes to the account with the most weekly headroom (furthest behind its pace line, Account.pace; with pacing off, the most left of its weekly window), carrying the conversation there; it starts fresh from its handoff only when the conversation cannot be carried. While the cache lives a wake stays on its account, unless that account cannot run it now (its wall, its pace, no free slot), when the usual moves apply. */
   account: string | null;
+  /** The task the agent holds in doing; null when it holds none, or only a queued, blocked or ended one. */
   task: {
     id: number;
     title: string;

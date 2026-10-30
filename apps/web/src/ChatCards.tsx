@@ -15,91 +15,54 @@ import {
 } from '@handline/app-core';
 import { classify, sentence, useAgentStrip, useHr, useVerbMark, useVerbRun, useWorktrees } from '@handline/app-data';
 import { useServed } from '#src/AgentVerbs.tsx';
-import { Chip, Icon } from '#src/ui/index.ts';
+import { Icon } from '#src/ui/index.ts';
 import { Button } from '#src/ds/Button.tsx';
 import { ExternalLink, Terminal } from 'lucide-react';
 import { Notice } from '#src/ds/Chat.tsx';
 import { goTeam } from '#src/route.ts';
-import { openTaskOnClick } from '#src/ChatMessages.tsx';
-import { useWorkspace } from '#src/Workspace.tsx';
-import { AgentGauges, GaugeLine, CACHE_MINUTES } from '#src/AgentGauges.tsx';
+import { AgentGauges, GaugeLine } from '#src/AgentGauges.tsx';
 import { AccountMenu, ModelMenu } from '#src/AgentPickers.tsx';
 import { ViewSwitch } from '#src/ViewSwitch.tsx';
 import { useOpenTerminal } from '#src/ChatMenus.tsx';
 import { useNow } from '#src/Gauge.tsx';
-import { BranchChip, ContextMax } from '#src/ChatStripItems.tsx';
+import { BranchMenu, ContextBar, ContextMax, StartFresh } from '#src/ChatStripItems.tsx';
 
 const until = (iso: string | null, now: number): number | null => {
   const t = iso ? Date.parse(iso) : NaN;
   return Number.isNaN(t) ? null : Math.round((t - now) / 60_000);
 };
 
-const tokens = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n));
-
 /** One line under the composer: the model and account (menus), the task, the branch (dropped when the line is tight), and the context and
  *  prompt cache in words. */
 export function ChatStrip({ detail, to = 'terminal' }: { detail: AgentDetail; to?: 'chat' | 'terminal' }) {
   const cache = until(detail.cache_until, useNow(30_000));
-  const { apply } = useWorkspace();
   const strip = useAgentStrip(detail.name).data;
   const ctxPct = detail.ctx_pct ?? strip?.ctx_pct;
-  const changed = useWorktrees({ owner: detail.name }).data?.worktrees.find((w) => w.path === detail.worktree?.path)?.changed.length;
-  const files = `${changed} changed ${changed === 1 ? 'file' : 'files'} in the worktree`;
+  const changed = useWorktrees({ owner: detail.name }).data?.worktrees.find((w) => w.path === detail.worktree?.path)?.changed ?? [];
   const used = strip?.ctx_used;
   const limit = strip?.ctx_limit;
   return (
     <div className="chat-strip @container flex min-w-0 flex-1 items-center gap-1 overflow-hidden text-xs text-ink-2">
-      <ModelMenu detail={detail} />
-      <AccountMenu detail={detail} />
-      {detail.task ? (
-        <Chip
-          as="a"
-          href={`#/tasks/${detail.task.id}`}
-          className="tint"
-          title={detail.task.title}
-          onClick={openTaskOnClick(apply, detail.task.id)}
-        >
-          <Icon name="tasks" size={13} aria-hidden />T{detail.task.id}
-        </Chip>
-      ) : null}
-      {detail.worktree ? (
-        <span className="branch hidden min-w-0 @[44rem]:inline-flex">
-          <BranchChip branch={detail.worktree.branch} />
-        </span>
-      ) : null}
-      {changed ? (
-        <Chip title={files} aria-label={files}>
-          <Icon name="changes" size={13} aria-hidden />
-          {changed}
-        </Chip>
-      ) : null}
       <AgentGauges
         ctx={ctxPct == null ? null : Math.round(ctxPct)}
-        cacheMin={cache}
-        ctxText={used != null && limit != null ? `${tokens(used)} / ${tokens(limit)}` : undefined}
-        cacheText={cache === null ? undefined : cache <= 0 ? 'lapsed' : `${cache}m`}
+        cacheMin={null}
+        ctxText={ctxPct == null ? undefined : `${Math.round(ctxPct)}% context`}
         ctxInfo={
           <>
-            {used != null && limit != null ? (
-              <GaugeLine what="Used">{`${used.toLocaleString()} / ${limit.toLocaleString()} tokens`}</GaugeLine>
-            ) : null}
-            {ctxPct != null ? <GaugeLine what="Full">{`${Math.round(ctxPct)}%`}</GaugeLine> : null}
-            <ContextMax detail={detail} limit={limit} />
+            {used != null ? <ContextBar detail={detail} used={used} limit={limit} /> : null}
+            {cache !== null && cache > 0 ? <GaugeLine what="Prompt cache">{`lapses in ${cache}m`}</GaugeLine> : null}
+            <ContextMax detail={detail} />
+            <StartFresh detail={detail} />
           </>
         }
-        cacheInfo={
-          cache === null ? null : (
-            <>
-              <GaugeLine what="Counts">time until the cache lapses</GaugeLine>
-              <GaugeLine what={cache <= 0 ? 'Lapsed' : 'Left'}>
-                {cache <= 0 ? ago(detail.cache_until!) : `${cache} of ${CACHE_MINUTES} min`}
-              </GaugeLine>
-              {cache > 0 ? <GaugeLine what="Lapses at">{clockTime(detail.cache_until!)}</GaugeLine> : null}
-              <GaugeLine what="Reset">by the next turn, which warms it again</GaugeLine>
-            </>
-          )
-        }
       />
+      {detail.worktree ? (
+        <span className="branch hidden min-w-0 @[44rem]:inline-flex">
+          <BranchMenu branch={detail.worktree.branch} changed={changed} />
+        </span>
+      ) : null}
+      <AccountMenu detail={detail} />
+      <ModelMenu detail={detail} />
       <ViewSwitch to={to} />
     </div>
   );

@@ -4,12 +4,14 @@ import { ChevronRight, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { APPROVED, WORKTREE_WORDS, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
 import { classify, sentence, useAgents, useMyTurn, useWrite } from '@handline/app-data';
+import { useKeepPlace } from '#src/useKeepPlace.ts';
 import { Fold } from '#src/Fold.tsx';
 import { NewTask } from '#src/NewTask.tsx';
+import { BlocksLine } from '#src/BlocksLine.tsx';
 import { goTasks, goTerminal } from '#src/route.ts';
 import { useWide } from '#src/taskui.tsx';
 import { AskChange, ReviewPictures } from '#src/ReviewCard.tsx';
-import { Button, Icon, Input, MenuButton, MenuItem, PageHead, PageTitle, ScrollPage } from '#src/ui/index.ts';
+import { Button, Icon, Input, Kbd, MenuButton, MenuItem, PageHead, PageTitle, ScrollPage } from '#src/ui/index.ts';
 import { Button as DsButton } from '#src/ds/Button.tsx';
 import { Chip } from '#src/ds/Chip.tsx';
 import { Answer, ItemHeader } from '#src/ds/Item.tsx';
@@ -17,6 +19,39 @@ import { Toast } from '#src/ds/Floating.tsx';
 import { Link, Who } from '#src/ds/Link.tsx';
 import { ListRow, SectionHead } from '#src/ds/ListRow.tsx';
 import { useNow } from '#src/Gauge.tsx';
+import { useHeldAnswers, type HeldStep } from '#src/HeldAnswers.tsx';
+import { useScreenKeys, type KeyRows } from '#src/screenKeys.ts';
+
+const REQUEST_KEYS: KeyRows = [
+  ['J K', 'move down and up the requests'],
+  ['A', 'allow or approve the open request'],
+  ['D', 'deny the open request'],
+  ['C', 'ask for a change'],
+  ['Enter', 'open the request itself'],
+];
+
+/** The key that gives each answer, as the `A D C Enter` rows above say. */
+const KEY_OF: Partial<Record<CardAction['type'], string>> = {
+  allow: 'A',
+  approve: 'A',
+  deny: 'D',
+  ask_change: 'C',
+  change: 'C',
+  open: '↵',
+};
+
+/** Runs `f` on a plain key press anywhere on the page except while a field has the focus. */
+function useKey(f: (key: string) => boolean) {
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.metaKey || e.ctrlKey || e.altKey || el?.closest('input,textarea,select,[contenteditable],[role=dialog]')) return;
+      if (f(e.key.toLowerCase())) e.preventDefault();
+    };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  });
+}
 
 type Group = 'Allow' | 'Decide' | 'Review' | 'Do by hand';
 const GROUPS: Group[] = ['Allow', 'Decide', 'Review', 'Do by hand'];
@@ -87,7 +122,16 @@ const WORKTREE_SAID = {
 };
 
 /** The open item: its header, the ask, then the answers and nothing after them. The source chip is the one way to open the item itself. */
-function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => void }) {
+function CardDetail({
+  card,
+  onSaid,
+  hold,
+}: {
+  card: Card;
+  onSaid: (line: string) => void;
+  /** Takes the card off the list and sends the answer after a few seconds unless Undo comes first. */
+  hold: (key: string, line: string, steps: HeldStep[], send: () => Promise<unknown>) => void;
+}) {
   const now = useNow();
   const answer = useWrite('inbox.reply');
   const prompt = useWrite('prompt.answer');
@@ -99,6 +143,14 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
   const [text, setText] = useState('');
   // The daemon's own words for a refused write; the buttons stay usable.
   const refused = [answer, prompt, done, read].find((w) => w.isError)?.error;
+  const writer = { 'inbox.reply': answer, 'prompt.answer': prompt, 'task.done': done, 'inbox.mark_read': read };
+  /** Holds the writes of an answer: the card leaves the list, the writes go after the hold, in order, and survive a reload. */
+  const holdWrites = (line: string, writes: [HeldStep['method'], Record<string, unknown>][]) => {
+    const steps = writes.map(([method, params]): HeldStep => ({ method, params: { ...params, request_id: crypto.randomUUID() } }));
+    const send = () =>
+      steps.reduce((p, st) => p.then(() => writer[st.method].mutateAsync(st.params as never)), Promise.resolve<unknown>(undefined));
+    hold(card.key, line, steps, send);
+  };
   const run = (a: CardAction) => {
     switch (a.type) {
       case 'answer':
@@ -106,14 +158,19 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
       case 'change':
         return setChange(true);
       case 'reply':
-        return answer.mutate({ id: a.id, text: a.text });
+        return holdWrites('Answer sent', [['inbox.reply', { id: a.id, text: a.text }]]);
       case 'allow':
       case 'deny':
-        return prompt.mutate({ agent: a.agent, prompt: a.prompt, choice: a.choice });
+        return holdWrites(a.type === 'allow' ? 'Allowed' : 'Denied', [
+          ['prompt.answer', { agent: a.agent, prompt: a.prompt, choice: a.choice }],
+        ]);
       case 'done':
-        return void (done.mutate({ task: a.item.task!, evidence: 'decided in Requests', reason: true }), read.mutate({ ids: [a.item.id] }));
+        return holdWrites('Done', [
+          ['task.done', { task: a.item.task!, evidence: 'decided in Requests', reason: true }],
+          ['inbox.mark_read', { ids: [a.item.id] }],
+        ]);
       case 'done_task':
-        return done.mutate({ task: a.task, evidence: 'Done', reason: true });
+        return holdWrites('Done', [['task.done', { task: a.task, evidence: 'Done', reason: true }]]);
       case 'worktree':
         if (a.answer === 'force' && !sure) return setSure(true);
         setSure(false);
@@ -123,7 +180,10 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
           () => undefined,
         );
       case 'approve':
-        return void (done.mutate({ task: a.item.task!, evidence: APPROVED, reason: true }), read.mutate({ ids: [a.item.id] }));
+        return holdWrites('Approved', [
+          ['task.done', { task: a.item.task!, evidence: APPROVED, reason: true }],
+          ['inbox.mark_read', { ids: [a.item.id] }],
+        ]);
       case 'ask_change':
         return setAsking(true);
       case 'open':
@@ -131,7 +191,7 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
       case 'terminal':
         return goTerminal(a.agent);
       case 'read':
-        return read.mutate({ ids: [a.id] });
+        return holdWrites('Marked read', [['inbox.mark_read', { ids: [a.id] }]]);
     }
   };
   // The buttons are the answers; a written answer is the field beside them, never a bare Reply. The rarer verbs are in the menu.
@@ -146,6 +206,20 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
       : card.kind === 'machine'
         ? undefined
         : () => goHash(`#/agents/${encodeURIComponent(card.from ?? card.agent ?? '')}`);
+  const act = (types: CardAction['type'][]) => {
+    const a = card.actions.find((x) => types.includes(x.type));
+    if (a) run(a);
+    return !!a;
+  };
+  useKey((k) =>
+    k === 'a'
+      ? act(['allow', 'approve'])
+      : k === 'd'
+        ? act(['deny'])
+        : k === 'c'
+          ? act(['ask_change', 'change'])
+          : k === 'enter' && !!open && (open(), true),
+  );
   const source = (
     <Link onClick={open} className="h-5 gap-1 rounded-sm border border-line-strong px-1.5 text-xs">
       {sourceFull(card)}
@@ -164,6 +238,7 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
         }
         title={card.title}
       />
+      <BlocksLine task={card.task} />
       {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
       <Answer
         kind={groupOf(card)}
@@ -199,6 +274,7 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
               key={a.type + i}
               kind={i === 0 ? 'primary' : a.type === 'worktree' && a.answer === 'force' ? 'danger' : 'secondary'}
               label={label(a)}
+              keys={KEY_OF[a.type]}
               onClick={() => run(a)}
             />
           ))
@@ -215,7 +291,8 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
           onSubmit={(e) => {
             e.preventDefault();
             if (!text.trim()) return;
-            answer.mutate({ id: answerId.id, text: change ? changeAsked(text) : text.trim() });
+            const reply = change ? changeAsked(text) : text.trim();
+            holdWrites('Answer sent', [['inbox.reply', { id: answerId.id, text: reply }]]);
             setChange(false);
             setText('');
           }}
@@ -238,34 +315,51 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
 }
 
 export function RequestsPage() {
-  const { cards, loading } = useMyTurn();
+  const all = useMyTurn();
+  const [said, setSaid] = useState('');
+  const held = useHeldAnswers(setSaid);
+  const cards = all.cards.filter((c) => !held.away.includes(c.key));
+  const { loading } = all;
   const agents = useAgents();
   const wide = useWide(1100);
   const now = useNow();
   const [pick, setPick] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
-  const [said, setSaid] = useState('');
   useEffect(() => {
     if (!said) return;
     const t = setTimeout(() => setSaid(''), 6000);
     return () => clearTimeout(t);
   }, [said]);
-  const toast = said ? (
-    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
-      <Toast>{said}</Toast>
-    </div>
-  ) : null;
+  const toast =
+    held.last || said ? (
+      <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
+        <Toast action={held.last ? 'Undo' : undefined} onAction={() => held.last && held.undo(held.last.key)}>
+          {held.last ? held.last.line : said}
+        </Toast>
+      </div>
+    ) : null;
   // Wide: the first item is open, as the list is read top down. Narrow: the list alone until a row is picked.
-  const sel = cards.find((c) => c.key === pick) ?? (wide ? cards[0] : undefined);
+  // The list reads in its groups, so j and k walk the cards in that order.
+  const ordered = GROUPS.flatMap((g) => cards.filter((c) => groupOf(c) === g));
+  const sel = cards.find((c) => c.key === pick) ?? (wide ? ordered[0] : undefined);
+  useKeepPlace(ordered, pick, setPick, wide);
+  useScreenKeys('On Requests', REQUEST_KEYS);
+  useKey((k) => {
+    if (k !== 'j' && k !== 'k') return false;
+    const at = ordered.findIndex((c) => c.key === sel?.key);
+    const next = ordered[Math.max(0, Math.min(ordered.length - 1, at + (k === 'j' ? 1 : -1)))];
+    if (next) setPick(next.key);
+    return !!next;
+  });
   const leads = (agents.data?.agents ?? []).filter((a) => !a.parent).map((a) => a.name);
   const sheet = asking ? (
     <NewTask request agents={leads.length ? leads : (agents.data?.agents ?? []).map((a) => a.name)} onClose={() => setAsking(false)} />
   ) : null;
   if (!wide && sel)
     return (
-      <ScrollPage aria-label="Request">
+      <ScrollPage col aria-label="Request">
         <PageHead back={{ label: 'Requests', to: () => setPick(null) }} />
-        <CardDetail card={sel} onSaid={setSaid} />
+        <CardDetail card={sel} onSaid={setSaid} hold={held.hold} />
         {toast}
       </ScrollPage>
     );
@@ -273,7 +367,7 @@ export function RequestsPage() {
     <ScrollPage beside={wide} className="requests-page" aria-label="Requests">
       <PageHead>
         <PageTitle>
-          Requests <span className="muted">{cards.length}</span>
+          Requests <span className="muted">{all.cards.length}</span> <Kbd className="ui-keys">J K</Kbd>
         </PageTitle>
         <DsButton iconOnly icon={Plus} label="New request" size="s" onClick={() => setAsking(true)} />
       </PageHead>
@@ -320,7 +414,11 @@ export function RequestsPage() {
     <div className="flex h-full min-h-0 min-w-0 flex-1">
       <div className="flex min-h-0 w-[min(420px,40%)] flex-none flex-col">{list}</div>
       <div className="min-h-0 min-w-0 flex-1 overflow-auto border-l border-line">
-        {sel ? <CardDetail card={sel} onSaid={setSaid} /> : null}
+        {sel ? (
+          <div className="mx-auto max-w-[var(--w-col)]">
+            <CardDetail card={sel} onSaid={setSaid} hold={held.hold} />
+          </div>
+        ) : null}
       </div>
       {sheet}
       {toast}

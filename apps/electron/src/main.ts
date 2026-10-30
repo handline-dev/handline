@@ -11,8 +11,8 @@ import { Desk } from '#src/desk.ts';
 import { Composer, LOGIN_PROBE, parseLoginEnv, sweepTemp, type EditorEnv } from '#src/editor.ts';
 import { serveCapture } from '#src/capture.ts';
 import { gitView, scratch } from '#src/git-view.ts';
-import { Dropper } from '#src/drop.ts';
 import { Opener } from '#src/open.ts';
+import { handleOpenIn } from '#src/open-in-serve.ts';
 import { Devices } from '#src/devices.ts';
 import { Preview } from '#src/preview.ts';
 import { followMain, takeRoute } from '#src/follow-app.ts';
@@ -132,7 +132,8 @@ function handleSettings(origin: string, client: DaemonClient, remote: Remote | n
 
 function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote | null, network: boolean, f?: Follower): void {
   const c = new Connection(origin, {
-    build: () => ({ sha: runningBuild, canRestart: !remote }),
+    // Only when the build on disk is this one: a newer one (main moved) is the follow offer's to apply, app and daemon together.
+    build: () => ({ sha: runningBuild, canRestart: !remote && readBuildSha(import.meta.dirname) === runningBuild }),
     restartDaemon: () => own.restartDaemon(),
     mode: () => ({ mode, remote: remote?.host ?? null }),
     follow: () => (f ? { sha: f.sha, state: f.state, next: f.next?.sha ?? null } : null),
@@ -145,6 +146,8 @@ function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote |
   });
   ipcMain.handle(CHANNELS.mode, (e) => c.mode(e));
   ipcMain.handle(CHANNELS.setMode, (e, arg) => c.setMode(e, arg));
+  ipcMain.handle(CHANNELS.build, (e) => c.build(e));
+  ipcMain.handle(CHANNELS.restartDaemon, (e) => c.restartDaemon(e));
   ipcMain.handle(CHANNELS.follow, (e) => c.follow(e));
   ipcMain.handle(CHANNELS.checkUpdate, (e) => c.checkUpdate(e));
   ipcMain.handle(CHANNELS.phone, (e) => c.phone(e));
@@ -255,6 +258,12 @@ function handleUpdate(origin: string, flow: UpdateFlow, redraw: () => void): voi
   });
 }
 
+/** The calls the shell makes on its own founder connection for the page: settings, and openIn. */
+function handleFounderCalls(origin: string, client: DaemonClient, remote: Remote | null, tmp: string): void {
+  handleSettings(origin, client, remote);
+  handleOpenIn(origin, client, tmp);
+}
+
 /** The app window: the page gets window.handline and nothing else, and the window never leaves the loopback origin. */
 function createWindow(origin: string, onReady: () => void): BrowserWindow {
   const w = new BrowserWindow({
@@ -357,7 +366,7 @@ if (!app.requestSingleInstanceLock({ background })) {
       settings,
       current,
       build: runningBuild,
-      upgradeDaemon: () => upgradeTo(),
+      upgradeDaemon: () => upgradeTo(runningBuild ?? undefined),
       openWindow: () => void openWindow(),
       openPage: (screen) => void openWindow().then(() => win?.webContents.send(CHANNELS.navigate, { screen, id: '', event: 'tray' })),
       update: () => trayUpdate(flow),
@@ -380,7 +389,7 @@ if (!app.requestSingleInstanceLock({ background })) {
     ipcMain.handle(CHANNELS.preview, (e, arg) => preview.set(e, arg));
     ipcMain.handle(CHANNELS.capturePreview, (e) => preview.capture(e));
     handleDevices(origin);
-    handleSettings(origin, client, remote);
+    handleFounderCalls(origin, client, remote, app.getPath('temp'));
     // The worktree of an agent comes from the shell's own daemon connection, never from the page.
     const opener = new Opener(origin, {
       worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,
@@ -392,8 +401,6 @@ if (!app.requestSingleInstanceLock({ background })) {
     });
     const composer = new Composer(origin, { env: editorEnv, tmp: app.getPath('temp') });
     ipcMain.handle(CHANNELS.openPath, (e, arg) => opener.openPath(e, arg));
-    const dropper = new Dropper(origin, async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null);
-    ipcMain.handle(CHANNELS.bringIn, (e, arg) => dropper.bringIn(e, arg));
     ipcMain.handle(CHANNELS.compose, (e, arg) => composer.compose(e, arg));
     ipcMain.handle(CHANNELS.cancelCompose, (e, arg) => composer.cancel(e, arg));
     app.on('quit', () => composer.dispose());

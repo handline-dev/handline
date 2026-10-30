@@ -58,6 +58,17 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+describe('machine', () => {
+  it('lists the resources, the agents and the storage, with no remove button', async () => {
+    const s = setup();
+    await mount('#/machine', s);
+    await until(() => $('.machine-page [data-agent]'), 'the agents');
+    expect($$('.machine-page nav button').map(text)).toEqual(['Resources', 'Agents', 'Storage']);
+    expect($$('.machine-page [data-agent]').length).toBeGreaterThan(0);
+    expect(button('Delete') ?? button('Remove')).toBeUndefined();
+  });
+});
+
 describe('stats', () => {
   it('shows a skeleton, then the four counts, the span and both charts', async () => {
     const s = setup();

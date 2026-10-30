@@ -52,31 +52,13 @@ afterEach(async () => {
 });
 
 describe('settings: machine load limits', () => {
-  it('shows the fake values, with 0 as off, and a change sends that key only', async () => {
-    const s = await mount();
-    await until(() => field('Load per core'), 'the rows');
-    expect([field('Agents at once').value, field('Load per core').value, field('Least free memory').value]).toEqual([
-      'no limit',
-      '150',
-      '10',
-    ]);
-    const before = { ...values(s) };
-    await setValue(field('Load per core'), '200');
-    await blur(field('Load per core'));
-    await until(() => values(s).load_per_core_pct === 200, 'the save');
-    expect({ ...values(s), load_per_core_pct: 150 }).toEqual(before);
-    await setValue(field('Load per core'), 'off');
-    await blur(field('Load per core'));
-    await until(() => values(s).load_per_core_pct === 0, 'off saved as 0');
-  });
-
-  it('a bad number is not sent', async () => {
-    const s = await mount();
-    await until(() => field('Least free memory'), 'the rows');
-    await setValue(field('Least free memory'), 'lots');
-    await blur(field('Least free memory'));
-    expect($('[data-setting="Least free memory"] .ui-note')?.textContent).toContain('whole number');
-    expect(values(s).ram_free_min_pct).toBe(10);
+  it('keeps the machine-wide cap here and points the other limits to the resource manager', async () => {
+    await mount();
+    await until(() => field('Agents at once'), 'the rows');
+    expect(field('Agents at once').value).toBe('no limit');
+    expect(field('Load per core')).toBeNull();
+    expect(field('Least free memory')).toBeNull();
+    expect(document.body.textContent).toContain('Machine limits');
   });
 
   it('a daemon without settings.get shows no rows', async () => {
