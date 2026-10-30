@@ -82,7 +82,7 @@ describe('the weekly-loss notice', () => {
     open(s);
     await mount(ARCH, s, '#/tasks');
     await until(spare, 'the notice');
-    await wait(50);
+    await act(async () => void (await new Promise((r) => requestAnimationFrame(r)))); // a frame: the observers have measured
     expect($('.toasts')!.style.marginBottom).toBe('');
   });
 
