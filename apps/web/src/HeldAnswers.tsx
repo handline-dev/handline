@@ -1,7 +1,6 @@
 // Requests answers that wait before they are sent, so Undo is real.
 import { useEffect, useRef, useState } from 'react';
-import { useStore } from '@handline/app-react';
-import { classify, sentence } from '@handline/app-data';
+import { classify, sentence, useWrite } from '@handline/app-data';
 import { Button } from '#src/ui/index.ts';
 
 const HOLD_MS = 5000;
@@ -38,7 +37,12 @@ const keep = (change: (all: Record<string, HeldStep[]>) => void) => {
 export function useHeldAnswers(say: (line: string) => void) {
   const [away, setAway] = useState<string[]>([]);
   const [last, setLast] = useState<{ key: string; line: string } | null>(null);
-  const store = useStore();
+  const writer = {
+    'inbox.reply': useWrite('inbox.reply'),
+    'prompt.answer': useWrite('prompt.answer'),
+    'task.done': useWrite('task.done'),
+    'inbox.mark_read': useWrite('inbox.mark_read'),
+  };
   const waiting = useRef(new Map<string, { send: () => Promise<unknown>; done: string; timer: ReturnType<typeof setTimeout> }>());
   const back = (key: string) => setAway((a) => a.filter((k) => k !== key));
   const fire = (key: string) => {
@@ -72,7 +76,7 @@ export function useHeldAnswers(say: (line: string) => void) {
     const left = Object.entries(stored()).filter(([key]) => !waiting.current.has(key));
     for (const [key, steps] of left) {
       const sent = steps.reduce(
-        (p, st) => p.then(() => store.client.call(st.method, st.params as never)),
+        (p, st) => p.then(() => writer[st.method].mutateAsync(st.params as never)),
         Promise.resolve<unknown>(undefined),
       );
       void sent.catch(() => undefined).then(() => keep((all) => delete all[key]));
