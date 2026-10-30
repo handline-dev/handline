@@ -182,8 +182,10 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 		}
 		return nil, refusal(fmt.Sprintf("task T%d is already done (%s)", tid, t.DoneEvidence.String))
 	}
-	if by != t.Owner && by != t.reporter() && by != human {
-		return nil, refusal(fmt.Sprintf("task T%d can only be marked done by its assignee (%s), owner (%s) or the founder", tid, t.Owner, t.reporter()))
+	if ok, err := mayClose(tx, home, by, t); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, refusal(fmt.Sprintf("task T%d can only be marked done by its assignee (%s), owner (%s), its parent's owner, a lead of its team or the founder", tid, t.Owner, t.reporter()))
 	}
 	var mark, via string
 	switch {
@@ -252,7 +254,11 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 			return nil, err
 		}
 	}
-	notes, forget, err := endTask(tx, home, tid, by, t, doneText(tid, by, mark), delivery.Failed(mark), nil)
+	var also []string
+	if t.Owner == human { // closed from under the founder: they hear it in one line
+		also = append(also, human)
+	}
+	notes, forget, err := endTask(tx, home, tid, by, t, doneText(tid, by, mark), delivery.Failed(mark), also)
 	if err != nil {
 		return nil, err
 	}
@@ -260,6 +266,23 @@ func MarkDone(tx *sql.Tx, home, by string, in DoneIn) (*DoneResult, error) {
 }
 
 // doneText is what a task's end says to whoever it tells: "T<n> done by <by>: <evidence on one line>".
+// mayClose is whether by may mark t done: its assignee, owner, the founder, the owner of its parent task, or a lead of its team.
+func mayClose(tx *sql.Tx, home, by string, t *task) (bool, error) {
+	if by == t.Owner || by == t.reporter() || by == human {
+		return true, nil
+	}
+	if t.Parent.Valid {
+		var owner, reporter, opener string
+		if err := tx.QueryRow("SELECT owner, COALESCE(reporter, ''), opened_by FROM tasks WHERE id = ?", t.Parent.Int64).Scan(&owner, &reporter, &opener); err != nil && err != sql.ErrNoRows {
+			return false, err
+		}
+		if by == owner || by == reporter || (reporter == "" && by == opener) {
+			return true, nil
+		}
+	}
+	return leadsTreeOf(home, by, t)
+}
+
 func doneText(tid int64, by, evidence string) string {
 	who := by
 	if by == human {
