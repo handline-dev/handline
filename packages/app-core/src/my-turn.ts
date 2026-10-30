@@ -21,9 +21,16 @@ export type CardAction =
   | { type: 'reply'; id: number; text: string; label: string }
   /** The same ask on a review: the UI asks for text and replies `Change asked: <text>`. */
   | { type: 'change'; id: number }
+  /** A worktree-removal card: the answer the daemon reads as the closing words (keep 3, save 1, force 2 yes). */
+  | { type: 'worktree'; item: InboxItem; answer: WorktreeAnswer }
   | { type: 'open'; to: string }
   | { type: 'terminal'; agent: string }
   | { type: 'read'; id: number };
+
+export type WorktreeAnswer = 'keep' | 'save' | 'force';
+export const WORKTREE_TAG = 'worktree-removal';
+/** What the daemon takes as the answer to a worktree-removal task. */
+export const WORKTREE_WORDS: Record<WorktreeAnswer, string> = { keep: '3', save: '1', force: '2 yes' };
 
 export interface Card {
   key: string;
@@ -146,6 +153,18 @@ function commentAsk(
   };
 }
 
+/** The buttons that answer a decision on a task: Done, a review's two, or a worktree-removal's three. */
+function decisions(i: InboxItem, tags: readonly string[] | undefined, review: boolean): CardAction[] {
+  if (i.kind !== 'decision' || i.task == null) return [];
+  if (tags?.includes(WORKTREE_TAG)) return (['keep', 'save', 'force'] as const).map((answer) => ({ type: 'worktree', item: i, answer }));
+  return review
+    ? [
+        { type: 'approve', item: i },
+        { type: 'ask_change', item: i },
+      ]
+    : [{ type: 'done', item: i }];
+}
+
 /** One action-less card for each need of the machine itself. */
 const machineCards = (machine: readonly MachineNeed[]): Card[] =>
   machine.map((n) => ({
@@ -227,15 +246,7 @@ export function myTurn({ items, agents, tasks, titles, machine = [], me = '' }: 
     } else if (i.kind === 'ask' && i.memo != null && i.task != null) {
       cards.push(commentAsk(i, base, title, open));
     } else if (KINDS[i.kind]) {
-      const decide: CardAction[] =
-        i.kind !== 'decision' || i.task == null
-          ? []
-          : base.review
-            ? [
-                { type: 'approve', item: i },
-                { type: 'ask_change', item: i },
-              ]
-            : [{ type: 'done', item: i }];
+      const decide = decisions(i, t?.tags, base.review);
       // A card the daemon raised after its own recovery failed: its fix is the first button.
       const fix = i.fix === 'open_terminal' && i.agent ? [{ type: 'terminal', agent: i.agent } as const] : [];
       cards.push({

@@ -10,6 +10,7 @@ A method marked write takes a required `request_id`. Framing, roles, errors and 
 | `worktree.diff` | member |  | `path`, `file?` | `{path, file, diff, truncated}` | `not_found` |  |
 | `worktree.remove` | founder | yes | `path`, `force?`, `request_id` | `Accepted & {branch_deleted}` | `refused`, `bad_request` | orphan, dirty, git |
 | `worktree.declare` | agent | yes | `path`, `request_id` | `Accepted` | `refused`, `bad_request`, `not_found` | role |
+| `files.list` | member |  | `agent`, `query?`, `limit?` | `{files, more}` | `bad_request`, `not_found` |  |
 | `file.read` | founder |  | `agent`, `path` | `{text, size, truncated, mtime, etag}` | `bad_request`, `not_found`, `refused` |  |
 | `file.write` | founder | yes | `agent`, `path`, `text`, `etag`, `request_id` | `{size, mtime, etag}` | `bad_request`, `not_found`, `refused` | denied, stale, too_big |
 | `worktree.set_status` | member | yes | `path`, `status`, `request_id` | `Accepted` | `not_found`, `bad_request` |  |
@@ -33,6 +34,10 @@ Remove an orphan worktree (worktrees.list orphan), the founder's choice from the
 ### `worktree.declare`
 
 The calling agent records a worktree it works in, beside the one its session started in. Kept in agent_state.extra_worktrees, so worktrees.list shows it as the agent's, never as an orphan, and it goes with the agent when the agent is retired. An agent that works in a worktree other than the one its session started in (by `git -C`) records it with `hl worktree add`. A path that is no worktree of an agent's repository, or is the repository's own checkout, is not_found. One the agent already records is accepted and said so. Only an agent calls it: a person is refused, gate `role`.
+
+### `files.list`
+
+The files of an agent's worktree, for the chat's @ menu. The files are what git tracks plus the untracked files it does not ignore (`git ls-files --cached --others --exclude-standard`), the regular files among them that are there now. An agent with no worktree, or whose worktree is gone, is not_found. It reads only names and sizes, never a file's content.
 
 ### `file.read`
 

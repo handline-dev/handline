@@ -42,6 +42,21 @@ func TestTurnsAnswerBeforeTheScreenAndTheScreenWhereTheyDoNotKnow(t *testing.T) 
 	}
 }
 
+func TestAFooterShowingNothingRunningOutranksAStaleStopEntry(t *testing.T) {
+	quiet := []string{rule, "❯ ", rule, "  ⏵⏵ auto mode on"}
+	shown := []string{rule, "❯ ", rule, "  ⏵⏵ auto mode on · 1 shell · ↓ to manage"}
+	tm := newTerm(&fakeHost{screenAt: func(int) []string { return quiet }})
+	tm.Turns = fakeTurns{idle: true, known: true, running: "1 background task", bgKnown: true}
+	if got, ok := tm.BackgroundWork("%1"); got != "" || !ok || tm.IdleWithBackground("%1") {
+		t.Fatalf("a stale entry under a quiet footer read as work: %q %v", got, ok)
+	}
+	tm = newTerm(&fakeHost{screenAt: func(int) []string { return shown }})
+	tm.Turns = fakeTurns{idle: true, known: true, running: "1 background task", bgKnown: true}
+	if got, ok := tm.BackgroundWork("%1"); got != "1 background task" || !ok || !tm.IdleWithBackground("%1") {
+		t.Fatalf("work the footer shows: %q %v", got, ok)
+	}
+}
+
 func TestASettledSessionIsEndedUnlessItsConversationMovedToTheBackground(t *testing.T) {
 	// The screen shows a permission prompt, so a read refuses the close: only a settled turn gets past it.
 	h := &hostBackend{live: map[string]bool{"%1": true}, screen: func(int) []string { return permissionPrompt }}

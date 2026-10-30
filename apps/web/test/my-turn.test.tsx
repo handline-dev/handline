@@ -122,6 +122,62 @@ describe('my turn', () => {
     expect(s.daemon.tasks.find(9101).evidence).toBe('Approved');
   });
 
+  it("a worktree-removal card has Keep it, Save a copy and Remove anyway; each closes the task with the daemon's words", async () => {
+    const s = setup();
+    s.daemon.tasks.seed({ id: 9103, from: ME, to: ARCH, title: 'Remove bob worktree', state: 'doing', tags: ['worktree-removal'] });
+    s.daemon.inbox.add({
+      kind: 'decision',
+      agent: ARCH,
+      title: 'Remove',
+      body: 'Path: /x\nBranch: b\n\nMember: eve\n\nClose this task with the number as its answer',
+      task: 9103,
+      created: new Date().toISOString(),
+      read: false,
+    });
+    await open(s);
+    await pick(ofTask(9103), 'the worktree row');
+    await until(() => cards().find((c) => c.textContent?.includes('Remove bob worktree')), 'the card');
+    const c = cards().find((x) => x.textContent?.includes('Remove bob worktree'))!;
+    expect(button(c, 'Done')).toBeUndefined();
+    expect(button(c, 'Keep it')).toBeDefined();
+    expect(button(c, 'Save to a branch, then remove')).toBeDefined();
+    expect(c.textContent).not.toMatch(/Close this task with the number|Write an answer/);
+    await click(button(c, 'Remove anyway'));
+    expect(s.daemon.tasks.find(9103).state).not.toBe('done'); // the first click only asks
+    await click(
+      button(
+        cards().find((x) => x.textContent?.includes('Remove bob worktree'))!,
+        'Remove',
+      ),
+    );
+    await until(() => s.daemon.tasks.find(9103).state === 'done', 'the task done');
+    expect(s.daemon.tasks.find(9103).evidence).toBe('2 yes');
+    expect(document.body.textContent).toContain("eve's worktree removed with its files");
+  });
+
+  it('a refused worktree answer says nothing was removed and the item stays', async () => {
+    const s = setup();
+    s.daemon.tasks.seed({ id: 9104, from: ME, to: ARCH, title: 'Remove ann worktree', state: 'doing', tags: ['worktree-removal'] });
+    s.daemon.inbox.add({
+      kind: 'decision',
+      agent: ARCH,
+      title: 'Remove',
+      body: 'Path: /x\n\nMember: ann',
+      task: 9104,
+      created: new Date().toISOString(),
+      read: false,
+    });
+    s.daemon.knobs.refuse('task.done', 'state', 'not a worktree git knows');
+    await open(s);
+    await pick(ofTask(9104), 'the worktree row');
+    const find = () => cards().find((x) => x.textContent?.includes('Remove ann worktree'));
+    await until(find, 'the card');
+    await click(button(find()!, 'Keep it'));
+    await until(() => document.body.textContent?.includes('not a worktree git knows'), 'the refusal');
+    expect(document.body.textContent).not.toContain("ann's worktree stays");
+    expect(s.daemon.tasks.find(9104).state).not.toBe('done');
+  });
+
   it('Ask for change comments the words and closes the task with them', async () => {
     const s = setup();
     review(s, 9102);

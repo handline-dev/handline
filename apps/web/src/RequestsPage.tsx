@@ -1,8 +1,8 @@
 // The Requests page (#/requests): everything that waits on the person, grouped by what they must do (Allow, Decide, Review, Do by hand), as a list
 // beside the open item. A row only opens the item; the answer is given in the detail, which ends with its answers and nothing after them.
 import { ChevronRight, Plus } from 'lucide-react';
-import { useState } from 'react';
-import { APPROVED, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
+import { useEffect, useState } from 'react';
+import { APPROVED, WORKTREE_WORDS, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
 import { classify, sentence, useAgents, useMyTurn, useWrite } from '@handline/app-data';
 import { Fold } from '#src/Fold.tsx';
 import { NewTask } from '#src/NewTask.tsx';
@@ -13,6 +13,7 @@ import { Button, Icon, Input, MenuButton, MenuItem, PageHead, PageTitle, ScrollP
 import { Button as DsButton } from '#src/ds/Button.tsx';
 import { Chip } from '#src/ds/Chip.tsx';
 import { Answer, ItemHeader } from '#src/ds/Item.tsx';
+import { Toast } from '#src/ds/Floating.tsx';
 import { Link, Who } from '#src/ds/Link.tsx';
 import { ListRow, SectionHead } from '#src/ds/ListRow.tsx';
 import { useNow } from '#src/Gauge.tsx';
@@ -58,6 +59,8 @@ function label(a: CardAction): string {
     case 'done':
     case 'done_task':
       return 'Done';
+    case 'worktree':
+      return { keep: 'Keep it', save: 'Save to a branch, then remove', force: 'Remove anyway' }[a.answer];
     case 'approve':
       return 'Approve';
     case 'ask_change':
@@ -74,14 +77,24 @@ function label(a: CardAction): string {
   }
 }
 
+const memberOf = (detail: string) => /^Member: (.+)$/m.exec(detail)?.[1]?.trim() ?? 'the member';
+/** A worktree-removal body ends with how to close the task by number; the buttons do that. */
+const factsOf = (detail: string) => detail.split(/\n+Member: /)[0] ?? detail;
+const WORKTREE_SAID = {
+  keep: (m: string) => `${m}'s worktree stays`,
+  save: (m: string) => `Saved to a rescue branch; ${m}'s worktree removed`,
+  force: (m: string) => `${m}'s worktree removed with its files`,
+};
+
 /** The open item: its header, the ask, then the answers and nothing after them. The source chip is the one way to open the item itself. */
-function CardDetail({ card }: { card: Card }) {
+function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => void }) {
   const now = useNow();
   const answer = useWrite('inbox.reply');
   const prompt = useWrite('prompt.answer');
   const done = useWrite('task.done');
   const read = useWrite('inbox.mark_read');
   const [change, setChange] = useState(false);
+  const [sure, setSure] = useState(false);
   const [asking, setAsking] = useState(false);
   const [text, setText] = useState('');
   // The daemon's own words for a refused write; the buttons stay usable.
@@ -101,6 +114,14 @@ function CardDetail({ card }: { card: Card }) {
         return void (done.mutate({ task: a.item.task!, evidence: 'decided in Requests', reason: true }), read.mutate({ ids: [a.item.id] }));
       case 'done_task':
         return done.mutate({ task: a.task, evidence: 'Done', reason: true });
+      case 'worktree':
+        if (a.answer === 'force' && !sure) return setSure(true);
+        setSure(false);
+        // The toast and the read mark wait for the daemon: it can refuse the removal, and the item then stays.
+        return void done.mutateAsync({ task: a.item.task!, evidence: WORKTREE_WORDS[a.answer], reason: true }).then(
+          () => (onSaid(WORKTREE_SAID[a.answer](memberOf(card.detail))), read.mutate({ ids: [a.item.id] })),
+          () => undefined,
+        );
       case 'approve':
         return void (done.mutate({ task: a.item.task!, evidence: APPROVED, reason: true }), read.mutate({ ids: [a.item.id] }));
       case 'ask_change':
@@ -116,7 +137,8 @@ function CardDetail({ card }: { card: Card }) {
   // The buttons are the answers; a written answer is the field beside them, never a bare Reply. The rarer verbs are in the menu.
   const main = card.actions.slice(0, card.primary).filter((a) => a.type !== 'answer');
   const rest = card.actions.slice(card.primary).filter((a) => a.type !== 'answer');
-  const answerId = card.actions.find((a) => a.type === 'answer');
+  const wt = card.actions.some((a) => a.type === 'worktree');
+  const answerId = wt ? undefined : card.actions.find((a) => a.type === 'answer');
   const askId = card.actions.find((a) => a.type === 'ask_change')?.item.id;
   const open =
     card.task != null
@@ -148,8 +170,8 @@ function CardDetail({ card }: { card: Card }) {
         code={card.kind === 'approval' || card.kind === 'dialog'}
         ask={
           card.detail ? (
-            <Fold note={card.detail} long={card.task != null && noteIsLong(card.detail)}>
-              {(t) => <p className={`m-0${card.task != null ? '' : ' whitespace-pre-wrap'}`}>{t}</p>}
+            <Fold note={wt ? factsOf(card.detail) : card.detail} long={card.task != null && noteIsLong(card.detail)}>
+              {(t) => <p className={`m-0${card.task != null && !wt ? '' : ' whitespace-pre-wrap'}`}>{t}</p>}
             </Fold>
           ) : null
         }
@@ -165,9 +187,22 @@ function CardDetail({ card }: { card: Card }) {
           ) : null
         }
       >
-        {main.map((a, i) => (
-          <DsButton key={a.type + i} kind={i === 0 ? 'primary' : 'secondary'} label={label(a)} onClick={() => run(a)} />
-        ))}
+        {sure ? (
+          <>
+            <span className="text-sm text-bad">Remove for good? Uncommitted files are lost.</span>
+            <DsButton kind="danger" label="Remove" onClick={() => run(main.find((a) => a.type === 'worktree' && a.answer === 'force')!)} />
+            <DsButton label="Cancel" onClick={() => setSure(false)} />
+          </>
+        ) : (
+          main.map((a, i) => (
+            <DsButton
+              key={a.type + i}
+              kind={i === 0 ? 'primary' : a.type === 'worktree' && a.answer === 'force' ? 'danger' : 'secondary'}
+              label={label(a)}
+              onClick={() => run(a)}
+            />
+          ))
+        )}
       </Answer>
       {refused ? (
         <p className="m-0 mt-1 text-xs text-bad" role="alert">
@@ -209,6 +244,17 @@ export function RequestsPage() {
   const now = useNow();
   const [pick, setPick] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
+  const [said, setSaid] = useState('');
+  useEffect(() => {
+    if (!said) return;
+    const t = setTimeout(() => setSaid(''), 6000);
+    return () => clearTimeout(t);
+  }, [said]);
+  const toast = said ? (
+    <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
+      <Toast>{said}</Toast>
+    </div>
+  ) : null;
   // Wide: the first item is open, as the list is read top down. Narrow: the list alone until a row is picked.
   const sel = cards.find((c) => c.key === pick) ?? (wide ? cards[0] : undefined);
   const leads = (agents.data?.agents ?? []).filter((a) => !a.parent).map((a) => a.name);
@@ -219,7 +265,8 @@ export function RequestsPage() {
     return (
       <ScrollPage aria-label="Request">
         <PageHead back={{ label: 'Requests', to: () => setPick(null) }} />
-        <CardDetail card={sel} />
+        <CardDetail card={sel} onSaid={setSaid} />
+        {toast}
       </ScrollPage>
     );
   const list = (
@@ -266,13 +313,17 @@ export function RequestsPage() {
       <>
         {list}
         {sheet}
+        {toast}
       </>
     );
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1">
       <div className="flex min-h-0 w-[min(420px,40%)] flex-none flex-col">{list}</div>
-      <div className="min-h-0 min-w-0 flex-1 overflow-auto border-l border-line">{sel ? <CardDetail card={sel} /> : null}</div>
+      <div className="min-h-0 min-w-0 flex-1 overflow-auto border-l border-line">
+        {sel ? <CardDetail card={sel} onSaid={setSaid} /> : null}
+      </div>
       {sheet}
+      {toast}
     </div>
   );
 }

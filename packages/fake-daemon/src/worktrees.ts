@@ -5,7 +5,7 @@ import { Failure, invalidParams, refused } from '#src/errors.ts';
 import { AGENTS } from '#src/fixtures.ts';
 
 /** The methods this answers. */
-const WORKTREES = /^(repos\.list|worktrees\.list|worktree\.diff|worktree\.remove|file\.read|file\.write)$/;
+const WORKTREES = /^(repos\.list|worktrees\.list|worktree\.diff|worktree\.remove|files\.list|file\.read|file\.write)$/;
 
 const REPOS: Repo[] = [
   { name: 'handline', path: '/work/handline', default_branch: 'main' },
@@ -111,6 +111,24 @@ export class FakeWorktrees {
     ['handline.architect:docs/pc-app-gaps.md', { text: '# PC app gaps\n\n- the File tab\n', mtime: '2026-10-17T09:00:00Z' }],
   ]);
 
+  /** What files.list sees of each agent's worktree: git's tracked and untracked files, the ignored ones already left out. */
+  listed = new Map<string, { path: string; size: number }[]>([
+    [
+      'handline.architect',
+      [
+        ['.gitignore', 7],
+        ['README.md', 6],
+        ['docs/domain.md', 1],
+        ['lib/main.go', 1],
+        ['main/run.sh', 1],
+        ['notes/todo.md', 1],
+        ['src/app/Main.tsx', 1],
+        ['src/app/main_test.go', 1],
+        ['src/my_animation.ts', 1],
+      ].map(([path, size]) => ({ path: path as string, size: size as number })),
+    ],
+  ]);
+
   private on: boolean;
   /** What worktrees.list serves; a test replaces it. */
   rows: Worktree[] = seed();
@@ -164,12 +182,41 @@ export class FakeWorktrees {
         this.rows = this.rows.filter((r) => r !== w);
         return { accepted: true, said: `${p.path} is removed.`, branch_deleted: !held && w.merged === true };
       }
+      case 'files.list':
+        return this.list(p);
       case 'file.read':
       case 'file.write':
         return this.file(method, p);
       default:
         throw new Failure('refused', `the fake daemon does not serve ${method}`, { reason: 'unsupported', gate: 'unsupported' });
     }
+  }
+
+  /** files.list as the contract ranks it: inside the name, then elsewhere in the path, then spread out; shorter, then byte order. */
+  private list(p: Record<string, unknown>): unknown {
+    const { agent, query, limit } = p;
+    if (typeof agent !== 'string' || !agent) throw invalidParams('agent is an agent name', 'agent');
+    if (query !== undefined && query !== null && typeof query !== 'string') throw invalidParams('query is a string', 'query');
+    if (limit !== undefined && limit !== null && (!Number.isInteger(limit) || (limit as number) < 1 || (limit as number) > 200))
+      throw invalidParams('limit is an integer from 1 to 200', 'limit');
+    const files = this.listed.get(agent);
+    if (!files) throw new Failure('not_found', `no worktree for ${agent}`, { what: 'agent' });
+    const q = typeof query === 'string' ? query.toLowerCase() : '';
+    const tier = (path: string): number => {
+      const lower = path.toLowerCase();
+      if (lower.slice(lower.lastIndexOf('/') + 1).includes(q)) return 0;
+      if (lower.includes(q)) return 1;
+      let i = 0;
+      for (const c of lower) if (i < q.length && c === q[i]) i++;
+      return i === q.length ? 2 : -1;
+    };
+    const bytes = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+    const hits = files
+      .map((f) => ({ f, t: q ? tier(f.path) : 0 }))
+      .filter((h) => h.t >= 0)
+      .sort((a, b) => (q ? a.t - b.t || a.f.path.length - b.f.path.length : 0) || bytes(a.f.path, b.f.path));
+    const n = (limit as number | undefined) ?? 50;
+    return { files: hits.slice(0, n).map((h) => ({ ...h.f })), more: hits.length > n };
   }
 
   private file(method: string, p: Record<string, unknown>): unknown {
