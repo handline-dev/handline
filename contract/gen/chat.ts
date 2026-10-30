@@ -72,6 +72,8 @@ export type ChatMessage = {
   request_task?: number | null;
   /** On a message of the founder's to an agent: why it needs no work (task.none); null for none. */
   no_work?: string | null;
+  /** The runs of this message's command blocks, one per block, oldest start first. Absent when none was started. Phone and PC draw 'Running · 4s', 'Done · exit 0 · 3s', 'Failed · exit 1 · 3s' or 'Stopped' from it. */
+  runs?: CommandRun[];
 };
 
 export type TranscriptItem = {
@@ -265,12 +267,13 @@ export type Receipt = {
   seq?: number;
 };
 
-/** An image the person attached to a message. The file lives on the daemon's machine; a client draws it with attachment.get. */
+/** A file the person attached to a message: an image or any other file. The file lives on the daemon's machine; a client draws an image with attachment.get. */
 export type Attachment = {
   id: AttachmentId;
   /** The file name the client gave, with no folder in it (the daemon cuts one off). Shown to the person; never used as a path. */
   name: string;
-  mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  /** The type the file was put with. For a PNG, JPEG, GIF or WebP it is the type its first bytes say; for any other file it is the type the client gave, kept as sent. */
+  mime: string;
   bytes: number;
   /** The picture's width in pixels as it is drawn (a JPEG's Exif orientation applied), read from its header when it was put, so a client can size it before it arrives. Absent when the header could not be read, or for an image put before it was kept. */
   width?: number;
@@ -321,6 +324,21 @@ export type RequestRow = {
   /** Orders the list; pass the last row's as requests.list before. */
   cursor: string;
   [key: string]: unknown;
+};
+
+/** One run of a command block of a message (shell.open command and block): the last run only. */
+export type CommandRun = {
+  /** "<message id>:<n>", as shell.open took it. */
+  block: string;
+  /** The run's window, as terminal.attach takes it; gone once the window is closed. */
+  terminal: string;
+  started_at: Timestamp;
+  /** running: the command has not ended. done: it ended with exit 0. failed: it ended with another exit status. stopped: its window was closed before it ended, so there is no exit status. */
+  state: "running" | "done" | "failed" | "stopped";
+  /** The command's exit status; only when state is done or failed. A command ended by a signal reads 128 plus the signal, as a shell says it. */
+  exit?: number;
+  /** Seconds from start to end; only when state is done or failed. */
+  seconds?: number;
 };
 
 export interface ChatMethods {
@@ -465,7 +483,8 @@ export interface ChatMethods {
 }; result: Accepted };
   "attachment.put": { params: {
   name: string;
-  mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  /** The file's type, as a MIME type (`application/octet-stream` when the client does not know). PNG, JPEG, GIF and WebP are checked against the first bytes; any other type is kept as sent. */
+  mime: string;
   /** The whole file's size, the same in every chunk of one upload. */
   bytes: number;
   /** Where this chunk starts. Default 0. */
@@ -489,7 +508,8 @@ export interface ChatMethods {
   /** Where to read the original from. Default 0. Not with thumb. */
   offset?: number;
 }; result: {
-    mime: "image/png" | "image/jpeg" | "image/gif" | "image/webp" | "text/markdown";
+    /** The file's type, or the thumbnail's when thumb. */
+    mime: string;
     /** The size of the whole original, or of the thumbnail when thumb. */
     bytes: number;
     offset: number;

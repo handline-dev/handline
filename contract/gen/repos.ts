@@ -10,6 +10,15 @@ export type ChangedFile = {
   deleted: number;
 };
 
+export type WorktreePR = {
+  number: number;
+  url: string;
+  /** merged: it was merged. draft: it is a draft. checks_failing: a check failed (`failing` counts them). changes_requested: a reviewer asked for changes. waiting_review: a review is required and none approved. ready: nothing holds it. */
+  verdict: "ready" | "checks_failing" | "waiting_review" | "changes_requested" | "draft" | "merged";
+  /** Present only when verdict is checks_failing: how many checks failed. */
+  failing?: number;
+};
+
 export type Worktree = {
   path: string;
   repo: string;
@@ -21,14 +30,18 @@ export type Worktree = {
   changed: ChangedFile[];
   /** Present and true only on a worktree no agent records: one an agent left behind when it was retired, renamed or moved. Its owner is null. Never the repo's own checkout or a locked worktree. */
   orphan?: boolean;
-  /** Orphans only: whether its HEAD is merged into main. */
+  /** Orphans only: whether its HEAD is merged into base. */
   merged?: boolean;
-  /** Orphans only: its changed and untracked files, as git status counts them. */
-  files_changed?: number;
-  /** Orphans only: its commits not on main. */
-  commits_ahead?: number;
-  /** Orphans only: the bytes it takes on disk, as housekeeping last measured them (at most hourly, off the daemon's tick); null until measured. */
-  size_bytes?: number | null;
+  /** The branch it merges into: its repo's default branch. */
+  base: string;
+  /** Its changed and untracked files, as git status counts them. */
+  files_changed: number;
+  /** Its commits not on base. */
+  commits_ahead: number;
+  /** The bytes it takes on disk, as housekeeping last measured them (at most hourly, off the daemon's tick); null until measured. */
+  size_bytes: number | null;
+  /** The pull request of its branch, read with the daemon's own gh login and kept about a minute; null when the branch has none open or merged, it is base itself, or gh could not answer (never a guess). */
+  pr: WorktreePR | null;
 };
 
 export interface ReposMethods {

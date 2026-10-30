@@ -177,6 +177,11 @@ export class FakeWork {
       children: [],
       status: 'todo',
       changed: [],
+      base: 'main',
+      files_changed: 0,
+      commits_ahead: 0,
+      size_bytes: null,
+      pr: null,
     });
   }
 

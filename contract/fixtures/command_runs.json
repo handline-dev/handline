@@ -1,0 +1,437 @@
+{
+ "fixtures": [
+  {
+   "name": "command_runs.running",
+   "spec": "shell.open",
+   "about": "A command that has not ended is a run in state running, without exit or seconds.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{runs_agent}}",
+       "body": "```sh\nsleep 30\n```",
+       "request_id": "run-running"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer",
+       "$save": "req"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "shell.open",
+      "params": {
+       "agent": "{{runs_agent}}",
+       "command": "sleep 30",
+       "block": "{{req}}:0",
+       "request_id": "open-running"
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string",
+       "$save": "win"
+      }
+     }
+    },
+    {
+     "sleep_s": 0.5,
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{runs_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "body": "```sh\nsleep 30\n```",
+        "runs": [
+         {
+          "block": {
+           "$regex": "^[0-9]+:0$"
+          },
+          "terminal": {
+           "$type": "string"
+          },
+          "started_at": {
+           "$type": "timestamp"
+          },
+          "state": "running"
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 9,
+      "method": "shell.close",
+      "params": {
+       "terminal": "{{win}}",
+       "request_id": "end-running"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "command_runs.done",
+   "spec": "shell.open",
+   "about": "A command that ends with exit 0 is a run in state done with exit 0 and its seconds.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{runs_agent}}",
+       "body": "```sh\ntrue\n```",
+       "request_id": "run-done"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer",
+       "$save": "req"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "shell.open",
+      "params": {
+       "agent": "{{runs_agent}}",
+       "command": "true",
+       "block": "{{req}}:0",
+       "request_id": "open-done"
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string",
+       "$save": "win"
+      }
+     }
+    },
+    {
+     "sleep_s": 1.5,
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{runs_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "body": "```sh\ntrue\n```",
+        "runs": [
+         {
+          "block": {
+           "$regex": "^[0-9]+:0$"
+          },
+          "terminal": {
+           "$type": "string"
+          },
+          "started_at": {
+           "$type": "timestamp"
+          },
+          "state": "done",
+          "exit": 0,
+          "seconds": {
+           "$type": "integer"
+          }
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 9,
+      "method": "shell.close",
+      "params": {
+       "terminal": "{{win}}",
+       "request_id": "end-done"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "command_runs.failed",
+   "spec": "shell.open",
+   "about": "A command that ends with another status is a run in state failed with that exit.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{runs_agent}}",
+       "body": "```sh\nexit 3\n```",
+       "request_id": "run-failed"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer",
+       "$save": "req"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "shell.open",
+      "params": {
+       "agent": "{{runs_agent}}",
+       "command": "exit 3",
+       "block": "{{req}}:0",
+       "request_id": "open-failed"
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string",
+       "$save": "win"
+      }
+     }
+    },
+    {
+     "sleep_s": 1.5,
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{runs_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "body": "```sh\nexit 3\n```",
+        "runs": [
+         {
+          "block": {
+           "$regex": "^[0-9]+:0$"
+          },
+          "terminal": {
+           "$type": "string"
+          },
+          "started_at": {
+           "$type": "timestamp"
+          },
+          "state": "failed",
+          "exit": 3,
+          "seconds": {
+           "$type": "integer"
+          }
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 9,
+      "method": "shell.close",
+      "params": {
+       "terminal": "{{win}}",
+       "request_id": "end-failed"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "command_runs.stopped",
+   "spec": "shell.open",
+   "about": "A window closed before its command ended leaves the run stopped, without an exit.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "chat.send",
+      "params": {
+       "agent": "{{runs_agent}}",
+       "body": "```sh\nsleep 31\n```",
+       "request_id": "run-stopped"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "request": {
+       "$type": "integer",
+       "$save": "req"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "shell.open",
+      "params": {
+       "agent": "{{runs_agent}}",
+       "command": "sleep 31",
+       "block": "{{req}}:0",
+       "request_id": "open-stopped"
+      }
+     },
+     "result": {
+      "terminal": {
+       "$type": "string",
+       "$save": "win"
+      }
+     }
+    },
+    {
+     "sleep_s": 0.5,
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "shell.close",
+      "params": {
+       "terminal": "{{win}}",
+       "request_id": "close-stopped"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "sleep_s": 1.0,
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "chat.messages",
+      "params": {
+       "agent": "{{runs_agent}}",
+       "scope": "mine"
+      }
+     },
+     "result": {
+      "messages": {
+       "$contains": {
+        "body": "```sh\nsleep 31\n```",
+        "runs": [
+         {
+          "block": {
+           "$regex": "^[0-9]+:0$"
+          },
+          "terminal": {
+           "$type": "string"
+          },
+          "started_at": {
+           "$type": "timestamp"
+          },
+          "state": "stopped"
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

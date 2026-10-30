@@ -15,11 +15,11 @@ import {
   View,
   type LayoutChangeEvent,
 } from 'react-native';
-import Svg, { Path, Polyline } from 'react-native-svg';
 import { captureRef } from 'react-native-view-shot';
-import { MARK_COLOR, initialMarks, keptMarks, marksReducer, marksToShapes, shapesToSvg, type Mark } from '@handline/app-core';
-import { font, radius, space } from '@handline/tokens';
+import { MARK_COLOR, initialMarks, keptMarks, marksReducer, type Mark } from '@handline/app-core';
+import { radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
+import { MarkShapes } from '#src/screens/MarkShapes.tsx';
 import { Link, SafeScreen } from '#src/screens/parts.tsx';
 
 const BAR_H = 48;
@@ -119,8 +119,6 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
     });
   }, [k, natural.w, natural.h]);
 
-  const draw = shapesToSvg(marksToShapes(capturing ? kept : marks, line, !capturing), natural.w || 1, natural.h || 1);
-  const draft = state.draft?.map((p) => `${p.x},${p.y}`).join(' ');
   const current = marks.find((m) => m.id === open);
   const done = async () => {
     if (!kept.length) return props.onDone(null);
@@ -141,8 +139,6 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
       props.onDone({ blob: new Blob(), marks }); // the words still go; the picture as it was
     }
   };
-  const pos = (m: Mark) => ({ left: m.rect.x / k, top: m.rect.y / k });
-  const number = (m: Mark) => (capturing ? kept.indexOf(m) : marks.indexOf(m)) + 1;
 
   return (
     <Modal visible animationType="slide" onRequestClose={props.onCancel}>
@@ -162,54 +158,17 @@ export function MarkPicture(props: { uri: string; start?: Mark[]; onDone: (r: Ma
                   onLayout={() => surface.current?.measureInWindow((x, y) => (origin.current = { x, y }))}
                   style={{ position: 'absolute', left: 0, top: 0, width: shown.w, height: shown.h }}
                   {...(capturing ? {} : pan.panHandlers)}
-                >
-                  <Svg width={shown.w} height={shown.h} viewBox={draw.viewBox} pointerEvents="none">
-                    {draw.elements.map((el, i) =>
-                      el.type === 'path' ? (
-                        <Path
-                          key={i}
-                          d={el.d}
-                          fill="none"
-                          stroke={el.stroke}
-                          strokeWidth={el.strokeWidth}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      ) : null,
-                    )}
-                    {draft ? (
-                      <Polyline
-                        points={draft}
-                        fill="none"
-                        stroke={MARK_COLOR}
-                        strokeWidth={line}
-                        strokeDasharray={`${line * 2} ${line * 2}`}
-                      />
-                    ) : null}
-                  </Svg>
-                </View>
-                {(capturing ? kept : marks).map((m) => (
-                  <View
-                    key={m.id}
-                    testID={`mark-${m.id}`}
-                    accessibilityLabel={`Comment ${number(m)}`}
-                    onTouchEnd={() => !capturing && dispatch({ type: 'open', id: m.id })}
-                    style={{
-                      position: 'absolute',
-                      ...pos(m),
-                      width: 22,
-                      height: 22,
-                      marginLeft: -11,
-                      marginTop: -11,
-                      borderRadius: 11,
-                      backgroundColor: MARK_COLOR,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text style={{ color: c.onFill, fontSize: font.size.sm, fontWeight: '700' }}>{number(m)}</Text>
-                  </View>
-                ))}
+                ></View>
+                <MarkShapes
+                  marks={marks}
+                  capturing={capturing}
+                  draft={state.draft}
+                  natural={natural}
+                  shown={shown}
+                  k={k}
+                  line={line}
+                  onOpen={(id) => dispatch({ type: 'open', id })}
+                />
                 {current && !capturing && (
                   <View
                     style={{

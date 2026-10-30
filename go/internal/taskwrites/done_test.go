@@ -61,7 +61,7 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 		}
 	}
 	refused("unknown", done("w", "a1", 99, `,"evidence":"x"`), fmt.Sprintf("no task T%d", 99))
-	refused("not the owner", done("else", "a2", 1, `,"evidence":"x"`), "task T1 can only be marked done by its assignee (w), owner (w) or the founder")
+	refused("not the owner", done("else", "a2", 1, `,"evidence":"x"`), "task T1 can only be marked done by its assignee (w), owner (w), its parent's owner, a lead of its team or the founder")
 	refused("both", done("w", "a3", 1, `,"evidence":"x","request":11`), "done takes exactly one of evidence or request")
 	refused("neither", done("w", "a4", 1, ``), "done takes exactly one of evidence or request")
 	refused("a queued request", done("w", "a5", 1, `,"request":10`), "request #10 is still queued - not answered yet")
@@ -71,7 +71,7 @@ func TestDoneIsTheOwnersWithOneKindOfEvidenceAndTellsWhoWaited(t *testing.T) {
 	refused("an open blocker", done("w", "a8", 4, `,"evidence":"x"`), "task T4 is waiting on T5 - it is done only once they are")
 	refused("a sha off main", done("w", "a9", 1, fmt.Sprintf(`,"evidence":%q,"repo":%q`, offMain, repo)), offMain+" is not an ancestor of main")
 	refused("a sha needs a repo", done("w", "b1", 1, `,"evidence":"abcd1234"`), "a sha is checked against a repo: name one")
-	refused("a third agent is neither", done("else", "b2", 9, `,"evidence":"x"`), "task T9 can only be marked done by its assignee (w), owner (boss) or the founder")
+	refused("a third agent is neither", done("else", "b2", 9, `,"evidence":"x"`), "task T9 can only be marked done by its assignee (w), owner (boss), its parent's owner, a lead of its team or the founder")
 
 	r := done("w", "ok", 1, `,"evidence":"  all\n  done  "`)
 	if r["error"] != nil || r["result"].(map[string]any)["said"] != "task T1 done (  all\n  done  )" {

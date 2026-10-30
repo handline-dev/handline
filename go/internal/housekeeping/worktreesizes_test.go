@@ -11,7 +11,7 @@ import (
 	"github.com/handline/handline/go/internal/worktreeprune"
 )
 
-// A walk's sizes are written by the next check, replacing the last walk's (a worktree no longer an orphan loses its row), and a walk
+// A walk's sizes are written by the next check, replacing the last walk's (a worktree no longer listed loses its row), and a walk
 // starts at most every SizeEvery.
 func TestOrphanSizesAreKeptFromTheLastWalk(t *testing.T) {
 	q, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
@@ -23,7 +23,7 @@ func TestOrphanSizesAreKeptFromTheLastWalk(t *testing.T) {
 	sizes := map[string]int64{}
 	db.SetMeta(q, worktreeprune.SizePrefix+"/gone", "7")
 	w := &WorktreeSizes{Log: func(string) {}, Size: func(p string) (int64, error) { return sizes[p], nil }}
-	w.Orphans = func(db.Q) ([]string, error) { walks++; return []string{"/a"}, nil }
+	w.Worktrees = func(db.Q) ([]string, error) { walks++; return []string{"/a"}, nil }
 	sizes["/a"] = 4096
 	if err := w.Check(q, 1000); err != nil {
 		t.Fatal(err)
@@ -34,7 +34,7 @@ func TestOrphanSizesAreKeptFromTheLastWalk(t *testing.T) {
 		t.Fatalf("size of /a: %q", v)
 	}
 	if _, ok, _ := db.Meta(q, worktreeprune.SizePrefix+"/gone"); ok {
-		t.Fatal("a worktree no longer an orphan keeps its size")
+		t.Fatal("a worktree no longer listed keeps its size")
 	}
 	if walks != 1 {
 		t.Fatalf("%d walks within the hour", walks)
@@ -57,7 +57,7 @@ func TestNoSecondWalkStartsWhileOneRuns(t *testing.T) {
 	defer q.Close()
 	walks, release := 0, make(chan struct{})
 	w := &WorktreeSizes{Log: func(string) {}, Size: func(string) (int64, error) { <-release; return 1, nil }}
-	w.Orphans = func(db.Q) ([]string, error) { walks++; return []string{"/a"}, nil }
+	w.Worktrees = func(db.Q) ([]string, error) { walks++; return []string{"/a"}, nil }
 	w.Check(q, 1000)
 	w.Check(q, 1000+worktreeprune.SizeEvery)
 	close(release)
@@ -79,4 +79,37 @@ func waitIdle(t *testing.T, w *WorktreeSizes) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("the walk did not end")
+}
+
+// Every worktree an agent records is measured, as well as the orphans of the repositories agents work in.
+func TestAgentsWorktreesAreMeasuredToo(t *testing.T) {
+	q, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	if _, err := q.Exec("INSERT INTO agent_state(agent, state, updated, worktree) VALUES('alice', 'idle', 0, ?)", dir); err != nil {
+		t.Fatal(err)
+	}
+	got, err := WorktreePaths(q, t.TempDir())
+	if err != nil || len(got) != 1 || got[0] != dir {
+		t.Fatalf("%v %v", got, err)
+	}
+}
+
+// A worktree an agent records has a size row too; the orphans' count and total leave it out.
+func TestOrphanSizesLeaveOutAnAgentsWorktree(t *testing.T) {
+	q, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	dir, _ := filepath.EvalSymlinks(t.TempDir())
+	q.Exec("INSERT INTO agent_state(agent, state, updated, worktree) VALUES('alice', 'idle', 0, ?)", dir)
+	db.SetMeta(q, worktreeprune.SizePrefix+dir, "1000")
+	db.SetMeta(q, worktreeprune.SizePrefix+"/left", "40")
+	if count, bytes, err := OrphanSizes(q); err != nil || count != 1 || bytes != 40 {
+		t.Fatalf("%d orphans, %d bytes, %v", count, bytes, err)
+	}
 }

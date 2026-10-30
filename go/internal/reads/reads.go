@@ -55,13 +55,18 @@ type Env struct {
 	// lifts the limit it is at now (0 when it is not); runsOutAt, when it reaches a limit at the current burn (0 when it does not or
 	// is not known); resetsAt, when that limit lifts. nil reads the usage files.
 	AccountWall func(account string, now int64) (blockedUntil, runsOutAt, resetsAt int64)
-	prs         *prCache
+	// BranchPR answers the pull request of a branch of a GitHub repo as worktrees.list gives it (number, url, verdict, failing), nil for
+	// none; nil asks gh.
+	BranchPR  func(ctx context.Context, repo, branch string) (map[string]any, error)
+	prs       *prCache
+	branchPRs *branchPRs
 }
 
 // Register adds the read methods to the server's table.
 func Register(s *rpc.Server, env Env) {
 	e := &env
 	e.prs = newPRCache()
+	e.branchPRs = newBranchPRs()
 	s.Register("daemon.status", rpc.Method{Role: "agent", Handler: e.status})
 	s.Register("agents.list", rpc.Method{Role: "agent", Handler: e.agentsList})
 	s.Register("agent.get", rpc.Method{Role: "agent", Handler: e.agentGet})

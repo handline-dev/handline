@@ -59,6 +59,22 @@ function PairScreen(p: { url: string; storage: KV | null; open: Open; lost: bool
   const [text, setText] = useState(invite ?? '');
   const [busy, setBusy] = useState(!!invite);
   const [error, setError] = useState('');
+  // The listener itself is down: a pairing form would read as a bad code.
+  const [down, setDown] = useState(false);
+  const [probe, setProbe] = useState(0);
+  useEffect(() => {
+    let live = true;
+    open(url).then(
+      (t) => {
+        t.close();
+        if (live) setDown(false);
+      },
+      () => live && setDown(true),
+    );
+    return () => {
+      live = false;
+    };
+  }, [url, open, probe]);
   const [expired, setExpired] = useState(false);
   const started = useRef(false);
   const submit = async (code: string, fromLink = false) => {
@@ -79,6 +95,19 @@ function PairScreen(p: { url: string; storage: KV | null; open: Open; lost: bool
     history.replaceState(null, '', location.pathname + location.search);
     void submit(invite, true);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once, for the link the page opened with
+  if (down)
+    return (
+      <div className="pair-screen mx-auto mt-[18vh] mb-0 grid max-w-[420px] gap-3 px-4">
+        <h1 className="m-0 text-xl">Cannot reach {new URL(url).host}</h1>
+        <p className="m-0" role="alert">
+          The app may be off.
+        </p>
+        <button type="button" onClick={() => setProbe((n) => n + 1)}>
+          Retry
+        </button>
+        <Connection />
+      </div>
+    );
   if (expired)
     return (
       <div className="pair-screen mx-auto mt-[18vh] mb-0 grid max-w-[420px] gap-3 px-4">
