@@ -90,7 +90,7 @@ const BASE: Record<string, (h: Call) => unknown> = {
     script.setState(s, 'running', actor);
     return script.accepted(`${s.fx.name}: started`);
   },
-  'agent.retire': ({ actor, script, agent }) => script.retire(agent(), actor),
+  'agent.retire': ({ p, actor, script, agent }) => script.retire(agent(), actor, p.worktree as string | undefined),
   'session.stop': (h) => {
     const { p, actor, script, agent } = h;
     return script.stopSession(agent(), p.mode, actor);
