@@ -143,7 +143,7 @@ test('connected means a hello with our token was accepted, and the version comes
 });
 
 test('the network setting is kept only when it is on', () => {
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'handline-mode-')), 'settings.json');
+  const file = tmp(); // removed after the run with the other settings files
   const f = new SettingsFile(file);
   f.write({ mode: 'own', remote: null, network: true });
   assert.equal(f.read().network, true);
