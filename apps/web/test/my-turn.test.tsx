@@ -125,10 +125,27 @@ describe('my turn', () => {
     const c = reviewCard(9101)!;
     expect(button(c, 'Done')).toBeUndefined();
     await click(button(c, 'Approve'));
-    // The answer is held for a few seconds so Undo is real; closing the page sends it at once.
+    // The answer is held for a few seconds so Undo is real: the toast says so, not that it is done. Closing the page sends it at once.
+    expect(document.body.textContent).toContain('Sends in 5 s');
+    expect(document.body.textContent).not.toContain('Approved');
     await act(async () => void window.dispatchEvent(new Event('pagehide')));
     await until(() => s.daemon.tasks.find(9101).state === 'done', 'the task done');
+    await until(() => document.body.textContent!.includes('Approved'), 'the result once the daemon has taken it');
     expect(s.daemon.tasks.find(9101).evidence).toBe('Approved');
+  });
+
+  it('a refused held answer puts its card back and shows the daemon sentence', async () => {
+    const s = setup();
+    review(s, 9107);
+    await open(s);
+    await pick(ofTask(9107), 'the review row');
+    await until(() => reviewCard(9107), 'the review card');
+    await click(button(reviewCard(9107)!, 'Approve'));
+    s.daemon.tasks.find(9107).state = 'discarded'; // the task closed under the held answer: the daemon will not finish it again
+    await act(async () => void window.dispatchEvent(new Event('pagehide')));
+    await until(() => !document.body.textContent!.includes('Sends in 5 s'), 'the hold over');
+    expect(document.body.textContent).not.toContain('Approved');
+    await until(() => reviewCard(9107), 'the card back');
   });
 
   it('an answer leaves the list at once and Undo brings it back unsent', async () => {
