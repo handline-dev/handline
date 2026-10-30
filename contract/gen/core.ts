@@ -11,8 +11,8 @@ export type AgentName = string;
 /** Ordered lowest to highest. A method's role is the lowest that may call it; every higher role may too. */
 export type Role = "anonymous" | "agent" | "member" | "founder";
 
-/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. requests (member, which includes the founder): the founder's requests (RequestRow), so a Requests page is live. */
-export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr" | "transcript" | "prefs" | "requests";
+/** chat is added for the chat view (the UI design update): messages, landing state, transcript items and working state of one agent; events carry `agent`. devices (founder, which includes a paired device; subscribed on its own, live only): pairing and revocation of devices. hr: HR proposals, so a client's tab dot is live; any proven caller, as hr.list. transcript: the per-agent event stream of a structured session (transcript.event), served only for an agent the daemon runs as a structured session; see the Transcript stream section. prefs (member, which includes the founder): the person's view preferences, so a pin made on one device shows on the others. requests (member, which includes the founder): the founder's requests (RequestRow), so a Requests page is live. for_you (member, which includes the founder): the set of open items waiting on the founder, as for_you.list; an event whenever the count's set changes, with the new count. A client that misses events reads for_you.list again. */
+export type Topic = "status" | "accounts" | "agents" | "inbox" | "tasks" | "notifications" | "operations" | "chat" | "devices" | "hr" | "transcript" | "prefs" | "requests" | "for_you";
 
 export type Caller = {
   kind: "person" | "device" | "agent" | "anonymous";
@@ -573,6 +573,11 @@ export type MachineNeed = {
   since: Timestamp;
   /** The item in plain words, with the free space in it. */
   text: string;
+  /** disk only, when there are any: the worktrees no agent works in (worktrees.list orphan), as housekeeping last measured them (at most hourly). The text names them too. */
+  orphan_worktrees?: {
+    count: number;
+    size_bytes: number;
+  };
 };
 
 /** A For you item the founder can defer: a task (id is its number), a comment's ask to the founder (id is the comment's number, `memo`) or a need of the machine (id is `disk`). A session's ask and an HR proposal are never deferred: an agent is stopped on them. */
@@ -592,6 +597,45 @@ export type LaterReturned = {
   item: LaterItem;
   /** What brought it back: the time passed, or the task it waited for was done or discarded. An item the founder clears, or one that went away, is not announced: the founder's own call answers the first, and the item's own change the second. */
   why: "time" | "task_done" | "task_discarded";
+};
+
+/** One open item waiting on the founder. A task given to the founder (or the ask on it) is `task`, an agent's `@human` ask in a task comment is `comment`, an agent's open permission prompt or dialog is `prompt`, an HR proposal that waits is `hr`, and something the machine needs is `machine`. A plain say is not an item: nothing is asked. */
+export type ForYouItem = {
+  kind: "task" | "comment" | "prompt" | "hr" | "machine";
+  /** task: the task number. comment: the comment's number (InboxItem.memo), or the request's ref for an ask that is on no task. prompt: Prompt.id. hr: the proposal's id (Proposal.id). machine: the need's kind, `disk`. The pair (kind, id) names the item, as in LaterItem. */
+  id: string;
+  /** Who asks; null for the machine. */
+  agent: AgentName | null;
+  /** One line: a task's title, a comment's first line, a prompt's command or tool, a proposal's title, the machine need's text. */
+  title: string;
+  /** What the item wants of the founder. A task or comment: `review` when the task is tagged review, else `decide`. A prompt: `allow` for a permission, else `decide`. An HR proposal: `allow`. The machine: `do`. */
+  asks: "allow" | "decide" | "review" | "do";
+  /** When it began to wait. */
+  since: Timestamp;
+  /** Only while the founder has the item deferred (later.set). */
+  later?: Later;
+};
+
+export type ForYouList = {
+  /** Every open item, oldest `since` first (then kind and id), the deferred ones too. */
+  items: ForYouItem[];
+  /** The items without `later`: what a badge and the Requests count show. */
+  count: number;
+};
+
+/** The data of a for_you.opened event: an item joined the count (it opened, or came back from Later). */
+export type ForYouOpened = {
+  item: ForYouItem;
+  /** The count with it. */
+  count: number;
+};
+
+/** The data of a for_you.closed event: an item left the count (answered anywhere, closed, discarded, withdrawn, or deferred). */
+export type ForYouClosed = {
+  kind: "task" | "comment" | "prompt" | "hr" | "machine";
+  id: string;
+  /** The count without it. */
+  count: number;
 };
 
 export interface CoreMethods {
@@ -714,6 +758,7 @@ export interface CoreMethods {
   agent?: AgentName;
   request_id: RequestId;
 }; result: Accepted };
+  "for_you.list": { params: { [key: string]: unknown }; result: ForYouList & ReadCursor };
 }
 
 export const CORE_METHODS: { [K in keyof CoreMethods]: { role: Role; callers: Role[] | null; write: boolean; since: number } } = {
@@ -733,6 +778,7 @@ export const CORE_METHODS: { [K in keyof CoreMethods]: { role: Role; callers: Ro
   "daemon.upgrade": { role: "founder", callers: null, write: true, since: 1 },
   "settings.get": { role: "founder", callers: null, write: false, since: 1 },
   "settings.set": { role: "founder", callers: null, write: true, since: 1 },
+  "for_you.list": { role: "member", callers: null, write: false, since: 1 },
 };
 
 export const PROTOCOL = 1;

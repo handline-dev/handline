@@ -50,6 +50,7 @@ type Store interface {
 	List() ([]Device, error)
 	Touch(id string, ts int64) error
 	SetPush(id string, p Push) (bool, error)
+	DropPush(id, token string) error // only while token is still the device's: a newer one it gave since stays
 }
 
 type code struct {

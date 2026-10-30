@@ -183,6 +183,10 @@
        }
       ]
      },
+     "quote": {
+      "type": "string",
+      "description": "The words of the parent message this one quotes, when it was sent with quote: as chat.send kept them, whitespace collapsed. Absent with no quote."
+     },
      "kind": {
       "type": "string"
      },
@@ -1884,6 +1888,15 @@
      "schema": {
       "$ref": "#/components/schemas/RequestName",
       "description": "The message this one replies to: a reference, for any message whatever it asked of the person. The message is only a say to the agent with the parent link; it answers, settles or changes nothing about the parent. Not with task. A message that does not exist is not_found. The message goes to agent whoever the parent's requester or target is, so a row relayed from another agent can be quoted in this agent's chat. request in the result is the new message."
+     }
+    },
+    {
+     "name": "quote",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "The words of the parent message this one answers, picked by the person: kept with the message (ChatMessage.quote) and delivered as a `> ` line, then a blank line, above the body. Whitespace is collapsed, and then it must appear in the parent's body, whitespace collapsed the same way, so a quote never shows words the parent did not say. Only with parent; alone, with parent_item or task, empty, longer than 1000 characters as sent, or not in the parent, it is bad_request, field quote."
      }
     },
     {

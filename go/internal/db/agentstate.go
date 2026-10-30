@@ -129,8 +129,21 @@ func SetStateUnlessRunning(q Q, agent, state, detail string) (bool, error) {
 	return n > 0, nil
 }
 
-// SetTerminal is db.set_terminal: where an agent lives; a new agent is IDLE.
+// WorktreeLeft is the event SetTerminal writes when an agent's worktree changes: the one it left (path) is judged on the tick, as a
+// retired agent's is (hrwrites.SweepLeftWorktrees).
+const WorktreeLeft = "worktree_left"
+
+// SetTerminal is db.set_terminal: where an agent lives; a new agent is IDLE. A worktree that replaces another is told as WorktreeLeft.
 func SetTerminal(q Q, agent, terminal, worktree string) error {
+	var was sql.NullString
+	if err := q.QueryRow("SELECT worktree FROM agent_state WHERE agent = ?", agent).Scan(&was); err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if worktree != "" && was.String != "" && was.String != worktree {
+		if _, err := AddEvent(q, agent, WorktreeLeft, KV{K: "path", V: was.String}); err != nil {
+			return err
+		}
+	}
 	_, err := q.Exec("INSERT INTO agent_state(agent, state, updated, terminal, worktree) VALUES(?,?,?,?,?) ON CONFLICT(agent) DO UPDATE SET terminal=excluded.terminal, worktree=excluded.worktree, updated=excluded.updated",
 		agent, "IDLE", Now(), nullStr(terminal), nullStr(worktree))
 	if err != nil || terminal == "" {

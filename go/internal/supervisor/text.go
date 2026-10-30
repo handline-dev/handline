@@ -192,6 +192,7 @@ func tellText(q db.Q, head *db.Request, depth int, aheadOf *db.Request, parked b
 		if !whole && utf8.RuneCountInString(body) > 400 {
 			shown = string([]rune(body)[:400]) + "…"
 		}
+		shown = quoted(head) + shown
 		if images != "" { // after the cut: the paths are what the agent needs
 			shown = strings.TrimSpace(shown + "\n" + images)
 		}

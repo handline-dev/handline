@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -452,3 +453,29 @@ limits: { max_chain_depth: 4, ask_rate_per_hour: 5 }
 }
 
 func (a auth) SessionsReadable() error { return nil }
+
+// A quote is words of the parent, whitespace aside, kept with the message; one the parent did not say, or with no parent, is refused.
+func TestSendKeepsAQuoteOfItsParent(t *testing.T) {
+	r := newRig(t)
+	s := r.server("")
+	asked := r.request("alice", "human", "rebase onto\n  main or release?")
+	res := r.result(r.one(s, "chat.send", fmt.Sprintf(`{"agent":"alice","body":"main","parent":%d,"quote":" onto main ","request_id":"q1"}`, asked)))
+	if r.count("SELECT COUNT(*) FROM requests WHERE id = ? AND quote = 'onto main'", int64(res["request"].(float64))) != 1 {
+		t.Fatalf("the quote is kept, whitespace collapsed: %v", res)
+	}
+	for _, params := range []string{
+		fmt.Sprintf(`{"agent":"alice","body":"x","parent":%d,"quote":"onto develop","request_id":"q2"}`, asked),
+		`{"agent":"alice","body":"x","quote":"onto main","request_id":"q3"}`,
+		`{"agent":"alice","body":"x","parent_item":1790000000100000,"quote":"onto main","request_id":"q4"}`,
+		fmt.Sprintf(`{"agent":"alice","body":"x","parent":%d,"quote":"  ","request_id":"q5"}`, asked),
+		fmt.Sprintf(`{"agent":"alice","body":"x","parent":%d,"quote":"onto%smain","request_id":"q6"}`, asked, strings.Repeat(" ", 993)), // 1001 as sent
+	} {
+		e, _ := r.one(s, "chat.send", params)["error"].(map[string]any)
+		if data, _ := e["data"].(map[string]any); data["code"] != "bad_request" || data["field"] != "quote" {
+			t.Fatalf("%s: %v", params, e)
+		}
+	}
+	if r.count("SELECT COUNT(*) FROM requests") != 2 {
+		t.Fatal("a refused quote sends nothing")
+	}
+}

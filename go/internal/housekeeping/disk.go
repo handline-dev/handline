@@ -117,9 +117,13 @@ func DiskNeed(q db.Q) (since, free int64, ok bool) {
 
 // DiskNeedText is the item in plain words.
 func DiskNeedText(free int64) string {
-	figure := fmt.Sprintf("%d MB", free/(GB/1024))
-	if free >= GB {
-		figure = fmt.Sprintf("%.1f GB", float64(free)/float64(GB))
+	return fmt.Sprintf("The disk is almost full (%s free). Builds and tests wait until space is freed.", sizeText(free))
+}
+
+// sizeText is bytes in MB, or in GB from one GB up.
+func sizeText(bytes int64) string {
+	if bytes >= GB {
+		return fmt.Sprintf("%.1f GB", float64(bytes)/float64(GB))
 	}
-	return fmt.Sprintf("The disk is almost full (%s free). Builds and tests wait until space is freed.", figure)
+	return fmt.Sprintf("%d MB", bytes/(GB/1024))
 }

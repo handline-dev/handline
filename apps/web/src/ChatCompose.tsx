@@ -12,6 +12,7 @@ import { useCan } from '#src/taskui.tsx';
 import { AttachChips, attachHandlers, PickButton, useAttachDraft } from '#src/ChatAttach.tsx';
 import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow, sendKey, Check } from '#src/ui/index.ts';
 import { AnimatedList } from '#src/AnimatedList.tsx';
+import { COMPOSER_BAR } from '#src/ds/Chat.tsx';
 
 const COMPOSE_KEYS: KeyRows = [
   ['Enter', 'send the message'],
@@ -224,7 +225,7 @@ export function Compose(props: {
         ) : null}
         <Textarea
           ref={box}
-          className={`compose flex-1 resize-none border-0 bg-transparent px-1.5 focus-visible:outline-none${cmd ? ' font-mono text-[var(--cmd)]' : ''}`}
+          className={`compose block w-full resize-none border-0 bg-transparent p-0! focus-visible:outline-none${cmd ? ' font-mono text-[var(--cmd)]' : ''}`}
           rows={2}
           value={text}
           disabled={!canSend}
@@ -239,26 +240,28 @@ export function Compose(props: {
           }}
           onKeyDown={onKey}
         />
-        <PickButton onPick={att.add} disabled={cmd || !canSend || !canAttach.ok} />
-        {clearing ? (
-          <span className="compose-clear self-center text-wait" role="status" title="Esc again clears the draft">
-            <Icon name="warn" size={14} label="Esc again clears the draft" />
-          </span>
-        ) : null}
-        {choosing ? (
-          <label className="compose-now inline-flex gap-0.5 self-center text-ink-2" title="Send now">
-            <Check checked={now} onChange={(e) => setNow(e.target.checked)} /> Now
-          </label>
-        ) : null}
-        <Button
-          className={`compose-send self-center rounded-full${cmd ? ' !bg-[var(--cmd)]' : ''}`}
-          variant="solid"
-          icon="send"
-          label="Send"
-          title="Send (Enter)"
-          disabled={!canSend || (!text.trim() && !att.ids.length) || att.busy}
-          onClick={send}
-        />
+        <div className={COMPOSER_BAR}>
+          <PickButton onPick={att.add} disabled={cmd || !canSend || !canAttach.ok} />
+          {clearing ? (
+            <span className="compose-clear self-center text-wait" role="status" title="Esc again clears the draft">
+              <Icon name="warn" size={14} label="Esc again clears the draft" />
+            </span>
+          ) : null}
+          {choosing ? (
+            <label className="compose-now inline-flex gap-0.5 self-center text-ink-2" title="Send now">
+              <Check checked={now} onChange={(e) => setNow(e.target.checked)} /> Now
+            </label>
+          ) : null}
+          <Button
+            className={`compose-send self-center rounded-full${cmd ? ' !bg-[var(--cmd)]' : ''}`}
+            variant="solid"
+            icon="send"
+            label="Send"
+            title="Send (Enter)"
+            disabled={!canSend || (!text.trim() && !att.ids.length) || att.busy}
+            onClick={send}
+          />
+        </div>
       </ComposeRow>
     </div>
   );

@@ -64,7 +64,7 @@ type TimeboxPorts interface {
 	BgNoticeS(agent string) int64
 	BgGraceS(agent string) int64
 	BgCheckS(agent string) int64
-	// BgJobs is bgjobs.running(con, agent, count) already formatted one line per job (bgjobs.line).
+	// BgJobs names what still runs, one line per job, the last count of them when count is set.
 	BgJobs(q db.Q, agent string, count int, now int64) []string
 }
 
@@ -286,7 +286,8 @@ func (b *Timebox) SweepBackgroundCheck(t *Tick, now int64) {
 			listing = "something ocp cannot name"
 		}
 		text := fmt.Sprintf("Background work has been running for %s: %s. Stop what you no longer need, and for each one you keep say in a line why. "+
-			"If it watches for another task, stop it and set `--blocked-by T<n>` on your task instead. You are asked again in %s while any runs.",
+			"If it watches for another task, stop it and set `--blocked-by T<n>` on your task instead. Only work this session started counts: "+
+			"a process you detached (nohup, &, PPID 1) is not asked about. You are asked again in %s while any runs.",
 			timefmt.Ago(now-since), listing, timefmt.Ago(every))
 		// The event goes in before the send: its id is what separates the turn that ended before the check from the one that answers it.
 		checked := must(db.AddEvent(t.Q, agent, "background_checked", db.KV{K: "jobs", V: len(jobs)}, db.KV{K: "unnamed", V: unnamed}))

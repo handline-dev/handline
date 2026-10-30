@@ -40,7 +40,7 @@ const heldDelivery = "(requests.state = 'landed' AND requests.kind = 'task' AND 
 type Request struct {
 	ID, TS, ChainDepth                                int64
 	Requester, Target, Body, State, Ref               string
-	Files, Kind, ChainID, TypedSess                   sql.NullString
+	Files, Kind, ChainID, TypedSess, Quote            sql.NullString
 	ParentID, DeliveredAt, TypedAt, LandedAt, SendNow sql.NullInt64
 	Notice, ReadAt, StateAt, MootBy, EdgeOK           sql.NullInt64
 	QueueOrder                                        sql.NullFloat64
@@ -49,12 +49,12 @@ type Request struct {
 }
 
 const requestCols = "id, ts, requester, target, body, files, kind, chain_depth, parent_id, chain_id, state, queue_order, " +
-	"delivered_at, typed_at, typed_session, landed_at, send_now, notice, read_at, state_at, moot_by, edge_ok, ref"
+	"delivered_at, typed_at, typed_session, landed_at, send_now, notice, read_at, state_at, moot_by, edge_ok, ref, quote"
 
 func (r *Request) dest() []any {
 	return []any{&r.ID, &r.TS, &r.Requester, &r.Target, &r.Body, &r.Files, &r.Kind, &r.ChainDepth, &r.ParentID,
 		&r.ChainID, &r.State, &r.QueueOrder, &r.DeliveredAt, &r.TypedAt, &r.TypedSess, &r.LandedAt, &r.SendNow, &r.Notice, &r.ReadAt,
-		&r.StateAt, &r.MootBy, &r.EdgeOK, &r.Ref}
+		&r.StateAt, &r.MootBy, &r.EdgeOK, &r.Ref, &r.Quote}
 }
 
 func requestRows(q Q, query string, args ...any) ([]*Request, error) {
@@ -422,6 +422,12 @@ func MarkNoticesShown(q Q, rids []int64, session string) error {
 // proven role is founder: never from a name, the text, or a requester an agent can write.
 func MarkFounderAuthored(q Q, rid int64) error {
 	_, err := q.Exec("UPDATE requests SET founder_auth = 1 WHERE id = ?", rid)
+	return err
+}
+
+// SetQuote keeps the words of its parent a message quotes (chat.send quote), delivered as a > block above its body.
+func SetQuote(q Q, rid int64, quote string) error {
+	_, err := q.Exec("UPDATE requests SET quote = ? WHERE id = ?", quote, rid)
 	return err
 }
 

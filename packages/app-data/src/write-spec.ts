@@ -19,6 +19,8 @@ export interface WriteSpec {
   patch?: (c: Ctx, p: never) => void;
   /** After the daemon accepted: swap what the cache guessed for what the daemon said. */
   reconcile?: (c: Ctx, p: never, result: never) => void;
+  /** A refusal that is a question the screen asks the person (a worktree that holds work), not a failure: it raises no error line. */
+  asks?: (e: unknown) => boolean;
   /** After a refusal: true if this write handled its own failure (and the snapshot is not put back). */
   fail?: (c: Ctx, p: never, e: unknown) => boolean;
 }

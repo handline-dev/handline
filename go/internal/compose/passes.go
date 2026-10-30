@@ -34,7 +34,10 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 		Say: lc.Env.SystemSayThen, Log: func(s string) { cfg.Log("%s", s) }}
 	healer := &heal.Healer{Ports: healPorts{lc: lc, home: cfg.Home, needs: p.needsYou()}, Log: func(s string) { cfg.Log("%s", s) }}
 	p.healer = healer
-	held := &hrwrites.Env{DB: lc.Env.DB, Home: cfg.Home, Say: lc.Env, Log: cfg.Log}
+	held := &hrwrites.Env{DB: lc.Env.DB, Home: cfg.Home, Say: lc.Env, Log: cfg.Log,
+		Ask: func(title, body string, tags ...string) (int64, error) {
+			return taskwrites.AskFounder(lc.Env.DB, lc.Env, title, body, tags...)
+		}}
 	if lc.Env.Observer != nil {
 		held.Live = lc.Env.Observer.LiveSessions
 	}
@@ -59,6 +62,7 @@ func (p *Parts) passes(cfg Config, tk *tick.Tick, cutover bool) []tick.NamedSwee
 		{Name: "hr-held", Run: func(q db.Q, now int64) error {
 			return held.SweepHeld(heldPorts(tk, q, healPorts{lc: lc, home: cfg.Home}))
 		}},
+		{Name: "left-worktrees", Run: func(db.Q, int64) error { return held.SweepLeftWorktrees() }},
 	}
 }
 
@@ -202,8 +206,17 @@ func (t timeboxPorts) BgNoticeS(agent string) int64 { return t.set.BgNoticeS(age
 func (t timeboxPorts) BgGraceS(agent string) int64  { return t.set.BgGraceS(agent) }
 func (t timeboxPorts) BgCheckS(agent string) int64  { return t.set.BgCheckS(agent) }
 
-// BgJobs: a structured session shows no footer to count its background jobs from, so none are named.
-func (t timeboxPorts) BgJobs(db.Q, string, int, int64) []string { return nil }
+// BgJobs names what the agent's last Stop said still runs, the last count of them when count is set.
+func (t timeboxPorts) BgJobs(_ db.Q, agent string, count int, _ int64) []string {
+	if t.p.turns == nil {
+		return nil
+	}
+	jobs := t.p.turns.Running(agent)
+	if count > 0 && len(jobs) > count {
+		jobs = jobs[len(jobs)-count:]
+	}
+	return jobs
+}
 
 // spareNotice is the sweep that tells the founder of a weekly loss coming, and offers the spare tasks to use it.
 func (p *Parts) spareNotice(cfg Config) *sparenotice.Env {
