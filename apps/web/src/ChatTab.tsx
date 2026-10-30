@@ -247,6 +247,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
     if (grew > 0 && !windowed) scroll.added(grew);
   }, [entries.length, tail, windowed]); // eslint-disable-line react-hooks/exhaustive-deps
   const bottom = () => scroll.bottom();
+  const cardUp = !!(detail.needs_you || detail.has_dialog) && !detail.prompt; // the needs-you card above the composer narrows the stream
+  useLayoutEffect(() => scroll.resized(), [cardUp]); // eslint-disable-line react-hooks/exhaustive-deps
   // Sending always shows the message: the sent row is at the bottom, whatever the person had scrolled to.
   useLayoutEffect(() => {
     const e = entries.at(-1);

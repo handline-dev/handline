@@ -209,30 +209,42 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
   const solved = useSolvedStall(detail.name, need?.source === 'daemon' && SOLVED[need.title] ? need.title : null);
   if (!need) {
     return solved ? (
-      <div className="card-solved text-meta text-ink-2" data-kind="solved" role="status">
-        {SOLVED[solved.title]} · {ago(solved.at, now)}
+      <div>
+        <div className="mx-3 mb-2 max-w-[680px]">
+          <div className="card-solved flex items-center gap-3 text-meta text-ink-2" data-kind="solved" role="status">
+            <hr className="m-0 h-px flex-1 border-0 bg-line" />
+            <span>
+              {SOLVED[solved.title]} · {ago(solved.at, now)}
+            </span>
+            <hr className="m-0 h-px flex-1 border-0 bg-line" />
+          </div>
+        </div>
       </div>
     ) : null;
   }
   const reachable = detail.structured || !!detail.terminal;
   const again = need.kind === 'start_failed' || need.kind === 'no_session';
   return (
-    <div
-      className="card-needs mx-3 mb-2 flex max-w-[680px] flex-col items-start gap-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm text-ink-2"
-      data-kind="needs_you"
-      data-need={need.kind}
-    >
-      <div className="flex items-center gap-2">
-        <StateMark state="alarm" label="Needs you" />
-        <strong className="text-ink">{need.title}</strong>
-        <span className="muted">· {ago(need.since)}</span>
+    <div>
+      <div className="mx-3 mb-2 max-w-[680px]">
+        <div
+          className="card-needs flex flex-col items-start gap-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm text-ink-2"
+          data-kind="needs_you"
+          data-need={need.kind}
+        >
+          <div className="flex items-center gap-2">
+            <StateMark state="alarm" label="Needs you" />
+            <strong className="text-ink">{need.title}</strong>
+            <span className="muted">· {ago(need.since)}</span>
+          </div>
+          {need.text ? <span>{need.text}</span> : null}
+          {again ? (
+            <Button kind="primary" size="s" label="Try again" onClick={() => run(VERBS.clear_stall)} />
+          ) : (
+            <Button kind="primary" size="s" icon={Terminal} label="Open the terminal" disabled={!reachable} onClick={openTerminal} />
+          )}
+        </div>
       </div>
-      {need.text ? <span>{need.text}</span> : null}
-      {again ? (
-        <Button size="s" label="Try again" onClick={() => run(VERBS.clear_stall)} />
-      ) : (
-        <Button size="s" icon={Terminal} label="Open the terminal" disabled={!reachable} onClick={openTerminal} />
-      )}
     </div>
   );
 }

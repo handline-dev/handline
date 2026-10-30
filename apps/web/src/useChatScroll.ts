@@ -129,6 +129,8 @@ export function useChatScroll({
     sent: () => dispatch({ type: 'sent' }),
     /** Down to the bottom: the pill, or the way back from a window around an old message. */
     bottom: () => dispatch({ type: 'bottom' }),
+    /** Something below the lines took room from the stream or gave it back (a card above the composer): a reader at the bottom stays there. */
+    resized: () => dispatch({ type: 'grew' }),
     /** A jump to an old message is leaving the bottom: the view is the reader's from here. */
     leave: () => {
       state.current = { mode: 'free', newer: 0 };

@@ -247,7 +247,7 @@ function CardDetail({
       {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
       <Answer
         kind={groupOf(card)}
-        code={card.kind === 'approval' || card.kind === 'dialog'}
+        code={card.kind === 'approval'}
         ask={
           card.detail ? (
             <Fold note={wt ? factsOf(card.detail) : card.detail} long={card.task != null && noteIsLong(card.detail)}>
