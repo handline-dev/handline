@@ -26,7 +26,7 @@ appId: dev.handline.mobile
     timeout: 8000
 - tapOn:
     id: command-run-0
-- assertVisible: ".*It runs on your computer as you.*"
+- assertVisible: ".*It runs there as you.*"
 - takeScreenshot: shots/command-3-confirm
 - tapOn:
     id: command-go-0

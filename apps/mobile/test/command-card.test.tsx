@@ -48,7 +48,8 @@ describe('command cards', () => {
     const m = await open('```sh\ntrue\n```');
     await press($m('command-run-0'));
     await until(() => $m('command-confirm-0'), 'the question');
-    expect($m('command-confirm-0')?.textContent).toContain('It runs on your computer as you.');
+    expect($m('command-confirm-0')?.textContent).toContain('It runs there as you.');
+    expect($m('command-confirm-0')?.textContent).toContain('Run on this computer');
     expect($m('command-risk-0')).toBeNull();
     await press($m('command-cancel-0'));
     expect($m('command-result-0')).toBeNull();
@@ -72,6 +73,7 @@ describe('command cards', () => {
     await press($m('command-run-0'));
     await until(() => $m('command-risk-0'), 'the reason');
     expect($m('command-risk-0')?.textContent).toContain('deletes');
+    expect($m('command-reason-0')?.textContent).toContain('deletes');
     m.store.stop();
   });
 

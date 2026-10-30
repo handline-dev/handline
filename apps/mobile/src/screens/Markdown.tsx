@@ -63,7 +63,7 @@ function Inline({ text, plain }: { text: string; plain?: Plain }) {
     <>
       {parts.map((p, i) =>
         p.startsWith('`') ? (
-          <Text key={i} style={{ fontFamily: 'monospace', backgroundColor: c.line }}>
+          <Text key={i} style={{ fontFamily: 'Menlo', backgroundColor: c.line }}>
             {p.slice(1, -1)}
           </Text>
         ) : p.startsWith('**') ? (
@@ -109,7 +109,7 @@ export function Markdown({
           <CommandCard key={i} text={b.text} index={b.command} />
         ) : b.kind === 'code' ? (
           <View key={i} style={{ backgroundColor: c.line, borderRadius: radius.m, padding: space.sm }}>
-            <Text selectable={selectable} style={{ color: c.ink, fontFamily: 'monospace', fontSize: font.size.sm }}>
+            <Text selectable={selectable} style={{ color: c.ink, fontFamily: 'Menlo', fontSize: font.size.sm }}>
               {b.text}
             </Text>
           </View>

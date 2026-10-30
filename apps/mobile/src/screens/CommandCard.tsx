@@ -5,7 +5,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { Pressable, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { commandRisk, runLine } from '@handline/app-core';
-import { useServes, useWrite } from '@handline/app-data';
+import { useConnection, useServes, useWrite } from '@handline/app-data';
 import { useStore } from '@handline/app-react';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
@@ -37,6 +37,7 @@ export function CommandCard({ text, index }: { text: string; index: number }) {
   const { served, open } = useServes('shell.open');
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
+  const machine = useConnection().data?.listener?.tailscale_host?.split('.')[0];
   const shell = useWrite('shell.open', home?.agent);
   const block = message ? `${message.id}:${index}` : null;
   const run = message?.runs?.find((r) => r.block === block);
@@ -57,7 +58,7 @@ export function CommandCard({ text, index }: { text: string; index: number }) {
         style={{ backgroundColor: c.line, borderRadius: radius.m, paddingHorizontal: space.sm, paddingBottom: space.sm }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', minHeight: HIT }}>
-          <Text numberOfLines={1} style={{ flex: 1, color: c.muted, fontFamily: 'monospace', fontSize: font.size.xs }}>
+          <Text numberOfLines={1} ellipsizeMode="head" style={{ flex: 1, color: c.muted, marginRight: space.sm, fontFamily: 'Menlo', fontSize: font.size.xs }}>
             {folder ?? ''}
           </Text>
           {copied && (
@@ -80,17 +81,22 @@ export function CommandCard({ text, index }: { text: string; index: number }) {
               onPress={() => setAsking(true)}
               icon="play"
               iconLabel="Run"
-              color={c.ink}
+              color={risk ? c.block : c.ink}
             />
           )}
         </View>
-        <Text selectable style={{ color: c.ink, fontFamily: 'monospace', fontSize: font.size.sm }}>
+        <Text selectable style={{ color: c.ink, fontFamily: 'Menlo', fontSize: font.size.sm }}>
           {text}
         </Text>
       </View>
       {canRun && !open && (
         <Text testID={`command-offline-${index}`} style={{ color: c.muted, fontSize: font.size.xs, paddingTop: space.xs }}>
           Run needs your computer, which is not reachable now.
+        </Text>
+      )}
+      {canRun && open && risk && (
+        <Text testID={`command-reason-${index}`} style={{ color: c.block, fontSize: font.size.xs, paddingTop: space.xs }}>
+          {risk}
         </Text>
       )}
       {run && <RunLine index={index} run={run} />}
@@ -105,8 +111,8 @@ export function CommandCard({ text, index }: { text: string; index: number }) {
       ) : null}
       {asking && home && block && (
         <BottomSheet testID={`command-confirm-${index}`} padded onClose={() => setAsking(false)}>
-          <Text style={{ color: c.ink, fontSize: font.size.lg, fontWeight: '700' }}>Run on your computer</Text>
-          <Text style={{ color: c.ink }}>Run in {folder ?? 'the agent folder'}? It runs on your computer as you.</Text>
+          <Text style={{ color: c.ink, fontSize: font.size.lg, fontWeight: '700' }}>Run on {machine ?? 'this computer'}</Text>
+          <Text style={{ color: c.ink }}>Run in {folder ?? 'the agent folder'}? It runs there as you.</Text>
           {risk && (
             <Text testID={`command-risk-${index}`} style={{ color: c.block }}>
               {risk}
