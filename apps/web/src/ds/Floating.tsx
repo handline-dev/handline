@@ -45,6 +45,7 @@ export function Toast({ children, action, onAction }: { children: ReactNode; act
   return (
     <div
       role="status"
+      title={typeof children === 'string' ? children : undefined}
       className="pointer-events-auto inline-flex max-w-[min(480px,calc(100vw-2rem))] items-center gap-2.5 rounded-md bg-ink px-3.5 py-[9px] text-sm text-canvas shadow-[var(--shadow)]"
     >
       <CircleCheck width={15} height={15} strokeWidth={1.75} aria-hidden className="flex-none" />
@@ -53,7 +54,7 @@ export function Toast({ children, action, onAction }: { children: ReactNode; act
         <button
           type="button"
           onClick={onAction}
-          className="cursor-pointer border-0 bg-transparent p-0 font-semibold text-acc-wash underline tint focus-visible:outline-2 focus-visible:outline-acc-wash"
+          className="flex-none cursor-pointer border-0 bg-transparent p-0 font-semibold text-acc-wash underline tint focus-visible:outline-2 focus-visible:outline-acc-wash"
         >
           {action}
         </button>

@@ -259,9 +259,11 @@ export function Compose(props: {
             </label>
           ) : null}
           <span className="mr-auto" />
-          <ModelMenu detail={detail} />
+          <span className="flex min-w-0 [&_button]:max-w-full [&_button]:truncate">
+            <ModelMenu detail={detail} />
+          </span>
           <Button
-            className={`compose-send self-center rounded-full${cmd ? ' !bg-[var(--cmd)]' : ''}`}
+            className={`compose-send shrink-0 self-center rounded-full${cmd ? ' !bg-[var(--cmd)]' : ''}`}
             variant="solid"
             icon="send"
             label="Send"

@@ -65,12 +65,16 @@ export function AgentMenu({
   const open = shell('openPath');
   if (!d) return null;
   const copy = (text: string) => void navigator.clipboard?.writeText(text);
-  // The newest message the agent wrote to the person: everything up to it leaves the unseen count.
-  const markRead = () =>
-    void client.call('chat.messages', { agent, scope: 'mine', limit: 20 }).then((page) => {
+  // The newest message the agent wrote to the person: everything up to it leaves the unseen count. Pages back until one is found.
+  const markRead = async () => {
+    for (let before: number | undefined; ;) {
+      const page = await client.call('chat.messages', { agent, scope: 'mine', limit: 50, before });
       const up_to = page.messages.find((m) => m.from === agent && m.id > 0)?.id;
-      if (up_to) seen.mutate({ agent, up_to });
-    });
+      if (up_to) return void seen.mutate({ agent, up_to });
+      before = Math.min(...page.messages.map((m) => m.id));
+      if (!page.more || !page.messages.length) return;
+    }
+  };
   const verbs = verbsOf(a, d).filter((v) => MENU_VERBS.includes(v.id) && served(v));
   return (
     <>
@@ -102,7 +106,7 @@ export function AgentMenu({
       ) : null}
       {verbs.length || a.founder_unread ? <MenuSeparator /> : null}
       {a.founder_unread ? (
-        <MenuItem icon="done" onSelect={markRead}>
+        <MenuItem icon="done" onSelect={() => void markRead()}>
           Mark as read
         </MenuItem>
       ) : null}
