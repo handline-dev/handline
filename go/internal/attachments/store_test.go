@@ -502,3 +502,21 @@ func TestAFileOfOtherTypeIsNeitherThumbedNorSizedEvenIfItsBytesAreAPicture(t *te
 	_, err = s.Put(q, PutIn{Name: "a", Mime: long + "x", Bytes: 1, Data: []byte("x")})
 	wantErr(t, err, "bad_request", "mime", "")
 }
+
+// A tool picks image and PDF handling by a file's ending, so an ending is taken from a name only for what was checked.
+func TestAnImageOrPdfEndingIsKeptOnlyForBytesThatAreThat(t *testing.T) {
+	s, _, q := testStore(t)
+	for _, c := range []struct{ name, mime, body, ending string }{
+		{"a.pdf", "text/plain", "hello", ".bin"}, {"a.pdf", "application/pdf", "%PDF-1.7 x", ".pdf"},
+		{"a.jpg", "text/plain", "hello", ".bin"}, {"a.gif", "text/plain", "hello", ".bin"}, {"a.webp", "text/plain", "hello", ".bin"},
+		{"a.jpeg", "text/plain", "hello", ".bin"}, {"a.png", "text/plain", "hello", ".bin"}, {"a.txt", "text/plain", "hello", ".txt"},
+	} {
+		in := putAll(t, s, q, c.name, c.mime, []byte(c.body), 100)
+		if !strings.HasSuffix(s.Path(*in), c.ending) {
+			t.Errorf("%s %q at %s, want %s", c.name, c.body, s.Path(*in), c.ending)
+		}
+		if got, err := s.Lookup(in.ID); err != nil || s.Path(got) != s.Path(*in) {
+			t.Errorf("the ending survives a lookup: %v %v", got, err)
+		}
+	}
+}

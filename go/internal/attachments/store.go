@@ -49,6 +49,8 @@ type Info struct {
 	Name  string `json:"name"`
 	Mime  string `json:"mime"`
 	Bytes int64  `json:"bytes"`
+	// Ending is the extension a file of another type than an image or Markdown is stored with (endingFor); not part of the contract.
+	Ending string `json:"ending,omitempty"`
 	// Width and Height are the picture's as drawn, from its header when it was put; 0 when it could not be read, or put before they were kept.
 	Width  int `json:"width,omitempty"`
 	Height int `json:"height,omitempty"`
@@ -371,6 +373,13 @@ func (s *Store) drop(id string) {
 func (s *Store) finish(uploadID string, up upload) (*Info, error) {
 	id := newID()
 	im := stored{Info: Info{ID: id, Name: up.Name, Mime: up.Mime, Bytes: up.Bytes}, Created: s.now().Unix()}
+	if ext(up.Mime) == "" {
+		head, err := readHead(s.sub("uploads", uploadID+".part"), 16)
+		if err != nil {
+			return nil, err
+		}
+		im.Ending = endingFor(up.Name, head)
+	}
 	if err := os.Rename(s.sub("uploads", uploadID+".part"), s.Path(im.Info)); err != nil {
 		return nil, err
 	}
