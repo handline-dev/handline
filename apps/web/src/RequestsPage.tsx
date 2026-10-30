@@ -6,6 +6,7 @@ import { APPROVED, WORKTREE_WORDS, ago, changeAsked, noteIsLong, type Card, type
 import { classify, sentence, useAgents, useMyTurn, useWrite } from '@handline/app-data';
 import { Fold } from '#src/Fold.tsx';
 import { NewTask } from '#src/NewTask.tsx';
+import { BlocksLine } from '#src/BlocksLine.tsx';
 import { goTasks, goTerminal } from '#src/route.ts';
 import { useWide } from '#src/taskui.tsx';
 import { AskChange, ReviewPictures } from '#src/ReviewCard.tsx';
@@ -227,6 +228,7 @@ function CardDetail({
         }
         title={card.title}
       />
+      <BlocksLine task={card.task} />
       {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
       <Answer
         kind={groupOf(card)}
