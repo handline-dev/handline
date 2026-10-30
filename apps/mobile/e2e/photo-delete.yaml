@@ -1,4 +1,4 @@
-# After pair-and-page.yaml, on a fresh `pnpm fake-listener --picture`, as the founder: the seeded deleted photo reads Photo deleted; Delete in the viewer asks where the photo goes from, Keep it leaves it, Delete removes it and its row reads Photo deleted too.  maestro test e2e/photo-delete.yaml
+# After pair-and-page.yaml, on a fresh `pnpm fake-listener --picture`, as the founder: Delete in the viewer asks where the photo goes from, Keep it leaves it, Delete removes it and its row reads Photo deleted too.  maestro test e2e/photo-delete.yaml
 appId: dev.handline.mobile
 ---
 - runFlow:
@@ -6,7 +6,6 @@ appId: dev.handline.mobile
     commands: [{ tapOn: { id: back } }]
 - tapOn:
     id: agent-handline.architect
-- assertVisible: "Photo deleted"
 - tapOn:
     id: picture-(?!d0d0d0d0d0d0d0d0|full).*
 - assertVisible:
@@ -29,4 +28,5 @@ appId: dev.handline.mobile
     id: delete-yes
 - assertNotVisible:
     id: picture-full-.*
+- assertVisible: "Photo deleted"
 - takeScreenshot: shots/delete-3-deleted
