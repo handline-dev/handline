@@ -1,4 +1,4 @@
-// The Tasks views page by 100 on a button, the agent's Tasks tab marks only in Select mode, and a row's menu lists only what can run now.
+// The Tasks views page older rows as the end of the list scrolls into view, the task page's wait line and menu, the agent's Tasks tab marks only in Select mode, and a row's menu lists only what can run now.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -28,7 +28,8 @@ const until = async (f: () => unknown, what: string) => {
 };
 const $ = (sel: string) => box.querySelector<HTMLElement>(sel);
 const $$ = (sel: string) => [...box.querySelectorAll<HTMLElement>(sel)];
-const click = (el: Element | null) => act(async () => void (el as HTMLElement).click());
+const txt = (el: Element | null | undefined) => el?.textContent ?? '';
+const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());
 async function open(hash: string, seed?: string) {
   const s = setup();
   if (seed) applySeeds(s.daemon, seed);
@@ -45,7 +46,10 @@ function stubScrollEnd() {
   vi.stubGlobal(
     'IntersectionObserver',
     class {
-      constructor(private cb: (hits: { isIntersecting: boolean }[]) => void) {}
+      cb: (hits: { isIntersecting: boolean }[]) => void;
+      constructor(cb: (hits: { isIntersecting: boolean }[]) => void) {
+        this.cb = cb;
+      }
       observe() {
         live.add(this.cb);
       }
@@ -183,5 +187,37 @@ describe('a narrow Tasks list (detail panel open)', () => {
     await until(() => $$('.ttable col').length === cols, 'the columns');
     expect($('tr[data-task]')!.children.length).toBe(cols);
     expect($('.tgroup th')!.getAttribute('colspan')).toBe(String(cols));
+  });
+});
+
+describe('the task page', () => {
+  it('says on one line what the task waits on and what waits on it, with the Graph', async () => {
+    await open('#/tasks/1688');
+    await until(() => $('[data-wait]'), 'the line');
+    expect(txt($('[data-wait] [data-blocks]'))).toContain('T1690'); // local-ref-ok
+    await act(async () => void (location.hash = '#/tasks/1690'));
+    await until(() => $('[data-waiting-on]'), 'the waiting-on part');
+    expect(txt($('[data-waiting-on]'))).toBe('Waiting on T1688'); // local-ref-ok
+    expect(txt($('[data-wait]'))).toContain('Graph');
+  });
+
+  it('the ... menu adds a sub-task under the task, waits on another task, and duplicates', async () => {
+    await open('#/tasks/1688');
+    await until(() => $('.tdetail-head'), 'the head');
+    const item = (name: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => txt(i).startsWith(name))!;
+    await click($('.tdetail-head button[aria-label="More"]'));
+    expect(['Add sub-task', 'Wait on another task…', 'Duplicate'].every((n) => item(n))).toBe(true);
+    await click(item('Add sub-task'));
+    await until(() => $('.ui-dialog'), 'the dialog');
+    expect(txt($('.ui-dialog'))).toContain('New sub-task');
+  });
+
+  it('Duplicate opens the form filled with the task, past the duplicate-title gate', async () => {
+    await open('#/tasks/1688');
+    await until(() => $('.tdetail-head'), 'the head');
+    await click($('.tdetail-head button[aria-label="More"]'));
+    await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => txt(i).startsWith('Duplicate')));
+    await until(() => $('.ui-dialog'), 'the duplicate form');
+    expect($$('.ui-dialog input').map((i) => (i as HTMLInputElement).value)).toContain('Terminal pane on the bytes channel');
   });
 });

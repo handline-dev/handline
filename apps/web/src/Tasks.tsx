@@ -17,7 +17,7 @@ import {
 } from '@handline/app-core';
 import type { Task } from '@handline/client';
 import { useMe } from '@handline/app-react';
-import { TASK_PAGE, useAgents, useServes, usePagedTasks } from '@handline/app-data';
+import { useAgents, useServes, usePagedTasks } from '@handline/app-data';
 import { goTasks } from '#src/route.ts';
 import { TaskDetail } from '#src/TaskDetail.tsx';
 import { TaskColumns } from '#src/TaskGraph.tsx';
@@ -26,7 +26,7 @@ import { Row } from '#src/TaskRows.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from '#src/TasksHead.tsx';
 import { KeysSheet, MergeSheet, OwnerSheet, PrioritySheet } from '#src/TaskSheets.tsx';
 import { Button, ScrollPage } from '#src/ui/index.ts';
-import { useLoadOnScroll } from '#src/useLoadOnScroll.ts';
+import { LoadOlder } from '#src/LoadOlder.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { useBulk } from '#src/taskActions.ts';
 import { ReasonSheet, useCan, useNow, useTableColumns } from '#src/taskui.tsx';
@@ -142,7 +142,6 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
       ),
     [all, filter, scope, graph, me, query, sort, now],
   );
-  const scrollEnd = useLoadOnScroll(more, loadingOlder, () => void loadOlder());
   const [showDone, setShowDone] = useState(false);
   const groups = useMemo(
     () =>
@@ -370,27 +369,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
           listBody
         )}
       </View>
-      {more ? (
-        <div ref={scrollEnd.end} className="flex items-center justify-center gap-3 py-3 text-xs text-ink-2">
-          {scrollEnd.supported ? (
-            <span>{loadingOlder ? 'Loading…' : ''}</span>
-          ) : (
-            <>
-              <span>{all.length} loaded · older ones exist</span>
-              <Button
-                variant="outline"
-                size="sm"
-                label={`Show ${TASK_PAGE} older`}
-                aria-label={`Show ${TASK_PAGE} older`}
-                disabled={loadingOlder}
-                onClick={() => void loadOlder()}
-              >
-                {loadingOlder ? 'Loading…' : `Show ${TASK_PAGE} older`}
-              </Button>
-            </>
-          )}
-        </div>
-      ) : null}
+      {more ? <LoadOlder shown={all.length} loading={loadingOlder} load={() => void loadOlder()} className="py-3" /> : null}
     </ScrollPage>
   );
 }

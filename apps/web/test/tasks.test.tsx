@@ -424,8 +424,9 @@ describe('the detail', () => {
 
   it('shows what a task waits on and its sub-tasks as links, and says so when the task is gone', async () => {
     await mount('#/tasks/1690');
-    await until(() => text($('article.tdetail')).includes('waits for the pane'), 'blockers');
+    await until(() => $('[data-waiting-on]'), 'blockers');
     expect($$('a', $('article.tdetail')!).map((a) => a.getAttribute('href'))).toContain('#/tasks/1688');
+    expect($('[data-waiting-on] [title]')!.getAttribute('title')).toContain('waits for the pane'); // the reason is on the link
     await act(async () => void (location.hash = '#/tasks/1684'));
     await until(() => text($('article.tdetail')).includes('Sub-tasks'), 'children');
     await act(async () => void (location.hash = '#/tasks/9999'));

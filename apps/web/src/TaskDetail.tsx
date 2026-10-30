@@ -17,6 +17,8 @@ import { StateChip, useCan, useNow } from '#src/taskui.tsx';
 import { AskSheets, useActNow, type Ask } from '#src/TaskAsk.tsx';
 import { TaskChips, TaskWatch, TaskLinks } from '#src/TaskDetailParts.tsx';
 import { AgentLink, BodyInline, Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
+import { TaskDialogs, type TaskDialog } from '#src/TaskMenuDialogs.tsx';
+import { TaskWaitLine } from '#src/TaskWaitLine.tsx';
 import { TaskHistory } from '#src/TaskHistory.tsx';
 import { TimeLine } from '#src/TaskTime.tsx';
 import { Activity } from '#src/TaskActivity.tsx';
@@ -113,6 +115,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   const now = useNow();
   const me = useMe();
   const [ask, setAsk] = useState<Ask>(null);
+  const [dialog, setDialog] = useState<TaskDialog>(null);
   const commentBox = useRef<HTMLDivElement>(null);
   const edit = useEditTask(t);
   const queue = useWrite('task.queue');
@@ -203,6 +206,10 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
     item('Comment', 'a', verbs.a, ok),
     ...(open ? [item('Cancel task', 'c', verbs.c, can.cancel)] : []),
     ...more,
+    ...(open
+      ? [item('Add sub-task', '', () => setDialog('sub'), ok), item('Wait on another task…', '', () => setDialog('wait'), edit.can)]
+      : []),
+    item('Duplicate', '', () => setDialog('dup'), ok),
     item('Copy link', '', copy(`${location.origin}${location.pathname}#/tasks/${t.id}`), ok),
     item('Copy number', '', copy(taskRef(t.id)), ok),
     ...(workspace && t.id > 0
@@ -286,9 +293,9 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
         <div className="mt-3">
           <TaskChips t={t} now={now} me={me} />
         </div>
+        <TaskWaitLine t={t} />
         <Brief t={t} can={edit.can.ok && open} />
 
-        {t.blockers.length ? <TaskLinks icon="waiting" label="Waits on" items={t.blockers} /> : null}
         {t.children.length ? <TaskLinks icon="tasks" label="Sub-tasks" items={t.children.map((c) => ({ task: c }))} /> : null}
 
         {t.evidence ? (
@@ -322,6 +329,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
           </div>
         </div>
       </div>
+      <TaskDialogs t={t} which={dialog} onClose={() => setDialog(null)} />
     </TaskNotes>
   );
 }

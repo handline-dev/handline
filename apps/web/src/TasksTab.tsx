@@ -3,13 +3,13 @@
 // with an ellipsis and never widens the row; boxes appear only in Select mode; older tasks come 100 at a time on a button.
 import { useEffect, useMemo, useState } from 'react';
 import { agentTasks, dueOf, openTask, taskRef, taskSections, watchResult, type RowVerb } from '@handline/app-core';
-import { TASK_PAGE, useAgentTasks, useServes } from '@handline/app-data';
+import { useAgentTasks, useServes } from '@handline/app-data';
 import { Icon } from '#src/Icon.tsx';
 import { StateChip, useNow } from '#src/taskui.tsx';
 import { TaskDetail } from '#src/TaskDetail.tsx';
 import { useAgents } from '@handline/app-data';
 import { useMe } from '@handline/app-react';
-import { useLoadOnScroll } from '#src/useLoadOnScroll.ts';
+import { LoadOlder } from '#src/LoadOlder.tsx';
 import { Button, Toolbar, Check, Segmented } from '#src/ui/index.ts';
 import { TaskColumns } from '#src/TaskGraph.tsx';
 import { RowMenu, VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from '#src/TaskVerbUi.tsx';
@@ -39,7 +39,6 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
   const me = useMe();
   const sections = useMemo(() => taskSections(mine, me ?? '', now), [mine, me, now]);
   const roles = useMemo(() => new Map(rows.map((r) => [r.task.id, r.role])), [rows]);
-  const scrollEnd = useLoadOnScroll(more, loadingOlder, () => void loadOlder());
   // The agent's own tasks, and the ones they wait on, so an arrow can leave the column.
   const graphTasks = useMemo(() => {
     const held = mine.filter((t) => t.to === agent);
@@ -194,25 +193,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
           </div>
         )}
         {more && view === 'list' ? (
-          <div ref={scrollEnd.end} className="mt-2 flex items-center justify-center gap-3 text-xs text-ink-2">
-            {scrollEnd.supported ? (
-              <span>{loadingOlder ? 'Loading…' : ''}</span>
-            ) : (
-              <>
-                <span>{mine.length} shown · older ones exist</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  label={`Show ${TASK_PAGE} older`}
-                  aria-label={`Show ${TASK_PAGE} older`}
-                  disabled={loadingOlder}
-                  onClick={() => void loadOlder()}
-                >
-                  {loadingOlder ? 'Loading…' : `Show ${TASK_PAGE} older`}
-                </Button>
-              </>
-            )}
-          </div>
+          <LoadOlder shown={mine.length} loading={loadingOlder} load={() => void loadOlder()} className="mt-2" />
         ) : null}
       </View>
       <VerbSheets flow={verbs} ids={[...marked]} />
