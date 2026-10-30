@@ -312,7 +312,7 @@ describe('settings', () => {
     await mount('#/settings');
     await until(() => $('[data-device="d2"]'), 'the devices');
     expect(text($('[data-device="d1"]'))).toContain('connected');
-    await click($('[aria-label="Revoke phone-3b54"]')!);
+    await click($('[title="Revoke phone-3b54"]')!);
     expect($('[data-device="d2"]')).not.toBeNull(); // nothing yet: the confirm comes first
     await click($('.ui-dialog .ui-btn.solid')!);
     await until(() => !$('[data-device="d2"]'), 'the device gone');

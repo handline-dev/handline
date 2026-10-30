@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ago } from '@handline/app-core';
 import { useAgents, useDevices, useOff, useRead, useServes, useStatus, useWrite } from '@handline/app-data';
-import { useSelector } from '@handline/app-react';
+import { useSelector, useStore } from '@handline/app-react';
 import { Invite } from '#src/Invite.tsx';
 import { Row } from '#src/SettingsRows.tsx';
 import { shell, useShellMode, useShellNetwork } from '#src/shell.ts';
@@ -43,7 +43,7 @@ function ThisComputer() {
   return (
     <SettingsCard as="ul" className="servers">
       <SettingsRow answer as="li" data-server="this">
-        <Icon name="agent" size={16} label="" />
+        <Icon name="computer" size={16} label="" />
         <RowText>
           <RowTitle plain>
             {host ?? 'This computer'} {host ? <Tag>This computer</Tag> : null} <Tag>Main</Tag>
@@ -64,6 +64,7 @@ export function Devices() {
   const q = useDevices();
   const { served } = useServes('devices.list');
   const canPair = useServes('device.pair').served;
+  const store = useStore();
   const revoke = useWrite('device.revoke');
   const off = useOff('device.revoke');
   const [asking, setAsking] = useState<{ id: string; name: string } | null>(null);
@@ -103,11 +104,18 @@ export function Devices() {
         <SettingsCard as="ul" className="devices">
           {rows.map((d) => (
             <SettingsRow answer as="li" key={d.id} data-device={d.id}>
-              <Icon name={d.connected ? 'agent' : 'waiting'} size={16} label={d.connected ? 'Connected' : 'Not connected'} />
+              <Icon
+                name={/phone|android|ipad/i.test(d.name) ? 'device' : 'laptop'}
+                size={16}
+                label={d.connected ? 'Connected' : 'Not connected'}
+              />
               <RowTitle plain className="[overflow-wrap:anywhere]">
-                {d.name} <span className="muted">{d.connected ? 'connected' : d.last_seen ? `seen ${ago(d.last_seen)} ago` : 'never seen'}</span>
+                {d.name}{' '}
+                <span className="muted">{d.connected ? 'connected' : d.last_seen ? `seen ${ago(d.last_seen)} ago` : 'never seen'}</span>
               </RowTitle>
-              <Button icon="dismiss" label={`Revoke ${d.name}`} disabled={!!off} title={off} onClick={() => setAsking({ id: d.id, name: d.name })} />
+              <Button label={`Revoke ${d.name}`} disabled={!!off} title={off} onClick={() => setAsking({ id: d.id, name: d.name })}>
+                Revoke
+              </Button>
             </SettingsRow>
           ))}
         </SettingsCard>
@@ -121,6 +129,7 @@ export function Devices() {
             label: 'Revoke',
             onClick: () => {
               revoke.mutate({ device: asking.id });
+              store.notices.push('ok', `Revoked ${asking.name}. It needs a new invite to come back.`);
               setAsking(null);
             },
           }}

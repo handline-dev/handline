@@ -170,7 +170,7 @@ export class FakeAdmin {
       served_by: this.noListener ? 'gateway' : 'daemon',
       listener: this.noListener
         ? null
-        : { address: '192.168.1.20:7777', encryption: 'tls', fingerprint: FINGERPRINT, tailscale_host: null },
+        : { address: '192.168.1.20:7777', encryption: 'tls', fingerprint: FINGERPRINT, tailscale_host: 'mac-studio.tail1.ts.net' },
       heavy_slots: { slots: 1, dir: '/home/fake/.handline/heavy-slots' },
       dev_mode: this.values.dev_mode === true,
     };
