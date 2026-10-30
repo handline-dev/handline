@@ -2,7 +2,7 @@
 // a table of each agent's cost and share under it and a click on an agent to draw that one alone. A series has a shape (a dash, a pattern and a
 // letter), not only a hue. The numbers are always in a table behind a toggle, so the picture is never the only way to read them.
 import { useState } from 'react';
-import { costByAgent, dateTime, guessLine } from '@handline/app-core';
+import { costByAgent, dateTime, guessLine, lostResets, weekAccounts } from '@handline/app-core';
 import type { Outlook } from '@handline/client';
 import { useOutlook } from '@handline/app-data';
 import {
@@ -23,6 +23,7 @@ import {
   tone,
 } from '#src/outlookStyle.ts';
 import { Button, ChartCard, Select, Segmented } from '#src/ui/index.ts';
+import { AccountLines, LostBars, WeekHead, XAxis, YMarks } from '#src/OutlookWeek.tsx';
 import { View } from '#src/View.tsx';
 
 type Range = Outlook['range'];
@@ -61,38 +62,44 @@ function Line({ o }: { o: Outlook }) {
       .join(' ');
   return (
     <>
+      <WeekHead o={o} />
       <div
-        className="outlook-plot relative touch-pan-y pr-[8.5rem]"
+        className="outlook-plot relative touch-pan-y pr-[8.5rem] pl-10"
         onPointerMove={scrub}
         onPointerDown={scrub}
         onPointerLeave={() => setCursor(null)}
       >
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          preserveAspectRatio="none"
-          className="outlook-svg h-[160px] w-full"
-          role="img"
-          aria-label={`Week left, the ${o.accounts} accounts with a reading together, recorded and guessed`}
-        >
-          {[0, 50, 100].map((g) => (
-            <line key={g} x1={0} x2={W} y1={y(g)} y2={y(g)} className={GRID_LINE} />
-          ))}
-          <path d={path(o.past)} className={`${LINE} past`} fill="none" />
-          <path d={path(guessLine(o))} className={`${LINE} future`} fill="none" strokeDasharray="5 4" />
-          <line x1={x(o.now)} x2={x(o.now)} y1={0} y2={H} className={NOW_LINE} />
-          {resets.map((at) => (
-            <line key={at} data-reset={at} x1={x(at)} x2={x(at)} y1={0} y2={H} className={RESET_LINE} />
-          ))}
-          {near ? (
-            <line x1={x(near.at)} x2={x(near.at)} y1={0} y2={H} className="cursor stroke-acc [vector-effect:non-scaling-stroke]" />
-          ) : null}
-        </svg>
-        <p className="outlook-readout muted m-0 mt-1 h-5 text-xs" aria-live="polite">
+        <div className="outlook-frame relative">
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            preserveAspectRatio="none"
+            className="outlook-svg h-[240px] w-full"
+            role="img"
+            aria-label={`Week left, the ${o.accounts} accounts with a reading together, recorded and guessed`}
+          >
+            {[0, 50, 100].map((g) => (
+              <line key={g} x1={0} x2={W} y1={y(g)} y2={y(g)} className={GRID_LINE} />
+            ))}
+            <path d={path(o.past)} className={`${LINE} past`} fill="none" />
+            <path d={path(guessLine(o))} className={`${LINE} future`} fill="none" strokeDasharray="5 4" />
+            <line x1={x(o.now)} x2={x(o.now)} y1={0} y2={H} className={NOW_LINE} />
+            {resets.map((at) => (
+              <line key={at} data-reset={at} x1={x(at)} x2={x(at)} y1={0} y2={H} className={RESET_LINE} />
+            ))}
+            {near ? (
+              <line x1={x(near.at)} x2={x(near.at)} y1={0} y2={H} className="cursor stroke-acc [vector-effect:non-scaling-stroke]" />
+            ) : null}
+          </svg>
+          <YMarks />
+          <LostBars o={o} span={{ t0, t1 }} />
+          <XAxis o={o} span={{ t0, t1 }} />
+          <span className={OUTLOOK_END} style={{ top: `${((100 - (lastLeft ?? 0)) / 100) * 100}%` }}>
+            {o.accounts === 1 ? 'the account' : `all ${o.accounts} accounts`}
+          </span>
+        </div>
+        <p className="outlook-readout muted m-0 mt-7 h-5 text-xs" aria-live="polite">
           {near ? `${dateTime(near.at)} · ${Math.round(near.left_pct!)}% left${near.guess ? ' (guess)' : ''}` : ''}
         </p>
-        <span className={OUTLOOK_END} style={{ top: `${((100 - (lastLeft ?? 0)) / 100) * 100}%` }}>
-          {o.accounts === 1 ? 'the account' : `all ${o.accounts} accounts`}
-        </span>
       </div>
       <ul className={LEGEND} aria-label="Lines">
         <li className={LEGEND_ITEM}>
@@ -113,6 +120,11 @@ function Line({ o }: { o: Outlook }) {
           </svg>{' '}
           now
         </li>
+        {lostResets(o).length || weekAccounts(o).some((a) => a.lostPct !== null) ? (
+          <li className={LEGEND_ITEM}>
+            <span className="inline-block h-3 w-2.5 rounded-t-sm border border-acc bg-acc" aria-hidden /> week lost at a reset
+          </li>
+        ) : null}
         {resets.length ? (
           <li className={LEGEND_ITEM}>
             <svg viewBox="0 0 24 8" width="24" height="8" aria-hidden>
@@ -122,6 +134,7 @@ function Line({ o }: { o: Outlook }) {
           </li>
         ) : null}
       </ul>
+      <AccountLines o={o} />
     </>
   );
 }

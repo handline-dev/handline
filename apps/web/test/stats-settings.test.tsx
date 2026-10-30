@@ -126,6 +126,12 @@ describe('outlook', () => {
     expect(text($('.outlook-legend'))).toContain('guess');
     const end = $('.outlook-svg .line.past')!.getAttribute('d')!.split(' ').at(-1);
     expect($('.outlook-svg .line.future')!.getAttribute('d')!.split(' ')[0]).toBe(end!.replace('L', 'M')); // the guess starts where the recorded line ends
+    expect(text($('.week-left'))).toMatch(/^Week \d+% left$/);
+    expect($$('.y-mark').map(text)).toEqual(['0%', '50%', '100%']);
+    expect($$('.x-tick').length).toBeGreaterThan(2);
+    expect($('[data-lost="alpha"]')).not.toBeNull(); // the recorded loss at alpha's past reset
+    expect($('[data-reset-mark="alpha"]')).not.toBeNull();
+    expect($$('.week-accounts li').map((li) => li.getAttribute('data-account'))).toEqual(['alpha', 'beta']);
     expect($('.acct-list')).toBeNull(); // the accounts are in Settings
     expect($$('.outlook-legend li svg .line.future')[0]!.getAttribute('stroke-dasharray')).toBeTruthy();
     expect($('[data-runway]')).toBeNull(); // the account rows below say how long each lasts

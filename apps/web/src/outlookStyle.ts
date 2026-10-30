@@ -1,6 +1,6 @@
 // The looks of the usage outlook: the SVG strokes, the legend, the cost bars with their patterns, and the data table. The class names stay as
 // hooks beside the utilities (tests and the legend read them).
-export const OUTLOOK_END = 'outlook-end absolute right-0 -translate-y-1/2 text-sm whitespace-nowrap text-ink';
+export const OUTLOOK_END = 'outlook-end absolute left-full ml-2 -translate-y-1/2 text-sm whitespace-nowrap text-ink';
 export const GRID_LINE = 'grid stroke-line';
 export const LINE = 'line stroke-ink stroke-2 [vector-effect:non-scaling-stroke]';
 export const NOW_LINE = 'now stroke-ink-3 [stroke-dasharray:2_3] [vector-effect:non-scaling-stroke]';

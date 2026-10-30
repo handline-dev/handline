@@ -32,7 +32,10 @@ function byAccount(past: Outlook['past'], future: Outlook['future'], now: number
       account: 'alpha',
       past: points(past, 5),
       future: points(future, 5),
-      resets: reset <= now + head ? [{ at: new Date(reset).toISOString(), window: '7d' as const }] : [],
+      resets: [
+        { at: new Date(now - head / 2).toISOString(), window: '7d' as const, unused_pct: 18 },
+        ...(reset <= now + head ? [{ at: new Date(reset).toISOString(), window: '7d' as const }] : []),
+      ],
     },
     { account: 'beta', past: points(past, -5), future: points(future, -5), resets: [] },
   ];
