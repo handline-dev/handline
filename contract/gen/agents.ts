@@ -230,8 +230,8 @@ export type NeedsYou = {
   title: string;
   /** The card's description, a full sentence under the title, from the hook, the session file or the daemon's record; never read from the screen. It does not name the agent: the card is in that agent's chat. */
   text: string | null;
-  /** hook: PermissionRequest or Notification. session: the session's own file (sessions/<pid>.json status waiting and waitingFor). daemon: the daemon's own record (a start-up dialog it will not answer, a dialog it cannot get past, an agent it could not heal); never a task. */
-  source: "hook" | "session" | "daemon";
+  /** hook: the PermissionRequest hook. notification: Claude Code's Notification hook, a prompt nobody answered. session: the session's own file (sessions/<pid>.json status waiting and waitingFor). daemon: the daemon's own record (a start-up dialog it will not answer, a dialog it cannot get past, an agent it could not heal); never a task. */
+  source: "hook" | "notification" | "session" | "daemon";
 };
 
 export interface AgentsMethods {

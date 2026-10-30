@@ -229,6 +229,7 @@
        "source": {
         "$oneOf": [
          "hook",
+         "notification",
          "session"
         ]
        }

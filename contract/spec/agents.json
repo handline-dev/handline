@@ -1008,10 +1008,11 @@
       "type": "string",
       "enum": [
        "hook",
+       "notification",
        "session",
        "daemon"
       ],
-      "description": "hook: PermissionRequest or Notification. session: the session's own file (sessions/<pid>.json status waiting and waitingFor). daemon: the daemon's own record (a start-up dialog it will not answer, a dialog it cannot get past, an agent it could not heal); never a task."
+      "description": "hook: the PermissionRequest hook. notification: Claude Code's Notification hook, a prompt nobody answered. session: the session's own file (sessions/<pid>.json status waiting and waitingFor). daemon: the daemon's own record (a start-up dialog it will not answer, a dialog it cannot get past, an agent it could not heal); never a task."
      }
     },
     "required": [
