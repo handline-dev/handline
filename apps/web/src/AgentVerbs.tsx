@@ -135,7 +135,13 @@ export function DeleteSheet({ a, onClose }: { a: AgentView; onClose: () => void 
         <SheetActions>
           {sure ? (
             <>
-              <Button variant="solid" label="Delete" className="max-sm:min-h-12 max-sm:flex-1" disabled={busy} onClick={() => go('force')} />
+              <Button
+                variant="solid"
+                label="Delete"
+                className="max-sm:min-h-12 max-sm:flex-1"
+                disabled={busy}
+                onClick={() => go('force')}
+              />
               <Button variant="outline" label="Cancel" autoFocus className="max-sm:min-h-12 max-sm:flex-1" onClick={() => setSure(false)} />
             </>
           ) : (
