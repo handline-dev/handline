@@ -37,6 +37,7 @@ import { Shell } from '#src/ui/TopBar.tsx';
 import { DaemonBuild } from '#src/DaemonBuild.tsx';
 import { DaemonDown } from '#src/DaemonDown.tsx';
 import { onCommand } from '#src/commands.ts';
+import { useHeldKeys } from '#src/heldKeys.ts';
 import { recents, useRemember } from '#src/recent.ts';
 import { terminalOwnsKey } from '#src/terminal/core.ts';
 import { StatusBar } from '#src/StatusBar.tsx';
@@ -72,6 +73,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const newAgent = useNewAgentRoute();
   const page = usePageRoute();
   useShell(agent);
+  useHeldKeys();
   const unread = useUnread().length;
   const [railOpen, setRail] = useState(() => setting(storage, 'rail', '1').value === '1');
   const toggle = () => {

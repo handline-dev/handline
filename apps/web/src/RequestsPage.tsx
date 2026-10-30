@@ -9,7 +9,7 @@ import { NewTask } from '#src/NewTask.tsx';
 import { goTasks, goTerminal } from '#src/route.ts';
 import { useWide } from '#src/taskui.tsx';
 import { AskChange, ReviewPictures } from '#src/ReviewCard.tsx';
-import { Button, Icon, Input, MenuButton, MenuItem, PageHead, PageTitle, ScrollPage } from '#src/ui/index.ts';
+import { Button, Icon, Input, Kbd, MenuButton, MenuItem, PageHead, PageTitle, ScrollPage } from '#src/ui/index.ts';
 import { Button as DsButton } from '#src/ds/Button.tsx';
 import { Chip } from '#src/ds/Chip.tsx';
 import { Answer, ItemHeader } from '#src/ds/Item.tsx';
@@ -26,6 +26,9 @@ const REQUEST_KEYS: KeyRows = [
   ['C', 'ask for a change'],
   ['Enter', 'open the request itself'],
 ];
+
+/** The key that gives each answer, as the `A D C Enter` rows above say. */
+const KEY_OF: Partial<Record<CardAction['type'], string>> = { allow: 'A', approve: 'A', deny: 'D', ask_change: 'C', change: 'C', open: '↵' };
 
 /** Runs `f` on a plain key press anywhere on the page except while a field has the focus. */
 function useKey(f: (key: string) => boolean) {
@@ -235,6 +238,7 @@ function CardDetail({ card, onSaid }: { card: Card; onSaid: (line: string) => vo
               key={a.type + i}
               kind={i === 0 ? 'primary' : a.type === 'worktree' && a.answer === 'force' ? 'danger' : 'secondary'}
               label={label(a)}
+              keys={KEY_OF[a.type]}
               onClick={() => run(a)}
             />
           ))
@@ -319,7 +323,7 @@ export function RequestsPage() {
     <ScrollPage beside={wide} className="requests-page" aria-label="Requests">
       <PageHead>
         <PageTitle>
-          Requests <span className="muted">{cards.length}</span>
+          Requests <span className="muted">{cards.length}</span> <Kbd className="ui-keys">J K</Kbd>
         </PageTitle>
         <DsButton iconOnly icon={Plus} label="New request" size="s" onClick={() => setAsking(true)} />
       </PageHead>
