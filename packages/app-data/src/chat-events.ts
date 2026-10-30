@@ -46,9 +46,10 @@ export function chatEvent({ qc, d, me }: Ctx, e: WireEvent): void {
       qc,
       qk.transcript(d, agent),
       (data) =>
-        mapPages(data, (p, i) =>
-          i === 0 && !data.pages.some((x) => x.items.some((y) => y.id === item.id)) ? { ...p, items: [...p.items, item] } : p,
-        ),
+        data.pages.some((x) => x.items.some((y) => y.id === item.id))
+          ? // A known item changed (a run of its command block): replace it where it is.
+            mapPages(data, (p) => ({ ...p, items: p.items.map((y) => (y.id === item.id ? item : y)) }))
+          : mapPages(data, (p, i) => (i === 0 ? { ...p, items: [...p.items, item] } : p)),
       e.cursor,
     );
   } else if (e.type === 'chat.working') {
