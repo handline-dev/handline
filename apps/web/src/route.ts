@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react';
 import { DEBUG_HASH } from '#src/debug/paneFacts.ts';
 
-const read = (h: string) => h.match(/^#\/agents\/(.+?)(\/settings)?(?:\?m=(\d+))?$/);
+const read = (h: string) => h.match(/^#\/agents\/(.+?)(\/settings)?(?:\?(.*))?$/);
+const queryOf = (h: string) => new URLSearchParams(read(h)?.[3] ?? '');
 const readTasks = () => location.hash.match(/^#\/tasks(?:\/(\d+|graph))?$/)?.[1] ?? (/^#\/tasks\/?$/.test(location.hash) ? '' : null);
 const subscribe = (cb: () => void) => {
   addEventListener('hashchange', cb);
@@ -38,8 +39,27 @@ export function leave(parent: string): void {
 export const useSelectedAgent = (): string => decodeURIComponent(read(useSyncExternalStore(subscribe, hash))?.[1] ?? '');
 /** Whether the URL is the agent's settings page. */
 export const useSettingsOpen = (): boolean => !!read(useSyncExternalStore(subscribe, hash))?.[2];
+const agentHash = (name: string, query: URLSearchParams) => {
+  const q = query.toString();
+  return `#/agents/${encodeURIComponent(name)}${q ? `?${q}` : ''}`;
+};
+/** Opens the agent's page. A second agent shown beside stays, unless this is that agent: then the two swap. */
 export const goAgent = (name: string): void => {
-  location.hash = `#/agents/${encodeURIComponent(name)}`;
+  const now = read(location.hash);
+  const beside = queryOf(location.hash).get('beside');
+  const q = new URLSearchParams();
+  if (beside && beside !== name) q.set('beside', beside);
+  else if (beside && now) q.set('beside', decodeURIComponent(now[1]!));
+  location.hash = agentHash(name, q);
+};
+/** The second agent the URL shows beside the first (`#/agents/:name?beside=:other`), or ''. */
+export const useBeside = (): string => {
+  const h = useSyncExternalStore(subscribe, hash);
+  return read(h)?.[2] ? '' : (queryOf(h).get('beside') ?? '');
+};
+/** Shows `agent` with `beside` next to it (null: alone) as a new history entry, so Back returns to the screen before. */
+export const goSplit = (agent: string, beside: string | null): void => {
+  location.hash = agentHash(agent, new URLSearchParams(beside ? { beside } : {}));
 };
 
 /** The Tasks page the URL names: null off it, '' for the list, the task number (as text) for a detail. */
@@ -53,11 +73,15 @@ export const goMessage = (agent: string, id: number): void => {
 };
 /** The message number the URL asks this agent's chat to show; `done` takes it out of the URL once the chat has taken it. */
 export function useWantedMessage(agent: string): { id: number | null; done: () => void } {
-  const m = read(useSyncExternalStore(subscribe, hash));
+  const h = useSyncExternalStore(subscribe, hash);
+  const m = read(h);
+  const id = queryOf(h).get('m');
   return {
-    id: m?.[3] && decodeURIComponent(m[1]!) === agent ? Number(m[3]) : null,
+    id: id && m && decodeURIComponent(m[1]!) === agent ? Number(id) : null,
     done: () => {
-      history.replaceState(history.state as object | null, '', location.hash.replace(/\?m=\d+$/, ''));
+      const q = queryOf(location.hash);
+      q.delete('m');
+      history.replaceState(history.state as object | null, '', agentHash(decodeURIComponent(read(location.hash)![1]!), q));
       dispatchEvent(new Event('hashchange'));
     },
   };

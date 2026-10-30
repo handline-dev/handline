@@ -19,6 +19,7 @@ import {
   useNewAgentRoute,
   usePageRoute,
   useSelectedAgent,
+  useBeside,
   useSettingsOpen,
   useTasksRoute,
   useTeamRoute,
@@ -43,7 +44,7 @@ import { terminalOwnsKey } from '#src/terminal/core.ts';
 import { StatusBar } from '#src/StatusBar.tsx';
 import { CaptureHost } from '#src/Capture.tsx';
 import { TasksPage } from '#src/Tasks.tsx';
-import { AgentWorkspace } from '#src/Workspace.tsx';
+import { SplitView } from '#src/SplitView.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { typing } from '#src/typing.ts';
 
@@ -66,6 +67,7 @@ export function App(props: { store: Store; daemon: string; storage: KV | null; c
 
 function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const agent = useSelectedAgent();
+  const beside = useBeside();
   const tasks = useTasksRoute();
   const settings = useSettingsOpen();
   const accounts = useAccountsRoute();
@@ -188,7 +190,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
             ) : agent && settings ? (
               <SettingsView key={agent} agent={agent} />
             ) : agent ? (
-              <AgentWorkspace key={agent} agent={agent} daemon={daemon} storage={storage} />
+              <SplitView agent={agent} beside={beside} daemon={daemon} storage={storage} />
             ) : (
               <div className="empty big">
                 <strong>Pick an agent</strong>

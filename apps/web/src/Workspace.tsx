@@ -51,6 +51,8 @@ export interface WorkspaceCtx {
   canSplit: (group: string) => boolean;
   /** The groups render as one strip (a narrow window): a drop can only reorder or merge, never split. */
   merged: boolean;
+  /** Set on the second half of a two-agent split: closes the split. */
+  closeSplit?: () => void;
   dragging: string | null;
   setDragging: (tab: string | null) => void;
 }
@@ -82,7 +84,21 @@ function ChatPrefetch({ agent }: { agent: string }) {
   return null;
 }
 
-export function AgentWorkspace({ agent, daemon, storage }: { agent: string; daemon: string; storage: KV | null }) {
+export function AgentWorkspace({
+  agent,
+  daemon,
+  storage,
+  active = true,
+  onCloseSplit,
+}: {
+  agent: string;
+  daemon: string;
+  storage: KV | null;
+  /** Whether this is the half the keys and commands go to (always, when the page holds one agent). */
+  active?: boolean;
+  /** Set on the second half of a two-agent split: its Split button closes the split. */
+  onCloseSplit?: () => void;
+}) {
   const q = useAgentDetail(agent);
   const list = useAgents();
   const { served } = useServes('agent.get');
@@ -104,10 +120,27 @@ export function AgentWorkspace({ agent, daemon, storage }: { agent: string; daem
         </View>
       </div>
     );
-  return <Loaded agent={agent} detail={q.data} daemon={daemon} storage={storage} />;
+  return <Loaded agent={agent} detail={q.data} daemon={daemon} storage={storage} active={active} onCloseSplit={onCloseSplit} />;
 }
 
-function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: AgentDetail; daemon: string; storage: KV | null }) {
+function Loaded({
+  agent,
+  detail,
+  daemon,
+  storage,
+  active: focused,
+  onCloseSplit,
+}: {
+  agent: string;
+  detail: AgentDetail;
+  daemon: string;
+  storage: KV | null;
+  active: boolean;
+  onCloseSplit?: () => void;
+}) {
+  // Two halves are mounted at once, but the keys and commands belong to the focused one.
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
   const store = useStore();
   const key = storageKey(daemon, agent);
   const [ws, setWs] = useState(() =>
@@ -168,6 +201,7 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   flipRef.current = flip;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (!focusedRef.current) return;
       const inTerminal = e.target instanceof HTMLElement && !!e.target.closest('.xterm');
       if (!(inTerminal ? isTerminalSwitch(e) : isSwitchChord(e))) return;
       e.preventDefault();
@@ -203,14 +237,14 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
   commandRef.current = windowCommand;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (terminalOwnsKey(e) || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      if (!focusedRef.current || terminalOwnsKey(e) || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
       const k = e.key.toLowerCase();
       const name =
         k === 'w' ? 'tab-close' : k === 't' ? 'tab-new' : k === '\\' ? 'split' : /^[1-9]$/.test(k) ? (`pane-${k}` as const) : null;
       if (name && commandRef.current(name)) e.preventDefault();
     };
     addEventListener('keydown', onKey);
-    const off = onCommand((name) => void commandRef.current(name));
+    const off = onCommand((name) => void (focusedRef.current && commandRef.current(name)));
     return () => (removeEventListener('keydown', onKey), off());
   }, []);
 
@@ -238,6 +272,7 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
       const next = splitPane(ws, id);
       return !!next && !arrange(next, size.w, size.h).merged;
     },
+    closeSplit: onCloseSplit,
     dragging,
     setDragging,
     apply: (f) => setWs(f),

@@ -1,6 +1,6 @@
 // The agent list. A row shows an agent's state, its queue and a fold button when it has children; its actions (Start, the ⋯ menu)
 // show while the pointer is on it or it is selected. One filter button opens the menu of what to show.
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useState, type HTMLAttributes } from 'react';
 import {
   turnAgents,
   chipList,
@@ -20,6 +20,7 @@ import type { AgentView, NavPrefsChanges } from '@handline/client';
 import { useConnection } from '@handline/app-react';
 import { useAgents, useMyTurn, useNav, useServes } from '@handline/app-data';
 import { useRowDrag } from '#src/RowDrag.ts';
+import { AGENT_DRAG } from '#src/SplitView.tsx';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
 import { WithKey } from '#src/WithKey.tsx';
 import { Button, Icon, Kbd, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
@@ -79,6 +80,19 @@ export function Sidebar({
       )
       .map((r) => r.agent.name);
   const drag = useRowDrag(tree, nav.order, siblingsOf, (order) => change({ order }));
+  // Every row can be dragged onto the page to open beside (SplitView); the tree layout also reorders by the same drag.
+  const dragAttrs = (agent: AgentView, pin: boolean): HTMLAttributes<HTMLDivElement> => {
+    const own = pin ? {} : drag.attrs(agent);
+    return {
+      ...own,
+      draggable: true,
+      onDragStart: (e) => {
+        own.onDragStart?.(e);
+        e.dataTransfer.setData(AGENT_DRAG, agent.name);
+        e.dataTransfer.effectAllowed = 'copyMove';
+      },
+    };
+  };
   const row = (agent: AgentView, depth: number, kids: number, team: string, key?: string) => {
     const pin = !!key?.startsWith('pin-'); // a pinned row always counts the work under it, its tree open or not
     return (
@@ -96,7 +110,7 @@ export function Sidebar({
         selected={agent.name === selected}
         pinned={nav.pins.includes(agent.name)}
         onPin={() => togglePinAgent(agent.name)}
-        drag={pin ? undefined : { attrs: drag.attrs(agent), mark: drag.mark(agent.name) }}
+        drag={{ attrs: dragAttrs(agent, pin), mark: pin ? null : drag.mark(agent.name) }}
       />
     );
   };
