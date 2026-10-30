@@ -164,8 +164,12 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
   const cans = useVerbCans();
   const listServed = useServes('tasks.list').served;
 
+  // The cursor row that leaves the list (accepted, discarded) hands the cursor to the row that moved up into its place.
+  const cursorAt = useRef(0);
   useEffect(() => {
-    if (cursor === null || !order.some((t) => t.id === cursor)) setCursor(order[0]?.id ?? null);
+    const at = order.findIndex((t) => t.id === cursor);
+    if (at >= 0) cursorAt.current = at;
+    else setCursor(order[Math.min(cursor === null ? 0 : cursorAt.current, order.length - 1)]?.id ?? null);
   }, [order, cursor]);
 
   // A task opened from elsewhere (My turn, a link) is brought into view in the list.

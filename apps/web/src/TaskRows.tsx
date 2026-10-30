@@ -78,7 +78,7 @@ export function Row(props: {
             title={`asked by ${t.from}`}
           >
             <span
-              draggable={t.id > 0}
+              draggable={t.id > 0 && !!ws}
               onDragStart={(e) => {
                 e.dataTransfer?.setData('text/plain', taskRef(t.id));
                 // The drop cover appears over the pane; mounting it inside dragstart makes Chromium cancel the drag.

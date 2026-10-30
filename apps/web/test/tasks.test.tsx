@@ -124,6 +124,18 @@ describe('the list', () => {
     expect(text($('.tbar'))).not.toContain('selected');
   });
 
+  it('keeps the cursor where it was when its row leaves the list, not on the top row', async () => {
+    await mount();
+    await loaded();
+    await focusPage();
+    await press('j');
+    await press('j');
+    expect(row(1700)!.classList.contains('cursor')).toBe(true);
+    await typeInto($('input[aria-label="Search tasks"]') as HTMLInputElement, 'terminal pane');
+    expect(rowIds()).toEqual([1688, 1690]);
+    expect(row(1690)!.classList.contains('cursor')).toBe(true);
+  });
+
   it('searches the number, title, owner and asker, every word having to match', async () => {
     await mount();
     await loaded();

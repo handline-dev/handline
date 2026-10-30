@@ -21,7 +21,8 @@ import { goTasks } from '#src/route.ts';
 const CLOSED = ['done', 'discarded'];
 const bare = (agent: string) => agent.split('.').at(-1) ?? agent; // 'handline.daemon' is 'daemon' in a row: the team is the same on every line
 // state · number · title (the one column that gives) · owner · time
-const COLS = 'grid-cols-[1.75rem_3.25rem_minmax(0,1fr)_6.5rem_5rem]';
+/** Below 28rem of pane the who column goes, so the title keeps the room. */
+const COLS = 'grid-cols-[1.75rem_3.25rem_minmax(0,1fr)_5rem] @[28rem]:grid-cols-[1.75rem_3.25rem_minmax(0,1fr)_6.5rem_5rem]';
 
 export function TasksTab({ agent, task = null }: { agent: string; task?: number | null }) {
   const { query: q, items, more, loadOlder, loadingOlder } = useAgentTasks(agent);
@@ -100,7 +101,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
             <TaskColumns tasks={graphTasks} now={now} me={me} scopeKey={agent} />
           </div>
         ) : (
-          <ul className="tasks-tab-list m-0 flex list-none flex-col gap-1 p-0">
+          <ul className="tasks-tab-list @container m-0 flex list-none flex-col gap-1 p-0">
             {rows.map(({ task: t, role }) => {
               const due = dueOf(t, now);
               return (
@@ -116,7 +117,7 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
                         />
                       ) : null}
                       <button
-                        className={`tasks-tab-row grid ${COLS} w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border bg-panel px-2.5 py-1.5 text-left${due?.over ? ' overdue border-bad' : ' border-line'}${CLOSED.includes(t.state) ? ' closed opacity-60' : ''}`}
+                        className={`tasks-tab-row grid ${COLS} w-full min-w-0 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-left${marked.has(t.id) ? ' bg-raised' : ' bg-transparent'}${due?.over ? ' overdue border-bad' : ' border-line'}${CLOSED.includes(t.state) ? ' closed opacity-60' : ''}`}
                         data-task={t.id}
                         draggable
                         onDragStart={(e) => {
@@ -136,15 +137,18 @@ export function TasksTab({ agent, task = null }: { agent: string; task?: number 
                           {t.title}
                         </span>
                         {role === 'assigned' ? (
-                          <span className="who min-w-0 truncate text-xs text-ink-2" title={`Opened by ${agent}, held by ${t.to}`}>
+                          <span
+                            className="who hidden min-w-0 truncate text-xs text-ink-2 @[28rem]:block"
+                            title={`Opened by ${agent}, held by ${t.to}`}
+                          >
                             <Icon name="agent" size={12} aria-hidden /> {bare(t.to)}
                           </span>
                         ) : t.from !== agent ? (
-                          <span className="who min-w-0 truncate text-xs text-ink-2" title={`Opened by ${t.from}`}>
+                          <span className="who hidden min-w-0 truncate text-xs text-ink-2 @[28rem]:block" title={`Opened by ${t.from}`}>
                             from {bare(t.from)}
                           </span>
                         ) : (
-                          <span className="who" />
+                          <span className="who hidden @[28rem]:block" />
                         )}
                         {due ? (
                           <span
