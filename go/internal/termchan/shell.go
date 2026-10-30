@@ -9,6 +9,7 @@ import (
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/term"
+	"github.com/handline/handline/go/internal/transcript"
 )
 
 // shell.open starts a plain login shell in an agent's worktree as a window of the terminal host, and shell.close ends it. A shell is
@@ -62,7 +63,7 @@ func runOf(params map[string]any) (command string, block cmdruns.Block, ok bool,
 	}
 	text, _ := b.(string) // a missing or non-text block is "", which is no block
 	if block, ok = cmdruns.ParseBlock(text); !ok {
-		return "", block, false, bad(`block is "<message id>:<n>"`, "block")
+		return "", block, false, bad(`block is "<message id>:<n>" or "r<reply item id>:<n>"`, "block")
 	}
 	return command, block, true, nil
 }
@@ -79,6 +80,14 @@ func (e *Env) shellOpen(_ *rpc.Conn, params map[string]any) (any, error) {
 	if !has(paths.ListAgents(e.Home), name) {
 		return nil, notFound("no such agent: "+name, "agent", name)
 	}
+	if running && block.Reply {
+		if mine, err := transcript.IsReply(e.DB, name, block.Message); err != nil {
+			return nil, err
+		} else if !mine {
+			id := strconv.FormatInt(block.Message, 10)
+			return nil, notFound("no reply "+id+" of "+name, "item", id)
+		}
+	}
 	var recorded sql.NullString
 	if err := e.DB.QueryRow("SELECT worktree FROM agent_state WHERE agent = ?", name).Scan(&recorded); err != nil && err != sql.ErrNoRows {
 		return nil, err
@@ -93,7 +102,7 @@ func (e *Env) shellOpen(_ *rpc.Conn, params map[string]any) (any, error) {
 	}
 	ended := e.PaneRuns()
 	if running { // a rerun closes the window its block had, if that window is still the run's (pane ids start over with a tmux server)
-		prev, err := cmdruns.Of(e.DB, block.Message)
+		prev, err := cmdruns.OfBlocks(e.DB, block)
 		if err != nil {
 			return nil, err
 		}

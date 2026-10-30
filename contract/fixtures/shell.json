@@ -312,6 +312,48 @@
    ]
   },
   {
+   "name": "shell.open.a_reply_item_not_the_agents_is_not_found",
+   "spec": "shell.open",
+   "about": "A block \"r<item id>:<n>\" naming no reply of that agent is not_found, what item, and opens no window.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "shell.open",
+      "params": {
+       "agent": "{{ask_agent}}",
+       "command": "true",
+       "block": "r999999999:1",
+       "request_id": "s-r1"
+      }
+     },
+     "error": {
+      "code": -32001,
+      "data": {
+       "code": "not_found",
+       "what": "item",
+       "name": "999999999"
+      }
+     }
+    }
+   ]
+  },
+  {
    "name": "shell.open.command_is_not_empty",
    "spec": "shell.open",
    "about": "An empty command is bad_request naming command.",

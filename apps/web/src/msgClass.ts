@@ -5,7 +5,7 @@ const BUBBLE =
 const SIDE = {
   // The person's message is the primary itself — ink in this design — so it flips black/white with the theme and everything inside reads on-primary.
   person:
-    'person self-end bg-acc text-on-acc [&_a]:text-inherit [&_a]:underline [&_.path]:text-inherit [&_.agent-link]:text-inherit [&_.ref]:text-inherit [&_.path]:underline [&_.agent-link]:underline [&_.msg-meta]:text-on-acc/60 [&_.msg-ref]:text-on-acc/80 [&_.ui-btn]:border-on-acc/30 [&_.ui-btn]:text-on-acc [&_.ui-btn:hover:enabled]:bg-on-acc/10',
+    'person self-end bg-acc text-on-acc [&_a]:text-inherit [&_a]:underline [&_.path]:text-inherit [&_.agent-link]:text-inherit [&_.ref]:text-inherit [&_.path]:underline [&_.agent-link]:underline [&_.msg-meta]:text-on-acc/60 [&_.msg-ref]:text-on-acc/80 [&_.gone]:!text-on-acc/70 [&_.ui-btn]:border-on-acc/30 [&_.ui-btn]:text-on-acc [&_.ui-btn:hover:enabled]:bg-on-acc/10',
   agent: 'agent self-start px-0!',
   other: 'other self-start px-0! opacity-80',
 } as const;

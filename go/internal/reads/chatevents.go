@@ -1,6 +1,11 @@
 package reads
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/handline/handline/go/internal/cmdruns"
+	"github.com/handline/handline/go/internal/transcript"
+)
 
 // What the chat topic's events carry is what the chat reads return, built by the same functions: these are the entry points the watcher
 // calls with the ids it found changed.
@@ -54,6 +59,19 @@ func (e *Env) TaskEventItem(id int64) (item map[string]any, owner string, ok boo
 		return nil, "", false, err
 	}
 	return item, t.str("owner"), true, nil
+}
+
+// ReplyItem is reply item id as a transcript item with its runs, and the agent it is of; ok is false when there is no such reply.
+func (e *Env) ReplyItem(id int64) (item map[string]any, agent string, ok bool, err error) {
+	r, agent, ok, err := transcript.ReplyByID(e.DB, id)
+	if err != nil || !ok {
+		return nil, "", false, err
+	}
+	runs, err := cmdruns.OfReply(e.DB, id)
+	if err != nil {
+		return nil, "", false, err
+	}
+	return replyItemOf(r, runs), agent, true, nil
 }
 
 // PromptItem is the prompt block with that id as a transcript item, and the agent it belongs to; ok is false when there is no such block.
