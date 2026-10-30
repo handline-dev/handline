@@ -444,7 +444,8 @@ export type ImagePart = {
   image: {
     id: AttachmentId;
     name?: string;
-    mime?: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+    /** As Attachment.mime. */
+    mime?: string;
     bytes?: number;
   };
   /** The words in the reference's brackets; what a client shows when it cannot draw the image. */

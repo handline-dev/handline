@@ -11,7 +11,7 @@ export const MAX_PER_MESSAGE = 6;
 const MAX_OPEN = 20;
 const MAX_UNSENT = 100 * 1024 * 1024;
 
-type Mime = Attachment['mime'];
+type Mime = string;
 const MAGIC: [Mime, number[]][] = [
   ['image/png', [0x89, 0x50, 0x4e, 0x47]],
   ['image/jpeg', [0xff, 0xd8, 0xff]],
@@ -19,6 +19,8 @@ const MAGIC: [Mime, number[]][] = [
   ['image/webp', [0x52, 0x49, 0x46, 0x46]],
 ];
 const typeOf = (b: Buffer): Mime | undefined => MAGIC.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0];
+/** A type/subtype, as Attachment.mime says. */
+const MIME = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$/;
 const newId = () => randomBytes(8).toString('hex');
 
 /** The ids a text names, in order: `![caption](attachment:ID)` and nothing else (x-attachments, texts). */
@@ -55,15 +57,16 @@ export class FakeAttachments {
   memoFile(id: string): MemoFile {
     const f = this.files.get(id);
     if (!f) throw new Failure('not_found', 'That file is gone.');
-    return { id, kind: (f.mime as string) === 'text/markdown' ? 'markdown' : 'image', name: f.name, mime: f.mime, bytes: f.bytes };
+    return { id, kind: f.mime === 'text/markdown' ? 'markdown' : 'image', name: f.name, mime: f.mime as MemoFile['mime'], bytes: f.bytes };
   }
 
   put(p: Record<string, unknown>): { upload: string; received: number; attachment?: Attachment } {
     const { name, mime, bytes, data } = p as { name: string; mime: Mime; bytes: number; data: string };
     const offset = typeof p.offset === 'number' ? p.offset : 0;
-    if (!MAGIC.some(([m]) => m === mime)) throw badRequest('Only PNG, JPEG, GIF and WebP images.', 'mime');
+    if (typeof mime !== 'string' || mime.length > 100 || !MIME.test(mime))
+      throw badRequest('mime is a type such as application/pdf.', 'mime');
     if (!Number.isInteger(bytes) || bytes < 1) throw badRequest('bytes is the whole file size', 'bytes');
-    if (bytes > MAX_IMAGE) throw refused('limit', 'An image is at most 10 MiB.');
+    if (bytes > MAX_IMAGE) throw refused('limit', 'A file is at most 10 MiB.');
     const chunk = Buffer.from(data, 'base64');
     if (chunk.length > CHUNK) throw badRequest('A chunk is at most 512 KiB of file.', 'data');
     let id = p.upload as string | undefined;
@@ -86,7 +89,8 @@ export class FakeAttachments {
     if (up.received < up.bytes) return { upload: id, received: up.received };
     this.uploads.delete(id);
     const all = Buffer.concat(up.parts);
-    if (all.length !== up.bytes || typeOf(all) !== up.mime) throw badRequest('The file is not the type it says.', 'data');
+    if (all.length !== up.bytes || (MAGIC.some(([m]) => m === up.mime) && typeOf(all) !== up.mime))
+      throw badRequest('The file is not the type it says.', 'data');
     const attachment: Attachment = { id: newId(), name: up.name, mime: up.mime, bytes: up.bytes };
     this.files.set(attachment.id, { ...attachment, data: all, sent: false });
     return { upload: id, received: up.received, attachment };
@@ -179,7 +183,11 @@ export class FakeAttachments {
       if (!f) out.push({ image: { id: m[2]! }, caption: m[1]!, gone: true });
       else {
         const { data: _d, sent: _s, ...image } = f;
-        out.push({ image, caption: m[1]!, ...(agent ? { path: `/fake-daemon/attachments/${f.id}.${f.mime.slice(6)}` } : {}) });
+        out.push({
+          image,
+          caption: m[1]!,
+          ...(agent ? { path: `/fake-daemon/attachments/${f.id}.${f.mime.startsWith('image/') ? f.mime.slice(6) : 'bin'}` } : {}),
+        });
       }
     }
     if (!out.length) return undefined;

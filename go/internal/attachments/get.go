@@ -61,6 +61,9 @@ func (s *Store) Get(id string, thumb bool, offset int64) (*GetOut, error) {
 // thumbOf is the small copy of the image, made on first use and kept until the image goes. A type the daemon cannot decode (WebP), or
 // a picture too large to decode, has none: the caller serves the image itself.
 func (s *Store) thumbOf(info Info) (path, mime string, ok bool) {
+	if _, image := kinds[info.Mime]; !image {
+		return "", "", false
+	}
 	mime = "image/png"
 	if info.Mime == "image/jpeg" {
 		mime = "image/jpeg"

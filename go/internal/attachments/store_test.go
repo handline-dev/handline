@@ -117,7 +117,7 @@ func TestWrongOffsetSaysWhatTheDaemonHolds(t *testing.T) {
 
 func TestTypeIsCheckedByTheFirstBytes(t *testing.T) {
 	s, _, q := testStore(t)
-	_, err := s.Put(q, PutIn{Name: "a.png", Mime: "image/svg+xml", Bytes: 5, Data: []byte("<svg>")})
+	_, err := s.Put(q, PutIn{Name: "a.png", Mime: "not a type", Bytes: 5, Data: []byte("<svg>")})
 	wantErr(t, err, "bad_request", "mime", "")
 	_, err = s.Put(q, PutIn{Name: "a.png", Mime: "image/png", Bytes: 5, Data: []byte("hello")})
 	wantErr(t, err, "bad_request", "data", "")
@@ -451,4 +451,34 @@ func TestAJpegTurnedByItsExifIsSizedAsItIsDrawn(t *testing.T) {
 			t.Errorf("orientation %d, pad %d: %dx%d, want %dx%d", c.o, c.pad, info.Width, info.Height, c.want[0], c.want[1])
 		}
 	}
+}
+
+// Any file is kept as sent, under the type the client gave, stored with an ending from its name, and told to the agent by the same line.
+func TestAnyFileIsKeptAsSentAndToldByTheSamePathLine(t *testing.T) {
+	s, _, q := testStore(t)
+	pdf := []byte("%PDF-1.4 not an image")
+	for _, c := range []struct{ name, mime, ending string }{
+		{"spec.PDF", "application/pdf", ".pdf"}, {"notes", "text/plain", ".bin"}, {"run.sh;x", "application/x-sh", ".bin"},
+		{"a.verylongending", "application/zip", ".bin"}, {"fake.png", "image/svg+xml", ".png"},
+	} {
+		in := putAll(t, s, q, c.name, c.mime, pdf, 7)
+		if in.Mime != c.mime || in.Width != 0 || !strings.HasSuffix(s.Path(*in), c.ending) {
+			t.Fatalf("%+v at %s", in, s.Path(*in))
+		}
+		got, err := s.Get(in.ID, true, 0)
+		if err != nil || got.Mime != c.mime || got.Bytes != int64(len(pdf)) {
+			t.Fatalf("a thumb of a file is the file: %+v %v", got, err)
+		}
+		if st, err := os.Stat(s.Path(*in)); err != nil || st.Mode().Perm() != 0o600 {
+			t.Fatalf("a file is never executable: %v %v", st, err)
+		}
+	}
+	in := putAll(t, s, q, "spec.pdf", "application/pdf", pdf, 100)
+	line := s.line(1, *in)
+	if want := "[image 1: " + s.Path(*in) + " (application/pdf, 21 B)]"; line != want {
+		t.Fatalf("%q, want %q", line, want)
+	}
+	// an image that says so is still checked
+	_, err := s.Put(q, PutIn{Name: "a.png", Mime: "image/png", Bytes: 5, Data: []byte("hello")})
+	wantErr(t, err, "bad_request", "data", "")
 }

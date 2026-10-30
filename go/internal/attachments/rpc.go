@@ -22,7 +22,7 @@ func (s *Store) put(c *rpc.Conn, p map[string]any) (any, error) {
 	}
 	in.Name = name
 	if in.Mime, ok = p["mime"].(string); !ok {
-		return nil, badParam("mime is image/png, image/jpeg, image/gif or image/webp", "mime")
+		return nil, badParam("mime is a type such as application/pdf", "mime")
 	}
 	if in.Bytes, ok = rpc.AsInt(p["bytes"]); !ok {
 		return nil, badParam("bytes is the size of the whole file", "bytes")
