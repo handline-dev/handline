@@ -19,17 +19,7 @@ test('every case of stats_retro.json passes on the fake', async () => {
     await once(server, 'listening');
     const run = spawn(
       'python3',
-      [
-        join(ROOT, 'contract/conformance.py'),
-        sock,
-        '--var',
-        'founder_key=x',
-        '--var',
-        'retro_task=9001',
-        '--var',
-        'retro_plain_task=9003',
-        join(ROOT, 'contract/fixtures/stats_retro.json'),
-      ],
+      [join(ROOT, 'contract/conformance.py'), sock, '--var', 'founder_key=x', join(ROOT, 'contract/fixtures/stats_retro.json')],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
     let out = '';

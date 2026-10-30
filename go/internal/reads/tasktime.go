@@ -44,11 +44,16 @@ type stretch struct {
 
 // taskTime is task.time: where a task's time went, from its opening to its end (or now), as segments that cover it with no gap or overlap.
 func (e *Env) taskTime(c *rpc.Conn, params map[string]any) (any, error) {
+	return atNow(params, e.taskTimeAt)
+}
+
+// atNow runs a read of the task the params name at the present moment.
+func atNow(params map[string]any, read func(tid, now int64) (any, error)) (any, error) {
 	tid, err := optInt(params, "task")
 	if err != nil || tid == nil {
 		return nil, badParam("task is a task number", "task")
 	}
-	return e.taskTimeAt(*tid, time.Now().Unix())
+	return read(*tid, time.Now().Unix())
 }
 
 // taskRowSQL is the task row task.time and the expectation read.
@@ -60,9 +65,7 @@ func (e *Env) taskTimeAt(tid, now int64) (any, error) {
 		return nil, err
 	}
 	if t == nil {
-		nf := rpc.NotFoundError(fmt.Sprintf("no task T%d", tid))
-		nf.Data = map[string]any{"what": "task", "id": tid}
-		return nil, nf
+		return nil, noTask(tid)
 	}
 	start, end, segs, err := e.segments(t, now)
 	if err != nil {
@@ -115,17 +118,9 @@ func (e *Env) taskSpans(t row, start, end int64) ([]stretch, error) {
 		return nil, err
 	}
 	// A delivery that landed in its holder's session counts as the work begun, like a task_start; it is read as one more event in time order.
-	landed, err := query(e.DB, "SELECT r.landed_at AS ts, r.target FROM requests r JOIN task_requests l ON l.request_id = r.id "+
-		"WHERE l.task_id = ? AND r.landed_at IS NOT NULL AND r.target != 'human' ORDER BY r.landed_at, r.id", tid)
+	events, err = withDeliveries(e, tid, events)
 	if err != nil {
 		return nil, err
-	}
-	for _, d := range landed {
-		d["kind"] = "delivered"
-		i := sort.Search(len(events), func(i int) bool { return events[i].i("ts") > d.i("ts") })
-		events = append(events, nil)
-		copy(events[i+1:], events[i:])
-		events[i] = d
 	}
 	var spans []stretch
 	open := func(from int64, rank int, text string, task int64) int {
@@ -322,4 +317,28 @@ func cover(spans []stretch, start, end int64) []stretch {
 		out = append(out, stretch{from: a, to: b, rank: top.rank, text: top.text, task: top.task})
 	}
 	return out
+}
+
+// noTask is the not_found of a task that is not there.
+func noTask(tid int64) error {
+	nf := rpc.NotFoundError(fmt.Sprintf("no task T%d", tid))
+	nf.Data = map[string]any{"what": "task", "id": tid}
+	return nf
+}
+
+// withDeliveries puts the task's landed deliveries among its events in time order, as kind "delivered" with the target in "agent" and "target".
+func withDeliveries(e *Env, tid int64, events []row) ([]row, error) {
+	landed, err := query(e.DB, "SELECT r.landed_at AS ts, r.target, r.target AS agent FROM requests r JOIN task_requests l ON l.request_id = r.id "+
+		"WHERE l.task_id = ? AND r.landed_at IS NOT NULL AND r.target != 'human' ORDER BY r.landed_at, r.id", tid)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range landed {
+		d["kind"] = "delivered"
+		i := sort.Search(len(events), func(i int) bool { return events[i].i("ts") > d.i("ts") })
+		events = append(events, nil)
+		copy(events[i+1:], events[i:])
+		events[i] = d
+	}
+	return events, nil
 }

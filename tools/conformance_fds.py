@@ -74,6 +74,7 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
                         "parent": None, "needs_you": None}
                 con.execute("INSERT OR REPLACE INTO agent_view(agent, view, updated) VALUES(?, ?, 0)", (n, json.dumps(view)))
             seed_doing(con)
+            seed_retro(con)
             seed_tool_items(con, output_agent)
             seed_session_start(con, output_agent)
             seed_workroom(home, con)
@@ -165,6 +166,22 @@ esac
 ASK_AGENT = "s.ask"
 # agent.get.doing_names_the_tool_call: a running agent whose turn's newest tool call is Bash `sleep 30`, as the tick stores it.
 DOING_AGENT = "s.doing"
+
+
+def seed_retro(con: sqlite3.Connection) -> None:
+    """stats_retro.json: founder's task 9001 with 9002 under it, both done; grp.one did 9002 and grp.two 9001, each for 1800 s, with one
+    call of grp.one after its window; 9003 answers to an agent."""
+    for a in ("grp.one", "grp.two"):
+        con.execute("INSERT OR REPLACE INTO agent_state(agent, state, account, worktree, updated) VALUES(?, 'IDLE', 'a', ?, 0)", (a, f"/retro/{a}"))
+    con.execute("INSERT OR REPLACE INTO tasks(id, title, owner, opened_by, reporter, created_at, done_at, done_evidence) VALUES(9001, 'retro', 'grp.two', 'human', 'human', 1000, 4600, 'ok')")
+    con.execute("INSERT OR REPLACE INTO tasks(id, title, owner, opened_by, reporter, parent_task, created_at, done_at, done_evidence) VALUES(9002, 'retro child', 'grp.one', 'grp.two', 'grp.two', 9001, 1000, 2800, 'ok')")
+    con.execute("INSERT OR REPLACE INTO tasks(id, title, owner, opened_by, reporter, created_at, done_at, done_evidence) VALUES(9003, 'retro plain', 'grp.one', 'human', 'grp.two', 1000, 4600, 'ok')")
+    for ts, agent, kind, task in ((1000, "grp.one", "task_start", 9002), (2800, "grp.one", "mark_task_done", 9002),
+                                  (2800, "grp.two", "task_start", 9001), (4600, "grp.two", "mark_task_done", 9001)):
+        con.execute("INSERT INTO events(ts, agent, kind, payload) VALUES(?, ?, ?, ?)", (ts, agent, kind, json.dumps({"task_id": task})))
+    for ts, who, n in ((1500, "grp.one", 100), (3000, "grp.one", 500), (3000, "grp.two", 200)):
+        con.execute("INSERT OR REPLACE INTO token_calls(account, session, req, ts, model, cwd, side, inp, cc, cr, out, thinking) VALUES('a', 's', ?, ?, 'm', ?, 0, ?, 0, 0, 0, 0)",
+                    (f"retro-{who}-{ts}", ts, f"/retro/{who}", n))
 
 
 def seed_doing(con: sqlite3.Connection) -> None:
