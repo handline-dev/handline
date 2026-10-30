@@ -1,9 +1,9 @@
 // One task: title, status and a History button, the Time line, why it waits, assignee, priority and time box as chips, the brief (folded), what it
-// waits on and what hangs under it, one Activity list, and along the bottom Done, Assign, Comment, Cancel and More. A verb that does not apply is
-// hidden; one the daemon does not serve yet is shown disabled.
+// waits on and what hangs under it, one Activity list, and along the bottom the one main verb (Done). The rest are in the ... menu in the header.
+// A verb that does not apply is hidden; one the daemon does not serve yet is shown disabled.
 import { TaskNotes } from '#src/PhotoNotes.tsx';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { dateTime, HELD, isPerson, taskRef, watchResult } from '@handline/app-core';
+import { dateTime, HELD, isPerson, splitNew, taskRef, watchResult } from '@handline/app-core';
 import { useHello, useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
@@ -24,6 +24,7 @@ import { Markdown } from '#src/Markdown.tsx';
 import { RichText } from '#src/RichText.tsx';
 import { View } from '#src/View.tsx';
 import { typing } from '#src/typing.ts';
+import { useWorkspaceIfAny } from '#src/Workspace.tsx';
 
 const CLOSED = ['done', 'discarded'];
 /** The bridge's own sentence for a key that does not apply. */
@@ -196,6 +197,28 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
     ...(startable && mine ? [item('Withdraw', 'w', verbs.w, can.withdraw)] : []),
     ...(open ? [item('Discard', 'd', verbs.d, can.discard)] : []),
   ];
+  const workspace = useWorkspaceIfAny();
+  const copy = (text: string) => () => void navigator.clipboard?.writeText(text);
+  const ok = { ok: true };
+  // The ... menu: the rest of the verbs, then what any task offers.
+  const actions = [
+    ...(open ? [item('Assign', 'o', verbs.o, edit.can)] : []),
+    item('Comment', 'a', verbs.a, ok),
+    ...(open ? [item('Cancel task', 'c', verbs.c, can.cancel)] : []),
+    ...more,
+    item('Copy link', '', copy(`${location.origin}${location.pathname}#/tasks/${t.id}`), ok),
+    item('Copy number', '', copy(taskRef(t.id)), ok),
+    ...(workspace && t.id > 0
+      ? [
+          item(
+            'Open in split',
+            '',
+            () => workspace.drop(splitNew(workspace.ws, 'tasks', { task: t.id, pinned: 1 }, workspace.ws.active, 'right')),
+            ok,
+          ),
+        ]
+      : []),
+  ];
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
   return (
     <TaskNotes task={t.id}>
@@ -224,6 +247,16 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
             <StateChip state={t.state} mark={mark} word to={t.to} result={watchResult(t)} />
           )}
           <HistoryButton id={t.id} />
+          <span className="relative ml-auto inline-flex">
+            <MenuButton size="sm" icon="ellipsis" label="More" className="max-sm:min-h-[44px]">
+              {actions.map((v) => (
+                <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
+                  {v.label}
+                </MenuItem>
+              ))}
+            </MenuButton>
+            <AssignPopover t={t} me={me} open={ask === 'assign'} onClose={() => setAsk(null)} />
+          </span>
         </header>
         <p className="m-0 mt-1 text-xs text-ink-3">
           Asked by <AgentLink name={t.from} /> · created {dateTime(t.created)}
@@ -289,35 +322,6 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
                 {main.busy ? '…' : main.label}
               </DsButton>
             ) : null}
-            {open ? (
-              <span className="relative inline-flex">
-                <DsButton
-                  label="Assign"
-                  title={edit.can.why ?? 'Assign (o)'}
-                  disabled={!edit.can.ok}
-                  className="max-sm:min-h-[44px]"
-                  onClick={() => setAsk(ask === 'assign' ? null : 'assign')}
-                />
-                <AssignPopover t={t} me={me} open={ask === 'assign'} onClose={() => setAsk(null)} up />
-              </span>
-            ) : null}
-            <DsButton label="Comment" title="Comment (a)" className="max-sm:min-h-[44px]" onClick={verbs.a} />
-            {open ? (
-              <DsButton
-                label="Cancel task"
-                title={can.cancel.why ?? 'Cancel task (c)'}
-                disabled={!can.cancel.ok}
-                className="max-sm:min-h-[44px]"
-                onClick={verbs.c}
-              />
-            ) : null}
-            <MenuButton label="More" trigger="More ▾" variant="outline" className="max-sm:min-h-[44px]">
-              {more.map((v) => (
-                <MenuItem key={v.label} disabled={!v.can.ok} title={v.can.why} onSelect={v.run}>
-                  {v.label}
-                </MenuItem>
-              ))}
-            </MenuButton>
           </div>
         </div>
       </div>
