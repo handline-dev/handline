@@ -73,7 +73,7 @@ function Inline({ text, agent }: { text: string; agent?: string }) {
   return <>{parts}</>;
 }
 
-const runOf = (m: { id: number; runs?: CommandRun[]; prefix?: string }, index: number): BlockRef => ({
+export const runOf = (m: { id: number; runs?: CommandRun[]; prefix?: string }, index: number): BlockRef => ({
   message: m.id,
   index,
   prefix: m.prefix,

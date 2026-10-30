@@ -104,4 +104,25 @@ describe('Markdown in a chat message', () => {
       await act(async () => void (await new Promise((r) => setTimeout(r, 10))));
     expect((await runs())?.find((r) => r.block === `${id}:1`)?.state).toBe('running');
   });
+  it('a shell fence in an agent reply shows the Done line of the run keyed r<id>:<n>', async () => {
+    const s = setup();
+    s.daemon.chat.seedItem(ARCH, { kind: 'reply', text: 'Try:\n```bash\ntrue\n```' });
+    location.hash = `#/agents/${ARCH}`;
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(<App store={new Store(s.client)} daemon="test" storage={memory()} />);
+    });
+    const wait = async (cond: () => unknown) => {
+      for (let i = 0; i < 300 && !cond(); i++) await act(async () => void (await new Promise((r) => setTimeout(r, 10))));
+    };
+    await wait(() => box.querySelector('[data-kind="reply"] .command-card'));
+    const card = box.querySelector<HTMLElement>('[data-kind="reply"] .command-card')!;
+    const button = (c: HTMLElement, label: string) =>
+      [...c.querySelectorAll<HTMLButtonElement>('button')].find((b) => (b.title || b.getAttribute('aria-label') || '').startsWith(label));
+    await act(async () => button(card, 'Run in ')!.click());
+    await act(async () => button(card.querySelector<HTMLElement>('[role=alertdialog]')!, 'Run')!.click());
+    await wait(() => card.querySelector('[data-run]'));
+    expect(card.querySelector('[data-run]')?.textContent).toContain('✓ Done · exit 0');
+  });
 });
