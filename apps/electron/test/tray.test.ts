@@ -108,7 +108,7 @@ test('Option shows the mode, the daemon, the commit and the switches; the addres
   assert.ok(!labels('running', '', follow(), mode(), view()).includes('Check for update'));
 });
 
-test('a daemon that is not the app build is told in the menu, with Restart daemon when this app can move it', () => {
+test('a daemon that is not the app build gets a Restart daemon item, without a warning line, when this app can move it', () => {
   const link = {
     status: 'connected' as const,
     address: 'a',
@@ -118,9 +118,9 @@ test('a daemon that is not the app build is told in the menu, with Restart daemo
   };
   assert.deepEqual(labels('running', '', undefined, mode({ link, restartDaemon: () => calls.push('restart-daemon') })).slice(1, 4), [
     '-',
-    '⚠ Daemon is 0000000, app is abc123d',
     'Restart daemon',
+    '-',
   ]);
   assert.ok(!labels('running', '', undefined, mode({ link })).includes('Restart daemon')); // another device's daemon
-  assert.ok(!labels('running', '', undefined, mode()).some((l) => l.includes('Daemon is'))); // matching builds say nothing
+  assert.ok(!labels('running', '', undefined, mode({ link })).some((l) => l.includes('Daemon is'))); // never a warning line
 });

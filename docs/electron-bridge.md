@@ -34,7 +34,7 @@ One object, `window.handline`, made by a preload with `contextBridge`. No other 
 | `openIn`, `openInApps` | page → shell | Open in menu | §4.6; the menu shows only Copy path |
 | `mode`, `setMode`, `pairRemote`, `phone` | page → shell | modes | the pairing screen shows no mode section |
 | `network`, `setNetwork` | page → shell | devices on the network | §4.3b; Settings > Computers shows no switch |
-| `build`, `restartDaemon` | page → shell | daemon build | the top bar never says the daemon is another build |
+| `build`, `restartDaemon` | page → shell | daemon build | the daemon is moved without a click; only a failure shows |
 | `settingsGet`, `settingsSet` | page → shell | the window is a paired device, which the daemon refuses `settings.get` and `settings.set`; the shell's founder connection makes just these two calls, with the same sender and argument checks (only the keys the Settings page edits, plain values, no other method) | the page calls the daemon itself |
 
 ## 3. Badge, notices, update, and the notice's click
@@ -158,7 +158,7 @@ The pairing screen's part in the app's two modes (Connect to a daemon, Run its o
 
 ### 4.3a `build`, `restartDaemon`
 
-An Update replaces the app and the daemon as one set (the build id is the 12-char git sha, stamped into `dist/build.json`). `build()` gives `{ sha, canRestart }`: the app's sha (null when it has none) and whether the daemon is one this app can move (false when paired with another device's). The page compares `sha` with hello's `daemon` (app-core `mismatch`) and shows “Daemon is x, app is y” in the top bar with Restart daemon. `restartDaemon()` builds the daemon (a checkout), has it re-exec onto the app's own handlined with `daemon.upgrade`, and resolves once it reports the app's sha; `cannot_restart` carries the reason. Same sender checks as the rest.
+An Update replaces the app and the daemon as one set (the build id is the 12-char git sha, stamped into `dist/build.json`). `build()` gives `{ sha, canRestart }`: the app's sha (null when it has none) and whether the daemon is one this app can move (false when paired with another device's). `canRestart` is also false while a newer build waits on disk (the follow offer moves app and daemon together). The page compares `sha` with hello's `daemon` (app-core `mismatch`); when they differ and `canRestart`, it calls `restartDaemon()` once per pair of builds, with no click, and shows a closable “Daemon not restarted” notice with Try again only if that fails. `restartDaemon()` builds the daemon (a checkout), has it re-exec onto the running app's own handlined with `daemon.upgrade`, and resolves once it reports the running app's sha; `cannot_restart` carries the reason. Same sender checks as the rest.
 
 ## 5. Tests
 

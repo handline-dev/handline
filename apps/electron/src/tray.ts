@@ -154,9 +154,7 @@ export function trayMenu(
   const notes: TrayItem[] = [];
   if (view.unread > 0) notes.push({ label: `Needs you · ${badgeText(view.unread)}`, click: a.inbox });
   notes.push(...(trouble(state, reason, a, m) ?? []));
-  const apart = m?.link.mismatch();
-  if (apart)
-    notes.push({ label: `⚠ ${apart}`, enabled: false }, ...(m?.restartDaemon ? [{ label: 'Restart daemon', click: m.restartDaemon }] : []));
+  if (m?.link.mismatch() && m.restartDaemon) notes.push({ label: 'Restart daemon', click: m.restartDaemon });
   const u = view.update;
   if (u?.phase === 'preparing') notes.push({ label: 'Updating Handline…', enabled: false });
   if (u?.phase === 'ready' || u?.phase === 'later')
