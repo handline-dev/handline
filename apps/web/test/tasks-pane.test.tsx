@@ -218,6 +218,7 @@ describe('the task page ... menu', () => {
     expect(list).toContain('Cancel task');
     expect(list).not.toContain('Assign');
     expect(list).not.toContain('Comment');
+    expect(list).not.toContain('Open in split');
   });
 
   it('a closed task has no Cancel, Discard or Add sub-task', async () => {
