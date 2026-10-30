@@ -143,8 +143,10 @@ type Conn struct {
 	Pid        int
 	Caller     Caller
 	saidHello  bool
-	buildNoted bool    // a client_build that differs from Sha has been logged on this connection
-	fixed      *Caller // a relayed device's caller, which hello does not replace
+	buildNoted bool // a client_build that differs from Sha has been logged on this connection
+	// helloClient and helloKey are what the last hello said: its client name, and whether it carried the founder key, another key or none.
+	helloClient, helloKey string
+	fixed                 *Caller // a relayed device's caller, which hello does not replace
 	// Remote is the peer's host on the network listener, "" elsewhere.
 	Remote     string
 	closeFn    func()
@@ -460,6 +462,7 @@ func (c *Conn) route(msg any, raw []byte) (routed, error) {
 		return routed{}, BadRequestError("no such method: "+name, "method", NoSuchMethod)
 	}
 	if !c.Caller.Allows(m.Role) {
+		c.logRefusal(name, m.Role)
 		return routed{}, Refused(fmt.Sprintf("%s is for a %s or above; this caller is %s", name, m.Role, c.Caller.Role), "role", "")
 	}
 	// A call that waits runs on its own goroutine while a later hello may replace c.Caller: it gets the caller as
@@ -595,9 +598,15 @@ func hello(c *Conn, params map[string]any) (any, error) {
 		c.Caller = Caller{"founder", map[string]any{"kind": "device", "device": id, "name": name}}
 	} else if c.fixed == nil {
 		c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
-		if c.Caller.Role == "founder" {
-			client, _ := params["client"].(string)
-			c.srv.noteFounderKey(c.Pid, client)
+		c.helloClient, _ = params["client"].(string)
+		switch {
+		case key == "":
+			c.helloKey = "no key"
+		case c.Caller.Role == "founder":
+			c.helloKey = "the founder key"
+			c.srv.noteFounderKey(c.Pid, c.helloClient)
+		default:
+			c.helloKey = "a key that is not the founder's"
 		}
 	}
 	// Logged once the caller is known, and quoted: an unproven caller's words do not shape the log.

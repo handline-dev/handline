@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -259,3 +260,39 @@ func TestAWaitingCallKeepsTheCallerItWasRoutedWithWhileAnotherHelloReplacesIt(t 
 }
 
 func (f fakeAuth) SessionsReadable() error { return nil }
+
+// A founder's method refused to a caller that is not an agent is logged with what its hello said; an agent's refusal is by design and is not.
+func TestARefusedFoundersCallIsLoggedWithWhatItsHelloSaid(t *testing.T) {
+	for _, c := range []struct {
+		auth  fakeAuth
+		hello string
+		want  string // "" for no log line
+	}{
+		{fakeAuth{key: "k"}, `{"client":"electron","protocol":1}`, `refused only.founder: needs founder, caller is anonymous; hello from "electron" with no key`},
+		{fakeAuth{key: "k"}, `{"client":"electron","protocol":1,"key":"old"}`, `caller is anonymous; hello from "electron" with a key that is not the founder's`},
+		{fakeAuth{agent: "bob", key: "k"}, `{"client":"hl","protocol":1}`, ""},
+	} {
+		var logged []string
+		srv := NewServer(c.auth, "abc1234", 7, "local", func(f string, a ...any) { logged = append(logged, fmt.Sprintf(f, a...)) })
+		srv.Register("only.founder", Method{Role: "founder", Handler: func(*Conn, map[string]any) (any, error) { return map[string]any{}, nil }})
+		cl, sv := net.Pipe()
+		done := make(chan struct{})
+		go func() { srv.Serve(NewLineTransport(sv), 0); sv.Close(); close(done) }()
+		conn := &client{cl, bufio.NewReader(cl)}
+		conn.raw(t, `{"jsonrpc":"2.0","id":1,"method":"hello","params":`+c.hello+`}`)
+		if _, code := errOf(t, conn.raw(t, `{"jsonrpc":"2.0","id":2,"method":"only.founder","params":{}}`)); code != "refused" {
+			t.Fatalf("%s: %s", c.hello, code)
+		}
+		cl.Close()
+		<-done
+		line := ""
+		for _, l := range logged {
+			if strings.Contains(l, "refused only.founder") {
+				line = l
+			}
+		}
+		if (c.want == "") != (line == "") || !strings.Contains(line, c.want) {
+			t.Fatalf("%s: %q", c.hello, logged)
+		}
+	}
+}
