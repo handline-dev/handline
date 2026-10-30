@@ -13,7 +13,7 @@ import { serveCapture } from '#src/capture.ts';
 import { gitView, scratch } from '#src/git-view.ts';
 import { Dropper } from '#src/drop.ts';
 import { Opener } from '#src/open.ts';
-import { OpenIn } from '#src/open-in.ts';
+import { handleOpenIn } from '#src/open-in-serve.ts';
 import { Devices } from '#src/devices.ts';
 import { Preview } from '#src/preview.ts';
 import { followMain, takeRoute } from '#src/follow-app.ts';
@@ -262,26 +262,6 @@ function handleUpdate(origin: string, flow: UpdateFlow, redraw: () => void): voi
 function handleFounderCalls(origin: string, client: DaemonClient, remote: Remote | null, tmp: string): void {
   handleSettings(origin, client, remote);
   handleOpenIn(origin, client, tmp);
-}
-
-/** openIn and openInApps with the machine's own pieces: the shell's founder connection for the folder and the tmux command, and /usr/bin/open through execFile. */
-function handleOpenIn(origin: string, client: DaemonClient, tmp: string): void {
-  const openIn = new OpenIn(origin, {
-    platform: process.platform,
-    home: os.homedir(),
-    tmp,
-    worktreeOf: async (agent) => (await client.call('agent.get', { agent })).worktree?.path ?? null,
-    attachOf: async (agent) => (await client.call('terminal.open', { agent })).attach?.argv ?? null,
-    exec: (file, args) => new Promise((resolve, reject) => execFile(file, args, (err) => (err ? reject(err) : resolve()))),
-    exists: (p) =>
-      fs.promises.access(p).then(
-        () => true,
-        () => false,
-      ),
-    later: (fn, ms) => void setTimeout(fn, ms).unref(),
-  });
-  ipcMain.handle(CHANNELS.openIn, (e, arg) => openIn.open(e, arg));
-  ipcMain.handle(CHANNELS.openInApps, (e) => openIn.apps(e));
 }
 
 /** The app window: the page gets window.handline and nothing else, and the window never leaves the loopback origin. */
