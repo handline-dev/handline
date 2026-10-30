@@ -17,7 +17,7 @@ export function SplitView({ agent, beside, daemon, storage }: { agent: string; b
   const [dragging, setDragging] = useState(false);
   const [over, setOver] = useState<Half | null>(null);
   useEffect(() => {
-    const start = (e: globalThis.DragEvent) => setDragging(!!e.dataTransfer?.types.includes(AGENT_DRAG));
+    const start = (e: globalThis.DragEvent) => setDragging(!!e.dataTransfer?.types?.includes(AGENT_DRAG));
     const end = () => (setDragging(false), setOver(null));
     addEventListener('dragstart', start);
     addEventListener('dragend', end);
@@ -42,7 +42,7 @@ export function SplitView({ agent, beside, daemon, storage }: { agent: string; b
       className={`absolute inset-y-0 ${side === 'left' ? 'left-0' : 'right-0'} w-1/2 border-2 border-dashed ${over === side ? 'border-acc bg-[color-mix(in_srgb,var(--acc)_14%,transparent)]' : 'border-transparent'}`}
       data-drop-half={side}
       onDragOver={(e) => {
-        if (!e.dataTransfer.types.includes(AGENT_DRAG)) return;
+        if (!e.dataTransfer?.types?.includes(AGENT_DRAG)) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
         setOver(side);
