@@ -371,7 +371,6 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
                 {windowed && win.hasNewer ? <div ref={lower} aria-hidden className="h-px" /> : null}
                 {drawn ? <HrCards agent={agent} /> : null}
                 {drawn && restartAt < 0 ? <HandoffCard detail={detail} items={chat.items} /> : null}
-                {drawn && !detail.prompt ? <NeedsYouCard detail={detail} /> : null}
                 {drawn ? <HeldCard detail={detail} /> : null}
                 {drawn ? <BlockedCard detail={detail} /> : null}
                 {/* The last row of the stream is always held, so the indicator coming and going never moves the messages above it. */}
@@ -387,6 +386,7 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
           <div className="cards px-3">
             <PromptSlot agent={agent} prompt={detail.prompt} />
           </div>
+          {drawn && !detail.prompt ? <NeedsYouCard detail={detail} /> : null}
           <Compose
             key={agent}
             agent={agent}

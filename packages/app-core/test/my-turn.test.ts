@@ -114,6 +114,16 @@ test("a daemon stall's card uses the daemon's title and sentence, not one built 
   ]);
 });
 
+test('a stall the daemon raised has one button: Try again for a start that failed, the terminal otherwise', () => {
+  const stall = (name: string, kind: 'trust' | 'start_failed' | 'no_session') =>
+    agent({ name, needs_you: { kind, since: '2026-10-15T00:00:00Z', title: 't', text: null, source: 'daemon' } });
+  const cards = myTurn({ items: [], agents: [stall('t', 'trust'), stall('s', 'start_failed'), stall('n', 'no_session')], tasks: [] });
+  const actions = (name: string) => cards.find((c) => c.agent === name)!.actions.map((a) => a.type);
+  assert.deepEqual(actions('t'), ['terminal']);
+  assert.deepEqual(actions('s'), ['retry']);
+  assert.deepEqual(actions('n'), ['retry']);
+});
+
 test('has_dialog without needs_you is a dialog card with only Open terminal', () => {
   const cards = myTurn({ items: [], agents: [agent({ has_dialog: true, state_detail: 'Trust this folder?' })], tasks: [] });
   assert.equal(cards[0]!.kind, 'dialog');

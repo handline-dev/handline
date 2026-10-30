@@ -25,6 +25,8 @@ export type CardAction =
   | { type: 'worktree'; item: InboxItem; answer: WorktreeAnswer }
   | { type: 'open'; to: string }
   | { type: 'terminal'; agent: string }
+  /** A start that failed: clear the stall so the agent is started again. */
+  | { type: 'retry'; agent: string }
   | { type: 'read'; id: number };
 
 export type WorktreeAnswer = 'keep' | 'save' | 'force';
@@ -280,13 +282,16 @@ export function myTurn({ items, agents, tasks, titles, machine = [], me = '' }: 
       ...w,
       since: at(n.since),
       primary: 1,
-      // A dialog the daemon does not know has no Allow or Deny: the terminal is the only way.
-      actions: dialog
-        ? [{ type: 'terminal', agent: a.name }]
-        : [
-            { type: 'open', to: `#/agents/${encodeURIComponent(a.name)}` },
-            { type: 'terminal', agent: a.name },
-          ],
+      // A dialog the daemon does not know has no Allow or Deny: the terminal is the only way. A stall the daemon raised has its one button.
+      actions:
+        n.kind === 'start_failed' || n.kind === 'no_session'
+          ? [{ type: 'retry', agent: a.name }]
+          : dialog || n.kind === 'trust'
+            ? [{ type: 'terminal', agent: a.name }]
+            : [
+                { type: 'open', to: `#/agents/${encodeURIComponent(a.name)}` },
+                { type: 'terminal', agent: a.name },
+              ],
     });
   }
 

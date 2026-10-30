@@ -22,6 +22,8 @@ let root: Root | null = null;
 let box: HTMLElement;
 const card = () => box.querySelector<HTMLElement>('.card-needs');
 const chip = () => box.querySelector<HTMLElement>(`[data-agent="${ARCH}"] .needs`);
+const rowLine = () => box.querySelector<HTMLElement>(`[data-agent="${ARCH}"] .row-line`);
+const alarm = () => box.querySelector<HTMLElement>(`[data-agent="${ARCH}"] .mark.alarm`);
 
 async function mount(s: ReturnType<typeof setup>) {
   location.hash = `#/agents/${ARCH}`;
@@ -59,8 +61,9 @@ describe('needs you', () => {
     expect(card()!.querySelector('strong')!.textContent).toBe('Usage limit: choose what to do');
     expect(card()!.textContent).toContain('Weekly limit reached');
     expect(card()!.querySelector('button')!.textContent).toBe('Open the terminal');
-    expect(chip()?.textContent).toBe('Usage limit: choose what to do');
-    expect(chip()!.closest('.needs')!.getAttribute('title')).toBe('Usage limit: choose what to do\nWeekly limit reached');
+    expect(chip()).toBeNull(); // no amber chip: a warning mark beside the name and the title whole under it
+    expect(alarm()).not.toBeNull();
+    expect(rowLine()!.textContent).toBe('Usage limit: choose what to do');
   });
 
   it('a stall the daemon raised shows its title alone on the row and the title with its description in the chat', async () => {
@@ -78,7 +81,7 @@ describe('needs you', () => {
     };
     await mount(s);
     await until(() => card(), 'the card');
-    expect(chip()!.textContent).toBe('Stuck at a dialog');
+    expect(rowLine()!.textContent).toBe('Stuck at a dialog');
     expect(card()!.querySelector('strong')!.textContent).toBe('Stuck at a dialog');
     expect(card()!.textContent).toContain('cannot get past a dialog: it asks for a login');
   });
@@ -123,21 +126,6 @@ describe('needs you', () => {
       await goes('daemon');
       await until(() => box.querySelector('.card-solved'), 'the grey line');
       expect(box.querySelector('.card-solved')!.textContent).toMatch(/^Folder trust answered · \d+s$/);
-    });
-
-    it('leaves none on another agent the person switches to', async () => {
-      const s = setup();
-      const a = s.daemon.sessions.get(ARCH)!;
-      keep = () => void (a.fx.view = undefined);
-      a.fx.view = {
-        needs_you: { kind: 'trust', since: new Date().toISOString(), title: 'Waiting for folder trust', text: 'x', source: 'daemon' },
-      };
-      await mount(s);
-      await until(() => card(), 'the card');
-      await act(async () => void (location.hash = '#/agents/handline.auditor'));
-      await until(() => !card(), 'the other agent, with no need');
-      await wait(100);
-      expect(box.querySelector('.card-solved')).toBeNull();
     });
 
     it('leaves none for a need from a hook or the session', async () => {

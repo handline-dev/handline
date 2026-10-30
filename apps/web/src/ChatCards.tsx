@@ -19,6 +19,7 @@ import { Icon } from '#src/ui/index.ts';
 import { Button } from '#src/ds/Button.tsx';
 import { ExternalLink, Terminal } from 'lucide-react';
 import { Notice } from '#src/ds/Chat.tsx';
+import { StateMark } from '#src/ds/StateMark.tsx';
 import { goTeam } from '#src/route.ts';
 import { AgentGauges, GaugeLine } from '#src/AgentGauges.tsx';
 import { AccountMenu, ModelMenu } from '#src/AgentPickers.tsx';
@@ -181,6 +182,19 @@ const SOLVED: Record<string, string> = {
   "Woke but didn't start": 'Started',
 };
 
+/** The daemon stall `title` this agent is under (null for none), and once it ends, which one it was and when: kept only for the agent it was seen on. */
+export function useSolvedStall(agent: string, title: string | null): { title: string; at: string } | null {
+  const [solved, setSolved] = useState<{ agent: string; title: string; at: string } | null>(null);
+  const [seen, setSeen] = useState<{ agent: string; title: string } | null>(null);
+  if (title && (seen?.agent !== agent || seen.title !== title)) setSeen({ agent, title });
+  if (title && solved) setSolved(null);
+  if (!title && seen) {
+    if (seen.agent === agent) setSolved({ ...seen, at: new Date().toISOString() });
+    setSeen(null);
+  }
+  return !title && solved?.agent === agent ? solved : null;
+}
+
 /** What the agent waits on a person for; a daemon stall that clears leaves one grey line, so the person sees it was solved. */
 export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
   // A daemon that reads the screen sets has_dialog and serves no needs_you: the card still says it, with the daemon's own line.
@@ -192,17 +206,9 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
   const openTerminal = useOpenTerminal(detail);
   const run = useVerbRun(detail.name);
   const now = useNow();
-  const [solved, setSolved] = useState<{ agent: string; title: string; at: string } | null>(null);
-  const [seen, setSeen] = useState<{ agent: string; title: string } | null>(null);
-  const title = need?.source === 'daemon' && SOLVED[need.title] ? need.title : null;
-  if (title && (seen?.agent !== detail.name || seen.title !== title)) setSeen({ agent: detail.name, title });
-  if (title && solved) setSolved(null);
-  if (!title && seen) {
-    if (seen.agent === detail.name) setSolved({ ...seen, at: new Date().toISOString() });
-    setSeen(null);
-  }
+  const solved = useSolvedStall(detail.name, need?.source === 'daemon' && SOLVED[need.title] ? need.title : null);
   if (!need) {
-    return solved?.agent === detail.name ? (
+    return solved ? (
       <div className="card-solved text-meta text-ink-2" data-kind="solved" role="status">
         {SOLVED[solved.title]} · {ago(solved.at, now)}
       </div>
@@ -211,23 +217,23 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
   const reachable = detail.structured || !!detail.terminal;
   const again = need.kind === 'start_failed' || need.kind === 'no_session';
   return (
-    <Notice
-      icon={<Icon name="blocked" label="Needs you" />}
-      className="card-needs"
+    <div
+      className="card-needs mx-3 mb-2 flex max-w-[680px] flex-col items-start gap-2 rounded-lg border border-line bg-surface px-4 py-3 text-sm text-ink-2"
       data-kind="needs_you"
       data-need={need.kind}
-      actions={
-        again ? (
-          <Button size="s" label="Try again" onClick={() => run(VERBS.clear_stall)} />
-        ) : (
-          <Button size="s" icon={Terminal} label="Open the terminal" disabled={!reachable} onClick={openTerminal} />
-        )
-      }
     >
-      <strong>{need.title}</strong>
-      <span className="muted"> · {ago(need.since)}</span>
-      {need.text ? <span className="muted block">{need.text}</span> : null}
-    </Notice>
+      <div className="flex items-center gap-2">
+        <StateMark state="alarm" label="Needs you" />
+        <strong className="text-ink">{need.title}</strong>
+        <span className="muted">· {ago(need.since)}</span>
+      </div>
+      {need.text ? <span>{need.text}</span> : null}
+      {again ? (
+        <Button size="s" label="Try again" onClick={() => run(VERBS.clear_stall)} />
+      ) : (
+        <Button size="s" icon={Terminal} label="Open the terminal" disabled={!reachable} onClick={openTerminal} />
+      )}
+    </div>
   );
 }
 

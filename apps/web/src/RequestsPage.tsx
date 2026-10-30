@@ -2,8 +2,8 @@
 // beside the open item. A row only opens the item; the answer is given in the detail, which ends with its answers and nothing after them.
 import { ChevronRight, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { APPROVED, WORKTREE_WORDS, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
-import { classify, sentence, useAgents, useMyTurn, useWrite } from '@handline/app-data';
+import { APPROVED, VERBS, WORKTREE_WORDS, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
+import { classify, sentence, useAgents, useMyTurn, useVerbRun, useWrite } from '@handline/app-data';
 import { useKeepPlace } from '#src/useKeepPlace.ts';
 import { Fold } from '#src/Fold.tsx';
 import { NewTask } from '#src/NewTask.tsx';
@@ -106,7 +106,9 @@ function label(a: CardAction): string {
     case 'open':
       return 'Open';
     case 'terminal':
-      return 'Open terminal';
+      return 'Open the terminal';
+    case 'retry':
+      return 'Try again';
     case 'read':
       return 'Mark read';
   }
@@ -139,6 +141,7 @@ function CardDetail({
   const read = useWrite('inbox.mark_read');
   const [change, setChange] = useState(false);
   const [sure, setSure] = useState(false);
+  const verb = useVerbRun(card.agent ?? '');
   const [asking, setAsking] = useState(false);
   const [text, setText] = useState('');
   // The daemon's own words for a refused write; the buttons stay usable.
@@ -190,6 +193,8 @@ function CardDetail({
         return card.task != null ? goTasks(card.task) : goHash(a.to);
       case 'terminal':
         return goTerminal(a.agent);
+      case 'retry':
+        return verb(VERBS.clear_stall);
       case 'read':
         return holdWrites('Marked read', [['inbox.mark_read', { ids: [a.id] }]]);
     }

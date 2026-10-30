@@ -62,6 +62,7 @@ export const rowWord = (a: AgentView): string => {
 
 /** The line under the name: what it is doing now in words, else a request to the founder they have not seen, else the title of its held task, else its last message; '' when none. */
 export function agentLine(a: AgentView): string {
+  if (a.needs_you) return a.needs_you.title; // the alarm's title whole, with the warning mark beside the name
   if (a.handoff) {
     const { why, what } = handoffLine(a.handoff);
     return `${why}: ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
