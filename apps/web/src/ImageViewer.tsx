@@ -1,7 +1,4 @@
-// The one enlarged view of a picture: the photo on a dimmed scrim with room round it. Esc or a click on the scrim closes it, arrows step through
-// several, wheel / pinch / double click zoom (ViewerStage.tsx). Where the screen has a place for notes (PhotoNotes.tsx), M or the button below the
-// photo starts marking: drag to draw numbered boxes, a note for each, then ONE button sends them. Every place that shows an attached image opens
-// this; a picture is an uploaded id or, for a draft not yet sent, its local preview URL.
+// The one enlarged view of a picture: dimmed scrim, zoom (ViewerStage.tsx) and, under a PhotoNotes place, marking what to change.
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { initialMarks, keptMarks, marksReducer, marksToShapes } from '@handline/app-core';
 import { sentence, classify, useAttachmentUrl } from '@handline/app-data';
@@ -149,12 +146,11 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
                 variant="solid"
                 label="Discard"
                 onClick={() => {
-                  dispatch({ type: 'cancel' });
+                  dispatch({ type: 'clear' });
                   if (asking === 'close') onClose();
                   else {
                     setMarking(false);
                     setAsking(null);
-                    for (const m of marks.marks) dispatch({ type: 'remove', id: m.id });
                   }
                 }}
               />

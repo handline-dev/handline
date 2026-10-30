@@ -1,6 +1,4 @@
-// Where the notes marked on a photo go: an agent's chat (one message) or a task (one comment). A screen that has such a place wraps its content in
-// `PhotoNotes`; the viewer offers "Mark what to change" only under one. The result is ONE message: the photo with the numbered boxes drawn on it,
-// and the numbered notes as text.
+// Where notes marked on a photo go: an agent's chat or a task. The viewer offers marking only under one of these.
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 import { withImages } from '@handline/app-core';
 import { useChatActions, useUploadImage, useWrite } from '@handline/app-data';
@@ -49,6 +47,7 @@ export function TaskNotes({ task, children }: { task: number; children: ReactNod
         await comment.mutateAsync({ task, text: withImages(text, sent ? [sent.id] : [], name) });
       },
     }),
+    // `comment` is a new object each render, like `act` above
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [task, upload],
   );
