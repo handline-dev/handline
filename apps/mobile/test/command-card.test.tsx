@@ -85,4 +85,18 @@ describe('command cards', () => {
     expect($m('command-result-0')).toBeNull();
     m.store.stop();
   });
+
+  it("an agent's own reply has the same card: Run names the reply's block and the line says how it went", async () => {
+    const m = await mount(
+      (s: ReturnType<typeof setup>) => void s.daemon.chat.seedItem(AUD, { kind: 'reply', text: 'Try this:\n```sh\nfalse\n```' }),
+    );
+    await until(() => $(`agent-${AUD}`), 'the rows');
+    await press($(`agent-${AUD}`));
+    await pickTab('chat');
+    await until(() => $m('command-0'), 'the card');
+    await press($m('command-run-0'));
+    await press($m('command-go-0'));
+    await until(() => $m('command-result-0')?.textContent?.includes('Failed · exit 1'), 'the failed line');
+    m.store.stop();
+  });
 });
