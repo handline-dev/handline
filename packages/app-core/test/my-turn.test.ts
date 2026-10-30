@@ -149,6 +149,19 @@ test('a decision on a task tagged review offers Approve and Ask for change in pl
   assert.equal(card.primary, 3);
 });
 
+test('a worktree-removal decision has three answers, not Done', () => {
+  const [card] = myTurn({
+    items: [item({ id: 7, kind: 'decision', task: 5 })],
+    agents: [],
+    tasks: [task({ id: 5, tags: ['worktree-removal'] })],
+  });
+  assert.deepEqual(
+    card.actions.map((a) => (a.type === 'worktree' ? a.answer : a.type)),
+    ['answer', 'keep', 'save', 'force', 'open', 'read'],
+  );
+  assert.equal(card.primary, 4);
+});
+
 test('the pictures of a review come from the first comment: named in its text, else its image files', () => {
   assert.deepEqual(reviewPictures([]), []);
   const named = { id: 2, parts: [{ text: 'see' }, { image: { id: 'a', name: 'one.png' } }, { image: { id: 'b' }, gone: true }] };
