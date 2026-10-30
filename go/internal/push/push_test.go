@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -359,5 +360,37 @@ func TestFCMSendsEachNoteAndDropsAnUnregisteredToken(t *testing.T) {
 	s.Notify(context.Background(), open)
 	if len(oauth.take()) != 1 {
 		t.Error("an access token in its last minute is traded again")
+	}
+}
+
+// What is logged never names the token: a send that gets no answer leaves out its URL, which ends in an APNs token, and an answer is
+// cut to 200 characters.
+func TestAFailedSendLogsNeitherTheTokenNorAWholeAnswer(t *testing.T) {
+	ec, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	s, err := FromConfig(usage.Config{KeyAPNsKey: writeFile(t, "key.p8", writePEM(t, ec)), KeyAPNsKeyID: "KID", KeyAPNsTeamID: "TEAM"}, phones(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logged []string
+	s.Log = func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := "https://" + l.Addr().String()
+	l.Close()
+	long := newFake(t)
+	long.answerWith(func(*http.Request) (int, string) { return 500, `{"reason":"` + strings.Repeat("x", 300) + `"}` })
+	a := s.platforms["apns"].(*apns)
+	a.client, a.host, a.sandboxHost = long.Client(), closed, long.URL
+	s.Notify(context.Background(), open)
+	if len(logged) != 2 {
+		t.Fatalf("logged: %q", logged)
+	}
+	if strings.Contains(logged[0], "aaa") || !strings.Contains(logged[0], "APNs: ") {
+		t.Errorf("a send with no answer: %q", logged[0])
+	}
+	if !strings.Contains(logged[1], "APNs answered 500: ") || strings.Contains(logged[1], strings.Repeat("x", 200)) {
+		t.Errorf("a long answer: %q", logged[1])
 	}
 }
