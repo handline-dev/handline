@@ -69,6 +69,65 @@ func (t Tmux) CreateShell(cwd, title, agent string) (string, string) {
 	return pane, ""
 }
 
+// RunOption is the tmux pane option that tags a window the daemon opened to run a command ("<message id>:<n>@<start>"); a pane id comes
+// back after a restart of the tmux server, the tag does not.
+const RunOption = "@hl_run"
+
+// CreateRun opens a window in cwd, stamped as a shell of agent and tagged tag, whose own command is `$SHELL -lc command`. The window
+// stays after the command ends (remain-on-exit), so tmux keeps its exit status and end time. The option is set on a plain window that
+// is then respawned with the command, so a command that ends at once cannot close it first.
+func (t Tmux) CreateRun(cwd, title, agent, tag, command string) (string, string) {
+	pane, why := t.newPane(cwd, title, "")
+	if pane == "" {
+		return "", why
+	}
+	for _, o := range [][]string{{ShellOption, agent}, {RunOption, tag}, {"remain-on-exit", "on"}} {
+		if code, _, err := t.tmux(tmuxTimeout, "", "set-option", "-p", "-t", pane, o[0], o[1]); code != 0 {
+			t.CloseTerminal(pane, true)
+			return "", "could not set up the new window: " + err
+		}
+	}
+	if code, _, err := t.tmux(tmuxTimeout, "", "respawn-pane", "-k", "-t", pane, "/bin/sh", "-c", `exec "${SHELL:-/bin/zsh}" -lc "$1"`, "sh", command); code != 0 {
+		t.CloseTerminal(pane, true)
+		return "", "could not run the command in the new window: " + err
+	}
+	return pane, ""
+}
+
+// PaneRun is what tmux says of a window CreateRun opened.
+type PaneRun struct {
+	Tag      string
+	Dead     bool
+	Status   int
+	DeadTime int64 // unix seconds; 0 when tmux did not say
+}
+
+// PaneRuns is every pane that carries a run tag, by handle; nil when tmux cannot say (a pane absent from a non-nil answer is gone).
+func (t Tmux) PaneRuns() map[string]PaneRun {
+	code, out, err := t.tmux(tmuxTimeout, "", "list-panes", "-a", "-F", "#{pane_id}\t#{"+RunOption+"}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_time}")
+	if code != 0 {
+		low := strings.ToLower(err)
+		for _, m := range noServer {
+			if strings.Contains(low, m) {
+				return map[string]PaneRun{}
+			}
+		}
+		return nil
+	}
+	runs := map[string]PaneRun{}
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Split(line, "\t")
+		if len(f) != 5 || !paneRE.MatchString(f[0]) || f[1] == "" {
+			continue
+		}
+		r := PaneRun{Tag: f[1], Dead: f[2] == "1"}
+		r.Status, _ = strconv.Atoi(f[3])
+		r.DeadTime, _ = strconv.ParseInt(f[4], 10, 64)
+		runs[f[0]] = r
+	}
+	return runs
+}
+
 // PaneShell is the agent a shell pane was opened beside; "" for any other pane, known false when tmux cannot say.
 func (t Tmux) PaneShell(handle string) (agent string, known bool) {
 	return t.paneOption(handle, ShellOption)
@@ -162,6 +221,26 @@ func (d dynamic) PaneShell(handle string) (string, bool) {
 		return h.PaneShell(handle)
 	}
 	return "", false
+}
+
+// Runs is what a host adds to run a command in a window of its own and read how it ended.
+type Runs interface {
+	CreateRun(cwd, title, agent, tag, command string) (handle, why string)
+	PaneRuns() map[string]PaneRun
+}
+
+func (d dynamic) CreateRun(cwd, title, agent, tag, command string) (string, string) {
+	if h, ok := d.cur().(Runs); ok {
+		return h.CreateRun(cwd, title, agent, tag, command)
+	}
+	return "", "the terminal host (" + d.Name() + ") cannot run a command"
+}
+
+func (d dynamic) PaneRuns() map[string]PaneRun {
+	if h, ok := d.cur().(Runs); ok {
+		return h.PaneRuns()
+	}
+	return nil
 }
 
 type paneAgenter interface {

@@ -104,4 +104,36 @@ func liveTmux(t *testing.T, sock string, file *string) {
 	if ok, why := tm.CloseTerminal(sh, true); !ok || tm.ListTerminals()[sh] {
 		t.Fatalf("shell not closed: %v %s", ok, why)
 	}
+
+	// A command: its window stays after it ends, with tmux's own exit status and end time; a window closed first is no longer there.
+	for _, c := range []struct {
+		command string
+		dead    bool
+		status  int
+	}{{"true", true, 0}, {"exit 3", true, 3}, {"sleep 60", false, 0}} {
+		run, why := tm.CreateRun(dir, "ann-run", "ann", "9:0@1", c.command)
+		if run == "" {
+			t.Fatalf("%s: %s", c.command, why)
+		}
+		if a, _ := tm.PaneShell(run); a != "ann" {
+			t.Fatalf("a run window is a shell of the agent: %q", a)
+		}
+		deadline := time.Now().Add(15 * time.Second)
+		for {
+			got, here := tm.PaneRuns()[run]
+			if here && got.Tag == "9:0@1" && got.Dead == c.dead && got.Status == c.status && (!c.dead || got.DeadTime > 0) {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: tmux says %+v", c.command, got)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if ok, why := tm.CloseTerminal(run, true); !ok {
+			t.Fatal(why)
+		}
+		if _, here := tm.PaneRuns()[run]; here {
+			t.Fatalf("%s: a closed window is still listed", c.command)
+		}
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/handline/handline/go/internal/cmdruns"
 	"github.com/handline/handline/go/internal/inputhold"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/term"
@@ -18,6 +19,7 @@ type shellHost struct {
 	panes  map[string]string // handle -> agent of a shell
 	cwds   []string
 	closed []string
+	runs   []string
 }
 
 func newShellHost(h *fakeHost) *shellHost { return &shellHost{fakeHost: h, panes: map[string]string{}} }
@@ -132,5 +134,52 @@ func TestShellCloseClosesAShellAndNothingElse(t *testing.T) {
 	}
 	if _, err := r.e.shellClose(person("casey"), map[string]any{"terminal": sh}); err == nil {
 		t.Fatal("a shell already closed")
+	}
+}
+
+func (h *shellHost) CreateRun(cwd, title, agent, tag, command string) (string, string) {
+	handle, why := h.CreateShell(cwd, title, agent)
+	h.runs = append(h.runs, tag+" "+command)
+	return handle, why
+}
+
+func (h *shellHost) PaneRuns() map[string]term.PaneRun { return nil }
+
+func TestShellOpenWithACommandRunsItAndRecordsTheRunOfItsBlock(t *testing.T) {
+	r, h, wt := shellRig(t)
+	got, err := r.e.shellOpen(person("casey"), map[string]any{"agent": "ann", "command": "go test ./...", "block": "12:1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := got.(map[string]any)
+	runs, _ := cmdruns.Of(r.e.DB, 12)
+	if len(runs) != 1 || runs[0].Block != "12:1" || runs[0].Terminal != m["terminal"] || runs[0].State != "running" ||
+		len(h.runs) != 1 || h.runs[0] != runs[0].Tag()+" go test ./..." || m["cwd"] != wt {
+		t.Fatalf("%v %+v %q", m, runs, h.runs)
+	}
+}
+
+func TestShellOpenCommandAndBlockGoTogetherAndAreChecked(t *testing.T) {
+	r, h, _ := shellRig(t)
+	for _, c := range []struct {
+		p     map[string]any
+		field string
+	}{
+		{map[string]any{"command": "true"}, "block"},
+		{map[string]any{"block": "1:0"}, "command"},
+		{map[string]any{"command": "", "block": "1:0"}, "command"},
+		{map[string]any{"command": 5, "block": "1:0"}, "command"},
+		{map[string]any{"command": strings.Repeat("x", maxCommand+1), "block": "1:0"}, "command"},
+		{map[string]any{"command": "true", "block": "first"}, "block"},
+		{map[string]any{"command": "true", "block": 7}, "block"},
+	} {
+		c.p["agent"] = "ann"
+		var re *rpc.Error
+		if _, err := r.e.shellOpen(person("casey"), c.p); !errors.As(err, &re) || re.Data["field"] != c.field || len(h.cwds) != 0 {
+			t.Fatalf("%v: %v", c.p, err)
+		}
+	}
+	if runs, _ := cmdruns.All(r.e.DB); len(runs) != 0 {
+		t.Fatalf("a refused call records nothing: %+v", runs)
 	}
 }

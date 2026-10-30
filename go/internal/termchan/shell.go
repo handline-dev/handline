@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"strconv"
 
+	"github.com/handline/handline/go/internal/cmdruns"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/rpc"
@@ -26,6 +27,16 @@ func (e *Env) shells() (term.Shells, bool) {
 	return s, ok
 }
 
+// PaneRuns is what the host says of its command windows (term.Runs.PaneRuns); nil when it is not running or cannot say.
+func (e *Env) PaneRuns() map[string]term.PaneRun {
+	if b := e.Backend(); b.Available() {
+		if r, ok := b.(term.Runs); ok {
+			return r.PaneRuns()
+		}
+	}
+	return nil
+}
+
 // shellOf is the agent a shell pane was opened beside, "" for any other pane.
 func (e *Env) shellOf(handle string) string {
 	if s, ok := e.shells(); ok {
@@ -35,10 +46,41 @@ func (e *Env) shellOf(handle string) string {
 	return ""
 }
 
+// maxCommand is the longest command shell.open runs.
+const maxCommand = 4000
+
+// runOf reads the command and block of a shell.open: ok is false for a plain shell, and one without the other is bad_request.
+func runOf(params map[string]any) (command string, block cmdruns.Block, ok bool, err error) {
+	c, hasCommand := params["command"]
+	b, hasBlock := params["block"]
+	if !hasCommand && !hasBlock {
+		return "", block, false, nil
+	}
+	if !hasCommand {
+		return "", block, false, bad("block needs a command", "command")
+	}
+	command, isText := c.(string)
+	if !isText || command == "" || len(command) > maxCommand {
+		return "", block, false, bad("command is text, 1 to "+strconv.Itoa(maxCommand)+" characters", "command")
+	}
+	if !hasBlock {
+		return "", block, false, bad("a command needs the block it is for", "block")
+	}
+	text, _ := b.(string)
+	if block, ok = cmdruns.ParseBlock(text); !ok {
+		return "", block, false, bad(`block is "<message id>:<n>"`, "block")
+	}
+	return command, block, true, nil
+}
+
 func (e *Env) shellOpen(_ *rpc.Conn, params map[string]any) (any, error) {
 	name, _ := params["agent"].(string)
 	if name == "" {
 		return nil, bad("agent is a name", "agent")
+	}
+	command, block, running, err := runOf(params)
+	if err != nil {
+		return nil, err
 	}
 	if !has(paths.ListAgents(e.Home), name) {
 		return nil, notFound("no such agent: "+name, "agent", name)
@@ -64,7 +106,22 @@ func (e *Env) shellOpen(_ *rpc.Conn, params map[string]any) (any, error) {
 	if open >= MaxShells {
 		return nil, rpc.Refused(name+" has "+strconv.Itoa(open)+" shells open; close one first", "state", "")
 	}
-	handle, why := host.CreateShell(cwd, name+"-sh", name)
+	var handle, why string
+	if running {
+		runner, can := host.(term.Runs)
+		if !can {
+			return nil, rpc.Refused("the terminal host ("+e.Backend().Name()+") cannot run a command", "unsupported", "")
+		}
+		started := cmdruns.Now()
+		handle, why = runner.CreateRun(cwd, name+"-run", name, cmdruns.Run{Block: block.String(), Started: started}.Tag(), command)
+		if handle != "" {
+			if _, err := cmdruns.Start(e.DB, block, handle, started); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		handle, why = host.CreateShell(cwd, name+"-sh", name)
+	}
 	if handle == "" {
 		return nil, rpc.Refused("no shell was opened: "+why, "state", "")
 	}

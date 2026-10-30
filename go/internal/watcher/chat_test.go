@@ -6,8 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/handline/handline/go/internal/cmdruns"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/stream"
+	"github.com/handline/handline/go/internal/term"
 )
 
 type chatRig struct {
@@ -225,4 +227,34 @@ func TestAnAgentsWorkingFlagIsToldWhenItFlipsAndNotWhenItDoesNot(t *testing.T) {
 	exec(t, r.d, "UPDATE agent_view SET view = ? WHERE agent = 'bob'", `{"name":"bob","state":"running","state_since":"x","other":1}`)
 	r.scan(c)
 	wantTypes(t, r.types(), "chat.working:bob")
+}
+
+func TestARunStartingAndEndingIsTheMessageSaidAgainWithItsRuns(t *testing.T) {
+	r := newChatRig(t)
+	exec(t, r.d, "INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(1, 100, 'bob', 'human', 'run it', 'landed', 'say')")
+	started := cmdruns.Now() - 10
+	panes := map[string]term.PaneRun{}
+	c := r.chat()
+	c.Panes = func() map[string]term.PaneRun { return panes }
+	r.scan(c)
+	wantTypes(t, r.types())
+	run, err := cmdruns.Start(r.d, cmdruns.Block{Message: 1, N: 0}, "%4", started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	panes["%4"] = term.PaneRun{Tag: run.Tag()}
+	r.scan(c)
+	r.scan(c)
+	wantTypes(t, r.types(), "chat.message:bob")
+	panes["%4"] = term.PaneRun{Tag: run.Tag(), Dead: true, Status: 1, DeadTime: started + 3}
+	r.scan(c)
+	r.scan(c)
+	wantTypes(t, r.types(), "chat.message:bob", "chat.message:bob")
+	var m struct {
+		Runs []map[string]any `json:"runs"`
+	}
+	rows := r.rows()
+	if json.Unmarshal(rows[1].Data, &m) != nil || len(m.Runs) != 1 || m.Runs[0]["state"] != "failed" || m.Runs[0]["exit"] != float64(1) || m.Runs[0]["seconds"] != float64(3) {
+		t.Fatalf("%s", rows[1].Data)
+	}
 }
