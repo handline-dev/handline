@@ -149,7 +149,7 @@ describe('the photo viewer', { timeout: 20000 }, () => {
     await until(() => !$m('picture-image'), 'the viewer closed');
     m.store.stop();
   });
-  it('Delete asks how many places the photo goes from; Keep it deletes nothing, Delete removes it and the row says Photo deleted', async () => {
+  it('Delete asks how many places the photo goes from; Cancel deletes nothing, Delete removes it and the row says Photo deleted', async () => {
     const { m, ids } = await open(['a.png']);
     await press($m('picture-delete'));
     await until(() => $m('delete-places')?.textContent?.includes('It disappears from 1 place.'), 'the count');

@@ -1,6 +1,6 @@
 // The photo viewer's delete question: how many places the photo disappears from (a dry run counts them), then Delete or Keep. There is no undo.
 import { useEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useWrite } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
@@ -16,8 +16,8 @@ export function DeleteAsk(props: { id: string; onDeleted: () => void; onKeep: ()
   const { mutateAsync } = remove;
   useEffect(() => {
     let live = true;
-    mutateAsync({ id: props.id, dry_run: true } as never).then(
-      (r) => live && setCount((r as { removed_from: number }).removed_from),
+    mutateAsync({ id: props.id, dry_run: true }).then(
+      (r) => live && setCount(r.removed_from),
       () => live && setProblem(true),
     );
     return () => {
@@ -26,7 +26,7 @@ export function DeleteAsk(props: { id: string; onDeleted: () => void; onKeep: ()
   }, [mutateAsync, props.id]);
   const go = () => {
     setProblem(false);
-    mutateAsync({ id: props.id } as never).then(props.onDeleted, () => setProblem(true));
+    mutateAsync({ id: props.id }).then(props.onDeleted, () => setProblem(true));
   };
   return (
     <View
@@ -44,25 +44,27 @@ export function DeleteAsk(props: { id: string; onDeleted: () => void; onKeep: ()
     >
       <View style={{ backgroundColor: c.panel, borderRadius: radius.m, padding: space.xl, gap: space.md }}>
         <Text style={{ color: c.ink, fontSize: font.size.lg, fontWeight: '700' }}>Delete this photo?</Text>
-        <Text testID="delete-places" style={{ color: c.muted }}>
-          {count === null ? 'Counting where it is used…' : `It disappears from ${places(count)}. This cannot be undone.`}
-        </Text>
+        {count !== 0 && (
+          <Text testID="delete-places" style={{ color: c.muted }}>
+            {count === null ? 'Counting where it is used…' : `It disappears from ${places(count)}. This cannot be undone.`}
+          </Text>
+        )}
         {problem && (
           <Text testID="delete-problem" accessibilityRole="alert" style={{ color: c.block }}>
             The photo was not deleted. Try again.
           </Text>
         )}
-        <Button testID="delete-keep" kind="yes" label="Keep it" onPress={props.onKeep} />
-        <Pressable
-          testID="delete-yes"
-          accessibilityRole="button"
-          hitSlop={8}
-          disabled={count === null || remove.isPending}
-          onPress={go}
-          style={{ alignItems: 'center', padding: space.sm, opacity: count === null ? 0.4 : 1 }}
-        >
-          <Text style={{ color: c.block, fontWeight: '600' }}>Delete</Text>
-        </Pressable>
+        <View style={{ flexDirection: 'row', gap: space.md, paddingTop: space.sm }}>
+          <Button testID="delete-keep" label="Cancel" onPress={props.onKeep} style={{ flex: 1 }} />
+          <Button
+            testID="delete-yes"
+            kind="no"
+            label="Delete"
+            disabled={count === null || remove.isPending}
+            onPress={go}
+            style={{ flex: 1 }}
+          />
+        </View>
       </View>
     </View>
   );

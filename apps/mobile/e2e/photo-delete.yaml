@@ -1,4 +1,4 @@
-# After pair-and-page.yaml, on a fresh `pnpm fake-listener --picture`, as the founder: Delete in the viewer asks where the photo goes from, Keep it leaves it, Delete removes it and its row reads Photo deleted too.  maestro test e2e/photo-delete.yaml
+# After pair-and-page.yaml, on a fresh `pnpm fake-listener --picture`, as the founder: Delete in the viewer asks where the photo goes from, Cancel leaves it, Delete removes it and its row reads Photo deleted too.  maestro test e2e/photo-delete.yaml
 appId: dev.handline.mobile
 ---
 - runFlow:
