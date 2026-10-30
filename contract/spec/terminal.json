@@ -650,9 +650,9 @@
      "required": false,
      "schema": {
       "type": "string",
-      "pattern": "^[0-9]+:[0-9]+$"
+      "pattern": "^r?[0-9]+:[0-9]+$"
      },
-     "description": "Which command block of which message this run is for: \"<message id>:<n>\", the nth block of the message. The run shows in that message's `runs` (chat.messages, chat.message). Needs command; opening the same block again replaces its run."
+     "description": "Which command block this run is for: \"<message id>:<n>\", the nth block of a chat message, shown in that message's `runs` (chat.messages, chat.message); or \"r<item id>:<n>\", the nth block of the agent's reply item <item id> (a chat.transcript item of kind reply, the id chat.send takes as parent_item), shown in that item's `runs` (chat.transcript, the chat.transcript event). Needs command; opening the same block again replaces its run."
     },
     {
      "name": "request_id",
@@ -686,7 +686,7 @@
     "unsupported",
     "state"
    ],
-   "description": "Starts the user's login shell in a new window of the terminal host, in the agent's worktree, and answers its handle; attach it with terminal.attach (terminal), type at it with terminal.input and size it with terminal.resize. It is not the agent's terminal and touches nothing of the agent's: no input holder and no terminal lock stand between a person and it, terminal.resize has no 80 by 24 floor for it, and the daemon never reads its screen. Several may be open beside one agent, at most 8 (refused, gate `state`). It lives until shell.close, the shell exits, or the host's server ends; the daemon does not close it when the agent's session ends. Not_found names the agent, or the worktree when the agent has none on disk. Refused with gate `unsupported` on a host that cannot open one. With `command` (and `block`) the window runs that command instead of a shell and stays after it ends: its exit status and end time are the terminal host's own, read by the daemon and told in the `runs` of the message `block` names (ChatMessage.runs, a chat.message event at start and at end). `command` without `block` or `block` without `command` is bad_request naming the other. A command run counts toward the 8 shells; closing its window before it ends makes its run `stopped`. Runs are kept in the daemon's meta table; a run whose message is gone is not shown."
+   "description": "Starts the user's login shell in a new window of the terminal host, in the agent's worktree, and answers its handle; attach it with terminal.attach (terminal), type at it with terminal.input and size it with terminal.resize. It is not the agent's terminal and touches nothing of the agent's: no input holder and no terminal lock stand between a person and it, terminal.resize has no 80 by 24 floor for it, and the daemon never reads its screen. Several may be open beside one agent, at most 8 (refused, gate `state`). It lives until shell.close, the shell exits, or the host's server ends; the daemon does not close it when the agent's session ends. Not_found names the agent, or the worktree when the agent has none on disk. Refused with gate `unsupported` on a host that cannot open one. With `command` (and `block`) the window runs that command instead of a shell and stays after it ends: its exit status and end time are the terminal host's own, read by the daemon and told in the `runs` of the message or reply item `block` names (ChatMessage.runs with a chat.message event, TranscriptItem.runs with a chat.transcript event, at start and at end). A reply item that is not one of this agent's replies is not_found, what item. `command` without `block` or `block` without `command` is bad_request naming the other. A command run counts toward the 8 shells; closing its window before it ends makes its run `stopped`. Runs are kept in the daemon's meta table; a run whose message or item is gone is not shown."
   },
   {
    "name": "shell.close",

@@ -151,3 +151,32 @@ func TestToolsReadOnlyTheCallsTheWindowNeedsAndFitOutputSaysWhatItCut(t *testing
 		t.Errorf("a cut at a character boundary: %q %d", kept, dropped)
 	}
 }
+
+// A reply item is its newest text event with that item id, of whichever agent; a non-text event with an item id is no reply.
+func TestReplyByIDIsTheNewestTextOfThatItem(t *testing.T) {
+	r := newRows(t)
+	for _, row := range []struct {
+		seq        int64
+		kind, body string
+		item       int64
+	}{
+		{1, "text", `{"text":"first"}`, 1000},
+		{2, "text", `{"text":"then this"}`, 1000},
+		{3, "tool_use", `{}`, 2000},
+	} {
+		if _, err := r.DB.Exec("INSERT INTO transcript_events(agent, seq, session, turn, at, kind, item, body) VALUES('bob', ?, 's', NULL, 100, ?, ?, ?)",
+			row.seq, row.kind, row.item, row.body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, agent, ok, err := ReplyByID(r.DB, 1000)
+	if err != nil || !ok || agent != "bob" || got.ID != 1000 || got.Text != "then this" {
+		t.Fatalf("%+v %q %v %v", got, agent, ok, err)
+	}
+	if _, _, ok, err := ReplyByID(r.DB, 2000); err != nil || ok {
+		t.Fatalf("a tool call's item is no reply: %v %v", ok, err)
+	}
+	if mine, err := IsReply(r.DB, "bob", 2000); err != nil || mine {
+		t.Fatalf("nor for IsReply: %v %v", mine, err)
+	}
+}

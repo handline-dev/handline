@@ -302,6 +302,15 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 	return m, nil
 }
 
+// replyItemOf is a reply as a transcript item, with the runs of its command blocks when it has any.
+func replyItemOf(t transcript.Reply, runs []cmdruns.Run) map[string]any {
+	item := map[string]any{"id": t.ID, "at": ts(t.At), "kind": "reply", "text": t.Text}
+	if len(runs) > 0 {
+		item["runs"] = runMaps(runs)
+	}
+	return item
+}
+
 // runMaps is a message's runs as ChatMessage.runs: seconds and exit only for a run that ended with a status.
 func runMaps(runs []cmdruns.Run) []any {
 	out := make([]any, 0, len(runs))
@@ -1108,8 +1117,12 @@ func (e *Env) transcriptItems(agent string, tools []transcript.Tool) ([]map[stri
 	if err != nil {
 		return nil, err
 	}
+	runs, err := cmdruns.Replies(e.DB)
+	if err != nil {
+		return nil, err
+	}
 	for _, t := range texts {
-		items = append(items, map[string]any{"id": t.ID, "at": ts(t.At), "kind": "reply", "text": t.Text})
+		items = append(items, replyItemOf(t, runs[t.ID]))
 	}
 	for _, t := range tools {
 		item := map[string]any{"id": t.ID, "at": ts(t.At), "kind": "tool", "tool": t.Name, "text": t.Text}
