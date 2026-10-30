@@ -315,7 +315,7 @@ export function RequestsPage() {
   const ordered = GROUPS.flatMap((g) => cards.filter((c) => groupOf(c) === g));
   const sel = cards.find((c) => c.key === pick) ?? putOff.find((l) => l.card.key === pick)?.card ?? (wide ? ordered[0] : undefined);
   const selLater = putOff.find((l) => l.card.key === sel?.key)?.at ?? null;
-  useKeepPlace(ordered, pick, setPick, wide);
+  useKeepPlace([...ordered, ...putOff.map((l) => l.card)], pick, setPick, wide);
   useScreenKeys('On Requests', REQUEST_KEYS);
   useKey((k) => {
     if (k !== 'j' && k !== 'k') return false;

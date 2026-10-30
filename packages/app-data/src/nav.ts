@@ -79,5 +79,5 @@ export function useNavDock(): { pinned: DockItem[]; open: DockItem[] } {
 /** Puts an item of Requests off, or returns it: `at` null clears the entry. The daemon merges `later` entry by entry, so two devices lose nothing. */
 export function useLater(): (key: string, at: LaterAt | null) => void {
   const set = useWrite('prefs.set');
-  return (key, at) => set.mutate({ changes: { nav: { later: { [key]: at } } } } as never);
+  return (key, at) => set.mutate({ changes: { nav: { later: { [key]: at } } } });
 }
