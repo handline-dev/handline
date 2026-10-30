@@ -166,6 +166,8 @@ export interface Own {
   pair(i: OfferInput): Promise<void>;
   /** Opens the phone-pairing QR window; rejects with a sentence when this app has no gateway of its own to pair a phone with. */
   phone(): Promise<void>;
+  /** Saves "Allow devices on this network" and relaunches, so the gateway starts with or without the page. */
+  setNetwork(on: boolean): void;
   /** Moves the daemon onto this app's build; rejects with the reason. */
   restartDaemon(): Promise<void>;
 }
@@ -220,6 +222,8 @@ export function ownDaemon(o: {
   gateway: string | undefined;
   /** The MagicDNS name:port a phone's pairing link carries, when the gateway is on the Tailscale address. */
   advertise: string | null;
+  /** The built page the gateway serves on its own address, while devices are allowed on the network; else null. */
+  web: string | null;
   origin: string;
   openWindow: () => void;
   /** Shows the window on a page that has no id: 'inbox' or 'settings'. */
@@ -241,7 +245,7 @@ export function ownDaemon(o: {
     socketUp: () => answers(o.socket),
     gatewayUp: () => answers(o.gatewaySocket),
     spawn: (cmd) => spawnChild(cmd, log),
-    ...commands(o.env, o.root, o.gateway ?? '127.0.0.1:7443', o.advertise),
+    ...commands(o.env, o.root, o.gateway ?? '127.0.0.1:7443', o.advertise, undefined, o.web),
     daemon: () => daemonCmd(o),
     wait: sleep,
   });
@@ -310,6 +314,7 @@ export function ownDaemon(o: {
     remote: o.current.remote,
     restartDaemon: o.upgradeDaemon,
     switchMode: (m) => relaunchAs({ ...o.current, mode: m }),
+    setNetwork: (on) => relaunchAs({ ...o.current, network: on }),
     pair,
     phone: () => (o.current.remote ? Promise.reject(new Error('paired with another device: pair the phone on that device')) : openPhone()),
     async ready() {

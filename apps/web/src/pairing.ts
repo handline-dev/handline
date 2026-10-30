@@ -32,14 +32,50 @@ export function codeFrom(text: string): string {
   return t;
 }
 
+/** The code an invite link carries: the page opened as `/#pair=<code>`. Null for any other hash. */
+export function inviteCode(hash: string): string | null {
+  const c = /^#pair=([^&]+)/.exec(hash)?.[1];
+  try {
+    return c ? decodeURIComponent(c) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** What the device list calls this browser: the browser on the system, so the person can tell which one to revoke. */
+export function deviceName(agent: string = navigator.userAgent): string {
+  const browser = /Edg\//.test(agent)
+    ? 'Edge'
+    : /Firefox\//.test(agent)
+      ? 'Firefox'
+      : /Chrome\//.test(agent)
+        ? 'Chrome'
+        : /Safari\//.test(agent)
+          ? 'Safari'
+          : 'Browser';
+  const system = /iPhone|iPad/.test(agent)
+    ? 'iPhone'
+    : /Android/.test(agent)
+      ? 'Android'
+      : /Mac OS/.test(agent)
+        ? 'Mac'
+        : /Windows/.test(agent)
+          ? 'Windows'
+          : /Linux/.test(agent)
+            ? 'Linux'
+            : '';
+  return system ? `${browser} on ${system}` : browser;
+}
+
 /** Trades the pasted code for a device token and keeps it for this listener. Throws the daemon's own sentence on a refusal. */
 export async function pairWith(
   url: string,
   pasted: string,
   store: KV | null,
   open: (url: string) => Promise<Transport> = webSocketTransport,
+  name = 'Handline desktop',
 ): Promise<string> {
-  const { token } = await redeemPairing(() => open(url), codeFrom(pasted), 'Handline desktop');
+  const { token } = await redeemPairing(() => open(url), codeFrom(pasted), name);
   try {
     store?.setItem(key(url), token);
   } catch {

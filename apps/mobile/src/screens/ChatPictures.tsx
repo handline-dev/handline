@@ -1,12 +1,12 @@
-// The pictures of a sent message: thumbnails in the bubble, and one full screen behind a tap. The bytes are read with attachment.get
+// The pictures of a sent message: thumbnails in the bubble, and the photo viewer behind a tap. The bytes are read with attachment.get
 // like the web does and drawn from a data URI (React Native has no object URLs).
 import { useMemo, useState } from 'react';
-import { Image, Modal, Pressable, Text, View } from 'react-native';
+import { Image, Pressable, Text, View } from 'react-native';
 import type { Attachment } from '@handline/client';
 import { useAttachmentBytes } from '@handline/app-data';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
-import { SafeScreen } from '#src/screens/parts.tsx';
+import { PhotoViewer, type SendMarks } from '#src/screens/PhotoViewer.tsx';
 
 /** What a picture needs of its file: a chat attachment or an image a memo carries. */
 export type Picture = Pick<Attachment, 'id' | 'name'>;
@@ -35,45 +35,9 @@ export function useImage(id: string, thumb: boolean): Read {
 const GONE = 'This image is no longer kept.';
 const FAILED = 'This image could not be loaded.';
 
-function Full({ a, onClose }: { a: Picture; onClose: () => void }) {
-  const c = usePalette();
-  const read = useImage(a.id, false);
-  const [bad, setBad] = useState(false);
-  const line = read.state === 'gone' ? GONE : read.state === 'failed' || bad ? FAILED : null;
-  return (
-    <Modal visible animationType="fade" onRequestClose={onClose}>
-      {/* The safe area keeps Close out from under the status bar, where it could not be tapped. */}
-      <SafeScreen testID={`picture-full-${a.id}`} background={c.bg}>
-        <View style={{ flex: 1, padding: space.md, gap: space.md }}>
-          <Pressable testID="picture-close" accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} hitSlop={8}>
-            <Text style={{ color: c.accent, fontWeight: '600' }}>Close</Text>
-          </Pressable>
-          {line ? (
-            <Text testID="picture-line" accessibilityRole="alert" style={{ color: c.block }}>
-              {line}
-            </Text>
-          ) : read.state === 'ready' ? (
-            <Image
-              testID="picture-image"
-              accessibilityLabel={a.name}
-              source={{ uri: read.uri }}
-              resizeMode="contain"
-              onError={() => setBad(true)}
-              style={{ flex: 1 }}
-            />
-          ) : (
-            <Text style={{ color: c.muted }}>Loading…</Text>
-          )}
-        </View>
-      </SafeScreen>
-    </Modal>
-  );
-}
-
-function Thumb({ a }: { a: Picture }) {
+function Thumb({ a, onOpen }: { a: Picture; onOpen: () => void }) {
   const c = usePalette();
   const read = useImage(a.id, true);
-  const [open, setOpen] = useState(false);
   const [bad, setBad] = useState(false);
   const line = read.state === 'gone' ? GONE : read.state === 'failed' || bad ? FAILED : null;
   if (line)
@@ -84,31 +48,32 @@ function Thumb({ a }: { a: Picture }) {
     );
   return (
     <>
-      <Pressable testID={`picture-${a.id}`} accessibilityRole="button" accessibilityLabel={`Open ${a.name}`} onPress={() => setOpen(true)}>
+      <Pressable testID={`picture-${a.id}`} accessibilityRole="button" accessibilityLabel={`Open ${a.name}`} onPress={onOpen}>
         {read.state === 'ready' ? (
           <Image
             accessibilityLabel={a.name}
             source={{ uri: read.uri }}
-            resizeMode="cover"
+            resizeMode="contain"
             onError={() => setBad(true)}
-            style={{ width: 120, height: 120, borderRadius: radius.m }}
+            style={{ width: 120, height: 120, borderRadius: radius.m, backgroundColor: c.panel }}
           />
         ) : (
           <Text style={{ color: c.muted, fontSize: font.size.sm }}>{a.name}</Text>
         )}
       </Pressable>
-      {open && <Full a={a} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-/** The pictures of a message, in the order they were attached. */
-export function Pictures({ items }: { items: Picture[] }) {
+/** The pictures of a message, in the order they were attached; a tap opens the viewer on that one. `onSend` lets the viewer send marked notes back to `to`. */
+export function Pictures({ items, to, onSend }: { items: Picture[]; to?: string; onSend?: SendMarks }) {
+  const [open, setOpen] = useState<number | null>(null);
   return (
     <View testID="pictures" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.xs }}>
-      {items.map((a) => (
-        <Thumb key={a.id} a={a} />
+      {items.map((a, i) => (
+        <Thumb key={a.id} a={a} onOpen={() => setOpen(i)} />
       ))}
+      {open !== null && <PhotoViewer pictures={items} start={open} to={to} onSend={onSend} onClose={() => setOpen(null)} />}
     </View>
   );
 }

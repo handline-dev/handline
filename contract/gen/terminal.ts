@@ -120,6 +120,8 @@ export interface TerminalMethods {
 }; result: TerminalOpening };
   "shell.open": { params: {
   agent: AgentName;
+  command?: string;
+  block?: string;
   request_id: RequestId;
 }; result: ShellOpening };
   "shell.close": { params: {

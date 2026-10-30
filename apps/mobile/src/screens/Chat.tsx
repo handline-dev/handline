@@ -307,6 +307,7 @@ function Bubble(props: {
   const bubble = useBubbleWidth();
   const { m, agent } = props;
   const act = useChatActions(agent);
+  const canSend = useSelector((s) => s.can('chat.send'));
   const side = sideOf(m, agent, useStore().me);
   const unnumbered = m.id < 0; // shown before the daemon numbered it, or refused
   const failed = m.state === 'failed';
@@ -367,7 +368,13 @@ function Bubble(props: {
           </Text>
         )}
         {m.body ? <PrBody id={m.id} agent={agent} body={m.body} selectable /> : null}
-        {m.attachments?.length ? <Pictures items={m.attachments} /> : null}
+        {m.attachments?.length ? (
+          <Pictures
+            items={m.attachments}
+            to={agent}
+            onSend={canSend ? (words, attachments) => act.send(words, { attachments }) : undefined}
+          />
+        ) : null}
         {m.actions?.length ? <ChatActions id={m.id} actions={m.actions} /> : null}
         {side === 'person' && m.request_task != null ? (
           <Pressable testID={`request-chip-${m.id}`} accessibilityRole="link" hitSlop={8} onPress={() => props.onTask(m.request_task!)}>

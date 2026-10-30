@@ -278,7 +278,7 @@ func Start(cfg Config) (*Daemon, error) {
 			Detectors: []watcher.Detector{&watcher.Tasks{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Agents{}, &watcher.Notifications{Reads: &reads.Env{DB: db, Home: cfg.Home}}, &watcher.Inbox{Reads: &reads.Env{DB: db, Home: cfg.Home}},
 				&watcher.HR{Reads: &reads.Env{DB: db, Home: cfg.Home}},
 				&watcher.Prefs{}, &watcher.Requests{Reads: &reads.Env{DB: db, Home: cfg.Home}},
-				&watcher.Chat{Reads: &reads.Env{DB: db, Home: cfg.Home, Delivery: cfg.Delivery}}}}
+				&watcher.Chat{Reads: &reads.Env{DB: db, Home: cfg.Home, Delivery: cfg.Delivery}, Panes: d.paneRuns}}}
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
@@ -692,4 +692,12 @@ func (d *Daemon) Close() {
 	if d.db != nil {
 		d.db.Close()
 	}
+}
+
+// paneRuns is what the terminal host says of the windows that run commands (watcher.Chat.Panes); nil when it cannot say.
+func (d *Daemon) paneRuns() map[string]term.PaneRun {
+	if d.tchan == nil {
+		return nil
+	}
+	return d.tchan.PaneRuns()
 }

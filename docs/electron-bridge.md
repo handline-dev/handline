@@ -33,6 +33,7 @@ One object, `window.handline`, made by a preload with `contextBridge`. No other 
 | `openPath`, `cancelCompose`, `compose` | page → shell | E3 | §4 |
 | `openIn`, `openInApps` | page → shell | Open in menu | §4.6; the menu shows only Copy path |
 | `mode`, `setMode`, `pairRemote`, `phone` | page → shell | modes | the pairing screen shows no mode section |
+| `network`, `setNetwork` | page → shell | devices on the network | §4.3b; Settings > Computers shows no switch |
 | `build`, `restartDaemon` | page → shell | daemon build | the top bar never says the daemon is another build |
 | `settingsGet`, `settingsSet` | page → shell | the window is a paired device, which the daemon refuses `settings.get` and `settings.set`; the shell's founder connection makes just these two calls, with the same sender and argument checks (only the keys the Settings page edits, plain values, no other method) | the page calls the daemon itself |
 
@@ -150,6 +151,10 @@ cancelCompose(): Promise<{ ok: true } | Fail<'bad_request'>>
 
 The pairing screen's part in the app's two modes (Connect to a daemon, Run its own). `mode()` gives `{ mode, remote, phone }` (`remote` the paired device's address in connect mode, else null; `phone` true when this app has a gateway of its own to pair a phone with, i.e. `remote` is null). `phone()` opens the one-time pairing QR window, the same as the tray's “Pair a phone…”; `cannot_pair` carries the reason (no network listener, no key). The sidebar's “Pair a phone” row calls it. `setMode('connect' | 'own')` saves the choice and relaunches. `pairRemote({ link })` or `pairRemote({ address, code })` pairs with another device's gateway, saves it and relaunches in connect mode; `cannot_pair` carries the sentence the person reads (nothing answered, not a Handline gateway, an untrusted address). Same sender and argument checks as the rest.
 
+
+### 4.3b `network`, `setNetwork`
+
+"Allow devices on this network", off unless the person turns it on. `network()` gives `{ on, can }` (`can` is false when this app is paired with another device's gateway, since the gateway is not its own). `setNetwork(true | false)` saves it in the app's settings file and relaunches; with it on, the gateway the app starts also gets `-web <the built page>`, so it serves the page on its own address (the Tailscale one, else loopback) and a browser on another computer can open an invite. Nothing else changes: the gateway's address, its transport and the one-time invite code are the gateway's own. Anything but a boolean is `bad_request`, as is a call while `can` is false. Same sender checks as the rest.
 
 ### 4.3a `build`, `restartDaemon`
 

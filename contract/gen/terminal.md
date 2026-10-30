@@ -11,7 +11,7 @@ A method marked write takes a required `request_id`. Framing, roles, errors and 
 | `terminal.input` | member | yes | `terminal`, `data`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | role, terminal_lock, input_holder, unsupported |
 | `terminal.close` | member | yes | `agent`, `request_id` | `Accepted` | `refused`, `not_found` | role, terminal_lock, input_holder, state |
 | `terminal.open` | member |  | `agent` | `TerminalOpening` | `not_found`, `bad_request`, `refused` | role, unsupported |
-| `shell.open` | member | yes | `agent`, `request_id` | `ShellOpening` | `refused`, `not_found`, `bad_request` | unsupported, state |
+| `shell.open` | member | yes | `agent`, `command?`, `block?`, `request_id` | `ShellOpening` | `refused`, `not_found`, `bad_request` | unsupported, state |
 | `shell.close` | member | yes | `terminal`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` | unsupported, state |
 | `terminal.detach` | member |  | `terminal`, `format?` | `object` | `not_found`, `bad_request` |  |
 
@@ -41,7 +41,7 @@ Where an agent's terminal is and how to attach to it, for the one button that op
 
 ### `shell.open`
 
-Open a new plain shell in an agent's worktree (the New tab menu's Terminal). Starts the user's login shell in a new window of the terminal host, in the agent's worktree, and answers its handle; attach it with terminal.attach (terminal), type at it with terminal.input and size it with terminal.resize. It is not the agent's terminal and touches nothing of the agent's: no input holder and no terminal lock stand between a person and it, terminal.resize has no 80 by 24 floor for it, and the daemon never reads its screen. Several may be open beside one agent, at most 8 (refused, gate `state`). It lives until shell.close, the shell exits, or the host's server ends; the daemon does not close it when the agent's session ends. Not_found names the agent, or the worktree when the agent has none on disk. Refused with gate `unsupported` on a host that cannot open one.
+Open a new plain shell in an agent's worktree (the New tab menu's Terminal), or run a command there (a command card's Run). Starts the user's login shell in a new window of the terminal host, in the agent's worktree, and answers its handle; attach it with terminal.attach (terminal), type at it with terminal.input and size it with terminal.resize. It is not the agent's terminal and touches nothing of the agent's: no input holder and no terminal lock stand between a person and it, terminal.resize has no 80 by 24 floor for it, and the daemon never reads its screen. Several may be open beside one agent, at most 8 (refused, gate `state`). It lives until shell.close, the shell exits, or the host's server ends; the daemon does not close it when the agent's session ends. Not_found names the agent, or the worktree when the agent has none on disk. Refused with gate `unsupported` on a host that cannot open one. With `command` (and `block`) the window runs that command instead of a shell and stays after it ends: its exit status and end time are the terminal host's own, read by the daemon and told in the `runs` of the message `block` names (ChatMessage.runs, a chat.message event at start and at end). `command` without `block` or `block` without `command` is bad_request naming the other. A command run counts toward the 8 shells; closing its window before it ends makes its run `stopped`. Runs are kept in the daemon's meta table; a run whose message is gone is not shown.
 
 ### `shell.close`
 

@@ -6,11 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/handline/handline/go/internal/attachments"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/handline/handline/go/internal/attachments"
+	"github.com/handline/handline/go/internal/cmdruns"
 	"github.com/handline/handline/go/internal/requestref"
 	"github.com/handline/handline/go/internal/rpc"
 	"github.com/handline/handline/go/internal/transcript"
@@ -284,6 +285,13 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 	if r["proposal"] != nil {
 		m["proposal"] = r.i("proposal")
 	}
+	runs, err := cmdruns.Of(c.e.DB, r.i("id"))
+	if err != nil {
+		return nil, err
+	}
+	if len(runs) > 0 {
+		m["runs"] = runMaps(runs)
+	}
 	images := attachments.New(c.e.Home)
 	if pictures := images.MessageMaps(c.e.DB, r.i("id"), r.str("body")); pictures != nil {
 		m["attachments"] = pictures
@@ -292,6 +300,19 @@ func (c *chat) messageOf(r row) (map[string]any, error) {
 		m["parts"] = parts
 	}
 	return m, nil
+}
+
+// runMaps is a message's runs as ChatMessage.runs: seconds and exit only for a run that ended with a status.
+func runMaps(runs []cmdruns.Run) []any {
+	out := make([]any, 0, len(runs))
+	for _, r := range runs {
+		m := map[string]any{"block": r.Block, "terminal": r.Terminal, "started_at": ts(r.Started), "state": r.State}
+		if r.Exit != nil {
+			m["exit"], m["seconds"] = *r.Exit, r.Seconds()
+		}
+		out = append(out, m)
+	}
+	return out
 }
 
 func (c *chat) messagesOf(rs []row) ([]any, error) {
