@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defaultWorkspace, dropPreview, dropZone, groupsOf, openTab, splitTab } from '#src/index.ts';
+import { defaultWorkspace, dropPreview, dropZone, groupsOf, openTab, splitNew, splitTab } from '#src/index.ts';
 
 const pane = { w: 800, h: 600, strip: 32 };
 
@@ -41,4 +41,13 @@ test('the preview is the exact box the split takes: half of the pane, the strip 
   const ws = splitTab(openTab(defaultWorkspace(), 'markdown', { path: 'a' }), 'markdown:a', 'g1', 'right')!;
   assert.equal(ws.root.type === 'split' && ws.root.at, 0.5);
   assert.equal(groupsOf(ws.root).length, 2);
+});
+
+test('a task dragged out of a list opens as its own pane on the edge it lands on, and is not opened twice', () => {
+  const ws = defaultWorkspace();
+  const split = splitNew(ws, 'tasks', { task: 7, pinned: 1 }, 'g1', 'right')!;
+  assert.equal(groupsOf(split.root).length, 2);
+  assert.ok(split.tabs['tasks:7']);
+  assert.equal(groupsOf(split.root).find((g) => g.tabs.includes('tasks:7'))?.id, split.active);
+  assert.equal(splitNew(split, 'tasks', { task: 7, pinned: 1 }, 'g1', 'left')!.tabs['tasks:7'], split.tabs['tasks:7']);
 });

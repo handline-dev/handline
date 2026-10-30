@@ -2,7 +2,7 @@
 import type { ReactNode } from 'react';
 import { CLOSED, LISTED, TASK_STATES, type TaskColumn, type TaskFilter } from '@handline/app-core';
 import { Filter, Plus, ScanLine } from 'lucide-react';
-import { BarInput, Button as OldButton, Icon, PageHead, PageTitle, Popup, Select, Check } from '#src/ui/index.ts';
+import { BarInput, Button as OldButton, Icon, Kbd, PageHead, PageTitle, Popup, Select, Check } from '#src/ui/index.ts';
 import { Button } from '#src/ds/Button.tsx';
 import { Segmented } from '#src/ds/Field.tsx';
 import { STATE_GLYPH } from '#src/taskui.tsx';
@@ -33,7 +33,9 @@ export function TasksHead(props: {
   const { filter } = props;
   return (
     <PageHead className="tasks-head flex-nowrap">
-      <PageTitle className="mr-auto shrink-0">Tasks</PageTitle>
+      <PageTitle className="mr-auto shrink-0">
+        Tasks <Kbd className="ui-keys">J K</Kbd>
+      </PageTitle>
       <label className="tsearch relative inline-flex items-center" title="Search by number, title or agent">
         <Icon name="search" label="Search" size={14} aria-hidden="true" className="pointer-events-none absolute left-1.5 text-ink-3" />
         <BarInput

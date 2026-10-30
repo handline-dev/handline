@@ -146,20 +146,24 @@ export function useChatActions(agent: string) {
     delivery?: Delivery,
     attachments: string[] = [],
     parentItem?: number,
+    quote?: string,
   ) =>
     send.mutate({
       agent: to,
       body,
       ...(parent != null ? { parent } : {}),
       ...(parentItem != null ? { parent_item: parentItem } : {}),
+      ...(quote ? { quote } : {}),
       ...(attachments.length ? { attachments } : {}),
       ...(delivery ? { delivery } : {}),
       request_id: op,
     });
   return {
     /** `parent` replies to a message, `parent_item` to one of the agent's own replies; `to` is another agent's chat. */
-    send: (body: string, opts?: { parent?: number; parent_item?: number; to?: string; delivery?: Delivery; attachments?: string[] }) =>
-      post(opts?.to ?? agent, body, opts?.parent ?? null, undefined, opts?.delivery, opts?.attachments, opts?.parent_item),
+    send: (
+      body: string,
+      opts?: { parent?: number; parent_item?: number; quote?: string; to?: string; delivery?: Delivery; attachments?: string[] },
+    ) => post(opts?.to ?? agent, body, opts?.parent ?? null, undefined, opts?.delivery, opts?.attachments, opts?.parent_item, opts?.quote),
     retry: (id: number) => {
       const m = failed(id);
       if (!m) return;
@@ -174,6 +178,7 @@ export function useChatActions(agent: string) {
         was?.delivery,
         m.attachments?.map((a) => a.id),
         m.parent_item?.id,
+        m.quote,
       );
     },
     discard: (id: number) => {

@@ -210,7 +210,16 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
   const target = picked != null ? (byId.get(picked) ?? null) : null;
   // A message or one of the agent's own replies is picked, never both.
   const [pickedItem, setPickedItem] = useState<TranscriptItem | null>(null);
-  const pick = useCallback((m: ChatMessage) => (setPickedItem(null), setPicked((p) => (p === m.id ? null : m.id))), []);
+  // A selection of the message quotes just those words above the composer; a click on the message picks it whole.
+  const [quote, setQuote] = useState<string | null>(null);
+  const pick = useCallback(
+    (m: ChatMessage, words?: string) => (
+      setPickedItem(null),
+      setQuote(words ?? null),
+      setPicked((p) => (p === m.id && !words ? null : m.id))
+    ),
+    [],
+  );
   const pickItem = (i: TranscriptItem) => (setPicked(null), setPickedItem((p) => (p?.id === i.id ? null : i)));
   const keyOf = entryKey;
   const tail = useTail(entries, scope);
@@ -388,7 +397,8 @@ export function ChatTab({ agent, detail }: { agent: string; detail: AgentDetail 
             messages={chat.messages}
             target={target}
             item={pickedItem}
-            onClear={() => (setPicked(null), setPickedItem(null))}
+            quote={quote}
+            onClear={() => (setPicked(null), setPickedItem(null), setQuote(null))}
             running={chat.working.turn_running}
           />
           <div className="chat-foot flex h-8 max-w-none! items-center border-t border-line px-3">

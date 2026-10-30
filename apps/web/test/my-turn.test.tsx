@@ -79,7 +79,8 @@ describe('my turn', () => {
     return s;
   }
   const label = (b: Element) => b.getAttribute('title') ?? b.getAttribute('aria-label') ?? b.textContent ?? '';
-  const button = (c: Element, name: string) => [...c.querySelectorAll('button')].find((b) => label(b) === name);
+  // A button's label may end in its key hint ("ApproveA").
+  const button = (c: Element, name: string) => [...c.querySelectorAll('button')].find((b) => new RegExp(`^${name}[A-Z]?$`).test(label(b)));
   const click = (el: Element | undefined) => act(async () => void (el as HTMLElement).click());
   const type = (el: Element, v: string) =>
     act(async () => {
@@ -124,8 +125,69 @@ describe('my turn', () => {
     const c = reviewCard(9101)!;
     expect(button(c, 'Done')).toBeUndefined();
     await click(button(c, 'Approve'));
+    // The answer is held for a few seconds so Undo is real: the toast says so, not that it is done. Closing the page sends it at once.
+    expect(document.body.textContent).toContain('Sends in 5 s');
+    expect(document.body.textContent).not.toContain('Approved');
+    await act(async () => void window.dispatchEvent(new Event('pagehide')));
     await until(() => s.daemon.tasks.find(9101).state === 'done', 'the task done');
+    await until(() => document.body.textContent!.includes('Approved'), 'the result once the daemon has taken it');
     expect(s.daemon.tasks.find(9101).evidence).toBe('Approved');
+  });
+
+  it('a refused held answer puts its card back and shows the daemon sentence', async () => {
+    const s = setup();
+    review(s, 9107);
+    await open(s);
+    await pick(ofTask(9107), 'the review row');
+    await until(() => reviewCard(9107), 'the review card');
+    await click(button(reviewCard(9107)!, 'Approve'));
+    s.daemon.tasks.find(9107).state = 'discarded'; // the task closed under the held answer: the daemon will not finish it again
+    await act(async () => void window.dispatchEvent(new Event('pagehide')));
+    await until(() => !document.body.textContent!.includes('Sends in 5 s'), 'the hold over');
+    expect(document.body.textContent).not.toContain('Approved');
+    await until(() => reviewCard(9107), 'the card back');
+  });
+
+  it('an answer leaves the list at once and Undo brings it back unsent', async () => {
+    const s = setup();
+    review(s, 9103);
+    await open(s);
+    await pick(ofTask(9103), 'the review row');
+    await until(() => reviewCard(9103), 'the review card');
+    await click(button(reviewCard(9103)!, 'Approve'));
+    expect(reviewCard(9103)).toBeUndefined();
+    await click([...document.querySelectorAll('button')].find((b) => label(b) === 'Undo'));
+    await until(() => reviewCard(9103), 'the card back');
+    await act(async () => void window.dispatchEvent(new Event('pagehide')));
+    await wait(50);
+    expect(s.daemon.tasks.find(9103).state).not.toBe('done');
+  });
+
+  it('an answer held when the page goes away is kept, and the next page sends it with the same ids', async () => {
+    const s = setup();
+    review(s, 9105);
+    await open(s);
+    await pick(ofTask(9105), 'the review row');
+    await until(() => reviewCard(9105), 'the review card');
+    await click(button(reviewCard(9105)!, 'Approve'));
+    const left = JSON.parse(localStorage.getItem('handline:held-answers') ?? '{}') as Record<
+      string,
+      { method: string; params: { request_id: string } }[]
+    >;
+    const steps = Object.values(left)[0]!;
+    expect(steps.map((x) => x.method)).toEqual(['task.done', 'inbox.mark_read']);
+    expect(steps.every((x) => x.params.request_id)).toBe(true);
+    // The reload: this page dies before the write leaves. Undo stands in for the lost write; the saved answer is what the next page finds.
+    const saved = localStorage.getItem('handline:held-answers')!;
+    await click([...document.querySelectorAll('button')].find((b) => label(b) === 'Undo'));
+    const firstPage = { root, box };
+    localStorage.setItem('handline:held-answers', saved);
+    expect(s.daemon.tasks.find(9105).state).not.toBe('done');
+    await open(s);
+    await until(() => s.daemon.tasks.find(9105).state === 'done', 'the held answer sent by the next page');
+    expect(localStorage.getItem('handline:held-answers')).toBe('{}');
+    await act(async () => firstPage.root?.unmount());
+    firstPage.box.remove();
   });
 
   it("a worktree-removal card has Keep it, Save a copy and Remove anyway; each closes the task with the daemon's words", async () => {
@@ -221,6 +283,27 @@ describe('my turn', () => {
     expect(location.hash).toBe('#/tasks/9002');
   });
 
+  it('j and k walk the requests and Enter opens the open one', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+    keep = () => void vi.unstubAllGlobals();
+    const s = setup();
+    decision(s, 9002);
+    decision(s, 9003);
+    await open(s);
+    await pick(ofTask(9002), 'the decision row');
+    const key = (k: string) => act(async () => void document.body.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })));
+    const current = () =>
+      listRows()
+        .find((r) => r.getAttribute('aria-current') === 'true')
+        ?.getAttribute('aria-label');
+    await key('j');
+    expect(current()).not.toBe('Open T9002'); // local-ref-ok
+    await key('k');
+    expect(current()).toBe('Open T9002'); // local-ref-ok
+    await key('Enter');
+    expect(location.hash).toBe('#/tasks/9002');
+  });
+
   it('on a narrow window the item takes the page, with one Back to Requests', async () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
     keep = () => void vi.unstubAllGlobals();
@@ -246,6 +329,7 @@ describe('my turn', () => {
     expect(button(c, 'Reply')).toBeUndefined(); // no bare Reply: the answer is written in its field
     await type(c.querySelector('input')!, 'Yes, relay it.');
     await click(button(c, 'Send answer'));
+    await act(async () => void window.dispatchEvent(new Event('pagehide')));
     await until(() => s.daemon.inbox.get(3).read, 'the daemon');
   });
 

@@ -7,10 +7,13 @@ import { setting } from '#src/daemon.ts';
 import { AccountsPage } from '#src/Accounts.tsx';
 import { RequestsPage } from '#src/RequestsPage.tsx';
 import { UsagePage } from '#src/UsagePage.tsx';
+import { MachinePage } from '#src/MachinePage.tsx';
 import { SettingsPage } from '#src/Settings.tsx';
 import { AdminPage } from '#src/Admin.tsx';
 import { DebugTerminals } from '#src/debug/DebugTerminals.tsx';
 import {
+  goAgent,
+  goTasks,
   useAccountsRoute,
   useDebugRoute,
   useNewAgentRoute,
@@ -27,11 +30,15 @@ import { TeamPage } from '#src/TeamPage.tsx';
 import { NewAgent } from '#src/NewAgent.tsx';
 import { KeysSheet } from '#src/KeysSheet.tsx';
 import { Palette } from '#src/Palette.tsx';
+import { PillHost } from '#src/Pill.tsx';
 import { Sidebar } from '#src/Sidebar.tsx';
 import { RailControls } from '#src/RailControls.tsx';
 import { Shell } from '#src/ui/TopBar.tsx';
 import { DaemonBuild } from '#src/DaemonBuild.tsx';
 import { DaemonDown } from '#src/DaemonDown.tsx';
+import { onCommand } from '#src/commands.ts';
+import { useHeldKeys } from '#src/heldKeys.ts';
+import { recents, useRemember } from '#src/recent.ts';
 import { terminalOwnsKey } from '#src/terminal/core.ts';
 import { StatusBar } from '#src/StatusBar.tsx';
 import { CaptureHost } from '#src/Capture.tsx';
@@ -66,16 +73,33 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
   const newAgent = useNewAgentRoute();
   const page = usePageRoute();
   useShell(agent);
+  useHeldKeys();
   const unread = useUnread().length;
-  const [railOpen, setRail] = useState(() => setting(storage, 'rail', '1').value === '1');
+  // Below 900px the sidebar is a drawer over the page: it starts closed and closes once something is picked.
+  const narrow = () => typeof matchMedia === 'function' && matchMedia('(max-width: 900px)').matches;
+  const [railOpen, setRail] = useState(() => !narrow() && setting(storage, 'rail', '1').value === '1');
   const toggle = () => {
     setRail(!railOpen);
     setting(storage, 'rail', '1').save(railOpen ? '0' : '1');
   };
+  useEffect(() => {
+    if (narrow()) setRail(false);
+  }, [agent, tasks, page]);
   const toggleRef = useRef(toggle);
   toggleRef.current = toggle;
   const [palette, setPalette] = useState(false);
   const [keys, setKeys] = useState(false);
+  useRemember(agent, tasks && /^\d+$/.test(tasks) ? tasks : null);
+  useEffect(
+    () =>
+      onCommand((name) => {
+        if (name === 'sidebar') toggleRef.current();
+        else if (name === 'back') history.back();
+        else if (name === 'forward') history.forward();
+        else if (name === 'keys') setKeys((k) => !k);
+      }),
+    [],
+  );
   const own = tasks !== null; // these pages answer `?` with their own keys
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -89,7 +113,15 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
         toggleRef.current();
       } else if (mod && e.key === '[') history.back();
       else if (mod && e.key === ']') history.forward();
-      else if (e.key === '?' && !mod && !own && !typing(e.target)) setKeys((k) => !k);
+      else if (e.ctrlKey && e.key === 'Tab') {
+        // Ctrl+Tab: the window opened before this one.
+        const was = recents().find((r) => (r.kind === 'agent' ? r.id !== agent : r.id !== tasks));
+        if (was) {
+          e.preventDefault();
+          if (was.kind === 'agent') goAgent(was.id);
+          else goTasks(Number(was.id));
+        }
+      } else if (e.key === '?' && !mod && !own && !typing(e.target)) setKeys((k) => !k);
     };
     // The mouse's back and forward buttons walk the history like the arrows do.
     const onMouse = (e: MouseEvent) => {
@@ -104,7 +136,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
       removeEventListener('keydown', onKey);
       removeEventListener('mouseup', onMouse);
     };
-  }, [own]);
+  }, [own, agent, tasks]);
   const [railW, setRailW] = useState(() => clampRail(Number(setting(storage, 'railWidth', '').value) || RAIL_W));
   const sizeRail = (w: number) => {
     const next = clampRail(w);
@@ -149,6 +181,8 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
               <RequestsPage />
             ) : page === 'settings' ? (
               <SettingsPage storage={storage} />
+            ) : page === 'machine' ? (
+              <MachinePage />
             ) : page === 'admin' ? (
               <AdminPage />
             ) : agent && settings ? (
@@ -167,6 +201,7 @@ function Frame({ daemon, storage }: { daemon: string; storage: KV | null }) {
       </div>
       <StatusBar />
       <AnimatedList>{palette ? <Palette key="Palette" onClose={() => setPalette(false)} /> : null}</AnimatedList>
+      <PillHost />
       <AnimatedList>{keys ? <KeysSheet key="KeysSheet" onClose={() => setKeys(false)} /> : null}</AnimatedList>
     </div>
   );

@@ -1,14 +1,20 @@
 // The ⌘K palette (G14): one box for agents, tasks by number or title, the pages and a few actions. Arrows move, Enter goes, Escape closes.
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { dateTime, searchSnippet, taskRef } from '@handline/app-core';
 import { useAgents, useChatSearch, useServes, useTasks } from '@handline/app-data';
 import { canCapture, requestCapture } from '#src/Capture.tsx';
 import { goAgent, goMessage, goNew, goTasks, goTeam } from '#src/route.ts';
+import { COMMANDS, runCommand } from '#src/commands.ts';
+import { recents } from '#src/recent.ts';
 import { Backdrop, Icon, PROW, PROW_HINT, PROW_NAME, useOpenMotion, type IconName } from '#src/ui/index.ts';
 
 interface Hit {
   key: string;
+  /** The heading it sits under while the box is empty. */
+  group?: string;
+  /** The keys that do the same, shown at the row's end. */
+  keys?: string;
   icon: IconName;
   label: string;
   hint?: string;
@@ -23,7 +29,28 @@ const PAGES: [string, IconName, () => void][] = [
   ['HR', 'team', () => goTeam('hr')],
   ['Usage', 'accounts', () => void (location.hash = '#/stats')],
   ['Settings', 'settings', () => void (location.hash = '#/settings')],
+  ['Machine', 'settings', () => void (location.hash = '#/machine')],
 ];
+
+/** What the empty box lists, by heading: the agents and tasks opened last, then the commands with their keys and the pages. Another heading's rows (what waits on the person) go in front of these. */
+function emptyState(all: Hit[]): Hit[] {
+  const byKey = new Map(all.map((h) => [h.key, h]));
+  const recent = recents()
+    .map((r) => byKey.get(r.kind === 'agent' ? `a:${r.id}` : `t:${r.id}`))
+    .filter((h): h is Hit => !!h)
+    .slice(0, 5)
+    .map((h) => ({ ...h, key: `r:${h.key}`, group: 'Recent' }));
+  const commands = COMMANDS.map((c): Hit => ({
+    key: `c:${c.name}`,
+    group: 'Commands',
+    icon: c.icon,
+    label: c.label,
+    keys: c.keys,
+    run: () => runCommand(c.name),
+  }));
+  const pages = all.filter((h) => h.key.startsWith('p:')).map((h) => ({ ...h, group: 'Pages' }));
+  return [...recent, ...commands, ...pages];
+}
 
 export function Palette({ onClose }: { onClose: () => void }) {
   const [q, setQ] = useState('');
@@ -67,8 +94,8 @@ export function Palette({ onClose }: { onClose: () => void }) {
         run: () => goMessage(agent, m.id),
       };
     });
-    const main = needle ? all.filter((h) => h.label.toLowerCase().includes(needle)) : all.filter((h) => h.key.startsWith('p:'));
-    return [...main.slice(0, 12), ...messages];
+    if (!needle) return emptyState(all);
+    return [...all.filter((h) => h.label.toLowerCase().includes(needle)).slice(0, 12), ...messages];
   }, [q, agentData, taskData, found, messageQuery]);
   const go = (h: Hit | undefined) => {
     if (!h) return;
@@ -109,18 +136,26 @@ export function Palette({ onClose }: { onClose: () => void }) {
         </div>
         <ul role="listbox" aria-label="Results" className="m-0 max-h-80 list-none overflow-auto py-1">
           {hits.map((h, i) => (
-            <li key={h.key} role="option" aria-selected={i === cur}>
-              <button
-                type="button"
-                className={`${PROW}${i === cur ? ' [background:var(--bg-3)] shadow-[inset_2px_0_0_var(--ink)]' : ''}`}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => go(h)}
-              >
-                <Icon name={h.icon} size={14} aria-hidden />
-                <span className={PROW_NAME}>{h.label}</span>
-                {h.hint ? <span className={PROW_HINT}>{h.hint}</span> : null}
-              </button>
-            </li>
+            <Fragment key={h.key}>
+              {h.group && h.group !== hits[i - 1]?.group ? (
+                <li role="presentation" className="px-3 pt-2 pb-0.5 text-xs font-medium tracking-wide text-ink-3 uppercase">
+                  {h.group}
+                </li>
+              ) : null}
+              <li role="option" aria-selected={i === cur}>
+                <button
+                  type="button"
+                  className={`${PROW}${i === cur ? ' [background:var(--bg-3)] shadow-[inset_2px_0_0_var(--ink)]' : ''}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => go(h)}
+                >
+                  <Icon name={h.icon} size={14} aria-hidden />
+                  <span className={PROW_NAME}>{h.label}</span>
+                  {h.keys ? <kbd className="flex-none font-sans text-xs text-ink-3">{h.keys}</kbd> : null}
+                  {h.hint ? <span className={PROW_HINT}>{h.hint}</span> : null}
+                </button>
+              </li>
+            </Fragment>
           ))}
           {!hits.length ? <li className="palette-none muted">–</li> : null}
         </ul>

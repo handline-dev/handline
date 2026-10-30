@@ -1,8 +1,10 @@
 // The model and account of an agent as two chips that open a menu and apply at once: agent.set for the model, agent.move for the account.
 // A model change while the agent works is kept by the daemon until the work ends; the chip says so until the live model matches.
-import { MODELS, toneOf } from '@handline/app-core';
+import { MODELS, VERBS, toneOf } from '@handline/app-core';
 import type { AgentDetail } from '@handline/client';
-import { EFFORTS, useAccounts, useServes, useVerbMark, useWrite } from '@handline/app-data';
+import { EFFORTS, useAccounts, useServes, useVerbMark, useVerbRun, useWrite } from '@handline/app-data';
+import { useServed } from '#src/AgentVerbs.tsx';
+import { Button } from '#src/ds/Button.tsx';
 import { Icon, MenuButton, MenuItem, MenuLabel, MenuSeparator, STRIP_ITEM } from '#src/ui/index.ts';
 
 const CHIP = `${STRIP_ITEM} gap-1 text-xs text-ink-2`;
@@ -12,12 +14,15 @@ export function ModelMenu({ detail }: { detail: AgentDetail }) {
   const { served } = useServes('agent.set');
   const chosen = detail.settings?.model;
   const live = detail.model;
-  const waits = !!chosen && !!live && chosen !== live;
+  const effort = detail.settings?.effort ?? detail.effort;
+  const waits =
+    (!!chosen && !!live && chosen !== live) || (!!detail.settings?.effort && !!detail.effort && detail.settings.effort !== detail.effort);
+  const run = useVerbRun(detail.name);
+  const canApply = useServed()(VERBS.restart) && detail.session_open;
   const models = [...new Set([...MODELS, ...(chosen ? [chosen] : []), ...(live ? [live] : [])])];
   if (!live && !chosen) return null;
   const shown = chosen ?? live;
-  const effort = detail.settings?.effort ?? detail.effort;
-  const label = `Model ${shown}${effort ? `, ${effort}` : ''}${waits ? ' (applies when current work ends)' : ''}`;
+  const label = `Model ${shown}${effort ? `, ${effort}` : ''}${waits ? ' (applies from the next session)' : ''}`;
   return (
     <MenuButton
       className={CHIP}
@@ -30,7 +35,7 @@ export function ModelMenu({ detail }: { detail: AgentDetail }) {
           <Icon name="agent" size={13} aria-hidden />
           {shown}
           {effort ? <span className="muted"> · {effort}</span> : null}
-          {waits ? <span className="text-wait">applies when current work ends</span> : null}
+          {waits ? <span className="text-wait">applies from the next session</span> : null}
         </>
       }
     >
@@ -44,16 +49,33 @@ export function ModelMenu({ detail }: { detail: AgentDetail }) {
         </MenuItem>
       ))}
       <MenuSeparator />
-      <MenuLabel>Effort</MenuLabel>
-      {EFFORTS.map((e) => (
-        <MenuItem
-          key={e}
-          icon={e === effort ? 'markRead' : undefined}
-          onSelect={() => e !== effort && set.mutate({ agent: detail.name, values: { effort: e } })}
-        >
-          {e}
-        </MenuItem>
-      ))}
+      <div className="px-2 pb-1.5 pt-0.5 text-xs text-ink-2">
+        <div className="flex justify-between gap-4 py-0.5">
+          <span className="text-ink-3">Effort</span>
+          <span className="text-ink">{effort ?? 'default'}</span>
+        </div>
+        <input
+          type="range"
+          className="w-full"
+          aria-label="Effort"
+          aria-valuetext={effort ?? undefined}
+          min={0}
+          max={EFFORTS.length - 1}
+          step={1}
+          value={Math.max(0, (EFFORTS as readonly string[]).indexOf(effort ?? ''))}
+          onChange={(e) => set.mutate({ agent: detail.name, values: { effort: EFFORTS[Number(e.target.value)]! } })}
+        />
+        <div className="flex justify-between text-ink-3" aria-hidden>
+          <span>{EFFORTS[0]}</span>
+          <span>{EFFORTS[EFFORTS.length - 1]}</span>
+        </div>
+        <p className="m-0 pt-1 text-ink-3">Applies from the next session.</p>
+        {canApply ? (
+          <div className="pt-1">
+            <Button size="s" label="Apply now" onClick={() => run(VERBS.restart)} />
+          </div>
+        ) : null}
+      </div>
     </MenuButton>
   );
 }
@@ -62,6 +84,7 @@ export function AccountMenu({ detail }: { detail: AgentDetail }) {
   const move = useWrite('agent.move', detail.name);
   const { served } = useServes('agent.move');
   const all = useAccounts().data?.accounts ?? [];
+  const mine = all.find((a) => a.name === detail.account);
   const listed = all.map((a) => a.name);
   const left = (name: string): number | null => {
     const w = all.find((a) => a.name === name)?.five_hour;
@@ -85,6 +108,20 @@ export function AccountMenu({ detail }: { detail: AgentDetail }) {
         </>
       }
     >
+      {mine ? (
+        <>
+          <div className="px-2 pb-1 pt-0.5 text-sm text-ink-2">
+            {[
+              mine.five_hour ? `5-hour ${Math.round(mine.five_hour.used_pct)}% used` : null,
+              mine.weekly ? `week ${Math.round(mine.weekly.used_pct)}% used` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ') || 'No usage reading'}
+          </div>
+          <MenuSeparator />
+          <MenuLabel>Change account</MenuLabel>
+        </>
+      ) : null}
       {accounts.map((a) => (
         <MenuItem
           key={a}

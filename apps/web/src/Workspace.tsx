@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState
 import {
   activate,
   arrange,
+  closeTab,
   defaultWorkspace,
   groupsOf,
   loadWorkspace,
@@ -25,11 +26,12 @@ import { useConnection, useStore } from '@handline/app-react';
 import { classify, useAgentDetail, useAgents, useChat, useServes } from '@handline/app-data';
 import { useDecided } from '#src/ChatCards.tsx';
 import { goSettings, recordHistoryValue, takeTerminalWish, useHistoryValue } from '#src/route.ts';
+import { onCommand, type CommandName } from '#src/commands.ts';
 import { View } from '#src/View.tsx';
 import { Pane } from '#src/Pane.tsx';
 import { PaneActions, PaneTabs } from '#src/PaneTabs.tsx';
 import { Button, PageBar } from '#src/ui/index.ts';
-import { isSwitchChord, isTerminalSwitch } from '#src/terminal/core.ts';
+import { isSwitchChord, isTerminalSwitch, terminalOwnsKey } from '#src/terminal/core.ts';
 
 const CELL = 'cell flex min-h-0 min-w-0 [&>*]:min-h-0 [&>*]:min-w-0 [&>*]:flex-1';
 
@@ -173,6 +175,43 @@ function Loaded({ agent, detail, daemon, storage }: { agent: string; detail: Age
     };
     addEventListener('keydown', onKey);
     return () => removeEventListener('keydown', onKey);
+  }, []);
+
+  // Window keys, and the palette's commands that go with them: close the shown tab, a new tab, split the pane, focus pane 1 to 9. One that changes nothing is left to the browser.
+  const splitIfRoom = (id: string) => {
+    const split = splitPane(ws, id);
+    return split && !arrange(split, size.w, size.h).merged ? split : null;
+  };
+  const windowCommand = (name: CommandName | `pane-${string}`): boolean => {
+    const panes = groupsOf(ws.root);
+    const here = panes.find((g) => g.id === ws.active) ?? panes[0]!;
+    const next =
+      name === 'tab-close'
+        ? closeTab(ws, here.activeTab)
+        : name === 'tab-new'
+          ? openTab(ws, 'new')
+          : name === 'split'
+            ? splitIfRoom(here.id)
+            : name.startsWith('pane-') && panes[Number(name.slice(5)) - 1]
+              ? { ...ws, active: panes[Number(name.slice(5)) - 1]!.id }
+              : null;
+    if (!next || next === ws) return false;
+    setWs(next);
+    return true;
+  };
+  const commandRef = useRef(windowCommand);
+  commandRef.current = windowCommand;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (terminalOwnsKey(e) || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
+      const k = e.key.toLowerCase();
+      const name =
+        k === 'w' ? 'tab-close' : k === 't' ? 'tab-new' : k === '\\' ? 'split' : /^[1-9]$/.test(k) ? (`pane-${k}` as const) : null;
+      if (name && commandRef.current(name)) e.preventDefault();
+    };
+    addEventListener('keydown', onKey);
+    const off = onCommand((name) => void commandRef.current(name));
+    return () => (removeEventListener('keydown', onKey), off());
   }, []);
 
   // "Open terminal" from the My turn page: the terminal (or transcript) comes to the front once.

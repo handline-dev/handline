@@ -18,9 +18,10 @@ import {
 } from '@handline/app-core';
 import type { AgentView, NavPrefsChanges } from '@handline/client';
 import { useConnection } from '@handline/app-react';
-import { useAgents, useHrCount, useMyTurn, useNav, useServes } from '@handline/app-data';
+import { useAgents, useMyTurn, useNav, useServes } from '@handline/app-data';
 import { useRowDrag } from '#src/RowDrag.ts';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
+import { WithKey } from '#src/WithKey.tsx';
 import { Button, Icon, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
 import { setting } from '#src/daemon.ts';
 import { goTasks, usePageRoute } from '#src/route.ts';
@@ -99,7 +100,6 @@ export function Sidebar({
   const counts = new Map<Dot, number>();
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const myTurn = turn.length;
-  const hr = useHrCount();
   const pageRoute = usePageRoute();
   return (
     <nav
@@ -108,24 +108,30 @@ export function Sidebar({
     >
       {/* The shell's drag strip: row as tall as the top bar, centred on the traffic lights (--h-top and --lights-w follow the zoom: shell.ts); `rail-top` is the tests' hook. */}
       <div className="rail-top flex items-center gap-0.5 h-[var(--h-top)] px-2.5 shell:py-0 shell:pl-[var(--lights-w,86px)] shell:[-webkit-app-region:drag]">
-        <Button
-          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-top)-4px)] shell:!w-[calc(var(--h-top)-4px)]"
-          icon="sidebar"
-          label="Hide the agent list (⌘B)"
-          onClick={onToggle}
-        />
-        <Button
-          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-top)-4px)] shell:!w-[calc(var(--h-top)-4px)]"
-          icon="back"
-          label="Back (⌘[)"
-          onClick={() => history.back()}
-        />
-        <Button
-          className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-top)-4px)] shell:!w-[calc(var(--h-top)-4px)]"
-          icon="forward"
-          label="Forward (⌘])"
-          onClick={() => history.forward()}
-        />
+        <WithKey k="⌘B">
+          <Button
+            className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-top)-4px)] shell:!w-[calc(var(--h-top)-4px)]"
+            icon="sidebar"
+            label="Hide the agent list (⌘B)"
+            onClick={onToggle}
+          />
+        </WithKey>
+        <WithKey k="⌘[">
+          <Button
+            className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-top)-4px)] shell:!w-[calc(var(--h-top)-4px)]"
+            icon="back"
+            label="Back (⌘[)"
+            onClick={() => history.back()}
+          />
+        </WithKey>
+        <WithKey k="⌘]">
+          <Button
+            className="shell:[-webkit-app-region:no-drag] shell:!h-[calc(var(--h-top)-4px)] shell:!w-[calc(var(--h-top)-4px)]"
+            icon="forward"
+            label="Forward (⌘])"
+            onClick={() => history.forward()}
+          />
+        </WithKey>
       </div>
       <div className="rail-nav flex flex-wrap gap-0.5 border-b border-line px-1.5 pb-1.5">
         <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
@@ -217,15 +223,7 @@ export function Sidebar({
       </div>
       <NewAgentButton />
       <footer className="rail-foot flex gap-0.5 border-t border-line px-2 py-1">
-        <span className="relative inline-flex">
-          <Button icon="settings" label="Settings" onClick={() => void (location.hash = '#/settings')} />
-          {hr ? (
-            <span
-              className="rail-hr pointer-events-none absolute right-0.5 top-0.5 size-2 rounded-full bg-bad"
-              title={`HR proposals: ${hr} · needs you`}
-            />
-          ) : null}
-        </span>
+        <Button icon="settings" label="Settings" onClick={() => void (location.hash = '#/settings')} />
         <Button icon="help" label="Keys (?)" onClick={() => dispatchEvent(new KeyboardEvent('keydown', { key: '?' }))} />
       </footer>
     </nav>

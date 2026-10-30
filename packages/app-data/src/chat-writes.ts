@@ -19,6 +19,7 @@ export function waitingMessage(
   parent: number | null = null,
   attachments: string[] = [],
   parentItem: ChatMessage['parent_item'] = null,
+  quote?: string,
 ): ChatMessage {
   return {
     id: provisionalId(),
@@ -35,6 +36,7 @@ export function waitingMessage(
     landed_at: null,
     parent,
     ...(parentItem ? { parent_item: parentItem } : {}),
+    ...(quote ? { quote } : {}),
     ...(attachments.length ? { attachments: knownAttachments(attachments) } : {}),
     kind: 'message',
     tasks: [],
@@ -50,6 +52,7 @@ const sendParams = (p: never) =>
     body: string;
     parent?: number;
     parent_item?: number;
+    quote?: string;
     attachments?: string[];
     delivery?: 'now' | 'queue';
     request_id?: string;
@@ -77,7 +80,7 @@ export const chatWrites: Record<string, WriteSpec> = {
     label: 'send',
     touches: allChats,
     patch: (c, p) => {
-      const { agent, body, parent, parent_item, attachments, delivery, request_id } = sendParams(p);
+      const { agent, body, parent, parent_item, quote, attachments, delivery, request_id } = sendParams(p);
       // The quote is the reply's first 300 code points, as the daemon cuts it, read from the transcript the person replied in.
       const text = parent_item == null ? undefined : quoted(c, agent, parent_item);
       const row = waitingMessage(
@@ -88,6 +91,7 @@ export const chatWrites: Record<string, WriteSpec> = {
         parent ?? null,
         attachments,
         text == null ? null : { id: parent_item!, text: [...text].slice(0, 300).join('') },
+        quote,
       );
       if (request_id) rememberOperation(row.id, request_id, delivery);
       // Only the chat of the agent it is said to: another agent's chat must not show it.

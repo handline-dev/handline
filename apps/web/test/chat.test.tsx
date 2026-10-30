@@ -234,7 +234,7 @@ describe('messages once, replies by reference, cards and the Tasks tab', () => {
     await typeInto(compose(), '!git status');
     expect(compose().className).toContain('font-mono');
     expect($('.compose-cmd')?.textContent).toBe('Sent as typed to the agent');
-    expect($('.compose-attach')).not.toBeNull(); // the slot stays, so the box does not move
+    expect($('.compose-attach')).toBeNull(); // files are attached by dropping or pasting; there is no button
     await press(compose(), 'Enter');
     await until(() => sentMsgs(t).some((m) => m.body === '!git status'), 'the daemon got it');
     expect(sentMsgs(t).find((x) => x.body === '!git status')!.parent).toBeNull();
@@ -551,21 +551,19 @@ describe('the bridge items: message numbers, new, menus, seen, strip', () => {
     expect(inbox.get(3).read).toBe(false);
   });
 
-  it('the strip shows the model, the account and the task; a stuck agent gets a banner', async () => {
+  it('the strip shows the model and the account, not the task; a stuck agent gets a banner', async () => {
     const t = await mount(ARCH);
     await until(() => $('.chat-strip'), 'the strip');
     expect($('.chat-strip .ui-state')).toBeNull(); // no spinner at the start; the head says the state
     expect(text($('.chat-strip'))).toContain('opus');
-    expect($('.chat-strip a')!.getAttribute('href')).toMatch(/^#\/tasks\/\d+/);
+    expect($('.chat-strip a')).toBeNull(); // the task is on the sidebar row
     expect($('.chat-banner')).toBeNull();
     void t;
   });
 
-  it("the strip counts the files changed in the agent's worktree", async () => {
+  it("the strip's branch shows the lines the worktree adds and removes", async () => {
     await mount(ARCH);
-    await until(() => $('.chat-strip [aria-label$="in the worktree"]'), 'the count');
-    expect(text($('.chat-strip [aria-label$="in the worktree"]'))).toBe('1');
-    expect($('.chat-strip [aria-label$="in the worktree"]')!.getAttribute('title')).toBe('1 changed file in the worktree');
+    await until(() => /\+\d+ −\d+/.test(text($('.chat-strip .branch'))), 'the counts');
   });
 
   it('the ticks sit beside only the newest message of the person; an earlier one has them on hover', async () => {

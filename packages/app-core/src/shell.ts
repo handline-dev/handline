@@ -62,8 +62,13 @@ export interface ShellApi {
     /** Branch names the message holds: a repo path opens the version on one of them (read-only), else the worktree's file, else main, else GitHub. */
     branches?: string[];
   }): Promise<{ ok: true; how: 'opened' | 'revealed' | 'branch' | 'main' | 'github' } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
-  /** Copy a dropped file or folder into the agent's worktree and give the copy's path. Absent in a shell that lacks it. */
-  bringIn?(a: { path: string; agent: string }): Promise<{ ok: true; path: string } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
+  /** The agent's folder in VS Code or Terminal, or its Claude Code session in Terminal. The shell resolves the folder and the command itself; macOS only. Absent in a shell that lacks it. */
+  openIn?(a: {
+    app: 'vscode' | 'terminal' | 'claude';
+    agent: string;
+  }): Promise<{ ok: true } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
+  /** Which of those this machine has; empty off macOS. */
+  openInApps?(): Promise<{ ok: true; apps: ('vscode' | 'terminal' | 'claude')[] } | Fail<'bad_request'>>;
   /** Edit text in the person's editor and read it back. Absent in a shell that lacks it. */
   compose?(a: {
     text?: string;
@@ -160,8 +165,6 @@ export interface ShellApi {
     changes: PageSettings;
     agent?: string;
   }): Promise<{ ok: true; result: Methods['settings.set']['result'] } | Fail<'bad_request' | 'refused' | 'unavailable'>>;
-  /** The absolute path of a file or folder dropped from Finder, or '' when it has none. Synchronous: it reads the File, not the disk. Absent in a shell that lacks it. */
-  pathOf?(file: File): string;
   /** A notice was clicked. Returns the way to stop listening. */
   onNavigate(cb: (to: NavigateTo) => void): () => void;
 }
