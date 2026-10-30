@@ -50,7 +50,7 @@ export function ReviewCard(props: { task: number; item: number; off: string | un
   };
   return (
     <View testID="review-card" style={{ gap: space.md }}>
-      {pictures.length > 0 && <Pictures items={pictures} />}
+      {pictures.length > 0 && <Pictures items={pictures} deletable />}
       {asking && (
         <Sheet
           id="review"
