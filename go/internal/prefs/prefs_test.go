@@ -2,6 +2,7 @@ package prefs
 
 import (
 	"database/sql"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -21,7 +22,7 @@ func set(t *testing.T, d *sql.DB, person string, changes map[string]any, agents 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := apply(&n, changes, agents); err != nil {
+	if err := apply(&n, changes, agents, func(id int64) bool { return taskOpen(tx, id) }); err != nil {
 		return err
 	}
 	if err := save(tx, person, n); err != nil {
@@ -104,16 +105,19 @@ func TestARetiredAgentLeavesPinsFoldsAndOrderAndARenamedOneKeepsItsPlace(t *test
 
 func TestLaterMergesByItemAndNullClearsOne(t *testing.T) {
 	d := storetest.Open(t)
+	if _, err := d.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at) VALUES(4, 'open', 'a', 'b', 1)"); err != nil {
+		t.Fatal(err)
+	}
 	must := func(later map[string]any) {
 		t.Helper()
 		if err := set(t, d, "human", map[string]any{"later": later}, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
-	must(map[string]any{"task:1": map[string]any{"until": "2026-11-01T09:00:00+09:00"}, "comment:7": map[string]any{"after_task": float64(4)}})
-	must(map[string]any{"machine:disk": map[string]any{"until": "2026-11-02T00:00:00Z"}, "comment:7": nil})
+	must(map[string]any{"task:1": map[string]any{"until": "2099-11-01T09:00:00+09:00"}, "comment:7": map[string]any{"after_task": json.Number("4")}})
+	must(map[string]any{"machine:disk": map[string]any{"until": "2099-11-02T00:00:00Z"}, "comment:7": nil})
 	got, _ := LaterOf(d, "human")
-	if len(got) != 2 || got["task:1"] != (Later{Until: "2026-11-01T00:00:00Z"}) || got["machine:disk"] != (Later{Until: "2026-11-02T00:00:00Z"}) {
+	if len(got) != 2 || got["task:1"] != (Later{Until: "2099-11-01T00:00:00Z"}) || got["machine:disk"] != (Later{Until: "2099-11-02T00:00:00Z"}) {
 		t.Fatalf("%+v", got)
 	}
 	must(map[string]any{"task:1": nil, "machine:disk": nil})
@@ -126,14 +130,14 @@ func TestLaterRefusesWhatIsNotADeferral(t *testing.T) {
 	d := storetest.Open(t)
 	for name, later := range map[string]any{
 		"not an object":       []any{},
-		"a prompt":            map[string]any{"prompt:fp1": map[string]any{"until": "2026-11-01T00:00:00Z"}},
-		"an hr proposal":      map[string]any{"hr:11": map[string]any{"until": "2026-11-01T00:00:00Z"}},
-		"a key with no id":    map[string]any{"task:": map[string]any{"after_task": float64(1)}},
-		"both until and task": map[string]any{"task:1": map[string]any{"until": "2026-11-01T00:00:00Z", "after_task": float64(2)}},
+		"a prompt":            map[string]any{"prompt:fp1": map[string]any{"until": "2099-11-01T00:00:00Z"}},
+		"an hr proposal":      map[string]any{"hr:11": map[string]any{"until": "2099-11-01T00:00:00Z"}},
+		"a key with no id":    map[string]any{"task:": map[string]any{"after_task": json.Number("1")}},
+		"both until and task": map[string]any{"task:1": map[string]any{"until": "2099-11-01T00:00:00Z", "after_task": float64(2)}},
 		"neither":             map[string]any{"task:1": map[string]any{}},
 		"a time that is not":  map[string]any{"task:1": map[string]any{"until": "tomorrow"}},
-		"a task that is not":  map[string]any{"task:1": map[string]any{"after_task": 1.5}},
-		"a task of zero":      map[string]any{"task:1": map[string]any{"after_task": float64(0)}},
+		"a task that is not":  map[string]any{"task:1": map[string]any{"after_task": json.Number("1.5")}},
+		"a task of zero":      map[string]any{"task:1": map[string]any{"after_task": json.Number("0")}},
 	} {
 		if err := set(t, d, "human", map[string]any{"later": later}, nil); err == nil {
 			t.Errorf("%s: accepted", name)
@@ -152,7 +156,7 @@ func TestADeferralIsOverWhenItsTimeIsOrItsTaskIsNotOpen(t *testing.T) {
 		over bool
 	}{
 		{Later{Until: "2026-11-01T00:00:01Z"}, false},
-		{Later{Until: "2026-11-01T00:00:00Z"}, true},
+		{Later{Until: "2099-11-01T00:00:00Z"}, true},
 		{Later{Until: "garbled"}, true},
 		{Later{AfterTask: 5}, false},
 		{Later{AfterTask: 6}, true},
@@ -160,5 +164,25 @@ func TestADeferralIsOverWhenItsTimeIsOrItsTaskIsNotOpen(t *testing.T) {
 		if got := c.l.Over(now, open); got != c.over {
 			t.Errorf("%+v: over %v, want %v", c.l, got, c.over)
 		}
+	}
+}
+
+func TestASetDropsTheDeferralsThatAreOver(t *testing.T) {
+	d := storetest.Open(t)
+	if _, err := d.Exec("INSERT INTO tasks(id, title, owner, opened_by, created_at, done_evidence) VALUES(4, 'open', 'a', 'b', 1, NULL), (5, 'done', 'a', 'b', 1, 'x')"); err != nil {
+		t.Fatal(err)
+	}
+	soon := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	for _, later := range []map[string]any{
+		{"task:1": map[string]any{"until": "2020-01-01T00:00:00Z"}, "comment:2": map[string]any{"until": soon}},
+		{"machine:disk": map[string]any{"after_task": json.Number("4")}, "comment:3": map[string]any{"after_task": json.Number("5")}, "task:6": map[string]any{"after_task": json.Number("99")}},
+	} {
+		if err := set(t, d, "human", map[string]any{"later": later}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := LaterOf(d, "human")
+	if len(got) != 2 || got["comment:2"].Until != soon || got["machine:disk"].AfterTask != 4 {
+		t.Fatalf("only a future time and an open task stay: %+v", got)
 	}
 }

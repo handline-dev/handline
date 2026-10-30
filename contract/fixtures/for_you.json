@@ -3,7 +3,7 @@
   {
    "name": "for_you.list_counts_what_waits_and_leaves_out_what_is_deferred",
    "spec": "for_you.list",
-   "about": "A task given to the founder is an item and adds one to the count; deferred in the prefs it is still listed, with later, and not counted; cleared it counts again; done it is gone.",
+   "about": "A task given to the founder is an item and adds one to the count; deferred in the prefs it is still listed, with later, and not counted; cleared it counts again; deferred until a task ends it is listed with after_task too; done it is gone.",
    "as": "founder",
    "steps": [
     {
@@ -168,13 +168,19 @@
     {
      "send": {
       "jsonrpc": "2.0",
-      "id": 9,
-      "method": "task.done",
+      "id": 11,
+      "method": "prefs.set",
       "params": {
-       "task": "{{t}}",
-       "evidence": "done",
-       "reason": true,
-       "request_id": "conf-foryou-9-task.done"
+       "changes": {
+        "nav": {
+         "later": {
+          "task:{{t}}": {
+           "after_task": "{{t}}"
+          }
+         }
+        }
+       },
+       "request_id": "conf-foryou-11-prefs.set"
       }
      },
      "result": {
@@ -184,7 +190,66 @@
     {
      "send": {
       "jsonrpc": "2.0",
-      "id": 10,
+      "id": 12,
+      "method": "for_you.list",
+      "params": {}
+     },
+     "result": {
+      "count": "{{c0}}",
+      "items": {
+       "$contains": {
+        "kind": "task",
+        "id": {
+         "$regex": "^{{t}}$"
+        },
+        "later": {
+         "$exact": true,
+         "after_task": "{{t}}"
+        }
+       }
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 13,
+      "method": "prefs.set",
+      "params": {
+       "changes": {
+        "nav": {
+         "later": {
+          "task:{{t}}": null
+         }
+        }
+       },
+       "request_id": "conf-foryou-13-prefs.set"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 14,
+      "method": "task.done",
+      "params": {
+       "task": "{{t}}",
+       "evidence": "done",
+       "reason": true,
+       "request_id": "conf-foryou-14-task.done"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 15,
       "method": "for_you.list",
       "params": {}
      },

@@ -96,7 +96,7 @@ func Register(s *rpc.Server, home string) {
 			if err != nil {
 				return nil, err
 			}
-			if err := apply(&n, nav, paths.ListAgents(home)); err != nil {
+			if err := apply(&n, nav, paths.ListAgents(home), func(id int64) bool { return taskOpen(tx, id) }); err != nil {
 				return nil, err
 			}
 			if err := save(tx, c.Caller.Actor(), n); err != nil {
@@ -112,7 +112,7 @@ func bad(message, field string) *rpc.Error {
 }
 
 // apply sets each key of changes on n, checked.
-func apply(n *Nav, changes map[string]any, agents []string) error {
+func apply(n *Nav, changes map[string]any, agents []string, open func(int64) bool) error {
 	for k, v := range changes {
 		field := "changes.nav." + k
 		switch k {
@@ -156,7 +156,7 @@ func apply(n *Nav, changes map[string]any, agents []string) error {
 			}
 			n.Layout = s
 		case "later":
-			if err := applyLater(n, v, field); err != nil {
+			if err := applyLater(n, v, field, open); err != nil {
 				return err
 			}
 		default:
@@ -167,7 +167,7 @@ func apply(n *Nav, changes map[string]any, agents []string) error {
 }
 
 // applyLater merges v, an object of "kind:id" to a deferral or null, into n.Later.
-func applyLater(n *Nav, v any, field string) error {
+func applyLater(n *Nav, v any, field string, open func(int64) bool) error {
 	entries, ok := v.(map[string]any)
 	if !ok {
 		return bad(field+" is an object of kind:id to a deferral or null", field)
@@ -196,19 +196,27 @@ func applyLater(n *Nav, v any, field string) error {
 			if t, ok := timeOf(until); ok {
 				l.Until = t.UTC().Format(time.RFC3339)
 			}
-		} else if f, ok := after.(float64); ok && f == float64(int64(f)) {
-			l.AfterTask = int64(f)
+		} else if n, ok := rpc.AsInt(after); ok {
+			l.AfterTask = n
 		}
 		if l.Until == "" && l.AfterTask <= 0 {
 			return bad(field+"."+key+" is a time (until) or a task number (after_task)", field+"."+key)
 		}
 		next[key] = l
 	}
+	now := time.Now()
+	maps.DeleteFunc(next, func(_ string, l Later) bool { return l.Over(now, open) })
 	n.Later = next
 	if len(next) == 0 {
 		n.Later = nil
 	}
 	return nil
+}
+
+// taskOpen says whether the task exists and is neither done nor discarded.
+func taskOpen(q querier, id int64) bool {
+	var one int
+	return q.QueryRow("SELECT 1 FROM tasks WHERE id = ? AND COALESCE(done_evidence, '') = '' AND COALESCE(discarded_by, '') = ''", id).Scan(&one) == nil
 }
 
 // timeOf is a Timestamp (RFC 3339).

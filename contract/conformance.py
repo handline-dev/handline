@@ -134,7 +134,7 @@ def matches(want, got, saved: dict, at: str = "$") -> None:
 
 
 def substitute(node, vars_: dict):
-    """Replace {{name}} in every string of a request or of what its reply and notices must hold with a --var or a saved value."""
+    """Replace {{name}} in every string (a key too) of a request or of what its reply and notices must hold with a --var or a saved value."""
     if isinstance(node, str):
         def one(m):
             if m.group(1) not in vars_:
@@ -145,7 +145,7 @@ def substitute(node, vars_: dict):
             return vars_[whole.group(1)]
         return re.sub(r"\{\{(\w+)\}\}", one, node)
     if isinstance(node, dict):
-        return {k: substitute(v, vars_) for k, v in node.items()}
+        return {str(substitute(k, vars_)): substitute(v, vars_) for k, v in node.items()}
     if isinstance(node, list):
         return [substitute(v, vars_) for v in node]
     return node
