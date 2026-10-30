@@ -2,9 +2,11 @@
 package heavyslots
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
+	"syscall"
 
 	"github.com/handline/handline/go/internal/paths"
 	"github.com/handline/handline/go/internal/usage"
@@ -52,4 +54,26 @@ func LightSlots() int {
 		return n
 	}
 	return 2
+}
+
+// Held is how many heavy slots are held now: each slot-*.lock in Dir is opened read-only (never created) and a shared flock tried on
+// it, the probe cmd/heavyslot's tickets use. A missing directory is 0; light slots are not counted.
+func Held() int {
+	dir, err := Dir()
+	if err != nil {
+		return 0
+	}
+	locks, _ := filepath.Glob(filepath.Join(dir, "slot-*.lock"))
+	n := 0
+	for _, path := range locks {
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); errors.Is(err, syscall.EWOULDBLOCK) {
+			n++
+		}
+		f.Close()
+	}
+	return n
 }

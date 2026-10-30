@@ -1760,6 +1760,12 @@
       "default": 10,
       "description": "Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work."
      },
+     "disk_free_min_gb": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 5,
+      "description": "Least free disk on the volume the daemon home is on, in GB; 0 is off. Under it heavy runs (builds and tests, tools/heavy-slot.sh) wait; agent turns are never held. It is also the floor the disk needs-you item uses."
+     },
      "host_simulator_hold": {
       "type": "integer",
       "minimum": 0,
@@ -2042,6 +2048,18 @@
        }
       ],
       "description": "Least free memory, in percent of all; 0 is off. Under it the daemon starts no new work. null removes the key (back to the default)."
+     },
+     "disk_free_min_gb": {
+      "oneOf": [
+       {
+        "type": "integer",
+        "minimum": 0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "Least free disk on the volume the daemon home is on, in GB; 0 is off. Under it heavy runs (builds and tests, tools/heavy-slot.sh) wait; agent turns are never held. It is also the floor the disk needs-you item uses. null removes the key (back to the default)."
      },
      "host_simulator_hold": {
       "oneOf": [
@@ -2664,6 +2682,11 @@
        "ram_free_pct": {
         "type": "integer",
         "description": "ram_free_bytes in percent of ram_total_bytes; the free-memory floor is compared with this."
+       },
+       "heavy_running": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Heavy slots held now (tools/heavy-slot.sh), at the same measure. Light slots are not counted. The cap is settings.get heavy_slots, or connection.info heavy_slots.slots when the environment overrides it."
        }
       },
       "required": [
@@ -2675,7 +2698,8 @@
        "disk_free_bytes",
        "disk_total_bytes",
        "load_per_core",
-       "ram_free_pct"
+       "ram_free_pct",
+       "heavy_running"
       ]
      },
      "agents_total": {

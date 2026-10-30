@@ -26,6 +26,7 @@ const KEYS = [
   'host_active_cap',
   'load_per_core_pct',
   'ram_free_min_pct',
+  'disk_free_min_gb',
   'host_simulator_hold',
   'heavy_slots',
   'keep_awake',
@@ -37,7 +38,10 @@ test('settings.get serves every SettingsValues key, a load limit reads back, and
   await client.start();
   const first = await client.call('settings.get', {});
   assert.deepEqual(Object.keys(first.values).sort(), [...KEYS].sort());
-  assert.deepEqual([first.values.host_active_cap, first.values.load_per_core_pct, first.values.ram_free_min_pct], [0, 150, 10]);
+  assert.deepEqual(
+    [first.values.host_active_cap, first.values.load_per_core_pct, first.values.ram_free_min_pct, first.values.disk_free_min_gb],
+    [0, 150, 10, 5],
+  );
   assert.equal(first.timings.bg_grace_s, 300);
   await client.call('settings.set', { changes: { load_per_core_pct: 200, push_stall: false }, request_id: 'l1-a' });
   const set = await client.call('settings.get', {});

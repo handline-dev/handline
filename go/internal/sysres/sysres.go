@@ -12,6 +12,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/handline/handline/go/internal/heavyslots"
 )
 
 // Every is how often the sampler measures.
@@ -31,6 +33,8 @@ type Machine struct {
 	DiskFree, DiskTotal        int64
 	// Simulator is the name of a running phone simulator or emulator ("" for none): the heaviest thing a test of the app starts.
 	Simulator string
+	// HeavyRunning is how many heavy slots are held (heavyslots.Held).
+	HeavyRunning int
 }
 
 // Snapshot is one measurement.
@@ -54,7 +58,9 @@ type Sampler struct {
 	Machine func() (Machine, error)
 	// Disk is the free and total bytes of the volume holding a path; nil is statfs.
 	Disk func(path string) (free, total int64, err error)
-	Log  func(string)
+	// Heavy is how many heavy slots are held; nil is heavyslots.Held.
+	Heavy func() int
+	Log   func(string)
 
 	mu   sync.Mutex
 	last *Snapshot
@@ -157,6 +163,11 @@ func (s *Sampler) Sample(now int64) error {
 	}
 	snap.Machine.Cores = runtime.NumCPU()
 	snap.Machine.Simulator = deviceSimulator(procs)
+	heavy := s.Heavy
+	if heavy == nil {
+		heavy = heavyslots.Held
+	}
+	snap.Machine.HeavyRunning = heavy()
 	disk := s.Disk
 	if disk == nil {
 		disk = StatfsFree
@@ -215,7 +226,8 @@ func (s *Sampler) Latest() map[string]any {
 	m := snap.Machine
 	machine := map[string]any{
 		"ram_total_bytes": m.RAMTotal, "ram_used_bytes": m.RAMUsed, "ram_free_bytes": m.RAMFree, "load_1m": m.Load1, "cores": m.Cores,
-		"disk_free_bytes": m.DiskFree, "disk_total_bytes": m.DiskTotal, "load_per_core": 0.0, "ram_free_pct": 0}
+		"disk_free_bytes": m.DiskFree, "disk_total_bytes": m.DiskTotal, "load_per_core": 0.0, "ram_free_pct": 0,
+		"heavy_running": m.HeavyRunning}
 	if m.Cores > 0 {
 		machine["load_per_core"] = m.Load1 / float64(m.Cores)
 	}
