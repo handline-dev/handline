@@ -60,9 +60,11 @@ afterEach(async () => {
 
 describe('machine', () => {
   it('lists the resources, the agents and the storage, with no remove button', async () => {
-    await mount('#/machine', setup());
+    const s = setup();
+    await mount('#/machine', s);
     await until(() => $('.machine-page [data-agent]'), 'the agents');
     expect($$('.machine-page nav button').map(text)).toEqual(['Resources', 'Agents', 'Storage']);
+    expect($$('.machine-page [data-agent]').length).toBeGreaterThan(0);
     expect(button('Delete') ?? button('Remove')).toBeUndefined();
   });
 });

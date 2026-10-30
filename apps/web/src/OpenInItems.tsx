@@ -21,6 +21,10 @@ export function OpenInItems({ agent, cwd, withCopy = true }: { agent: string; cw
     },
     !!shell('openInApps'),
   );
+  const openFolder = async () => {
+    const r = await open!.openPath!({ path: cwd, agent });
+    if (r && !r.ok) showPill(r.message);
+  };
   const openIn = async (app: 'vscode' | 'terminal' | 'claude') => {
     const r = await shell('openIn')?.openIn!({ app, agent });
     if (r && !r.ok) showPill(r.message);
@@ -28,7 +32,7 @@ export function OpenInItems({ agent, cwd, withCopy = true }: { agent: string; cw
   return (
     <>
       {open ? (
-        <MenuItem icon="open" onSelect={() => void open.openPath!({ path: cwd, agent })}>
+        <MenuItem icon="open" onSelect={() => void openFolder()}>
           Finder
         </MenuItem>
       ) : null}
