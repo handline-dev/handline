@@ -1,4 +1,4 @@
-// The weekly-loss offer as a card of the Requests tab: the sentence, the first spare tasks, and a button that starts them all.
+// The weekly-loss offer as a row of the Requests list: the sentence, the first spare tasks, and a button that starts them all.
 import { Pressable, Text, View } from 'react-native';
 import { SPARE_SHOWN, spareNotice, type SpareNotice } from '@handline/app-core';
 import { useTasks, useWrite } from '@handline/app-data';
@@ -22,8 +22,18 @@ export function SpareCard(props: { n: SpareNotice; onTask: (id: number) => void 
   const reply = (evidence: string) => answer.mutate({ task: n.task, evidence, reason: true });
   const small = { color: c.muted, fontSize: font.size.sm } as const;
   return (
-    <View testID="notice-spare" style={{ flexDirection: 'row', gap: space.sm, padding: space.md, backgroundColor: c.raised }}>
-      <Icon name="waiting" decorative size={16} color={c.wait} />
+    <View
+      testID="notice-spare"
+      style={{
+        flexDirection: 'row',
+        gap: space.md,
+        padding: space.lg,
+        borderTopWidth: 1,
+        borderTopColor: c.line,
+        alignItems: 'flex-start',
+      }}
+    >
+      <Icon name="waiting" decorative size={18} color={c.wait} />
       <View style={{ flex: 1, gap: space.sm }}>
         <Pressable accessibilityRole="button" onPress={() => props.onTask(n.task)}>
           <Text style={{ color: c.ink }}>{n.text}</Text>
