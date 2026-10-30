@@ -45,9 +45,10 @@ const menu = async (name: string) => {
 };
 const txt = (el: Element | null | undefined) => el?.textContent ?? '';
 const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());
-async function open(hash: string, seed?: string) {
+async function open(hash: string, seed?: string, before?: (s: ReturnType<typeof setup>) => void) {
   const s = setup();
   if (seed) applySeeds(s.daemon, seed);
+  before?.(s);
   location.hash = hash;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
@@ -264,14 +265,13 @@ describe('the task page', () => {
   });
 });
 
-describe('the Tasks page on a wide window', () => {
-  it('keeps the list on the left with the open task beside it, the task in the body with no bar of its own', async () => {
-    vi.stubGlobal('matchMedia', (q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {} }));
+describe('the task page', () => {
+  it.each([true, false])('is the detail page alone with its own bar and Back, whatever the window width (wide %s)', async (wide) => {
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: wide, media: q, addEventListener() {}, removeEventListener() {} }));
     await open('#/tasks/1688');
-    await until(() => $('article.tdetail') && $('tr[data-task="1684"]'), 'the split');
-    expect($('tr[data-task="1688"]')).not.toBeNull(); // the list stays, the open task in it
-    expect(txt($('article.tdetail .tbody h2'))).toContain('Terminal pane on the bytes channel');
-    expect($('.page-bar button[title="Back to Tasks"]')).toBeNull();
+    await until(() => $('article.tdetail'), 'the page');
+    expect($('tr[data-task="1684"]')).toBeNull(); // no list beside it
+    expect($('.page-bar button[title="Back to Tasks"]')).not.toBeNull();
   });
 });
 
@@ -286,6 +286,24 @@ describe('the agent Tasks tab and the older-rows button', () => {
     expect(heads[0]).toBe('Draft');
     expect(heads).toContain('Running');
     expect(heads.indexOf('Draft')).toBeLessThan(heads.indexOf('Running'));
+  });
+
+  it("a row says its state to a screen reader, names the other agent in a chip (none for the agent's own task) and keeps the 3 or 4 columns", async () => {
+    await open('#/agents/handline.architect', undefined, (s) =>
+      s.daemon.tasks.seed({ id: 9301, from: 'handline.architect', to: 'handline.architect', title: 'Own task', state: 'doing' }),
+    );
+    await until(() => $('button[aria-label="Add a tab"]'), 'the tab strip');
+    await click($('button[aria-label="Add a tab"]'));
+    await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => b.textContent?.includes('Tasks')) ?? null);
+    await until(() => $('.tasks-tab-row[data-task="9301"]'), 'the rows');
+    const row = (id: number) => $(`.tasks-tab-row[data-task="${id}"]`)!;
+    expect(txt(row(1688).querySelector('.ttitle .sr-only'))).toBe('doing: ');
+    expect(txt(row(1688).querySelector('.who'))).toBe('term-build'); // assigned to another agent
+    expect(txt(row(1684).querySelector('.who'))).toBe('founder'); // opened by another
+    expect(txt(row(9301).querySelector('.who'))).toBe(''); // the agent's own
+    expect($('.tasks-tab-list section[aria-label="Running"] h3')).not.toBeNull();
+    expect(row(1688).className).toContain('grid-cols-[3rem_minmax(0,1fr)_5rem]');
+    expect(row(1688).className).toContain('@[28rem]:grid-cols-[3rem_minmax(0,1fr)_auto_5rem]');
   });
 
   it('without IntersectionObserver the Show 100 older button stays', async () => {

@@ -30,8 +30,8 @@ const SAID: Record<TimeLabel, string> = {
   starting: 'starting for',
 };
 
-/** The one-line Time: it draws nothing for a daemon without task.time or a task with no stretches yet. */
-export function TimeLine({ id }: { id: number }) {
+/** The one-line Time: "40m left", a short bar and the word for the stretch it is in; a click opens the full sentence, bar and stretches. It draws nothing for a daemon without task.time or a task with no stretches yet. */
+export function TimeLine({ id, left }: { id: number; left?: string }) {
   const [open, setOpen] = useState(false);
   const off = useOff('task.time');
   const segments = useTaskTime(id).data?.segments ?? [];
@@ -39,20 +39,25 @@ export function TimeLine({ id }: { id: number }) {
   const { rows, totals, seconds } = timeView(segments);
   const said = [...totals.map((t) => `${SAID[t.label]} ${length(t.seconds)}`), `${length(seconds)} in all`].join(' · ');
   const sentence = said[0]!.toUpperCase() + said.slice(1);
+  const now = rows.at(-1);
+  const word = totals.find((t) => t.label === now?.label)?.word;
   return (
-    <section aria-label="Time" className="mt-2 rounded-md border border-line bg-surface px-2">
+    <section aria-label="Time" className="mt-3">
       <button
         type="button"
         aria-expanded={open}
-        className="flex h-6 w-full min-w-0 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left text-xs text-ink-2"
+        aria-label={sentence}
+        className="flex h-6 min-w-0 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left text-sm text-ink-2"
         onClick={() => setOpen(!open)}
       >
-        {open ? null : <MiniBar rows={rows} className="h-1.5 w-16 flex-none" />}
-        <span className="min-w-0 flex-1 truncate">{sentence}</span>
+        {left ? <span className="tabular-nums">{left}</span> : null}
+        <MiniBar rows={rows} className="h-1.5 w-20 flex-none" />
+        <span className="min-w-0 truncate">{word ?? length(seconds)}</span>
         <Icon name="chevron" size={12} aria-hidden className={open ? 'rotate-180' : undefined} />
       </button>
       {open ? (
-        <div className="max-h-48 overflow-auto pb-2">
+        <div className="mt-1 max-h-48 overflow-auto rounded-md border border-line bg-surface px-2 py-2">
+          <p className="m-0 mb-2 text-xs text-ink-2">{sentence}</p>
           <TaskTime segments={segments} />
         </div>
       ) : null}

@@ -3,7 +3,7 @@
 // A verb that does not apply is hidden; one the daemon does not serve yet is shown disabled.
 import { TaskNotes } from '#src/PhotoNotes.tsx';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { dateTime, HELD, isPerson, splitNew, taskRef, watchResult } from '@handline/app-core';
+import { dateTime, dueOf, HELD, isPerson, splitNew, taskRef, watchResult } from '@handline/app-core';
 import { useHello, useMe, useStore } from '@handline/app-react';
 import type { TaskDetail as Detail } from '@handline/client';
 import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handline/app-data';
@@ -41,19 +41,16 @@ export function TaskDetail({
   id,
   onBack,
   embedded,
-  split,
 }: {
   id: number;
   /** Where Back goes for a detail the window's own Back cannot return from (My turn): on a page the top bar carries it; left out, it goes to Tasks. */
   onBack?: () => void;
   /** A pane inside its host (the Tasks tab of an agent pane, the Tasks page's split). */
   embedded?: boolean;
-  /** The column beside the Tasks list on a wide window: no bar of its own, the title in the body. */
-  split?: boolean;
 }) {
   const q = useTask(id);
   const gone = q.isError && classify(q.error).kind === 'not_found';
-  const page = !embedded && !split; // on a page of its own the top bar names the task, whatever the width
+  const page = !embedded; // on a page of its own the top bar names the task, whatever the width
   return (
     <>
       {page ? (
@@ -118,6 +115,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   const me = useMe();
   const [ask, setAsk] = useState<Ask>(null);
   const [dialog, setDialog] = useState<TaskDialog>(null);
+  const [history, setHistory] = useState(false);
   const commentBox = useRef<HTMLDivElement>(null);
   const edit = useEditTask(t);
   const queue = useWrite('task.queue');
@@ -194,24 +192,13 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
   ];
   const first = status.find((v) => v.label !== 'Release');
   const main = first && { ...first, busy: queue.isPending || draft.isPending };
-  const more = [
-    ...status.filter((v) => v !== first),
-    ...(startable && mine ? [item('Withdraw', 'w', verbs.w, can.withdraw)] : []),
-    ...(open ? [item('Discard', 'd', verbs.d, can.discard)] : []),
-  ];
+  const more = [...status.filter((v) => v !== first), ...(startable && mine ? [item('Withdraw', 'w', verbs.w, can.withdraw)] : [])];
   const workspace = useWorkspaceIfAny();
   const copy = (text: string) => () => void navigator.clipboard?.writeText(text);
   const ok = { ok: true };
-  // The ... menu: the rest of the verbs, then what any task offers.
+  // The ... menu: what any task offers, then the verbs that end or hand it back (Assign and Comment are the chip and the box on the page).
+  const discard = open ? item('Discard', 'd', verbs.d, can.discard) : null;
   const actions = [
-    ...(open ? [item('Assign', 'o', verbs.o, edit.can)] : []),
-    item('Comment', 'a', verbs.a, ok),
-    ...(open ? [item('Cancel task', 'c', verbs.c, can.cancel)] : []),
-    ...more,
-    ...(open
-      ? [item('Add sub-task', '', () => setDialog('sub'), ok), item('Wait on another task…', '', () => setDialog('wait'), edit.can)]
-      : []),
-    item('Duplicate', '', () => setDialog('dup'), ok),
     item('Copy link', '', copy(`${location.origin}${location.pathname}#/tasks/${t.id}`), ok),
     item('Copy number', '', copy(taskRef(t.id)), ok),
     ...(workspace && t.id > 0
@@ -224,6 +211,14 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
           ),
         ]
       : []),
+    ...(open
+      ? [item('Add sub-task', '', () => setDialog('sub'), ok), item('Wait on another task…', '', () => setDialog('wait'), edit.can)]
+      : []),
+    item('Duplicate', '', () => setDialog('dup'), ok),
+    item('History', '', () => setHistory(true), ok),
+    ...more,
+    ...(open ? [item('Cancel task', 'c', verbs.c, can.cancel)] : []),
+    ...(discard ? [discard] : []),
   ];
   const mark = decided ? 'decided' : authored || t.id < 0 ? 'authored' : null;
   const statusControl = status.length ? (
@@ -252,7 +247,6 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
               <Id>{taskRef(t.id)}</Id> <TitleEdit t={t} />
             </h2>
           )}
-          <HistoryButton id={t.id} />
           <span className="relative ml-auto inline-flex">
             <MenuButton size="sm" icon="ellipsis" label="More" className="max-sm:min-h-[44px]">
               {actions.map((v) => (
@@ -262,6 +256,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
               ))}
             </MenuButton>
             <AssignPopover t={t} me={me} open={ask === 'assign'} onClose={() => setAsk(null)} />
+            <HistoryPopup id={t.id} open={history} onClose={() => setHistory(false)} />
           </span>
         </header>
         <p className="m-0 mt-1 text-xs text-ink-3">
@@ -280,7 +275,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
         <div className="mt-3">
           <TaskChips t={t} now={now} me={me} lead={statusControl} />
         </div>
-        <TimeLine id={t.id} />
+        <TimeLine id={t.id} left={dueOf(t, now)?.text} />
         <TaskWaitLine t={t} />
         <TaskWatch t={t} />
         {why && NOT_PICKED.test(why) ? (
@@ -364,18 +359,14 @@ function Brief({ t, can }: { t: Detail; can: boolean }) {
   );
 }
 
-/** The History button in the header: every field changed, from task.history, in a popover with its filters; read only once opened. */
-function HistoryButton({ id }: { id: number }) {
-  const [open, setOpen] = useState(false);
+/** The task's history, in a popover under the ... menu: every field changed, from task.history, with its filters; read only once opened. */
+function HistoryPopup({ id, open, onClose }: { id: number; open: boolean; onClose: () => void }) {
   return (
-    <span className="relative ml-auto">
-      <Button icon="history" label="History" title="History" aria-expanded={open} onClick={() => setOpen(!open)} />
-      <Popup open={open} onClose={() => setOpen(false)} title="History" align="right" bare>
-        <div className="max-h-[60vh] w-[min(420px,90vw)] overflow-auto p-2">
-          <HistoryRows id={id} />
-        </div>
-      </Popup>
-    </span>
+    <Popup open={open} onClose={onClose} title="History" align="right" bare>
+      <div className="max-h-[60vh] w-[min(420px,90vw)] overflow-auto p-2">
+        <HistoryRows id={id} />
+      </div>
+    </Popup>
   );
 }
 

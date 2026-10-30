@@ -5,9 +5,8 @@ import type { TaskDetail as Detail } from '@handline/client';
 import { Icon, type IconName } from '#src/ui/Icon.tsx';
 import { Sheet } from '#src/taskui.tsx';
 import { AssignPopover } from '#src/TaskPeople.tsx';
-import { Inline, TextInput, useEditTask } from '#src/TaskInline.tsx';
-import { Input, MenuButton, MenuItem } from '#src/ui/index.ts';
-import { Button as DsButton } from '#src/ds/Button.tsx';
+import { TextInput, useEditTask } from '#src/TaskInline.tsx';
+import { Button, Input, MenuButton, MenuItem } from '#src/ui/index.ts';
 import { Chip } from '#src/ds/Chip.tsx';
 import { Id } from '#src/ds/Link.tsx';
 
@@ -17,11 +16,11 @@ const LI = 'flex items-baseline gap-1.5 py-0.5';
 /** The assignee, priority and time box as chips: the first two open a choice, the time box edits where it is. A closed task shows them as plain words. */
 export function TaskChips({ t, now, me, lead }: { t: Detail; now: number; me: string; lead?: ReactNode }) {
   const [picking, setPicking] = useState(false);
+  const [boxing, setBoxing] = useState(false);
   const edit = useEditTask(t);
   const can = edit.can.ok && t.state !== 'done' && t.state !== 'discarded' && !isGate(t);
-  const box = timeBoxText(t, now);
-  const owner = `Assigned to · ${t.to}`;
-  const priority = `Priority · P${t.priority ?? 2}`;
+  const box = timeBoxText(t, now) || 'none';
+  const priority = `P${t.priority ?? 2}`;
   return (
     <>
       <div className="tchips flex flex-wrap items-center gap-2">
@@ -29,9 +28,15 @@ export function TaskChips({ t, now, me, lead }: { t: Detail; now: number; me: st
         {can ? (
           <>
             <span className="relative inline-flex">
-              <DsButton size="s" label="Change who it is assigned to" title={edit.can.why} onClick={() => setPicking(!picking)}>
-                {owner} ▾
-              </DsButton>
+              <Button
+                variant="outline"
+                size="sm"
+                label="Change who it is assigned to"
+                title={edit.can.why}
+                onClick={() => setPicking(!picking)}
+              >
+                {t.to} ▾
+              </Button>
               <AssignPopover t={t} me={me} open={picking} onClose={() => setPicking(false)} />
             </span>
             <MenuButton label="Change the priority" variant="outline" size="sm" align="start" trigger={`${priority} ▾`}>
@@ -41,25 +46,26 @@ export function TaskChips({ t, now, me, lead }: { t: Detail; now: number; me: st
                 </MenuItem>
               ))}
             </MenuButton>
+            {boxing ? (
+              <TextInput
+                value={t.time_box ?? ''}
+                label="Time box"
+                onSave={(time_box) => edit.save({ time_box })}
+                onClose={() => setBoxing(false)}
+              />
+            ) : (
+              <Button variant="outline" size="sm" label="Change the time box" onClick={() => setBoxing(true)}>
+                Limit {box} ▾
+              </Button>
+            )}
           </>
         ) : (
           <>
-            <Chip>{owner}</Chip>
+            <Chip>{t.to}</Chip>
             <Chip>{priority}</Chip>
+            <Chip>Limit {box}</Chip>
           </>
         )}
-        <Chip>
-          Time box ·{' '}
-          <Inline
-            can={can}
-            label="Time box"
-            input={(close) => (
-              <TextInput value={t.time_box ?? ''} label="Time box" onSave={(time_box) => edit.save({ time_box })} onClose={close} />
-            )}
-          >
-            {box || 'none'}
-          </Inline>
-        </Chip>
       </div>
       {edit.error ? (
         <p className="m-0 text-bad" role="alert">

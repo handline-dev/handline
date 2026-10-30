@@ -22,7 +22,7 @@ import { goTasks } from '#src/route.ts';
 
 const CLOSED = ['done', 'discarded'];
 const bare = (agent: string) => agent.split('.').at(-1) ?? agent; // 'handline.daemon' is 'daemon' in a row: the team is the same on every line
-// state · number · title (the one column that gives) · owner · time
+// number · title (the one column that gives) · who · time
 /** Below 28rem of pane the who column goes, so the title keeps the room. */
 const COLS = 'grid-cols-[3rem_minmax(0,1fr)_5rem] @[28rem]:grid-cols-[3rem_minmax(0,1fr)_auto_5rem]';
 

@@ -471,8 +471,8 @@ describe('the detail', () => {
     await mount('#/tasks/1700', s);
     await until(() => $('.tverbs'), 'the verbs');
     expect(button('Edit')).toBeUndefined();
-    const edit = async (label: string, value: string) => {
-      await click($(`[aria-label="Edit ${label}"]`)!);
+    const edit = async (label: string, value: string, trigger = $(`[aria-label="Edit ${label}"]`)!) => {
+      await click(trigger);
       await typeInto($(`input[aria-label="${label}"]`) as HTMLInputElement, value);
       await press('Enter', {}, $(`input[aria-label="${label}"]`)!);
     };
@@ -482,10 +482,10 @@ describe('the detail', () => {
     expect(s.daemon.tasks.get({ task: 1700 }).title).toContain('Draft'); // not yet at the daemon
     release();
     await until(() => s.daemon.tasks.get({ task: 1700 }).title === 'Pair the web UI', 'saved');
-    await click(button('Priority ·')!);
+    await click($('button[title="Change the priority"]'));
     await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => text(i).startsWith('P1')));
     await until(() => s.daemon.tasks.get({ task: 1700 }).priority === 1, 'the priority');
-    await edit('Time box', '3h');
+    await edit('Time box', '3h', $('button[title="Change the time box"]')!);
     await until(() => s.daemon.tasks.get({ task: 1700 }).time_box === '3h', 'the time box');
     s.daemon.knobs.refuse('task.edit', 'state', 'locked');
     await edit('Title', 'Nope');
@@ -517,8 +517,8 @@ describe('the detail', () => {
   it('assigns the task from a short list: a click hands it over at once, with no note box', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    await until(() => button('Assigned to ·'), 'the assignee button');
-    await click(button('Assigned to ·')!);
+    await until(() => $('button[title="Change who it is assigned to"]'), 'the assignee button');
+    await click($('button[title="Change who it is assigned to"]'));
     const ask = $('[role="dialog"][aria-label="Assign T1688 to"]')!; // local-ref-ok
     expect($('[role="listbox"][aria-label="Likely"]', ask)).not.toBeNull();
     expect($$('[role="option"]', ask).length).toBeLessThanOrEqual(4);
@@ -534,8 +534,8 @@ describe('the detail', () => {
   it('keeps the assign popover open and says why when the daemon refuses the new owner', async () => {
     const s = withVerbs(setup());
     await mount('#/tasks/1688', s);
-    await until(() => button('Assigned to ·'), 'the assignee button');
-    await click(button('Assigned to ·')!);
+    await until(() => $('button[title="Change who it is assigned to"]'), 'the assignee button');
+    await click($('button[title="Change who it is assigned to"]'));
     const ask = $('[role="dialog"][aria-label="Assign T1688 to"]')!; // local-ref-ok
     await typeInto($('input[aria-label="Find someone"]', ask) as HTMLInputElement, 'architect');
     s.daemon.knobs.refuse('task.edit', 'state', 'cannot move it now');
@@ -549,7 +549,7 @@ describe('the detail', () => {
     await until(() => $('.tverbs'), 'the verbs');
     for (const b of $$('button', $('.tverbs')!)) expect(text(b).trim()).not.toBe('');
     expect(text($('.tchips'))).toContain('doing');
-    expect(text($('.tchips'))).toContain('Assigned to');
+    expect(text($('.tchips'))).toContain('handline.term-build ▾');
   });
 
   it('serves the verbs of the daemon plan once it lists them: done acts at once, reopen only for a done task I asked for', async () => {
