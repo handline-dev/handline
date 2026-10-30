@@ -90,6 +90,30 @@ test('inboxGroup: decision and ask are decisions, a permission prompt is an appr
   for (const kind of ['say', 'result', 'report', 'block', 'refused']) assert.equal(g({ kind }), 'fyi');
 });
 
+test("a daemon stall's card uses the daemon's title and sentence, not one built from its kind", () => {
+  const stall = (name: string, kind: 'trust' | 'start_failed' | 'no_session', title: string, text: string) =>
+    agent({ name, needs_you: { kind, since: '2026-10-15T00:00:00Z', title, text, source: 'daemon' } });
+  const cards = myTurn({
+    items: [],
+    agents: [
+      stall(
+        't',
+        'trust',
+        'Waiting for folder trust',
+        'Claude Code is asking whether to trust the files in /w. Only you can answer it, in the terminal.',
+      ),
+      stall('s', 'start_failed', "Won't start", 'The last 3 starts failed: x.'),
+      stall('n', 'no_session', "Woke but didn't start", 'It was woken 3 times and no session started: y.'),
+    ],
+    tasks: [],
+  });
+  assert.deepEqual(cards.map((c) => [c.agent, c.title, c.detail]).sort(), [
+    ['n', "Woke but didn't start", 'It was woken 3 times and no session started: y.'],
+    ['s', "Won't start", 'The last 3 starts failed: x.'],
+    ['t', 'Waiting for folder trust', 'Claude Code is asking whether to trust the files in /w. Only you can answer it, in the terminal.'],
+  ]);
+});
+
 test('has_dialog without needs_you is a dialog card with only Open terminal', () => {
   const cards = myTurn({ items: [], agents: [agent({ has_dialog: true, state_detail: 'Trust this folder?' })], tasks: [] });
   assert.equal(cards[0]!.kind, 'dialog');

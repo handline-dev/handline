@@ -270,13 +270,7 @@ export function myTurn({ items, agents, tasks, titles, machine = [], me = '' }: 
     cards.push({
       key: `agent:${a.name}`,
       kind: dialog ? 'dialog' : 'attention',
-      title: dialog
-        ? 'Waiting on a dialog'
-        : n.kind === 'permission'
-          ? 'Waiting for a yes'
-          : n.kind === 'question'
-            ? 'Asked you a question'
-            : 'Hit the session limit',
+      title: ('title' in n && n.title) || (dialog ? 'Waiting on a dialog' : 'Hit the session limit'), // the daemon's own title; a screen-read dialog has none
       detail: n.text ?? '',
       agent: a.name,
       from: a.name,

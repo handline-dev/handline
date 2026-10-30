@@ -218,7 +218,7 @@ const SOLVED: Record<string, string> = {
   "Woke but didn't start": 'Started',
 };
 
-/** What the agent waits on a person for: the title, the sentence under it and one button (the terminal, or Try again for a start that failed); gone when the daemon stops saying it, leaving one grey line for a stall it solved. */
+/** What the agent waits on a person for; a daemon stall that clears leaves one grey line, so the person sees it was solved. */
 export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
   // A daemon that reads the screen sets has_dialog and serves no needs_you: the card still says it, with the daemon's own line.
   const need =

@@ -103,6 +103,35 @@ describe('needs you', () => {
     expect(card()!.textContent).toContain('The last 3 starts failed');
   });
 
+  describe('when the need goes away', () => {
+    const goes = async (source: 'daemon' | 'hook') => {
+      const s = setup();
+      const a = s.daemon.sessions.get(ARCH)!;
+      keep = () => void (a.fx.view = undefined);
+      a.fx.view = {
+        needs_you: { kind: 'trust', since: new Date().toISOString(), title: 'Waiting for folder trust', text: 'x', source },
+      };
+      await mount(s);
+      await until(() => card(), 'the card');
+      a.fx.view = { needs_you: null };
+      const script = (s.daemon as unknown as { script: { setState(s: unknown, state: string): void } }).script;
+      await act(async () => script.setState(a, a.state === 'idle' ? 'running' : 'idle'));
+      await until(() => !card(), 'the card gone');
+    };
+
+    it('leaves one grey line for a stall the daemon raised', async () => {
+      await goes('daemon');
+      await until(() => box.querySelector('.card-solved'), 'the grey line');
+      expect(box.querySelector('.card-solved')!.textContent).toMatch(/^Folder trust answered · \d+s$/);
+    });
+
+    it('leaves none for a need from a hook or the session', async () => {
+      await goes('hook');
+      await wait(100);
+      expect(box.querySelector('.card-solved')).toBeNull();
+    });
+  });
+
   it('shows no card and no chip when the daemon says nothing is waited on', async () => {
     const s = setup();
     await mount(s);
