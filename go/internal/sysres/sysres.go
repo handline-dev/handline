@@ -31,8 +31,6 @@ type Machine struct {
 	Load1                      float64
 	Cores                      int
 	DiskFree, DiskTotal        int64
-	// Simulator is the name of a running phone simulator or emulator ("" for none): the heaviest thing a test of the app starts.
-	Simulator string
 	// HeavyRunning is how many heavy slots are held (heavyslots.Held).
 	HeavyRunning int
 }
@@ -92,25 +90,6 @@ func parsePS(out string) map[int]proc {
 	return procs
 }
 
-// deviceSimulator names a running phone simulator or emulator, "" for none, by the command's name alone: a booted simulated device
-// (launchd_sim, one per device) or the qemu an Android emulator runs on. The Simulator app and the emulator launcher are only a window
-// and a starter, so an idle one is not heavy; look-alikes (CoreSimulatorService, an editor open on an "emulator" file) do not match either.
-func deviceSimulator(procs map[int]proc) string {
-	for _, p := range procs {
-		name := p.comm
-		if i := strings.LastIndex(name, "/"); i >= 0 {
-			name = name[i+1:]
-		}
-		switch {
-		case name == "launchd_sim":
-			return "iOS simulator"
-		case strings.HasPrefix(name, "qemu-system-"):
-			return "Android emulator"
-		}
-	}
-	return ""
-}
-
 // treeUse sums each root's process and all its descendants.
 func treeUse(procs map[int]proc, roots map[string]int) map[string]Use {
 	kids := map[int][]int{}
@@ -162,7 +141,6 @@ func (s *Sampler) Sample(now int64) error {
 		s.Log("resources: " + err.Error())
 	}
 	snap.Machine.Cores = runtime.NumCPU()
-	snap.Machine.Simulator = deviceSimulator(procs)
 	heavy := s.Heavy
 	if heavy == nil {
 		heavy = heavyslots.Held
