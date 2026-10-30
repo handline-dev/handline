@@ -137,6 +137,20 @@ const urlOf = (call: Call, id: string, thumb: boolean): Promise<string | null> =
   return p;
 };
 
+const removedIds = new Set<string>();
+const onRemoved = new Set<(id: string) => void>();
+/** Whether this session saw the image deleted. */
+export const isRemoved = (id: string): boolean => removedIds.has(id);
+/** The founder deleted this image: what draws it from the cache goes blank at once and says it was deleted. */
+export function markRemoved(id: string): void {
+  removedIds.add(id);
+  for (const key of [`${id}:t`, `${id}:o`]) {
+    void urls.get(key)?.then((u) => u && URL.revokeObjectURL(u));
+    urls.set(key, Promise.resolve(null));
+  }
+  onRemoved.forEach((f) => f(id));
+}
+
 /** Lets go of an image's object URL; the next use reads it again. */
 const release = (id: string, thumb: boolean) => {
   const key = `${id}:${thumb ? 't' : 'o'}`;
@@ -145,9 +159,15 @@ const release = (id: string, thumb: boolean) => {
 };
 
 /** The picture of an attachment as a URL once read: `gone` when the daemon has dropped it (the name is shown without the picture), `failed` when the read itself failed. */
-export function useAttachmentUrl(id: string, thumb: boolean): { url: string | null; gone: boolean; failed: boolean } {
+export function useAttachmentUrl(id: string, thumb: boolean): { url: string | null; gone: boolean; failed: boolean; removed: boolean } {
   const store = useStore();
   const [state, setState] = useState<{ url: string | null; gone: boolean; failed: boolean }>({ url: null, gone: false, failed: false });
+  const [removed, setRemoved] = useState(removedIds.has(id));
+  useEffect(() => {
+    const f = (gone: string) => gone === id && (setRemoved(true), setState({ url: null, gone: true, failed: false }));
+    onRemoved.add(f);
+    return () => void onRemoved.delete(f);
+  }, [id]);
   useEffect(() => {
     let live = true;
     setState({ url: null, gone: false, failed: false });
@@ -160,10 +180,11 @@ export function useAttachmentUrl(id: string, thumb: boolean): { url: string | nu
       if (!thumb) release(id, false); // the original is large: kept only while it is open
     };
   }, [store, id, thumb]);
-  return state;
+  return { ...state, removed: removed && state.gone };
 }
 
-export type AttachmentRead = { state: 'loading' } | { state: 'ready'; mime: ReadMime; bytes: Uint8Array } | { state: 'gone' } | { state: 'failed' };
+export type AttachmentRead =
+  { state: 'loading' } | { state: 'ready'; mime: ReadMime; bytes: Uint8Array } | { state: 'gone' } | { state: 'failed' };
 
 /** The bytes of an attachment, read on each mount (no cache, for an app that has no object URLs); `gone` when the daemon dropped it. */
 export function useAttachmentBytes(id: string, thumb: boolean): AttachmentRead {

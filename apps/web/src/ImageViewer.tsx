@@ -1,16 +1,28 @@
 // The one enlarged view of a picture: dimmed scrim, zoom (ViewerStage.tsx) and, under a PhotoNotes place, marking what to change.
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useReducer, useRef, useState } from 'react';
 import { initialMarks, keptMarks, marksReducer, marksToShapes } from '@handline/app-core';
-import { sentence, classify, useAttachmentUrl } from '@handline/app-data';
+import { sentence, classify, isRemoved, useAttachmentUrl, useWrite } from '@handline/app-data';
+import { useHello } from '@handline/app-react';
 import { marked } from '#src/Annotate.tsx';
 import { notesText, useNotesPlace } from '#src/PhotoNotes.tsx';
 import { ViewerStage } from '#src/ViewerStage.tsx';
 import { Button, Icon } from '#src/ui/index.ts';
+import { KeepPhotos } from '#src/keepPhotos.ts';
 
 export type Picture = { id?: string; url?: string; name: string };
 
+/** Pictures this session saw deleted are not stepped to. */
 export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Picture[]; start?: number; onClose: () => void }) {
+  const [shown] = useState(() => {
+    const list = pictures.filter((p) => !(p.id && isRemoved(p.id)));
+    return { list: list.length ? list : pictures, start: Math.max(0, list.indexOf(pictures[start]!)) };
+  });
+  return <Viewer pictures={shown.list} start={shown.start} onClose={onClose} />;
+}
+
+function Viewer({ pictures, start, onClose }: { pictures: Picture[]; start: number; onClose: () => void }) {
   const [at, setAt] = useState(Math.min(start, pictures.length - 1));
+  const keep = useContext(KeepPhotos);
   const pic = pictures[at];
   const place = useNotesPlace();
   const full = useAttachmentUrl(pic?.id ?? '', false);
@@ -103,7 +115,7 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
             Fit
           </button>
         ) : null}
-        {url && !marking ? <PhotoMenu url={url} name={pic.name} /> : null}
+        {url && !marking ? <PhotoMenu url={url} name={pic.name} id={keep ? undefined : pic.id} onDeleted={onClose} /> : null}
         <button type="button" className="inline-flex items-center gap-1 border-0 bg-transparent text-white" onClick={() => leave('close')}>
           <Icon name="close" size={14} aria-hidden />
           Close
@@ -125,7 +137,13 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
           />
         ) : (
           <p className="m-auto opacity-70" onClick={() => leave('close')}>
-            {full.failed ? 'The image could not be loaded.' : full.gone ? 'This image is no longer kept.' : 'Loading…'}
+            {full.failed
+              ? 'The image could not be loaded.'
+              : full.removed
+                ? 'Photo deleted.'
+                : full.gone
+                  ? 'This image is no longer kept.'
+                  : 'Loading…'}
           </p>
         )}
         {!marking && at > 0 ? <Arrow side="left" label="Previous picture" onClick={() => step(-1)} /> : null}
@@ -189,8 +207,29 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
 }
 
 /** More: copy the photo to the clipboard, or save it as a file. */
-function PhotoMenu({ url, name }: { url: string; name: string }) {
+function PhotoMenu({ url, name, id, onDeleted }: { url: string; name: string; id?: string; onDeleted: () => void }) {
   const [open, setOpen] = useState(false);
+  const [places, setPlaces] = useState<number | null>(null);
+  const founder = useHello()?.role === 'founder';
+  const remove = useWrite('attachment.remove');
+  // The count of places comes from a dry run, so the confirm says what the deletion reaches before anything is removed.
+  const ask = async () => {
+    setOpen(false);
+    try {
+      setPlaces((await remove.mutateAsync({ id: id!, dry_run: true })).removed_from);
+    } catch {
+      // useWrite has reported it
+    }
+  };
+  const del = async () => {
+    setPlaces(null);
+    try {
+      await remove.mutateAsync({ id: id! });
+      onDeleted();
+    } catch {
+      // useWrite has reported it
+    }
+  };
   const item = 'block w-full cursor-pointer border-0 bg-transparent px-3 py-1.5 text-left text-sm text-ink';
   const copy = async () => {
     setOpen(false);
@@ -209,14 +248,35 @@ function PhotoMenu({ url, name }: { url: string; name: string }) {
       >
         ⋯
       </button>
+      {places !== null ? (
+        <div
+          role="alertdialog"
+          aria-label="Delete photo?"
+          className="absolute right-0 z-20 mt-1 grid w-64 gap-2 rounded-md bg-panel p-3 text-sm text-ink shadow-[var(--shadow)]"
+        >
+          <span>
+            <strong className="block">Delete this photo?</strong>
+            {places === 0 ? null : `It disappears from ${places} ${places === 1 ? 'place' : 'places'}. This cannot be undone.`}
+          </span>
+          <span className="flex justify-end gap-2">
+            <Button size="sm" label="Cancel" className="!text-ink" onClick={() => setPlaces(null)} />
+            <Button size="sm" variant="solid" label="Delete" className="!bg-bad" onClick={() => void del()} />
+          </span>
+        </div>
+      ) : null}
       {open ? (
         <div role="menu" className="absolute right-0 z-20 mt-1 w-40 rounded-md bg-panel py-1 shadow-[var(--shadow)]">
           <button type="button" role="menuitem" className={item} onClick={() => void copy().catch(() => undefined)}>
             Copy photo
           </button>
-          <a role="menuitem" className={`${item} no-underline`} href={url} download={name} onClick={() => setOpen(false)}>
+          <a role="menuitem" className={`${item} !text-ink !no-underline`} href={url} download={name} onClick={() => setOpen(false)}>
             Save photo
           </a>
+          {founder && id ? (
+            <button type="button" role="menuitem" className={`${item} !text-bad`} onClick={() => void ask()}>
+              Delete photo…
+            </button>
+          ) : null}
         </div>
       ) : null}
     </span>

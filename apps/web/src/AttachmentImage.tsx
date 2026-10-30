@@ -35,8 +35,8 @@ export function AttachmentImage({
     );
   if (small.gone)
     return (
-      <span className="attachment gone muted text-[12px]" title="This image is no longer kept">
-        {label}
+      <span className="attachment gone muted text-[12px]" title={small.removed ? 'Photo deleted' : 'This image is no longer kept'}>
+        {small.removed ? 'Photo deleted' : label}
       </span>
     );
   return (
