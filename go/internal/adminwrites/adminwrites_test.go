@@ -18,15 +18,9 @@ import (
 	"github.com/handline/handline/go/internal/team"
 )
 
-// auth makes every call the founder's, or the agent as names while it is set.
-type auth struct{ as *string }
+type auth struct{}
 
-func (a auth) AgentOf(int) string {
-	if a.as == nil {
-		return ""
-	}
-	return *a.as
-}
+func (auth) AgentOf(int) string         { return "" }
 func (auth) FounderKeyOK(k string) bool { return k == "founder" }
 
 type rig struct {
@@ -34,7 +28,6 @@ type rig struct {
 	home string
 	srv  *rpc.Server
 	e    *Env
-	as   string
 }
 
 func newRig(t *testing.T) *rig {
@@ -55,12 +48,10 @@ func newRig(t *testing.T) *rig {
 	}
 	t.Cleanup(func() { d.Close() })
 	e := &Env{DB: d, Home: home}
-	r := &rig{t: t, home: home, e: e}
-	s := rpc.NewServer(auth{&r.as}, "x", store.LatestVersion(), "local", func(string, ...any) {})
+	s := rpc.NewServer(auth{}, "x", store.LatestVersion(), "local", func(string, ...any) {})
 	s.DB = d
 	Register(s, e)
-	r.srv = s
-	return r
+	return &rig{t, home, s, e}
 }
 
 func (r *rig) one(method, params string) map[string]any {

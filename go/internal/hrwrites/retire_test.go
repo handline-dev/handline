@@ -11,6 +11,7 @@ import (
 	"github.com/handline/handline/go/internal/gitrun"
 	"github.com/handline/handline/go/internal/sealed"
 	"github.com/handline/handline/go/internal/team"
+	"github.com/handline/handline/go/internal/yamlcompat"
 )
 
 func TestAgentRetireRefusesADependedOnAgentAndRetiresOneThatIsNot(t *testing.T) {
@@ -138,11 +139,12 @@ func TestTheFoundersRetireIsRefusedWhileAWorktreeHoldsWorkWithNoAnswer(t *testin
 	}
 }
 
-// With an answer the retire goes on: a merged, clean worktree goes with its branch, one that holds work is kept, saved to a rescue
-// branch or forced away as answered, and one another agent shares stays. Nothing is put to the founder as a task.
+// With an answer the retire goes on: its worktrees go first, a merged, clean one with its branch, one that holds work saved to a rescue
+// branch or forced away as answered, and one another agent shares is left alone. keep leaves the worktree, so the agent stays too.
+// Nothing is put to the founder as a task.
 func TestTheFoundersAnswerIsCarriedOutForAWorktreeThatHoldsWork(t *testing.T) {
 	for _, c := range []struct{ choice, said string }{
-		{"keep", " stays, as asked"}, {"save", " is removed; what it held is on rescue/bob-"}, {"force", " is removed with what it held"},
+		{"save", " is removed; what it held is on rescue/bob-"}, {"force", " is removed with what it held"},
 	} {
 		t.Run(c.choice, func(t *testing.T) {
 			r := newRig(t)
@@ -157,20 +159,80 @@ func TestTheFoundersAnswerIsCarriedOutForAWorktreeThatHoldsWork(t *testing.T) {
 				t.Fatalf("%v", m)
 			}
 			said, _ := res["said"].(string)
-			for _, want := range []string{wt["done"] + " is removed with its branch done", wt["ahead"] + c.said, wt["shared"] + " stays: an agent works in it"} {
+			for _, want := range []string{wt["done"] + " is removed with its branch done", wt["ahead"] + c.said} {
 				if !strings.Contains(said, want) {
 					t.Errorf("%q lacks %q", said, want)
 				}
 			}
-			_, err := os.Stat(wt["ahead"])
-			if kept := err == nil; kept != (c.choice == "keep") {
-				t.Fatalf("ahead kept %v", kept)
+			for name, gone := range map[string]bool{"done": true, "ahead": true, "shared": false} {
+				if _, err := os.Stat(wt[name]); (err != nil) != gone {
+					t.Errorf("%s gone %v", name, err != nil)
+				}
 			}
 			if git(main, "rev-parse", "--verify", "-q", "refs/heads/done") || !git(main, "rev-parse", "--verify", "-q", "refs/heads/ahead") {
 				t.Fatal("the merged branch goes, the unmerged one stays")
 			}
 		})
 	}
+	t.Run("keep", func(t *testing.T) {
+		r := newRig(t)
+		_, wt, _ := bobsWorktrees(t, r)
+		m := r.call("agent.retire", `{"agent":"bob","worktree":"keep","request_id":"w1"}`)
+		if e, _ := m["error"].(map[string]any); e == nil || !strings.Contains(e["message"].(string), wt["ahead"]+" holds work (ahead is not merged into main) and is kept, as asked, so bob is not deleted") {
+			t.Fatalf("%v", m)
+		}
+		assertNotRetired(t, r, wt)
+	})
+}
+
+// assertNotRetired is bob still on the team with each of its worktrees where it was.
+func assertNotRetired(t *testing.T, r *rig, wt map[string]string) {
+	t.Helper()
+	if !strings.Contains(r.file("team.yaml"), "  bob: {}") {
+		t.Fatal("bob was retired")
+	}
+	for name, path := range wt {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("%s was removed: %v", name, err)
+		}
+	}
+}
+
+// A worktree that cannot be removed keeps the agent: refused before anything changes when it is locked, and put back as it was when git
+// fails to remove it; an HR retire nobody answers for held work is refused the same way, and no task is opened.
+func TestAnAgentWhoseWorktreeCannotBeRemovedIsNotDeleted(t *testing.T) {
+	r := newRig(t)
+	main, wt, git := bobsWorktrees(t, r)
+	r.e.Ask = func(title, body string, tags ...string) (int64, error) {
+		t.Fatal("asked the founder: " + title)
+		return 0, nil
+	}
+	git(main, "worktree", "lock", wt["done"])
+	m := r.call("agent.retire", `{"agent":"bob","worktree":"save","request_id":"l1"}`)
+	e, _ := m["error"].(map[string]any)
+	if d, _ := e["data"].(map[string]any); d["gate"] != "worktree" || !strings.Contains(e["message"].(string), wt["done"]+" cannot be removed (locked)") {
+		t.Fatalf("a locked worktree: %v", m)
+	}
+	assertNotRetired(t, r, wt)
+	git(main, "worktree", "unlock", wt["done"])
+
+	// done's folder cannot be deleted: git refuses the removal once the retire is under way.
+	root := filepath.Dir(wt["done"])
+	os.Chmod(root, 0o555)
+	t.Cleanup(func() { os.Chmod(root, 0o755) })
+	m = r.call("agent.retire", `{"agent":"bob","worktree":"save","request_id":"l2"}`)
+	if e, _ := m["error"].(map[string]any); e == nil || !strings.Contains(e["message"].(string), wt["done"]+" could not be removed (") ||
+		!strings.Contains(e["message"].(string), "so bob is not deleted") {
+		t.Fatalf("git failing: %v", m)
+	}
+	os.Chmod(root, 0o755)
+	assertNotRetired(t, r, wt)
+
+	prop := &Prop{pairs: []yamlcompat.Pair{{Key: "kind", Val: "retire"}, {Key: "agent", Val: "bob"}, {Key: "id", Val: "hr1"}}}
+	if ok, said, err := r.e.run(prop); err != nil || ok || !strings.Contains(said, wt["ahead"]+" holds work (ahead is not merged into main): answer save or force") {
+		t.Fatalf("an HR retire with held work: %v %q %v", ok, said, err)
+	}
+	assertNotRetired(t, r, wt)
 }
 
 // A running agent retired with an answer is held with it: when its turn ends, SweepHeld carries the answer out, and nobody is asked again.
@@ -194,7 +256,7 @@ func TestARunningAgentsRetireKeepsTheFoundersAnswerForItsTurnsEnd(t *testing.T) 
 	}
 }
 
-// With nobody there to ask (an HR retire, split, rename or move), a worktree that holds work is put to the founder as a task.
+// With nobody there to ask (a worktree an agent left for another), a worktree that holds work is put to the founder as a task.
 func TestWithNoAnswerAWorktreeThatHoldsWorkIsAskedAsATask(t *testing.T) {
 	r := newRig(t)
 	_, wt, _ := bobsWorktrees(t, r)
@@ -203,7 +265,7 @@ func TestWithNoAnswerAWorktreeThatHoldsWorkIsAskedAsATask(t *testing.T) {
 		asked = append(asked, title+"|"+strings.Join(tags, ",")+"|"+body)
 		return int64(40 + len(asked)), nil
 	}
-	said := r.e.pruneMemberWorktrees("bob", []string{wt["done"], wt["ahead"], wt["shared"]}, "")
+	said := r.e.pruneMemberWorktrees("bob", []string{wt["done"], wt["ahead"], wt["shared"]})
 	if len(asked) != 1 || !strings.HasPrefix(asked[0], "Remove bob's worktree?|worktree-removal|") ||
 		!strings.Contains(asked[0], "Path: "+wt["ahead"]) || !strings.Contains(asked[0], "holds work that is not on main: 0 files changed, 1 commit not on main.") ||
 		!strings.Contains(asked[0], "\nforce  Force delete:") || !strings.Contains(said, wt["ahead"]+" stays: ahead is not merged into main (asked the founder in T41)") { // local-ref-ok: the fake Ask numbers tasks from T41
@@ -242,5 +304,18 @@ func TestAWorktreeAnAgentLeftForAnotherIsJudged(t *testing.T) {
 	}
 	if err := r.e.SweepLeftWorktrees(); err != nil || len(asked) != 1 {
 		t.Fatalf("judged again: %v %v", asked, err)
+	}
+}
+
+// An agent that works in the repository's own checkout is deleted and the checkout stays: it is no worktree to remove.
+func TestAnAgentInTheRepositorysOwnCheckoutIsDeletedAndTheCheckoutStays(t *testing.T) {
+	r := newRig(t)
+	main, _, _ := bobsWorktrees(t, r)
+	r.db.Exec("UPDATE agent_state SET worktree = ?, extra_worktrees = NULL WHERE agent = 'bob'", main)
+	if m := r.call("agent.retire", `{"agent":"bob","request_id":"c1"}`); m["result"] == nil {
+		t.Fatalf("%v", m)
+	}
+	if _, err := os.Stat(filepath.Join(main, ".git")); err != nil || strings.Contains(r.file("team.yaml"), "  bob: {}") {
+		t.Fatalf("bob retired and its checkout kept (stat err %v)", err)
 	}
 }

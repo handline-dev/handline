@@ -4,17 +4,15 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/worktreeprune"
 )
 
-// pruneMemberWorktrees removes each worktree of a member who left the team that is done with, by the rule tools/prune_worktrees.py
-// uses, and its branch with it (git branch -d); any other stays and says why. One that holds work goes by choice (worktreeprune.Keep,
-// Save, Force) when the founder gave one; with none it is put to the founder as a task, and goes only by their answer
-// (chatwrites.DecideCard).
-func (e *Env) pruneMemberWorktrees(name string, worktrees []string, choice string) string {
+// pruneMemberWorktrees removes each worktree an agent left for another that is done with, by the rule tools/prune_worktrees.py uses,
+// and its branch with it (git branch -d); any other stays and says why. One that holds work is put to the founder as a task, and goes
+// only by their answer (chatwrites.DecideCard). A retired agent's worktrees go before it does (leaving, clear).
+func (e *Env) pruneMemberWorktrees(name string, worktrees []string) string {
 	if len(worktrees) == 0 {
 		return ""
 	}
@@ -39,8 +37,6 @@ func (e *Env) pruneMemberWorktrees(name string, worktrees []string, choice strin
 			} else {
 				said = append(said, path+" is removed")
 			}
-		case worktreeprune.HoldsWork(why) && choice != "":
-			said = append(said, path+" "+e.carryOut(name, path, choice))
 		default:
 			said = append(said, fmt.Sprintf("%s stays: %s%s", path, why, e.askAbout(name, wt, why)))
 		}
@@ -49,24 +45,6 @@ func (e *Env) pruneMemberWorktrees(name string, worktrees []string, choice strin
 		return ""
 	}
 	return " Its worktrees: " + strings.Join(said, "; ") + "."
-}
-
-// carryOut does the founder's choice for a worktree that holds work, and says what was done.
-func (e *Env) carryOut(member, path, choice string) string {
-	switch choice {
-	case worktreeprune.Save:
-		branch, err := worktreeprune.Rescue(path, member, time.Now())
-		if err != nil {
-			return "stays: " + err.Error()
-		}
-		return "is removed; what it held is on " + branch
-	case worktreeprune.Force:
-		if ok, why := worktreeprune.RemoveForce(path); !ok {
-			return "stays: " + why
-		}
-		return "is removed with what it held"
-	}
-	return "stays, as asked"
 }
 
 // askAbout puts a worktree that holds work to the founder, and says so for the retire reply; "" when there is nothing to ask. The task
@@ -143,7 +121,7 @@ func (e *Env) SweepLeftWorktrees() error {
 			return err
 		}
 		if l.path != "" && !recorded[worktreeprune.Real(l.path)] {
-			if said := e.pruneMemberWorktrees(l.agent, []string{l.path}, ""); said != "" {
+			if said := e.pruneMemberWorktrees(l.agent, []string{l.path}); said != "" {
 				e.logf("%s left a worktree:%s", l.agent, said)
 			}
 		}

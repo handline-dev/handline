@@ -33,7 +33,6 @@ func Register(s *rpc.Server, e *Env) {
 	s.Register("schedule.remove", rpc.Method{Role: "founder", Write: true, Handler: e.scheduleRemove})
 	s.Register("worktree.set_status", rpc.Method{Role: "member", Write: true, Handler: e.worktreeSetStatus})
 	s.Register("worktree.remove", rpc.Method{Role: "founder", Write: true, Handler: e.worktreeRemove})
-	s.Register("worktree.declare", rpc.Method{Role: "agent", Write: true, Handler: e.worktreeDeclare})
 	s.Register("settings.set", rpc.Method{Role: "founder", Write: true, Handler: e.settingsSet})
 	s.Register("account.set", rpc.Method{Role: "founder", Write: true, Handler: e.accountSet})
 	s.Register("account.wake", rpc.Method{Role: "founder", Write: true, Handler: e.accountWake})
