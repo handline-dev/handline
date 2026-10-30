@@ -1,8 +1,9 @@
 // Command cards in a chat message: a sh/bash/shell fence has Copy and Run; Run asks first, runs through the daemon and the line under the card says how it went.
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { copied } from '#test/clipboard-stub.ts';
-import { $, mount, press, until, pickTab, sleep } from '#test/harness.tsx';
+import { $, mount, press, until, pickTab } from '#test/harness.tsx';
+import { COPIED_MS } from '../src/screens/CommandCard.tsx';
 import type { setup } from '@handline/fake-daemon/helpers';
 
 const AUD = 'handline.auditor';
@@ -20,6 +21,8 @@ async function open(body: string) {
 }
 
 describe('command cards', () => {
+  afterEach(() => void vi.useRealTimers());
+
   it('a sh fence is a card with Copy and Run; another fence stays plain code', async () => {
     const m = await open('Run this:\n```sh\npnpm test\n```\nand see\n```json\n{"a":1}\n```');
     expect($m('command-0')?.textContent).toContain('pnpm test');
@@ -31,11 +34,12 @@ describe('command cards', () => {
   });
 
   it('Copy puts the command on the clipboard and says Copied for a moment', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
     const m = await open('```bash\necho hi\n```');
     await press($m('command-copy-0'));
     await until(() => $m('command-copied-0'), 'the Copied label');
     expect(copied.at(-1)).toBe('echo hi');
-    await act(async () => void (await new Promise((r) => setTimeout(r, 1700))));
+    await act(async () => void vi.advanceTimersByTime(COPIED_MS));
     expect($m('command-copied-0')).toBeNull();
     m.store.stop();
   });
@@ -77,7 +81,6 @@ describe('command cards', () => {
     await press($m('command-go-1'));
     await until(() => $m('command-result-1')?.textContent?.includes('Failed'), 'the second result');
     expect($m('command-result-0')).toBeNull();
-    await sleep(0);
     m.store.stop();
   });
 });

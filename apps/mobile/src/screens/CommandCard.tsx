@@ -12,7 +12,7 @@ import { usePalette } from '#src/theme.ts';
 import { Icon } from '#src/screens/Icon.tsx';
 import { BottomSheet, Button } from '#src/screens/parts.tsx';
 
-const COPIED_MS = 1500;
+export const COPIED_MS = 1500;
 const HIT = 44;
 
 type Run = { block: string; state: 'running' | 'done' | 'failed' | 'stopped'; exit?: number; seconds?: number; started_at: string };
@@ -80,7 +80,7 @@ export function CommandCard({ text, index }: { text: string; index: number }) {
               onPress={() => setAsking(true)}
               icon="play"
               iconLabel="Run"
-              color={risk ? c.block : c.ink}
+              color={c.ink}
             />
           )}
         </View>
