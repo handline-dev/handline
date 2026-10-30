@@ -36,6 +36,7 @@ export function ModelMenu({ detail }: { detail: AgentDetail }) {
           {shown}
           {effort ? <span className="muted"> · {effort}</span> : null}
           {waits ? <span className="text-wait">applies from the next session</span> : null}
+          <Icon name="chevron" size={12} aria-hidden />
         </>
       }
     >

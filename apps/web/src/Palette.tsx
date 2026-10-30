@@ -126,7 +126,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
           <Icon name="search" size={16} aria-hidden />
           <input
             autoFocus
-            className="h-9 flex-1 border-0 bg-transparent outline-none"
+            className="h-9 flex-1 border-0 bg-transparent outline-none focus-visible:outline-none"
             aria-label="Search agents, tasks, pages and messages"
             placeholder="Agents, tasks, pages, messages…"
             value={q}
@@ -142,6 +142,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
               } else if (e.key === 'Enter') go(hits[cur]);
             }}
           />
+          <kbd className="flex-none font-sans text-xs text-ink-3">esc</kbd>
         </div>
         <ul role="listbox" aria-label="Results" className="m-0 max-h-80 list-none overflow-auto py-1">
           {hits.map((h, i) => (

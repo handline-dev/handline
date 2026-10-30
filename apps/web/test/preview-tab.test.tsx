@@ -30,12 +30,15 @@ const typeInto = (el: HTMLTextAreaElement, value: string) =>
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
-
 const opened: string[] = [];
 async function mount(hash: string) {
   opened.length = 0;
   const s = setup();
-  s.daemon.chat.seed('handline.architect', { from: 'handline.architect', to: 'human', body: 'The preview is at http://localhost:5173 now.' });
+  s.daemon.chat.seed('handline.architect', {
+    from: 'handline.architect',
+    to: 'human',
+    body: 'The preview is at http://localhost:5173 now.',
+  });
   Object.assign(window, {
     handline: {
       api: 1,
@@ -114,9 +117,13 @@ describe('the Preview tab', () => {
     await click(button('Mark an area'));
     await until(() => $('[data-testid="capture-preview"]'), 'the picture');
     await typeInto($('textarea[aria-label="Question"]') as HTMLTextAreaElement, 'Make this button blue');
-    await click([...document.querySelectorAll<HTMLElement>('.ui-dialog button')].find((b) => (b.textContent ?? '').trim().startsWith('Send')));
+    await click(
+      [...document.querySelectorAll<HTMLElement>('.ui-dialog button')].find((b) => (b.textContent ?? '').trim().startsWith('Send')),
+    );
     await until(() => !$('[data-testid="capture-preview"]'), 'the dialog to close', 600);
-    const r = (await s.client.call('chat.messages', { agent: 'handline.architect', scope: 'all' } as never)) as { messages: { body: string; attachments?: unknown[] }[] };
+    const r = (await s.client.call('chat.messages', { agent: 'handline.architect', scope: 'all' } as never)) as {
+      messages: { body: string; attachments?: unknown[] }[];
+    };
     const sent = r.messages.find((m) => m.body.includes('Make this button blue'));
     expect(sent).toBeTruthy();
     expect(sent!.attachments).toHaveLength(1);

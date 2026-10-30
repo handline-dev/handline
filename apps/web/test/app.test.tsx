@@ -485,7 +485,7 @@ describe('the sidebar', () => {
     await act(async () => void lead.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
     await click(lead.querySelector('[aria-haspopup="menu"]')!);
     await until(() => menuItems().length, 'the row menu');
-    await click([...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((i) => text(i).trim() === 'Pin')!);
+    await click([...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((i) => text(i).trim() === 'Pin to top')!);
     await until(() => $('.pinned-head'), 'the pinned section');
     const pinned = $$('.row-working').filter((w) => w.closest('[data-agent]')?.getAttribute('data-agent') === name);
     expect(pinned.map((w) => text(w).trim())).toEqual(['1']); // the pinned copy; the open tree row says nothing
@@ -502,7 +502,7 @@ describe('the sidebar', () => {
     expect(row.querySelector('[aria-label="Settings of handline.architect"]')).toBeNull(); // no separate gear on the row
     await click(row.querySelector('[aria-haspopup="menu"]')!);
     await until(() => menuItems().length, 'the row menu');
-    await click([...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((i) => text(i).trim() === 'Settings')!);
+    await click([...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find((i) => text(i).trim() === 'Settings…')!);
     expect(location.hash).toBe('#/agents/handline.architect/settings');
     await until(() => $('.settings-agent .back'), 'the back button');
     expect($('.settings-agent .back')!.closest('.topbar')).not.toBeNull(); // the way up leaves from the top bar, ahead of the title
@@ -510,7 +510,7 @@ describe('the sidebar', () => {
     expect(location.hash).toBe('#/agents/handline.architect');
   });
 
-  it('shows no Start on a row, and the row menu keeps only Settings, Open in, the copies, what stops a turn and Delete agent', async () => {
+  it('shows no Start on a row, and the row menu keeps only Settings, Open in, what stops a turn and Delete agent', async () => {
     await mount(TB);
     await until(() => $$('.row-wrap').length === 3, 'rows');
     expect($('.row-actions')).toBeNull(); // no ⋮ on any row until one is hovered, selected or not
@@ -519,7 +519,7 @@ describe('the sidebar', () => {
     expect($$('.row-actions .ui-btn').some((b) => /Resume|Start/.test(text(b)))).toBe(false);
     await click($('.row-actions [aria-haspopup="menu"]')!);
     await until(() => menuItems().length, 'the row menu');
-    expect(menuItems()).toEqual(['Pin', 'Settings', 'Copy path', 'Copy worktree name', 'Delete agent']);
+    expect(menuItems()).toEqual(['Pin to top', 'Settings…', 'Delete agent…']);
   });
 
   it('keeps the selected row short (no model, account or detail block there)', async () => {

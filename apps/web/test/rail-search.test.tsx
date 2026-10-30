@@ -48,6 +48,7 @@ describe('the sidebar search and the agent menu', () => {
     expect(document.querySelector('.palette')).toBeNull();
     await act(async () => box.querySelector<HTMLElement>('.rail-search')!.click());
     await until(() => document.querySelector('.palette'), 'the palette');
+    expect(document.querySelector('.palette-box kbd')?.textContent).toBe('esc'); // the hint at the right of the input line
   });
 
   it('offers Mark as read in an agent menu only while something from it is unseen', async () => {
@@ -134,6 +135,7 @@ describe('the sidebar search and the agent menu', () => {
     await until(() => box.querySelector('.compose-send'), 'Send');
     expect(box.querySelector('.compose-send')!.className).toContain('shrink-0');
     await until(() => box.querySelector('[title^="Model"]'), 'the model menu');
+    expect(box.querySelector('[title^="Model"] [data-icon="chevron"]')).not.toBeNull(); // ⌄ marks it as a menu
     expect(box.querySelector('[title^="Model"]')!.parentElement!.parentElement!.className).toContain('min-w-0');
   });
 });

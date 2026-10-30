@@ -15,7 +15,14 @@ it('a screen lists its keys while it is mounted and takes them away when it goes
   const seen: string[][] = [];
   await act(async () => root.render(<Reader out={seen} />));
   expect(seen.at(-1)).toEqual([]);
-  await act(async () => root.render(<><Reader out={seen} /><Screen /></>));
+  await act(async () =>
+    root.render(
+      <>
+        <Reader out={seen} />
+        <Screen />
+      </>,
+    ),
+  );
   expect(seen.at(-1)).toEqual(['Screen']);
   await act(async () => root.render(<Reader out={seen} />));
   expect(seen.at(-1)).toEqual([]);

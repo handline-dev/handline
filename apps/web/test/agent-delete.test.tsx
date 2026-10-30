@@ -37,8 +37,8 @@ const openMenu = (agent: string) =>
 /** Opens the agent menu and clicks Delete agent once the item and the sheet have rendered. */
 async function openSheet(agent: string) {
   await openMenu(agent);
-  await until(() => menuItem('Delete agent'), 'the menu item');
-  await click(menuItem('Delete agent')!);
+  await until(() => menuItem('Delete agent…'), 'the menu item');
+  await click(menuItem('Delete agent…')!);
   await until(() => $('[role=alertdialog]'), 'the sheet');
   return $('[role=alertdialog]')!;
 }
@@ -64,10 +64,10 @@ describe('Delete agent', () => {
   it('is the last item of the agent menu; the sheet says what goes and what stays, and Delete removes the row', async () => {
     const s = await mount();
     await openMenu(TB);
-    await until(() => menuItem('Delete agent'), 'the menu item');
+    await until(() => menuItem('Delete agent…'), 'the menu item');
     const items = [...document.querySelectorAll('[role=menuitem]')];
-    expect(text(items.at(-1)!)).toBe('Delete agent');
-    await click(menuItem('Delete agent')!);
+    expect(text(items.at(-1)!)).toBe('Delete agent…');
+    await click(menuItem('Delete agent…')!);
     await until(() => $('[role=alertdialog]'), 'the sheet');
     const sheet = $('[role=alertdialog]')!;
     expect(text(sheet)).toContain(`Delete ${TB}?`);

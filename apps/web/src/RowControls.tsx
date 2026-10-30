@@ -1,4 +1,4 @@
-// The ⋯ button of an agent row, and the agent's context menu (right-click on the row, or the ⋯ button): Pin, Settings, Open in, the copies and the session verbs. No Start or Resume: the daemon wakes, parks, restarts and moves agents by itself, so the person is not shown those.
+// The ⋯ button of an agent row, and the agent's context menu (right-click on the row, or the ⋯ button): Pin to top, Settings…, Open in, Mark as read and Stop this turn. No Start or Resume: the daemon wakes, parks, restarts and moves agents by itself, so the person is not shown those.
 import { asks, verbsOf, type Verb, type VerbId } from '@handline/app-core';
 import type { AgentView } from '@handline/client';
 import { useAgentDetail, useVerbMark, useVerbRun, useWrite } from '@handline/app-data';
@@ -40,7 +40,7 @@ export function RowControls({ agent: a, onMenu }: { agent: AgentView; onMenu: (a
   );
 }
 
-/** The items of the agent's menu: Open in (the folder, on the desktop), the copies, and the session verbs its state allows and the daemon serves. */
+/** The items of the agent's menu: Open in (the folder, on the desktop) and the session verbs its state allows and the daemon serves. */
 export function AgentMenu({
   agent: a,
   pinned,
@@ -64,7 +64,6 @@ export function AgentMenu({
   const seen = useWrite('chat.seen', agent);
   const open = shell('openPath');
   if (!d) return null;
-  const copy = (text: string) => void navigator.clipboard?.writeText(text);
   // The newest message the agent wrote to the person: everything up to it leaves the unseen count. Pages back until one is found.
   const markRead = async () => {
     for (let before: number | undefined; ;) {
@@ -79,10 +78,10 @@ export function AgentMenu({
   return (
     <>
       <MenuItem icon="pin" onSelect={onPin}>
-        {pinned ? 'Unpin' : 'Pin'}
+        {pinned ? 'Unpin' : 'Pin to top'}
       </MenuItem>
       <MenuItem icon="settings" onSelect={() => goSettings(agent)}>
-        Settings
+        Settings…
       </MenuItem>
       <MenuSeparator />
       {open ? (
@@ -95,14 +94,6 @@ export function AgentMenu({
           </MenuSub>
           <MenuSeparator />
         </>
-      ) : null}
-      <MenuItem icon="reference" onSelect={() => copy(d.cwd)}>
-        Copy path
-      </MenuItem>
-      {d.worktree ? (
-        <MenuItem icon="reference" onSelect={() => copy(d.worktree!.path.split('/').pop() ?? d.worktree!.path)}>
-          Copy worktree name
-        </MenuItem>
       ) : null}
       {verbs.length || a.founder_unread ? <MenuSeparator /> : null}
       {a.founder_unread ? (
@@ -119,7 +110,7 @@ export function AgentMenu({
         <>
           <MenuSeparator />
           <MenuItem icon="close" danger disabled={busy} onSelect={onDelete}>
-            Delete agent
+            Delete agent…
           </MenuItem>
         </>
       ) : null}
