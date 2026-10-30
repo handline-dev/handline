@@ -13,6 +13,7 @@ import {
   type PageSettings,
 } from '@handline/app-core';
 import type { Resources } from '@handline/client';
+import { useStore } from '@handline/app-react';
 import { classify, sentence, useSettings, useStatus, useWrite } from '@handline/app-data';
 import { Coffee, Cpu, HardDrive, Layers, MemoryStick, TriangleAlert } from 'lucide-react';
 import { MenuButton, MenuCheckItem, Popup, STRIP_ITEM } from '#src/ui/index.ts';
@@ -249,23 +250,23 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
   const { rows } = useRows(r);
   const save = useWrite('settings.set');
   const [editing, setEditing] = useState<Which | null>(openAt);
-  const [said, setSaid] = useState<{ text: string; undo?: () => void; refused?: boolean } | null>(null);
-  useEffect(() => {
-    if (!said) return;
-    const t = setTimeout(() => setSaid(null), 8000);
-    return () => clearTimeout(t);
-  }, [said]);
+  const store = useStore();
   const m = r.machine;
   const toggle = (w: Which) => setEditing(editing === w ? null : w);
-  /** Says so once the daemon has taken it, with Undo to the value before; a refusal says why instead. */
+  /** Says so in the notice stack once the daemon has taken it, with Undo to the value before; a refusal says why instead. */
   const change = (what: string, text: string, key: keyof Limits, to: number, was: number) => {
     save.mutate(
       { changes: { [key]: to } satisfies PageSettings },
       {
         onSuccess: () =>
-          setSaid({ text: `${what} limit: ${text}`, undo: () => save.mutate({ changes: { [key]: was } satisfies PageSettings }) }),
-        onError: (e) =>
-          setSaid({ text: `${what} limit not changed: ${sentence(classify(e)) || 'no answer from the daemon'}`, refused: true }),
+          store.notices.keep(
+            `limit:${key}`,
+            'ok',
+            `${what} limit: ${text}`,
+            { actions: [{ label: 'Undo', run: () => save.mutate({ changes: { [key]: was } satisfies PageSettings }) }] },
+            true,
+          ),
+        onError: (e) => store.notices.push('fail', `${what} limit not changed: ${sentence(classify(e)) || 'no answer from the daemon'}`),
       },
     );
   };
@@ -356,7 +357,7 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
           step={1}
           unit="at once"
           off={null}
-          effect={`Heavy test runs wait their turn beyond ${limits.heavy_slots} at once`}
+          effect={`At most ${limits.heavy_slots} heavy runs at once`}
           onChange={(n) => change('Heavy slots', `${n} at once`, 'heavy_slots', n, limits.heavy_slots)}
         />
       </Line>
@@ -372,23 +373,6 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
           </li>
         ))}
       </ul>
-      {said ? (
-        <div
-          className="limit-said flex items-center justify-between gap-2 rounded-sm bg-raised px-2 py-1.5 text-sm"
-          role={said.refused ? 'alert' : 'status'}
-        >
-          {said.text}
-          {said.undo ? (
-            <button
-              type="button"
-              className="cursor-pointer border-0 bg-transparent p-0 text-sm text-acc-ink"
-              onClick={() => (said.undo?.(), setSaid(null))}
-            >
-              Undo
-            </button>
-          ) : null}
-        </div>
-      ) : null}
       <a className="mt-1 text-sm" href="#/machine">
         Open Machine ›
       </a>

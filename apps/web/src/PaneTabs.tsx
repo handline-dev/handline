@@ -21,12 +21,11 @@ import {
 } from '@handline/app-core';
 import { Button, Icon, MenuButton, MenuItem, type IconName } from '#src/ui/index.ts';
 import { Badges } from '#src/Badges.tsx';
+import { OpenInItems } from '#src/OpenInItems.tsx';
 import { showPill } from '#src/Pill.tsx';
 import { useWorkspace } from '#src/Workspace.tsx';
 import { usePaneData, type PaneData } from '#src/PaneData.ts';
 import { lineAt, slotAt } from '#src/tabSlots.ts';
-import { shell } from '#src/shell.ts';
-import { useLoaded } from '@handline/app-data';
 
 export const tabLabel = (t: Tab, structured = false): string =>
   t.kind === 'chat'
@@ -250,55 +249,14 @@ function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneD
   );
 }
 
-const copyPath = (path: string) =>
-  void navigator.clipboard?.writeText(path).then(
-    () => showPill('Path copied'),
-    () => showPill('Could not copy the path'),
-  );
-
 /** The bar's + and Split for `group`. */
 export function PaneActions({ group }: { group: Group }) {
   const { agent, detail, apply, canSplit } = useWorkspace();
   const { choices, choose } = useChoices(usePaneData(agent).openShell);
-  const open = shell('openPath');
-  const apps = useLoaded(
-    ['shell', 'openInApps'],
-    async () => {
-      const r = await shell('openInApps')!.openInApps!();
-      return r.ok ? r.apps : [];
-    },
-    !!shell('openInApps'),
-  );
-  const openIn = async (app: 'vscode' | 'terminal' | 'claude') => {
-    const r = await shell('openIn')?.openIn!({ app, agent });
-    if (r && !r.ok) showPill(r.message);
-  };
   return (
     <>
       <MenuButton size="sm" label="Open in" name="Open in" align="end" trigger="Open in" className="shell:[-webkit-app-region:no-drag]">
-        {open ? (
-          <MenuItem icon="open" onSelect={() => void open.openPath!({ path: detail.cwd, agent })}>
-            Finder
-          </MenuItem>
-        ) : null}
-        {apps?.includes('claude') ? (
-          <MenuItem icon="terminal" onSelect={() => void openIn('claude')}>
-            Claude Code in Terminal
-          </MenuItem>
-        ) : null}
-        {apps?.includes('vscode') ? (
-          <MenuItem icon="edit" onSelect={() => void openIn('vscode')}>
-            VS Code
-          </MenuItem>
-        ) : null}
-        {apps?.includes('terminal') ? (
-          <MenuItem icon="terminal" onSelect={() => void openIn('terminal')}>
-            Terminal
-          </MenuItem>
-        ) : null}
-        <MenuItem icon="reference" onSelect={() => copyPath(detail.cwd)}>
-          Copy path
-        </MenuItem>
+        <OpenInItems agent={agent} cwd={detail.cwd} />
       </MenuButton>
       <MenuButton icon="plus" size="sm" label="Add a tab" name="Add a tab" className="shell:[-webkit-app-region:no-drag]">
         {choices.map((c) => (

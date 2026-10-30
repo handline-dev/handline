@@ -166,6 +166,7 @@ function useAway(onChange: (away: boolean) => void) {
 const MARK = { need: ['warn', 'text-wait'], fail: ['failed', 'text-bad'], ok: ['done', 'text-ok'], info: ['info', 'text-ink-3'] } as const;
 /** The stack shows the newest three; the bell lists the rest. */
 const MAX_TOASTS = 3;
+const SPARE_STAYS_MS = 10_000;
 const CHIP = 'bg-raised! tint';
 
 /** The buttons of a kept notice: the main one filled, the rest grey chips. The notice is read once one is pressed. */
@@ -276,7 +277,15 @@ function Toast({ n }: { n: Notice }) {
 function Toasts({ hidden }: { hidden: boolean }) {
   const store = useStore();
   const toasts = useSelector((s) => s.notices.toasts());
-  const spare = useSpareNotices();
+  const [left, setLeft] = useState<ReadonlySet<number>>(new Set());
+  const spare = useSpareNotices().filter((n) => !left.has(n.task));
+  // The weekly-loss card steps aside to the bell after a while, so it never keeps covering the composer's Send button.
+  const ids = spare.map((n) => n.task).join();
+  useEffect(() => {
+    if (!ids) return;
+    const t = setTimeout(() => setLeft((l) => new Set([...l, ...ids.split(',').map(Number)])), SPARE_STAYS_MS);
+    return () => clearTimeout(t);
+  }, [ids]);
   useAway((away) => store.notices.setAway(away));
   // Escape closes the toast the focus is in, else the newest one.
   const first = toasts[0]?.id;
@@ -293,7 +302,7 @@ function Toasts({ hidden }: { hidden: boolean }) {
   }, [first, hidden, store]);
   if ((!toasts.length && !spare.length) || hidden) return null;
   return (
-    <div className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[380px] max-w-[90vw] flex-col-reverse gap-1.5" role="status">
+    <div className="toasts absolute right-0 bottom-full z-10 mb-2 flex w-[380px] max-w-[90vw] flex-col-reverse gap-1.5" role="status">
       {spare.map((n) => (
         <div key={n.task} className="rounded-[8px] bg-raised shadow-[var(--shadow)]">
           <SpareCard n={n} />

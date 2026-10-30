@@ -66,8 +66,8 @@ describe('system resources', () => {
     expect(text(box.querySelector('.limit-editor'))).toContain('0 turns the limit off');
     await act(async () => void box.querySelector<HTMLElement>('[aria-label="Raise"]')!.click());
     await until(() => limit() === 200, 'the saved limit');
-    await until(() => text(box.querySelector('.limit-said')).includes('Load limit: 200%'), 'the line after the change');
-    await act(async () => void [...box.querySelectorAll<HTMLElement>('.limit-said button')].find((b) => text(b) === 'Undo')!.click());
+    await until(() => text(box.querySelector('.toasts')).includes('Load limit: 200%'), 'the line after the change');
+    await act(async () => void [...box.querySelectorAll<HTMLElement>('.toasts button')].find((b) => text(b) === 'Undo')!.click());
     await until(() => limit() === 150, 'the limit back');
     const field = box.querySelector<HTMLInputElement>('[aria-label="Limit"]')!;
     await act(async () => {

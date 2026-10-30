@@ -151,7 +151,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
                 >
                   <Icon name={h.icon} size={14} aria-hidden />
                   <span className={PROW_NAME}>{h.label}</span>
-                  {h.keys ? <kbd className="ui-keys flex-none font-sans text-xs text-ink-3">{h.keys}</kbd> : null}
+                  {h.keys ? <kbd className="flex-none font-sans text-xs text-ink-3">{h.keys}</kbd> : null}
                   {h.hint ? <span className={PROW_HINT}>{h.hint}</span> : null}
                 </button>
               </li>
