@@ -43,7 +43,7 @@ var settingKinds = map[string]string{"active_cap": int1, "park_timeout_s": int0,
 	"input_hold_idle_s": int1, handoff.PromptKey: line,
 	"push_prompt_asked": flag_, "push_task_done": flag_, "push_stall": flag_, "push_account_out": flag_,
 	"heavy_slots": int1, keepawake.Key: awake, housekeeping.OrphansKey: reaper,
-	loadgate.AgentCapKey: int0, loadgate.LoadPctKey: int0, loadgate.RAMFreePctKey: pct, loadgate.DiskFreeGBKey: int0, loadgate.SimulatorKey: int0,
+	loadgate.AgentCapKey: int0, loadgate.LoadPctKey: int0, loadgate.RAMFreePctKey: pct, loadgate.DiskFreeGBKey: int0,
 	usage.PacingKey: flag_, usage.PaceTargetKey: tgt, usage.PaceBurstKey: burst}
 
 var perAgent = map[string]bool{"park_timeout_s": true, "ignore_cache_expiry": true, "bg_notice_s": true, "bg_grace_s": true, "bg_check_s": true,
