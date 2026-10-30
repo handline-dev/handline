@@ -39,7 +39,6 @@ export function Invite({ onClose }: { onClose: () => void }) {
   const [left, setLeft] = useState(0);
   const [copied, setCopied] = useState(false);
   const make = () => {
-    setCopied(false);
     pair.mutate(
       {},
       {
@@ -99,7 +98,14 @@ export function Invite({ onClose }: { onClose: () => void }) {
                   : 'Making an invite…'}
           </p>
           {expired || pair.isError ? (
-            <Button label="New invite" variant="solid" onClick={make}>
+            <Button
+              label="New invite"
+              variant="solid"
+              onClick={() => {
+                setCopied(false);
+                make();
+              }}
+            >
               New invite
             </Button>
           ) : null}

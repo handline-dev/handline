@@ -150,6 +150,14 @@ function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote |
   serveCapture(ipcMain, origin, { sources: (thumbnailSize) => desktopCapturer.getSources({ types: ['window'], thumbnailSize }) });
 }
 
+/** The Settings row that links the carried `hl` into ~/.local/bin. */
+function handleCli(origin: string): void {
+  const cliDir = path.join(os.homedir(), '.local', 'bin');
+  const cli = new Cli(origin, { state: () => cliState(carried?.hl ?? null, cliDir), link: () => linkCli(carried!.hl, cliDir) });
+  ipcMain.handle(CHANNELS.cli, (e) => cli.state(e));
+  ipcMain.handle(CHANNELS.linkCli, (e) => cli.link(e));
+}
+
 function handleDevices(origin: string): void {
   const devices = new Devices(origin);
   ipcMain.handle(CHANNELS.deviceShot, (e, arg) => devices.shot(e, arg));
@@ -341,10 +349,7 @@ if (!app.requestSingleInstanceLock({ background })) {
         })),
     });
     handleConnection(origin, own, current.mode, remote, current.network === true, f);
-    const cliDir = path.join(os.homedir(), '.local', 'bin');
-    const cli = new Cli(origin, { state: () => cliState(carried?.hl ?? null, cliDir), link: () => linkCli(carried!.hl, cliDir) });
-    ipcMain.handle(CHANNELS.cli, (e) => cli.state(e));
-    ipcMain.handle(CHANNELS.linkCli, (e) => cli.link(e));
+    handleCli(origin);
     ipcMain.handle(CHANNELS.screen, (e, arg) => page.screen(e, arg));
     ipcMain.handle(CHANNELS.unsent, (e, arg) => page.setUnsent(e, arg));
     const preview = new Preview(origin, () => win);
