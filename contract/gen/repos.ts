@@ -28,10 +28,6 @@ export type Worktree = {
   children: string[];
   status: string;
   changed: ChangedFile[];
-  /** Present and true only on a worktree no agent records: one an agent left behind when it was retired, renamed or moved. Its owner is null. Never the repo's own checkout or a locked worktree. */
-  orphan?: boolean;
-  /** Orphans only: whether its HEAD is merged into base. */
-  merged?: boolean;
   /** The branch it merges into: its repo's default branch. */
   base: string;
   /** Its changed and untracked files, as git status counts them. */
@@ -63,16 +59,6 @@ export interface ReposMethods {
     /** Unified diff. */
     diff: string;
     truncated: boolean;
-  } };
-  "worktree.remove": { params: {
-  /** The orphan's path, as worktrees.list gives it. */
-  path: string;
-  /** Remove it even though it holds work: files changed, or commits not on main. The person's confirm; nothing asks again. */
-  force?: boolean;
-  request_id: RequestId;
-}; result: Accepted & {
-    /** Whether its branch went too: only for one merged into main and clean, by `git branch -d`. A forced removal leaves the branch. */
-    branch_deleted: boolean;
   } };
   "files.list": { params: {
   agent: AgentName;
@@ -132,7 +118,6 @@ export const REPOS_METHODS: { [K in keyof ReposMethods]: { role: Role; callers: 
   "repos.list": { role: "member", callers: null, write: false, since: 1 },
   "worktrees.list": { role: "member", callers: null, write: false, since: 1 },
   "worktree.diff": { role: "member", callers: null, write: false, since: 1 },
-  "worktree.remove": { role: "founder", callers: null, write: true, since: 1 },
   "files.list": { role: "member", callers: null, write: false, since: 1 },
   "file.read": { role: "founder", callers: null, write: false, since: 1 },
   "file.write": { role: "founder", callers: null, write: true, since: 1 },

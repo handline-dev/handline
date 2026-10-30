@@ -252,21 +252,21 @@ func (e *Env) labels() (map[string]string, error) {
 
 // facts are what every worktree carries besides its changed files: the branch it merges into, its commits not on it, its changed and
 // untracked files and the size housekeeping last measured (nil until it has). The pull request is set later, by attachPRs.
-func (e *Env) facts(path string, files int) (facts map[string]any, merged bool, err error) {
+func (e *Env) facts(path string, files int) (map[string]any, error) {
 	var size any
 	if v, ok, err := db.Meta(e.DB, worktreeprune.SizePrefix+worktreeprune.Real(path)); err != nil {
-		return nil, false, err
+		return nil, err
 	} else if n, err := strconv.ParseInt(v, 10, 64); ok && err == nil {
 		size = n
 	}
-	merged, ahead := worktreeprune.Ahead(path)
-	return map[string]any{"base": defaultBranch(path), "commits_ahead": ahead, "files_changed": files, "size_bytes": size, "pr": nil}, merged, nil
+	_, ahead := worktreeprune.Ahead(path)
+	return map[string]any{"base": defaultBranch(path), "commits_ahead": ahead, "files_changed": files, "size_bytes": size, "pr": nil}, nil
 }
 
 func (e *Env) worktree(path, owner string, kn known, bosses map[string]string, labels map[string]string) (map[string]any, error) {
 	ok, branch := git(path, "rev-parse", "--abbrev-ref", "HEAD")
 	ch, files := changed(path)
-	facts, _, err := e.facts(path, files)
+	facts, err := e.facts(path, files)
 	if err != nil {
 		return nil, err
 	}
@@ -384,52 +384,12 @@ func (e *Env) worktreesList(_ *rpc.Conn, params map[string]any) (any, error) {
 			out = append(out, wt)
 		}
 	}
-	if owner == nil {
-		orphans, err := e.orphans(repo)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, orphans...)
-	}
 	rows := make([]map[string]any, len(out))
 	for i, wt := range out {
 		rows[i] = wt.(map[string]any)
 	}
 	e.attachPRs(rows)
 	return map[string]any{"worktrees": out}, nil
-}
-
-// orphans are the worktrees no agent records, in repo when it is named (by name or path), as worktrees.list items: orphan true, what
-// each holds that its default branch does not, and the size housekeeping last measured (null until it has).
-func (e *Env) orphans(repo *string) ([]any, error) {
-	agents, err := worktreeprune.AgentWorktrees(e.DB, "")
-	if err != nil {
-		return nil, err
-	}
-	out := []any{}
-	for _, r := range worktreeprune.Repos(e.Home) {
-		if repo != nil && *repo != r && *repo != filepath.Base(r) {
-			continue
-		}
-		for _, wt := range worktreeprune.Orphans(r, agents) {
-			path := worktreeprune.Real(wt.Path)
-			ch, files := changed(path)
-			status := "clean"
-			if len(ch) > 0 {
-				status = "dirty"
-			}
-			facts, merged, err := e.facts(path, files)
-			if err != nil {
-				return nil, err
-			}
-			for k, v := range map[string]any{"path": path, "repo": filepath.Base(r), "branch": wt.Branch, "owner": nil, "parent": nil,
-				"children": []string{}, "status": status, "changed": ch, "orphan": true, "merged": merged} {
-				facts[k] = v
-			}
-			out = append(out, facts)
-		}
-	}
-	return out, nil
 }
 
 func (e *Env) worktreeDiff(_ *rpc.Conn, params map[string]any) (any, error) {

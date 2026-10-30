@@ -582,11 +582,6 @@ export type MachineNeed = {
   since: Timestamp;
   /** The item in plain words, with the free space in it. */
   text: string;
-  /** disk only, when there are any: the worktrees no agent works in (worktrees.list orphan), as housekeeping last measured them (at most hourly). The text names them too. */
-  orphan_worktrees?: {
-    count: number;
-    size_bytes: number;
-  };
 };
 
 /** attachment.remove deleted this image or file: a client marks every ImagePart and MemoFile with this id gone and removed, without refetching. */
