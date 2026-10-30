@@ -140,6 +140,8 @@ function handleConnection(origin: string, own: Own, mode: Mode, remote: Remote |
   });
   ipcMain.handle(CHANNELS.mode, (e) => c.mode(e));
   ipcMain.handle(CHANNELS.setMode, (e, arg) => c.setMode(e, arg));
+  ipcMain.handle(CHANNELS.build, (e) => c.build(e));
+  ipcMain.handle(CHANNELS.restartDaemon, (e) => c.restartDaemon(e));
   ipcMain.handle(CHANNELS.follow, (e) => c.follow(e));
   ipcMain.handle(CHANNELS.checkUpdate, (e) => c.checkUpdate(e));
   ipcMain.handle(CHANNELS.phone, (e) => c.phone(e));

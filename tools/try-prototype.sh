@@ -5,6 +5,14 @@
 # neither touched nor replaced, and quitting this one leaves the daemon running. Run it again to bring the clone to the branch's head.
 set -euo pipefail
 
+# Started from an agent's shell, the identity variables (OCP_AGENT, OCP_HOME, HANDLINE_HOME ...) would make the app connect as that agent, which
+# the daemon refuses founder-only reads. Only the three this script documents are kept.
+keep_dir="${HANDLINE_TRY_DIR:-}" keep_port="${HANDLINE_WEB_PORT:-}" keep_debug="${HANDLINE_DEBUG_PORT:-}"
+for v in $(env | grep -oE '^(OCP|HANDLINE)_[A-Za-z0-9_]*'); do unset "$v"; done
+[ -z "$keep_dir" ] || export HANDLINE_TRY_DIR="$keep_dir"
+[ -z "$keep_port" ] || export HANDLINE_WEB_PORT="$keep_port"
+[ -z "$keep_debug" ] || export HANDLINE_DEBUG_PORT="$keep_debug"
+
 branch="${1:-story/prototype-apply}"
 dir="${HANDLINE_TRY_DIR:-$HOME/.local/share/handline/try-prototype}"
 remote="$(git -C "$(dirname "$0")" remote get-url origin)"
