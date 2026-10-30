@@ -23,37 +23,20 @@ export function guessLine(o: Pick<Outlook, 'past' | 'future'>): Outlook['future'
   return last ? [last, ...o.future.filter((p) => Date.parse(p.at) > Date.parse(last.at))] : o.future;
 }
 
-export type WeekAccount = {
-  account: string;
-  /** Week left at the last recorded sample; null with none. */
-  leftPct: number | null;
-  /** The next weekly reset, ISO; null when none is in the span. */
-  resetAt: string | null;
-  /** Percent of the week still unused at that reset at the pace so far (the guess line's last point before it); null when the guess does not reach it. */
-  lostPct: number | null;
-};
+/** The weekly resets in the span, per account, oldest first; empty from a daemon that sends no `by_account`. */
+export const weekResets = (o: Pick<Outlook, 'by_account'>): { account: string; at: string }[] =>
+  (o.by_account ?? [])
+    .flatMap((a) => a.resets.filter((r) => r.window === '7d').map((r) => ({ account: a.account, at: r.at })))
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 
-/** The accounts one line each: week left now, the next weekly reset, what is lost at it at the pace (null when the guess line does not pass the reset). Empty from a daemon that sends no `by_account`. */
-export function weekAccounts(o: Pick<Outlook, 'now' | 'by_account'>): WeekAccount[] {
-  return (o.by_account ?? []).map((a) => {
-    const reset = a.resets.find((r) => r.window === '7d' && Date.parse(r.at) > Date.parse(o.now));
-    const left = a.past.filter((p) => p.week_left !== null).at(-1)?.week_left ?? null;
-    const passes = reset !== undefined && a.future.some((p) => Date.parse(p.at) > Date.parse(reset.at));
-    const before =
-      reset && passes ? a.future.filter((p) => p.week_left !== null && Date.parse(p.at) <= Date.parse(reset.at)).at(-1) : undefined;
-    return { account: a.account, leftPct: left, resetAt: reset?.at ?? null, lostPct: before?.week_left ?? null };
-  });
-}
-
-/** The lost part so far: each recorded weekly reset in the span with the week left unused at it, by account. */
-export function lostResets(o: Pick<Outlook, 'now' | 'by_account'>): { account: string; at: string; unusedPct: number }[] {
-  return (o.by_account ?? []).flatMap((a) =>
-    a.resets.flatMap((r) =>
-      r.window === '7d' && r.unused_pct !== undefined && Date.parse(r.at) <= Date.parse(o.now)
-        ? [{ account: a.account, at: r.at, unusedPct: r.unused_pct }]
-        : [],
-    ),
-  );
+/** The week left unused at the last guessed weekly reset: the guess line's last point before it. Null when no reset is guessed or the guess does not reach it. */
+export function lostAtLastReset(o: Pick<Outlook, 'now' | 'future' | 'by_account'>): { at: string; pct: number } | null {
+  const reset = weekResets(o)
+    .filter((r) => Date.parse(r.at) > Date.parse(o.now))
+    .at(-1);
+  if (!reset || !o.future.some((p) => Date.parse(p.at) > Date.parse(reset.at))) return null;
+  const before = o.future.filter((p) => p.left_pct !== null && Date.parse(p.at) <= Date.parse(reset.at)).at(-1);
+  return before ? { at: reset.at, pct: before.left_pct! } : null;
 }
 
 /** The labels under the time axis: every 6 hours (clock) over a day and a half or less, else each local midnight (weekday), thinned to at most 8. */

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { axisTicks, guessLine, lostResets, weekAccounts } from '#src/outlook.ts';
+import { axisTicks, guessLine, lostAtLastReset, weekResets } from '#src/outlook.ts';
 
 const p = (at: string, left_pct: number | null) => ({ at, left_pct });
 
@@ -34,19 +34,23 @@ const by = {
 };
 const o = { now: '2026-10-26T11:00:00Z', by_account: [by] };
 
-describe('weekAccounts', () => {
-  it('gives the week left now, the next weekly reset and the guess just before it', () => {
-    assert.deepEqual(weekAccounts(o), [{ account: 'alpha', leftPct: 55, resetAt: '2026-10-26T15:00:00Z', lostPct: 40 }]);
-  });
-  it('knows no loss when the guess stops before the reset, and nothing without by_account', () => {
-    const short = { ...by, future: by.future.slice(0, 2) };
-    assert.equal(weekAccounts({ now: o.now, by_account: [short] })[0]!.lostPct, null);
-    assert.deepEqual(weekAccounts({ now: o.now }), []);
+describe('weekResets', () => {
+  it('lists the weekly resets of every account, oldest first, and none for a daemon without by_account', () => {
+    assert.deepEqual(weekResets(o), [
+      { account: 'alpha', at: '2026-10-25T00:00:00Z' },
+      { account: 'alpha', at: '2026-10-26T15:00:00Z' },
+    ]);
+    assert.deepEqual(weekResets({}), []);
   });
 });
-describe('lostResets', () => {
-  it('lists the recorded weekly resets that carry an unused share', () => {
-    assert.deepEqual(lostResets(o), [{ account: 'alpha', at: '2026-10-25T00:00:00Z', unusedPct: 18 }]);
+describe('lostAtLastReset', () => {
+  const future = [p('2026-10-26T12:00:00Z', 50), p('2026-10-26T14:00:00Z', 40), p('2026-10-26T16:00:00Z', 30)];
+  it('is the guess just before the last guessed reset', () => {
+    assert.deepEqual(lostAtLastReset({ ...o, future }), { at: '2026-10-26T15:00:00Z', pct: 40 });
+  });
+  it('is null when the guess stops before the reset or no reset is guessed', () => {
+    assert.equal(lostAtLastReset({ ...o, future: future.slice(0, 2) }), null);
+    assert.equal(lostAtLastReset({ now: o.now, future, by_account: [] }), null);
   });
 });
 describe('axisTicks', () => {
