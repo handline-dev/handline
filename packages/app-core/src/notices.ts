@@ -30,7 +30,8 @@ export interface Live {
   busy?: boolean;
   step?: string;
   fraction?: number;
-  actions?: { label: string; run: () => void; primary?: boolean }[];
+  /** `stay`: pressing it leaves the toast up (Details); any other button reads the notice and closes the toast. */
+  actions?: { label: string; run: () => void; primary?: boolean; stay?: boolean }[];
 }
 export interface NoticeAbout {
   agent?: string;
