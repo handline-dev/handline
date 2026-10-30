@@ -19,7 +19,7 @@ import { Toast } from '#src/ds/Floating.tsx';
 import { Link, Who } from '#src/ds/Link.tsx';
 import { ListRow, SectionHead } from '#src/ds/ListRow.tsx';
 import { useNow } from '#src/Gauge.tsx';
-import { HeldLine, useHeldAnswers, type HeldStep } from '#src/HeldAnswers.tsx';
+import { useHeldAnswers, type HeldStep } from '#src/HeldAnswers.tsx';
 import { useScreenKeys, type KeyRows } from '#src/screenKeys.ts';
 
 const REQUEST_KEYS: KeyRows = [
@@ -333,7 +333,9 @@ export function RequestsPage() {
   const toast =
     held.last || said ? (
       <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
-        <Toast>{held.last ? <HeldLine last={held.last} undo={held.undo} /> : said}</Toast>
+        <Toast action={held.last ? 'Undo' : undefined} onAction={() => held.last && held.undo(held.last.key)}>
+          {held.last ? held.last.line : said}
+        </Toast>
       </div>
     ) : null;
   // Wide: the first item is open, as the list is read top down. Narrow: the list alone until a row is picked.
