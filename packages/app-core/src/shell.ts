@@ -141,6 +141,10 @@ export interface ShellApi {
   onUpdate?(cb: (v: ShellUpdate) => void): () => void;
   /** Opens the one-time QR window for pairing a phone with this app's gateway. `mode().phone` says whether that is possible. */
   phone?(): Promise<{ ok: true } | Fail<'bad_request' | 'cannot_pair'>>;
+  /** Whether "Allow devices on this network" is on (the gateway then serves the page on its address), and whether this app can change it. */
+  network?(): Promise<{ ok: true; on: boolean; can: boolean } | Fail<'bad_request'>>;
+  /** Turns it on or off; the app relaunches. */
+  setNetwork?(on: boolean): Promise<{ ok: true } | Fail<'bad_request'>>;
   /** Pairs with another device's gateway, from its `handline://` link or its address and code; the app relaunches on it. */
   pairRemote?(a: { link?: string; address?: string; code?: string }): Promise<{ ok: true } | Fail<'bad_request' | 'cannot_pair'>>;
   /** The page's zoom factor (1 = 100%), read from the window itself: `outerWidth` lags a full-screen change, so the page cannot tell it from its own size. */

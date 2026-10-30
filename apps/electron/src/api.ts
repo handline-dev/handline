@@ -70,6 +70,8 @@ export function makeApi(ipc: Ipc, zoom: () => number = () => 1): ShellApi {
     cli: () => call(CHANNELS.cli),
     linkCli: () => call(CHANNELS.linkCli),
     phone: () => call(CHANNELS.phone),
+    network: () => call(CHANNELS.network),
+    setNetwork: (on) => call(CHANNELS.setNetwork, on),
     pairRemote: (a) => call(CHANNELS.pairRemote, a),
     onFullScreen(cb) {
       fullListeners.add(cb);
