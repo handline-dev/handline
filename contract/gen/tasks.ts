@@ -352,8 +352,12 @@ export interface TasksMethods {
   parent?: number;
   /** That task and every task below it, at any depth, done and discarded included (all is implied); still within the caller's scope, newest first and paged as without it. */
   under?: number;
-  /** Return rows older than this id. */
+  /** Return rows older than this id. Not with order closed: that pages by cursor. */
   before?: number;
+  /** id (the default): newest id first. closed: newest close first, by (the time it was done or discarded, id); only with state done or discarded, else bad_request. A task old by id but closed today comes first. */
+  order?: "id" | "closed";
+  /** With order closed: the `next` of the previous page, in place of before. Opaque; a client never builds one. A cursor with any other order, or a garbled one, is bad_request. */
+  cursor?: string;
   /** Default 50, at most 200. */
   limit?: number;
   /** Done and discarded tasks too. */
@@ -375,6 +379,8 @@ export interface TasksMethods {
       closures_request: number;
       closures_reason: number;
     };
+    /** With order closed and more true: the cursor of the next page. Absent otherwise. */
+    next?: string;
   } & ReadCursor };
   "task.get": { params: {
   task: number;

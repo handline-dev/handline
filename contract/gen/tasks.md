@@ -5,7 +5,7 @@ A method marked write takes a required `request_id`. Framing, roles, errors and 
 
 | Method | Role | Write | Params | Result | Errors | Gates |
 |---|---|---|---|---|---|---|
-| `tasks.list` | agent |  | `owner?`, `reporter?`, `from?`, `state?`, `tags?`, `parent?`, `under?`, `before?`, `limit?`, `all?`, `everyone?`, `my_turn?`, `reason_gaps?` | `{items, more, reason_gaps} & ReadCursor` |  |  |
+| `tasks.list` | agent |  | `owner?`, `reporter?`, `from?`, `state?`, `tags?`, `parent?`, `under?`, `before?`, `order?`, `cursor?`, `limit?`, `all?`, `everyone?`, `my_turn?`, `reason_gaps?` | `{items, more, reason_gaps, next} & ReadCursor` |  |  |
 | `task.get` | agent |  | `task` | `TaskDetail & ReadCursor` | `not_found` |  |
 | `task.history` | agent |  | `task` | `{task, rows}` | `not_found`, `bad_request` |  |
 | `task.time` | agent |  | `task` | `{task, start, end, segments, estimate, expected} & ReadCursor` | `not_found`, `bad_request` |  |

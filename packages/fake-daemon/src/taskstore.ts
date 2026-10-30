@@ -3,6 +3,7 @@ import type { FakeInbox } from '#src/inbox.ts';
 import type { HistoryRow, Memo, Task, TaskClock, TaskDetail, TimeSegment } from '@handline/contract';
 import { seedTasks } from '#src/seedtasks.ts';
 import { changes } from '#src/history.ts';
+import { invalidParams } from '#src/errors.ts';
 import { refs, type FakeAttachments } from '#src/attachments.ts';
 
 export class TaskFailure extends Error {
@@ -135,20 +136,49 @@ export class TaskStore {
         if (r.blockers.some((b) => b.task === t.id)) this.change(r, { blockers: r.blockers.filter((b) => b.task !== t.id) });
   }
 
-  list(p: Record<string, unknown>): { items: Task[]; more: boolean } {
+  list(p: Record<string, unknown>): { items: Task[]; more: boolean; next?: string } {
     const limit = Math.min(Number(p.limit ?? 50), 200);
+    const byClose = p.order === 'closed';
+    if (byClose && p.state !== 'done' && p.state !== 'discarded')
+      throw invalidParams('order closed needs state done or discarded', 'order');
+    if (byClose && p.before !== undefined) throw invalidParams('order closed pages by cursor, not before', 'before');
+    if (!byClose && p.cursor !== undefined) throw invalidParams('cursor goes with order closed', 'cursor');
+    const from = byClose && p.cursor !== undefined ? this.closedFrom(String(p.cursor)) : null;
     let rows = this.rows.filter(
       (r) =>
-        (p.all === true || p.under !== undefined || (r.state !== 'done' && r.state !== 'discarded')) &&
+        (p.all === true ||
+          p.under !== undefined ||
+          p.state === 'done' ||
+          p.state === 'discarded' ||
+          (r.state !== 'done' && r.state !== 'discarded')) &&
         (p.my_turn === true ? r.to === 'human' && ['queued', 'doing'].includes(r.state) : p.owner === undefined || r.to === p.owner) &&
         (p.from === undefined || r.from === p.from) &&
         (p.state === undefined || r.state === p.state) &&
         (p.parent === undefined || r.parent === p.parent) &&
         (p.under === undefined || this.below(Number(p.under), r)) &&
-        (p.before === undefined || r.id < Number(p.before)),
+        (p.before === undefined || r.id < Number(p.before)) &&
+        (!from || (r.done ?? '') < from.at || ((r.done ?? '') === from.at && r.id < from.id)),
     );
-    rows = rows.sort((a, b) => b.id - a.id);
-    return { items: rows.slice(0, limit).map((r) => this.view(r)), more: rows.length > limit };
+    rows = rows.sort((a, b) => (byClose ? (b.done ?? '').localeCompare(a.done ?? '') : 0) || b.id - a.id);
+    const page = rows.slice(0, limit);
+    const last = page[page.length - 1];
+    const more = rows.length > limit;
+    return {
+      items: page.map((r) => this.view(r)),
+      more,
+      ...(byClose && more && last ? { next: btoa(`${last.done ?? ''}|${last.id}`) } : {}),
+    };
+  }
+
+  /** The close time and id a closed-order cursor stands for. */
+  private closedFrom(cursor: string): { at: string; id: number } {
+    try {
+      const [at, id] = atob(cursor).split('|');
+      if (at !== undefined && Number(id) > 0) return { at, id: Number(id) };
+    } catch {
+      /* falls to the refusal */
+    }
+    throw invalidParams('cursor is not one this daemon gave', 'cursor');
   }
 
   /** Whether r is the task top or below it at any depth. */

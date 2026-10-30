@@ -1,0 +1,173 @@
+{
+ "fixtures": [
+  {
+   "name": "tasks.list.closed_order_puts_the_last_close_first_and_pages_without_gap_or_repeat",
+   "spec": "tasks.list",
+   "as": "founder",
+   "about": "Of two tasks the older id is closed last: order closed lists it first, then the other, one row a page by the cursor. Each close is a second apart, since the time is in whole seconds.",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "closed old id",
+       "body": "b",
+       "request_id": "conf-closed-2-task.new"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "a"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 3,
+      "method": "task.new",
+      "params": {
+       "owner": "human",
+       "title": "closed new id",
+       "body": "b",
+       "request_id": "conf-closed-3-task.new"
+      }
+     },
+     "result": {
+      "accepted": true,
+      "task": {
+       "$save": "b"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 4,
+      "method": "task.done",
+      "params": {
+       "task": "{{b}}",
+       "evidence": "closed in the fixture",
+       "request_id": "conf-closed-4-task.done"
+      }
+     },
+     "result": {
+      "accepted": true
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 5,
+      "method": "task.done",
+      "params": {
+       "task": "{{a}}",
+       "evidence": "closed in the fixture",
+       "request_id": "conf-closed-5-task.done"
+      }
+     },
+     "result": {
+      "accepted": true
+     },
+     "sleep_s": 1.2
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 6,
+      "method": "tasks.list",
+      "params": {
+       "state": "done",
+       "order": "closed",
+       "limit": 1
+      }
+     },
+     "result": {
+      "items": [
+       {
+        "id": "{{a}}"
+       }
+      ],
+      "more": true,
+      "next": {
+       "$type": "string",
+       "$save": "cur"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 7,
+      "method": "tasks.list",
+      "params": {
+       "state": "done",
+       "order": "closed",
+       "limit": 1,
+       "cursor": "{{cur}}"
+      }
+     },
+     "result": {
+      "items": [
+       {
+        "id": "{{b}}"
+       }
+      ]
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 8,
+      "method": "tasks.list",
+      "params": {
+       "order": "closed"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "order"
+      }
+     }
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 9,
+      "method": "tasks.list",
+      "params": {
+       "state": "done",
+       "cursor": "x"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "cursor"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}
