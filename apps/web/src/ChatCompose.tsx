@@ -1,6 +1,7 @@
 // The message box: Enter sends, Shift+Enter breaks the line, the up arrow recalls what was sent, `/` and `#` open menus, Ctrl+R lists the history,
 // and an unsent draft is kept per agent.
 import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { KV, Verb } from '@handline/app-core';
 import type { AgentDetail, ChatMessage, TranscriptItem } from '@handline/client';
 import { useAgents, useChatActions } from '@handline/app-data';
@@ -9,7 +10,7 @@ import { menuOf, useEntries, useOpenTerminal, type Entry, type MenuKind } from '
 import { VerbSheet } from '#src/AgentVerbs.tsx';
 import { useScreenKeys, type KeyRows } from '#src/screenKeys.ts';
 import { useCan } from '#src/taskui.tsx';
-import { AttachChips, attachHandlers, useAttachDraft } from '#src/ChatAttach.tsx';
+import { AttachChips, pasteImages, useAttachDraft, usePaneDrop } from '#src/ChatAttach.tsx';
 import { Button, Icon, PROW, PROW_HINT, PROW_NAME, Textarea, ComposeRow, sendKey, Check } from '#src/ui/index.ts';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { COMPOSER_BAR } from '#src/ds/Chat.tsx';
@@ -47,6 +48,7 @@ export function Compose(props: {
   const act = useChatActions(agent);
   const att = useAttachDraft(agent);
   const canAttach = useCan('attachment.put');
+  const { wrap, pane, over, note } = usePaneDrop(att.add, canAttach.ok);
   const agents = useAgents().data?.agents ?? [];
   const view = agents.find((a) => a.name === agent);
   const draft = setting(storage, `handline.draft.${agent}`, '');
@@ -56,7 +58,6 @@ export function Compose(props: {
   const [at, setAt] = useState(0);
   const [verb, setVerb] = useState<Verb | null>(null);
   const [clearing, setClearing] = useState(false);
-  const [over, setOver] = useState(false); // files are being dragged over the box
   const [refused, setRefused] = useState<string | null>(null); // a /word this agent does not take: said, never sent
   const [now, setNow] = useState(false); // join the running turn instead of queueing behind it; back to queue after each send
   const back = useRef(-1);
@@ -94,9 +95,9 @@ export function Compose(props: {
   // The message shows at once and the box clears; a refused one stays in the list as a failed row with Retry, so its words are not lost.
   const choosing = !!running && !!view?.structured;
   const send = () => {
-    if ((!text.trim() && !att.ids.length && !att.refs.length) || att.busy || ctrlR) return;
+    if ((!text.trim() && !att.ids.length) || att.busy || ctrlR) return;
     // A / line is a command, never words to the agent: run it or refuse it here.
-    if (typed && !att.ids.length && !att.refs.length) {
+    if (typed && !att.ids.length) {
       const id = typed[2] === 'fresh' ? `${typed[1]}_fresh` : typed[1]!;
       const hit = slashEntries.find((e) => e.key === id);
       if (hit?.verb || hit?.terminal) {
@@ -113,8 +114,7 @@ export function Compose(props: {
     const delivery = choosing && now ? ('now' as const) : undefined;
     // A picked message is only a reference (the parent link): the message goes to this chat's agent, whoever said it.
     const attachments = att.ids;
-    // A dropped file or folder reaches the agent as its absolute path, one to a line after the words.
-    const body = [text, ...att.refs.map((r) => r.path)].filter(Boolean).join('\n');
+    const body = text;
     // A command is sent as typed: the reply selection is dropped, so nothing is put before the `!`.
     if (cmd) act.send(body, { delivery, attachments });
     else if (target) act.send(body, { parent: target.id, quote: quote ?? undefined, delivery, attachments });
@@ -165,13 +165,20 @@ export function Compose(props: {
     }
   };
   return (
-    <div
-      className="compose-wrap flex flex-col"
-      {...attachHandlers(canAttach.ok ? att.add : () => undefined, att.refer)}
-      onDragEnter={(e) => canAttach.ok && e.dataTransfer.types.includes('Files') && setOver(true)}
-      onDragLeave={(e) => e.currentTarget.contains(e.relatedTarget as Node | null) || setOver(false)}
-      onDropCapture={() => setOver(false)}
-    >
+    <div ref={wrap} className="compose-wrap flex flex-col" onPaste={canAttach.ok ? pasteImages(att.add) : undefined}>
+      {over && pane
+        ? createPortal(
+            <span className="drop-cover pointer-events-none absolute inset-0 z-20 grid place-items-center border-2 border-dashed border-acc bg-surface/80 text-md text-ink-2">
+              Drop to attach
+            </span>,
+            pane,
+          )
+        : null}
+      {note ? (
+        <p role="status" className="mx-3 flex items-center gap-2 px-1 pb-1 text-sm text-bad">
+          <Icon name="warn" size={14} aria-hidden /> {note}
+        </p>
+      ) : null}
       {/* The reply bar's row is always this tall, so picking a message never shifts the stream to make room. */}
       <div className="mx-3 mb-1 flex h-[26px] items-center">
         {target ? (
@@ -202,20 +209,8 @@ export function Compose(props: {
           <Icon name="warn" size={14} aria-hidden /> {refused}
         </p>
       ) : null}
-      <AttachChips
-        drafts={att.drafts}
-        refs={att.refs}
-        problem={att.problem}
-        onRemove={att.remove}
-        onRetry={att.retry}
-        onUnref={att.unrefer}
-      />
-      <ComposeRow className={`${cmd ? '[--acc:var(--cmd)] ' : ''}${over ? 'outline-2 -outline-offset-2 outline-dashed outline-acc' : ''}`}>
-        {over ? (
-          <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-lg bg-surface text-sm text-ink-2">
-            Drop to attach
-          </span>
-        ) : null}
+      <AttachChips drafts={att.drafts} problem={att.problem} onRemove={att.remove} onRetry={att.retry} />
+      <ComposeRow className={`${cmd ? '[--acc:var(--cmd)] ' : ''}`}>
         {cmd ? <span className="compose-cmd absolute bottom-full left-3 mb-0.5 text-xs text-ink-2">Sent as typed to the agent</span> : null}
         {menu ? (
           <ul

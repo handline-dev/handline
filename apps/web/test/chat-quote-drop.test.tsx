@@ -90,19 +90,27 @@ describe('quoting words of an agent message', () => {
   });
 });
 
-describe('dropping files on the composer', () => {
-  it('files dragged over it show Drop to attach, and leaving clears it', async () => {
+describe('dropping files on the chat pane', () => {
+  const drag = (el: Element, type: string, files: File[] = []) =>
+    act(async () => {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      Object.assign(e, { dataTransfer: { types: ['Files'], files }, relatedTarget: null });
+      el.dispatchEvent(e);
+    });
+
+  it('files dragged over the message stream cover the pane with Drop to attach, and leaving clears it', async () => {
     await mount('Report: gaps listed.');
-    const wrap = $('.compose-wrap')!;
-    const drag = (type: string, init: Record<string, unknown> = {}) =>
-      act(async () => {
-        const e = new Event(type, { bubbles: true, cancelable: true });
-        Object.assign(e, { dataTransfer: { types: ['Files'], files: [] }, relatedTarget: null, ...init });
-        wrap.dispatchEvent(e);
-      });
-    await drag('dragenter');
-    expect(text(wrap)).toContain('Drop to attach');
-    await drag('dragleave');
-    expect(text(wrap)).not.toContain('Drop to attach');
+    await drag($('.stream')!, 'dragenter');
+    expect(text($('.chat'))).toContain('Drop to attach');
+    await drag($('.stream')!, 'dragleave');
+    expect(text($('.chat'))).not.toContain('Drop to attach');
+  });
+
+  it('a dropped file that is not a picture says Only pictures can be sent for now', async () => {
+    await mount('Report: gaps listed.');
+    await drag($('.stream')!, 'dragenter');
+    await drag($('.stream')!, 'drop', [new File(['x'], 'notes.pdf', { type: 'application/pdf' })]);
+    expect(text($('.chat'))).not.toContain('Drop to attach');
+    expect(text($('.compose-wrap'))).toContain('Only pictures can be sent for now');
   });
 });

@@ -1,4 +1,4 @@
-// A short line in the middle of the window that goes by itself and asks nothing.
+// A short line at the top centre of the window that goes by itself and asks nothing.
 import { useEffect, useState } from 'react';
 
 const SHOW = 'handline:pill';
@@ -24,7 +24,7 @@ export function PillHost() {
   if (!text) return null;
   return (
     <div
-      className="pill pointer-events-none fixed top-1/2 left-1/2 z-30 -translate-x-1/2 -translate-y-1/2 rounded-md bg-ink px-4 py-2 text-md text-canvas shadow-[var(--shadow)]"
+      className="pill pointer-events-none fixed top-4 left-1/2 z-30 -translate-x-1/2 rounded-md bg-ink px-4 py-2 text-md text-canvas shadow-[var(--shadow)]"
       role="status"
     >
       {text}
