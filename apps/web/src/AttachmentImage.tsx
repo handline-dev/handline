@@ -26,6 +26,7 @@ export function AttachmentImage({
   const inThumbs = useContext(Thumbs);
   thumb ??= inThumbs;
   const [open, setOpen] = useState(false);
+  const [drawn, setDrawn] = useState(false); // the picture has its pixels: until then its box keeps the room it will fill
   const label = name || 'image';
   if (small.failed)
     return (
@@ -43,13 +44,19 @@ export function AttachmentImage({
     <>
       <button
         type="button"
-        className={`attachment items-start border-0 bg-transparent p-0 text-left ${thumb ? 'mr-1.5 inline-flex h-11 w-16 align-top' : 'flex min-w-24 max-w-full'} ${!thumb && !small.url ? 'h-40' : ''}`}
+        className={`attachment items-start border-0 bg-transparent p-0 text-left ${thumb ? 'mr-1.5 inline-flex h-11 w-16 align-top' : 'flex min-w-24 max-w-full'} ${!thumb && !drawn ? 'h-40' : ''}`}
         title={label}
         aria-label={`Open ${label}`}
         onClick={() => setOpen(true)}
       >
         {small.url ? (
-          <img src={small.url} alt={label} className={`rounded-sm object-cover ${thumb ? 'h-11 w-16' : 'max-h-40 max-w-full'}`} />
+          <img
+            src={small.url}
+            alt={label}
+            onLoad={() => setDrawn(true)}
+            onError={() => setDrawn(true)}
+            className={`rounded-sm object-cover ${thumb ? 'h-11 w-16' : 'max-h-40 max-w-full'}`}
+          />
         ) : (
           <span className="muted text-[12px]">{label}</span>
         )}

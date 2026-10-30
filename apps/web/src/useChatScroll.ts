@@ -54,7 +54,6 @@ export function useChatScroll({
   const [newer, setNewer] = useState(0);
   const entered = useRef<string | null>(null);
   const glide = useRef(0); // until when our own smooth scroll is under way
-  const placed = useRef<number | null>(null); // where our own jump put the view: the scroll event it raises is not the person leaving the bottom
   const intent = useRef(false); // the person is driving the scroll (wheel, touch, key, scrollbar)
   const place = useRef<{ id: string; off: number } | null>(null); // the line a reader above the bottom is on
 
@@ -75,7 +74,6 @@ export function useChatScroll({
       } else {
         glide.current = 0;
         scrollTo(box, a.to, false);
-        placed.current = box.scrollTop;
       }
     },
     [stream, entry],
@@ -119,13 +117,6 @@ export function useChatScroll({
       const box = stream.current;
       if (!box) return;
       const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < NEAR;
-      // Our own jump raises its scroll event a frame later; lines that grew meanwhile (a picture's height) make that look like leaving the bottom, so the follow is kept and renewed.
-      const mine = placed.current;
-      placed.current = null; // one event per jump
-      if (!atBottom && !intent.current && mine !== null && Math.abs(box.scrollTop - mine) <= 1) {
-        if (state.current.mode === 'follow') dispatch({ type: 'grew' });
-        return;
-      }
       // Our own glide reports scrolls on its way down: they are not the person leaving the bottom.
       if (!atBottom && !intent.current && performance.now() < glide.current) return;
       dispatch({ type: 'scrolled', atBottom });
@@ -138,9 +129,10 @@ export function useChatScroll({
     sent: () => dispatch({ type: 'sent' }),
     /** Down to the bottom: the pill, or the way back from a window around an old message. */
     bottom: () => dispatch({ type: 'bottom' }),
+    /** Something below the lines took room from the stream or gave it back (a card above the composer): a reader at the bottom stays there. */
+    resized: () => dispatch({ type: 'grew' }),
     /** A jump to an old message is leaving the bottom: the view is the reader's from here. */
     leave: () => {
-      placed.current = null;
       state.current = { mode: 'free', newer: 0 };
       place.current = null;
     },

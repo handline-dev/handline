@@ -96,7 +96,11 @@ describe('images an agent attaches to a message', () => {
     });
     await mount(s);
     await until(() => box.querySelector('.msg .attachments img'), 'the picture');
-    expect(box.querySelector('.msg .attachments button.attachment')!.classList.contains('h-40')).toBe(false);
+    const button = () => box.querySelector('.msg .attachments button.attachment')!;
+    // Until its pixels are in, the box keeps the room the picture will fill: the lines under it do not move when it draws, and a chat opened at its bottom stays there.
+    expect(button().classList.contains('h-40')).toBe(true);
+    await act(async () => void box.querySelector('.msg .attachments img')!.dispatchEvent(new Event('load')));
+    expect(button().classList.contains('h-40')).toBe(false);
   });
 
   it('opens a picture larger on a click, and Escape closes it', async () => {
