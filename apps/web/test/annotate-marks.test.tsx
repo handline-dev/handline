@@ -25,17 +25,7 @@ async function mount() {
   Object.defineProperty(img, 'naturalWidth', { value: 200 });
   Object.defineProperty(img, 'naturalHeight', { value: 200 });
   await act(async () => void img.dispatchEvent(new Event('load')));
-  svg().getBoundingClientRect = () => ({
-    left: 0,
-    top: 0,
-    width: 100,
-    height: 100,
-    right: 100,
-    bottom: 100,
-    x: 0,
-    y: 0,
-    toJSON: () => ({}),
-  });
+  svg().getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}) });
   svg().setPointerCapture = () => undefined;
 }
 const gesture = (...ps: [number, number][]) =>
@@ -51,8 +41,7 @@ const type = (el: HTMLTextAreaElement, value: string) =>
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
-const enter = () =>
-  act(async () => void memo()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
+const enter = () => act(async () => void memo()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
 const ring = (cx: number, cy: number, r: number): [number, number][] =>
   Array.from({ length: 25 }, (_, i) => [cx + r * Math.cos((2 * Math.PI * i) / 24), cy + r * Math.sin((2 * Math.PI * i) / 24)]);
 

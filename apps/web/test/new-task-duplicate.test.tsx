@@ -72,14 +72,7 @@ describe('a duplicate title', () => {
     await press('n');
     await choose($('.ui-dialog select') as HTMLSelectElement, 'handline.auditor');
     await typeInto($('.ui-dialog .tform input') as HTMLInputElement, 'Web UI design again');
-    s.daemon.knobs.refuse(
-      'task.new',
-      'duplicate_title',
-      'T1684 (under T1) is open with nearly this title: "Web UI design"',
-      'add to that task instead',
-      1,
-      { task: 1684 },
-    ); // local-ref-ok
+    s.daemon.knobs.refuse('task.new', 'duplicate_title', 'T1684 (under T1) is open with nearly this title: "Web UI design"', 'add to that task instead', 1, { task: 1684 }); // local-ref-ok
     await click(button('Ask')!);
     await until(() => button('Create anyway'), 'the override');
     expect(text($('.ui-dialog [role=alert]'))).toContain('T1684 (under T1) is open'); // local-ref-ok

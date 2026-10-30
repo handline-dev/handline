@@ -4,12 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.hoisted(() => {
-  window.matchMedia = ((q: string) => ({
-    matches: false,
-    media: q,
-    addEventListener() {},
-    removeEventListener() {},
-  })) as unknown as typeof window.matchMedia;
+  window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
 });
 
 import { AnimatedList } from '#src/AnimatedList.tsx';
@@ -59,6 +54,9 @@ describe('open and close', () => {
   });
 
   it('a Sheet grows and shrinks the same way under an AnimatedList', async () => {
-    await openAndClose((open) => <AnimatedList>{open ? <Sheet key="s">body</Sheet> : null}</AnimatedList>, '.verb-sheet');
+    await openAndClose(
+      (open) => <AnimatedList>{open ? <Sheet key="s">body</Sheet> : null}</AnimatedList>,
+      '.verb-sheet',
+    );
   });
 });
