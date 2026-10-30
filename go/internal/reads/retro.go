@@ -57,20 +57,28 @@ func (e *Env) doingWindows(tid, ended, now int64) ([]usage.DoingWindow, error) {
 		end = ended
 	}
 	closeAt(end)
-	for i, w := range out {
+	// A holder is in one window at a time: another task's start after this window's, or in the same second with a lower task number (so
+	// exactly one of two simultaneous starts keeps its window), cuts it there.
+	kept := out[:0]
+	for _, w := range out {
 		if w.Hi > end {
-			out[i].Hi = end
+			w.Hi = end
 		}
-		next, err := queryOne(e.DB, "SELECT MIN(ts) AS ts FROM (SELECT ts FROM events WHERE agent = ? AND kind IN ('task_begin', 'task_start') AND ts > ? AND "+
-			eventTask+" != ? UNION ALL SELECT r.landed_at FROM requests r JOIN task_requests l ON l.request_id = r.id "+
-			"WHERE r.target = ? AND r.landed_at > ? AND l.task_id != ?)", w.Agent, w.Lo, tid, w.Agent, w.Lo, tid)
+		next, err := queryOne(e.DB, "SELECT MIN(ts) AS ts FROM (SELECT ts FROM events WHERE agent = ? AND kind IN ('task_begin', 'task_start') AND "+
+			"(ts > ? OR (ts = ? AND "+eventTask+" < ?)) AND "+eventTask+" != ? UNION ALL SELECT r.landed_at FROM requests r JOIN task_requests l "+
+			"ON l.request_id = r.id WHERE r.target = ? AND (r.landed_at > ? OR (r.landed_at = ? AND l.task_id < ?)) AND l.task_id != ?)",
+			w.Agent, w.Lo, w.Lo, tid, tid, w.Agent, w.Lo, w.Lo, tid, tid)
 		if err != nil {
 			return nil, err
 		}
-		if next.set("ts") && next.i("ts") < out[i].Hi {
-			out[i].Hi = next.i("ts")
+		if next.set("ts") && next.i("ts") < w.Hi {
+			w.Hi = next.i("ts")
+		}
+		if w.Hi > w.Lo {
+			kept = append(kept, w)
 		}
 	}
+	out = kept
 	return out, nil
 }
 
