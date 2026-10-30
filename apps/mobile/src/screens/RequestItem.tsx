@@ -238,7 +238,7 @@ export function RequestItem(props: {
             onPress={() => run(openAct)}
             style={{ minHeight: 44, justifyContent: 'center' }}
           >
-            <Text style={{ color: c.accent }}>{card.task != null ? `Open T${card.task}` : 'Open'}</Text>
+            <Text style={{ color: c.accent }}>{card.task != null ? `Open T${card.task}` : 'Open chat'}</Text>
           </Pressable>
         ) : null}
       </View>
