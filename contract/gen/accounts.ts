@@ -202,6 +202,27 @@ export type Outlook = {
   }[];
 };
 
+/** The cost of one founder's task: its wall time, and the tokens spent inside the doing windows of every task in its subtree, per agent. */
+export type Retro = {
+  task: number;
+  /** From the task's creation to its done or discard time; to now while it is open. */
+  wall_seconds: number;
+  /** All agents together: inp, cc, cr and out (thinking is a part of out). */
+  tokens: number;
+  /** USD at list price, all agents together. */
+  cost: number;
+  /** One row per agent that was doing a task of the subtree, most tokens first, ties by agent. */
+  agents: {
+    agent: string;
+    /** Time it spent doing tasks of the subtree; overlapping windows count once. */
+    doing_seconds: number;
+    tokens: number;
+    cost: number;
+    /** The subtree tasks it did, by id. */
+    tasks: number[];
+  }[];
+};
+
 export interface AccountsMethods {
   "accounts.list": { params: {
   /** Add each account's agents_assigned, agents_running and agents_unplaced. Default false. */
@@ -288,6 +309,9 @@ export interface AccountsMethods {
   /** Also give `overlay` for this pick: an agent's name, or `grp:<name>` for the group of agents whose dotted names start with `<name>.` (and the agent `<name>` itself), the key of a row of the agents table a client draws. It rides on this call and not on a method of its own because the curve is read against `past` and must be sampled at the same moment as it; one pick costs one array, not one per agent. */
   agent?: string;
 }; result: Outlook };
+  "stats.retro": { params: {
+  task: number;
+}; result: Retro };
 }
 
 export const ACCOUNTS_METHODS: { [K in keyof AccountsMethods]: { role: Role; callers: Role[] | null; write: boolean; since: number } } = {
@@ -302,4 +326,5 @@ export const ACCOUNTS_METHODS: { [K in keyof AccountsMethods]: { role: Role; cal
   "account.remove": { role: "founder", callers: null, write: true, since: 1 },
   "stats.get": { role: "member", callers: null, write: false, since: 1 },
   "stats.outlook": { role: "member", callers: null, write: false, since: 1 },
+  "stats.retro": { role: "member", callers: null, write: false, since: 1 },
 };

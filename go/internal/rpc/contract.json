@@ -314,6 +314,9 @@
  "stats.outlook": {
   "role": "member"
  },
+ "stats.retro": {
+  "role": "member"
+ },
  "status.pick": {
   "role": "agent"
  },
