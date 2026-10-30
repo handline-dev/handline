@@ -81,6 +81,9 @@
  "attachment.put": {
   "role": "member"
  },
+ "attachment.remove": {
+  "role": "founder"
+ },
  "chat.cancel": {
   "role": "member"
  },

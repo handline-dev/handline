@@ -18,6 +18,7 @@ A method marked write takes a required `request_id`. Framing, roles, errors and 
 | `chat.seen` | member | yes | `agent`, `up_to`, `request_id` | `Accepted` | `refused`, `not_found`, `bad_request` |  |
 | `attachment.put` | member | yes | `name`, `mime`, `bytes`, `offset?`, `upload?`, `data`, `request_id` | `Accepted & {upload, received, attachment}` | `refused`, `not_found`, `bad_request` | role, limit |
 | `attachment.get` | member |  | `id`, `thumb?`, `offset?` | `{mime, bytes, offset, data, done}` | `refused`, `not_found`, `bad_request` | role |
+| `attachment.remove` | founder | yes | `id`, `dry_run?`, `request_id` | `Accepted & {removed_from}` | `refused`, `not_found`, `bad_request` | role |
 | `inbox.list` | agent |  | `unread?`, `kind?`, `agent?`, `before?`, `limit?`, `wait_s?` | `{items, more} & ReadCursor` |  |  |
 | `inbox.queue` | agent |  | `whose?`, `all?`, `since?`, `wait_s?` | `{whose, newest, head, history, waiting, lines, dealt}` | `refused`, `bad_request` | listing |
 | `inbox.get` | agent |  | `id`, `wait_s?` | `InboxItem & ReadCursor` | `not_found`, `bad_request` |  |
@@ -82,6 +83,10 @@ Upload a file for a message, in chunks; the last chunk returns the Attachment to
 ### `attachment.get`
 
 Read an attached image or a memo's file, or a small copy of an image, for drawing. See x-attachments. An id that no longer exists (never put, or kept past its time) is not_found.
+
+### `attachment.remove`
+
+The founder deletes an image or a memo's file everywhere it is named; dry_run counts the places first. See x-attachments. The file is deleted at once, wherever it is named: in a chat message, a task's brief, a memo or a note, or carried as a memo's file. Every read that names the id then answers as for an image no longer kept, ImagePart and MemoFile with gone: true, and with removed: true as well, so a client tells a deletion from an expiry; attachment.get is not_found. The texts that name it are not changed. ChatMessage.attachments and turn_start.attachments still list the id; a client reads gone and removed from parts. The event attachment.removed goes on the chat and tasks topics. An id removed already is accepted with removed_from 0, so a retried tap is no error; one never put is not_found, what attachment. A dry run writes nothing and keeps no reply under the request_id. An agent or member caller is refused, gate role. Agents are not told: one that was given the path keeps its line, and reading it later fails.
 
 ### `inbox.list`
 

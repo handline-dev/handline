@@ -24,12 +24,16 @@ func (s *Store) Parts(text string, withPath bool) []any {
 	return out
 }
 
-// imagePart is the ImagePart of image id: gone when it is no longer kept, with its path for an agent (withPath).
+// imagePart is the ImagePart of image id: gone when it is no longer kept, and removed too when the founder removed it, with its path for
+// an agent (withPath).
 func (s *Store) imagePart(caption, id string, withPath bool) map[string]any {
 	part := map[string]any{"caption": caption}
 	info, err := s.Lookup(id)
 	if err != nil {
 		part["image"], part["gone"] = map[string]any{"id": id}, true
+		if s.Removed(id) {
+			part["removed"] = true
+		}
 		return part
 	}
 	part["image"] = info.Map()

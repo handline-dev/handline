@@ -33,17 +33,17 @@ function MarkdownFile({ file }: { file: MemoFile }) {
 export function MemoFiles({ files }: { files: MemoFile[] }) {
   const c = usePalette();
   const kept = files.filter((f) => !f.gone);
-  const images = kept.filter((f) => f.kind === 'image');
+  const images = [...kept, ...files.filter((f) => f.removed)].filter((f) => f.kind === 'image');
   return (
     <View testID="memo-files" style={{ gap: space.sm }}>
-      {images.length > 0 && <Pictures items={images} />}
+      {images.length > 0 && <Pictures items={images} deletable />}
       {kept
         .filter((f) => f.kind === 'markdown')
         .map((f) => (
           <MarkdownFile key={f.id} file={f} />
         ))}
       {files
-        .filter((f) => f.gone)
+        .filter((f) => f.gone && !f.removed)
         .map((f) => (
           <Text key={f.id} style={{ color: c.muted, fontSize: font.size.sm }}>{`${f.name}: no longer kept.`}</Text>
         ))}

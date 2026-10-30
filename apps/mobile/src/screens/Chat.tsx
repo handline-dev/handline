@@ -375,7 +375,8 @@ function Bubble(props: {
         ) : null}
         {m.attachments?.length ? (
           <Pictures
-            items={m.attachments}
+            deletable
+            items={m.attachments.map((a) => ({ ...a, removed: m.parts?.some((x) => 'image' in x && x.image.id === a.id && x.removed) }))}
             to={agent}
             onSend={canSend ? (words, attachments) => act.send(words, { attachments }) : undefined}
           />

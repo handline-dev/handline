@@ -54,6 +54,10 @@ const rules: Record<string, Rule> = {
     // A message's one-tap actions follow its task's state, so the chat is read again.
     void qc.invalidateQueries({ queryKey: ['d', d, 'chat-messages'] });
   },
+  // A deleted image is named in chats, task texts and comments: each is read again, and the draw says "Photo deleted".
+  'attachment.removed': ({ qc, d }) => {
+    for (const k of ['chat-messages', 'memos', 'task']) void qc.invalidateQueries({ queryKey: ['d', d, k] });
+  },
   'inbox.added': inbox,
   'inbox.changed': inbox,
   'account.changed': ({ qc, d }, e) => {

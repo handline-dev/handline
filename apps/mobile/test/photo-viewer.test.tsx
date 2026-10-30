@@ -149,4 +149,19 @@ describe('the photo viewer', { timeout: 20000 }, () => {
     await until(() => !$m('picture-image'), 'the viewer closed');
     m.store.stop();
   });
+  it('Delete asks how many places the photo goes from; Cancel deletes nothing, Delete removes it and the row says Photo deleted', async () => {
+    const { m, ids } = await open(['a.png']);
+    await press($m('picture-delete'));
+    await until(() => $m('delete-places')?.textContent?.includes('It disappears from 1 place.'), 'the count');
+    expect($m('delete-places')?.textContent).toContain('This cannot be undone.');
+    await press($m('delete-keep'));
+    expect($m('delete-ask')).toBeNull();
+    expect($m('picture-image')).not.toBeNull();
+    await press($m('picture-delete'));
+    await until(() => $m('delete-places')?.textContent?.includes('1 place'), 'the count again');
+    await press($m('delete-yes'));
+    await until(() => !$m('picture-image'), 'the viewer closed');
+    await until(() => $(`picture-${ids[0]}`)?.textContent === 'Photo deleted', 'the deleted row');
+    m.store.stop();
+  });
 });
