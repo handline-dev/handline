@@ -198,8 +198,8 @@ func assertNotRetired(t *testing.T, r *rig, wt map[string]string) {
 	}
 }
 
-// A worktree that cannot be removed keeps the agent: refused before anything changes when it is locked, and put back as it was when git
-// fails to remove it; an HR retire nobody answers for held work is refused the same way, and no task is opened.
+// A worktree that cannot be removed keeps the agent: refused before anything changes when it is locked, force or not, and put back as it
+// was when git fails to remove it; an HR retire nobody answers for held work is refused the same way, and no task is opened.
 func TestAnAgentWhoseWorktreeCannotBeRemovedIsNotDeleted(t *testing.T) {
 	r := newRig(t)
 	main, wt, git := bobsWorktrees(t, r)
@@ -214,6 +214,12 @@ func TestAnAgentWhoseWorktreeCannotBeRemovedIsNotDeleted(t *testing.T) {
 		t.Fatalf("a locked worktree: %v", m)
 	}
 	assertNotRetired(t, r, wt)
+	m = r.call("agent.retire", `{"agent":"bob","worktree":"force","request_id":"l1f"}`)
+	e, _ = m["error"].(map[string]any)
+	if d, _ := e["data"].(map[string]any); d["gate"] != "worktree" || !strings.Contains(e["message"].(string), wt["done"]+" cannot be removed (locked)") {
+		t.Fatalf("force on a locked worktree: %v", m)
+	}
+	assertNotRetired(t, r, wt)
 	git(main, "worktree", "unlock", wt["done"])
 
 	// done's folder cannot be deleted: git refuses the removal once the retire is under way.
@@ -221,7 +227,8 @@ func TestAnAgentWhoseWorktreeCannotBeRemovedIsNotDeleted(t *testing.T) {
 	os.Chmod(root, 0o555)
 	t.Cleanup(func() { os.Chmod(root, 0o755) })
 	m = r.call("agent.retire", `{"agent":"bob","worktree":"save","request_id":"l2"}`)
-	if e, _ := m["error"].(map[string]any); e == nil || !strings.Contains(e["message"].(string), wt["done"]+" could not be removed (") ||
+	e, _ = m["error"].(map[string]any)
+	if d, _ := e["data"].(map[string]any); d["gate"] != "state" || !strings.Contains(e["message"].(string), wt["done"]+" could not be removed (") ||
 		!strings.Contains(e["message"].(string), "so bob is not deleted") {
 		t.Fatalf("git failing: %v", m)
 	}
@@ -233,6 +240,34 @@ func TestAnAgentWhoseWorktreeCannotBeRemovedIsNotDeleted(t *testing.T) {
 		t.Fatalf("an HR retire with held work: %v %q %v", ok, said, err)
 	}
 	assertNotRetired(t, r, wt)
+}
+
+// A worktree on no branch is removed only with force, and one git no longer sees as a checkout (its folder's .git is gone) is left as
+// it is.
+func TestForceRemovesAWorktreeOnNoBranchAndOneThatIsNoCheckoutIsLeft(t *testing.T) {
+	r := newRig(t)
+	main, wt, git := bobsWorktrees(t, r)
+	detached, nested := filepath.Join(filepath.Dir(main), "detached"), filepath.Join(main, "nested")
+	git(main, "worktree", "add", "-q", "--detach", detached)
+	git(main, "worktree", "add", "-q", "-b", "nested", nested)
+	os.Remove(filepath.Join(nested, ".git"))
+	r.db.Exec("UPDATE agent_state SET extra_worktrees = ? WHERE agent = 'bob'", `["`+detached+`", "`+nested+`", "`+wt["ahead"]+`"]`)
+	m := r.call("agent.retire", `{"agent":"bob","worktree":"save","request_id":"d1"}`)
+	e, _ := m["error"].(map[string]any)
+	if d, _ := e["data"].(map[string]any); d["gate"] != "worktree" || !strings.Contains(e["message"].(string), detached+" cannot be removed (on no branch), so bob is not deleted; force removes it") {
+		t.Fatalf("on no branch without force: %v", m)
+	}
+	assertNotRetired(t, r, map[string]string{"detached": detached, "nested": nested})
+	m = r.call("agent.retire", `{"agent":"bob","worktree":"force","request_id":"d2"}`)
+	if res, _ := m["result"].(map[string]any); res == nil || !strings.Contains(res["said"].(string), detached+" is removed with what it held") {
+		t.Fatalf("on no branch with force: %v", m)
+	}
+	if _, err := os.Stat(detached); err == nil {
+		t.Fatal("the worktree on no branch is still there")
+	}
+	if _, err := os.Stat(nested); err != nil {
+		t.Fatalf("the folder that is no checkout was removed: %v", err)
+	}
 }
 
 // A running agent retired with an answer is held with it: when its turn ends, SweepHeld carries the answer out, and nobody is asked again.

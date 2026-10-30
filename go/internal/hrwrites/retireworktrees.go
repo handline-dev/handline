@@ -18,8 +18,8 @@ type leave struct {
 
 // leaving is how each of agent's worktrees goes when it is deleted, decided before anything changes: an agent is deleted only once
 // its worktrees are gone, so none is left behind. One that is gone already, the repository's own checkout and one another agent also
-// works in are not touched. refused says, in plain words, why one cannot go; then nothing is done. choice is the founder's answer for a
-// worktree that holds work.
+// works in are not touched; a locked one is never removed, force or not. refused says, in plain words, why one cannot go; then nothing
+// is done. choice is the founder's answer for a worktree that holds work.
 func (e *Env) leaving(agent string, mine []string, choice string) (plans []leave, refused string, err error) {
 	if len(mine) == 0 {
 		return nil, "", nil
@@ -45,6 +45,8 @@ func (e *Env) leaving(agent string, mine []string, choice string) (plans []leave
 			return nil, fmt.Sprintf("%s holds work (%s) and is kept, as asked, so %s is not deleted.", path, why, agent), nil
 		case worktreeprune.HoldsWork(why):
 			return nil, fmt.Sprintf("%s holds work (%s): answer save or force for it, or %s is not deleted.", path, why, agent), nil
+		case why == "locked":
+			return nil, fmt.Sprintf("%s cannot be removed (locked), so %s is not deleted; unlock it first.", path, agent), nil
 		case choice == worktreeprune.Force:
 			plans = append(plans, leave{wt, all[0].Path, choice})
 		default:
