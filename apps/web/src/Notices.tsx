@@ -1,6 +1,6 @@
-import { UpdateNotice } from '#src/UpdateNotice.tsx';
 // The notices (T5591 N2): the bell at the status bar's right end with the unread count, the list that opens upward from it (what happened, newest first), and the short results stacked above it.
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { UpdateNotice } from '#src/UpdateNotice.tsx';
+import { useEffect, useState } from 'react';
 import { clockTime, SPARE_SHOWN, spareNotice, targetOf, type Notice, type SpareNotice } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
 import { useTasks, useWrite } from '@handline/app-data';
@@ -168,7 +168,30 @@ const MARK = { need: ['warn', 'text-wait'], fail: ['failed', 'text-bad'], ok: ['
 const MAX_TOASTS = 3;
 const CHIP = 'bg-raised! tint';
 
-import { UpdateNotice } from '#src/UpdateNotice.tsx';
+/** The buttons of a kept notice: the main one filled, the rest grey chips. The notice is read once one is pressed. */
+function Actions({ n }: { n: Notice }) {
+  const store = useStore();
+  return (
+    <span className="mt-0.5 flex flex-wrap gap-1.5">
+      {n.live?.actions?.map((a) => (
+        <Button
+          key={a.label}
+          variant={a.primary ? 'solid' : 'outline'}
+          size="sm"
+          label={a.label}
+          className={a.primary ? 'toast-open' : CHIP}
+          onClick={() => {
+            if (!a.stay) store.notices.open(n.id);
+            a.run();
+          }}
+        >
+          {a.label}
+        </Button>
+      ))}
+    </span>
+  );
+}
+
 /** One toast: the same inset on every side, the status icon with a bold title and a short second line, then its buttons flush right: the main one filled, the rest grey chips. */
 function Toast({ n }: { n: Notice }) {
   const store = useStore();
@@ -210,8 +233,8 @@ function Toast({ n }: { n: Notice }) {
           </span>
         ) : null}
         {more && n.details ? <span className="whitespace-pre-wrap text-xs text-ink-3">{n.details}</span> : null}
-import { UpdateNotice } from '#src/UpdateNotice.tsx';
-        {go || n.retry || long ? (
+        {live?.actions?.length ? <Actions n={n} /> : null}
+        {!live && (go || n.retry || long) ? (
           <span className="mt-0.5 flex flex-wrap justify-end gap-1.5">
             {go ? (
               <Button variant="solid" size="sm" label={openWord(n)} className="toast-open" onClick={() => openNotice(store, n)}>
@@ -270,9 +293,7 @@ function Toasts({ hidden }: { hidden: boolean }) {
   }, [first, hidden, store]);
   if ((!toasts.length && !spare.length) || hidden) return null;
   return (
-import { UpdateNotice } from '#src/UpdateNotice.tsx';
     <div
-      ref={stack}
       className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[380px] max-w-[90vw] flex-col-reverse gap-1.5"
       role="status"
     >
