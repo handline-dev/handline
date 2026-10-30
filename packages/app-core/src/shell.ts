@@ -63,7 +63,10 @@ export interface ShellApi {
     branches?: string[];
   }): Promise<{ ok: true; how: 'opened' | 'revealed' | 'branch' | 'main' | 'github' } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
   /** The agent's folder in VS Code or Terminal, or its Claude Code session in Terminal. The shell resolves the folder and the command itself; macOS only. Absent in a shell that lacks it. */
-  openIn?(a: { app: 'vscode' | 'terminal' | 'claude'; agent: string }): Promise<{ ok: true } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
+  openIn?(a: {
+    app: 'vscode' | 'terminal' | 'claude';
+    agent: string;
+  }): Promise<{ ok: true } | Fail<'bad_request' | 'not_found' | 'unavailable'>>;
   /** Which of those this machine has; empty off macOS. */
   openInApps?(): Promise<{ ok: true; apps: ('vscode' | 'terminal' | 'claude')[] } | Fail<'bad_request'>>;
   /** Copy a dropped file or folder into the agent's worktree and give the copy's path. Absent in a shell that lacks it. */

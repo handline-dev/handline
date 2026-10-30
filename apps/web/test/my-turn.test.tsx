@@ -247,9 +247,9 @@ describe('my turn', () => {
         .find((r) => r.getAttribute('aria-current') === 'true')
         ?.getAttribute('aria-label');
     await key('j');
-    expect(current()).not.toBe('Open T9002');
+    expect(current()).not.toBe('Open T9002'); // local-ref-ok
     await key('k');
-    expect(current()).toBe('Open T9002');
+    expect(current()).toBe('Open T9002'); // local-ref-ok
     await key('Enter');
     expect(location.hash).toBe('#/tasks/9002');
   });

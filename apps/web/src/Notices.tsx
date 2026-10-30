@@ -1,4 +1,4 @@
-// The notices (T5591 N2): the bell at the status bar's right end with the unread count, the list that opens upward from it (what happened, newest first), and the short results stacked above it.
+// The notices: the bell at the status bar's right end with the unread count, the list that opens upward from it (what happened, newest first), and the short results stacked above it.
 import { UpdateNotice } from '#src/UpdateNotice.tsx';
 import { useEffect, useState } from 'react';
 import { clockTime, SPARE_SHOWN, spareNotice, targetOf, type Notice, type SpareNotice } from '@handline/app-core';
@@ -293,10 +293,7 @@ function Toasts({ hidden }: { hidden: boolean }) {
   }, [first, hidden, store]);
   if ((!toasts.length && !spare.length) || hidden) return null;
   return (
-    <div
-      className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[380px] max-w-[90vw] flex-col-reverse gap-1.5"
-      role="status"
-    >
+    <div className="toasts absolute right-0 bottom-full z-20 mb-2 flex w-[380px] max-w-[90vw] flex-col-reverse gap-1.5" role="status">
       {spare.map((n) => (
         <div key={n.task} className="rounded-[8px] bg-raised shadow-[var(--shadow)]">
           <SpareCard n={n} />

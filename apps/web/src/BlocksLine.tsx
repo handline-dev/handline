@@ -1,4 +1,4 @@
-// "Blocks T7016 T7013" under a request's title: the tasks waiting on this one, so the person answers the blocking request first.
+// "Blocks" and the numbers under a request's title: the tasks waiting on this one, so the person answers the blocking request first.
 import { taskRef } from '@handline/app-core';
 import { useTasks } from '@handline/app-data';
 

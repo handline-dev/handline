@@ -24,7 +24,8 @@ afterEach(async () => {
 });
 
 async function openMenu(shell?: object) {
-  if (shell) Object.assign(window, { handline: { api: 1, screen: async () => ({ ok: true }), unsent: async () => ({ ok: true }), ...shell } });
+  if (shell)
+    Object.assign(window, { handline: { api: 1, screen: async () => ({ ok: true }), unsent: async () => ({ ok: true }), ...shell } });
   location.hash = `#/agents/${ARCH}`;
   box = document.body.appendChild(document.createElement('div'));
   root = createRoot(box);
@@ -46,7 +47,9 @@ describe('the Open in menu', () => {
     const openIn = vi.fn(async () => ({ ok: true }));
     await openMenu({ openIn, openInApps: async () => ({ ok: true, apps: ['vscode', 'claude'] }) });
     expect(items()).toEqual(['Claude Code in Terminal', 'VS Code', 'Copy path']);
-    await act(async () => void [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => b.textContent === 'VS Code')!.click());
+    await act(
+      async () => void [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((b) => b.textContent === 'VS Code')!.click(),
+    );
     expect(openIn).toHaveBeenCalledWith({ app: 'vscode', agent: ARCH });
   });
 });
