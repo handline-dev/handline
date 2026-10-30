@@ -14,8 +14,8 @@ import (
 const ProfileFor = 30 * time.Second
 
 // ProfileCPUOnUSR2 writes a CPU profile of the next ProfileFor to dir/cpu-<time>.pprof each time the process gets SIGUSR2, and logs
-// the path when it is written: `kill -USR2 <pid>`, then `go tool pprof -top <file>`, is how a daemon that runs hot is looked into. A
-// signal while a profile runs is ignored. The returned function stops it.
+// the path when it is written: `kill -USR2 <pid>`, then `go tool pprof -top <file>`, is how a daemon that runs hot is looked into. One
+// signal while a profile runs starts the next profile after it; more are dropped. The returned function stops it.
 func ProfileCPUOnUSR2(dir string, log func(string)) (stop func()) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGUSR2)
