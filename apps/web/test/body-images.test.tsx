@@ -31,7 +31,8 @@ let box: HTMLElement;
 const $ = (sel: string, from: ParentNode = box) => from.querySelector<HTMLElement>(sel);
 const $$ = (sel: string, from: ParentNode = box) => [...from.querySelectorAll<HTMLElement>(sel)];
 const click = (el: Element | null | undefined) => act(async () => void (el as HTMLElement).click());
-const button = (label: string, within: ParentNode = box) => $$('button', within).find((b) => (b.textContent ?? '').trim().startsWith(label));
+const button = (label: string, within: ParentNode = box) =>
+  $$('button', within).find((b) => (b.textContent ?? '').trim().startsWith(label));
 
 const PNG = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), (c) =>
   c.charCodeAt(0),
@@ -62,7 +63,13 @@ describe('the body keeps its text', () => {
     return e.getMarkdown();
   };
   it('paths, snake_case, HTML-looking text and ampersands come back as written', () => {
-    for (const md of ['/tmp/a_b_c.ts and snake_case_name', 'a <b>x</b> and <script>1</script>', '1 < 2 & 3 &amp; 4', '- one\n- two', '**bold** and `a_b`'])
+    for (const md of [
+      '/tmp/a_b_c.ts and snake_case_name',
+      'a <b>x</b> and <script>1</script>',
+      '1 < 2 & 3 &amp; 4',
+      '- one\n- two',
+      '**bold** and `a_b`',
+    ])
       expect(same(md)).toBe(md);
   });
 });
@@ -82,7 +89,8 @@ describe('images in a task body', () => {
   it('a reference in the body draws the picture, and a click opens the original', async () => {
     URL.createObjectURL = () => 'blob:test/1';
     const s = setup();
-    const id = s.daemon.uploads.put({ name: 'dot.png', mime: 'image/png', bytes: PNG.length, data: btoa(String.fromCharCode(...PNG)) }).attachment!.id;
+    const id = s.daemon.uploads.put({ name: 'dot.png', mime: 'image/png', bytes: PNG.length, data: btoa(String.fromCharCode(...PNG)) })
+      .attachment!.id;
     s.daemon.tasks.edit({ task: 1700, body: `See below\n![dot](attachment:${id})` });
     await mount(s);
     await until(() => $('.tbody-text .attachment img'), 'the picture in the body');
@@ -94,7 +102,8 @@ describe('images in a task body', () => {
 
   it('a pasted image in the editor is uploaded and saved in the body as a reference', async () => {
     const s = setup();
-    const old = s.daemon.uploads.put({ name: 'old.png', mime: 'image/png', bytes: PNG.length, data: btoa(String.fromCharCode(...PNG)) }).attachment!.id;
+    const old = s.daemon.uploads.put({ name: 'old.png', mime: 'image/png', bytes: PNG.length, data: btoa(String.fromCharCode(...PNG)) })
+      .attachment!.id;
     s.daemon.tasks.edit({ task: 1700, body: `![old](attachment:${old})` });
     await mount(s);
     await click($('.tbody-text [aria-label="Edit Description"]')!);
