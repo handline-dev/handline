@@ -3,6 +3,7 @@ import type { FakeInbox } from '#src/inbox.ts';
 import type { HistoryRow, Memo, Task, TaskClock, TaskDetail, TimeSegment } from '@handline/contract';
 import { seedTasks } from '#src/seedtasks.ts';
 import { changes } from '#src/history.ts';
+import { invalidParams } from '#src/errors.ts';
 import { refs, type FakeAttachments } from '#src/attachments.ts';
 
 export class TaskFailure extends Error {
@@ -138,13 +139,18 @@ export class TaskStore {
   list(p: Record<string, unknown>): { items: Task[]; more: boolean; next?: string } {
     const limit = Math.min(Number(p.limit ?? 50), 200);
     const byClose = p.order === 'closed';
-    if (byClose && p.state !== 'done' && p.state !== 'discarded') throw new TaskFailure('bad_request', 'order closed needs state done or discarded');
-    if (byClose && p.before !== undefined) throw new TaskFailure('bad_request', 'order closed pages by cursor, not before');
-    if (!byClose && p.cursor !== undefined) throw new TaskFailure('bad_request', 'cursor goes with order closed');
+    if (byClose && p.state !== 'done' && p.state !== 'discarded')
+      throw invalidParams('order closed needs state done or discarded', 'order');
+    if (byClose && p.before !== undefined) throw invalidParams('order closed pages by cursor, not before', 'before');
+    if (!byClose && p.cursor !== undefined) throw invalidParams('cursor goes with order closed', 'cursor');
     const from = byClose && p.cursor !== undefined ? this.closedFrom(String(p.cursor)) : null;
     let rows = this.rows.filter(
       (r) =>
-        (p.all === true || p.under !== undefined || (r.state !== 'done' && r.state !== 'discarded')) &&
+        (p.all === true ||
+          p.under !== undefined ||
+          p.state === 'done' ||
+          p.state === 'discarded' ||
+          (r.state !== 'done' && r.state !== 'discarded')) &&
         (p.my_turn === true ? r.to === 'human' && ['queued', 'doing'].includes(r.state) : p.owner === undefined || r.to === p.owner) &&
         (p.from === undefined || r.from === p.from) &&
         (p.state === undefined || r.state === p.state) &&
@@ -172,7 +178,7 @@ export class TaskStore {
     } catch {
       /* falls to the refusal */
     }
-    throw new TaskFailure('bad_request', 'cursor is not one this daemon gave');
+    throw invalidParams('cursor is not one this daemon gave', 'cursor');
   }
 
   /** Whether r is the task top or below it at any depth. */

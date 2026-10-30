@@ -1,4 +1,4 @@
-// contract/fixtures/task_graph.json against the fake over a Unix socket, through the conformance harness every daemon runs.
+// contract/fixtures/task_graph.json and tasks_closed_order.json against the fake over a Unix socket, through the conformance harness every daemon runs.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -11,7 +11,7 @@ import { serveSocket } from '#src/serve.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 
-test('every case of task_graph.json passes on the fake', async () => {
+test('every case of task_graph.json and tasks_closed_order.json passes on the fake', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'fk-'));
   const sock = join(dir, 's');
   const daemon = new FakeDaemon();
@@ -19,9 +19,20 @@ test('every case of task_graph.json passes on the fake', async () => {
   const server = serveSocket(daemon, sock);
   try {
     await once(server, 'listening');
-    const run = spawn('python3', [join(ROOT, 'contract/conformance.py'), sock, '--var', 'founder_key=x', join(ROOT, 'contract/fixtures/task_graph.json')], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const run = spawn(
+      'python3',
+      [
+        join(ROOT, 'contract/conformance.py'),
+        sock,
+        '--var',
+        'founder_key=x',
+        join(ROOT, 'contract/fixtures/task_graph.json'),
+        join(ROOT, 'contract/fixtures/tasks_closed_order.json'),
+      ],
+      {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
     let out = '';
     run.stdout.on('data', (d) => (out += d));
     run.stderr.on('data', (d) => (out += d));
