@@ -22,8 +22,11 @@ import (
 // DetailCap bounds the text drawn beside a state word (the contract's state_detail).
 const DetailCap = 40
 
-// needsTextCap bounds the line needs_you says the decision is.
-const needsTextCap = 120
+// needsTextCap bounds the line needs_you says the decision is, and titleCap its title.
+const (
+	needsTextCap = 120
+	titleCap     = 40
+)
 
 // Sessions is the structured sessions the daemon owns.
 type Sessions interface {
@@ -56,8 +59,8 @@ type Prompts interface {
 // NeedsYou is a decision only a person at the agent's terminal can make, as the spec's needs_you says it: what kind, since when, one line
 // of what it is, and which signal told (hook or session). It comes from the hooks and the session's own file, never from the screen.
 type NeedsYou struct {
-	Kind, Source, Text string
-	Since              int64
+	Kind, Source, Title, Text string
+	Since                     int64
 }
 
 // Env is everything a view is made from. The function fields are the facts that live outside the database.
@@ -428,7 +431,7 @@ func needsView(n *NeedsYou) any {
 	if t := clip(textsafe.Oneline(n.Text), needsTextCap); t != "" {
 		text = t
 	}
-	return map[string]any{"kind": n.Kind, "since": stamp(n.Since), "text": text, "source": n.Source}
+	return map[string]any{"kind": n.Kind, "since": stamp(n.Since), "title": clip(textsafe.Oneline(n.Title), titleCap), "text": text, "source": n.Source}
 }
 
 const upsert = "INSERT INTO agent_view(agent, view, updated) VALUES(?, ?, ?) " +

@@ -300,6 +300,24 @@ func (r *Reconciler) closeStall(agent string, actions *[]string, prefixes []stri
 	return nil
 }
 
+// closeStaleDialogCards resolves the [dialog stall] decision cards older daemons raised, once the agent is not stalled on a start-up dialog:
+// nothing raises them now and closeStall runs only while that stall lasts, so one would stay open for good.
+func (r *Reconciler) closeStaleDialogCards(agent string, row *db.AgentState) error {
+	if row.State == states.Stalled && strings.Contains(row.Detail.String, DialogStall) {
+		return nil
+	}
+	ids, err := db.OpenDecisionCardIDs(r.Q, agent, DialogDecision, nil)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := r.Ports.Resolve(id, "cleared - "+agent+" is no longer at a "+DialogStall); err != nil {
+			r.logf("  %s: could not close decision %d (%v)", agent, id, err)
+		}
+	}
+	return nil
+}
+
 // Sweep asks the world what is true and corrects the record where it is not. It corrects only what it observed rather than inferred:
 // a terminal the host does not list is gone, and a session with no process is not running. Where the only evidence is a probe it wants
 // two witnesses before it moves.
@@ -331,6 +349,9 @@ func (r *Reconciler) Sweep(actions *[]string) error {
 		}
 		if row == nil {
 			continue
+		}
+		if err := r.closeStaleDialogCards(agent, row); err != nil {
+			return err
 		}
 		o := seen[agent]
 		handle := row.Terminal.String
