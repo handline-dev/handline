@@ -2,6 +2,7 @@ package reads
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"github.com/handline/handline/go/internal/lifecycle"
 	"github.com/handline/handline/go/internal/taskresult"
@@ -182,6 +183,10 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	byClose, closeAt, closeID, err := closedOrder(params, state, before)
+	if err != nil {
+		return nil, err
+	}
 	limit, err := pageLimit(params)
 	if err != nil {
 		return nil, err
@@ -263,6 +268,9 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	if before != nil {
 		cond("id < ?", *before)
 	}
+	if byClose && closeID != 0 {
+		cond("("+closedAtSQL+" < ? OR ("+closedAtSQL+" = ? AND id < ?))", closeAt, closeAt, closeID)
+	}
 	for _, tag := range tags {
 		cond("EXISTS (SELECT 1 FROM task_tags g WHERE g.task_id = tasks.id AND g.tag = ?)", tag)
 	}
@@ -274,7 +282,11 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 	if sqlDecides { // SQL alone decides: it pages too
 		page = fmt.Sprintf(" LIMIT %d", limit+1)
 	}
-	shown, err := query(e.DB, "SELECT * FROM tasks WHERE "+strings.Join(where, " AND ")+" ORDER BY id DESC"+page, args...)
+	order := "id DESC"
+	if byClose {
+		order = closedAtSQL + " DESC, id DESC"
+	}
+	shown, err := query(e.DB, "SELECT *, "+closedAtSQL+" AS closed_at FROM tasks WHERE "+strings.Join(where, " AND ")+" ORDER BY "+order+page, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -293,6 +305,7 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 		}
 	}
 	items := []any{}
+	var last row
 	for i, r := range rows {
 		if i >= limit {
 			break
@@ -302,8 +315,54 @@ func (e *Env) tasksList(c *rpc.Conn, params map[string]any) (any, error) {
 			return nil, err
 		}
 		items = append(items, task)
+		last = r.t
 	}
-	return map[string]any{"items": items, "more": len(rows) > limit}, nil
+	out := map[string]any{"items": items, "more": len(rows) > limit}
+	if byClose && len(rows) > limit {
+		out["next"] = closedCursor(last.i("closed_at"), last.i("id"))
+	}
+	return out, nil
+}
+
+// closedAtSQL is when a task was closed: the time it was discarded, else the time it was done.
+const closedAtSQL = "(CASE WHEN COALESCE(discarded_by, '') != '' THEN COALESCE(discarded_at, 0) ELSE COALESCE(done_at, 0) END)"
+
+func closedCursor(at, id int64) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%d:%d", at, id)))
+}
+
+// closedOrder reads order and cursor: whether the list goes by close time, and where the cursor says to go on from (id 0 is the start).
+func closedOrder(params map[string]any, state *string, before *int64) (byClose bool, at, id int64, err error) {
+	order, err := optStr(params, "order")
+	if err != nil {
+		return false, 0, 0, err
+	}
+	cursor, err := optStr(params, "cursor")
+	if err != nil {
+		return false, 0, 0, err
+	}
+	if order != nil && *order != "id" && *order != "closed" {
+		return false, 0, 0, badParam("order is id or closed", "order")
+	}
+	byClose = order != nil && *order == "closed"
+	switch {
+	case byClose && (state == nil || (*state != "done" && *state != "discarded")):
+		return false, 0, 0, badParam("order closed needs state done or discarded", "order")
+	case byClose && before != nil:
+		return false, 0, 0, badParam("order closed pages by cursor, not before", "before")
+	case !byClose && cursor != nil:
+		return false, 0, 0, badParam("cursor goes with order closed", "cursor")
+	case cursor == nil:
+		return byClose, 0, 0, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(*cursor)
+	if err == nil {
+		_, err = fmt.Sscanf(string(raw), "%d:%d", &at, &id)
+	}
+	if err != nil || id <= 0 {
+		return false, 0, 0, badParam("cursor is not one this daemon gave", "cursor")
+	}
+	return true, at, id, nil
 }
 
 func (e *Env) firstRequest(tid int64) (row, error) {

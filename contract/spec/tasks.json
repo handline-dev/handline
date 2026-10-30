@@ -1483,7 +1483,27 @@
      "required": false,
      "schema": {
       "type": "integer",
-      "description": "Return rows older than this id."
+      "description": "Return rows older than this id. Not with order closed: that pages by cursor."
+     }
+    },
+    {
+     "name": "order",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "enum": [
+       "id",
+       "closed"
+      ],
+      "description": "id (the default): newest id first. closed: newest close first, by (the time it was done or discarded, id); only with state done or discarded, else bad_request. A task old by id but closed today comes first."
+     }
+    },
+    {
+     "name": "cursor",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "With order closed: the `next` of the previous page, in place of before. Opaque; a client never builds one. A cursor with any other order, or a garbled one, is bad_request."
      }
     },
     {
@@ -1570,6 +1590,10 @@
           "closures_request",
           "closures_reason"
          ]
+        },
+        "next": {
+         "type": "string",
+         "description": "With order closed and more true: the cursor of the next page. Absent otherwise."
         }
        },
        "required": [
