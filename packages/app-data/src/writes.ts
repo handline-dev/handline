@@ -227,7 +227,14 @@ const settings: Record<string, WriteSpec> = {
     touches: (d) => [qk.prefs(d)],
     patch: (c, p) => {
       const { nav } = as<{ changes: { nav: NavPrefsChanges } }>(p).changes;
-      edit<Prefs>(c.qc, qk.prefs(c.d), (s) => ({ ...s, nav: { ...navOf(s), ...nav } }));
+      edit<Prefs>(c.qc, qk.prefs(c.d), (s) => {
+        const { later, ...rest } = nav;
+        const merged = { ...navOf(s).later };
+        for (const [k, v] of Object.entries(later ?? {}))
+          if (v === null) delete merged[k];
+          else merged[k] = v;
+        return { ...s, nav: { ...navOf(s), ...rest, ...(later && { later: merged }) } };
+      });
     },
   },
   'trust.remove': {

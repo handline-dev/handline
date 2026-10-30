@@ -1,4 +1,4 @@
-// The machine's own needs-you item (daemon.status needs_you): a card with its text and since, no buttons, gone when the daemon drops it.
+// The machine's own needs-you item (daemon.status needs_you): a card with its text and since, no answer buttons (only Later), gone when the daemon drops it.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it } from 'vitest';
@@ -26,7 +26,7 @@ afterEach(async () => {
 });
 const machine = () => box.querySelector<HTMLElement>('.my-turn-card[data-kind="machine"]');
 
-it('shows a full disk as a card with its text and age and no button, and drops it when the daemon does', async () => {
+it('shows a full disk as a card with its text and age and only Later, and drops it when the daemon does', async () => {
   const s = setup();
   s.daemon.admin.machineNeeds = [
     {
@@ -47,7 +47,7 @@ it('shows a full disk as a card with its text and age and no button, and drops i
   await until(machine, 'the disk card');
   expect(machine()!.textContent).toContain('Free disk is 3.1 GB, under the 5 GB floor');
   expect(machine()!.textContent).toMatch(/waiting 12m/);
-  expect(machine()!.querySelectorAll('button')).toHaveLength(0);
+  expect([...machine()!.querySelectorAll('button')].map((b) => b.textContent!.trim())).toEqual(['Later']); // nothing to answer, only to put off
   expect(machine()!.querySelector('h2')!.textContent).toBe('Free disk space');
   const rail = () => box.querySelector('.rail-nav')!.textContent;
   const before = Number(/Requests(\d+)/.exec(rail())![1]);
