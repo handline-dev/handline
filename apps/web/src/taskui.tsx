@@ -111,7 +111,7 @@ export function useTableColumns(ref: RefObject<HTMLElement | null>): { owner: bo
     ro.observe(el);
     return () => ro.disconnect();
   }, [ref]);
-  return { owner: width > 600, pri: width > 720 };
+  return { owner: width > 600, pri: width > 700 };
 }
 
 /** Whether the daemon lists the method; a control for one it does not is shown disabled and says why. */

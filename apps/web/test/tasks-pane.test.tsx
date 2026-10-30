@@ -71,6 +71,15 @@ describe("an agent's Tasks tab", () => {
     await until(() => $$('.tasks-tab-row').length > before, 'older rows');
   });
 
+  it('keeps to the 768 column, names its agent in a chip that leaves for every agent, and its rows drag out', async () => {
+    await tab();
+    expect($('.tasks-tab')!.className).toContain('max-w-[var(--w-col)]');
+    expect($('.tasks-tab-row')!.getAttribute('draggable')).toBe('true');
+    expect($('.agent-chip')!.textContent).toBeTruthy();
+    await click($('.agent-chip button'));
+    expect(location.hash).toBe('#/tasks');
+  });
+
   it("a row's menu leaves out what cannot run and puts the stopping verbs last", async () => {
     await tab();
     await click($('.tasks-tab-row')!.parentElement!.querySelector('button[aria-label="Actions"]'));

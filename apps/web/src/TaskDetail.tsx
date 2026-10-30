@@ -38,7 +38,6 @@ export function TaskDetail({
   id,
   onBack,
   embedded,
-  drawer,
 }: {
   id: number;
   /** Where Back goes for a detail the window's own Back cannot return from (My turn): on a page the top bar carries it; left out, it goes to Tasks. */
@@ -46,11 +45,10 @@ export function TaskDetail({
   /** A pane inside its host (the Tasks tab of an agent pane, the Tasks page's split). */
   embedded?: boolean;
   /** The column beside the Tasks table, full height of the split: only the Tasks page asks for it. */
-  drawer?: boolean;
 }) {
   const q = useTask(id);
   const gone = q.isError && classify(q.error).kind === 'not_found';
-  const page = !embedded && !drawer; // on a page of its own the top bar names the task, whatever the width
+  const page = !embedded; // on a page of its own the top bar names the task, whatever the width
   return (
     <>
       {page ? (
@@ -68,11 +66,9 @@ export function TaskDetail({
       ) : null}
       <article
         className={`tdetail flex min-h-0 min-w-0 flex-col overflow-auto px-4 py-3 outline-none max-sm:px-4 max-sm:py-3${
-          drawer
-            ? ' w-[min(480px,45%)] flex-none border-l border-line bg-surface'
-            : embedded
-              ? ' pane relative flex-1 bg-panel -outline-offset-1'
-              : ' flex-1 mx-auto w-full max-w-[var(--w-col)] bg-canvas'
+          embedded
+            ? ' pane relative mx-auto w-full max-w-[var(--w-col)] flex-1 bg-panel -outline-offset-1'
+            : ' flex-1 mx-auto w-full max-w-[var(--w-col)] bg-canvas'
         }`}
         aria-label={`Task ${taskRef(id)}`}
       >

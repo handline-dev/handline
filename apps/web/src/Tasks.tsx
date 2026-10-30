@@ -1,5 +1,5 @@
 // The Tasks page (docs/design/inbox-tasks-prompts.md §4): what the daemon lists, grouped by status, with filters, sort, ticks, the bridge's keys,
-// and a detail beside it from 1100 px. Writes go through `useWrite`: an authored one shows at once with a hollow dot, a decided one shows "…".
+// and a click on a row opens the task on its own page. Writes go through `useWrite`: an authored one shows at once with a hollow dot, a decided one shows "…".
 import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent } from 'react';
 import {
   CLOSED,
@@ -27,7 +27,7 @@ import { KeysSheet, MergeSheet, OwnerSheet, PrioritySheet } from '#src/TaskSheet
 import { Button, ScrollPage } from '#src/ui/index.ts';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { useBulk } from '#src/taskActions.ts';
-import { ReasonSheet, useCan, useNow, useTableColumns, useWide } from '#src/taskui.tsx';
+import { ReasonSheet, useCan, useNow, useTableColumns } from '#src/taskui.tsx';
 import { useMarks } from '#src/useMarks.ts';
 import { VerbMenu, VerbSheets, useVerbCans, useVerbFlow } from '#src/TaskVerbUi.tsx';
 import { View } from '#src/View.tsx';
@@ -47,15 +47,8 @@ const inScope = (tasks: Task[], scope: Scope, me: string, now: number, graph: bo
 
 export function TasksPage({ route }: { route: string }) {
   const id = route && route !== 'graph' ? Number(route) : null;
-  const wide = useWide(1100);
-  if (route === 'graph') return <TaskList selected={null} graph />;
-  if (id !== null && !wide) return <TaskDetail id={id} />;
-  return (
-    <div className={`tasks-split relative flex min-h-0 min-w-0 flex-1${id !== null ? ' with-pane' : ''}`}>
-      <TaskList selected={id} />
-      {id !== null ? <TaskDetail id={id} embedded drawer /> : null}
-    </div>
-  );
+  if (id !== null) return <TaskDetail id={id} />;
+  return <TaskList selected={null} graph={route === 'graph'} />;
 }
 
 type RowProps = Omit<ComponentProps<typeof Row>, 'rows' | 't' | 'now' | 'markCell' | 'columns'>;
