@@ -150,13 +150,22 @@ export function RequestItem(props: {
           </Text>
         </View>
         <Text style={{ color: c.ink, fontSize: font.size.lg, fontWeight: '700' }}>{card.title}</Text>
-        {spare ? <SpareTasks n={spare} /> : facts ? (
+        {spare ? (
+          <SpareTasks n={spare} />
+        ) : facts ? (
           <Text
             testID={command ? 'request-command' : undefined}
             selectable={command}
             style={
               command
-                ? { color: c.ink, fontFamily: 'Menlo', fontSize: font.size.sm, backgroundColor: c.line, borderRadius: radius.m, padding: space.sm }
+                ? {
+                    color: c.ink,
+                    fontFamily: 'Menlo',
+                    fontSize: font.size.sm,
+                    backgroundColor: c.line,
+                    borderRadius: radius.m,
+                    padding: space.sm,
+                  }
                 : { color: c.ink }
             }
           >

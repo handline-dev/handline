@@ -153,4 +153,33 @@ describe('the Requests tab', () => {
     expect(text()).toContain('the inbox is resting');
     m.store.stop();
   });
+
+  it.each([
+    ['allow', 'allow'],
+    ['deny', 'deny'],
+  ])('%s on a permission item is held, then sent as prompt.answer', async (act_, behavior) => {
+    timers();
+    const AUD = 'handline.auditor'; // the fake daemon plays it as a structured session
+    let item = 0;
+    let tool = '';
+    const m = await mount(
+      (s) => {
+        tool = s.daemon.transcript.ask(AUD, 'live', 'Bash', 'git push');
+        const prompt = s.daemon.sessions.get(AUD)!.prompt;
+        item = s.daemon.inbox.add({ kind: 'prompt', agent: AUD, title: 'Permission: Bash', prompt, created: new Date().toISOString() }).id;
+      },
+      undefined,
+      'founder',
+      { opens: 'auto' },
+    );
+    await open(`item:${item}`);
+    expect(text($('request-command'))).toBe('git push');
+    await press($(`request-act-${act_}`));
+    const answered = () =>
+      m.daemon.transcript.events(AUD).some((e) => e.permission_answer?.tool_use_id === tool && e.permission_answer.behavior === behavior);
+    expect(answered()).toBe(false);
+    await elapse();
+    await until(answered, 'the daemon');
+    m.store.stop();
+  });
 });
