@@ -65,11 +65,12 @@ func TestAMachineOrDiskThatCannotBeReadLeavesItsFiguresAtZero(t *testing.T) {
 	s := &Sampler{Home: "/", PS: func() (string, error) { return table, nil }, Panes: func() map[string]int { return nil },
 		Machine: func() (Machine, error) { return Machine{}, errors.New("no sysctl") },
 		Disk:    func(string) (int64, int64, error) { return 0, 0, errors.New("no statfs") },
+		Heavy:   func() int { return 1 },
 		Log:     func(s string) { logged = append(logged, s) }}
 	if err := s.Sample(1); err != nil || len(logged) != 2 {
 		t.Fatalf("%v %v", err, logged)
 	}
-	if s.Latest()["machine"].(map[string]any)["ram_total_bytes"] != int64(0) {
+	if m := s.Latest()["machine"].(map[string]any); m["ram_total_bytes"] != int64(0) || m["heavy_running"] != 1 {
 		t.Fatal(s.Latest())
 	}
 	s.PS = func() (string, error) { return "", errors.New("no ps") }
