@@ -217,3 +217,32 @@ test('a finished task says whether the founder gave it, and says nothing when th
   assert.equal('fromFounder' in done({})!, false);
   assert.equal('fromFounder' in done({ from_founder: 'yes' })!, false);
 });
+
+test('a kept notice changes in place: one row, its toast back on screen when shown, only in the list when not, gone when dropped', () => {
+  const n = new Notices(clock().now);
+  n.keep('update', 'info', 'Updating Handline…', { busy: true, step: 'Building (1 of 3)', fraction: 0.33 }, true);
+  n.keep('update', 'info', 'Updating Handline…', { busy: true, step: 'Building (2 of 3)', fraction: 0.66 }, true);
+  assert.equal(n.list().length, 1);
+  assert.equal(n.list()[0]!.live?.step, 'Building (2 of 3)');
+  const ready = n.keep(
+    'update',
+    'need',
+    'Handline is ready to restart',
+    { actions: [{ label: 'Restart now', run: () => undefined, primary: true }] },
+    true,
+  );
+  assert.deepEqual(
+    n.toasts().map((x) => x.id),
+    [ready.id],
+  );
+  n.close(ready.id); // Later
+  n.keep('update', 'need', 'Handline is ready to restart', ready.live!, false);
+  assert.equal(n.toasts().length, 0);
+  assert.equal(n.list().length, 1);
+  assert.equal(n.unread(), 1);
+  n.keep('update', 'need', 'Handline is ready to restart', ready.live!, true);
+  assert.equal(n.toasts().length, 1);
+  n.drop('update');
+  assert.equal(n.list().length, 0);
+  assert.equal(n.toasts().length, 0);
+});

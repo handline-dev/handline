@@ -53,12 +53,20 @@ test('items waiting on the person add one line that opens the Inbox, and a red d
   assert.equal(trayIcon('running', '', actions, view(3), follow(), mode()), 'turn');
 });
 
-test('a ready update adds Restart to update and a blue dot; a current one adds nothing', () => {
-  const moved = follow({ state: 'available', next: 'bbb2222ffff' });
-  assert.ok(labels('running', '', moved, mode()).includes('Restart to update'));
-  assert.equal(trayIcon('running', '', actions, view(), moved, mode()), 'update');
-  assert.equal(trayIcon('running', '', actions, view(), follow(), mode()), 'plain');
-  assert.ok(!labels('running', '', follow(), mode()).some((l) => /update/i.test(l)));
+test('a ready update adds Restart now and a blue dot; a current one adds nothing', () => {
+  const upd = (phase: 'idle' | 'ready' | 'later') => ({
+    ...view(),
+    update: { phase, reason: '', restart: () => calls.push('restart'), retry: () => undefined },
+  });
+  const ready = upd('ready');
+  const items = trayMenu('running', '', actions, follow(), mode(), ready);
+  assert.ok(items.some((i) => i.label === 'Handline is ready to restart'));
+  items.find((i) => i.label === 'Restart now')!.click!();
+  assert.equal(calls.pop(), 'restart');
+  assert.equal(trayIcon('running', '', actions, ready, follow(), mode()), 'update');
+  assert.equal(trayIcon('running', '', actions, upd('later'), follow(), mode()), 'update'); // put off: the dot stays
+  assert.equal(trayIcon('running', '', actions, upd('idle'), follow(), mode()), 'plain');
+  assert.ok(!labels('running', '', follow(), mode()).some((l) => /update|restart/i.test(l)));
 });
 
 test('a stopped or failed daemon shows one warning with its fix and the yellow icon, and a failure says why', () => {

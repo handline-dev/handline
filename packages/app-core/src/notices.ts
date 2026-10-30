@@ -21,6 +21,16 @@ export interface Notice {
   details?: string;
   /** Asks again what failed (a failure line's "Try again"). */
   retry?: () => void;
+  /** A notice one source keeps current under this key (the update): `Notices.keep` changes it in place. */
+  key?: string;
+  /** What the kept notice shows beyond its line: a spinner, the step it is on, how far along (0 to 1), and its buttons. */
+  live?: Live;
+}
+export interface Live {
+  busy?: boolean;
+  step?: string;
+  fraction?: number;
+  actions?: { label: string; run: () => void; primary?: boolean }[];
 }
 export interface NoticeAbout {
   agent?: string;
@@ -158,6 +168,38 @@ export class Notices {
     this.sync();
     this.emit();
     return n;
+  }
+
+  /**
+   * The notice a source keeps current under `key`: the first call adds it, later calls change its line, level and `live` part in place, so
+   * the list has one row for it. `show` puts its toast on screen (it stays until closed); without it the row stays in the list, unread.
+   */
+  keep(key: string, level: NoticeLevel, text: string, live: Live, show: boolean): Notice {
+    const at = this.now();
+    const n = this.all.find((x) => x.key === key) ?? {
+      id: this.nextId++,
+      level,
+      text,
+      at,
+      count: 1,
+      read: false,
+      lane: 'system' as const,
+      key,
+    };
+    Object.assign(n, { level, text, live, at, read: false });
+    this.all = [n, ...this.all.filter((x) => x !== n)].slice(0, MAX_LIST);
+    this.left.delete(n.id);
+    if (show) this.onScreen.set(n.id, null);
+    else this.onScreen.delete(n.id);
+    this.emit();
+    return n;
+  }
+  /** Takes a kept notice away, from the screen and the list. */
+  drop(key: string): void {
+    const n = this.all.find((x) => x.key === key);
+    if (!n) return;
+    this.all = this.all.filter((x) => x !== n);
+    this.close(n.id);
   }
 
   /** Stops or starts each news clock by who holds it; a stopped one remembers what it had left. */

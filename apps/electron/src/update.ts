@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import type { UpdateFlow } from '#src/update-flow.ts';
 
 /**
  * Something in the page would be lost by a restart: a box is open, a field holds text (the chat compose box, an answer to
@@ -31,41 +32,41 @@ export interface UpdatePorts {
   build(): string | null;
   /** True when nothing on screen would be lost by asking. */
   idle(): Promise<boolean>;
-  ask(): Promise<boolean>;
   /** Brings the daemon onto the new build, then relaunches. Rejects with the reason, and the app has not relaunched then. */
   restart(): Promise<void>;
-  /** Tells the person why the update stopped. */
-  failed(reason: string): void;
 }
 
-/** A newer build than the one running is owed a question, asked only when idle, and a build said no to is not asked about again. */
+/** A newer build than the one running is offered once, as the update notice, and only when the app is idle; a put-off one comes back once a day. */
 export class Updater {
   private ports: UpdatePorts;
+  private flow: UpdateFlow;
   private running: string | null;
-  private declined: string | null = null;
-  private asking = false;
-  constructor(ports: UpdatePorts) {
+  private checking = false;
+  constructor(ports: UpdatePorts, flow: UpdateFlow) {
     this.ports = ports;
+    this.flow = flow;
     this.running = ports.build();
   }
 
   async check(): Promise<void> {
-    if (this.asking) return;
     const now = this.ports.build();
     if (!now) return;
     this.running ??= now; // the first build seen when none was readable at launch is the running one
-    if (now === this.running || now === this.declined) return;
-    this.asking = true;
+    this.flow.remind();
+    if (now === this.running || this.checking || this.flow.view.phase !== 'idle') return; // told already, or being built
+    this.checking = true;
     try {
-      if (!(await this.ports.idle())) return; // owed: the next check asks again
-      if (!(await this.ports.ask())) this.declined = now;
-      else
-        await this.ports.restart().catch((e: unknown) => {
-          this.declined = now; // not asked again every check: the person has the reason
-          this.ports.failed(e instanceof Error ? e.message : String(e));
-        });
+      if (await this.ports.idle()) this.flow.ready(() => void this.go()); // owed otherwise: the next check offers again
     } finally {
-      this.asking = false;
+      this.checking = false;
+    }
+  }
+
+  private async go(): Promise<void> {
+    try {
+      await this.ports.restart();
+    } catch (e) {
+      this.flow.failed(e instanceof Error ? e.message : String(e), () => void this.go());
     }
   }
 }
