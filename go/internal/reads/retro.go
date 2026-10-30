@@ -15,7 +15,7 @@ var doingEnds = map[string]bool{"release_task": true, "queue_task": true, "draft
 	"task_report": true, "mark_task_done": true, "discard_task": true, "close_task": true, "edit_task": true, "task_handoff": true}
 
 // doingWindows is the spans in which holders held task tid in doing, from the events: a window opens at a begin or a landed delivery and
-// closes at the first of a state change out of doing, a hand-off, the task's end, or its holder beginning another task.
+// closes at the first of a state change out of doing, a hand-off, the task's end, or its holder starting another task by a begin or a delivery.
 func (e *Env) doingWindows(tid, ended, now int64) ([]usage.DoingWindow, error) {
 	evs, err := query(e.DB, "SELECT ts, agent, kind, payload FROM events WHERE "+eventTask+" = ? AND kind IN "+
 		"('task_begin', 'task_start', 'release_task', 'queue_task', 'draft_task', 'reopen_task', 'reject_task', 'task_report', 'mark_task_done', "+
@@ -61,8 +61,9 @@ func (e *Env) doingWindows(tid, ended, now int64) ([]usage.DoingWindow, error) {
 		if w.Hi > end {
 			out[i].Hi = end
 		}
-		next, err := queryOne(e.DB, "SELECT MIN(ts) AS ts FROM events WHERE agent = ? AND kind IN ('task_begin', 'task_start') AND ts > ? AND "+
-			eventTask+" != ?", w.Agent, w.Lo, tid)
+		next, err := queryOne(e.DB, "SELECT MIN(ts) AS ts FROM (SELECT ts FROM events WHERE agent = ? AND kind IN ('task_begin', 'task_start') AND ts > ? AND "+
+			eventTask+" != ? UNION ALL SELECT r.landed_at FROM requests r JOIN task_requests l ON l.request_id = r.id "+
+			"WHERE r.target = ? AND r.landed_at > ? AND l.task_id != ?)", w.Agent, w.Lo, tid, w.Agent, w.Lo, tid)
 		if err != nil {
 			return nil, err
 		}

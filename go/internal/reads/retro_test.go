@@ -61,3 +61,29 @@ func TestRetroCountsTokensInsideTheDoingWindowsOfTheSubtreeOnly(t *testing.T) {
 		t.Fatal("a missing task is not found")
 	}
 }
+
+func TestRetroCountsACallOnceWhenADeliveryLandsOnABusyHolder(t *testing.T) {
+	e := testEnv(t)
+	run(t, e, "INSERT INTO agent_state(agent, state, account, worktree, updated) VALUES('w','IDLE','a','/w/w',1)")
+	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, reporter, created_at) VALUES(20,'root','w','human','human',0), (21,'a','w','w','w',0), (22,'b','w','w','w',0)")
+	run(t, e, "UPDATE tasks SET parent_task = 20 WHERE id IN (21, 22)")
+	run(t, e, "INSERT INTO events(ts, agent, kind, payload) VALUES(100,'w','task_start','{\"task_id\":21}')")
+	run(t, e, "INSERT INTO requests(id, ts, requester, target, body, state, kind, landed_at) VALUES(1,150,'w','w','b','landed','task',150)")
+	run(t, e, "INSERT INTO task_requests(task_id, request_id) VALUES(22, 1)")
+	run(t, e, "INSERT INTO token_calls(account, session, req, ts, model, cwd, side, inp, cc, cr, out, thinking) VALUES('a','s','r',200,'m','/w/w',0,100,0,0,0,0)")
+	got, err := e.retroAt(20, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	var out struct {
+		Tokens int64
+		Agents []struct {
+			Doing_seconds int64
+		}
+	}
+	json.Unmarshal(b, &out)
+	if out.Tokens != 100 || len(out.Agents) != 1 || out.Agents[0].Doing_seconds > 200 {
+		t.Fatalf("got %s", b)
+	}
+}
