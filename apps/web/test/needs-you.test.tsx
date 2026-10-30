@@ -58,7 +58,7 @@ describe('needs you', () => {
     await until(() => card(), 'the card');
     expect(card()!.querySelector('strong')!.textContent).toBe('Usage limit: choose what to do');
     expect(card()!.textContent).toContain('Weekly limit reached');
-    expect(card()!.querySelector('button')!.getAttribute('aria-label')).toBe('Open terminal');
+    expect(card()!.querySelector('button')!.textContent).toBe('Open the terminal');
     expect(chip()?.textContent).toBe('Usage limit: choose what to do');
     expect(chip()!.closest('.needs')!.getAttribute('title')).toBe('Usage limit: choose what to do\nWeekly limit reached');
   });
@@ -81,6 +81,26 @@ describe('needs you', () => {
     expect(chip()!.textContent).toBe('Stuck at a dialog');
     expect(card()!.querySelector('strong')!.textContent).toBe('Stuck at a dialog');
     expect(card()!.textContent).toContain('cannot get past a dialog: it asks for a login');
+  });
+
+  it('a start that failed has one button, Try again, in place of the terminal', async () => {
+    const s = setup();
+    const fx = s.daemon.sessions.get(ARCH)!.fx;
+    keep = () => void (fx.view = undefined);
+    fx.view = {
+      needs_you: {
+        kind: 'start_failed',
+        since: new Date().toISOString(),
+        title: "Won't start",
+        text: 'The last 3 starts failed: the repo is no git checkout.',
+        source: 'daemon',
+      },
+    };
+    await mount(s);
+    await until(() => card(), 'the card');
+    expect(card()!.querySelectorAll('button').length).toBe(1);
+    expect(card()!.querySelector('button')!.textContent).toBe('Try again');
+    expect(card()!.textContent).toContain('The last 3 starts failed');
   });
 
   it('shows no card and no chip when the daemon says nothing is waited on', async () => {
@@ -114,6 +134,6 @@ describe('needs you', () => {
     expect(card()!.dataset.need).toBe('dialog');
     expect(card()!.querySelector('strong')!.textContent).toBe('Waiting at a dialog');
     expect(card()!.textContent).toContain('dialog open');
-    expect(card()!.querySelector('button')!.getAttribute('aria-label')).toBe('Open terminal');
+    expect(card()!.querySelector('button')!.textContent).toBe('Open the terminal');
   });
 });

@@ -209,7 +209,16 @@ export function HrCards({ agent }: { agent: string }) {
   );
 }
 
-/** What the agent waits on a person for, with how long and a way to its terminal; gone when the daemon stops saying it. */
+/** The grey line that stays when a daemon stall is solved, by the title it had. */
+const SOLVED: Record<string, string> = {
+  'Waiting for folder trust': 'Folder trust answered',
+  'Stuck at a start-up dialog': 'Start-up dialog answered',
+  'Stuck at a dialog': 'Dialog answered',
+  "Won't start": 'Started again',
+  "Woke but didn't start": 'Started',
+};
+
+/** What the agent waits on a person for: the title, the sentence under it and one button (the terminal, or Try again for a start that failed); gone when the daemon stops saying it, leaving one grey line for a stall it solved. */
 export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
   // A daemon that reads the screen sets has_dialog and serves no needs_you: the card still says it, with the daemon's own line.
   const need =
@@ -218,15 +227,39 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
       ? { kind: 'dialog', since: detail.state_since, title: 'Waiting at a dialog', text: detail.state_detail || null, source: 'screen' }
       : null);
   const openTerminal = useOpenTerminal(detail);
-  if (!need) return null;
+  const run = useVerbRun(detail.name);
+  const now = useNow();
+  const [solved, setSolved] = useState<{ agent: string; title: string; at: string } | null>(null);
+  const [seen, setSeen] = useState<{ agent: string; title: string } | null>(null);
+  const title = need?.source === 'daemon' && SOLVED[need.title] ? need.title : null;
+  if (title && (seen?.agent !== detail.name || seen.title !== title)) setSeen({ agent: detail.name, title });
+  if (title && solved) setSolved(null);
+  if (!title && seen) {
+    if (seen.agent === detail.name) setSolved({ ...seen, at: new Date().toISOString() });
+    setSeen(null);
+  }
+  if (!need) {
+    return solved?.agent === detail.name ? (
+      <div className="card-solved text-meta text-ink-2" data-kind="solved" role="status">
+        {SOLVED[solved.title]} · {ago(solved.at, now)}
+      </div>
+    ) : null;
+  }
   const reachable = detail.structured || !!detail.terminal;
+  const again = need.kind === 'start_failed' || need.kind === 'no_session';
   return (
     <Notice
       icon={<Icon name="blocked" label="Needs you" />}
       className="card-needs"
       data-kind="needs_you"
       data-need={need.kind}
-      actions={<Button iconOnly size="s" icon={Terminal} label="Open terminal" disabled={!reachable} onClick={openTerminal} />}
+      actions={
+        again ? (
+          <Button size="s" label="Try again" onClick={() => run(VERBS.clear_stall)} />
+        ) : (
+          <Button size="s" icon={Terminal} label="Open the terminal" disabled={!reachable} onClick={openTerminal} />
+        )
+      }
     >
       <strong>{need.title}</strong>
       <span className="muted"> · {ago(need.since)}</span>
