@@ -141,3 +141,12 @@ test('connected means a hello with our token was accepted, and the version comes
     /this device is not paired/,
   );
 });
+
+test('the network setting is kept only when it is on', () => {
+  const file = tmp(); // removed after the run with the other settings files
+  const f = new SettingsFile(file);
+  f.write({ mode: 'own', remote: null, network: true });
+  assert.equal(f.read().network, true);
+  fs.writeFileSync(file, JSON.stringify({ mode: 'own', network: 'yes' }));
+  assert.equal(f.read().network, undefined);
+});

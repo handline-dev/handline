@@ -1,10 +1,10 @@
 // Opens the app: a listener that wants a device token gets the pairing screen until this device holds one.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Store, type KV } from '@handline/app-core';
-import { DaemonClient, webSocketTransport, type Transport } from '@handline/client';
+import { DaemonClient, RpcError, webSocketTransport, type Transport } from '@handline/client';
 import { App } from '#src/App.tsx';
 import { settingsRelay, shell } from '#src/shell.ts';
-import { forgetToken, loadToken, needsToken, pairWith, tokenRefused } from '#src/pairing.ts';
+import { deviceName, forgetToken, inviteCode, loadToken, needsToken, pairWith, tokenRefused } from '#src/pairing.ts';
 
 type Open = (url: string) => Promise<Transport>;
 
@@ -54,25 +54,94 @@ export function Start({
 
 function PairScreen(p: { url: string; storage: KV | null; open: Open; lost: boolean; onPaired: (token: string) => void }) {
   const { url, storage, open, lost, onPaired } = p;
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
+  // A page opened from an invite link (#pair=<code>) pairs by itself, then drops the code from the address bar.
+  const invite = useState(() => inviteCode(location.hash))[0];
+  const [text, setText] = useState(invite ?? '');
+  const [busy, setBusy] = useState(!!invite);
   const [error, setError] = useState('');
-  const submit = async () => {
+  // The listener itself is down: a pairing form would read as a bad code.
+  const [down, setDown] = useState(false);
+  const [probe, setProbe] = useState(0);
+  useEffect(() => {
+    let live = true;
+    open(url).then(
+      (t) => {
+        t.close();
+        if (live) setDown(false);
+      },
+      () => live && setDown(true),
+    );
+    return () => {
+      live = false;
+    };
+  }, [url, open, probe]);
+  const [expired, setExpired] = useState(false);
+  const started = useRef(false);
+  const submit = async (code: string, fromLink = false) => {
     setBusy(true);
     setError('');
     try {
-      onPaired(await pairWith(url, text, storage, open));
+      onPaired(await pairWith(url, code, storage, open, shell('screen') ? undefined : deviceName()));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // A code the listener refuses from a link is the invite that ran out or was used; the person needs a new one, not a retry.
+      if (fromLink && e instanceof RpcError && e.code === 'refused') setExpired(true);
+      else setError(e instanceof Error ? e.message : String(e));
       setBusy(false);
     }
   };
+  useEffect(() => {
+    if (!invite || started.current) return;
+    started.current = true;
+    history.replaceState(null, '', location.pathname + location.search);
+    void submit(invite, true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- once, for the link the page opened with
+  if (down)
+    return (
+      <div className="pair-screen mx-auto mt-[18vh] mb-0 grid max-w-[420px] gap-3 px-4">
+        <h1 className="m-0 text-xl">Cannot reach {new URL(url).host}</h1>
+        <p className="m-0" role="alert">
+          The app may be off.
+        </p>
+        <button type="button" onClick={() => setProbe((n) => n + 1)}>
+          Retry
+        </button>
+        <Connection />
+      </div>
+    );
+  if (expired)
+    return (
+      <div className="pair-screen mx-auto mt-[18vh] mb-0 grid max-w-[420px] gap-3 px-4">
+        <h1 className="m-0 text-xl">This invite expired</h1>
+        <p className="m-0" role="status">
+          An invite works once and for 5 minutes. On the computer that runs Handline, open Settings, then Computers, then Connect a device,
+          and open the new link.
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setExpired(false);
+            setText('');
+          }}
+        >
+          Enter a code instead
+        </button>
+      </div>
+    );
+  if (busy && invite && !error)
+    return (
+      <div className="pair-screen mx-auto mt-[18vh] mb-0 grid max-w-[420px] gap-3 px-4">
+        <h1 className="m-0 text-xl">Pairing…</h1>
+        <p className="m-0" role="status">
+          Connecting this browser to the computer that sent the invite.
+        </p>
+      </div>
+    );
   return (
     <form
       className="pair-screen mx-auto mt-[18vh] mb-0 grid max-w-[420px] gap-3 px-4"
       onSubmit={(e) => {
         e.preventDefault();
-        if (text.trim() && !busy) void submit();
+        if (text.trim() && !busy) void submit(text);
       }}
     >
       <h1 className="m-0 text-xl">Pair this computer</h1>

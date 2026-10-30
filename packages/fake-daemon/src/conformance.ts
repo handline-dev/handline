@@ -3,6 +3,7 @@
 import { DaemonClient, memoryPair } from '@handline/client';
 import type { FakeDaemon } from '#src/daemon.ts';
 import { AGENTS } from '#src/fixtures.ts';
+import { factsWorktrees } from '#src/worktrees.ts';
 import { newSession } from '#src/session.ts';
 
 export async function seedConformance(daemon: FakeDaemon): Promise<void> {
@@ -15,6 +16,7 @@ export async function seedConformance(daemon: FakeDaemon): Promise<void> {
     daemon.transcript.structure(name);
     if (state === 'running') daemon.chat.setTurn(name, true);
   }
+  daemon.admin.worktrees.rows.push(...factsWorktrees());
   daemon.accounts.add({ name: 'conf.login', login_state: 'needs_login' });
   const wall = { account: 'alpha', clock: 1_790_000_000, assumed: true };
   for (const [name, state, view] of [
@@ -52,6 +54,7 @@ export async function seedConformance(daemon: FakeDaemon): Promise<void> {
   daemon.chat.seedItem('conf.output', { kind: 'tool', tool: 'Bash', text: "printf 'a\\nb\\n'", output: 'a\nb\n' });
   daemon.chat.seedItem('conf.output', { kind: 'tool', tool: 'Bash', text: 'seq 1 10', output: '1\n2\n', dropped_lines: 8 });
   daemon.chat.seedItem('conf.output', { kind: 'tool', tool: 'Bash', text: 'true' });
+  daemon.sessions.set('conf.runs', newSession({ ...base, name: 'conf.runs' }, new Date().toISOString()));
   for (const name of ['conf.reply', 'conf.reply2']) {
     daemon.sessions.set(name, newSession({ ...base, name }, new Date().toISOString()));
     daemon.transcript.structure(name);

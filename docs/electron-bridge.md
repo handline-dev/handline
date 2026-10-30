@@ -32,6 +32,7 @@ One object, `window.handline`, made by a preload with `contextBridge`. No other 
 | `onFullScreen`, `zoom` | shell → page | window insets | none; the insets are the desktop shell's only |
 | `openPath`, `cancelCompose`, `compose` | page → shell | E3 | §4 |
 | `mode`, `setMode`, `pairRemote`, `phone` | page → shell | modes | the pairing screen shows no mode section |
+| `network`, `setNetwork` | page → shell | devices on the network | §4.3b; Settings > Computers shows no switch |
 | `build`, `restartDaemon` | page → shell | daemon build | the top bar never says the daemon is another build |
 | `settingsGet`, `settingsSet` | page → shell | the window is a paired device, which the daemon refuses `settings.get` and `settings.set`; the shell's founder connection makes just these two calls, with the same sender and argument checks (only the keys the Settings page edits, plain values, no other method) | the page calls the daemon itself |
 
@@ -43,7 +44,7 @@ The badge and the notices need **no call**: the shell reads `daemon.status` and 
 |---|---|---|
 | Badge | the dock badge shows `inbox.unread` (`99+` above 99; Linux count only, none on Windows) | the bell count in the app's top bar, and `(n) ` in front of the tab title; the page does both in the shell too |
 | Notice | one native notice per `prompt_asked`, `task_done`, `stall`, `account_out`, and one per `hr.raised` (an HR proposal). `hr.settled` raises none: the person decided, or the agent withdrew; a failed apply shows on the HR card. An HR notice is never suppressed by the agent on screen: it asks for a decision, whatever workspace is open; its text is the event's `title`, plain, control characters dropped, cut at 200 characters | none: no permission prompt, no `Notification` API. The bell and the cards are the signal |
-| Update | "Handline was updated. Restart now?" on a newer build, once idle; "Not now" is not asked again for that build | none: a new deploy is a reload |
+| Update | one notice in the page's bottom-right stack (§4.7): Updating Handline…, Handline is ready to restart (Restart now, Later), Handline was not updated (Try again, Details); raised for a newer build once idle, and for a main that moved in follow mode; no dialog | none: a new deploy is a reload |
 
 ### 3.1 `screen`
 
@@ -150,6 +151,10 @@ cancelCompose(): Promise<{ ok: true } | Fail<'bad_request'>>
 The pairing screen's part in the app's two modes (Connect to a daemon, Run its own). `mode()` gives `{ mode, remote, phone }` (`remote` the paired device's address in connect mode, else null; `phone` true when this app has a gateway of its own to pair a phone with, i.e. `remote` is null). `phone()` opens the one-time pairing QR window, the same as the tray's “Pair a phone…”; `cannot_pair` carries the reason (no network listener, no key). The sidebar's “Pair a phone” row calls it. `setMode('connect' | 'own')` saves the choice and relaunches. `pairRemote({ link })` or `pairRemote({ address, code })` pairs with another device's gateway, saves it and relaunches in connect mode; `cannot_pair` carries the sentence the person reads (nothing answered, not a Handline gateway, an untrusted address). Same sender and argument checks as the rest.
 
 
+### 4.3b `network`, `setNetwork`
+
+"Allow devices on this network", off unless the person turns it on. `network()` gives `{ on, can }` (`can` is false when this app is paired with another device's gateway, since the gateway is not its own). `setNetwork(true | false)` saves it in the app's settings file and relaunches; with it on, the gateway the app starts also gets `-web <the built page>`, so it serves the page on its own address (the Tailscale one, else loopback) and a browser on another computer can open an invite. Nothing else changes: the gateway's address, its transport and the one-time invite code are the gateway's own. Anything but a boolean is `bad_request`, as is a call while `can` is false. Same sender checks as the rest.
+
 ### 4.3a `build`, `restartDaemon`
 
 An Update replaces the app and the daemon as one set (the build id is the 12-char git sha, stamped into `dist/build.json`). `build()` gives `{ sha, canRestart }`: the app's sha (null when it has none) and whether the daemon is one this app can move (false when paired with another device's). The page compares `sha` with hello's `daemon` (app-core `mismatch`) and shows “Daemon is x, app is y” in the top bar with Restart daemon. `restartDaemon()` builds the daemon (a checkout), has it re-exec onto the app's own handlined with `daemon.upgrade`, and resolves once it reports the app's sha; `cannot_restart` carries the reason. Same sender checks as the rest.
@@ -177,3 +182,7 @@ The shell tests run under node with the Electron side injected, as `Desk` and `U
 - The HR notice follows the `hr` topic of the HR spec (`hr.raised`; `target` `hr`, `agent` null for a bundle). The shell's `Desk` adds `hr` to its subscribe. It is not suppressed while the HR page itself is on screen; `screen` would need a second field for that, which nobody asked for.
 - The daemon emits `task_done` with `str(tid)` even when `task_id` is missing, which reads `None`; `routeOfTarget` guards it, and `stream.py` should stop sending it.
 - `terminal_editor` is the honest limit of a GUI app. Running the editor in the Terminal pane (a pty on the daemon) would lift it; it is a feature, not a fix, and not planned.
+
+### 4.7 `update`, `updateAct`, `onUpdate`
+
+The one update notice. Two sources feed it: a build that changed under the running app (raised once the app is idle), and, in follow mode, GitHub's main moving (the app then prepares by itself: it fetches, moves its checkout, and builds the page beside the running one in `apps/web/dist-next` and its own bundle, with the running page untouched). `update()` gives `{ phase, step, fraction, reason }` and `onUpdate(cb)` calls `cb` with the last state and on every change. `phase` is `idle`, `preparing` (`step` such as "Building (2 of 3)", `fraction` 0 to 1), `ready`, `later` or `failed` (`reason`, one line). `updateAct('restart' | 'later' | 'retry' | 'details')`: restart moves the daemon onto the new build, swaps the built page in and relaunches; later puts a ready update off until the next day (the bell row keeps Restart now); retry repeats what failed (the restart if the build was done, else the build); details opens the command output of the failure. Anything else is `bad_request`, as is a call from another sender. There is no centred dialog and no popover window; the menu-bar menu says the same words.

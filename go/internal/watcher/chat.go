@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"slices"
 
+	"github.com/handline/handline/go/internal/cmdruns"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/stream"
+	"github.com/handline/handline/go/internal/term"
 )
 
 // The chat topic's cursors are the Python watcher's, so either side picks up where the other left off.
@@ -26,9 +28,12 @@ const chatTouchedNewest = "SELECT COALESCE(MAX(COALESCE(state_at, ts)), 0) FROM 
 // other builders). The first look says nothing, and neither does a restart: the requests touched in the second the cursor is at are
 // taken as seen.
 type Chat struct {
-	Reads   *reads.Env
-	done    map[int64]string // request -> the message as last said, for the ones touched in the second the cursor is at
-	open    map[int64]bool   // the prompts told open and not yet told closed
+	Reads *reads.Env
+	// Panes is what the terminal host says of the windows that run commands; nil, or nil from it, ends no run.
+	Panes   func() map[string]term.PaneRun
+	runSeen map[string]string // run block -> the run as last said
+	done    map[int64]string  // request -> the message as last said, for the ones touched in the second the cursor is at
+	open    map[int64]bool    // the prompts told open and not yet told closed
 	working map[string]string
 	unbound map[int64]bool // the fresh session starts whose session id was not known at the last look
 }
@@ -48,6 +53,9 @@ func (c *Chat) say(emit Emit, typ, agent string, data any) error {
 }
 
 func (c *Chat) Scan(q *sql.DB, emit Emit) error {
+	if err := c.runs(q, emit); err != nil { // before requests: the message it said is then the one requests last saw
+		return err
+	}
 	if err := c.requests(q, emit); err != nil {
 		return err
 	}
@@ -93,15 +101,8 @@ func (c *Chat) requests(q *sql.DB, emit Emit) error {
 			c.done[t.id] = message
 			continue
 		}
-		var told []string
-		for _, agent := range []string{req.Target, req.Requester} {
-			if agent == db.Human || slices.Contains(told, agent) {
-				continue
-			}
-			told = append(told, agent)
-			if err := c.say(emit, "chat.message", agent, req.Message); err != nil {
-				return err
-			}
+		if err := c.tell(emit, req); err != nil {
+			return err
 		}
 		if t.when.Int64 > last {
 			last, c.done = t.when.Int64, map[int64]string{}
@@ -109,6 +110,62 @@ func (c *Chat) requests(q *sql.DB, emit Emit) error {
 		c.done[t.id] = message
 		if err := db.SetCursor(q, chatTouched, last); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// tell says a message to the chat of its agents.
+func (c *Chat) tell(emit Emit, req *reads.ChatRequest) error {
+	var told []string
+	for _, agent := range []string{req.Target, req.Requester} {
+		if agent == db.Human || slices.Contains(told, agent) {
+			continue
+		}
+		told = append(told, agent)
+		if err := c.say(emit, "chat.message", agent, req.Message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// runs ends the runs their windows are done with, then says the message of each run that started or changed. The first look says nothing.
+func (c *Chat) runs(q *sql.DB, emit Emit) error {
+	if c.Panes != nil {
+		if err := cmdruns.Settle(q, c.Panes(), cmdruns.Now()); err != nil {
+			return err
+		}
+	}
+	all, err := cmdruns.All(q)
+	if err != nil {
+		return err
+	}
+	first := c.runSeen == nil
+	if first {
+		c.runSeen = map[string]string{}
+	}
+	pass := c.Reads.ChatRequests()
+	for _, r := range all {
+		now := encoded(r)
+		before := c.runSeen[r.Block]
+		c.runSeen[r.Block] = now
+		block, _ := cmdruns.ParseBlock(r.Block)
+		if first || before == now {
+			continue
+		}
+		req, err := pass.Get(block.Message)
+		if err != nil {
+			return err
+		}
+		if req == nil {
+			continue
+		}
+		if err := c.tell(emit, req); err != nil {
+			return err
+		}
+		if c.done != nil {
+			c.done[block.Message] = encoded(req.Message)
 		}
 	}
 	return nil

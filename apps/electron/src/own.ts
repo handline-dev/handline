@@ -27,7 +27,15 @@ import { COPY_URL, phoneHtml } from '#src/phone-html.ts';
 import { grant } from '#src/grant.ts';
 import { onTailnet } from '#src/tailnet.ts';
 import { singleWindow } from '#src/single-window.ts';
-import { trayIcon as iconFor, trayMenu, type TrayActions, type TrayFollow, type TrayIcon, type TrayMode } from '#src/tray.ts';
+import {
+  trayIcon as iconFor,
+  trayMenu,
+  type TrayActions,
+  type TrayFollow,
+  type TrayIcon,
+  type TrayMode,
+  type TrayUpdate,
+} from '#src/tray.ts';
 
 /** The menu bar icon; a run that does not draw one gets a stand-in that draws nothing. */
 function makeTray(draws: boolean): Tray {
@@ -166,6 +174,8 @@ export interface Own {
   pair(i: OfferInput): Promise<void>;
   /** Opens the phone-pairing QR window; rejects with a sentence when this app has no gateway of its own to pair a phone with. */
   phone(): Promise<void>;
+  /** Saves "Allow devices on this network" and relaunches, so the gateway starts with or without the page. */
+  setNetwork(on: boolean): void;
   /** Moves the daemon onto this app's build; rejects with the reason. */
   restartDaemon(): Promise<void>;
 }
@@ -200,11 +210,21 @@ async function daemonCmd(o: {
 }
 
 /** The tray's icon and menu. No context menu is set: a click builds the menu, and Option held at the click adds the details. */
-function trayControls(tray: Tray, owner: Owner, actions: TrayActions, mode: () => TrayMode, follow?: () => TrayFollow) {
+function trayControls(
+  tray: Tray,
+  owner: Owner,
+  actions: TrayActions,
+  mode: () => TrayMode,
+  follow?: () => TrayFollow,
+  update?: () => TrayUpdate,
+) {
   let unread = 0;
   const menu = (details: boolean) =>
-    Menu.buildFromTemplate(trayMenu(owner.state, owner.reason, actions, follow?.(), mode(), { unread, details }));
-  const draw = () => tray.setImage(trayImage(iconFor(owner.state, owner.reason, actions, { unread, details: false }, follow?.(), mode())));
+    Menu.buildFromTemplate(trayMenu(owner.state, owner.reason, actions, follow?.(), mode(), { unread, details, update: update?.() }));
+  const draw = () =>
+    tray.setImage(
+      trayImage(iconFor(owner.state, owner.reason, actions, { unread, details: false, update: update?.() }, follow?.(), mode())),
+    );
   tray.on('click', (e) => tray.popUpContextMenu(menu(!!e.altKey)));
   tray.on('right-click', (e) => tray.popUpContextMenu(menu(!!e.altKey)));
   return { draw, setUnread: (n: number) => ((unread = n), draw()) };
@@ -220,6 +240,8 @@ export function ownDaemon(o: {
   gateway: string | undefined;
   /** The MagicDNS name:port a phone's pairing link carries, when the gateway is on the Tailscale address. */
   advertise: string | null;
+  /** The built page the gateway serves on its own address, while devices are allowed on the network; else null. */
+  web: string | null;
   origin: string;
   openWindow: () => void;
   /** Shows the window on a page that has no id: 'inbox' or 'settings'. */
@@ -230,6 +252,8 @@ export function ownDaemon(o: {
   loginPath: () => Promise<string | undefined>;
   /** Follow-main mode adds its items to the tray. */
   follow?: () => TrayFollow;
+  /** The update flow, for the menu's update lines and the icon. */
+  update?: () => TrayUpdate;
   /** Whether this run draws a menu bar icon (drawsTray in background.ts). */
   tray: boolean;
   /** The build the app is (its sha), and the way to move the daemon onto it. */
@@ -241,7 +265,7 @@ export function ownDaemon(o: {
     socketUp: () => answers(o.socket),
     gatewayUp: () => answers(o.gatewaySocket),
     spawn: (cmd) => spawnChild(cmd, log),
-    ...commands(o.env, o.root, o.gateway ?? '127.0.0.1:7443', o.advertise),
+    ...commands(o.env, o.root, o.gateway ?? '127.0.0.1:7443', o.advertise, undefined, o.web),
     daemon: () => daemonCmd(o),
     wait: sleep,
   });
@@ -263,7 +287,7 @@ export function ownDaemon(o: {
     phone: o.current.remote ? undefined : () => void showPhone(openPhone),
     restartDaemon: o.current.remote ? undefined : () => void o.upgradeDaemon().catch(showUpgradeFailure),
   });
-  const { draw, setUnread } = trayControls(tray, owner, actions, mode, o.follow);
+  const { draw, setUnread } = trayControls(tray, owner, actions, mode, o.follow, o.update);
   owner.onChange(draw);
   logFailures(owner, log);
   draw();
@@ -310,6 +334,7 @@ export function ownDaemon(o: {
     remote: o.current.remote,
     restartDaemon: o.upgradeDaemon,
     switchMode: (m) => relaunchAs({ ...o.current, mode: m }),
+    setNetwork: (on) => relaunchAs({ ...o.current, network: on }),
     pair,
     phone: () => (o.current.remote ? Promise.reject(new Error('paired with another device: pair the phone on that device')) : openPhone()),
     async ready() {

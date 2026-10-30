@@ -16,7 +16,7 @@ import {
 import { Button, Textarea } from '#src/ui/index.ts';
 
 /** The picture with the shapes drawn into its pixels, as a PNG. Null where there is no canvas (a test DOM). */
-async function marked(img: HTMLImageElement, shapes: Parameters<typeof exportAnnotated>[1]): Promise<Blob | null> {
+export async function marked(img: HTMLImageElement, shapes: Parameters<typeof exportAnnotated>[1]): Promise<Blob | null> {
   const c = document.createElement('canvas');
   c.width = img.naturalWidth;
   c.height = img.naturalHeight;

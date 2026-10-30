@@ -43,6 +43,7 @@ export * from '#src/status.ts';
 export * from '#src/text.ts';
 export * from '#src/outlook.ts';
 export * from '#src/worktrees.ts';
+export * from '#src/invite.ts';
 export * from '#src/terminal.ts';
 export * from '#src/nav.ts';
 export * from '#src/notices.ts';

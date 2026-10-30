@@ -3,6 +3,7 @@
 import { PAGE_SETTINGS, type Fail } from '@handline/app-core';
 import type { Methods } from '@handline/client';
 import type { CliState } from '#src/cli.ts';
+import { UPDATE_ACTS, type UpdateAct, type UpdateView } from '#src/update-flow.ts';
 import { parseMode, type Mode, type OfferInput } from '#src/mode.ts';
 
 export const CHANNELS = {
@@ -24,6 +25,10 @@ export const CHANNELS = {
   linkCli: 'handline:linkCli',
   pairRemote: 'handline:pairRemote',
   phone: 'handline:phone',
+  update: 'handline:update',
+  updateAct: 'handline:updateAct',
+  network: 'handline:network',
+  setNetwork: 'handline:setNetwork',
   token: 'handline:token',
   captureWindows: 'handline:captureWindows',
   captureWindow: 'handline:captureWindow',
@@ -88,7 +93,7 @@ export class Page {
 export interface ConnectionDeps {
   mode(): { mode: Mode; remote: string | null };
   /** The follow-main state, or null in a build that does not follow main. */
-  follow(): { sha: string; state: 'current' | 'available' | 'updating' | 'failed'; next: string | null } | null;
+  follow(): { sha: string; state: 'current' | 'available' | 'updating' | 'ready' | 'failed'; next: string | null } | null;
   /** The build the app is, and whether the daemon here is one it can move onto that build. */
   build(): { sha: string | null; canRestart: boolean };
   /** Moves the daemon onto the app's build; rejects with the reason. */
@@ -101,6 +106,10 @@ export interface ConnectionDeps {
   pair(i: OfferInput): Promise<void>;
   /** Opens the phone-pairing QR window; rejects with a sentence when it cannot. */
   phone(): Promise<void>;
+  /** Whether devices are allowed on the network (the gateway serves the page); off unless the person turned it on. */
+  network(): boolean;
+  /** Saves it and relaunches. */
+  setNetwork(on: boolean): void;
 }
 
 const OFFER_KEYS = ['link', 'address', 'code'];
@@ -146,6 +155,17 @@ export class Connection {
     const mode = typeof arg === 'string' ? parseMode(arg) : undefined;
     if (!mode) return bad('setMode takes connect or own');
     this.d.setMode(mode);
+    return { ok: true };
+  }
+  network(e: Sender): { ok: true; on: boolean; can: boolean } | Fail<'bad_request'> {
+    if (!fromWindow(e, this.origin)) return bad('not from the app window') as Fail<'bad_request'>;
+    return { ok: true, on: this.d.network(), can: this.d.mode().remote === null };
+  }
+  setNetwork(e: Sender, arg: unknown): Reply {
+    if (!fromWindow(e, this.origin)) return bad('not from the app window');
+    if (typeof arg !== 'boolean') return bad('setNetwork takes true or false');
+    if (this.d.mode().remote !== null) return bad('this app is paired with another device; allow devices there');
+    this.d.setNetwork(arg);
     return { ok: true };
   }
   async phone(e: Sender): Promise<Reply | Fail<'cannot_pair'>> {
@@ -276,4 +296,32 @@ function isObject(v: unknown, keys: string[]): v is Record<string, unknown> {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
   const have = Object.keys(v);
   return have.length === keys.length && keys.every((k) => have.includes(k));
+}
+
+export interface UpdateDeps {
+  view(): UpdateView;
+  /** A button of the update notice: restart, later or try again. */
+  act(what: Exclude<UpdateAct, 'details'>): void;
+  /** Opens the log behind a failed update. */
+  details(): void;
+}
+
+/** The update notice's side in the shell: the state it draws, and its buttons, with the usual sender and argument checks. */
+export class Update {
+  private origin: string;
+  private d: UpdateDeps;
+  constructor(origin: string, d: UpdateDeps) {
+    this.origin = origin;
+    this.d = d;
+  }
+  view(e: Sender): ({ ok: true } & UpdateView) | Fail<'bad_request'> {
+    return fromWindow(e, this.origin) ? { ok: true, ...this.d.view() } : (bad('not from the app window') as Fail<'bad_request'>);
+  }
+  act(e: Sender, arg: unknown): Reply {
+    if (!fromWindow(e, this.origin)) return bad('not from the app window');
+    if (typeof arg !== 'string' || !UPDATE_ACTS.includes(arg as UpdateAct)) return bad('updateAct takes restart, later, retry or details');
+    if (arg === 'details') this.d.details();
+    else this.d.act(arg as Exclude<UpdateAct, 'details'>);
+    return { ok: true };
+  }
 }

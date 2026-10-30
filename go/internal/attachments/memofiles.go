@@ -26,6 +26,33 @@ func ext(mime string) string {
 	return kinds[mime]
 }
 
+// extOf is the ending a file is stored with: its type's for an image or Markdown, else the one finish chose for it (Info.Ending).
+func extOf(i Info) string {
+	if e := ext(i.Mime); e != "" {
+		return e
+	}
+	if i.Ending != "" {
+		return i.Ending
+	}
+	return "bin"
+}
+
+// endingFor is the ending a file of another type than an image or Markdown is stored with: the one its name ends in when that is letters
+// and digits and at most 8 long, else bin. A tool picks image and PDF handling by ending, so an image ending is never taken from a name
+// (only an image's bytes are checked as an image), and pdf only when the bytes begin as a PDF does.
+func endingFor(name string, head []byte) string {
+	e := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+	switch {
+	case e == "" || len(e) > 8 || strings.Trim(e, "abcdefghijklmnopqrstuvwxyz0123456789") != "":
+		return "bin"
+	case e == "png" || e == "jpg" || e == "jpeg" || e == "gif" || e == "webp":
+		return "bin"
+	case e == "pdf" && !bytes.HasPrefix(head, []byte("%PDF-")):
+		return "bin"
+	}
+	return e
+}
+
 // FileMime checks an image by its first bytes, not only its ending.
 func FileMime(name string, b []byte) (string, error) {
 	mime, ok := byExt[strings.ToLower(filepath.Ext(name))]

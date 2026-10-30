@@ -61,6 +61,10 @@ export class ChatStore {
     if (!found.length) throw new ChatFailure('not_found', `no message ${String(id)}`);
     return found[0];
   }
+  /** The message whose run in that window has not ended. */
+  running(terminal: string): (ChatMessage & { agent: string }) | undefined {
+    return this.messages.find((m) => m.runs?.some((r) => r.terminal === terminal && r.state === 'running'));
+  }
   change(m: ChatMessage & { agent: string }, patch: Partial<ChatMessage>) {
     Object.assign(m, patch, { state_at: this.now() });
     this.emit('chat.message', m.agent, this.view(m));

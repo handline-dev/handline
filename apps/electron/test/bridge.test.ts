@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { NavigateTo } from '@handline/app-core';
 import { makeApi, type Ipc } from '#src/api.ts';
-import { Cli, CHANNELS, Connection, fromWindow, Page, Settings, type Sender } from '#src/bridge.ts';
+import { Cli, CHANNELS, Connection, fromWindow, Page, Settings, Update, type Sender } from '#src/bridge.ts';
 import { noticeFor } from '#src/notices.ts';
 import type { Event } from '@handline/client';
 
@@ -169,6 +169,8 @@ test('the page switches the mode and pairs another device only from the window a
     follow: () => ({ sha: 'abc1234', state: 'available', next: 'def5678' }),
     check: async () => void seen.push('check'),
     setMode: (m) => void seen.push(m),
+    network: () => false,
+    setNetwork: () => void seen.push('network'),
     pair: async (i) => {
       if (i.code === 'bad') throw new Error('the gateway at x cannot be paired with: nothing answered');
       seen.push(i);
@@ -279,6 +281,8 @@ test('the page asks for the app build and restarts the daemon only from the wind
     follow: () => null,
     check: async () => undefined,
     setMode: () => undefined,
+    network: () => false,
+    setNetwork: () => undefined,
     pair: async () => undefined,
   });
   const win = { senderFrame: { url: `${ORIGIN}/`, parent: null } };
@@ -287,4 +291,45 @@ test('the page asks for the app build and restarts the daemon only from the wind
   assert.equal(c.build(frame).ok, false);
   assert.deepEqual(await c.restartDaemon(win), { ok: false, code: 'cannot_restart', message: 'the daemon did not upgrade: refused' });
   assert.equal((await c.restartDaemon(frame)).ok, false);
+});
+
+test('the update notice reads its state and presses its buttons only from the window, with one of the four words', () => {
+  const pressed: string[] = [];
+  const view = { phase: 'ready' as const, step: '', fraction: 0, reason: '' };
+  const u = new Update(ORIGIN, { view: () => view, act: (w) => void pressed.push(w), details: () => void pressed.push('details') });
+  const evil: Sender = { senderFrame: { url: 'https://evil.example/', parent: null } };
+  assert.deepEqual(u.view(top), { ok: true, ...view });
+  assert.equal(u.view(evil).ok, false);
+  assert.deepEqual(u.act(top, 'restart'), { ok: true });
+  assert.deepEqual(u.act(top, 'details'), { ok: true });
+  for (const arg of ['quit', 1, null, undefined, {}]) assert.equal(u.act(top, arg).ok, false);
+  assert.equal(u.act(evil, 'restart').ok, false);
+  assert.deepEqual(pressed, ['restart', 'details']);
+});
+
+test('the network setting is read and changed only from the window, with a boolean, and not on an app paired with another device', () => {
+  const saved: boolean[] = [];
+  const deps = (remote: string | null) => ({
+    mode: () => ({ mode: 'own' as const, remote }),
+    build: () => ({ sha: null, canRestart: false }),
+    restartDaemon: async () => undefined,
+    phone: async () => undefined,
+    follow: () => null,
+    check: async () => undefined,
+    setMode: () => undefined,
+    network: () => false,
+    setNetwork: (on: boolean) => void saved.push(on),
+    pair: async () => undefined,
+  });
+  const own = new Connection(ORIGIN, deps(null));
+  const evil: Sender = { senderFrame: { url: 'https://evil.example/', parent: null } };
+  assert.deepEqual(own.network(top), { ok: true, on: false, can: true });
+  assert.equal(own.network(evil).ok, false);
+  assert.deepEqual(own.setNetwork(top, true), { ok: true });
+  for (const arg of ['true', 1, null, undefined, {}]) assert.equal(own.setNetwork(top, arg).ok, false);
+  assert.equal(own.setNetwork(evil, true).ok, false);
+  const remote = new Connection(ORIGIN, deps('mac.ts.net:7443'));
+  assert.deepEqual(remote.network(top), { ok: true, on: false, can: false });
+  assert.equal(remote.setNetwork(top, true).ok, false);
+  assert.deepEqual(saved, [true]);
 });

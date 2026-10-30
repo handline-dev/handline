@@ -1,6 +1,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
+import { memoryPair } from '@handline/client';
 import { daemonUrl } from '#src/daemon.ts';
 import { Start } from '#src/Start.tsx';
 
@@ -36,7 +37,7 @@ describe('daemonUrl', () => {
     document.body.append(box);
     root = createRoot(box);
     const storage = { getItem: () => null, setItem: () => undefined };
-    await act(async () => root!.render(<Start url={url} insecure={insecure} storage={storage} />));
+    await act(async () => root!.render(<Start url={url} insecure={insecure} storage={storage} open={async () => memoryPair()[0]} />));
     expect(box.querySelector('.pair-screen input')).not.toBeNull();
   });
   it("shows why the shell's own daemon is not up, not a refusal of the address it would have been on", async () => {

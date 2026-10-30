@@ -34,8 +34,12 @@ const (
 	KeepFor       = policy.ImageKept // after the message that names the image, or the last task that names it closes
 )
 
-// kinds are the types taken, by the mime a client says and the extension the file is stored with.
+// kinds are the image types checked by their first bytes, by the mime a client says and the extension the file is stored with. Every
+// other file is kept as sent.
 var kinds = map[string]string{"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp"}
+
+// mimePattern is the shape of a type a client may say: type/subtype, as the contract's Attachment.mime.
+var mimePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$`)
 
 var idPattern = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
@@ -45,6 +49,8 @@ type Info struct {
 	Name  string `json:"name"`
 	Mime  string `json:"mime"`
 	Bytes int64  `json:"bytes"`
+	// Ending is the extension a file of another type than an image or Markdown is stored with (endingFor); not part of the contract.
+	Ending string `json:"ending,omitempty"`
 	// Width and Height are the picture's as drawn, from its header when it was put; 0 when it could not be read, or put before they were kept.
 	Width  int `json:"width,omitempty"`
 	Height int `json:"height,omitempty"`
@@ -223,8 +229,8 @@ func (s *Store) Put(q db.Q, in PutIn) (*PutOut, error) {
 	if err := s.Sweep(q); err != nil {
 		return nil, err
 	}
-	if _, ok := kinds[in.Mime]; !ok {
-		return nil, badParam("mime is image/png, image/jpeg, image/gif or image/webp", "mime")
+	if len(in.Mime) > 100 || !mimePattern.MatchString(in.Mime) {
+		return nil, badParam("mime is a type such as application/pdf", "mime")
 	}
 	if in.Bytes <= 0 {
 		return nil, badParam("bytes is the size of the whole file", "bytes")
@@ -282,7 +288,8 @@ func (s *Store) Put(q db.Q, in PutIn) (*PutOut, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !plausible(head, up.Mime) {
+	_, image := kinds[up.Mime]
+	if image && !plausible(head, up.Mime) {
 		s.drop(id)
 		return nil, badParam("the file is not "+up.Mime+" by its first bytes", "data")
 	}
@@ -290,7 +297,7 @@ func (s *Store) Put(q db.Q, in PutIn) (*PutOut, error) {
 	if have < up.Bytes {
 		return out, nil
 	}
-	if Sniff(head) != up.Mime {
+	if image && Sniff(head) != up.Mime {
 		s.drop(id)
 		return nil, badParam("the file is not "+up.Mime+" by its first bytes", "data")
 	}
@@ -366,10 +373,19 @@ func (s *Store) drop(id string) {
 func (s *Store) finish(uploadID string, up upload) (*Info, error) {
 	id := newID()
 	im := stored{Info: Info{ID: id, Name: up.Name, Mime: up.Mime, Bytes: up.Bytes}, Created: s.now().Unix()}
+	if ext(up.Mime) == "" {
+		head, err := readHead(s.sub("uploads", uploadID+".part"), 16)
+		if err != nil {
+			return nil, err
+		}
+		im.Ending = endingFor(up.Name, head)
+	}
 	if err := os.Rename(s.sub("uploads", uploadID+".part"), s.Path(im.Info)); err != nil {
 		return nil, err
 	}
-	im.Width, im.Height = dimensions(s.Path(im.Info), im.Mime)
+	if _, image := kinds[im.Mime]; image {
+		im.Width, im.Height = dimensions(s.Path(im.Info), im.Mime)
+	}
 	if err := writeJSON(s.sub("meta", id+".json"), im); err != nil {
 		os.Remove(s.Path(im.Info))
 		return nil, err
@@ -379,7 +395,7 @@ func (s *Store) finish(uploadID string, up upload) (*Info, error) {
 }
 
 // Path is named by id, never by the name a client gave.
-func (s *Store) Path(i Info) string { return s.sub(i.ID + "." + ext(i.Mime)) }
+func (s *Store) Path(i Info) string { return s.sub(i.ID + "." + extOf(i)) }
 
 // Lookup is the Attachment of id; not_found when it was never put or has been removed.
 func (s *Store) Lookup(id string) (Info, error) {

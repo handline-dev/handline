@@ -4,7 +4,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { decide, Follower, peekMain, watchMain, type Main } from '#src/follow.ts';
-import { popoverHtml } from '#src/popover-html.ts';
 import { trayMenu } from '#src/tray.ts';
 
 test('a web-only change rebuilds the page and nothing of the app; an app change rebuilds it too', () => {
@@ -34,6 +33,8 @@ function rig(files: string[]) {
     },
     peek: async () => main,
     upgradeDaemon: async (sha) => void ran.push(`upgrade ${sha}`),
+    clearWeb: () => calls.push('clear'),
+    swapWeb: () => calls.push('swap'),
     beforeRelaunch: () => calls.push('save'),
     relaunch: () => calls.push('relaunch'),
   });
@@ -42,7 +43,7 @@ function rig(files: string[]) {
   return { f, main, calls, ran, fresh };
 }
 
-test('main moving is offered once; Later keeps it quiet until main moves again', async () => {
+test('main moving is news once; a main that moved again is news again, and one that went back is nothing', async () => {
   const r = rig([]);
   await r.f.init();
   assert.equal(r.f.state, 'current');
@@ -52,10 +53,6 @@ test('main moving is offered once; Later keeps it quiet until main moves again',
   assert.equal(r.fresh.at(-1), true);
   await r.f.look(); // the same main again is not news
   assert.equal(r.fresh.at(-1), false);
-  r.f.later();
-  await r.f.look();
-  assert.equal(r.fresh.at(-1), false); // declined: no popover
-  assert.equal(r.f.state, 'available'); // the tray still offers it
   r.main.sha = 'ccc3333';
   await r.f.look();
   assert.equal(r.fresh.at(-1), true);
@@ -65,81 +62,134 @@ test('main moving is offered once; Later keeps it quiet until main moves again',
   assert.equal(r.f.next, null);
 });
 
-test('Restart now fetches, moves the checkout to that main, builds the app and the daemon, waits for the daemon and relaunches after saving the page', async () => {
+test('prepare fetches, moves the checkout to that main and builds the page beside the running one, then waits; nothing restarts', async () => {
   const r = rig(['apps/web/src/App.tsx']);
   await r.f.init();
   r.main.sha = 'bbb2222';
   await r.f.look();
-  await r.f.restartNow();
+  const steps: string[] = [];
+  r.f.onChange(() => r.f.state === 'updating' && steps.push(`${r.f.step} ${Math.round(r.f.fraction * 100)}`));
+  await r.f.prepare();
+  assert.equal(r.f.state, 'ready');
   assert.deepEqual(
     r.ran.filter((c) => !c.startsWith('git rev-parse')),
     [
       'git fetch origin +refs/remotes/origin/main:refs/remotes/origin/main',
       'git diff --name-only aaa1111 bbb2222',
       'git merge --ff-only bbb2222',
-      'pnpm --filter @handline/web build',
+      'pnpm --filter @handline/web build --outDir dist-next',
       'pnpm --filter @handline/electron build',
-      'upgrade bbb2222',
     ],
   );
-  assert.deepEqual(r.calls, ['save', 'relaunch']);
-
-  const e = rig(['apps/electron/src/main.ts']);
-  await e.f.init();
-  e.main.sha = 'ddd4444';
-  await e.f.restartNow();
-  assert.ok(e.ran.includes('pnpm --filter @handline/electron build'));
+  assert.deepEqual(steps, ['Preparing 0', 'Building (1 of 2) 0', 'Building (2 of 2) 50']);
+  assert.deepEqual(r.calls, ['clear']);
+  await r.f.look(); // a built update is not looked at again
+  assert.equal(r.f.state, 'ready');
 });
 
-test('a daemon that does not upgrade stops the update before the relaunch and its reason is shown', async () => {
+test('Restart now moves the daemon onto the built main, puts the built page in place, saves the page and relaunches', async () => {
+  const r = rig(['apps/electron/src/main.ts']);
+  await r.f.init();
+  r.main.sha = 'ddd4444';
+  await r.f.prepare();
+  assert.ok(r.ran.includes('pnpm --filter @handline/electron build'));
+  await r.f.restartNow();
+  assert.deepEqual(r.ran.slice(-1), ['upgrade ddd4444']);
+  assert.deepEqual(r.calls, ['clear', 'swap', 'save', 'relaunch']);
+});
+
+test('a retry after a failed web build builds the page again, from where the first try began, and clears the half-built one', async () => {
+  const ran: string[] = [];
   const calls: string[] = [];
+  let head = 'aaa1111'; // the merge moves HEAD to the target, as git does
+  let broken = true;
   const f = new Follower({
-    run: async (_file, args) => (args[0] === 'diff' ? 'go/x.go' : 'aaa1111'),
+    run: async (file, args) => {
+      ran.push(`${file} ${args.join(' ')}`);
+      if (args[0] === 'rev-parse') return `${head}\n`;
+      if (args[0] === 'diff') return args.includes('aaa1111') ? 'apps/web/src/App.tsx' : ''; // from the moved HEAD there is nothing to see
+      if (args[0] === 'merge') head = 'bbb2222';
+      if (file === 'pnpm' && args.includes('@handline/web') && broken) throw new Error('vite failed');
+      return '';
+    },
+    peek: async () => ({ sha: 'bbb2222', title: 't' }),
+    upgradeDaemon: async () => undefined,
+    clearWeb: () => calls.push('clear'),
+    swapWeb: () => calls.push('swap'),
+    beforeRelaunch: () => undefined,
+    relaunch: () => undefined,
+  });
+  await f.init();
+  await f.prepare();
+  assert.equal(f.state, 'failed');
+  broken = false;
+  ran.length = 0;
+  await f.retry();
+  assert.equal(f.state, 'ready');
+  assert.ok(ran.includes('git diff --name-only aaa1111 bbb2222'));
+  assert.ok(ran.includes('pnpm --filter @handline/web build --outDir dist-next'));
+  assert.deepEqual(calls, ['clear', 'clear']); // each try starts from no half-built page
+});
+
+test('Restart now before anything is built does nothing', async () => {
+  const r = rig([]);
+  await r.f.init();
+  await r.f.restartNow();
+  assert.deepEqual(r.calls, []);
+});
+
+test('a daemon that does not upgrade stops the restart before the relaunch; its reason is kept and Try again repeats the restart, not the build', async () => {
+  const calls: string[] = [];
+  let ok = false;
+  const ran: string[] = [];
+  const f = new Follower({
+    run: async (file, args) => (ran.push(`${file} ${args[0]}`), args[0] === 'diff' ? 'go/x.go' : 'aaa1111'),
     peek: async () => ({ sha: 'bbb2222', title: 't' }),
     upgradeDaemon: async () => {
-      throw new Error('the daemon did not upgrade: exe prints another sha');
+      if (!ok) throw new Error('the daemon did not upgrade: exe prints another sha');
     },
+    clearWeb: () => calls.push('clear'),
+    swapWeb: () => calls.push('swap'),
     beforeRelaunch: () => calls.push('save'),
     relaunch: () => calls.push('relaunch'),
   });
   await f.init();
+  await f.prepare();
+  const built = ran.length;
   await f.restartNow();
   assert.equal(f.state, 'failed');
   assert.equal(f.reason, 'the daemon did not upgrade: exe prints another sha');
-  assert.deepEqual(calls, []);
+  assert.deepEqual(calls, ['clear']); // cleared before the build, not at the restart
+  ok = true;
+  await f.retry();
+  assert.equal(ran.length, built); // nothing was built again
+  assert.deepEqual(calls, ['clear', 'swap', 'save', 'relaunch']);
 });
 
-test('a failed build is shown, nothing relaunches, and the next look tries again', async () => {
+test('a failed build is shown with the command output behind it, nothing relaunches, and Try again builds again', async () => {
   const calls: string[] = [];
+  let broken = true;
   const f = new Follower({
     run: async (file, args) => {
-      if (file === 'pnpm') throw new Error('pnpm build: vite failed');
+      if (file === 'pnpm' && broken) throw new Error('pnpm build: vite failed');
       return args[0] === 'diff' ? 'apps/web/a.ts' : 'aaa1111';
     },
     peek: async () => ({ sha: 'bbb2222', title: 't' }),
     upgradeDaemon: async () => undefined,
+    clearWeb: () => undefined,
+    swapWeb: () => undefined,
     beforeRelaunch: () => calls.push('save'),
     relaunch: () => calls.push('relaunch'),
   });
   await f.init();
-  await f.restartNow();
+  await f.prepare();
   assert.equal(f.state, 'failed');
   assert.equal(f.reason, 'pnpm build: vite failed');
+  assert.match(f.log, /\$ pnpm --filter @handline\/web build --outDir dist-next\npnpm build: vite failed/);
   assert.deepEqual(calls, []);
-  await f.look();
-  assert.equal(f.state, 'available');
-});
-
-test('the popover says the new sha and title, and a title cannot add markup', () => {
-  const html = popoverHtml({ sha: 'bbb2222ffff', title: '<img src=x onerror=alert(1)> & "q"' }, 'N0NCE');
-  assert.match(html, /bbb2222/);
-  assert.ok(!html.includes('<img'));
-  assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt; &amp; &quot;q&quot;/);
-  assert.match(html, /Restart now/);
-  assert.match(html, /Later/);
-  // The buttons are wired by one inline script, which the policy lets run only with this page's nonce.
-  assert.match(html, /script-src 'nonce-N0NCE'/);
-  assert.match(html, /<script nonce="N0NCE">/);
+  broken = false;
+  await f.retry();
+  assert.equal(f.state, 'ready');
 });
 
 const actions = {
@@ -152,14 +202,24 @@ const actions = {
   copy: () => undefined,
 };
 
-test('the tray offers the restart once main has moved, and says so when the update failed; the commit is a detail', () => {
+test('the menu says what the update flow says: updating, ready to restart, not updated; the commit is a detail', () => {
   const base = { sha: 'aaa1111ffff', next: null, reason: '', check: () => undefined, restart: () => undefined };
-  const labels = (f: Parameters<typeof trayMenu>[3], details = false) =>
-    trayMenu('running', '', actions, f, undefined, { unread: 0, details }).map((i) => i.label ?? '-');
-  assert.ok(!labels({ ...base, state: 'current' }).some((l) => /main|update/i.test(l)));
-  assert.ok(labels({ ...base, state: 'current' }, true).includes('Handline is on main aaa1111'));
-  assert.ok(labels({ ...base, state: 'available', next: 'bbb2222ffff' }).includes('Restart to update'));
-  assert.ok(labels({ ...base, state: 'failed', reason: 'vite failed' }).includes('Update failed: vite failed'));
+  const upd = (phase: 'idle' | 'preparing' | 'ready' | 'later' | 'failed', reason = '') => ({
+    phase,
+    reason,
+    restart: () => undefined,
+    retry: () => undefined,
+  });
+  const labels = (update: ReturnType<typeof upd>, details = false) =>
+    trayMenu('running', '', actions, { ...base, state: 'current' }, undefined, { unread: 0, details, update }).map((i) => i.label ?? '-');
+  assert.ok(!labels(upd('idle')).some((l) => /main|update|restart/i.test(l)));
+  assert.ok(labels(upd('idle'), true).includes('Handline is on main aaa1111'));
+  assert.ok(labels(upd('preparing')).includes('Updating Handline…'));
+  assert.ok(labels(upd('ready')).includes('Handline is ready to restart') && labels(upd('ready')).includes('Restart now'));
+  assert.ok(labels(upd('later')).includes('Restart now'));
+  assert.ok(
+    labels(upd('failed', 'vite failed')).includes('Handline was not updated: vite failed') && labels(upd('failed')).includes('Try again'),
+  );
 });
 
 // fs.watch can start and then deliver nothing (macOS with an overloaded fseventsd); a bare watch on the same folder tells that from a bug in watchMain.
@@ -239,6 +299,8 @@ test('a watch that cannot start or breaks is reported, not thrown', async () => 
     run: async () => '',
     peek: async () => ({ sha: 'x', title: '' }),
     upgradeDaemon: async () => undefined,
+    clearWeb: () => undefined,
+    swapWeb: () => undefined,
     beforeRelaunch: () => undefined,
     relaunch: () => undefined,
   });

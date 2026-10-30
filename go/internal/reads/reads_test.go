@@ -1,6 +1,7 @@
 package reads
 
 import (
+	"context"
 	"encoding/json"
 	"github.com/handline/handline/go/internal/db"
 	"os"
@@ -30,7 +31,9 @@ func testEnv(t *testing.T) *Env {
 		_, err := os.Stat(filepath.Join(home, "accounts", acct, ".credentials.json"))
 		return err == nil, true
 	}
-	return &Env{DB: db, Home: home, Started: time.Now(), LoginState: login}
+	// No test asks GitHub for a branch's pull request: none unless it sets BranchPR.
+	none := func(context.Context, string, string) (map[string]any, error) { return nil, nil }
+	return &Env{DB: db, Home: home, Started: time.Now(), LoginState: login, BranchPR: none, branchPRs: newBranchPRs()}
 }
 
 // writeAgentYAML is the founder's edit of an agent's file: written and sealed, so the roster trusts it.

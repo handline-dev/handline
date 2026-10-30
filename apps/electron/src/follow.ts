@@ -25,6 +25,9 @@ export function decide(files: string[]): Rebuild {
   return r;
 }
 
+/** The page is built here beside the running one (apps/web/dist-next) and swapped in at the restart. */
+export const WEB_NEXT = 'dist-next';
+
 /** The main that counts: the source repo's `origin/main`, which is GitHub's main as of its last fetch. */
 export const SOURCE_MAIN = 'origin/main';
 /** Run in the app's checkout: takes the source repo's `origin/main` as its own `origin/main`. */
@@ -41,7 +44,8 @@ export interface Main {
   title: string;
 }
 
-export type FollowState = 'current' | 'available' | 'updating' | 'failed';
+/** `updating`: the checkout is being brought up to main and built; `ready`: it is built and waits for the restart. */
+export type FollowState = 'current' | 'available' | 'updating' | 'ready' | 'failed';
 
 export interface FollowDeps {
   /** Runs a command in the app's checkout and gives its output; rejects with the command's own words on a failure. */
@@ -50,6 +54,10 @@ export interface FollowDeps {
   peek(): Promise<Main>;
   /** Builds the daemon, moves the running one onto it and waits for it, for the commit `sha`; rejects with the reason. */
   upgradeDaemon(sha: string): Promise<void>;
+  /** Removes a page built beside the running one that was left half done by a failed build. */
+  clearWeb(): void;
+  /** Puts the page built beside the running one in its place, just before the relaunch (the running page keeps its files until then). */
+  swapWeb(): void;
   /** Called before the relaunch: keeps what the window shows. */
   beforeRelaunch(): void;
   relaunch(): void;
@@ -62,10 +70,17 @@ export class Follower {
   /** The newer main, while there is one. */
   next: Main | null = null;
   reason = '';
+  /** While updating: the step, "Building (2 of 3)", and how far along, 0 to 1. */
+  step = '';
+  fraction = 0;
+  /** The command output so far, for "Details" after a failure. */
+  log = '';
+  /** The main the checkout was built at, once it is: the restart goes to this one. */
+  private built: string | null = null;
+  /** The commit the checkout was at when this build began, kept across a failed try so the retry still rebuilds what that change touched. */
+  private from: string | null = null;
   private d: FollowDeps;
   private listeners: ((fresh: boolean) => void)[] = [];
-  /** The main the person has said Later to: it is not offered again until main moves past it. */
-  private declined = '';
 
   constructor(d: FollowDeps) {
     this.d = d;
@@ -92,7 +107,7 @@ export class Follower {
 
   /** One look at where main is. Never throws. */
   async look(): Promise<void> {
-    if (this.state === 'updating') return;
+    if (this.state === 'updating' || this.state === 'ready') return; // a built update waits for its restart
     try {
       const main = await this.d.peek();
       if (main.sha === this.sha) {
@@ -100,7 +115,7 @@ export class Follower {
         this.set('current');
         return;
       }
-      const fresh = main.sha !== this.declined && main.sha !== this.next?.sha;
+      const fresh = main.sha !== this.next?.sha;
       this.next = { ...main };
       this.set('available', fresh);
     } catch (e) {
@@ -108,33 +123,79 @@ export class Follower {
     }
   }
 
-  /** "Later": the popover goes away and comes back when main next moves. */
-  later(): void {
-    if (this.next) this.declined = this.next.sha;
-    this.set(this.state);
+  private async run(file: string, args: string[]): Promise<string> {
+    this.log += `$ ${file} ${args.join(' ')}\n`;
+    try {
+      const out = await this.d.run(file, args);
+      this.log += out;
+      return out;
+    } catch (e) {
+      this.log += `${e instanceof Error ? e.message : String(e)}\n`;
+      throw e;
+    }
   }
 
-  /** "Restart now": bring the checkout up to main, rebuild what changed, relaunch. */
-  async restartNow(): Promise<void> {
-    if (this.state === 'updating') return;
-    this.set('updating');
+  /** Brings the checkout up to main and builds what changed (the page beside the running one), without touching what runs. Ends `ready`. */
+  async prepare(): Promise<void> {
+    if (this.state === 'updating' || this.state === 'ready') return;
+    this.log = '';
+    this.built = null;
+    this.progress('Preparing', 0);
     try {
       const target = (await this.d.peek()).sha;
-      await this.git(...FETCH_SOURCE);
-      const head = await this.git('rev-parse', 'HEAD');
-      const files = (await this.git('diff', '--name-only', head, target)).split('\n').filter(Boolean);
-      await this.git('merge', '--ff-only', target);
+      await this.run('git', FETCH_SOURCE);
+      this.from ??= (await this.run('git', ['rev-parse', 'HEAD'])).trim();
+      const head = this.from;
+      const files = (await this.run('git', ['diff', '--name-only', head, target])).split('\n').filter(Boolean);
+      await this.run('git', ['merge', '--ff-only', target]);
+      this.d.clearWeb();
       const r = decide(files);
-      if (r.install) await this.d.run('pnpm', ['install', '--frozen-lockfile']);
-      if (r.web) await this.d.run('pnpm', ['--filter', '@handline/web', 'build']);
       // The electron build stamps the sha the daemon is compared with, so it runs every time.
-      await this.d.run('pnpm', ['--filter', '@handline/electron', 'build']);
-      await this.d.upgradeDaemon(target.slice(0, 12));
+      const steps: [string, string[]][] = [
+        ...(r.install ? [['pnpm', ['install', '--frozen-lockfile']] as [string, string[]]] : []),
+        ...(r.web ? [['pnpm', ['--filter', '@handline/web', 'build', '--outDir', WEB_NEXT]] as [string, string[]]] : []),
+        ['pnpm', ['--filter', '@handline/electron', 'build']],
+      ];
+      for (const [i, [file, args]] of steps.entries()) {
+        this.progress(`Building (${i + 1} of ${steps.length})`, i / steps.length);
+        await this.run(file, args);
+      }
+      this.built = target;
+      this.from = null;
+      this.step = '';
+      this.fraction = 1;
+      this.set('ready');
+    } catch (e) {
+      this.fail(e);
+    }
+  }
+
+  /** "Restart now": the daemon moves onto the built main, the built page takes its place, the app relaunches. */
+  async restartNow(): Promise<void> {
+    if (this.state === 'updating' || !this.built) return;
+    this.progress('Restarting', 1);
+    try {
+      await this.d.upgradeDaemon(this.built.slice(0, 12));
+      this.d.swapWeb();
       this.d.beforeRelaunch();
       this.d.relaunch();
     } catch (e) {
       this.fail(e);
     }
+  }
+
+  /** "Try again" after a failure: the restart when the build was done, else the whole preparation. */
+  async retry(): Promise<void> {
+    if (this.state !== 'failed') return;
+    this.state = 'current';
+    await (this.built ? this.restartNow() : this.prepare());
+  }
+
+  /** One step of the work: said to the listeners at once, so the notice moves. */
+  private progress(step: string, fraction: number): void {
+    this.step = step;
+    this.fraction = fraction;
+    this.set('updating');
   }
 
   /** The ref watch could not start or broke: the tray says so, and "Check again" still looks by hand. */

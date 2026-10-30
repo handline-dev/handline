@@ -189,6 +189,168 @@
      }
     }
    ]
+  },
+  {
+   "name": "shell.open.a_command_needs_its_block",
+   "spec": "shell.open",
+   "about": "A command with no block is bad_request naming block.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "shell.open",
+      "params": {
+       "agent": "nobody",
+       "command": "true",
+       "request_id": "s1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "block"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "shell.open.a_block_needs_its_command",
+   "spec": "shell.open",
+   "about": "A block with no command is bad_request naming command.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "shell.open",
+      "params": {
+       "agent": "nobody",
+       "block": "1:0",
+       "request_id": "s1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "command"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "shell.open.block_is_message_and_number",
+   "spec": "shell.open",
+   "about": "A block that is not '<message id>:<n>' is bad_request naming block.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "shell.open",
+      "params": {
+       "agent": "nobody",
+       "command": "true",
+       "block": "first",
+       "request_id": "s1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "block"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "shell.open.command_is_not_empty",
+   "spec": "shell.open",
+   "about": "An empty command is bad_request naming command.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "shell.open",
+      "params": {
+       "agent": "nobody",
+       "command": "",
+       "block": "1:0",
+       "request_id": "s1"
+      }
+     },
+     "error": {
+      "code": -32602,
+      "data": {
+       "code": "bad_request",
+       "field": "command"
+      }
+     }
+    }
+   ]
   }
  ]
 }
