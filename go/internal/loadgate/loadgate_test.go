@@ -10,10 +10,10 @@ import (
 )
 
 func TestLimitsDefaultAndAreSetByConfig(t *testing.T) {
-	if got := LimitsOf(usage.Config{}); got != (Limits{Agents: 0, LoadPct: 150, RAMFreePct: 10, DiskFreeGB: 5, Simulator: 1}) {
+	if got := LimitsOf(usage.Config{}); got != (Limits{Agents: 0, LoadPct: 150, RAMFreePct: 10, DiskFreeGB: 5}) {
 		t.Fatalf("defaults: %+v", got)
 	}
-	cfg := usage.Config{AgentCapKey: int64(4), LoadPctKey: 0, RAMFreePctKey: "x", SimulatorKey: 0}
+	cfg := usage.Config{AgentCapKey: int64(4), LoadPctKey: 0, RAMFreePctKey: "x"}
 	if got := LimitsOf(cfg); got != (Limits{Agents: 4, LoadPct: 0, RAMFreePct: 10, DiskFreeGB: 5}) {
 		t.Fatalf("set: %+v", got)
 	}
@@ -38,11 +38,7 @@ func TestEachLimitHoldsAStartAndNoneHoldsTheFirst(t *testing.T) {
 		{"load at the limit", l, 1, &sysres.Machine{Cores: 8, Load1: 12, RAMTotal: 100, RAMFree: 50}, ""},
 		{"memory short", l, 1, &sysres.Machine{Cores: 8, Load1: 1, RAMTotal: 100, RAMFree: 9}, "Waiting: the computer is under heavy memory load right now. It starts by itself when the load drops."},
 		{"limits off", Limits{}, 1, busy, ""},
-		{"an emulator runs", Limits{Simulator: 1}, 1, &sysres.Machine{Cores: 8, Simulator: "Android emulator"}, "Waiting: the computer is under heavy memory load right now. It starts by itself when the load drops."},
-		{"a simulator runs, hold off", Limits{LoadPct: 150}, 1, &sysres.Machine{Cores: 8, Simulator: "iOS simulator"}, ""},
-		{"the cap is said first", Limits{Agents: 1, Simulator: 1}, 1, &sysres.Machine{Simulator: "iOS simulator"}, "1 of 1 agents are working"},
-		{"a simulator comes before the load", Limits{LoadPct: 150, Simulator: 1}, 1, &sysres.Machine{Cores: 8, Load1: 16, Simulator: "iOS simulator"}, "under heavy memory load"},
-		{"no agent mid-turn, a simulator holds nothing", Limits{Simulator: 1}, 0, &sysres.Machine{Simulator: "iOS simulator"}, ""},
+		{"the cap is said first", Limits{Agents: 1, LoadPct: 150}, 1, &sysres.Machine{Cores: 8, Load1: 16}, "1 of 1 agents are working"},
 		{"no measure yet", l, 1, nil, ""},
 		{"nothing mid-turn goes under any load", l, 0, busy, ""},
 	}

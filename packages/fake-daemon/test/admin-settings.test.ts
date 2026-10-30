@@ -27,7 +27,6 @@ const KEYS = [
   'load_per_core_pct',
   'ram_free_min_pct',
   'disk_free_min_gb',
-  'host_simulator_hold',
   'heavy_slots',
   'keep_awake',
   'reap_orphans',
