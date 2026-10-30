@@ -1,0 +1,119 @@
+// The Requests tab: what waits on the person in the PC's four groups (Allow, Decide, Review, Do by hand), each row with its title, where it came from
+// and how long it has waited. A row opens its item full screen; the list is the one the item's "n of N" walks.
+import { FlatList, Pressable, Text, View } from 'react-native';
+import { REQUEST_GROUPS, ago, requestGroup, sourceWord, type Card } from '@handline/app-core';
+import { useInbox, useMyTurn, useServes } from '@handline/app-data';
+import { font, radius, space } from '@handline/tokens';
+import { usePalette } from '#src/theme.ts';
+import type { Held } from '#src/heldAnswers.ts';
+import { Loadable } from '#src/screens/Loadable.tsx';
+import { PageHeader } from '#src/screens/parts.tsx';
+import { RequestItem } from '#src/screens/RequestItem.tsx';
+
+/** The cards that wait now: what a held answer took off the list is not among them, and none is counted twice. */
+export function useRequestCards(held: Held): Card[] {
+  return useMyTurn().cards.filter((c) => !held.away.includes(c.key));
+}
+
+/** The cards in the order the list shows them, group by group. */
+const inOrder = (cards: Card[]) => REQUEST_GROUPS.flatMap((g) => cards.filter((c) => requestGroup(c) === g));
+
+export function RequestsTab(props: {
+  held: Held;
+  /** The open item's key, or null for the list. */
+  item: string | null;
+  onItem: (key: string | null) => void;
+  onTask: (id: number) => void;
+}) {
+  const c = usePalette();
+  const cards = useRequestCards(props.held);
+  const query = useInbox();
+  const { served } = useServes('inbox.list');
+  const ordered = inOrder(cards);
+  const at = ordered.findIndex((x) => x.key === props.item);
+  const card = at >= 0 ? ordered[at] : undefined;
+  if (card)
+    return (
+      <RequestItem
+        key={card.key}
+        card={card}
+        at={{ n: at + 1, of: ordered.length }}
+        held={props.held}
+        onBack={() => props.onItem(null)}
+        onStep={(by) => props.onItem(ordered[at + by]?.key ?? props.item)}
+        // The held card is already off the list when this runs, so the next one stands where this one stood.
+        onAnswered={() => props.onItem(ordered[at + 1]?.key ?? null)}
+        onTask={props.onTask}
+      />
+    );
+  return (
+    <View style={{ flex: 1 }}>
+      <PageHeader
+        title="Requests"
+        actions={
+          <Text testID="requests-count" style={{ color: c.muted, fontSize: font.size.md }}>
+            {cards.length}
+          </Text>
+        }
+      />
+      <Loadable query={query} served={served} isEmpty={cards.length === 0} skeleton="inbox" label="Requests" empty="Nothing needs you.">
+        <FlatList
+          data={REQUEST_GROUPS.filter((g) => cards.some((x) => requestGroup(x) === g))}
+          keyExtractor={(g) => g}
+          renderItem={({ item: g }) => {
+            const list = cards.filter((x) => requestGroup(x) === g);
+            return (
+              <View testID={`request-group-${g}`}>
+                <Text style={{ color: c.muted, fontSize: font.size.sm, fontWeight: '700', padding: space.lg, paddingBottom: space.sm }}>
+                  {`${g} · ${list.length}`}
+                </Text>
+                {list.map((x) => (
+                  <Row key={x.key} card={x} onPress={() => props.onItem(x.key)} />
+                ))}
+              </View>
+            );
+          }}
+        />
+      </Loadable>
+    </View>
+  );
+}
+
+function Row({ card, onPress }: { card: Card; onPress: () => void }) {
+  const c = usePalette();
+  return (
+    <Pressable
+      testID={`request-${card.key}`}
+      accessibilityRole="button"
+      accessibilityLabel={`${requestGroup(card)}: ${card.title}`}
+      onPress={onPress}
+      style={{ borderTopWidth: 1, borderTopColor: c.line, padding: space.lg, minHeight: 56, gap: space.xs }}
+    >
+      <Text numberOfLines={2} style={{ color: c.ink, fontWeight: '700' }}>
+        {card.title}
+      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+        <Text
+          style={{
+            color: c.muted,
+            fontSize: font.size.xs,
+            borderWidth: 1,
+            borderColor: c.line,
+            borderRadius: radius.s,
+            paddingHorizontal: space.xs,
+          }}
+        >
+          {sourceWord(card)}
+        </Text>
+        {card.from ? (
+          <Text numberOfLines={1} style={{ color: c.muted, fontSize: font.size.sm, flex: 1 }}>
+            {card.from}
+          </Text>
+        ) : (
+          <View style={{ flex: 1 }} />
+        )}
+        <Text style={{ color: c.muted, fontSize: font.size.sm }}>{card.since ? ago(new Date(card.since).toISOString()) : ''}</Text>
+      </View>
+    </Pressable>
+  );
+}

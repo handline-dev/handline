@@ -2,7 +2,7 @@
 // nobody was there to ask, and the disk card.
 import { describe, expect, it, vi } from 'vitest';
 import { setMachineNeeds } from '@handline/fake-daemon/helpers';
-import { $, ARCH, box, mount, press, text, until } from '#test/harness.tsx';
+import { $, ARCH, mount, press, text, until } from '#test/harness.tsx';
 
 const LEAF = 'handline.term-build';
 
@@ -90,17 +90,16 @@ describe('the decision for a worktree that holds work', () => {
   const said = (m: Awaited<ReturnType<typeof mount>>) => m.store.notices.list().map((n) => n.text);
 
   it('has Keep it filled first, Save, and Remove anyway as the danger one; the body shows the facts, not how to close by number', async () => {
-    const m = await mount(seed(9401));
-    await press($('nav-requests'));
-    await until(() => $('inbox-open-6'), 'the card');
-    await press($('inbox-open-6'));
-    await until(() => $('inbox-worktree-6-keep'), 'the buttons');
-    const order = ['keep', 'save', 'force'].map((a) => text($(`inbox-worktree-6-${a}`)));
+    const m = await mount(seed(9401), undefined, 'founder', { opens: 'auto' });
+    await until(() => $('request-item:6'), 'the row');
+    await press($('request-item:6'));
+    await until(() => $('request-act-worktree-keep'), 'the buttons');
+    const order = ['keep', 'save', 'force'].map((a) => text($(`request-act-worktree-${a}`)));
     expect(order).toEqual(['Keep it', 'Save to a branch, then remove', 'Remove anyway']);
-    expect(text($('inbox-6'))).toContain('Path: /work/pc-chat');
-    expect(text($('inbox-6'))).not.toMatch(/Close this task with the number|Member:/);
-    expect(box.querySelector('[data-testid^="inbox-done-"]')).toBeNull();
-    await press($('inbox-worktree-6-keep'));
+    expect(text($('request-page'))).toContain('Path: /work/pc-chat');
+    expect(text($('request-page'))).not.toMatch(/Close this task with the number|Member:/);
+    expect($('request-act-done')).toBeNull();
+    await press($('request-act-worktree-keep'));
     await until(() => m.daemon.tasks.get({ task: 9401 }).state === 'done', 'the daemon');
     expect(m.daemon.tasks.get({ task: 9401 }).evidence).toBe('3');
     await until(() => said(m).includes("pc-chat's worktree stays"), 'the line');
@@ -108,34 +107,37 @@ describe('the decision for a worktree that holds work', () => {
   }, 20000);
 
   it('asks once more before Remove anyway, and says what was done after it', async () => {
-    const m = await mount(seed(9402));
-    await press($('nav-requests'));
-    await until(() => $('inbox-open-6'), 'the card');
-    await press($('inbox-open-6'));
-    await until(() => $('inbox-worktree-6-force'), 'the buttons');
-    await press($('inbox-worktree-6-force'));
-    expect(text($('inbox-worktree-6-sure'))).toBe('Remove for good? Uncommitted files are lost.');
+    const m = await mount(seed(9402), undefined, 'founder', { opens: 'auto' });
+    await until(() => $('request-item:6'), 'the row');
+    await press($('request-item:6'));
+    await until(() => $('request-act-worktree-force'), 'the buttons');
+    await press($('request-act-worktree-force'));
+    expect(text($('request-answers'))).toContain('Remove for good? Uncommitted files are lost.');
     expect(m.daemon.tasks.get({ task: 9402 }).state).not.toBe('done');
-    await press($('inbox-worktree-6-sure-cancel'));
-    expect($('inbox-worktree-6-keep')).not.toBeNull();
-    await press($('inbox-worktree-6-force'));
-    await press($('inbox-worktree-6-sure-go'));
+    await press($('request-sure-cancel'));
+    expect($('request-act-worktree-keep')).not.toBeNull();
+    await press($('request-act-worktree-force'));
+    await press($('request-sure'));
     await until(() => m.daemon.tasks.get({ task: 9402 }).state === 'done', 'the daemon');
     expect(m.daemon.tasks.get({ task: 9402 }).evidence).toBe('2 yes');
     await until(() => said(m).includes("pc-chat's worktree removed with its files"), 'the line');
     m.store.stop();
   }, 20000);
 
-  it('says nothing was done when the daemon refuses, and the card stays', async () => {
-    const m = await mount((s) => (seed(9403)(s), s.daemon.knobs.refuse('task.done', 'state', 'not a worktree git knows')));
-    await press($('nav-requests'));
-    await until(() => $('inbox-open-6'), 'the card');
-    await press($('inbox-open-6'));
-    await until(() => $('inbox-worktree-6-keep'), 'the buttons');
-    await press($('inbox-worktree-6-keep'));
+  it('says nothing was done when the daemon refuses, and the item stays', async () => {
+    const m = await mount(
+      (s) => (seed(9403)(s), s.daemon.knobs.refuse('task.done', 'state', 'not a worktree git knows')),
+      undefined,
+      'founder',
+      { opens: 'auto' },
+    );
+    await until(() => $('request-item:6'), 'the row');
+    await press($('request-item:6'));
+    await until(() => $('request-act-worktree-keep'), 'the buttons');
+    await press($('request-act-worktree-keep'));
     await until(() => said(m).some((t) => t.includes('not a worktree git knows')), 'the refusal');
     expect(said(m)).not.toContain("pc-chat's worktree stays");
-    expect($('inbox-worktree-6-keep')).not.toBeNull();
+    expect($('request-act-worktree-keep')).not.toBeNull();
     m.store.stop();
   }, 20000);
 });
@@ -146,14 +148,11 @@ describe('the disk card', () => {
       (s) => void setMachineNeeds(s, [{ kind: 'disk', since: '2026-10-30T08:00:00Z', text: 'Free space is 3 GB.' }]),
       undefined,
       'founder',
-      {
-        role: 'founder',
-      },
+      { role: 'founder', opens: 'auto' },
     );
-    await press($('nav-requests'));
-    await until(() => $('disk-open'), 'the card');
-    await press($('disk-open'));
-    expect(text($('disk-card'))).toContain('Free space is 3 GB.');
+    await until(() => $('request-machine:disk'), 'the row');
+    await press($('request-machine:disk'));
+    expect(text($('request-page'))).toContain('Free space is 3 GB.');
     m.store.stop();
   }, 20000);
 });

@@ -193,7 +193,10 @@ export function seedInbox(inbox: FakeInbox, at: string): void {
       command: 'rm -rf build',
       reason: null,
       lines: [],
-      options: [],
+      options: [
+        { key: 'allow', label: 'Allow', answer: 'yes', highlighted: true },
+        { key: 'deny', label: 'Deny', answer: 'no' },
+      ],
       since: ago(3),
     },
     created: ago(3),

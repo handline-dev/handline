@@ -355,10 +355,28 @@ describe('my turn', () => {
   });
 
   it('a permission prompt without yes/no options is a card with only Open terminal', async () => {
-    await open();
-    await pick(ofKey('item:4'), 'the approval row');
-    await until(() => box.querySelector('[data-card="item:4"]'), 'the approval card');
-    const c = box.querySelector('[data-card="item:4"]')!;
+    const s = setup();
+    const { id } = s.daemon.inbox.add({
+      kind: 'prompt',
+      agent: 'handline.term-build',
+      title: 'Permission: Bash',
+      prompt: {
+        id: 'p9',
+        agent: 'handline.term-build',
+        kind: 'permission',
+        tool: 'Bash',
+        command: 'ls',
+        reason: null,
+        lines: [],
+        options: [],
+        since: new Date().toISOString(),
+      },
+      created: new Date().toISOString(),
+    });
+    await open(s);
+    await pick(ofKey(`item:${id}`), 'the approval row');
+    await until(() => box.querySelector(`[data-card="item:${id}"]`), 'the approval card');
+    const c = box.querySelector(`[data-card="item:${id}"]`)!;
     expect(c.getAttribute('data-kind')).toBe('approval');
     expect(button(c, 'Allow')).toBeUndefined();
   });

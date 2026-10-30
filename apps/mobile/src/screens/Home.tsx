@@ -9,7 +9,8 @@ import { History, HistoryProvider, useHistoryValue } from '#src/history.tsx';
 import { Accounts } from '#src/screens/Accounts.tsx';
 import { AgentList } from '#src/screens/AgentList.tsx';
 import { AgentPage } from '#src/screens/AgentPage.tsx';
-import { Inbox, useWaiting } from '#src/screens/Inbox.tsx';
+import { RequestsTab, useRequestCards } from '#src/screens/RequestsTab.tsx';
+import { useHeldAnswers } from '#src/heldAnswers.ts';
 import { NewAgent, type Pending } from '#src/screens/NewAgent.tsx';
 import { SettingsPage } from '#src/screens/Settings.tsx';
 import { RequestsPage } from '#src/screens/Requests.tsx';
@@ -100,7 +101,10 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   useAgentEntry(props.store);
   const open = useSelector((s) => s.page?.agent ?? null);
   const read = [useInbox().isPending, useTasks({}).isPending];
-  const turn = useWaiting();
+  const held = useHeldAnswers((line) => props.store.say(line));
+  const cards = useRequestCards(held);
+  const turn = cards.length;
+  const [item, setItem] = useHistoryValue<string | null>('requests.item', null);
   const [tab, setTab] = useHistoryValue<Tab>('home.tab', props.startOn ?? 'agents');
   // The app opens on Requests when anything waits on the person, on Agents when nothing does: decided once,
   // when what waits is all read (the inbox and the tasks), unless an agent's page was left open or a tab was already picked.
@@ -110,6 +114,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
     decided.current = true;
     if (turn > 0 && !open && tab === 'agents') setTab('requests');
   });
+  const itemOpen = tab === 'requests' && cards.some((x) => x.key === item); // an item is full screen: no bell, no tab bar
   const [task, setTask] = useHistoryValue<number | null>('home.task', null);
   const [account, setAccount] = useHistoryValue<string | null>('home.account', null);
   const [page, setPage] = useHistoryValue<Page>('home.page', props.pending?.operation ? 'new' : null);
@@ -125,7 +130,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
   return (
     <View style={{ flex: 1 }} {...swipe}>
       <ConnectionBar store={props.store} />
-      {!open && !page && <Bell store={props.store} onOpen={() => setPage('notices')} />}
+      {!open && !page && !itemOpen && <Bell store={props.store} onOpen={() => setPage('notices')} />}
       <Toasts store={props.store} />
       <View style={{ flex: 1 }}>
         {open ? (
@@ -141,7 +146,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
         ) : page === 'new' ? (
           <NewAgent pending={pending} onClose={() => setPage(null)} onAgent={toAgent} />
         ) : tab === 'requests' ? (
-          <Inbox onTask={(id) => (setTab('tasks'), setTask(id))} />
+          <RequestsTab held={held} item={item} onItem={setItem} onTask={(id) => (setTab('tasks'), setTask(id))} />
         ) : tab === 'tasks' ? (
           <Tasks selected={task} onSelect={setTask} />
         ) : tab === 'usage' ? (
@@ -150,7 +155,7 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
           <AgentList onPage={setPage} />
         )}
       </View>
-      {!open && !page && (
+      {!open && !page && !itemOpen && (
         <View
           accessibilityRole="tablist"
           onLayout={(e) => setBar(e.nativeEvent.layout.height)}
@@ -207,6 +212,9 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
           ))}
         </View>
       )}
+      {held.last ? (
+        <UndoLine line={held.last.line} onUndo={() => held.undo(held.last!.key)} bottom={itemOpen ? 140 : bar + space.sm} />
+      ) : null}
       <DoneCard
         store={props.store}
         agent={open}
@@ -214,6 +222,39 @@ function HomeScreen(props: { store: Store; onUnpair: () => void; pending?: Pendi
         onTask={(id) => (setPage(null), setTab('tasks'), setTask(id))}
         onList={() => setPage('notices')}
       />
+    </View>
+  );
+}
+
+/** The line under an answer that waits: how long it waits, and Undo. */
+function UndoLine(props: { line: string; onUndo: () => void; bottom: number }) {
+  const c = usePalette();
+  return (
+    <View
+      testID="undo-line"
+      style={{
+        position: 'absolute',
+        left: space.lg,
+        right: space.lg,
+        bottom: props.bottom,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: c.ink,
+        borderRadius: 8,
+        paddingLeft: space.lg,
+        minHeight: 48,
+      }}
+    >
+      <Text style={{ color: c.bg }}>{props.line}</Text>
+      <Pressable
+        testID="undo"
+        accessibilityRole="button"
+        onPress={props.onUndo}
+        style={{ minHeight: 48, minWidth: 64, alignItems: 'center', justifyContent: 'center' }}
+      >
+        <Text style={{ color: c.bg, fontWeight: '700' }}>Undo</Text>
+      </Pressable>
     </View>
   );
 }

@@ -1,13 +1,15 @@
 // The phone's notices: the bell with its unread count, a failure shown under the title bar that a tap closes, and the list behind the bell.
 import { act } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RpcError } from '@handline/client';
 import { applySeeds } from '@handline/fake-daemon/seeds';
 import { $, ARCH, box, mount, press, until } from '#test/harness.tsx';
+import { HOLD_MS } from '#src/heldAnswers.ts';
 
 const text = (el: Element | null = box) => el?.textContent ?? '';
 
 describe('the phone notices', () => {
+  afterEach(() => void vi.useRealTimers());
   it('shows a failure under the title bar, closes it on a tap, and keeps it in the list read once opened', async () => {
     const m = await mount();
     await until(() => $('bell'), 'the bell');
@@ -82,26 +84,29 @@ describe('the phone notices', () => {
     expect($('notice-fresh')).toBeNull();
     m.store.stop();
   });
-  it('shows the weekly-loss offer as a card in Requests, not over the tabs or in the notice list, with its first three tasks and a Start button; the X closes it', async () => {
-    const m = await mount((s) => ((s.daemon.tasks.verbs = true), applySeeds(s.daemon, 'spare-notice')));
+  it('shows the weekly-loss offer as an item of Requests, not over the tabs or in the notice list; Start sends it once the hold is over', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true });
+    const m = await mount((s) => ((s.daemon.tasks.verbs = true), applySeeds(s.daemon, 'spare-notice')), undefined, 'founder', {
+      opens: 'auto',
+    });
     await until(() => $('bell'), 'the bell');
-    await press($('nav-requests'));
-    await until(() => $('notice-spare'), 'the offer card');
-    expect($('turn-task-7100')).toBeNull();
+    expect($('notice-spare')).toBeNull();
     await press($('bell'));
     await until(() => $('notices-page'), 'the notice list');
     expect($('notice-spare')).toBeNull();
     await press($('notices-close'));
-    await press($('nav-requests'));
-    await until(() => $('notice-spare'), 'the offer card again');
+    await until(() => $('request-task:7100'), 'the offer in Requests');
+    await press($('request-task:7100'));
+    await until(() => $('notice-spare'), 'the offer');
     expect(text($('notice-spare'))).toContain("18% of theta's weekly use will be lost at 02:10.");
     expect(text($('notice-spare'))).toContain('Tidy the gap list');
     expect(text($('notice-spare'))).not.toContain('T7104');
     expect(text($('notice-spare'))).toContain('and 1 more');
-    expect(text($('notice-spare'))).not.toContain('handline.architect');
-    expect(text($('notice-spare'))).toContain('Start 4 tasks');
-    await press($('spare-close'));
-    await until(() => !$('notice-spare'), 'the notice gone');
+    expect(text($('request-start'))).toBe('Start 4 tasks');
+    await press($('request-start'));
+    await act(async () => void vi.advanceTimersByTime(HOLD_MS));
+    await until(() => m.daemon.tasks.get({ task: 7100 }).state === 'done', 'the daemon');
+    expect(m.daemon.tasks.get({ task: 7100 }).evidence).toBe('start');
     m.store.stop();
   });
 
