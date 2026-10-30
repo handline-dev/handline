@@ -37,7 +37,7 @@ export interface MarksState {
 
 export type MarksAction =
   | { type: 'down' | 'move' | 'up'; x: number; y: number }
-  | { type: 'cancel' | 'undo' }
+  | { type: 'cancel' | 'undo' | 'clear' }
   | { type: 'memo'; id: number; text: string }
   | { type: 'open'; id: number | null }
   | { type: 'remove'; id: number }
@@ -98,6 +98,8 @@ export function marksReducer(s: MarksState, a: MarksAction): MarksState {
     }
     case 'cancel':
       return { ...s, draft: null };
+    case 'clear':
+      return { ...initialMarks(), slop: s.slop, radius: s.radius };
     case 'memo':
       return { ...s, marks: s.marks.map((m) => (m.id === a.id ? { ...m, text: a.text } : m)) };
     case 'open':
