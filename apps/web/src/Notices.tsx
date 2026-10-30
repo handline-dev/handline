@@ -1,6 +1,6 @@
 // The notices: the bell at the status bar's right end with the unread count, the list that opens upward from it (what happened, newest first), and the short results stacked above it.
 import { UpdateNotice } from '#src/UpdateNotice.tsx';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { clockTime, SPARE_SHOWN, spareNotice, targetOf, type Notice, type SpareNotice } from '@handline/app-core';
 import { useSelector, useStore } from '@handline/app-react';
 import { useTasks, useWrite } from '@handline/app-data';
@@ -274,6 +274,32 @@ function Toast({ n }: { n: Notice }) {
   );
 }
 
+/** How far the stack lifts: it hangs above the status bar, which is where a chat's composer and its Send button end, so it rises over the top of any composer under it. */
+function useLift(shown: boolean) {
+  const stack = useRef<HTMLDivElement>(null);
+  const [lift, setLift] = useState(0);
+  useLayoutEffect(() => {
+    const at = stack.current;
+    if (!shown || !at || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const bar = at.parentElement?.getBoundingClientRect();
+      const me = at.getBoundingClientRect();
+      if (!bar) return;
+      const tops = [...document.querySelectorAll('.compose-wrap')]
+        .map((c) => c.getBoundingClientRect())
+        .filter((r) => r.width && r.left < bar.right && r.right > bar.right - me.width)
+        .map((r) => r.top);
+      setLift(tops.length ? Math.max(0, bar.top - Math.min(...tops)) : 0);
+    };
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(document.body);
+    document.querySelectorAll('.compose-wrap').forEach((c) => watch.observe(c));
+    return () => watch.disconnect();
+  }, [shown]);
+  return { stack, lift };
+}
+
 function Toasts({ hidden }: { hidden: boolean }) {
   const store = useStore();
   const toasts = useSelector((s) => s.notices.toasts());
@@ -300,9 +326,16 @@ function Toasts({ hidden }: { hidden: boolean }) {
     addEventListener('keydown', key);
     return () => removeEventListener('keydown', key);
   }, [first, hidden, store]);
-  if ((!toasts.length && !spare.length) || hidden) return null;
+  const shown = (toasts.length > 0 || spare.length > 0) && !hidden;
+  const { stack, lift } = useLift(shown);
+  if (!shown) return null;
   return (
-    <div className="toasts absolute right-0 bottom-full z-10 mb-2 flex w-[380px] max-w-[90vw] flex-col-reverse gap-1.5" role="status">
+    <div
+      ref={stack}
+      className="toasts absolute right-0 bottom-full z-10 mb-2 flex w-[380px] max-w-[90vw] flex-col-reverse gap-1.5"
+      style={lift ? { marginBottom: lift + 8 } : undefined}
+      role="status"
+    >
       {spare.map((n) => (
         <div key={n.task} className="rounded-[8px] bg-raised shadow-[var(--shadow)]">
           <SpareCard n={n} />
