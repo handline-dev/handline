@@ -15,7 +15,7 @@ appId: dev.handline.mobile
     id: picture-delete
 - assertVisible:
     id: delete-ask
-- assertVisible: ".*It disappears from 1 place.*"
+- assertVisible: '.*It disappears from 1 place.*'
 - takeScreenshot: shots/delete-2-ask
 - tapOn:
     id: delete-keep
@@ -23,10 +23,10 @@ appId: dev.handline.mobile
     id: delete-ask
 - tapOn:
     id: picture-delete
-- assertVisible: ".*It disappears from 1 place.*"
+- assertVisible: '.*It disappears from 1 place.*'
 - tapOn:
     id: delete-yes
 - assertNotVisible:
     id: picture-full-.*
-- assertVisible: "Photo deleted"
+- assertVisible: 'Photo deleted'
 - takeScreenshot: shots/delete-3-deleted
