@@ -47,6 +47,16 @@ func (e *Env) retireMethod(c *rpc.Conn, params map[string]any) (any, error) {
 			return nil, err
 		}
 	}
+	mine, err := worktreeprune.Of(e.DB, agent)
+	if err != nil {
+		return nil, err
+	}
+	if _, refused, err := e.leaving(agent, mine, choice); err != nil || refused != "" {
+		if err != nil {
+			return nil, err
+		}
+		return nil, rpc.Refused(refused, "worktree", "")
+	}
 	if live[agent] {
 		// Held as the founder's own approved proposal, so SweepHeld retires it when its turn ends.
 		prop, err := newProp("retire", agent, db.Human, "retired by the founder")
@@ -84,7 +94,8 @@ func (e *Env) retireMethod(c *rpc.Conn, params map[string]any) (any, error) {
 }
 
 // refuseHeldWork refuses a retire the founder asked for while a worktree of the agent holds work and they gave no answer for it: the
-// app asks them there and then, and calls again with worktree. Nothing is retired. gate dirty, with each worktree's path and what it holds.
+// app asks them there and then, and calls again with worktree (save or force; keep leaves the worktree, and so the agent). Nothing is
+// retired. gate dirty, with each worktree's path and what it holds.
 func (e *Env) refuseHeldWork(agent string) error {
 	held, err := worktreeprune.Holding(e.DB, agent)
 	if err != nil || len(held) == 0 {
@@ -96,7 +107,7 @@ func (e *Env) refuseHeldWork(agent string) error {
 		list = append(list, map[string]any{"path": h.Path, "files_changed": h.Files, "commits_ahead": h.Commits})
 		said = append(said, fmt.Sprintf("%s (%d files changed, %d commits not on main)", h.Path, h.Files, h.Commits))
 	}
-	r := rpc.Refused(agent+"'s worktrees hold work: "+strings.Join(said, "; ")+". Say keep, save or force in worktree.", "dirty", "")
+	r := rpc.Refused(agent+"'s worktrees hold work: "+strings.Join(said, "; ")+". Say save or force in worktree to delete it with them gone.", "dirty", "")
 	r.Data["worktrees"] = list
 	return r
 }

@@ -260,18 +260,6 @@ func Repos(home string) []string {
 	return out
 }
 
-// InAgentRepo: path (a real path) is a worktree, not the checkout itself, of a repository an agent works in (Repos).
-func InAgentRepo(home, path string) bool {
-	for _, repo := range Repos(home) {
-		for i, wt := range List(repo) {
-			if i > 0 && !wt.Bare && Real(wt.Path) == path {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // Orphans are the worktrees of repo that no agent records (agents, from AgentWorktrees): left behind by an agent that went. The repo's own
 // checkout, a locked worktree and one that is no checkout are never orphans.
 func Orphans(repo string, agents map[string]bool) []Worktree {

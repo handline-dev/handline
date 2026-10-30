@@ -66,6 +66,7 @@ Every error is a JSON-RPC error whose `data.code` is the stable string. A refusa
 | `orphan` | worktree.remove: the path is no orphan worktree (an agent works in it, or it is not a worktree of an agent's repo). An agent's worktree goes only with the agent. |
 | `dirty` | worktree.remove: the orphan holds work (files changed, or commits not on main); the data carries files_changed and commits_ahead, and force removes it. agent.retire: a worktree of the agent holds work and the call gave no worktree answer; the data carries worktrees [{path, files_changed, commits_ahead}], and nothing is retired. |
 | `git` | worktree.remove: git refused to remove the worktree; the reason carries git's words. |
+| `worktree` | agent.retire: a worktree of the agent cannot be removed, so the agent is not retired: the founder answered keep for one that holds work, or it is locked, on no branch or on main (force removes the last two). The reason names the worktree and why; nothing was changed. |
 
 ## Methods
 
@@ -76,7 +77,7 @@ One file per group, generated from `spec/<group>.json`; field types are in `prot
 - [agents](gen/agents.md): 30 methods
 - [chat](gen/chat.md): 25 methods
 - [devices](gen/devices.md): 5 methods
-- [repos](gen/repos.md): 9 methods
+- [repos](gen/repos.md): 8 methods
 - [tasks](gen/tasks.md): 37 methods
 - [team](gen/team.md): 14 methods
 - [terminal](gen/terminal.md): 9 methods

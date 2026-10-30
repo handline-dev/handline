@@ -7,7 +7,6 @@ var usages = map[string][2]string{
 	"inbox":    {`hl inbox [--all] [--wait] [--timeout <span>]`, `hl inbox --all`},
 	"withdraw": {`hl withdraw <msg> [--reason "<why>"]`, `hl withdraw msg_1a2b3c4 --reason "sent to the wrong agent"`},
 	"progress": {`hl progress "<done: ... left: ...>"`, `hl progress "done: parser; left: tests"`},
-	"worktree": {`hl worktree add <path>`, `hl worktree add ~/workspaces/app.worktrees/me`},
 	"team":     {`hl team [--agent <name>]`, `hl team`},
 	"handoff":  {`hl handoff slow [--since <span>] [--agent <name>]`, `hl handoff slow --since 7d`},
 	"chat":     {`hl chat search "<text>" [--with <name>] [--since <span>] [--limit N]`, `hl chat search "nav order" --with handline --since 2d`},

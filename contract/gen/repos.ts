@@ -61,11 +61,6 @@ export interface ReposMethods {
     /** Whether its branch went too: only for one merged into main and clean, by `git branch -d`. A forced removal leaves the branch. */
     branch_deleted: boolean;
   } };
-  "worktree.declare": { params: {
-  /** The worktree's path; it is kept as its real path. */
-  path: string;
-  request_id: RequestId;
-}; result: Accepted };
   "files.list": { params: {
   agent: AgentName;
   /** Matched case-insensitively as a subsequence of the path: its letters appear in the path in order, not necessarily side by side. Absent, null or empty lists every file. Anything else that is not a string is bad_request (field query). */
@@ -125,7 +120,6 @@ export const REPOS_METHODS: { [K in keyof ReposMethods]: { role: Role; callers: 
   "worktrees.list": { role: "member", callers: null, write: false, since: 1 },
   "worktree.diff": { role: "member", callers: null, write: false, since: 1 },
   "worktree.remove": { role: "founder", callers: null, write: true, since: 1 },
-  "worktree.declare": { role: "agent", callers: null, write: true, since: 1 },
   "files.list": { role: "member", callers: null, write: false, since: 1 },
   "file.read": { role: "founder", callers: null, write: false, since: 1 },
   "file.write": { role: "founder", callers: null, write: true, since: 1 },

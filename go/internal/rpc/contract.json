@@ -473,9 +473,6 @@
  "whoami": {
   "role": "agent"
  },
- "worktree.declare": {
-  "role": "agent"
- },
  "worktree.diff": {
   "role": "member"
  },
