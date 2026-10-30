@@ -1,6 +1,6 @@
 // A fenced sh/bash/shell block in a message: the folder it belongs to, and Copy. Other fences stay plain code (Markdown.tsx).
 import { useEffect, useState } from 'react';
-import { useAgentDetail, useWrite } from '@handline/app-data';
+import { useAgentDetail, useRead, useWrite } from '@handline/app-data';
 import type { CommandRun } from '@handline/client';
 import { CHAT, fillTab, groupsOf, openTab, splitPane } from '@handline/app-core';
 import { useNow } from '#src/Gauge.tsx';
@@ -26,9 +26,6 @@ const runLine = (r: CommandRun, now: number) => {
     .filter(Boolean)
     .join(' · ');
 };
-
-/** The machine the daemon runs on, by the address the page reached it at; the daemon serves no machine name yet. */
-const hostName = () => location.hostname;
 
 /** `/Users/me/work/x` as `~/work/x`. */
 const homeShort = (path: string) => path.replace(/^\/(Users|home)\/[^/]+/, '~');
@@ -57,6 +54,8 @@ export function CommandCard({ text, agent, block }: { text: string; agent?: stri
   const copy = () => void navigator.clipboard?.writeText(text).then(() => setCopied(true));
   const risk = riskOf(text);
   const ws = useWorkspaceIfAny();
+  // The name the Computers page gives this machine.
+  const host = useRead('connection.get', {}).data?.listener?.tailscale_host?.split('.')[0] ?? 'this computer';
   const { mutateAsync: openShell } = useWrite('shell.open', agent ?? '');
   const [asking, setAsking] = useState(false);
   const run = block?.run;
@@ -110,11 +109,11 @@ export function CommandCard({ text, agent, block }: { text: string; agent?: stri
       </pre>
       {asking ? (
         <div
-          className="flex flex-wrap items-center gap-2 px-2 pb-2 text-meta"
+          className="flex w-0 min-w-full flex-wrap items-center gap-2 px-2 pb-2 text-meta"
           role="alertdialog"
           aria-label={`Run in ${folder ?? 'the worktree'}?`}
         >
-          <span className="min-w-0 flex-[1_1_12rem] [overflow-wrap:anywhere]">{`Run in ${folder ?? 'the worktree'}? It runs on ${hostName()} as you.`}</span>
+          <span className="min-w-0 flex-[1_1_12rem] [overflow-wrap:anywhere]">{`Run in ${folder ?? 'the worktree'}? It runs on ${host} as you.`}</span>
           <Button size="sm" label="Cancel" onClick={() => setAsking(false)} />
           <Button size="sm" variant="solid" label="Run" className={risk ? '!bg-bad' : undefined} onClick={() => void start()} />
         </div>
