@@ -253,10 +253,13 @@ function Details({ r, limits, openAt }: { r: Resources; limits: Limits; openAt: 
   const store = useStore();
   const [said, setSaid] = useState<{ text: string; undo: () => void } | null>(null);
   const open = useRef(true);
-  useEffect(() => () => void (open.current = false), []);
+  useEffect(() => {
+    open.current = true;
+    return () => void (open.current = false);
+  }, []);
   const m = r.machine;
   const toggle = (w: Which) => setEditing(editing === w ? null : w);
-  /** Says so in the notice stack once the daemon has taken it, with Undo to the value before; a refusal says why instead. */
+  /** Says so once the daemon has taken it, with Undo to the value before: in the popover's footer, or the notice stack if it closed; a refusal says why instead. */
   const change = (what: string, text: string, key: keyof Limits, to: number, was: number) => {
     save.mutate(
       { changes: { [key]: to } satisfies PageSettings },
