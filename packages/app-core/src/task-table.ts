@@ -145,17 +145,19 @@ export function taskTree(rows: readonly Task[], all: readonly Task[]): TreeRow[]
 /** The agents named on any task, for the agent filter. */
 export const taskAgents = (tasks: readonly Task[]): string[] => [...new Set(tasks.flatMap((t) => [t.to, t.from]))].sort();
 
-export type TaskGroupKey = 'needs' | 'running' | 'queued' | 'done';
+export type TaskGroupKey = 'draft' | 'needs' | 'running' | 'queued' | 'done';
 export const TASK_GROUPS: readonly { key: TaskGroupKey; label: string }[] = [
+  { key: 'draft', label: 'Draft' },
   { key: 'needs', label: 'Needs you' },
   { key: 'running', label: 'Running' },
-  { key: 'queued', label: 'Up next' },
+  { key: 'queued', label: 'Queued' },
   { key: 'done', label: 'Done' },
 ];
 
-/** The group a task sits in: what waits on the person, what runs, what waits its turn, what is closed. */
+/** The group a task sits in: what is still a draft, what waits on the person, what runs, what waits its turn, what is closed. */
 export function taskGroup(t: Task, me: string): TaskGroupKey {
   if (CLOSED.includes(t.state)) return 'done';
+  if (t.state === 'draft') return 'draft';
   if (isPerson(t.to, me)) return 'needs';
   return t.state === 'doing' ? 'running' : 'queued';
 }
@@ -205,4 +207,17 @@ export function doneBucket(t: Task, now: number): 'Today' | 'Yesterday' | 'This 
   const day = (ms: number) => new Date(ms).setHours(0, 0, 0, 0);
   const ago = Math.round((day(now) - day(Date.parse(t.done ?? t.created))) / DAY);
   return ago <= 0 ? 'Today' : ago === 1 ? 'Yesterday' : ago < 7 ? 'This week' : ago < 30 ? 'This month' : 'Earlier';
+}
+
+export const DONE_BUCKETS = ['Today', 'Yesterday', 'This week', 'This month', 'Earlier'] as const;
+
+/** The groups of a list that shows open and closed together: the open ones by group, the closed ones by the day they closed (newest first), empty groups left out. */
+export function taskSections(rows: readonly Task[], me: string, now: number): { key: TaskGroupKey; label: string; rows: Task[] }[] {
+  return groupTasks(rows, me).flatMap((g) =>
+    g.key === 'done'
+      ? DONE_BUCKETS.map((label) => ({ ...g, label, rows: g.rows.filter((t) => doneBucket(t, now) === label) })).filter(
+          (b) => b.rows.length,
+        )
+      : [g],
+  );
 }

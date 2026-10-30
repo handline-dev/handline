@@ -13,6 +13,7 @@ import {
   isOver,
   shown,
   sortTasks,
+  taskSections,
   taskTree,
   timeoutText,
 } from '#src/task-table.ts';
@@ -139,7 +140,7 @@ test('a time box just edited shows at once, before the clock has caught up', () 
   assert.equal(timeBoxText(t, 0), '3h');
 });
 
-test('tasks group as Needs you, Running, Up next and Done, each keeping its order', () => {
+test('tasks group as Needs you, Running, Queued and Done, each keeping its order', () => {
   const all = [task(1), task(2, { state: 'doing' }), task(3, { to: 'human' }), task(4, { state: 'done' }), task(6, { state: 'doing' })];
   const g = groupTasks(all, 'me');
   assert.deepEqual(
@@ -147,7 +148,7 @@ test('tasks group as Needs you, Running, Up next and Done, each keeping its orde
     [
       ['Needs you', [3]],
       ['Running', [2, 6]],
-      ['Up next', [1]],
+      ['Queued', [1]],
       ['Done', [4]],
     ],
   );
@@ -186,5 +187,24 @@ test('closed tasks fall in Today, Yesterday, This week, This month or Earlier by
   assert.deepEqual(
     [0, 1, 3, 9, 40].map((d) => doneBucket(at(d), NOW)),
     ['Today', 'Yesterday', 'This week', 'This month', 'Earlier'],
+  );
+});
+
+test("a draft is its own group first, even when it is the person's; closed tasks split by the day they closed", () => {
+  const now = Date.parse('2026-10-30T12:00:00Z');
+  const all = [
+    task(1, { state: 'draft', to: 'human' }),
+    task(2, { to: 'human' }),
+    task(3, { state: 'done', done: '2026-10-30T08:00:00Z' }),
+    task(4, { state: 'done', done: '2026-10-29T08:00:00Z' }),
+  ];
+  assert.deepEqual(
+    taskSections(all, 'me', now).map((x) => [x.label, ids(x.rows)]),
+    [
+      ['Draft', [1]],
+      ['Needs you', [2]],
+      ['Today', [3]],
+      ['Yesterday', [4]],
+    ],
   );
 });

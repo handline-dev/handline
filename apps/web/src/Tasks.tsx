@@ -5,6 +5,7 @@ import {
   CLOSED,
   defaultFilter,
   shown,
+  DONE_BUCKETS,
   doneBucket,
   groupTasks,
   sortTasks,
@@ -25,6 +26,7 @@ import { Row } from '#src/TaskRows.tsx';
 import { SORTS, TasksBar, TasksHead, type Scope } from '#src/TasksHead.tsx';
 import { KeysSheet, MergeSheet, OwnerSheet, PrioritySheet } from '#src/TaskSheets.tsx';
 import { Button, ScrollPage } from '#src/ui/index.ts';
+import { useLoadOnScroll } from '#src/useLoadOnScroll.ts';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { useBulk } from '#src/taskActions.ts';
 import { ReasonSheet, useCan, useNow, useTableColumns } from '#src/taskui.tsx';
@@ -140,6 +142,7 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
       ),
     [all, filter, scope, graph, me, query, sort, now],
   );
+  const scrollEnd = useLoadOnScroll(more, loadingOlder, () => void loadOlder());
   const [showDone, setShowDone] = useState(false);
   const groups = useMemo(
     () =>
@@ -147,9 +150,12 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
         if (g.key !== 'done') return [{ ...g, folded: false }];
         if (scope === 'open') return [{ ...g, label: 'Done today', folded: !showDone }];
         // Closed: by the day it closed, newest first
-        return ['Today', 'Yesterday', 'This week', 'This month', 'Earlier']
-          .map((label) => ({ ...g, label, rows: g.rows.filter((t) => doneBucket(t, now) === label), folded: false }))
-          .filter((b) => b.rows.length);
+        return DONE_BUCKETS.map((label) => ({
+          ...g,
+          label,
+          rows: g.rows.filter((t) => doneBucket(t, now) === label),
+          folded: false,
+        })).filter((b) => b.rows.length);
       }),
     [rows, me, scope, showDone, now],
   );
@@ -365,18 +371,24 @@ function TaskList({ selected, graph }: { selected: number | null; graph?: boolea
         )}
       </View>
       {more ? (
-        <div className="flex items-center justify-center gap-3 py-3 text-xs text-ink-2">
-          <span>{all.length} loaded · older ones exist</span>
-          <Button
-            variant="outline"
-            size="sm"
-            label={`Show ${TASK_PAGE} older`}
-            aria-label={`Show ${TASK_PAGE} older`}
-            disabled={loadingOlder}
-            onClick={() => void loadOlder()}
-          >
-            {loadingOlder ? 'Loading…' : `Show ${TASK_PAGE} older`}
-          </Button>
+        <div ref={scrollEnd.end} className="flex items-center justify-center gap-3 py-3 text-xs text-ink-2">
+          {scrollEnd.supported ? (
+            <span>{loadingOlder ? 'Loading…' : ''}</span>
+          ) : (
+            <>
+              <span>{all.length} loaded · older ones exist</span>
+              <Button
+                variant="outline"
+                size="sm"
+                label={`Show ${TASK_PAGE} older`}
+                aria-label={`Show ${TASK_PAGE} older`}
+                disabled={loadingOlder}
+                onClick={() => void loadOlder()}
+              >
+                {loadingOlder ? 'Loading…' : `Show ${TASK_PAGE} older`}
+              </Button>
+            </>
+          )}
         </div>
       ) : null}
     </ScrollPage>

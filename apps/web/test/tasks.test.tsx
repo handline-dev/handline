@@ -80,8 +80,8 @@ describe('the list', () => {
     vi.setSystemTime(new Date(2026, 5, 15, 12, 0));
     await mount();
     await loaded();
-    expect(rowIds()).toEqual([1684, 1688, 1700, 1690]); // P1, then P2 by number, then P3
-    expect($$('tr.tgroup').map((g) => text(g).trim())).toEqual(['Running 2', 'Up next 2']);
+    expect(rowIds()).toEqual([1700, 1684, 1688, 1690]); // the draft first, then P1, then P2 by number
+    expect($$('tr.tgroup').map((g) => text(g).trim())).toEqual(['Draft 1', 'Running 2', 'Queued 1']);
     expect(text(row(1684))).toContain('P1');
     expect(text(row(1688))).toContain('doing');
     expect(text(row(1684))).toContain('architect');
@@ -98,18 +98,18 @@ describe('the list', () => {
     await mount();
     await loaded();
     await focusPage();
-    await press('S'); // next column from priority is the state, reversed: queued before draft
-    expect(rowIds()).toEqual([1684, 1688, 1690, 1700]);
+    await press('S'); // next column from priority is the state, reversed
+    expect(rowIds()).toEqual([1700, 1684, 1688, 1690]);
     await press('s');
     await press('s'); // title: Pair... by name, still inside the groups
-    expect(rowIds().slice(0, 2).sort()).toEqual([1684, 1688]);
+    expect(rowIds().slice(1, 3).sort()).toEqual([1684, 1688]);
   });
 
   it('moves the cursor with j and k, marks with space and A, and keeps its marks in the action bar', async () => {
     await mount();
     await loaded();
     await focusPage();
-    expect(row(1684)!.classList.contains('cursor')).toBe(true);
+    await press('j');
     await press('j');
     expect(row(1688)!.classList.contains('cursor')).toBe(true);
     await press(' ');
@@ -140,7 +140,7 @@ describe('the list', () => {
     await typeInto(search, 'terminal founder');
     expect(rowIds()).toEqual([]); // every word must match
     await typeInto(search, '');
-    expect(rowIds()).toEqual([1684, 1688, 1700, 1690]);
+    expect(rowIds()).toEqual([1700, 1684, 1688, 1690]);
   });
 
   it('filters by agent and by state in the Filters popover, with f to step through the agents and v to open it', async () => {

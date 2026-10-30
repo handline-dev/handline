@@ -39,12 +39,32 @@ async function open(hash: string, seed?: string) {
   return s;
 }
 
+/** An IntersectionObserver that reports nothing until `reachEnd`, which says every observed element came into view. */
+function stubScrollEnd() {
+  const live = new Set<(hits: { isIntersecting: boolean }[]) => void>();
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      constructor(private cb: (hits: { isIntersecting: boolean }[]) => void) {}
+      observe() {
+        live.add(this.cb);
+      }
+      disconnect() {
+        live.delete(this.cb);
+      }
+    },
+  );
+  return () => act(async () => void [...live].forEach((cb) => cb([{ isIntersecting: true }])));
+}
+
 describe('paging the task lists', () => {
-  it('the Tasks page loads 100 and a button brings the next 100 older ones', async () => {
+  it('the Tasks page loads 100 and the next 100 older ones come when the end of the list scrolls into view, with no button', async () => {
+    const reachEnd = stubScrollEnd();
     await open('#/tasks', 'tasks-200');
-    await until(() => $('button[aria-label="Show 100 older"]'), 'the older button');
+    await until(() => $$('tr[data-task]').length, 'the rows');
+    expect($('button[aria-label="Show 100 older"]')).toBeNull();
     const first = $$('tr[data-task]').length;
-    await click($('button[aria-label="Show 100 older"]'));
+    await reachEnd();
     await until(() => $$('tr[data-task]').length > first, 'more rows');
     expect($$('tr[data-task]').length).toBeGreaterThan(first);
   });
@@ -59,7 +79,8 @@ describe("an agent's Tasks tab", () => {
     await until(() => $('.tasks-tab-row'), 'the rows');
   };
 
-  it('shows no boxes until Select, ends Select on Escape, and pages older tasks on a button', async () => {
+  it('shows no boxes until Select, ends Select on Escape, and pages older tasks when the end of the list scrolls into view', async () => {
+    const reachEnd = stubScrollEnd();
     await tab();
     expect($('input[aria-label^="Mark"]')).toBeNull();
     await click($('button[aria-label="Select tasks"]'));
@@ -67,7 +88,8 @@ describe("an agent's Tasks tab", () => {
     await act(async () => void window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
     expect($('input[aria-label^="Mark"]')).toBeNull();
     const before = $$('.tasks-tab-row').length;
-    await click($('button[aria-label="Show 100 older"]'));
+    expect($('button[aria-label="Show 100 older"]')).toBeNull();
+    await reachEnd();
     await until(() => $$('.tasks-tab-row').length > before, 'older rows');
   });
 
