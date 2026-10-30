@@ -42,7 +42,7 @@ export function ListRow({
       {lead}
       <span className={`min-w-0 flex-1 truncate ${done ? 'text-ink-3' : ''}`}>{title}</span>
       {chip}
-      <span className="w-[2.4em] text-right text-xs text-ink-3">{time}</span>
+      <span className="min-w-[2.4em] whitespace-nowrap text-right text-xs text-ink-3">{time}</span>
     </button>
   );
 }

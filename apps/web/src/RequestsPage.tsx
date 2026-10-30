@@ -29,7 +29,7 @@ import { Button as DsButton } from '#src/ds/Button.tsx';
 import { Chip } from '#src/ds/Chip.tsx';
 import { Answer, ItemHeader } from '#src/ds/Item.tsx';
 import { Toast } from '#src/ds/Floating.tsx';
-import { Link, Who } from '#src/ds/Link.tsx';
+import { Link, SeeInFull, Who } from '#src/ds/Link.tsx';
 import { ListRow, SectionHead } from '#src/ds/ListRow.tsx';
 import { useNow } from '#src/Gauge.tsx';
 import { useHeldAnswers, type HeldStep } from '#src/HeldAnswers.tsx';
@@ -157,7 +157,9 @@ function CardDetail({
     }
   };
   // The buttons are the answers; a written answer is the field beside them, never a bare Reply. The rarer verbs are in the menu.
-  const main = card.actions.slice(0, card.primary).filter((a) => a.type !== 'answer');
+  const main = card.actions.slice(0, card.primary).filter((a) => a.type !== 'answer' && a.type !== 'open');
+  // Open is the plain link at the far right of the answers, not a button among them.
+  const openAct = card.actions.slice(0, card.primary).find((a) => a.type === 'open');
   const rest = card.actions.slice(card.primary).filter((a) => a.type !== 'answer');
   const wt = card.actions.some((a) => a.type === 'worktree');
   const answerId = wt ? undefined : card.actions.find((a) => a.type === 'answer');
@@ -213,15 +215,18 @@ function CardDetail({
           ) : null
         }
         full={
-          rest.length ? (
-            <MenuButton size="sm" icon="ellipsis" label="More">
-              {rest.map((a, i) => (
-                <MenuItem key={a.type + i} onSelect={() => run(a)}>
-                  {label(a)}
-                </MenuItem>
-              ))}
-            </MenuButton>
-          ) : null
+          <>
+            {rest.length ? (
+              <MenuButton size="sm" icon="ellipsis" label="More">
+                {rest.map((a, i) => (
+                  <MenuItem key={a.type + i} onSelect={() => run(a)}>
+                    {label(a)}
+                  </MenuItem>
+                ))}
+              </MenuButton>
+            ) : null}
+            {openAct ? <SeeInFull onClick={() => run(openAct)}>{card.task != null ? `Open T${card.task}` : 'Open'}</SeeInFull> : null}
+          </>
         }
       >
         {sure ? (
