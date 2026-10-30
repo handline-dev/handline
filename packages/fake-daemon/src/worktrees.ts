@@ -109,27 +109,33 @@ const seed = (): Worktree[] => {
       changed: [file('guide/start.md', 'M', 3, 3), file('guide/new.md', '?', 0, 0)],
       ...facts(2, { base: 'master' }),
     },
-    // Branches the worktrees.list facts fixtures read: clean, dirty, checks failing, a ready pull request.
-    {
-      ...plain('/work/facts-clean', 'facts/clean'),
-      ...facts(0),
-    },
-    {
-      ...plain('/work/facts-dirty', 'facts/dirty'),
-      changed: [file('src/a.ts', 'M', 4, 1), file('src/b.ts', '?', 0, 0)],
-      ...facts(2, { commits_ahead: 2, size_bytes: 52_428_800 }),
-    },
-    {
-      ...plain('/work/facts-failing', 'facts/failing'),
-      ...facts(0, { commits_ahead: 3, pr: { number: 901, url: 'https://github.com/handline-dev/handline/pull/901', verdict: 'checks_failing', failing: 2 } }),
-    },
-    {
-      ...plain('/work/facts-ready', 'facts/ready'),
-      ...facts(0, { commits_ahead: 1, pr: { number: 902, url: 'https://github.com/handline-dev/handline/pull/902', verdict: 'ready' } }),
-    },
   );
   return rows;
 };
+
+/** Branches the worktrees.list facts fixtures read: clean, dirty, checks failing, a ready pull request. */
+export const factsWorktrees = (): Worktree[] => [
+  {
+    ...plain('/work/facts-clean', 'facts/clean'),
+    ...facts(0),
+  },
+  {
+    ...plain('/work/facts-dirty', 'facts/dirty'),
+    changed: [file('src/a.ts', 'M', 4, 1), file('src/b.ts', '?', 0, 0)],
+    ...facts(2, { commits_ahead: 2, size_bytes: 52_428_800 }),
+  },
+  {
+    ...plain('/work/facts-failing', 'facts/failing'),
+    ...facts(0, {
+      commits_ahead: 3,
+      pr: { number: 901, url: 'https://github.com/handline-dev/handline/pull/901', verdict: 'checks_failing', failing: 2 },
+    }),
+  },
+  {
+    ...plain('/work/facts-ready', 'facts/ready'),
+    ...facts(0, { commits_ahead: 1, pr: { number: 902, url: 'https://github.com/handline-dev/handline/pull/902', verdict: 'ready' } }),
+  },
+];
 
 /** The folders and file names file.write never touches, and the only endings it writes, as the contract's `denied` gate says. */
 const DENIED_DIRS = ['.git', '.claude', '.github', '.husky', '.codex', '.cursor', '.vscode', '.devcontainer', 'hooks'];

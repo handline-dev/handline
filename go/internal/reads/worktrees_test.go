@@ -114,12 +114,7 @@ func TestAWorktreeNoAgentRecordsIsListedAsAnOrphan(t *testing.T) {
 	e := testEnv(t)
 	root, _ := filepath.EvalSymlinks(t.TempDir())
 	repo, mine, left := filepath.Join(root, "repo"), filepath.Join(root, "mine"), filepath.Join(root, "left")
-	git := func(dir string, args ...string) {
-		t.Helper()
-		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v %s", args, err, out)
-		}
-	}
+	git := gitIn(t)
 	os.MkdirAll(repo, 0o755)
 	git(repo, "init", "-q", "-b", "main")
 	git(repo, "commit", "-q", "--allow-empty", "-m", "start")
@@ -176,12 +171,7 @@ func TestEveryWorktreeCarriesItsFactsAndItsPullRequest(t *testing.T) {
 	e := testEnv(t)
 	root, _ := filepath.EvalSymlinks(t.TempDir())
 	repo, mine := filepath.Join(root, "repo"), filepath.Join(root, "mine")
-	git := func(dir string, args ...string) {
-		t.Helper()
-		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v %s", args, err, out)
-		}
-	}
+	git := gitIn(t)
 	os.MkdirAll(repo, 0o755)
 	git(repo, "init", "-q", "-b", "main")
 	git(repo, "remote", "add", "origin", "git@github.com:acme/app.git")
@@ -264,5 +254,15 @@ func TestAPullRequestsVerdictIsWhatHoldsIt(t *testing.T) {
 	}
 	if _, has := pullVerdict(ghPull{State: "OPEN"})["failing"]; has {
 		t.Fatal("failing is only on checks_failing")
+	}
+}
+
+// gitIn runs git in a directory as a test author.
+func gitIn(t *testing.T) func(dir string, args ...string) {
+	return func(dir string, args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
 	}
 }
