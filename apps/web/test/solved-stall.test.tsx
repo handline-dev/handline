@@ -43,4 +43,14 @@ describe('useSolvedStall', () => {
     await show('A', null);
     expect(out()).toBe('none');
   });
+
+  it('shows nothing on another agent after the stall on the first has ended', async () => {
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await show('A', 'Waiting for folder trust');
+    await show('A', null);
+    expect(out()).toBe('solved:Waiting for folder trust');
+    await show('B', null);
+    expect(out()).toBe('none');
+  });
 });
