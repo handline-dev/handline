@@ -136,4 +136,24 @@ func liveTmux(t *testing.T, sock string, file *string) {
 			t.Fatalf("%s: a closed window is still listed", c.command)
 		}
 	}
+
+	// A command a signal ended has no exit status in tmux: it reads as a shell would say it, 128 plus the signal, never as 0.
+	killed, why := tm.CreateRun(dir, "ann-run", "ann", "9:1@1", "sleep 60")
+	if killed == "" {
+		t.Fatal(why)
+	}
+	time.Sleep(500 * time.Millisecond)
+	tm.SendBytes(killed, []byte{3})
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		got := tm.PaneRuns()[killed]
+		if got.Dead {
+			if got.Status != 130 {
+				t.Fatalf("a run ended by ^C: %+v", got)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the run did not end: %+v", got)
+		}
+	}
 }

@@ -3,13 +3,13 @@ package watcher
 import (
 	"database/sql"
 	"encoding/json"
-	"github.com/handline/handline/go/internal/cmdruns"
-	"github.com/handline/handline/go/internal/term"
 	"slices"
 
+	"github.com/handline/handline/go/internal/cmdruns"
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/reads"
 	"github.com/handline/handline/go/internal/stream"
+	"github.com/handline/handline/go/internal/term"
 )
 
 // The chat topic's cursors are the Python watcher's, so either side picks up where the other left off.

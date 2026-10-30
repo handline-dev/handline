@@ -102,9 +102,13 @@ type PaneRun struct {
 	DeadTime int64 // unix seconds; 0 when tmux did not say
 }
 
+// signals are the numbers of the signals tmux names in pane_dead_signal; one not here reads as 128, still not a success.
+var signals = map[string]int{"hup": 1, "int": 2, "quit": 3, "ill": 4, "trap": 5, "abrt": 6, "bus": 7, "fpe": 8, "kill": 9, "usr1": 10, "segv": 11,
+	"usr2": 12, "pipe": 13, "alrm": 14, "term": 15}
+
 // PaneRuns is every pane that carries a run tag, by handle; nil when tmux cannot say (a pane absent from a non-nil answer is gone).
 func (t Tmux) PaneRuns() map[string]PaneRun {
-	code, out, err := t.tmux(tmuxTimeout, "", "list-panes", "-a", "-F", "#{pane_id}\t#{"+RunOption+"}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_time}")
+	code, out, err := t.tmux(tmuxTimeout, "", "list-panes", "-a", "-F", "#{pane_id}\t#{"+RunOption+"}\t#{pane_dead}\t#{pane_dead_status}\t#{pane_dead_time}\t#{pane_dead_signal}")
 	if code != 0 {
 		low := strings.ToLower(err)
 		for _, m := range noServer {
@@ -117,12 +121,15 @@ func (t Tmux) PaneRuns() map[string]PaneRun {
 	runs := map[string]PaneRun{}
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Split(line, "\t")
-		if len(f) != 5 || !paneRE.MatchString(f[0]) || f[1] == "" {
+		if len(f) != 6 || !paneRE.MatchString(f[0]) || f[1] == "" {
 			continue
 		}
 		r := PaneRun{Tag: f[1], Dead: f[2] == "1"}
 		r.Status, _ = strconv.Atoi(f[3])
 		r.DeadTime, _ = strconv.ParseInt(f[4], 10, 64)
+		if f[5] != "" { // killed by a signal: tmux leaves the status empty and names the signal; a shell would say 128 plus its number
+			r.Status = 128 + signals[strings.ToLower(f[5])]
+		}
 		runs[f[0]] = r
 	}
 	return runs

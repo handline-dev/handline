@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -20,6 +21,7 @@ type shellHost struct {
 	cwds   []string
 	closed []string
 	runs   []string
+	ended  map[string]term.PaneRun // run windows tmux keeps after their command
 }
 
 func newShellHost(h *fakeHost) *shellHost { return &shellHost{fakeHost: h, panes: map[string]string{}} }
@@ -143,7 +145,7 @@ func (h *shellHost) CreateRun(cwd, title, agent, tag, command string) (string, s
 	return handle, why
 }
 
-func (h *shellHost) PaneRuns() map[string]term.PaneRun { return nil }
+func (h *shellHost) PaneRuns() map[string]term.PaneRun { return h.ended }
 
 func TestShellOpenWithACommandRunsItAndRecordsTheRunOfItsBlock(t *testing.T) {
 	r, h, wt := shellRig(t)
@@ -181,5 +183,28 @@ func TestShellOpenCommandAndBlockGoTogetherAndAreChecked(t *testing.T) {
 	}
 	if runs, _ := cmdruns.All(r.e.DB); len(runs) != 0 {
 		t.Fatalf("a refused call records nothing: %+v", runs)
+	}
+}
+
+func TestAFinishedRunsWindowIsNotAShellInUseAndARerunClosesItsOld(t *testing.T) {
+	r, h, _ := shellRig(t)
+	h.ended = map[string]term.PaneRun{}
+	open := func(block string) string {
+		got, err := r.e.shellOpen(person("casey"), map[string]any{"agent": "ann", "command": "true", "block": block})
+		if err != nil {
+			t.Fatal(block, err)
+		}
+		return got.(map[string]any)["terminal"].(string)
+	}
+	first := open("5:0")
+	if again := open("5:0"); len(h.closed) != 1 || h.closed[0] != first || again == first {
+		t.Fatalf("a rerun of a block closes the window it had: %v", h.closed)
+	}
+	for i := 0; i < MaxShells+2; i++ {
+		w := open("6:" + strconv.Itoa(i))
+		h.ended[w] = term.PaneRun{Dead: true}
+	}
+	if _, err := r.e.shellOpen(person("casey"), map[string]any{"agent": "ann"}); err != nil {
+		t.Fatalf("kept windows of finished commands fill no cap: %v", err)
 	}
 }

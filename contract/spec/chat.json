@@ -1290,7 +1290,7 @@
      },
      "exit": {
       "type": "integer",
-      "description": "The command's exit status; only when state is done or failed."
+      "description": "The command's exit status; only when state is done or failed. A command ended by a signal reads 128 plus the signal, as a shell says it."
      },
      "seconds": {
       "type": "integer",

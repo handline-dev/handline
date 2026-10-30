@@ -258,3 +258,13 @@ func TestARunStartingAndEndingIsTheMessageSaidAgainWithItsRuns(t *testing.T) {
 		t.Fatalf("%s", rows[1].Data)
 	}
 }
+
+func TestARunKeptBeforeTheFirstLookIsNotNews(t *testing.T) {
+	r := newChatRig(t)
+	exec(t, r.d, "INSERT INTO requests(id, ts, requester, target, body, state, kind) VALUES(1, 100, 'bob', 'human', 'run it', 'landed', 'say')")
+	cmdruns.Start(r.d, cmdruns.Block{Message: 1, N: 0}, "%4", cmdruns.Now())
+	c := r.chat()
+	r.scan(c)
+	r.scan(c)
+	wantTypes(t, r.types())
+}

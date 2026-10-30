@@ -52,21 +52,15 @@ const maxCommand = 4000
 // runOf reads the command and block of a shell.open: ok is false for a plain shell, and one without the other is bad_request.
 func runOf(params map[string]any) (command string, block cmdruns.Block, ok bool, err error) {
 	c, hasCommand := params["command"]
-	b, hasBlock := params["block"]
-	if !hasCommand && !hasBlock {
+	b := params["block"]
+	if !hasCommand && b == nil {
 		return "", block, false, nil
-	}
-	if !hasCommand {
-		return "", block, false, bad("block needs a command", "command")
 	}
 	command, isText := c.(string)
 	if !isText || command == "" || len(command) > maxCommand {
-		return "", block, false, bad("command is text, 1 to "+strconv.Itoa(maxCommand)+" characters", "command")
+		return "", block, false, bad("a block needs a command, text of 1 to "+strconv.Itoa(maxCommand)+" characters", "command")
 	}
-	if !hasBlock {
-		return "", block, false, bad("a command needs the block it is for", "block")
-	}
-	text, _ := b.(string)
+	text, _ := b.(string) // a missing or non-text block is "", which is no block
 	if block, ok = cmdruns.ParseBlock(text); !ok {
 		return "", block, false, bad(`block is "<message id>:<n>"`, "block")
 	}
@@ -97,9 +91,21 @@ func (e *Env) shellOpen(_ *rpc.Conn, params map[string]any) (any, error) {
 	if !ok {
 		return nil, rpc.Refused("the terminal host ("+e.Backend().Name()+") cannot open a shell", "unsupported", "")
 	}
+	if running { // a rerun closes the window its block had
+		prev, err := cmdruns.Of(e.DB, block.Message)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range prev {
+			if h, ok := e.Backend().(term.Host); ok && r.Block == block.String() && e.shellOf(r.Terminal) == name {
+				h.CloseTerminal(r.Terminal, true)
+			}
+		}
+	}
+	ended := e.PaneRuns()
 	open := 0
 	for h := range e.Backend().ListTerminals() {
-		if a, _ := host.PaneShell(h); a == name {
+		if a, _ := host.PaneShell(h); a == name && !ended[h].Dead { // a window kept for a finished command is not a shell in use
 			open++
 		}
 	}

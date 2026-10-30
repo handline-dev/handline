@@ -110,3 +110,28 @@ func TestAnEndedRunIsDroppedAfterThirtyDays(t *testing.T) {
 		t.Fatalf("the ended one is gone, the running one stays: %+v", runs)
 	}
 }
+
+func TestADeadWindowWithNoEndTimeEndsNow(t *testing.T) {
+	q, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	Start(q, Block{2, 0}, "%1", 1000)
+	Settle(q, map[string]term.PaneRun{"%1": {Tag: "2:0@1000", Dead: true, Status: 2}}, 1007)
+	if runs, _ := Of(q, 2); len(runs) != 1 || runs[0].Ended != 1007 || runs[0].Seconds() != 7 || runs[0].State != "failed" {
+		t.Fatalf("%+v", runs)
+	}
+}
+
+func TestARowThatIsNotItsOwnBlockIsNotARun(t *testing.T) {
+	q, err := store.Open(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	q.Exec(`INSERT INTO meta(name, value, updated) VALUES('run:4:0', '{"block":"4:9","terminal":"%1","started":1,"state":"running"}', 1)`)
+	if runs, _ := Of(q, 4); len(runs) != 0 {
+		t.Fatalf("%+v", runs)
+	}
+}

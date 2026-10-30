@@ -335,7 +335,7 @@ export type CommandRun = {
   started_at: Timestamp;
   /** running: the command has not ended. done: it ended with exit 0. failed: it ended with another exit status. stopped: its window was closed before it ended, so there is no exit status. */
   state: "running" | "done" | "failed" | "stopped";
-  /** The command's exit status; only when state is done or failed. */
+  /** The command's exit status; only when state is done or failed. A command ended by a signal reads 128 plus the signal, as a shell says it. */
   exit?: number;
   /** Seconds from start to end; only when state is done or failed. */
   seconds?: number;
