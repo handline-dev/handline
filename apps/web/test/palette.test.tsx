@@ -69,8 +69,11 @@ describe('palette', () => {
     localStorage.setItem('handline.recent', JSON.stringify([{ kind: 'agent', id: 'handline.architect' }]));
     await mount();
     const heads = $$('.palette [role="presentation"]').map(text);
-    expect(heads).toEqual(['Recent', 'Commands', 'Pages']);
-    expect(options()[0]).toContain('handline.architect');
+    expect(heads).toEqual(['Needs you', 'Recent', 'Commands', 'Pages']);
+    const needs = options().filter((o) => o.includes('Needs you')).length;
+    expect(needs).toBeGreaterThan(0); // the first requests, at most three
+    expect(needs).toBeLessThanOrEqual(3);
+    expect(options().some((o) => o.includes('handline.architect'))).toBe(true);
     expect(options().some((o) => o.includes('Split pane') && o.includes('⌘\\'))).toBe(true);
     localStorage.removeItem('handline.recent');
   });

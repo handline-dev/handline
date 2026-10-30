@@ -50,8 +50,8 @@ describe('the rail on the nav prefs', () => {
       box.querySelector(`[data-agent="${ARCH}"]`)!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
     );
     const item = (text: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => i.textContent === text);
-    await until(() => item('Pin'), 'the Pin item');
-    await act(async () => item('Pin')!.click());
+    await until(() => item('Pin to top'), 'the Pin to top item');
+    await act(async () => item('Pin to top')!.click());
     await until(() => box.querySelector('.pinned-head'), 'the Pinned section');
     expect(box.querySelector('.pinned-head + [data-agent]')?.getAttribute('data-agent')).toBe(ARCH);
   });

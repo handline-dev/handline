@@ -2,6 +2,7 @@
 // to the Inbox about itself.
 import { useEffect, useRef } from 'react';
 import type { Chat } from '#src/chat.ts';
+import { useStore } from '@handline/app-react';
 import { useInbox } from '#src/read.ts';
 import { useWrite } from '#src/write.ts';
 
@@ -43,4 +44,19 @@ export function useChatReadMarks(agent: string, chat: Pick<Chat, 'status' | 'mes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inbox.data, chat.status, agent]);
   return seen;
+}
+
+/** Returns what marks everything the agent has said as read: chat.seen up to its newest message, found by paging back through the chat. */
+export function useMarkAllRead(agent: string): () => Promise<void> {
+  const store = useStore();
+  const mark = useWrite('chat.seen', agent);
+  return async () => {
+    for (let before: number | undefined; ;) {
+      const page = await store.client.call('chat.messages', { agent, scope: 'mine', limit: 50, before });
+      const up_to = page.messages.find((m) => m.from === agent && m.id > 0)?.id;
+      if (up_to) return void mark.mutate({ agent, up_to });
+      before = Math.min(...page.messages.map((m) => m.id));
+      if (!page.more || !page.messages.length) return;
+    }
+  };
 }

@@ -168,7 +168,7 @@ describe('the transcript of a structured agent', () => {
     await until(() => $(`[data-agent="${AUD}"] .row-main`)?.getAttribute('title')?.includes('running'), 'the row running', 600);
     await openMenu(AUD);
     expect(menuItem('Close')).toBeUndefined(); // the daemon closes sessions itself
-    await click(menuItem('Interrupt'));
+    await click(menuItem('Stop this turn'));
     await until(() => ses.state === 'idle', 'the turn ended by the interrupt');
   });
 
@@ -181,7 +181,7 @@ describe('the transcript of a structured agent', () => {
     await until(() => $(`[data-agent="${AUD}"] .row-main`)?.getAttribute('title')?.includes('running'), 'the row running', 600);
     s.daemon.knobs.refuse('session.interrupt', 'state', 'No turn is running', undefined, 1);
     await openMenu(AUD);
-    await click(menuItem('Interrupt'));
+    await click(menuItem('Stop this turn'));
     await until(() => $('.toast'), 'the toast');
     expect(text($('.toast'))).toContain('No turn is running');
   });

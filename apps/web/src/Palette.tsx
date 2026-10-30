@@ -1,8 +1,8 @@
 // The ⌘K palette (G14): one box for agents, tasks by number or title, the pages and a few actions. Arrows move, Enter goes, Escape closes.
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { dateTime, searchSnippet, taskRef } from '@handline/app-core';
-import { useAgents, useChatSearch, useServes, useTasks } from '@handline/app-data';
+import { dateTime, searchSnippet, taskRef, type Card } from '@handline/app-core';
+import { useAgents, useChatSearch, useMyTurn, useServes, useTasks } from '@handline/app-data';
 import { canCapture, requestCapture } from '#src/Capture.tsx';
 import { goAgent, goMessage, goNew, goTasks, goTeam } from '#src/route.ts';
 import { COMMANDS, runCommand } from '#src/commands.ts';
@@ -32,8 +32,8 @@ const PAGES: [string, IconName, () => void][] = [
   ['Machine', 'settings', () => void (location.hash = '#/machine')],
 ];
 
-/** What the empty box lists, by heading: the agents and tasks opened last, then the commands with their keys and the pages. Another heading's rows (what waits on the person) go in front of these. */
-function emptyState(all: Hit[]): Hit[] {
+/** What the empty box lists, by heading: what waits on the person, the agents and tasks opened last, then the commands with their keys and the pages. */
+function emptyState(all: Hit[], needs: Hit[]): Hit[] {
   const byKey = new Map(all.map((h) => [h.key, h]));
   const recent = recents()
     .map((r) => byKey.get(r.kind === 'agent' ? `a:${r.id}` : `t:${r.id}`))
@@ -49,7 +49,7 @@ function emptyState(all: Hit[]): Hit[] {
     run: () => runCommand(c.name),
   }));
   const pages = all.filter((h) => h.key.startsWith('p:')).map((h) => ({ ...h, group: 'Pages' }));
-  return [...recent, ...commands, ...pages];
+  return [...needs, ...recent, ...commands, ...pages];
 }
 
 export function Palette({ onClose }: { onClose: () => void }) {
@@ -57,6 +57,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
   const [at, setAt] = useState(0);
   const agentData = useAgents().data?.agents;
   const taskData = useTasks({}).data?.items;
+  const waiting = useMyTurn().cards;
   const { served } = useServes('chat.search');
   const [typed, setTyped] = useState(''); // the box once the person stops typing
   useEffect(() => {
@@ -94,9 +95,17 @@ export function Palette({ onClose }: { onClose: () => void }) {
         run: () => goMessage(agent, m.id),
       };
     });
-    if (!needle) return emptyState(all);
+    const needs = waiting.slice(0, 3).map((c: Card): Hit => ({
+      key: `n:${c.key}`,
+      group: 'Needs you',
+      icon: c.kind === 'task' || c.kind === 'decision' ? 'tasks' : 'inbox',
+      label: c.task != null ? `${taskRef(c.task)} ${c.title}` : c.title,
+      hint: 'Needs you',
+      run: () => void (location.hash = '#/requests'),
+    }));
+    if (!needle) return emptyState(all, needs);
     return [...all.filter((h) => h.label.toLowerCase().includes(needle)).slice(0, 12), ...messages];
-  }, [q, agentData, taskData, found, messageQuery]);
+  }, [q, agentData, taskData, waiting, found, messageQuery]);
   const go = (h: Hit | undefined) => {
     if (!h) return;
     onClose();
@@ -117,7 +126,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
           <Icon name="search" size={16} aria-hidden />
           <input
             autoFocus
-            className="h-9 flex-1 border-0 bg-transparent outline-none"
+            className="h-9 flex-1 border-0 bg-transparent outline-none focus-visible:outline-none"
             aria-label="Search agents, tasks, pages and messages"
             placeholder="Agents, tasks, pages, messages…"
             value={q}
@@ -133,6 +142,7 @@ export function Palette({ onClose }: { onClose: () => void }) {
               } else if (e.key === 'Enter') go(hits[cur]);
             }}
           />
+          <kbd className="flex-none font-sans text-xs text-ink-3">esc</kbd>
         </div>
         <ul role="listbox" aria-label="Results" className="m-0 max-h-80 list-none overflow-auto py-1">
           {hits.map((h, i) => (

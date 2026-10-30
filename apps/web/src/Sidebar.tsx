@@ -22,7 +22,7 @@ import { useAgents, useMyTurn, useNav, useServes } from '@handline/app-data';
 import { useRowDrag } from '#src/RowDrag.ts';
 import { Mark, MARKS } from '#src/RailIcons.tsx';
 import { WithKey } from '#src/WithKey.tsx';
-import { Button, Icon, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
+import { Button, Icon, Kbd, MenuButton, MenuCheckItem, MenuLabel, MenuSeparator } from '#src/ui/index.ts';
 import { setting } from '#src/daemon.ts';
 import { goTasks, usePageRoute } from '#src/route.ts';
 import { Chip } from '#src/ds/Chip.tsx';
@@ -36,11 +36,14 @@ export function Sidebar({
   onTasks,
   storage,
   onToggle,
+  onSearch,
 }: {
   selected: string;
   onTasks: boolean;
   storage: KV | null;
   onToggle: () => void;
+  /** Opens the palette. */
+  onSearch: () => void;
 }) {
   const list = useAgents();
   const { served } = useServes('agents.list');
@@ -100,6 +103,7 @@ export function Sidebar({
   const counts = new Map<Dot, number>();
   for (const a of agents) counts.set(dotOf(a), (counts.get(dotOf(a)) ?? 0) + 1);
   const myTurn = turn.length;
+  const forYou = turn.filter((c) => c.kind === 'task').length; // tasks waiting on the person
   const pageRoute = usePageRoute();
   return (
     <nav
@@ -133,9 +137,26 @@ export function Sidebar({
           />
         </WithKey>
       </div>
+      <div className="px-2.5 pb-1.5">
+        <button
+          type="button"
+          className="rail-search flex h-8 w-full cursor-pointer items-center gap-2 rounded-md border border-line bg-canvas px-2.5 text-left text-sm text-ink-3"
+          aria-label="Search (⌘K)"
+          onClick={onSearch}
+        >
+          <Icon name="search" size={14} aria-hidden />
+          <span className="flex-1">Search</span>
+          <Kbd>⌘K</Kbd>
+        </button>
+      </div>
       <div className="rail-nav flex flex-wrap gap-0.5 border-b border-line px-1.5 pb-1.5">
         <button className={navOf(onTasks)} aria-current={onTasks ? 'page' : undefined} onClick={() => goTasks()}>
           <Icon name="tasks" size={14} aria-hidden /> Tasks
+          {forYou ? (
+            <span className="ml-auto">
+              <Chip kind="you">{forYou}</Chip>
+            </span>
+          ) : null}
         </button>
         <button
           className={navOf(pageRoute === 'requests')}
