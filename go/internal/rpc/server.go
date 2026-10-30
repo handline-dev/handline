@@ -143,8 +143,12 @@ type Conn struct {
 	Pid        int
 	Caller     Caller
 	saidHello  bool
-	buildNoted bool    // a client_build that differs from Sha has been logged on this connection
-	fixed      *Caller // a relayed device's caller, which hello does not replace
+	buildNoted bool // a client_build that differs from Sha has been logged on this connection
+	// helloClient and helloKey are what the last hello said: its client name, and whether it carried the founder key, another key or none
+	// (or came as a device). refusalNoted is the methods whose refusal was logged on this connection, once each.
+	helloClient, helloKey string
+	refusalNoted          map[string]bool
+	fixed                 *Caller // a relayed device's caller, which hello does not replace
 	// Remote is the peer's host on the network listener, "" elsewhere.
 	Remote     string
 	closeFn    func()
@@ -235,7 +239,7 @@ func (s *Server) serveAs(tr Transport, pid int, remote string, closeConn func(),
 	}()
 	c.Caller = identify(s.Auth, s.Transport == "local", pid, "", s.founder)
 	if fixed != nil {
-		c.Caller, c.saidHello = *fixed, true
+		c.Caller, c.saidHello, c.helloKey = *fixed, true, "a relayed device"
 	}
 	for {
 		timeout := RecvTimeout
@@ -460,6 +464,7 @@ func (c *Conn) route(msg any, raw []byte) (routed, error) {
 		return routed{}, BadRequestError("no such method: "+name, "method", NoSuchMethod)
 	}
 	if !c.Caller.Allows(m.Role) {
+		c.logRefusal(name, m.Role)
 		return routed{}, Refused(fmt.Sprintf("%s is for a %s or above; this caller is %s", name, m.Role, c.Caller.Role), "role", "")
 	}
 	// A call that waits runs on its own goroutine while a later hello may replace c.Caller: it gets the caller as
@@ -579,6 +584,10 @@ func hello(c *Conn, params map[string]any) (any, error) {
 			"protocol", "hl service install")
 	}
 	key, _ := params["key"].(string)
+	c.helloClient, _ = params["client"].(string)
+	if c.fixed == nil {
+		c.helloKey = "a device token" // the network listener's; a local hello says below
+	}
 	if c.srv.Net != nil {
 		tok, _ := params["token"].(string)
 		// The earlier login goes first: Login counts this device's connections, and at its cap it would close the oldest, which can be this one.
@@ -595,9 +604,14 @@ func hello(c *Conn, params map[string]any) (any, error) {
 		c.Caller = Caller{"founder", map[string]any{"kind": "device", "device": id, "name": name}}
 	} else if c.fixed == nil {
 		c.Caller = identify(c.srv.Auth, c.srv.Transport == "local", c.Pid, key, c.srv.founder)
-		if c.Caller.Role == "founder" {
-			client, _ := params["client"].(string)
-			c.srv.noteFounderKey(c.Pid, client)
+		switch {
+		case key == "":
+			c.helloKey = "no key"
+		case c.Caller.Role == "founder":
+			c.helloKey = "the founder key"
+			c.srv.noteFounderKey(c.Pid, c.helloClient)
+		default:
+			c.helloKey = "a key that is not the founder's"
 		}
 	}
 	// Logged once the caller is known, and quoted: an unproven caller's words do not shape the log.

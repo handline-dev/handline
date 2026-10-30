@@ -76,25 +76,45 @@ func (c Caller) ActorInfo() map[string]any {
 	return out
 }
 
+// logRefusal logs a founder's method refused to a caller that is not an agent (agents are refused by design), with what its hello said and
+// the processes above it, so a refused founder client names its cause. Once per connection and method: a client that retries logs once.
+func (c *Conn) logRefusal(method, role string) {
+	if role != "founder" || c.Caller.Role == "agent" || c.srv.Log == nil || c.refusalNoted[method] {
+		return
+	}
+	if c.refusalNoted == nil {
+		c.refusalNoted = map[string]bool{}
+	}
+	c.refusalNoted[method] = true
+	chain, _ := processChain(c.Pid)
+	c.srv.Log("  refused %s: needs %s, caller is %s; hello from %q with %s; pid %d (%s)", method, role, c.Caller.Role, c.helloClient,
+		c.helloKey, c.Pid, chain)
+}
+
+// processChain is pid's program and up to 8 programs above it ("hl:12 > zsh:11"), and its controlling terminal. Empty for pid 0, a peer
+// the kernel did not name.
+func processChain(pid int) (chain, terminal string) {
+	if pid <= 0 {
+		return "", ""
+	}
+	parts := []string{fmt.Sprintf("%s:%d", filepath.Base(peer.Exe(pid)), pid)}
+	for i, a := range (&sessiontoken.Tokens{Lookup: peer.Lookup}).Chain(pid) {
+		if i == 8 {
+			break
+		}
+		parts = append(parts, fmt.Sprintf("%s:%d", a.Program, a.PID))
+	}
+	return strings.Join(parts, " > "), peer.Terminal(pid)
+}
+
 // noteFounderKey keeps an event for each hello the founder key was taken on: the process that presented it, the programs above it and its
 // controlling terminal, so every use can be traced afterwards. A row that cannot be written is logged and refuses nothing.
 func (s *Server) noteFounderKey(pid int, client string) {
 	if s.DB == nil || s.NoEvents {
 		return
 	}
-	var chain []string
-	terminal := ""
-	if pid > 0 { // 0 is a peer the kernel did not name
-		chain = append(chain, fmt.Sprintf("%s:%d", filepath.Base(peer.Exe(pid)), pid))
-		for i, a := range (&sessiontoken.Tokens{Lookup: peer.Lookup}).Chain(pid) {
-			if i == 8 {
-				break
-			}
-			chain = append(chain, fmt.Sprintf("%s:%d", a.Program, a.PID))
-		}
-		terminal = peer.Terminal(pid)
-	}
-	payload := PyJSON(map[string]any{"pid": pid, "chain": strings.Join(chain, " > "), "terminal": terminal, "client": client}, false, false)
+	chain, terminal := processChain(pid)
+	payload := PyJSON(map[string]any{"pid": pid, "chain": chain, "terminal": terminal, "client": client}, false, false)
 	if _, err := s.DB.Exec("INSERT INTO events(ts, agent, kind, payload) VALUES(?, ?, 'founder_key', ?)", time.Now().Unix(), Human, payload); err != nil && s.Log != nil {
 		s.Log("  founder key: the record of pid %d was not written: %v", pid, err)
 	}
