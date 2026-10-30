@@ -274,28 +274,32 @@ function Toast({ n }: { n: Notice }) {
   );
 }
 
-/** How far the stack lifts: it hangs above the status bar, which is where a chat's composer and its Send button end, so it rises over the top of any composer under it. */
+/** The stack hangs where a chat's composer ends, so it rises above any composer under it; composers that open later are measured too. */
 function useLift(shown: boolean) {
   const stack = useRef<HTMLDivElement>(null);
   const [lift, setLift] = useState(0);
   useLayoutEffect(() => {
     const at = stack.current;
     if (!shown || !at || typeof ResizeObserver === 'undefined') return;
+    const sized = new ResizeObserver(() => measure());
+    const watched = new Set<Element>();
     const measure = () => {
       const bar = at.parentElement?.getBoundingClientRect();
       const me = at.getBoundingClientRect();
       if (!bar) return;
-      const tops = [...document.querySelectorAll('.compose-wrap')]
+      const found = [...document.querySelectorAll('.compose-wrap')];
+      for (const c of found) if (!watched.has(c)) (watched.add(c), sized.observe(c));
+      const tops = found
         .map((c) => c.getBoundingClientRect())
         .filter((r) => r.width && r.left < bar.right && r.right > bar.right - me.width)
         .map((r) => r.top);
       setLift(tops.length ? Math.max(0, bar.top - Math.min(...tops)) : 0);
     };
     measure();
-    const watch = new ResizeObserver(measure);
-    watch.observe(document.body);
-    document.querySelectorAll('.compose-wrap').forEach((c) => watch.observe(c));
-    return () => watch.disconnect();
+    sized.observe(document.body);
+    const added = new MutationObserver(measure);
+    added.observe(document.body, { childList: true, subtree: true });
+    return () => (sized.disconnect(), added.disconnect());
   }, [shown]);
   return { stack, lift };
 }
