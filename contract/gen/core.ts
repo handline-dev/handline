@@ -444,7 +444,8 @@ export type ImagePart = {
   image: {
     id: AttachmentId;
     name?: string;
-    mime?: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+    /** As Attachment.mime. */
+    mime?: string;
     bytes?: number;
   };
   /** The words in the reference's brackets; what a client shows when it cannot draw the image. */
@@ -573,6 +574,11 @@ export type MachineNeed = {
   since: Timestamp;
   /** The item in plain words, with the free space in it. */
   text: string;
+  /** disk only, when there are any: the worktrees no agent works in (worktrees.list orphan), as housekeeping last measured them (at most hourly). The text names them too. */
+  orphan_worktrees?: {
+    count: number;
+    size_bytes: number;
+  };
 };
 
 export interface CoreMethods {

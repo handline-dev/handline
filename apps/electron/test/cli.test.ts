@@ -1,11 +1,19 @@
-import { test } from 'node:test';
+import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { cliState, linkCli } from '#src/cli.ts';
 
-const scratch = () => fs.mkdtempSync(path.join(os.tmpdir(), 'hl-cli-'));
+const made: string[] = [];
+const scratch = () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hl-cli-'));
+  made.push(dir);
+  return dir;
+};
+afterEach(() => {
+  for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
 
 test('linking puts hl on the path, moves an old link, and never replaces a real file', () => {
   const dir = path.join(scratch(), 'bin');

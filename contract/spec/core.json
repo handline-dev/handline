@@ -57,7 +57,8 @@
   "build": "daemon.upgrade was handed a binary that does not start, or one that says it is another build than the sha named; the daemon stays on the build it runs.",
   "orphan": "worktree.remove: the path is no orphan worktree (an agent works in it, or it is not a worktree of an agent's repo). An agent's worktree goes only with the agent.",
   "dirty": "worktree.remove: the orphan holds work (files changed, or commits not on main); the data carries files_changed and commits_ahead, and force removes it. agent.retire: a worktree of the agent holds work and the call gave no worktree answer; the data carries worktrees [{path, files_changed, commits_ahead}], and nothing is retired.",
-  "git": "worktree.remove: git refused to remove the worktree; the reason carries git's words."
+  "git": "worktree.remove: git refused to remove the worktree; the reason carries git's words.",
+  "worktree": "agent.retire: a worktree of the agent cannot be removed, so the agent is not retired: the founder answered keep for one that holds work, or it is locked, on no branch or on main (force removes the last two). The reason names the worktree and why; nothing was changed."
  },
  "x-note-topics": "The `hr` topic: hr.raised: a proposal was raised (state open); one event per proposal, once. hr.settled: a proposal left open or applying, or its apply ran again: it was decided, withdrawn, turned applying, or its apply failed; sent for every outcome, a retry of an apply_failed one that fails again included (state apply_failed, a new error); the Proposal carries the new state and `settled`. The event's `agent` is the proposal's agent (null for a bundle), `title` its title, `target` {screen: hr, id: the proposal's id as text}, and `data` {proposal: the whole Proposal}, so a client updates its list and its count without a refetch; a client that missed events refetches hr.list. What hr.list serves, and in which order: see its description. An edit of a draft in place (the file is writable by its author) sends no event: a card learns of it from the refusal proposal_changed. The `notifications` topic's task_done: `agent` is the agent that closed the task, `data.task` its id, `data.task_title` its title and `data.result` the first non-blank line of its done evidence, trimmed, cut at 140 characters, `data.reporter` who the task answers to (its reporter, else its opener) and `data.from_founder` whether the founder gave it (the founder opened it or answers for it); each of the last four is absent when the daemon has none. A bell row draws the agent, task_title, result and `at` from the event alone, never fetching the task; `title` stays a plain line for a client that reads none of them.",
  "x-identity": {
@@ -685,11 +686,11 @@
   "never": "A client does not send session.input, session.keys, session.type, input.take, input.release or terminal.attach for a structured agent, and shows no terminal tab, holder, key strip or Take control. The Go daemon does not serve the first five at all; a daemon that does refuses a structured agent (gate unsupported). terminal.attach with agent is not_found (terminal): it has no terminal."
  },
  "x-attachments": {
-  "what": "Images a person attaches to a chat message, a task's brief, a memo or a note: one path for all of them, and one mechanism for every agent, structured or terminal: the file is stored on the daemon's machine and the agent is told its path, which it reads with its own file tool.",
-  "flow": "attachment.put sends the file in chunks and ends with the Attachment (an id). A text names it as `![caption](attachment:ID)` (texts); chat.send may also list up to 6 ids in `attachments`. A message's images are those its body names, in order, then the listed ids it does not name, each once, at most 6 in all. The message is delivered like any other, with one line per image added after the body, in that order: `[image N: /absolute/path.png (image/png, 184 KB)]`. ChatMessage.attachments and turn_start.attachments list every image of the message for a client to draw, and ChatMessage.parts cuts the body at its images; the body the client stored stays as typed (the path lines are added at delivery only), so a client that shows an agent's echo of a user turn may drop lines of that shape.",
+  "what": "Files a person attaches to a chat message, a task's brief, a memo or a note: images and any other file (a PDF, a text file, an archive), one path for all of them, and one mechanism for every agent, structured or terminal: the file is stored on the daemon's machine and the agent is told its path, which it reads with its own file tool.",
+  "flow": "attachment.put sends the file in chunks and ends with the Attachment (an id). A text names it as `![caption](attachment:ID)` (texts); chat.send may also list up to 6 ids in `attachments`. A message's images are those its body names, in order, then the listed ids it does not name, each once, at most 6 in all. The message is delivered like any other, with one line per attachment (an image or any other file) added after the body, in that order: `[image N: /absolute/path.png (image/png, 184 KB)]`. ChatMessage.attachments and turn_start.attachments list every image of the message for a client to draw, and ChatMessage.parts cuts the body at its images; the body the client stored stays as typed (the path lines are added at delivery only), so a client that shows an agent's echo of a user turn may drop lines of that shape.",
   "texts": "A text names an image with Markdown image syntax and the attachment: scheme, `![caption](attachment:ID)`, in chat.send and say `body`, inbox.reply `text`, task.new and task.edit `body`, task.memo.add and task.memo.edit `text`, and task.handoff `note`. The text is stored as written; only that exact form is a reference, anywhere in the text, anything else is plain text: a client draws the rest as Markdown. At most 6 per text. The write checks each image it names in its own transaction: a malformed id or an upload not yet finished is bad_request (the field, a reason naming the id); an image never put or no longer kept is not_found, what attachment; more than 6 is bad_request. chat.send's `attachments` are checked the same way, with field attachments. An edit that keeps a reference the text already had is never refused for it, even when the image is gone. A write that names an image claims it, as a message does; an image a task names (its brief, a memo or a handoff note) is not removed while that task is open, and is kept 30 days after the last such task is done or discarded. The id is the daemon's, not a device's: one device may upload it and another write the text that names it. task.get cuts each task text at its references so a client need not parse it: TaskDetail.body_parts, Memo.parts and a timeline row's parts; chat reads and request.read do the same for a message in `parts`. Each is a list of TextPart and ImagePart; an image no longer kept is a part with gone: true and only its id. Wherever the daemon types a message, a task's brief, a memo or a note to an agent, it adds the path lines after the text, the message's own images first, then those its task's memos name, numbered on; an agent's reads carry the path in each ImagePart, so hl task show and hl read print the same lines.",
-  "limits": "Types: PNG, JPEG, GIF, WebP, checked by the file's first bytes, not by the mime the client says (a mismatch is bad_request, field data). SVG and everything else is refused. At most 10 MiB per image and 6 per message; chunks of at most 512 KiB of file (a 700 KiB base64 string) so a frame stays under the 1 MiB line. More than 20 unsent uploads open at once, or more than 100 MiB unsent, is refused, gate limit.",
-  "storage": "The daemon's attachments folder under its home (mode 0700; files 0600, owner the daemon's user), one file per image named by its id and the extension of its type: the name the client gave is never part of the path. An upload not finished within 1 hour is dropped with its partial file; a finished image no message names is dropped after 24 hours; one a message names is kept 30 days after the last message naming it, and one a task names as texts says; then it is removed: attachment.get for it is not_found and the client shows the name without the picture.",
+  "limits": "Types: any. A file that says it is a PNG, JPEG, GIF or WebP (mime image/png, image/jpeg, image/gif or image/webp) is checked by its first bytes, not by the mime the client says (a mismatch is bad_request, field data); every other file is kept as sent, with the mime the client gave, and is never refused for its type, executables included: the daemon stores a file with mode 0600, never executable, and an agent only reads it. At most 10 MiB per file and 6 per message; chunks of at most 512 KiB of file (a 700 KiB base64 string) so a frame stays under the 1 MiB line. More than 20 unsent uploads open at once, or more than 100 MiB unsent, is refused, gate limit.",
+  "storage": "The daemon's attachments folder under its home (mode 0700; files 0600, owner the daemon's user), one file per attachment named by its id and an extension: the type's for an image or Markdown, else the ending of the name the client gave when it is letters and digits, at most 8 long and not an image ending (png, jpg, jpeg, gif, webp: only an image's bytes are checked) and, for pdf, only when the file begins with %PDF-, else `bin`. The rest of the name the client gave is never part of the path. An upload not finished within 1 hour is dropped with its partial file; a finished image no message names is dropped after 24 hours; one a message names is kept 30 days after the last message naming it, and one a task names as texts says; then it is removed: attachment.get for it is not_found and the client shows the name without the picture.",
   "reach": "The daemon makes the folder readable by the agent without a prompt (a session setting that allows reads of that folder), so an agent in any worktree can Read the path. A client never sees the path.",
   "roles": "member and founder may put and get, and name any kept image in a text; an agent may not put or get (refused, gate role) in v1, and names only an image a task's text or a message already names or was sent with (else refused, gate role), so it can pass on a picture it was shown.",
   "memo-files": "task.memo.add may also carry files by path (files): images and Markdown, read by the daemon, kept in the same store and linked to the memo, never named in its text. task.get and task.memo.list list them in Memo.files, each read with attachment.get (a Markdown file is served whole, never as a thumbnail). A memo's files are kept like the images its task names: while the task is open, then 30 days after it ends; deleting the memo unlinks them, and they go 30 days after the memo was added. An agent told of the memo reads one line per file after its text: `[file N: /absolute/path.md (text/markdown, 2 KB)]`."
@@ -2449,12 +2450,9 @@
        },
        "mime": {
         "type": "string",
-        "enum": [
-         "image/png",
-         "image/jpeg",
-         "image/gif",
-         "image/webp"
-        ]
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$",
+        "maxLength": 100,
+        "description": "As Attachment.mime."
        },
        "bytes": {
         "type": "integer"
@@ -2876,6 +2874,22 @@
      "text": {
       "type": "string",
       "description": "The item in plain words, with the free space in it."
+     },
+     "orphan_worktrees": {
+      "type": "object",
+      "description": "disk only, when there are any: the worktrees no agent works in (worktrees.list orphan), as housekeeping last measured them (at most hourly). The text names them too.",
+      "properties": {
+       "count": {
+        "type": "integer"
+       },
+       "size_bytes": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "count",
+       "size_bytes"
+      ]
      }
     },
     "required": [

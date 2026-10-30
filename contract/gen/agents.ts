@@ -285,7 +285,7 @@ export interface AgentsMethods {
 }; result: Accepted };
   "agent.retire": { params: {
   agent: AgentName;
-  /** The founder's answer for a worktree of the agent that holds work: keep (it stays), save (what is left is committed to a new branch rescue/<agent>-<date>, then it is removed) or force (removed with whatever it holds; its branch stays). Another word is bad_request, field worktree. */
+  /** The founder's answer for a worktree of the agent that holds work: save (what is left is committed to a new branch rescue/<agent>-<date>, then it is removed) or force (removed with whatever it holds; its branch stays; it also removes one that is on no branch or on main, never a locked one). keep keeps the worktree, so the agent is not retired (gate worktree). Another word is bad_request, field worktree. */
   worktree?: "keep" | "save" | "force";
   request_id: RequestId;
 }; result: Accepted };

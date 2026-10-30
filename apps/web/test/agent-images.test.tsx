@@ -105,9 +105,9 @@ describe('images an agent attaches to a message', () => {
     await mount(s);
     await until(() => box.querySelectorAll('.msg .attachment img').length === 2, 'the pictures');
     await click(box.querySelector('.msg button.attachment')!);
-    await until(() => $('.ui-dialog img'), 'the larger picture');
+    await until(() => $('.image-viewer img'), 'the larger picture');
     await act(async () => void document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))); // Base UI listens on the document
-    await until(() => !$('.ui-dialog'), 'the dialog closed');
+    await until(() => !$('.image-viewer'), 'the dialog closed');
   });
 
   it('says in words when the image cannot be read, and when it is no longer kept', async () => {

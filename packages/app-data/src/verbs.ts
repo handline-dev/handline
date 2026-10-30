@@ -1,7 +1,7 @@
 // The writes and the in-flight mark of the agent verbs (wake, interrupt, restart, close, park, fold, move account, clear stall), shared by the web menu and the phone's.
 import { useMutation } from '@tanstack/react-query';
 import { useStore } from '@handline/app-react';
-import { callOf, VERBS, type Verb, type VerbId } from '@handline/app-core';
+import { callOf, VERBS, type Verb, type VerbId, type WorktreeAnswer } from '@handline/app-core';
 import { usePending, useWrite } from '#src/write.ts';
 
 /** What a caller may ask to hear of a verb's write: it settled, or the daemon refused it. */
@@ -33,10 +33,16 @@ export function useVerbRun(agent: string) {
   };
 }
 
-/** Retires the agent (the founder's Delete agent): the daemon refuses while it has a running session or others hang under it, and says why. */
+/** Retires the agent (the founder's Delete agent): the daemon refuses while it has a running session or others hang under it, and says why.
+ * A worktree that holds work refuses it too (gate dirty, Failure.held) until the call says what to do with it. */
 export function useRetireAgent(agent: string) {
   const retire = useWrite('agent.retire', agent);
-  return (on?: VerbDone) => retire.mutate({ agent }, on);
+  // The agent leaving closes the screen that asked, which would drop mutate's own callbacks: the promise still answers.
+  return (on?: VerbDone, worktree?: WorktreeAnswer) =>
+    void retire.mutateAsync({ agent, worktree }).then(
+      () => on?.onSuccess?.(),
+      (e: unknown) => on?.onError?.(e),
+    );
 }
 
 /** The gerund of the verb in flight on this agent ("parking…"), for the state cell; null when none. `skip` leaves out verbs the caller marks itself. */

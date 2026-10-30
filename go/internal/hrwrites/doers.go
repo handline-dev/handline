@@ -174,16 +174,23 @@ func (e *Env) doTeam(p step) (bool, string, error) {
 
 func (e *Env) doRetire(p step) (bool, string, error) {
 	name := p.str("agent")
-	ok, said, err := e.editTeamYaml(func(t string) (string, error) { return removeText(t, name) }, "", name, nil)
-	if err != nil || !ok {
-		return false, said, err
-	}
-	mine, err := worktreeprune.Of(p.tx, name) // read before its row goes
+	// Its worktrees go first: one that cannot go keeps the agent, so no worktree is left behind with nobody's name on it.
+	mine, err := worktreeprune.Of(p.tx, name)
 	if err != nil {
 		return false, "", err
 	}
-	choice := p.str("worktree") // the founder's answer for a worktree that holds work, when they gave one
-	p.later(func() string { return e.pruneMemberWorktrees(name, mine, choice) })
+	plans, refused, err := e.leaving(name, mine, p.str("worktree")) // worktree: the founder's answer for one that holds work
+	if err != nil || refused != "" {
+		return false, refused, err
+	}
+	cleared, refused := e.clear(name, plans)
+	if refused != "" {
+		return false, refused, nil
+	}
+	ok, said, err := e.editTeamYaml(func(t string) (string, error) { return removeText(t, name) }, "", name, nil)
+	if err != nil || !ok {
+		return false, said + cleared, err
+	}
 	// The scheduling row goes with it. Its requests and events stay - they are the record of work that was done.
 	if _, err := p.tx.Exec("DELETE FROM agent_state WHERE agent = ?", name); err != nil {
 		return false, "", err
@@ -210,7 +217,7 @@ func (e *Env) doRetire(p step) (bool, string, error) {
 	if err := sealed.New(e.Home).Forget(sealed.AgentKey(name)); err != nil {
 		return false, "", err
 	}
-	return true, fmt.Sprintf("%s is retired; its folder is at %s. %s", name, dest, said), nil
+	return true, fmt.Sprintf("%s is retired; its folder is at %s. %s%s", name, dest, said, cleared), nil
 }
 
 // edgesTouching is each edge this agent is an end of, as "<i>:<end>" - by position, so an edge is the same edge before and after the name in it changed.

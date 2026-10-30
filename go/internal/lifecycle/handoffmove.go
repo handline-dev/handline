@@ -7,6 +7,7 @@ import (
 
 	"github.com/handline/handline/go/internal/db"
 	"github.com/handline/handline/go/internal/states"
+	"github.com/handline/handline/go/internal/staymove"
 	"github.com/handline/handline/go/internal/timefmt"
 )
 
@@ -50,9 +51,8 @@ type MoveEnv struct {
 	// ContextUse is the context used and its limit, used < 0 when unknown.
 	ContextUse    func(q db.Q, agent string) (used, limit int)
 	MeasureForget func(q db.Q, agent string)
-	// The policy's pure functions (tick.StayWithin, StayOrMove, WakeAfter), passed in so lifecycle does not import the tick.
-	StayWithin func(coldStartPct *float64, windowS float64) float64
-	StayOrMove func(workWaiting bool, resetInS *float64, stayWithin float64) (bool, string)
+	// StayOrMove is staymove.Decide, and WakeAfter tick.WakeAfter: the policy's pure functions, passed in so a test can fix them.
+	StayOrMove func(s staymove.Situation) (move bool, why string)
 	WakeAfter  func(kind string, shortReset, longReset, now int64) int64
 }
 
@@ -120,8 +120,13 @@ func (v *Mover) MovePlan(agent, kind string, starting bool) (dest, why string, e
 	}
 	work := starting || len(must(db.QueuedFor(m.Q, agent))) > 0
 	if kind != LoginTrigger && kind != EndedTrigger {
-		within := min(v.E.StayWithin(v.E.ColdStartPct(m.Q), w.ShortS), states.PromptCacheS)
-		if move, why := v.E.StayOrMove(work, resetIn, within); !move {
+		s := staymove.Situation{WorkWaiting: work, ResetInS: resetIn, ColdStartPct: v.E.ColdStartPct(m.Q), WindowS: w.ShortS,
+			CacheLifeS: states.PromptCacheS}
+		if end, ok := must2(db.LastEventOfTS(m.Q, agent, []string{"Stop", "StopFailure"})); ok {
+			ago := float64(now - end)
+			s.TurnEndedS = &ago
+		}
+		if move, why := v.E.StayOrMove(s); !move {
 			return "", why, nil
 		}
 	}

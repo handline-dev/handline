@@ -147,6 +147,9 @@
  "file.write": {
   "role": "founder"
  },
+ "files.list": {
+  "role": "member"
+ },
  "hello": {
   "role": "anonymous"
  },

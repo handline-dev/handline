@@ -72,7 +72,7 @@ describe('Delete agent', () => {
     const sheet = $('[role=alertdialog]')!;
     expect(text(sheet)).toContain(`Delete ${TB}?`);
     expect(text(sheet)).toMatch(/team entry, schedule and keys go/);
-    expect(text(sheet)).toMatch(/Past messages, tasks, events and the git worktree stay/);
+    expect(text(sheet)).toMatch(/Past messages, tasks and events stay\. A worktree with nothing in it goes/);
     await click([...sheet.querySelectorAll('button')].find((b) => text(b) === 'Delete')!);
     await until(() => !row(TB), 'the row gone', 600);
     expect(s.daemon.sessions.has(TB)).toBe(false);
@@ -95,5 +95,39 @@ describe('Delete agent', () => {
     await click([...sheet.querySelectorAll('button')].find((b) => text(b) === 'Cancel')!);
     expect($('[role=alertdialog]')).toBeNull();
     expect(s.daemon.sessions.has(TB)).toBe(true);
+  });
+
+  it('asks what to do with a worktree that holds work, and sends the delete again with the answer', async () => {
+    const s = await mount();
+    s.daemon.held.set(TB, [{ path: '/w/tb', files_changed: 3, commits_ahead: 2 }]);
+    const sheet = await openSheet(TB);
+    await click([...sheet.querySelectorAll('button')].find((b) => text(b) === 'Delete')!);
+    await until(() => $('[role=alertdialog]')?.textContent?.includes('has work in its worktree'), 'the pop');
+    const pop = $('[role=alertdialog]')!;
+    expect(text(pop)).toContain('3 unsaved files, 2 unpushed commits');
+    expect([...pop.querySelectorAll('button')].map(text)).toEqual([
+      'Save to a branch, then delete',
+      'Delete, keep the worktree',
+      'Delete and lose the files',
+      'Cancel',
+    ]);
+    expect(row(TB)).not.toBeNull();
+    await click([...pop.querySelectorAll('button')].find((b) => text(b) === 'Delete, keep the worktree')!);
+    await until(() => !row(TB), 'the row gone', 600);
+    expect(s.daemon.sessions.has(TB)).toBe(false);
+    await until(() => document.body.textContent?.includes(`${TB} deleted; its worktree stays`), 'the line after the delete');
+  });
+
+  it('asks once more before it loses the files', async () => {
+    const s = await mount();
+    s.daemon.held.set(TB, [{ path: '/w/tb', files_changed: 1, commits_ahead: 0 }]);
+    const sheet = await openSheet(TB);
+    await click([...sheet.querySelectorAll('button')].find((b) => text(b) === 'Delete')!);
+    await until(() => $('[role=alertdialog]')?.textContent?.includes('has work in its worktree'), 'the pop');
+    await click([...$('[role=alertdialog]')!.querySelectorAll('button')].find((b) => text(b) === 'Delete and lose the files')!);
+    expect(text($('[role=alertdialog] [role=alert]'))).toContain('Uncommitted files are lost');
+    expect(s.daemon.sessions.has(TB)).toBe(true);
+    await click([...$('[role=alertdialog]')!.querySelectorAll('button')].find((b) => text(b) === 'Delete')!);
+    await until(() => !row(TB), 'the row gone', 600);
   });
 });

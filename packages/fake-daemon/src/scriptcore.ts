@@ -193,12 +193,18 @@ export class ScriptCore {
     } else if (s.prompt?.options.some((o) => o.key === key)) this.answer(s, key, actor);
   }
 
-  /** agent.retire: refused while the session is open or another agent hangs under the name; otherwise the agent is gone. */
-  retire(s: Session, actor: Actor) {
+  /** Worktrees that hold work, by agent: agent.retire is refused (gate dirty) until the call answers for them. */
+  readonly held = new Map<string, { path: string; files_changed: number; commits_ahead: number }[]>();
+
+  /** agent.retire: refused while the session is open or another agent hangs under the name, or while a worktree holds work and no answer
+   * came with the call; otherwise the agent is gone. */
+  retire(s: Session, actor: Actor, worktree?: string) {
     const name = s.fx.name;
     if (s.open) throw refused('state', `${name} has a session running. Close it first: an agent is not retired under a running session.`);
     const under = [...this.sessions.keys()].filter((n) => n.startsWith(`${name}.`));
     if (under.length) throw refused('state', `${name} has agents under it (${under.join(', ')}): retire or move them first.`);
+    const held = this.held.get(name);
+    if (held && !worktree) throw refused('dirty', `${name} has work in its worktree.`, undefined, { worktrees: held });
     this.sessions.delete(name);
     this.host.emit('agents', 'agent.removed', { agent: name, actor, data: { name } });
     return this.accepted(`${name} is retired.`);

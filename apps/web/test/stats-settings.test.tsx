@@ -72,6 +72,8 @@ describe('machine', () => {
       changed: [],
       orphan: true,
       merged: true,
+      base: 'main',
+      pr: null,
       files_changed: 0,
       commits_ahead: 0,
       size_bytes: 2048,

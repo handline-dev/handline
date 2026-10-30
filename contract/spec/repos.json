@@ -25,6 +25,38 @@
      "deleted"
     ]
    },
+   "WorktreePR": {
+    "type": "object",
+    "properties": {
+     "number": {
+      "type": "integer"
+     },
+     "url": {
+      "type": "string"
+     },
+     "verdict": {
+      "type": "string",
+      "enum": [
+       "ready",
+       "checks_failing",
+       "waiting_review",
+       "changes_requested",
+       "draft",
+       "merged"
+      ],
+      "description": "merged: it was merged. draft: it is a draft. checks_failing: a check failed (`failing` counts them). changes_requested: a reviewer asked for changes. waiting_review: a review is required and none approved. ready: nothing holds it."
+     },
+     "failing": {
+      "type": "integer",
+      "description": "Present only when verdict is checks_failing: how many checks failed."
+     }
+    },
+    "required": [
+     "number",
+     "url",
+     "verdict"
+    ]
+   },
    "Worktree": {
     "type": "object",
     "properties": {
@@ -78,15 +110,19 @@
      },
      "merged": {
       "type": "boolean",
-      "description": "Orphans only: whether its HEAD is merged into main."
+      "description": "Orphans only: whether its HEAD is merged into base."
+     },
+     "base": {
+      "type": "string",
+      "description": "The branch it merges into: its repo's default branch."
      },
      "files_changed": {
       "type": "integer",
-      "description": "Orphans only: its changed and untracked files, as git status counts them."
+      "description": "Its changed and untracked files, as git status counts them."
      },
      "commits_ahead": {
       "type": "integer",
-      "description": "Orphans only: its commits not on main."
+      "description": "Its commits not on base."
      },
      "size_bytes": {
       "oneOf": [
@@ -97,7 +133,18 @@
         "type": "null"
        }
       ],
-      "description": "Orphans only: the bytes it takes on disk, as housekeeping last measured them (at most hourly, off the daemon's tick); null until measured."
+      "description": "The bytes it takes on disk, as housekeeping last measured them (at most hourly, off the daemon's tick); null until measured."
+     },
+     "pr": {
+      "oneOf": [
+       {
+        "$ref": "#/components/schemas/WorktreePR"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "The pull request of its branch, read with the daemon's own gh login and kept about a minute; null when the branch has none open or merged, it is base itself, or gh could not answer (never a guess)."
      }
     },
     "required": [
@@ -108,7 +155,12 @@
      "parent",
      "children",
      "status",
-     "changed"
+     "changed",
+     "base",
+     "files_changed",
+     "commits_ahead",
+     "size_bytes",
+     "pr"
     ]
    }
   }
@@ -142,7 +194,7 @@
   },
   {
    "name": "worktrees.list",
-   "summary": "Worktrees with status and changed files.",
+   "summary": "Worktrees with status, changed files, what each holds beyond its base and its pull request.",
    "paramStructure": "by-name",
    "params": [
     {
@@ -313,6 +365,89 @@
     "dirty",
     "git"
    ]
+  },
+  {
+   "name": "files.list",
+   "summary": "The files of an agent's worktree, for the chat's @ menu.",
+   "paramStructure": "by-name",
+   "params": [
+    {
+     "name": "agent",
+     "required": true,
+     "schema": {
+      "$ref": "#/components/schemas/AgentName"
+     }
+    },
+    {
+     "name": "query",
+     "required": false,
+     "schema": {
+      "type": "string",
+      "description": "Matched case-insensitively as a subsequence of the path: its letters appear in the path in order, not necessarily side by side. Absent, null or empty lists every file. Anything else that is not a string is bad_request (field query)."
+     }
+    },
+    {
+     "name": "limit",
+     "required": false,
+     "schema": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 200,
+      "default": 50,
+      "description": "The most files returned; absent or null is 50. Outside 1..200, or not an integer: bad_request (field limit)."
+     }
+    }
+   ],
+   "result": {
+    "name": "result",
+    "schema": {
+     "type": "object",
+     "properties": {
+      "files": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "path": {
+          "type": "string",
+          "description": "Relative to the worktree, with `/` between parts."
+         },
+         "size": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The file's size in bytes."
+         }
+        },
+        "required": [
+         "path",
+         "size"
+        ]
+       },
+       "description": "With no query, every file in byte order of path. With one, the matches best first: a match inside the file's name (the part after the last `/`) comes first, then one elsewhere in the path, then a subsequence that is not side by side; within each, the shorter path first, then byte order."
+      },
+      "more": {
+       "type": "boolean",
+       "description": "More files matched than limit let through."
+      }
+     },
+     "required": [
+      "files",
+      "more"
+     ]
+    }
+   },
+   "x-role": "member",
+   "x-write": false,
+   "x-since": 1,
+   "errors": [
+    {
+     "$ref": "#/components/errors/bad_request"
+    },
+    {
+     "$ref": "#/components/errors/not_found"
+    }
+   ],
+   "description": "The files are what git tracks plus the untracked files it does not ignore (`git ls-files --cached --others --exclude-standard`), the regular files among them that are there now. An agent with no worktree, or whose worktree is gone, is not_found. It reads only names and sizes, never a file's content."
   },
   {
    "name": "file.read",

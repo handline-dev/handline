@@ -37,7 +37,7 @@ export interface MarksState {
 
 export type MarksAction =
   | { type: 'down' | 'move' | 'up'; x: number; y: number }
-  | { type: 'cancel' | 'undo' }
+  | { type: 'cancel' | 'undo' | 'clear' }
   | { type: 'memo'; id: number; text: string }
   | { type: 'open'; id: number | null }
   | { type: 'remove'; id: number }
@@ -98,12 +98,20 @@ export function marksReducer(s: MarksState, a: MarksAction): MarksState {
     }
     case 'cancel':
       return { ...s, draft: null };
+    case 'clear':
+      return { ...s, marks: [], past: [], draft: null, open: null };
     case 'memo':
       return { ...s, marks: s.marks.map((m) => (m.id === a.id ? { ...m, text: a.text } : m)) };
     case 'open':
       return { ...s, open: a.id };
     case 'remove':
-      return s.marks.some((m) => m.id === a.id) ? commit(s, s.marks.filter((m) => m.id !== a.id), s.open === a.id ? null : s.open) : s;
+      return s.marks.some((m) => m.id === a.id)
+        ? commit(
+            s,
+            s.marks.filter((m) => m.id !== a.id),
+            s.open === a.id ? null : s.open,
+          )
+        : s;
     case 'undo': {
       const [marks, ...past] = s.past;
       return marks ? { ...s, marks, past, draft: null, open: null } : { ...s, draft: null };
@@ -153,6 +161,16 @@ export function marksToShapes(marks: readonly Mark[], width: number, all = false
           ? { ...base, id, kind: 'box', from, to }
           : { ...base, id, kind: 'pen', points: [...(m.points ?? []), ...(m.points?.[0] ? [m.points[0]] : [])] };
     const size = textSize(width);
-    return [outline, { ...base, id: id + 1, kind: 'text', at: { x: Math.max(0, from.x - size), y: Math.max(0, from.y - size) }, text: String(i + 1), size }];
+    return [
+      outline,
+      {
+        ...base,
+        id: id + 1,
+        kind: 'text',
+        at: { x: Math.max(0, from.x - size), y: Math.max(0, from.y - size) },
+        text: String(i + 1),
+        size,
+      },
+    ];
   });
 }

@@ -77,6 +77,7 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
             seed_tool_items(con, output_agent)
             seed_session_start(con, output_agent)
             seed_workroom(home, con)
+            seed_files(home, con)
             seed_open_question(con, ask_agent)
             typing = seed_typing_gates(home, con)
             write_team(home, [*names.values(), output_agent, ask_agent, DOING_AGENT, AGENT, LEAD, *RETIRE, *ORDER.values(), *typing.values()])
@@ -84,7 +85,7 @@ def seed_states(home: Path, daemon: subprocess.Popen) -> dict[str, str]:
             con.close()
             return {**{f"state_{w}": n for w, n in names.items()}, "output_agent": output_agent, "session_agent": output_agent,
                     "ask_agent": ask_agent, "triggers_agent": names["idle"], "doing_agent": DOING_AGENT, "view_plain_agent": names["idle"], "retire_agent": RETIRE[0],
-                    "retire_parent": RETIRE[1], **WORKROOM, **typing, **order, "order_rename_to": "o.new"}
+                    "retire_parent": RETIRE[1], "files_agent": FILES_AGENT, **WORKROOM, **typing, **order, "order_rename_to": "o.new"}
         except sqlite3.Error:
             if daemon.poll() is not None:
                 break
@@ -107,14 +108,58 @@ def seed_workroom(home: Path, con: sqlite3.Connection) -> None:
     agent = home / "agents" / WORKROOM["create_parent"]
     agent.mkdir(parents=True)
     (agent / "agent.yaml").write_text(f"role: seeded by conformance_fds\nrepo: {repo}\n")
-    con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'idle', 0, ?)", (WORKROOM["create_parent"], str(repo)))
+    subprocess.run(["git", "remote", "add", "origin", "git@github.com:conf/workroom.git"], cwd=repo, check=True)
+    extra = []
+    for branch, commits, dirty in (("facts/clean", 0, 0), ("facts/dirty", 2, 2), ("facts/failing", 1, 0), ("facts/ready", 1, 0)):
+        path = home.parent / branch.replace("/", "-")
+        subprocess.run(["git", "worktree", "add", "-q", "-b", branch, str(path)], cwd=repo, check=True, env=env)
+        for i in range(commits):
+            (path / f"c{i}.txt").write_text("x")
+            subprocess.run(["git", "add", "."], cwd=path, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", f"c{i}"], cwd=path, env=env, check=True)
+        for i in range(dirty):
+            (path / ("c0.txt" if i == 0 else "loose.txt")).write_text("changed")
+        extra.append(str(path.resolve()))
+    con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree, extra_worktrees) VALUES(?, 'idle', 0, ?, ?)",
+                (WORKROOM["create_parent"], str(repo), json.dumps(extra)))
     WORKROOM["create_repo"] = WORKROOM["status_worktree"] = str(repo.resolve())
+
+
+# What files_list.json needs: an agent whose worktree holds these files. build/out.js is ignored, notes/todo.md untracked.
+FILES_AGENT = "f.files"
+FILES = {".gitignore": "build/\n", "README.md": "hello\n", "docs/domain.md": "x", "lib/main.go": "x", "main/run.sh": "x", "src/app/Main.tsx": "x",
+         "src/app/main_test.go": "x", "src/my_animation.ts": "x"}
+
+
+def seed_files(home: Path, con: sqlite3.Connection) -> None:
+    repo = home.parent / "filesroom"
+    for rel, text in FILES.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text(text)
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
+    for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "first"]):
+        subprocess.run(["git", *args], cwd=repo, env=env, check=True)
+    for rel in ("notes/todo.md", "build/out.js"):
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text("x")
+    con.execute("INSERT OR REPLACE INTO agent_state(agent, state, updated, worktree) VALUES(?, 'idle', 0, ?)", (FILES_AGENT, str(repo)))
 
 
 def seed_open_question(con: sqlite3.Connection, agent: str) -> None:
     """One open question from the agent to the person, for chat_parent.json."""
     con.execute("INSERT INTO requests(ts, requester, target, body, response, kind, state) VALUES(?, ?, 'human', 'which one?', 'async', 'ask', 'delivered')",
                 (int(time.time()), agent))
+
+
+# The gh the daemon finds first: the pull requests worktrees.list.facts_of_a_branch_whose_checks_fail and ..._with_a_ready_pr read.
+GH_STUB = """#!/bin/sh
+while [ $# -gt 0 ]; do [ "$1" = --head ] && head=$2; shift; done
+case "$head" in
+facts/failing) echo '[{"number":901,"url":"https://github.com/conf/workroom/pull/901","state":"OPEN","isDraft":false,"reviewDecision":"","statusCheckRollup":[{"conclusion":"FAILURE"},{"conclusion":"TIMED_OUT"},{"conclusion":"SUCCESS"}]}]';;
+facts/ready) echo '[{"number":902,"url":"https://github.com/conf/workroom/pull/902","state":"OPEN","isDraft":false,"reviewDecision":"APPROVED","statusCheckRollup":[{"conclusion":"SUCCESS"}]}]';;
+*) echo '[]';;
+esac
+"""
 
 
 ASK_AGENT = "s.ask"
@@ -235,6 +280,9 @@ def main(argv: list[str]) -> int:
         key = secrets.token_urlsafe(32)
         (store / "founder-keys" / "key").write_text(key)
         (store / "founder-keys" / "key").chmod(0o600)
+        (test_root / "bin").mkdir()
+        (test_root / "bin" / "gh").write_text(GH_STUB)
+        (test_root / "bin" / "gh").chmod(0o755)
         mine, session, holder = agent_pairs(store, AGENT_PAIRS)  # first: the child would hold a copy of any pair made before it
         pairs = [socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM) for _ in range(PAIRS)]
         net_pairs = [socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM) for _ in range(PAIRS)]
@@ -244,7 +292,8 @@ def main(argv: list[str]) -> int:
                                    "-serve-net-fds", ",".join(map(str, net_theirs)), *claude], pass_fds=theirs + net_theirs,
                                   stderr=subprocess.PIPE,
                                   # the founder's daemon, even when an agent runs the check: it writes the protected store
-                                  env={**os.environ, "HANDLINE_TEST_ROOT": str(test_root), "OCP_AGENT": "", "HANDLINE_AGENT": ""})
+                                  env={**os.environ, "HANDLINE_TEST_ROOT": str(test_root), "OCP_AGENT": "", "HANDLINE_AGENT": "",
+                                       "PATH": f"{test_root / 'bin'}:{os.environ['PATH']}"})
         for _a, b in pairs + net_pairs + mine:
             b.close()
 

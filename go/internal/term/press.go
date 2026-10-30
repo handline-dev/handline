@@ -532,10 +532,8 @@ func (t *Term) ScreenBlocker(handle string) *Blocker {
 // BackgroundWork is what the session itself says is still running behind its prompt ("2 monitors"), "" when it says nothing; ok
 // is false when its screen could not be read.
 func (t *Term) BackgroundWork(handle string) (string, bool) {
-	if t.Turns != nil {
-		if running, known := t.Turns.Background(handle); known {
-			return running, true
-		}
+	if running, known := t.hookBackground(handle); known {
+		return running, true
 	}
 	scr := t.screen(handle, 40)
 	if scr == nil {
@@ -546,13 +544,29 @@ func (t *Term) BackgroundWork(handle string) (string, bool) {
 
 // IdleWithBackground is whether the screen shows a session idle at its prompt with work running behind it.
 func (t *Term) IdleWithBackground(handle string) bool {
-	if t.Turns != nil {
-		if running, known := t.Turns.Background(handle); known {
-			return running != ""
-		}
+	if running, known := t.hookBackground(handle); known {
+		return running != ""
 	}
 	scr := t.screen(handle, 40)
 	return scr != nil && t.driver(handle).IdleWithBackground(scr.Tail)
+}
+
+// hookBackground is what the last Stop said still runs, unless a readable footer shows nothing behind the prompt: the Stop's list can
+// keep an entry the session no longer shows, and the footer is what the user sees.
+func (t *Term) hookBackground(handle string) (string, bool) {
+	if t.Turns == nil {
+		return "", false
+	}
+	running, known := t.Turns.Background(handle)
+	if !known || running == "" {
+		return running, known
+	}
+	if scr := t.screen(handle, 40); scr != nil {
+		if shown, ok := FooterBackground(scr.Tail); ok && shown == "" {
+			return "", true
+		}
+	}
+	return running, true
 }
 
 // UsageLimitOpen is whether the dialog on this terminal's screen is the usage-limit one, the only dialog that waiting does not
