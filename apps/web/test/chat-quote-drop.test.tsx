@@ -102,6 +102,7 @@ describe('dropping files on the chat pane', () => {
     await mount('Report: gaps listed.');
     await drag($('.stream')!, 'dragenter');
     expect(text($('.chat'))).toContain('Drop to attach');
+    expect($('.drop-cover')!.className).toContain('max-w-none!'); // .chat caps its children at 48rem; the cover is the whole pane
     await drag($('.stream')!, 'dragleave');
     expect(text($('.chat'))).not.toContain('Drop to attach');
   });
@@ -111,6 +112,8 @@ describe('dropping files on the chat pane', () => {
     await drag($('.stream')!, 'dragenter');
     await drag($('.stream')!, 'drop', [new File(['x'], 'notes.pdf', { type: 'application/pdf' })]);
     expect(text($('.chat'))).not.toContain('Drop to attach');
-    expect(text($('.compose-wrap'))).toContain('Only pictures can be sent for now');
+    const line = $('.compose-wrap [role="status"]')!;
+    expect(line.textContent).toContain('Only pictures can be sent for now');
+    expect($('.compose-wrap textarea')!.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

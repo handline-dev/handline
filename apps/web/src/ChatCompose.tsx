@@ -168,17 +168,12 @@ export function Compose(props: {
     <div ref={wrap} className="compose-wrap flex flex-col" onPaste={canAttach.ok ? pasteImages(att.add) : undefined}>
       {over && pane
         ? createPortal(
-            <span className="drop-cover pointer-events-none absolute inset-0 z-20 grid place-items-center border-2 border-dashed border-acc bg-surface/80 text-md text-ink-2">
+            <span className="drop-cover pointer-events-none absolute inset-0 z-20 mx-0! max-w-none! grid place-items-center border-2 border-dashed border-acc bg-surface/80 text-md text-ink-2">
               Drop to attach
             </span>,
             pane,
           )
         : null}
-      {note ? (
-        <p role="status" className="mx-3 flex items-center gap-2 px-1 pb-1 text-sm text-bad">
-          <Icon name="warn" size={14} aria-hidden /> {note}
-        </p>
-      ) : null}
       {/* The reply bar's row is always this tall, so picking a message never shifts the stream to make room. */}
       <div className="mx-3 mb-1 flex h-[26px] items-center">
         {target ? (
@@ -273,6 +268,11 @@ export function Compose(props: {
           />
         </div>
       </ComposeRow>
+      {note ? (
+        <p role="status" className="mx-3 flex items-center gap-2 px-1 pt-1 text-sm text-bad">
+          <Icon name="warn" size={14} aria-hidden /> {note}
+        </p>
+      ) : null}
     </div>
   );
 }
