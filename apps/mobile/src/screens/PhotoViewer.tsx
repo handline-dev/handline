@@ -4,14 +4,14 @@
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { Image, Keyboard, KeyboardAvoidingView, Modal, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
-import { initialMarks, keptMarks, markText, marksReducer } from '@handline/app-core';
+import { initialMarks, keptMarks, marksReducer } from '@handline/app-core';
 import { useUploadImage } from '@handline/app-data';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { MarkShapes } from '#src/screens/MarkShapes.tsx';
 import { Button, SafeScreen } from '#src/screens/parts.tsx';
 import { useImage } from '#src/screens/ChatPictures.tsx';
-import { BAR, DiscardAsk, INK, DIM, Notes, plural } from '#src/screens/PhotoNotes.tsx';
+import { BAR, DiscardAsk, INK, DIM, Notes, notesText, plural } from '#src/screens/PhotoNotes.tsx';
 import { useZoom } from '#src/screens/PhotoZoom.ts';
 
 export interface Shot {
@@ -25,7 +25,7 @@ export type SendMarks = (words: string, attachments: string[]) => void;
 const MAX_SIDE = 2048;
 const GONE = 'This image is no longer kept.';
 const FAILED = 'This image could not be loaded.';
-const SCRIM = 0.96;
+const SCRIM = 0.985;
 
 interface Where {
   pictures: Shot[];
@@ -147,7 +147,13 @@ function Photo(props: Where & { pic: Shot; at: number; step: (by: number) => voi
         drawn = null; // the words still go, with the photo as it was
       }
       const id = drawn?.size ? (await upload(drawn, 'marked.jpg', 'image/jpeg')).id : pic.id;
-      props.onSend(markText('', marks), [id]);
+      props.onSend(
+        notesText(
+          pic.name,
+          kept.map((m) => m.text.trim().replace(/\s*\n\s*/g, ' ')),
+        ),
+        [id],
+      );
       props.onClose();
     } catch {
       setProblem('The notes were not sent. Try again.');

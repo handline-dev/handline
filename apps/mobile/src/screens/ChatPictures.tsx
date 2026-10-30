@@ -53,9 +53,9 @@ function Thumb({ a, onOpen }: { a: Picture; onOpen: () => void }) {
           <Image
             accessibilityLabel={a.name}
             source={{ uri: read.uri }}
-            resizeMode="cover"
+            resizeMode="contain"
             onError={() => setBad(true)}
-            style={{ width: 120, height: 120, borderRadius: radius.m }}
+            style={{ width: 120, height: 120, borderRadius: radius.m, backgroundColor: c.panel }}
           />
         ) : (
           <Text style={{ color: c.muted, fontSize: font.size.sm }}>{a.name}</Text>

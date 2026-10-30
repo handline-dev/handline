@@ -125,7 +125,9 @@ describe('the photo viewer', { timeout: 20000 }, () => {
     expect($m('marks-send')?.textContent).toBe(`Send 1 note to ${AUD}`);
     await press($m('marks-send'));
     await until(() => !$m('picture-image'), 'the viewer closed after the send');
-    await until(() => document.body.textContent?.includes('Button is too big'), 'the note in the chat');
+    await until(() => document.body.textContent?.includes('One change on a.png'), 'the title line in the chat');
+    expect(document.body.textContent).toContain('Button is too big');
+    expect(document.body.textContent).not.toContain('"shape"'); // no raw mark data in the visible body
     expect(document.querySelectorAll('[data-testid="pictures"]').length).toBe(2); // the plain photo, and one message with the drawn copy
     m.store.stop();
   });

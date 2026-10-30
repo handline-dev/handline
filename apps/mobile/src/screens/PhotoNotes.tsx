@@ -1,6 +1,6 @@
 // The notes under a photo being marked (a numbered line to write for each mark) and the question that guards unsent ones.
 import type { Dispatch } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { MARK_COLOR, type Mark, type MarksAction } from '@handline/app-core';
 import { font, radius, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
@@ -13,6 +13,10 @@ export const BAR = '#000';
 export const DIM = 'rgba(255,255,255,0.7)';
 
 export const plural = (n: number) => `${n} ${n === 1 ? 'note' : 'notes'}`;
+
+/** The words of the message, as the web writes them: what the photo is, then one numbered line per note. */
+export const notesText = (name: string, notes: string[]) =>
+  [`${notes.length === 1 ? 'One change' : `${notes.length} changes`} on ${name}`, ...notes.map((t, i) => `${i + 1}. ${t}`)].join('\n');
 
 export function Notes(props: { marks: Mark[]; open: number | null; dispatch: Dispatch<MarksAction> }) {
   const { marks, open, dispatch } = props;
@@ -78,8 +82,16 @@ export function DiscardAsk(props: { count: number; onDiscard: () => void; onKeep
       <View style={{ backgroundColor: c.panel, borderRadius: radius.m, padding: space.xl, gap: space.md }}>
         <Text style={{ color: c.ink, fontSize: font.size.lg, fontWeight: '700' }}>Discard {plural(props.count)}?</Text>
         <Text style={{ color: c.muted }}>They are not sent yet.</Text>
-        <Button testID="discard-yes" kind="no" label="Discard" onPress={props.onDiscard} />
-        <Button testID="discard-keep" label="Keep marking" onPress={props.onKeep} />
+        <Button testID="discard-keep" kind="yes" label="Keep marking" onPress={props.onKeep} />
+        <Pressable
+          testID="discard-yes"
+          accessibilityRole="button"
+          hitSlop={8}
+          onPress={props.onDiscard}
+          style={{ alignItems: 'center', padding: space.sm }}
+        >
+          <Text style={{ color: c.block, fontWeight: '600' }}>Discard</Text>
+        </Pressable>
       </View>
     </View>
   );
