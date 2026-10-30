@@ -72,6 +72,8 @@ export type ChatMessage = {
   request_task?: number | null;
   /** On a message of the founder's to an agent: why it needs no work (task.none); null for none. */
   no_work?: string | null;
+  /** The runs of this message's command blocks, one per block, oldest start first. Absent when none was started. Phone and PC draw 'Running · 4s', 'Done · exit 0 · 3s', 'Failed · exit 1 · 3s' or 'Stopped' from it. */
+  runs?: CommandRun[];
 };
 
 export type TranscriptItem = {
@@ -322,6 +324,21 @@ export type RequestRow = {
   /** Orders the list; pass the last row's as requests.list before. */
   cursor: string;
   [key: string]: unknown;
+};
+
+/** One run of a command block of a message (shell.open command and block): the last run only. */
+export type CommandRun = {
+  /** "<message id>:<n>", as shell.open took it. */
+  block: string;
+  /** The run's window, as terminal.attach takes it; gone once the window is closed. */
+  terminal: string;
+  started_at: Timestamp;
+  /** running: the command has not ended. done: it ended with exit 0. failed: it ended with another exit status. stopped: its window was closed before it ended, so there is no exit status. */
+  state: "running" | "done" | "failed" | "stopped";
+  /** The command's exit status; only when state is done or failed. A command ended by a signal reads 128 plus the signal, as a shell says it. */
+  exit?: number;
+  /** Seconds from start to end; only when state is done or failed. */
+  seconds?: number;
 };
 
 export interface ChatMethods {

@@ -54,6 +54,7 @@ export async function seedConformance(daemon: FakeDaemon): Promise<void> {
   daemon.chat.seedItem('conf.output', { kind: 'tool', tool: 'Bash', text: "printf 'a\\nb\\n'", output: 'a\nb\n' });
   daemon.chat.seedItem('conf.output', { kind: 'tool', tool: 'Bash', text: 'seq 1 10', output: '1\n2\n', dropped_lines: 8 });
   daemon.chat.seedItem('conf.output', { kind: 'tool', tool: 'Bash', text: 'true' });
+  daemon.sessions.set('conf.runs', newSession({ ...base, name: 'conf.runs' }, new Date().toISOString()));
   for (const name of ['conf.reply', 'conf.reply2']) {
     daemon.sessions.set(name, newSession({ ...base, name }, new Date().toISOString()));
     daemon.transcript.structure(name);

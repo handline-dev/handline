@@ -46,6 +46,10 @@ chat.send.parent_item_unknown_is_not_found
 chat.send.parent_item_with_a_task_is_bad_request
 chat.send.the_same_id_with_other_params_is_bad_request
 chat.send_now.writes_a_queued_operation
+command_runs.done
+command_runs.failed
+command_runs.running
+command_runs.stopped
 devices.revoke_closes_a_terminal_attach
 hr.decide.a_proposal_changed_since_it_was_read_is_refused_with_it
 hr.decide.a_rename_of_a_running_agent_applies_when_its_turn_ends
