@@ -1,7 +1,7 @@
 // The Home settings page's Automation rows: the handoff prompt as one line, and the switch that ignores cache expiry.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
@@ -49,6 +49,7 @@ async function mount(s = setup(), folds = true) {
 }
 const scrollIntoView = Element.prototype.scrollIntoView;
 afterEach(async () => {
+  vi.restoreAllMocks();
   await act(async () => root?.unmount());
   root = null;
   box?.remove();
@@ -170,6 +171,27 @@ describe('settings: handoff prompt and cache expiry', () => {
     await click(item('This computer') as HTMLElement);
     expect(item('This computer').getAttribute('aria-current')).toBe('location');
     expect(item('Notifications').getAttribute('aria-current')).toBeNull();
+  });
+
+  it('marks the last group when the settings column is scrolled to its end', async () => {
+    await mount(setup(), false);
+    await until(() => $('[data-setting="Handoff text"]'), 'the rows');
+    const column = $('.settings-shell')!;
+    // jsdom has no layout: the column is 2000 tall in a 900 window (the element goes with the test)
+    Object.defineProperty(column, 'scrollHeight', { value: 2000 });
+    Object.defineProperty(column, 'clientHeight', { value: 900 });
+    const item = (label: string) =>
+      [...document.querySelectorAll('nav[aria-label="Contents"] button')].find((b) => b.textContent === label)!;
+    await act(async () => {
+      column.scrollTop = 1100;
+      column.dispatchEvent(new Event('scroll'));
+    });
+    expect(item('This computer').getAttribute('aria-current')).toBe('location');
+    await act(async () => {
+      column.scrollTop = 0;
+      column.dispatchEvent(new Event('scroll'));
+    });
+    expect(item('This computer').getAttribute('aria-current')).toBeNull();
   });
 
   it('a daemon without settings.get shows no rows', async () => {
