@@ -2,10 +2,11 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-export type ChipKind = 'source' | 'you' | 'unread' | 'count';
+export type ChipKind = 'source' | 'warn' | 'you' | 'unread' | 'count';
 
 const KIND: Record<ChipKind, string> = {
   source: 'border border-line-strong text-ink-2',
+  warn: 'bg-wait/15 font-medium text-wait',
   you: 'bg-wait font-medium text-white',
   unread: 'bg-acc font-semibold text-white',
   count: 'min-w-[18px] justify-center bg-panel font-semibold text-ink',

@@ -10,7 +10,6 @@ import { classify, usePending, useTask, useTaskHistory, useWrite } from '@handli
 import { Hand } from 'lucide-react';
 import { Button, Icon, MenuButton, MenuItem, PageHead, PageTitle, Popup } from '#src/ui/index.ts';
 import { Button as DsButton } from '#src/ds/Button.tsx';
-import { Id } from '#src/ds/Link.tsx';
 import { AssignPopover } from '#src/TaskPeople.tsx';
 import { leave } from '#src/route.ts';
 import { StateChip, useCan, useNow } from '#src/taskui.tsx';
@@ -57,7 +56,7 @@ export function TaskDetail({
         <PageHead back={onBack ? { label: 'My turn', to: onBack } : { label: 'Tasks', to: () => leave('#/tasks') }}>
           {/* A flex-1 row, not a truncating heading: the title takes the bar's free width (a long one truncates), the field what the ref leaves and its focus ring is not clipped. */}
           <PageTitle className="flex min-w-0 flex-1 items-baseline gap-1.5">
-            <span className="mono flex-none text-[length:inherit] leading-[inherit]">{taskRef(id)}</span>
+            <span className="flex-none">{taskRef(id)}</span>
             {q.data ? (
               <span className="title-slot min-w-0 flex-1 [&>[role=button]]:truncate">
                 <TitleEdit bar t={q.data} />
@@ -246,7 +245,7 @@ function Body({ t, barNamed }: { t: Detail; barNamed?: boolean }) {
         <header className="tdetail-head flex flex-wrap items-baseline gap-2">
           {barNamed ? null : (
             <h2 className={`m-0 min-w-0 text-lg font-semibold`}>
-              <Id>{taskRef(t.id)}</Id> <TitleEdit t={t} />
+              <span>{taskRef(t.id)}</span> <TitleEdit t={t} />
             </h2>
           )}
           <span className="relative ml-auto inline-flex">

@@ -1,5 +1,6 @@
 // Where a task's time went, always one line above the body: a small bar and a sentence; a click opens one box with the full bar, the total per
 // kind and each stretch with its reason, start and length, scrolling inside a short height. Read from task.time when the task opens, for the sentence.
+import { CircleAlert } from 'lucide-react';
 import { useState } from 'react';
 import { clockTime, span, timeView, type TimeLabel } from '@handline/app-core';
 import type { TimeSegment } from '@handline/client';
@@ -36,7 +37,11 @@ export function TimeLine({ id, left, blocked }: { id: number; left?: string; blo
   const [open, setOpen] = useState(false);
   const off = useOff('task.time');
   const segments = useTaskTime(id).data?.segments ?? [];
-  const chip = blocked ? <Chip>Blocked</Chip> : null;
+  const chip = blocked ? (
+    <Chip kind="warn" icon={CircleAlert}>
+      Blocked
+    </Chip>
+  ) : null;
   if (off || !segments.length)
     return chip ? (
       <div className="mt-3 flex items-center gap-2 text-sm text-ink-2">
