@@ -8,6 +8,8 @@ import { Button, Link } from '#src/screens/parts.tsx';
 
 /** The viewer's own ink: it sits on a dark scrim in either theme. */
 export const INK = '#fff';
+/** The bars are solid: the chat behind the scrim may not show through a title or a button. */
+export const BAR = '#000';
 export const DIM = 'rgba(255,255,255,0.7)';
 
 export const plural = (n: number) => `${n} ${n === 1 ? 'note' : 'notes'}`;
@@ -18,7 +20,7 @@ export function Notes(props: { marks: Mark[]; open: number | null; dispatch: Dis
   return (
     <ScrollView
       testID="notes"
-      style={{ maxHeight: 200, flexGrow: 0 }}
+      style={{ maxHeight: 200, flexGrow: 0, backgroundColor: BAR }}
       contentContainerStyle={{ gap: space.sm, padding: space.lg }}
       keyboardShouldPersistTaps="handled"
     >

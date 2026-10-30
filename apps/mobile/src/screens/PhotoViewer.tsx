@@ -2,7 +2,7 @@
 // a swipe down or Close leaves, a swipe sideways (or the arrows) steps. "Mark what to change" turns a drag into a box and a tap into a spot, each with
 // a numbered note under the photo; Send sends the marked photo and the notes as one message. Unsent marks are asked about before they are dropped.
 import { useEffect, useReducer, useRef, useState } from 'react';
-import { Image, KeyboardAvoidingView, Modal, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
+import { Image, Keyboard, KeyboardAvoidingView, Modal, PixelRatio, Platform, Pressable, Text, View } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { initialMarks, keptMarks, markText, marksReducer } from '@handline/app-core';
 import { useUploadImage } from '@handline/app-data';
@@ -11,7 +11,7 @@ import { usePalette } from '#src/theme.ts';
 import { MarkShapes } from '#src/screens/MarkShapes.tsx';
 import { Button, SafeScreen } from '#src/screens/parts.tsx';
 import { useImage } from '#src/screens/ChatPictures.tsx';
-import { DiscardAsk, INK, DIM, Notes, plural } from '#src/screens/PhotoNotes.tsx';
+import { BAR, DiscardAsk, INK, DIM, Notes, plural } from '#src/screens/PhotoNotes.tsx';
 import { useZoom } from '#src/screens/PhotoZoom.ts';
 
 export interface Shot {
@@ -92,7 +92,8 @@ function Photo(props: Where & { pic: Shot; at: number; step: (by: number) => voi
   const kept = keptMarks(marks);
   const line = Math.max(3, Math.round(natural.w / 250));
 
-  const leave = () => (marking && marks.length ? setAsking('close') : props.onClose());
+  const ask = (after: 'browse' | 'close') => (Keyboard.dismiss(), setAsking(after));
+  const leave = () => (marking && marks.length ? ask('close') : props.onClose());
   const { register } = props;
   useEffect(() => void register(leave));
   const stopMarking = () => {
@@ -163,7 +164,16 @@ function Photo(props: Where & { pic: Shot; at: number; step: (by: number) => voi
   return (
     <SafeScreen testID={`picture-full-${pic.id}`} background={`rgba(0,0,0,${SCRIM * (1 - fade * 0.6)})`}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.md, paddingHorizontal: space.lg, paddingVertical: space.md }}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: space.md,
+            backgroundColor: BAR,
+            paddingHorizontal: space.lg,
+            paddingVertical: space.md,
+          }}
+        >
           <Text numberOfLines={1} style={{ color: INK, fontWeight: '600', flexShrink: 1 }}>
             {pic.name}
           </Text>
@@ -239,7 +249,7 @@ function Photo(props: Where & { pic: Shot; at: number; step: (by: number) => voi
         )}
 
         {marking ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg, padding: space.lg }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.lg, padding: space.lg, backgroundColor: BAR }}>
             {kept.length ? (
               <Button
                 testID="marks-send"
@@ -258,14 +268,14 @@ function Photo(props: Where & { pic: Shot; at: number; step: (by: number) => voi
               testID="marks-cancel"
               accessibilityRole="button"
               hitSlop={12}
-              onPress={() => (marks.length ? setAsking('browse') : stopMarking())}
+              onPress={() => (marks.length ? ask('browse') : stopMarking())}
             >
               <Text style={{ color: INK, fontSize: 16 }}>Cancel</Text>
             </Pressable>
           </View>
         ) : (
           canMark && (
-            <View style={{ padding: space.lg }}>
+            <View style={{ padding: space.lg, backgroundColor: BAR }}>
               <Button
                 testID="mark-start"
                 label="Mark what to change"
