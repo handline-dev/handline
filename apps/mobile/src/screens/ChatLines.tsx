@@ -6,6 +6,7 @@ import { clockTime, isPerson, sessionLine, taskRow } from '@handline/app-core';
 import { font, space } from '@handline/tokens';
 import { usePalette } from '#src/theme.ts';
 import { Icon, iconLabel, type IconName } from '#src/screens/Icon.tsx';
+import { CommandMessageScope } from '#src/screens/CommandCard.tsx';
 import { PrBody } from '#src/screens/PrBody.tsx';
 import { Sheet } from '#src/screens/TaskActions.tsx';
 
@@ -46,7 +47,9 @@ export function Line(props: {
     return (
       <View testID={`reply-${i.id}`} style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.xs }}>
         <View style={{ flex: 1, padding: space.md }}>
-          <PrBody id={`reply-${i.id}`} agent={agent} body={i.text ?? ''} />
+          <CommandMessageScope id={i.id} reply runs={i.runs}>
+            <PrBody id={`reply-${i.id}`} agent={agent} body={i.text ?? ''} />
+          </CommandMessageScope>
           {onReply && (
             <Pressable
               testID={`reply-to-${i.id}`}

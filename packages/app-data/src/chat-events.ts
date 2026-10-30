@@ -45,10 +45,13 @@ export function chatEvent({ qc, d, me }: Ctx, e: WireEvent): void {
     edit<Pages<TrPage>>(
       qc,
       qk.transcript(d, agent),
-      (data) =>
-        mapPages(data, (p, i) =>
-          i === 0 && !data.pages.some((x) => x.items.some((y) => y.id === item.id)) ? { ...p, items: [...p.items, item] } : p,
-        ),
+      (data) => {
+        // An item sent again (a reply whose command run started or ended) replaces its row.
+        const known = data.pages.some((x) => x.items.some((y) => y.id === item.id));
+        return mapPages(data, (p, i) =>
+          known ? { ...p, items: p.items.map((y) => (y.id === item.id ? item : y)) } : i === 0 ? { ...p, items: [...p.items, item] } : p,
+        );
+      },
       e.cursor,
     );
   } else if (e.type === 'chat.working') {

@@ -1,6 +1,6 @@
 // A fenced sh, bash or shell block of a message as a command card: the folder it runs in, quiet, at the top left, and two icons at the top right,
 // copy (turns into a check with a small "Copied" to its left for 1.5 s) and run (confirmed first, runs on the computer through the daemon). Under the
-// card, how the last run went. Without a chat message around it (a task comment, a file) the card has no run: copy only.
+// card, how the last run went (a chat message's or an agent reply's). Without a chat message around it (a task comment, a file) the card has no run: copy only.
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
@@ -19,14 +19,14 @@ type Run = { block: string; state: 'running' | 'done' | 'failed' | 'stopped'; ex
 
 /** The agent a chat is with and the folder its commands run in. */
 export const CommandHome = createContext<{ agent: string; cwd?: string } | null>(null);
-/** The message a block is in, with the runs it has so far. */
-export const CommandMessage = createContext<{ id: number; runs?: Run[] } | null>(null);
+/** The message or agent reply a block is in, with the runs it has so far. A reply's blocks are named r<item id>:<n>. */
+export const CommandMessage = createContext<{ id: number; reply?: boolean; runs?: Run[] } | null>(null);
 
 /** The folder as a person writes it: under the home directory as ~. */
 const quiet = (cwd: string) => cwd.replace(/^\/(Users|home)\/[^/]+/, '~');
 
-export function CommandMessageScope(props: { id: number; runs?: Run[]; children: ReactNode }) {
-  return <CommandMessage.Provider value={{ id: props.id, runs: props.runs }}>{props.children}</CommandMessage.Provider>;
+export function CommandMessageScope(props: { id: number; reply?: boolean; runs?: Run[]; children: ReactNode }) {
+  return <CommandMessage.Provider value={{ id: props.id, reply: props.reply, runs: props.runs }}>{props.children}</CommandMessage.Provider>;
 }
 
 export function CommandCard({ text, index }: { text: string; index: number }) {
@@ -39,7 +39,7 @@ export function CommandCard({ text, index }: { text: string; index: number }) {
   const [asking, setAsking] = useState(false);
   const machine = useConnection().data?.listener?.tailscale_host?.split('.')[0];
   const shell = useWrite('shell.open', home?.agent);
-  const block = message ? `${message.id}:${index}` : null;
+  const block = message ? `${message.reply ? 'r' : ''}${message.id}:${index}` : null;
   const run = message?.runs?.find((r) => r.block === block);
   const canRun = !!home && !!block && founder && served;
   const risk = commandRisk(text);
