@@ -157,6 +157,29 @@ func TestAKilledHolderFreesItsSlot(t *testing.T) {
 	}
 }
 
+// A run whose starter died (a session that ended) ends too: its command is killed and the slot is free for the next run.
+func TestARunWhoseParentDiedKillsItsCommandAndFreesTheSlot(t *testing.T) {
+	bin, slots := build(t)
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	// The starter puts the run in the background and exits, so the run is re-parented.
+	starter := exec.Command("sh", "-c", `"$0" -- sh -c 'echo $$ >"$0"; exec sleep 60' "$1" & sleep 0.5`, bin, pidFile)
+	starter.Env = append(os.Environ(), "HANDLINE_HEAVY_DIR="+slots, "HANDLINE_HEAVY_SLOT=", "HANDLINE_HEAVY_SLOTS=1", "OCP_AGENT=tester")
+	if err := starter.Run(); err != nil {
+		t.Fatal(err)
+	}
+	sleep := readPid(t, pidFile)
+	t.Cleanup(func() { syscall.Kill(sleep, syscall.SIGKILL) })
+	for end := time.Now().Add(3 * poll); syscall.Kill(sleep, 0) == nil; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatal("the command outlived the run's parent")
+		}
+	}
+	b, berr := start(t, bin, slots, nil, "true")
+	if err := b.Wait(); err != nil {
+		t.Fatalf("%v %s", err, berr)
+	}
+}
+
 // readPid waits for the pid a command wrote to path.
 func readPid(t *testing.T, path string) int {
 	t.Helper()
