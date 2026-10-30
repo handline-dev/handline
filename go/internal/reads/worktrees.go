@@ -250,9 +250,26 @@ func (e *Env) labels() (map[string]string, error) {
 	return out, rows.Err()
 }
 
-func (e *Env) worktree(path, owner string, kn known, bosses map[string]string, labels map[string]string) map[string]any {
+// facts are what every worktree carries besides its changed files: the branch it merges into, its commits not on it, its changed and
+// untracked files and the size housekeeping last measured (nil until it has). The pull request is set later, by attachPRs.
+func (e *Env) facts(path string, files int) (facts map[string]any, merged bool, err error) {
+	var size any
+	if v, ok, err := db.Meta(e.DB, worktreeprune.SizePrefix+worktreeprune.Real(path)); err != nil {
+		return nil, false, err
+	} else if n, err := strconv.ParseInt(v, 10, 64); ok && err == nil {
+		size = n
+	}
+	merged, ahead := worktreeprune.Ahead(path)
+	return map[string]any{"base": defaultBranch(path), "commits_ahead": ahead, "files_changed": files, "size_bytes": size, "pr": nil}, merged, nil
+}
+
+func (e *Env) worktree(path, owner string, kn known, bosses map[string]string, labels map[string]string) (map[string]any, error) {
 	ok, branch := git(path, "rev-parse", "--abbrev-ref", "HEAD")
-	ch, _ := changed(path)
+	ch, files := changed(path)
+	facts, _, err := e.facts(path, files)
+	if err != nil {
+		return nil, err
+	}
 	boss := bosses[owner]
 	repo := e.repoOf(owner)
 	repoName := ""
@@ -282,8 +299,9 @@ func (e *Env) worktree(path, owner string, kn known, bosses map[string]string, l
 	if ok {
 		b = strings.TrimSpace(branch)
 	}
-	return map[string]any{"path": path, "repo": repoName, "branch": b, "owner": owner, "parent": parent, "children": children,
-		"status": status, "changed": ch}
+	facts["path"], facts["repo"], facts["branch"], facts["owner"], facts["parent"] = path, repoName, b, owner, parent
+	facts["children"], facts["status"], facts["changed"] = children, status, ch
+	return facts, nil
 }
 
 // throughALink is rpc_worktrees._through_a_link: whether file is, or passes through, a symbolic link under root, or resolves
@@ -358,7 +376,10 @@ func (e *Env) worktreesList(_ *rpc.Conn, params map[string]any) (any, error) {
 	out := []any{}
 	for _, p := range keys {
 		who := kn.who[p]
-		wt := e.worktree(p, who, kn, bosses, labels)
+		wt, err := e.worktree(p, who, kn, bosses, labels)
+		if err != nil {
+			return nil, err
+		}
 		if (owner == nil || who == *owner) && (repo == nil || *repo == wt["repo"] || *repo == e.repoOf(who)) {
 			out = append(out, wt)
 		}
@@ -370,6 +391,11 @@ func (e *Env) worktreesList(_ *rpc.Conn, params map[string]any) (any, error) {
 		}
 		out = append(out, orphans...)
 	}
+	rows := make([]map[string]any, len(out))
+	for i, wt := range out {
+		rows[i] = wt.(map[string]any)
+	}
+	e.attachPRs(rows)
 	return map[string]any{"worktrees": out}, nil
 }
 
@@ -387,21 +413,20 @@ func (e *Env) orphans(repo *string) ([]any, error) {
 		}
 		for _, wt := range worktreeprune.Orphans(r, agents) {
 			path := worktreeprune.Real(wt.Path)
-			merged, commits := worktreeprune.Ahead(path)
-			var size any
-			if v, ok, err := db.Meta(e.DB, worktreeprune.SizePrefix+path); err != nil {
-				return nil, err
-			} else if n, err := strconv.ParseInt(v, 10, 64); ok && err == nil {
-				size = n
-			}
 			ch, files := changed(path)
 			status := "clean"
 			if len(ch) > 0 {
 				status = "dirty"
 			}
-			out = append(out, map[string]any{"path": path, "repo": filepath.Base(r), "branch": wt.Branch, "owner": nil, "parent": nil,
-				"children": []string{}, "status": status, "changed": ch, "orphan": true, "merged": merged,
-				"files_changed": files, "commits_ahead": commits, "size_bytes": size})
+			facts, merged, err := e.facts(path, files)
+			if err != nil {
+				return nil, err
+			}
+			for k, v := range map[string]any{"path": path, "repo": filepath.Base(r), "branch": wt.Branch, "owner": nil, "parent": nil,
+				"children": []string{}, "status": status, "changed": ch, "orphan": true, "merged": merged} {
+				facts[k] = v
+			}
+			out = append(out, facts)
 		}
 	}
 	return out, nil

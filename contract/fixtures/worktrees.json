@@ -291,6 +291,195 @@
      }
     }
    ]
+  },
+  {
+   "name": "worktrees.list.facts_of_a_clean_branch",
+   "spec": "worktrees.list",
+   "about": "A branch with nothing changed, nothing ahead of main and no pull request: files_changed 0, commits_ahead 0, a size or null, pr null.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktrees.list",
+      "params": {}
+     },
+     "result": {
+      "worktrees": {
+       "$contains": {
+        "branch": "facts/clean",
+        "base": "main",
+        "files_changed": 0,
+        "commits_ahead": 0,
+        "size_bytes": {
+         "$oneOf": [
+          {
+           "$type": "integer"
+          },
+          {
+           "$type": "null"
+          }
+         ]
+        },
+        "pr": null
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktrees.list.facts_of_a_dirty_branch",
+   "spec": "worktrees.list",
+   "about": "A branch with two files changed and two commits not on main: files_changed 2, commits_ahead 2, and changed lists the files.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktrees.list",
+      "params": {}
+     },
+     "result": {
+      "worktrees": {
+       "$contains": {
+        "branch": "facts/dirty",
+        "base": "main",
+        "files_changed": 2,
+        "commits_ahead": 2,
+        "changed": {
+         "$type": "array"
+        },
+        "pr": null
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktrees.list.facts_of_a_branch_whose_checks_fail",
+   "spec": "worktrees.list",
+   "about": "A branch with an open pull request whose checks fail: pr holds its number, url and verdict checks_failing with the failing count.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktrees.list",
+      "params": {}
+     },
+     "result": {
+      "worktrees": {
+       "$contains": {
+        "branch": "facts/failing",
+        "base": "main",
+        "pr": {
+         "number": {
+          "$type": "integer"
+         },
+         "url": {
+          "$type": "string"
+         },
+         "verdict": "checks_failing",
+         "failing": 2
+        }
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "worktrees.list.facts_of_a_branch_with_a_ready_pr",
+   "spec": "worktrees.list",
+   "about": "A branch with an open pull request nothing holds: pr verdict ready, and no failing count.",
+   "as": "founder",
+   "steps": [
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 1,
+      "method": "hello",
+      "params": {
+       "client": "conformance/1",
+       "protocol": 1,
+       "key": "{{founder_key}}"
+      }
+     },
+     "result": {}
+    },
+    {
+     "send": {
+      "jsonrpc": "2.0",
+      "id": 2,
+      "method": "worktrees.list",
+      "params": {}
+     },
+     "result": {
+      "worktrees": {
+       "$contains": {
+        "branch": "facts/ready",
+        "base": "main",
+        "pr": {
+         "number": {
+          "$type": "integer"
+         },
+         "url": {
+          "$type": "string"
+         },
+         "verdict": "ready",
+         "failing": {
+          "$absent": true
+         }
+        }
+       }
+      }
+     }
+    }
+   ]
   }
  ]
 }
