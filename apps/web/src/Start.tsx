@@ -57,6 +57,22 @@ function PairScreen(p: { url: string; storage: KV | null; open: Open; lost: bool
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // The listener itself is down: a pairing form would read as a bad code.
+  const [down, setDown] = useState(false);
+  const [probe, setProbe] = useState(0);
+  useEffect(() => {
+    let live = true;
+    open(url).then(
+      (t) => {
+        t.close();
+        if (live) setDown(false);
+      },
+      () => live && setDown(true),
+    );
+    return () => {
+      live = false;
+    };
+  }, [url, open, probe]);
   const submit = async () => {
     setBusy(true);
     setError('');
@@ -67,6 +83,19 @@ function PairScreen(p: { url: string; storage: KV | null; open: Open; lost: bool
       setBusy(false);
     }
   };
+  if (down)
+    return (
+      <div className="pair-screen mx-auto mt-[18vh] mb-0 grid max-w-[420px] gap-3 px-4">
+        <h1 className="m-0 text-xl">Cannot reach {new URL(url).host}</h1>
+        <p className="m-0" role="alert">
+          The app may be off.
+        </p>
+        <button type="button" onClick={() => setProbe((n) => n + 1)}>
+          Retry
+        </button>
+        <Connection />
+      </div>
+    );
   return (
     <form
       className="pair-screen mx-auto mt-[18vh] mb-0 grid max-w-[420px] gap-3 px-4"

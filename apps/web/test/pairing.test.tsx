@@ -74,6 +74,29 @@ describe('pairing with the network listener', () => {
     await until(() => box.querySelector('#app'), 'the frame');
   });
 
+  it('says the app may be off when the listener cannot be reached, and pairs once Retry finds it', async () => {
+    const daemon = new FakeDaemon();
+    const url = 'ws://127.0.0.1:17445/rpc';
+    let up = false;
+    const open = async () => {
+      if (!up) throw new Error(`cannot connect to ${url}`);
+      const [a, b] = memoryPair();
+      daemon.acceptNetwork(b);
+      return a;
+    };
+    const box = document.createElement('div');
+    document.body.append(box);
+    root = createRoot(box);
+    await act(async () => root!.render(<Start url={url} insecure={false} storage={memory()} open={open} />));
+    await until(() => box.querySelector('[role="alert"]'), 'the unreachable notice');
+    expect(box.textContent).toContain('Cannot reach 127.0.0.1:17445');
+    expect(box.textContent).toContain('The app may be off.');
+    expect(box.querySelector('input')).toBeNull();
+    up = true;
+    await act(async () => box.querySelector<HTMLButtonElement>('.pair-screen button')!.click());
+    await until(() => box.querySelector('input[aria-label="Pairing code"]'), 'the pairing form');
+  });
+
   it('a stored token the listener no longer knows is dropped and the pairing screen says so', async () => {
     const daemon = new FakeDaemon(); // knows no token: the hello is refused with gate unpaired
     const url = 'ws://127.0.0.1:7443/rpc';
