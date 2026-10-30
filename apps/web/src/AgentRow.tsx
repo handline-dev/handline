@@ -76,7 +76,7 @@ function AgentRowView({
   const main = useRef<HTMLButtonElement>(null);
   const [wide, setWide] = useState(true);
   const [roomy, setRoomy] = useState(true); // the word "Restarting…" fits beside the name and the time, else its icon alone
-  const kindLen = a.needs_you?.kind.length ?? 0;
+  const kindLen = a.needs_you?.title.length ?? 0;
   useEffect(() => {
     const el = main.current;
     if (!el) return;
@@ -160,9 +160,12 @@ function AgentRowView({
                       </span>
                     ) : null}
                     {a.needs_you ? (
-                      <span className="needs inline-flex flex-none" title={[a.needs_you.kind, a.needs_you.text].filter(Boolean).join(': ')}>
+                      <span
+                        className="needs inline-flex flex-none"
+                        title={[a.needs_you.title, a.needs_you.text].filter(Boolean).join('\n')}
+                      >
                         <Chip kind="you" icon={Hand}>
-                          {wide ? a.needs_you.kind : <VisuallyHidden>{a.needs_you.kind}</VisuallyHidden>}
+                          {wide ? a.needs_you.title : <VisuallyHidden>{a.needs_you.title}</VisuallyHidden>}
                         </Chip>
                       </span>
                     ) : null}

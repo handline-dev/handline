@@ -56,10 +56,31 @@ describe('needs you', () => {
     };
     await mount(s);
     await until(() => card(), 'the card');
-    expect(card()!.textContent).toContain('Out of usage');
+    expect(card()!.querySelector('strong')!.textContent).toBe('Usage limit: choose what to do');
     expect(card()!.textContent).toContain('Weekly limit reached');
     expect(card()!.querySelector('button')!.getAttribute('aria-label')).toBe('Open terminal');
-    expect(chip()?.textContent).toBe('usage');
+    expect(chip()?.textContent).toBe('Usage limit: choose what to do');
+    expect(chip()!.closest('.needs')!.getAttribute('title')).toBe('Usage limit: choose what to do\nWeekly limit reached');
+  });
+
+  it('a stall the daemon raised shows its title alone on the row and the title with its description in the chat', async () => {
+    const s = setup();
+    const fx = s.daemon.sessions.get(ARCH)!.fx;
+    keep = () => void (fx.view = undefined);
+    fx.view = {
+      needs_you: {
+        kind: 'dialog',
+        since: new Date().toISOString(),
+        title: 'Stuck at a dialog',
+        text: 'cannot get past a dialog: it asks for a login',
+        source: 'daemon',
+      },
+    };
+    await mount(s);
+    await until(() => card(), 'the card');
+    expect(chip()!.textContent).toBe('Stuck at a dialog');
+    expect(card()!.querySelector('strong')!.textContent).toBe('Stuck at a dialog');
+    expect(card()!.textContent).toContain('cannot get past a dialog: it asks for a login');
   });
 
   it('shows no card and no chip when the daemon says nothing is waited on', async () => {
@@ -91,6 +112,7 @@ describe('needs you', () => {
     await mount(s);
     await until(() => card(), 'the card');
     expect(card()!.dataset.need).toBe('dialog');
+    expect(card()!.querySelector('strong')!.textContent).toBe('Waiting at a dialog');
     expect(card()!.textContent).toContain('dialog open');
     expect(card()!.querySelector('button')!.getAttribute('aria-label')).toBe('Open terminal');
   });

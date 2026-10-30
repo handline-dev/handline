@@ -209,19 +209,14 @@ export function HrCards({ agent }: { agent: string }) {
   );
 }
 
-const NEEDS: Record<string, string> = {
-  permission: 'Needs you',
-  question: 'Asked you a question',
-  usage: 'Out of usage',
-  dialog: 'Waiting on a dialog',
-};
-
 /** What the agent waits on a person for, with how long and a way to its terminal; gone when the daemon stops saying it. */
 export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
   // A daemon that reads the screen sets has_dialog and serves no needs_you: the card still says it, with the daemon's own line.
   const need =
     detail.needs_you ??
-    (detail.has_dialog ? { kind: 'dialog', since: detail.state_since, text: detail.state_detail || null, source: 'screen' } : null);
+    (detail.has_dialog
+      ? { kind: 'dialog', since: detail.state_since, title: 'Waiting at a dialog', text: detail.state_detail || null, source: 'screen' }
+      : null);
   const openTerminal = useOpenTerminal(detail);
   if (!need) return null;
   const reachable = detail.structured || !!detail.terminal;
@@ -233,9 +228,9 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
       data-need={need.kind}
       actions={<Button iconOnly size="s" icon={Terminal} label="Open terminal" disabled={!reachable} onClick={openTerminal} />}
     >
-      <strong>{NEEDS[need.kind] ?? NEEDS.dialog}</strong>
-      {need.text ? <span className="muted"> · {need.text}</span> : null}
+      <strong>{need.title}</strong>
       <span className="muted"> · {ago(need.since)}</span>
+      {need.text ? <span className="muted block">{need.text}</span> : null}
     </Notice>
   );
 }
