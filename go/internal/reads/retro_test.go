@@ -63,12 +63,11 @@ func TestRetroCountsTokensInsideTheDoingWindowsOfTheSubtreeOnly(t *testing.T) {
 }
 
 func TestRetroCountsACallOnceWhenADeliveryLandsOnABusyHolder(t *testing.T) {
-	for _, landed := range []int{150, 100} { // 100 is the second the holder started the other task
-		retroDeliveryLands(t, landed)
-	}
+	retroDeliveryLands(t, 150, []int64{21, 22})
+	retroDeliveryLands(t, 100, []int64{21}) // the second the holder started 21: 22's window has no length and is dropped
 }
 
-func retroDeliveryLands(t *testing.T, landed int) {
+func retroDeliveryLands(t *testing.T, landed int, want []int64) {
 	e := testEnv(t)
 	run(t, e, "INSERT INTO agent_state(agent, state, account, worktree, updated) VALUES('w','IDLE','a','/w/w',1)")
 	run(t, e, "INSERT INTO tasks(id, title, owner, opened_by, reporter, created_at) VALUES(20,'root','w','human','human',0), (21,'a','w','w','w',0), (22,'b','w','w','w',0)")
@@ -86,10 +85,11 @@ func retroDeliveryLands(t *testing.T, landed int) {
 		Tokens int64
 		Agents []struct {
 			Doing_seconds int64
+			Tasks         []int64
 		}
 	}
 	json.Unmarshal(b, &out)
-	if out.Tokens != 100 || len(out.Agents) != 1 || out.Agents[0].Doing_seconds != 200 {
+	if out.Tokens != 100 || len(out.Agents) != 1 || out.Agents[0].Doing_seconds != 200 || !reflect.DeepEqual(out.Agents[0].Tasks, want) {
 		t.Fatalf("landed at %d: got %s", landed, b)
 	}
 }
