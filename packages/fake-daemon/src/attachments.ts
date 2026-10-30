@@ -2,7 +2,7 @@
 // Image bytes live here only; the replay store (replies, events) holds a digest or the Attachment, never the data.
 import { createHash, randomBytes } from 'node:crypto';
 import type { Attachment, ImagePart, MemoFile, TextPart } from '@handline/contract';
-import { badRequest, Failure, invalidParams, refused } from '#src/errors.ts';
+import { Failure, invalidParams, refused } from '#src/errors.ts';
 
 // These mirror the contract's x-attachments limits (kept in prose there; app-data holds the client's copy).
 export const CHUNK = 512 * 1024;
@@ -64,15 +64,15 @@ export class FakeAttachments {
     const { name, mime, bytes, data } = p as { name: string; mime: Mime; bytes: number; data: string };
     const offset = typeof p.offset === 'number' ? p.offset : 0;
     if (typeof mime !== 'string' || mime.length > 100 || !MIME.test(mime))
-      throw badRequest('mime is a type such as application/pdf.', 'mime');
-    if (!Number.isInteger(bytes) || bytes < 1) throw badRequest('bytes is the whole file size', 'bytes');
+      throw invalidParams('mime is a type such as application/pdf.', 'mime');
+    if (!Number.isInteger(bytes) || bytes < 1) throw invalidParams('bytes is the whole file size', 'bytes');
     if (bytes > MAX_IMAGE) throw refused('limit', 'A file is at most 10 MiB.');
     const chunk = Buffer.from(data, 'base64');
-    if (chunk.length > CHUNK) throw badRequest('A chunk is at most 512 KiB of file.', 'data');
+    if (chunk.length > CHUNK) throw invalidParams('A chunk is at most 512 KiB of file.', 'data');
     let id = p.upload as string | undefined;
     let up: Upload | undefined;
     if (id === undefined) {
-      if (offset !== 0) throw badRequest('The first chunk starts at 0.', 'offset');
+      if (offset !== 0) throw invalidParams('The first chunk starts at 0.', 'offset');
       if (this.uploads.size >= MAX_OPEN) throw refused('limit', 'Too many uploads are open.');
       if (this.unsent() + bytes > MAX_UNSENT) throw refused('limit', 'Too many unsent images.');
       id = newId();
@@ -82,7 +82,10 @@ export class FakeAttachments {
       up = this.uploads.get(id);
       if (!up) throw new Failure('not_found', 'That upload is unknown or expired.');
       if (offset !== up.received)
-        throw new Failure('bad_request', 'offset is not what the daemon holds.', { field: 'offset', received: up.received });
+        throw Object.assign(
+          new Failure('bad_request', 'offset is not what the daemon holds.', { field: 'offset', received: up.received }),
+          { rpc: -32602 },
+        );
     }
     up.parts.push(chunk);
     up.received += chunk.length;
@@ -90,7 +93,7 @@ export class FakeAttachments {
     this.uploads.delete(id);
     const all = Buffer.concat(up.parts);
     if (all.length !== up.bytes || (MAGIC.some(([m]) => m === up.mime) && typeOf(all) !== up.mime))
-      throw badRequest('The file is not the type it says.', 'data');
+      throw invalidParams('The file is not the type it says.', 'data');
     const attachment: Attachment = { id: newId(), name: up.name, mime: up.mime, bytes: up.bytes };
     this.files.set(attachment.id, { ...attachment, data: all, sent: false });
     return { upload: id, received: up.received, attachment };
@@ -127,11 +130,11 @@ export class FakeAttachments {
    */
   message = (body: string, ids: unknown, task: unknown): { attachments: Attachment[]; parts?: (TextPart | ImagePart)[] } => {
     if (ids !== undefined && (!Array.isArray(ids) || !ids.length || ids.length > MAX_PER_MESSAGE || task !== undefined))
-      throw badRequest('attachments is 1 to 6 attachment ids, and not with a task.', 'attachments');
+      throw invalidParams('attachments is 1 to 6 attachment ids, and not with a task.', 'attachments');
     const named = refs(body);
     const extra = [...new Set(((ids ?? []) as unknown[]).map(String))].filter((id) => !named.includes(id));
     if (extra.length && new Set([...named, ...extra]).size > MAX_PER_MESSAGE)
-      throw badRequest('At most 6 images to a message.', 'attachments');
+      throw invalidParams('At most 6 images to a message.', 'attachments');
     this.check(body, '', 'body', false, () => new Set());
     for (const id of extra) this.checkId(id, 'attachments');
     for (const id of extra) this.files.get(id)!.sent = true;
