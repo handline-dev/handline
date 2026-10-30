@@ -290,7 +290,7 @@ func TestFCMSendsEachNoteAndDropsAnUnregisteredToken(t *testing.T) {
 	fcmFake, oauth := newFake(t), newFake(t)
 	oauth.answerWith(func(*http.Request) (int, string) { return 200, `{"access_token":"at1","expires_in":3600}` })
 	rk, _ := rsa.GenerateKey(rand.Reader, 2048)
-	acct, _ := json.Marshal(map[string]string{"type": "service_account", "project_id": "proj", "client_email": "push@proj.iam.gserviceaccount.com",
+	acct, _ := json.Marshal(map[string]string{"type": "service_account", "project_id": "proj", "client_email": "push@example.com",
 		"private_key": writePEM(t, rk), "token_uri": oauth.URL + "/token"})
 	store := phones(t)
 	s, err := FromConfig(usage.Config{KeyFCM: writeFile(t, "sa.json", string(acct))}, store)
@@ -316,7 +316,7 @@ func TestFCMSendsEachNoteAndDropsAnUnregisteredToken(t *testing.T) {
 		sum := sha256.Sum256(input)
 		return rsa.VerifyPKCS1v15(&rk.PublicKey, crypto.SHA256, sum[:], sig) == nil
 	})
-	if h["alg"] != "RS256" || c["iss"] != "push@proj.iam.gserviceaccount.com" || c["aud"] != oauth.URL+"/token" || c["scope"] != fcmScope ||
+	if h["alg"] != "RS256" || c["iss"] != "push@example.com" || c["aud"] != oauth.URL+"/token" || c["scope"] != fcmScope ||
 		c["exp"] != float64(clock.Add(time.Hour).Unix()) {
 		t.Errorf("assertion: %v %v", h, c)
 	}
