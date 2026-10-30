@@ -252,7 +252,7 @@ function TabRun({ group, data: { me, closeShell } }: { group: Group; data: PaneD
 
 /** The bar's + and Split for `group`. */
 export function PaneActions({ group }: { group: Group }) {
-  const { agent, detail, apply, canSplit } = useWorkspace();
+  const { agent, detail, apply, canSplit, closeSplit } = useWorkspace();
   const { choices, choose } = useChoices(usePaneData(agent).openShell);
   return (
     <>
@@ -273,17 +273,21 @@ export function PaneActions({ group }: { group: Group }) {
           ))}
         </MenuButton>
       </WithKey>
-      <WithKey k="⌘\">
-        <Button
-          icon="split"
-          size="sm"
-          label="Split this pane"
-          title={canSplit(group.id) ? undefined : 'The window is too narrow for another pane'}
-          disabled={!canSplit(group.id)}
-          className="shell:[-webkit-app-region:no-drag]"
-          onClick={() => apply((w) => splitPane(w, group.id) ?? w)}
-        />
-      </WithKey>
+      {closeSplit ? (
+        <Button icon="close" size="sm" label="Close the split" className="shell:[-webkit-app-region:no-drag]" onClick={closeSplit} />
+      ) : (
+        <WithKey k="⌘\">
+          <Button
+            icon="split"
+            size="sm"
+            label="Split this pane"
+            title={canSplit(group.id) ? undefined : 'The window is too narrow for another pane'}
+            disabled={!canSplit(group.id)}
+            className="shell:[-webkit-app-region:no-drag]"
+            onClick={() => apply((w) => splitPane(w, group.id) ?? w)}
+          />
+        </WithKey>
+      )}
     </>
   );
 }
