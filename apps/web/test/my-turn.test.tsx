@@ -146,6 +146,33 @@ describe('my turn', () => {
     expect(s.daemon.tasks.find(9103).state).not.toBe('done');
   });
 
+  it('an answer held when the page goes away is kept, and the next page sends it with the same ids', async () => {
+    const s = setup();
+    review(s, 9105);
+    await open(s);
+    await pick(ofTask(9105), 'the review row');
+    await until(() => reviewCard(9105), 'the review card');
+    await click(button(reviewCard(9105)!, 'Approve'));
+    const left = JSON.parse(localStorage.getItem('handline:held-answers') ?? '{}') as Record<
+      string,
+      { method: string; params: { request_id: string } }[]
+    >;
+    const steps = Object.values(left)[0]!;
+    expect(steps.map((x) => x.method)).toEqual(['task.done', 'inbox.mark_read']);
+    expect(steps.every((x) => x.params.request_id)).toBe(true);
+    // The reload: this page dies before the write leaves. Undo stands in for the lost write; the saved answer is what the next page finds.
+    const saved = localStorage.getItem('handline:held-answers')!;
+    await click([...document.querySelectorAll('button')].find((b) => label(b) === 'Undo'));
+    const firstPage = { root, box };
+    localStorage.setItem('handline:held-answers', saved);
+    expect(s.daemon.tasks.find(9105).state).not.toBe('done');
+    await open(s);
+    await until(() => s.daemon.tasks.find(9105).state === 'done', 'the held answer sent by the next page');
+    expect(localStorage.getItem('handline:held-answers')).toBe('{}');
+    await act(async () => firstPage.root?.unmount());
+    firstPage.box.remove();
+  });
+
   it("a worktree-removal card has Keep it, Save a copy and Remove anyway; each closes the task with the daemon's words", async () => {
     const s = setup();
     s.daemon.tasks.seed({ id: 9103, from: ME, to: ARCH, title: 'Remove bob worktree', state: 'doing', tags: ['worktree-removal'] });

@@ -18,7 +18,7 @@ import { Toast } from '#src/ds/Floating.tsx';
 import { Link, Who } from '#src/ds/Link.tsx';
 import { ListRow, SectionHead } from '#src/ds/ListRow.tsx';
 import { useNow } from '#src/Gauge.tsx';
-import { HeldLine, useHeldAnswers } from '#src/HeldAnswers.tsx';
+import { HeldLine, useHeldAnswers, type HeldStep } from '#src/HeldAnswers.tsx';
 import { useScreenKeys, type KeyRows } from '#src/screenKeys.ts';
 
 const REQUEST_KEYS: KeyRows = [
@@ -129,7 +129,7 @@ function CardDetail({
   card: Card;
   onSaid: (line: string) => void;
   /** Takes the card off the list and sends the answer after a few seconds unless Undo comes first. */
-  hold: (key: string, line: string, send: () => Promise<unknown>) => void;
+  hold: (key: string, line: string, steps: HeldStep[], send: () => Promise<unknown>) => void;
 }) {
   const now = useNow();
   const answer = useWrite('inbox.reply');
@@ -142,6 +142,14 @@ function CardDetail({
   const [text, setText] = useState('');
   // The daemon's own words for a refused write; the buttons stay usable.
   const refused = [answer, prompt, done, read].find((w) => w.isError)?.error;
+  const writer = { 'inbox.reply': answer, 'prompt.answer': prompt, 'task.done': done, 'inbox.mark_read': read };
+  /** Holds the writes of an answer: the card leaves the list, the writes go after the hold, in order, and survive a reload. */
+  const holdWrites = (line: string, writes: [HeldStep['method'], Record<string, unknown>][]) => {
+    const steps = writes.map(([method, params]): HeldStep => ({ method, params: { ...params, request_id: crypto.randomUUID() } }));
+    const send = () =>
+      steps.reduce((p, st) => p.then(() => writer[st.method].mutateAsync(st.params as never)), Promise.resolve<unknown>(undefined));
+    hold(card.key, line, steps, send);
+  };
   const run = (a: CardAction) => {
     switch (a.type) {
       case 'answer':
@@ -149,19 +157,19 @@ function CardDetail({
       case 'change':
         return setChange(true);
       case 'reply':
-        return hold(card.key, 'Answer sent', () => answer.mutateAsync({ id: a.id, text: a.text }));
+        return holdWrites('Answer sent', [['inbox.reply', { id: a.id, text: a.text }]]);
       case 'allow':
       case 'deny':
-        return hold(card.key, a.type === 'allow' ? 'Allowed' : 'Denied', () =>
-          prompt.mutateAsync({ agent: a.agent, prompt: a.prompt, choice: a.choice }),
-        );
+        return holdWrites(a.type === 'allow' ? 'Allowed' : 'Denied', [
+          ['prompt.answer', { agent: a.agent, prompt: a.prompt, choice: a.choice }],
+        ]);
       case 'done':
-        return hold(card.key, 'Done', async () => {
-          await done.mutateAsync({ task: a.item.task!, evidence: 'decided in Requests', reason: true });
-          read.mutate({ ids: [a.item.id] });
-        });
+        return holdWrites('Done', [
+          ['task.done', { task: a.item.task!, evidence: 'decided in Requests', reason: true }],
+          ['inbox.mark_read', { ids: [a.item.id] }],
+        ]);
       case 'done_task':
-        return hold(card.key, 'Done', () => done.mutateAsync({ task: a.task, evidence: 'Done', reason: true }));
+        return holdWrites('Done', [['task.done', { task: a.task, evidence: 'Done', reason: true }]]);
       case 'worktree':
         if (a.answer === 'force' && !sure) return setSure(true);
         setSure(false);
@@ -171,10 +179,10 @@ function CardDetail({
           () => undefined,
         );
       case 'approve':
-        return hold(card.key, 'Approved', async () => {
-          await done.mutateAsync({ task: a.item.task!, evidence: APPROVED, reason: true });
-          read.mutate({ ids: [a.item.id] });
-        });
+        return holdWrites('Approved', [
+          ['task.done', { task: a.item.task!, evidence: APPROVED, reason: true }],
+          ['inbox.mark_read', { ids: [a.item.id] }],
+        ]);
       case 'ask_change':
         return setAsking(true);
       case 'open':
@@ -182,7 +190,7 @@ function CardDetail({
       case 'terminal':
         return goTerminal(a.agent);
       case 'read':
-        return hold(card.key, 'Marked read', () => read.mutateAsync({ ids: [a.id] }));
+        return holdWrites('Marked read', [['inbox.mark_read', { ids: [a.id] }]]);
     }
   };
   // The buttons are the answers; a written answer is the field beside them, never a bare Reply. The rarer verbs are in the menu.
@@ -283,7 +291,7 @@ function CardDetail({
             e.preventDefault();
             if (!text.trim()) return;
             const reply = change ? changeAsked(text) : text.trim();
-            hold(card.key, 'Answer sent', () => answer.mutateAsync({ id: answerId.id, text: reply }));
+            holdWrites('Answer sent', [['inbox.reply', { id: answerId.id, text: reply }]]);
             setChange(false);
             setText('');
           }}
