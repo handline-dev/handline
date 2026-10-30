@@ -89,7 +89,7 @@ describe('images in a task body', () => {
     expect($('.tbody-text')!.textContent).toContain('See below');
     expect($('.tbody-text')!.textContent).not.toContain('attachment:');
     await click($('.tbody-text .attachment'));
-    await until(() => $$('.ui-dialog img').length, 'the original');
+    await until(() => $$('.image-viewer img').length, 'the original');
   });
 
   it('a pasted image in the editor is uploaded and saved in the body as a reference', async () => {
