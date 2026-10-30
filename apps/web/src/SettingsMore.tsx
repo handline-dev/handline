@@ -1,4 +1,5 @@
 // The Home settings sections that are not just a number or a switch: notices, background work, this window's appearance, and the connection.
+import { Bell, Palette } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { parseSeconds, type KV } from '@handline/app-core';
 import { useSelector } from '@handline/app-react';
@@ -15,21 +16,22 @@ const SECONDS = 'whole seconds, or empty for the default';
 const secondsOf = (v: number | undefined) => (v === undefined ? '' : String(v));
 
 const PUSH = [
-  { key: 'push_prompt_asked', label: 'A question asked', hint: 'A desktop notice when an agent asks you something' },
-  { key: 'push_task_done', label: 'A task done', hint: 'A desktop notice when a task is finished' },
-  { key: 'push_stall', label: 'A stall', hint: 'A desktop notice when an agent stops making progress' },
-  { key: 'push_account_out', label: 'An account out', hint: 'A desktop notice when an account hits its limit' },
+  { key: 'push_prompt_asked', label: 'An agent asks me something', hint: '' },
+  { key: 'push_task_done', label: 'A task is done', hint: '' },
+  { key: 'push_stall', label: 'An agent stalls', hint: '' },
+  { key: 'push_account_out', label: 'An account runs out', hint: '' },
 ] as const;
 
 export function Notifications() {
   const values = useSettings().data?.values as Record<string, unknown> | undefined;
   return (
     <>
-      <SectionHead>Notifications</SectionHead>
+      <SectionHead icon={Bell}>Notifications</SectionHead>
       <SettingsCard>
         {PUSH.map((p) => (
           <SwitchRow key={p.key} label={p.label} hint={p.hint} on={values?.[p.key] !== false} change={(on) => ({ [p.key]: on })} />
         ))}
+        <WeekAlertRow />
       </SettingsCard>
     </>
   );
@@ -92,7 +94,7 @@ export function Appearance({ storage }: { storage: KV | null }) {
   const [theme, setTheme] = useState<Theme>(() => themeOf(storage));
   return (
     <>
-      <SectionHead>Appearance</SectionHead>
+      <SectionHead icon={Palette}>Appearance</SectionHead>
       <SettingsCard>
         <Row label="Theme" hint="This window only">
           <Segmented
@@ -100,8 +102,8 @@ export function Appearance({ storage }: { storage: KV | null }) {
             value={theme}
             options={[
               { value: 'system', label: 'System' },
-              { value: 'dark', label: 'Dark' },
               { value: 'light', label: 'Light' },
+              { value: 'dark', label: 'Dark' },
             ]}
             onChange={(v) => {
               setTheme(v);
@@ -143,9 +145,9 @@ export function TerminalRow({ storage }: { storage: KV | null }) {
 export function WeekAlertRow() {
   const [hours, setHours] = useState(String(weekAlertHours()));
   return (
-    <Row label="Week running out" hint="Warn when, at the current pace, the week runs out in less than this. This window only">
+    <Row label="My week will run out in less than" hint="">
       <Segmented
-        label="Week running out"
+        label="My week will run out in less than"
         value={hours}
         options={['0', '6', '12', '24', '48'].map((h) => ({ value: h, label: h === '0' ? 'Off' : `${h} h` }))}
         onChange={(v) => {

@@ -45,10 +45,10 @@ afterEach(async () => {
 });
 
 const SWITCHES = [
-  ['A question asked', 'push_prompt_asked'],
-  ['A task done', 'push_task_done'],
-  ['A stall', 'push_stall'],
-  ['An account out', 'push_account_out'],
+  ['An agent asks me something', 'push_prompt_asked'],
+  ['A task is done', 'push_task_done'],
+  ['An agent stalls', 'push_stall'],
+  ['An account runs out', 'push_account_out'],
 ] as const;
 
 describe('settings: push switches', () => {

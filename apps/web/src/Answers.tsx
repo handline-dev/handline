@@ -1,5 +1,6 @@
 // The standing answers: what the daemon answers by itself (a trusted folder, a vendor's dialog and the option to choose). One row each with a trash
 // icon and an Add row at the end (docs/design-gaps.md G82). Add and remove are authored: the row changes at once and comes back if the daemon refuses.
+import { CheckCheck } from 'lucide-react';
 import { useState } from 'react';
 import { answerLine } from '@handline/app-core';
 import { useAnswers, useOff, useServes, useWrite } from '@handline/app-data';
@@ -54,7 +55,7 @@ export function Answers() {
   const rows = q.data?.answers ?? [];
   return (
     <>
-      <SectionHead>Standing answers</SectionHead>
+      <SectionHead icon={CheckCheck}>Always answer</SectionHead>
       <View
         q={q}
         served={served}
