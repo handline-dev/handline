@@ -178,7 +178,7 @@ describe('my turn', () => {
       listRows()
         .find((r) => r.getAttribute('aria-current') === 'true')!
         .getAttribute('aria-label'),
-    ).toBe('Open T9202');
+    ).toBe('Open T9202'); // local-ref-ok
   });
 
   it('an answer held when the page goes away is kept, and the next page sends it with the same ids', async () => {
