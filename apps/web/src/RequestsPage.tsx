@@ -2,11 +2,23 @@
 // beside the open item. A row only opens the item; the answer is given in the detail, which ends with its answers and nothing after them.
 import { ChevronRight, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { APPROVED, VERBS, WORKTREE_WORDS, ago, changeAsked, noteIsLong, type Card, type CardAction } from '@handline/app-core';
+import {
+  APPROVED,
+  VERBS,
+  WORKTREE_WORDS,
+  ago,
+  changeAsked,
+  laterKeyOf,
+  noteIsLong,
+  type Card,
+  type CardAction,
+  type LaterAt,
+} from '@handline/app-core';
 import { classify, sentence, useAgents, useMyTurn, useVerbRun, useWrite } from '@handline/app-data';
 import { WORKTREE_SAID, dueText, factsOf, label, memberOf, sourceFull, sourceWord } from '#src/requestsText.ts';
 import { useKeepPlace } from '#src/useKeepPlace.ts';
 import { Fold } from '#src/Fold.tsx';
+import { LaterButton, LaterFold, useLaterToast } from '#src/RequestsLater.tsx';
 import { NewTask } from '#src/NewTask.tsx';
 import { BlocksLine } from '#src/BlocksLine.tsx';
 import { goTasks, goTerminal } from '#src/route.ts';
@@ -68,9 +80,14 @@ function CardDetail({
   card,
   onSaid,
   hold,
+  later,
+  onLater,
 }: {
   card: Card;
   onSaid: (line: string) => void;
+  /** When the item returns, if it is put off. */
+  later: LaterAt | null;
+  onLater: (card: Card, at: LaterAt | null) => void;
   /** Takes the card off the list and sends the answer after a few seconds unless Undo comes first. */
   hold: (key: string, line: string, steps: HeldStep[], send: () => Promise<unknown>) => void;
 }) {
@@ -224,6 +241,7 @@ function CardDetail({
             />
           ))
         )}
+        {laterKeyOf(card) ? <LaterButton card={card} at={later} now={now} onPut={(at) => onLater(card, at)} /> : null}
       </Answer>
       {refused ? (
         <p className="m-0 mt-1 text-xs text-bad" role="alert">
@@ -270,23 +288,33 @@ export function RequestsPage() {
   const now = useNow();
   const [pick, setPick] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
+  const later = useLaterToast(all.later);
+  const putOffAndLeave = (card: Card, at: LaterAt | null) => {
+    later.put(card, at);
+    if (at) setPick(null);
+  };
+  const putOff = all.later.filter((l) => !held.away.includes(l.card.key));
   useEffect(() => {
     if (!said) return;
     const t = setTimeout(() => setSaid(''), 6000);
     return () => clearTimeout(t);
   }, [said]);
   const toast =
-    held.last || said ? (
+    held.last || later.undo || said ? (
       <div className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center">
-        <Toast action={held.last ? 'Undo' : undefined} onAction={() => held.last && held.undo(held.last.key)}>
-          {held.last ? held.last.line : said}
+        <Toast
+          action={held.last || later.undo ? 'Undo' : undefined}
+          onAction={() => (held.last ? held.undo(held.last.key) : later.runUndo())}
+        >
+          {held.last ? held.last.line : (later.undo?.line ?? said)}
         </Toast>
       </div>
     ) : null;
   // Wide: the first item is open, as the list is read top down. Narrow: the list alone until a row is picked.
   // The list reads in its groups, so j and k walk the cards in that order.
   const ordered = GROUPS.flatMap((g) => cards.filter((c) => groupOf(c) === g));
-  const sel = cards.find((c) => c.key === pick) ?? (wide ? ordered[0] : undefined);
+  const sel = cards.find((c) => c.key === pick) ?? putOff.find((l) => l.card.key === pick)?.card ?? (wide ? ordered[0] : undefined);
+  const selLater = putOff.find((l) => l.card.key === sel?.key)?.at ?? null;
   useKeepPlace(ordered, pick, setPick, wide);
   useScreenKeys('On Requests', REQUEST_KEYS);
   useKey((k) => {
@@ -304,7 +332,7 @@ export function RequestsPage() {
     return (
       <ScrollPage col aria-label="Request">
         <PageHead back={{ label: 'Requests', to: () => setPick(null) }} />
-        <CardDetail card={sel} onSaid={setSaid} hold={held.hold} />
+        <CardDetail card={sel} onSaid={setSaid} hold={held.hold} later={selLater} onLater={putOffAndLeave} />
         {toast}
       </ScrollPage>
     );
@@ -345,6 +373,7 @@ export function RequestsPage() {
           <p>Asks, reviews and tasks given to you show here.</p>
         </div>
       )}
+      <LaterFold items={putOff} selected={sel?.key} onOpen={setPick} />
     </ScrollPage>
   );
   if (!wide)
@@ -361,7 +390,7 @@ export function RequestsPage() {
       <div className="min-h-0 min-w-0 flex-1 overflow-auto border-l border-line">
         {sel ? (
           <div className="mx-auto max-w-[var(--w-col)]">
-            <CardDetail card={sel} onSaid={setSaid} hold={held.hold} />
+            <CardDetail card={sel} onSaid={setSaid} hold={held.hold} later={selLater} onLater={putOffAndLeave} />
           </div>
         ) : null}
       </div>

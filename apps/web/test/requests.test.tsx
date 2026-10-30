@@ -56,4 +56,29 @@ describe('the Requests page', () => {
     expect(text(document.querySelector('.ui-dialog'))).toContain('New request');
     expect(text(document.querySelector('.ui-dialog'))).not.toContain('Priority');
   });
+
+  it('Later puts a task item off until a time: it leaves the list and the count, waits in the Later fold with when it returns, and comes back with the x', async () => {
+    const s = setup();
+    s.daemon.tasks.seed({ id: 9201, from: 'handline.architect', to: 'human', title: 'Decide the thing', state: 'queued' });
+    await mount('#/requests', s);
+    await until(() => $$('[data-card-row]').some((r) => text(r).includes('Decide the thing')), 'the rows');
+    const row = $$('[data-card-row]').find((r) => /^Open T\d+/.test(r.querySelector('button')?.getAttribute('aria-label') ?? ''))!;
+    const key = row.dataset.cardRow!;
+    const before = $$('[data-card-row]').length;
+    await click(row.querySelector('button'));
+    await until(() => button('Later'), 'the Later button');
+    await click(button('Later'));
+    await click([...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => text(i).startsWith('Tomorrow')));
+    await until(() => $$('[data-card-row]').length === before - 1, 'the item leaving the list');
+    expect($$('[data-card-row]').some((r) => r.dataset.cardRow === key)).toBe(false);
+    await click($$('section[aria-label="Later"] > button')[0]);
+    await until(() => $$('[data-later]').length === 1, 'the fold');
+    expect(text($$('[data-later]')[0]!.querySelector('button'))).toMatch(/\d/); // when it returns
+    await click($$('[data-later] button')[0]);
+    await until(() => button('Back to Requests now'), 'the x');
+    await click(button('Back to Requests now'));
+    await until(() => text(document.body).includes('Back in Requests'), 'the toast');
+    await click(button('Back to Requests'));
+    await until(() => $$('[data-card-row]').length === before, 'the item back');
+  });
 });
