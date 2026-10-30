@@ -7,6 +7,8 @@ import { Timeline } from '#src/timeline.ts';
 import { SETTINGS_HANDLERS } from '#src/settings.ts';
 import { withStructured } from '#src/structured-controls.ts';
 import type { FakeTranscript } from '#src/transcript.ts';
+import type { FakeChat } from '#src/chat.ts';
+import { runParams, startRun, stopRun } from '#src/runs.ts';
 import { HR_HANDLERS, teamOf } from '#src/hr.ts';
 import { STRIP_HANDLERS } from '#src/strip.ts';
 import { DEBUG_HANDLERS } from '#src/debug.ts';
@@ -22,6 +24,7 @@ export interface Call {
   actor: Actor;
   script: Script;
   transcript: FakeTranscript;
+  chat: FakeChat;
   agent(): Session;
   byTerminal(id: unknown): Session;
   iso(): Timestamp;
@@ -90,7 +93,7 @@ const BASE: Record<string, (h: Call) => unknown> = {
     script.setState(s, 'running', actor);
     return script.accepted(`${s.fx.name}: started`);
   },
-  'agent.retire': ({ actor, script, agent }) => script.retire(agent(), actor),
+  'agent.retire': ({ p, actor, script, agent }) => script.retire(agent(), actor, p.worktree as string | undefined),
   'session.stop': (h) => {
     const { p, actor, script, agent } = h;
     return script.stopSession(agent(), p.mode, actor);
@@ -200,16 +203,19 @@ const BASE: Record<string, (h: Call) => unknown> = {
     if (!s.hasTerminal) throw new Failure('not_found', `${s.fx.name} has no terminal`, { field: 'terminal' });
     return { agent: s.fx.name, terminal: tid(s), host: 'fake', attach: { argv: ['fake-attach', tid(s)] }, focused: false, local: true };
   },
-  'shell.open': ({ p, script, agent, iso }) => {
+  'shell.open': ({ p, script, chat, agent, iso }) => {
     if (typeof p.agent !== 'string') throw invalidParams('agent is required', 'agent');
+    const run = runParams(p);
     const s = agent();
     const terminal = `%sh${++script.shellCount}`;
     script.shells.set(terminal, { ...newSession(s.fx, iso()), handle: terminal, lines: ['$ '], hasTerminal: true, open: false });
+    if (run) startRun(chat, terminal, run, iso);
     return { agent: s.fx.name, terminal, cwd: `/fake/worktrees/${s.fx.name}`, host: 'fake' };
   },
-  'shell.close': ({ p, script }) => {
+  'shell.close': ({ p, script, chat }) => {
     if (typeof p.terminal !== 'string' || p.terminal === '') throw invalidParams('terminal is a handle', 'terminal');
     if (!script.shells.delete(p.terminal)) throw new Failure('not_found', `no shell ${p.terminal}`, { field: 'terminal' });
+    stopRun(chat, p.terminal);
     return script.accepted('Shell closed.');
   },
   'terminal.close': ({ actor, script, agent }) => {
