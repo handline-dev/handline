@@ -58,3 +58,9 @@ With Tailscale up, the gateway listens on the Mac's Tailscale address (`HANDLINE
 An agent's run stays in the background: it has no dock or menu bar icon, no update dialog, never takes focus, keeps its window hidden, shows no native notices and does not bring the everyday app forward. An agent is known by `OCP_AGENT` in its shell, and `pnpm dev:team` passes the choice on. `HANDLINE_BACKGROUND=1` asks for it and `HANDLINE_BACKGROUND=0` turns it off. The hidden page keeps drawing, so screenshots go through the DevTools port (`Page.captureScreenshot`), never a screen capture.
 
 `HANDLINE_DEBUG_PORT=9333` opens the DevTools port on localhost for run checks. Any local process can then read the page, its device token included, so use it for checks only, never for the app you use every day.
+
+## Trying a branch next to the installed app
+
+    tools/try-prototype.sh [branch]
+
+Runs a branch (default `story/prototype-apply`) as a second app on the live daemon with the same data. It keeps its own clone (`~/.local/share/handline/try-prototype`), its own app data (`~/.local/share/handline/try-prototype-data`: settings, device token, instance lock) and its own page port (`HANDLINE_WEB_PORT`, default 17445), so the installed app is not touched and quitting this one leaves the daemon running. Run it again to bring the clone to the branch's head.
