@@ -29,3 +29,56 @@ test('no key, none sent', async () => {
   assert.ok(got.length > 0);
   assert.ok(got.every((p) => !('key' in p) || p.key === undefined));
 });
+
+/** A fake daemon that is the founder's only to a hello carrying the key `good`, and records every hello. */
+function founderDaemon(key: () => string | null, good: string) {
+  const roles: string[] = [];
+  let live: ReturnType<typeof memoryPair>[1] | null = null;
+  const client = new DaemonClient({
+    client: 'electron',
+    key,
+    founder: true,
+    reconnect: { minMs: 5, maxMs: 10 },
+    connect: async () => {
+      const [c, s] = memoryPair();
+      live = s;
+      s.onmessage = (m) => {
+        const { id, params } = JSON.parse(m);
+        const role = params.key === good ? 'founder' : 'anonymous';
+        roles.push(role);
+        s.send(JSON.stringify({ jsonrpc: '2.0', id, result: { protocol: 1, min_client: 0, role } }));
+      };
+      return c;
+    },
+  });
+  return { roles, client, drop: () => live?.close() };
+}
+
+test('a hello that is not the founder is retried until the key is found, then the first write goes', async () => {
+  let key: string | null = null;
+  const { roles, client } = founderDaemon(() => key, 'k1');
+  setTimeout(() => (key = 'k1'), 30);
+  for (;;) {
+    try {
+      await client.start(); // launch retries a start that fails, as main.ts does
+      break;
+    } catch {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+  }
+  client.close();
+  assert.equal(roles.at(-1), 'founder');
+  assert.ok(roles.slice(0, -1).every((r) => r === 'anonymous'));
+  assert.equal(client.hello?.role, 'founder');
+});
+
+test('a dropped connection says hello with the key again before anything else is sent', async () => {
+  const { roles, client, drop } = founderDaemon(() => 'k1', 'k1');
+  await client.start();
+  drop();
+  await new Promise<void>((ok) => {
+    const t = setInterval(() => roles.length >= 2 && client.state === 'open' && (clearInterval(t), ok()), 5);
+  });
+  client.close();
+  assert.deepEqual(roles, ['founder', 'founder']);
+});

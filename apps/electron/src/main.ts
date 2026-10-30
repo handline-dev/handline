@@ -37,10 +37,11 @@ const home =
 /** The daemon's socket for this shell's own connection (badge, notices); the web app reaches the daemon by its WebSocket. */
 const socket = env('SOCKET') ?? path.join(home, 'daemon.sock');
 // The founder key goes only to a daemon socket inside the daemon's home: HANDLINE_SOCKET can name another process's socket.
-const founderKey = () => {
+const outsideHome = () => {
   const rel = path.relative(home, socket);
-  return rel === '..' || rel.startsWith(`..${path.sep}`) ? null : readFounderKey(home);
+  return rel === '..' || rel.startsWith(`..${path.sep}`);
 };
+const founderKey = () => (outsideHome() ? null : readFounderKey(home));
 /** An installed app runs the daemon it carries and serves the web build it carries, unless the environment names others. */
 const carried = bundleAt(app.isPackaged, process.resourcesPath);
 if (carried) process.env.HANDLINE_HANDLINED ??= carried.handlined;
@@ -172,7 +173,7 @@ function handleDevices(origin: string): void {
 
 /** The shell's own connection to the daemon. */
 const shellClient = (): DaemonClient =>
-  new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: founderKey });
+  new DaemonClient({ client: 'electron', connect: () => unixSocketTransport(socket), key: founderKey, founder: !outsideHome() });
 
 /** On every connect, a daemon restarted by an update included, the tray learns which build it now is. */
 function watchVersion(client: DaemonClient, link: Link): void {

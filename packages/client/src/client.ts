@@ -30,6 +30,7 @@ export interface ClientOptions {
   client: string; // who is calling; the daemon names this actor on what it does
   token?: string; // the device token from pairing; the network listener admits no one without it
   key?: () => string | null; // the founder key, read at each hello: the person's own app proves itself on the Unix socket with it
+  founder?: boolean; // a hello not answered as the founder (no key yet) drops the connection to be retried, not kept at a lower role
   reconnect?: { minMs: number; maxMs: number } | false;
   newRequestId?: () => string;
   /** Methods answered by something other than the daemon connection (the desktop shell, for calls this caller may not make itself); each throws what a failed call throws. */
@@ -131,9 +132,7 @@ export class DaemonClient {
     }
     this.wasOpen = true;
     this.setState('open');
-    const waiters = this.waitingForOpen;
-    this.waitingForOpen = [];
-    for (const w of waiters) w.ok();
+    for (const w of this.waitingForOpen.splice(0)) w.ok();
   }
 
   private async handshake(t: Transport): Promise<void> {
@@ -149,6 +148,7 @@ export class DaemonClient {
         { reason: 'run `hl service install` to reload the service' },
       );
     }
+    if (this.opts.founder && hello.role !== 'founder') throw new RpcError('transport', `the daemon took this app as ${hello.role}: no founder key accepted`);
     this.hello = hello;
     // Pending writes go first with their old ids and request_ids: a daemon that already did one
     // answers from its stored reply instead of repeating it.
