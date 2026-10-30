@@ -8,6 +8,7 @@ import type { FakeChat } from '#src/chat.ts';
 import type { Conn } from '#src/conn.ts';
 import type { FakeInbox } from '#src/inbox.ts';
 import type { Knobs } from '#src/knobs.ts';
+import { invalidParams } from '#src/errors.ts';
 import type { FakeRequests } from '#src/requests.ts';
 import type { Script } from '#src/script.ts';
 import { accountsReply, type Session } from '#src/session.ts';
@@ -58,6 +59,7 @@ const AREAS: Area[] = [
 /** attachment.remove: the count of messages, briefs and memos naming the image, then, unless a dry run, the removal everywhere. */
 function removeAttachment(d: ModuleHost, p: Record<string, unknown>, ok: Ok): object {
   const id = String(p.id);
+  if (p.dry_run !== undefined && typeof p.dry_run !== 'boolean') throw invalidParams('dry_run is true or false', 'dry_run');
   const dry = p.dry_run === true;
   if (!d.uploads.remove(p.id, dry)) return ok('It was removed already.', { removed_from: 0 });
   const n = d.chat.naming(id) + d.tasks.naming(id);
