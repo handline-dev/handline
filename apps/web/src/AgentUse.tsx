@@ -1,4 +1,8 @@
-// The agents by use: a name, then CPU and memory each as a number over a light bar (its share of the biggest agent's), and Stop when the row can be stopped.
+// The agents by use: the state glyph and name, then CPU and memory each as a number over a light bar (its share of the biggest agent's), and Stop when the row can be stopped.
+import { dotOf } from '@handline/app-core';
+import { useAgents } from '@handline/app-data';
+import { Mark } from '#src/RailIcons.tsx';
+
 type Row = { agent: string; cpu: string; memory: string; cpuPct: number; rss: number };
 
 /** A figure over a tinted bar that fills the cell to `pct` percent. */
@@ -29,6 +33,7 @@ export function AgentUse({
   /** Opens the stop sheet for an agent; absent where the page cannot stop one. */
   stop?: (agent: string) => void;
 }) {
+  const agents = useAgents().data?.agents ?? [];
   const topCpu = Math.max(0, ...rows.map((x) => x.cpuPct));
   const topRss = Math.max(0, ...rows.map((x) => x.rss));
   const cols = stop ? 'grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_2.5rem]' : 'grid-cols-[minmax(0,1fr)_5.5rem_5.5rem]';
@@ -46,9 +51,16 @@ export function AgentUse({
       </div>
       {rows.map((x) => (
         <div key={x.agent} role="row" data-agent={x.agent} className={`grid ${cols} items-center gap-x-1 py-0.5`}>
-          <a role="cell" className="truncate text-ink" href={`#/agents/${encodeURIComponent(x.agent)}`}>
-            {x.agent}
-          </a>
+          <span role="cell" className="flex min-w-0 items-center gap-2">
+            {agents.find((a) => a.name === x.agent) ? (
+              <Mark dot={dotOf(agents.find((a) => a.name === x.agent)!)} />
+            ) : (
+              <span className="w-[15px] flex-none" aria-hidden />
+            )}
+            <a className="truncate text-ink" href={`#/agents/${encodeURIComponent(x.agent)}`}>
+              {x.agent}
+            </a>
+          </span>
           <Cell text={x.cpu} pct={share(x.cpuPct, topCpu)} />
           <Cell text={x.memory} pct={share(x.rss, topRss)} />
           {stop ? (

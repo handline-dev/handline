@@ -8,32 +8,46 @@ import { VerbSheet } from '#src/AgentVerbs.tsx';
 import { AnimatedList } from '#src/AnimatedList.tsx';
 import { ContentsPage, type Part } from '#src/ContentsPage.tsx';
 import { Bar, toneOf } from '#src/ResourceArea.tsx';
-import { PageHead, PageTitle, ScrollPage, SectionHead, SettingsCard } from '#src/ui/index.ts';
+import { PageHead, PageTitle, ScrollPage, SectionHead, SettingsCard, SettingsRow } from '#src/ui/index.ts';
 
 const ICON = { width: 16, height: 16, strokeWidth: 1.75, 'aria-hidden': true } as const;
 const PARTS: Part[] = [
-  { id: 'machine-resources', label: 'Resources', icon: <Activity {...ICON} /> },
-  { id: 'machine-agents', label: 'Agents', icon: <Cpu {...ICON} /> },
-  { id: 'machine-storage', label: 'Storage', icon: <HardDrive {...ICON} /> },
+  { id: 'machine-resources', label: 'Resources', icon: Activity },
+  { id: 'machine-agents', label: 'Agents', icon: Cpu },
+  { id: 'machine-storage', label: 'Storage', icon: HardDrive },
 ];
 
-/** One line: the glyph, the name, the bar, the figure with its grey "of total" and, for a low one, the warning. */
-function Row({ icon, label, pct, low, children }: { icon: ReactNode; label: string; pct: number; low?: boolean; children: ReactNode }) {
+/** One line: the glyph, the name, the figure with its grey "of total", then the bar; a low one adds the warning after the figure. */
+export function ResourceRow({
+  icon,
+  label,
+  pct,
+  low,
+  children,
+}: {
+  icon: ReactNode;
+  label: string;
+  pct: number;
+  low?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <div className="flex items-center gap-3 px-4 py-2 text-md" data-resource={label}>
-      <span className="flex-none text-ink-2">{icon}</span>
-      <span className="w-20 flex-none">{label}</span>
-      <Bar pct={pct} tone={toneOf(pct, low)} />
-      <span className="flex w-52 flex-none items-center justify-between gap-2 tabular-nums">
+    <SettingsRow className="grid-cols-[1rem_5rem_14rem_minmax(0,1fr)]!" data-resource={label}>
+      <span className="text-ink-2">{icon}</span>
+      <span>{label}</span>
+      <span className="flex items-center gap-2 tabular-nums">
         <span>{children}</span>
         {low ? (
-          <span className="inline-flex items-center gap-1 text-bad">
+          <span className="inline-flex items-center gap-1 text-bad" data-low>
             <TriangleAlert width={14} height={14} strokeWidth={1.75} aria-hidden />
             Low
           </span>
         ) : null}
       </span>
-    </div>
+      <span className="flex">
+        <Bar pct={pct} tone={toneOf(pct, low)} />
+      </span>
+    </SettingsRow>
   );
 }
 
@@ -52,19 +66,19 @@ export function MachinePage() {
       </PageHead>
       <ContentsPage parts={PARTS}>
         <section id="machine-resources">
-          <SectionHead>Resources</SectionHead>
+          <SectionHead icon={Activity}>Resources</SectionHead>
           <SettingsCard>
             {m ? (
               <>
-                <Row icon={<Cpu {...ICON} />} label="CPU" pct={Math.min(100, Math.round(m.load_per_core * 100))}>
+                <ResourceRow icon={<Cpu {...ICON} />} label="CPU" pct={Math.min(100, Math.round(m.load_per_core * 100))}>
                   {Math.round(m.load_per_core * 100)}% <span className="text-ink-3">of {m.cores} cores</span>
-                </Row>
-                <Row icon={<MemoryStick {...ICON} />} label="Memory" pct={Math.round(100 - m.ram_free_pct)}>
+                </ResourceRow>
+                <ResourceRow icon={<MemoryStick {...ICON} />} label="Memory" pct={Math.round(100 - m.ram_free_pct)}>
                   {bytesText(m.ram_used_bytes)} <span className="text-ink-3">of {bytesText(m.ram_total_bytes)}</span>
-                </Row>
-                <Row icon={<HardDrive {...ICON} />} label="Disk" pct={diskUsed} low={m.disk_free_bytes < LOW_DISK_BYTES}>
+                </ResourceRow>
+                <ResourceRow icon={<HardDrive {...ICON} />} label="Disk" pct={diskUsed} low={m.disk_free_bytes < LOW_DISK_BYTES}>
                   {bytesText(m.disk_free_bytes)} left <span className="text-ink-3">of {bytesText(m.disk_total_bytes)}</span>
-                </Row>
+                </ResourceRow>
               </>
             ) : (
               <p className="muted pad">The daemon has not reported the machine yet.</p>
@@ -73,7 +87,7 @@ export function MachinePage() {
           </SettingsCard>
         </section>
         <section id="machine-agents">
-          <SectionHead>Agents</SectionHead>
+          <SectionHead icon={Cpu}>Agents</SectionHead>
           <p className="muted m-0 mb-1 text-sm">{total}</p>
           <SettingsCard className="px-4 py-3">
             {m ? <AgentUse rows={rows} stop={(name) => agents.some((a) => a.name === name) && setStopping(name)} /> : null}
@@ -83,7 +97,7 @@ export function MachinePage() {
           </AnimatedList>
         </section>
         <section id="machine-storage">
-          <SectionHead>Storage</SectionHead>
+          <SectionHead icon={HardDrive}>Storage</SectionHead>
           <SettingsCard>
             {m ? (
               <div className="flex flex-col gap-2 px-4 py-3 text-md">

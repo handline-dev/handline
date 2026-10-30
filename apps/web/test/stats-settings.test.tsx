@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Store, type KV } from '@handline/app-core';
 import { setup } from '@handline/fake-daemon/helpers';
 import { App } from '#src/App.tsx';
+import { ResourceRow } from '#src/MachinePage.tsx';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -74,6 +75,25 @@ describe('machine', () => {
     const stop = $$('.machine-page [data-agent] button').find((b) => b.textContent === 'Stop')!;
     await act(async () => stop.click());
     await until(() => button('Cancel'), 'the stop sheet');
+  });
+});
+
+describe('a resource line', () => {
+  it('shows Low with its glyph beside the figure when the disk is low, and the bar after the figure', async () => {
+    box = document.body.appendChild(document.createElement('div'));
+    root = createRoot(box);
+    await act(async () => {
+      root!.render(
+        <ResourceRow icon={null} label="Disk" pct={98} low>
+          8 GB left
+        </ResourceRow>,
+      );
+    });
+    const row = $('[data-resource="Disk"]')!;
+    expect(text(row.querySelector('[data-low]'))).toBe('Low');
+    expect(row.querySelector('[data-low] svg')).not.toBeNull();
+    expect(text(row).indexOf('8 GB left')).toBeLessThan(text(row).indexOf('Low'));
+    expect(row.lastElementChild!.querySelector('.bg-bad')).not.toBeNull();
   });
 });
 
