@@ -57,6 +57,29 @@ describe('the task page', () => {
     expect($('.line-clamp-4', $('article.tdetail')!)).toBeNull();
   });
 
+  it('marks a wait on tasks with one amber Blocked chip and its icon, and none when nothing blocks the task', async () => {
+    await mount('#/tasks/1690');
+    await until(() => $('[data-waiting-on]'), 'the waiting line');
+    const chips = [...document.querySelectorAll('span')].filter(
+      (e) => e.children.length < 2 && text(e) === 'Blocked' && e.className.includes('rounded-sm'),
+    );
+    expect(chips).toHaveLength(1);
+    expect(chips[0]!.className).toContain('text-wait');
+    expect(chips[0]!.querySelector('svg')).not.toBeNull();
+    await act(async () => void (location.hash = '#/tasks/1688')); // local-ref-ok: a task nothing blocks
+    await until(() => $('article[aria-label="Task T1688"]') && !$('[data-waiting-on]'), 'the unblocked task');
+    expect(text($('article.tdetail'))).not.toContain('Blocked');
+  });
+
+  it("sets the task number in the title's own face, with no mono class", async () => {
+    await mount('#/tasks/1690');
+    await until(() => $('.title-slot'), 'the title');
+    const ref = $('.title-slot')!.previousElementSibling!;
+    expect(text(ref)).toBe('T1690'); // local-ref-ok
+    expect(ref.className).not.toMatch(/mono|text-\[/);
+    expect(ref.parentElement!.className).toContain('items-baseline');
+  });
+
   it('says "Not picked up yet" as a quiet line, not a boxed warning, when only the daemon has not looked at the task', async () => {
     const s = setup();
     const row = (

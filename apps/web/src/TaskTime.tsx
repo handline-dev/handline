@@ -37,6 +37,7 @@ export function TimeLine({ id, left, blocked }: { id: number; left?: string; blo
   const [open, setOpen] = useState(false);
   const off = useOff('task.time');
   const segments = useTaskTime(id).data?.segments ?? [];
+  // Amber, not the blocked state's red: the task waits on another task, nothing has failed.
   const chip = blocked ? (
     <Chip kind="warn" icon={CircleAlert}>
       Blocked
