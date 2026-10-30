@@ -36,6 +36,12 @@ const setValue = (el: HTMLInputElement | HTMLSelectElement, value: string) =>
     el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
   });
 const blur = (el: HTMLElement) => act(async () => void el.dispatchEvent(new FocusEvent('focusout', { bubbles: true })));
+/** What a person does: focus the field (a late read then cannot reset the text under them), type, leave. */
+const type = async (el: HTMLInputElement, value: string) => {
+  await act(async () => void el.dispatchEvent(new FocusEvent('focusin', { bubbles: true })));
+  await setValue(el, value);
+  await blur(el);
+};
 const field = (label: string) => $(`[data-setting="${label}"] input`) as HTMLInputElement;
 const toggle = (label: string) => $(`[data-setting="${label}"] [role="switch"]`) as HTMLElement;
 const byLabel = (label: string) => ($$('label').find((l) => text(l) === label) as HTMLLabelElement).control as HTMLInputElement;
@@ -275,11 +281,9 @@ describe('settings', () => {
   it('idle close converts minutes to seconds', async () => {
     const s = await mount('#/settings');
     await until(() => field('Close idle sessions after'), 'the fields');
-    await setValue(field('Close idle sessions after'), '45');
-    await blur(field('Close idle sessions after'));
+    await type(field('Close idle sessions after'), '45');
     await until(() => s.daemon.admin.settings().values.park_timeout_s === 2700, 'seconds');
-    await setValue(field('Close idle sessions after'), '0');
-    await blur(field('Close idle sessions after'));
+    await type(field('Close idle sessions after'), '0');
     await until(() => s.daemon.admin.settings().values.park_timeout_s === 0, 'never');
   });
 
@@ -370,8 +374,7 @@ describe('settings', () => {
     const s = setup();
     s.daemon.admin.tailscaleHost = 'mac-studio.tail1.ts.net';
     await mount('#/settings', s);
-    await until(() => $('[data-server="this"]'), 'the server row');
-    expect(text($('[data-server="this"]'))).toContain('mac-studio');
+    await until(() => text($('[data-server="this"]')).includes('mac-studio'), 'the server row with its host name');
     expect(text($('[data-server="this"]'))).toContain('This computer');
     expect(text(document.body)).toContain('Servers run agents. Devices only connect.');
     await click(button('Connect a device')!);
