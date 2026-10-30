@@ -98,6 +98,8 @@ test('commands: a checkout runs go/handlined as the daemon and the gateway; the 
   assert.deepEqual(none.gateway.args, ['-gateway', '-allow-real-home', '-listen', '127.0.0.1:7443']);
   const named = commands((k) => ({ HOME: '/h', CLAUDE: '/x/claude', HANDLINED: '/x/h' })[k], '/repo', ':1');
   const ts = commands(() => undefined, '/repo', '100.101.2.3:7443', 'mac.tail1.ts.net:7443');
+  assert.ok(!none.gateway.args.includes('-web'));
+  assert.deepEqual(commands(() => undefined, '/repo', ':1', null, 'claude', '/app/web').gateway.args.slice(-2), ['-web', '/app/web']);
   assert.deepEqual(ts.gateway.args.slice(-4), ['-listen', '100.101.2.3:7443', '-advertise', 'mac.tail1.ts.net:7443']);
   assert.deepEqual(named.daemon.args.slice(0, 4), ['-home', '/h', '-claude', '/x/claude']);
   assert.equal(named.daemon.file, '/x/h');

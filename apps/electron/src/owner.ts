@@ -141,13 +141,15 @@ export function resolveClaude(named: string | undefined, paths: (string | undefi
 }
 
 /** The two commands, from the environment: a checkout runs `go/handlined` as the daemon (with the service's flags) and as the gateway;
- * a packaged app names its own binary. `claude` is the one the daemon runs, resolved by the caller. */
+ * a packaged app names its own binary. `claude` is the one the daemon runs, resolved by the caller; `web` is the built page the gateway then
+ * serves on its own address, set only while the person allows devices on the network. */
 export function commands(
   env: (k: string) => string | undefined,
   root: string,
   listen: string,
   advertise: string | null = null,
   claude: string = env('CLAUDE') ?? 'claude',
+  web: string | null = null,
 ): { daemon: Cmd; gateway: Cmd } {
   const homeArgs = env('HOME') ? ['-home', env('HOME')!] : ['-allow-real-home'];
   const file = env('HANDLINED') ?? `${root}/go/handlined`;
@@ -158,7 +160,7 @@ export function commands(
     },
     gateway: {
       file,
-      args: ['-gateway', ...homeArgs, '-listen', listen, ...(advertise ? ['-advertise', advertise] : [])],
+      args: ['-gateway', ...homeArgs, '-listen', listen, ...(advertise ? ['-advertise', advertise] : []), ...(web ? ['-web', web] : [])],
     },
   };
 }

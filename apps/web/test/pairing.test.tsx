@@ -5,7 +5,7 @@ import type { KV } from '@handline/app-core';
 import { FakeDaemon } from '@handline/fake-daemon/daemon';
 import { memoryPair } from '@handline/client';
 import { Start } from '#src/Start.tsx';
-import { codeFrom, needsToken } from '#src/pairing.ts';
+import { codeFrom, deviceName, inviteCode, needsToken } from '#src/pairing.ts';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -72,6 +72,54 @@ describe('pairing with the network listener', () => {
     await until(() => !box.querySelector('.pair-screen'), 'the app');
     expect([...storage.data.values()][0]).toMatch(/^hld_/);
     await until(() => box.querySelector('#app'), 'the frame');
+  });
+
+  it('reads the code out of an invite link and names the browser', () => {
+    expect(inviteCode('#pair=K7QM-2XPD')).toBe('K7QM-2XPD');
+    expect(inviteCode('#/agents/x')).toBeNull();
+    expect(inviteCode('')).toBeNull();
+    expect(deviceName('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0 Safari/537.36')).toBe(
+      'Chrome on Mac',
+    );
+    expect(deviceName('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17 Safari/605.1.15')).toBe(
+      'Safari on Mac',
+    );
+  });
+
+  describe('opened from an invite link', () => {
+    const url = 'ws://127.0.0.1:7443/rpc';
+    const mountWith = async (daemon: FakeDaemon, hash: string) => {
+      const open = async () => {
+        const [a, b] = memoryPair();
+        daemon.acceptNetwork(b);
+        return a;
+      };
+      location.hash = hash;
+      const storage = memory();
+      const box = document.createElement('div');
+      document.body.append(box);
+      root = createRoot(box);
+      await act(async () => root!.render(<Start url={url} insecure={false} storage={storage} open={open} />));
+      return { box, storage };
+    };
+
+    it('pairs by itself, keeps the token, takes the code out of the address and shows the app', async () => {
+      const daemon = new FakeDaemon();
+      const { box, storage } = await mountWith(daemon, `#pair=${daemon.issueCode()}`);
+      await until(() => box.querySelector('#app'), 'the app');
+      expect([...storage.data.values()][0]).toMatch(/^hld_/);
+      expect(location.hash).not.toContain('pair=');
+    });
+
+    it('a code that was used or ran out shows the expiry screen, with a way to type a code instead', async () => {
+      const daemon = new FakeDaemon();
+      const { box, storage } = await mountWith(daemon, '#pair=NOT-A-LIVE-CODE');
+      await until(() => box.textContent?.includes('This invite expired'), 'the expiry screen');
+      expect(box.textContent).toContain('Connect a device');
+      expect(storage.data.size).toBe(0);
+      await act(async () => [...box.querySelectorAll('button')].find((b) => b.textContent === 'Enter a code instead')!.click());
+      expect(box.querySelector('.pair-screen input')).not.toBeNull();
+    });
   });
 
   it('says the app may be off when the listener cannot be reached, and pairs once Retry finds it', async () => {

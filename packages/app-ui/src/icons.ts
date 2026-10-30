@@ -92,6 +92,8 @@ export const ICON_SPEC = {
   sendUp: ['ArrowUp', 'Send'],
   web: ['Globe', 'Preview'],
   device: ['Smartphone', 'Device'],
+  computer: ['Monitor', 'Computer'],
+  laptop: ['Laptop', 'Laptop'],
   reference: ['CornerUpLeft', 'Reply to this'],
   open: ['ExternalLink', 'Open'],
   copy: ['Copy', 'Copy'],

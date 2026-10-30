@@ -24,6 +24,8 @@ export const CHANNELS = {
   linkCli: 'handline:linkCli',
   pairRemote: 'handline:pairRemote',
   phone: 'handline:phone',
+  network: 'handline:network',
+  setNetwork: 'handline:setNetwork',
   token: 'handline:token',
   captureWindows: 'handline:captureWindows',
   captureWindow: 'handline:captureWindow',
@@ -101,6 +103,10 @@ export interface ConnectionDeps {
   pair(i: OfferInput): Promise<void>;
   /** Opens the phone-pairing QR window; rejects with a sentence when it cannot. */
   phone(): Promise<void>;
+  /** Whether devices are allowed on the network (the gateway serves the page); off unless the person turned it on. */
+  network(): boolean;
+  /** Saves it and relaunches. */
+  setNetwork(on: boolean): void;
 }
 
 const OFFER_KEYS = ['link', 'address', 'code'];
@@ -146,6 +152,17 @@ export class Connection {
     const mode = typeof arg === 'string' ? parseMode(arg) : undefined;
     if (!mode) return bad('setMode takes connect or own');
     this.d.setMode(mode);
+    return { ok: true };
+  }
+  network(e: Sender): { ok: true; on: boolean; can: boolean } | Fail<'bad_request'> {
+    if (!fromWindow(e, this.origin)) return bad('not from the app window') as Fail<'bad_request'>;
+    return { ok: true, on: this.d.network(), can: this.d.mode().remote === null };
+  }
+  setNetwork(e: Sender, arg: unknown): Reply {
+    if (!fromWindow(e, this.origin)) return bad('not from the app window');
+    if (typeof arg !== 'boolean') return bad('setNetwork takes true or false');
+    if (this.d.mode().remote !== null) return bad('this app is paired with another device; allow devices there');
+    this.d.setNetwork(arg);
     return { ok: true };
   }
   async phone(e: Sender): Promise<Reply | Fail<'cannot_pair'>> {
