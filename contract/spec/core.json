@@ -2876,6 +2876,22 @@
      "text": {
       "type": "string",
       "description": "The item in plain words, with the free space in it."
+     },
+     "orphan_worktrees": {
+      "type": "object",
+      "description": "disk only, when there are any: the worktrees no agent works in (worktrees.list orphan), as housekeeping last measured them (at most hourly). The text names them too.",
+      "properties": {
+       "count": {
+        "type": "integer"
+       },
+       "size_bytes": {
+        "type": "integer"
+       }
+      },
+      "required": [
+       "count",
+       "size_bytes"
+      ]
      }
     },
     "required": [
