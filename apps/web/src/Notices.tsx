@@ -274,15 +274,15 @@ function Toast({ n }: { n: Notice }) {
   );
 }
 
-/** The stack hangs where a chat's composer ends, so it rises above any composer under it; composers that open later are measured too. */
+/** The stack hangs where a chat's composer ends, so it rises above any composer under it; composers that open later are measured too. It writes the margin itself, so a lift is no React render. */
 function useLift(shown: boolean) {
   const stack = useRef<HTMLDivElement>(null);
-  const [lift, setLift] = useState(0);
   useLayoutEffect(() => {
     const at = stack.current;
     if (!shown || !at || typeof ResizeObserver === 'undefined') return;
     const sized = new ResizeObserver(() => measure());
     const watched = new Set<Element>();
+    let frame = 0;
     const measure = () => {
       const bar = at.parentElement?.getBoundingClientRect();
       const me = at.getBoundingClientRect();
@@ -297,15 +297,22 @@ function useLift(shown: boolean) {
         .map((c) => c.getBoundingClientRect())
         .filter((r) => r.width && r.left < bar.right && r.right > bar.right - me.width)
         .map((r) => r.top);
-      setLift(tops.length ? Math.max(0, bar.top - Math.min(...tops)) : 0);
+      const lift = tops.length ? Math.max(0, bar.top - Math.min(...tops)) : 0;
+      const margin = lift ? `${lift + 8}px` : '';
+      if (at.style.marginBottom !== margin) at.style.marginBottom = margin;
+    };
+    // A composer comes and goes with the chat, not with every message: look at most once a frame.
+    const later = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
     };
     measure();
     sized.observe(document.body);
-    const added = new MutationObserver(measure);
+    const added = new MutationObserver(later);
     added.observe(document.body, { childList: true, subtree: true });
-    return () => (sized.disconnect(), added.disconnect());
+    return () => (cancelAnimationFrame(frame), sized.disconnect(), added.disconnect());
   }, [shown]);
-  return { stack, lift };
+  return stack;
 }
 
 function Toasts({ hidden }: { hidden: boolean }) {
@@ -335,13 +342,12 @@ function Toasts({ hidden }: { hidden: boolean }) {
     return () => removeEventListener('keydown', key);
   }, [first, hidden, store]);
   const shown = (toasts.length > 0 || spare.length > 0) && !hidden;
-  const { stack, lift } = useLift(shown);
+  const stack = useLift(shown);
   if (!shown) return null;
   return (
     <div
       ref={stack}
       className="toasts absolute right-0 bottom-full z-10 mb-2 flex w-[380px] max-w-[90vw] flex-col-reverse gap-1.5"
-      style={lift ? { marginBottom: lift + 8 } : undefined}
       role="status"
     >
       {spare.map((n) => (
