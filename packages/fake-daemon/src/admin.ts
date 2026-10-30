@@ -2,6 +2,7 @@
 // and worktrees (worktrees.ts).
 import type { ConnectionInfo, Outlook, MachineNeed, Settings, SettingsChanges, StandingAnswer, Timestamp } from '@handline/contract';
 import { Failure, badRequest } from '#src/errors.ts';
+import { retroOf } from '#src/retro.ts';
 import { AGENTS, outlookOf, statsOf } from '#src/usage.ts';
 import { FakeWorktrees } from '#src/worktrees.ts';
 import { FakePrefs, type PrefsHost } from '#src/prefs.ts';
@@ -102,6 +103,8 @@ export class FakeAdmin {
         return statsOf(this.now(), p.window === '7d' ? '7d' : '24h');
       case 'stats.outlook':
         return outlookOf(this.now(), String(p.range) as Outlook['range'], p.agent);
+      case 'stats.retro':
+        return retroOf(Number(p.task));
       case 'connection.get':
         return this.connection();
       case 'settings.get':

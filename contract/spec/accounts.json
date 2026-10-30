@@ -1628,7 +1628,7 @@
    "x-role": "member",
    "x-write": false,
    "x-since": 1,
-   "description": "A read only. The subtree is the task and every task opened under it, to any depth. A doing window of a task runs from the moment its owner began it (task_begin or task_self_start) to the first of: done, discard, release, or the owner beginning another task; time it waited on a blocker is not in it. A call of token_calls counts to an agent when its ts is inside one of that agent's windows and its cwd is in that agent's worktree; the same call is never counted to two tasks (a call inside two windows of one agent goes to the later-begun task). Calls outside every window are not counted. A task that is not found is `not_found`; a task that is not a founder's task (its reporter is not human) is `bad_request`.",
+   "description": "A read only. The subtree is the task and every task opened under it, to any depth. A doing window of a task runs from the moment its owner began it (task_begin or task_self_start) to the first of: done, discard, release, or the owner beginning another task; time it waited on a blocker is not in it. A call of token_calls counts to an agent when its ts is after a window's begin and up to its end (as in stats.get) in one of that agent's windows and its cwd is in that agent's worktree; the same call is never counted to two tasks (a call inside two windows of one agent goes to the later-begun task). Calls outside every window are not counted. A task that is not found is `not_found`; a task that is not a founder's task (its reporter is not human) is `bad_request`.",
    "errors": [
     {
      "$ref": "#/components/errors/not_found"
