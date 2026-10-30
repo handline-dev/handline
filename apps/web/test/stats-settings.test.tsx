@@ -319,6 +319,18 @@ describe('settings', () => {
     expect($('[data-device="d1"]')).not.toBeNull();
   });
 
+  it('a revoke the daemon refuses keeps the ask open with its reason and says nothing was revoked', async () => {
+    const s = setup();
+    await mount('#/settings', s);
+    await until(() => $('[data-device="d2"]'), 'the devices');
+    await click($('[title="Revoke phone-3b54"]')!);
+    (s.daemon.admin as unknown as { devices: unknown[] }).devices = []; // the daemon no longer knows the device: it refuses the revoke
+    await click($('.ui-dialog .ui-btn.solid')!);
+    await until(() => $('.ui-dialog [role="alert"]'), 'the reason');
+    expect(text($('.ui-dialog [role="alert"]'))).toContain('no such device');
+    expect(text(document.body)).not.toContain('Revoked phone-3b54');
+  });
+
   it('Computers: this computer is the first server, and Connect a device shows the invite as a QR and a link that works once', async () => {
     await mount('#/settings');
     await until(() => $('[data-server="this"]'), 'the server row');

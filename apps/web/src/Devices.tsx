@@ -2,7 +2,7 @@
 // when it was last seen and Revoke behind a confirm. Devices always shows, with a way to connect one.
 import { useState } from 'react';
 import { ago } from '@handline/app-core';
-import { useAgents, useDevices, useOff, useRead, useServes, useStatus, useWrite } from '@handline/app-data';
+import { classify, sentence, useAgents, useDevices, useOff, useRead, useServes, useStatus, useWrite } from '@handline/app-data';
 import { useSelector, useStore } from '@handline/app-react';
 import { Invite } from '#src/Invite.tsx';
 import { Row } from '#src/SettingsRows.tsx';
@@ -69,6 +69,8 @@ export function Devices() {
   const off = useOff('device.revoke');
   const [asking, setAsking] = useState<{ id: string; name: string } | null>(null);
   const [inviting, setInviting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [refused, setRefused] = useState('');
   const rows = q.data?.devices ?? [];
   return (
     <>
@@ -113,7 +115,12 @@ export function Devices() {
                 {d.name}{' '}
                 <span className="muted">{d.connected ? 'connected' : d.last_seen ? `seen ${ago(d.last_seen)} ago` : 'never seen'}</span>
               </RowTitle>
-              <Button label={`Revoke ${d.name}`} disabled={!!off} title={off} onClick={() => setAsking({ id: d.id, name: d.name })}>
+              <Button
+                label={`Revoke ${d.name}`}
+                disabled={!!off}
+                title={off}
+                onClick={() => (setRefused(''), setAsking({ id: d.id, name: d.name }))}
+              >
                 Revoke
               </Button>
             </SettingsRow>
@@ -127,14 +134,31 @@ export function Devices() {
           onClose={() => setAsking(null)}
           action={{
             label: 'Revoke',
+            disabled: busy,
             onClick: () => {
-              revoke.mutate({ device: asking.id });
-              store.notices.push('ok', `Revoked ${asking.name}. It needs a new invite to come back.`);
-              setAsking(null);
+              setBusy(true);
+              setRefused('');
+              // The line after waits for the daemon: it can refuse, and the ask then stays with its reason.
+              revoke.mutateAsync({ device: asking.id }).then(
+                () => {
+                  store.notices.push('ok', `Revoked ${asking.name}. It needs a new invite to come back.`);
+                  setAsking(null);
+                  setBusy(false);
+                },
+                (e: unknown) => {
+                  setRefused(sentence(classify(e)));
+                  setBusy(false);
+                },
+              );
             },
           }}
         >
           <p className="m-0">{asking.name} loses its access to this daemon at once. To use it again it has to be paired anew.</p>
+          {refused ? (
+            <p className={`${NOTE} m-0 text-bad`} role="alert">
+              {refused}
+            </p>
+          ) : null}
           <div>
             <Button label="Cancel" onClick={() => setAsking(null)} />
           </div>
