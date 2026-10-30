@@ -9,7 +9,7 @@ appId: dev.handline.mobile
 - assertVisible:
     id: pictures
 - tapOn:
-    id: picture-.*
+    id: picture-(?!d0d0d0d0d0d0d0d0|full).*
 - assertVisible:
     id: picture-full-.*
 - tapOn:
