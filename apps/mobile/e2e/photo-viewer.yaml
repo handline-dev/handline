@@ -1,0 +1,44 @@
+# After pair-and-page.yaml, on a fresh `pnpm fake-listener --picture a.png,b.png,c.png` (three real pictures): the viewer steps through the photos, a double tap zooms
+# and back, a drag marks a box with a note, Send puts one message with the drawn photo and the numbered note in the chat.  maestro test e2e/photo-viewer.yaml
+appId: dev.handline.mobile
+---
+- runFlow:
+    when: { visible: { id: back } }
+    commands: [{ tapOn: { id: back } }]
+- tapOn:
+    id: agent-handline.architect
+- tapOn:
+    id: picture-.*
+- assertVisible:
+    id: picture-count
+- takeScreenshot: shots/viewer-1-open
+- tapOn:
+    id: photo-next
+- assertVisible: 2 of 3
+- doubleTapOn:
+    id: photo-stage
+- takeScreenshot: shots/viewer-2-zoomed
+- doubleTapOn:
+    id: photo-stage
+- tapOn:
+    id: mark-start
+- assertVisible: Drag on the photo to mark
+- takeScreenshot: shots/viewer-3-marking
+- swipe: { start: "20%,38%", end: "60%,50%" }
+- inputText: Button is too big
+- takeScreenshot: shots/viewer-4-one-note
+- swipe: { start: "55%,28%", end: "85%,34%" }
+- inputText: Make the title lighter
+- takeScreenshot: shots/viewer-5-two-notes
+- assertVisible: Send 2 notes to handline.architect
+- tapOn:
+    id: marks-cancel
+- assertVisible: Discard 2 notes?
+- takeScreenshot: shots/viewer-6-discard
+- tapOn:
+    id: discard-keep
+- tapOn:
+    id: marks-send
+- assertNotVisible:
+    id: picture-image
+- takeScreenshot: shots/viewer-7-sent

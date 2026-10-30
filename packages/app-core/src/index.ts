@@ -1,6 +1,7 @@
 export * from '#src/agent-line.ts';
 export * from '#src/build.ts';
 export * from '#src/chat.ts';
+export * from '#src/command.ts';
 export * from '#src/chatScroll.ts';
 export * from '#src/chatView.ts';
 export * from '#src/keys.ts';

@@ -12,6 +12,7 @@ import { font, radius, space } from '@handline/tokens';
 import { Skeleton } from '#src/skeleton.tsx';
 import { usePalette } from '#src/theme.ts';
 import { Decided, Line, Stamp, useBubbleWidth } from '#src/screens/ChatLines.tsx';
+import { CommandMessageScope } from '#src/screens/CommandCard.tsx';
 import { Pictures } from '#src/screens/ChatPictures.tsx';
 import { ChatActions } from '#src/screens/ChatActions.tsx';
 import { PrBody } from '#src/screens/PrBody.tsx';
@@ -367,7 +368,11 @@ function Bubble(props: {
             ↩ {m.parent_item.text.replace(/\s+/g, ' ')}
           </Text>
         )}
-        {m.body ? <PrBody id={m.id} agent={agent} body={m.body} selectable /> : null}
+        {m.body ? (
+          <CommandMessageScope id={m.id} runs={m.runs}>
+            <PrBody id={m.id} agent={agent} body={m.body} selectable />
+          </CommandMessageScope>
+        ) : null}
         {m.attachments?.length ? (
           <Pictures
             items={m.attachments}
