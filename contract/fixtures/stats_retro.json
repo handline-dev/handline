@@ -40,7 +40,7 @@
   {
    "name": "stats.retro.a_task_not_answering_to_the_founder_is_bad_request",
    "spec": "stats.retro",
-   "about": "A task whose reporter is not human is bad_request. Needs --var retro_plain_task: a task that answers to an agent.",
+   "about": "A task whose reporter is not human is bad_request. Needs the seeded task 9003, which answers to an agent.",
    "as": "founder",
    "steps": [
     {
@@ -62,11 +62,16 @@
       "id": 2,
       "method": "stats.retro",
       "params": {
-       "task": "{{retro_plain_task}}"
+       "task": 9003
       }
      },
      "error": {
-      "code": {"$oneOf": [-32600, -32602]},
+      "code": {
+       "$oneOf": [
+        -32600,
+        -32602
+       ]
+      },
       "data": {
        "code": "bad_request",
        "field": "task"
@@ -78,7 +83,7 @@
   {
    "name": "stats.retro.only_calls_inside_a_doing_window_count",
    "spec": "stats.retro",
-   "about": "The Retro has the task, wall time, tokens, cost and a row per agent; a token call of an agent outside its doing windows is not counted. Needs --var retro_task: a founder's task done after 3600 s, with a subtree where grp.one did a child for 1800 s with a 100-token call inside and a 500-token call after its window, and grp.two did the task for 1800 s with a 200-token call.",
+   "about": "The Retro has the task, wall time, tokens, cost and a row per agent; a token call of an agent outside its doing windows is not counted. Needs the seeded task 9001: a founder's task done after 3600 s, with a subtree where grp.one did a child for 1800 s with a 100-token call inside and a 500-token call after its window, and grp.two did the task for 1800 s with a 200-token call.",
    "as": "founder",
    "steps": [
     {
@@ -100,13 +105,11 @@
       "id": 2,
       "method": "stats.retro",
       "params": {
-       "task": "{{retro_task}}"
+       "task": 9001
       }
      },
      "result": {
-      "task": {
-       "$type": "integer"
-      },
+      "task": 9001,
       "wall_seconds": 3600,
       "tokens": 300,
       "cost": {

@@ -1,4 +1,4 @@
-// The fake daemon's stats.retro: the tasks, doing windows and token calls the retro fixtures name (--var retro_task=9001 retro_plain_task=9003).
+// The fake daemon's stats.retro: the tasks, doing windows and token calls the retro fixtures name (tasks 9001 to 9003).
 import type { Retro } from '@handline/contract';
 import { badRequest, Failure } from '#src/errors.ts';
 
