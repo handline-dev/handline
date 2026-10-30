@@ -6,6 +6,7 @@ import { Button, Textarea } from '#src/ui/index.ts';
 
 type View = { s: number; x: number; y: number };
 const MAX_ZOOM = 8;
+const NOTE_W = 256;
 
 export interface StageProps {
   url: string;
@@ -144,6 +145,13 @@ export function ViewerStage({ url, name, marking, marks, dispatch, image, onZoom
   const path = marks.draft?.map((p) => `${p.x},${p.y}`).join(' ');
   const screen = (x: number, y: number) => ({ left: at.x + x * at.s, top: at.y + y * at.s });
   const current = marks.marks.find((m) => m.id === marks.open);
+  // The note sits beside the mark's far corner, flipped to its left when that is where the room is, and kept inside the stage.
+  const corner = current ? screen(current.rect.x + current.rect.w, current.rect.y + current.rect.h) : { left: 0, top: 0 };
+  const noteLeft = Math.max(
+    8,
+    Math.min(room.w - NOTE_W - 8, corner.left + NOTE_W + 16 > room.w ? corner.left - NOTE_W - 8 : corner.left + 8),
+  );
+  const noteTop = Math.max(8, Math.min(room.h - 160, corner.top + 8));
   const memo = useRef<HTMLTextAreaElement>(null);
   useEffect(() => void (marks.open !== null && memo.current?.focus()), [marks.open]);
 
@@ -217,10 +225,7 @@ export function ViewerStage({ url, name, marking, marks, dispatch, image, onZoom
         <div
           data-note
           className="absolute z-10 flex w-64 flex-col gap-1.5 rounded-md bg-panel p-2 shadow-[var(--shadow)]"
-          style={{
-            ...screen(current.rect.x + current.rect.w, current.rect.y + current.rect.h),
-            transform: `translate(${(current.rect.x + current.rect.w) / (nat.w || 1) > 0.6 ? 'calc(-100% - 8px)' : '8px'}, 8px)`,
-          }}
+          style={{ left: noteLeft, top: noteTop }}
         >
           <label className="text-sm text-ink-2" htmlFor="viewer-note">
             What should change here?
