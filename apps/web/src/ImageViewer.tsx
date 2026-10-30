@@ -191,7 +191,7 @@ export function ImageViewer({ pictures, start = 0, onClose }: { pictures: Pictur
 /** More: copy the photo to the clipboard, or save it as a file. */
 function PhotoMenu({ url, name }: { url: string; name: string }) {
   const [open, setOpen] = useState(false);
-  const item = 'block w-full cursor-pointer border-0 bg-transparent px-3 py-1.5 text-left text-sm text-ink hover:bg-line';
+  const item = 'block w-full cursor-pointer border-0 bg-transparent px-3 py-1.5 text-left text-sm text-ink';
   const copy = async () => {
     setOpen(false);
     const blob = await (await fetch(url)).blob();
