@@ -343,9 +343,12 @@ func LastActivityID(q Q, agent string, kinds []string) (int64, bool, error) {
 	return maxInt(q, "SELECT MAX(id) FROM events WHERE agent = ? AND kind IN ("+marks(len(kinds))+")", kindArgs([]any{agent}, kinds)...)
 }
 
+// accountActivitySQL reads through events_account_ts (migration 33), the account's own events only.
+const accountActivitySQL = "SELECT MAX(ts) FROM events WHERE account = ? AND kind IN ('UserPromptSubmit', 'Stop', 'StopFailure', 'PostCompact', 'SessionStart')"
+
 // LastAccountActivity is db.last_account_activity: when a session on the account last took a turn.
 func LastAccountActivity(q Q, account string) (int64, bool, error) {
-	return maxInt(q, "SELECT MAX(ts) FROM events WHERE account = ? AND kind IN ('UserPromptSubmit', 'Stop', 'StopFailure', 'PostCompact', 'SessionStart')", account)
+	return maxInt(q, accountActivitySQL, account)
 }
 
 // LastEventTS is db.last_event_ts.
