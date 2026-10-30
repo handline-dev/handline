@@ -288,7 +288,11 @@ function useLift(shown: boolean) {
       const me = at.getBoundingClientRect();
       if (!bar) return;
       const found = [...document.querySelectorAll('.compose-wrap')];
-      for (const c of found) if (!watched.has(c)) (watched.add(c), sized.observe(c));
+      for (const c of found) {
+        if (watched.has(c)) continue;
+        watched.add(c);
+        sized.observe(c);
+      }
       const tops = found
         .map((c) => c.getBoundingClientRect())
         .filter((r) => r.width && r.left < bar.right && r.right > bar.right - me.width)
