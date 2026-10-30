@@ -125,7 +125,9 @@ describe('needs you', () => {
     it('leaves one grey line for a stall the daemon raised', async () => {
       await goes('daemon');
       await until(() => box.querySelector('.card-solved'), 'the grey line');
-      expect(box.querySelector('.card-solved')!.textContent).toMatch(/^Folder trust answered · \d+s$/);
+      const line = box.querySelector('.card-solved')!;
+      expect(line.textContent).toMatch(/^Folder trust answered · \d+s$/);
+      expect([...line.children].map((c) => c.tagName)).toEqual(['HR', 'SPAN', 'HR']); // the words centred between two hairlines
     });
 
     it('leaves none for a need from a hook or the session', async () => {
@@ -133,6 +135,29 @@ describe('needs you', () => {
       await wait(100);
       expect(box.querySelector('.card-solved')).toBeNull();
     });
+  });
+
+  it('keeps a reader at the bottom of the chat when the card comes', async () => {
+    const s = setup();
+    const a = s.daemon.sessions.get(ARCH)!;
+    keep = () => void (a.fx.view = undefined);
+    await mount(s);
+    const stream = await (async () => {
+      await until(() => box.querySelector('.stream'), 'the stream');
+      return box.querySelector<HTMLElement>('.stream')!;
+    })();
+    let view = 800;
+    Object.defineProperty(stream, 'scrollHeight', { configurable: true, get: () => 1000 });
+    Object.defineProperty(stream, 'clientHeight', { configurable: true, get: () => view });
+    stream.scrollTop = 200;
+    view = 700; // the card takes 100px from the stream
+    a.fx.view = {
+      needs_you: { kind: 'trust', since: new Date().toISOString(), title: 'Waiting for folder trust', text: 'x', source: 'daemon' },
+    };
+    const script = (s.daemon as unknown as { script: { setState(s: unknown, state: string): void } }).script;
+    await act(async () => script.setState(a, a.state === 'idle' ? 'running' : 'idle'));
+    await until(() => card(), 'the card');
+    await until(() => stream.scrollTop === 300, 'the stream back at its bottom');
   });
 
   it('shows no card and no chip when the daemon says nothing is waited on', async () => {

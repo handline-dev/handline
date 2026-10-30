@@ -128,3 +128,11 @@ test("on the phone, back at the end of the lines with the last send's tail fitti
   );
   assert.equal(chatScroll(free, { type: 'scrolled', atBottom: true }, g({ sent: 900 }), 'bottom').state.mode, 'follow');
 });
+
+test('a card taking room from the stream (the view shrinks): a reader at the bottom stays at the bottom, a reader above stays put', () => {
+  const smaller = g({ lines: 1000, view: 700 });
+  const follow = chatScroll(START, { type: 'grew' }, smaller, 'bottom');
+  assert.equal(follow.to, 300);
+  assert.equal(follow.state.mode, 'follow');
+  assert.equal(chatScroll({ mode: 'free', newer: 0 }, { type: 'grew' }, smaller, 'bottom').to, null);
+});

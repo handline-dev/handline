@@ -224,6 +224,7 @@ export function NeedsYouCard({ detail }: { detail: AgentDetail }) {
   }
   const reachable = detail.structured || !!detail.terminal;
   const again = need.kind === 'start_failed' || need.kind === 'no_session';
+  // The outer div is the chat's column (every child of the chat is centred at its width); the inner one has the composer's edges.
   return (
     <div>
       <div className="mx-3 mb-2 max-w-[680px]">
