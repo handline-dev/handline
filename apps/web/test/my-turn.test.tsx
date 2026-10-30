@@ -163,6 +163,24 @@ describe('my turn', () => {
     expect(s.daemon.tasks.find(9103).state).not.toBe('done');
   });
 
+  it('the card that moves up into the answered one is opened next, not the top card', async () => {
+    const s = setup();
+    review(s, 9201);
+    review(s, 9202);
+    review(s, 9203);
+    vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} })); // wide: one card is always open
+    await open(s);
+    await pick(ofTask(9201), 'the first review row');
+    await until(() => reviewCard(9201), 'the review card');
+    await click(button(reviewCard(9201)!, 'Approve'));
+    await until(() => listRows().some((r) => r.getAttribute('aria-current') === 'true'), 'a card open');
+    expect(
+      listRows()
+        .find((r) => r.getAttribute('aria-current') === 'true')!
+        .getAttribute('aria-label'),
+    ).toBe('Open T9202');
+  });
+
   it('an answer held when the page goes away is kept, and the next page sends it with the same ids', async () => {
     const s = setup();
     review(s, 9105);

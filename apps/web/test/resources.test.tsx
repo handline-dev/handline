@@ -44,7 +44,7 @@ describe('system resources', () => {
     await until(() => box.querySelector('.resource-details'), 'the popover');
     const line = (l: string) => box.querySelector<HTMLElement>(`.resource-details [data-resource="${l}"]`);
     expect(['Load', 'Memory', 'Disk', 'Heavy slots'].map((l) => !!line(l))).toEqual([true, true, true, true]);
-    expect(text(line('Load'))).toContain('Limit 150% of the machine');
+    expect(text(line('Load'))).toContain('Limit 150%');
     expect(text(line('Heavy slots'))).toContain('1 of 2');
     expect(line('Disk')!.querySelector('button')).toBeNull(); // the daemon keeps no disk limit: nothing to change
     expect(box.querySelector('.limit-editor')).toBeNull(); // editors open on a click
@@ -63,12 +63,13 @@ describe('system resources', () => {
     await until(() => box.querySelector('.resource-details'), 'the popover');
     const limit = () => s.daemon.admin.settings().values.load_per_core_pct;
     await act(async () => void box.querySelector<HTMLElement>('[data-resource="Load"] button')!.click());
-    expect(text(box.querySelector('.limit-editor'))).toContain('above 150% of the whole machine');
+    expect(text(box.querySelector('.limit-editor'))).toContain('above 150%');
     expect(text(box.querySelector('.limit-editor'))).toContain('0 turns the limit off');
     await act(async () => void box.querySelector<HTMLElement>('[aria-label="Raise"]')!.click());
     await until(() => limit() === 200, 'the saved limit');
-    await until(() => text(box.querySelector('.toasts')).includes('Load limit: 200%'), 'the line after the change');
-    await act(async () => void [...box.querySelectorAll<HTMLElement>('.toasts button')].find((b) => text(b) === 'Undo')!.click());
+    await until(() => text(box.querySelector('.limit-said')).includes('Load limit: 200%'), 'the line after the change');
+    expect(text(box.querySelector('.toasts'))).not.toContain('Load limit'); // the popover is open: the line is its footer's alone
+    await act(async () => void [...box.querySelectorAll<HTMLElement>('.limit-said button')].find((b) => text(b) === 'Undo')!.click());
     await until(() => limit() === 150, 'the limit back');
     const field = box.querySelector<HTMLInputElement>('[aria-label="Limit"]')!;
     await act(async () => {
