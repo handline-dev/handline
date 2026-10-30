@@ -124,6 +124,7 @@ export function RequestItem(props: {
   // An open with no task opens the agent's chat; the shared label does not say so.
   const label = (a: CardAction) => (a.type === 'open' && card.task == null ? 'Open chat' : cardActionLabel(a));
   const testID = (a: CardAction) => `request-act-${a.type}${a.type === 'worktree' ? `-${a.answer}` : ''}`;
+  const command = card.actions.some((a) => a.type === 'deny');
   const facts = wt ? worktreeFacts(card.detail).facts : card.detail;
   const small = { color: c.muted, fontSize: font.size.sm } as const;
   return (
@@ -149,7 +150,19 @@ export function RequestItem(props: {
           </Text>
         </View>
         <Text style={{ color: c.ink, fontSize: font.size.lg, fontWeight: '700' }}>{card.title}</Text>
-        {spare ? <SpareTasks n={spare} /> : facts ? <Text style={{ color: c.ink }}>{facts}</Text> : null}
+        {spare ? <SpareTasks n={spare} /> : facts ? (
+          <Text
+            testID={command ? 'request-command' : undefined}
+            selectable={command}
+            style={
+              command
+                ? { color: c.ink, fontFamily: 'Menlo', fontSize: font.size.sm, backgroundColor: c.line, borderRadius: radius.m, padding: space.sm }
+                : { color: c.ink }
+            }
+          >
+            {facts}
+          </Text>
+        ) : null}
         {card.review && card.task != null ? <ReviewPictures task={card.task} /> : null}
       </ScrollView>
       <View
@@ -223,7 +236,7 @@ export function RequestItem(props: {
                 <Button
                   key={a.type + i}
                   testID={testID(a)}
-                  kind={i === 0 ? 'yes' : a.type === 'deny' || (a.type === 'worktree' && a.answer === 'force') ? 'no' : undefined}
+                  kind={i === 0 ? 'yes' : a.type === 'worktree' && a.answer === 'force' ? 'no' : undefined}
                   label={label(a)}
                   style={{ ...BIG, flex: 1 }}
                   onPress={() => run(a)}
